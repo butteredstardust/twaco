@@ -1,0 +1,47 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Entities
+ majorVersion="10"
+ minorVersion="1"
+ universal="password">
+    <Projects>
+        <Project
+         artifactId=""
+         aspect.projectType="Component"
+         dependsOn="@@DEPENDS_ON@@"
+         description=""
+         documentationContent=""
+         groupId=""
+         homeMashup=""
+         minPlatformVersion=""
+         name="@@NAME@@"
+         packageVersion="1.0.0"
+         projectName="@@NAME@@"
+         publishResult=""
+         state="DRAFT"
+         tags="">
+            <avatar></avatar>
+            <DesignTimePermissions>
+                <Create></Create>
+                <Read></Read>
+                <Update></Update>
+                <Delete></Delete>
+                <Metadata></Metadata>
+            </DesignTimePermissions>
+            <RunTimePermissions></RunTimePermissions>
+            <VisibilityPermissions>
+                <Visibility>
+                    <Principal
+                     isPermitted="true"
+                     name="@@NAME@@.Default_OR"
+                     type="Organization"></Principal>
+                    <Principal
+                     isPermitted="true"
+                     name="@@NAME@@.Default_OR:@@NAME@@.Admin_UG"
+                     type="OrganizationalUnit"></Principal>
+                </Visibility>
+            </VisibilityPermissions>
+            <ConfigurationTableDefinitions></ConfigurationTableDefinitions>
+            <ConfigurationTables></ConfigurationTables>
+        </Project>
+    </Projects>
+</Entities>
