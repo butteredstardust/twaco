@@ -1,0 +1,33 @@
+[package]
+name = "twaco"
+version = "0.1.0"
+edition = "2021"
+description = "Keep a ThingWorx solution in source control: service scripts as files, gates, safe deploys, and an MCP server for AI agents"
+license = "MIT"
+repository = "https://github.com/butteredstardust/twaco"
+homepage = "https://github.com/butteredstardust/twaco"
+readme = "README.md"
+keywords = ["thingworx", "iot", "mcp", "cli", "devtools"]
+categories = ["command-line-utilities", "development-tools"]
+include = ["src/**", "knowledge/**", "tests/**", "README.md", "LICENSE", "CHANGELOG.md"]
+
+[dependencies]
+dprint-plugin-typescript = "0.96"
+serde = { version = "1", features = ["derive"] }
+toml = "0.9"
+serde_json = { version = "1", features = ["preserve_order"] }
+ureq = { version = "3.4.2", features = ["platform-verifier"] }
+sha2 = "0.11.0"
+jiff = "0.2.37"
+dirs = "7.0.0"
+scraper = "0.27.0"
+htmd = "0.5.5"
+url = "2.5.8"
+base64 = "0.23.1"
+zip = "8.6.0"
+ignore = "0.4.33"
+
+[dev-dependencies]
+
+[profile.release]
+strip = true

@@ -1,0 +1,5 @@
+# The default toolchain on a Windows dev box is often x86_64-pc-windows-gnu, which cannot build
+# dprint-plugin-typescript: it needs dlltool from MinGW, which is usually absent. MSVC works
+# wherever Visual Studio Build Tools are installed: `rustup override set stable-msvc` here.
+[toolchain]
+channel = "stable"

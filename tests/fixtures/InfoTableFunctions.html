@@ -1,0 +1,44 @@
+<!DOCTYPE HTML>
+<html lang="en">
+<head><title>InfoTableFunctions (ThingWorx Platform API 10.1.0)</title></head>
+<body class="class-declaration-page">
+<main role="main">
+<div class="header"><div class="sub-title"><span class="package-label-in-type">Package</span> <a href="package-summary.html">com.thingworx.resources.queries</a></div><h1 title="Class InfoTableFunctions">Class InfoTableFunctions</h1></div>
+<section class="class-description" id="class-description">
+<div class="type-signature"><span class="modifiers">public class </span><span class="element-name type-name-label">InfoTableFunctions</span></div>
+<div class="block">Functions for working with info tables.</div>
+</section>
+<section class="method-summary" id="method-summary">
+<h2>Method Summary</h2>
+<div class="summary-table three-column-summary">
+<div class="table-header col-first">Modifier and Type</div><div class="table-header col-second">Method</div><div class="table-header col-last">Description</div>
+<div class="col-first even-row-color"><code><a href="../../types/InfoTable.html">InfoTable</a></code></div>
+<div class="col-second even-row-color"><code><a href="#Sort(com.thingworx.types.InfoTable,java.lang.String,java.lang.Boolean)">Sort</a><wbr>(<a href="../../types/InfoTable.html">InfoTable</a>&nbsp;t, String&nbsp;sortColumn, Boolean&nbsp;ascending)</code></div>
+<div class="col-last even-row-color"><div class="block">Service Category: InfoTable<br>Service Description: Sorts an InfoTable by the specified column.</div></div>
+</div>
+</section>
+<section class="method-details" id="method-detail">
+<h2>Method Details</h2>
+<section class="detail" id="Sort(com.thingworx.types.InfoTable,java.lang.String,java.lang.Boolean)">
+<h3>Sort</h3>
+<div class="member-signature"><span class="modifiers">public static</span>&nbsp;<span class="return-type"><a href="../../types/InfoTable.html">InfoTable</a></span>&nbsp;<span class="element-name">Sort</span><wbr><span class="parameters">(<a href="../../types/InfoTable.html">InfoTable</a>&nbsp;t, String&nbsp;sortColumn, Boolean&nbsp;ascending)</span></div>
+<div class="block">Service Category: InfoTable<br>Service Description: Sorts an InfoTable by the specified column.</div>
+<dl class="notes">
+<dt>Parameters:</dt>
+<dd><code>t</code> - the table to sort - INFOTABLE</dd>
+<dd><code>sortColumn</code> - the field to sort by - STRING</dd>
+<dd><code>ascending</code> - whether to sort ascending - BOOLEAN</dd>
+<dt>Returns:</dt><dd>the sorted table - INFOTABLE</dd>
+<dt>Throws:</dt><dd><code>Exception</code> - if the column does not exist</dd>
+</dl>
+</section>
+<section class="detail" id="Sort(com.thingworx.types.InfoTable,java.lang.String)">
+<h3>Sort</h3>
+<div class="member-signature"><span class="modifiers">public static</span>&nbsp;<span class="return-type"><a href="../../types/InfoTable.html">InfoTable</a></span>&nbsp;<span class="element-name">Sort</span><wbr><span class="parameters">(<a href="../../types/InfoTable.html">InfoTable</a>&nbsp;t, String&nbsp;sortColumn)</span></div>
+<div class="block">Sorts an InfoTable in ascending order. The original table is not changed.</div>
+<dl class="notes"><dt>Parameters:</dt><dd><code>t</code> - the table to sort</dd><dd><code>sortColumn</code> - the field to sort by</dd><dt>Returns:</dt><dd>the sorted table</dd></dl>
+</section>
+</section>
+</main>
+</body>
+</html>

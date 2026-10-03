@@ -1,0 +1,7 @@
+# A file holding both line-ending kinds is a tool's half-rewrite, and it stays silent until a
+# later edit that matches on a newline finds nothing. Normalise in the repository and check out
+# LF everywhere.
+* text=auto eol=lf
+
+# Entity XML is data whose bytes this tool promises not to disturb. Never let git rewrite it.
+*.xml -text
