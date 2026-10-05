@@ -3,7 +3,7 @@
 use super::build::Builder;
 use super::EdgeKind;
 use crate::core::entity_key::EntityKey;
-use crate::core::{script, sidecar};
+use crate::core::{scan, script, sidecar};
 use petgraph::graph::NodeIndex;
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -33,6 +33,13 @@ impl Builder<'_> {
             let Ok(bytes) = std::fs::read(self.solution.root.join(&file)) else {
                 continue;
             };
+            // A Thing or template that declares subscriptions runs when an event reaches it.
+            if let Ok(tokens) = scan::tokenize(&bytes) {
+                self.graph[from].subscribes = tokens.iter().any(|token| {
+                    matches!(token.kind, scan::Kind::Start | scan::Kind::Empty)
+                        && token.name.of(&bytes) == b"Subscription"
+                });
+            }
             // A document the entity model could not read is already listed as unreadable.
             let Ok(scripts) = sidecar::script_services(&bytes) else {
                 continue;

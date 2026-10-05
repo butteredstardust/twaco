@@ -59,6 +59,7 @@ pub mod splice;
 pub mod status;
 pub mod sync;
 pub mod types;
+pub mod unused;
 pub mod validate;
 pub mod workflow;
 pub mod workspace;

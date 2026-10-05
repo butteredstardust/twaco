@@ -1,0 +1,7 @@
+$ twaco unused --collection Mashups
+exit: 2
+
+--- stdout
+
+--- stderr
+twaco: --collection is one of Things, ThingTemplates, ThingShapes, DataShapes, not "Mashups"

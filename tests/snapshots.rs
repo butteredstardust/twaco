@@ -52,6 +52,23 @@ const SCENARIOS: &[(&str, &[&str])] = &[
         "impact_json_and_dot",
         &["impact", "Audit", "--json", "--dot"],
     ),
+    ("unused_plan", &["unused"]),
+    ("unused_detail", &["unused", "--detail"]),
+    ("unused_json", &["unused", "--json"]),
+    (
+        "unused_structural_only",
+        &[
+            "unused",
+            "--min-confidence",
+            "structural",
+            "--collection",
+            "Things",
+        ],
+    ),
+    (
+        "unused_bad_collection",
+        &["unused", "--collection", "Mashups"],
+    ),
     (
         "rename_service_plan",
         &[

@@ -35,6 +35,11 @@ All notable changes to twaco are recorded here. The format follows
   JSON or a Graphviz graph. It is offline and read-only, says what it cannot see, and lists any
   input it could not read.
 
+- `twaco unused` (and the `unused` MCP tool) lists the Things, templates, shapes and DataShapes that
+  no entry point reaches, with what still names each (a dead cluster names itself). Entry points
+  are what `twaco.toml` deploys, every mashup, anything that runs on events (subscriptions, Timers,
+  Schedulers) and what the new `[unused] keep` list names. It is advisory and deletes nothing.
+
 ### Fixed
 
 - A rename that is refused for the database now says why. An entity or prefix rename in a

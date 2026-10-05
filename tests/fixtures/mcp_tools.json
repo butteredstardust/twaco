@@ -1620,6 +1620,47 @@
     }
   },
   {
+    "name": "unused",
+    "description": "Entities nothing reaches: Things, templates, shapes and DataShapes with no chain of references from an entry point (what twaco.toml deploys, every mashup, anything that runs on events, and what `[unused] keep` names). Advisory and read-only: it deletes nothing, and an entity used only from outside the repository (a REST client, a connected system) looks unused, so list those under `[unused] keep`. `complete` says whether every input was read; `keep_unmatched` lists keep patterns that match nothing.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "min_confidence": {
+          "type": "string",
+          "enum": [
+            "structural",
+            "resolved",
+            "review"
+          ],
+          "default": "review",
+          "description": "The weakest reference that counts as use; a stronger minimum reports more entities."
+        },
+        "collection": {
+          "type": "string",
+          "enum": [
+            "Things",
+            "ThingTemplates",
+            "ThingShapes",
+            "DataShapes"
+          ],
+          "description": "Judge one collection only."
+        },
+        "detail": {
+          "type": "boolean",
+          "description": "Return everything instead of the summary.",
+          "default": false
+        }
+      },
+      "required": [],
+      "additionalProperties": false
+    },
+    "annotations": {
+      "readOnlyHint": true,
+      "destructiveHint": false,
+      "openWorldHint": false
+    }
+  },
+  {
     "name": "guide",
     "description": "Knowledge for working on this solution: twaco's workflow, the ThingWorx platform's verified-live quirks, the service-code reference, and the solution's own AGENTS.md, CLAUDE.md and docs/. Search before a live import, a hand-written mashup binding, a configuration-table change, or a service that introspects metadata or touches JSON. list: the topics; search: the best-matching sections; read: a topic (a long one gives its outline) or one section by heading.",
     "inputSchema": {

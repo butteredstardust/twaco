@@ -59,6 +59,9 @@ advisory = []                 # built-in gates that report without failing, e.g.
 [validate]
 inherited_overrides = ["Acme.Dashboards.Manager.GetDashboards"]
 
+[unused]
+keep = ["Acme.Dashboards.Database", "Things/Acme.Dashboards.Api.*"]  # used from outside
+
 [adopt]
 ignore_paths = ["Things/Acme.Dashboards.Database/**/password"]
 generated_services = ["Acme.Dashboards.Manager.GetVersion"]
@@ -151,6 +154,18 @@ cannot run still fails, and a name that is not a gate is refused.
 `inherited_overrides` lists `Entity.Service` names that implement locally a service whose
 definition comes from a shape or template; a bare `Service` allows it on every entity. That is legitimate, and impossible to tell from a
 mistake without being told, so `check` reports each one until it is listed here.
+
+### `[unused]`
+
+What `twaco unused` treats as in use without anything in the repository referring to it:
+
+- **`keep`:** names or `Collection/Name` patterns, `*` standing for any run of characters. A
+  database connection Thing that the platform calls, an entity a REST client or a connected
+  system uses, anything reached from outside the repository, belongs here. A pattern that matches
+  no entity is reported, so a typo does not silently keep nothing.
+
+Mashups, things a deploy runs (`[project.deploy]`) and anything that runs on events
+(subscriptions, Timers, Schedulers) are entry points already and need no entry.
 
 ### `[adopt]`
 

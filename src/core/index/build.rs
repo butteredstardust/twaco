@@ -80,6 +80,7 @@ impl Builder<'_> {
                 template: None,
                 shapes: Vec::new(),
                 services: BTreeSet::new(),
+                subscribes: false,
             });
             self.projects.insert(project.name.clone(), at);
         }
@@ -218,6 +219,7 @@ impl Builder<'_> {
                 template: own.template,
                 shapes: own.shapes,
                 services: own.services,
+                subscribes: false,
             });
             self.entities.insert(key, at);
         }

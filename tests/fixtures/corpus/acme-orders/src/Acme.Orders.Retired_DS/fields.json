@@ -1,0 +1,11 @@
+[
+  {
+    "name": "code",
+    "baseType": "STRING",
+    "ordinal": "1",
+    "description": "A code",
+    "aspects": {
+      "isPrimaryKey": true
+    }
+  }
+]

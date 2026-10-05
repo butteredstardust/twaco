@@ -43,6 +43,10 @@ impact <entity> [--member <name>] [--min-confidence structural|resolved|review] 
     --detail                list every dependent and the chain of references to each
     --json                  the report as JSON (chains with --detail)
     --dot                   the dependents as a Graphviz graph
+unused [--min-confidence structural|resolved|review] [--collection <name>]
+                            entities no entry point reaches; advisory, deletes nothing
+    --detail                list every one, with the entry points and each file
+    --json                  the report as JSON
 adopt <export.xml>          what a designer's Composer export really changes; --apply writes it in
     --entity <name>         only this entity; --detail; --json; --fail-on-revert
 rename entity <old> <new> [--apply] [--text] [--detail] [--json] [--skip-checks]

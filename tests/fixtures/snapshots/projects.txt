@@ -9,6 +9,6 @@ deploy order:
   1. Acme.Orders
        root <ROOT>/.
 
-9 entity document(s)
+12 entity document(s)
 --- stderr
 

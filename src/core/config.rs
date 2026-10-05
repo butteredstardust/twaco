@@ -27,6 +27,9 @@ pub struct Solution {
     pub checks: Vec<Check>,
     #[serde(default)]
     pub validate: Validate,
+    /// What `twaco unused` treats as in use without anything referring to it.
+    #[serde(default)]
+    pub unused: Unused,
     /// What `adopt` should not report as a change. See [`Adopt`].
     #[serde(default)]
     pub adopt: Adopt,
@@ -127,6 +130,16 @@ pub struct Package {
 }
 
 /// What the project validator should tolerate.
+/// Entities `twaco unused` must never report, because something outside the repository uses them.
+#[derive(Debug, Default, Deserialize)]
+pub struct Unused {
+    /// Names or `Collection/Name` patterns, `*` standing for any text: `Acme.Orders.Database`,
+    /// `Things/Acme.Orders.Api.*`. A database connection Thing that the platform calls, an entity
+    /// a REST client uses, anything reached from outside, belongs here.
+    #[serde(default)]
+    pub keep: Vec<String>,
+}
+
 #[derive(Debug, Default, Deserialize)]
 pub struct Validate {
     /// Services implemented locally with the definition inherited from a shape or template.

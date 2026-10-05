@@ -996,3 +996,106 @@ fn the_bundled_repository_wires_its_things_together() {
     assert_eq!(who[1].path.len(), 2);
     assert!(index.is_complete(), "{:?}", index.unreadable());
 }
+
+#[test]
+fn a_thing_that_subscribes_runs_on_events_and_so_does_what_inherits_it() {
+    let root = scratch("subscribes");
+    write(
+        &root,
+        "twaco.toml",
+        "[[project]]
+name = \"P\"
+",
+    );
+    let subscription =
+        r#"<Subscriptions><Subscription name="OnChange" enabled="true"/></Subscriptions>"#;
+    write(
+        &root,
+        "ThingTemplates/P.Watching.xml",
+        &entity(
+            "ThingTemplates",
+            "ThingTemplate",
+            "P.Watching",
+            "P",
+            " baseThingTemplate=\"GenericThing\"",
+            &format!("<ThingShape>{subscription}</ThingShape>"),
+        ),
+    );
+    write(
+        &root,
+        "ThingTemplates/P.Quiet.xml",
+        &entity(
+            "ThingTemplates",
+            "ThingTemplate",
+            "P.Quiet",
+            "P",
+            " baseThingTemplate=\"GenericThing\"",
+            "<ThingShape><Subscriptions></Subscriptions></ThingShape>",
+        ),
+    );
+    write(
+        &root,
+        "Things/P.Inheriting.xml",
+        &entity(
+            "Things",
+            "Thing",
+            "P.Inheriting",
+            "P",
+            " thingTemplate=\"P.Watching\"",
+            "",
+        ),
+    );
+    write(
+        &root,
+        "Things/P.Own.xml",
+        &entity(
+            "Things",
+            "Thing",
+            "P.Own",
+            "P",
+            " thingTemplate=\"P.Quiet\"",
+            &format!("<ThingShape>{subscription}</ThingShape>"),
+        ),
+    );
+    write(
+        &root,
+        "Things/P.Idle.xml",
+        &entity(
+            "Things",
+            "Thing",
+            "P.Idle",
+            "P",
+            " thingTemplate=\"P.Quiet\"",
+            "",
+        ),
+    );
+    write(
+        &root,
+        "Things/P.Ticker.xml",
+        &entity(
+            "Things",
+            "Thing",
+            "P.Ticker",
+            "P",
+            " thingTemplate=\"Timer\"",
+            "",
+        ),
+    );
+    let solution = Solution::load(&root.join("twaco.toml")).unwrap();
+    let index = Index::build(&solution);
+    let runs = |collection: &str, name: &str| index.runs_on_events(&key(collection, name));
+    assert!(runs("ThingTemplates", "P.Watching"));
+    assert!(
+        runs("Things", "P.Inheriting"),
+        "inherits a template that subscribes"
+    );
+    assert!(runs("Things", "P.Own"), "declares its own subscription");
+    assert!(runs("Things", "P.Ticker"), "a Timer runs by itself");
+    assert!(
+        !runs("ThingTemplates", "P.Quiet"),
+        "an empty Subscriptions element is not a subscription"
+    );
+    assert!(!runs("Things", "P.Idle"));
+    assert!(!runs("Things", "P.Nope"));
+    let _ = std::fs::remove_dir_all(root);
+}

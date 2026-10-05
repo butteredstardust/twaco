@@ -2,12 +2,12 @@ $ twaco check
 exit: 0
 
 --- stdout
-  ok      line endings   26 examined
-  ok      sidecars       6 examined
-  ok      formatting     6 examined
-  ok      script traps   6 examined
-  ok      code order     6 examined
-  ok      project        9 examined
+  ok      line endings   32 examined
+  ok      sidecars       8 examined
+  ok      formatting     7 examined
+  ok      script traps   7 examined
+  ok      code order     7 examined
+  ok      project        12 examined
 
 6 gate(s) passed
 --- stderr

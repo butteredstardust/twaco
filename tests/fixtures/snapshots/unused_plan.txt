@@ -1,0 +1,15 @@
+$ twaco unused
+exit: 0
+
+--- stdout
+unused: 2 of 10 entities are not reached from any entry point (at review confidence or stronger)
+  entry points  1 a mashup, 1 kept by [unused] keep, 1 runs on events
+
+  DataShapes/Acme.Orders.Retired_DS  (Acme.Orders)
+      still named by ThingShapes/Acme.Orders.Legacy_TS (itself unreached)
+  ThingShapes/Acme.Orders.Legacy_TS  (Acme.Orders)
+
+advisory: nothing is deleted, and a name in this list may be used from outside
+limits: an entity used only from outside this repository (a REST client, a connected system) looks unused; list it under [unused] keep
+--- stderr
+

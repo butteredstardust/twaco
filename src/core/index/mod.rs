@@ -165,6 +165,8 @@ pub struct Node {
     pub shapes: Vec<String>,
     /// The services it declares itself.
     pub services: BTreeSet<String>,
+    /// It runs without being called: it declares subscriptions, so an event reaches it.
+    pub subscribes: bool,
 }
 
 impl Node {

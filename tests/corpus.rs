@@ -1788,3 +1788,48 @@ fn the_index_holds_its_invariants_over_the_corpus() {
         "index: {entities} entities, {edges} edges, {cycles} inheritance cycle(s), {unparsed} unparsed script(s), {unreadable} unreadable input(s); by kind {by_kind:?}"
     );
 }
+
+/// `twaco unused` over every repository that has a `twaco.toml`: nothing it reports is an entry
+/// point, and the counts add up.
+#[test]
+fn the_unused_report_is_consistent_over_the_corpus() {
+    use twaco::core::index::Confidence;
+    use twaco::core::unused::{run, Request};
+
+    let (mut judged, mut unused, mut roots) = (0usize, 0usize, 0usize);
+    let mut failures = Vec::new();
+    for root in corpus_roots() {
+        let Ok(solution) = twaco::core::config::Solution::load(&root.join("twaco.toml")) else {
+            continue;
+        };
+        let report = run(
+            &solution,
+            &Request {
+                min: Confidence::Review,
+                collection: None,
+            },
+        );
+        let entry_points: std::collections::BTreeSet<&str> = report
+            .roots
+            .iter()
+            .flat_map(|group| group.entities.iter().map(String::as_str))
+            .collect();
+        for item in &report.unused {
+            if entry_points.contains(item.entity.as_str()) {
+                failures.push(format!(
+                    "{} is an entry point and reported unused",
+                    item.entity
+                ));
+            }
+        }
+        if report.reachable + report.unused.len() != report.judged {
+            failures.push(format!("{}: the counts do not add up", root.display()));
+        }
+        judged += report.judged;
+        unused += report.unused.len();
+        roots += entry_points.len();
+    }
+    assert!(failures.is_empty(), "{}", failures.join("\n"));
+    assert!(judged > 0, "no repository with a twaco.toml was found");
+    println!("unused: {unused} of {judged} judged entities unreached from {roots} entry points");
+}
