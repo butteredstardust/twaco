@@ -3,6 +3,7 @@
 //! Repository declarations can be completed by the deliberately small, offline platform cache.
 
 use super::config::Solution;
+use super::entity_key::ServiceTarget;
 use super::datashape::{self, Aspect};
 use super::scan::{self, ScanError, Token};
 use super::server::{Client, ServerError};
@@ -212,7 +213,7 @@ const PLATFORM_TIMEOUT: Duration = Duration::from_secs(120);
 pub trait Remote {
     fn call(
         &self,
-        target: &str,
+        target: &ServiceTarget,
         service: &str,
         parameters: &Value,
     ) -> Result<Option<Value>, ServerError>;
@@ -221,7 +222,7 @@ pub trait Remote {
 impl Remote for Client {
     fn call(
         &self,
-        target: &str,
+        target: &ServiceTarget,
         service: &str,
         parameters: &Value,
     ) -> Result<Option<Value>, ServerError> {
@@ -633,7 +634,7 @@ pub fn fetch_platform(
 
     let listing = required_reply(
         remote.call(
-            "Resources/EntityServices",
+            &ServiceTarget::platform("Resources", "EntityServices"),
             "GetEntityList",
             &json!({ "type": "Resource", "maxItems": 1000 }),
         )?,
@@ -695,7 +696,8 @@ fn fetch_one(
     destination: &mut BTreeMap<String, PlatformMeta>,
     skipped: &mut Vec<String>,
 ) -> Result<(), TypesError> {
-    match remote.call(&format!("{collection}/{name}"), service, &json!({})) {
+    let target = ServiceTarget::entity(collection, name).map_err(ServerError::from)?;
+    match remote.call(&target, service, &json!({})) {
         Ok(reply) => {
             let reply = required_reply(reply, &format!("{collection}/{name}.{service}"))?;
             destination.insert(name.to_string(), trim_metadata(&reply)?);
@@ -2010,7 +2012,7 @@ mod tests {
     impl Remote for FakeRemote {
         fn call(
             &self,
-            target: &str,
+            target: &ServiceTarget,
             service: &str,
             parameters: &Value,
         ) -> Result<Option<Value>, ServerError> {

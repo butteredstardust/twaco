@@ -7,6 +7,7 @@
 
 use super::config::{Project, Solution};
 use super::entity::{self, EntityInfo};
+use super::entity_key::ServiceTarget;
 use super::sidecar::ServiceSidecar;
 use std::collections::BTreeMap;
 use std::fmt;
@@ -44,6 +45,7 @@ impl EntityFile {
 pub enum WorkspaceError {
     UnknownEntity { name: String },
     Ambiguous { name: String, found: Vec<String> },
+    InvalidCallTarget { name: String },
     Io { path: PathBuf, why: String },
 }
 
@@ -58,6 +60,9 @@ impl fmt::Display for WorkspaceError {
                 "{name} is ambiguous; it could be {}",
                 found.join(", ")
             ),
+            WorkspaceError::InvalidCallTarget { name } => {
+                write!(f, "call target {name:?} must be a Thing name or Collection/Name")
+            }
             WorkspaceError::Io { path, why } => write!(f, "{}: {why}", path.display()),
         }
     }
@@ -220,13 +225,16 @@ pub fn resolve<'a>(found: &'a [EntityFile], name: &str) -> Result<&'a EntityFile
 /// unchanged, for the platform's own Things and Resources; only an ambiguous one is refused.
 /// The solution's entity wins a short name: a platform Thing of the same name is reached as
 /// `Things/<Name>`, and the CLI says which target it resolved.
-pub fn call_target(found: &[EntityFile], given: &str) -> Result<String, WorkspaceError> {
+pub fn call_target(found: &[EntityFile], given: &str) -> Result<ServiceTarget, WorkspaceError> {
     if given.contains('/') {
-        return Ok(given.to_string());
+        return ServiceTarget::parse(given).map_err(|_| WorkspaceError::InvalidCallTarget { name: given.to_string() });
     }
     match resolve(found, given) {
-        Ok(entity) => Ok(format!("{}/{}", entity.info.collection, entity.info.name)),
-        Err(WorkspaceError::UnknownEntity { .. }) => Ok(given.to_string()),
+        Ok(entity) => ServiceTarget::entity(&entity.info.collection, &entity.info.name)
+            .map_err(|_| WorkspaceError::InvalidCallTarget { name: given.to_string() }),
+        Err(WorkspaceError::UnknownEntity { .. }) => {
+            ServiceTarget::parse(given).map_err(|_| WorkspaceError::InvalidCallTarget { name: given.to_string() })
+        }
         Err(error) => Err(error),
     }
 }
@@ -550,13 +558,18 @@ mod tests {
         let mut template = file("Acme.Base_TT", "A", "t.xml");
         template.info.collection = "ThingTemplates".to_string();
         let found = vec![file("Acme.Manager", "A", "m.xml"), template, file("Acme.Other.Manager", "B", "o.xml")];
-        assert_eq!(call_target(&found[..1], "Manager").unwrap(), "Things/Acme.Manager");
-        assert_eq!(call_target(&found, "Acme.Manager").unwrap(), "Things/Acme.Manager", "a full name is exact");
-        assert_eq!(call_target(&found, "Base_TT").unwrap(), "ThingTemplates/Acme.Base_TT");
-        assert_eq!(call_target(&found, "Resources/EntityServices").unwrap(), "Resources/EntityServices");
-        assert_eq!(call_target(&found, "PlatformThing").unwrap(), "PlatformThing", "not ours: as typed");
-        assert_eq!(call_target(&found[..1], "Things/Manager").unwrap(), "Things/Manager", "a platform namesake, explicitly");
+        assert_eq!(call_target(&found[..1], "Manager").unwrap().to_string(), "Things/Acme.Manager");
+        assert_eq!(call_target(&found, "Acme.Manager").unwrap().to_string(), "Things/Acme.Manager", "a full name is exact");
+        assert_eq!(call_target(&found, "Base_TT").unwrap().to_string(), "ThingTemplates/Acme.Base_TT");
+        assert_eq!(call_target(&found, "Resources/EntityServices").unwrap().to_string(), "Resources/EntityServices");
+        assert_eq!(call_target(&found, "PlatformThing").unwrap().to_string(), "PlatformThing", "not ours: as typed");
+        assert_eq!(call_target(&found[..1], "Things/Manager").unwrap().to_string(), "Things/Manager", "a platform namesake, explicitly");
         assert!(matches!(call_target(&found, "Manager"), Err(WorkspaceError::Ambiguous { .. })));
+    }
+
+    #[test]
+    fn an_invalid_call_target_is_refused() {
+        assert!(matches!(call_target(&[], "Things/../Users"), Err(WorkspaceError::InvalidCallTarget { .. })));
     }
 
     #[test]

@@ -10,6 +10,7 @@
 //! refused unless `append`, and the result is read back and compared.
 
 use super::config::Solution;
+use super::entity_key::ServiceTarget;
 use super::server::{Client, ServerError};
 use serde::Serialize;
 use serde_json::{json, Map, Value};
@@ -37,7 +38,8 @@ impl Remote for Client {
     }
 
     fn count(&self, table: &str) -> Result<u64, ServerError> {
-        let value = self.call_service(&format!("Things/{table}"), "GetDataTableEntryCount", &json!({}), Duration::from_secs(120))?;
+        let target = ServiceTarget::entity("Things", table)?;
+        let value = self.call_service(&target, "GetDataTableEntryCount", &json!({}), Duration::from_secs(120))?;
         value
             .as_ref()
             .and_then(|value| value.get("rows"))
@@ -49,12 +51,14 @@ impl Remote for Client {
     }
 
     fn entries(&self, table: &str, max_items: u64) -> Result<Value, ServerError> {
-        self.call_service(&format!("Things/{table}"), "GetDataTableEntries", &json!({ "maxItems": max_items }), Duration::from_secs(300))?
+        let target = ServiceTarget::entity("Things", table)?;
+        self.call_service(&target, "GetDataTableEntries", &json!({ "maxItems": max_items }), Duration::from_secs(300))?
             .ok_or_else(|| ServerError::InvalidResponse { url: table.to_string(), why: "GetDataTableEntries returned nothing".to_string() })
     }
 
     fn add(&self, table: &str, rows: &Value) -> Result<(), ServerError> {
-        self.call_service(&format!("Things/{table}"), "AddDataTableEntries", &json!({ "values": rows }), Duration::from_secs(300))?;
+        let target = ServiceTarget::entity("Things", table)?;
+        self.call_service(&target, "AddDataTableEntries", &json!({ "values": rows }), Duration::from_secs(300))?;
         Ok(())
     }
 }

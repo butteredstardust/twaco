@@ -2549,7 +2549,7 @@ fn log_level_tool(solution: &Solution, arguments: &Value) -> Result<Value, Strin
 }
 
 fn call_service_tool(solution: &Solution, arguments: &Value) -> Result<Value, String> {
-    let target = &workspace::call_target(&workspace::discover(solution).entities, required(arguments, "target")?)
+    let target = workspace::call_target(&workspace::discover(solution).entities, required(arguments, "target")?)
         .map_err(|e| e.to_string())?;
     let service = required(arguments, "service")?;
     let parameters = arguments.get("parameters").cloned().unwrap_or_else(|| json!({}));
@@ -2559,14 +2559,14 @@ fn call_service_tool(solution: &Solution, arguments: &Value) -> Result<Value, St
     if flag(arguments, "dry_run", true) {
         return Ok(json!({
             "dry_run": true,
-            "would_call": { "target": target, "service": service, "parameters": parameters },
+            "would_call": { "target": target.to_string(), "service": service, "parameters": parameters },
             "note": "nothing was sent; pass dry_run: false to call it",
         }));
     }
     let timeout = arguments.get("timeout_seconds").and_then(Value::as_u64).filter(|s| *s > 0).unwrap_or(120);
     let client = client(solution, arguments)?;
     let started = logs::now_ms();
-    let outcome = client.call_service(target, service, &parameters, Duration::from_secs(timeout));
+    let outcome = client.call_service(&target, service, &parameters, Duration::from_secs(timeout));
     let logged = if flag(arguments, "with_logs", false) {
         let ended = logs::now_ms();
         Some(logs::during_call(&client, started, ended, logs::Wait::default(), &logs::now_ms, &std::thread::sleep))

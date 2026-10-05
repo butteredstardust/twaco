@@ -6,6 +6,7 @@
 //! nothing, which makes it the plan, and with `validate=false` installs it. A package the server
 //! cannot read is a bare 406, so twaco opens the zip itself first, to say what is wrong.
 
+use super::entity_key::ServiceTarget;
 use super::server::{Client, ServerError};
 use serde_json::{json, Value};
 use std::fmt;
@@ -13,7 +14,6 @@ use std::io::Read;
 use std::time::Duration;
 
 const TIMEOUT: Duration = Duration::from_secs(120);
-const PLATFORM: &str = "Subsystems/PlatformSubsystem";
 
 /// What this module asks of a server, as a trait so it is tested offline.
 pub trait Remote {
@@ -23,7 +23,7 @@ pub trait Remote {
 
 impl Remote for Client {
     fn service(&self, service: &str, body: &Value) -> Result<Option<Value>, ServerError> {
-        self.call_service(PLATFORM, service, body, TIMEOUT)
+        self.call_service(&ServiceTarget::platform("Subsystems", "PlatformSubsystem"), service, body, TIMEOUT)
     }
 
     fn upload(&self, file_name: &str, zip: &[u8], validate: bool) -> Result<Value, ServerError> {

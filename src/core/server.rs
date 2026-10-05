@@ -6,6 +6,7 @@
 //! system trust store through ureq's platform verifier, and redirects are refused so basic-auth
 //! credentials are never carried to a host the server names.
 
+use super::entity_key::ServiceTarget;
 use super::profile::Profile;
 use serde::Deserialize;
 use std::fmt;
@@ -297,27 +298,12 @@ impl Client {
     /// own, separate decision about how to expose service execution.
     pub fn call_service(
         &self,
-        target: &str,
+        target: &ServiceTarget,
         service: &str,
         parameters: &serde_json::Value,
         timeout: Duration,
     ) -> Result<Option<serde_json::Value>, ServerError> {
-        // Exactly `Collection/Name`, or a bare Thing name. A `..` or an empty segment would let
-        // a target climb out of the collection it names once the URL is resolved.
-        let segments: Vec<&str> = target.split('/').collect();
-        let valid = |segment: &str| !segment.is_empty() && segment != "." && segment != "..";
-        let target = match segments.as_slice() {
-            [name] if valid(name) => format!("Things/{}", encode_path_segment(name)),
-            [collection, name] if valid(collection) && valid(name) => {
-                format!("{}/{}", encode_path_segment(collection), encode_path_segment(name))
-            }
-            _ => {
-                return Err(ServerError::InvalidUrl(format!(
-                    "call target {target:?} must be a Thing name or Collection/Name"
-                )))
-            }
-        };
-        let url = format!("{}/{target}/Services/{}", self.base(), encode_path_segment(service));
+        let url = format!("{}/{}/Services/{}", self.base(), target.url_path(), encode_path_segment(service));
         let body = serde_json::to_vec(parameters).expect("JSON values always serialise");
         let authorization = self.authorization();
         let headers = [
@@ -924,12 +910,24 @@ Content-Type: text/xml\r\n\
     #[test]
     fn a_call_target_cannot_climb_out_of_its_collection() {
         // Refused before any request: the URL points nowhere a request could reach.
-        let client = client_for("http://127.0.0.1:9/Thingworx/".to_string());
         for bad in ["", "Things/", "/X", "Things/../Users", "..", "Things/X/Y", "Things/."] {
-            let error = client
-                .call_service(bad, "S", &serde_json::json!({}), Duration::from_secs(1))
-                .unwrap_err();
+            let error: ServerError = super::super::entity_key::ServiceTarget::parse(bad).unwrap_err().into();
             assert!(matches!(error, ServerError::InvalidUrl(_)), "{bad:?}: {error}");
+        }
+    }
+
+    #[test]
+    fn service_calls_keep_their_existing_urls_for_typed_targets() {
+        for (target, expected) in [
+            (super::super::entity_key::ServiceTarget::parse("A Thing").unwrap(), "/Thingworx/Things/A%20Thing/Services/S%20name"),
+            (super::super::entity_key::ServiceTarget::entity("Widgets", "%#?é").unwrap(), "/Thingworx/Widgets/%25%23%3F%C3%A9/Services/S%20name"),
+            (super::super::entity_key::ServiceTarget::platform("Resources", "SourceControlFunctions"), "/Thingworx/Resources/SourceControlFunctions/Services/S%20name"),
+        ] {
+            let (url, server) = serve_once("200 OK", "");
+            client_for(url).call_service(&target, "S name", &serde_json::json!({}), Duration::from_secs(1)).unwrap();
+            let request = server.join().unwrap();
+            let line = String::from_utf8_lossy(&request).lines().next().unwrap().to_string();
+            assert!(line.starts_with(&format!("POST {expected} HTTP/1.1")), "{line}");
         }
     }
 

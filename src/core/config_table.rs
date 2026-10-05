@@ -12,6 +12,7 @@
 //! never assumed, and a multi-row table without one is refused rather than guessed at.
 
 use super::scan::{self, Kind, Token};
+use super::entity_key::ServiceTarget;
 use super::server::{Client, ServerError};
 use super::sidecar;
 use serde_json::{json, Map, Value};
@@ -30,11 +31,11 @@ pub struct Table {
 
 /// The server operations this module needs, as a trait so restore can be tested without one.
 pub trait Remote {
-    fn call(&self, target: &str, service: &str, parameters: &Value) -> Result<Option<Value>, ServerError>;
+    fn call(&self, target: &ServiceTarget, service: &str, parameters: &Value) -> Result<Option<Value>, ServerError>;
 }
 
 impl Remote for Client {
-    fn call(&self, target: &str, service: &str, parameters: &Value) -> Result<Option<Value>, ServerError> {
+    fn call(&self, target: &ServiceTarget, service: &str, parameters: &Value) -> Result<Option<Value>, ServerError> {
         self.call_service(target, service, parameters, TIMEOUT)
     }
 }
@@ -111,14 +112,14 @@ impl fmt::Display for TableError {
 
 impl std::error::Error for TableError {}
 
-fn thing_target(thing: &str) -> String {
-    format!("Things/{thing}")
+fn thing_target(thing: &str) -> Result<ServiceTarget, ServerError> {
+    ServiceTarget::entity("Things", thing).map_err(ServerError::from)
 }
 
 /// Read a table from the server.
 pub fn fetch(remote: &dyn Remote, thing: &str, table: &str) -> Result<Table, TableError> {
     let reply = remote
-        .call(&thing_target(thing), "GetConfigurationTable", &json!({ "tableName": table }))
+        .call(&thing_target(thing).map_err(TableError::Remote)?, "GetConfigurationTable", &json!({ "tableName": table }))
         .map_err(TableError::Remote)?
         .ok_or_else(|| TableError::Shape("an empty body".to_string()))?;
     let data_shape = reply
@@ -466,7 +467,7 @@ pub fn restore(
     if !apply || (plan.writes == 0 && plan.deletes.is_empty()) {
         return Ok(plan);
     }
-    let target = thing_target(thing);
+    let target = thing_target(thing).map_err(TableError::Remote)?;
     let key = primary_key(&current.data_shape);
     let mut calls: Vec<Value> = Vec::new();
     if plan.writes > 0 {
@@ -614,7 +615,7 @@ mod tests {
     }
 
     impl Remote for Fake {
-        fn call(&self, _: &str, service: &str, parameters: &Value) -> Result<Option<Value>, ServerError> {
+        fn call(&self, _: &ServiceTarget, service: &str, parameters: &Value) -> Result<Option<Value>, ServerError> {
             self.calls.borrow_mut().push(service.to_string());
             let mut table = self.table.borrow_mut();
             match service {

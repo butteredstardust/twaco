@@ -5,6 +5,7 @@
 //! dependency order, then verify every entity and persist all matching baselines in one write.
 
 use super::baseline::{Baseline, BaselineError};
+use super::entity_key::ServiceTarget;
 use super::normalise;
 use super::parallel;
 use super::push::{self, Decision};
@@ -64,7 +65,7 @@ pub trait Remote: push::Remote + Sync {
     fn check_script(&self, script: &str) -> Result<ScriptCheck, ServerError>;
     fn call_service(
         &self,
-        target: &str,
+        target: &ServiceTarget,
         service: &str,
         parameters: &Value,
         timeout: Duration,
@@ -78,7 +79,7 @@ impl Remote for Client {
 
     fn call_service(
         &self,
-        target: &str,
+        target: &ServiceTarget,
         service: &str,
         parameters: &Value,
         timeout: Duration,
@@ -460,12 +461,10 @@ pub fn run(
             .expect("every project was resolved before server traffic");
         let calls = deploy.iter().chain((!only).then_some(post_import).into_iter().flatten());
         for call in calls {
-            if let Err(source) = remote.call_service(
-                &call.target,
-                &call.service,
-                &call.parameters,
-                Duration::from_secs(300),
-            ) {
+            let outcome = ServiceTarget::parse(&call.target)
+                .map_err(ServerError::from)
+                .and_then(|target| remote.call_service(&target, &call.service, &call.parameters, Duration::from_secs(300)));
+            if let Err(source) = outcome {
                 call_failure = Some(DeployError::Call {
                     project: project.project.clone(),
                     target: call.target.clone(),
@@ -973,7 +972,7 @@ mod tests {
 
         fn call_service(
             &self,
-            target: &str,
+            target: &ServiceTarget,
             service: &str,
             parameters: &Value,
             timeout: Duration,
