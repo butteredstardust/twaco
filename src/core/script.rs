@@ -20,10 +20,10 @@ use std::fmt;
 use swc_common::comments::SingleThreadedComments;
 use swc_common::{BytePos, Spanned};
 use swc_ecma_ast::{
-    ArrayPat, ArrowExpr, AssignExpr, AssignTarget, AssignTargetPat, CatchClause, Expr,
+    ArrayLit, ArrayPat, ArrowExpr, AssignExpr, AssignTarget, AssignTargetPat, CatchClause, Expr,
     ExprOrSpread, FnDecl, FnExpr, ForHead, ForInStmt, ForOfStmt, Ident, Lit, MemberExpr,
-    MemberProp, NewExpr, ObjectPat, ObjectPatProp, OptCall, Param, Pat, Prop, PropName,
-    SetterProp, SimpleAssignTarget, Str, UpdateExpr, VarDeclarator,
+    MemberProp, NewExpr, ObjectLit, ObjectPat, ObjectPatProp, OptCall, Param, Pat, Prop,
+    PropName, SetterProp, SimpleAssignTarget, Str, UpdateExpr, VarDeclarator,
 };
 use swc_ecma_parser::{lexer::Lexer, EsSyntax, Parser, StringInput, Syntax};
 use swc_ecma_visit::{Visit, VisitWith};
@@ -155,6 +155,46 @@ pub struct ObjectString {
     pub value_span: scan::Span,
 }
 
+/// A key written in an object literal.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LiteralKey {
+    /// An identifier's text, a string key's text between its quotes, or a number key's text.
+    pub text: String,
+    /// The identifier, the bytes inside a string key's quotes, or the number literal.
+    pub span: scan::Span,
+    string: bool,
+}
+
+/// One property in an [`ObjectLiteral`].
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ObjectProperty {
+    /// A non-computed identifier, string or number key followed by a value.
+    KeyValue { key: LiteralKey, value: Value },
+    /// A shorthand, method, getter, setter, spread or computed key.
+    Other,
+}
+
+/// A JavaScript object literal, held once in [`Script::objects`].
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ObjectLiteral {
+    /// The braces and their contents.
+    pub span: scan::Span,
+    pub properties: Vec<ObjectProperty>,
+}
+
+/// A value in an [`ObjectLiteral`] property or array literal.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Value {
+    /// An object in [`Script::objects`].
+    Object(usize),
+    /// The elements of an array literal. A hole or spread is [`Value::Other`].
+    Array(Vec<Value>),
+    /// A string literal, with raw text between its quotes.
+    String(StringLiteral),
+    /// Any value that is not read structurally.
+    Other(scan::Span),
+}
+
 /// A comment, delimiters included.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Comment {
@@ -176,6 +216,9 @@ pub struct Script {
     /// never assigned again, redeclared differently, or taken as a parameter.
     pub thing_variables: BTreeMap<String, String>,
     pub object_strings: Vec<ObjectString>,
+    /// Every object literal, in source order of its opening brace. Nested values refer to this
+    /// arena by index so each literal is represented once.
+    pub objects: Vec<ObjectLiteral>,
     /// Every string literal, including string keys and string indexes.
     pub strings: Vec<StringLiteral>,
     /// In source order.
@@ -249,6 +292,23 @@ impl Script {
             }
             quoted(property.value_span, "object string")?;
         }
+        for object in &self.objects {
+            let raw = slice(object.span, "object")?;
+            if !(raw.starts_with('{') && raw.ends_with('}')) {
+                return Err(format!("object span {}..{} is not an object", object.span.start, object.span.end));
+            }
+            for property in &object.properties {
+                if let ObjectProperty::KeyValue { key, value: property_value } = property {
+                    if slice(key.span, "object literal key")? != key.text {
+                        return Err(format!("object literal key text differs at {}", key.span.start));
+                    }
+                    if key.string {
+                        quoted(key.span, "object literal string key")?;
+                    }
+                    verify_object_value(property_value, &self.objects, src, text)?;
+                }
+            }
+        }
         for comment in &self.comments {
             let found = slice(comment.span, "comment")?;
             if found != comment.text || !(found.starts_with("//") || found.starts_with("/*")) {
@@ -257,6 +317,53 @@ impl Script {
         }
         Ok(())
     }
+}
+
+fn verify_object_value(
+    value: &Value,
+    objects: &[ObjectLiteral],
+    src: &[u8],
+    text: &str,
+) -> Result<(), String> {
+    let slice = |span: scan::Span, what: &str| -> Result<&str, String> {
+        if span.start > span.end
+            || span.end > text.len()
+            || !text.is_char_boundary(span.start)
+            || !text.is_char_boundary(span.end)
+        {
+            return Err(format!("{what} span {}..{} is not a text range", span.start, span.end));
+        }
+        Ok(&text[span.start..span.end])
+    };
+    let quoted = |span: scan::Span, what: &str| -> Result<(), String> {
+        let quote = span.start.checked_sub(1).and_then(|at| src.get(at)).copied();
+        match quote {
+            Some(b'\'' | b'"') if src.get(span.end) == quote.as_ref() => Ok(()),
+            _ => Err(format!("{what} span {}..{} is not inside quotes", span.start, span.end)),
+        }
+    };
+    match value {
+        Value::Object(index) => {
+            if *index >= objects.len() {
+                return Err(format!("object index {index} is out of bounds"));
+            }
+        }
+        Value::Array(values) => {
+            for value in values {
+                verify_object_value(value, objects, src, text)?;
+            }
+        }
+        Value::String(string) => {
+            if slice(string.span, "object value string")? != string.value {
+                return Err(format!("object value string differs at {}", string.span.start));
+            }
+            quoted(string.span, "object value string")?;
+        }
+        Value::Other(span) => {
+            slice(*span, "object value")?;
+        }
+    }
+    Ok(())
 }
 
 /// Parses `src` as a script, not a module. A `return` outside a function is allowed, since a
@@ -285,7 +392,10 @@ pub fn parse(src: &[u8]) -> Result<Script, ParseError> {
         }
         ast
     };
-    let mut builder = Builder::new(src);
+    let mut object_collector = ObjectCollector::default();
+    ast.visit_with(&mut object_collector);
+    object_collector.objects.sort_by_key(|span| span.lo);
+    let mut builder = Builder::new(src, object_collector.objects);
     ast.visit_with(&mut builder);
     Ok(builder.finish(comments))
 }
@@ -315,16 +425,44 @@ struct Builder<'a> {
     /// other kind of declaration or for a parameter.
     bindings: BTreeMap<String, Vec<Option<String>>>,
     assigned: BTreeSet<String>,
+    object_indexes: BTreeMap<usize, usize>,
+}
+
+#[derive(Default)]
+struct ObjectCollector {
+    objects: Vec<swc_common::Span>,
+}
+
+impl Visit for ObjectCollector {
+    fn visit_object_lit(&mut self, object: &ObjectLit) {
+        self.objects.push(object.span);
+        object.visit_children_with(self);
+    }
 }
 
 impl<'a> Builder<'a> {
-    fn new(src: &'a [u8]) -> Self {
+    fn new(src: &'a [u8], objects: Vec<swc_common::Span>) -> Self {
+        let object_indexes = objects
+            .iter()
+            .enumerate()
+            .map(|(index, span)| (span.lo.0 as usize, index))
+            .collect();
         Builder {
             src,
-            script: Script::default(),
+            script: Script {
+                objects: objects
+                    .into_iter()
+                    .map(|span| ObjectLiteral {
+                        span: scan::Span::new(span.lo.0 as usize, span.hi.0 as usize),
+                        properties: Vec::new(),
+                    })
+                    .collect(),
+                ..Default::default()
+            },
             reported: BTreeSet::new(),
             bindings: BTreeMap::new(),
             assigned: BTreeSet::new(),
+            object_indexes,
         }
     }
 
@@ -508,6 +646,73 @@ impl<'a> Builder<'a> {
         })
     }
 
+    fn literal_key(&self, name: &PropName) -> Option<LiteralKey> {
+        let (span, string) = match name {
+            PropName::Ident(ident) => (self.span(ident.span), false),
+            PropName::Str(string) => (self.inner(string.span)?, true),
+            PropName::Num(number) => (self.span(number.span), false),
+            _ => return None,
+        };
+        Some(LiteralKey {
+            text: self.text(span),
+            span,
+            string,
+        })
+    }
+
+    fn value(&self, expression: &Expr) -> Value {
+        match Self::strip_parens(expression) {
+            Expr::Object(object) => self
+                .object_indexes
+                .get(&(object.span.lo.0 as usize))
+                .copied()
+                .map_or_else(|| Value::Other(self.span(object.span)), Value::Object),
+            Expr::Array(array) => self.array_value(array),
+            Expr::Lit(Lit::Str(string)) => self.inner(string.span).map_or_else(
+                || Value::Other(self.span(string.span)),
+                |span| Value::String(StringLiteral {
+                    value: self.text(span),
+                    span,
+                }),
+            ),
+            other => Value::Other(self.span(other.span())),
+        }
+    }
+
+    fn array_value(&self, array: &ArrayLit) -> Value {
+        Value::Array(
+            array
+                .elems
+                .iter()
+                .map(|element| match element {
+                    Some(element) if element.spread.is_none() => self.value(&element.expr),
+                    Some(element) => Value::Other(self.span(element.expr.span())),
+                    None => Value::Other(self.span(array.span)),
+                })
+                .collect(),
+        )
+    }
+
+    fn object(&mut self, object: &ObjectLit) {
+        let Some(index) = self.object_indexes.get(&(object.span.lo.0 as usize)).copied() else {
+            return;
+        };
+        self.script.objects[index].properties = object
+            .props
+            .iter()
+            .map(|property| match property.as_prop().and_then(|property| match &**property {
+                Prop::KeyValue(pair) => self.literal_key(&pair.key).map(|key| (key, &*pair.value)),
+                _ => None,
+            }) {
+                Some((key, value)) => ObjectProperty::KeyValue {
+                    key,
+                    value: self.value(value),
+                },
+                None => ObjectProperty::Other,
+            })
+            .collect();
+    }
+
     /// Introduces or assigns one name, according to how the surrounding pattern uses it.
     fn name(&mut self, ident: &Ident, binds: Binds, entity: Option<String>) {
         let name = self.text(self.span(ident.span));
@@ -595,6 +800,11 @@ impl<'a> Builder<'a> {
 }
 
 impl Visit for Builder<'_> {
+    fn visit_object_lit(&mut self, object: &ObjectLit) {
+        self.object(object);
+        object.visit_children_with(self);
+    }
+
     fn visit_ident(&mut self, ident: &Ident) {
         self.identifier(ident.span, Role::Reference);
     }
@@ -1064,5 +1274,48 @@ mod tests {
             role: Role::Reference,
         });
         assert!(script.verify_spans(wide.as_bytes()).is_err(), "inside a character");
+    }
+
+    #[test]
+    fn object_literals_are_an_arena_with_literal_values_and_other_properties() {
+        let src = "let value = { id: { 'items': [\"one\", , ...rest, { 1: 'two' }] }, method() {}, ...more, [computed]: 1 };";
+        let script = facts(src);
+        assert_eq!(script.objects.len(), 3);
+        assert_eq!(&src[script.objects[0].span.start..script.objects[0].span.end], "{ id: { 'items': [\"one\", , ...rest, { 1: 'two' }] }, method() {}, ...more, [computed]: 1 }");
+        let ObjectProperty::KeyValue { key, value } = &script.objects[0].properties[0] else {
+            panic!("the outer property was not read");
+        };
+        assert_eq!(key.text, "id");
+        assert_eq!(value, &Value::Object(1));
+        assert!(script.objects[0]
+            .properties
+            .iter()
+            .skip(1)
+            .all(|property| matches!(property, ObjectProperty::Other)));
+        let ObjectProperty::KeyValue { key, value } = &script.objects[1].properties[0] else {
+            panic!("the nested property was not read");
+        };
+        assert_eq!(key.text, "items");
+        let Value::Array(items) = value else {
+            panic!("items was not an array");
+        };
+        assert!(matches!(items[0], Value::String(_)));
+        assert!(matches!(items[1], Value::Other(_)));
+        assert!(matches!(items[2], Value::Other(_)));
+        assert_eq!(items[3], Value::Object(2));
+        let ObjectProperty::KeyValue { key, value } = &script.objects[2].properties[0] else {
+            panic!("the number key was not read");
+        };
+        assert_eq!(key.text, "1");
+        assert!(matches!(value, Value::String(_)));
+    }
+
+    #[test]
+    fn object_literal_spans_stay_correct_after_multi_byte_text() {
+        let src = "let note = 'é'; let value = { 'table': [ { name: \"Field\" } ] };";
+        let script = facts(src);
+        assert_eq!(script.objects.len(), 2);
+        assert_eq!(&src[script.objects[0].span.start..script.objects[0].span.end], "{ 'table': [ { name: \"Field\" } ] }");
+        assert_eq!(&src[script.objects[1].span.start..script.objects[1].span.end], "{ name: \"Field\" }");
     }
 }

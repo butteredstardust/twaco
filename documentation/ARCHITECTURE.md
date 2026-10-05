@@ -63,7 +63,7 @@ main.rs  mcp.rs                 front ends: parse arguments, call core, print or
 | `bundle`, `deploy` | `bundle`, `deploy`: ordered bundles, live parse, import, read-back, deploy services, baseline |
 | `adopt` | `adopt`: a designer's export against the repository |
 | `config_table` | `config-table` |
-| `refs`, `rename/` (`identity`, `field`, `table`, `member`, `run`, `apply`), `rename_scan`, `rename_property`, `rename_sql`, `dbinfo` | `rename entity`, `prefix`, `field`, `service`, `param`, `table`, `property`: one matching rule (`refs`), one planner per rename family, a transaction with rollback (`apply`), a scratch-copy check before the first write (`run`), and the database half from `GetDBInfo` (`dbinfo`, `rename_sql`) |
+| `refs`, `rename/` (`identity`, `field`, `table`, `member`, `run`, `apply`), `rename_scan`, `rename_property`, `rename_sql`, `dbinfo` | `rename entity`, `prefix`, `field`, `service`, `param`, `table`, `property`: one matching rule (`refs`), one planner per rename family, a transaction with rollback (`apply`), a scratch-copy check before the first write (`run`), and the database half from parsed `GetDBInfo` literals (`dbinfo`, `rename_sql`) |
 | `relocate` | `move`, `copy`: a member's definition and implementation spliced from one entity's XML into another's, re-indented, with the sidecars and the callers it breaks |
 | `retemplate` | `retemplate`: the entity's inheritance changed in place, with the effective members compared before and after |
 | `backup` | the backup sets taken before a delete or a forced overwrite, and `entity restore` |

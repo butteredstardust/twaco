@@ -11,16 +11,15 @@
 //!                                  referenceFieldName: "UID" } ] } ] }
 //! ```
 //!
-//! This is a tolerant reader for that literal subset, not a JavaScript parser: it finds the objects
-//! that carry a `dataShapeName` string and the string values of the few keys that name a field, with
-//! the byte span of each so a rename can edit them in place. A script it cannot read that way is
-//! reported as `unsure` rather than ignored, because a rename of a table the reader missed would
-//! leave the database behind.
+//! This is a tolerant reader for that literal subset. It reads the literal structure through the
+//! JavaScript parser and keeps the byte span of every name so a rename can edit it in place. A
+//! script the parser refuses, or whose literal cannot be read completely, is reported as `unsure`
+//! rather than ignored, because a rename of a table the reader missed would leave the database
+//! behind.
 
 use super::config::Solution;
-use super::rename_scan::{js_tokens, JsKind, JsToken};
 use super::scan::{self, Span};
-use super::{check, workspace};
+use super::{check, script, workspace};
 use std::collections::BTreeMap;
 
 /// A name that appears as a string literal in the script, with the span of its content.
@@ -52,40 +51,25 @@ pub struct DbShape {
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
 pub struct Scan {
     pub shapes: Vec<DbShape>,
-    /// The script mentions `dbInfo` but its tables could not all be read as literals.
+    /// The tables could not all be read as literals: the script mentions `dbInfo` and yields none,
+    /// a literal is incomplete, or the parser refused the script.
     pub unsure: bool,
 }
 
 /// Read one `GetDBInfo` script.
 pub fn scan_script(src: &[u8]) -> Scan {
-    let all = js_tokens(src);
-    let tokens: Vec<JsToken> = all.into_iter().filter(|token| token.kind != JsKind::Comment).collect();
     let mut scan = Scan::default();
-    let mut opens = Vec::new();
-    let mut matching = vec![None; tokens.len()];
-    for (at, token) in tokens.iter().enumerate() {
-        match raw(src, token) {
-            b"{" | b"[" | b"(" => opens.push(at),
-            b"}" | b"]" | b")" => {
-                if let Some(open) = opens.pop() {
-                    matching[open] = Some(at);
-                }
-            }
-            _ => {}
-        }
-    }
-    let mut seen_objects = Vec::new();
-    for at in 0..tokens.len() {
-        if key_text(src, &tokens[at]).as_deref() != Some("dataShapeName") || raw_at(src, &tokens, at + 1) != Some(b":") {
+    let Ok(script) = script::parse(src) else {
+        scan.unsure = true;
+        return scan;
+    };
+    for object in &script.objects {
+        if !object.properties.iter().any(|property| {
+            matches!(property, script::ObjectProperty::KeyValue { key, .. } if key.text == "dataShapeName")
+        }) {
             continue;
         }
-        let Some(open) = enclosing_open(src, &tokens, at, &matching) else { continue };
-        if raw(src, &tokens[open]) != b"{" || seen_objects.contains(&open) {
-            continue;
-        }
-        seen_objects.push(open);
-        let Some(close) = matching[open] else { scan.unsure = true; continue };
-        match read_shape(src, &tokens, open, close, &matching) {
+        match read_shape(&script, object) {
             Some(shape) => scan.shapes.push(shape),
             None => scan.unsure = true,
         }
@@ -215,69 +199,34 @@ pub fn field_spans(scan: &Scan, data_shape: &str, field: &str) -> Vec<Span> {
     spans
 }
 
-fn raw<'a>(src: &'a [u8], token: &JsToken) -> &'a [u8] {
-    token.span.of(src)
-}
-
-fn raw_at<'a>(src: &'a [u8], tokens: &[JsToken], at: usize) -> Option<&'a [u8]> {
-    tokens.get(at).map(|token| raw(src, token))
-}
-
-/// The text of an identifier or a plain string literal used as an object key.
-fn key_text(src: &[u8], token: &JsToken) -> Option<String> {
-    match token.kind {
-        JsKind::Ident => Some(String::from_utf8_lossy(raw(src, token)).into_owned()),
-        JsKind::String => string_name(src, token).map(|name| name.value),
-        _ => None,
-    }
-}
-
 /// A string literal without escapes: its content and the span of that content.
-fn string_name(src: &[u8], token: &JsToken) -> Option<Name> {
-    if token.kind != JsKind::String {
+fn string_name(string: &script::StringLiteral) -> Option<Name> {
+    if string.value.contains('\\') {
         return None;
     }
-    let text = raw(src, token);
-    if text.len() < 2 || text.contains(&b'\\') {
-        return None;
-    }
-    let span = Span::new(token.span.start + 1, token.span.end - 1);
-    Some(Name { value: String::from_utf8_lossy(span.of(src)).into_owned(), span })
-}
-
-/// The `{` or `[` that most closely encloses token `at`.
-fn enclosing_open(src: &[u8], tokens: &[JsToken], at: usize, matching: &[Option<usize>]) -> Option<usize> {
-    (0..at).rev().find(|&index| {
-        matches!(raw(src, &tokens[index]), b"{" | b"[" | b"(") && matching[index].is_some_and(|close| close > at)
+    Some(Name {
+        value: string.value.clone(),
+        span: string.span,
     })
 }
 
-/// The direct `key: value` properties of the object between `open` and `close`: each as the key text
-/// and the index range of the value tokens.
-fn properties(src: &[u8], tokens: &[JsToken], open: usize, close: usize, matching: &[Option<usize>]) -> Vec<(String, usize, usize)> {
-    let mut out = Vec::new();
-    let mut at = open + 1;
-    while at < close {
-        let Some(key) = key_text(src, &tokens[at]) else {
-            at += 1;
-            continue;
-        };
-        if raw_at(src, tokens, at + 1) != Some(b":") {
-            at += 1;
-            continue;
-        }
-        let start = at + 2;
-        let mut end = start;
-        while end < close && raw(src, &tokens[end]) != b"," {
-            end = matching[end].unwrap_or(end) + 1;
-        }
-        out.push((key, start, end));
-        at = end + 1;
-    }
-    out
+fn properties(object: &script::ObjectLiteral) -> Option<Vec<(&script::LiteralKey, &script::Value)>> {
+    object
+        .properties
+        .iter()
+        .map(|property| match property {
+            script::ObjectProperty::KeyValue { key, value } => Some((key, value)),
+            script::ObjectProperty::Other => None,
+        })
+        .collect()
 }
 
-fn read_shape(src: &[u8], tokens: &[JsToken], open: usize, close: usize, matching: &[Option<usize>]) -> Option<DbShape> {
+fn object<'a>(script: &'a script::Script, value: &script::Value) -> Option<&'a script::ObjectLiteral> {
+    let script::Value::Object(index) = value else { return None };
+    script.objects.get(*index)
+}
+
+fn read_shape(script: &script::Script, literal: &script::ObjectLiteral) -> Option<DbShape> {
     let mut shape = DbShape {
         data_shape: Name { value: String::new(), span: Span::new(0, 0) },
         fields: Vec::new(),
@@ -285,28 +234,18 @@ fn read_shape(src: &[u8], tokens: &[JsToken], open: usize, close: usize, matchin
         foreign_keys: Vec::new(),
     };
     let mut named = false;
-    for (key, start, end) in properties(src, tokens, open, close, matching) {
-        match key.as_str() {
+    for (key, value) in properties(literal)? {
+        match key.text.as_str() {
             "dataShapeName" => {
-                shape.data_shape = string_name(src, tokens.get(start)?)?;
+                let script::Value::String(value) = value else { return None };
+                shape.data_shape = string_name(value)?;
                 named = true;
             }
             "fields" | "indexedFields" | "foreignKeys" => {
-                if raw_at(src, tokens, start) != Some(b"[") {
-                    return None;
+                let script::Value::Array(elements) = value else { return None };
+                for element in elements {
+                    read_element(key.text.as_str(), object(script, element)?, &mut shape)?;
                 }
-                let array_close = matching[start]?;
-                let mut at = start + 1;
-                while at < array_close {
-                    if raw(src, &tokens[at]) == b"{" {
-                        let element_close = matching[at]?;
-                        read_element(src, tokens, &key, at, element_close, matching, &mut shape)?;
-                        at = element_close + 1;
-                    } else {
-                        at += 1;
-                    }
-                }
-                let _ = end;
             }
             _ => {}
         }
@@ -314,37 +253,39 @@ fn read_shape(src: &[u8], tokens: &[JsToken], open: usize, close: usize, matchin
     named.then_some(shape)
 }
 
-fn read_element(
-    src: &[u8],
-    tokens: &[JsToken],
-    list: &str,
-    open: usize,
-    close: usize,
-    matching: &[Option<usize>],
-    shape: &mut DbShape,
-) -> Option<()> {
+fn read_element(list: &str, literal: &script::ObjectLiteral, shape: &mut DbShape) -> Option<()> {
     let mut foreign = ForeignKey { column: None, reference_shape: None, reference_field: None };
-    for (key, start, _) in properties(src, tokens, open, close, matching) {
-        let value = tokens.get(start)?;
-        match (list, key.as_str()) {
-            ("fields", "name") => shape.fields.push(string_name(src, value)?),
-            ("indexedFields", "name") => shape.indexes.push(vec![string_name(src, value)?]),
+    for (key, value) in properties(literal)? {
+        match (list, key.text.as_str()) {
+            ("fields", "name") => {
+                let script::Value::String(value) = value else { return None };
+                shape.fields.push(string_name(value)?);
+            }
+            ("indexedFields", "name") => {
+                let script::Value::String(value) = value else { return None };
+                shape.indexes.push(vec![string_name(value)?]);
+            }
             ("indexedFields", "fieldNames") => {
-                if raw(src, value) != b"[" {
-                    return None;
-                }
-                let array_close = matching[start]?;
+                let script::Value::Array(values) = value else { return None };
                 let mut names = Vec::new();
-                for token in &tokens[start + 1..array_close] {
-                    if let Some(name) = string_name(src, token) {
-                        names.push(name);
-                    }
+                for value in values {
+                    let script::Value::String(value) = value else { return None };
+                    names.push(string_name(value)?);
                 }
                 shape.indexes.push(names);
             }
-            ("foreignKeys", "name") => foreign.column = Some(string_name(src, value)?),
-            ("foreignKeys", "referenceDataShapeName") => foreign.reference_shape = Some(string_name(src, value)?),
-            ("foreignKeys", "referenceFieldName") => foreign.reference_field = Some(string_name(src, value)?),
+            ("foreignKeys", "name") => {
+                let script::Value::String(value) = value else { return None };
+                foreign.column = Some(string_name(value)?);
+            }
+            ("foreignKeys", "referenceDataShapeName") => {
+                let script::Value::String(value) = value else { return None };
+                foreign.reference_shape = Some(string_name(value)?);
+            }
+            ("foreignKeys", "referenceFieldName") => {
+                let script::Value::String(value) = value else { return None };
+                foreign.reference_field = Some(string_name(value)?);
+            }
             _ => {}
         }
     }
@@ -446,5 +387,42 @@ var result = {
         info.add("b", scan_script(b"{ dbInfo: tables }"));
         assert!(info.is_backed("Acme.App.Dashboards") && !info.is_backed("Acme.Other"));
         assert_eq!(info.unsure, ["b"]);
+    }
+
+    #[test]
+    fn unreadable_literal_parts_leave_the_shape_unsure() {
+        for script in [
+            "({ dataShapeName: 'A.Shape', fields: [ field ] });",
+            "({ dataShapeName: 'A.Shape', ...extra });",
+            "({ dataShapeName: 'A\\u002eShape' });",
+            "({ dataShapeName: 'A.Shape', indexedFields: [{ fieldNames: ['One', field] }] });",
+        ] {
+            let scan = scan_script(script.as_bytes());
+            assert!(scan.unsure, "{script}");
+        }
+    }
+
+    #[test]
+    fn a_rejected_script_has_no_shapes() {
+        let scan = scan_script(b"for each (x in y) {} ({ dataShapeName: 'A.Shape' });");
+        assert!(scan.shapes.is_empty());
+        assert!(scan.unsure);
+    }
+
+    #[test]
+    fn parser_context_and_multi_byte_offsets_do_not_change_the_literal_reading() {
+        let script = "let note = 'é'; let template = `dataShapeName`; let pattern = /dataShapeName/; ({ dataShapeName: 'A.Shape', fields: [{ name: 'Field' }] });";
+        let scan = scan_script(script.as_bytes());
+        assert!(!scan.unsure);
+        assert_eq!(scan.shapes.len(), 1);
+        let name = &scan.shapes[0].fields[0];
+        assert_eq!(&script[name.span.start..name.span.end], "Field");
+    }
+
+    #[test]
+    fn a_comment_or_string_mention_is_not_a_shape() {
+        let scan = scan_script(b"let note = 'dataShapeName'; // dataShapeName: 'A.Shape'\n");
+        assert!(scan.shapes.is_empty());
+        assert!(!scan.unsure);
     }
 }

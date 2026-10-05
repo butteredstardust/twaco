@@ -15,6 +15,8 @@ All notable changes to twaco are recorded here. The format follows
 - A variable counts as a Thing only if every declaration of it names the same `Things` entity and
   it is never reassigned or taken as a parameter. A service rename follows an `@function` tag
   only inside comments.
+- The `GetDBInfo` reader now uses the ECMAScript parser; a script it refuses or whose literal
+  cannot be read completely is reported as unsure, and the former JavaScript lexer is removed.
 
 ## [0.1.0] - 2026-10-03
 
