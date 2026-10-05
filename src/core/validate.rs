@@ -59,12 +59,19 @@ fn check_one(solution: &Solution, entity: &EntityFile) -> Vec<Problem> {
     let file = relative(solution, entity);
 
     // The file name is how every other tool addresses the entity, including the bundler.
-    let stem = entity.path.file_stem().map(|s| s.to_string_lossy().into_owned()).unwrap_or_default();
+    let stem = entity
+        .path
+        .file_stem()
+        .map(|s| s.to_string_lossy().into_owned())
+        .unwrap_or_default();
     if stem != entity.info.name {
         problems.push(Problem {
             file: file.clone(),
             rule: "name-mismatch",
-            message: format!("the file is named {stem} but the entity inside it is {}", entity.info.name),
+            message: format!(
+                "the file is named {stem} but the entity inside it is {}",
+                entity.info.name
+            ),
         });
     }
 
@@ -101,9 +108,16 @@ fn check_one(solution: &Solution, entity: &EntityFile) -> Vec<Problem> {
         });
     }
 
-    let Ok(src) = std::fs::read(&entity.path) else { return problems };
+    let Ok(src) = std::fs::read(&entity.path) else {
+        return problems;
+    };
 
-    problems.extend(check_services(&file, &entity.info.name, &src, &solution.validate.inherited_overrides));
+    problems.extend(check_services(
+        &file,
+        &entity.info.name,
+        &src,
+        &solution.validate.inherited_overrides,
+    ));
     if entity.info.collection == "Mashups" {
         problems.extend(check_mashup(&file, &src));
     }
@@ -116,21 +130,32 @@ fn check_one(solution: &Solution, entity: &EntityFile) -> Vec<Problem> {
 /// the solution can name the services it knows are overridden that way: `Entity.Service` for
 /// one entity, or a bare `Service` for that service wherever it is implemented.
 fn check_services(file: &str, entity: &str, src: &[u8], allowed: &[String]) -> Vec<Problem> {
-    let Ok(extraction) = super::sidecar::extract(src) else { return Vec::new() };
+    let Ok(extraction) = super::sidecar::extract(src) else {
+        return Vec::new();
+    };
     let mut problems = Vec::new();
 
     if !extraction.without_script.is_empty() {
         problems.push(Problem {
             file: file.to_string(),
             rule: "service-without-implementation",
-            message: format!("declared but never implemented: {}", extraction.without_script.join(", ")),
+            message: format!(
+                "declared but never implemented: {}",
+                extraction.without_script.join(", ")
+            ),
         });
     }
 
     let listed = |service: &str| {
-        allowed.iter().any(|entry| entry == service || *entry == format!("{entity}.{service}"))
+        allowed
+            .iter()
+            .any(|entry| entry == service || *entry == format!("{entity}.{service}"))
     };
-    let unexplained: Vec<&String> = extraction.inherited.iter().filter(|name| !listed(name)).collect();
+    let unexplained: Vec<&String> = extraction
+        .inherited
+        .iter()
+        .filter(|name| !listed(name))
+        .collect();
     if !unexplained.is_empty() {
         let names: Vec<&str> = unexplained.iter().map(|n| n.as_str()).collect();
         problems.push(Problem {
@@ -151,19 +176,25 @@ fn check_services(file: &str, entity: &str, src: &[u8], allowed: &[String]) -> V
 /// The runtime reads that JSON. A mashup that will not parse shows an empty page rather than an
 /// error, which is why this is worth catching before an import rather than after one.
 fn check_mashup(file: &str, src: &[u8]) -> Vec<Problem> {
-    let Ok(tokens) = scan::tokenize(src) else { return Vec::new() };
+    let Ok(tokens) = scan::tokenize(src) else {
+        return Vec::new();
+    };
     let Some(content) = tokens
         .iter()
         .position(|t| t.kind == Kind::Start && t.name.of(src) == b"mashupContent")
     else {
         return Vec::new();
     };
-    let Some(end) = scan::element_end_in(&tokens, src, content) else { return Vec::new() };
+    let Some(end) = scan::element_end_in(&tokens, src, content) else {
+        return Vec::new();
+    };
 
     let payload: String = (content + 1..end)
         .filter_map(|i| match tokens[i].kind {
             Kind::Cdata => Some(String::from_utf8_lossy(tokens[i].inner.of(src)).into_owned()),
-            Kind::Text => Some(scan::decode_entities(&String::from_utf8_lossy(tokens[i].span.of(src)))),
+            Kind::Text => Some(scan::decode_entities(&String::from_utf8_lossy(
+                tokens[i].span.of(src),
+            ))),
             _ => None,
         })
         .collect();
@@ -175,11 +206,15 @@ fn check_mashup(file: &str, src: &[u8]) -> Vec<Problem> {
         Ok(value) => {
             // An object here, and its CSS a string when present: the runtime assumes both.
             match value.get("CustomMashupCss") {
-                None | Some(serde_json::Value::Null) | Some(serde_json::Value::String(_)) => Vec::new(),
+                None | Some(serde_json::Value::Null) | Some(serde_json::Value::String(_)) => {
+                    Vec::new()
+                }
                 Some(other) => vec![Problem {
                     file: file.to_string(),
                     rule: "mashup-css",
-                    message: format!("CustomMashupCss must be a string when present, found {other}"),
+                    message: format!(
+                        "CustomMashupCss must be a string when present, found {other}"
+                    ),
                 }],
             }
         }
@@ -210,12 +245,25 @@ mod tests {
         let src = br#"<Entities><Things><Thing name="Acme.T"><ThingShape><ServiceDefinitions/><ServiceImplementations><ServiceImplementation name="Run" handlerName="Script"><ConfigurationTables><ConfigurationTable name="Script"><Rows><Row><code><![CDATA[1;]]></code></Row></Rows></ConfigurationTable></ConfigurationTables></ServiceImplementation></ServiceImplementations></ThingShape></Thing></Things></Entities>"#;
         let rules = |allowed: &[&str]| -> Vec<&'static str> {
             let allowed: Vec<String> = allowed.iter().map(|a| a.to_string()).collect();
-            check_services("t.xml", "Acme.T", src, &allowed).iter().map(|p| p.rule).collect()
+            check_services("t.xml", "Acme.T", src, &allowed)
+                .iter()
+                .map(|p| p.rule)
+                .collect()
         };
         assert_eq!(rules(&[]), ["service-without-definition"]);
-        assert!(rules(&["Acme.T.Run"]).is_empty(), "qualified, as documented");
-        assert!(rules(&["Run"]).is_empty(), "bare: the service on any entity");
-        assert_eq!(rules(&["Acme.Other.Run"]), ["service-without-definition"], "another entity's");
+        assert!(
+            rules(&["Acme.T.Run"]).is_empty(),
+            "qualified, as documented"
+        );
+        assert!(
+            rules(&["Run"]).is_empty(),
+            "bare: the service on any entity"
+        );
+        assert_eq!(
+            rules(&["Acme.Other.Run"]),
+            ["service-without-definition"],
+            "another entity's"
+        );
     }
 
     #[test]

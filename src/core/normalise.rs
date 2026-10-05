@@ -78,7 +78,10 @@ impl fmt::Display for NormaliseError {
         match self {
             NormaliseError::Xml(error) => write!(f, "{error}"),
             NormaliseError::DeclaredEncoding(name) => {
-                write!(f, "{name} encoding is not supported; entity XML must be UTF-8")
+                write!(
+                    f,
+                    "{name} encoding is not supported; entity XML must be UTF-8"
+                )
             }
             NormaliseError::Malformed(why) => write!(f, "malformed entity XML: {why}"),
             NormaliseError::EntityReference(reference) => {
@@ -221,7 +224,9 @@ fn parse(src: &[u8], tokens: &[Token]) -> Result<Vec<Node>, NormaliseError> {
             }
             Kind::DocType => {
                 if !stack.is_empty() {
-                    return Err(NormaliseError::Malformed("DOCTYPE inside an element".to_string()));
+                    return Err(NormaliseError::Malformed(
+                        "DOCTYPE inside an element".to_string(),
+                    ));
                 }
             }
         }
@@ -299,7 +304,9 @@ fn strip_live_only(element: &mut Element) {
 }
 
 fn strip_live_only_attributes(element: &mut Element) {
-    element.attributes.retain(|(name, _)| name != LIVE_ONLY_ATTRIBUTE);
+    element
+        .attributes
+        .retain(|(name, _)| name != LIVE_ONLY_ATTRIBUTE);
     for child in &mut element.children {
         if let Node::Element(child) = child {
             strip_live_only_attributes(child);
@@ -320,7 +327,9 @@ fn normalise_special_payloads(entity: &mut Element) {
     }
     if entity.name == b"MediaEntity" {
         for child in &mut entity.children {
-            let Node::Element(child) = child else { continue };
+            let Node::Element(child) = child else {
+                continue;
+            };
             if child.name == b"content" {
                 if let Some(payload) = single_cdata_payload(child) {
                     let compact = payload
@@ -340,22 +349,38 @@ fn normalise_leaf_content(element: &mut Element) {
             normalise_leaf_content(child);
         }
     }
-    if element.children.iter().any(|child| matches!(child, Node::Element(_))) {
+    if element
+        .children
+        .iter()
+        .any(|child| matches!(child, Node::Element(_)))
+    {
         return;
     }
-    if element.children.iter().all(|child| matches!(child, Node::Text(text) if xml_whitespace(text))) {
+    if element
+        .children
+        .iter()
+        .all(|child| matches!(child, Node::Text(text) if xml_whitespace(text)))
+    {
         element.children.clear();
         return;
     }
-    let Some(payload) = single_cdata_payload(element) else { return };
+    let Some(payload) = single_cdata_payload(element) else {
+        return;
+    };
     element.children = vec![Node::Cdata(trim_xml_whitespace(&payload).to_vec())];
 }
 
 fn trim_xml_whitespace(mut bytes: &[u8]) -> &[u8] {
-    while bytes.first().is_some_and(|byte| matches!(byte, b' ' | b'\t' | b'\r' | b'\n')) {
+    while bytes
+        .first()
+        .is_some_and(|byte| matches!(byte, b' ' | b'\t' | b'\r' | b'\n'))
+    {
         bytes = &bytes[1..];
     }
-    while bytes.last().is_some_and(|byte| matches!(byte, b' ' | b'\t' | b'\r' | b'\n')) {
+    while bytes
+        .last()
+        .is_some_and(|byte| matches!(byte, b' ' | b'\t' | b'\r' | b'\n'))
+    {
         bytes = &bytes[..bytes.len() - 1];
     }
     bytes
@@ -373,9 +398,15 @@ fn normalise_mashup_payloads(element: &mut Element) {
 }
 
 fn normalise_json_payload(element: &mut Element) {
-    let Some(payload) = single_cdata_payload(element) else { return };
-    let Ok(value) = serde_json::from_slice::<serde_json::Value>(&payload) else { return };
-    let Ok(compact) = serde_json::to_vec(&value) else { return };
+    let Some(payload) = single_cdata_payload(element) else {
+        return;
+    };
+    let Ok(value) = serde_json::from_slice::<serde_json::Value>(&payload) else {
+        return;
+    };
+    let Ok(compact) = serde_json::to_vec(&value) else {
+        return;
+    };
     element.children = vec![Node::Cdata(compact)];
 }
 
@@ -392,11 +423,14 @@ fn single_cdata_payload(element: &Element) -> Option<Vec<u8>> {
 }
 
 fn clean_indentation(element: &mut Element) {
-    let has_element = element.children.iter().any(|child| matches!(child, Node::Element(_)));
+    let has_element = element
+        .children
+        .iter()
+        .any(|child| matches!(child, Node::Element(_)));
     if has_element {
-        element.children.retain(|child| {
-            !matches!(child, Node::Text(text) if xml_whitespace(text))
-        });
+        element
+            .children
+            .retain(|child| !matches!(child, Node::Text(text) if xml_whitespace(text)));
     }
     for child in &mut element.children {
         if let Node::Element(child) = child {
@@ -484,7 +518,9 @@ fn number(value: usize, out: &mut Vec<u8>) {
 }
 
 fn xml_whitespace(bytes: &[u8]) -> bool {
-    bytes.iter().all(|byte| matches!(byte, b' ' | b'\t' | b'\r' | b'\n'))
+    bytes
+        .iter()
+        .all(|byte| matches!(byte, b' ' | b'\t' | b'\r' | b'\n'))
 }
 
 fn normalise_line_ends(bytes: &[u8]) -> Vec<u8> {
@@ -519,7 +555,8 @@ fn normalise_attribute_value(bytes: &[u8]) -> Vec<u8> {
 }
 
 fn is_xml_declaration(raw: &[u8]) -> bool {
-    raw.get(0..5).is_some_and(|head| head.eq_ignore_ascii_case(b"<?xml"))
+    raw.get(0..5)
+        .is_some_and(|head| head.eq_ignore_ascii_case(b"<?xml"))
 }
 
 fn reject_non_utf8_declaration(src: &[u8], tokens: &[Token]) -> Result<(), NormaliseError> {
@@ -533,17 +570,23 @@ fn reject_non_utf8_declaration(src: &[u8], tokens: &[Token]) -> Result<(), Norma
     };
     let text = std::str::from_utf8(raw).expect("the scanner validated UTF-8");
     let lower = text.to_ascii_lowercase();
-    let Some(at) = lower.find("encoding") else { return Ok(()) };
+    let Some(at) = lower.find("encoding") else {
+        return Ok(());
+    };
     let after = &text[at + "encoding".len()..];
     let Some(equal) = after.find('=') else {
-        return Err(NormaliseError::Malformed("XML encoding declaration has no value".to_string()));
+        return Err(NormaliseError::Malformed(
+            "XML encoding declaration has no value".to_string(),
+        ));
     };
     let value = after[equal + 1..].trim_start();
     let quote = value.as_bytes().first().copied().ok_or_else(|| {
         NormaliseError::Malformed("XML encoding declaration has no value".to_string())
     })?;
     if quote != b'\'' && quote != b'"' {
-        return Err(NormaliseError::Malformed("XML encoding declaration is unquoted".to_string()));
+        return Err(NormaliseError::Malformed(
+            "XML encoding declaration is unquoted".to_string(),
+        ));
     }
     let rest = &value[1..];
     let end = rest.find(quote as char).ok_or_else(|| {
@@ -645,13 +688,17 @@ mod tests {
 
     #[test]
     fn a_one_character_cdata_edit_changes_the_hash() {
-        let changed = String::from_utf8(LIVE.to_vec()).unwrap().replace("x = 1", "x = 2");
+        let changed = String::from_utf8(LIVE.to_vec())
+            .unwrap()
+            .replace("x = 1", "x = 2");
         assert_ne!(hash(LIVE).unwrap(), hash(changed.as_bytes()).unwrap());
     }
 
     #[test]
     fn whitespace_inside_cdata_is_significant() {
-        let changed = String::from_utf8(LIVE.to_vec()).unwrap().replace("x = 1", "x  = 1");
+        let changed = String::from_utf8(LIVE.to_vec())
+            .unwrap()
+            .replace("x = 1", "x  = 1");
         assert_ne!(hash(LIVE).unwrap(), hash(changed.as_bytes()).unwrap());
     }
 
@@ -683,8 +730,10 @@ mod tests {
 
     #[test]
     fn invalid_mashup_json_is_compared_after_leaf_trimming_without_error() {
-        let original = br#"<Mashup><mashupContent><![CDATA[{invalid json}]]></mashupContent></Mashup>"#;
-        let changed = br#"<Mashup><mashupContent><![CDATA[{invalid  json}]]></mashupContent></Mashup>"#;
+        let original =
+            br#"<Mashup><mashupContent><![CDATA[{invalid json}]]></mashupContent></Mashup>"#;
+        let changed =
+            br#"<Mashup><mashupContent><![CDATA[{invalid  json}]]></mashupContent></Mashup>"#;
         assert_ne!(hash(original).unwrap(), hash(changed).unwrap());
     }
 
@@ -772,7 +821,10 @@ mod tests {
         let text_cr = b"<Thing>first&#13;second</Thing>";
         let text_lf = b"<Thing>first&#10;second</Thing>";
 
-        assert_eq!(hash(attribute_literal_cr).unwrap(), hash(attribute_space).unwrap());
+        assert_eq!(
+            hash(attribute_literal_cr).unwrap(),
+            hash(attribute_space).unwrap()
+        );
         assert_ne!(hash(attribute_cr).unwrap(), hash(attribute_space).unwrap());
         assert_eq!(hash(text_literal_cr).unwrap(), hash(text_lf).unwrap());
         assert_ne!(hash(text_cr).unwrap(), hash(text_lf).unwrap());
@@ -789,7 +841,9 @@ mod tests {
 
     #[test]
     fn a_changed_attribute_value_changes_the_hash() {
-        let changed = String::from_utf8(LIVE.to_vec()).unwrap().replace("projectName=\"P\"", "projectName=\"Q\"");
+        let changed = String::from_utf8(LIVE.to_vec())
+            .unwrap()
+            .replace("projectName=\"P\"", "projectName=\"Q\"");
         assert_ne!(hash(LIVE).unwrap(), hash(changed.as_bytes()).unwrap());
     }
 
@@ -804,7 +858,9 @@ mod tests {
     #[test]
     fn sha256_matches_the_published_two_block_vector() {
         assert_eq!(
-            hex(&sha256(b"abcdbcdecdefdefgefghfghighijhijkijkljklmklmnlmnomnopnopq")),
+            hex(&sha256(
+                b"abcdbcdecdefdefgefghfghighijhijkijkljklmklmnlmnomnopnopq"
+            )),
             "248d6a61d20638b8e5c026930c3e6039a33ce45964ff2167f6ecedd419db06c1"
         );
     }
@@ -812,6 +868,9 @@ mod tests {
     #[test]
     fn a_non_utf8_declaration_is_named_even_when_the_bytes_are_ascii() {
         let xml = br#"<?xml version="1.0" encoding="ISO-8859-1"?><Thing name="T"/>"#;
-        assert!(matches!(normalise(xml), Err(NormaliseError::DeclaredEncoding(_))));
+        assert!(matches!(
+            normalise(xml),
+            Err(NormaliseError::DeclaredEncoding(_))
+        ));
     }
 }

@@ -464,38 +464,22 @@ mod tests {
         assert_eq!(topic.tier, Tier::Review);
         assert!(!topic.applies());
 
-        assert_eq!(
-            one("T.Manager", "T", Mode::Prefix).tier,
-            Tier::Embedded
-        );
-        assert_eq!(
-            one("the T project", "T", Mode::Prefix).tier,
-            Tier::Review
-        );
+        assert_eq!(one("T.Manager", "T", Mode::Prefix).tier, Tier::Embedded);
+        assert_eq!(one("the T project", "T", Mode::Prefix).tier, Tier::Review);
     }
 
     #[test]
     fn a_whole_quoted_name_in_a_blob_is_exact() {
         for quote in ['"', '\'', '`'] {
             let text = format!("call({quote}T{quote});");
-            assert_eq!(
-                one_in_text(&text, "T", Mode::Entity).tier,
-                Tier::Exact
-            );
+            assert_eq!(one_in_text(&text, "T", Mode::Entity).tier, Tier::Exact);
         }
     }
 
     #[test]
     fn blob_quote_promotion_requires_matching_balanced_quotes() {
-        for text in [
-            "call(\"T/T1\")",
-            "call(\"T)",
-            "call(\"T')",
-        ] {
-            assert_eq!(
-                one_in_text(text, "T", Mode::Entity).tier,
-                Tier::Review
-            );
+        for text in ["call(\"T/T1\")", "call(\"T)", "call(\"T')"] {
+            assert_eq!(one_in_text(text, "T", Mode::Entity).tier, Tier::Review);
         }
     }
 
@@ -646,20 +630,11 @@ mod tests {
     fn an_escaped_quote_does_not_make_a_literal() {
         // The name sits inside a longer string; only a real literal of the name alone is exact.
         let escaped = r#"var s = "prefix \"T\" suffix";"#;
-        assert_eq!(
-            one_in_text(escaped, "T", Mode::Entity).tier,
-            Tier::Review
-        );
+        assert_eq!(one_in_text(escaped, "T", Mode::Entity).tier, Tier::Review);
         let literal = r#"var s = "T";"#;
-        assert_eq!(
-            one_in_text(literal, "T", Mode::Entity).tier,
-            Tier::Exact
-        );
+        assert_eq!(one_in_text(literal, "T", Mode::Entity).tier, Tier::Exact);
         // A name at the very start has no quote before it, and must not index before the text.
-        assert_eq!(
-            one_in_text("T\"", "T", Mode::Entity).tier,
-            Tier::Review
-        );
+        assert_eq!(one_in_text("T\"", "T", Mode::Entity).tier, Tier::Review);
     }
 
     #[test]

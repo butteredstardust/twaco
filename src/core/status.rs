@@ -51,9 +51,15 @@ impl Verdict {
 
 /// Each side against its own recorded state (the two-sided baseline).
 pub fn verdict(working: &str, server: Option<&str>, baseline: Option<(&str, &str)>) -> Verdict {
-    let Some(server) = server else { return Verdict::NotOnServer };
+    let Some(server) = server else {
+        return Verdict::NotOnServer;
+    };
     let Some((local_baseline, server_baseline)) = baseline else {
-        return if working == server { Verdict::NoBaselineSame } else { Verdict::NoBaselineDiffers };
+        return if working == server {
+            Verdict::NoBaselineSame
+        } else {
+            Verdict::NoBaselineDiffers
+        };
     };
     match (working != local_baseline, server != server_baseline) {
         (false, false) => Verdict::InSync,
@@ -126,7 +132,12 @@ pub fn record_matching(baseline: &mut Baseline, statuses: &[EntityStatus]) -> us
     let mut recorded = 0;
     for status in statuses {
         if status.server.as_deref() == Some(status.working.as_str()) {
-            baseline.set(&status.collection, &status.name, status.working.clone(), status.working.clone());
+            baseline.set(
+                &status.collection,
+                &status.name,
+                status.working.clone(),
+                status.working.clone(),
+            );
             recorded += 1;
         }
     }
@@ -137,7 +148,12 @@ pub fn record_matching(baseline: &mut Baseline, statuses: &[EntityStatus]) -> us
 pub fn counts(statuses: &[EntityStatus]) -> Vec<(Verdict, usize)> {
     Verdict::ALL
         .into_iter()
-        .map(|verdict| (verdict, statuses.iter().filter(|s| s.verdict == verdict).count()))
+        .map(|verdict| {
+            (
+                verdict,
+                statuses.iter().filter(|s| s.verdict == verdict).count(),
+            )
+        })
         .collect()
 }
 
@@ -148,10 +164,22 @@ mod tests {
     #[test]
     fn status_attributes_changes_against_the_baseline() {
         assert_eq!(verdict("a", Some("a"), Some(("a", "a"))), Verdict::InSync);
-        assert_eq!(verdict("local", Some("server"), Some(("local", "server"))), Verdict::InSync);
-        assert_eq!(verdict("b", Some("a"), Some(("a", "a"))), Verdict::LocalChanged);
-        assert_eq!(verdict("a", Some("b"), Some(("a", "a"))), Verdict::ServerChanged);
-        assert_eq!(verdict("b", Some("c"), Some(("a", "a"))), Verdict::BothChanged);
+        assert_eq!(
+            verdict("local", Some("server"), Some(("local", "server"))),
+            Verdict::InSync
+        );
+        assert_eq!(
+            verdict("b", Some("a"), Some(("a", "a"))),
+            Verdict::LocalChanged
+        );
+        assert_eq!(
+            verdict("a", Some("b"), Some(("a", "a"))),
+            Verdict::ServerChanged
+        );
+        assert_eq!(
+            verdict("b", Some("c"), Some(("a", "a"))),
+            Verdict::BothChanged
+        );
         assert_eq!(verdict("a", None, Some(("a", "a"))), Verdict::NotOnServer);
         assert_eq!(verdict("a", Some("a"), None), Verdict::NoBaselineSame);
         assert_eq!(verdict("a", Some("b"), None), Verdict::NoBaselineDiffers);
@@ -180,8 +208,18 @@ mod tests {
         ];
         let mut baseline = Baseline::default();
         assert_eq!(record_matching(&mut baseline, &statuses), 1);
-        assert_eq!(baseline.get("Things", "Same").map(|entry| entry.local.as_str()), Some("v2:same"));
-        assert_eq!(baseline.get("Things", "Same").map(|entry| entry.server.as_str()), Some("v2:same"));
+        assert_eq!(
+            baseline
+                .get("Things", "Same")
+                .map(|entry| entry.local.as_str()),
+            Some("v2:same")
+        );
+        assert_eq!(
+            baseline
+                .get("Things", "Same")
+                .map(|entry| entry.server.as_str()),
+            Some("v2:same")
+        );
         assert_eq!(baseline.get("Things", "Different"), None);
         assert_eq!(baseline.get("Things", "Missing"), None);
     }

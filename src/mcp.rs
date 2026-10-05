@@ -14,7 +14,12 @@
 
 use crate::core::config::Solution;
 use crate::core::entity_key::EntityKey;
-use crate::core::{adopt, backup, baseline, newblock, relocate, retemplate, catalog, check, config_table, db, datatable_copy, deploy, entity_carry, entity_delete, export, extensions, guide, help, imports, javadoc, lock, logs, profile, push, rename, repo, server, settings, status, types, workflow, workspace};
+use crate::core::{
+    adopt, backup, baseline, catalog, check, config_table, datatable_copy, db, deploy,
+    entity_carry, entity_delete, export, extensions, guide, help, imports, javadoc, lock, logs,
+    newblock, profile, push, relocate, rename, repo, retemplate, server, settings, status, types,
+    workflow, workspace,
+};
 use serde_json::{json, Map, Value};
 use std::io::{BufRead, Write};
 use std::path::{Path, PathBuf};
@@ -46,15 +51,27 @@ pub fn serve(root: &Path, input: impl BufRead, mut output: impl Write) -> std::i
         }
         // A line that is not UTF-8 is one bad message, answered as such; the server reads on.
         let response = match std::str::from_utf8(&bytes) {
-            Err(error) => Some(error_response(Value::Null, -32700, &format!("parse error: not UTF-8: {error}"))),
+            Err(error) => Some(error_response(
+                Value::Null,
+                -32700,
+                &format!("parse error: not UTF-8: {error}"),
+            )),
             Ok(line) if line.trim().is_empty() => None,
             Ok(line) => match serde_json::from_str::<Value>(line) {
                 Ok(message) => handle(root, &message, &mut protocol),
-                Err(error) => Some(error_response(Value::Null, -32700, &format!("parse error: {error}"))),
+                Err(error) => Some(error_response(
+                    Value::Null,
+                    -32700,
+                    &format!("parse error: {error}"),
+                )),
             },
         };
         if let Some(response) = response {
-            writeln!(output, "{}", serde_json::to_string(&response).expect("JSON values serialise"))?;
+            writeln!(
+                output,
+                "{}",
+                serde_json::to_string(&response).expect("JSON values serialise")
+            )?;
             output.flush()?;
         }
     }
@@ -63,12 +80,24 @@ pub fn serve(root: &Path, input: impl BufRead, mut output: impl Write) -> std::i
 
 /// One message in, at most one response out. A notification (no `id`) never gets a response.
 fn handle(root: &Path, message: &Value, protocol: &mut String) -> Option<Value> {
-    let invalid = |id: Value, why: &str| Some(error_response(id, -32600, &format!("invalid request: {why}")));
+    let invalid = |id: Value, why: &str| {
+        Some(error_response(
+            id,
+            -32600,
+            &format!("invalid request: {why}"),
+        ))
+    };
     let Some(object) = message.as_object() else {
-        return invalid(Value::Null, "a message is one JSON object; batches are not supported");
+        return invalid(
+            Value::Null,
+            "a message is one JSON object; batches are not supported",
+        );
     };
     let id = object.get("id").cloned();
-    if id.as_ref().is_some_and(|id| !(id.is_string() || id.is_number())) {
+    if id
+        .as_ref()
+        .is_some_and(|id| !(id.is_string() || id.is_number()))
+    {
         return invalid(Value::Null, "an id is a string or a number");
     }
     let Some(method) = object.get("method").and_then(Value::as_str) else {
@@ -91,8 +120,15 @@ fn handle(root: &Path, message: &Value, protocol: &mut String) -> Option<Value> 
     }
     let result = match method {
         "initialize" => {
-            let asked = params.get("protocolVersion").and_then(Value::as_str).unwrap_or(LATEST);
-            *protocol = if PROTOCOL_VERSIONS.contains(&asked) { asked.to_string() } else { LATEST.to_string() };
+            let asked = params
+                .get("protocolVersion")
+                .and_then(Value::as_str)
+                .unwrap_or(LATEST);
+            *protocol = if PROTOCOL_VERSIONS.contains(&asked) {
+                asked.to_string()
+            } else {
+                LATEST.to_string()
+            };
             Ok(json!({
                 "protocolVersion": protocol,
                 "capabilities": { "tools": { "listChanged": false } },
@@ -104,17 +140,25 @@ fn handle(root: &Path, message: &Value, protocol: &mut String) -> Option<Value> 
         "tools/list" => Ok(json!({ "tools": tool_definitions() })),
         "tools/call" => {
             let name = params.get("name").and_then(Value::as_str).unwrap_or("");
-            let arguments = params.get("arguments").cloned().unwrap_or_else(|| json!({}));
+            let arguments = params
+                .get("arguments")
+                .cloned()
+                .unwrap_or_else(|| json!({}));
             match tool_definitions().into_iter().find(|t| t["name"] == name) {
                 None => Err((-32602, format!("unknown tool {name:?}"))),
-                Some(definition) => match validate_arguments(&definition["inputSchema"], &arguments) {
-                    // A tool error, not a protocol one, so the agent sees it and can correct it.
-                    Err(why) => Ok(tool_result(Err(format!("{why}; nothing was done")), protocol)),
-                    Ok(()) => match call_tool(root, name, &arguments) {
-                        Some(outcome) => Ok(tool_result(outcome, protocol)),
-                        None => Err((-32602, format!("unknown tool {name:?}"))),
-                    },
-                },
+                Some(definition) => {
+                    match validate_arguments(&definition["inputSchema"], &arguments) {
+                        // A tool error, not a protocol one, so the agent sees it and can correct it.
+                        Err(why) => Ok(tool_result(
+                            Err(format!("{why}; nothing was done")),
+                            protocol,
+                        )),
+                        Ok(()) => match call_tool(root, name, &arguments) {
+                            Some(outcome) => Ok(tool_result(outcome, protocol)),
+                            None => Err((-32602, format!("unknown tool {name:?}"))),
+                        },
+                    }
+                }
             }
         }
         other => Err((-32601, format!("method not found: {other}"))),
@@ -142,7 +186,9 @@ fn validate_value(schema: &Value, value: &Value, path: &str) -> Result<(), Strin
     let fits = match schema["type"].as_str() {
         Some("string") => value.is_string(),
         Some("boolean") => value.is_boolean(),
-        Some("integer") => value.as_u64().is_some_and(|n| schema["minimum"].as_u64().is_none_or(|min| n >= min)),
+        Some("integer") => value
+            .as_u64()
+            .is_some_and(|n| schema["minimum"].as_u64().is_none_or(|min| n >= min)),
         Some("object") => value.is_object(),
         Some("array") => value.is_array(),
         _ => true,
@@ -151,7 +197,10 @@ fn validate_value(schema: &Value, value: &Value, path: &str) -> Result<(), Strin
         let wanted = match schema["type"].as_str() {
             Some("array") if array_of_strings(schema) => "an array of strings".to_string(),
             Some("array") => "an array".to_string(),
-            Some("integer") => format!("an integer of at least {}", schema["minimum"].as_u64().unwrap_or(0)),
+            Some("integer") => format!(
+                "an integer of at least {}",
+                schema["minimum"].as_u64().unwrap_or(0)
+            ),
             Some(other) => format!("a {other}"),
             None => "something else".to_string(),
         };
@@ -159,13 +208,21 @@ fn validate_value(schema: &Value, value: &Value, path: &str) -> Result<(), Strin
     }
     if let Some(allowed) = schema["enum"].as_array() {
         if !allowed.contains(value) {
-            return Err(format!("`{path}` must be one of {}, not {value}", Value::Array(allowed.clone())));
+            return Err(format!(
+                "`{path}` must be one of {}, not {value}",
+                Value::Array(allowed.clone())
+            ));
         }
     }
     if let Some(given) = value.as_object() {
         let empty = Map::new();
         let properties = schema["properties"].as_object().unwrap_or(&empty);
-        for name in schema["required"].as_array().into_iter().flatten().filter_map(Value::as_str) {
+        for name in schema["required"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .filter_map(Value::as_str)
+        {
             if !given.contains_key(name) {
                 let path = property_path(path, name);
                 return Err(format!("`{path}` is required"));
@@ -180,11 +237,16 @@ fn validate_value(schema: &Value, value: &Value, path: &str) -> Result<(), Strin
                         let mut known: Vec<&String> = properties.keys().collect();
                         known.sort();
                         let known: Vec<&str> = known.into_iter().map(String::as_str).collect();
-                        return Err(format!("this tool takes no argument `{name}` (it takes: {})", known.join(", ")));
+                        return Err(format!(
+                            "this tool takes no argument `{name}` (it takes: {})",
+                            known.join(", ")
+                        ));
                     }
                     return Err(format!("`{name_path}` is not allowed"));
                 }
-                None if schema["additionalProperties"].is_object() => validate_value(&schema["additionalProperties"], value, &name_path)?,
+                None if schema["additionalProperties"].is_object() => {
+                    validate_value(&schema["additionalProperties"], value, &name_path)?
+                }
                 None => {}
             }
         }
@@ -200,11 +262,17 @@ fn validate_value(schema: &Value, value: &Value, path: &str) -> Result<(), Strin
 }
 
 fn property_path(parent: &str, name: &str) -> String {
-    if parent.is_empty() { name.to_string() } else { format!("{parent}.{name}") }
+    if parent.is_empty() {
+        name.to_string()
+    } else {
+        format!("{parent}.{name}")
+    }
 }
 
 fn array_of_strings(schema: &Value) -> bool {
-    schema["items"].as_object().is_some_and(|items| items.len() == 1 && items.get("type").and_then(Value::as_str) == Some("string"))
+    schema["items"].as_object().is_some_and(|items| {
+        items.len() == 1 && items.get("type").and_then(Value::as_str) == Some("string")
+    })
 }
 
 fn error_response(id: Value, code: i64, message: &str) -> Value {
@@ -230,7 +298,13 @@ fn tool_result(outcome: Result<Value, String>, protocol: &str) -> Value {
 
 // ---- tool definitions -----------------------------------------------------------------------
 
-fn tool(name: &str, description: &str, properties: Value, required: &[&str], read_only: bool) -> Value {
+fn tool(
+    name: &str,
+    description: &str,
+    properties: Value,
+    required: &[&str],
+    read_only: bool,
+) -> Value {
     json!({
         "name": name,
         "description": description,
@@ -844,19 +918,28 @@ fn call_tool(root: &Path, name: &str, arguments: &Value) -> Option<Result<Value,
     };
     Some(outcome.map(|mut value| {
         if let Some(object) = value.as_object_mut() {
-            object.insert("duration_ms".to_string(), json!(started.elapsed().as_millis() as u64));
+            object.insert(
+                "duration_ms".to_string(),
+                json!(started.elapsed().as_millis() as u64),
+            );
         }
         value
     }))
 }
 
-fn with_solution(root: &Path, tool: impl FnOnce(&Solution) -> Result<Value, String>) -> Result<Value, String> {
+fn with_solution(
+    root: &Path,
+    tool: impl FnOnce(&Solution) -> Result<Value, String>,
+) -> Result<Value, String> {
     let solution = Solution::discover(root).map_err(|error| error.to_string())?;
     tool(&solution)
 }
 
 fn flag(arguments: &Value, name: &str, default: bool) -> bool {
-    arguments.get(name).and_then(Value::as_bool).unwrap_or(default)
+    arguments
+        .get(name)
+        .and_then(Value::as_bool)
+        .unwrap_or(default)
 }
 
 fn text<'a>(arguments: &'a Value, name: &str) -> Option<&'a str> {
@@ -864,19 +947,32 @@ fn text<'a>(arguments: &'a Value, name: &str) -> Option<&'a str> {
 }
 
 fn required<'a>(arguments: &'a Value, name: &str) -> Result<&'a str, String> {
-    text(arguments, name).filter(|v| !v.is_empty()).ok_or_else(|| format!("`{name}` is required"))
+    text(arguments, name)
+        .filter(|v| !v.is_empty())
+        .ok_or_else(|| format!("`{name}` is required"))
 }
 
 fn client(solution: &Solution, arguments: &Value) -> Result<server::Client, String> {
     let name = text(arguments, "profile").unwrap_or("default");
-    profile::load(&solution.root, name).map(server::Client::new).map_err(|error| error.to_string())
+    profile::load(&solution.root, name)
+        .map(server::Client::new)
+        .map_err(|error| error.to_string())
 }
 
 fn relative(solution: &Solution, path: &Path) -> String {
-    let text = path.strip_prefix(&solution.root).unwrap_or(path).display().to_string().replace('\\', "/");
+    let text = path
+        .strip_prefix(&solution.root)
+        .unwrap_or(path)
+        .display()
+        .to_string()
+        .replace('\\', "/");
     // A project at the solution root is `.`, as twaco.toml spells it, not an empty string.
     let text = text.trim_start_matches("./").to_string();
-    if text.is_empty() || text == "." { ".".to_string() } else { text }
+    if text.is_empty() || text == "." {
+        ".".to_string()
+    } else {
+        text
+    }
 }
 
 fn projects(solution: &Solution) -> Result<Value, String> {
@@ -934,15 +1030,19 @@ fn types_tool_with_compiler(
             .map_err(|e| e.to_string())?;
             let mut by_code = std::collections::BTreeMap::new();
             for finding in &outcome.findings {
-                *by_code.entry(format!("TS{}", finding.code)).or_insert(0usize) += 1;
+                *by_code
+                    .entry(format!("TS{}", finding.code))
+                    .or_insert(0usize) += 1;
             }
-            let findings = outcome.findings.iter().map(|finding| json!({
-                "file": finding.file,
-                "line": finding.line,
-                "column": finding.column,
-                "code": format!("TS{}", finding.code),
-                "message": finding.message,
-            }));
+            let findings = outcome.findings.iter().map(|finding| {
+                json!({
+                    "file": finding.file,
+                    "line": finding.line,
+                    "column": finding.column,
+                    "code": format!("TS{}", finding.code),
+                    "message": finding.message,
+                })
+            });
             let mut result = json!({
                 "ok": outcome.findings.is_empty(),
                 "findings": outcome.findings.len(),
@@ -969,7 +1069,9 @@ fn types_tool_with_compiler(
                 "skipped": outcome.skipped.into_iter().chain(outcome.types.skipped).collect::<Vec<_>>(),
             }))
         }
-        action => Err(format!("action must be generate, check or platform, not {action:?}")),
+        action => Err(format!(
+            "action must be generate, check or platform, not {action:?}"
+        )),
     }
 }
 
@@ -978,14 +1080,21 @@ fn run_gates(solution: &Solution, arguments: &Value, live: bool) -> check::Check
     let mut report = check::run(solution);
     if live {
         let built = client(solution, arguments);
-        let checker = built.as_ref().map(|c| c as &dyn check::ScriptChecker).map_err(Clone::clone);
+        let checker = built
+            .as_ref()
+            .map(|c| c as &dyn check::ScriptChecker)
+            .map_err(Clone::clone);
         report.gates.push(check::live_parse(solution, checker));
     }
     report
 }
 
 fn check_tool(solution: &Solution, arguments: &Value) -> Result<Value, String> {
-    let report = run_gates(solution, arguments, flag(arguments, "live", solution.gates.live));
+    let report = run_gates(
+        solution,
+        arguments,
+        flag(arguments, "live", solution.gates.live),
+    );
     let detail = flag(arguments, "detail", false);
     let gates: Vec<Value> = report
         .gates
@@ -1053,7 +1162,11 @@ fn status_tool(solution: &Solution, arguments: &Value) -> Result<Value, String> 
         return Err(format!(
             "nothing was recorded: {} entity read(s) failed: {}",
             failures.len(),
-            failures.iter().map(|f| f.to_string()).collect::<Vec<_>>().join("; ")
+            failures
+                .iter()
+                .map(|f| f.to_string())
+                .collect::<Vec<_>>()
+                .join("; ")
         ));
     }
     let recorded = if record {
@@ -1063,8 +1176,10 @@ fn status_tool(solution: &Solution, arguments: &Value) -> Result<Value, String> 
     } else {
         None
     };
-    let counts: Map<String, Value> =
-        status::counts(&statuses).into_iter().map(|(v, n)| (v.label().to_string(), json!(n))).collect();
+    let counts: Map<String, Value> = status::counts(&statuses)
+        .into_iter()
+        .map(|(v, n)| (v.label().to_string(), json!(n)))
+        .collect();
     let detail = flag(arguments, "detail", false);
     let listed: Vec<Value> = statuses
         .iter()
@@ -1094,7 +1209,10 @@ fn status_tool(solution: &Solution, arguments: &Value) -> Result<Value, String> 
 }
 
 /// The entities a tool acts on: one by name, or all of one project, or all of the solution.
-fn chosen_entities(solution: &Solution, arguments: &Value) -> Result<(Vec<workspace::EntityFile>, Vec<String>, bool), String> {
+fn chosen_entities(
+    solution: &Solution,
+    arguments: &Value,
+) -> Result<(Vec<workspace::EntityFile>, Vec<String>, bool), String> {
     let found = workspace::discover(solution);
     let mut pool = found.entities;
     if let Some(project) = text(arguments, "project") {
@@ -1109,10 +1227,18 @@ fn chosen_entities(solution: &Solution, arguments: &Value) -> Result<(Vec<worksp
 
 /// One entity by name, or every one with `all: true`; as on the command line, neither is refused,
 /// so a forgotten argument never widens a write to the whole solution.
-fn pick(pool: Vec<workspace::EntityFile>, arguments: &Value) -> Result<(Vec<workspace::EntityFile>, bool), String> {
+fn pick(
+    pool: Vec<workspace::EntityFile>,
+    arguments: &Value,
+) -> Result<(Vec<workspace::EntityFile>, bool), String> {
     match (text(arguments, "entity"), flag(arguments, "all", false)) {
         (Some(_), true) => Err("name an entity or pass all: true, not both".to_string()),
-        (Some(name), false) => Ok((vec![workspace::resolve(&pool, name).map_err(|e| e.to_string())?.clone()], true)),
+        (Some(name), false) => Ok((
+            vec![workspace::resolve(&pool, name)
+                .map_err(|e| e.to_string())?
+                .clone()],
+            true,
+        )),
         (None, true) => Ok((pool, false)),
         (None, false) => Err("name an entity, or pass all: true".to_string()),
     }
@@ -1195,7 +1321,13 @@ fn strings(arguments: &Value, name: &str) -> Vec<String> {
     arguments
         .get(name)
         .and_then(Value::as_array)
-        .map(|items| items.iter().filter_map(Value::as_str).map(str::to_string).collect())
+        .map(|items| {
+            items
+                .iter()
+                .filter_map(Value::as_str)
+                .map(str::to_string)
+                .collect()
+        })
         .unwrap_or_default()
 }
 
@@ -1218,7 +1350,9 @@ fn deploy_tool(solution: &Solution, arguments: &Value) -> Result<Value, String> 
                 .gates
                 .iter()
                 .filter(|g| g.blocks())
-                .map(|g| json!({ "gate": g.name, "findings": g.findings.len(), "broken": g.broken }))
+                .map(
+                    |g| json!({ "gate": g.name, "findings": g.findings.len(), "broken": g.broken }),
+                )
                 .collect();
             return Ok(json!({
                 "ok": false,
@@ -1242,7 +1376,8 @@ fn deploy_tool(solution: &Solution, arguments: &Value) -> Result<Value, String> 
     let profile = profile::load(&solution.root, name).map_err(|e| e.to_string())?;
     let client = server::Client::new(profile.clone());
     let saved = if !dry_run && force && flag(arguments, "backup", true) {
-        backup::before_forced_deploy(&client, solution, &projects, &backup::new_stamp()).map_err(|e| e.to_string())?
+        backup::before_forced_deploy(&client, solution, &projects, &backup::new_stamp())
+            .map_err(|e| e.to_string())?
     } else {
         None
     };
@@ -1291,8 +1426,11 @@ fn deploy_tool(solution: &Solution, arguments: &Value) -> Result<Value, String> 
             if !dry_run {
                 value["imported"] = json!(report.imported);
                 value["kept"] = json!(report.kept.len());
-                value["changed_by_deploy_step"] =
-                    json!(report.changed_by_deploy.iter().map(|(c, n)| format!("{c}/{n}")).collect::<Vec<_>>());
+                value["changed_by_deploy_step"] = json!(report
+                    .changed_by_deploy
+                    .iter()
+                    .map(|(c, n)| format!("{c}/{n}"))
+                    .collect::<Vec<_>>());
             }
             if detail {
                 value["plans"] = json!(report
@@ -1369,8 +1507,11 @@ fn push_tool(solution: &Solution, arguments: &Value) -> Result<Value, String> {
         Some(lock::acquire_for(solution, "mcp push").map_err(|e| e.to_string())?)
     };
     let found = workspace::discover(solution).entities;
-    let entity = workspace::resolve(&found, name).map_err(|e| e.to_string())?.clone();
-    let bytes = std::fs::read(&entity.path).map_err(|e| format!("{}: {e}", entity.path.display()))?;
+    let entity = workspace::resolve(&found, name)
+        .map_err(|e| e.to_string())?
+        .clone();
+    let bytes =
+        std::fs::read(&entity.path).map_err(|e| format!("{}: {e}", entity.path.display()))?;
     let file_name = entity
         .path
         .file_name()
@@ -1388,24 +1529,37 @@ fn push_tool(solution: &Solution, arguments: &Value) -> Result<Value, String> {
     };
     let label = format!("{}/{}", entity.info.collection, entity.info.name);
     let saved = if !dry_run && force && flag(arguments, "backup", true) {
-        backup::before_forced_push(&client, solution, &target, &backup::new_stamp()).map_err(|e| format!("{label}: {e}"))?
+        backup::before_forced_push(&client, solution, &target, &backup::new_stamp())
+            .map_err(|e| format!("{label}: {e}"))?
     } else {
         None
     };
-    let outcome = push::push(&client, &solution.root, &target, !dry_run, force).map_err(|e| format!("{label}: {e}"))?;
+    let outcome = push::push(&client, &solution.root, &target, !dry_run, force)
+        .map_err(|e| format!("{label}: {e}"))?;
     let mut result = match outcome {
         push::Outcome::WouldDo(decision) => {
             let (would, refusal) = match &decision {
-                push::Decision::AlreadyThere => ("nothing: the server already has this version", None),
+                push::Decision::AlreadyThere => {
+                    ("nothing: the server already has this version", None)
+                }
                 push::Decision::Create => ("create it on the server", None),
-                push::Decision::Update => ("update it; the server is unchanged since the last sync", None),
+                push::Decision::Update => (
+                    "update it; the server is unchanged since the last sync",
+                    None,
+                ),
                 push::Decision::Refuse(refusal) => ("refuse", Some(refusal.to_string())),
             };
             json!({ "entity": label, "dry_run": true, "would": would, "refusal": refusal, "force": force })
         }
-        push::Outcome::AlreadyThere => json!({ "entity": label, "dry_run": false, "pushed": false, "note": "the server already has this version; baseline recorded" }),
-        push::Outcome::Pushed { created } => json!({ "entity": label, "dry_run": false, "pushed": true, "created": created, "note": "read back and matching; baseline recorded" }),
-        push::Outcome::Refused(refusal) => json!({ "entity": label, "dry_run": false, "pushed": false, "refusal": refusal.to_string(), "note": "nothing was sent; force: true pushes anyway" }),
+        push::Outcome::AlreadyThere => {
+            json!({ "entity": label, "dry_run": false, "pushed": false, "note": "the server already has this version; baseline recorded" })
+        }
+        push::Outcome::Pushed { created } => {
+            json!({ "entity": label, "dry_run": false, "pushed": true, "created": created, "note": "read back and matching; baseline recorded" })
+        }
+        push::Outcome::Refused(refusal) => {
+            json!({ "entity": label, "dry_run": false, "pushed": false, "refusal": refusal.to_string(), "note": "nothing was sent; force: true pushes anyway" })
+        }
     };
     if let Some(dir) = saved {
         result["backup"] = json!(dir);
@@ -1424,7 +1578,11 @@ fn entity_delete_tool(solution: &Solution, arguments: &Value) -> Result<Value, S
     let entities = strings(arguments, "entities");
     let prepared = entity_delete::prepare(solution, &entities, flag(arguments, "renamed", false))
         .map_err(|error| error.to_string())?;
-    let prepared = if flag(arguments, "backup", true) { prepared.with_backup(&backup::new_stamp()) } else { prepared };
+    let prepared = if flag(arguments, "backup", true) {
+        prepared.with_backup(&backup::new_stamp())
+    } else {
+        prepared
+    };
     let _lock = if prepared.ledger_will_be_written(!dry_run) {
         Some(lock::acquire_for(solution, "mcp entity_delete").map_err(|error| error.to_string())?)
     } else {
@@ -1432,15 +1590,8 @@ fn entity_delete_tool(solution: &Solution, arguments: &Value) -> Result<Value, S
     };
     let client = client(solution, arguments)?;
     let date = jiff::Zoned::now().strftime("%Y-%m-%d").to_string();
-    let report = entity_delete::run(
-        &client,
-        solution,
-        prepared,
-        !dry_run,
-        acknowledged,
-        &date,
-    )
-    .map_err(|error| error.to_string())?;
+    let report = entity_delete::run(&client, solution, prepared, !dry_run, acknowledged, &date)
+        .map_err(|error| error.to_string())?;
     let mut result = json!({
         "ok": !report.failed(),
         "entities": report.entities,
@@ -1466,7 +1617,8 @@ fn move_member_tool(solution: &Solution, arguments: &Value) -> Result<Value, Str
         return Err(format!("unknown action `{action}`; use `move` or `copy`"));
     }
     let kind = required(arguments, "kind")?;
-    let member = relocate::Member::from_word(kind).ok_or_else(|| format!("unknown kind `{kind}`; use `service` or `property`"))?;
+    let member = relocate::Member::from_word(kind)
+        .ok_or_else(|| format!("unknown kind `{kind}`; use `service` or `property`"))?;
     let request = relocate::Request {
         member,
         copy: action == "copy",
@@ -1476,7 +1628,11 @@ fn move_member_tool(solution: &Solution, arguments: &Value) -> Result<Value, Str
         new_name: text(arguments, "new_name").map(str::to_string),
         leave_delegate: flag(arguments, "leave_delegate", false),
     };
-    let _lock = if dry_run { None } else { Some(lock::acquire_for(solution, "mcp move_member").map_err(|error| error.to_string())?) };
+    let _lock = if dry_run {
+        None
+    } else {
+        Some(lock::acquire_for(solution, "mcp move_member").map_err(|error| error.to_string())?)
+    };
     let plan = relocate::plan(solution, &request).map_err(|error| error.to_string())?;
     let mut problems = Vec::new();
     if !dry_run {
@@ -1494,21 +1650,33 @@ fn move_member_tool(solution: &Solution, arguments: &Value) -> Result<Value, Str
 
 fn new_building_block_tool(solution: &Solution, arguments: &Value) -> Result<Value, String> {
     let dry_run = flag(arguments, "dry_run", true);
-    let _lock = if dry_run { None } else { Some(lock::acquire_for(solution, "mcp new_building_block").map_err(|error| error.to_string())?) };
+    let _lock = if dry_run {
+        None
+    } else {
+        Some(
+            lock::acquire_for(solution, "mcp new_building_block")
+                .map_err(|error| error.to_string())?,
+        )
+    };
     let reloaded;
     let solution = if dry_run {
         solution
     } else {
-        reloaded = Solution::load(&solution.root.join(crate::core::config::CONFIG_FILE)).map_err(|error| error.to_string())?;
+        reloaded = Solution::load(&solution.root.join(crate::core::config::CONFIG_FILE))
+            .map_err(|error| error.to_string())?;
         &reloaded
     };
     let kind_word = text(arguments, "type").unwrap_or("standard");
-    let kind = newblock::BlockType::from_word(kind_word).ok_or_else(|| format!("unknown type `{kind_word}`; use standard, abstract or implementation"))?;
+    let kind = newblock::BlockType::from_word(kind_word).ok_or_else(|| {
+        format!("unknown type `{kind_word}`; use standard, abstract or implementation")
+    })?;
     let request = newblock::Request {
         name: required(arguments, "name")?.to_string(),
         kind,
         display_name: text(arguments, "display_name").map(str::to_string),
-        description: text(arguments, "description").unwrap_or_default().to_string(),
+        description: text(arguments, "description")
+            .unwrap_or_default()
+            .to_string(),
         parent: text(arguments, "parent").map(str::to_string),
         model_logic: flag(arguments, "model_logic", false),
         management_shape: flag(arguments, "management_shape", true),
@@ -1519,7 +1687,18 @@ fn new_building_block_tool(solution: &Solution, arguments: &Value) -> Result<Val
     if !dry_run {
         newblock::apply(solution, &plan).map_err(|error| error.to_string())?;
     }
-    let files: Vec<String> = plan.files.iter().map(|file| file.path.strip_prefix(&solution.root).unwrap_or(&file.path).display().to_string().replace('\\', "/")).collect();
+    let files: Vec<String> = plan
+        .files
+        .iter()
+        .map(|file| {
+            file.path
+                .strip_prefix(&solution.root)
+                .unwrap_or(&file.path)
+                .display()
+                .to_string()
+                .replace('\\', "/")
+        })
+        .collect();
     let mut result = json!({
         "ok": true, "name": request.name, "type": request.kind.word(), "root": plan.root,
         "files": files, "twaco_toml": plan.config_addition, "notes": plan.notes,
@@ -1537,7 +1716,11 @@ fn retemplate_tool(solution: &Solution, arguments: &Value) -> Result<Value, Stri
         remove_shapes: strings(arguments, "remove_shapes"),
         accept_loss: flag(arguments, "accept_loss", false),
     };
-    let _lock = if dry_run { None } else { Some(lock::acquire_for(solution, "mcp retemplate").map_err(|error| error.to_string())?) };
+    let _lock = if dry_run {
+        None
+    } else {
+        Some(lock::acquire_for(solution, "mcp retemplate").map_err(|error| error.to_string())?)
+    };
     let plan = retemplate::plan(solution, &request).map_err(|error| error.to_string())?;
     if !dry_run {
         retemplate::apply(&plan).map_err(|error| error.to_string())?;
@@ -1562,8 +1745,11 @@ fn entity_restore_tool(solution: &Solution, arguments: &Value) -> Result<Value, 
     let dry_run = flag(arguments, "dry_run", true);
     let set = backup::find(solution, id).map_err(|error| error.to_string())?;
     let client = client(solution, arguments)?;
-    let report = backup::restore(&client, &set, &strings(arguments, "entities"), !dry_run).map_err(|error| error.to_string())?;
-    let failed = report.iter().any(|entry| entry.status == backup::Status::Failed);
+    let report = backup::restore(&client, &set, &strings(arguments, "entities"), !dry_run)
+        .map_err(|error| error.to_string())?;
+    let failed = report
+        .iter()
+        .any(|entry| entry.status == backup::Status::Failed);
     let mut result = json!({ "ok": !failed, "set": set.id, "entities": report });
     result[if dry_run { "plan" } else { "applied" }] = json!(true);
     Ok(result)
@@ -1572,7 +1758,8 @@ fn entity_restore_tool(solution: &Solution, arguments: &Value) -> Result<Value, 
 fn entity_carry_tool(solution: &Solution, arguments: &Value) -> Result<Value, String> {
     let dry_run = flag(arguments, "dry_run", true);
     let renamed = flag(arguments, "renamed", false);
-    let pairs = entity_carry::pairs_from_names(&strings(arguments, "pairs")).map_err(|error| error.to_string())?;
+    let pairs = entity_carry::pairs_from_names(&strings(arguments, "pairs"))
+        .map_err(|error| error.to_string())?;
     let _lock = if !dry_run && renamed {
         Some(lock::acquire_for(solution, "mcp entity_carry").map_err(|error| error.to_string())?)
     } else {
@@ -1580,9 +1767,19 @@ fn entity_carry_tool(solution: &Solution, arguments: &Value) -> Result<Value, St
     };
     let client = client(solution, arguments)?;
     let date = jiff::Zoned::now().strftime("%Y-%m-%d").to_string();
-    let request = entity_carry::Request { pairs, renamed, apply: !dry_run, detail: flag(arguments, "detail", false) };
-    let report = entity_carry::run(&client, solution, &request, &date).map_err(|error| error.to_string())?;
-    let failed = !dry_run && report.entities.iter().any(|entity| entity.status == entity_carry::Status::Failed);
+    let request = entity_carry::Request {
+        pairs,
+        renamed,
+        apply: !dry_run,
+        detail: flag(arguments, "detail", false),
+    };
+    let report =
+        entity_carry::run(&client, solution, &request, &date).map_err(|error| error.to_string())?;
+    let failed = !dry_run
+        && report
+            .entities
+            .iter()
+            .any(|entity| entity.status == entity_carry::Status::Failed);
     let mut result = json!({ "ok": !failed, "entities": report.entities });
     result[if dry_run { "plan" } else { "applied" }] = json!(true);
     if report.ledger_changed {
@@ -1593,15 +1790,30 @@ fn entity_carry_tool(solution: &Solution, arguments: &Value) -> Result<Value, St
 
 fn datatable_copy_tool(solution: &Solution, arguments: &Value) -> Result<Value, String> {
     let dry_run = flag(arguments, "dry_run", true);
-    let name = |key: &str| text(arguments, key).filter(|value| !value.is_empty()).map(str::to_string).ok_or_else(|| format!("`{key}` is required"));
+    let name = |key: &str| {
+        text(arguments, key)
+            .filter(|value| !value.is_empty())
+            .map(str::to_string)
+            .ok_or_else(|| format!("`{key}` is required"))
+    };
     let mut map = std::collections::BTreeMap::new();
-    for (from, to) in arguments.get("map").and_then(Value::as_object).into_iter().flatten() {
-        let to = to.as_str().ok_or_else(|| format!("map.{from} must be a field name"))?;
+    for (from, to) in arguments
+        .get("map")
+        .and_then(Value::as_object)
+        .into_iter()
+        .flatten()
+    {
+        let to = to
+            .as_str()
+            .ok_or_else(|| format!("map.{from} must be a field name"))?;
         map.insert(from.clone(), to.to_string());
     }
     let max_rows = match arguments.get("max_rows") {
         None => 100_000,
-        Some(value) => value.as_u64().filter(|value| *value > 0).ok_or("`max_rows` must be a positive whole number")?,
+        Some(value) => value
+            .as_u64()
+            .filter(|value| *value > 0)
+            .ok_or("`max_rows` must be a positive whole number")?,
     };
     let request = datatable_copy::Request {
         old: name("old")?,
@@ -1613,7 +1825,8 @@ fn datatable_copy_tool(solution: &Solution, arguments: &Value) -> Result<Value, 
         apply: !dry_run,
     };
     let client = client(solution, arguments)?;
-    let report = datatable_copy::run(&client, solution, &request).map_err(|error| error.to_string())?;
+    let report =
+        datatable_copy::run(&client, solution, &request).map_err(|error| error.to_string())?;
     let mut result = json!({ "ok": true, "report": report });
     result[if dry_run { "plan" } else { "applied" }] = json!(true);
     Ok(result)
@@ -1623,7 +1836,9 @@ fn db_clean_tool(solution: &Solution, arguments: &Value) -> Result<Value, String
     let dry_run = flag(arguments, "dry_run", true);
     let client = client(solution, arguments)?;
     let swept = db::sweep(&client, !dry_run).map_err(|error| error.to_string())?;
-    let failed = swept.iter().any(|thing| thing.status == db::SweepStatus::Failed);
+    let failed = swept
+        .iter()
+        .any(|thing| thing.status == db::SweepStatus::Failed);
     let mut result = json!({ "ok": !failed, "things": swept });
     result[if dry_run { "plan" } else { "applied" }] = json!(true);
     Ok(result)
@@ -1633,9 +1848,12 @@ fn db_tool(solution: &Solution, arguments: &Value, mode: db::Mode) -> Result<Val
     let sql = match (text(arguments, "file"), text(arguments, "sql")) {
         (Some(file), None) if !file.is_empty() => {
             let candidate = solution.root.join(file);
-            let real = std::fs::canonicalize(&candidate).map_err(|error| format!("{file}: {error}"))?;
+            let real =
+                std::fs::canonicalize(&candidate).map_err(|error| format!("{file}: {error}"))?;
             let root = std::fs::canonicalize(&solution.root).map_err(|error| error.to_string())?;
-            if !real.starts_with(&root) { return Err(format!("{file} is outside the solution")); }
+            if !real.starts_with(&root) {
+                return Err(format!("{file} is outside the solution"));
+            }
             std::fs::read_to_string(&real).map_err(|error| format!("{file}: {error}"))?
         }
         (None, Some(sql)) if !sql.is_empty() => sql.to_string(),
@@ -1644,14 +1862,17 @@ fn db_tool(solution: &Solution, arguments: &Value, mode: db::Mode) -> Result<Val
     let positive = |name: &str, default: u64| -> Result<u64, String> {
         match arguments.get(name) {
             None => Ok(default),
-            Some(value) => value.as_u64().filter(|value| *value > 0)
+            Some(value) => value
+                .as_u64()
+                .filter(|value| *value > 0)
                 .ok_or_else(|| format!("`{name}` must be a positive whole number")),
         }
     };
     let timeout = positive("timeout", 120)?;
     let max_rows = positive("max_rows", 500)?;
     let profile_name = text(arguments, "profile").unwrap_or("default");
-    let selected = profile::load(&solution.root, profile_name).map_err(|error| error.to_string())?;
+    let selected =
+        profile::load(&solution.root, profile_name).map_err(|error| error.to_string())?;
     let client = server::Client::new(selected.clone());
     let options = db::Options {
         mode,
@@ -1661,20 +1882,34 @@ fn db_tool(solution: &Solution, arguments: &Value, mode: db::Mode) -> Result<Val
         max_rows,
         timeout: Duration::from_secs(timeout),
     };
-    let report = db::execute(&client, solution, &selected, &sql, &options).map_err(|error| error.to_string())?;
+    let report = db::execute(&client, solution, &selected, &sql, &options)
+        .map_err(|error| error.to_string())?;
     let mut value = serde_json::to_value(report).expect("db report serialises");
     if mode == db::Mode::Query {
         if let Some(result) = value.get_mut("result").and_then(Value::as_object_mut) {
-            let total = result.get("rows").and_then(Value::as_array).map(Vec::len).unwrap_or(0);
-            let columns: Vec<String> = result.get("dataShape")
+            let total = result
+                .get("rows")
+                .and_then(Value::as_array)
+                .map(Vec::len)
+                .unwrap_or(0);
+            let columns: Vec<String> = result
+                .get("dataShape")
                 .and_then(|shape| shape.get("fieldDefinitions"))
                 .and_then(Value::as_object)
                 .map(|fields| fields.keys().cloned().collect())
-                .or_else(|| result.get("rows").and_then(Value::as_array).and_then(|rows| rows.first())
-                    .and_then(Value::as_object).map(|row| row.keys().cloned().collect()))
+                .or_else(|| {
+                    result
+                        .get("rows")
+                        .and_then(Value::as_array)
+                        .and_then(|rows| rows.first())
+                        .and_then(Value::as_object)
+                        .map(|row| row.keys().cloned().collect())
+                })
                 .unwrap_or_default();
             if !flag(arguments, "detail", false) {
-                if let Some(rows) = result.get_mut("rows").and_then(Value::as_array_mut) { rows.truncate(20); }
+                if let Some(rows) = result.get_mut("rows").and_then(Value::as_array_mut) {
+                    rows.truncate(20);
+                }
             }
             result.insert("total_rows".to_string(), json!(total));
             result.insert("columns".to_string(), json!(columns));
@@ -1687,12 +1922,22 @@ fn adopt_apply_tool(solution: &Solution, arguments: &Value) -> Result<Value, Str
     let export = required(arguments, "export")?;
     let export = {
         let path = PathBuf::from(export);
-        if path.is_absolute() { path } else { solution.root.join(path) }
+        if path.is_absolute() {
+            path
+        } else {
+            solution.root.join(path)
+        }
     };
     let only: Vec<String> = arguments
         .get("entity")
         .and_then(Value::as_array)
-        .map(|items| items.iter().filter_map(Value::as_str).map(str::to_string).collect())
+        .map(|items| {
+            items
+                .iter()
+                .filter_map(Value::as_str)
+                .map(str::to_string)
+                .collect()
+        })
         .unwrap_or_default();
     let _lock = lock::acquire_for(solution, "mcp adopt_apply").map_err(|e| e.to_string())?;
     let report = adopt::compare(solution, &export, &only).map_err(|e| e.to_string())?;
@@ -1710,12 +1955,22 @@ fn adopt_tool(solution: &Solution, arguments: &Value) -> Result<Value, String> {
     let export = required(arguments, "export")?;
     let export = {
         let path = PathBuf::from(export);
-        if path.is_absolute() { path } else { solution.root.join(path) }
+        if path.is_absolute() {
+            path
+        } else {
+            solution.root.join(path)
+        }
     };
     let only: Vec<String> = arguments
         .get("entity")
         .and_then(Value::as_array)
-        .map(|items| items.iter().filter_map(Value::as_str).map(str::to_string).collect())
+        .map(|items| {
+            items
+                .iter()
+                .filter_map(Value::as_str)
+                .map(str::to_string)
+                .collect()
+        })
         .unwrap_or_default();
     let report = adopt::compare(solution, &export, &only).map_err(|e| e.to_string())?;
     let detail = flag(arguments, "detail", false);
@@ -1763,8 +2018,12 @@ fn adopt_tool(solution: &Solution, arguments: &Value) -> Result<Value, String> {
 
 fn rename_tool(solution: &Solution, arguments: &Value) -> Result<Value, String> {
     let word = required(arguments, "kind")?;
-    let kind = rename::Kind::from_word(word)
-        .ok_or_else(|| format!("unknown rename kind `{word}`; use {}", rename::Kind::list_words()))?;
+    let kind = rename::Kind::from_word(word).ok_or_else(|| {
+        format!(
+            "unknown rename kind `{word}`; use {}",
+            rename::Kind::list_words()
+        )
+    })?;
     let dry_run = flag(arguments, "dry_run", true);
     let request = rename::Request {
         kind,
@@ -1790,7 +2049,12 @@ fn rename_tool(solution: &Solution, arguments: &Value) -> Result<Value, String> 
         Some(lock::acquire_for(solution, "mcp rename").map_err(|error| error.to_string())?)
     };
     let outcome = rename::run(solution, &spec, &options).map_err(|error| error.to_string())?;
-    Ok(rename::summary_json(solution, &outcome, options.include_outside, 10))
+    Ok(rename::summary_json(
+        solution,
+        &outcome,
+        options.include_outside,
+        10,
+    ))
 }
 
 fn config_table_tool(solution: &Solution, arguments: &Value) -> Result<Value, String> {
@@ -1811,17 +2075,24 @@ fn config_table_tool(solution: &Solution, arguments: &Value) -> Result<Value, St
         Err(workspace::WorkspaceError::UnknownEntity { .. }) => None,
         Err(error) => return Err(error.to_string()),
     };
-    let thing = resolved.map(|e| e.info.name.clone()).unwrap_or_else(|| thing_arg.to_string());
+    let thing = resolved
+        .map(|e| e.info.name.clone())
+        .unwrap_or_else(|| thing_arg.to_string());
     let client = client(solution, arguments)?;
     if action == "restore" {
         let backup = required(arguments, "backup")?;
         let backup = {
             let path = PathBuf::from(backup);
-            if path.is_absolute() { path } else { solution.root.join(path) }
+            if path.is_absolute() {
+                path
+            } else {
+                solution.root.join(path)
+            }
         };
         let saved = config_table::read_backup(&backup, &thing, table).map_err(|e| e.to_string())?;
         let dry_run = flag(arguments, "dry_run", true);
-        let plan = config_table::restore(&client, &thing, table, &saved, !dry_run).map_err(|e| e.to_string())?;
+        let plan = config_table::restore(&client, &thing, table, &saved, !dry_run)
+            .map_err(|e| e.to_string())?;
         return Ok(json!({
             "thing": thing,
             "table": table,
@@ -1842,15 +2113,27 @@ fn config_table_tool(solution: &Solution, arguments: &Value) -> Result<Value, St
                 "rows": live.rows.len(),
                 "primary_key": key,
             });
-            result[if detail { "values" } else { "first_rows" }] =
-                json!(live.rows.iter().take(if detail { usize::MAX } else { 3 }).collect::<Vec<_>>());
+            result[if detail { "values" } else { "first_rows" }] = json!(live
+                .rows
+                .iter()
+                .take(if detail { usize::MAX } else { 3 })
+                .collect::<Vec<_>>());
             Ok(result)
         }
         "diff" => {
-            let entity = resolved.ok_or_else(|| format!("{thing_arg} is not an entity of this solution"))?;
-            let src = std::fs::read(&entity.path).map_err(|e| format!("{}: {e}", entity.path.display()))?;
-            let repository = config_table::repository_rows(&src, table).map_err(|e| e.to_string())?;
-            let differences = config_table::differences("server", &live.rows, "source control", &repository, &key);
+            let entity =
+                resolved.ok_or_else(|| format!("{thing_arg} is not an entity of this solution"))?;
+            let src = std::fs::read(&entity.path)
+                .map_err(|e| format!("{}: {e}", entity.path.display()))?;
+            let repository =
+                config_table::repository_rows(&src, table).map_err(|e| e.to_string())?;
+            let differences = config_table::differences(
+                "server",
+                &live.rows,
+                "source control",
+                &repository,
+                &key,
+            );
             Ok(json!({
                 "thing": thing,
                 "table": table,
@@ -1859,7 +2142,9 @@ fn config_table_tool(solution: &Solution, arguments: &Value) -> Result<Value, St
                 "differences": differences,
             }))
         }
-        other => Err(format!("action must be read, diff or restore, not {other:?}")),
+        other => Err(format!(
+            "action must be read, diff or restore, not {other:?}"
+        )),
     }
 }
 
@@ -1875,8 +2160,18 @@ fn repo_tool(solution: &Solution, arguments: &Value) -> Result<Value, String> {
     match action {
         "ls" => {
             let folder = text(arguments, "path").unwrap_or("/");
-            let listing = repo::list(&client, repository, folder, flag(arguments, "recursive", false)).map_err(|e| e.to_string())?;
-            let shown = if flag(arguments, "detail", false) { usize::MAX } else { 200 };
+            let listing = repo::list(
+                &client,
+                repository,
+                folder,
+                flag(arguments, "recursive", false),
+            )
+            .map_err(|e| e.to_string())?;
+            let shown = if flag(arguments, "detail", false) {
+                usize::MAX
+            } else {
+                200
+            };
             let mut result = json!({
                 "ok": true,
                 "repository": repository,
@@ -1889,14 +2184,20 @@ fn repo_tool(solution: &Solution, arguments: &Value) -> Result<Value, String> {
                 "file_count": listing.files.len(),
             });
             if listing.files.len() > shown {
-                result["note"] = json!(format!("{} files in all; detail: true lists every one", listing.files.len()));
+                result["note"] = json!(format!(
+                    "{} files in all; detail: true lists every one",
+                    listing.files.len()
+                ));
             }
             Ok(result)
         }
         "get" => {
             let path = required(arguments, "path")?;
             let bytes = repo::get(&client, repository, path).map_err(|e| e.to_string())?;
-            let max = arguments.get("max_chars").and_then(Value::as_u64).unwrap_or(100_000) as usize;
+            let max = arguments
+                .get("max_chars")
+                .and_then(Value::as_u64)
+                .unwrap_or(100_000) as usize;
             let digest = repo::sha256_hex(&bytes);
             match std::str::from_utf8(&bytes) {
                 Ok(text) => {
@@ -1911,7 +2212,9 @@ fn repo_tool(solution: &Solution, arguments: &Value) -> Result<Value, String> {
                     });
                     if total > max {
                         result["truncated"] = json!(true);
-                        result["note"] = json!(format!("{total} characters in all; raise max_chars, or `twaco repo get --out`"));
+                        result["note"] = json!(format!(
+                            "{total} characters in all; raise max_chars, or `twaco repo get --out`"
+                        ));
                     }
                     Ok(result)
                 }
@@ -1927,7 +2230,11 @@ fn repo_tool(solution: &Solution, arguments: &Value) -> Result<Value, String> {
             }
         }
         "status" => {
-            let local = repo::local_root(&solution.root, solution.repositories.root.as_deref(), repository);
+            let local = repo::local_root(
+                &solution.root,
+                solution.repositories.root.as_deref(),
+                repository,
+            );
             let compared = repo::status(&client, repository, &local).map_err(|e| e.to_string())?;
             let mut counts = std::collections::BTreeMap::new();
             for item in &compared {
@@ -1948,7 +2255,9 @@ fn repo_tool(solution: &Solution, arguments: &Value) -> Result<Value, String> {
                 (if detail { "files" } else { "attention" }): listed,
             }))
         }
-        other => Err(format!("action must be list, ls, get or status, not {other:?}")),
+        other => Err(format!(
+            "action must be list, ls, get or status, not {other:?}"
+        )),
     }
 }
 
@@ -1956,22 +2265,37 @@ fn repo_tool(solution: &Solution, arguments: &Value) -> Result<Value, String> {
 fn import_tool(solution: &Solution, arguments: &Value) -> Result<Value, String> {
     let client = client(solution, arguments)?;
     let dry_run = flag(arguments, "dry_run", true);
-    let (properties, tables) = (flag(arguments, "overwrite_properties", false), flag(arguments, "overwrite_tables", false));
+    let (properties, tables) = (
+        flag(arguments, "overwrite_properties", false),
+        flag(arguments, "overwrite_tables", false),
+    );
     let differs = |list: &[imports::Differs]| -> Vec<Value> {
-        list.iter().map(|d| json!({ "type": d.entity_type, "name": d.name, "what": d.what })).collect()
+        list.iter()
+            .map(|d| json!({ "type": d.entity_type, "name": d.name, "what": d.what }))
+            .collect()
     };
     match required(arguments, "action")? {
         "file" => {
             let relative = required(arguments, "file")?;
-            let real = std::fs::canonicalize(solution.root.join(relative)).map_err(|e| format!("{relative}: {e}"))?;
+            let real = std::fs::canonicalize(solution.root.join(relative))
+                .map_err(|e| format!("{relative}: {e}"))?;
             let root = std::fs::canonicalize(&solution.root).map_err(|e| e.to_string())?;
             if !real.starts_with(&root) {
                 return Err(format!("{relative} is outside the solution"));
             }
             let bytes = std::fs::read(&real).map_err(|e| format!("{relative}: {e}"))?;
-            let file_name = real.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_else(|| "import.xml".into());
-            let plan = imports::import_file(&client, &file_name, &bytes, properties, tables, !dry_run).map_err(|e| e.to_string())?;
-            let names = |list: &[(String, String)]| list.iter().map(|(c, n)| format!("{c}/{n}")).collect::<Vec<_>>();
+            let file_name = real
+                .file_name()
+                .map(|n| n.to_string_lossy().into_owned())
+                .unwrap_or_else(|| "import.xml".into());
+            let plan =
+                imports::import_file(&client, &file_name, &bytes, properties, tables, !dry_run)
+                    .map_err(|e| e.to_string())?;
+            let names = |list: &[(String, String)]| {
+                list.iter()
+                    .map(|(c, n)| format!("{c}/{n}"))
+                    .collect::<Vec<_>>()
+            };
             Ok(json!({
                 "ok": true,
                 "dry_run": dry_run,
@@ -1996,7 +2320,9 @@ fn import_tool(solution: &Solution, arguments: &Value) -> Result<Value, String> 
             }
             Ok(result)
         }
-        other => Err(format!("action must be file or source_control, not {other:?}")),
+        other => Err(format!(
+            "action must be file or source_control, not {other:?}"
+        )),
     }
 }
 
@@ -2024,13 +2350,21 @@ fn export_tool(solution: &Solution, arguments: &Value) -> Result<Value, String> 
         return Ok(json!({ "ok": true, "dry_run": dry_run, "change": plan, "download": link }));
     }
     let what = match action {
-        "entity" => export::What::entity(required(arguments, "entity")?).map_err(|e| e.to_string())?,
+        "entity" => {
+            export::What::entity(required(arguments, "entity")?).map_err(|e| e.to_string())?
+        }
         "collection" => export::What::Collection {
             collection: required(arguments, "collection")?.to_string(),
             project: text(arguments, "project").map(str::to_string),
         },
-        "project" => export::What::Project { project: required(arguments, "project")?.to_string() },
-        other => return Err(format!("action must be entity, collection, project or source_control, not {other:?}")),
+        "project" => export::What::Project {
+            project: required(arguments, "project")?.to_string(),
+        },
+        other => {
+            return Err(format!(
+                "action must be entity, collection, project or source_control, not {other:?}"
+            ))
+        }
     };
     let relative = required(arguments, "out")?;
     let out = out_path(solution, relative, flag(arguments, "overwrite", false))?;
@@ -2049,24 +2383,37 @@ fn export_tool(solution: &Solution, arguments: &Value) -> Result<Value, String> 
 
 /// A file to write, given relative to the solution: a plain path whose nearest existing folder
 /// is really inside the solution, and not an existing file unless overwriting.
-fn out_path(solution: &Solution, relative: &str, overwrite: bool) -> Result<std::path::PathBuf, String> {
+fn out_path(
+    solution: &Solution,
+    relative: &str,
+    overwrite: bool,
+) -> Result<std::path::PathBuf, String> {
     // Only plain names: `\\x` or `C:x` is not absolute to Rust on Windows, yet joins outside.
     let plain = std::path::Path::new(relative)
         .components()
         .all(|c| matches!(c, std::path::Component::Normal(_)));
     if !plain || relative.trim().is_empty() {
-        return Err(format!("{relative} must be a plain path inside the solution"));
+        return Err(format!(
+            "{relative} must be a plain path inside the solution"
+        ));
     }
     let out = solution.root.join(relative);
     // And no link along the way may lead out: the nearest folder that exists must be inside.
     let root = std::fs::canonicalize(&solution.root).map_err(|e| e.to_string())?;
-    let existing = out.ancestors().skip(1).find(|a| a.exists()).unwrap_or(&solution.root);
-    let real = std::fs::canonicalize(existing).map_err(|e| format!("{}: {e}", existing.display()))?;
+    let existing = out
+        .ancestors()
+        .skip(1)
+        .find(|a| a.exists())
+        .unwrap_or(&solution.root);
+    let real =
+        std::fs::canonicalize(existing).map_err(|e| format!("{}: {e}", existing.display()))?;
     if !real.starts_with(&root) {
         return Err(format!("{relative} leads outside the solution"));
     }
     if out.exists() && !overwrite {
-        return Err(format!("{relative} exists; pass overwrite: true to replace it"));
+        return Err(format!(
+            "{relative} exists; pass overwrite: true to replace it"
+        ));
     }
     Ok(out)
 }
@@ -2083,14 +2430,22 @@ fn package_tool(solution: &Solution, arguments: &Value) -> Result<Value, String>
                 "all" => package::Part::All,
                 "backend" => package::Part::Backend,
                 "frontend" => package::Part::Frontend,
-                other => return Err(format!("part must be all, backend or frontend, not {other:?}")),
+                other => {
+                    return Err(format!(
+                        "part must be all, backend or frontend, not {other:?}"
+                    ))
+                }
             };
             let built = package::bundle(solution, project, part).map_err(|e| e.to_string())?;
             let count: usize = built.entities.values().sum();
-            (built.bytes, json!({ "entities": count, "files": built.files }))
+            (
+                built.bytes,
+                json!({ "entities": count, "files": built.files }),
+            )
         }
         "source_control" => {
-            let (bytes, count) = package::source_control(solution, project).map_err(|e| e.to_string())?;
+            let (bytes, count) =
+                package::source_control(solution, project).map_err(|e| e.to_string())?;
             (bytes, json!({ "entities": count }))
         }
         "extension" => {
@@ -2098,17 +2453,32 @@ fn package_tool(solution: &Solution, arguments: &Value) -> Result<Value, String>
             let editable = flag(arguments, "editable", false);
             match project {
                 Some(project) => {
-                    let (bytes, count) = package::extension(solution, project, editable, &meta).map_err(|e| e.to_string())?;
-                    (bytes, json!({ "editable": editable, "version": meta.version, "entities": count }))
+                    let (bytes, count) = package::extension(solution, project, editable, &meta)
+                        .map_err(|e| e.to_string())?;
+                    (
+                        bytes,
+                        json!({ "editable": editable, "version": meta.version, "entities": count }),
+                    )
                 }
                 None => {
-                    let (bytes, counts) = package::solution_extensions(solution, editable, &meta).map_err(|e| e.to_string())?;
-                    let projects: Vec<Value> = counts.iter().map(|(p, n)| json!({ "project": p, "entities": n })).collect();
-                    (bytes, json!({ "editable": editable, "version": meta.version, "projects": projects }))
+                    let (bytes, counts) = package::solution_extensions(solution, editable, &meta)
+                        .map_err(|e| e.to_string())?;
+                    let projects: Vec<Value> = counts
+                        .iter()
+                        .map(|(p, n)| json!({ "project": p, "entities": n }))
+                        .collect();
+                    (
+                        bytes,
+                        json!({ "editable": editable, "version": meta.version, "projects": projects }),
+                    )
                 }
             }
         }
-        other => return Err(format!("action must be bundle, source_control or extension, not {other:?}")),
+        other => {
+            return Err(format!(
+                "action must be bundle, source_control or extension, not {other:?}"
+            ))
+        }
     };
     if let Some(folder) = out.parent() {
         std::fs::create_dir_all(folder).map_err(|e| format!("{}: {e}", folder.display()))?;
@@ -2131,9 +2501,12 @@ fn settings_tool(solution: &Solution, arguments: &Value) -> Result<Value, String
         }
         "show" => {
             let names = settings::Remote::subsystems(&client).map_err(|e| e.to_string())?;
-            let name = settings::resolve(&names, required(arguments, "subsystem")?).map_err(|e| e.to_string())?;
+            let name = settings::resolve(&names, required(arguments, "subsystem")?)
+                .map_err(|e| e.to_string())?;
             let read = settings::read(&client, name).map_err(|e| e.to_string())?;
-            Ok(json!({ "ok": true, "subsystem": read.name, "running": read.running, "tables": read.tables.iter().map(|t| settings::table_json(&read.name, t)).collect::<Vec<_>>() }))
+            Ok(
+                json!({ "ok": true, "subsystem": read.name, "running": read.running, "tables": read.tables.iter().map(|t| settings::table_json(&read.name, t)).collect::<Vec<_>>() }),
+            )
         }
         "search" => {
             let wanted = required(arguments, "text")?;
@@ -2148,20 +2521,30 @@ fn settings_tool(solution: &Solution, arguments: &Value) -> Result<Value, String
                 "description": f.field.description,
             })).collect::<Vec<_>>() }))
         }
-        other => Err(format!("action must be list, show or search, not {other:?}")),
+        other => Err(format!(
+            "action must be list, show or search, not {other:?}"
+        )),
     }
 }
 
 /// The repository-derived service catalog, offline and read-only.
 fn catalog_tool(solution: &Solution, arguments: &Value) -> Result<Value, String> {
-    let catalog = catalog::build(solution, catalog::Query {
-        entity: text(arguments, "entity"),
-        project: text(arguments, "project"),
-        text: text(arguments, "text"),
-    }).map_err(|error| error.to_string())?;
+    let catalog = catalog::build(
+        solution,
+        catalog::Query {
+            entity: text(arguments, "entity"),
+            project: text(arguments, "project"),
+            text: text(arguments, "text"),
+        },
+    )
+    .map_err(|error| error.to_string())?;
     let service_count = catalog.service_count();
     let entity_count = catalog.entities.len();
-    let limit = if flag(arguments, "detail", false) { usize::MAX } else { 50 };
+    let limit = if flag(arguments, "detail", false) {
+        usize::MAX
+    } else {
+        50
+    };
     let mut services = Vec::new();
     for entity in &catalog.entities {
         for service in &entity.services {
@@ -2169,7 +2552,9 @@ fn catalog_tool(solution: &Solution, arguments: &Value) -> Result<Value, String>
                 break;
             }
             let mut value = serde_json::to_value(service).expect("catalog services serialise");
-            let object = value.as_object_mut().expect("a catalog service is an object");
+            let object = value
+                .as_object_mut()
+                .expect("a catalog service is an object");
             object.insert("collection".to_string(), json!(entity.collection));
             object.insert("entity".to_string(), json!(entity.name));
             object.insert("project".to_string(), json!(entity.project));
@@ -2192,7 +2577,9 @@ fn catalog_tool(solution: &Solution, arguments: &Value) -> Result<Value, String>
         "services": services,
     });
     if service_count > limit {
-        result["note"] = json!(format!("showing 50 of {service_count} services; detail: true lists every one"));
+        result["note"] = json!(format!(
+            "showing 50 of {service_count} services; detail: true lists every one"
+        ));
     }
     if !catalog.skipped.is_empty() {
         result["skipped"] = json!(catalog.skipped);
@@ -2203,17 +2590,20 @@ fn catalog_tool(solution: &Solution, arguments: &Value) -> Result<Value, String>
 /// The server's extension packages, read-only.
 fn extensions_tool(solution: &Solution, arguments: &Value) -> Result<Value, String> {
     let client = client(solution, arguments)?;
-    let package_json = |p: &extensions::Package| {
-        json!({ "name": p.name, "version": p.version, "vendor": p.vendor, "description": p.description, "minimumThingWorxVersion": p.minimum_thingworx })
-    };
+    let package_json = |p: &extensions::Package| json!({ "name": p.name, "version": p.version, "vendor": p.vendor, "description": p.description, "minimumThingWorxVersion": p.minimum_thingworx });
     match text(arguments, "action").unwrap_or("list") {
         "list" => {
             let packages = extensions::list(&client).map_err(|e| e.to_string())?;
-            Ok(json!({ "ok": true, "packages": packages.iter().map(package_json).collect::<Vec<_>>() }))
+            Ok(
+                json!({ "ok": true, "packages": packages.iter().map(package_json).collect::<Vec<_>>() }),
+            )
         }
         "show" => {
-            let shown = extensions::show(&client, required(arguments, "package")?).map_err(|e| e.to_string())?;
-            Ok(json!({ "ok": true, "package": package_json(&shown.package), "extensions": shown.extensions, "in_use": shown.in_use }))
+            let shown = extensions::show(&client, required(arguments, "package")?)
+                .map_err(|e| e.to_string())?;
+            Ok(
+                json!({ "ok": true, "package": package_json(&shown.package), "extensions": shown.extensions, "in_use": shown.in_use }),
+            )
         }
         other => Err(format!("action must be list or show, not {other:?}")),
     }
@@ -2227,14 +2617,19 @@ fn extension_write_tool(solution: &Solution, arguments: &Value) -> Result<Value,
         "import" => {
             let relative = required(arguments, "zip")?;
             // A zip of the solution, never one outside it.
-            let real = std::fs::canonicalize(solution.root.join(relative)).map_err(|e| format!("{relative}: {e}"))?;
+            let real = std::fs::canonicalize(solution.root.join(relative))
+                .map_err(|e| format!("{relative}: {e}"))?;
             let root = std::fs::canonicalize(&solution.root).map_err(|e| e.to_string())?;
             if !real.starts_with(&root) {
                 return Err(format!("{relative} is outside the solution"));
             }
             let zip = std::fs::read(&real).map_err(|e| format!("{relative}: {e}"))?;
-            let file_name = real.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_else(|| "package.zip".into());
-            let imported = extensions::import(&client, &file_name, &zip, !dry_run).map_err(|e| e.to_string())?;
+            let file_name = real
+                .file_name()
+                .map(|n| n.to_string_lossy().into_owned())
+                .unwrap_or_else(|| "package.zip".into());
+            let imported = extensions::import(&client, &file_name, &zip, !dry_run)
+                .map_err(|e| e.to_string())?;
             Ok(json!({
                 "ok": true,
                 "dry_run": dry_run,
@@ -2244,7 +2639,8 @@ fn extension_write_tool(solution: &Solution, arguments: &Value) -> Result<Value,
             }))
         }
         "remove" => {
-            let plan = extensions::remove(&client, required(arguments, "package")?, !dry_run).map_err(|e| e.to_string())?;
+            let plan = extensions::remove(&client, required(arguments, "package")?, !dry_run)
+                .map_err(|e| e.to_string())?;
             Ok(json!({ "ok": true, "dry_run": dry_run, "change": plan, "applied": !dry_run }))
         }
         other => Err(format!("action must be import or remove, not {other:?}")),
@@ -2256,17 +2652,32 @@ fn repo_write_tool(solution: &Solution, arguments: &Value) -> Result<Value, Stri
     let repository = required(arguments, "repository")?;
     let dry_run = flag(arguments, "dry_run", true);
     if let Some(direction) = text(arguments, "action").filter(|a| *a == "push" || *a == "pull") {
-        let way = if direction == "push" { repo::Direction::Push } else { repo::Direction::Pull };
+        let way = if direction == "push" {
+            repo::Direction::Push
+        } else {
+            repo::Direction::Pull
+        };
         // A pull writes the solution's tree, so it holds the workspace lock from the start.
         let _lock = if way == repo::Direction::Pull && !dry_run {
             Some(lock::acquire_for(solution, "mcp repo pull").map_err(|e| e.to_string())?)
         } else {
             None
         };
-        let local = repo::local_root(&solution.root, solution.repositories.root.as_deref(), repository);
+        let local = repo::local_root(
+            &solution.root,
+            solution.repositories.root.as_deref(),
+            repository,
+        );
         let client = client(solution, arguments)?;
-        let synced = repo::sync(&client, repository, &local, way, flag(arguments, "overwrite", false), !dry_run)
-            .map_err(|e| e.to_string())?;
+        let synced = repo::sync(
+            &client,
+            repository,
+            &local,
+            way,
+            flag(arguments, "overwrite", false),
+            !dry_run,
+        )
+        .map_err(|e| e.to_string())?;
         let mut result = json!({
             "ok": true,
             "repository": repository,
@@ -2291,7 +2702,8 @@ fn repo_write_tool(solution: &Solution, arguments: &Value) -> Result<Value, Stri
                 (None, Some(local)) => {
                     // A file of the solution, never one outside it.
                     let candidate = solution.root.join(local);
-                    let real = std::fs::canonicalize(&candidate).map_err(|e| format!("{local}: {e}"))?;
+                    let real =
+                        std::fs::canonicalize(&candidate).map_err(|e| format!("{local}: {e}"))?;
                     let root = std::fs::canonicalize(&solution.root).map_err(|e| e.to_string())?;
                     if !real.starts_with(&root) {
                         return Err(format!("{local} is outside the solution"));
@@ -2300,19 +2712,35 @@ fn repo_write_tool(solution: &Solution, arguments: &Value) -> Result<Value, Stri
                 }
                 (None, None) => return Err("put needs text or local".to_string()),
             };
-            repo::Change::Put { path, bytes, overwrite }
+            repo::Change::Put {
+                path,
+                bytes,
+                overwrite,
+            }
         }
         "mkdir" => repo::Change::Mkdir { path },
         "rm" if path == "/" => return Err("the repository root cannot be deleted".to_string()),
-        "rm" => repo::Change::Remove { path, recursive: flag(arguments, "recursive", false) },
+        "rm" => repo::Change::Remove {
+            path,
+            recursive: flag(arguments, "recursive", false),
+        },
         "mv" => {
             let to = repo::remote_path(required(arguments, "to")?).map_err(|e| e.to_string())?;
-            repo::Change::Move { from: path, to, overwrite }
+            repo::Change::Move {
+                from: path,
+                to,
+                overwrite,
+            }
         }
-        other => return Err(format!("action must be put, mkdir, rm or mv, not {other:?}")),
+        other => {
+            return Err(format!(
+                "action must be put, mkdir, rm or mv, not {other:?}"
+            ))
+        }
     };
     let client = client(solution, arguments)?;
-    let planned = repo::change(&client, repository, &change, !dry_run).map_err(|e| e.to_string())?;
+    let planned =
+        repo::change(&client, repository, &change, !dry_run).map_err(|e| e.to_string())?;
     let mut result = json!({
         "ok": true,
         "repository": repository,
@@ -2329,7 +2757,11 @@ fn repo_write_tool(solution: &Solution, arguments: &Value) -> Result<Value, Stri
 }
 
 /// The help version for a call: asked, named in a page address, configured, or the server's.
-fn help_version(root: &Path, arguments: &Value, named: Option<String>) -> Result<(String, Vec<String>), String> {
+fn help_version(
+    root: &Path,
+    arguments: &Value,
+    named: Option<String>,
+) -> Result<(String, Vec<String>), String> {
     // No twaco.toml means no solution; a broken one is an error.
     let solution = match Solution::discover(root) {
         Ok(solution) => Some(solution),
@@ -2374,9 +2806,12 @@ fn guide_tool(root: &Path, arguments: &Value) -> Result<Value, String> {
             })
         }
         "read" => {
-            let topic = guide::find(&topics, required(arguments, "topic")?).map_err(|e| e.to_string())?;
+            let topic =
+                guide::find(&topics, required(arguments, "topic")?).map_err(|e| e.to_string())?;
             match guide::read(topic, text(arguments, "section")).map_err(|e| e.to_string())? {
-                guide::Reading::Text(markdown) => json!({ "ok": true, "topic": topic.id, "markdown": markdown }),
+                guide::Reading::Text(markdown) => {
+                    json!({ "ok": true, "topic": topic.id, "markdown": markdown })
+                }
                 guide::Reading::Outline { title, headings } => json!({
                     "ok": true,
                     "topic": topic.id,
@@ -2386,7 +2821,11 @@ fn guide_tool(root: &Path, arguments: &Value) -> Result<Value, String> {
                 }),
             }
         }
-        other => return Err(format!("action must be list, search or read, not {other:?}")),
+        other => {
+            return Err(format!(
+                "action must be list, search or read, not {other:?}"
+            ))
+        }
     };
     if !problems.is_empty() {
         result["problems"] = json!(problems);
@@ -2398,8 +2837,14 @@ fn help_search_tool(root: &Path, arguments: &Value) -> Result<Value, String> {
     let query = required(arguments, "query")?;
     let (version, notes) = help_version(root, arguments, None)?;
     let cache = help::cache_root().map_err(|e| e.to_string())?;
-    let bytes = help::cached(&help::Web::default(), &cache, &version, help::INDEX_FILE, flag(arguments, "refresh", false))
-        .map_err(|e| e.to_string())?;
+    let bytes = help::cached(
+        &help::Web::default(),
+        &cache,
+        &version,
+        help::INDEX_FILE,
+        flag(arguments, "refresh", false),
+    )
+    .map_err(|e| e.to_string())?;
     let index = help::Index::parse(&String::from_utf8_lossy(&bytes)).map_err(|e| e.to_string())?;
     let limit = arguments.get("limit").and_then(Value::as_u64).unwrap_or(10) as usize;
     let found = help::search(&index, &version, query, limit);
@@ -2430,10 +2875,20 @@ fn help_page_tool(root: &Path, arguments: &Value) -> Result<Value, String> {
     let (named, path) = help::page_path(page).map_err(|e| e.to_string())?;
     let (version, notes) = help_version(root, arguments, named)?;
     let cache = help::cache_root().map_err(|e| e.to_string())?;
-    let html = help::cached(&help::Web::default(), &cache, &version, &path, flag(arguments, "refresh", false))
+    let html = help::cached(
+        &help::Web::default(),
+        &cache,
+        &version,
+        &path,
+        flag(arguments, "refresh", false),
+    )
+    .map_err(|e| e.to_string())?;
+    let read = help::read(&html, &version, &path, text(arguments, "section"))
         .map_err(|e| e.to_string())?;
-    let read = help::read(&html, &version, &path, text(arguments, "section")).map_err(|e| e.to_string())?;
-    let max = arguments.get("max_chars").and_then(Value::as_u64).unwrap_or(20_000) as usize;
+    let max = arguments
+        .get("max_chars")
+        .and_then(Value::as_u64)
+        .unwrap_or(20_000) as usize;
     let total = read.markdown.chars().count();
     let mut result = json!({
         "ok": true,
@@ -2445,7 +2900,9 @@ fn help_page_tool(root: &Path, arguments: &Value) -> Result<Value, String> {
     });
     if total > max {
         result["truncated"] = json!(true);
-        result["note"] = json!(format!("{total} characters in all; ask for one section by heading, or raise max_chars"));
+        result["note"] = json!(format!(
+            "{total} characters in all; ask for one section by heading, or raise max_chars"
+        ));
     }
     if !notes.is_empty() {
         result["notes"] = json!(notes);
@@ -2469,7 +2926,10 @@ fn javadoc_tool(arguments: &Value) -> Result<Value, String> {
                 return Err("`member` is only for action class".to_string());
             }
             let members = fetch(javadoc::MEMBER_INDEX)?;
-            let index = javadoc::Index::parse(&String::from_utf8_lossy(&types), &String::from_utf8_lossy(&members))?;
+            let index = javadoc::Index::parse(
+                &String::from_utf8_lossy(&types),
+                &String::from_utf8_lossy(&members),
+            )?;
             let limit = arguments.get("limit").and_then(Value::as_u64).unwrap_or(10) as usize;
             let hits = javadoc::search(&index, name, limit);
             json!({
@@ -2484,7 +2944,8 @@ fn javadoc_tool(arguments: &Value) -> Result<Value, String> {
             })
         }
         "class" => {
-            let index = javadoc::Index::parse(&String::from_utf8_lossy(&types), "memberSearchIndex = []")?;
+            let index =
+                javadoc::Index::parse(&String::from_utf8_lossy(&types), "memberSearchIndex = []")?;
             let class = javadoc::find_class(&index, name)?;
             let path = javadoc::class_path(&class)?;
             let html = fetch(&path)?;
@@ -2508,11 +2969,20 @@ fn javadoc_tool(arguments: &Value) -> Result<Value, String> {
 fn logs_tool(solution: &Solution, arguments: &Value) -> Result<Value, String> {
     let log = required(arguments, "log")?;
     let now = logs::now_ms();
-    let (from_ms, to_ms) = match (text(arguments, "since"), text(arguments, "from"), text(arguments, "to")) {
+    let (from_ms, to_ms) = match (
+        text(arguments, "since"),
+        text(arguments, "from"),
+        text(arguments, "to"),
+    ) {
         (Some(_), Some(_), _) | (Some(_), _, Some(_)) => {
-            return Err("since is a window ending now; give it, or from and to, not both".to_string())
+            return Err(
+                "since is a window ending now; give it, or from and to, not both".to_string(),
+            )
         }
-        (since, None, None) => (now - logs::parse_since(since.unwrap_or("1h")).map_err(|e| e.to_string())?, now),
+        (since, None, None) => (
+            now - logs::parse_since(since.unwrap_or("1h")).map_err(|e| e.to_string())?,
+            now,
+        ),
         (None, from, to) => {
             let to_ms = logs::parse_time(to.unwrap_or("now"), now).map_err(|e| e.to_string())?;
             let from_ms = match from {
@@ -2523,7 +2993,9 @@ fn logs_tool(solution: &Solution, arguments: &Value) -> Result<Value, String> {
         }
     };
     let search = match (text(arguments, "grep"), text(arguments, "regex")) {
-        (Some(_), Some(_)) => return Err("grep and regex are two ways to search; give one".to_string()),
+        (Some(_), Some(_)) => {
+            return Err("grep and regex are two ways to search; give one".to_string())
+        }
         (Some(grep), None) => Some(logs::Search::Grep(grep.to_string())),
         (None, Some(regex)) => Some(logs::Search::Regex(regex.to_string())),
         (None, None) => None,
@@ -2532,17 +3004,27 @@ fn logs_tool(solution: &Solution, arguments: &Value) -> Result<Value, String> {
         log: log.to_string(),
         from_ms,
         to_ms,
-        level: text(arguments, "level").map(logs::level).transpose().map_err(|e| e.to_string())?,
+        level: text(arguments, "level")
+            .map(logs::level)
+            .transpose()
+            .map_err(|e| e.to_string())?,
         search,
         user: text(arguments, "user").map(str::to_string),
         thread: text(arguments, "thread").map(str::to_string),
         origin: text(arguments, "origin").map(str::to_string),
-        limit: arguments.get("limit").and_then(Value::as_u64).unwrap_or(200),
+        limit: arguments
+            .get("limit")
+            .and_then(Value::as_u64)
+            .unwrap_or(200),
         oldest_first: flag(arguments, "oldest_first", false),
     };
     let client = client(solution, arguments)?;
     let outcome = logs::query(&client, &query).map_err(|e| e.to_string())?;
-    Ok(logs::summary(log, &outcome, flag(arguments, "detail", false)))
+    Ok(logs::summary(
+        log,
+        &outcome,
+        flag(arguments, "detail", false),
+    ))
 }
 
 /// A log's levels, read, or changed as a plan unless dry_run is false. Writes no workspace file.
@@ -2552,9 +3034,14 @@ fn log_level_tool(solution: &Solution, arguments: &Value) -> Result<Value, Strin
     let reset = flag(arguments, "reset", false);
     let change = match (text(arguments, "level"), reset) {
         (Some(_), true) => return Err("give a level or reset, not both".to_string()),
-        (Some(level), false) => Some(logs::Change::Set { level: logs::level(level).map_err(|e| e.to_string())?, sublogger }),
+        (Some(level), false) => Some(logs::Change::Set {
+            level: logs::level(level).map_err(|e| e.to_string())?,
+            sublogger,
+        }),
         (None, true) => Some(logs::Change::Reset { sublogger }),
-        (None, false) if sublogger.is_some() => return Err("a sublogger needs a level to set, or reset".to_string()),
+        (None, false) if sublogger.is_some() => {
+            return Err("a sublogger needs a level to set, or reset".to_string())
+        }
         (None, false) => None,
     };
     let client = client(solution, arguments)?;
@@ -2580,16 +3067,25 @@ fn log_level_tool(solution: &Solution, arguments: &Value) -> Result<Value, Strin
     });
     match &report.after {
         Some(after) => result["after"] = levels_json(after),
-        None => result["note"] = json!("nothing was sent; pass dry_run: false. The level is the whole server's"),
+        None => {
+            result["note"] =
+                json!("nothing was sent; pass dry_run: false. The level is the whole server's")
+        }
     }
     Ok(result)
 }
 
 fn call_service_tool(solution: &Solution, arguments: &Value) -> Result<Value, String> {
-    let target = workspace::call_target(&workspace::discover(solution).entities, required(arguments, "target")?)
-        .map_err(|e| e.to_string())?;
+    let target = workspace::call_target(
+        &workspace::discover(solution).entities,
+        required(arguments, "target")?,
+    )
+    .map_err(|e| e.to_string())?;
     let service = required(arguments, "service")?;
-    let parameters = arguments.get("parameters").cloned().unwrap_or_else(|| json!({}));
+    let parameters = arguments
+        .get("parameters")
+        .cloned()
+        .unwrap_or_else(|| json!({}));
     if !parameters.is_object() {
         return Err("`parameters` must be a JSON object".to_string());
     }
@@ -2600,13 +3096,24 @@ fn call_service_tool(solution: &Solution, arguments: &Value) -> Result<Value, St
             "note": "nothing was sent; pass dry_run: false to call it",
         }));
     }
-    let timeout = arguments.get("timeout_seconds").and_then(Value::as_u64).filter(|s| *s > 0).unwrap_or(120);
+    let timeout = arguments
+        .get("timeout_seconds")
+        .and_then(Value::as_u64)
+        .filter(|s| *s > 0)
+        .unwrap_or(120);
     let client = client(solution, arguments)?;
     let started = logs::now_ms();
     let outcome = client.call_service(&target, service, &parameters, Duration::from_secs(timeout));
     let logged = if flag(arguments, "with_logs", false) {
         let ended = logs::now_ms();
-        Some(logs::during_call(&client, started, ended, logs::Wait::default(), &logs::now_ms, &std::thread::sleep))
+        Some(logs::during_call(
+            &client,
+            started,
+            ended,
+            logs::Wait::default(),
+            &logs::now_ms,
+            &std::thread::sleep,
+        ))
     } else {
         None
     };
@@ -2629,7 +3136,10 @@ fn call_service_tool(solution: &Solution, arguments: &Value) -> Result<Value, St
         Err(error) => {
             return Err(match &logged {
                 Some(Ok(entries)) if !entries.is_empty() => {
-                    let lines: Vec<String> = entries.iter().map(|(log, entry)| format!("{log}: {}", logs::line(entry))).collect();
+                    let lines: Vec<String> = entries
+                        .iter()
+                        .map(|(log, entry)| format!("{log}: {}", logs::line(entry)))
+                        .collect();
                     format!("{error}\nlogged during the call:\n{}", lines.join("\n"))
                 }
                 Some(Err(why)) => format!("{error}\n(the call's logs could not be read: {why})"),
@@ -2687,11 +3197,18 @@ mod tests {
         let input: String = messages.iter().map(|m| format!("{m}\n")).collect();
         let mut output = Vec::new();
         serve(root, input.as_bytes(), &mut output).unwrap();
-        String::from_utf8(output).unwrap().lines().map(|line| serde_json::from_str(line).unwrap()).collect()
+        String::from_utf8(output)
+            .unwrap()
+            .lines()
+            .map(|line| serde_json::from_str(line).unwrap())
+            .collect()
     }
 
     fn solution_dir() -> PathBuf {
-        let nonce = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos();
+        let nonce = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
         let root = std::env::temp_dir().join(format!("twaco-mcp-{}-{nonce}", std::process::id()));
         std::fs::create_dir_all(root.join("Things")).unwrap();
         std::fs::write(root.join("twaco.toml"), "[[project]]\nname = \"P\"\n").unwrap();
@@ -2715,30 +3232,66 @@ mod tests {
     }
 
     fn assert_schema_hygiene(tool: &str, path: &str, schema: &Value) {
-        let object = schema.as_object().unwrap_or_else(|| panic!("{tool} {path} is not a schema object"));
+        let object = schema
+            .as_object()
+            .unwrap_or_else(|| panic!("{tool} {path} is not a schema object"));
         for keyword in object.keys() {
             assert!(
-                matches!(keyword.as_str(), "type" | "properties" | "required" | "additionalProperties" | "items" | "enum" | "minimum" | "default" | "description"),
+                matches!(
+                    keyword.as_str(),
+                    "type"
+                        | "properties"
+                        | "required"
+                        | "additionalProperties"
+                        | "items"
+                        | "enum"
+                        | "minimum"
+                        | "default"
+                        | "description"
+                ),
                 "{tool} {path} uses unsupported keyword `{keyword}`"
             );
         }
-        let kind = schema["type"].as_str().unwrap_or_else(|| panic!("{tool} {path} has no type"));
-        assert!(matches!(kind, "string" | "boolean" | "integer" | "object" | "array"), "{tool} {path} has unsupported type `{kind}`");
+        let kind = schema["type"]
+            .as_str()
+            .unwrap_or_else(|| panic!("{tool} {path} has no type"));
+        assert!(
+            matches!(kind, "string" | "boolean" | "integer" | "object" | "array"),
+            "{tool} {path} has unsupported type `{kind}`"
+        );
         if let Some(default) = schema.get("default") {
-            assert!(default_matches_type(schema, default), "{tool} {path} has a default with the wrong type");
+            assert!(
+                default_matches_type(schema, default),
+                "{tool} {path} has a default with the wrong type"
+            );
         }
 
         let empty = Map::new();
         let properties = schema["properties"].as_object().unwrap_or(&empty);
-        for name in schema["required"].as_array().into_iter().flatten().filter_map(Value::as_str) {
-            assert!(properties.contains_key(name), "{tool} {path}.{name} is required but not a property");
+        for name in schema["required"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .filter_map(Value::as_str)
+        {
+            assert!(
+                properties.contains_key(name),
+                "{tool} {path}.{name} is required but not a property"
+            );
         }
         for (name, property) in properties {
-            let property_path = if path.is_empty() { name.to_string() } else { format!("{path}.{name}") };
+            let property_path = if path.is_empty() {
+                name.to_string()
+            } else {
+                format!("{path}.{name}")
+            };
             assert_schema_hygiene(tool, &property_path, property);
         }
         if let Some(additional) = schema.get("additionalProperties") {
-            assert!(additional == false || additional.is_object(), "{tool} {path} has unsupported additionalProperties");
+            assert!(
+                additional == false || additional.is_object(),
+                "{tool} {path} has unsupported additionalProperties"
+            );
             if additional.is_object() {
                 assert_schema_hygiene(tool, &format!("{path}.*"), additional);
             }
@@ -2752,13 +3305,19 @@ mod tests {
     #[test]
     fn tool_definitions_match_golden_file() {
         const GOLDEN: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fixtures/mcp_tools.json");
-        let current = format!("{}\n", serde_json::to_string_pretty(&tool_definitions()).unwrap());
+        let current = format!(
+            "{}\n",
+            serde_json::to_string_pretty(&tool_definitions()).unwrap()
+        );
         if std::env::var("TWACO_BLESS").as_deref() == Ok("1") {
             std::fs::write(GOLDEN, current).unwrap();
             return;
         }
         let expected = std::fs::read_to_string(GOLDEN).unwrap();
-        assert_eq!(current, expected, "run with TWACO_BLESS=1 to rewrite tests/fixtures/mcp_tools.json, then review the diff");
+        assert_eq!(
+            current, expected,
+            "run with TWACO_BLESS=1 to rewrite tests/fixtures/mcp_tools.json, then review the diff"
+        );
     }
 
     #[test]
@@ -2766,7 +3325,10 @@ mod tests {
         for tool in tool_definitions() {
             let name = tool["name"].as_str().unwrap();
             let schema = &tool["inputSchema"];
-            assert_eq!(schema["additionalProperties"], false, "{name} inputSchema must refuse unknown arguments");
+            assert_eq!(
+                schema["additionalProperties"], false,
+                "{name} inputSchema must refuse unknown arguments"
+            );
             assert_schema_hygiene(name, "inputSchema", schema);
         }
     }
@@ -2774,38 +3336,71 @@ mod tests {
     #[test]
     fn validator_keeps_top_level_messages_stable() {
         let required = json!({ "type": "object", "properties": { "x": { "type": "string" } }, "required": ["x"], "additionalProperties": false });
-        assert_eq!(validate_arguments(&required, &json!({})), Err("`x` is required".to_string()));
+        assert_eq!(
+            validate_arguments(&required, &json!({})),
+            Err("`x` is required".to_string())
+        );
 
         let names = json!({ "type": "object", "properties": { "a": { "type": "string" }, "b": { "type": "string" } }, "required": [], "additionalProperties": false });
-        assert_eq!(validate_arguments(&names, &json!({"x": 1})), Err("this tool takes no argument `x` (it takes: a, b)".to_string()));
+        assert_eq!(
+            validate_arguments(&names, &json!({"x": 1})),
+            Err("this tool takes no argument `x` (it takes: a, b)".to_string())
+        );
 
         let boolean = json!({ "type": "object", "properties": { "x": { "type": "boolean" } }, "required": [], "additionalProperties": false });
-        assert_eq!(validate_arguments(&boolean, &json!({"x": 1})), Err("`x` must be a boolean, not 1".to_string()));
+        assert_eq!(
+            validate_arguments(&boolean, &json!({"x": 1})),
+            Err("`x` must be a boolean, not 1".to_string())
+        );
 
         let array = json!({ "type": "object", "properties": { "x": { "type": "array", "items": { "type": "string" } } }, "required": [], "additionalProperties": false });
-        assert_eq!(validate_arguments(&array, &json!({"x": "not an array"})), Err("`x` must be an array of strings, not \"not an array\"".to_string()));
+        assert_eq!(
+            validate_arguments(&array, &json!({"x": "not an array"})),
+            Err("`x` must be an array of strings, not \"not an array\"".to_string())
+        );
 
         let integer = json!({ "type": "object", "properties": { "x": { "type": "integer", "minimum": 3 } }, "required": [], "additionalProperties": false });
-        assert_eq!(validate_arguments(&integer, &json!({"x": 1})), Err("`x` must be an integer of at least 3, not 1".to_string()));
+        assert_eq!(
+            validate_arguments(&integer, &json!({"x": 1})),
+            Err("`x` must be an integer of at least 3, not 1".to_string())
+        );
 
         let choices = json!({ "type": "object", "properties": { "x": { "type": "string", "enum": ["a", "b"] } }, "required": [], "additionalProperties": false });
-        assert_eq!(validate_arguments(&choices, &json!({"x": "c"})), Err("`x` must be one of [\"a\",\"b\"], not \"c\"".to_string()));
-        assert_eq!(validate_arguments(&choices, &json!([])), Err("`arguments` must be a JSON object".to_string()));
+        assert_eq!(
+            validate_arguments(&choices, &json!({"x": "c"})),
+            Err("`x` must be one of [\"a\",\"b\"], not \"c\"".to_string())
+        );
+        assert_eq!(
+            validate_arguments(&choices, &json!([])),
+            Err("`arguments` must be a JSON object".to_string())
+        );
     }
 
     #[test]
     fn validator_follows_nested_schemas() {
         let map = json!({ "type": "object", "properties": { "map": { "type": "object", "additionalProperties": { "type": "string" } } }, "required": [], "additionalProperties": false });
-        assert_eq!(validate_arguments(&map, &json!({"map": {"title": 1}})), Err("`map.title` must be a string, not 1".to_string()));
+        assert_eq!(
+            validate_arguments(&map, &json!({"map": {"title": 1}})),
+            Err("`map.title` must be a string, not 1".to_string())
+        );
 
         let closed = json!({ "type": "object", "properties": { "map": { "type": "object", "properties": { "title": { "type": "string" } }, "additionalProperties": false } }, "required": [], "additionalProperties": false });
-        assert_eq!(validate_arguments(&closed, &json!({"map": {"other": "x"}})), Err("`map.other` is not allowed".to_string()));
+        assert_eq!(
+            validate_arguments(&closed, &json!({"map": {"other": "x"}})),
+            Err("`map.other` is not allowed".to_string())
+        );
 
         let array = json!({ "type": "object", "properties": { "only": { "type": "array", "items": { "type": "string" } } }, "required": [], "additionalProperties": false });
-        assert_eq!(validate_arguments(&array, &json!({"only": ["P.T", 2]})), Err("`only[1]` must be a string, not 2".to_string()));
+        assert_eq!(
+            validate_arguments(&array, &json!({"only": ["P.T", 2]})),
+            Err("`only[1]` must be a string, not 2".to_string())
+        );
 
         let objects = json!({ "type": "object", "properties": { "rows": { "type": "array", "items": { "type": "object" } } }, "required": [], "additionalProperties": false });
-        assert_eq!(validate_arguments(&objects, &json!({"rows": 1})), Err("`rows` must be an array, not 1".to_string()));
+        assert_eq!(
+            validate_arguments(&objects, &json!({"rows": 1})),
+            Err("`rows` must be an array, not 1".to_string())
+        );
     }
 
     #[test]
@@ -2813,25 +3408,40 @@ mod tests {
         let root = solution_dir();
         let map = converse(
             &root,
-            &[json!({"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"datatable_copy","arguments":{"old":"P.Old","new":"P.New","map":{"title":1}}}})],
+            &[
+                json!({"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"datatable_copy","arguments":{"old":"P.Old","new":"P.New","map":{"title":1}}}}),
+            ],
         );
         assert_eq!(map[0]["result"]["isError"], true);
-        assert!(map[0]["result"]["content"][0]["text"].as_str().unwrap().contains("`map.title` must be a string, not 1"));
+        assert!(map[0]["result"]["content"][0]["text"]
+            .as_str()
+            .unwrap()
+            .contains("`map.title` must be a string, not 1"));
 
         let parameters = json!({ "row": { "title": "x", "values": [1, { "nested": true }] } });
         let call = converse(
             &root,
-            &[json!({"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"call","arguments":{"target":"T","service":"Reset","parameters":parameters}}})],
+            &[
+                json!({"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"call","arguments":{"target":"T","service":"Reset","parameters":parameters}}}),
+            ],
         );
         assert_eq!(call[0]["result"]["isError"], false);
-        assert_eq!(call[0]["result"]["structuredContent"]["would_call"]["parameters"], parameters);
+        assert_eq!(
+            call[0]["result"]["structuredContent"]["would_call"]["parameters"],
+            parameters
+        );
 
         let unknown = converse(
             &root,
-            &[json!({"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"projects","arguments":{"x":1}}})],
+            &[
+                json!({"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"projects","arguments":{"x":1}}}),
+            ],
         );
         assert_eq!(unknown[0]["result"]["isError"], true);
-        assert!(unknown[0]["result"]["content"][0]["text"].as_str().unwrap().contains("this tool takes no argument `x` (it takes: )"));
+        assert!(unknown[0]["result"]["content"][0]["text"]
+            .as_str()
+            .unwrap()
+            .contains("this tool takes no argument `x` (it takes: )"));
         let _ = std::fs::remove_dir_all(root);
     }
 
@@ -2851,7 +3461,10 @@ mod tests {
         assert_eq!(responses[0]["result"]["protocolVersion"], "2025-03-26");
         assert_eq!(responses[0]["result"]["serverInfo"]["name"], "twaco");
         assert_eq!(responses[1]["result"], json!({}));
-        assert_eq!(responses[2]["result"]["protocolVersion"], LATEST, "an unknown version gets ours");
+        assert_eq!(
+            responses[2]["result"]["protocolVersion"], LATEST,
+            "an unknown version gets ours"
+        );
         let _ = std::fs::remove_dir_all(root);
     }
 
@@ -2870,7 +3483,10 @@ mod tests {
         assert_eq!(responses[1]["error"]["code"], -32602);
         // A tool that ran and failed is a result with isError, so the model can see why.
         assert_eq!(responses[2]["result"]["isError"], true);
-        assert!(responses[2]["result"]["content"][0]["text"].as_str().unwrap().contains("`target` is required"));
+        assert!(responses[2]["result"]["content"][0]["text"]
+            .as_str()
+            .unwrap()
+            .contains("`target` is required"));
         let mut output = Vec::new();
         serve(&root, "not json\n".as_bytes(), &mut output).unwrap();
         let parsed: Value = serde_json::from_slice(&output).unwrap();
@@ -2883,15 +3499,29 @@ mod tests {
         let root = solution_dir();
         for (arguments, why) in [
             (json!({}), "`log` is required"),
-            (json!({"log": "ScriptLog", "level": "LOUD"}), "must be one of"),
+            (
+                json!({"log": "ScriptLog", "level": "LOUD"}),
+                "must be one of",
+            ),
             (json!({"log": "ScriptLog", "limit": 0}), "at least 1"),
-            (json!({"log": "ScriptLog", "grep": "a", "regex": "b"}), "give one"),
-            (json!({"log": "ScriptLog", "since": "1h", "from": "now"}), "not both"),
-            (json!({"log": "ScriptLog", "since": "soon"}), "since must be"),
+            (
+                json!({"log": "ScriptLog", "grep": "a", "regex": "b"}),
+                "give one",
+            ),
+            (
+                json!({"log": "ScriptLog", "since": "1h", "from": "now"}),
+                "not both",
+            ),
+            (
+                json!({"log": "ScriptLog", "since": "soon"}),
+                "since must be",
+            ),
         ] {
             let responses = converse(
                 &root,
-                &[json!({"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"logs","arguments":arguments}})],
+                &[
+                    json!({"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"logs","arguments":arguments}}),
+                ],
             );
             let result = &responses[0]["result"];
             let text = result["content"][0]["text"].as_str().unwrap_or_default();
@@ -2904,47 +3534,137 @@ mod tests {
     #[test]
     fn every_tool_is_listed_with_a_schema_and_honest_annotations() {
         let root = solution_dir();
-        let responses = converse(&root, &[json!({"jsonrpc":"2.0","id":1,"method":"tools/list"})]);
+        let responses = converse(
+            &root,
+            &[json!({"jsonrpc":"2.0","id":1,"method":"tools/list"})],
+        );
         let tools = responses[0]["result"]["tools"].as_array().unwrap();
         let names: Vec<&str> = tools.iter().map(|t| t["name"].as_str().unwrap()).collect();
         assert_eq!(
             names,
             [
-                "projects", "types", "check", "status", "sync", "extract", "fmt", "push", "entity_delete", "entity_restore", "entity_carry", "db_run", "db_query", "datatable_copy", "db_clean", "deploy", "adopt_report",
-                "adopt_apply", "rename", "move_member", "new_building_block", "retemplate", "config_table", "logs", "log_level", "repo", "repo_write", "extensions", "extension_write", "export",
-                "package", "import", "settings", "catalog", "guide",
-                "help_search", "help_page", "javadoc", "call",
+                "projects",
+                "types",
+                "check",
+                "status",
+                "sync",
+                "extract",
+                "fmt",
+                "push",
+                "entity_delete",
+                "entity_restore",
+                "entity_carry",
+                "db_run",
+                "db_query",
+                "datatable_copy",
+                "db_clean",
+                "deploy",
+                "adopt_report",
+                "adopt_apply",
+                "rename",
+                "move_member",
+                "new_building_block",
+                "retemplate",
+                "config_table",
+                "logs",
+                "log_level",
+                "repo",
+                "repo_write",
+                "extensions",
+                "extension_write",
+                "export",
+                "package",
+                "import",
+                "settings",
+                "catalog",
+                "guide",
+                "help_search",
+                "help_page",
+                "javadoc",
+                "call",
             ]
         );
-        for name in ["push", "entity_delete", "entity_restore", "entity_carry", "db_run", "db_clean", "datatable_copy", "deploy", "rename", "move_member", "new_building_block", "retemplate", "config_table", "log_level", "repo_write", "extension_write", "export", "import", "call"] {
+        for name in [
+            "push",
+            "entity_delete",
+            "entity_restore",
+            "entity_carry",
+            "db_run",
+            "db_clean",
+            "datatable_copy",
+            "deploy",
+            "rename",
+            "move_member",
+            "new_building_block",
+            "retemplate",
+            "config_table",
+            "log_level",
+            "repo_write",
+            "extension_write",
+            "export",
+            "import",
+            "call",
+        ] {
             let tool = tools.iter().find(|t| t["name"] == name).unwrap();
-            assert_eq!(tool["inputSchema"]["properties"]["dry_run"]["default"], true, "{name} writes to a server");
+            assert_eq!(
+                tool["inputSchema"]["properties"]["dry_run"]["default"], true,
+                "{name} writes to a server"
+            );
         }
         for tool in tools {
             assert_eq!(tool["inputSchema"]["type"], "object");
         }
         let call = tools.iter().find(|t| t["name"] == "call").unwrap();
-        assert_eq!(call["annotations"]["readOnlyHint"], false, "a service call may write");
-        assert_eq!(call["inputSchema"]["properties"]["dry_run"]["default"], true);
+        assert_eq!(
+            call["annotations"]["readOnlyHint"], false,
+            "a service call may write"
+        );
+        assert_eq!(
+            call["inputSchema"]["properties"]["dry_run"]["default"],
+            true
+        );
         let entity_delete = tools.iter().find(|t| t["name"] == "entity_delete").unwrap();
         for parameter in [
             "allow_repository_defined",
             "allow_outside_dependents",
             "allow_file_repository_data_loss",
         ] {
-            assert_eq!(entity_delete["inputSchema"]["properties"][parameter]["default"], false, "{parameter}");
+            assert_eq!(
+                entity_delete["inputSchema"]["properties"][parameter]["default"], false,
+                "{parameter}"
+            );
         }
-        assert!(entity_delete["inputSchema"]["properties"]["force"]["description"]
-            .as_str()
-            .unwrap()
-            .contains("Deprecated"));
+        assert!(
+            entity_delete["inputSchema"]["properties"]["force"]["description"]
+                .as_str()
+                .unwrap()
+                .contains("Deprecated")
+        );
         let rename = tools.iter().find(|t| t["name"] == "rename").unwrap();
-        assert_eq!(rename["inputSchema"]["required"], json!(["kind", "old", "new"]));
-        assert_eq!(rename["inputSchema"]["properties"]["kind"]["enum"], json!(["entity", "prefix", "field", "service", "param", "table", "property"]));
-        assert_eq!(rename["inputSchema"]["properties"]["scope"]["type"], "string");
-        assert_eq!(rename["inputSchema"]["properties"]["service"]["type"], "string");
-        assert_eq!(rename["inputSchema"]["properties"]["include_outside"]["default"], false);
-        assert_eq!(rename["inputSchema"]["properties"]["skip_checks"]["default"], false);
+        assert_eq!(
+            rename["inputSchema"]["required"],
+            json!(["kind", "old", "new"])
+        );
+        assert_eq!(
+            rename["inputSchema"]["properties"]["kind"]["enum"],
+            json!(["entity", "prefix", "field", "service", "param", "table", "property"])
+        );
+        assert_eq!(
+            rename["inputSchema"]["properties"]["scope"]["type"],
+            "string"
+        );
+        assert_eq!(
+            rename["inputSchema"]["properties"]["service"]["type"],
+            "string"
+        );
+        assert_eq!(
+            rename["inputSchema"]["properties"]["include_outside"]["default"],
+            false
+        );
+        assert_eq!(
+            rename["inputSchema"]["properties"]["skip_checks"]["default"],
+            false
+        );
         let _ = std::fs::remove_dir_all(root);
     }
 
@@ -2952,16 +3672,23 @@ mod tests {
     fn rename_plans_then_applies_and_refuses_bad_requests() {
         let root = solution_dir();
         let original = std::fs::read(root.join("Things/P.T.xml")).unwrap();
-        let call = |arguments: Value| converse(
-            &root,
-            &[json!({"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"rename","arguments":arguments}})],
-        );
+        let call = |arguments: Value| {
+            converse(
+                &root,
+                &[
+                    json!({"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"rename","arguments":arguments}}),
+                ],
+            )
+        };
 
         let dry = call(json!({"kind":"entity","old":"P.T","new":"P.U"}));
         let result = &dry[0]["result"]["structuredContent"];
         assert_eq!(result["applied"], false);
         assert_eq!(result["moves"]["count"], 1);
-        assert_eq!(std::fs::read(root.join("Things/P.T.xml")).unwrap(), original);
+        assert_eq!(
+            std::fs::read(root.join("Things/P.T.xml")).unwrap(),
+            original
+        );
         assert!(!root.join("Things/P.U.xml").exists());
 
         let applied = call(json!({"kind":"entity","old":"P.T","new":"P.U","dry_run":false}));
@@ -2990,25 +3717,44 @@ mod tests {
         let shape = "<Entities><DataShapes><DataShape name=\"P.D\" projectName=\"P\"><FieldDefinitions><FieldDefinition name=\"Period\" baseType=\"STRING\" ordinal=\"1\" description=\"\"/></FieldDefinitions></DataShape></DataShapes></Entities>";
         std::fs::write(root.join("DataShapes/P.D.xml"), shape).unwrap();
         let fields = datashape::extract(shape.as_bytes()).unwrap();
-        std::fs::write(root.join("src/P.D/fields.json"), datashape::to_sidecar(&fields)).unwrap();
+        std::fs::write(
+            root.join("src/P.D/fields.json"),
+            datashape::to_sidecar(&fields),
+        )
+        .unwrap();
         std::fs::write(root.join("Things/P.T.xml"), "<Entities><Things><Thing name=\"P.T\" projectName=\"P\"><ConfigurationTables><ConfigurationTable dataShapeName=\"P.D\" name=\"T\"><DataShape><FieldDefinitions><FieldDefinition name=\"Period\"/></FieldDefinitions></DataShape><Rows><Row><Period>x</Period></Row></Rows></ConfigurationTable></ConfigurationTables></Thing></Things></Entities>").unwrap();
         let original = std::fs::read(root.join("Things/P.T.xml")).unwrap();
-        let call = |arguments: Value| converse(
-            &root,
-            &[json!({"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"rename","arguments":arguments}})],
-        );
+        let call = |arguments: Value| {
+            converse(
+                &root,
+                &[
+                    json!({"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"rename","arguments":arguments}}),
+                ],
+            )
+        };
         let missing = call(json!({"kind":"field","old":"Period","new":"PeriodKey"}));
         assert_eq!(missing[0]["result"]["isError"], true);
-        assert!(missing[0]["result"]["content"][0]["text"].as_str().unwrap().contains("scope is required"));
+        assert!(missing[0]["result"]["content"][0]["text"]
+            .as_str()
+            .unwrap()
+            .contains("scope is required"));
         // The command line refuses --text for a member rename; the tool refuses its twin.
-        let text_pass = call(json!({"kind":"field","scope":"P.D","old":"Period","new":"PeriodKey","include_outside":true}));
+        let text_pass = call(
+            json!({"kind":"field","scope":"P.D","old":"Period","new":"PeriodKey","include_outside":true}),
+        );
         assert_eq!(text_pass[0]["result"]["isError"], true);
-        assert!(text_pass[0]["result"]["content"][0]["text"].as_str().unwrap().contains("no text pass"));
+        assert!(text_pass[0]["result"]["content"][0]["text"]
+            .as_str()
+            .unwrap()
+            .contains("no text pass"));
         let dry = call(json!({"kind":"field","scope":"P.D","old":"Period","new":"PeriodKey"}));
         let result = &dry[0]["result"]["structuredContent"];
         assert_eq!(result["applied"], false);
         assert_eq!(result["spec"]["scope"], "P.D");
-        assert_eq!(std::fs::read(root.join("Things/P.T.xml")).unwrap(), original);
+        assert_eq!(
+            std::fs::read(root.join("Things/P.T.xml")).unwrap(),
+            original
+        );
         let refused = call(json!({"kind":"entity","scope":"P.D","old":"P.T","new":"P.U"}));
         assert_eq!(refused[0]["result"]["isError"], true);
         let _ = std::fs::remove_dir_all(root);
@@ -3019,23 +3765,47 @@ mod tests {
         let root = solution_dir();
         std::fs::create_dir_all(root.join("ThingShapes")).unwrap();
         std::fs::create_dir_all(root.join("src/P.Shape/services/Run")).unwrap();
-        std::fs::write(root.join("twaco.toml"), "[[project]]\nname = \"P\"\ncollections = [\"ThingShapes\"]\n").unwrap();
+        std::fs::write(
+            root.join("twaco.toml"),
+            "[[project]]\nname = \"P\"\ncollections = [\"ThingShapes\"]\n",
+        )
+        .unwrap();
         let shape = "<Entities><ThingShapes><ThingShape name=\"P.Shape\" projectName=\"P\"><ServiceDefinitions><ServiceDefinition name=\"Run\"/></ServiceDefinitions><ServiceImplementations><ServiceImplementation name=\"Run\" handlerName=\"Script\"><ConfigurationTables><ConfigurationTable name=\"Script\"><Rows><Row><code><![CDATA[me.Run();]]></code></Row></Rows></ConfigurationTable></ConfigurationTables></ServiceImplementation></ServiceImplementations></ThingShape></ThingShapes></Entities>";
         std::fs::write(root.join("ThingShapes/P.Shape.xml"), shape).unwrap();
-        std::fs::write(root.join("src/P.Shape/services/Run/definition.xml"), "<ServiceDefinition name=\"Run\"/>\n").unwrap();
+        std::fs::write(
+            root.join("src/P.Shape/services/Run/definition.xml"),
+            "<ServiceDefinition name=\"Run\"/>\n",
+        )
+        .unwrap();
         std::fs::write(root.join("src/P.Shape/services/Run/script.js"), "me.Run();").unwrap();
         let original = std::fs::read(root.join("ThingShapes/P.Shape.xml")).unwrap();
-        let call = |arguments: Value| converse(
-            &root,
-            &[json!({"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"rename","arguments":arguments}})],
-        );
-        let missing = call(json!({"kind":"service","old":"Run","new":"Execute","skip_checks":true}));
+        let call = |arguments: Value| {
+            converse(
+                &root,
+                &[
+                    json!({"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"rename","arguments":arguments}}),
+                ],
+            )
+        };
+        let missing =
+            call(json!({"kind":"service","old":"Run","new":"Execute","skip_checks":true}));
         assert_eq!(missing[0]["result"]["isError"], true);
-        assert!(missing[0]["result"]["content"][0]["text"].as_str().unwrap().contains("scope is required"));
-        let dry = call(json!({"kind":"service","scope":"P.Shape","old":"Run","new":"Execute","skip_checks":true}));
-        assert_eq!(dry[0]["result"]["structuredContent"]["spec"]["kind"], "service");
+        assert!(missing[0]["result"]["content"][0]["text"]
+            .as_str()
+            .unwrap()
+            .contains("scope is required"));
+        let dry = call(
+            json!({"kind":"service","scope":"P.Shape","old":"Run","new":"Execute","skip_checks":true}),
+        );
+        assert_eq!(
+            dry[0]["result"]["structuredContent"]["spec"]["kind"],
+            "service"
+        );
         assert_eq!(dry[0]["result"]["structuredContent"]["applied"], false);
-        assert_eq!(std::fs::read(root.join("ThingShapes/P.Shape.xml")).unwrap(), original);
+        assert_eq!(
+            std::fs::read(root.join("ThingShapes/P.Shape.xml")).unwrap(),
+            original
+        );
         let _ = std::fs::remove_dir_all(root);
     }
 
@@ -3045,18 +3815,37 @@ mod tests {
         let entity = "<Entities><Things><Thing name=\"P.T\" projectName=\"P\" thingTemplate=\"GenericThing\"><ConfigurationTableDefinitions><ConfigurationTableDefinition dataShapeName=\"P.Limits_CT\" name=\"Limits_CT\"/></ConfigurationTableDefinitions><ConfigurationTables><ConfigurationTable dataShapeName=\"P.Limits_CT\" name=\"Limits_CT\"><DataShape/><Rows/></ConfigurationTable></ConfigurationTables></Thing></Things></Entities>";
         std::fs::write(root.join("Things/P.T.xml"), entity).unwrap();
         let original = std::fs::read(root.join("Things/P.T.xml")).unwrap();
-        let call = |arguments: Value| converse(
-            &root,
-            &[json!({"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"rename","arguments":arguments}})],
-        );
-        let missing = call(json!({"kind":"table","old":"Limits_CT","new":"Bounds_CT","skip_checks":true}));
+        let call = |arguments: Value| {
+            converse(
+                &root,
+                &[
+                    json!({"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"rename","arguments":arguments}}),
+                ],
+            )
+        };
+        let missing =
+            call(json!({"kind":"table","old":"Limits_CT","new":"Bounds_CT","skip_checks":true}));
         assert_eq!(missing[0]["result"]["isError"], true);
-        assert!(missing[0]["result"]["content"][0]["text"].as_str().unwrap().contains("scope is required"));
-        let dry = call(json!({"kind":"table","scope":"P.T","old":"Limits_CT","new":"Bounds_CT","skip_checks":true}));
-        assert_eq!(dry[0]["result"]["structuredContent"]["spec"]["kind"], "table");
-        assert_eq!(dry[0]["result"]["structuredContent"]["spec"]["scope"], "P.T");
+        assert!(missing[0]["result"]["content"][0]["text"]
+            .as_str()
+            .unwrap()
+            .contains("scope is required"));
+        let dry = call(
+            json!({"kind":"table","scope":"P.T","old":"Limits_CT","new":"Bounds_CT","skip_checks":true}),
+        );
+        assert_eq!(
+            dry[0]["result"]["structuredContent"]["spec"]["kind"],
+            "table"
+        );
+        assert_eq!(
+            dry[0]["result"]["structuredContent"]["spec"]["scope"],
+            "P.T"
+        );
         assert_eq!(dry[0]["result"]["structuredContent"]["applied"], false);
-        assert_eq!(std::fs::read(root.join("Things/P.T.xml")).unwrap(), original);
+        assert_eq!(
+            std::fs::read(root.join("Things/P.T.xml")).unwrap(),
+            original
+        );
         let _ = std::fs::remove_dir_all(root);
     }
 
@@ -3076,7 +3865,10 @@ mod tests {
         assert_eq!(projects["projects"][0]["entities"], 1);
         let check = &responses[2]["result"]["structuredContent"];
         assert!(check["gates"].as_array().unwrap().len() >= 6);
-        assert!(check.get("failures").is_none(), "findings are detail, not summary");
+        assert!(
+            check.get("failures").is_none(),
+            "findings are detail, not summary"
+        );
         let _ = std::fs::remove_dir_all(root);
     }
 
@@ -3090,7 +3882,9 @@ mod tests {
         .unwrap();
         let responses = converse(
             &root,
-            &[json!({"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"catalog","arguments":{}}})],
+            &[
+                json!({"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"catalog","arguments":{}}}),
+            ],
         );
         let catalog = &responses[0]["result"]["structuredContent"];
         assert_eq!(catalog["service_count"], 1);
@@ -3105,7 +3899,9 @@ mod tests {
         let root = solution_dir();
         let generated = converse(
             &root,
-            &[json!({"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"types","arguments":{}}})],
+            &[
+                json!({"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"types","arguments":{}}}),
+            ],
         );
         let result = &generated[0]["result"]["structuredContent"];
         assert_eq!(result["ok"], true);
@@ -3133,12 +3929,16 @@ mod tests {
             ) -> std::io::Result<types::CompilerOutput> {
                 Ok(types::CompilerOutput {
                     success: false,
-                    stdout: b".twaco/types/check/s0000.js(3,4): error TS2554: Expected 2 arguments.\n".to_vec(),
+                    stdout:
+                        b".twaco/types/check/s0000.js(3,4): error TS2554: Expected 2 arguments.\n"
+                            .to_vec(),
                     stderr: Vec::new(),
                 })
             }
         }
-        let checked = types_tool_with_compiler(&solution, &json!({"action":"check"}), Some(&FakeCompiler)).unwrap();
+        let checked =
+            types_tool_with_compiler(&solution, &json!({"action":"check"}), Some(&FakeCompiler))
+                .unwrap();
         assert_eq!(checked["ok"], false);
         assert_eq!(checked["findings"], 1);
         assert_eq!(checked["services_with_findings"], 1);
@@ -3150,7 +3950,8 @@ mod tests {
             &solution,
             &json!({"action":"check", "detail":true}),
             Some(&FakeCompiler),
-        ).unwrap();
+        )
+        .unwrap();
         assert_eq!(detailed["findings_list"].as_array().unwrap().len(), 1);
         assert!(detailed.get("first").is_none());
         let _ = std::fs::remove_dir_all(root);
@@ -3168,34 +3969,52 @@ mod tests {
         std::fs::write(root.join("Things/P.T.xml"), entity).unwrap();
         let dir = root.join("src/P.T/services/S");
         std::fs::create_dir_all(&dir).unwrap();
-        std::fs::write(dir.join("definition.xml"), "<ServiceDefinition name=\"S\"></ServiceDefinition>\n").unwrap();
+        std::fs::write(
+            dir.join("definition.xml"),
+            "<ServiceDefinition name=\"S\"></ServiceDefinition>\n",
+        )
+        .unwrap();
         std::fs::write(dir.join("script.js"), "new();").unwrap();
         let sync = |arguments: Value| {
             let responses = converse(
                 &root,
-                &[json!({"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"sync","arguments":arguments}})],
+                &[
+                    json!({"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"sync","arguments":arguments}}),
+                ],
             );
             responses[0]["result"].clone()
         };
 
         let checked = sync(json!({"check": true, "all": true}));
-        let text: Value = serde_json::from_str(checked["content"][0]["text"].as_str().unwrap()).unwrap();
+        let text: Value =
+            serde_json::from_str(checked["content"][0]["text"].as_str().unwrap()).unwrap();
         assert_eq!(text["changed"], 1);
-        assert!(std::fs::read_to_string(root.join("Things/P.T.xml")).unwrap().contains("old();"), "check writes nothing");
+        assert!(
+            std::fs::read_to_string(root.join("Things/P.T.xml"))
+                .unwrap()
+                .contains("old();"),
+            "check writes nothing"
+        );
 
         let held = lock::acquire(&root, "deploy", &[]).unwrap();
         let refused = sync(json!({"all": true}));
         assert_eq!(refused["isError"], true);
-        assert!(refused["content"][0]["text"].as_str().unwrap().contains("another twaco command"));
+        assert!(refused["content"][0]["text"]
+            .as_str()
+            .unwrap()
+            .contains("another twaco command"));
         drop(held);
 
         let solution = Solution::load(&root.join("twaco.toml")).unwrap();
         types::write(&solution).unwrap();
         let written = sync(json!({"all": true}));
         assert_eq!(written["isError"], false);
-        let content: Value = serde_json::from_str(written["content"][0]["text"].as_str().unwrap()).unwrap();
+        let content: Value =
+            serde_json::from_str(written["content"][0]["text"].as_str().unwrap()).unwrap();
         assert!(content.get("types_refreshed").is_some());
-        assert!(std::fs::read_to_string(root.join("Things/P.T.xml")).unwrap().contains("new();"));
+        assert!(std::fs::read_to_string(root.join("Things/P.T.xml"))
+            .unwrap()
+            .contains("new();"));
         let _ = std::fs::remove_dir_all(root);
     }
 
@@ -3219,10 +4038,15 @@ mod tests {
         }
         let mut output = Vec::new();
         serve(&root, &input[..], &mut output).unwrap();
-        let responses: Vec<Value> =
-            String::from_utf8(output).unwrap().lines().map(|line| serde_json::from_str(line).unwrap()).collect();
-        let summary: Vec<(Value, Value)> =
-            responses.iter().map(|r| (r["id"].clone(), r["error"]["code"].clone())).collect();
+        let responses: Vec<Value> = String::from_utf8(output)
+            .unwrap()
+            .lines()
+            .map(|line| serde_json::from_str(line).unwrap())
+            .collect();
+        let summary: Vec<(Value, Value)> = responses
+            .iter()
+            .map(|r| (r["id"].clone(), r["error"]["code"].clone()))
+            .collect();
         assert_eq!(
             summary,
             [
@@ -3251,23 +4075,57 @@ mod tests {
         .unwrap();
         let before = std::fs::read(root.join("Things/P.T.xml")).unwrap();
         for (tool, arguments, why) in [
-            ("sync", json!({"check": "true", "all": true}), "`check` must be a boolean"),
+            (
+                "sync",
+                json!({"check": "true", "all": true}),
+                "`check` must be a boolean",
+            ),
             ("sync", json!({"entity": 17}), "`entity` must be a string"),
             ("sync", json!({}), "name an entity, or pass all: true"),
             ("extract", json!({"entity": "P.T", "all": true}), "not both"),
-            ("status", json!({"record": true}), "name an entity, or pass all: true"),
-            ("deploy", json!({"dry_run": false, "only": "P.T"}), "`only` must be an array of strings"),
-            ("deploy", json!({"dry_run": null}), "`dry_run` must be a boolean"),
-            ("push", json!({"entity": "P.T", "dryrun": false}), "takes no argument `dryrun`"),
+            (
+                "status",
+                json!({"record": true}),
+                "name an entity, or pass all: true",
+            ),
+            (
+                "deploy",
+                json!({"dry_run": false, "only": "P.T"}),
+                "`only` must be an array of strings",
+            ),
+            (
+                "deploy",
+                json!({"dry_run": null}),
+                "`dry_run` must be a boolean",
+            ),
+            (
+                "push",
+                json!({"entity": "P.T", "dryrun": false}),
+                "takes no argument `dryrun`",
+            ),
             ("push", json!({}), "`entity` is required"),
-            ("call", json!({"target": "T", "service": "S", "timeout_seconds": 0}), "at least 1"),
-            ("config_table", json!({"thing": "P.T", "table": "C", "action": "drop"}), "must be one of"),
+            (
+                "call",
+                json!({"target": "T", "service": "S", "timeout_seconds": 0}),
+                "at least 1",
+            ),
+            (
+                "config_table",
+                json!({"thing": "P.T", "table": "C", "action": "drop"}),
+                "must be one of",
+            ),
             ("types", json!({"action": "other"}), "must be one of"),
-            ("config_table", json!({"thing": "P.D", "table": "C"}), "only a Thing has configuration tables"),
+            (
+                "config_table",
+                json!({"thing": "P.D", "table": "C"}),
+                "only a Thing has configuration tables",
+            ),
         ] {
             let responses = converse(
                 &root,
-                &[json!({"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":tool,"arguments":arguments}})],
+                &[
+                    json!({"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":tool,"arguments":arguments}}),
+                ],
             );
             let result = &responses[0]["result"];
             let text = result["content"][0]["text"].as_str().unwrap_or_default();
@@ -3285,7 +4143,9 @@ mod tests {
         std::fs::write(root.join("Things/Broken.xml"), "<Entities><Things><Thing").unwrap();
         let responses = converse(
             &root,
-            &[json!({"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"status","arguments":{"all":true,"record":true}}})],
+            &[
+                json!({"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"status","arguments":{"all":true,"record":true}}}),
+            ],
         );
         let result = &responses[0]["result"];
         let text = result["content"][0]["text"].as_str().unwrap_or_default();
@@ -3307,7 +4167,9 @@ mod tests {
         .unwrap();
         let responses = converse(
             &root,
-            &[json!({"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"status","arguments":{"all":true,"record":true}}})],
+            &[
+                json!({"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"status","arguments":{"all":true,"record":true}}}),
+            ],
         );
         let result = &responses[0]["result"];
         let text = result["content"][0]["text"].as_str().unwrap_or_default();
@@ -3324,18 +4186,29 @@ mod tests {
         let root = solution_dir();
         let held = lock::acquire(&root, "sync", &[]).unwrap();
         for (tool, arguments) in [
-            ("push", json!({"entity": "No.Such.Entity", "dry_run": false})),
+            (
+                "push",
+                json!({"entity": "No.Such.Entity", "dry_run": false}),
+            ),
             ("deploy", json!({"dry_run": false, "profile": "missing"})),
-            ("status", json!({"entity": "No.Such.Entity", "record": true})),
+            (
+                "status",
+                json!({"entity": "No.Such.Entity", "record": true}),
+            ),
             ("sync", json!({"entity": "No.Such.Entity"})),
             ("extract", json!({"entity": "No.Such.Entity"})),
             ("types", json!({"action": "platform", "profile": "missing"})),
         ] {
             let responses = converse(
                 &root,
-                &[json!({"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":tool,"arguments":arguments}})],
+                &[
+                    json!({"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":tool,"arguments":arguments}}),
+                ],
             );
-            let text = responses[0]["result"]["content"][0]["text"].as_str().unwrap_or_default().to_string();
+            let text = responses[0]["result"]["content"][0]["text"]
+                .as_str()
+                .unwrap_or_default()
+                .to_string();
             assert!(text.contains("another twaco command"), "{tool}: {text}");
         }
         drop(held);
@@ -3347,11 +4220,14 @@ mod tests {
         let root = solution_dir();
         let responses = converse(
             &root,
-            &[json!({"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"call","arguments":{"target":"T","service":"Reset","parameters":{"x":1}}}})],
+            &[
+                json!({"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"call","arguments":{"target":"T","service":"Reset","parameters":{"x":1}}}}),
+            ],
         );
         let result = &responses[0]["result"];
         assert_eq!(result["isError"], false);
-        let text: Value = serde_json::from_str(result["content"][0]["text"].as_str().unwrap()).unwrap();
+        let text: Value =
+            serde_json::from_str(result["content"][0]["text"].as_str().unwrap()).unwrap();
         assert_eq!(text["dry_run"], true);
         assert_eq!(text["would_call"]["service"], "Reset");
         let _ = std::fs::remove_dir_all(root);

@@ -16,7 +16,10 @@ pub struct Edit {
 
 impl Edit {
     pub fn new(span: Span, replacement: impl Into<Vec<u8>>) -> Self {
-        Edit { span, replacement: replacement.into() }
+        Edit {
+            span,
+            replacement: replacement.into(),
+        }
     }
 }
 
@@ -46,7 +49,10 @@ impl fmt::Display for SpliceError {
                 span.start, span.end, len
             ),
             SpliceError::CoincidentInsert { at } => {
-                write!(f, "two insertions at byte {at}; their order would decide the result")
+                write!(
+                    f,
+                    "two insertions at byte {at}; their order would decide the result"
+                )
             }
             SpliceError::TooLarge => write!(f, "spliced document would be too large"),
         }
@@ -63,7 +69,10 @@ impl std::error::Error for SpliceError {}
 pub fn splice(src: &[u8], edits: &[Edit]) -> Result<Vec<u8>, SpliceError> {
     for edit in edits {
         if edit.span.end > src.len() || edit.span.start > edit.span.end {
-            return Err(SpliceError::OutOfBounds { span: edit.span, len: src.len() });
+            return Err(SpliceError::OutOfBounds {
+                span: edit.span,
+                len: src.len(),
+            });
         }
     }
 
@@ -72,12 +81,20 @@ pub fn splice(src: &[u8], edits: &[Edit]) -> Result<Vec<u8>, SpliceError> {
     for pair in ordered.windows(2) {
         // Touching is fine (one ends where the next begins); covering the same byte is not.
         if pair[1].span.start < pair[0].span.end {
-            return Err(SpliceError::Overlap { first: pair[0].span, second: pair[1].span });
+            return Err(SpliceError::Overlap {
+                first: pair[0].span,
+                second: pair[1].span,
+            });
         }
         // Two insertions at the same point would apply in whatever order they were passed,
         // which contradicts the promise that argument order does not matter.
-        if pair[0].span.is_empty() && pair[1].span.is_empty() && pair[0].span.start == pair[1].span.start {
-            return Err(SpliceError::CoincidentInsert { at: pair[0].span.start });
+        if pair[0].span.is_empty()
+            && pair[1].span.is_empty()
+            && pair[0].span.start == pair[1].span.start
+        {
+            return Err(SpliceError::CoincidentInsert {
+                at: pair[0].span.start,
+            });
         }
     }
 
@@ -142,7 +159,10 @@ mod tests {
             Edit::new(Span::new(0, 3), b"X".to_vec()),
             Edit::new(Span::new(2, 4), b"Y".to_vec()),
         ];
-        assert!(matches!(splice(src, &edits), Err(SpliceError::Overlap { .. })));
+        assert!(matches!(
+            splice(src, &edits),
+            Err(SpliceError::Overlap { .. })
+        ));
     }
 
     #[test]
@@ -152,7 +172,10 @@ mod tests {
             Edit::new(Span::new(2, 2), b"X".to_vec()),
             Edit::new(Span::new(2, 2), b"Y".to_vec()),
         ];
-        assert!(matches!(splice(src, &edits), Err(SpliceError::CoincidentInsert { .. })));
+        assert!(matches!(
+            splice(src, &edits),
+            Err(SpliceError::CoincidentInsert { .. })
+        ));
     }
 
     #[test]
@@ -166,6 +189,9 @@ mod tests {
     fn an_edit_past_the_end_is_refused() {
         let src = b"abcd";
         let edits = [Edit::new(Span::new(2, 99), b"X".to_vec())];
-        assert!(matches!(splice(src, &edits), Err(SpliceError::OutOfBounds { .. })));
+        assert!(matches!(
+            splice(src, &edits),
+            Err(SpliceError::OutOfBounds { .. })
+        ));
     }
 }

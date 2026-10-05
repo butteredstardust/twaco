@@ -29,7 +29,11 @@ pub struct Item {
 }
 
 fn item(health: Health, subject: &'static str, detail: impl Into<String>) -> Item {
-    Item { health, subject, detail: detail.into() }
+    Item {
+        health,
+        subject,
+        detail: detail.into(),
+    }
 }
 
 /// Everything, in the order a person would check it. `root` is where to look for the solution.
@@ -37,37 +41,64 @@ pub fn diagnose(root: &Path, profile_name: &str) -> Vec<Item> {
     let mut items = vec![item(
         Health::Ok,
         "twaco",
-        format!("{} for {}-{}", env!("CARGO_PKG_VERSION"), std::env::consts::OS, std::env::consts::ARCH),
+        format!(
+            "{} for {}-{}",
+            env!("CARGO_PKG_VERSION"),
+            std::env::consts::OS,
+            std::env::consts::ARCH
+        ),
     )];
 
     let solution = match Solution::discover(root) {
         Ok(solution) => solution,
         Err(error) => {
-            items.push(item(Health::Fail, "solution", format!("{error}; `twaco init` scaffolds one")));
+            items.push(item(
+                Health::Fail,
+                "solution",
+                format!("{error}; `twaco init` scaffolds one"),
+            ));
             return items;
         }
     };
-    let name = if solution.solution.name.is_empty() { "(unnamed)" } else { &solution.solution.name };
-    items.push(item(Health::Ok, "solution", format!("{name} at {}", solution.root.display())));
+    let name = if solution.solution.name.is_empty() {
+        "(unnamed)"
+    } else {
+        &solution.solution.name
+    };
+    items.push(item(
+        Health::Ok,
+        "solution",
+        format!("{name} at {}", solution.root.display()),
+    ));
 
     match solution.deploy_order() {
         Ok(order) => items.push(item(
             Health::Ok,
             "projects",
-            order.iter().map(|p| p.name.as_str()).collect::<Vec<_>>().join(" -> "),
+            order
+                .iter()
+                .map(|p| p.name.as_str())
+                .collect::<Vec<_>>()
+                .join(" -> "),
         )),
         Err(error) => items.push(item(Health::Fail, "projects", error.to_string())),
     }
 
     let found = workspace::discover(&solution);
     let misfiled = found.entities.iter().filter(|e| e.is_misfiled()).count();
-    let health = if !found.unreadable.is_empty() || misfiled > 0 { Health::Warn } else { Health::Ok };
+    let health = if !found.unreadable.is_empty() || misfiled > 0 {
+        Health::Warn
+    } else {
+        Health::Ok
+    };
     let mut detail = format!("{} entity document(s)", found.entities.len());
     if !found.unreadable.is_empty() {
         detail.push_str(&format!(", {} unreadable", found.unreadable.len()));
     }
     if misfiled > 0 {
-        detail.push_str(&format!(", {misfiled} filed under a project other than their own"));
+        detail.push_str(&format!(
+            ", {misfiled} filed under a project other than their own"
+        ));
     }
     items.push(item(health, "entities", detail));
 
@@ -75,7 +106,14 @@ pub fn diagnose(root: &Path, profile_name: &str) -> Vec<Item> {
     items.push(if src.is_dir() {
         item(Health::Ok, "sidecars", src.display().to_string())
     } else {
-        item(Health::Warn, "sidecars", format!("{} does not exist yet; `twaco extract --all` creates it", src.display()))
+        item(
+            Health::Warn,
+            "sidecars",
+            format!(
+                "{} does not exist yet; `twaco extract --all` creates it",
+                src.display()
+            ),
+        )
     });
     items.push(item(
         Health::Ok,
@@ -89,8 +127,16 @@ pub fn diagnose(root: &Path, profile_name: &str) -> Vec<Item> {
 
     items.push(match Baseline::load(&solution.root) {
         Ok(baseline) => {
-            let recorded = found.entities.iter().filter(|e| baseline.get(&e.info.collection, &e.info.name).is_some()).count();
-            item(Health::Ok, "baseline", format!("{recorded} of {} entities recorded", found.entities.len()))
+            let recorded = found
+                .entities
+                .iter()
+                .filter(|e| baseline.get(&e.info.collection, &e.info.name).is_some())
+                .count();
+            item(
+                Health::Ok,
+                "baseline",
+                format!("{recorded} of {} entities recorded", found.entities.len()),
+            )
         }
         Err(error) => item(Health::Fail, "baseline", error.to_string()),
     });
@@ -115,12 +161,24 @@ pub fn diagnose(root: &Path, profile_name: &str) -> Vec<Item> {
     items.push(item(
         Health::Ok,
         "profile",
-        format!("{profile_name}: {} as {}, from {}", profile.url, profile.username, profile::source(&solution.root, profile_name)),
+        format!(
+            "{profile_name}: {} as {}, from {}",
+            profile.url,
+            profile.username,
+            profile::source(&solution.root, profile_name)
+        ),
     ));
 
     let started = Instant::now();
     items.push(match server::Client::new(profile).check_script("") {
-        Ok(_) => item(Health::Ok, "server", format!("answered and accepted the credentials in {} ms", started.elapsed().as_millis())),
+        Ok(_) => item(
+            Health::Ok,
+            "server",
+            format!(
+                "answered and accepted the credentials in {} ms",
+                started.elapsed().as_millis()
+            ),
+        ),
         Err(error) => item(Health::Fail, "server", error.to_string()),
     });
     items
@@ -148,7 +206,10 @@ mod tests {
         let dir = std::env::temp_dir().join(format!(
             "twaco-doctor-{}-{}",
             std::process::id(),
-            std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
         ));
         std::fs::create_dir_all(dir.join("Things")).unwrap();
         std::fs::write(dir.join("twaco.toml"), "[[project]]\nname = \"P\"\n").unwrap();
@@ -163,7 +224,10 @@ mod tests {
         assert_eq!(entities.detail, "1 entity document(s)");
         let profile = items.iter().find(|i| i.subject == "profile").unwrap();
         assert_eq!(profile.health, Health::Warn);
-        assert!(items.iter().all(|i| i.subject != "server"), "no server check without a profile");
+        assert!(
+            items.iter().all(|i| i.subject != "server"),
+            "no server check without a profile"
+        );
         let _ = std::fs::remove_dir_all(dir);
     }
 }

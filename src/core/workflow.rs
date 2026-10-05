@@ -99,7 +99,12 @@ impl Tally {
 /// Write every sidecar kind back into its entity file: service scripts, DataShape fields,
 /// mashup content, DataTable configuration. `unreadable` are files discovery could not read,
 /// each already a failure.
-pub fn sync(solution: &Solution, chosen: &[EntityFile], unreadable: &[String], options: SyncOptions) -> SyncOutcome {
+pub fn sync(
+    solution: &Solution,
+    chosen: &[EntityFile],
+    unreadable: &[String],
+    options: SyncOptions,
+) -> SyncOutcome {
     let mut outcome = SyncOutcome::default();
     let log = &mut outcome.log;
     for problem in unreadable {
@@ -118,7 +123,13 @@ pub fn sync(solution: &Solution, chosen: &[EntityFile], unreadable: &[String], o
         let mut tally = Tally::default();
 
         if entity.info.collection == "DataShapes" {
-            tally.record(sync_fields(log, solution, entity, options.check, options.allow_structural));
+            tally.record(sync_fields(
+                log,
+                solution,
+                entity,
+                options.check,
+                options.allow_structural,
+            ));
         }
         if entity.info.collection == "Mashups" {
             tally.record(sync_mashup(log, solution, entity, options.check));
@@ -158,7 +169,11 @@ pub fn sync(solution: &Solution, chosen: &[EntityFile], unreadable: &[String], o
             // Under --all, no sidecars means the entity is simply not under management. Asked
             // for by name, it means the command cannot do what was requested, and reporting
             // success for that would be a lie.
-            log.error(format!("{} has no sidecars at {}", entity.info.name, dir.display()));
+            log.error(format!(
+                "{} has no sidecars at {}",
+                entity.info.name,
+                dir.display()
+            ));
             failed += 1;
         }
 
@@ -171,7 +186,8 @@ pub fn sync(solution: &Solution, chosen: &[EntityFile], unreadable: &[String], o
         failed += tally.failed;
     }
     outcome.failed = failed;
-    outcome.types = super::types::refresh_after_write(solution, !options.check && outcome.changed > 0);
+    outcome.types =
+        super::types::refresh_after_write(solution, !options.check && outcome.changed > 0);
     outcome
 }
 
@@ -187,7 +203,13 @@ pub(crate) fn sync_services(
     indent_cdata_payload: bool,
     relayout: bool,
 ) -> Result<Option<bool>, ()> {
-    match super::sync::sync(src, sidecars, allow_structural, indent_cdata_payload, relayout) {
+    match super::sync::sync(
+        src,
+        sidecars,
+        allow_structural,
+        indent_cdata_payload,
+        relayout,
+    ) {
         Ok((out, report)) => {
             if out == src {
                 return Ok(Some(false));
@@ -383,7 +405,12 @@ pub struct ExtractOutcome {
 
 /// Entity XML to sidecars, every kind, for the entities chosen. `named` means they were asked
 /// for by name, so one with nothing to extract is worth a line.
-pub fn extract(solution: &Solution, chosen: &[EntityFile], unreadable: &[String], named: bool) -> ExtractOutcome {
+pub fn extract(
+    solution: &Solution,
+    chosen: &[EntityFile],
+    unreadable: &[String],
+    named: bool,
+) -> ExtractOutcome {
     let mut outcome = ExtractOutcome::default();
     let mut written = 0usize;
     let mut entities = 0usize;
@@ -416,7 +443,12 @@ pub fn extract(solution: &Solution, chosen: &[EntityFile], unreadable: &[String]
                             entities += 1;
                             written += fields.len();
                             did_something = true;
-                            log.change(format!("{}: {} field(s) -> {}", entity.info.name, fields.len(), path.display()));
+                            log.change(format!(
+                                "{}: {} field(s) -> {}",
+                                entity.info.name,
+                                fields.len(),
+                                path.display()
+                            ));
                         }
                         Err(e) => {
                             log.error(format!("{e}"));
@@ -441,7 +473,11 @@ pub fn extract(solution: &Solution, chosen: &[EntityFile], unreadable: &[String]
                             entities += 1;
                             written += 2;
                             did_something = true;
-                            log.change(format!("{}: content and stylesheet -> {}", entity.info.name, dir.display()));
+                            log.change(format!(
+                                "{}: content and stylesheet -> {}",
+                                entity.info.name,
+                                dir.display()
+                            ));
                         }
                         Err(e) => {
                             log.error(format!("{e}"));
@@ -512,7 +548,10 @@ pub fn extract(solution: &Solution, chosen: &[EntityFile], unreadable: &[String]
                         ));
                         report_skipped(log, &extraction);
                         if !stale.is_empty() {
-                            log.change(format!("    no longer in the entity: {}", stale.join(", ")));
+                            log.change(format!(
+                                "    no longer in the entity: {}",
+                                stale.join(", ")
+                            ));
                         }
                     }
                     Err(e) => {
@@ -537,13 +576,22 @@ pub fn extract(solution: &Solution, chosen: &[EntityFile], unreadable: &[String]
 /// Say what an entity held that did not become a sidecar, so it is never a silent omission.
 fn report_skipped(log: &mut Log, extraction: &super::sidecar::Extraction) {
     if !extraction.non_script.is_empty() {
-        log.change(format!("    not scripts: {}", extraction.non_script.join(", ")));
+        log.change(format!(
+            "    not scripts: {}",
+            extraction.non_script.join(", ")
+        ));
     }
     if !extraction.inherited.is_empty() {
-        log.change(format!("    defined elsewhere: {}", extraction.inherited.join(", ")));
+        log.change(format!(
+            "    defined elsewhere: {}",
+            extraction.inherited.join(", ")
+        ));
     }
     if !extraction.without_script.is_empty() {
-        log.change(format!("    no implementation: {}", extraction.without_script.join(", ")));
+        log.change(format!(
+            "    no implementation: {}",
+            extraction.without_script.join(", ")
+        ));
     }
 }
 
@@ -606,8 +654,14 @@ mod tests {
     use std::path::PathBuf;
 
     fn service_fixture(label: &str) -> (PathBuf, Solution) {
-        let nonce = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos();
-        let root = std::env::temp_dir().join(format!("twaco-workflow-{label}-{}-{nonce}", std::process::id()));
+        let nonce = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let root = std::env::temp_dir().join(format!(
+            "twaco-workflow-{label}-{}-{nonce}",
+            std::process::id()
+        ));
         std::fs::create_dir_all(root.join("Things")).unwrap();
         std::fs::create_dir_all(root.join("src/T/services/Run")).unwrap();
         std::fs::write(root.join("twaco.toml"), "[[project]]\nname = \"P\"\n").unwrap();
@@ -649,7 +703,15 @@ mod tests {
         ).unwrap();
         std::fs::remove_file(&globals).unwrap();
 
-        let checked = sync(&solution, &entities(&solution), &[], SyncOptions { check: true, ..SyncOptions::default() });
+        let checked = sync(
+            &solution,
+            &entities(&solution),
+            &[],
+            SyncOptions {
+                check: true,
+                ..SyncOptions::default()
+            },
+        );
         assert_eq!(checked.changed, 1);
         assert!(checked.types.files_written.is_none());
         assert!(!globals.exists());
@@ -657,7 +719,9 @@ mod tests {
         let written = sync(&solution, &entities(&solution), &[], SyncOptions::default());
         assert_eq!(written.changed, 1);
         assert!(written.types.files_written.is_some());
-        assert!(std::fs::read_to_string(&globals).unwrap().contains("declare let added: string;"));
+        assert!(std::fs::read_to_string(&globals)
+            .unwrap()
+            .contains("declare let added: string;"));
 
         std::fs::remove_file(&globals).unwrap();
         let unchanged = sync(&solution, &entities(&solution), &[], SyncOptions::default());
@@ -702,7 +766,9 @@ mod tests {
         assert_eq!(outcome.changed, 1);
         assert_eq!(outcome.failed, 0);
         assert!(outcome.types.warning.is_some());
-        assert!(std::fs::read_to_string(root.join("Things/T.xml")).unwrap().contains("changed();"));
+        assert!(std::fs::read_to_string(root.join("Things/T.xml"))
+            .unwrap()
+            .contains("changed();"));
         let _ = std::fs::remove_dir_all(root);
     }
 
@@ -710,8 +776,12 @@ mod tests {
     fn a_data_table_keeps_its_configuration_when_a_service_syncs_after_it() {
         // Two kinds of sidecar write into the one entity file. The second must start from what
         // the first wrote, not from the file as it was before either.
-        let nonce = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos();
-        let root = std::env::temp_dir().join(format!("twaco-workflow-dt-{}-{nonce}", std::process::id()));
+        let nonce = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let root =
+            std::env::temp_dir().join(format!("twaco-workflow-dt-{}-{nonce}", std::process::id()));
         std::fs::create_dir_all(root.join("Things")).unwrap();
         std::fs::write(root.join("twaco.toml"), "[[project]]\nname = \"P\"\n").unwrap();
         std::fs::write(
@@ -737,7 +807,9 @@ mod tests {
         assert_eq!(extracted.failed, 0);
 
         let table = root.join("src/T/datatable.json");
-        let text = std::fs::read_to_string(&table).unwrap().replace("Old_DS", "New_DS");
+        let text = std::fs::read_to_string(&table)
+            .unwrap()
+            .replace("Old_DS", "New_DS");
         std::fs::write(&table, text).unwrap();
         std::fs::write(root.join("src/T/services/Run/script.js"), "changed();").unwrap();
 
@@ -745,7 +817,10 @@ mod tests {
         assert_eq!(outcome.failed, 0);
         let xml = std::fs::read_to_string(root.join("Things/T.xml")).unwrap();
         assert!(xml.contains("changed();"), "the script synced: {xml}");
-        assert!(xml.contains("New_DS"), "the configuration survived the script's sync: {xml}");
+        assert!(
+            xml.contains("New_DS"),
+            "the configuration survived the script's sync: {xml}"
+        );
         let _ = std::fs::remove_dir_all(root);
     }
 }

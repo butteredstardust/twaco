@@ -27,9 +27,17 @@ pub struct Finding {
 impl fmt::Display for Finding {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         if self.line > 0 {
-            write!(f, "{}:{} [{}/{}] {}", self.file, self.line, self.gate, self.rule, self.message)
+            write!(
+                f,
+                "{}:{} [{}/{}] {}",
+                self.file, self.line, self.gate, self.rule, self.message
+            )
         } else {
-            write!(f, "{} [{}/{}] {}", self.file, self.gate, self.rule, self.message)
+            write!(
+                f,
+                "{} [{}/{}] {}",
+                self.file, self.gate, self.rule, self.message
+            )
         }
     }
 }
@@ -101,8 +109,14 @@ impl CheckReport {
 }
 
 /// The built-in gates, by the names `[gates] advisory` uses.
-pub const BUILT_IN_GATES: &[&str] =
-    &["line endings", "sidecars", "formatting", "script traps", "code order", "project"];
+pub const BUILT_IN_GATES: &[&str] = &[
+    "line endings",
+    "sidecars",
+    "formatting",
+    "script traps",
+    "code order",
+    "project",
+];
 
 /// A built-in gate as the solution wants it: blocking, or advisory when `[gates] advisory`
 /// names it.
@@ -137,11 +151,17 @@ pub fn run(solution: &Solution) -> CheckReport {
 /// A trait so the gate is testable without one; [`Client`](super::server::Client) is the real
 /// one. `Sync` because the scripts are sent in parallel.
 pub trait ScriptChecker: Sync {
-    fn check_script(&self, script: &str) -> Result<super::server::ScriptCheck, super::server::ServerError>;
+    fn check_script(
+        &self,
+        script: &str,
+    ) -> Result<super::server::ScriptCheck, super::server::ServerError>;
 }
 
 impl ScriptChecker for super::server::Client {
-    fn check_script(&self, script: &str) -> Result<super::server::ScriptCheck, super::server::ServerError> {
+    fn check_script(
+        &self,
+        script: &str,
+    ) -> Result<super::server::ScriptCheck, super::server::ServerError> {
         super::server::Client::check_script(self, script)
     }
 }
@@ -182,9 +202,13 @@ fn live_parse_gate(solution: &Solution, checker: Result<&dyn ScriptChecker, Stri
     }
     let mut scripts = Vec::new();
     for entity in workspace::discover(solution).entities {
-        let Ok(bytes) = std::fs::read(&entity.path) else { continue };
+        let Ok(bytes) = std::fs::read(&entity.path) else {
+            continue;
+        };
         // A document that will not parse is the project gate's finding, not this one's.
-        let Ok(services) = super::sidecar::script_services(&bytes) else { continue };
+        let Ok(services) = super::sidecar::script_services(&bytes) else {
+            continue;
+        };
         let services_dir = workspace::services_dir(solution, &entity);
         for service in services {
             scripts.push(Script {
@@ -240,7 +264,9 @@ fn live_parse_gate(solution: &Solution, checker: Result<&dyn ScriptChecker, Stri
 /// and printed beside the correct one it would contradict it. The error and its source excerpt
 /// stay.
 fn without_embedded_position(message: &str) -> String {
-    let Some(at) = message.find(" at line ") else { return message.to_string() };
+    let Some(at) = message.find(" at line ") else {
+        return message.to_string();
+    };
     match message[at..].find(" source:") {
         Some(source) => format!("{}{}", &message[..at], &message[at + source..]),
         None => message[..at].to_string(),
@@ -254,7 +280,9 @@ fn without_embedded_position(message: &str) -> String {
 fn line_endings(solution: &Solution) -> GateResult {
     let mut result = GateResult::passed("line endings", 0);
     for path in text_files(solution) {
-        let Ok(bytes) = std::fs::read(&path) else { continue };
+        let Ok(bytes) = std::fs::read(&path) else {
+            continue;
+        };
         result.examined += 1;
         let crlf = bytes.windows(2).filter(|w| w == b"\r\n").count();
         let lone_lf = bytes.iter().filter(|&&b| b == b'\n').count() - crlf;
@@ -276,12 +304,21 @@ fn line_endings(solution: &Solution) -> GateResult {
 /// Text files worth checking, by extension, skipping generated and foreign trees, and whatever
 /// git ignores: a file nobody commits is not the repository's to fix.
 fn text_files(solution: &Solution) -> Vec<PathBuf> {
-    const SUFFIXES: &[&str] = &["xml", "js", "json", "md", "toml", "css", "txt", "yml", "yaml"];
+    const SUFFIXES: &[&str] = &[
+        "xml", "js", "json", "md", "toml", "css", "txt", "yml", "yaml",
+    ];
     let mut out = Vec::new();
     for path in walk_files(solution) {
-        let name = path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+        let name = path
+            .file_name()
+            .map(|n| n.to_string_lossy().into_owned())
+            .unwrap_or_default();
         let generated = ["jsconfig.json", "twaco-globals.d.ts"].contains(&name.as_str())
-            && path.parent().and_then(Path::parent).and_then(Path::file_name).is_some_and(|parent| parent == "services");
+            && path
+                .parent()
+                .and_then(Path::parent)
+                .and_then(Path::file_name)
+                .is_some_and(|parent| parent == "services");
         let suffix = path
             .extension()
             .and_then(|e| e.to_str())
@@ -299,9 +336,24 @@ fn text_files(solution: &Solution) -> Vec<PathBuf> {
 /// directory trees, and never follows links.
 pub(crate) fn walk_files(solution: &Solution) -> Vec<PathBuf> {
     const SKIP: &[&str] = &[
-        ".git", ".hg", ".svn", ".venv", "venv", "__pycache__", ".mypy_cache", ".pytest_cache",
-        ".idea", ".vscode", "target", "dist", "build", "out", "coverage", "vendor",
-        "node_modules", "distribution-backend",
+        ".git",
+        ".hg",
+        ".svn",
+        ".venv",
+        "venv",
+        "__pycache__",
+        ".mypy_cache",
+        ".pytest_cache",
+        ".idea",
+        ".vscode",
+        "target",
+        "dist",
+        "build",
+        "out",
+        "coverage",
+        "vendor",
+        "node_modules",
+        "distribution-backend",
         // twaco's own state: the baseline, profiles and generated types, among them copies of
         // every script made for `types --check`, which would report a script's endings twice.
         ".twaco",
@@ -319,7 +371,9 @@ pub(crate) fn walk_files(solution: &Solution) -> Vec<PathBuf> {
         .git_exclude(false)
         .filter_entry(|entry| {
             let is_dir = entry.file_type().is_some_and(|t| t.is_dir());
-            !(is_dir && entry.depth() > 0 && SKIP.contains(&entry.file_name().to_string_lossy().as_ref()))
+            !(is_dir
+                && entry.depth() > 0
+                && SKIP.contains(&entry.file_name().to_string_lossy().as_ref()))
         })
         .build();
     let mut out = Vec::new();
@@ -339,9 +393,25 @@ pub(crate) fn walk_files(solution: &Solution) -> Vec<PathBuf> {
 /// solution root itself.
 pub(crate) fn walk_dirs(solution: &Solution) -> Vec<PathBuf> {
     const SKIP: &[&str] = &[
-        ".git", ".hg", ".svn", ".venv", "venv", "__pycache__", ".mypy_cache", ".pytest_cache",
-        ".idea", ".vscode", "target", "dist", "build", "out", "coverage", "vendor",
-        "node_modules", "distribution-backend", ".twaco",
+        ".git",
+        ".hg",
+        ".svn",
+        ".venv",
+        "venv",
+        "__pycache__",
+        ".mypy_cache",
+        ".pytest_cache",
+        ".idea",
+        ".vscode",
+        "target",
+        "dist",
+        "build",
+        "out",
+        "coverage",
+        "vendor",
+        "node_modules",
+        "distribution-backend",
+        ".twaco",
     ];
     let walker = ignore::WalkBuilder::new(&solution.root)
         .hidden(false)
@@ -351,7 +421,9 @@ pub(crate) fn walk_dirs(solution: &Solution) -> Vec<PathBuf> {
         .git_exclude(false)
         .filter_entry(|entry| {
             let is_dir = entry.file_type().is_some_and(|t| t.is_dir());
-            !(is_dir && entry.depth() > 0 && SKIP.contains(&entry.file_name().to_string_lossy().as_ref()))
+            !(is_dir
+                && entry.depth() > 0
+                && SKIP.contains(&entry.file_name().to_string_lossy().as_ref()))
         })
         .build();
     let mut out = Vec::new();
@@ -406,15 +478,27 @@ fn sidecars_in_sync(solution: &Solution) -> GateResult {
         if sidecars.is_empty() {
             continue;
         }
-        let Ok(src) = std::fs::read(&entity.path) else { continue };
+        let Ok(src) = std::fs::read(&entity.path) else {
+            continue;
+        };
         examined.insert(entity.info.name.clone());
-        match sync::sync(&src, &sidecars, true, solution.format.indent_cdata_payload, false) {
+        match sync::sync(
+            &src,
+            &sidecars,
+            true,
+            solution.format.indent_cdata_payload,
+            false,
+        ) {
             Ok((out, report)) if out != src => result.findings.push(Finding {
                 gate: "sidecars".to_string(),
                 file: relative(solution, &entity.path),
                 line: 0,
                 rule: "out-of-sync".to_string(),
-                message: format!("{} service(s) differ: {}", report.changed.len(), report.changed.join(", ")),
+                message: format!(
+                    "{} service(s) differ: {}",
+                    report.changed.len(),
+                    report.changed.join(", ")
+                ),
             }),
             Ok(_) => {}
             Err(e) => result.findings.push(Finding {
@@ -451,7 +535,9 @@ fn sidecars_in_sync(solution: &Solution) -> GateResult {
                 continue;
             }
         };
-        let Ok(src) = std::fs::read(&entity.path) else { continue };
+        let Ok(src) = std::fs::read(&entity.path) else {
+            continue;
+        };
         examined.insert(entity.info.name.clone());
         match super::datashape::from_sidecar(&text.replace("\r\n", "\n"))
             .and_then(|desired| super::datashape::sync(&src, &desired, true))
@@ -477,7 +563,9 @@ fn sidecars_in_sync(solution: &Solution) -> GateResult {
     // A mashup's content and stylesheet, and a DataTable's configuration. Neither is a service
     // tree, so neither is reached by the loop above.
     for entity in &found.entities {
-        let Ok(src) = std::fs::read(&entity.path) else { continue };
+        let Ok(src) = std::fs::read(&entity.path) else {
+            continue;
+        };
 
         if entity.info.collection == "Mashups" {
             let dir = workspace::mashup_dir(solution, entity);
@@ -544,7 +632,11 @@ fn sidecars_in_sync(solution: &Solution) -> GateResult {
                     file: relative(solution, &entity.path),
                     line: 0,
                     rule: "datatable-out-of-sync".to_string(),
-                    message: format!("{} configuration change(s): {}", changes.len(), changes.join(", ")),
+                    message: format!(
+                        "{} configuration change(s): {}",
+                        changes.len(),
+                        changes.join(", ")
+                    ),
                 }),
                 Ok(_) => {}
                 Err(e) => result.findings.push(Finding {
@@ -562,7 +654,11 @@ fn sidecars_in_sync(solution: &Solution) -> GateResult {
 
     // A sidecar tree for an entity that no longer exists is worth knowing about: a sync would
     // never visit it, so it would sit there being wrong indefinitely.
-    let known: BTreeSet<&str> = found.entities.iter().map(|e| e.info.name.as_str()).collect();
+    let known: BTreeSet<&str> = found
+        .entities
+        .iter()
+        .map(|e| e.info.name.as_str())
+        .collect();
     if let Ok(entries) = std::fs::read_dir(solution.src_root()) {
         for entry in entries.flatten() {
             let name = entry.file_name().to_string_lossy().into_owned();
@@ -577,7 +673,9 @@ fn sidecars_in_sync(solution: &Solution) -> GateResult {
                     file: relative(solution, &entry.path()),
                     line: 0,
                     rule: "orphan".to_string(),
-                    message: format!("sidecars for {name}, which is not an entity in this solution"),
+                    message: format!(
+                        "sidecars for {name}, which is not an entity in this solution"
+                    ),
                 });
             }
         }
@@ -590,7 +688,9 @@ fn formatting(solution: &Solution) -> GateResult {
     let mut result = GateResult::passed("formatting", 0);
     let style = format_js::Style::default();
     for path in workspace::script_files(solution) {
-        let Ok(source) = std::fs::read_to_string(&path) else { continue };
+        let Ok(source) = std::fs::read_to_string(&path) else {
+            continue;
+        };
         result.examined += 1;
         match format_js::format(&source.replace("\r\n", "\n"), &style) {
             Ok(None) => {}
@@ -621,7 +721,9 @@ const OUTPUT_CAP: usize = 1024 * 1024;
 fn script_traps(solution: &Solution) -> GateResult {
     let mut result = GateResult::passed("script traps", 0);
     for path in workspace::script_files(solution) {
-        let Ok(source) = std::fs::read_to_string(&path) else { continue };
+        let Ok(source) = std::fs::read_to_string(&path) else {
+            continue;
+        };
         result.examined += 1;
         for trap in super::lint::lint(&source.replace("\r\n", "\n")) {
             result.findings.push(Finding {
@@ -640,7 +742,9 @@ fn script_traps(solution: &Solution) -> GateResult {
 fn code_order(solution: &Solution) -> GateResult {
     let mut result = GateResult::passed("code order", 0);
     for path in workspace::script_files(solution) {
-        let Ok(source) = std::fs::read_to_string(&path) else { continue };
+        let Ok(source) = std::fs::read_to_string(&path) else {
+            continue;
+        };
         result.examined += 1;
         for misplaced in super::order::check(&source.replace("\r\n", "\n")) {
             result.findings.push(Finding {
@@ -752,7 +856,11 @@ fn run_hook(solution: &Solution, hook: &super::config::Check) -> GateResult {
             file: hook.command.join(" "),
             line: 0,
             rule: "failed".to_string(),
-            message: if detail.is_empty() { "exited non-zero".to_string() } else { detail },
+            message: if detail.is_empty() {
+                "exited non-zero".to_string()
+            } else {
+                detail
+            },
         });
     }
 
@@ -777,7 +885,10 @@ struct Finished {
 /// and reading afterwards deadlocks as soon as a hook writes more than the operating system's
 /// pipe buffer, which is far smaller than the output cap: the hook blocks writing, the wait
 /// blocks on the hook, and the timeout fires on a program that was only being chatty.
-fn run_to_completion(mut child: std::process::Child, timeout: Duration) -> Result<Finished, String> {
+fn run_to_completion(
+    mut child: std::process::Child,
+    timeout: Duration,
+) -> Result<Finished, String> {
     let out_reader = spawn_reader(child.stdout.take());
     let err_reader = spawn_reader(child.stderr.take());
 
@@ -801,9 +912,19 @@ fn run_to_completion(mut child: std::process::Child, timeout: Duration) -> Resul
         }
     };
 
-    let (stdout, out_truncated) = out_reader.join().map_err(|_| "reader thread panicked".to_string())?;
-    let (stderr, err_truncated) = err_reader.join().map_err(|_| "reader thread panicked".to_string())?;
-    Ok(Finished { status, stdout, stderr, timed_out, truncated: out_truncated || err_truncated })
+    let (stdout, out_truncated) = out_reader
+        .join()
+        .map_err(|_| "reader thread panicked".to_string())?;
+    let (stderr, err_truncated) = err_reader
+        .join()
+        .map_err(|_| "reader thread panicked".to_string())?;
+    Ok(Finished {
+        status,
+        stdout,
+        stderr,
+        timed_out,
+        truncated: out_truncated || err_truncated,
+    })
 }
 
 /// Drain one pipe on its own thread, keeping at most `OUTPUT_CAP` bytes.
@@ -816,7 +937,9 @@ fn spawn_reader<R: std::io::Read + Send + 'static>(
     std::thread::spawn(move || {
         let mut kept = Vec::new();
         let mut truncated = false;
-        let Some(mut source) = source else { return (kept, truncated) };
+        let Some(mut source) = source else {
+            return (kept, truncated);
+        };
         let mut buffer = [0u8; 8192];
         loop {
             match source.read(&mut buffer) {
@@ -845,7 +968,15 @@ fn spawn_reader<R: std::io::Read + Send + 'static>(
 /// careless check could make the gate appear to say something it did not.
 fn sanitise(text: &str) -> String {
     text.chars()
-        .map(|c| if c == '\t' { ' ' } else if c.is_control() { '?' } else { c })
+        .map(|c| {
+            if c == '\t' {
+                ' '
+            } else if c.is_control() {
+                '?'
+            } else {
+                c
+            }
+        })
         .take(2000)
         .collect()
 }
@@ -862,9 +993,19 @@ pub(crate) fn parse_finding(gate: &str, line: &str) -> Option<Finding> {
     let message = object.get("message")?.as_str()?.to_string();
     Some(Finding {
         gate: sanitise(object.get("gate").and_then(|v| v.as_str()).unwrap_or(gate)),
-        file: sanitise(object.get("file").and_then(|v| v.as_str()).unwrap_or_default()),
+        file: sanitise(
+            object
+                .get("file")
+                .and_then(|v| v.as_str())
+                .unwrap_or_default(),
+        ),
         line: object.get("line").and_then(|v| v.as_u64()).unwrap_or(0) as usize,
-        rule: sanitise(object.get("rule").and_then(|v| v.as_str()).unwrap_or("finding")),
+        rule: sanitise(
+            object
+                .get("rule")
+                .and_then(|v| v.as_str())
+                .unwrap_or("finding"),
+        ),
         message: sanitise(&message),
     })
 }
@@ -939,7 +1080,12 @@ mod tests {
                     message: "syntax error at line 3 column 9 source: [var b = ;]".to_string(),
                 }
             } else {
-                ScriptCheck { status: true, line_number: 0, column_number: 0, message: String::new() }
+                ScriptCheck {
+                    status: true,
+                    line_number: 0,
+                    column_number: 0,
+                    message: String::new(),
+                }
             })
         }
     }
@@ -947,7 +1093,10 @@ mod tests {
     #[test]
     fn a_rejected_script_is_a_finding_on_its_sidecar_line() {
         let (root, solution) = live_solution();
-        let parser = Parser { unreachable: false, seen: Mutex::new(Vec::new()) };
+        let parser = Parser {
+            unreachable: false,
+            seen: Mutex::new(Vec::new()),
+        };
         let result = live_parse(&solution, Ok(&parser));
         assert_eq!(result.examined, 2);
         assert!(result.broken.is_none());
@@ -955,7 +1104,10 @@ mod tests {
         let finding = &result.findings[0];
         assert_eq!(finding.file, "src/P.T/services/Bad/script.js");
         assert_eq!(finding.line, 2);
-        assert_eq!(finding.message, "column 9: syntax error source: [var b = ;]");
+        assert_eq!(
+            finding.message,
+            "column 9: syntax error source: [var b = ;]"
+        );
         assert!(result.blocks());
         let _ = std::fs::remove_dir_all(root);
     }
@@ -963,7 +1115,10 @@ mod tests {
     #[test]
     fn an_unreachable_server_breaks_the_gate_rather_than_passing_it() {
         let (root, solution) = live_solution();
-        let parser = Parser { unreachable: true, seen: Mutex::new(Vec::new()) };
+        let parser = Parser {
+            unreachable: true,
+            seen: Mutex::new(Vec::new()),
+        };
         let result = live_parse(&solution, Ok(&parser));
         assert!(result.broken.is_some());
         assert!(result.findings.is_empty());
@@ -974,7 +1129,10 @@ mod tests {
     #[test]
     fn no_profile_breaks_the_gate_too() {
         let (root, solution) = live_solution();
-        let result = live_parse(&solution, Err("profile \"default\" was not found".to_string()));
+        let result = live_parse(
+            &solution,
+            Err("profile \"default\" was not found".to_string()),
+        );
         assert!(result.blocks());
         assert!(result.broken.unwrap().contains("not found"));
         let _ = std::fs::remove_dir_all(root);
@@ -983,11 +1141,19 @@ mod tests {
     #[test]
     fn the_misleading_position_in_the_parser_message_is_dropped() {
         assert_eq!(
-            without_embedded_position("missing ) after condition at line 4 column 7 source: [if (a {]"),
+            without_embedded_position(
+                "missing ) after condition at line 4 column 7 source: [if (a {]"
+            ),
             "missing ) after condition source: [if (a {]"
         );
-        assert_eq!(without_embedded_position("TypeError: x at line 3 column 6"), "TypeError: x");
-        assert_eq!(without_embedded_position("no position here"), "no position here");
+        assert_eq!(
+            without_embedded_position("TypeError: x at line 3 column 6"),
+            "TypeError: x"
+        );
+        assert_eq!(
+            without_embedded_position("no position here"),
+            "no position here"
+        );
     }
 
     #[test]
@@ -1047,6 +1213,9 @@ mod tests {
     fn a_broken_gate_has_not_passed_either() {
         let mut gate = GateResult::passed("g", 0);
         gate.broken = Some("could not run".to_string());
-        assert!(!gate.ok(), "a gate that could not run is not a gate that passed");
+        assert!(
+            !gate.ok(),
+            "a gate that could not run is not a gate that passed"
+        );
     }
 }

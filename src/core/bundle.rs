@@ -21,7 +21,8 @@ use std::path::{Path, PathBuf};
 /// The line breaks inside the tag are how ThingWorx itself writes it, and are kept so a bundle
 /// diffs cleanly against a Composer export. A bundle whose header disagrees with what the
 /// platform expects can import as an empty document and still report success.
-const ENTITIES_OPEN: &str = "<Entities\n majorVersion=\"10\"\n minorVersion=\"1\"\n universal=\"password\">";
+const ENTITIES_OPEN: &str =
+    "<Entities\n majorVersion=\"10\"\n minorVersion=\"1\"\n universal=\"password\">";
 const ENTITIES_CLOSE: &str = "</Entities>";
 const XML_DECLARATION: &str = "<?xml version=\"1.0\" encoding=\"UTF-8\"?>";
 
@@ -32,16 +33,45 @@ const XML_DECLARATION: &str = "<?xml version=\"1.0\" encoding=\"UTF-8\"?>";
 /// changed: the Thing's rows arrive while its template still declares the old columns, and the
 /// values land empty. Importing the template before the Thing preserves those values.
 pub const COLLECTION_ORDER: &[&str] = &[
-    "StyleDefinitions", "Networks", "PersistenceProviderPackages", "QueueProviders",
-    "ScriptFunctionLibraries", "Projects", "Users", "DirectoryServices", "Widgets",
-    "MediaEntities", "Groups", "PersistenceProviders", "ModelTags", "LocalizationTables",
-    "Dashboards", "StyleThemes", "DataShapes", "ThingShapes", "ThingTemplates", "Things",
+    "StyleDefinitions",
+    "Networks",
+    "PersistenceProviderPackages",
+    "QueueProviders",
+    "ScriptFunctionLibraries",
+    "Projects",
+    "Users",
+    "DirectoryServices",
+    "Widgets",
+    "MediaEntities",
+    "Groups",
+    "PersistenceProviders",
+    "ModelTags",
+    "LocalizationTables",
+    "Dashboards",
+    "StyleThemes",
+    "DataShapes",
+    "ThingShapes",
+    "ThingTemplates",
+    "Things",
     // ThingWorx 10.2 AI collections. Both come after Things: an MCPNamespace tool names a Thing or
     // ThingTemplate provider, and an AIAgent names the namespaces it draws tools from.
-    "MCPNamespaces", "AIAgents",
-    "Mashups", "Logs", "Authenticators", "QueueProviderPackages", "ThingPackages",
-    "NotificationDefinitions", "ApplicationKeys", "StateDefinitions", "ExtensionPackages",
-    "Organizations", "Menus", "ThingGroups", "Resources", "DataTags", "Subsystems",
+    "MCPNamespaces",
+    "AIAgents",
+    "Mashups",
+    "Logs",
+    "Authenticators",
+    "QueueProviderPackages",
+    "ThingPackages",
+    "NotificationDefinitions",
+    "ApplicationKeys",
+    "StateDefinitions",
+    "ExtensionPackages",
+    "Organizations",
+    "Menus",
+    "ThingGroups",
+    "Resources",
+    "DataTags",
+    "Subsystems",
     "NotificationContents",
 ];
 
@@ -50,13 +80,27 @@ const SINCE_10_2: &[&str] = &["MCPNamespaces", "AIAgents"];
 
 #[derive(Debug)]
 pub enum BundleError {
-    Unreadable { path: PathBuf, why: String },
-    NotWellFormed { path: PathBuf, why: String },
-    NoCollection { path: PathBuf },
-    UnknownCollection { path: PathBuf, tag: String },
+    Unreadable {
+        path: PathBuf,
+        why: String,
+    },
+    NotWellFormed {
+        path: PathBuf,
+        why: String,
+    },
+    NoCollection {
+        path: PathBuf,
+    },
+    UnknownCollection {
+        path: PathBuf,
+        tag: String,
+    },
     Empty,
     /// The assembled document does not contain what the sources did.
-    Verification { missing: Vec<String>, unexpected: Vec<String> },
+    Verification {
+        missing: Vec<String>,
+        unexpected: Vec<String>,
+    },
 }
 
 impl fmt::Display for BundleError {
@@ -112,17 +156,26 @@ impl Selection<'_> {
     /// get subtly wrong, and it is what lets backend work deploy without rolling back mashups
     /// that have not been exported back into the repository yet.
     pub fn backend(solution: &Solution) -> Selection<'_> {
-        let ui: BTreeSet<&str> = solution.bundle.ui_collections.iter().map(String::as_str).collect();
+        let ui: BTreeSet<&str> = solution
+            .bundle
+            .ui_collections
+            .iter()
+            .map(String::as_str)
+            .collect();
         let kept = COLLECTION_ORDER
             .iter()
             .copied()
             .filter(|tag| !ui.contains(tag))
             .collect();
-        Selection { collections: Some(kept) }
+        Selection {
+            collections: Some(kept),
+        }
     }
 
     pub fn wants(&self, tag: &str) -> bool {
-        self.collections.as_ref().is_none_or(|allowed| allowed.contains(tag))
+        self.collections
+            .as_ref()
+            .is_none_or(|allowed| allowed.contains(tag))
     }
 }
 
@@ -133,17 +186,24 @@ pub fn build(files: &[PathBuf], selection: &Selection) -> Result<Bundle, BundleE
     let mut used = 0usize;
 
     for path in files {
-        let text = std::fs::read_to_string(path)
-            .map_err(|e| BundleError::Unreadable { path: path.clone(), why: e.to_string() })?;
+        let text = std::fs::read_to_string(path).map_err(|e| BundleError::Unreadable {
+            path: path.clone(),
+            why: e.to_string(),
+        })?;
         let bytes = text.as_bytes();
-        let tokens = scan::tokenize(bytes)
-            .map_err(|e| BundleError::NotWellFormed { path: path.clone(), why: e.to_string() })?;
+        let tokens = scan::tokenize(bytes).map_err(|e| BundleError::NotWellFormed {
+            path: path.clone(),
+            why: e.to_string(),
+        })?;
 
         let sliced = slice_collections(&tokens, bytes, path)?;
         let mut took_any = false;
         for (tag, body) in sliced {
             if !COLLECTION_ORDER.contains(&tag.as_str()) {
-                return Err(BundleError::UnknownCollection { path: path.clone(), tag });
+                return Err(BundleError::UnknownCollection {
+                    path: path.clone(),
+                    tag,
+                });
             }
             if !selection.wants(&tag) {
                 continue;
@@ -188,7 +248,11 @@ pub fn build(files: &[PathBuf], selection: &Selection) -> Result<Bundle, BundleE
 
     let bytes = (parts.join("\n") + "\n").into_bytes();
     verify(&bytes, &entities)?;
-    Ok(Bundle { bytes, files: used, entities })
+    Ok(Bundle {
+        bytes,
+        files: used,
+        entities,
+    })
 }
 
 /// The raw inner text of each top-level collection in one document.
@@ -203,11 +267,13 @@ fn slice_collections(
     let wrapper = tokens
         .iter()
         .position(|t| t.kind == Kind::Start && t.name.of(src) == b"Entities")
-        .ok_or_else(|| BundleError::NoCollection { path: path.to_path_buf() })?;
+        .ok_or_else(|| BundleError::NoCollection {
+            path: path.to_path_buf(),
+        })?;
     // Name-checked: depth alone accepts `<Things><Thing name="A"></Things></Thing>`, and the
     // body sliced from that is not the collection.
-    let wrapper_end = scan::element_end_in(tokens, src, wrapper)
-        .ok_or_else(|| BundleError::NotWellFormed {
+    let wrapper_end =
+        scan::element_end_in(tokens, src, wrapper).ok_or_else(|| BundleError::NotWellFormed {
             path: path.to_path_buf(),
             why: "<Entities> is not closed by a matching tag".to_string(),
         })?;
@@ -239,19 +305,26 @@ fn slice_collections(
         }
     }
     if out.is_empty() {
-        return Err(BundleError::NoCollection { path: path.to_path_buf() });
+        return Err(BundleError::NoCollection {
+            path: path.to_path_buf(),
+        });
     }
     Ok(out)
 }
 
 /// Drop the newline immediately inside each collection tag, keeping the indentation between.
 fn trim_edge_newlines(body: &str) -> String {
-    let without_leading =
-        body.strip_prefix("\r\n").or_else(|| body.strip_prefix('\n')).unwrap_or(body);
+    let without_leading = body
+        .strip_prefix("\r\n")
+        .or_else(|| body.strip_prefix('\n'))
+        .unwrap_or(body);
     // Only whitespace that forms the closing tag's own indentation is dropped, and only when a
     // newline precedes it. A body that ends in a tab with no newline is content, not layout.
     let trimmed = without_leading.trim_end_matches([' ', '\t']);
-    match trimmed.strip_suffix('\n').map(|s| s.strip_suffix('\r').unwrap_or(s)) {
+    match trimmed
+        .strip_suffix('\n')
+        .map(|s| s.strip_suffix('\r').unwrap_or(s))
+    {
         Some(shorter) => shorter.to_string(),
         None => without_leading.to_string(),
     }
@@ -277,7 +350,9 @@ fn names_in(tokens: &[scan::Token], src: &[u8], collection: &str) -> Vec<String>
         while index < end {
             if matches!(tokens[index].kind, Kind::Start | Kind::Empty) {
                 if let Ok(Some(span)) = scan::attribute(src, &tokens[index], "name") {
-                    names.push(scan::decode_entities(&String::from_utf8_lossy(span.of(src))));
+                    names.push(scan::decode_entities(&String::from_utf8_lossy(
+                        span.of(src),
+                    )));
                 }
                 index = scan::element_end_in(tokens, src, index).map_or(end, |e| e + 1);
             } else {
@@ -322,7 +397,10 @@ fn verify(bytes: &[u8], expected: &BTreeMap<(String, String), usize>) -> Result<
         // A duplicate in the sources is a defect of its own: two files declaring the same
         // entity means one body silently wins on import.
         if *wanted > 1 {
-            unexpected.push(format!("{}/{} is declared {wanted} times in the sources", key.0, key.1));
+            unexpected.push(format!(
+                "{}/{} is declared {wanted} times in the sources",
+                key.0, key.1
+            ));
         }
     }
     for (key, got) in &found {
@@ -333,7 +411,10 @@ fn verify(bytes: &[u8], expected: &BTreeMap<(String, String), usize>) -> Result<
     if missing.is_empty() && unexpected.is_empty() {
         Ok(())
     } else {
-        Err(BundleError::Verification { missing, unexpected })
+        Err(BundleError::Verification {
+            missing,
+            unexpected,
+        })
     }
 }
 
@@ -345,8 +426,9 @@ pub fn source_files(solution: &Solution) -> Vec<PathBuf> {
     // Projects in deploy order, so a dependency's entities precede the entities that bind to
     // them within each collection. Falls back to declaration order only when the order cannot
     // be computed, which validation already refuses to load.
-    let ordered: Vec<&super::config::Project> =
-        solution.deploy_order().unwrap_or_else(|_| solution.projects.iter().collect());
+    let ordered: Vec<&super::config::Project> = solution
+        .deploy_order()
+        .unwrap_or_else(|_| solution.projects.iter().collect());
 
     let mut out = Vec::new();
     let mut seen = BTreeSet::new();
@@ -389,12 +471,17 @@ pub fn source_files(solution: &Solution) -> Vec<PathBuf> {
 /// `Things/nested/A.xml` invisible to the bundle *and* to its verification, so an entity could
 /// go missing with nothing reporting it.
 fn collect_xml(dir: &Path, out: &mut Vec<PathBuf>) {
-    let Ok(entries) = std::fs::read_dir(dir) else { return };
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return;
+    };
     for entry in entries.flatten() {
         let path = entry.path();
         if path.is_dir() {
             collect_xml(&path, out);
-        } else if path.extension().is_some_and(|e| e.eq_ignore_ascii_case("xml")) {
+        } else if path
+            .extension()
+            .is_some_and(|e| e.eq_ignore_ascii_case("xml"))
+        {
             out.push(path);
         }
     }
@@ -423,12 +510,21 @@ pub fn dangling_references(selected: &[PathBuf], all: &[PathBuf]) -> Vec<String>
     }
 
     for path in selected {
-        let Ok(text) = std::fs::read_to_string(path) else { continue };
+        let Ok(text) = std::fs::read_to_string(path) else {
+            continue;
+        };
         let bytes = text.as_bytes();
-        let Ok(info) = entity::parse(bytes) else { continue };
+        let Ok(info) = entity::parse(bytes) else {
+            continue;
+        };
         present.insert(info.name.clone());
-        let Ok(tokens) = scan::tokenize(bytes) else { continue };
-        for token in tokens.iter().filter(|t| matches!(t.kind, Kind::Start | Kind::Empty)) {
+        let Ok(tokens) = scan::tokenize(bytes) else {
+            continue;
+        };
+        for token in tokens
+            .iter()
+            .filter(|t| matches!(t.kind, Kind::Start | Kind::Empty))
+        {
             for attribute in ["baseThingTemplate", "thingTemplate", "baseDataShape"] {
                 if let Ok(Some(span)) = scan::attribute(bytes, token, attribute) {
                     let value = scan::decode_entities(&String::from_utf8_lossy(span.of(bytes)));
@@ -456,7 +552,10 @@ mod tests {
 
     #[test]
     fn the_body_of_a_collection_is_sliced_without_its_own_newlines() {
-        assert_eq!(trim_edge_newlines("\n        <Thing/>\n    "), "        <Thing/>");
+        assert_eq!(
+            trim_edge_newlines("\n        <Thing/>\n    "),
+            "        <Thing/>"
+        );
         assert_eq!(trim_edge_newlines("\r\n  <A/>\r\n  "), "  <A/>");
         assert_eq!(trim_edge_newlines(""), "");
     }
@@ -467,7 +566,10 @@ mod tests {
         solution.bundle.ui_collections = vec!["Mashups".to_string(), "MediaEntities".to_string()];
         let selection = Selection::backend(&solution);
         assert!(selection.wants("Things"));
-        assert!(!selection.wants("Mashups"), "a designer's collection is left alone");
+        assert!(
+            !selection.wants("Mashups"),
+            "a designer's collection is left alone"
+        );
         assert!(!selection.wants("MediaEntities"));
     }
 
@@ -481,7 +583,9 @@ mod tests {
     #[test]
     fn verification_names_what_went_missing() {
         let expected: BTreeMap<(String, String), usize> =
-            [(("Things".to_string(), "A".to_string()), 1)].into_iter().collect();
+            [(("Things".to_string(), "A".to_string()), 1)]
+                .into_iter()
+                .collect();
         let empty = format!("{XML_DECLARATION}\n{ENTITIES_OPEN}\n{ENTITIES_CLOSE}\n");
         match verify(empty.as_bytes(), &expected) {
             Err(BundleError::Verification { missing, .. }) => {
@@ -496,13 +600,18 @@ mod tests {
         // A set could not tell one "Things/A" from two, so a bundle importing the same entity
         // twice -- last body wins -- passed verification.
         let expected: BTreeMap<(String, String), usize> =
-            [(("Things".to_string(), "A".to_string()), 1)].into_iter().collect();
+            [(("Things".to_string(), "A".to_string()), 1)]
+                .into_iter()
+                .collect();
         let doubled = format!(
             "{XML_DECLARATION}\n{ENTITIES_OPEN}\n    <Things><Thing name=\"A\"></Thing><Thing name=\"A\"></Thing></Things>\n{ENTITIES_CLOSE}\n"
         );
         match verify(doubled.as_bytes(), &expected) {
             Err(BundleError::Verification { unexpected, .. }) => {
-                assert!(unexpected.iter().any(|u| u.contains("Things/A")), "got {unexpected:?}");
+                assert!(
+                    unexpected.iter().any(|u| u.contains("Things/A")),
+                    "got {unexpected:?}"
+                );
             }
             other => panic!("expected a verification failure, got {other:?}"),
         }

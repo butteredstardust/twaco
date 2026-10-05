@@ -39,8 +39,13 @@ pub struct WorkspaceLock {
 #[derive(Debug)]
 pub enum LockError {
     /// Another process holds it. `holder` is what that process wrote, when it could be read.
-    Held { holder: String },
-    Io { path: PathBuf, why: String },
+    Held {
+        holder: String,
+    },
+    Io {
+        path: PathBuf,
+        why: String,
+    },
 }
 
 impl fmt::Display for LockError {
@@ -79,9 +84,17 @@ fn acquire_then_sweep(
     sweep: impl FnOnce() -> Vec<PathBuf>,
 ) -> Result<WorkspaceLock, LockError> {
     let path = root.join(RELATIVE_PATH);
-    let io = |why: std::io::Error| LockError::Io { path: path.clone(), why: why.to_string() };
+    let io = |why: std::io::Error| LockError::Io {
+        path: path.clone(),
+        why: why.to_string(),
+    };
     std::fs::create_dir_all(path.parent().expect("the lock has a parent")).map_err(io)?;
-    let file = OpenOptions::new().write(true).create(true).truncate(false).open(&path).map_err(io)?;
+    let file = OpenOptions::new()
+        .write(true)
+        .create(true)
+        .truncate(false)
+        .open(&path)
+        .map_err(io)?;
     let holder_path = root.join(HOLDER_PATH);
     let mut attempt = 1;
     loop {
@@ -95,18 +108,31 @@ fn acquire_then_sweep(
                 let holder = std::fs::read_to_string(&holder_path).unwrap_or_default();
                 let holder = holder.trim();
                 return Err(LockError::Held {
-                    holder: if holder.is_empty() { "holder unknown".to_string() } else { holder.to_string() },
+                    holder: if holder.is_empty() {
+                        "holder unknown".to_string()
+                    } else {
+                        holder.to_string()
+                    },
                 });
             }
             Err(TryLockError::Error(error)) => return Err(io(error)),
         }
     }
-    let started = SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0);
-    let record = format!("twaco {command}, pid {}, started at unix time {started}\n", std::process::id());
+    let started = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0);
+    let record = format!(
+        "twaco {command}, pid {}, started at unix time {started}\n",
+        std::process::id()
+    );
     // Written beside it and renamed over it, so a contender never reads half a record.
     // Informational; a failure to say who holds the lock must not fail the command holding it.
     let staged = root.join(format!(".twaco/.lock.holder{TEMPORARY_SUFFIX}"));
-    if std::fs::write(&staged, record.as_bytes()).and_then(|()| std::fs::rename(&staged, &holder_path)).is_err() {
+    if std::fs::write(&staged, record.as_bytes())
+        .and_then(|()| std::fs::rename(&staged, &holder_path))
+        .is_err()
+    {
         // Windows refuses the rename while a reader holds the record open without sharing
         // deletion. Writing in place can be read half-done, but never names the last holder.
         let _ = std::fs::remove_file(&staged);
@@ -126,7 +152,10 @@ fn acquire_then_sweep(
             }
         }
     }
-    Ok(WorkspaceLock { _file: file, recovered })
+    Ok(WorkspaceLock {
+        _file: file,
+        recovered,
+    })
 }
 
 /// Who holds the workspace lock, if anyone, without taking it or sweeping anything.
@@ -138,14 +167,21 @@ pub fn holder(root: &Path) -> Result<Option<String>, LockError> {
     if !path.exists() {
         return Ok(None);
     }
-    let io = |why: std::io::Error| LockError::Io { path: path.clone(), why: why.to_string() };
+    let io = |why: std::io::Error| LockError::Io {
+        path: path.clone(),
+        why: why.to_string(),
+    };
     let file = OpenOptions::new().write(true).open(&path).map_err(io)?;
     match file.try_lock() {
         // Released as `file` drops at the end of this function.
         Ok(()) => Ok(None),
         Err(TryLockError::WouldBlock) => {
             let holder = std::fs::read_to_string(root.join(HOLDER_PATH)).unwrap_or_default();
-            Ok(Some(if holder.trim().is_empty() { "holder unknown".to_string() } else { holder.trim().to_string() }))
+            Ok(Some(if holder.trim().is_empty() {
+                "holder unknown".to_string()
+            } else {
+                holder.trim().to_string()
+            }))
         }
         Err(TryLockError::Error(error)) => Err(io(error)),
     }
@@ -153,7 +189,10 @@ pub fn holder(root: &Path) -> Result<Option<String>, LockError> {
 
 /// Take the lock for a solution, sweeping everywhere twaco writes through a temporary: the entity
 /// folders and the sidecar tree (and `.twaco`, always). Used by the CLI and the MCP server alike.
-pub fn acquire_for(solution: &super::config::Solution, command: &str) -> Result<WorkspaceLock, LockError> {
+pub fn acquire_for(
+    solution: &super::config::Solution,
+    command: &str,
+) -> Result<WorkspaceLock, LockError> {
     acquire_then_sweep(&solution.root, command, || {
         let mut sweep: Vec<PathBuf> = super::workspace::discover(solution)
             .entities
@@ -170,18 +209,28 @@ pub fn acquire_for(solution: &super::config::Solution, command: &str) -> Result<
 /// twaco's own temporaries are hidden siblings of their target: `.<name>[.<pid>...].twaco-tmp`.
 /// Older versions also left `.twaco-rename-tmp` and `.twaco-delete-tmp`; those are recognised too.
 fn is_temporary(name: &str) -> bool {
-    name.starts_with('.') && LEGACY_SUFFIXES.iter().chain([&TEMPORARY_SUFFIX]).any(|suffix| name.ends_with(suffix))
+    name.starts_with('.')
+        && LEGACY_SUFFIXES
+            .iter()
+            .chain([&TEMPORARY_SUFFIX])
+            .any(|suffix| name.ends_with(suffix))
 }
 
 fn remove_temporaries(directory: &Path, recovered: &mut Vec<PathBuf>) {
-    let Ok(entries) = std::fs::read_dir(directory) else { return };
+    let Ok(entries) = std::fs::read_dir(directory) else {
+        return;
+    };
     for entry in entries.flatten() {
         let path = entry.path();
-        let Ok(kind) = entry.file_type() else { continue };
+        let Ok(kind) = entry.file_type() else {
+            continue;
+        };
         if kind.is_dir() {
             remove_temporaries(&path, recovered);
         } else if kind.is_file()
-            && path.file_name().is_some_and(|name| is_temporary(&name.to_string_lossy()))
+            && path
+                .file_name()
+                .is_some_and(|name| is_temporary(&name.to_string_lossy()))
             && std::fs::remove_file(&path).is_ok()
         {
             recovered.push(path);
@@ -194,7 +243,10 @@ mod tests {
     use super::*;
 
     fn temp() -> PathBuf {
-        let nonce = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos();
+        let nonce = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
         let root = std::env::temp_dir().join(format!("twaco-lock-{}-{nonce}", std::process::id()));
         std::fs::create_dir_all(&root).unwrap();
         root
@@ -208,7 +260,10 @@ mod tests {
         match error {
             LockError::Held { holder } => {
                 assert!(holder.contains("twaco sync"), "{holder}");
-                assert!(holder.contains(&format!("pid {}", std::process::id())), "{holder}");
+                assert!(
+                    holder.contains(&format!("pid {}", std::process::id())),
+                    "{holder}"
+                );
             }
             other => panic!("expected Held, got {other}"),
         }
@@ -222,7 +277,10 @@ mod tests {
         drop(acquire(&root, "sync", &[]).unwrap());
         let again = acquire(&root, "fmt", &[]).unwrap();
         let text = std::fs::read_to_string(root.join(HOLDER_PATH)).unwrap();
-        assert!(text.starts_with("twaco fmt,"), "the new holder replaces the old record: {text}");
+        assert!(
+            text.starts_with("twaco fmt,"),
+            "the new holder replaces the old record: {text}"
+        );
         drop(again);
         let _ = std::fs::remove_dir_all(root);
     }
@@ -279,7 +337,10 @@ mod tests {
         let reader = options.open(root.join(HOLDER_PATH)).unwrap();
         let lock = acquire(&root, "fmt", &[]).unwrap();
         let text = std::fs::read_to_string(root.join(HOLDER_PATH)).unwrap();
-        assert!(text.starts_with("twaco fmt,") && text.ends_with('\n'), "{text}");
+        assert!(
+            text.starts_with("twaco fmt,") && text.ends_with('\n'),
+            "{text}"
+        );
         assert!(!root.join(".twaco/.lock.holder.twaco-tmp").exists());
         drop((reader, lock));
         let _ = std::fs::remove_dir_all(root);
@@ -290,7 +351,10 @@ mod tests {
         // As `doctor` holds it while asking whether it is free.
         let root = temp();
         drop(acquire(&root, "sync", &[]).unwrap());
-        let glance = OpenOptions::new().write(true).open(root.join(RELATIVE_PATH)).unwrap();
+        let glance = OpenOptions::new()
+            .write(true)
+            .open(root.join(RELATIVE_PATH))
+            .unwrap();
         glance.try_lock().unwrap();
         let release = std::thread::spawn(move || {
             std::thread::sleep(std::time::Duration::from_millis(60));

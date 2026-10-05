@@ -70,29 +70,69 @@ pub struct Request {
 #[derive(Debug)]
 pub enum RelocateError {
     Invalid(String),
-    Unknown { name: String },
-    Unreadable { files: Vec<String> },
-    Xml { path: PathBuf, why: String },
-    NotDeclared { entity: String, member: Member, name: String },
-    Inherited { entity: String, name: String, declared_on: String },
-    Exists { conflicts: Vec<String> },
+    Unknown {
+        name: String,
+    },
+    Unreadable {
+        files: Vec<String>,
+    },
+    Xml {
+        path: PathBuf,
+        why: String,
+    },
+    NotDeclared {
+        entity: String,
+        member: Member,
+        name: String,
+    },
+    Inherited {
+        entity: String,
+        name: String,
+        declared_on: String,
+    },
+    Exists {
+        conflicts: Vec<String>,
+    },
     Refused(String),
-    Apply { path: PathBuf, why: String },
+    Apply {
+        path: PathBuf,
+        why: String,
+    },
     Verification(String),
 }
 
 impl fmt::Display for RelocateError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            RelocateError::Invalid(why) | RelocateError::Refused(why) | RelocateError::Verification(why) => f.write_str(why),
-            RelocateError::Unknown { name } => write!(f, "no Thing, ThingTemplate or ThingShape named {name} in this solution"),
-            RelocateError::Unreadable { files } => write!(f, "cannot plan with unreadable files: {}", files.join(", ")),
-            RelocateError::Xml { path, why } => write!(f, "{}: {why}", path.display()),
-            RelocateError::NotDeclared { entity, member, name } => write!(f, "{entity} declares no {} named {name}", member.word()),
-            RelocateError::Inherited { entity, name, declared_on } => {
-                write!(f, "{name} on {entity} is declared on {declared_on}; move it from there")
+            RelocateError::Invalid(why)
+            | RelocateError::Refused(why)
+            | RelocateError::Verification(why) => f.write_str(why),
+            RelocateError::Unknown { name } => write!(
+                f,
+                "no Thing, ThingTemplate or ThingShape named {name} in this solution"
+            ),
+            RelocateError::Unreadable { files } => {
+                write!(f, "cannot plan with unreadable files: {}", files.join(", "))
             }
-            RelocateError::Exists { conflicts } => write!(f, "the name is already taken: {}", conflicts.join("; ")),
+            RelocateError::Xml { path, why } => write!(f, "{}: {why}", path.display()),
+            RelocateError::NotDeclared {
+                entity,
+                member,
+                name,
+            } => write!(f, "{entity} declares no {} named {name}", member.word()),
+            RelocateError::Inherited {
+                entity,
+                name,
+                declared_on,
+            } => {
+                write!(
+                    f,
+                    "{name} on {entity} is declared on {declared_on}; move it from there"
+                )
+            }
+            RelocateError::Exists { conflicts } => {
+                write!(f, "the name is already taken: {}", conflicts.join("; "))
+            }
             RelocateError::Apply { path, why } => write!(f, "{}: {why}", path.display()),
         }
     }
@@ -131,9 +171,19 @@ pub struct Plan {
     pub notes: Vec<String>,
 }
 
-fn sections(member: Member) -> (&'static str, &'static str, Option<(&'static str, &'static str)>) {
+fn sections(
+    member: Member,
+) -> (
+    &'static str,
+    &'static str,
+    Option<(&'static str, &'static str)>,
+) {
     match member {
-        Member::Service => ("ServiceDefinitions", "ServiceDefinition", Some(("ServiceImplementations", "ServiceImplementation"))),
+        Member::Service => (
+            "ServiceDefinitions",
+            "ServiceDefinition",
+            Some(("ServiceImplementations", "ServiceImplementation")),
+        ),
         Member::Property => ("PropertyDefinitions", "PropertyDefinition", None),
     }
 }
@@ -152,17 +202,30 @@ pub(crate) fn is_relocatable(collection: &str) -> bool {
     matches!(collection, "Things" | "ThingTemplates" | "ThingShapes")
 }
 
-pub(crate) fn find_entity<'a>(entities: &'a [EntityFile], name: &str) -> Result<&'a EntityFile, RelocateError> {
-    let found: Vec<&EntityFile> = entities.iter().filter(|item| item.info.name == name && is_relocatable(&item.info.collection)).collect();
+pub(crate) fn find_entity<'a>(
+    entities: &'a [EntityFile],
+    name: &str,
+) -> Result<&'a EntityFile, RelocateError> {
+    let found: Vec<&EntityFile> = entities
+        .iter()
+        .filter(|item| item.info.name == name && is_relocatable(&item.info.collection))
+        .collect();
     match found.as_slice() {
         [one] => Ok(one),
-        [] => Err(RelocateError::Unknown { name: name.to_string() }),
-        _ => Err(RelocateError::Invalid(format!("{name} is defined more than once in this solution"))),
+        [] => Err(RelocateError::Unknown {
+            name: name.to_string(),
+        }),
+        _ => Err(RelocateError::Invalid(format!(
+            "{name} is defined more than once in this solution"
+        ))),
     }
 }
 
 fn xml(path: &Path, error: impl fmt::Display) -> RelocateError {
-    RelocateError::Xml { path: path.to_path_buf(), why: error.to_string() }
+    RelocateError::Xml {
+        path: path.to_path_buf(),
+        why: error.to_string(),
+    }
 }
 
 /// The leading spaces and tabs of the line holding `at`.
@@ -220,10 +283,15 @@ fn reindent(block: &[u8], block_start: usize, cdata: &[Span], from: usize, to: u
     let mut out = Vec::with_capacity(block.len());
     let mut at = 0;
     while at < block.len() {
-        let line_end = block[at..].iter().position(|&b| b == b'\n').map_or(block.len(), |p| at + p + 1);
+        let line_end = block[at..]
+            .iter()
+            .position(|&b| b == b'\n')
+            .map_or(block.len(), |p| at + p + 1);
         let line = &block[at..line_end];
         let absolute = block_start + at;
-        let in_cdata = cdata.iter().any(|span| span.start < absolute && absolute < span.end);
+        let in_cdata = cdata
+            .iter()
+            .any(|span| span.start < absolute && absolute < span.end);
         let blank = line.iter().all(|b| b.is_ascii_whitespace());
         if in_cdata || blank {
             out.extend_from_slice(line);
@@ -250,12 +318,24 @@ struct Block {
     cdata: Vec<Span>,
 }
 
-fn block_of(tokens: &[Token], src: &[u8], section: usize, element: usize) -> Result<Block, scan::ScanError> {
-    let span = scan::element_span(tokens, element).ok_or(scan::ScanError::Malformed { what: "member element", at: tokens[element].span.start })?;
+fn block_of(
+    tokens: &[Token],
+    src: &[u8],
+    section: usize,
+    element: usize,
+) -> Result<Block, scan::ScanError> {
+    let span = scan::element_span(tokens, element).ok_or(scan::ScanError::Malformed {
+        what: "member element",
+        at: tokens[element].span.start,
+    })?;
     let lines = line_bounds(src, span);
     let cdata = tokens
         .iter()
-        .filter(|token| token.kind == TokenKind::Cdata && token.span.start >= span.start && token.span.end <= span.end)
+        .filter(|token| {
+            token.kind == TokenKind::Cdata
+                && token.span.start >= span.start
+                && token.span.end <= span.end
+        })
         .map(|token| token.span)
         .collect();
     Ok(Block {
@@ -277,15 +357,42 @@ fn insert_edit(
     block_bytes: &[u8],
 ) -> Result<Edit, String> {
     let unit = block.indent.saturating_sub(block.section_indent).max(1);
-    let existing = scan::child_tags(tokens, src, section, host).first().copied();
-    let newline = if block_bytes.windows(2).any(|pair| pair == b"\r\n") { "\r\n" } else { "\n" };
+    let existing = scan::child_tags(tokens, src, section, host)
+        .first()
+        .copied();
+    let newline = if block_bytes.windows(2).any(|pair| pair == b"\r\n") {
+        "\r\n"
+    } else {
+        "\n"
+    };
     match existing {
         Some(at) if tokens[at].kind == TokenKind::Start => {
             let close = scan::element_end(tokens, at).ok_or("the section is not closed")?;
             let section_indent = indent_at(src, tokens[at].span.start).len();
-            let first_child = scan::child_tags(tokens, src, if section == "PropertyDefinitions" { "PropertyDefinition" } else if section == "ServiceDefinitions" { "ServiceDefinition" } else { "ServiceImplementation" }, at).first().copied();
-            let target_indent = first_child.map_or(section_indent + unit, |child| indent_at(src, tokens[child].span.start).len());
-            let moved = reindent(block_bytes, block.span.start, &block.cdata, block.indent, target_indent);
+            let first_child = scan::child_tags(
+                tokens,
+                src,
+                if section == "PropertyDefinitions" {
+                    "PropertyDefinition"
+                } else if section == "ServiceDefinitions" {
+                    "ServiceDefinition"
+                } else {
+                    "ServiceImplementation"
+                },
+                at,
+            )
+            .first()
+            .copied();
+            let target_indent = first_child.map_or(section_indent + unit, |child| {
+                indent_at(src, tokens[child].span.start).len()
+            });
+            let moved = reindent(
+                block_bytes,
+                block.span.start,
+                &block.cdata,
+                block.indent,
+                target_indent,
+            );
             let close_start = tokens[close].span.start;
             if block.own_lines && starts_line(src, close_start) {
                 let mut line = close_start;
@@ -301,7 +408,10 @@ fn insert_edit(
                 text.extend(std::iter::repeat_n(b' ', section_indent));
                 Ok(Edit::new(Span::new(close_start, close_start), text))
             } else {
-                Ok(Edit::new(Span::new(close_start, close_start), block_bytes.to_vec()))
+                Ok(Edit::new(
+                    Span::new(close_start, close_start),
+                    block_bytes.to_vec(),
+                ))
             }
         }
         Some(at) => {
@@ -309,10 +419,18 @@ fn insert_edit(
             let token = tokens[at];
             let name = token.name.of(src);
             if token.span.len() != name.len() + 3 {
-                return Err(format!("{section} is an empty element with attributes; add a member in Composer first"));
+                return Err(format!(
+                    "{section} is an empty element with attributes; add a member in Composer first"
+                ));
             }
             let section_indent = indent_at(src, token.span.start).len();
-            let moved = reindent(block_bytes, block.span.start, &block.cdata, block.indent, section_indent + unit);
+            let moved = reindent(
+                block_bytes,
+                block.span.start,
+                &block.cdata,
+                block.indent,
+                section_indent + unit,
+            );
             let mut text = Vec::new();
             text.push(b'<');
             text.extend_from_slice(name);
@@ -327,7 +445,10 @@ fn insert_edit(
         }
         None => {
             // The section is missing: put a new one where Composer would, before the first later one.
-            let order = SECTION_ORDER.iter().position(|name| *name == section).unwrap_or(0);
+            let order = SECTION_ORDER
+                .iter()
+                .position(|name| *name == section)
+                .unwrap_or(0);
             let host_end = scan::element_end(tokens, host).ok_or("the entity is not closed")?;
             let mut children = Vec::new();
             let mut index = host + 1;
@@ -344,23 +465,47 @@ fn insert_edit(
                     _ => index += 1,
                 }
             }
-            let child_indent = children.first().map(|&child| indent_at(src, tokens[child].span.start).len());
+            let child_indent = children
+                .first()
+                .map(|&child| indent_at(src, tokens[child].span.start).len());
             let Some(child_indent) = child_indent else {
                 return Err("the target has no members section to place this next to; add a member in Composer first".to_string());
             };
             let anchor = children
                 .iter()
-                .find(|&&child| SECTION_ORDER.iter().position(|name| name.as_bytes() == tokens[child].name.of(src)).is_some_and(|position| position > order))
-                .map(|&child| line_bounds(src, Span::new(tokens[child].span.start, tokens[child].span.start)).start.min(tokens[child].span.start))
+                .find(|&&child| {
+                    SECTION_ORDER
+                        .iter()
+                        .position(|name| name.as_bytes() == tokens[child].name.of(src))
+                        .is_some_and(|position| position > order)
+                })
+                .map(|&child| {
+                    line_bounds(
+                        src,
+                        Span::new(tokens[child].span.start, tokens[child].span.start),
+                    )
+                    .start
+                    .min(tokens[child].span.start)
+                })
                 .unwrap_or(tokens[host_end].span.start);
             let at = {
                 let mut line = anchor;
                 while line > 0 && src[line - 1] != b'\n' {
                     line -= 1;
                 }
-                if starts_line(src, anchor) { line } else { anchor }
+                if starts_line(src, anchor) {
+                    line
+                } else {
+                    anchor
+                }
             };
-            let moved = reindent(block_bytes, block.span.start, &block.cdata, block.indent, child_indent + unit);
+            let moved = reindent(
+                block_bytes,
+                block.span.start,
+                &block.cdata,
+                block.indent,
+                child_indent + unit,
+            );
             let pad: Vec<u8> = std::iter::repeat_n(b' ', child_indent).collect();
             let mut text = Vec::new();
             text.extend_from_slice(&pad);
@@ -376,8 +521,17 @@ fn insert_edit(
 }
 
 /// The member's name attribute rewritten inside a block's bytes (the first tag only).
-fn with_name(tokens: &[Token], src: &[u8], element: usize, block: &Block, block_bytes: &[u8], new_name: &str) -> Result<Vec<u8>, String> {
-    let value = scan::attribute(src, &tokens[element], "name").map_err(|error| error.to_string())?.ok_or("the element has no name")?;
+fn with_name(
+    tokens: &[Token],
+    src: &[u8],
+    element: usize,
+    block: &Block,
+    block_bytes: &[u8],
+    new_name: &str,
+) -> Result<Vec<u8>, String> {
+    let value = scan::attribute(src, &tokens[element], "name")
+        .map_err(|error| error.to_string())?
+        .ok_or("the element has no name")?;
     let relative = Span::new(value.start - block.span.start, value.end - block.span.start);
     let mut out = block_bytes[..relative.start].to_vec();
     out.extend_from_slice(new_name.as_bytes());
@@ -386,65 +540,111 @@ fn with_name(tokens: &[Token], src: &[u8], element: usize, block: &Block, block_
 }
 
 fn is_ancestor(catalog: &catalog::Catalog, entity: &str, of: &str) -> bool {
-    catalog.entities.iter().find(|item| item.name == of).is_some_and(|item| item.inherits.iter().any(|name| name == entity))
+    catalog
+        .entities
+        .iter()
+        .find(|item| item.name == of)
+        .is_some_and(|item| item.inherits.iter().any(|name| name == entity))
 }
 
 pub fn plan(solution: &Solution, request: &Request) -> Result<Plan, RelocateError> {
     let member = request.member;
     let noun = member.word();
     refs::validate_field_name(&request.name, noun).map_err(RelocateError::Invalid)?;
-    let final_name = request.new_name.clone().unwrap_or_else(|| request.name.clone());
+    let final_name = request
+        .new_name
+        .clone()
+        .unwrap_or_else(|| request.name.clone());
     refs::validate_field_name(&final_name, noun).map_err(RelocateError::Invalid)?;
     if request.from == request.to && final_name == request.name {
-        return Err(RelocateError::Invalid("the source and the target are the same entity; give --as a new name to copy within it".to_string()));
+        return Err(RelocateError::Invalid(
+            "the source and the target are the same entity; give --as a new name to copy within it"
+                .to_string(),
+        ));
     }
     if request.leave_delegate && (request.copy || member != Member::Service) {
-        return Err(RelocateError::Invalid("--leave-delegate applies to moving a service".to_string()));
+        return Err(RelocateError::Invalid(
+            "--leave-delegate applies to moving a service".to_string(),
+        ));
     }
 
     let mut discovery = workspace::discover(solution);
     if !discovery.unreadable.is_empty() {
-        return Err(RelocateError::Unreadable { files: discovery.unreadable });
+        return Err(RelocateError::Unreadable {
+            files: discovery.unreadable,
+        });
     }
     discovery.entities.sort_by(|a, b| a.path.cmp(&b.path));
     discovery.entities.dedup_by(|a, b| a.path == b.path);
     let from = find_entity(&discovery.entities, &request.from)?.clone();
     let to = find_entity(&discovery.entities, &request.to)?.clone();
     if request.leave_delegate && to.info.collection != "Things" {
-        return Err(RelocateError::Invalid(format!("--leave-delegate calls the service on {} by name, which needs a Thing; {} is a {}", request.to, request.to, to.info.collection)));
+        return Err(RelocateError::Invalid(format!(
+            "--leave-delegate calls the service on {} by name, which needs a Thing; {} is a {}",
+            request.to, request.to, to.info.collection
+        )));
     }
 
     let from_old = std::fs::read(&from.path).map_err(|error| xml(&from.path, error))?;
     let to_old = std::fs::read(&to.path).map_err(|error| xml(&to.path, error))?;
     let from_tokens = scan::tokenize(&from_old).map_err(|error| xml(&from.path, error))?;
     let to_tokens = scan::tokenize(&to_old).map_err(|error| xml(&to.path, error))?;
-    let from_host = sidecar::member_host_of(&from_tokens, &from_old).ok_or_else(|| xml(&from.path, "not an entity"))?;
-    let to_host = sidecar::member_host_of(&to_tokens, &to_old).ok_or_else(|| xml(&to.path, "not an entity"))?;
+    let from_host = sidecar::member_host_of(&from_tokens, &from_old)
+        .ok_or_else(|| xml(&from.path, "not an entity"))?;
+    let to_host = sidecar::member_host_of(&to_tokens, &to_old)
+        .ok_or_else(|| xml(&to.path, "not an entity"))?;
 
     let (def_section, def_block, impl_section) = sections(member);
-    let defs = sidecar::named_children_of(&from_tokens, &from_old, from_host, def_section, def_block).map_err(|error| xml(&from.path, error))?;
+    let defs =
+        sidecar::named_children_of(&from_tokens, &from_old, from_host, def_section, def_block)
+            .map_err(|error| xml(&from.path, error))?;
     let Some(&def_at) = defs.get(&request.name) else {
-        return Err(RelocateError::NotDeclared { entity: request.from.clone(), member, name: request.name.clone() });
+        return Err(RelocateError::NotDeclared {
+            entity: request.from.clone(),
+            member,
+            name: request.name.clone(),
+        });
     };
     let impls = match impl_section {
-        Some((section, block)) => sidecar::named_children_of(&from_tokens, &from_old, from_host, section, block).map_err(|error| xml(&from.path, error))?,
+        Some((section, block)) => {
+            sidecar::named_children_of(&from_tokens, &from_old, from_host, section, block)
+                .map_err(|error| xml(&from.path, error))?
+        }
         None => Default::default(),
     };
 
     // Names: the target, what it inherits and what inherits it must not already use the name.
-    let catalog = catalog::build(solution, catalog::Query::default()).map_err(|error| RelocateError::Invalid(format!("cannot build the model: {error}")))?;
+    let catalog = catalog::build(solution, catalog::Query::default())
+        .map_err(|error| RelocateError::Invalid(format!("cannot build the model: {error}")))?;
     if !catalog.skipped.is_empty() {
-        return Err(RelocateError::Unreadable { files: catalog.skipped.clone() });
+        return Err(RelocateError::Unreadable {
+            files: catalog.skipped.clone(),
+        });
     }
-    let source_entry = catalog.entities.iter().find(|item| item.name == request.from && item.collection == from.info.collection);
+    let source_entry = catalog
+        .entities
+        .iter()
+        .find(|item| item.name == request.from && item.collection == from.info.collection);
     if member == Member::Service {
-        if let Some(service) = source_entry.and_then(|entry| entry.services.iter().find(|service| service.name == request.name)) {
+        if let Some(service) = source_entry.and_then(|entry| {
+            entry
+                .services
+                .iter()
+                .find(|service| service.name == request.name)
+        }) {
             if service.from != "own" && service.from != request.from {
-                return Err(RelocateError::Inherited { entity: request.from.clone(), name: request.name.clone(), declared_on: service.from.clone() });
+                return Err(RelocateError::Inherited {
+                    entity: request.from.clone(),
+                    name: request.name.clone(),
+                    declared_on: service.from.clone(),
+                });
             }
         }
     }
-    let target_entry = catalog.entities.iter().find(|item| item.name == request.to && item.collection == to.info.collection);
+    let target_entry = catalog
+        .entities
+        .iter()
+        .find(|item| item.name == request.to && item.collection == to.info.collection);
     let mut related: BTreeSet<String> = BTreeSet::from([request.to.clone()]);
     if let Some(entry) = target_entry {
         related.extend(entry.inherits.iter().cloned());
@@ -456,32 +656,73 @@ pub fn plan(solution: &Solution, request: &Request) -> Result<Plan, RelocateErro
         }
     }
     let mut conflicts = BTreeSet::new();
-    for entity in discovery.entities.iter().filter(|item| related.contains(&item.info.name) && is_relocatable(&item.info.collection)) {
+    for entity in discovery
+        .entities
+        .iter()
+        .filter(|item| related.contains(&item.info.name) && is_relocatable(&item.info.collection))
+    {
         // A moved member is leaving the source, so the source's own copy is not a clash.
         if entity.path == from.path && !request.copy && !request.leave_delegate {
             continue;
         }
-        let bytes = if entity.path == to.path { to_old.clone() } else { std::fs::read(&entity.path).map_err(|error| xml(&entity.path, error))? };
+        let bytes = if entity.path == to.path {
+            to_old.clone()
+        } else {
+            std::fs::read(&entity.path).map_err(|error| xml(&entity.path, error))?
+        };
         let tokens = scan::tokenize(&bytes).map_err(|error| xml(&entity.path, error))?;
-        let Some(host) = sidecar::member_host_of(&tokens, &bytes) else { continue };
-        let taken = sidecar::named_children_of(&tokens, &bytes, host, def_section, def_block).map_err(|error| xml(&entity.path, error))?;
+        let Some(host) = sidecar::member_host_of(&tokens, &bytes) else {
+            continue;
+        };
+        let taken = sidecar::named_children_of(&tokens, &bytes, host, def_section, def_block)
+            .map_err(|error| xml(&entity.path, error))?;
         if taken.contains_key(&final_name) {
-            let relation = if entity.info.name == request.to { "the target" } else { "related to the target" };
-            conflicts.insert(format!("{noun} {final_name} is declared on {} ({relation})", entity.info.name));
+            let relation = if entity.info.name == request.to {
+                "the target"
+            } else {
+                "related to the target"
+            };
+            conflicts.insert(format!(
+                "{noun} {final_name} is declared on {} ({relation})",
+                entity.info.name
+            ));
         }
     }
     if !conflicts.is_empty() {
-        return Err(RelocateError::Exists { conflicts: conflicts.into_iter().collect() });
+        return Err(RelocateError::Exists {
+            conflicts: conflicts.into_iter().collect(),
+        });
     }
 
     // The edits to the target.
-    let def_block_info = block_of(&from_tokens, &from_old, find_section(&from_tokens, &from_old, from_host, def_section)?, def_at).map_err(|error| xml(&from.path, error))?;
+    let def_block_info = block_of(
+        &from_tokens,
+        &from_old,
+        find_section(&from_tokens, &from_old, from_host, def_section)?,
+        def_at,
+    )
+    .map_err(|error| xml(&from.path, error))?;
     let mut def_bytes = def_block_info.span.of(&from_old).to_vec();
     if final_name != request.name {
-        def_bytes = with_name(&from_tokens, &from_old, def_at, &def_block_info, &def_bytes, &final_name).map_err(|why| xml(&from.path, why))?;
+        def_bytes = with_name(
+            &from_tokens,
+            &from_old,
+            def_at,
+            &def_block_info,
+            &def_bytes,
+            &final_name,
+        )
+        .map_err(|why| xml(&from.path, why))?;
     }
-    let mut to_edits = vec![insert_edit(&to_tokens, &to_old, to_host, def_section, &def_block_info, &def_bytes)
-                .map_err(|why| xml(&to.path, why))?];
+    let mut to_edits = vec![insert_edit(
+        &to_tokens,
+        &to_old,
+        to_host,
+        def_section,
+        &def_block_info,
+        &def_bytes,
+    )
+    .map_err(|why| xml(&to.path, why))?];
     let mut from_edits = Vec::new();
     if !request.copy {
         from_edits.push(Edit::new(def_block_info.span, Vec::new()));
@@ -489,13 +730,22 @@ pub fn plan(solution: &Solution, request: &Request) -> Result<Plan, RelocateErro
     let mut impl_block = None;
     if let Some((section, _)) = impl_section {
         if let Some(&impl_at) = impls.get(&request.name) {
-            let info = block_of(&from_tokens, &from_old, find_section(&from_tokens, &from_old, from_host, section)?, impl_at).map_err(|error| xml(&from.path, error))?;
+            let info = block_of(
+                &from_tokens,
+                &from_old,
+                find_section(&from_tokens, &from_old, from_host, section)?,
+                impl_at,
+            )
+            .map_err(|error| xml(&from.path, error))?;
             let mut bytes = info.span.of(&from_old).to_vec();
             if final_name != request.name {
-                bytes = with_name(&from_tokens, &from_old, impl_at, &info, &bytes, &final_name).map_err(|why| xml(&from.path, why))?;
+                bytes = with_name(&from_tokens, &from_old, impl_at, &info, &bytes, &final_name)
+                    .map_err(|why| xml(&from.path, why))?;
             }
-            to_edits.push(insert_edit(&to_tokens, &to_old, to_host, section, &info, &bytes)
-                .map_err(|why| xml(&to.path, why))?);
+            to_edits.push(
+                insert_edit(&to_tokens, &to_old, to_host, section, &info, &bytes)
+                    .map_err(|why| xml(&to.path, why))?,
+            );
             if !request.copy && !request.leave_delegate {
                 from_edits.push(Edit::new(info.span, Vec::new()));
             }
@@ -507,41 +757,71 @@ pub fn plan(solution: &Solution, request: &Request) -> Result<Plan, RelocateErro
         from_edits.retain(|edit| edit.span != def_block_info.span);
     }
     let to_new = splice::splice(&to_old, &to_edits).map_err(|error| xml(&to.path, error))?;
-    let mut from_new = if from_edits.is_empty() { None } else { Some(splice::splice(&from_old, &from_edits).map_err(|error| xml(&from.path, error))?) };
+    let mut from_new = if from_edits.is_empty() {
+        None
+    } else {
+        Some(splice::splice(&from_old, &from_edits).map_err(|error| xml(&from.path, error))?)
+    };
 
     // A delegate: the source keeps the service, whose body now calls the moved one.
     let mut from_sidecar_after = None;
     if request.leave_delegate {
-        let service = sidecar::extract_services(&from_old).map_err(|error| xml(&from.path, error))?.into_iter().find(|service| service.name == request.name);
+        let service = sidecar::extract_services(&from_old)
+            .map_err(|error| xml(&from.path, error))?
+            .into_iter()
+            .find(|service| service.name == request.name);
         let Some(mut service) = service else {
-            return Err(RelocateError::Refused(format!("{} is not a script service, so a delegate cannot replace its body", request.name)));
+            return Err(RelocateError::Refused(format!(
+                "{} is not a script service, so a delegate cannot replace its body",
+                request.name
+            )));
         };
         service.script = delegate_script(&from_old, &from_tokens, def_at, &request.to, &final_name);
         let mut sidecars = std::collections::BTreeMap::new();
         sidecars.insert(service.name.clone(), service.clone());
-        let (bytes, _) = sync::sync(&from_old, &sidecars, false, solution.format.indent_cdata_payload, false).map_err(|error| xml(&from.path, error))?;
+        let (bytes, _) = sync::sync(
+            &from_old,
+            &sidecars,
+            false,
+            solution.format.indent_cdata_payload,
+            false,
+        )
+        .map_err(|error| xml(&from.path, error))?;
         from_new = Some(bytes);
         from_sidecar_after = Some(service);
     }
 
     // Verify the result in memory before anything is written.
     if member == Member::Service {
-        let moved = sidecar::extract_services(&to_new).map_err(|error| RelocateError::Verification(format!("the target would not read back: {error}")))?;
-        let original = sidecar::extract_services(&from_old).map_err(|error| xml(&from.path, error))?;
+        let moved = sidecar::extract_services(&to_new).map_err(|error| {
+            RelocateError::Verification(format!("the target would not read back: {error}"))
+        })?;
+        let original =
+            sidecar::extract_services(&from_old).map_err(|error| xml(&from.path, error))?;
         if let Some(source) = original.iter().find(|service| service.name == request.name) {
             let arrived = moved.iter().find(|service| service.name == final_name);
             if arrived.is_none_or(|service| service.script != source.script) {
-                return Err(RelocateError::Verification(format!("the script of {} would not arrive unchanged on {}; nothing was written", request.name, request.to)));
+                return Err(RelocateError::Verification(format!(
+                    "the script of {} would not arrive unchanged on {}; nothing was written",
+                    request.name, request.to
+                )));
             }
         }
         if let Some(bytes) = &from_new {
-            let left = sidecar::extract_services(bytes).map_err(|error| RelocateError::Verification(format!("the source would not read back: {error}")))?;
+            let left = sidecar::extract_services(bytes).map_err(|error| {
+                RelocateError::Verification(format!("the source would not read back: {error}"))
+            })?;
             if !request.leave_delegate && left.iter().any(|service| service.name == request.name) {
-                return Err(RelocateError::Verification(format!("{} would still be on {}; nothing was written", request.name, request.from)));
+                return Err(RelocateError::Verification(format!(
+                    "{} would still be on {}; nothing was written",
+                    request.name, request.from
+                )));
             }
         }
     } else if scan::tokenize(&to_new).is_err() {
-        return Err(RelocateError::Verification("the target would not read back; nothing was written".to_string()));
+        return Err(RelocateError::Verification(
+            "the target would not read back; nothing was written".to_string(),
+        ));
     }
 
     // Sidecars of the service.
@@ -553,10 +833,18 @@ pub fn plan(solution: &Solution, request: &Request) -> Result<Plan, RelocateErro
         let to_dir = workspace::services_dir(solution, &to);
         let had_sidecar = from_dir.join(&request.name).is_dir();
         if had_sidecar || to_dir.is_dir() {
-            to_sidecar = sidecar::extract_services(&to_new).map_err(|error| xml(&to.path, error))?.into_iter().find(|service| service.name == final_name);
+            to_sidecar = sidecar::extract_services(&to_new)
+                .map_err(|error| xml(&to.path, error))?
+                .into_iter()
+                .find(|service| service.name == final_name);
             if to_sidecar.is_some() {
                 if to_dir.join(&final_name).exists() {
-                    return Err(RelocateError::Exists { conflicts: vec![format!("sidecar directory {}", to_dir.join(&final_name).display())] });
+                    return Err(RelocateError::Exists {
+                        conflicts: vec![format!(
+                            "sidecar directory {}",
+                            to_dir.join(&final_name).display()
+                        )],
+                    });
                 }
                 to_sidecars = Some(to_dir);
             }
@@ -570,14 +858,21 @@ pub fn plan(solution: &Solution, request: &Request) -> Result<Plan, RelocateErro
     // What moving breaks.
     let mut notes = Vec::new();
     let mut callers = Callers::default();
-    let stays_reachable = request.copy || is_ancestor(&catalog, &request.to, &request.from) || request.leave_delegate;
+    let stays_reachable =
+        request.copy || is_ancestor(&catalog, &request.to, &request.from) || request.leave_delegate;
     if !stays_reachable {
         callers = find_callers(solution, request, &from, &mut notes);
     } else if !request.copy && is_ancestor(&catalog, &request.to, &request.from) {
-        notes.push(format!("{} inherits from {}, so calls on {} keep resolving.", request.from, request.to, request.from));
+        notes.push(format!(
+            "{} inherits from {}, so calls on {} keep resolving.",
+            request.from, request.to, request.from
+        ));
     }
     if request.leave_delegate {
-        notes.push(format!("{} keeps {} as a delegate that calls Things[\"{}\"].{}; the moved service sits on {}.", request.from, request.name, request.to, final_name, request.to));
+        notes.push(format!(
+            "{} keeps {} as a delegate that calls Things[\"{}\"].{}; the moved service sits on {}.",
+            request.from, request.name, request.to, final_name, request.to
+        ));
     }
     if member == Member::Property {
         notes.push("Property values stored on Things are not moved; instances of the source that no longer have the property keep a value nothing reads.".to_string());
@@ -604,28 +899,55 @@ pub fn plan(solution: &Solution, request: &Request) -> Result<Plan, RelocateErro
     })
 }
 
-fn find_section(tokens: &[Token], src: &[u8], host: usize, section: &str) -> Result<usize, RelocateError> {
-    scan::child_tags(tokens, src, section, host).first().copied().ok_or_else(|| RelocateError::Invalid(format!("the source has no {section}")))
+fn find_section(
+    tokens: &[Token],
+    src: &[u8],
+    host: usize,
+    section: &str,
+) -> Result<usize, RelocateError> {
+    scan::child_tags(tokens, src, section, host)
+        .first()
+        .copied()
+        .ok_or_else(|| RelocateError::Invalid(format!("the source has no {section}")))
 }
 
 /// `Things["T"].Name({ a: a, b: b })`, as a script, from the service's parameters.
-fn delegate_script(src: &[u8], tokens: &[Token], definition: usize, target: &str, name: &str) -> String {
+fn delegate_script(
+    src: &[u8],
+    tokens: &[Token],
+    definition: usize,
+    target: &str,
+    name: &str,
+) -> String {
     let mut parameters = Vec::new();
     for fields in scan::child_tags(tokens, src, "ParameterDefinitions", definition) {
         for field in scan::child_tags(tokens, src, "FieldDefinition", fields) {
             if let Ok(Some(value)) = scan::attribute(src, &tokens[field], "name") {
-                parameters.push(scan::decode_entities(&String::from_utf8_lossy(value.of(src))));
+                parameters.push(scan::decode_entities(&String::from_utf8_lossy(
+                    value.of(src),
+                )));
             }
         }
     }
     let arguments = if parameters.is_empty() {
         String::new()
     } else {
-        format!("{{ {} }}", parameters.iter().map(|parameter| format!("{parameter}: {parameter}")).collect::<Vec<_>>().join(", "))
+        format!(
+            "{{ {} }}",
+            parameters
+                .iter()
+                .map(|parameter| format!("{parameter}: {parameter}"))
+                .collect::<Vec<_>>()
+                .join(", ")
+        )
     };
     let returns_value = scan::child_tags(tokens, src, "ResultType", definition)
         .first()
-        .and_then(|&result| scan::attribute(src, &tokens[result], "baseType").ok().flatten())
+        .and_then(|&result| {
+            scan::attribute(src, &tokens[result], "baseType")
+                .ok()
+                .flatten()
+        })
         .is_some_and(|base| base.of(src) != b"NOTHING");
     let call = format!("Things[\"{target}\"].{name}({arguments})");
     if returns_value {
@@ -636,16 +958,30 @@ fn delegate_script(src: &[u8], tokens: &[Token], definition: usize, target: &str
 }
 
 /// The references that stop resolving, from the findings a rename of the member would make.
-fn find_callers(solution: &Solution, request: &Request, from: &EntityFile, notes: &mut Vec<String>) -> Callers {
+fn find_callers(
+    solution: &Solution,
+    request: &Request,
+    from: &EntityFile,
+    notes: &mut Vec<String>,
+) -> Callers {
     let kind = match request.member {
         Member::Service => RenameKind::Service,
         Member::Property => RenameKind::Property,
     };
-    let probe = Spec { kind, old: request.name.clone(), new: "TwacoProbeName".to_string(), scope: Some(request.from.clone()), service: None };
+    let probe = Spec {
+        kind,
+        old: request.name.clone(),
+        new: "TwacoProbeName".to_string(),
+        scope: Some(request.from.clone()),
+        service: None,
+    };
     let planned = match rename::plan(solution, &probe) {
         Ok(planned) => planned,
         Err(error) => {
-            notes.push(format!("Callers could not be listed ({error}); search for {} before relying on {}.", request.name, request.from));
+            notes.push(format!(
+                "Callers could not be listed ({error}); search for {} before relying on {}.",
+                request.name, request.from
+            ));
             return Callers::default();
         }
     };
@@ -657,24 +993,49 @@ fn find_callers(solution: &Solution, request: &Request, from: &EntityFile, notes
         if change.path == from.path || change.path.starts_with(&own_sidecars) {
             continue;
         }
-        for finding in change.findings.iter().filter(|finding| matches!(finding.tier, refs::Tier::Exact | refs::Tier::Embedded)) {
+        for finding in change
+            .findings
+            .iter()
+            .filter(|finding| matches!(finding.tier, refs::Tier::Exact | refs::Tier::Embedded))
+        {
             references += 1;
             files.insert(change.path.clone());
             if first.len() < 10 {
-                first.push(format!("{}:{}  {}", change.path.strip_prefix(&solution.root).unwrap_or(&change.path).display().to_string().replace('\\', "/"), finding.line, finding.excerpt));
+                first.push(format!(
+                    "{}:{}  {}",
+                    change
+                        .path
+                        .strip_prefix(&solution.root)
+                        .unwrap_or(&change.path)
+                        .display()
+                        .to_string()
+                        .replace('\\', "/"),
+                    finding.line,
+                    finding.excerpt
+                ));
             }
         }
     }
     if references > 0 {
         notes.push(format!("{} reference(s) in {} file(s) stop resolving once {} leaves {}; update them, or use --leave-delegate for a service.", references, files.len(), request.name, request.from));
     }
-    Callers { files: files.len(), references, first }
+    Callers {
+        files: files.len(),
+        references,
+        first,
+    }
 }
 
 impl Plan {
     /// Where files would change, relative to the solution.
     pub fn files(&self, solution: &Solution) -> Vec<String> {
-        let relative = |path: &Path| path.strip_prefix(&solution.root).unwrap_or(path).display().to_string().replace('\\', "/");
+        let relative = |path: &Path| {
+            path.strip_prefix(&solution.root)
+                .unwrap_or(path)
+                .display()
+                .to_string()
+                .replace('\\', "/")
+        };
         let mut files = vec![relative(&self.to_file)];
         if self.from_new.is_some() {
             files.push(relative(&self.from_file));
@@ -697,7 +1058,15 @@ pub fn verify(solution: &Solution, plan: &Plan) -> Vec<String> {
         .iter()
         .filter(|entity| entity.path == plan.from_file || entity.path == plan.to_file)
         .filter(|entity| {
-            let outcome = super::workflow::sync(solution, std::slice::from_ref(entity), &[], super::workflow::SyncOptions { check: true, ..Default::default() });
+            let outcome = super::workflow::sync(
+                solution,
+                std::slice::from_ref(entity),
+                &[],
+                super::workflow::SyncOptions {
+                    check: true,
+                    ..Default::default()
+                },
+            );
             outcome.changed > 0 || outcome.failed > 0
         })
         .map(|entity| format!("{}/{}", entity.info.collection, entity.info.name))
@@ -716,7 +1085,10 @@ pub fn apply(plan: &Plan) -> Result<Applied, RelocateError> {
     let still = |path: &Path, expected: &[u8]| -> Result<(), RelocateError> {
         match std::fs::read(path) {
             Ok(bytes) if bytes == expected => Ok(()),
-            Ok(_) => Err(RelocateError::Refused(format!("{} changed since the plan was made; plan again", path.display()))),
+            Ok(_) => Err(RelocateError::Refused(format!(
+                "{} changed since the plan was made; plan again",
+                path.display()
+            ))),
             Err(error) => Err(xml(path, error)),
         }
     };
@@ -732,7 +1104,12 @@ pub fn apply(plan: &Plan) -> Result<Applied, RelocateError> {
     let mut written = Vec::new();
     let mut removed = Vec::new();
     let result = (|| -> Result<(), RelocateError> {
-        let put = |path: &Path, bytes: &[u8]| workspace::atomic_replace(path, bytes).map_err(|error| RelocateError::Apply { path: path.to_path_buf(), why: error.to_string() });
+        let put = |path: &Path, bytes: &[u8]| {
+            workspace::atomic_replace(path, bytes).map_err(|error| RelocateError::Apply {
+                path: path.to_path_buf(),
+                why: error.to_string(),
+            })
+        };
         put(&plan.to_file, &plan.to_new)?;
         undo.push(Undo::Restore(plan.to_file.clone(), plan.to_old.clone()));
         written.push(plan.to_file.clone());
@@ -744,20 +1121,41 @@ pub fn apply(plan: &Plan) -> Result<Applied, RelocateError> {
         if let (Some(dir), Some(sidecar)) = (&plan.to_sidecars, &plan.to_sidecar) {
             let folder = dir.join(&sidecar.name);
             let existed = dir.exists();
-            workspace::write_sidecars(dir, std::slice::from_ref(sidecar)).map_err(|error| RelocateError::Apply { path: folder.clone(), why: error.to_string() })?;
-            undo.push(if existed { Undo::RemoveDir(folder.clone()) } else { Undo::RemoveDir(dir.clone()) });
+            workspace::write_sidecars(dir, std::slice::from_ref(sidecar)).map_err(|error| {
+                RelocateError::Apply {
+                    path: folder.clone(),
+                    why: error.to_string(),
+                }
+            })?;
+            undo.push(if existed {
+                Undo::RemoveDir(folder.clone())
+            } else {
+                Undo::RemoveDir(dir.clone())
+            });
             written.push(folder);
         }
         if let Some(dir) = &plan.from_sidecars {
             let folder = dir.join(&plan.request.name);
             if let Some(after) = &plan.from_sidecar_after {
-                workspace::write_sidecars(dir, std::slice::from_ref(after)).map_err(|error| RelocateError::Apply { path: folder.clone(), why: error.to_string() })?;
+                workspace::write_sidecars(dir, std::slice::from_ref(after)).map_err(|error| {
+                    RelocateError::Apply {
+                        path: folder.clone(),
+                        why: error.to_string(),
+                    }
+                })?;
                 written.push(folder);
             } else {
                 let mut files = Vec::new();
-                for entry in std::fs::read_dir(&folder).map_err(|error| xml(&folder, error))?.flatten() {
+                for entry in std::fs::read_dir(&folder)
+                    .map_err(|error| xml(&folder, error))?
+                    .flatten()
+                {
                     if entry.path().is_file() {
-                        files.push((entry.file_name().to_string_lossy().into_owned(), std::fs::read(entry.path()).map_err(|error| xml(&entry.path(), error))?));
+                        files.push((
+                            entry.file_name().to_string_lossy().into_owned(),
+                            std::fs::read(entry.path())
+                                .map_err(|error| xml(&entry.path(), error))?,
+                        ));
                     }
                 }
                 std::fs::remove_dir_all(&folder).map_err(|error| xml(&folder, error))?;

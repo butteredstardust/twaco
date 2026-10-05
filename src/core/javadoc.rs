@@ -24,7 +24,11 @@ pub struct Class {
 
 impl Class {
     pub fn qualified(&self) -> String {
-        if self.package.is_empty() { self.name.clone() } else { format!("{}.{}", self.package, self.name) }
+        if self.package.is_empty() {
+            self.name.clone()
+        } else {
+            format!("{}.{}", self.package, self.name)
+        }
     }
 }
 
@@ -57,7 +61,12 @@ impl Index {
         let classes = types
             .iter()
             .filter(|entry| entry.get("p").is_some())
-            .map(|entry| Ok(Class { package: field(entry, "p", TYPE_INDEX)?, name: field(entry, "l", TYPE_INDEX)? }))
+            .map(|entry| {
+                Ok(Class {
+                    package: field(entry, "p", TYPE_INDEX)?,
+                    name: field(entry, "l", TYPE_INDEX)?,
+                })
+            })
             .collect::<Result<Vec<_>, String>>()?;
         let members = members
             .iter()
@@ -75,8 +84,12 @@ impl Index {
 }
 
 fn array(text: &str, name: &str) -> Result<Vec<Value>, String> {
-    let start = text.find('[').ok_or_else(|| format!("{name} has no JSON array"))?;
-    let end = text.rfind(']').ok_or_else(|| format!("{name} has no JSON array"))?;
+    let start = text
+        .find('[')
+        .ok_or_else(|| format!("{name} has no JSON array"))?;
+    let end = text
+        .rfind(']')
+        .ok_or_else(|| format!("{name} has no JSON array"))?;
     serde_json::from_str(&text[start..=end]).map_err(|e| format!("{name}: {e}"))
 }
 
@@ -108,10 +121,20 @@ pub struct Hit {
 impl Hit {
     pub fn display(&self) -> String {
         match self.kind {
-            Kind::Class => if self.package.is_empty() { self.class.clone() } else { format!("{}.{}", self.package, self.class) },
+            Kind::Class => {
+                if self.package.is_empty() {
+                    self.class.clone()
+                } else {
+                    format!("{}.{}", self.package, self.class)
+                }
+            }
             Kind::Member => {
                 let member = format!("{}.{}", self.class, self.label);
-                if self.package.is_empty() { member } else { format!("{member}  ({})", self.package) }
+                if self.package.is_empty() {
+                    member
+                } else {
+                    format!("{member}  ({})", self.package)
+                }
             }
         }
     }
@@ -120,7 +143,15 @@ impl Hit {
 fn match_rank(candidate: &str, query: &str) -> Option<u8> {
     let candidate = candidate.to_lowercase();
     let query = query.to_lowercase();
-    if candidate == query { Some(0) } else if candidate.starts_with(&query) { Some(1) } else if candidate.contains(&query) { Some(2) } else { None }
+    if candidate == query {
+        Some(0)
+    } else if candidate.starts_with(&query) {
+        Some(1)
+    } else if candidate.contains(&query) {
+        Some(2)
+    } else {
+        None
+    }
 }
 
 /// Classes and members by simple name: exact, prefix, contains; classes first within a rank.
@@ -130,9 +161,9 @@ pub fn search(index: &Index, query: &str, limit: usize) -> Vec<Hit> {
     if query.is_empty() {
         return Vec::new();
     }
-    let dotted = query.rsplit_once('.').map(|(class, member)| {
-        (class.rsplit('.').next().unwrap_or(class), member)
-    });
+    let dotted = query
+        .rsplit_once('.')
+        .map(|(class, member)| (class.rsplit('.').next().unwrap_or(class), member));
     let class_query = dotted.map_or(query, |(class, _)| class);
     let mut hits = Vec::new();
     for class in &index.classes {
@@ -152,12 +183,17 @@ pub fn search(index: &Index, query: &str, limit: usize) -> Vec<Hit> {
     }
     for member in &index.members {
         let rank = match dotted {
-            Some((class, wanted)) if member.class.eq_ignore_ascii_case(class) => match_rank(member.name(), wanted),
+            Some((class, wanted)) if member.class.eq_ignore_ascii_case(class) => {
+                match_rank(member.name(), wanted)
+            }
             Some(_) => None,
             None => match_rank(member.name(), query),
         };
         if let Some(rank) = rank {
-            let class = Class { package: member.package.clone(), name: member.class.clone() };
+            let class = Class {
+                package: member.package.clone(),
+                name: member.class.clone(),
+            };
             if let Ok(path) = class_path(&class) {
                 let anchor = member.anchor.as_deref().unwrap_or(&member.label);
                 hits.push(Hit {
@@ -190,13 +226,19 @@ pub fn find_class(index: &Index, wanted: &str) -> Result<Class, String> {
     let matches: Vec<&Class> = index
         .classes
         .iter()
-        .filter(|class| class.qualified().eq_ignore_ascii_case(wanted) || class.name.eq_ignore_ascii_case(wanted))
+        .filter(|class| {
+            class.qualified().eq_ignore_ascii_case(wanted)
+                || class.name.eq_ignore_ascii_case(wanted)
+        })
         .collect();
     match matches.as_slice() {
         [class] => Ok((*class).clone()),
         many if many.len() > 1 => Err(format!(
             "class {wanted:?} is ambiguous; use one of: {}",
-            many.iter().map(|class| class.qualified()).collect::<Vec<_>>().join(", ")
+            many.iter()
+                .map(|class| class.qualified())
+                .collect::<Vec<_>>()
+                .join(", ")
         )),
         _ => {
             let mut close: Vec<(&Class, u8)> = index
@@ -205,15 +247,30 @@ pub fn find_class(index: &Index, wanted: &str) -> Result<Class, String> {
                 .filter_map(|class| match_rank(&class.name, wanted).map(|rank| (class, rank)))
                 .collect();
             if close.is_empty() {
-                close = index.classes.iter().map(|class| (class, edit_distance(&class.name.to_lowercase(), &wanted.to_lowercase()) as u8)).collect();
+                close = index
+                    .classes
+                    .iter()
+                    .map(|class| {
+                        (
+                            class,
+                            edit_distance(&class.name.to_lowercase(), &wanted.to_lowercase()) as u8,
+                        )
+                    })
+                    .collect();
             }
             close.sort_by_key(|(class, rank)| (*rank, class.qualified().to_lowercase()));
             close.truncate(5);
-            let names = close.iter().map(|(class, _)| class.qualified()).collect::<Vec<_>>();
+            let names = close
+                .iter()
+                .map(|(class, _)| class.qualified())
+                .collect::<Vec<_>>();
             Err(if names.is_empty() {
                 format!("unknown class {wanted:?}")
             } else {
-                format!("unknown class {wanted:?}; close matches: {}", names.join(", "))
+                format!(
+                    "unknown class {wanted:?}; close matches: {}",
+                    names.join(", ")
+                )
             })
         }
     }
@@ -226,7 +283,11 @@ fn edit_distance(a: &str, b: &str) -> usize {
         row[0] = i + 1;
         for (j, right) in b.chars().enumerate() {
             let above = row[j + 1];
-            row[j + 1] = if left == right { previous } else { 1 + previous.min(above).min(row[j]) };
+            row[j + 1] = if left == right {
+                previous
+            } else {
+                1 + previous.min(above).min(row[j])
+            };
             previous = above;
         }
     }
@@ -235,18 +296,33 @@ fn edit_distance(a: &str, b: &str) -> usize {
 
 /// The class page path encoded by a type or member index entry.
 pub fn class_path(class: &Class) -> Result<String, String> {
-    let plain = |part: &str| !part.is_empty() && part.chars().all(|c| c.is_ascii_alphanumeric() || matches!(c, '_' | '$'));
+    let plain = |part: &str| {
+        !part.is_empty()
+            && part
+                .chars()
+                .all(|c| c.is_ascii_alphanumeric() || matches!(c, '_' | '$'))
+    };
     if !class.package.is_empty() && !class.package.split('.').all(plain) {
-        return Err(format!("the Javadoc index has an unsafe package name {:?}", class.package));
+        return Err(format!(
+            "the Javadoc index has an unsafe package name {:?}",
+            class.package
+        ));
     }
     if class.name.is_empty()
         || class.name.contains(['/', '\\', ':', '%'])
         || !class.name.split('.').all(plain)
     {
-        return Err(format!("the Javadoc index has an unsafe class name {:?}", class.name));
+        return Err(format!(
+            "the Javadoc index has an unsafe class name {:?}",
+            class.name
+        ));
     }
     let file = format!("{}.html", class.name);
-    Ok(if class.package.is_empty() { file } else { format!("{}/{file}", class.package.replace('.', "/")) })
+    Ok(if class.package.is_empty() {
+        file
+    } else {
+        format!("{}/{file}", class.package.replace('.', "/"))
+    })
 }
 
 pub fn document_url(path: &str) -> String {
@@ -260,8 +336,15 @@ pub fn cache_root() -> Result<PathBuf, String> {
 }
 
 /// Fetch an index-derived Javadoc file through the same atomic cache as the help center.
-pub fn cached(fetch: &dyn Fetch, cache: &Path, path: &str, refresh: bool) -> Result<Vec<u8>, String> {
-    let local = cache.join(VERSION).join(path.replace('/', std::path::MAIN_SEPARATOR_STR));
+pub fn cached(
+    fetch: &dyn Fetch,
+    cache: &Path,
+    path: &str,
+    refresh: bool,
+) -> Result<Vec<u8>, String> {
+    let local = cache
+        .join(VERSION)
+        .join(path.replace('/', std::path::MAIN_SEPARATOR_STR));
     help::cached_file(fetch, &local, &document_url(path), refresh).map_err(|e| e.to_string())
 }
 
@@ -291,15 +374,23 @@ pub fn read(html: &[u8], class: &Class, member: Option<&str>) -> Result<Reading,
     let path = class_path(class)?;
     let source = document_url(&path);
     let document = Html::parse_document(&String::from_utf8_lossy(html));
-    let description_selector = Selector::parse("section#class-description .block").expect("a valid selector");
-    let description = document.select(&description_selector).next().map(|element| markdown(element, &source)).unwrap_or_default();
+    let description_selector =
+        Selector::parse("section#class-description .block").expect("a valid selector");
+    let description = document
+        .select(&description_selector)
+        .next()
+        .map(|element| markdown(element, &source))
+        .unwrap_or_default();
     // Every kind of member the search index lists has its details here: constructors, fields,
     // enum constants and annotation elements as well as methods.
     let detail_selector = Selector::parse(
         "section.method-details section.detail, section.constructor-details section.detail,          section.field-details section.detail, section.constant-details section.detail,          section.member-details section.detail",
     )
     .expect("a valid selector");
-    let details: Vec<Detail> = document.select(&detail_selector).filter_map(parse_detail).collect();
+    let details: Vec<Detail> = document
+        .select(&detail_selector)
+        .filter_map(parse_detail)
+        .collect();
     if details.is_empty() && description.is_empty() {
         return Err(format!("{path} does not look like a Javadoc class page"));
     }
@@ -308,28 +399,50 @@ pub fn read(html: &[u8], class: &Class, member: Option<&str>) -> Result<Reading,
     let markdown = match member {
         None => overview(&title, &description, &details),
         Some(wanted) => {
-            let selected: Vec<&Detail> = details.iter().filter(|detail| detail.name.eq_ignore_ascii_case(wanted)).collect();
+            let selected: Vec<&Detail> = details
+                .iter()
+                .filter(|detail| detail.name.eq_ignore_ascii_case(wanted))
+                .collect();
             if selected.is_empty() {
-                let names: BTreeSet<String> = details.iter().map(|detail| detail.name.clone()).collect();
+                let names: BTreeSet<String> =
+                    details.iter().map(|detail| detail.name.clone()).collect();
                 let mut close: Vec<(String, u8)> = names
                     .iter()
                     .filter_map(|name| match_rank(name, wanted).map(|rank| (name.clone(), rank)))
                     .collect();
                 if close.is_empty() {
-                    close = names.iter().map(|name| (name.clone(), edit_distance(&name.to_lowercase(), &wanted.to_lowercase()) as u8)).collect();
+                    close = names
+                        .iter()
+                        .map(|name| {
+                            (
+                                name.clone(),
+                                edit_distance(&name.to_lowercase(), &wanted.to_lowercase()) as u8,
+                            )
+                        })
+                        .collect();
                 }
                 close.sort_by_key(|(name, rank)| (*rank, name.to_lowercase()));
                 close.truncate(5);
                 return Err(format!(
                     "unknown member {wanted:?} of {title}; close matches: {}",
-                    close.into_iter().map(|(name, _)| name).collect::<Vec<_>>().join(", ")
+                    close
+                        .into_iter()
+                        .map(|(name, _)| name)
+                        .collect::<Vec<_>>()
+                        .join(", ")
                 ));
             }
             methods = selected.len();
             member_markdown(&title, &selected)
         }
     };
-    Ok(Reading { title, path, url: source, markdown, methods })
+    Ok(Reading {
+        title,
+        path,
+        url: source,
+        markdown,
+        methods,
+    })
 }
 
 fn parse_detail(element: ElementRef) -> Option<Detail> {
@@ -340,10 +453,27 @@ fn parse_detail(element: ElementRef) -> Option<Detail> {
         .select(&select(".element-name"))
         .next()
         .map(text)
-        .or_else(|| element.value().attr("id").map(|id| id.split('(').next().unwrap_or(id).to_string()))?;
-    let parameters = element.select(&select(".parameters")).next().map(text).unwrap_or_else(|| "()".to_string());
-    let return_type = element.select(&select(".return-type")).next().map(text).unwrap_or_else(|| "void".to_string());
-    let description = element.select(&select(":scope > .block")).next().map(|block| text(block)).unwrap_or_default();
+        .or_else(|| {
+            element
+                .value()
+                .attr("id")
+                .map(|id| id.split('(').next().unwrap_or(id).to_string())
+        })?;
+    let parameters = element
+        .select(&select(".parameters"))
+        .next()
+        .map(text)
+        .unwrap_or_else(|| "()".to_string());
+    let return_type = element
+        .select(&select(".return-type"))
+        .next()
+        .map(text)
+        .unwrap_or_else(|| "void".to_string());
+    let description = element
+        .select(&select(":scope > .block"))
+        .next()
+        .map(|block| text(block))
+        .unwrap_or_default();
     let category = labelled(&description, "Service Category:", "Service Description:");
     let service_description = labelled(&description, "Service Description:", "Service Category:");
     let term = select("dl dt, dl dd");
@@ -356,12 +486,24 @@ fn parse_detail(element: ElementRef) -> Option<Detail> {
             notes.push((heading.clone(), text(item)));
         }
     }
-    Some(Detail { name, signature, parameters, return_type, description, category, service_description, notes })
+    Some(Detail {
+        name,
+        signature,
+        parameters,
+        return_type,
+        description,
+        category,
+        service_description,
+        notes,
+    })
 }
 
 fn labelled(text: &str, label: &str, other: &str) -> Option<String> {
     let rest = text.split_once(label)?.1.trim();
-    let value = rest.split_once(other).map_or(rest, |(value, _)| value).trim();
+    let value = rest
+        .split_once(other)
+        .map_or(rest, |(value, _)| value)
+        .trim();
     (!value.is_empty()).then(|| value.to_string())
 }
 
@@ -377,7 +519,10 @@ fn overview(title: &str, description: &str, details: &[Detail]) -> String {
             (Some(category), Some(description)) => format!("{category}: {description}"),
             _ => first_sentence(&detail.description),
         };
-        out.push_str(&format!("- `{}`{} → `{}`", detail.name, detail.parameters, detail.return_type));
+        out.push_str(&format!(
+            "- `{}`{} → `{}`",
+            detail.name, detail.parameters, detail.return_type
+        ));
         if !summary.is_empty() {
             out.push_str(&format!(" — {summary}"));
         }
@@ -395,7 +540,12 @@ fn member_markdown(title: &str, details: &[&Detail]) -> String {
             out.push_str("\n\n");
         }
         for heading in ["Parameters", "Returns", "Throws"] {
-            let notes: Vec<&str> = detail.notes.iter().filter(|(kind, _)| kind == heading).map(|(_, text)| text.as_str()).collect();
+            let notes: Vec<&str> = detail
+                .notes
+                .iter()
+                .filter(|(kind, _)| kind == heading)
+                .map(|(_, text)| text.as_str())
+                .collect();
             if notes.is_empty() {
                 continue;
             }
@@ -411,7 +561,12 @@ fn member_markdown(title: &str, details: &[&Detail]) -> String {
 
 fn first_sentence(text: &str) -> String {
     for (at, character) in text.char_indices() {
-        if matches!(character, '.' | '!' | '?') && text[at + character.len_utf8()..].chars().next().is_none_or(char::is_whitespace) {
+        if matches!(character, '.' | '!' | '?')
+            && text[at + character.len_utf8()..]
+                .chars()
+                .next()
+                .is_none_or(char::is_whitespace)
+        {
             return text[..at + character.len_utf8()].to_string();
         }
     }
@@ -445,7 +600,8 @@ fn unwrap_code_links(markdown: &str) -> String {
         let after = &rest[start + 4..];
         let unwrapped = after.find("`](").and_then(|name_end| {
             let tail = &after[name_end + 3..];
-            tail.find(")``").map(|close| (&after[..name_end], &tail[close + 3..]))
+            tail.find(")``")
+                .map(|close| (&after[..name_end], &tail[close + 3..]))
         });
         match unwrapped {
             Some((name, remainder)) if !name.contains('`') => {
@@ -480,7 +636,10 @@ mod tests {
     #[test]
     fn a_linked_type_in_code_reads_as_plain_code() {
         let text = "has a ``[`DataShapeDefinition`](https://x/D.html \"class in a\")`` and ``[`ValueCollection`](https://x/V.html \"class\")``s; ``plain``";
-        assert_eq!(unwrap_code_links(text), "has a `DataShapeDefinition` and `ValueCollection`s; ``plain``");
+        assert_eq!(
+            unwrap_code_links(text),
+            "has a `DataShapeDefinition` and `ValueCollection`s; ``plain``"
+        );
     }
 
     const TYPES: &str = r#"typeSearchIndex = [{"p":"com.thingworx.types","l":"InfoTable"},{"p":"com.thingworx.resources.queries","l":"InfoTableFunctions"},{"p":"other","l":"InfoTable"},{"p":"example","l":"Sorter"}];updateSearchResults();"#;
@@ -493,9 +652,15 @@ mod tests {
     #[test]
     fn indexes_are_read_through_their_javascript_wrappers() {
         let index = index();
-        assert_eq!(index.classes[0].qualified(), "com.thingworx.types.InfoTable");
+        assert_eq!(
+            index.classes[0].qualified(),
+            "com.thingworx.types.InfoTable"
+        );
         assert_eq!(index.members[0].name(), "Sort");
-        assert_eq!(index.members[0].anchor.as_deref(), Some("Sort(com.thingworx.types.InfoTable,java.lang.String,java.lang.Boolean)"));
+        assert_eq!(
+            index.members[0].anchor.as_deref(),
+            Some("Sort(com.thingworx.types.InfoTable,java.lang.String,java.lang.Boolean)")
+        );
     }
 
     #[test]
@@ -506,7 +671,10 @@ mod tests {
             "example.Sorter",
             "Sorter.sortAll()  (example)",
         ]);
-        assert_eq!(hits.iter().map(|hit| hit.rank).collect::<Vec<_>>(), [0, 1, 1]);
+        assert_eq!(
+            hits.iter().map(|hit| hit.rank).collect::<Vec<_>>(),
+            [0, 1, 1]
+        );
     }
 
     #[test]
@@ -523,24 +691,62 @@ mod tests {
         let error = find_class(&index(), "InfoTable").unwrap_err();
         assert!(error.contains("com.thingworx.types.InfoTable"), "{error}");
         assert!(error.contains("other.InfoTable"), "{error}");
-        assert_eq!(find_class(&index(), "com.thingworx.types.InfoTable").unwrap().package, "com.thingworx.types");
+        assert_eq!(
+            find_class(&index(), "com.thingworx.types.InfoTable")
+                .unwrap()
+                .package,
+            "com.thingworx.types"
+        );
     }
 
     #[test]
     fn a_real_javadoc_page_becomes_an_overview_and_full_member_details() {
         let html = include_bytes!("../../tests/fixtures/InfoTableFunctions.html");
-        let class = Class { package: "com.thingworx.resources.queries".to_string(), name: "InfoTableFunctions".to_string() };
+        let class = Class {
+            package: "com.thingworx.resources.queries".to_string(),
+            name: "InfoTableFunctions".to_string(),
+        };
         let overview = read(html, &class, None).unwrap();
-        assert!(overview.markdown.starts_with("# com.thingworx.resources.queries.InfoTableFunctions"));
-        assert!(overview.markdown.contains("Functions for working with info tables."), "{}", overview.markdown);
-        assert!(overview.markdown.contains("`Sort`(InfoTable t, String sortColumn, Boolean ascending) → `InfoTable`"), "{}", overview.markdown);
-        assert!(overview.markdown.contains("InfoTable: Sorts an InfoTable by the specified column."), "{}", overview.markdown);
+        assert!(overview
+            .markdown
+            .starts_with("# com.thingworx.resources.queries.InfoTableFunctions"));
+        assert!(
+            overview
+                .markdown
+                .contains("Functions for working with info tables."),
+            "{}",
+            overview.markdown
+        );
+        assert!(
+            overview.markdown.contains(
+                "`Sort`(InfoTable t, String sortColumn, Boolean ascending) → `InfoTable`"
+            ),
+            "{}",
+            overview.markdown
+        );
+        assert!(
+            overview
+                .markdown
+                .contains("InfoTable: Sorts an InfoTable by the specified column."),
+            "{}",
+            overview.markdown
+        );
 
         let member = read(html, &class, Some("sort")).unwrap();
         assert_eq!(member.methods, 2);
-        assert_eq!(member.markdown.matches("## `public static InfoTable Sort").count(), 2, "{}", member.markdown);
+        assert_eq!(
+            member
+                .markdown
+                .matches("## `public static InfoTable Sort")
+                .count(),
+            2,
+            "{}",
+            member.markdown
+        );
         assert!(member.markdown.contains("### Parameters"));
-        assert!(member.markdown.contains("t - the table to sort - INFOTABLE"));
+        assert!(member
+            .markdown
+            .contains("t - the table to sort - INFOTABLE"));
         assert!(member.markdown.contains("### Returns"));
         assert!(member.markdown.contains("### Throws"));
     }

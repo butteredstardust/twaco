@@ -3,8 +3,8 @@
 //! Repository declarations can be completed by the deliberately small, offline platform cache.
 
 use super::config::Solution;
-use super::entity_key::ServiceTarget;
 use super::datashape::{self, Aspect};
+use super::entity_key::ServiceTarget;
 use super::scan::{self, ScanError, Token};
 use super::server::{Client, ServerError};
 use super::sidecar;
@@ -94,8 +94,14 @@ pub fn refresh_after_write(solution: &Solution, wrote: bool) -> Refresh {
         return Refresh::default();
     }
     match write(solution) {
-        Ok(outcome) => Refresh { files_written: Some(outcome.files_written), warning: None },
-        Err(error) => Refresh { files_written: None, warning: Some(error.to_string()) },
+        Ok(outcome) => Refresh {
+            files_written: Some(outcome.files_written),
+            warning: None,
+        },
+        Err(error) => Refresh {
+            files_written: None,
+            warning: Some(error.to_string()),
+        },
     }
 }
 
@@ -1293,10 +1299,14 @@ fn parse_document(src: &[u8], collection: &str, name: &str) -> Result<Parsed, Pa
     let mut script_services = BTreeSet::new();
     if let Some(&section) = scan::child_tags(&tokens, src, "ServiceImplementations", host).first() {
         for implementation in scan::child_tags(&tokens, src, "ServiceImplementation", section) {
-            if sidecar::handler_of(&tokens, src, implementation).map_err(|error| ParseError(error.to_string()))? == "Script"
+            if sidecar::handler_of(&tokens, src, implementation)
+                .map_err(|error| ParseError(error.to_string()))?
+                == "Script"
                 && sidecar::code_element_of(&tokens, src, implementation).is_some()
             {
-                if let Some(name) = attribute(&tokens[implementation], src, "name")?.filter(|name| !name.is_empty()) {
+                if let Some(name) =
+                    attribute(&tokens[implementation], src, "name")?.filter(|name| !name.is_empty())
+                {
                     script_services.insert(name);
                 }
             }

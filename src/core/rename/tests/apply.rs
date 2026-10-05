@@ -240,11 +240,7 @@ fn baseline_removes_only_renamed_entries_and_is_not_created_when_absent() {
     }
 
     let fixture = fixture();
-    let planned = plan(
-        &fixture.solution,
-        &spec(Kind::Entity, "T", "U"),
-    )
-    .unwrap();
+    let planned = plan(&fixture.solution, &spec(Kind::Entity, "T", "U")).unwrap();
     apply(&fixture.solution, &planned, &options(false)).unwrap();
     assert!(!fixture.root.join(BASELINE_PATH).exists());
 }
@@ -258,11 +254,7 @@ fn ledger_is_created_then_appended_and_corruption_is_a_preflight_refusal() {
     )
     .unwrap();
     let first_applied = apply(&ledger_fixture.solution, &first, &options(false)).unwrap();
-    let second = plan(
-        &ledger_fixture.solution,
-        &spec(Kind::Entity, "T", "U"),
-    )
-    .unwrap();
+    let second = plan(&ledger_fixture.solution, &spec(Kind::Entity, "T", "U")).unwrap();
     apply(&ledger_fixture.solution, &second, &options(false)).unwrap();
     let ledger: serde_json::Value =
         serde_json::from_slice(&std::fs::read(&first_applied.ledger).unwrap()).unwrap();
@@ -281,11 +273,7 @@ fn ledger_is_created_then_appended_and_corruption_is_a_preflight_refusal() {
     let fixture = fixture();
     std::fs::create_dir_all(fixture.root.join(".twaco")).unwrap();
     std::fs::write(fixture.root.join(".twaco/renames.json"), "not json").unwrap();
-    let planned = plan(
-        &fixture.solution,
-        &spec(Kind::Entity, "T", "U"),
-    )
-    .unwrap();
+    let planned = plan(&fixture.solution, &spec(Kind::Entity, "T", "U")).unwrap();
     let before = snapshot(&fixture.root);
     assert!(matches!(
         apply(&fixture.solution, &planned, &options(false)),
@@ -298,11 +286,7 @@ fn a_ledger_holding_something_that_is_not_a_record_is_refused_before_any_write()
     let fixture = fixture();
     std::fs::create_dir_all(fixture.root.join(".twaco")).unwrap();
     std::fs::write(fixture.root.join(".twaco/renames.json"), "[1, \"x\", null]").unwrap();
-    let planned = plan(
-        &fixture.solution,
-        &spec(Kind::Entity, "T", "U"),
-    )
-    .unwrap();
+    let planned = plan(&fixture.solution, &spec(Kind::Entity, "T", "U")).unwrap();
     let before = snapshot(&fixture.root);
     assert!(matches!(
         apply(&fixture.solution, &planned, &options(false)),

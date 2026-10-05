@@ -22,8 +22,8 @@ use swc_common::{BytePos, Spanned};
 use swc_ecma_ast::{
     ArrayLit, ArrayPat, ArrowExpr, AssignExpr, AssignTarget, AssignTargetPat, CatchClause, Expr,
     ExprOrSpread, FnDecl, FnExpr, ForHead, ForInStmt, ForOfStmt, Ident, Lit, MemberExpr,
-    MemberProp, NewExpr, ObjectLit, ObjectPat, ObjectPatProp, OptCall, Param, Pat, Prop,
-    PropName, SetterProp, SimpleAssignTarget, Str, UpdateExpr, VarDeclarator,
+    MemberProp, NewExpr, ObjectLit, ObjectPat, ObjectPatProp, OptCall, Param, Pat, Prop, PropName,
+    SetterProp, SimpleAssignTarget, Str, UpdateExpr, VarDeclarator,
 };
 use swc_ecma_parser::{lexer::Lexer, EsSyntax, Parser, StringInput, Syntax};
 use swc_ecma_visit::{Visit, VisitWith};
@@ -246,15 +246,25 @@ impl Script {
                 || !text.is_char_boundary(span.start)
                 || !text.is_char_boundary(span.end)
             {
-                return Err(format!("{what} span {}..{} is not a text range", span.start, span.end));
+                return Err(format!(
+                    "{what} span {}..{} is not a text range",
+                    span.start, span.end
+                ));
             }
             Ok(&text[span.start..span.end])
         };
         let quoted = |span: scan::Span, what: &str| -> Result<(), String> {
-            let quote = span.start.checked_sub(1).and_then(|at| src.get(at)).copied();
+            let quote = span
+                .start
+                .checked_sub(1)
+                .and_then(|at| src.get(at))
+                .copied();
             match quote {
                 Some(b'\'' | b'"') if src.get(span.end) == quote.as_ref() => Ok(()),
-                _ => Err(format!("{what} span {}..{} is not inside quotes", span.start, span.end)),
+                _ => Err(format!(
+                    "{what} span {}..{} is not inside quotes",
+                    span.start, span.end
+                )),
             }
         };
         for identifier in &self.identifiers {
@@ -288,19 +298,32 @@ impl Script {
         }
         for property in &self.object_strings {
             if slice(property.value_span, "object string")? != property.value {
-                return Err(format!("object string differs at {}", property.value_span.start));
+                return Err(format!(
+                    "object string differs at {}",
+                    property.value_span.start
+                ));
             }
             quoted(property.value_span, "object string")?;
         }
         for object in &self.objects {
             let raw = slice(object.span, "object")?;
             if !(raw.starts_with('{') && raw.ends_with('}')) {
-                return Err(format!("object span {}..{} is not an object", object.span.start, object.span.end));
+                return Err(format!(
+                    "object span {}..{} is not an object",
+                    object.span.start, object.span.end
+                ));
             }
             for property in &object.properties {
-                if let ObjectProperty::KeyValue { key, value: property_value } = property {
+                if let ObjectProperty::KeyValue {
+                    key,
+                    value: property_value,
+                } = property
+                {
                     if slice(key.span, "object literal key")? != key.text {
-                        return Err(format!("object literal key text differs at {}", key.span.start));
+                        return Err(format!(
+                            "object literal key text differs at {}",
+                            key.span.start
+                        ));
                     }
                     if key.string {
                         quoted(key.span, "object literal string key")?;
@@ -331,15 +354,25 @@ fn verify_object_value(
             || !text.is_char_boundary(span.start)
             || !text.is_char_boundary(span.end)
         {
-            return Err(format!("{what} span {}..{} is not a text range", span.start, span.end));
+            return Err(format!(
+                "{what} span {}..{} is not a text range",
+                span.start, span.end
+            ));
         }
         Ok(&text[span.start..span.end])
     };
     let quoted = |span: scan::Span, what: &str| -> Result<(), String> {
-        let quote = span.start.checked_sub(1).and_then(|at| src.get(at)).copied();
+        let quote = span
+            .start
+            .checked_sub(1)
+            .and_then(|at| src.get(at))
+            .copied();
         match quote {
             Some(b'\'' | b'"') if src.get(span.end) == quote.as_ref() => Ok(()),
-            _ => Err(format!("{what} span {}..{} is not inside quotes", span.start, span.end)),
+            _ => Err(format!(
+                "{what} span {}..{} is not inside quotes",
+                span.start, span.end
+            )),
         }
     };
     match value {
@@ -355,7 +388,10 @@ fn verify_object_value(
         }
         Value::String(string) => {
             if slice(string.span, "object value string")? != string.value {
-                return Err(format!("object value string differs at {}", string.span.start));
+                return Err(format!(
+                    "object value string differs at {}",
+                    string.span.start
+                ));
             }
             quoted(string.span, "object value string")?;
         }
@@ -484,14 +520,20 @@ impl<'a> Builder<'a> {
                 text: self.text(span),
             })
             .collect();
-        self.script.identifiers.sort_by_key(|identifier| identifier.span.start);
+        self.script
+            .identifiers
+            .sort_by_key(|identifier| identifier.span.start);
         for (name, declarations) in &self.bindings {
             let Some(Some(entity)) = declarations.first() else {
                 continue;
             };
-            let same = declarations.iter().all(|other| other.as_ref() == Some(entity));
+            let same = declarations
+                .iter()
+                .all(|other| other.as_ref() == Some(entity));
             if same && !self.assigned.contains(name) {
-                self.script.thing_variables.insert(name.clone(), entity.clone());
+                self.script
+                    .thing_variables
+                    .insert(name.clone(), entity.clone());
             }
         }
         self.script
@@ -670,10 +712,12 @@ impl<'a> Builder<'a> {
             Expr::Array(array) => self.array_value(array),
             Expr::Lit(Lit::Str(string)) => self.inner(string.span).map_or_else(
                 || Value::Other(self.span(string.span)),
-                |span| Value::String(StringLiteral {
-                    value: self.text(span),
-                    span,
-                }),
+                |span| {
+                    Value::String(StringLiteral {
+                        value: self.text(span),
+                        span,
+                    })
+                },
             ),
             other => Value::Other(self.span(other.span())),
         }
@@ -694,21 +738,29 @@ impl<'a> Builder<'a> {
     }
 
     fn object(&mut self, object: &ObjectLit) {
-        let Some(index) = self.object_indexes.get(&(object.span.lo.0 as usize)).copied() else {
+        let Some(index) = self
+            .object_indexes
+            .get(&(object.span.lo.0 as usize))
+            .copied()
+        else {
             return;
         };
         self.script.objects[index].properties = object
             .props
             .iter()
-            .map(|property| match property.as_prop().and_then(|property| match &**property {
-                Prop::KeyValue(pair) => self.literal_key(&pair.key).map(|key| (key, &*pair.value)),
-                _ => None,
-            }) {
-                Some((key, value)) => ObjectProperty::KeyValue {
-                    key,
-                    value: self.value(value),
-                },
-                None => ObjectProperty::Other,
+            .map(|property| {
+                match property.as_prop().and_then(|property| match &**property {
+                    Prop::KeyValue(pair) => {
+                        self.literal_key(&pair.key).map(|key| (key, &*pair.value))
+                    }
+                    _ => None,
+                }) {
+                    Some((key, value)) => ObjectProperty::KeyValue {
+                        key,
+                        value: self.value(value),
+                    },
+                    None => ObjectProperty::Other,
+                }
             })
             .collect();
     }
@@ -984,8 +1036,13 @@ mod tests {
 
     /// The one member access whose property is written `name`.
     fn member<'a>(src: &str, script: &'a Script, name: &str) -> &'a MemberAccess {
-        let mut found = script.members.iter().filter(|member| text(src, member.property) == name);
-        let member = found.next().unwrap_or_else(|| panic!("no member {name} in {src}"));
+        let mut found = script
+            .members
+            .iter()
+            .filter(|member| text(src, member.property) == name);
+        let member = found
+            .next()
+            .unwrap_or_else(|| panic!("no member {name} in {src}"));
         assert!(found.next().is_none(), "two members named {name} in {src}");
         member
     }
@@ -1024,11 +1081,21 @@ mod tests {
 
     #[test]
     fn the_parser_refuses_what_it_cannot_account_for() {
-        for rhino_only in ["for each (x in y) {}", "delete a.@b;", "text.charAt(0) = 'a';"] {
+        for rhino_only in [
+            "for each (x in y) {}",
+            "delete a.@b;",
+            "text.charAt(0) = 'a';",
+        ] {
             let error = parse(rhino_only.as_bytes()).unwrap_err();
-            assert!(matches!(error, ParseError::Syntax { .. }), "{rhino_only}: {error:?}");
+            assert!(
+                matches!(error, ParseError::Syntax { .. }),
+                "{rhino_only}: {error:?}"
+            );
         }
-        assert!(matches!(parse(b"var a = ;"), Err(ParseError::Syntax { .. })));
+        assert!(matches!(
+            parse(b"var a = ;"),
+            Err(ParseError::Syntax { .. })
+        ));
         assert_eq!(parse(&[b'a', 0xff]).unwrap_err(), ParseError::NotUtf8);
     }
 
@@ -1047,21 +1114,36 @@ mod tests {
                    try {} catch (e) {} var o = { k: 1, shorthand }; x.prop = (u) => u;";
         let script = facts(src);
         assert_eq!(with_role(src, &script, Role::Declaration), ["a", "f", "o"]);
-        assert_eq!(with_role(src, &script, Role::Parameter), ["p", "s", "e", "u"]);
+        assert_eq!(
+            with_role(src, &script, Role::Parameter),
+            ["p", "s", "e", "u"]
+        );
         assert_eq!(with_role(src, &script, Role::Shorthand), ["q", "shorthand"]);
         assert_eq!(with_role(src, &script, Role::ObjectKey), ["r", "k"]);
         assert_eq!(with_role(src, &script, Role::MemberProperty), ["prop"]);
-        assert_eq!(with_role(src, &script, Role::Reference), ["b", "p", "t", "x", "u"]);
-        let starts: Vec<usize> =
-            script.identifiers.iter().map(|identifier| identifier.span.start).collect();
-        assert!(starts.windows(2).all(|pair| pair[0] < pair[1]), "source order, no repeats");
+        assert_eq!(
+            with_role(src, &script, Role::Reference),
+            ["b", "p", "t", "x", "u"]
+        );
+        let starts: Vec<usize> = script
+            .identifiers
+            .iter()
+            .map(|identifier| identifier.span.start)
+            .collect();
+        assert!(
+            starts.windows(2).all(|pair| pair[0] < pair[1]),
+            "source order, no repeats"
+        );
     }
 
     #[test]
     fn a_destructured_declaration_binds_its_names() {
         let src = "var { a, b: c, d: [e] } = x; let [f, ...g] = y;";
         let script = facts(src);
-        assert_eq!(with_role(src, &script, Role::Declaration), ["c", "e", "f", "g"]);
+        assert_eq!(
+            with_role(src, &script, Role::Declaration),
+            ["c", "e", "f", "g"]
+        );
         assert_eq!(with_role(src, &script, Role::Shorthand), ["a"]);
         assert_eq!(with_role(src, &script, Role::ObjectKey), ["b", "d"]);
     }
@@ -1080,7 +1162,10 @@ mod tests {
                    var f = function named(z) {};";
         let script = facts(src);
         assert_eq!(with_role(src, &script, Role::Parameter), ["v", "w", "z"]);
-        assert_eq!(with_role(src, &script, Role::Declaration), ["o", "f", "named"]);
+        assert_eq!(
+            with_role(src, &script, Role::Declaration),
+            ["o", "f", "named"]
+        );
         assert_eq!(with_role(src, &script, Role::Reference), ["d"]);
     }
 
@@ -1111,7 +1196,10 @@ mod tests {
         // `Things.X` is itself an access, on the identifier `Things`.
         assert_eq!(member(src, &script, "X").receiver, variable("Things"));
         // A computed name that is not a string literal names no property.
-        assert!(script.members.iter().all(|member| text(src, member.property) != "i"));
+        assert!(script
+            .members
+            .iter()
+            .all(|member| text(src, member.property) != "i"));
     }
 
     #[test]
@@ -1123,7 +1211,14 @@ mod tests {
         assert_eq!(text(src, script.calls[0].property), "old");
         assert_eq!(script.calls[1].receiver, thing("B"));
         assert_eq!(text(src, script.calls[1].property), "old");
-        assert_eq!(script.members.iter().filter(|member| member.is_callee).count(), 2);
+        assert_eq!(
+            script
+                .members
+                .iter()
+                .filter(|member| member.is_callee)
+                .count(),
+            2
+        );
     }
 
     #[test]
@@ -1132,12 +1227,22 @@ mod tests {
                    me.b(); me.c(f); me.d(...args); me.e(({ x: 1 }));";
         let script = facts(src);
         let call = |name: &str| {
-            script.calls.iter().find(|call| text(src, call.property) == name).unwrap()
+            script
+                .calls
+                .iter()
+                .find(|call| text(src, call.property) == name)
+                .unwrap()
         };
         assert_eq!(keys(call("a")), ["x", "y z"]);
-        let FirstArgument::Object(found) = &call("a").first else { unreachable!() };
+        let FirstArgument::Object(found) = &call("a").first else {
+            unreachable!()
+        };
         assert_eq!(text(src, found[0].span), "x");
-        assert_eq!(text(src, found[1].span), "y z", "a string key is the bytes inside its quotes");
+        assert_eq!(
+            text(src, found[1].span),
+            "y z",
+            "a string key is the bytes inside its quotes"
+        );
         for name in ["b", "c", "d", "e"] {
             assert_eq!(call(name).first, FirstArgument::Other, "{name}");
         }
@@ -1188,9 +1293,15 @@ mod tests {
 
     #[test]
     fn a_variable_declared_twice_is_known_only_if_both_name_the_same_thing() {
-        assert!(facts("var t = Things.A; var t = Things.A;").thing_variables.contains_key("t"));
-        assert!(facts("var t = Things.A; var t = Things.B;").thing_variables.is_empty());
-        assert!(facts("var t = Things.A; var t = other;").thing_variables.is_empty());
+        assert!(facts("var t = Things.A; var t = Things.A;")
+            .thing_variables
+            .contains_key("t"));
+        assert!(facts("var t = Things.A; var t = Things.B;")
+            .thing_variables
+            .is_empty());
+        assert!(facts("var t = Things.A; var t = other;")
+            .thing_variables
+            .is_empty());
         assert!(facts("var t; t = Things.A;").thing_variables.is_empty());
     }
 
@@ -1217,7 +1328,9 @@ mod tests {
 
     #[test]
     fn a_property_assignment_through_a_variable_does_not_make_it_unknown() {
-        assert!(facts("var t = Things.A; t.x = 1; t.y++;").thing_variables.contains_key("t"));
+        assert!(facts("var t = Things.A; t.x = 1; t.y++;")
+            .thing_variables
+            .contains_key("t"));
     }
 
     #[test]
@@ -1273,7 +1386,10 @@ mod tests {
             span: scan::Span::new(1, 2),
             role: Role::Reference,
         });
-        assert!(script.verify_spans(wide.as_bytes()).is_err(), "inside a character");
+        assert!(
+            script.verify_spans(wide.as_bytes()).is_err(),
+            "inside a character"
+        );
     }
 
     #[test]
@@ -1315,7 +1431,13 @@ mod tests {
         let src = "let note = 'é'; let value = { 'table': [ { name: \"Field\" } ] };";
         let script = facts(src);
         assert_eq!(script.objects.len(), 2);
-        assert_eq!(&src[script.objects[0].span.start..script.objects[0].span.end], "{ 'table': [ { name: \"Field\" } ] }");
-        assert_eq!(&src[script.objects[1].span.start..script.objects[1].span.end], "{ name: \"Field\" }");
+        assert_eq!(
+            &src[script.objects[0].span.start..script.objects[0].span.end],
+            "{ 'table': [ { name: \"Field\" } ] }"
+        );
+        assert_eq!(
+            &src[script.objects[1].span.start..script.objects[1].span.end],
+            "{ name: \"Field\" }"
+        );
     }
 }

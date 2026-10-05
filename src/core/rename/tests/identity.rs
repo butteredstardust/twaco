@@ -19,11 +19,7 @@ fn follow_up_contains_only_applicable_items_in_order() {
     assert!(items[3].starts_with("Another project"));
     assert!(items[4].contains("other file(s) were not changed"));
 
-    let review = plan(
-        &fixture.solution,
-        &spec(Kind::Entity, "T", "U"),
-    )
-    .unwrap();
+    let review = plan(&fixture.solution, &spec(Kind::Entity, "T", "U")).unwrap();
     let items = follow_up(&review, true);
     assert_eq!(items.len(), 3);
     assert!(items[2].contains("left for a person to review"));
@@ -321,11 +317,7 @@ fn unreadable_discovery_candidates_are_refused() {
 #[test]
 fn unqualified_entity_keeps_unsafe_text_as_review_without_an_edit() {
     let fixture = fixture();
-    let planned = plan(
-        &fixture.solution,
-        &spec(Kind::Entity, "T", "U"),
-    )
-    .unwrap();
+    let planned = plan(&fixture.solution, &spec(Kind::Entity, "T", "U")).unwrap();
     assert_eq!(planned.moves.len(), 1);
     let script = planned
         .changes

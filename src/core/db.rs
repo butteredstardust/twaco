@@ -294,7 +294,8 @@ pub fn execute(
         let table = connection_table(&connection, &encrypted);
         remote
             .call(
-                &ServiceTarget::entity("Things", &temporary).map_err(|error| secret_error(error.to_string(), password))?,
+                &ServiceTarget::entity("Things", &temporary)
+                    .map_err(|error| secret_error(error.to_string(), password))?,
                 "SetConfigurationTable",
                 &json!({ "tableName": "ConnectionInfo", "configurationTable": table }),
                 options.timeout,
@@ -302,7 +303,8 @@ pub fn execute(
             .map_err(|why| secret_error(why, password))?;
         remote
             .call(
-                &ServiceTarget::entity("Things", &temporary).map_err(|error| secret_error(error.to_string(), password))?,
+                &ServiceTarget::entity("Things", &temporary)
+                    .map_err(|error| secret_error(error.to_string(), password))?,
                 "RestartThing",
                 &json!({}),
                 options.timeout,
@@ -310,7 +312,8 @@ pub fn execute(
             .map_err(|why| secret_error(why, password))?;
         remote
             .call(
-                &ServiceTarget::entity("Things", &temporary).map_err(|error| secret_error(error.to_string(), password))?,
+                &ServiceTarget::entity("Things", &temporary)
+                    .map_err(|error| secret_error(error.to_string(), password))?,
                 "Run",
                 &json!({}),
                 options.timeout,
@@ -341,12 +344,17 @@ pub trait Sweeper {
 
 impl Sweeper for Client {
     fn thing_names(&self) -> Result<Vec<String>, String> {
-        self.list_entity_names("Things").map_err(|error| error.to_string())
+        self.list_entity_names("Things")
+            .map_err(|error| error.to_string())
     }
 
     fn template_of(&self, name: &str) -> Result<String, String> {
         let thing = Remote::thing(self, name)?;
-        Ok(thing.get("thingTemplate").and_then(Value::as_str).unwrap_or_default().to_string())
+        Ok(thing
+            .get("thingTemplate")
+            .and_then(Value::as_str)
+            .unwrap_or_default()
+            .to_string())
     }
 
     fn delete_thing(&self, name: &str) -> Result<(), String> {
@@ -379,8 +387,12 @@ pub struct Swept {
 
 /// Whether a name is one `temporary_name` makes: `ZZ.Twaco.Sql.` and eight lowercase hex digits.
 pub fn is_temporary_name(name: &str) -> bool {
-    name.strip_prefix("ZZ.Twaco.Sql.")
-        .is_some_and(|rest| rest.len() == 8 && rest.bytes().all(|byte| matches!(byte, b'0'..=b'9' | b'a'..=b'f')))
+    name.strip_prefix("ZZ.Twaco.Sql.").is_some_and(|rest| {
+        rest.len() == 8
+            && rest
+                .bytes()
+                .all(|byte| matches!(byte, b'0'..=b'9' | b'a'..=b'f'))
+    })
 }
 
 /// Find the temporary Things an interrupted run left, and with `apply` delete them, confirming
@@ -395,23 +407,43 @@ pub fn sweep(remote: &dyn Sweeper, apply: bool) -> Result<Vec<Swept>, DbError> {
     names.sort();
     let mut swept = Vec::new();
     for name in names {
-        let template = remote.template_of(&name).map_err(|why| DbError(format!("cannot read {name}: {why}")))?;
+        let template = remote
+            .template_of(&name)
+            .map_err(|why| DbError(format!("cannot read {name}: {why}")))?;
         if template != "Database" {
-            swept.push(Swept { name, status: SweepStatus::Skipped, why: Some(format!("its template is {template:?}, not Database")) });
+            swept.push(Swept {
+                name,
+                status: SweepStatus::Skipped,
+                why: Some(format!("its template is {template:?}, not Database")),
+            });
             continue;
         }
         if !apply {
-            swept.push(Swept { name, status: SweepStatus::Stale, why: None });
+            swept.push(Swept {
+                name,
+                status: SweepStatus::Stale,
+                why: None,
+            });
             continue;
         }
-        let outcome = remote.delete_thing(&name).and_then(|()| match remote.thing_exists(&name) {
-            Ok(false) => Ok(()),
-            Ok(true) => Err("it still exists after the delete".to_string()),
-            Err(why) => Err(format!("cannot confirm the delete: {why}")),
-        });
+        let outcome = remote
+            .delete_thing(&name)
+            .and_then(|()| match remote.thing_exists(&name) {
+                Ok(false) => Ok(()),
+                Ok(true) => Err("it still exists after the delete".to_string()),
+                Err(why) => Err(format!("cannot confirm the delete: {why}")),
+            });
         swept.push(match outcome {
-            Ok(()) => Swept { name, status: SweepStatus::Deleted, why: None },
-            Err(why) => Swept { name, status: SweepStatus::Failed, why: Some(why) },
+            Ok(()) => Swept {
+                name,
+                status: SweepStatus::Deleted,
+                why: None,
+            },
+            Err(why) => Swept {
+                name,
+                status: SweepStatus::Failed,
+                why: Some(why),
+            },
         });
     }
     Ok(swept)
@@ -790,10 +822,22 @@ mod tests {
 
     impl Sweeper for SweepFake {
         fn thing_names(&self) -> Result<Vec<String>, String> {
-            Ok(self.things.borrow().iter().map(|(name, _)| name.clone()).collect())
+            Ok(self
+                .things
+                .borrow()
+                .iter()
+                .map(|(name, _)| name.clone())
+                .collect())
         }
         fn template_of(&self, name: &str) -> Result<String, String> {
-            Ok(self.things.borrow().iter().find(|(thing, _)| thing == name).unwrap().1.clone())
+            Ok(self
+                .things
+                .borrow()
+                .iter()
+                .find(|(thing, _)| thing == name)
+                .unwrap()
+                .1
+                .clone())
         }
         fn delete_thing(&self, name: &str) -> Result<(), String> {
             if !self.keep {
@@ -815,14 +859,25 @@ mod tests {
             ("ZZ.Twaco.Sql.0badf00f", "GenericThing"),
             ("Acme.Real.Database", "Database"),
         ];
-        SweepFake { things: std::cell::RefCell::new(things.iter().map(|(a, b)| (a.to_string(), b.to_string())).collect()), keep }
+        SweepFake {
+            things: std::cell::RefCell::new(
+                things
+                    .iter()
+                    .map(|(a, b)| (a.to_string(), b.to_string()))
+                    .collect(),
+            ),
+            keep,
+        }
     }
 
     #[test]
     fn a_sweep_plan_lists_only_generated_database_things_and_deletes_nothing() {
         let fake = sweep_fake(false);
         let plan = sweep(&fake, false).unwrap();
-        let rows: Vec<(&str, &SweepStatus)> = plan.iter().map(|row| (row.name.as_str(), &row.status)).collect();
+        let rows: Vec<(&str, &SweepStatus)> = plan
+            .iter()
+            .map(|row| (row.name.as_str(), &row.status))
+            .collect();
         assert_eq!(
             rows,
             [
@@ -838,15 +893,40 @@ mod tests {
     fn a_sweep_apply_deletes_confirms_and_leaves_everything_else() {
         let fake = sweep_fake(false);
         let applied = sweep(&fake, true).unwrap();
-        assert_eq!(applied.iter().filter(|row| row.status == SweepStatus::Deleted).count(), 2);
-        let left: Vec<String> = fake.things.borrow().iter().map(|(name, _)| name.clone()).collect();
-        assert_eq!(left, ["ZZ.Twaco.Sql.mine", "ZZ.Twaco.Sql.0badf00f", "Acme.Real.Database"]);
+        assert_eq!(
+            applied
+                .iter()
+                .filter(|row| row.status == SweepStatus::Deleted)
+                .count(),
+            2
+        );
+        let left: Vec<String> = fake
+            .things
+            .borrow()
+            .iter()
+            .map(|(name, _)| name.clone())
+            .collect();
+        assert_eq!(
+            left,
+            [
+                "ZZ.Twaco.Sql.mine",
+                "ZZ.Twaco.Sql.0badf00f",
+                "Acme.Real.Database"
+            ]
+        );
         // A delete that answers success but leaves the Thing is a failure.
         let stubborn = sweep_fake(true);
         let failed = sweep(&stubborn, true).unwrap();
-        assert!(failed.iter().any(|row| row.status == SweepStatus::Failed && row.why.as_deref().is_some_and(|why| why.contains("still exists"))));
+        assert!(failed.iter().any(|row| row.status == SweepStatus::Failed
+            && row
+                .why
+                .as_deref()
+                .is_some_and(|why| why.contains("still exists"))));
         assert!(is_temporary_name(&temporary_name()));
-        assert!(!is_temporary_name("ZZ.Twaco.Sql.0BADF00D") && !is_temporary_name("ZZ.Twaco.Sql.0badf00"));
+        assert!(
+            !is_temporary_name("ZZ.Twaco.Sql.0BADF00D")
+                && !is_temporary_name("ZZ.Twaco.Sql.0badf00")
+        );
     }
 
     impl Remote for Fake {

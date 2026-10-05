@@ -13,7 +13,10 @@ pub struct KeyError {
 
 impl KeyError {
     fn new(text: impl Into<String>, why: &'static str) -> Self {
-        Self { text: text.into(), why }
+        Self {
+            text: text.into(),
+            why,
+        }
     }
 }
 
@@ -69,9 +72,13 @@ impl EntityKey {
             return Err(KeyError::new(text, "an entity key needs Collection/Name"));
         };
         if name.contains('/') {
-            return Err(KeyError::new(text, "an entity key has more than two segments"));
+            return Err(KeyError::new(
+                text,
+                "an entity key has more than two segments",
+            ));
         }
-        Self::new(collection, name).map_err(|_| KeyError::new(text, "an entity key has an invalid segment"))
+        Self::new(collection, name)
+            .map_err(|_| KeyError::new(text, "an entity key has an invalid segment"))
     }
 
     pub fn collection(&self) -> &str {
@@ -83,7 +90,11 @@ impl EntityKey {
     }
 
     pub fn url_path(&self) -> String {
-        format!("{}/{}", encode_path_segment(&self.collection), encode_path_segment(&self.name))
+        format!(
+            "{}/{}",
+            encode_path_segment(&self.collection),
+            encode_path_segment(&self.name)
+        )
     }
 }
 
@@ -123,12 +134,20 @@ impl ServiceTarget {
         }
     }
 
-    pub fn entity(collection: impl Into<String>, name: impl Into<String>) -> Result<Self, KeyError> {
+    pub fn entity(
+        collection: impl Into<String>,
+        name: impl Into<String>,
+    ) -> Result<Self, KeyError> {
         let collection = collection.into();
         let name = name.into();
         EntityKey::new(&collection, &name)
             .map(Self::Entity)
-            .map_err(|_| KeyError::new(format!("{collection}/{name}"), "an entity key has an invalid segment"))
+            .map_err(|_| {
+                KeyError::new(
+                    format!("{collection}/{name}"),
+                    "an entity key has an invalid segment",
+                )
+            })
     }
 
     /// Name a fixed platform entity whose literal address is validated with the binary.
@@ -162,27 +181,56 @@ mod tests {
     fn entity_key_parses_displays_and_refuses_invalid_addresses() {
         let key = EntityKey::parse("Widgets/Example").unwrap();
         assert_eq!(key.to_string(), "Widgets/Example");
-        for bad in ["", ".", "..", "Widgets", "Widgets/", "/Example", "./Example", "Widgets/../Example", "A/B/C"] {
+        for bad in [
+            "",
+            ".",
+            "..",
+            "Widgets",
+            "Widgets/",
+            "/Example",
+            "./Example",
+            "Widgets/../Example",
+            "A/B/C",
+        ] {
             assert!(EntityKey::parse(bad).is_err(), "{bad:?}");
         }
     }
 
     #[test]
     fn service_targets_keep_bare_names_and_encode_complete_segments() {
-        assert_eq!(ServiceTarget::parse("A Thing").unwrap().to_string(), "A Thing");
-        assert_eq!(ServiceTarget::parse("Resources/SourceControlFunctions").unwrap().to_string(), "Resources/SourceControlFunctions");
+        assert_eq!(
+            ServiceTarget::parse("A Thing").unwrap().to_string(),
+            "A Thing"
+        );
+        assert_eq!(
+            ServiceTarget::parse("Resources/SourceControlFunctions")
+                .unwrap()
+                .to_string(),
+            "Resources/SourceControlFunctions"
+        );
         for bad in ["a/../b", "/x", "x/", "..", "", "a//b"] {
             assert!(ServiceTarget::parse(bad).is_err(), "{bad:?}");
         }
-        assert_eq!(EntityKey::new("Some Collection", "%#?é").unwrap().url_path(), "Some%20Collection/%25%23%3F%C3%A9");
-        assert_eq!(ServiceTarget::parse("A Thing").unwrap().url_path(), "Things/A%20Thing");
+        assert_eq!(
+            EntityKey::new("Some Collection", "%#?é")
+                .unwrap()
+                .url_path(),
+            "Some%20Collection/%25%23%3F%C3%A9"
+        );
+        assert_eq!(
+            ServiceTarget::parse("A Thing").unwrap().url_path(),
+            "Things/A%20Thing"
+        );
     }
 
     #[test]
     fn entity_keys_serialize_as_their_address_and_bad_targets_keep_the_old_error() {
         let key = EntityKey::new("Things", "One").unwrap();
         assert_eq!(serde_json::to_string(&key).unwrap(), "\"Things/One\"");
-        assert_eq!(serde_json::from_str::<EntityKey>("\"Things/One\"").unwrap(), key);
+        assert_eq!(
+            serde_json::from_str::<EntityKey>("\"Things/One\"").unwrap(),
+            key
+        );
         assert!(serde_json::from_str::<EntityKey>("\"Things//One\"").is_err());
         let error: ServerError = ServiceTarget::parse("Things/../Users").unwrap_err().into();
         assert_eq!(error.to_string(), "invalid server URL: call target \"Things/../Users\" must be a Thing name or Collection/Name");

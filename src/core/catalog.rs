@@ -22,7 +22,10 @@ pub struct Catalog {
 
 impl Catalog {
     pub fn service_count(&self) -> usize {
-        self.entities.iter().map(|entity| entity.services.len()).sum()
+        self.entities
+            .iter()
+            .map(|entity| entity.services.len())
+            .sum()
     }
 }
 
@@ -77,20 +80,28 @@ pub struct CatalogValue {
 /// scopes a refactor by inheritance must refuse when it is not empty.
 pub fn inheritance(solution: &Solution) -> (Vec<CatalogEntity>, Vec<String>) {
     let (model, skipped) = types::load_model(solution);
-    let entities = model.entities.iter().filter(|entity| {
-        matches!(entity.collection.as_str(), "Things" | "ThingTemplates" | "ThingShapes")
-    }).map(|entity| CatalogEntity {
-        collection: entity.collection.clone(),
-        name: entity.name.clone(),
-        project: entity.project.clone(),
-        inherits: inheritance_names(entity, &model.entities),
-        implemented_by: if entity.collection == "ThingShapes" {
-            implementers(entity, &model.entities, None)
-        } else {
-            Vec::new()
-        },
-        services: Vec::new(),
-    }).collect();
+    let entities = model
+        .entities
+        .iter()
+        .filter(|entity| {
+            matches!(
+                entity.collection.as_str(),
+                "Things" | "ThingTemplates" | "ThingShapes"
+            )
+        })
+        .map(|entity| CatalogEntity {
+            collection: entity.collection.clone(),
+            name: entity.name.clone(),
+            project: entity.project.clone(),
+            inherits: inheritance_names(entity, &model.entities),
+            implemented_by: if entity.collection == "ThingShapes" {
+                implementers(entity, &model.entities, None)
+            } else {
+                Vec::new()
+            },
+            services: Vec::new(),
+        })
+        .collect();
     (entities, skipped)
 }
 
@@ -109,14 +120,20 @@ impl std::error::Error for CatalogError {}
 pub fn build(solution: &Solution, query: Query<'_>) -> Result<Catalog, CatalogError> {
     if let Some(project) = query.project {
         if solution.project(project).is_none() {
-            return Err(CatalogError(format!("this solution has no project named {project}")));
+            return Err(CatalogError(format!(
+                "this solution has no project named {project}"
+            )));
         }
     }
     let (model, skipped) = types::load_model(solution);
     let mut pool: Vec<&Entity> = model
         .entities
         .iter()
-        .filter(|entity| query.project.is_none_or(|project| entity.project == project))
+        .filter(|entity| {
+            query
+                .project
+                .is_none_or(|project| entity.project == project)
+        })
         .collect();
     if let Some(name) = query.entity {
         pool = vec![resolve(&pool, name)?];
@@ -161,24 +178,41 @@ pub fn build(solution: &Solution, query: Query<'_>) -> Result<Catalog, CatalogEr
 }
 
 fn resolve<'a>(entities: &[&'a Entity], name: &str) -> Result<&'a Entity, CatalogError> {
-    let exact: Vec<&Entity> = entities.iter().copied().filter(|entity| entity.name == name).collect();
+    let exact: Vec<&Entity> = entities
+        .iter()
+        .copied()
+        .filter(|entity| entity.name == name)
+        .collect();
     if exact.len() == 1 {
         return Ok(exact[0]);
     }
     if exact.len() > 1 {
-        return Err(CatalogError(format!("entity {name} is ambiguous in this solution")));
+        return Err(CatalogError(format!(
+            "entity {name} is ambiguous in this solution"
+        )));
     }
     let suffix: Vec<&Entity> = entities
         .iter()
         .copied()
-        .filter(|entity| entity.name.rsplit('.').next().is_some_and(|part| part.eq_ignore_ascii_case(name)))
+        .filter(|entity| {
+            entity
+                .name
+                .rsplit('.')
+                .next()
+                .is_some_and(|part| part.eq_ignore_ascii_case(name))
+        })
         .collect();
     match suffix.as_slice() {
-        [] => Err(CatalogError(format!("no entity named {name} in this solution"))),
+        [] => Err(CatalogError(format!(
+            "no entity named {name} in this solution"
+        ))),
         [entity] => Ok(entity),
         many => Err(CatalogError(format!(
             "{name} is ambiguous; it could be {}",
-            many.iter().map(|entity| entity.name.as_str()).collect::<Vec<_>>().join(", ")
+            many.iter()
+                .map(|entity| entity.name.as_str())
+                .collect::<Vec<_>>()
+                .join(", ")
         ))),
     }
 }
@@ -207,9 +241,15 @@ fn own_services(entity: &Entity, solution: &Solution) -> Vec<CatalogService> {
     services
 }
 
-fn callable_services(entity: &Entity, entities: &[Entity], solution: &Solution) -> Vec<CatalogService> {
+fn callable_services(
+    entity: &Entity,
+    entities: &[Entity],
+    solution: &Solution,
+) -> Vec<CatalogService> {
     let find = |collection: &str, name: &str| {
-        entities.iter().find(|candidate| candidate.collection == collection && candidate.name == name)
+        entities
+            .iter()
+            .find(|candidate| candidate.collection == collection && candidate.name == name)
     };
     let mut found = BTreeMap::<String, (&Service, &Entity)>::new();
     let mut sources = Vec::<&Entity>::new();
@@ -229,13 +269,17 @@ fn callable_services(entity: &Entity, entities: &[Entity], solution: &Solution) 
                     sources.push(shape);
                     for member in &shape.members {
                         if let Member::Service(service) = member {
-                            found.entry(service.name.clone()).or_insert((service, shape));
+                            found
+                                .entry(service.name.clone())
+                                .or_insert((service, shape));
                         }
                     }
                 }
             }
         }
-        let Some(template_name) = item.template.as_deref() else { break };
+        let Some(template_name) = item.template.as_deref() else {
+            break;
+        };
         if !visited_templates.insert(template_name) {
             break;
         }
@@ -244,8 +288,14 @@ fn callable_services(entity: &Entity, entities: &[Entity], solution: &Solution) 
     found
         .into_iter()
         .map(|(_, (service, defined_by))| {
-            let scripted = sources.iter().any(|source| has_script(solution, source, &service.name));
-            let from = if std::ptr::eq(entity, defined_by) { "own" } else { &defined_by.name };
+            let scripted = sources
+                .iter()
+                .any(|source| has_script(solution, source, &service.name));
+            let from = if std::ptr::eq(entity, defined_by) {
+                "own"
+            } else {
+                &defined_by.name
+            };
             catalog_service(service, from, scripted)
         })
         .collect()
@@ -253,7 +303,13 @@ fn callable_services(entity: &Entity, entities: &[Entity], solution: &Solution) 
 
 fn has_script(solution: &Solution, entity: &Entity, service: &str) -> bool {
     entity.script_services.contains(service)
-        || solution.src_root().join(&entity.name).join("services").join(service).join("script.js").is_file()
+        || solution
+            .src_root()
+            .join(&entity.name)
+            .join("services")
+            .join(service)
+            .join("script.js")
+            .is_file()
 }
 
 fn catalog_service(service: &Service, from: &str, has_script: bool) -> CatalogService {
@@ -283,7 +339,10 @@ fn catalog_service(service: &Service, from: &str, has_script: bool) -> CatalogSe
 fn service_matches(service: &CatalogService, needle: &str) -> bool {
     service.name.to_lowercase().contains(needle)
         || service.description.to_lowercase().contains(needle)
-        || service.parameters.iter().any(|parameter| parameter.name.to_lowercase().contains(needle))
+        || service
+            .parameters
+            .iter()
+            .any(|parameter| parameter.name.to_lowercase().contains(needle))
 }
 
 pub(crate) fn inheritance_names(entity: &Entity, entities: &[Entity]) -> Vec<String> {
@@ -299,7 +358,9 @@ pub(crate) fn inheritance_names(entity: &Entity, entities: &[Entity]) -> Vec<Str
                 out.push(shape.clone());
             }
         }
-        let Some(template) = item.template.as_deref() else { break };
+        let Some(template) = item.template.as_deref() else {
+            break;
+        };
         if !visited.insert(template.to_string()) {
             break;
         }
@@ -313,11 +374,14 @@ pub(crate) fn inheritance_names(entity: &Entity, entities: &[Entity]) -> Vec<Str
 
 fn implementers(shape: &Entity, entities: &[Entity], project: Option<&str>) -> Vec<String> {
     let find_template = |name: &str| {
-        entities.iter().find(|entity| entity.collection == "ThingTemplates" && entity.name == name)
+        entities
+            .iter()
+            .find(|entity| entity.collection == "ThingTemplates" && entity.name == name)
     };
     let mut out = Vec::new();
     for entity in entities.iter().filter(|entity| {
-        entity.collection != "ThingShapes" && project.is_none_or(|project| entity.project == project)
+        entity.collection != "ThingShapes"
+            && project.is_none_or(|project| entity.project == project)
     }) {
         let mut visited = BTreeSet::new();
         let mut current = Some(entity);
@@ -327,7 +391,9 @@ fn implementers(shape: &Entity, entities: &[Entity], project: Option<&str>) -> V
                 implements = true;
                 break;
             }
-            let Some(template) = item.template.as_deref() else { break };
+            let Some(template) = item.template.as_deref() else {
+                break;
+            };
             if !visited.insert(template) {
                 break;
             }
@@ -347,8 +413,12 @@ mod tests {
     use std::path::PathBuf;
 
     fn fixture() -> (PathBuf, Solution) {
-        let nonce = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos();
-        let root = std::env::temp_dir().join(format!("twaco-catalog-{}-{nonce}", std::process::id()));
+        let nonce = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let root =
+            std::env::temp_dir().join(format!("twaco-catalog-{}-{nonce}", std::process::id()));
         for collection in ["ThingShapes", "ThingTemplates", "Things"] {
             std::fs::create_dir_all(root.join(collection)).unwrap();
         }
@@ -367,24 +437,72 @@ mod tests {
     #[test]
     fn inheritance_implementers_filters_and_unknown_names() {
         let (root, solution) = fixture();
-        let thing = build(&solution, Query { entity: Some("P.Thing"), ..Query::default() }).unwrap();
+        let thing = build(
+            &solution,
+            Query {
+                entity: Some("P.Thing"),
+                ..Query::default()
+            },
+        )
+        .unwrap();
         let services = &thing.entities[0].services;
-        assert_eq!(services.iter().map(|service| (service.name.as_str(), service.from.as_str())).collect::<Vec<_>>(), [
-            ("OwnService", "own"), ("ShapeService", "P.Shape"), ("TemplateService", "P.Template")
-        ]);
+        assert_eq!(
+            services
+                .iter()
+                .map(|service| (service.name.as_str(), service.from.as_str()))
+                .collect::<Vec<_>>(),
+            [
+                ("OwnService", "own"),
+                ("ShapeService", "P.Shape"),
+                ("TemplateService", "P.Template")
+            ]
+        );
         assert!(services[0].has_script);
         assert_eq!(services[1].parameters[0].default.as_deref(), Some("[]"));
-        assert_eq!(thing.entities[0].inherits, ["P.Template", "P.Shape", "GenericThing"]);
+        assert_eq!(
+            thing.entities[0].inherits,
+            ["P.Template", "P.Shape", "GenericThing"]
+        );
 
-        let shape = build(&solution, Query { entity: Some("P.Shape"), ..Query::default() }).unwrap();
+        let shape = build(
+            &solution,
+            Query {
+                entity: Some("P.Shape"),
+                ..Query::default()
+            },
+        )
+        .unwrap();
         assert_eq!(shape.entities[0].implemented_by, ["P.Template", "P.Thing"]);
         assert_eq!(shape.entities[0].services.len(), 1);
 
-        let searched = build(&solution, Query { text: Some("DASHBOARD"), ..Query::default() }).unwrap();
+        let searched = build(
+            &solution,
+            Query {
+                text: Some("DASHBOARD"),
+                ..Query::default()
+            },
+        )
+        .unwrap();
         assert_eq!(searched.service_count(), 1);
         assert_eq!(searched.entities[0].services[0].name, "OwnService");
-        assert!(build(&solution, Query { project: Some("Nope"), ..Query::default() }).is_err());
-        assert!(build(&solution, Query { entity: Some("Missing"), ..Query::default() }).unwrap_err().to_string().contains("no entity named Missing"));
+        assert!(build(
+            &solution,
+            Query {
+                project: Some("Nope"),
+                ..Query::default()
+            }
+        )
+        .is_err());
+        assert!(build(
+            &solution,
+            Query {
+                entity: Some("Missing"),
+                ..Query::default()
+            }
+        )
+        .unwrap_err()
+        .to_string()
+        .contains("no entity named Missing"));
         let _ = std::fs::remove_dir_all(root);
     }
 }

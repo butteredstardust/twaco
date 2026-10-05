@@ -278,7 +278,9 @@ pub(crate) fn lexical_mentions(text: &[u8], name: &str) -> Vec<scan::Span> {
         .filter(|(start, window)| {
             let end = start + needle.len();
             *window == needle
-                && !start.checked_sub(1).is_some_and(|before| word(&text[before]))
+                && !start
+                    .checked_sub(1)
+                    .is_some_and(|before| word(&text[before]))
                 && !text.get(end).is_some_and(word)
         })
         .map(|(start, _)| scan::Span::new(start, start + needle.len()))
@@ -461,7 +463,13 @@ pub fn script_uses_identifier(src: &[u8], name: &str) -> bool {
     }
 }
 
-pub(crate) fn add_review_reason(src: &[u8], span: scan::Span, place: Place, reason: &str, pass: &mut XmlPass) {
+pub(crate) fn add_review_reason(
+    src: &[u8],
+    span: scan::Span,
+    place: Place,
+    reason: &str,
+    pass: &mut XmlPass,
+) {
     pass.findings.push(Finding {
         place,
         tier: refs::Tier::Review,
@@ -906,7 +914,13 @@ fn jsdoc_function_spans(comment: &[u8], old: &str) -> Vec<scan::Span> {
         .collect()
 }
 
-pub(crate) fn add_service_edit(src: &[u8], span: scan::Span, new: &str, place: Place, pass: &mut XmlPass) {
+pub(crate) fn add_service_edit(
+    src: &[u8],
+    span: scan::Span,
+    new: &str,
+    place: Place,
+    pass: &mut XmlPass,
+) {
     pass.findings.push(Finding {
         place,
         tier: refs::Tier::Exact,
@@ -2073,7 +2087,13 @@ pub fn replace_file(src: &[u8], replacement: Vec<u8>, excerpt: &str) -> XmlPass 
     pass
 }
 
-pub(crate) fn add_field_edit(src: &[u8], span: scan::Span, new: &str, place: Place, pass: &mut XmlPass) {
+pub(crate) fn add_field_edit(
+    src: &[u8],
+    span: scan::Span,
+    new: &str,
+    place: Place,
+    pass: &mut XmlPass,
+) {
     pass.findings.push(Finding {
         place,
         tier: refs::Tier::Exact,
@@ -2950,11 +2970,17 @@ return Number(cardUid);
             &callers,
         )
         .unwrap();
-        (String::from_utf8(apply(script.as_bytes(), &pass)).unwrap(), pass)
+        (
+            String::from_utf8(apply(script.as_bytes(), &pass)).unwrap(),
+            pass,
+        )
     }
 
     fn review_count(pass: &XmlPass) -> usize {
-        pass.findings.iter().filter(|finding| !finding.applied).count()
+        pass.findings
+            .iter()
+            .filter(|finding| !finding.applied)
+            .count()
     }
 
     #[test]
@@ -2964,7 +2990,10 @@ return Number(cardUid);
         let (changed, _) = service_rename("Things[\"A\"]\n  .Run(1);", false);
         assert_eq!(changed, "Things[\"A\"]\n  .Execute(1);");
         let (changed, _) = service_rename("var s = `${Things.A.Run()} and ${me.Run()}`;", false);
-        assert_eq!(changed, "var s = `${Things.A.Execute()} and ${me.Execute()}`;");
+        assert_eq!(
+            changed,
+            "var s = `${Things.A.Execute()} and ${me.Execute()}`;"
+        );
         let (changed, _) = service_rename("var q = a / b / c; Things.A.Run();", false);
         assert_eq!(changed, "var q = a / b / c; Things.A.Execute();");
         let (changed, _) = service_rename("Things.A[\"Run\"]();", false);
@@ -3029,7 +3058,10 @@ return Number(cardUid);
             &callers,
         )
         .unwrap();
-        (String::from_utf8(apply(script.as_bytes(), &pass)).unwrap(), pass)
+        (
+            String::from_utf8(apply(script.as_bytes(), &pass)).unwrap(),
+            pass,
+        )
     }
 
     fn reasons(pass: &XmlPass) -> Vec<&str> {
@@ -3044,7 +3076,10 @@ return Number(cardUid);
     fn a_free_input_is_renamed_through_templates_and_division() {
         let script = "var s = `${old}`; var q = a / old / b; f(old);";
         let (changed, _) = param_rename(script, true, false);
-        assert_eq!(changed, "var s = `${fresh}`; var q = a / fresh / b; f(fresh);");
+        assert_eq!(
+            changed,
+            "var s = `${fresh}`; var q = a / fresh / b; f(fresh);"
+        );
         // Not a member name, an object key or a string; the key and the string are reviewed, the
         // member name is not (a dotted occurrence is never a hit).
         let script = "x.old; var o = { old: 1 }; var s = 'old';";
@@ -3059,16 +3094,28 @@ return Number(cardUid);
             ("var old = 1; use(old);", "local re-declaration"),
             ("var { a: old } = x; use(old);", "local re-declaration"),
             ("function old() {} use(old);", "local re-declaration"),
-            ("f(function (old) {}); use(old);", "nested function or catch parameter"),
-            ("f((old) => old); use(old);", "nested function or catch parameter"),
-            ("try {} catch (old) {} use(old);", "nested function or catch parameter"),
+            (
+                "f(function (old) {}); use(old);",
+                "nested function or catch parameter",
+            ),
+            (
+                "f((old) => old); use(old);",
+                "nested function or catch parameter",
+            ),
+            (
+                "try {} catch (old) {} use(old);",
+                "nested function or catch parameter",
+            ),
             ("var o = { old }; use(old);", "shorthand property"),
             ("var { old } = x; use(old);", "shorthand property"),
         ] {
             let (changed, pass) = param_rename(script, true, false);
             assert_eq!(changed, script, "{script}");
             let reasons = reasons(&pass);
-            assert!(reasons.iter().any(|text| text.contains(reason)), "{script}: {reasons:?}");
+            assert!(
+                reasons.iter().any(|text| text.contains(reason)),
+                "{script}: {reasons:?}"
+            );
         }
     }
 
@@ -3088,7 +3135,11 @@ return Number(cardUid);
 
     #[test]
     fn a_call_whose_keys_cannot_be_proved_is_reviewed() {
-        for script in ["Things.A.Svc(args);", "Things.A.Svc();", "Things.A.Svc(...args);"] {
+        for script in [
+            "Things.A.Svc(args);",
+            "Things.A.Svc();",
+            "Things.A.Svc(...args);",
+        ] {
             let (changed, pass) = param_rename(script, false, false);
             assert_eq!(changed, script);
             assert!(
@@ -3129,11 +3180,17 @@ return Number(cardUid);
         let uses = |script: &str| script_uses_identifier(script.as_bytes(), "result");
         assert!(uses("var s = `${result}`;"));
         assert!(!uses("var s = `result`; var r = /result/; x.result;"));
-        assert!(uses("var o = { result: 1 };"), "an object key counts, as before");
+        assert!(
+            uses("var o = { result: 1 };"),
+            "an object key counts, as before"
+        );
         // Unparseable: a whole-word mention anywhere is refused, a longer word is not a mention.
         assert!(uses("for each (a in b) { // result\n }"));
         assert!(!uses("for each (a in b) { results; $result; }"));
-        assert!(script_uses_identifier(&[b'r', b'e', b's', b'u', b'l', b't', 0xff], "result"));
+        assert!(script_uses_identifier(
+            &[b'r', b'e', b's', b'u', b'l', b't', 0xff],
+            "result"
+        ));
     }
 
     #[test]
@@ -3141,7 +3198,10 @@ return Number(cardUid);
         let apply_table = |script: &str| {
             let pass =
                 scan_table_script(script.as_bytes(), "Limits_CT", "Bounds_CT", true).unwrap();
-            (String::from_utf8(apply(script.as_bytes(), &pass)).unwrap(), pass)
+            (
+                String::from_utf8(apply(script.as_bytes(), &pass)).unwrap(),
+                pass,
+            )
         };
         let (changed, _) = apply_table("var s = `${f({ tableName: \"Limits_CT\" })}`;");
         assert_eq!(changed, "var s = `${f({ tableName: \"Bounds_CT\" })}`;");

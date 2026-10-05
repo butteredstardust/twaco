@@ -31,7 +31,8 @@ const PROJECT: &str = include_str!("newblock/templates/Project.xml");
 const DEFAULT_GROUP: &str = include_str!("newblock/templates/Group.Default_UG.xml");
 const ADMIN_GROUP: &str = include_str!("newblock/templates/Group.Admin_UG.xml");
 const ORGANIZATION: &str = include_str!("newblock/templates/Organization.Default_OR.xml");
-const ENTRY_POINT_TEMPLATE: &str = include_str!("newblock/templates/ThingTemplate.EntryPoint_TT.xml");
+const ENTRY_POINT_TEMPLATE: &str =
+    include_str!("newblock/templates/ThingTemplate.EntryPoint_TT.xml");
 const MANAGER_TEMPLATE: &str = include_str!("newblock/templates/ThingTemplate.Manager_TT.xml");
 const MANAGEMENT_SHAPE: &str = include_str!("newblock/templates/ThingShape.Management_TS.xml");
 const MODEL_LOGIC_SHAPE: &str = include_str!("newblock/templates/ThingShape.ModelLogic_TS.xml");
@@ -138,7 +139,11 @@ pub struct Plan {
 }
 
 fn attribute_escaped(value: &str) -> String {
-    value.replace('&', "&amp;").replace('"', "&quot;").replace('<', "&lt;").replace('>', "&gt;")
+    value
+        .replace('&', "&amp;")
+        .replace('"', "&quot;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
 }
 
 /// Replace every `@@TOKEN@@` in one pass, so a value is never searched for tokens itself.
@@ -168,7 +173,11 @@ fn normalized_root(mut root: &str) -> &str {
         root = rest;
     }
     root = root.trim_end_matches('/');
-    if root == "." { "" } else { root }
+    if root == "." {
+        ""
+    } else {
+        root
+    }
 }
 
 fn roots_equal(left: &str, right: &str) -> bool {
@@ -198,7 +207,10 @@ fn is_link_or_junction(metadata: &std::fs::Metadata) -> bool {
 
 fn refuse_linked_path(root: &Path, target: &Path) -> Result<(), NewBlockError> {
     let relative = target.strip_prefix(root).map_err(|_| {
-        NewBlockError::Invalid(format!("{} would land outside the solution", target.display()))
+        NewBlockError::Invalid(format!(
+            "{} would land outside the solution",
+            target.display()
+        ))
     })?;
     let mut path = root.to_path_buf();
     for component in relative.components() {
@@ -230,15 +242,24 @@ fn unreadable_is_under(unreadable: &str, directory: &Path) -> bool {
     };
     let directory = normalize(directory.display().to_string());
     let unreadable = normalize(unreadable.to_string());
-    unreadable.strip_prefix(&directory).is_some_and(|rest| rest.starts_with(':') || rest.starts_with('/'))
+    unreadable
+        .strip_prefix(&directory)
+        .is_some_and(|rest| rest.starts_with(':') || rest.starts_with('/'))
 }
 
 /// The `PTC.Base` extension another project of this solution declares, from its Project XML.
 fn declared_base_extension(solution: &Solution) -> Option<String> {
     for project in &solution.projects {
-        let path = solution.project_root(project).join("Projects").join(format!("{}.xml", project.name));
-        let Ok(text) = std::fs::read_to_string(path) else { continue };
-        let Some(at) = text.find("PTC.Base:") else { continue };
+        let path = solution
+            .project_root(project)
+            .join("Projects")
+            .join(format!("{}.xml", project.name));
+        let Ok(text) = std::fs::read_to_string(path) else {
+            continue;
+        };
+        let Some(at) = text.find("PTC.Base:") else {
+            continue;
+        };
         let tail = &text[at..];
         let end = tail.find([',', '&', '"']).unwrap_or(tail.len());
         let found = &tail[..end];
@@ -276,10 +297,23 @@ pub fn plan(solution: &Solution, request: &Request) -> Result<Plan, NewBlockErro
     {
         return Err(invalid(format!("the project folder {root:?} must be a relative path inside the solution without quotes, backslashes, or control characters")));
     }
-    if let Some(project) = solution.projects.iter().find(|project| roots_equal(&project.root, &root)) {
-        return Err(invalid(format!("the project folder {root:?} is already used by project {} in twaco.toml", project.name)));
+    if let Some(project) = solution
+        .projects
+        .iter()
+        .find(|project| roots_equal(&project.root, &root))
+    {
+        return Err(invalid(format!(
+            "the project folder {root:?} is already used by project {} in twaco.toml",
+            project.name
+        )));
     }
-    for (what, value) in [("description", request.description.as_str()), ("display name", request.display_name.as_deref().unwrap_or(""))] {
+    for (what, value) in [
+        ("description", request.description.as_str()),
+        (
+            "display name",
+            request.display_name.as_deref().unwrap_or(""),
+        ),
+    ] {
         if value.contains(['\n', '\r']) {
             return Err(invalid(format!("the {what} must be one line")));
         }
@@ -288,21 +322,35 @@ pub fn plan(solution: &Solution, request: &Request) -> Result<Plan, NewBlockErro
         }
     }
     match (request.kind, request.parent.as_deref()) {
-        (BlockType::Implementation, None) => return Err(invalid("an implementation names the abstract block it implements: give --parent".to_string())),
+        (BlockType::Implementation, None) => {
+            return Err(invalid(
+                "an implementation names the abstract block it implements: give --parent"
+                    .to_string(),
+            ))
+        }
         (BlockType::Implementation, Some(parent)) => {
             refs::validate_new_name(parent).map_err(invalid)?;
             if parent == request.name {
                 return Err(invalid("a block cannot implement itself".to_string()));
             }
         }
-        (_, Some(_)) => return Err(invalid("--parent is only for an implementation".to_string())),
+        (_, Some(_)) => {
+            return Err(invalid(
+                "--parent is only for an implementation".to_string(),
+            ))
+        }
         _ => {}
     }
     if request.kind != BlockType::Implementation && !request.management_shape {
-        return Err(invalid("only an implementation may leave out the management shape".to_string()));
+        return Err(invalid(
+            "only an implementation may leave out the management shape".to_string(),
+        ));
     }
     if solution.project(&request.name).is_some() {
-        return Err(NewBlockError::Exists(vec![format!("project {} in twaco.toml", request.name)]));
+        return Err(NewBlockError::Exists(vec![format!(
+            "project {} in twaco.toml",
+            request.name
+        )]));
     }
 
     let mut notes = Vec::new();
@@ -313,16 +361,24 @@ pub fn plan(solution: &Solution, request: &Request) -> Result<Plan, NewBlockErro
                 invalid("no PTC.Base version to depend on: another project of this solution declares none; pass --base-extension PTC.Base:<version> (the version installed on your server)".to_string())
             })?;
             if !extension.starts_with("PTC.Base:") {
-                return Err(invalid(format!("--base-extension must look like PTC.Base:10.1.0, not {extension:?}")));
+                return Err(invalid(format!(
+                    "--base-extension must look like PTC.Base:10.1.0, not {extension:?}"
+                )));
             }
             format!("{{\"extensions\":\"{extension}\",\"projects\":\"PTC.Base:0.0.0\"}}")
         }
         BlockType::Implementation => {
-            let parent = request.parent.as_deref().expect("an implementation has a parent");
+            let parent = request
+                .parent
+                .as_deref()
+                .expect("an implementation has a parent");
             format!("{{\"extensions\":\"\",\"projects\":\"{parent}:1.0.0\"}}")
         }
     };
-    let parent_in_solution = request.parent.as_deref().filter(|parent| solution.project(parent).is_some());
+    let parent_in_solution = request
+        .parent
+        .as_deref()
+        .filter(|parent| solution.project(parent).is_some());
     if let Some(parent) = request.parent.as_deref() {
         if parent_in_solution.is_none() {
             notes.push(format!("{parent} is not a project of this solution: its EntryPoint_TT and Manager_TT must already be on the server when this block is deployed."));
@@ -330,10 +386,19 @@ pub fn plan(solution: &Solution, request: &Request) -> Result<Plan, NewBlockErro
     }
 
     let (entry_base, manager_base) = match request.parent.as_deref() {
-        Some(parent) => (format!("{parent}.EntryPoint_TT"), format!("{parent}.Manager_TT")),
-        None => ("PTC.Base.ComponentEntryPoint_TT".to_string(), "PTC.Base.CommonManager_TT".to_string()),
+        Some(parent) => (
+            format!("{parent}.EntryPoint_TT"),
+            format!("{parent}.Manager_TT"),
+        ),
+        None => (
+            "PTC.Base.ComponentEntryPoint_TT".to_string(),
+            "PTC.Base.CommonManager_TT".to_string(),
+        ),
     };
-    let display = request.display_name.clone().unwrap_or_else(|| request.name.clone());
+    let display = request
+        .display_name
+        .clone()
+        .unwrap_or_else(|| request.name.clone());
     let mut values: BTreeMap<&str, String> = BTreeMap::new();
     values.insert("NAME", request.name.clone());
     values.insert("DESCRIPTION", attribute_escaped(&request.description));
@@ -347,25 +412,57 @@ pub fn plan(solution: &Solution, request: &Request) -> Result<Plan, NewBlockErro
     let base = solution.root.join(&root);
     refuse_linked_path(&solution.root, &base)?;
 
-    let manager_template = if request.management_shape { MANAGER_TEMPLATE.to_string() } else {
-        let replaced = MANAGER_TEMPLATE.replace(MANAGER_SHAPE_BLOCK, "            <ImplementedShapes></ImplementedShapes>");
-        assert_ne!(replaced, MANAGER_TEMPLATE, "the manager template lists its shape");
+    let manager_template = if request.management_shape {
+        MANAGER_TEMPLATE.to_string()
+    } else {
+        let replaced = MANAGER_TEMPLATE.replace(
+            MANAGER_SHAPE_BLOCK,
+            "            <ImplementedShapes></ImplementedShapes>",
+        );
+        assert_ne!(
+            replaced, MANAGER_TEMPLATE,
+            "the manager template lists its shape"
+        );
         replaced
     };
     let mut entities: Vec<(&str, String, &str)> = vec![
         ("Projects", request.name.clone(), PROJECT),
-        ("Groups", format!("{}.Default_UG", request.name), DEFAULT_GROUP),
+        (
+            "Groups",
+            format!("{}.Default_UG", request.name),
+            DEFAULT_GROUP,
+        ),
         ("Groups", format!("{}.Admin_UG", request.name), ADMIN_GROUP),
-        ("Organizations", format!("{}.Default_OR", request.name), ORGANIZATION),
-        ("ThingTemplates", format!("{}.EntryPoint_TT", request.name), ENTRY_POINT_TEMPLATE),
-        ("Things", format!("{}.EntryPoint", request.name), ENTRY_POINT),
+        (
+            "Organizations",
+            format!("{}.Default_OR", request.name),
+            ORGANIZATION,
+        ),
+        (
+            "ThingTemplates",
+            format!("{}.EntryPoint_TT", request.name),
+            ENTRY_POINT_TEMPLATE,
+        ),
+        (
+            "Things",
+            format!("{}.EntryPoint", request.name),
+            ENTRY_POINT,
+        ),
         ("ThingTemplates", format!("{}.Manager_TT", request.name), ""),
     ];
     if request.management_shape {
-        entities.push(("ThingShapes", format!("{}.Management_TS", request.name), MANAGEMENT_SHAPE));
+        entities.push((
+            "ThingShapes",
+            format!("{}.Management_TS", request.name),
+            MANAGEMENT_SHAPE,
+        ));
     }
     if request.model_logic {
-        entities.push(("ThingShapes", format!("{}.ModelLogic_TS", request.name), MODEL_LOGIC_SHAPE));
+        entities.push((
+            "ThingShapes",
+            format!("{}.ModelLogic_TS", request.name),
+            MODEL_LOGIC_SHAPE,
+        ));
     }
     if request.kind != BlockType::Abstract {
         entities.push(("Things", format!("{}.Manager", request.name), MANAGER));
@@ -383,8 +480,15 @@ pub fn plan(solution: &Solution, request: &Request) -> Result<Plan, NewBlockErro
     }
     let mut files = Vec::new();
     for (collection, name, template) in entities {
-        let template = if template.is_empty() { manager_template.as_str() } else { template };
-        files.push(NewFile { path: base.join(collection).join(format!("{name}.xml")), text: fill(template, &values) });
+        let template = if template.is_empty() {
+            manager_template.as_str()
+        } else {
+            template
+        };
+        files.push(NewFile {
+            path: base.join(collection).join(format!("{name}.xml")),
+            text: fill(template, &values),
+        });
     }
 
     // Nothing that exists is replaced.
@@ -392,19 +496,48 @@ pub fn plan(solution: &Solution, request: &Request) -> Result<Plan, NewBlockErro
     let mut taken = Vec::new();
     for file in &files {
         if file.path.exists() {
-            taken.push(file.path.strip_prefix(&solution.root).unwrap_or(&file.path).display().to_string().replace('\\', "/"));
+            taken.push(
+                file.path
+                    .strip_prefix(&solution.root)
+                    .unwrap_or(&file.path)
+                    .display()
+                    .to_string()
+                    .replace('\\', "/"),
+            );
         }
     }
-    let wanted: Vec<String> = files.iter().map(|file| file.path.file_stem().map(|stem| stem.to_string_lossy().into_owned()).unwrap_or_default()).collect();
+    let wanted: Vec<String> = files
+        .iter()
+        .map(|file| {
+            file.path
+                .file_stem()
+                .map(|stem| stem.to_string_lossy().into_owned())
+                .unwrap_or_default()
+        })
+        .collect();
     for entity in &found.entities {
         if wanted.contains(&entity.info.name) {
-            taken.push(format!("{}/{} (in {})", entity.info.collection, entity.info.name, entity.path.strip_prefix(&solution.root).unwrap_or(&entity.path).display().to_string().replace('\\', "/")));
+            taken.push(format!(
+                "{}/{} (in {})",
+                entity.info.collection,
+                entity.info.name,
+                entity
+                    .path
+                    .strip_prefix(&solution.root)
+                    .unwrap_or(&entity.path)
+                    .display()
+                    .to_string()
+                    .replace('\\', "/")
+            ));
         }
     }
     if let Some(unreadable) = found.unreadable.iter().find(|unreadable| {
-        unreadable_is_under(unreadable, &base) || wanted.iter().any(|name| unreadable.contains(name))
+        unreadable_is_under(unreadable, &base)
+            || wanted.iter().any(|name| unreadable.contains(name))
     }) {
-        return Err(invalid(format!("cannot check building block collisions because this file is unreadable: {unreadable}")));
+        return Err(invalid(format!(
+            "cannot check building block collisions because this file is unreadable: {unreadable}"
+        )));
     }
     taken.sort();
     taken.dedup();
@@ -414,28 +547,48 @@ pub fn plan(solution: &Solution, request: &Request) -> Result<Plan, NewBlockErro
     for (path, _) in files.iter().map(|file| (&file.path, ())) {
         let relative = path.strip_prefix(&solution.root).unwrap_or(path);
         if relative.components().any(|part| part.as_os_str() == "..") {
-            return Err(invalid("a file would land outside the solution".to_string()));
+            return Err(invalid(
+                "a file would land outside the solution".to_string(),
+            ));
         }
     }
 
     // The project entry in twaco.toml.
     let config_path = solution.root.join(CONFIG_FILE);
-    let before = std::fs::read_to_string(&config_path).map_err(|error| NewBlockError::Io { path: config_path.clone(), why: error.to_string() })?;
-    let mut addition = format!("\n[[project]]\nname = \"{}\"\nroot = \"{}\"\n", request.name, root.replace('\\', "/"));
+    let before = std::fs::read_to_string(&config_path).map_err(|error| NewBlockError::Io {
+        path: config_path.clone(),
+        why: error.to_string(),
+    })?;
+    let mut addition = format!(
+        "\n[[project]]\nname = \"{}\"\nroot = \"{}\"\n",
+        request.name,
+        root.replace('\\', "/")
+    );
     if let Some(parent) = parent_in_solution {
         addition.push_str(&format!("depends_on = [\"{parent}\"]\n"));
     }
     let separator = if before.ends_with('\n') { "" } else { "\n" };
     let after = format!("{before}{separator}{addition}");
     notes.push("The component permission helper is not created: the framework builds it on the server; run `GetComponentPermissionsHelper` there when the block is deployed.".to_string());
-    Ok(Plan { request: request.clone(), root, files, config_before: before, config_after: after, config_addition: addition, notes })
+    Ok(Plan {
+        request: request.clone(),
+        root,
+        files,
+        config_before: before,
+        config_after: after,
+        config_addition: addition,
+        notes,
+    })
 }
 
 /// Create the files (never over an existing one) and append the project to `twaco.toml`; a failure
 /// removes what was created and restores the configuration.
 pub fn apply(solution: &Solution, plan: &Plan) -> Result<Vec<PathBuf>, NewBlockError> {
     let config_path = solution.root.join(CONFIG_FILE);
-    let io = |path: &Path, error: std::io::Error| NewBlockError::Io { path: path.to_path_buf(), why: error.to_string() };
+    let io = |path: &Path, error: std::io::Error| NewBlockError::Io {
+        path: path.to_path_buf(),
+        why: error.to_string(),
+    };
     let mut created: Vec<PathBuf> = Vec::new();
     let mut created_dirs: Vec<PathBuf> = Vec::new();
     let mut config_written = false;
@@ -458,19 +611,30 @@ pub fn apply(solution: &Solution, plan: &Plan) -> Result<Vec<PathBuf>, NewBlockE
                 created_dirs.extend(missing);
             }
             match std::fs::symlink_metadata(&file.path) {
-                Ok(_) => return Err(io(&file.path, std::io::Error::new(std::io::ErrorKind::AlreadyExists, "file exists"))),
+                Ok(_) => {
+                    return Err(io(
+                        &file.path,
+                        std::io::Error::new(std::io::ErrorKind::AlreadyExists, "file exists"),
+                    ))
+                }
                 Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
                 Err(error) => return Err(io(&file.path, error)),
             }
-            workspace::atomic_replace(&file.path, file.text.as_bytes()).map_err(|error| io(&file.path, error))?;
+            workspace::atomic_replace(&file.path, file.text.as_bytes())
+                .map_err(|error| io(&file.path, error))?;
             created.push(file.path.clone());
         }
         match std::fs::read_to_string(&config_path) {
             Ok(current) if current == plan.config_before => {}
-            Ok(_) => return Err(NewBlockError::Invalid("twaco.toml changed since the plan; run again".to_string())),
+            Ok(_) => {
+                return Err(NewBlockError::Invalid(
+                    "twaco.toml changed since the plan; run again".to_string(),
+                ))
+            }
             Err(error) => return Err(io(&config_path, error)),
         }
-        workspace::atomic_replace(&config_path, plan.config_after.as_bytes()).map_err(|error| io(&config_path, error))?;
+        workspace::atomic_replace(&config_path, plan.config_after.as_bytes())
+            .map_err(|error| io(&config_path, error))?;
         config_written = true;
         Ok(())
     })();
@@ -481,7 +645,10 @@ pub fn apply(solution: &Solution, plan: &Plan) -> Result<Vec<PathBuf>, NewBlockE
         for dir in created_dirs.iter().rev() {
             let _ = std::fs::remove_dir(dir);
         }
-        if config_written && std::fs::read_to_string(&config_path).ok().as_deref() == Some(plan.config_after.as_str()) {
+        if config_written
+            && std::fs::read_to_string(&config_path).ok().as_deref()
+                == Some(plan.config_after.as_str())
+        {
             let _ = workspace::atomic_replace(&config_path, plan.config_before.as_bytes());
         }
         return Err(error);

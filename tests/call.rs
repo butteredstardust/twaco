@@ -5,8 +5,12 @@ use std::process::{Command, Output};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 fn temp(label: &str) -> PathBuf {
-    let nonce = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos();
-    let root = std::env::temp_dir().join(format!("twaco-call-{label}-{}-{nonce}", std::process::id()));
+    let nonce = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap()
+        .as_nanos();
+    let root =
+        std::env::temp_dir().join(format!("twaco-call-{label}-{}-{nonce}", std::process::id()));
     std::fs::create_dir_all(root.join(".twaco/profiles")).unwrap();
     std::fs::write(root.join("twaco.toml"), "[[project]]\nname = \"Test\"\n").unwrap();
     root
@@ -76,7 +80,8 @@ fn entity_get_never_creates_or_changes_the_baseline() {
     let root = temp("get-baseline");
     profile(&root, listener.local_addr().unwrap());
     std::fs::create_dir_all(root.join("Things")).unwrap();
-    let xml = "<Entities><Things><Thing name=\"T\" projectName=\"Test\"></Thing></Things></Entities>";
+    let xml =
+        "<Entities><Things><Thing name=\"T\" projectName=\"Test\"></Thing></Things></Entities>";
     std::fs::write(root.join("Things/T.xml"), xml).unwrap();
     let baseline_path = root.join(".twaco/baseline.json");
     let baseline = b"{\n  \"sentinel\": \"must stay byte-identical\"\n}\n";
@@ -97,7 +102,10 @@ fn entity_get_never_creates_or_changes_the_baseline() {
         String::from_utf8_lossy(&output.stderr)
     );
     assert_eq!(std::fs::read(&baseline_path).unwrap(), baseline);
-    assert_eq!(std::fs::read_to_string(root.join("fetched.xml")).unwrap(), xml);
+    assert_eq!(
+        std::fs::read_to_string(root.join("fetched.xml")).unwrap(),
+        xml
+    );
     server.join().unwrap();
     let _ = std::fs::remove_dir_all(root);
 }
@@ -120,7 +128,12 @@ fn bare_and_qualified_targets_encode_segments_and_send_the_required_request() {
     assert!(run(&root, &["call", "A? Thing", "Do/It"]).status.success());
     assert!(run(
         &root,
-        &["call", "Resources/Entity Services", "List Things", r#"{"type":"Project"}"#],
+        &[
+            "call",
+            "Resources/Entity Services",
+            "List Things",
+            r#"{"type":"Project"}"#
+        ],
     )
     .status
     .success());
@@ -173,12 +186,24 @@ fn a_short_name_is_resolved_against_the_solution_and_said_aloud() {
     let requests = server.join().unwrap();
     let first = String::from_utf8(requests[0].clone()).unwrap();
     let second = String::from_utf8(requests[1].clone()).unwrap();
-    assert!(first.starts_with("POST /Thingworx/Things/Acme.Test.Manager/Services/Do "), "{first}");
-    assert!(second.starts_with("POST /Thingworx/Things/Manager/Services/Do "), "{second}");
+    assert!(
+        first.starts_with("POST /Thingworx/Things/Acme.Test.Manager/Services/Do "),
+        "{first}"
+    );
+    assert!(
+        second.starts_with("POST /Thingworx/Things/Manager/Services/Do "),
+        "{second}"
+    );
     let said = String::from_utf8_lossy(&short.stderr);
-    assert!(said.contains("twaco: calling Things/Acme.Test.Manager"), "{said}");
+    assert!(
+        said.contains("twaco: calling Things/Acme.Test.Manager"),
+        "{said}"
+    );
     let said = String::from_utf8_lossy(&platform.stderr);
-    assert!(!said.contains("twaco: calling"), "an explicit target needs no announcement: {said}");
+    assert!(
+        !said.contains("twaco: calling"),
+        "an explicit target needs no announcement: {said}"
+    );
     let _ = std::fs::remove_dir_all(root);
 }
 
@@ -251,9 +276,13 @@ fn non_object_parameters_are_refused_without_a_request() {
     for value in ["[1]", r#""x""#] {
         let output = run(&root, &["call", "T", "S", value]);
         assert_eq!(output.status.code(), Some(2));
-        assert!(String::from_utf8(output.stderr).unwrap().contains("must be a JSON object"));
+        assert!(String::from_utf8(output.stderr)
+            .unwrap()
+            .contains("must be a JSON object"));
     }
-    assert!(matches!(listener.accept(), Err(error) if error.kind() == std::io::ErrorKind::WouldBlock));
+    assert!(
+        matches!(listener.accept(), Err(error) if error.kind() == std::io::ErrorKind::WouldBlock)
+    );
     let _ = std::fs::remove_dir_all(root);
 }
 

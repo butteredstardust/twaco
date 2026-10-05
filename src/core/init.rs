@@ -40,11 +40,16 @@ pub fn propose(root: &Path) -> Proposal {
     let mut files = Vec::new();
     walk(root, &mut files);
     for path in files {
-        let Ok(bytes) = std::fs::read(&path) else { continue };
-        let Ok(info) = entity::parse(&bytes) else { continue };
-        let Some(collection_dir) =
-            path.ancestors().skip(1).find(|dir| dir.file_name().is_some_and(|n| n == info.collection.as_str()))
-        else {
+        let Ok(bytes) = std::fs::read(&path) else {
+            continue;
+        };
+        let Ok(info) = entity::parse(&bytes) else {
+            continue;
+        };
+        let Some(collection_dir) = path.ancestors().skip(1).find(|dir| {
+            dir.file_name()
+                .is_some_and(|n| n == info.collection.as_str())
+        }) else {
             continue;
         };
         let project_root = collection_dir.parent().unwrap_or(root).to_path_buf();
@@ -59,7 +64,10 @@ pub fn propose(root: &Path) -> Proposal {
         found.flush += flush;
     }
 
-    let mut proposal = Proposal { projects: projects.len(), ..Proposal::default() };
+    let mut proposal = Proposal {
+        projects: projects.len(),
+        ..Proposal::default()
+    };
     if projects.is_empty() {
         proposal.notes.push(format!(
             "no entity files found under {}: an entity must sit in a folder named after its collection, such as Things/",
@@ -68,14 +76,29 @@ pub fn propose(root: &Path) -> Proposal {
         return proposal;
     }
     let relative = |path: &Path| -> String {
-        let text = path.strip_prefix(root).unwrap_or(path).display().to_string().replace('\\', "/");
-        if text.is_empty() { ".".to_string() } else { text }
+        let text = path
+            .strip_prefix(root)
+            .unwrap_or(path)
+            .display()
+            .to_string()
+            .replace('\\', "/");
+        if text.is_empty() {
+            ".".to_string()
+        } else {
+            text
+        }
     };
 
     // The sidecar root: one `src` beside a project's collections, shared by the solution.
     let mut src_roots: Vec<String> = projects
         .values()
-        .filter_map(|found| found.roots.iter().max_by_key(|(_, n)| **n).map(|(r, _)| r.join("src")))
+        .filter_map(|found| {
+            found
+                .roots
+                .iter()
+                .max_by_key(|(_, n)| **n)
+                .map(|(r, _)| r.join("src"))
+        })
         .filter(|src| src.is_dir())
         .map(|src| relative(&src))
         .collect();
@@ -83,7 +106,10 @@ pub fn propose(root: &Path) -> Proposal {
     src_roots.dedup();
     let src = match src_roots.as_slice() {
         [] => {
-            proposal.notes.push("no sidecar folder found; src is the default, `src` at the repository root".to_string());
+            proposal.notes.push(
+                "no sidecar folder found; src is the default, `src` at the repository root"
+                    .to_string(),
+            );
             "src".to_string()
         }
         [one] => one.clone(),
@@ -96,14 +122,18 @@ pub fn propose(root: &Path) -> Proposal {
         }
     };
 
-    let (indented, flush) = projects.values().fold((0, 0), |(i, f), found| (i + found.indented, f + found.flush));
+    let (indented, flush) = projects.values().fold((0, 0), |(i, f), found| {
+        (i + found.indented, f + found.flush)
+    });
     let indent = indented > flush;
     proposal.notes.push(format!(
         "script payloads: {indented} indented, {flush} flush left, so indent_cdata_payload = {indent}{}",
         if indent { " (a compatibility layout)" } else { "" }
     ));
     if undeclared > 0 {
-        proposal.notes.push(format!("{undeclared} entity file(s) declare no projectName and belong to no project"));
+        proposal.notes.push(format!(
+            "{undeclared} entity file(s) declare no projectName and belong to no project"
+        ));
     }
     proposal.notes.push(
         "not proposed, because the files cannot say: which services legitimately override an inherited \
@@ -118,17 +148,29 @@ pub fn propose(root: &Path) -> Proposal {
         quote(&src)
     );
     for (project, found) in &projects {
-        let (main_root, count) = found.roots.iter().max_by_key(|(_, n)| **n).expect("a project has a root");
+        let (main_root, count) = found
+            .roots
+            .iter()
+            .max_by_key(|(_, n)| **n)
+            .expect("a project has a root");
         if found.roots.len() > 1 {
-            let others: Vec<String> =
-                found.roots.keys().filter(|r| *r != main_root).map(|r| relative(r)).collect();
+            let others: Vec<String> = found
+                .roots
+                .keys()
+                .filter(|r| *r != main_root)
+                .map(|r| relative(r))
+                .collect();
             proposal.notes.push(format!(
                 "{project}: {count} entities under {}, and more under {}; only the first root is proposed",
                 relative(main_root),
                 others.join(", ")
             ));
         }
-        toml.push_str(&format!("\n[[project]]\nname = {}\nroot = {}\n", quote(project), quote(&relative(main_root))));
+        toml.push_str(&format!(
+            "\n[[project]]\nname = {}\nroot = {}\n",
+            quote(project),
+            quote(&relative(main_root))
+        ));
     }
     if projects.len() > 1 {
         toml.push_str("\n# Deploy order is not something the files can say. If a project imports after another,\n# give it depends_on = [\"<that project>\"].\n");
@@ -142,16 +184,24 @@ fn quote(text: &str) -> String {
 }
 
 fn walk(dir: &Path, out: &mut Vec<PathBuf>) {
-    let Ok(entries) = std::fs::read_dir(dir) else { return };
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return;
+    };
     for entry in entries.flatten() {
         let path = entry.path();
         let name = entry.file_name().to_string_lossy().into_owned();
-        let Ok(kind) = entry.file_type() else { continue };
+        let Ok(kind) = entry.file_type() else {
+            continue;
+        };
         if kind.is_dir() {
             if !name.starts_with('.') && !SKIPPED.contains(&name.as_str()) {
                 walk(&path, out);
             }
-        } else if kind.is_file() && path.extension().is_some_and(|e| e.eq_ignore_ascii_case("xml")) {
+        } else if kind.is_file()
+            && path
+                .extension()
+                .is_some_and(|e| e.eq_ignore_ascii_case("xml"))
+        {
             out.push(path);
         }
     }
@@ -165,7 +215,9 @@ fn payload_layout(bytes: &[u8]) -> (usize, usize) {
     let mut rest = text.as_ref();
     while let Some(at) = rest.find("<code>") {
         rest = &rest[at + "<code>".len()..];
-        let Some(open) = rest.find("<![CDATA[") else { break };
+        let Some(open) = rest.find("<![CDATA[") else {
+            break;
+        };
         // The CDATA must belong to this <code>, not a later element.
         if rest[..open].contains('<') {
             continue;
@@ -187,7 +239,11 @@ fn payload_layout(bytes: &[u8]) -> (usize, usize) {
 /// AGENTS.md whose first section is for people to fill in, and a CLAUDE.md pointing at it.
 /// What twaco knows is in `twaco guide` and `twaco catalog`, so these stay short.
 pub fn agent_files(solution_name: &str, projects: &[String]) -> [(&'static str, String); 2] {
-    let name = if solution_name.is_empty() { projects.join(", ") } else { solution_name.to_string() };
+    let name = if solution_name.is_empty() {
+        projects.join(", ")
+    } else {
+        solution_name.to_string()
+    };
     let listed: String = projects.iter().map(|p| format!("- `{p}`\n")).collect();
     let agents = format!(
         r#"# AGENTS.md
@@ -230,12 +286,20 @@ Projects, in deploy order (`twaco projects`):
 
 /// Writes each agent file that does not exist yet, never replacing one. Returns what it wrote
 /// and what it left alone.
-pub fn write_agent_files(root: &Path, solution_name: &str, projects: &[String]) -> std::io::Result<(Vec<String>, Vec<String>)> {
+pub fn write_agent_files(
+    root: &Path,
+    solution_name: &str,
+    projects: &[String],
+) -> std::io::Result<(Vec<String>, Vec<String>)> {
     let mut wrote = Vec::new();
     let mut kept = Vec::new();
     for (file, text) in agent_files(solution_name, projects) {
         let path = root.join(file);
-        match std::fs::OpenOptions::new().write(true).create_new(true).open(&path) {
+        match std::fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&path)
+        {
             Ok(mut handle) => {
                 std::io::Write::write_all(&mut handle, text.as_bytes())?;
                 wrote.push(file.to_string());
@@ -252,7 +316,10 @@ mod tests {
     use super::*;
 
     fn repo() -> PathBuf {
-        let nonce = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos();
+        let nonce = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
         std::env::temp_dir().join(format!("twaco-init-{}-{nonce}", std::process::id()))
     }
 
@@ -273,35 +340,74 @@ mod tests {
     #[test]
     fn projects_roots_sidecars_and_layout_come_from_the_repository() {
         let root = repo();
-        write(root.join("backend/Things/B.T.xml"), &thing("B.T", "Backend", "\nflush();\n"));
-        write(root.join("ui/Things/U.T.xml"), &thing("U.T", "UI", "\nalso();\n"));
-        write(root.join("backend/src/B.T/services/S/script.js"), "flush();");
+        write(
+            root.join("backend/Things/B.T.xml"),
+            &thing("B.T", "Backend", "\nflush();\n"),
+        );
+        write(
+            root.join("ui/Things/U.T.xml"),
+            &thing("U.T", "UI", "\nalso();\n"),
+        );
+        write(
+            root.join("backend/src/B.T/services/S/script.js"),
+            "flush();",
+        );
         // Not source: a bundle in dist and an export folder that is not a collection.
-        write(root.join("dist/bundle.xml"), &thing("X.T", "Backend", "x();"));
-        write(root.join("exported/drop.xml"), &thing("Y.T", "Backend", "y();"));
+        write(
+            root.join("dist/bundle.xml"),
+            &thing("X.T", "Backend", "x();"),
+        );
+        write(
+            root.join("exported/drop.xml"),
+            &thing("Y.T", "Backend", "y();"),
+        );
 
         let proposal = propose(&root);
         assert_eq!(proposal.projects, 2);
-        assert!(proposal.toml.contains("name = \"Backend\"\nroot = \"backend\""), "{}", proposal.toml);
+        assert!(
+            proposal
+                .toml
+                .contains("name = \"Backend\"\nroot = \"backend\""),
+            "{}",
+            proposal.toml
+        );
         assert!(proposal.toml.contains("name = \"UI\"\nroot = \"ui\""));
         assert!(proposal.toml.contains("src = \"backend/src\""));
         assert!(proposal.toml.contains("indent_cdata_payload = false"));
-        assert!(proposal.toml.contains("depends_on"), "a multi-project solution is told about deploy order");
+        assert!(
+            proposal.toml.contains("depends_on"),
+            "a multi-project solution is told about deploy order"
+        );
         let _ = std::fs::remove_dir_all(root);
     }
 
     #[test]
     fn agent_files_are_written_once_and_never_replace_one() {
-        let nonce = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos();
-        let root = std::env::temp_dir().join(format!("twaco-init-agents-{}-{nonce}", std::process::id()));
+        let nonce = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let root =
+            std::env::temp_dir().join(format!("twaco-init-agents-{}-{nonce}", std::process::id()));
         std::fs::create_dir_all(&root).unwrap();
         std::fs::write(root.join("CLAUDE.md"), "mine").unwrap();
-        let (wrote, kept) = write_agent_files(&root, "S", &["P.One".into(), "P.Two".into()]).unwrap();
-        assert_eq!((wrote, kept), (vec!["AGENTS.md".to_string()], vec!["CLAUDE.md".to_string()]));
+        let (wrote, kept) =
+            write_agent_files(&root, "S", &["P.One".into(), "P.Two".into()]).unwrap();
+        assert_eq!(
+            (wrote, kept),
+            (vec!["AGENTS.md".to_string()], vec!["CLAUDE.md".to_string()])
+        );
         let agents = std::fs::read_to_string(root.join("AGENTS.md")).unwrap();
-        assert!(agents.contains("working on S,") && agents.contains("- `P.One`\n- `P.Two`\n"), "{agents}");
+        assert!(
+            agents.contains("working on S,") && agents.contains("- `P.One`\n- `P.Two`\n"),
+            "{agents}"
+        );
         assert!(agents.contains("twaco guide workflow") && agents.contains("twaco catalog"));
-        assert_eq!(std::fs::read_to_string(root.join("CLAUDE.md")).unwrap(), "mine", "never replaced");
+        assert_eq!(
+            std::fs::read_to_string(root.join("CLAUDE.md")).unwrap(),
+            "mine",
+            "never replaced"
+        );
         let (wrote, _) = write_agent_files(&root, "S", &[]).unwrap();
         assert!(wrote.is_empty(), "a second run writes nothing");
         let _ = std::fs::remove_dir_all(root);
@@ -310,8 +416,14 @@ mod tests {
     #[test]
     fn indented_payloads_propose_the_compatibility_layout() {
         let root = repo();
-        write(root.join("Things/P.A.xml"), &thing("P.A", "P", "\n            a();\n            "));
-        write(root.join("Things/P.B.xml"), &thing("P.B", "P", "\n            b();\n            "));
+        write(
+            root.join("Things/P.A.xml"),
+            &thing("P.A", "P", "\n            a();\n            "),
+        );
+        write(
+            root.join("Things/P.B.xml"),
+            &thing("P.B", "P", "\n            b();\n            "),
+        );
         let proposal = propose(&root);
         assert!(proposal.toml.contains("root = \".\""));
         assert!(proposal.toml.contains("indent_cdata_payload = true"));

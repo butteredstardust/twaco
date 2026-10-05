@@ -27,15 +27,27 @@ pub const MIN_WINDOW_MS: i64 = 5_000;
 pub const MAX_LIMIT: u64 = 10_000;
 
 /// The logs the platform ships. Others are passed through; the server says if one is unknown.
-pub const LOGS: [&str; 5] = ["ApplicationLog", "CommunicationLog", "ConfigurationLog", "ScriptLog", "SecurityLog"];
+pub const LOGS: [&str; 5] = [
+    "ApplicationLog",
+    "CommunicationLog",
+    "ConfigurationLog",
+    "ScriptLog",
+    "SecurityLog",
+];
 
 /// A log's own services, as a trait so this module is tested without a server.
 pub trait Remote {
-    fn service(&self, log: &str, service: &str, body: &Value) -> Result<Option<Value>, ServerError>;
+    fn service(&self, log: &str, service: &str, body: &Value)
+        -> Result<Option<Value>, ServerError>;
 }
 
 impl Remote for Client {
-    fn service(&self, log: &str, service: &str, body: &Value) -> Result<Option<Value>, ServerError> {
+    fn service(
+        &self,
+        log: &str,
+        service: &str,
+        body: &Value,
+    ) -> Result<Option<Value>, ServerError> {
         let target = ServiceTarget::entity("Logs", log)?;
         self.call_service(&target, service, body, TIMEOUT)
     }
@@ -70,7 +82,12 @@ pub fn level(text: &str) -> Result<&'static str, LogsError> {
         .iter()
         .find(|level| **level == upper)
         .copied()
-        .ok_or_else(|| LogsError::Invalid(format!("level must be one of {}, not {text:?}", LEVELS.join(", "))))
+        .ok_or_else(|| {
+            LogsError::Invalid(format!(
+                "level must be one of {}, not {text:?}",
+                LEVELS.join(", ")
+            ))
+        })
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -133,7 +150,11 @@ fn window(from_ms: i64, to_ms: i64) -> (i64, i64, bool) {
         return (from_ms, to_ms, false);
     }
     let middle = from_ms + (to_ms - from_ms) / 2;
-    (middle - MIN_WINDOW_MS / 2, middle - MIN_WINDOW_MS / 2 + MIN_WINDOW_MS, true)
+    (
+        middle - MIN_WINDOW_MS / 2,
+        middle - MIN_WINDOW_MS / 2 + MIN_WINDOW_MS,
+        true,
+    )
 }
 
 /// The request body, with only what is set. Returns whether the window was widened.
@@ -159,7 +180,11 @@ pub fn body(query: &Query) -> (Value, bool) {
         }
         None => {}
     }
-    for (key, value) in [("user", &query.user), ("thread", &query.thread), ("origin", &query.origin)] {
+    for (key, value) in [
+        ("user", &query.user),
+        ("thread", &query.thread),
+        ("origin", &query.origin),
+    ] {
         if let Some(value) = value {
             body.insert(key.into(), json!(value));
         }
@@ -172,10 +197,14 @@ pub fn body(query: &Query) -> (Value, bool) {
 
 pub fn query(remote: &dyn Remote, query: &Query) -> Result<Outcome, LogsError> {
     if query.limit == 0 || query.limit > MAX_LIMIT {
-        return Err(LogsError::Invalid(format!("the limit must be between 1 and {MAX_LIMIT}")));
+        return Err(LogsError::Invalid(format!(
+            "the limit must be between 1 and {MAX_LIMIT}"
+        )));
     }
     if query.to_ms < query.from_ms {
-        return Err(LogsError::Invalid("the window ends before it starts".to_string()));
+        return Err(LogsError::Invalid(
+            "the window ends before it starts".to_string(),
+        ));
     }
     let (body, widened) = body(query);
     let (from_ms, to_ms, _) = window(query.from_ms, query.to_ms);
@@ -187,7 +216,12 @@ pub fn query(remote: &dyn Remote, query: &Query) -> Result<Outcome, LogsError> {
         .get("rows")
         .and_then(Value::as_array)
         .ok_or_else(|| LogsError::Shape("no rows".to_string()))?;
-    let text = |row: &Value, key: &str| row.get(key).and_then(Value::as_str).unwrap_or_default().to_string();
+    let text = |row: &Value, key: &str| {
+        row.get(key)
+            .and_then(Value::as_str)
+            .unwrap_or_default()
+            .to_string()
+    };
     let entries: Vec<Entry> = rows
         .iter()
         .map(|row| Entry {
@@ -203,7 +237,13 @@ pub fn query(remote: &dyn Remote, query: &Query) -> Result<Outcome, LogsError> {
         })
         .collect();
     let truncated = entries.len() as u64 >= query.limit;
-    Ok(Outcome { entries, truncated, from_ms, to_ms, widened })
+    Ok(Outcome {
+        entries,
+        truncated,
+        from_ms,
+        to_ms,
+        widened,
+    })
 }
 
 // ---- what a call logged ---------------------------------------------------------------------
@@ -224,7 +264,11 @@ pub struct Wait {
 
 impl Default for Wait {
     fn default() -> Self {
-        Wait { interval: Duration::from_millis(500), settle: Duration::from_secs(1), most: Duration::from_secs(3) }
+        Wait {
+            interval: Duration::from_millis(500),
+            settle: Duration::from_secs(1),
+            most: Duration::from_secs(3),
+        }
     }
 }
 
@@ -298,7 +342,10 @@ pub struct Levels {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Change {
     /// The log's level, or one sublogger's.
-    Set { level: &'static str, sublogger: Option<String> },
+    Set {
+        level: &'static str,
+        sublogger: Option<String>,
+    },
     /// One sublogger back to its parent's level, or all of them.
     Reset { sublogger: Option<String> },
 }
@@ -324,18 +371,25 @@ fn rows<'a>(reply: &'a Option<Value>, what: &str) -> Result<&'a Vec<Value>, Logs
 }
 
 pub fn levels(remote: &dyn Remote, log: &str) -> Result<Levels, LogsError> {
-    let reply = remote.service(log, "GetLogLevel", &json!({})).map_err(LogsError::Remote)?;
+    let reply = remote
+        .service(log, "GetLogLevel", &json!({}))
+        .map_err(LogsError::Remote)?;
     let level = rows(&reply, "GetLogLevel")?
         .first()
         .and_then(|row| row.get("name"))
         .and_then(Value::as_str)
         .ok_or_else(|| LogsError::Shape("GetLogLevel returned no level".to_string()))?
         .to_string();
-    let reply = remote.service(log, "GetSubLoggerLevels", &json!({})).map_err(LogsError::Remote)?;
+    let reply = remote
+        .service(log, "GetSubLoggerLevels", &json!({}))
+        .map_err(LogsError::Remote)?;
     let mut subloggers: Vec<(String, String)> = rows(&reply, "GetSubLoggerLevels")?
         .iter()
         .filter_map(|row| {
-            Some((row.get("fieldName")?.as_str()?.to_string(), row.get("fieldValue")?.as_str()?.to_string()))
+            Some((
+                row.get("fieldName")?.as_str()?.to_string(),
+                row.get("fieldValue")?.as_str()?.to_string(),
+            ))
         })
         .collect();
     subloggers.sort();
@@ -345,62 +399,129 @@ pub fn levels(remote: &dyn Remote, log: &str) -> Result<Levels, LogsError> {
 /// Change a level: read what is there, and unless `apply`, stop at the plan. Applied, the
 /// change is read back and must show, or it is an error. The server's level is everyone's, so
 /// the report says how to put it back.
-pub fn change(remote: &dyn Remote, log: &str, change: &Change, apply: bool) -> Result<ChangeReport, LogsError> {
+pub fn change(
+    remote: &dyn Remote,
+    log: &str,
+    change: &Change,
+    apply: bool,
+) -> Result<ChangeReport, LogsError> {
     let before = levels(remote, log)?;
     let current = |sublogger: &Option<String>| match sublogger {
         None => Some(before.level.clone()),
-        Some(name) => before.subloggers.iter().find(|(n, _)| n == name).map(|(_, l)| l.clone()),
+        Some(name) => before
+            .subloggers
+            .iter()
+            .find(|(n, _)| n == name)
+            .map(|(_, l)| l.clone()),
     };
     let (plan, undo) = match change {
-        Change::Set { level, sublogger: None } => (
+        Change::Set {
+            level,
+            sublogger: None,
+        } => (
             format!("{log}: {} -> {level}", before.level),
             vec![format!("twaco logs level {log} {} --apply", before.level)],
         ),
-        Change::Set { level, sublogger: Some(name) } => match current(&Some(name.clone())) {
+        Change::Set {
+            level,
+            sublogger: Some(name),
+        } => match current(&Some(name.clone())) {
             Some(was) => (
                 format!("{log} sublogger {name}: {was} -> {level}"),
-                vec![format!("twaco logs level {log} {was} --sublogger {name} --apply")],
+                vec![format!(
+                    "twaco logs level {log} {was} --sublogger {name} --apply"
+                )],
             ),
             None => (
-                format!("{log} sublogger {name}: (inherits {}) -> {level}", before.level),
-                vec![format!("twaco logs level {log} --reset --sublogger {name} --apply")],
+                format!(
+                    "{log} sublogger {name}: (inherits {}) -> {level}",
+                    before.level
+                ),
+                vec![format!(
+                    "twaco logs level {log} --reset --sublogger {name} --apply"
+                )],
             ),
         },
-        Change::Reset { sublogger: Some(name) } => (
-            format!("{log} sublogger {name}: {} -> inherits {}", current(&Some(name.clone())).unwrap_or_else(|| "(not set)".into()), before.level),
-            current(&Some(name.clone())).map(|was| format!("twaco logs level {log} {was} --sublogger {name} --apply")).into_iter().collect(),
+        Change::Reset {
+            sublogger: Some(name),
+        } => (
+            format!(
+                "{log} sublogger {name}: {} -> inherits {}",
+                current(&Some(name.clone())).unwrap_or_else(|| "(not set)".into()),
+                before.level
+            ),
+            current(&Some(name.clone()))
+                .map(|was| format!("twaco logs level {log} {was} --sublogger {name} --apply"))
+                .into_iter()
+                .collect(),
         ),
         // Every override goes, so putting it back is one command per override.
         Change::Reset { sublogger: None } => (
-            format!("{log}: {} sublogger level(s) -> inherit {}", before.subloggers.len(), before.level),
+            format!(
+                "{log}: {} sublogger level(s) -> inherit {}",
+                before.subloggers.len(),
+                before.level
+            ),
             before
                 .subloggers
                 .iter()
-                .map(|(name, level)| format!("twaco logs level {log} {level} --sublogger {name} --apply"))
+                .map(|(name, level)| {
+                    format!("twaco logs level {log} {level} --sublogger {name} --apply")
+                })
                 .collect(),
         ),
     };
     if !apply {
-        return Ok(ChangeReport { before, after: None, plan, undo });
+        return Ok(ChangeReport {
+            before,
+            after: None,
+            plan,
+            undo,
+        });
     }
     let (service, body) = match change {
-        Change::Set { level, sublogger: None } => ("SetLogLevel", json!({ "level": level })),
-        Change::Set { level, sublogger: Some(name) } => ("SetSubLoggerLevel", json!({ "sublogger": name, "level": level })),
-        Change::Reset { sublogger: Some(name) } => ("ResetSubLoggerLevel", json!({ "sublogger": name })),
+        Change::Set {
+            level,
+            sublogger: None,
+        } => ("SetLogLevel", json!({ "level": level })),
+        Change::Set {
+            level,
+            sublogger: Some(name),
+        } => (
+            "SetSubLoggerLevel",
+            json!({ "sublogger": name, "level": level }),
+        ),
+        Change::Reset {
+            sublogger: Some(name),
+        } => ("ResetSubLoggerLevel", json!({ "sublogger": name })),
         Change::Reset { sublogger: None } => ("ResetAllSubLoggerLevels", json!({})),
     };
-    remote.service(log, service, &body).map_err(LogsError::Remote)?;
+    remote
+        .service(log, service, &body)
+        .map_err(LogsError::Remote)?;
     let after = levels(remote, log)?;
     let took = match change {
-        Change::Set { level, sublogger: None } => after.level == *level,
-        Change::Set { level, sublogger: Some(name) } => {
-            after.subloggers.iter().any(|(n, l)| n == name && l == level)
-        }
+        Change::Set {
+            level,
+            sublogger: None,
+        } => after.level == *level,
+        Change::Set {
+            level,
+            sublogger: Some(name),
+        } => after
+            .subloggers
+            .iter()
+            .any(|(n, l)| n == name && l == level),
         // A reset sublogger reads back as its parent's level, or not at all.
-        Change::Reset { sublogger: Some(name) } => {
-            after.subloggers.iter().all(|(n, l)| n != name || *l == after.level)
+        Change::Reset {
+            sublogger: Some(name),
+        } => after
+            .subloggers
+            .iter()
+            .all(|(n, l)| n != name || *l == after.level),
+        Change::Reset { sublogger: None } => {
+            after.subloggers.iter().all(|(_, l)| *l == after.level)
         }
-        Change::Reset { sublogger: None } => after.subloggers.iter().all(|(_, l)| *l == after.level),
     };
     if !took {
         return Err(LogsError::Shape(format!(
@@ -408,7 +529,12 @@ pub fn change(remote: &dyn Remote, log: &str, change: &Change, apply: bool) -> R
             describe(&after)
         )));
     }
-    Ok(ChangeReport { before, after: Some(after), plan, undo })
+    Ok(ChangeReport {
+        before,
+        after: Some(after),
+        plan,
+        undo,
+    })
 }
 
 /// Levels in one line: `WARN (subloggers: com.thingworx=WARN, ...)`.
@@ -416,13 +542,21 @@ pub fn describe(levels: &Levels) -> String {
     if levels.subloggers.is_empty() {
         return levels.level.clone();
     }
-    let subs: Vec<String> = levels.subloggers.iter().map(|(n, l)| format!("{n}={l}")).collect();
+    let subs: Vec<String> = levels
+        .subloggers
+        .iter()
+        .map(|(n, l)| format!("{n}={l}"))
+        .collect();
     format!("{} (subloggers: {})", levels.level, subs.join(", "))
 }
 
 /// `90s`, `15m`, `1h`, `2d` as milliseconds.
 pub fn parse_since(text: &str) -> Result<i64, LogsError> {
-    let bad = || LogsError::Invalid(format!("since must be a number and a unit (s, m, h or d), such as 15m, not {text:?}"));
+    let bad = || {
+        LogsError::Invalid(format!(
+            "since must be a number and a unit (s, m, h or d), such as 15m, not {text:?}"
+        ))
+    };
     let text = text.trim();
     let (number, unit) = text.split_at(text.len().checked_sub(1).ok_or_else(bad)?);
     let number: i64 = number.parse().map_err(|_| bad())?;
@@ -480,7 +614,10 @@ pub fn local(ms: i64) -> String {
 
 fn local_in(ms: i64, zone: &TimeZone) -> String {
     match Timestamp::from_millisecond(ms) {
-        Ok(instant) => instant.to_zoned(zone.clone()).strftime("%Y-%m-%d %H:%M:%S%.3f%:z").to_string(),
+        Ok(instant) => instant
+            .to_zoned(zone.clone())
+            .strftime("%Y-%m-%d %H:%M:%S%.3f%:z")
+            .to_string(),
         Err(_) => ms.to_string(),
     }
 }
@@ -493,7 +630,12 @@ pub fn now_ms() -> i64 {
 pub fn line(entry: &Entry) -> String {
     let mut lines = entry.content.lines();
     let first = lines.next().unwrap_or_default();
-    let mut out = format!("{} {:<5} [{}] {first}", local(entry.timestamp), entry.level, entry.origin);
+    let mut out = format!(
+        "{} {:<5} [{}] {first}",
+        local(entry.timestamp),
+        entry.level,
+        entry.origin
+    );
     for rest in lines {
         out.push_str("\n  ");
         out.push_str(rest);
@@ -527,7 +669,10 @@ pub fn summary(log: &str, outcome: &Outcome, detail: bool) -> Value {
     for entry in &outcome.entries {
         *by_level.entry(entry.level.as_str()).or_default() += 1;
         *origins.entry(entry.origin.as_str()).or_default() += 1;
-        match repeats.iter_mut().find(|(seen, _)| seen.content == entry.content) {
+        match repeats
+            .iter_mut()
+            .find(|(seen, _)| seen.content == entry.content)
+        {
             Some((seen, count)) => {
                 *count += 1;
                 if entry.timestamp > seen.timestamp {
@@ -539,7 +684,8 @@ pub fn summary(log: &str, outcome: &Outcome, detail: bool) -> Value {
     }
     let mut top_origins: Vec<(&str, usize)> = origins.into_iter().collect();
     top_origins.sort_by(|a, b| b.1.cmp(&a.1).then(a.0.cmp(b.0)));
-    let mut repeated: Vec<&(&Entry, usize)> = repeats.iter().filter(|(_, count)| *count > 1).collect();
+    let mut repeated: Vec<&(&Entry, usize)> =
+        repeats.iter().filter(|(_, count)| *count > 1).collect();
     repeated.sort_by_key(|entry| std::cmp::Reverse(entry.1));
     let mut newest: Vec<&Entry> = outcome.entries.iter().collect();
     newest.sort_by_key(|entry| std::cmp::Reverse(entry.timestamp));
@@ -563,7 +709,8 @@ pub fn summary(log: &str, outcome: &Outcome, detail: bool) -> Value {
         result["note"] = json!("the window was widened to the platform's 5 s minimum");
     }
     if outcome.truncated {
-        result["truncated_note"] = json!("the limit was reached; there may be more entries in the window");
+        result["truncated_note"] =
+            json!("the limit was reached; there may be more entries in the window");
     }
     if detail {
         result["entries_list"] = Value::Array(outcome.entries.iter().map(entry_json).collect());
@@ -584,9 +731,16 @@ mod tests {
     }
 
     impl Remote for Fake {
-        fn service(&self, log: &str, service: &str, body: &Value) -> Result<Option<Value>, ServerError> {
+        fn service(
+            &self,
+            log: &str,
+            service: &str,
+            body: &Value,
+        ) -> Result<Option<Value>, ServerError> {
             assert_eq!(service, "QueryLogEntries");
-            self.bodies.borrow_mut().push((log.to_string(), body.clone()));
+            self.bodies
+                .borrow_mut()
+                .push((log.to_string(), body.clone()));
             Ok(Some(json!({ "rows": self.rows })))
         }
     }
@@ -603,7 +757,10 @@ mod tests {
         fn new() -> Self {
             LevelFake {
                 level: RefCell::new("WARN".into()),
-                subloggers: RefCell::new(vec![("com.thingworx".into(), "WARN".into()), ("com.x".into(), "INFO".into())]),
+                subloggers: RefCell::new(vec![
+                    ("com.thingworx".into(), "WARN".into()),
+                    ("com.x".into(), "INFO".into()),
+                ]),
                 calls: RefCell::new(Vec::new()),
                 ignore_sets: false,
             }
@@ -611,7 +768,12 @@ mod tests {
     }
 
     impl Remote for LevelFake {
-        fn service(&self, _: &str, service: &str, body: &Value) -> Result<Option<Value>, ServerError> {
+        fn service(
+            &self,
+            _: &str,
+            service: &str,
+            body: &Value,
+        ) -> Result<Option<Value>, ServerError> {
             self.calls.borrow_mut().push(service.to_string());
             let text = |key: &str| body[key].as_str().unwrap().to_string();
             match service {
@@ -657,8 +819,12 @@ mod tests {
         fn service(&self, log: &str, _: &str, _: &Value) -> Result<Option<Value>, ServerError> {
             *self.queries.borrow_mut() += 1;
             let now = *self.clock.borrow();
-            let rows: Vec<Value> =
-                self.arrivals.iter().filter(|(at, l, _)| *at <= now && *l == log).map(|(_, _, row)| row.clone()).collect();
+            let rows: Vec<Value> = self
+                .arrivals
+                .iter()
+                .filter(|(at, l, _)| *at <= now && *l == log)
+                .map(|(_, _, row)| row.clone())
+                .collect();
             Ok(Some(json!({ "rows": rows })))
         }
     }
@@ -670,7 +836,11 @@ mod tests {
             arrivals: vec![
                 (10_700, "ScriptLog", row(10_350, "ERROR", "s", "boom")),
                 (11_200, "ApplicationLog", row(10_380, "WARN", "a", "after")),
-                (0, "ScriptLog", row(5_000, "ERROR", "s", "long before the call")),
+                (
+                    0,
+                    "ScriptLog",
+                    row(5_000, "ERROR", "s", "long before the call"),
+                ),
             ],
             clock: RefCell::new(10_400),
             queries: RefCell::new(0),
@@ -682,17 +852,30 @@ mod tests {
         assert_eq!(contents, ["boom", "after"]);
         assert_eq!(found[1].0, "ApplicationLog");
         // Settled at 1.4 s after the call: polls at 0, 0.5, 1.0 and 1.5 s.
-        assert!(*late.clock.borrow() - 10_400 <= 1_500, "stopped at {}", *late.clock.borrow() - 10_400);
+        assert!(
+            *late.clock.borrow() - 10_400 <= 1_500,
+            "stopped at {}",
+            *late.clock.borrow() - 10_400
+        );
 
         // Something that keeps logging is cut off at 3 s.
-        let busy = Late { arrivals: Vec::new(), clock: RefCell::new(0), queries: RefCell::new(0) };
-        let arrivals: Vec<(i64, &'static str, Value)> =
-            (0..100).map(|i| (i * 100, "ScriptLog", row(i * 100, "INFO", "s", "tick"))).collect();
+        let busy = Late {
+            arrivals: Vec::new(),
+            clock: RefCell::new(0),
+            queries: RefCell::new(0),
+        };
+        let arrivals: Vec<(i64, &'static str, Value)> = (0..100)
+            .map(|i| (i * 100, "ScriptLog", row(i * 100, "INFO", "s", "tick")))
+            .collect();
         let busy = Late { arrivals, ..busy };
         let now = || *busy.clock.borrow();
         let sleep = |d: Duration| *busy.clock.borrow_mut() += d.as_millis() as i64;
         during_call(&busy, 0, 0, Wait::default(), &now, &sleep).unwrap();
-        assert!(*busy.clock.borrow() <= 3_000, "waited {} ms", *busy.clock.borrow());
+        assert!(
+            *busy.clock.borrow() <= 3_000,
+            "waited {} ms",
+            *busy.clock.borrow()
+        );
     }
 
     #[test]
@@ -701,18 +884,28 @@ mod tests {
         let levels = levels(&fake, "ScriptLog").unwrap();
         assert_eq!(levels.level, "WARN");
         assert_eq!(levels.subloggers[0].0, "com.thingworx");
-        assert_eq!(describe(&levels), "WARN (subloggers: com.thingworx=WARN, com.x=INFO)");
+        assert_eq!(
+            describe(&levels),
+            "WARN (subloggers: com.thingworx=WARN, com.x=INFO)"
+        );
     }
 
     #[test]
     fn a_level_change_is_a_plan_unless_applied() {
         let fake = LevelFake::new();
-        let set = Change::Set { level: "DEBUG", sublogger: None };
+        let set = Change::Set {
+            level: "DEBUG",
+            sublogger: None,
+        };
         let report = change(&fake, "ScriptLog", &set, false).unwrap();
         assert_eq!(report.plan, "ScriptLog: WARN -> DEBUG");
         assert_eq!(report.undo, ["twaco logs level ScriptLog WARN --apply"]);
         assert!(report.after.is_none());
-        assert!(fake.calls.borrow().iter().all(|c| c.starts_with("Get")), "{:?}", fake.calls.borrow());
+        assert!(
+            fake.calls.borrow().iter().all(|c| c.starts_with("Get")),
+            "{:?}",
+            fake.calls.borrow()
+        );
         assert_eq!(*fake.level.borrow(), "WARN");
 
         let report = change(&fake, "ScriptLog", &set, true).unwrap();
@@ -723,16 +916,57 @@ mod tests {
     #[test]
     fn sublogger_changes_and_resets_say_how_to_undo_them() {
         let fake = LevelFake::new();
-        let report = change(&fake, "ScriptLog", &Change::Set { level: "TRACE", sublogger: Some("com.x".into()) }, true).unwrap();
+        let report = change(
+            &fake,
+            "ScriptLog",
+            &Change::Set {
+                level: "TRACE",
+                sublogger: Some("com.x".into()),
+            },
+            true,
+        )
+        .unwrap();
         assert_eq!(report.plan, "ScriptLog sublogger com.x: INFO -> TRACE");
-        assert_eq!(report.undo, ["twaco logs level ScriptLog INFO --sublogger com.x --apply"]);
-        let fresh = change(&fake, "ScriptLog", &Change::Set { level: "DEBUG", sublogger: Some("com.new".into()) }, false).unwrap();
-        assert_eq!(fresh.undo, ["twaco logs level ScriptLog --reset --sublogger com.new --apply"]);
-        change(&fake, "ScriptLog", &Change::Reset { sublogger: Some("com.x".into()) }, true).unwrap();
+        assert_eq!(
+            report.undo,
+            ["twaco logs level ScriptLog INFO --sublogger com.x --apply"]
+        );
+        let fresh = change(
+            &fake,
+            "ScriptLog",
+            &Change::Set {
+                level: "DEBUG",
+                sublogger: Some("com.new".into()),
+            },
+            false,
+        )
+        .unwrap();
+        assert_eq!(
+            fresh.undo,
+            ["twaco logs level ScriptLog --reset --sublogger com.new --apply"]
+        );
+        change(
+            &fake,
+            "ScriptLog",
+            &Change::Reset {
+                sublogger: Some("com.x".into()),
+            },
+            true,
+        )
+        .unwrap();
         assert!(fake.subloggers.borrow().iter().all(|(n, _)| n != "com.x"));
         // A reset of every sublogger says how to restore each override it removes.
-        let everything = change(&fake, "ScriptLog", &Change::Reset { sublogger: None }, false).unwrap();
-        assert_eq!(everything.undo, ["twaco logs level ScriptLog WARN --sublogger com.thingworx --apply"]);
+        let everything = change(
+            &fake,
+            "ScriptLog",
+            &Change::Reset { sublogger: None },
+            false,
+        )
+        .unwrap();
+        assert_eq!(
+            everything.undo,
+            ["twaco logs level ScriptLog WARN --sublogger com.thingworx --apply"]
+        );
         change(&fake, "ScriptLog", &Change::Reset { sublogger: None }, true).unwrap();
         assert!(fake.subloggers.borrow().is_empty());
     }
@@ -741,7 +975,16 @@ mod tests {
     fn a_change_the_server_did_not_take_is_an_error() {
         let mut fake = LevelFake::new();
         fake.ignore_sets = true;
-        let error = change(&fake, "ScriptLog", &Change::Set { level: "DEBUG", sublogger: None }, true).unwrap_err();
+        let error = change(
+            &fake,
+            "ScriptLog",
+            &Change::Set {
+                level: "DEBUG",
+                sublogger: None,
+            },
+            true,
+        )
+        .unwrap_err();
         assert!(error.to_string().contains("does not show it"), "{error}");
     }
 
@@ -812,9 +1055,15 @@ mod tests {
         assert_eq!(parse_time("2026-10-01T12:37:37.473+03:00", 0).unwrap(), ms);
         // Without an offset, a time is in the given zone.
         let utc = TimeZone::UTC;
-        assert_eq!(parse_time_in("2026-10-01T09:37", 0, &utc).unwrap(), parse_time("2026-10-01T09:37:00Z", 0).unwrap());
+        assert_eq!(
+            parse_time_in("2026-10-01T09:37", 0, &utc).unwrap(),
+            parse_time("2026-10-01T09:37:00Z", 0).unwrap()
+        );
         let athens = TimeZone::get("Europe/Athens").unwrap();
-        assert_eq!(parse_time_in("2026-10-01T12:37:37.473", 0, &athens).unwrap(), ms);
+        assert_eq!(
+            parse_time_in("2026-10-01T12:37:37.473", 0, &athens).unwrap(),
+            ms
+        );
         assert_eq!(local_in(ms, &athens), "2026-10-01 12:37:37.473+03:00");
         assert_eq!(iso(0), "1970-01-01T00:00:00.000Z");
         assert_eq!(iso(951_782_400_000), "2000-02-29T00:00:00.000Z");
@@ -836,7 +1085,10 @@ mod tests {
 
     #[test]
     fn reaching_the_limit_is_reported_as_truncated() {
-        let fake = Fake { rows: (0..3).map(|i| row(i, "ERROR", "o", "x")).collect(), bodies: RefCell::new(Vec::new()) };
+        let fake = Fake {
+            rows: (0..3).map(|i| row(i, "ERROR", "o", "x")).collect(),
+            bodies: RefCell::new(Vec::new()),
+        };
         let mut q = query_for(0, 60_000);
         q.limit = 3;
         assert!(query(&fake, &q).unwrap().truncated);
@@ -860,7 +1112,10 @@ mod tests {
             session: String::new(),
             platform_id: String::new(),
         };
-        assert_eq!(line(&entry), format!("{} ERROR [o] first\n  second", local(0)));
+        assert_eq!(
+            line(&entry),
+            format!("{} ERROR [o] first\n  second", local(0))
+        );
     }
 
     #[test]
@@ -885,6 +1140,8 @@ mod tests {
         assert_eq!(s["repeated"][0]["count"], 2);
         assert_eq!(s["repeated"][0]["last"], iso(3));
         assert_eq!(s["newest"][0]["timestamp"], 3);
-        assert!(summary("ScriptLog", &outcome, true).get("entries_list").is_some());
+        assert!(summary("ScriptLog", &outcome, true)
+            .get("entries_list")
+            .is_some());
     }
 }

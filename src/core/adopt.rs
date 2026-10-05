@@ -29,7 +29,13 @@ use std::path::{Path, PathBuf};
 const NOISE_TAGS: [&str; 4] = ["ChangeHistory", "ConfigurationChanges", "Owner", "avatar"];
 /// Attributes with the same problem. `sourceType`/`source` record which import last wrote the
 /// entity, so they differ by construction between two servers.
-const NOISE_ATTRS: [&str; 5] = ["lastModifiedDate", "owner", "sourceType", "source", "creationDate"];
+const NOISE_ATTRS: [&str; 5] = [
+    "lastModifiedDate",
+    "owner",
+    "sourceType",
+    "source",
+    "creationDate",
+];
 /// A configuration table row identifies itself by one of these children, in this order. Keying
 /// on the value rather than the position stops an inserted row from shifting every path after it.
 const ROW_KEY_TAGS: [&str; 4] = ["UID", "Name", "name", "id"];
@@ -94,7 +100,9 @@ pub struct Report {
 
 impl Report {
     pub fn with_status(&self, status: Status) -> impl Iterator<Item = &EntityReport> {
-        self.entities.iter().filter(move |entity| entity.status == status)
+        self.entities
+            .iter()
+            .filter(move |entity| entity.status == status)
     }
 
     /// Service differences that are not generated: each is a revert or a change to adopt.
@@ -112,8 +120,12 @@ pub enum AdoptError {
 impl fmt::Display for AdoptError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            AdoptError::Export { path, why } => write!(f, "cannot read export {}: {why}", path.display()),
-            AdoptError::Repository { path, why } => write!(f, "cannot read {}: {why}", path.display()),
+            AdoptError::Export { path, why } => {
+                write!(f, "cannot read export {}: {why}", path.display())
+            }
+            AdoptError::Repository { path, why } => {
+                write!(f, "cannot read {}: {why}", path.display())
+            }
         }
     }
 }
@@ -127,16 +139,28 @@ pub fn compare(solution: &Solution, export: &Path, only: &[String]) -> Result<Re
     let here = repository_entities(solution)?;
     let mut report = Report::default();
 
-    let generated: BTreeSet<&str> = solution.adopt.generated_services.iter().map(String::as_str).collect();
+    let generated: BTreeSet<&str> = solution
+        .adopt
+        .generated_services
+        .iter()
+        .map(String::as_str)
+        .collect();
     let src_root = solution.src_root();
     for (entity, element) in &exported {
         let mut repo_bodies: Option<BTreeMap<String, String>> = None;
         for (service, body) in service_bodies(element) {
             let label = format!("{}.{service}", entity.name);
-            let sidecar = src_root.join(&entity.name).join("services").join(&service).join("script.js");
+            let sidecar = src_root
+                .join(&entity.name)
+                .join("services")
+                .join(&service)
+                .join("script.js");
             let (mine, source, from_sidecar) = if sidecar.is_file() {
-                let text = std::fs::read_to_string(&sidecar)
-                    .map_err(|e| AdoptError::Repository { path: sidecar.clone(), why: e.to_string() })?;
+                let text =
+                    std::fs::read_to_string(&sidecar).map_err(|e| AdoptError::Repository {
+                        path: sidecar.clone(),
+                        why: e.to_string(),
+                    })?;
                 (text, sidecar, true)
             } else {
                 let Some((repo_element, path)) = here.get(entity) else {
@@ -162,7 +186,9 @@ pub fn compare(solution: &Solution, export: &Path, only: &[String]) -> Result<Re
         }
     }
 
-    let passes = |name: &str| only.is_empty() || only.iter().any(|fragment| name.contains(fragment.as_str()));
+    let passes = |name: &str| {
+        only.is_empty() || only.iter().any(|fragment| name.contains(fragment.as_str()))
+    };
     for (entity, element) in &exported {
         if !passes(&entity.name) {
             continue;
@@ -178,7 +204,8 @@ pub fn compare(solution: &Solution, export: &Path, only: &[String]) -> Result<Re
                 ignored: 0,
             }),
             Some((repo_element, _)) => {
-                let mut compared = compare_entity(entity, element, repo_element, &solution.adopt.ignore_paths);
+                let mut compared =
+                    compare_entity(entity, element, repo_element, &solution.adopt.ignore_paths);
                 compared.project = project;
                 report.entities.push(compared);
             }
@@ -188,13 +215,22 @@ pub fn compare(solution: &Solution, export: &Path, only: &[String]) -> Result<Re
     let collections: BTreeSet<&str> = exported.keys().map(|e| e.collection.as_str()).collect();
     report.absent = here
         .keys()
-        .filter(|e| !exported.contains_key(*e) && collections.contains(e.collection.as_str()) && passes(&e.name))
+        .filter(|e| {
+            !exported.contains_key(*e)
+                && collections.contains(e.collection.as_str())
+                && passes(&e.name)
+        })
         .cloned()
         .collect();
     Ok(report)
 }
 
-fn compare_entity(entity: &EntityRef, export: &Element, repo: &Element, ignore: &[String]) -> EntityReport {
+fn compare_entity(
+    entity: &EntityRef,
+    export: &Element,
+    repo: &Element,
+    ignore: &[String],
+) -> EntityReport {
     let (left, right) = (flatten(export), flatten(repo));
     let mut report = EntityReport {
         entity: entity.clone(),
@@ -234,7 +270,10 @@ fn compare_entity(entity: &EntityRef, export: &Element, repo: &Element, ignore: 
 
 /// Every named entity in a flat export, keyed and ordered by `Collection/Name`.
 fn export_entities(path: &Path) -> Result<BTreeMap<EntityRef, Element>, AdoptError> {
-    let bad = |why: String| AdoptError::Export { path: path.to_path_buf(), why };
+    let bad = |why: String| AdoptError::Export {
+        path: path.to_path_buf(),
+        why,
+    };
     let bytes = std::fs::read(path).map_err(|e| bad(e.to_string()))?;
     let roots = normalise::parse_document(&bytes).map_err(|e| bad(e.to_string()))?;
     let root = roots
@@ -245,7 +284,10 @@ fn export_entities(path: &Path) -> Result<BTreeMap<EntityRef, Element>, AdoptErr
         })
         .ok_or_else(|| bad("no document element".to_string()))?;
     if root.name != b"Entities" {
-        return Err(bad(format!("not an <Entities> export (root is <{}>)", String::from_utf8_lossy(&root.name))));
+        return Err(bad(format!(
+            "not an <Entities> export (root is <{}>)",
+            String::from_utf8_lossy(&root.name)
+        )));
     }
     let found = entities_in(root);
     if found.is_empty() {
@@ -255,10 +297,15 @@ fn export_entities(path: &Path) -> Result<BTreeMap<EntityRef, Element>, AdoptErr
 }
 
 /// Every entity file of the solution, parsed the same way.
-fn repository_entities(solution: &Solution) -> Result<BTreeMap<EntityRef, (Element, PathBuf)>, AdoptError> {
+fn repository_entities(
+    solution: &Solution,
+) -> Result<BTreeMap<EntityRef, (Element, PathBuf)>, AdoptError> {
     let mut found = BTreeMap::new();
     for file in workspace::discover(solution).entities {
-        let bad = |why: String| AdoptError::Repository { path: file.path.clone(), why };
+        let bad = |why: String| AdoptError::Repository {
+            path: file.path.clone(),
+            why,
+        };
         let bytes = std::fs::read(&file.path).map_err(|e| bad(e.to_string()))?;
         let roots = normalise::parse_document(&bytes).map_err(|e| bad(e.to_string()))?;
         for node in roots {
@@ -279,7 +326,10 @@ fn entities_in(root: Element) -> BTreeMap<EntityRef, Element> {
     for collection in child_elements(&root) {
         for entity in child_elements(collection) {
             if let Some(name) = attribute(entity, "name").filter(|n| !n.is_empty()) {
-                let key = EntityRef { collection: text_of(&collection.name), name };
+                let key = EntityRef {
+                    collection: text_of(&collection.name),
+                    name,
+                };
                 found.insert(key, entity.clone());
             }
         }
@@ -301,7 +351,11 @@ fn child_elements(element: &Element) -> impl Iterator<Item = &Element> {
 }
 
 fn attribute(element: &Element, name: &str) -> Option<String> {
-    element.attributes.iter().find(|(key, _)| key == name.as_bytes()).map(|(_, value)| text_of(value))
+    element
+        .attributes
+        .iter()
+        .find(|(key, _)| key == name.as_bytes())
+        .map(|(_, value)| text_of(value))
 }
 
 fn is_named(element: &Element, name: &str) -> bool {
@@ -395,8 +449,10 @@ fn py_dumps(value: &Value, sort_keys: bool) -> String {
             if sort_keys {
                 entries.sort_by(|a, b| a.0.cmp(b.0));
             }
-            let inner: Vec<String> =
-                entries.iter().map(|(k, v)| format!("{}: {}", py_string(k), py_dumps(v, sort_keys))).collect();
+            let inner: Vec<String> = entries
+                .iter()
+                .map(|(k, v)| format!("{}: {}", py_string(k), py_dumps(v, sort_keys)))
+                .collect();
             format!("{{{}}}", inner.join(", "))
         }
         Value::Array(items) => {
@@ -482,7 +538,9 @@ fn flatten_into(element: &Element, prefix: &str, out: &mut BTreeMap<String, Stri
     }
     let text = canonical(&et_text(element).unwrap_or_default());
     if !text.is_empty() {
-        let json = if is_named(element, "mashupContent") && (text.starts_with('{') || text.starts_with('[')) {
+        let json = if is_named(element, "mashupContent")
+            && (text.starts_with('{') || text.starts_with('['))
+        {
             serde_json::from_str::<Value>(&text).ok()
         } else {
             None
@@ -505,7 +563,9 @@ fn flatten_into(element: &Element, prefix: &str, out: &mut BTreeMap<String, Stri
         if NOISE_TAGS.contains(&tag.as_str()) {
             continue;
         }
-        let key = attribute(child, "name").filter(|n| !n.is_empty()).or_else(|| row_key(child));
+        let key = attribute(child, "name")
+            .filter(|n| !n.is_empty())
+            .or_else(|| row_key(child));
         let step = match key {
             Some(key) => format!("{tag}[{key}]"),
             None if tally[child.name.as_slice()] > 1 => {
@@ -522,16 +582,23 @@ fn flatten_into(element: &Element, prefix: &str, out: &mut BTreeMap<String, Stri
 /// Composer mints a fresh id for a binding or an event handler whenever it rewrites a mashup:
 /// `...Events[3].Id` or `...DataBindings[12].Id`. Counted, never listed.
 fn is_volatile_id(path: &str) -> bool {
-    let Some(rest) = path.strip_suffix(".Id") else { return false };
-    let Some(rest) = rest.strip_suffix(']') else { return false };
-    let Some(open) = rest.rfind('[') else { return false };
+    let Some(rest) = path.strip_suffix(".Id") else {
+        return false;
+    };
+    let Some(rest) = rest.strip_suffix(']') else {
+        return false;
+    };
+    let Some(open) = rest.rfind('[') else {
+        return false;
+    };
     let digits = &rest[open + 1..];
     if digits.is_empty() || !digits.bytes().all(|b| b.is_ascii_digit()) {
         return false;
     }
     let head = &rest[..open];
     ["Events", "DataBindings"].iter().any(|word| {
-        head.strip_suffix(word).is_some_and(|before| before.is_empty() || before.ends_with('.'))
+        head.strip_suffix(word)
+            .is_some_and(|before| before.is_empty() || before.ends_with('.'))
     })
 }
 
@@ -568,7 +635,9 @@ pub fn glob_matches(pattern: &str, text: &str) -> bool {
         for p in (0..tokens.len()).rev() {
             matches[t][p] = match tokens[p] {
                 Token::Char(c) => t < text.len() && text[t] == c && matches[t + 1][p + 1],
-                Token::Star => matches[t][p + 1] || (t < text.len() && text[t] != '/' && matches[t + 1][p]),
+                Token::Star => {
+                    matches[t][p + 1] || (t < text.len() && text[t] != '/' && matches[t + 1][p])
+                }
                 Token::DoubleStar => matches[t][p + 1] || (t < text.len() && matches[t + 1][p]),
             };
         }
@@ -585,8 +654,13 @@ fn service_bodies(entity: &Element) -> BTreeMap<String, String> {
     let mut all = Vec::new();
     descendants(entity, &mut all);
     let mut bodies = BTreeMap::new();
-    for implementation in all.into_iter().filter(|e| is_named(e, "ServiceImplementation")) {
-        let Some(name) = attribute(implementation, "name").filter(|n| !n.is_empty()) else { continue };
+    for implementation in all
+        .into_iter()
+        .filter(|e| is_named(e, "ServiceImplementation"))
+    {
+        let Some(name) = attribute(implementation, "name").filter(|n| !n.is_empty()) else {
+            continue;
+        };
         let mut texts = Vec::new();
         et_itertext(implementation, &mut texts);
         let mut best: Option<String> = None;
@@ -595,7 +669,10 @@ fn service_bodies(entity: &Element) -> BTreeMap<String, String> {
                 continue;
             }
             // `max` keeps the first of equally long candidates.
-            if best.as_ref().is_none_or(|b| text.chars().count() > b.chars().count()) {
+            if best
+                .as_ref()
+                .is_none_or(|b| text.chars().count() > b.chars().count())
+            {
                 best = Some(text);
             }
         }
@@ -627,20 +704,32 @@ pub struct ApplyOutcome {
 ///
 /// Every write is worked out before the first is made, so an export that cannot be adopted
 /// (a payload that is not JSON, a name that is not a file name) changes nothing.
-pub fn apply(solution: &Solution, export: &Path, report: &Report) -> Result<ApplyOutcome, AdoptError> {
+pub fn apply(
+    solution: &Solution,
+    export: &Path,
+    report: &Report,
+) -> Result<ApplyOutcome, AdoptError> {
     let exported = export_entities(export)?;
     let here = repository_entities(solution)?;
     // In the report's order, notes and writes alike, so the output reads as the comparison did.
     let mut steps: Vec<(Option<Write>, String)> = Vec::new();
-    for entry in report.entities.iter().filter(|e| e.status != Status::Identical) {
-        let Some(element) = exported.get(&entry.entity) else { continue };
+    for entry in report
+        .entities
+        .iter()
+        .filter(|e| e.status != Status::Identical)
+    {
+        let Some(element) = exported.get(&entry.entity) else {
+            continue;
+        };
         let name = &entry.entity.name;
         match entry.entity.collection.as_str() {
             "Mashups" => {
                 if !is_file_name(name) {
                     return Err(AdoptError::Export {
                         path: export.to_path_buf(),
-                        why: format!("the mashup name {name:?} cannot be a file name; nothing was adopted"),
+                        why: format!(
+                            "the mashup name {name:?} cannot be a file name; nothing was adopted"
+                        ),
                     });
                 }
                 let dir = solution.src_root().join(name).join("mashup");
@@ -658,7 +747,10 @@ pub fn apply(solution: &Solution, export: &Path, report: &Report) -> Result<Appl
                         None => {
                             steps.push((
                                 None,
-                                format!("skipped  Mashups/{name}: project {:?} is not in this solution", entry.project),
+                                format!(
+                                    "skipped  Mashups/{name}: project {:?} is not in this solution",
+                                    entry.project
+                                ),
                             ));
                             continue;
                         }
@@ -667,14 +759,19 @@ pub fn apply(solution: &Solution, export: &Path, report: &Report) -> Result<Appl
                 if let Some(assets) = assets {
                     let current = workspace::read_mashup(&dir).map_err(|e| io_error(&dir, e))?;
                     if current.as_ref() != Some(&assets) {
-                        steps.push((Some(Write::Sidecars(dir, assets)), format!("sidecar  {name}")));
+                        steps.push((
+                            Some(Write::Sidecars(dir, assets)),
+                            format!("sidecar  {name}"),
+                        ));
                     }
                 }
             }
             "MediaEntities" => {
                 if let (Some((_, path)), Some(content)) = (
                     here.get(&entry.entity),
-                    child_elements(element).find(|c| is_named(c, "content")).and_then(et_text),
+                    child_elements(element)
+                        .find(|c| is_named(c, "content"))
+                        .and_then(et_text),
                 ) {
                     let encoded: String = content.chars().filter(|c| !py_space(*c)).collect();
                     if encoded.is_empty() {
@@ -711,7 +808,10 @@ pub fn apply(solution: &Solution, export: &Path, report: &Report) -> Result<Appl
         }
         lines.push(line);
     }
-    Ok(ApplyOutcome { lines, types: super::types::refresh_after_write(solution, wrote) })
+    Ok(ApplyOutcome {
+        lines,
+        types: super::types::refresh_after_write(solution, wrote),
+    })
 }
 
 /// One file or sidecar folder `apply` will write, worked out in full beforehand.
@@ -724,15 +824,17 @@ enum Write {
 /// is data from elsewhere, and `..`, a separator or a device name would write outside the tree.
 fn is_file_name(name: &str) -> bool {
     const DEVICES: [&str; 22] = [
-        "CON", "PRN", "AUX", "NUL", "COM1", "COM2", "COM3", "COM4", "COM5", "COM6", "COM7", "COM8", "COM9",
-        "LPT1", "LPT2", "LPT3", "LPT4", "LPT5", "LPT6", "LPT7", "LPT8", "LPT9",
+        "CON", "PRN", "AUX", "NUL", "COM1", "COM2", "COM3", "COM4", "COM5", "COM6", "COM7", "COM8",
+        "COM9", "LPT1", "LPT2", "LPT3", "LPT4", "LPT5", "LPT6", "LPT7", "LPT8", "LPT9",
     ];
     let stem = name.split('.').next().unwrap_or("").to_ascii_uppercase();
     !name.is_empty()
         && name != "."
         && name != ".."
         && !name.ends_with(['.', ' '])
-        && !name.chars().any(|c| c.is_control() || matches!(c, '/' | '\\' | ':' | '*' | '?' | '"' | '<' | '>' | '|'))
+        && !name.chars().any(|c| {
+            c.is_control() || matches!(c, '/' | '\\' | ':' | '*' | '?' | '"' | '<' | '>' | '|')
+        })
         && !DEVICES.contains(&stem.as_str())
 }
 
@@ -740,26 +842,40 @@ fn is_base64(encoded: &str) -> bool {
     let body = encoded.trim_end_matches('=');
     encoded.len().is_multiple_of(4)
         && encoded.len() - body.len() <= 2
-        && body.chars().all(|c| c.is_ascii_alphanumeric() || c == '+' || c == '/')
+        && body
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == '+' || c == '/')
 }
 
 fn relative_to(solution: &Solution, path: &Path) -> String {
-    path.strip_prefix(&solution.root).unwrap_or(path).display().to_string().replace('\\', "/")
+    path.strip_prefix(&solution.root)
+        .unwrap_or(path)
+        .display()
+        .to_string()
+        .replace('\\', "/")
 }
 
 fn io_error(path: &Path, error: impl fmt::Display) -> AdoptError {
-    AdoptError::Repository { path: path.to_path_buf(), why: error.to_string() }
+    AdoptError::Repository {
+        path: path.to_path_buf(),
+        why: error.to_string(),
+    }
 }
 
 /// A mashup's content and stylesheet, as its sidecars hold them; `None` when the export has none.
 fn mashup_assets(element: &Element) -> Result<Option<super::mashup::Assets>, String> {
-    let Some(text) = child_elements(element).find(|c| is_named(c, "mashupContent")).and_then(et_text) else {
+    let Some(text) = child_elements(element)
+        .find(|c| is_named(c, "mashupContent"))
+        .and_then(et_text)
+    else {
         return Ok(None);
     };
     if text.trim_matches(py_space).is_empty() {
         return Ok(None);
     }
-    super::mashup::assets_from_payload(&text).map(Some).map_err(|e| e.to_string())
+    super::mashup::assets_from_payload(&text)
+        .map(Some)
+        .map_err(|e| e.to_string())
 }
 
 /// The entity file for a mashup the repository does not have yet: the first mashup of its own
@@ -772,11 +888,16 @@ fn new_mashup_file(
     element: &Element,
     name: &str,
 ) -> Result<Option<(PathBuf, String)>, AdoptError> {
-    let Some(project) = solution.project(project) else { return Ok(None) };
+    let Some(project) = solution.project(project) else {
+        return Ok(None);
+    };
     let directory = solution.project_root(project).join("Mashups");
     let target = directory.join(format!("{name}.xml"));
     if target.exists() {
-        return Err(io_error(&target, "already exists, though the comparison found no such mashup"));
+        return Err(io_error(
+            &target,
+            "already exists, though the comparison found no such mashup",
+        ));
     }
     let mut candidates: Vec<PathBuf> = std::fs::read_dir(&directory)
         .map_err(|e| io_error(&directory, e))?
@@ -785,9 +906,11 @@ fn new_mashup_file(
         .filter(|path| path.extension().is_some_and(|e| e == "xml"))
         .collect();
     candidates.sort();
-    let skeleton_path =
-        candidates.first().ok_or_else(|| io_error(&directory, "no mashup to take the entity shape from"))?;
-    let skeleton = std::fs::read_to_string(skeleton_path).map_err(|e| io_error(skeleton_path, e))?;
+    let skeleton_path = candidates
+        .first()
+        .ok_or_else(|| io_error(&directory, "no mashup to take the entity shape from"))?;
+    let skeleton =
+        std::fs::read_to_string(skeleton_path).map_err(|e| io_error(skeleton_path, e))?;
 
     // The shape is attribute-per-line; the entity's own name is the one on a line of its own.
     // The first line that is exactly `         name="<value>"`, as required by the legacy format.
@@ -801,20 +924,43 @@ fn new_mashup_file(
             let end = start + skeleton[start..].find('"')?;
             (end > start && skeleton[end + 1..].starts_with('\n')).then_some((start, end))
         })
-        .ok_or_else(|| io_error(skeleton_path, "cannot find the name attribute in the mashup shape"))?;
-    let text = format!("{}{}{}", &skeleton[..start], escape_attribute(name), &skeleton[end..]);
+        .ok_or_else(|| {
+            io_error(
+                skeleton_path,
+                "cannot find the name attribute in the mashup shape",
+            )
+        })?;
+    let text = format!(
+        "{}{}{}",
+        &skeleton[..start],
+        escape_attribute(name),
+        &skeleton[end..]
+    );
 
     let open = "            <ParameterDefinitions>";
     let close = "</ParameterDefinitions>";
-    let start = text.find(open).ok_or_else(|| io_error(skeleton_path, "no ParameterDefinitions to replace"))?;
-    let end = text[start..].find(close).map(|at| start + at + close.len())
+    let start = text
+        .find(open)
+        .ok_or_else(|| io_error(skeleton_path, "no ParameterDefinitions to replace"))?;
+    let end = text[start..]
+        .find(close)
+        .map(|at| start + at + close.len())
         .ok_or_else(|| io_error(skeleton_path, "ParameterDefinitions is not closed"))?;
-    let text = format!("{}{}{}", &text[..start], render_parameter_definitions(element), &text[end..]);
+    let text = format!(
+        "{}{}{}",
+        &text[..start],
+        render_parameter_definitions(element),
+        &text[end..]
+    );
     Ok(Some((target, text)))
 }
 
 fn escape_attribute(value: &str) -> String {
-    value.replace('&', "&amp;").replace('"', "&quot;").replace('<', "&lt;").replace('>', "&gt;")
+    value
+        .replace('&', "&amp;")
+        .replace('"', "&quot;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
 }
 
 /// An export's `ParameterDefinitions` in the repository's attribute-per-line style.
@@ -833,8 +979,15 @@ fn render_parameter_definitions(element: &Element) -> String {
         let count = field.attributes.len();
         for (index, (key, value)) in field.attributes.iter().enumerate() {
             let escaped = escape_attribute(&text_of(value));
-            let tail = if index + 1 == count { "></FieldDefinition>" } else { "" };
-            lines.push(format!("                 {}=\"{escaped}\"{tail}", text_of(key)));
+            let tail = if index + 1 == count {
+                "></FieldDefinition>"
+            } else {
+                ""
+            };
+            lines.push(format!(
+                "                 {}=\"{escaped}\"{tail}",
+                text_of(key)
+            ));
         }
     }
     lines.push("            </ParameterDefinitions>".to_string());
@@ -845,13 +998,19 @@ fn render_parameter_definitions(element: &Element) -> String {
 /// CDATA, as the repository stores it. `None` when that is what the file already holds.
 fn media_content(path: &Path, encoded: &str) -> Result<Option<String>, AdoptError> {
     let text = std::fs::read_to_string(path).map_err(|e| io_error(path, e))?;
-    let start = text.find("<content>").ok_or_else(|| io_error(path, "no <content> element"))?;
-    let end = text[start..].find("]]>").map(|at| start + at)
+    let start = text
+        .find("<content>")
+        .ok_or_else(|| io_error(path, "no <content> element"))?;
+    let end = text[start..]
+        .find("]]>")
+        .map(|at| start + at)
         .ok_or_else(|| io_error(path, "<content> has no CDATA"))?;
     let indent = " ".repeat(12);
     let chars: Vec<char> = encoded.chars().collect();
-    let wrapped: Vec<String> =
-        chars.chunks(76).map(|chunk| format!("{indent}{}", chunk.iter().collect::<String>())).collect();
+    let wrapped: Vec<String> = chars
+        .chunks(76)
+        .map(|chunk| format!("{indent}{}", chunk.iter().collect::<String>()))
+        .collect();
     let rebuilt = format!(
         "{}<content>\n{indent}<![CDATA[\n{}\n{indent}{}",
         &text[..start],
@@ -866,7 +1025,12 @@ mod tests {
     use super::*;
 
     fn element(src: &str) -> Element {
-        match normalise::parse_document(src.as_bytes()).unwrap().into_iter().next().unwrap() {
+        match normalise::parse_document(src.as_bytes())
+            .unwrap()
+            .into_iter()
+            .next()
+            .unwrap()
+        {
             Node::Element(e) => e,
             _ => panic!("not an element"),
         }
@@ -875,9 +1039,16 @@ mod tests {
     #[test]
     fn canonical_settles_whitespace_and_json_key_order() {
         assert_eq!(canonical("  a \n\t b  "), "a b");
-        assert_eq!(canonical("{\"b\": 1,\n \"a\": [1, 2]}"), "{\"a\": [1, 2], \"b\": 1}");
+        assert_eq!(
+            canonical("{\"b\": 1,\n \"a\": [1, 2]}"),
+            "{\"a\": [1, 2], \"b\": 1}"
+        );
         assert_eq!(canonical("{not json"), "{not json");
-        assert_eq!(canonical("x\u{1f}y"), "x y", "Unicode separators are whitespace");
+        assert_eq!(
+            canonical("x\u{1f}y"),
+            "x y",
+            "Unicode separators are whitespace"
+        );
     }
 
     #[test]
@@ -899,9 +1070,12 @@ mod tests {
         );
         let flat = flatten(&e);
         assert_eq!(flat.get("@name").map(String::as_str), Some("T"));
-        assert!(!flat.keys().any(|k| k.contains("lastModifiedDate") || k.contains("Owner")));
+        assert!(!flat
+            .keys()
+            .any(|k| k.contains("lastModifiedDate") || k.contains("Owner")));
         assert_eq!(
-            flat.get("/ConfigurationTables/ConfigurationTable[CT]/Rows/Row[1]/v#text").map(String::as_str),
+            flat.get("/ConfigurationTables/ConfigurationTable[CT]/Rows/Row[1]/v#text")
+                .map(String::as_str),
             Some("a")
         );
         assert_eq!(flat.get("/x[2]#text").map(String::as_str), Some("2"));
@@ -911,9 +1085,20 @@ mod tests {
     fn mashup_json_is_compared_leaf_by_leaf() {
         let e = element("<Mashup><mashupContent><![CDATA[{\"UI\": {\"Properties\": {\"Width\": 10, \"Id\": \"a\"}, \"Empty\": {}}}]]></mashupContent></Mashup>");
         let flat = flatten(&e);
-        assert_eq!(flat.get("/mashupContent#json.UI.Properties.Width").map(String::as_str), Some("10"));
-        assert_eq!(flat.get("/mashupContent#json.UI.Properties.Id").map(String::as_str), Some("\"a\""));
-        assert!(!flat.keys().any(|k| k.contains("Empty")), "an empty object contributes nothing");
+        assert_eq!(
+            flat.get("/mashupContent#json.UI.Properties.Width")
+                .map(String::as_str),
+            Some("10")
+        );
+        assert_eq!(
+            flat.get("/mashupContent#json.UI.Properties.Id")
+                .map(String::as_str),
+            Some("\"a\"")
+        );
+        assert!(
+            !flat.keys().any(|k| k.contains("Empty")),
+            "an empty object contributes nothing"
+        );
     }
 
     #[test]
@@ -929,10 +1114,25 @@ mod tests {
     fn globs_keep_brackets_literal_and_star_within_a_step() {
         let pattern = "Things/*/ConfigurationTables/ConfigurationTable[ConnectionInfo]/**";
         assert!(glob_matches(pattern, "Things/Db/ConfigurationTables/ConfigurationTable[ConnectionInfo]/Rows/Row/password#text"));
-        assert!(!glob_matches(pattern, "Things/Db/ConfigurationTables/ConfigurationTable[Other]/Rows"));
-        assert!(!glob_matches(pattern, "Things/a/b/ConfigurationTables/ConfigurationTable[ConnectionInfo]/x"), "* stays in one step");
-        assert!(glob_matches("Things/*/ThingProperties/**", "Things/T/ThingProperties/p/Value#text"));
-        assert!(!glob_matches("Things/*", "Things/T/extra"), "anchored at the end");
+        assert!(!glob_matches(
+            pattern,
+            "Things/Db/ConfigurationTables/ConfigurationTable[Other]/Rows"
+        ));
+        assert!(
+            !glob_matches(
+                pattern,
+                "Things/a/b/ConfigurationTables/ConfigurationTable[ConnectionInfo]/x"
+            ),
+            "* stays in one step"
+        );
+        assert!(glob_matches(
+            "Things/*/ThingProperties/**",
+            "Things/T/ThingProperties/p/Value#text"
+        ));
+        assert!(
+            !glob_matches("Things/*", "Things/T/extra"),
+            "anchored at the end"
+        );
     }
 
     #[test]
@@ -957,7 +1157,14 @@ mod tests {
     /// (name, mashupContent) next to it.
     fn adopt_case(mashups: &[(&str, &str)]) -> (PathBuf, Solution, PathBuf) {
         static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
-    let nonce = format!("{}-{}", std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos(), NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed));
+        let nonce = format!(
+            "{}-{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos(),
+            NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+        );
         let root = std::env::temp_dir().join(format!("twaco-adopt-{}-{nonce}", std::process::id()));
         std::fs::create_dir_all(root.join("Mashups")).unwrap();
         std::fs::write(root.join("twaco.toml"), "[[project]]\nname = \"P\"\n").unwrap();
@@ -989,7 +1196,11 @@ mod tests {
         let mut pending = vec![root.to_path_buf()];
         while let Some(dir) = pending.pop() {
             for entry in std::fs::read_dir(dir).unwrap().flatten() {
-                if entry.file_type().unwrap().is_dir() { pending.push(entry.path()) } else { found.push(entry.path()) }
+                if entry.file_type().unwrap().is_dir() {
+                    pending.push(entry.path())
+                } else {
+                    found.push(entry.path())
+                }
             }
         }
         found.sort();
@@ -1003,7 +1214,11 @@ mod tests {
         let report = compare(&solution, &export, &[]).unwrap();
         let outcome = apply(&solution, &export, &report).unwrap();
         assert!(outcome.types.files_written.is_some());
-        let lines: Vec<String> = outcome.lines.into_iter().filter(|l| !l.ends_with("P.A")).collect();
+        let lines: Vec<String> = outcome
+            .lines
+            .into_iter()
+            .filter(|l| !l.ends_with("P.A"))
+            .collect();
         assert_eq!(lines, ["created  Mashups/P.B&C.xml", "sidecar  P.B&C"]);
         let text = std::fs::read_to_string(root.join("Mashups/P.B&C.xml")).unwrap();
         assert!(text.contains("\n         name=\"P.B&amp;C\"\n"), "{text}");
@@ -1013,7 +1228,11 @@ mod tests {
 
     #[test]
     fn an_export_that_cannot_be_adopted_whole_changes_nothing() {
-        for bad in [("P.C", "not json"), ("../escape", "{\"UI\":{}}"), ("CON", "{\"UI\":{}}")] {
+        for bad in [
+            ("P.C", "not json"),
+            ("../escape", "{\"UI\":{}}"),
+            ("CON", "{\"UI\":{}}"),
+        ] {
             let (root, solution, export) = adopt_case(&[("P.B", "{\"UI\":{\"x\":1}}"), bad]);
             let before = files_under(&root);
             let report = compare(&solution, &export, &[]).unwrap();
@@ -1028,10 +1247,17 @@ mod tests {
     fn a_new_mashup_without_content_is_skipped_not_given_another_ones() {
         let (root, solution, export) = adopt_case(&[("P.D", "  ")]);
         let report = compare(&solution, &export, &[]).unwrap();
-        let lines: Vec<String> =
-            apply(&solution, &export, &report).unwrap().lines.into_iter().filter(|l| !l.ends_with("P.A")).collect();
+        let lines: Vec<String> = apply(&solution, &export, &report)
+            .unwrap()
+            .lines
+            .into_iter()
+            .filter(|l| !l.ends_with("P.A"))
+            .collect();
         assert_eq!(lines.len(), 1);
-        assert!(lines[0].starts_with("skipped  Mashups/P.D: the export holds no mashup content"), "{lines:?}");
+        assert!(
+            lines[0].starts_with("skipped  Mashups/P.D: the export holds no mashup content"),
+            "{lines:?}"
+        );
         assert!(!root.join("Mashups/P.D.xml").exists());
         let _ = std::fs::remove_dir_all(root);
     }
@@ -1040,9 +1266,16 @@ mod tests {
     fn lines_come_in_the_reports_order() {
         let (root, solution, export) = adopt_case(&[("P.B", "{\"UI\":{\"x\":1}}"), ("P.C", " ")]);
         let report = compare(&solution, &export, &[]).unwrap();
-        let lines: Vec<String> =
-            apply(&solution, &export, &report).unwrap().lines.into_iter().filter(|l| !l.ends_with("P.A")).collect();
-        let kinds: Vec<&str> = lines.iter().map(|l| l.split_whitespace().next().unwrap()).collect();
+        let lines: Vec<String> = apply(&solution, &export, &report)
+            .unwrap()
+            .lines
+            .into_iter()
+            .filter(|l| !l.ends_with("P.A"))
+            .collect();
+        let kinds: Vec<&str> = lines
+            .iter()
+            .map(|l| l.split_whitespace().next().unwrap())
+            .collect();
         assert_eq!(kinds, ["created", "sidecar", "skipped"], "{lines:?}");
         let _ = std::fs::remove_dir_all(root);
     }
@@ -1052,7 +1285,9 @@ mod tests {
         for good in ["P.Mashup_1", "Acme.Dash-Board.X", "P.B&C", "Console"] {
             assert!(is_file_name(good), "{good}");
         }
-        for bad in ["", ".", "..", "../x", "a/b", "a\\b", "C:x", "x.", "x ", "NUL", "com1.txt", "a\u{1}b"] {
+        for bad in [
+            "", ".", "..", "../x", "a/b", "a\\b", "C:x", "x.", "x ", "NUL", "com1.txt", "a\u{1}b",
+        ] {
             assert!(!is_file_name(bad), "{bad:?}");
         }
         assert!(is_base64("QUJD") && is_base64("QUI=") && is_base64("QQ=="));
@@ -1064,17 +1299,31 @@ mod tests {
         let dir = std::env::temp_dir().join(format!(
             "twaco-media-{}-{}",
             std::process::id(),
-            std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
         ));
         std::fs::create_dir_all(&dir).unwrap();
         let path = dir.join("M.xml");
         std::fs::write(&path, "<a>\n        <content>\n            <![CDATA[\n            old\n            ]]>\n        </content>\n</a>").unwrap();
         let encoded = "A".repeat(80);
-        let text = media_content(&path, &encoded).unwrap().expect("new content changes the file");
+        let text = media_content(&path, &encoded)
+            .unwrap()
+            .expect("new content changes the file");
         let expected_body = format!("            {}\n            {}", "A".repeat(76), "AAAA");
-        assert!(text.contains(&format!("<content>\n            <![CDATA[\n{expected_body}\n            ]]>")), "{text}");
+        assert!(
+            text.contains(&format!(
+                "<content>\n            <![CDATA[\n{expected_body}\n            ]]>"
+            )),
+            "{text}"
+        );
         std::fs::write(&path, &text).unwrap();
-        assert_eq!(media_content(&path, &encoded).unwrap(), None, "the same content is not rewritten");
+        assert_eq!(
+            media_content(&path, &encoded).unwrap(),
+            None,
+            "the same content is not rewritten"
+        );
         let _ = std::fs::remove_dir_all(dir);
     }
 

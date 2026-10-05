@@ -93,7 +93,9 @@ pub struct DbInfo {
 impl DbInfo {
     pub fn add(&mut self, origin: &str, scan: Scan) {
         for shape in scan.shapes {
-            self.shapes.entry(shape.data_shape.value.clone()).or_insert(shape);
+            self.shapes
+                .entry(shape.data_shape.value.clone())
+                .or_insert(shape);
         }
         if scan.unsure {
             self.unsure.push(origin.to_string());
@@ -114,18 +116,31 @@ impl DbInfo {
 pub fn load(solution: &Solution) -> DbInfo {
     let mut info = DbInfo::default();
     for entity in workspace::entities(solution) {
-        if !matches!(entity.info.collection.as_str(), "Things" | "ThingTemplates" | "ThingShapes") {
+        if !matches!(
+            entity.info.collection.as_str(),
+            "Things" | "ThingTemplates" | "ThingShapes"
+        ) {
             continue;
         }
-        let Ok(bytes) = std::fs::read(&entity.path) else { continue };
-        let Ok(scripts) = scan_entity(&bytes) else { continue };
+        let Ok(bytes) = std::fs::read(&entity.path) else {
+            continue;
+        };
+        let Ok(scripts) = scan_entity(&bytes) else {
+            continue;
+        };
         for (_, scan) in scripts {
-            info.add(&format!("{}/{}", entity.info.collection, entity.info.name), scan);
+            info.add(
+                &format!("{}/{}", entity.info.collection, entity.info.name),
+                scan,
+            );
         }
     }
     for path in check::walk_files(solution) {
         let is_script = path.file_name().is_some_and(|name| name == "script.js")
-            && path.parent().and_then(|parent| parent.file_name()).is_some_and(|name| name == "GetDBInfo");
+            && path
+                .parent()
+                .and_then(|parent| parent.file_name())
+                .is_some_and(|name| name == "GetDBInfo");
         if !is_script {
             continue;
         }
@@ -144,11 +159,14 @@ pub fn scan_entity(src: &[u8]) -> Result<Vec<(usize, Scan)>, scan::ScanError> {
     for (index, token) in tokens.iter().enumerate() {
         let is_service = token.kind == scan::Kind::Start
             && token.name.of(src) == b"ServiceImplementation"
-            && scan::attribute(src, token, "name")?.is_some_and(|span| span.of(src) == b"GetDBInfo");
+            && scan::attribute(src, token, "name")?
+                .is_some_and(|span| span.of(src) == b"GetDBInfo");
         if !is_service {
             continue;
         }
-        let Some(end) = scan::element_end_in(&tokens, src, index) else { continue };
+        let Some(end) = scan::element_end_in(&tokens, src, index) else {
+            continue;
+        };
         for cdata in &tokens[index + 1..end] {
             if cdata.kind == scan::Kind::Cdata {
                 out.push((cdata.inner.start, scan_script(cdata.inner.of(src))));
@@ -160,7 +178,11 @@ pub fn scan_entity(src: &[u8]) -> Result<Vec<(usize, Scan)>, scan::ScanError> {
 
 /// The table DBConnection makes for a DataShape: its short name, lowercased.
 pub fn table_of(data_shape: &str) -> String {
-    data_shape.rsplit('.').next().unwrap_or(data_shape).to_lowercase()
+    data_shape
+        .rsplit('.')
+        .next()
+        .unwrap_or(data_shape)
+        .to_lowercase()
 }
 
 /// The column DBConnection makes for a field: its name, lowercased.
@@ -174,8 +196,21 @@ pub fn field_spans(scan: &Scan, data_shape: &str, field: &str) -> Vec<Span> {
     let mut spans = Vec::new();
     for shape in &scan.shapes {
         if shape.data_shape.value == data_shape {
-            spans.extend(shape.fields.iter().filter(|name| name.value == field).map(|name| name.span));
-            spans.extend(shape.indexes.iter().flatten().filter(|name| name.value == field).map(|name| name.span));
+            spans.extend(
+                shape
+                    .fields
+                    .iter()
+                    .filter(|name| name.value == field)
+                    .map(|name| name.span),
+            );
+            spans.extend(
+                shape
+                    .indexes
+                    .iter()
+                    .flatten()
+                    .filter(|name| name.value == field)
+                    .map(|name| name.span),
+            );
             spans.extend(
                 shape
                     .foreign_keys
@@ -186,7 +221,10 @@ pub fn field_spans(scan: &Scan, data_shape: &str, field: &str) -> Vec<Span> {
             );
         }
         for key in &shape.foreign_keys {
-            let points_here = key.reference_shape.as_ref().is_some_and(|name| name.value == data_shape);
+            let points_here = key
+                .reference_shape
+                .as_ref()
+                .is_some_and(|name| name.value == data_shape);
             if let (true, Some(name)) = (points_here, key.reference_field.as_ref()) {
                 if name.value == field {
                     spans.push(name.span);
@@ -210,7 +248,9 @@ fn string_name(string: &script::StringLiteral) -> Option<Name> {
     })
 }
 
-fn properties(object: &script::ObjectLiteral) -> Option<Vec<(&script::LiteralKey, &script::Value)>> {
+fn properties(
+    object: &script::ObjectLiteral,
+) -> Option<Vec<(&script::LiteralKey, &script::Value)>> {
     object
         .properties
         .iter()
@@ -221,14 +261,22 @@ fn properties(object: &script::ObjectLiteral) -> Option<Vec<(&script::LiteralKey
         .collect()
 }
 
-fn object<'a>(script: &'a script::Script, value: &script::Value) -> Option<&'a script::ObjectLiteral> {
-    let script::Value::Object(index) = value else { return None };
+fn object<'a>(
+    script: &'a script::Script,
+    value: &script::Value,
+) -> Option<&'a script::ObjectLiteral> {
+    let script::Value::Object(index) = value else {
+        return None;
+    };
     script.objects.get(*index)
 }
 
 fn read_shape(script: &script::Script, literal: &script::ObjectLiteral) -> Option<DbShape> {
     let mut shape = DbShape {
-        data_shape: Name { value: String::new(), span: Span::new(0, 0) },
+        data_shape: Name {
+            value: String::new(),
+            span: Span::new(0, 0),
+        },
         fields: Vec::new(),
         indexes: Vec::new(),
         foreign_keys: Vec::new(),
@@ -237,12 +285,16 @@ fn read_shape(script: &script::Script, literal: &script::ObjectLiteral) -> Optio
     for (key, value) in properties(literal)? {
         match key.text.as_str() {
             "dataShapeName" => {
-                let script::Value::String(value) = value else { return None };
+                let script::Value::String(value) = value else {
+                    return None;
+                };
                 shape.data_shape = string_name(value)?;
                 named = true;
             }
             "fields" | "indexedFields" | "foreignKeys" => {
-                let script::Value::Array(elements) = value else { return None };
+                let script::Value::Array(elements) = value else {
+                    return None;
+                };
                 for element in elements {
                     read_element(key.text.as_str(), object(script, element)?, &mut shape)?;
                 }
@@ -254,36 +306,54 @@ fn read_shape(script: &script::Script, literal: &script::ObjectLiteral) -> Optio
 }
 
 fn read_element(list: &str, literal: &script::ObjectLiteral, shape: &mut DbShape) -> Option<()> {
-    let mut foreign = ForeignKey { column: None, reference_shape: None, reference_field: None };
+    let mut foreign = ForeignKey {
+        column: None,
+        reference_shape: None,
+        reference_field: None,
+    };
     for (key, value) in properties(literal)? {
         match (list, key.text.as_str()) {
             ("fields", "name") => {
-                let script::Value::String(value) = value else { return None };
+                let script::Value::String(value) = value else {
+                    return None;
+                };
                 shape.fields.push(string_name(value)?);
             }
             ("indexedFields", "name") => {
-                let script::Value::String(value) = value else { return None };
+                let script::Value::String(value) = value else {
+                    return None;
+                };
                 shape.indexes.push(vec![string_name(value)?]);
             }
             ("indexedFields", "fieldNames") => {
-                let script::Value::Array(values) = value else { return None };
+                let script::Value::Array(values) = value else {
+                    return None;
+                };
                 let mut names = Vec::new();
                 for value in values {
-                    let script::Value::String(value) = value else { return None };
+                    let script::Value::String(value) = value else {
+                        return None;
+                    };
                     names.push(string_name(value)?);
                 }
                 shape.indexes.push(names);
             }
             ("foreignKeys", "name") => {
-                let script::Value::String(value) = value else { return None };
+                let script::Value::String(value) = value else {
+                    return None;
+                };
                 foreign.column = Some(string_name(value)?);
             }
             ("foreignKeys", "referenceDataShapeName") => {
-                let script::Value::String(value) = value else { return None };
+                let script::Value::String(value) = value else {
+                    return None;
+                };
                 foreign.reference_shape = Some(string_name(value)?);
             }
             ("foreignKeys", "referenceFieldName") => {
-                let script::Value::String(value) = value else { return None };
+                let script::Value::String(value) = value else {
+                    return None;
+                };
                 foreign.reference_field = Some(string_name(value)?);
             }
             _ => {}
@@ -327,7 +397,8 @@ var result = {
     }
 
     #[test]
-    fn reads_tables_fields_indexes_and_foreign_keys_with_quoted_keys_comments_and_trailing_commas() {
+    fn reads_tables_fields_indexes_and_foreign_keys_with_quoted_keys_comments_and_trailing_commas()
+    {
         let scan = scan_script(SCRIPT.as_bytes());
         assert!(!scan.unsure);
         assert_eq!(scan.shapes.len(), 2, "the commented-out table is not one");
@@ -339,7 +410,10 @@ var result = {
         assert_eq!(names(&shared.indexes[0]), ["Dashboard_UID", "UserName"]);
         let key = &shared.foreign_keys[0];
         assert_eq!(key.column.as_ref().unwrap().value, "Dashboard_UID");
-        assert_eq!(key.reference_shape.as_ref().unwrap().value, "Acme.App.Dashboards");
+        assert_eq!(
+            key.reference_shape.as_ref().unwrap().value,
+            "Acme.App.Dashboards"
+        );
         assert_eq!(key.reference_field.as_ref().unwrap().value, "UID");
     }
 
@@ -349,27 +423,55 @@ var result = {
         let name = &scan.shapes[0].fields[1];
         assert_eq!(&SCRIPT[name.span.start..name.span.end], "DashboardName");
         let table = &scan.shapes[1].data_shape;
-        assert_eq!(&SCRIPT[table.span.start..table.span.end], "Acme.App.SharedDashboards");
+        assert_eq!(
+            &SCRIPT[table.span.start..table.span.end],
+            "Acme.App.SharedDashboards"
+        );
     }
 
     #[test]
     fn a_computed_table_list_is_unsure_not_empty() {
         let scan = scan_script(b"var result = { dbInfo: [] }; tables.forEach(function (t) { result.dbInfo.push(t); });");
         assert!(scan.shapes.is_empty());
-        assert!(scan.unsure, "a script that builds dbInfo at run time cannot be trusted to have no tables");
+        assert!(
+            scan.unsure,
+            "a script that builds dbInfo at run time cannot be trusted to have no tables"
+        );
         assert!(!scan_script(b"return 1;").unsure);
     }
 
     #[test]
     fn field_spans_are_scoped_to_one_shape_and_its_references() {
         let scan = scan_script(SCRIPT.as_bytes());
-        let in_text = |spans: Vec<Span>| spans.iter().map(|span| &SCRIPT[span.start..span.end]).collect::<Vec<_>>();
+        let in_text = |spans: Vec<Span>| {
+            spans
+                .iter()
+                .map(|span| &SCRIPT[span.start..span.end])
+                .collect::<Vec<_>>()
+        };
         // `UserName` is a column of both tables' scripts only where the shape matches.
-        assert_eq!(in_text(field_spans(&scan, "Acme.App.Dashboards", "UserName")), ["UserName", "UserName"]);
-        assert_eq!(in_text(field_spans(&scan, "Acme.App.SharedDashboards", "UserName")), ["UserName"]);
+        assert_eq!(
+            in_text(field_spans(&scan, "Acme.App.Dashboards", "UserName")),
+            ["UserName", "UserName"]
+        );
+        assert_eq!(
+            in_text(field_spans(&scan, "Acme.App.SharedDashboards", "UserName")),
+            ["UserName"]
+        );
         // The foreign key's own column and the referenced column of another table.
-        assert_eq!(in_text(field_spans(&scan, "Acme.App.Dashboards", "UID")), ["UID"]);
-        assert_eq!(in_text(field_spans(&scan, "Acme.App.SharedDashboards", "Dashboard_UID")).len(), 3);
+        assert_eq!(
+            in_text(field_spans(&scan, "Acme.App.Dashboards", "UID")),
+            ["UID"]
+        );
+        assert_eq!(
+            in_text(field_spans(
+                &scan,
+                "Acme.App.SharedDashboards",
+                "Dashboard_UID"
+            ))
+            .len(),
+            3
+        );
         assert!(field_spans(&scan, "Acme.App.Dashboards", "Nope").is_empty());
     }
 

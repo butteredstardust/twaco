@@ -17,7 +17,8 @@ const XSRF_VALUE: &str = "TWX-XSRF-TOKEN-VALUE";
 /// The Importer's observed flags. Without
 /// `overwriteConfigurationTableValues` an edited configuration table imports and silently keeps
 /// its old rows.
-const IMPORT_QUERY: &str = "purpose=import&usedefaultdataprovider=false&usedefaultqueueprovider=false\
+const IMPORT_QUERY: &str =
+    "purpose=import&usedefaultdataprovider=false&usedefaultqueueprovider=false\
 &WithSubsystems=false&IgnoreBadValueStreamData=false&overwriteConfigurationTableValues=true\
 &overwritePropertyValues=true";
 
@@ -33,7 +34,9 @@ impl Client {
     pub fn new(profile: Profile) -> Self {
         use ureq::tls::{RootCerts, TlsConfig};
 
-        let tls_config = TlsConfig::builder().root_certs(RootCerts::PlatformVerifier).build();
+        let tls_config = TlsConfig::builder()
+            .root_certs(RootCerts::PlatformVerifier)
+            .build();
         let agent = ureq::Agent::config_builder()
             .timeout_global(Some(Duration::from_secs(120)))
             .http_status_as_error(false)
@@ -55,7 +58,12 @@ impl Client {
         } else {
             encode_path_segment(collection)
         };
-        let url = format!("{}/{}/{}", self.base(), collection_path, encode_path_segment(name));
+        let url = format!(
+            "{}/{}/{}",
+            self.base(),
+            collection_path,
+            encode_path_segment(name)
+        );
         let authorization = self.authorization();
         let headers = [
             ("Accept", "text/xml"),
@@ -72,8 +80,17 @@ impl Client {
 
     /// Fetch the ordinary REST representation of an entity as JSON. This is distinct from
     /// `fetch_entity`, whose export XML deliberately excludes live configuration values.
-    pub fn fetch_entity_json(&self, collection: &str, name: &str) -> Result<serde_json::Value, ServerError> {
-        let url = format!("{}/{}/{}", self.base(), encode_path_segment(collection), encode_path_segment(name));
+    pub fn fetch_entity_json(
+        &self,
+        collection: &str,
+        name: &str,
+    ) -> Result<serde_json::Value, ServerError> {
+        let url = format!(
+            "{}/{}/{}",
+            self.base(),
+            encode_path_segment(collection),
+            encode_path_segment(name)
+        );
         let authorization = self.authorization();
         let headers = [
             ("Accept", "application/json"),
@@ -84,8 +101,10 @@ impl Client {
         ];
         let response = transport(&self.agent, Method::Get, &url, &headers, None)?;
         let bytes = checked(Method::Get, url.clone(), response)?;
-        serde_json::from_slice(&bytes)
-            .map_err(|error| ServerError::InvalidResponse { url, why: error.to_string() })
+        serde_json::from_slice(&bytes).map_err(|error| ServerError::InvalidResponse {
+            url,
+            why: error.to_string(),
+        })
     }
 
     /// The names of every entity of a collection, from its REST listing.
@@ -99,20 +118,35 @@ impl Client {
         ];
         let response = transport(&self.agent, Method::Get, &url, &headers, None)?;
         let bytes = checked(Method::Get, url.clone(), response)?;
-        let value: serde_json::Value = serde_json::from_slice(&bytes)
-            .map_err(|error| ServerError::InvalidResponse { url: url.clone(), why: error.to_string() })?;
-        let rows = value.get("rows").and_then(serde_json::Value::as_array).ok_or_else(|| ServerError::InvalidResponse {
-            url,
-            why: "the listing has no rows".to_string(),
-        })?;
-        Ok(rows.iter().filter_map(|row| row.get("name").and_then(serde_json::Value::as_str)).map(str::to_string).collect())
+        let value: serde_json::Value =
+            serde_json::from_slice(&bytes).map_err(|error| ServerError::InvalidResponse {
+                url: url.clone(),
+                why: error.to_string(),
+            })?;
+        let rows = value
+            .get("rows")
+            .and_then(serde_json::Value::as_array)
+            .ok_or_else(|| ServerError::InvalidResponse {
+                url,
+                why: "the listing has no rows".to_string(),
+            })?;
+        Ok(rows
+            .iter()
+            .filter_map(|row| row.get("name").and_then(serde_json::Value::as_str))
+            .map(str::to_string)
+            .collect())
     }
 
     /// Whether the server has an entity: its REST address answers 404 when it does not. The
     /// Exporter cannot say (it answers 200 with an empty export), and for MediaEntities
     /// `fetch_entity` goes through the Exporter, so this asks the plain address for JSON.
     pub fn entity_exists(&self, collection: &str, name: &str) -> Result<bool, ServerError> {
-        let url = format!("{}/{}/{}", self.base(), encode_path_segment(collection), encode_path_segment(name));
+        let url = format!(
+            "{}/{}/{}",
+            self.base(),
+            encode_path_segment(collection),
+            encode_path_segment(name)
+        );
         let authorization = self.authorization();
         let headers = [
             ("Accept", "application/json"),
@@ -150,11 +184,22 @@ impl Client {
     /// A file of a FileRepository, exactly as stored: the `FileRepositories` servlet that
     /// Composer's download links point at. `path` is slash-separated from the repository root.
     pub fn download_file(&self, repository: &str, path: &str) -> Result<Vec<u8>, ServerError> {
-        let segments: Vec<String> =
-            path.split('/').filter(|segment| !segment.is_empty()).map(encode_path_segment).collect();
-        let url = format!("{}/FileRepositories/{}/{}", self.base(), encode_path_segment(repository), segments.join("/"));
+        let segments: Vec<String> = path
+            .split('/')
+            .filter(|segment| !segment.is_empty())
+            .map(encode_path_segment)
+            .collect();
+        let url = format!(
+            "{}/FileRepositories/{}/{}",
+            self.base(),
+            encode_path_segment(repository),
+            segments.join("/")
+        );
         let authorization = self.authorization();
-        let headers = [("Authorization", authorization.as_str()), ("X-XSRF-TOKEN", XSRF_VALUE)];
+        let headers = [
+            ("Authorization", authorization.as_str()),
+            ("X-XSRF-TOKEN", XSRF_VALUE),
+        ];
         let response = transport(&self.agent, Method::Get, &url, &headers, None)?;
         checked_bytes(Method::Get, url, response)
     }
@@ -207,13 +252,21 @@ impl Client {
         if reply.trim().eq_ignore_ascii_case("success") {
             Ok(())
         } else {
-            Err(ServerError::Rejected { url, body: excerpt(&reply) })
+            Err(ServerError::Rejected {
+                url,
+                body: excerpt(&reply),
+            })
         }
     }
 
     /// The `Exporter`'s XML for a route: `Things/X` (one entity), `Things` (a collection), or
     /// empty (everything), with `project` narrowing either of the last two to one project.
-    pub fn export_xml(&self, collection: Option<&str>, name: Option<&str>, project: Option<&str>) -> Result<Vec<u8>, ServerError> {
+    pub fn export_xml(
+        &self,
+        collection: Option<&str>,
+        name: Option<&str>,
+        project: Option<&str>,
+    ) -> Result<Vec<u8>, ServerError> {
         let mut url = format!("{}/Exporter", self.base());
         if let Some(collection) = collection {
             url.push('/');
@@ -235,15 +288,30 @@ impl Client {
             ("X-XSRF-TOKEN", XSRF_VALUE),
             ("X-Requested-With", "XMLHttpRequest"),
         ];
-        let response = transport_with_timeout(&self.agent, Method::Get, &url, &headers, None, Some(Duration::from_secs(600)))?;
+        let response = transport_with_timeout(
+            &self.agent,
+            Method::Get,
+            &url,
+            &headers,
+            None,
+            Some(Duration::from_secs(600)),
+        )?;
         checked(Method::Get, url, response)
     }
 
     /// Send an extension package to `ExtensionPackageUploader`, as Composer's import dialog does.
     /// With `validate` the server checks the package and installs nothing; without, it installs.
     /// The answer is the server's JSON report. A package it cannot read is a bare 406.
-    pub fn upload_extension(&self, file_name: &str, zip: &[u8], validate: bool) -> Result<serde_json::Value, ServerError> {
-        let url = format!("{}/ExtensionPackageUploader?purpose=import&validate={validate}", self.base());
+    pub fn upload_extension(
+        &self,
+        file_name: &str,
+        zip: &[u8],
+        validate: bool,
+    ) -> Result<serde_json::Value, ServerError> {
+        let url = format!(
+            "{}/ExtensionPackageUploader?purpose=import&validate={validate}",
+            self.base()
+        );
         let boundary = boundary_for(zip);
         let body = multipart(&boundary, file_name, zip);
         let content_type = format!("multipart/form-data; boundary={boundary}");
@@ -255,9 +323,19 @@ impl Client {
             ("X-XSRF-TOKEN", XSRF_VALUE),
             ("X-Requested-With", "XMLHttpRequest"),
         ];
-        let response = transport_with_timeout(&self.agent, Method::Post, &url, &headers, Some(&body), Some(Duration::from_secs(600)))?;
+        let response = transport_with_timeout(
+            &self.agent,
+            Method::Post,
+            &url,
+            &headers,
+            Some(&body),
+            Some(Duration::from_secs(600)),
+        )?;
         let reply = checked(Method::Post, url.clone(), response)?;
-        serde_json::from_slice(&reply).map_err(|error| ServerError::InvalidResponse { url, why: error.to_string() })
+        serde_json::from_slice(&reply).map_err(|error| ServerError::InvalidResponse {
+            url,
+            why: error.to_string(),
+        })
     }
 
     /// Ask ThingWorx's Rhino parser to validate one service body.
@@ -279,9 +357,11 @@ impl Client {
         ];
         let response = transport(&self.agent, Method::Post, &url, &headers, Some(&body))?;
         let reply = checked(Method::Post, url.clone(), response)?;
-        let parsed: ScriptCheckResponse = serde_json::from_slice(&reply).map_err(|error| {
-            ServerError::InvalidResponse { url: url.clone(), why: error.to_string() }
-        })?;
+        let parsed: ScriptCheckResponse =
+            serde_json::from_slice(&reply).map_err(|error| ServerError::InvalidResponse {
+                url: url.clone(),
+                why: error.to_string(),
+            })?;
         if parsed.rows.len() != 1 {
             return Err(ServerError::InvalidResponse {
                 url,
@@ -303,7 +383,12 @@ impl Client {
         parameters: &serde_json::Value,
         timeout: Duration,
     ) -> Result<Option<serde_json::Value>, ServerError> {
-        let url = format!("{}/{}/Services/{}", self.base(), target.url_path(), encode_path_segment(service));
+        let url = format!(
+            "{}/{}/Services/{}",
+            self.base(),
+            target.url_path(),
+            encode_path_segment(service)
+        );
         let body = serde_json::to_vec(parameters).expect("JSON values always serialise");
         let authorization = self.authorization();
         let headers = [
@@ -327,7 +412,10 @@ impl Client {
         }
         serde_json::from_slice(&reply)
             .map(Some)
-            .map_err(|error| ServerError::InvalidResponse { url, why: error.to_string() })
+            .map_err(|error| ServerError::InvalidResponse {
+                url,
+                why: error.to_string(),
+            })
     }
 
     fn base(&self) -> &str {
@@ -377,13 +465,30 @@ impl fmt::Display for Method {
 #[derive(Debug)]
 pub enum ServerError {
     InvalidUrl(String),
-    Transport { method: Method, url: String, why: String },
-    Http { method: Method, status: u16, url: String, body: String },
+    Transport {
+        method: Method,
+        url: String,
+        why: String,
+    },
+    Http {
+        method: Method,
+        status: u16,
+        url: String,
+        body: String,
+    },
     /// A 2xx whose body is not the success the endpoint promises.
-    Rejected { url: String, body: String },
+    Rejected {
+        url: String,
+        body: String,
+    },
     UnsupportedCharset(String),
-    InvalidUtf8 { at: usize },
-    InvalidResponse { url: String, why: String },
+    InvalidUtf8 {
+        at: usize,
+    },
+    InvalidResponse {
+        url: String,
+        why: String,
+    },
 }
 
 impl ServerError {
@@ -399,7 +504,12 @@ impl fmt::Display for ServerError {
             ServerError::Transport { method, url, why } => {
                 write!(f, "{method} {url} could not be reached: {why}")
             }
-            ServerError::Http { method, status, url, body } => {
+            ServerError::Http {
+                method,
+                status,
+                url,
+                body,
+            } => {
                 write!(f, "{method} {url} failed with HTTP {status}")?;
                 if !body.is_empty() {
                     write!(f, ": {body}")?;
@@ -407,7 +517,10 @@ impl fmt::Display for ServerError {
                 Ok(())
             }
             ServerError::Rejected { url, body } => {
-                write!(f, "POST {url} answered success status but not success: {body:?}")
+                write!(
+                    f,
+                    "POST {url} answered success status but not success: {body:?}"
+                )
             }
             ServerError::UnsupportedCharset(charset) => write!(
                 f,
@@ -476,7 +589,10 @@ fn excerpt(text: &str) -> String {
 /// unpredictable enough for a delimiter, and the loop makes a collision impossible rather than
 /// unlikely: a boundary inside the payload would cut the uploaded file short.
 fn boundary_for(payload: &[u8]) -> String {
-    let seed = SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_nanos()).unwrap_or(0);
+    let seed = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_nanos())
+        .unwrap_or(0);
     boundary_from(seed ^ u128::from(std::process::id()), payload)
 }
 
@@ -484,7 +600,10 @@ fn boundary_from(seed: u128, payload: &[u8]) -> String {
     let mut attempt = 0u32;
     loop {
         let boundary = format!("twaco-{seed:x}-{attempt}");
-        if !payload.windows(boundary.len()).any(|window| window == boundary.as_bytes()) {
+        if !payload
+            .windows(boundary.len())
+            .any(|window| window == boundary.as_bytes())
+        {
             return boundary;
         }
         attempt += 1;
@@ -496,7 +615,13 @@ fn multipart(boundary: &str, file_name: &str, payload: &[u8]) -> Vec<u8> {
     // A quote or line break in the filename would end the header early.
     let file_name: String = file_name
         .chars()
-        .map(|c| if c == '"' || c == '\r' || c == '\n' { '_' } else { c })
+        .map(|c| {
+            if c == '"' || c == '\r' || c == '\n' {
+                '_'
+            } else {
+                c
+            }
+        })
         .collect();
     let mut body = Vec::with_capacity(payload.len() + 256);
     body.extend_from_slice(format!("--{boundary}\r\n").as_bytes());
@@ -529,7 +654,9 @@ pub fn encode_path_segment(value: &str) -> String {
 fn validate_charset(content_type: Option<&str>, body: &[u8]) -> Result<(), ServerError> {
     if let Some(content_type) = content_type {
         for parameter in content_type.split(';').skip(1) {
-            let Some((name, value)) = parameter.split_once('=') else { continue };
+            let Some((name, value)) = parameter.split_once('=') else {
+                continue;
+            };
             if name.trim().eq_ignore_ascii_case("charset") {
                 let charset = value.trim().trim_matches(['"', '\'']);
                 if !charset.eq_ignore_ascii_case("utf-8") && !charset.eq_ignore_ascii_case("utf8") {
@@ -540,7 +667,9 @@ fn validate_charset(content_type: Option<&str>, body: &[u8]) -> Result<(), Serve
     }
     std::str::from_utf8(body)
         .map(|_| ())
-        .map_err(|error| ServerError::InvalidUtf8 { at: error.valid_up_to() })
+        .map_err(|error| ServerError::InvalidUtf8 {
+            at: error.valid_up_to(),
+        })
 }
 
 fn base64(bytes: &[u8]) -> String {
@@ -552,8 +681,16 @@ fn base64(bytes: &[u8]) -> String {
             | chunk.get(2).copied().unwrap_or(0) as u32;
         out.push(ALPHABET[((value >> 18) & 63) as usize] as char);
         out.push(ALPHABET[((value >> 12) & 63) as usize] as char);
-        out.push(if chunk.len() > 1 { ALPHABET[((value >> 6) & 63) as usize] as char } else { '=' });
-        out.push(if chunk.len() > 2 { ALPHABET[(value & 63) as usize] as char } else { '=' });
+        out.push(if chunk.len() > 1 {
+            ALPHABET[((value >> 6) & 63) as usize] as char
+        } else {
+            '='
+        });
+        out.push(if chunk.len() > 2 {
+            ALPHABET[(value & 63) as usize] as char
+        } else {
+            '='
+        });
     }
     out
 }
@@ -578,7 +715,11 @@ fn transport_with_timeout(
 ) -> Result<Response, ServerError> {
     let unreachable = |error: ureq::Error| match error {
         ureq::Error::BadUri(why) => ServerError::InvalidUrl(why),
-        error => ServerError::Transport { method, url: url.to_string(), why: error.to_string() },
+        error => ServerError::Transport {
+            method,
+            url: url.to_string(),
+            why: error.to_string(),
+        },
     };
     let mut response = match method {
         Method::Get => {
@@ -599,7 +740,9 @@ fn transport_with_timeout(
             for (name, value) in headers {
                 request = request.header(*name, *value);
             }
-            request.send(body.unwrap_or_default()).map_err(unreachable)?
+            request
+                .send(body.unwrap_or_default())
+                .map_err(unreachable)?
         }
         Method::Delete => {
             let mut request = agent.delete(url);
@@ -623,8 +766,16 @@ fn transport_with_timeout(
         .with_config()
         .limit(u64::MAX)
         .read_to_vec()
-        .map_err(|error| ServerError::Transport { method, url: url.to_string(), why: error.to_string() })?;
-    Ok(Response { status, content_type, body })
+        .map_err(|error| ServerError::Transport {
+            method,
+            url: url.to_string(),
+            why: error.to_string(),
+        })?;
+    Ok(Response {
+        status,
+        content_type,
+        body,
+    })
 }
 
 #[cfg(test)]
@@ -697,7 +848,10 @@ mod tests {
             app_key: None,
             extra: Default::default(),
         });
-        let error = client.fetch_entity("Things", "A/B Thing").unwrap_err().to_string();
+        let error = client
+            .fetch_entity("Things", "A/B Thing")
+            .unwrap_err()
+            .to_string();
         assert!(error.contains("HTTP 418"));
         assert!(error.contains("server says no"));
         server.join().unwrap();
@@ -738,7 +892,10 @@ mod tests {
 
     /// Accept one request, read it whole (headers and a Content-Length body), answer with
     /// `status` and `reply`, and hand the raw request back.
-    fn serve_once(status: &'static str, reply: &'static str) -> (String, std::thread::JoinHandle<Vec<u8>>) {
+    fn serve_once(
+        status: &'static str,
+        reply: &'static str,
+    ) -> (String, std::thread::JoinHandle<Vec<u8>>) {
         use std::io::{Read, Write};
         use std::net::TcpListener;
 
@@ -817,7 +974,11 @@ mod tests {
         .into_bytes();
         expected.extend_from_slice(payload);
         expected.extend_from_slice(format!("\r\n--{boundary}--\r\n").as_bytes());
-        assert_eq!(body, expected.as_slice(), "the body is exactly one framed file field");
+        assert_eq!(
+            body,
+            expected.as_slice(),
+            "the body is exactly one framed file field"
+        );
         let body_text = String::from_utf8_lossy(body);
         assert!(body_text.contains("name=\"file\"; filename=\"T.xml\""));
         assert!(body.windows(payload.len()).any(|window| window == payload));
@@ -825,7 +986,8 @@ mod tests {
 
     #[test]
     fn check_script_posts_the_typed_request_and_reads_the_one_row_response() {
-        let reply = r#"{"rows":[{"status":false,"lineNumber":7,"columnNumber":11,"message":"bad token"}]}"#;
+        let reply =
+            r#"{"rows":[{"status":false,"lineNumber":7,"columnNumber":11,"message":"bad token"}]}"#;
         let (url, server) = serve_once("200 OK", reply);
         let checked = client_for(url).check_script("var x = ;\n").unwrap();
         assert_eq!(
@@ -839,7 +1001,11 @@ mod tests {
         );
 
         let request = server.join().unwrap();
-        let split = request.windows(4).position(|window| window == b"\r\n\r\n").unwrap() + 4;
+        let split = request
+            .windows(4)
+            .position(|window| window == b"\r\n\r\n")
+            .unwrap()
+            + 4;
         let head = String::from_utf8_lossy(&request[..split]).to_ascii_lowercase();
         assert!(head.starts_with(
             "post /thingworx/resources/scriptservices/services/checkscriptwithlinesandcolumns http/1.1"
@@ -852,9 +1018,15 @@ mod tests {
     #[test]
     fn rest_delete_matches_composers_exact_request_shape() {
         let (url, server) = serve_once("200 OK", "");
-        client_for(url).delete_entity_rest("DataShapes", "A/B shape").unwrap();
+        client_for(url)
+            .delete_entity_rest("DataShapes", "A/B shape")
+            .unwrap();
         let request = server.join().unwrap();
-        let end = request.windows(4).position(|window| window == b"\r\n\r\n").unwrap() + 4;
+        let end = request
+            .windows(4)
+            .position(|window| window == b"\r\n\r\n")
+            .unwrap()
+            + 4;
         let head = String::from_utf8_lossy(&request[..end]);
         assert!(head.starts_with(
             "DELETE /Thingworx/DataShapes/A%2FB%20shape?Accept=application%2Fjson&Content-Type=application%2Fjson HTTP/1.1\r\n"
@@ -870,7 +1042,9 @@ mod tests {
     #[test]
     fn a_2xx_that_does_not_say_success_is_a_failure() {
         let (url, server) = serve_once("200 OK", "Import failed: nothing imported");
-        let error = client_for(url).import_entity("T.xml", b"<Entities/>").unwrap_err();
+        let error = client_for(url)
+            .import_entity("T.xml", b"<Entities/>")
+            .unwrap_err();
         server.join().unwrap();
         assert!(matches!(error, ServerError::Rejected { .. }), "{error}");
     }
@@ -878,10 +1052,19 @@ mod tests {
     #[test]
     fn an_import_the_server_refuses_carries_its_status() {
         let (url, server) = serve_once("406 Not Acceptable", "Not Acceptable");
-        let error = client_for(url).import_entity("T.xml", b"<Entities/>").unwrap_err();
+        let error = client_for(url)
+            .import_entity("T.xml", b"<Entities/>")
+            .unwrap_err();
         server.join().unwrap();
         assert!(
-            matches!(error, ServerError::Http { method: Method::Post, status: 406, .. }),
+            matches!(
+                error,
+                ServerError::Http {
+                    method: Method::Post,
+                    status: 406,
+                    ..
+                }
+            ),
             "{error}"
         );
     }
@@ -910,24 +1093,63 @@ Content-Type: text/xml\r\n\
     #[test]
     fn a_call_target_cannot_climb_out_of_its_collection() {
         // Refused before any request: the URL points nowhere a request could reach.
-        for bad in ["", "Things/", "/X", "Things/../Users", "..", "Things/X/Y", "Things/."] {
-            let error: ServerError = super::super::entity_key::ServiceTarget::parse(bad).unwrap_err().into();
-            assert!(matches!(error, ServerError::InvalidUrl(_)), "{bad:?}: {error}");
+        for bad in [
+            "",
+            "Things/",
+            "/X",
+            "Things/../Users",
+            "..",
+            "Things/X/Y",
+            "Things/.",
+        ] {
+            let error: ServerError = super::super::entity_key::ServiceTarget::parse(bad)
+                .unwrap_err()
+                .into();
+            assert!(
+                matches!(error, ServerError::InvalidUrl(_)),
+                "{bad:?}: {error}"
+            );
         }
     }
 
     #[test]
     fn service_calls_keep_their_existing_urls_for_typed_targets() {
         for (target, expected) in [
-            (super::super::entity_key::ServiceTarget::parse("A Thing").unwrap(), "/Thingworx/Things/A%20Thing/Services/S%20name"),
-            (super::super::entity_key::ServiceTarget::entity("Widgets", "%#?é").unwrap(), "/Thingworx/Widgets/%25%23%3F%C3%A9/Services/S%20name"),
-            (super::super::entity_key::ServiceTarget::platform("Resources", "SourceControlFunctions"), "/Thingworx/Resources/SourceControlFunctions/Services/S%20name"),
+            (
+                super::super::entity_key::ServiceTarget::parse("A Thing").unwrap(),
+                "/Thingworx/Things/A%20Thing/Services/S%20name",
+            ),
+            (
+                super::super::entity_key::ServiceTarget::entity("Widgets", "%#?é").unwrap(),
+                "/Thingworx/Widgets/%25%23%3F%C3%A9/Services/S%20name",
+            ),
+            (
+                super::super::entity_key::ServiceTarget::platform(
+                    "Resources",
+                    "SourceControlFunctions",
+                ),
+                "/Thingworx/Resources/SourceControlFunctions/Services/S%20name",
+            ),
         ] {
             let (url, server) = serve_once("200 OK", "");
-            client_for(url).call_service(&target, "S name", &serde_json::json!({}), Duration::from_secs(1)).unwrap();
+            client_for(url)
+                .call_service(
+                    &target,
+                    "S name",
+                    &serde_json::json!({}),
+                    Duration::from_secs(1),
+                )
+                .unwrap();
             let request = server.join().unwrap();
-            let line = String::from_utf8_lossy(&request).lines().next().unwrap().to_string();
-            assert!(line.starts_with(&format!("POST {expected} HTTP/1.1")), "{line}");
+            let line = String::from_utf8_lossy(&request)
+                .lines()
+                .next()
+                .unwrap()
+                .to_string();
+            assert!(
+                line.starts_with(&format!("POST {expected} HTTP/1.1")),
+                "{line}"
+            );
         }
     }
 

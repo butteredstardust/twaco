@@ -15,15 +15,18 @@ use std::path::{Path, PathBuf};
 const BUILTIN: [(&str, &str); 3] = [
     ("workflow", include_str!("../../knowledge/workflow.md")),
     ("quirks", include_str!("../../knowledge/quirks.md")),
-    ("service-code", include_str!("../../knowledge/service-code.md")),
+    (
+        "service-code",
+        include_str!("../../knowledge/service-code.md"),
+    ),
 ];
 const DEFAULT_PATHS: [&str; 3] = ["AGENTS.md", "CLAUDE.md", "docs"];
 const HEADING_WEIGHT: f64 = 3.0;
 /// Words a question is made of that say nothing about what it asks.
 const STOPWORDS: [&str; 40] = [
-    "a", "an", "and", "are", "as", "at", "be", "by", "can", "do", "does", "for", "from", "how", "i", "if", "in", "is",
-    "it", "my", "of", "on", "or", "should", "so", "that", "the", "this", "to", "was", "what", "when", "where", "which",
-    "why", "will", "with", "would", "you", "we",
+    "a", "an", "and", "are", "as", "at", "be", "by", "can", "do", "does", "for", "from", "how",
+    "i", "if", "in", "is", "it", "my", "of", "on", "or", "should", "so", "that", "the", "this",
+    "to", "was", "what", "when", "where", "which", "why", "will", "with", "would", "you", "we",
 ];
 /// A markdown file larger than this is not knowledge but data, and is left out.
 const MAX_FILE: u64 = 2 * 1024 * 1024;
@@ -66,7 +69,12 @@ pub struct Section {
 pub fn topics(solution: Option<&Solution>) -> (Vec<Topic>, Vec<String>) {
     let mut topics: Vec<Topic> = BUILTIN
         .iter()
-        .map(|(id, text)| Topic { id: id.to_string(), title: title_of(text, id), file: None, text: text.to_string() })
+        .map(|(id, text)| Topic {
+            id: id.to_string(),
+            title: title_of(text, id),
+            file: None,
+            text: text.to_string(),
+        })
         .collect();
     let mut problems = Vec::new();
     if let Some(solution) = solution {
@@ -77,24 +85,43 @@ pub fn topics(solution: Option<&Solution>) -> (Vec<Topic>, Vec<String>) {
         };
         let mut files = Vec::new();
         for path in &paths {
-            let plain = Path::new(path).components().all(|c| matches!(c, std::path::Component::Normal(_) | std::path::Component::CurDir));
+            let plain = Path::new(path).components().all(|c| {
+                matches!(
+                    c,
+                    std::path::Component::Normal(_) | std::path::Component::CurDir
+                )
+            });
             if !plain {
-                problems.push(format!("[knowledge] {path}: must be a path inside the solution"));
+                problems.push(format!(
+                    "[knowledge] {path}: must be a path inside the solution"
+                ));
                 continue;
             }
             let full = solution.root.join(path);
             // Every folder on the way must be a real folder too, not a link leading out.
             let mut through = solution.root.clone();
-            let linked = Path::new(path).parent().into_iter().flat_map(|p| p.components()).find_map(|part| {
-                through.push(part);
-                std::fs::symlink_metadata(&through).ok().filter(|m| m.file_type().is_symlink()).map(|_| through.clone())
-            });
+            let linked = Path::new(path)
+                .parent()
+                .into_iter()
+                .flat_map(|p| p.components())
+                .find_map(|part| {
+                    through.push(part);
+                    std::fs::symlink_metadata(&through)
+                        .ok()
+                        .filter(|m| m.file_type().is_symlink())
+                        .map(|_| through.clone())
+                });
             if let Some(link) = linked {
-                problems.push(format!("[knowledge] {path}: {} is a link; not followed", link.display()));
+                problems.push(format!(
+                    "[knowledge] {path}: {} is a link; not followed",
+                    link.display()
+                ));
                 continue;
             }
             match std::fs::symlink_metadata(&full) {
-                Ok(meta) if meta.file_type().is_symlink() => problems.push(format!("{path}: a link; not followed")),
+                Ok(meta) if meta.file_type().is_symlink() => {
+                    problems.push(format!("{path}: a link; not followed"))
+                }
                 Ok(meta) if meta.is_dir() => markdown_under(&full, &mut files, &mut problems),
                 Ok(_) => files.push(full),
                 // The defaults are only where knowledge usually is; a path someone named must exist.
@@ -124,8 +151,17 @@ pub fn topics(solution: Option<&Solution>) -> (Vec<Topic>, Vec<String>) {
             }
             match std::fs::read_to_string(&file) {
                 Ok(text) => {
-                    let id = if topics.iter().any(|t| t.id.eq_ignore_ascii_case(&id)) { format!("project/{id}") } else { id };
-                    topics.push(Topic { title: title_of(&text, &id), id, file: Some(file), text })
+                    let id = if topics.iter().any(|t| t.id.eq_ignore_ascii_case(&id)) {
+                        format!("project/{id}")
+                    } else {
+                        id
+                    };
+                    topics.push(Topic {
+                        title: title_of(&text, &id),
+                        id,
+                        file: Some(file),
+                        text,
+                    })
                 }
                 Err(e) => problems.push(format!("{}: {e}", file.display())),
             }
@@ -147,7 +183,13 @@ fn markdown_under(dir: &Path, out: &mut Vec<PathBuf>, problems: &mut Vec<String>
         match entry.file_type() {
             Ok(kind) if kind.is_symlink() => {}
             Ok(kind) if kind.is_dir() => markdown_under(&path, out, problems),
-            Ok(_) if path.extension().is_some_and(|e| e.eq_ignore_ascii_case("md")) => out.push(path),
+            Ok(_)
+                if path
+                    .extension()
+                    .is_some_and(|e| e.eq_ignore_ascii_case("md")) =>
+            {
+                out.push(path)
+            }
             _ => {}
         }
     }
@@ -164,7 +206,10 @@ fn title_of(text: &str, id: &str) -> String {
 /// A topic's `##` sections, the text before the first one included when it holds anything
 /// but the title. A `##` inside a fenced code block is code, not a heading.
 pub fn sections(text: &str) -> Vec<Section> {
-    let mut out = vec![Section { heading: String::new(), text: String::new() }];
+    let mut out = vec![Section {
+        heading: String::new(),
+        text: String::new(),
+    }];
     // The fence that opened the block: its character and length. Only a fence of the same
     // character, at least as long, closes it (CommonMark).
     let mut fence: Option<(char, usize)> = None;
@@ -177,19 +222,29 @@ pub fn sections(text: &str) -> Vec<Section> {
         let was_fenced = fence.is_some();
         match (fence, marker) {
             (None, Some(opening)) => fence = Some(opening),
-            (Some((c, n)), Some((m, run))) if c == m && run >= n && trimmed[run * m.len_utf8()..].trim().is_empty() => fence = None,
+            (Some((c, n)), Some((m, run)))
+                if c == m && run >= n && trimmed[run * m.len_utf8()..].trim().is_empty() =>
+            {
+                fence = None
+            }
             _ => {}
         }
         if !was_fenced && fence.is_none() {
             if let Some(heading) = line.strip_prefix("## ") {
-                out.push(Section { heading: heading.trim().to_string(), text: String::new() });
+                out.push(Section {
+                    heading: heading.trim().to_string(),
+                    text: String::new(),
+                });
             }
         }
         let current = out.last_mut().expect("never empty");
         current.text.push_str(line);
         current.text.push('\n');
     }
-    let preamble_matters = out[0].text.lines().any(|l| !l.trim().is_empty() && !l.starts_with("# "));
+    let preamble_matters = out[0]
+        .text
+        .lines()
+        .any(|l| !l.trim().is_empty() && !l.starts_with("# "));
     if !preamble_matters {
         out.remove(0);
     }
@@ -202,13 +257,23 @@ pub fn find<'a>(topics: &'a [Topic], wanted: &str) -> Result<&'a Topic, GuideErr
     if let Some(topic) = topics.iter().find(|t| t.id.eq_ignore_ascii_case(wanted)) {
         return Ok(topic);
     }
-    let by_name: Vec<&Topic> =
-        topics.iter().filter(|t| t.id.rsplit('/').next().is_some_and(|last| last.eq_ignore_ascii_case(wanted))).collect();
+    let by_name: Vec<&Topic> = topics
+        .iter()
+        .filter(|t| {
+            t.id.rsplit('/')
+                .next()
+                .is_some_and(|last| last.eq_ignore_ascii_case(wanted))
+        })
+        .collect();
     match by_name.as_slice() {
         [one] => Ok(one),
         _ => Err(GuideError::Invalid(format!(
             "no topic {wanted:?}; there are: {}",
-            topics.iter().map(|t| t.id.as_str()).collect::<Vec<_>>().join(", ")
+            topics
+                .iter()
+                .map(|t| t.id.as_str())
+                .collect::<Vec<_>>()
+                .join(", ")
         ))),
     }
 }
@@ -219,7 +284,10 @@ pub enum Reading {
     /// The whole topic, or one section of it.
     Text(String),
     /// A topic too long to read whole: its title and section headings, to pick one from.
-    Outline { title: String, headings: Vec<String> },
+    Outline {
+        title: String,
+        headings: Vec<String>,
+    },
 }
 
 /// A topic whole when it is short, its outline when it is long, or one section by its heading
@@ -230,22 +298,38 @@ pub fn read(topic: &Topic, section: Option<&str>) -> Result<Reading, GuideError>
         if topic.text.len() <= WHOLE {
             return Ok(Reading::Text(topic.text.clone()));
         }
-        let headings = all.iter().filter(|s| !s.heading.is_empty()).map(|s| s.heading.clone()).collect();
-        return Ok(Reading::Outline { title: topic.title.clone(), headings });
+        let headings = all
+            .iter()
+            .filter(|s| !s.heading.is_empty())
+            .map(|s| s.heading.clone())
+            .collect();
+        return Ok(Reading::Outline {
+            title: topic.title.clone(),
+            headings,
+        });
     };
     let lower = wanted.to_lowercase();
     if let Some(found) = all.iter().find(|s| s.heading.to_lowercase() == lower) {
         return Ok(Reading::Text(found.text.clone()));
     }
-    let close: Vec<&Section> = all.iter().filter(|s| s.heading.to_lowercase().contains(&lower)).collect();
+    let close: Vec<&Section> = all
+        .iter()
+        .filter(|s| s.heading.to_lowercase().contains(&lower))
+        .collect();
     match close.as_slice() {
         [one] => Ok(Reading::Text(one.text.clone())),
-        [] => Err(GuideError::Invalid(format!("{} has no section {wanted:?}", topic.id))),
+        [] => Err(GuideError::Invalid(format!(
+            "{} has no section {wanted:?}",
+            topic.id
+        ))),
         many => Err(GuideError::Invalid(format!(
             "{wanted:?} matches {} sections of {}: {}",
             many.len(),
             topic.id,
-            many.iter().map(|s| s.heading.as_str()).collect::<Vec<_>>().join(" | ")
+            many.iter()
+                .map(|s| s.heading.as_str())
+                .collect::<Vec<_>>()
+                .join(" | ")
         ))),
     }
 }
@@ -276,7 +360,10 @@ pub fn search(topics: &[Topic], query: &str, limit: usize) -> Vec<Hit> {
     }
     // Code joins what a question spells apart: "add member" is `AddMember`. A joined pair is
     // an alternative spelling, matched as one more word, never required.
-    let joined: Vec<String> = asked.windows(2).map(|pair| format!("{}{}", pair[0], pair[1])).collect();
+    let joined: Vec<String> = asked
+        .windows(2)
+        .map(|pair| format!("{}{}", pair[0], pair[1]))
+        .collect();
     let mut terms = asked.clone();
     terms.extend(joined.iter().cloned());
     terms.sort();
@@ -295,14 +382,23 @@ pub fn search(topics: &[Topic], query: &str, limit: usize) -> Vec<Hit> {
                 *counts.entry(word).or_insert(0) += 1;
             }
             let heading = stems(&section.heading);
-            indexed.push(Indexed { topic: &topic.id, section, counts, heading });
+            indexed.push(Indexed {
+                topic: &topic.id,
+                section,
+                counts,
+                heading,
+            });
         }
     }
     let total = indexed.len().max(1) as f64;
     let rarity: HashMap<&str, f64> = terms
         .iter()
         .map(|term| {
-            let having = indexed.iter().filter(|i| i.counts.contains_key(term)).count().max(1) as f64;
+            let having = indexed
+                .iter()
+                .filter(|i| i.counts.contains_key(term))
+                .count()
+                .max(1) as f64;
             (term.as_str(), (total / having).ln().max(0.01))
         })
         .collect();
@@ -347,13 +443,24 @@ pub fn search(topics: &[Topic], query: &str, limit: usize) -> Vec<Hit> {
                 .find(|line| stems(line).iter().any(|w| terms.contains(w)))
                 .map(|line| shorten(line.trim(), 160))
                 .unwrap_or_default();
-            Some(Hit { topic: item.topic.to_string(), heading: item.section.heading.clone(), matched, of: asked.len(), score, line })
+            Some(Hit {
+                topic: item.topic.to_string(),
+                heading: item.section.heading.clone(),
+                matched,
+                of: asked.len(),
+                score,
+                line,
+            })
         })
         .collect();
     hits.sort_by(|a, b| {
         b.matched
             .cmp(&a.matched)
-            .then(b.score.partial_cmp(&a.score).unwrap_or(std::cmp::Ordering::Equal))
+            .then(
+                b.score
+                    .partial_cmp(&a.score)
+                    .unwrap_or(std::cmp::Ordering::Equal),
+            )
             .then_with(|| a.topic.cmp(&b.topic))
             .then_with(|| a.heading.cmp(&b.heading))
     });
@@ -398,12 +505,28 @@ mod tests {
     fn the_builtin_topics_are_there_and_split_into_sections() {
         let (topics, problems) = super::topics(None);
         assert!(problems.is_empty());
-        assert_eq!(topics.iter().map(|t| t.id.as_str()).collect::<Vec<_>>(), ["workflow", "quirks", "service-code"]);
+        assert_eq!(
+            topics.iter().map(|t| t.id.as_str()).collect::<Vec<_>>(),
+            ["workflow", "quirks", "service-code"]
+        );
         let quirks = find(&topics, "quirks").unwrap();
         assert!(sections(&quirks.text).len() >= 50, "one section per quirk");
         for topic in &topics {
-            let python_tool = [".py`", "tools/twx", "tools/sync", "tools/import", "tools/bundle", "tools\\"].iter().find(|t| topic.text.contains(*t));
-            assert!(python_tool.is_none(), "{} still names the Python tools: {python_tool:?}", topic.id);
+            let python_tool = [
+                ".py`",
+                "tools/twx",
+                "tools/sync",
+                "tools/import",
+                "tools/bundle",
+                "tools\\",
+            ]
+            .iter()
+            .find(|t| topic.text.contains(*t));
+            assert!(
+                python_tool.is_none(),
+                "{} still names the Python tools: {python_tool:?}",
+                topic.id
+            );
         }
     }
 
@@ -411,12 +534,18 @@ mod tests {
     fn a_heading_inside_code_is_not_a_section() {
         let text = "# T\n\n## One\nx\n```\n## not a heading\n```\n## Two\ny\n";
         let found = sections(text);
-        assert_eq!(found.iter().map(|s| s.heading.as_str()).collect::<Vec<_>>(), ["One", "Two"]);
+        assert_eq!(
+            found.iter().map(|s| s.heading.as_str()).collect::<Vec<_>>(),
+            ["One", "Two"]
+        );
         assert!(found[0].text.contains("## not a heading"));
         // A tilde fence, and a longer fence that a shorter one inside does not close.
         let text = "## One\n~~~\n## code\n~~~\n````md\n```\n## still code\n```\n````\n## Two\n";
         let found = sections(text);
-        assert_eq!(found.iter().map(|s| s.heading.as_str()).collect::<Vec<_>>(), ["One", "Two"]);
+        assert_eq!(
+            found.iter().map(|s| s.heading.as_str()).collect::<Vec<_>>(),
+            ["One", "Two"]
+        );
     }
 
     #[test]
@@ -426,7 +555,10 @@ mod tests {
         assert_eq!(hits[0].topic, "quirks");
         assert!(hits[0].heading.contains("AddMember"), "{hits:?}");
         let hits = search(&topics, "how do I add a group member?", 3);
-        assert!(hits[0].heading.contains("AddMember"), "joined words and no stopwords: {hits:?}");
+        assert!(
+            hits[0].heading.contains("AddMember"),
+            "joined words and no stopwords: {hits:?}"
+        );
         let hits = search(&topics, "importer app key session", 3);
         assert!(hits[0].heading.contains("needs a session"), "{hits:?}");
         assert!(search(&topics, "zzzunknownword", 3).is_empty());
@@ -434,15 +566,28 @@ mod tests {
 
     #[test]
     fn a_section_holding_more_of_the_words_ranks_first_whatever_its_score() {
-        let topic = |id: &str, text: &str| Topic { id: id.into(), title: id.into(), file: None, text: text.into() };
+        let topic = |id: &str, text: &str| Topic {
+            id: id.into(),
+            title: id.into(),
+            file: None,
+            text: text.into(),
+        };
         // B repeats one rare joined word in its heading; A holds all three words once.
         let topics = [
             topic("a", "## A\nalpha beta gamma\n"),
-            topic("b", "## alphabeta alphabeta\nalphabeta alphabeta alphabeta\n"),
+            topic(
+                "b",
+                "## alphabeta alphabeta\nalphabeta alphabeta alphabeta\n",
+            ),
             topic("c", "## C\nnothing\n"),
         ];
         let hits = search(&topics, "alpha beta gamma", 5);
-        assert_eq!(hits.iter().map(|h| (h.topic.as_str(), h.matched)).collect::<Vec<_>>(), [("a", 3), ("b", 2)]);
+        assert_eq!(
+            hits.iter()
+                .map(|h| (h.topic.as_str(), h.matched))
+                .collect::<Vec<_>>(),
+            [("a", 3), ("b", 2)]
+        );
         assert!(search(&topics, "how do I", 5).is_empty(), "only stopwords");
         assert!(search(&topics, "ünïcödé — 日本", 5).is_empty());
     }
@@ -455,31 +600,64 @@ mod tests {
             Reading::Outline { headings, .. } => assert!(headings.len() >= 50),
             other => panic!("{other:?}"),
         }
-        let Reading::Text(text) = read(quirks, Some("addmember")).unwrap() else { panic!() };
+        let Reading::Text(text) = read(quirks, Some("addmember")).unwrap() else {
+            panic!()
+        };
         assert!(text.starts_with("## A Group's `AddMember`"));
-        assert!(read(quirks, Some("import")).unwrap_err().to_string().contains("matches"), "ambiguous");
+        assert!(
+            read(quirks, Some("import"))
+                .unwrap_err()
+                .to_string()
+                .contains("matches"),
+            "ambiguous"
+        );
         assert!(read(quirks, Some("no such thing")).is_err());
-        assert!(matches!(read(find(&topics, "workflow").unwrap(), None).unwrap(), Reading::Text(_)), "short: whole");
+        assert!(
+            matches!(
+                read(find(&topics, "workflow").unwrap(), None).unwrap(),
+                Reading::Text(_)
+            ),
+            "short: whole"
+        );
     }
 
     #[test]
     fn the_solutions_own_markdown_is_a_topic_too() {
-        let nonce = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos();
+        let nonce = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
         let root = std::env::temp_dir().join(format!("twaco-guide-{}-{nonce}", std::process::id()));
         std::fs::create_dir_all(root.join("docs/deep")).unwrap();
         std::fs::write(root.join("twaco.toml"), "[[project]]\nname = \"P\"\n").unwrap();
-        std::fs::write(root.join("AGENTS.md"), "# Agents\n\n## Dashboards live in Postgres\nNot in DataTables.\n").unwrap();
-        std::fs::write(root.join("docs/deep/GUIDE.md"), "# Guide\n\n## Setup\nRun it.\n").unwrap();
+        std::fs::write(
+            root.join("AGENTS.md"),
+            "# Agents\n\n## Dashboards live in Postgres\nNot in DataTables.\n",
+        )
+        .unwrap();
+        std::fs::write(
+            root.join("docs/deep/GUIDE.md"),
+            "# Guide\n\n## Setup\nRun it.\n",
+        )
+        .unwrap();
         std::fs::write(root.join("docs/notes.txt"), "not markdown").unwrap();
         let solution = Solution::load(&root.join("twaco.toml")).unwrap();
         let (topics, problems) = super::topics(Some(&solution));
         assert!(problems.is_empty(), "{problems:?}");
         let ids: Vec<&str> = topics.iter().map(|t| t.id.as_str()).collect();
         assert_eq!(&ids[3..], ["AGENTS", "docs/deep/GUIDE"]);
-        assert_eq!(find(&topics, "guide").unwrap().id, "docs/deep/GUIDE", "by its last part");
+        assert_eq!(
+            find(&topics, "guide").unwrap().id,
+            "docs/deep/GUIDE",
+            "by its last part"
+        );
         assert_eq!(search(&topics, "postgres dashboards", 1)[0].topic, "AGENTS");
         // A path someone names must exist, and stay inside the solution.
-        std::fs::write(root.join("twaco.toml"), "[[project]]\nname = \"P\"\n\n[knowledge]\npaths = [\"missing.md\", \"../outside\"]\n").unwrap();
+        std::fs::write(
+            root.join("twaco.toml"),
+            "[[project]]\nname = \"P\"\n\n[knowledge]\npaths = [\"missing.md\", \"../outside\"]\n",
+        )
+        .unwrap();
         let solution = Solution::load(&root.join("twaco.toml")).unwrap();
         let (topics, problems) = super::topics(Some(&solution));
         assert_eq!(topics.len(), 3);

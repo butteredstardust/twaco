@@ -49,9 +49,20 @@ pub fn sync(
 ) -> Result<(Vec<u8>, SyncReport), SidecarError> {
     let tokens = scan::tokenize(src)?;
     let host = sidecar::member_host_of(&tokens, src).ok_or(SidecarError::NotAnEntity)?;
-    let definitions = sidecar::named_children_of(&tokens, src, host, "ServiceDefinitions", "ServiceDefinition")?;
-    let implementations =
-        sidecar::named_children_of(&tokens, src, host, "ServiceImplementations", "ServiceImplementation")?;
+    let definitions = sidecar::named_children_of(
+        &tokens,
+        src,
+        host,
+        "ServiceDefinitions",
+        "ServiceDefinition",
+    )?;
+    let implementations = sidecar::named_children_of(
+        &tokens,
+        src,
+        host,
+        "ServiceImplementations",
+        "ServiceImplementation",
+    )?;
 
     let mut report = SyncReport::default();
     let mut edits: Vec<Edit> = Vec::new();
@@ -86,7 +97,10 @@ pub fn sync(
             at: tokens[definition].span.start,
         })?;
         let existing_block = String::from_utf8_lossy(block.of(src)).into_owned();
-        let wanted = sidecar.definition.trim_end_matches(['\n', '\r']).replace("\r\n", "\n");
+        let wanted = sidecar
+            .definition
+            .trim_end_matches(['\n', '\r'])
+            .replace("\r\n", "\n");
         let rendered = match newline_of(&existing_block) {
             "\r\n" => wanted.replace('\n', "\r\n"),
             _ => wanted,
@@ -150,7 +164,11 @@ pub fn sync(
 /// the document puts between `<code>` and `<![CDATA[` survives untouched. For a `<code>` holding
 /// text or nothing it is the element's whole inner range, because there is no CDATA to preserve
 /// the shape of.
-fn script_region(tokens: &[Token], src: &[u8], implementation: usize) -> Option<(scan::Span, String)> {
+fn script_region(
+    tokens: &[Token],
+    src: &[u8],
+    implementation: usize,
+) -> Option<(scan::Span, String)> {
     let code = sidecar::code_element_of(tokens, src, implementation)?;
     if tokens[code].kind == Kind::Empty {
         // `<code/>` has no inner range to write into; it would have to become `<code>...</code>`,
@@ -159,7 +177,9 @@ fn script_region(tokens: &[Token], src: &[u8], implementation: usize) -> Option<
         return None;
     }
     let end = scan::element_end(tokens, code)?;
-    let cdata: Vec<usize> = (code + 1..end).filter(|&i| tokens[i].kind == Kind::Cdata).collect();
+    let cdata: Vec<usize> = (code + 1..end)
+        .filter(|&i| tokens[i].kind == Kind::Cdata)
+        .collect();
 
     if let (Some(&first), Some(&last)) = (cdata.first(), cdata.last()) {
         let region = scan::Span::new(tokens[first].span.start, tokens[last].span.end);
@@ -192,7 +212,10 @@ pub fn render_payload(
 ) -> String {
     let normalized_script = script.replace("\r\n", "\n");
     if !indent_cdata_payload {
-        let body = normalized_script.split('\n').collect::<Vec<&str>>().join(newline);
+        let body = normalized_script
+            .split('\n')
+            .collect::<Vec<&str>>()
+            .join(newline);
         return format!("{newline}{body}{newline}");
     }
 
@@ -206,7 +229,13 @@ pub fn render_payload(
 
     let body = normalized_script
         .split('\n')
-        .map(|line| if line.is_empty() { String::new() } else { format!("{indent}{line}") })
+        .map(|line| {
+            if line.is_empty() {
+                String::new()
+            } else {
+                format!("{indent}{line}")
+            }
+        })
         .collect::<Vec<String>>()
         .join(newline);
     format!("{newline}{body}{newline}{indent}")
@@ -244,7 +273,9 @@ mod tests {
     }
 
     fn entity(script: &str) -> Vec<u8> {
-        entity_with(&format!("<code><![CDATA[\n{script}\n            ]]></code>"))
+        entity_with(&format!(
+            "<code><![CDATA[\n{script}\n            ]]></code>"
+        ))
     }
 
     fn sidecars_of(src: &[u8]) -> BTreeMap<String, ServiceSidecar> {
@@ -275,7 +306,14 @@ mod tests {
     fn a_script_containing_the_cdata_terminator_is_split_not_truncated() {
         // Regression: writing the payload raw closed the section early and truncated the script.
         let src = entity("            a();");
-        let (out, _) = sync(&src, &with_script(&src, "a(); ]]> b();"), false, true, false).unwrap();
+        let (out, _) = sync(
+            &src,
+            &with_script(&src, "a(); ]]> b();"),
+            false,
+            true,
+            false,
+        )
+        .unwrap();
         let back = sidecar::extract(&out).unwrap();
         assert_eq!(back.services[0].script, "a(); ]]> b();");
     }
@@ -295,7 +333,10 @@ mod tests {
         let src = entity_with("<code></code>");
         let (out, report) = sync(&src, &with_script(&src, "fresh();"), false, true, false).unwrap();
         assert_eq!(report.changed, vec!["S"]);
-        assert_eq!(sidecar::extract(&out).unwrap().services[0].script, "fresh();");
+        assert_eq!(
+            sidecar::extract(&out).unwrap().services[0].script,
+            "fresh();"
+        );
     }
 
     #[test]
@@ -323,12 +364,16 @@ mod tests {
         let src = entity("            a();");
         let mut sidecars = sidecars_of(&src);
         sidecars.get_mut("S").unwrap().definition =
-            "<ServiceDefinition name=\"S\" description=\"d\">\r\n</ServiceDefinition>\n".to_string();
+            "<ServiceDefinition name=\"S\" description=\"d\">\r\n</ServiceDefinition>\n"
+                .to_string();
         let (once, _) = sync(&src, &sidecars, false, true, false).unwrap();
         let (twice, second) = sync(&once, &sidecars_of(&once), false, true, false).unwrap();
         assert_eq!(once, twice, "a second sync must change nothing");
         assert!(second.changed.is_empty());
-        assert!(!String::from_utf8_lossy(&twice).contains("\r\r\n"), "no doubled carriage return");
+        assert!(
+            !String::from_utf8_lossy(&twice).contains("\r\r\n"),
+            "no doubled carriage return"
+        );
     }
 
     #[test]
@@ -341,10 +386,17 @@ mod tests {
         assert!(ordinary.changed.is_empty());
 
         let (once, first) = sync(&src, &sidecars, false, true, true).unwrap();
-        assert_eq!(first.changed, vec!["S"], "relayout is an explicit migration");
+        assert_eq!(
+            first.changed,
+            vec!["S"],
+            "relayout is an explicit migration"
+        );
         let (twice, second) = sync(&once, &sidecars, false, true, true).unwrap();
         assert_eq!(once, twice);
-        assert!(second.changed.is_empty(), "a second relayout pass must change nothing");
+        assert!(
+            second.changed.is_empty(),
+            "a second relayout pass must change nothing"
+        );
     }
 
     #[test]
@@ -387,8 +439,14 @@ mod tests {
     #[test]
     fn indented_output_is_unchanged_from_the_legacy_layout() {
         let src = entity("            var a = 1;");
-        let (out, report) =
-            sync(&src, &with_script(&src, "var a = 2;\nvar b = 3;"), false, true, false).unwrap();
+        let (out, report) = sync(
+            &src,
+            &with_script(&src, "var a = 2;\nvar b = 3;"),
+            false,
+            true,
+            false,
+        )
+        .unwrap();
         let text = String::from_utf8(out).unwrap();
         assert!(text.contains("\n            var a = 2;\n            var b = 3;\n"));
         assert_eq!(report.changed, vec!["S"]);
@@ -397,8 +455,14 @@ mod tests {
     #[test]
     fn an_edited_flush_script_uses_indented_mode_when_configured() {
         let src = entity_with("<code><![CDATA[\nvar a = 1;\n]]></code>");
-        let (out, report) =
-            sync(&src, &with_script(&src, "var a = 2;\nvar b = 3;"), false, true, false).unwrap();
+        let (out, report) = sync(
+            &src,
+            &with_script(&src, "var a = 2;\nvar b = 3;"),
+            false,
+            true,
+            false,
+        )
+        .unwrap();
         let text = String::from_utf8(out).unwrap();
         assert!(text.contains("\n            var a = 2;\n            var b = 3;\n            "));
         assert_eq!(report.changed, vec!["S"]);
@@ -407,8 +471,14 @@ mod tests {
     #[test]
     fn flush_left_output_has_no_indented_script_line_or_trailing_indent() {
         let src = entity("            var a = 1;");
-        let (out, report) =
-            sync(&src, &with_script(&src, "var a = 2;\n    var b = 3;"), false, false, false).unwrap();
+        let (out, report) = sync(
+            &src,
+            &with_script(&src, "var a = 2;\n    var b = 3;"),
+            false,
+            false,
+            false,
+        )
+        .unwrap();
         let text = String::from_utf8(out).unwrap();
         assert!(text.contains("<code><![CDATA[\nvar a = 2;\n    var b = 3;\n]]></code>"));
         assert!(!text.contains("\n            var a = 2;"));
@@ -445,10 +515,20 @@ mod tests {
         ] {
             let sidecars = sidecars_of(&src);
             let (once, first) = sync(&src, &sidecars, false, indent, true).unwrap();
-            assert_eq!(first.changed, vec!["S"], "the opposite layout must be rewritten");
+            assert_eq!(
+                first.changed,
+                vec!["S"],
+                "the opposite layout must be rewritten"
+            );
             let (twice, second) = sync(&once, &sidecars, false, indent, true).unwrap();
-            assert_eq!(twice, once, "a second sync in mode {indent} must be byte-identical");
-            assert!(second.changed.is_empty(), "a second sync in mode {indent} must be unchanged");
+            assert_eq!(
+                twice, once,
+                "a second sync in mode {indent} must be byte-identical"
+            );
+            assert!(
+                second.changed.is_empty(),
+                "a second sync in mode {indent} must be unchanged"
+            );
         }
     }
 
@@ -456,7 +536,9 @@ mod tests {
     fn a_blank_line_is_written_empty_rather_than_as_trailing_whitespace() {
         let src = entity("            a();");
         let (out, _) = sync(&src, &with_script(&src, "a();\n\nb();"), false, true, false).unwrap();
-        assert!(String::from_utf8(out).unwrap().contains("a();\n\n            b();"));
+        assert!(String::from_utf8(out)
+            .unwrap()
+            .contains("a();\n\n            b();"));
     }
 
     #[test]
@@ -479,6 +561,9 @@ mod tests {
 
     #[test]
     fn an_empty_payload_falls_back_to_twelve_spaces() {
-        assert_eq!(render_payload("", "x();", "\n", true), "\n            x();\n            ");
+        assert_eq!(
+            render_payload("", "x();", "\n", true),
+            "\n            x();\n            "
+        );
     }
 }

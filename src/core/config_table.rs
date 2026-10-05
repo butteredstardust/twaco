@@ -11,8 +11,8 @@
 //! which matters because open mashups read it. The key comes from the table's own DataShape,
 //! never assumed, and a multi-row table without one is refused rather than guessed at.
 
-use super::scan::{self, Kind, Token};
 use super::entity_key::ServiceTarget;
+use super::scan::{self, Kind, Token};
 use super::server::{Client, ServerError};
 use super::sidecar;
 use serde_json::{json, Map, Value};
@@ -31,11 +31,21 @@ pub struct Table {
 
 /// The server operations this module needs, as a trait so restore can be tested without one.
 pub trait Remote {
-    fn call(&self, target: &ServiceTarget, service: &str, parameters: &Value) -> Result<Option<Value>, ServerError>;
+    fn call(
+        &self,
+        target: &ServiceTarget,
+        service: &str,
+        parameters: &Value,
+    ) -> Result<Option<Value>, ServerError>;
 }
 
 impl Remote for Client {
-    fn call(&self, target: &ServiceTarget, service: &str, parameters: &Value) -> Result<Option<Value>, ServerError> {
+    fn call(
+        &self,
+        target: &ServiceTarget,
+        service: &str,
+        parameters: &Value,
+    ) -> Result<Option<Value>, ServerError> {
         self.call_service(target, service, parameters, TIMEOUT)
     }
 }
@@ -46,19 +56,31 @@ pub enum TableError {
     /// The server answered, but not with an InfoTable.
     Shape(String),
     /// A backup made from another Thing or table.
-    WrongBackup { expected: String, found: String },
+    WrongBackup {
+        expected: String,
+        found: String,
+    },
     /// A table without a primary key cannot have rows matched or removed one by one.
     NoPrimaryKey,
     /// The backup's DataShape declares another primary key than the table on the server.
-    KeyMismatch { backup: Vec<String>, server: Vec<String> },
+    KeyMismatch {
+        backup: Vec<String>,
+        server: Vec<String>,
+    },
     /// A saved row without a value for a key field, or two saved rows with one key.
     BadKey(String),
-    Backup { path: String, why: String },
+    Backup {
+        path: String,
+        why: String,
+    },
     Repository(String),
     /// Restore wrote, but the table read back is not the backup.
     NotRestored(Vec<String>),
     /// A write failed after an earlier one succeeded: the table is between the two states.
-    PartlyRestored { why: ServerError, left: Vec<String> },
+    PartlyRestored {
+        why: ServerError,
+        left: Vec<String>,
+    },
 }
 
 impl fmt::Display for TableError {
@@ -83,7 +105,10 @@ impl fmt::Display for TableError {
                 backup.join(", "),
                 server.join(", ")
             ),
-            TableError::BadKey(why) => write!(f, "the backup cannot be restored: {why}; nothing was written"),
+            TableError::BadKey(why) => write!(
+                f,
+                "the backup cannot be restored: {why}; nothing was written"
+            ),
             TableError::Backup { path, why } => write!(f, "{path}: {why}"),
             TableError::Repository(why) => write!(f, "{why}"),
             TableError::NotRestored(differences) => write!(
@@ -119,7 +144,11 @@ fn thing_target(thing: &str) -> Result<ServiceTarget, ServerError> {
 /// Read a table from the server.
 pub fn fetch(remote: &dyn Remote, thing: &str, table: &str) -> Result<Table, TableError> {
     let reply = remote
-        .call(&thing_target(thing).map_err(TableError::Remote)?, "GetConfigurationTable", &json!({ "tableName": table }))
+        .call(
+            &thing_target(thing).map_err(TableError::Remote)?,
+            "GetConfigurationTable",
+            &json!({ "tableName": table }),
+        )
         .map_err(TableError::Remote)?
         .ok_or_else(|| TableError::Shape("an empty body".to_string()))?;
     let data_shape = reply
@@ -149,7 +178,10 @@ pub fn primary_key(data_shape: &Value) -> Vec<String> {
             fields
                 .iter()
                 .filter(|(_, field)| {
-                    field.pointer("/aspects/isPrimaryKey").and_then(Value::as_bool) == Some(true)
+                    field
+                        .pointer("/aspects/isPrimaryKey")
+                        .and_then(Value::as_bool)
+                        == Some(true)
                 })
                 .map(|(name, _)| name.clone())
                 .collect()
@@ -172,9 +204,11 @@ fn normalized(value: &Value) -> Value {
             _ => value.clone(),
         },
         Value::Array(items) => Value::Array(items.iter().map(normalized).collect()),
-        Value::Object(map) => {
-            Value::Object(map.iter().map(|(k, v)| (k.clone(), normalized(v))).collect())
-        }
+        Value::Object(map) => Value::Object(
+            map.iter()
+                .map(|(k, v)| (k.clone(), normalized(v)))
+                .collect(),
+        ),
         Value::String(text) => {
             let text = text.trim();
             match serde_json::from_str::<Value>(text) {
@@ -222,7 +256,12 @@ fn exact(value: Option<&Value>) -> String {
             Value::Object(map) => {
                 let mut entries: Vec<(&String, &Value)> = map.iter().collect();
                 entries.sort_by(|a, b| a.0.cmp(b.0));
-                Value::Object(entries.into_iter().map(|(k, v)| (k.clone(), canonical(v))).collect())
+                Value::Object(
+                    entries
+                        .into_iter()
+                        .map(|(k, v)| (k.clone(), canonical(v)))
+                        .collect(),
+                )
             }
             other => other.clone(),
         }
@@ -237,7 +276,10 @@ fn exact(value: Option<&Value>) -> String {
 type Cell = fn(Option<&Value>) -> String;
 
 fn key_of(row: &Map<String, Value>, key: &[String], cell: Cell) -> String {
-    key.iter().map(|field| cell(row.get(field))).collect::<Vec<_>>().join("\u{1f}")
+    key.iter()
+        .map(|field| cell(row.get(field)))
+        .collect::<Vec<_>>()
+        .join("\u{1f}")
 }
 
 /// Differences between two sets of rows, keyed by primary key, or by position when there is none.
@@ -269,7 +311,11 @@ fn differences_by(
             .map(|i| (format!("#{}", i + 1), left.get(i), right.get(i)))
             .collect()
     } else {
-        let mut keys: Vec<String> = left.iter().chain(right).map(|row| key_of(row, key, cell)).collect();
+        let mut keys: Vec<String> = left
+            .iter()
+            .chain(right)
+            .map(|row| key_of(row, key, cell))
+            .collect();
         keys.sort();
         keys.dedup();
         keys.into_iter()
@@ -282,8 +328,12 @@ fn differences_by(
     };
     for (row, l, r) in pairs {
         match (l, r) {
-            (Some(_), None) => out.push(format!("row {row}: on {left_name}, missing from {right_name}")),
-            (None, Some(_)) => out.push(format!("row {row}: in {right_name}, missing on {left_name}")),
+            (Some(_), None) => out.push(format!(
+                "row {row}: on {left_name}, missing from {right_name}"
+            )),
+            (None, Some(_)) => out.push(format!(
+                "row {row}: in {right_name}, missing on {left_name}"
+            )),
             (Some(l), Some(r)) => {
                 let mut columns: Vec<&String> = l.keys().chain(r.keys()).collect();
                 columns.sort();
@@ -309,7 +359,12 @@ fn differences_by(
 /// Write a backup in the established JSON format, retained for compatibility. It never
 /// overwrites an existing file:
 /// a backup written over the one taken before a test is the backup that was needed.
-pub fn write_backup(path: &Path, thing: &str, table_name: &str, table: &Table) -> Result<(), TableError> {
+pub fn write_backup(
+    path: &Path,
+    thing: &str,
+    table_name: &str,
+    table: &Table,
+) -> Result<(), TableError> {
     let document = json!({
         "thing": thing,
         "table": table_name,
@@ -318,7 +373,10 @@ pub fn write_backup(path: &Path, thing: &str, table_name: &str, table: &Table) -
     });
     let mut bytes = serde_json::to_vec_pretty(&document).expect("JSON values serialise");
     bytes.push(b'\n');
-    let io = |why: std::io::Error| TableError::Backup { path: path.display().to_string(), why: why.to_string() };
+    let io = |why: std::io::Error| TableError::Backup {
+        path: path.display().to_string(),
+        why: why.to_string(),
+    };
     use std::io::Write;
     let mut file = std::fs::OpenOptions::new()
         .write(true)
@@ -346,7 +404,10 @@ pub fn write_backup(path: &Path, thing: &str, table_name: &str, table: &Table) -
 
 /// Read a backup and check it is of this Thing's table.
 pub fn read_backup(path: &Path, thing: &str, table_name: &str) -> Result<Table, TableError> {
-    let bad = |why: String| TableError::Backup { path: path.display().to_string(), why };
+    let bad = |why: String| TableError::Backup {
+        path: path.display().to_string(),
+        why,
+    };
     let text = std::fs::read_to_string(path).map_err(|e| bad(e.to_string()))?;
     let document: Value = serde_json::from_str(&text).map_err(|e| bad(e.to_string()))?;
     let found_thing = document.get("thing").and_then(Value::as_str).unwrap_or("");
@@ -357,13 +418,20 @@ pub fn read_backup(path: &Path, thing: &str, table_name: &str) -> Result<Table, 
             found: format!("{found_thing}.{found_table}"),
         });
     }
-    let data_shape = document.get("dataShape").cloned().ok_or_else(|| bad("no dataShape".to_string()))?;
+    let data_shape = document
+        .get("dataShape")
+        .cloned()
+        .ok_or_else(|| bad("no dataShape".to_string()))?;
     let rows = document
         .get("rows")
         .and_then(Value::as_array)
         .ok_or_else(|| bad("no rows".to_string()))?
         .iter()
-        .map(|row| row.as_object().cloned().ok_or_else(|| bad("a row that is not an object".to_string())))
+        .map(|row| {
+            row.as_object()
+                .cloned()
+                .ok_or_else(|| bad("a row that is not an object".to_string()))
+        })
         .collect::<Result<_, _>>()?;
     Ok(Table { data_shape, rows })
 }
@@ -382,17 +450,26 @@ fn restore_key(current: &Table, saved: &Table) -> Result<Vec<String>, TableError
     let key = primary_key(&current.data_shape);
     let declared = primary_key(&saved.data_shape);
     if declared != key {
-        return Err(TableError::KeyMismatch { backup: declared, server: key });
+        return Err(TableError::KeyMismatch {
+            backup: declared,
+            server: key,
+        });
     }
     if !key.is_empty() {
         let mut seen = std::collections::BTreeSet::new();
         for (index, row) in saved.rows.iter().enumerate() {
             if let Some(field) = key.iter().find(|field| exact(row.get(*field)).is_empty()) {
-                return Err(TableError::BadKey(format!("saved row #{} has no value for key field {field}", index + 1)));
+                return Err(TableError::BadKey(format!(
+                    "saved row #{} has no value for key field {field}",
+                    index + 1
+                )));
             }
             let k = key_of(row, &key, exact);
             if !seen.insert(k.clone()) {
-                return Err(TableError::BadKey(format!("two saved rows have the key {}", k.replace('\u{1f}', ", "))));
+                return Err(TableError::BadKey(format!(
+                    "two saved rows have the key {}",
+                    k.replace('\u{1f}', ", ")
+                )));
             }
         }
     }
@@ -402,16 +479,23 @@ fn restore_key(current: &Table, saved: &Table) -> Result<Vec<String>, TableError
 pub fn plan_restore(current: &Table, saved: &Table) -> Result<RestorePlan, TableError> {
     let key = restore_key(current, saved)?;
     if key.is_empty() {
-        let same = differences_by("server", &current.rows, "backup", &saved.rows, &key, exact).is_empty();
+        let same =
+            differences_by("server", &current.rows, "backup", &saved.rows, &key, exact).is_empty();
         if same {
-            return Ok(RestorePlan { writes: 0, deletes: Vec::new() });
+            return Ok(RestorePlan {
+                writes: 0,
+                deletes: Vec::new(),
+            });
         }
         // Without a key, only a single row written over at most one row is unambiguous. A row to
         // remove cannot be named, so an empty backup over a filled table is refused too.
         if saved.rows.len() != 1 || current.rows.len() > 1 {
             return Err(TableError::NoPrimaryKey);
         }
-        return Ok(RestorePlan { writes: 1, deletes: Vec::new() });
+        return Ok(RestorePlan {
+            writes: 1,
+            deletes: Vec::new(),
+        });
     }
     let writes = saved
         .rows
@@ -432,7 +516,11 @@ pub fn plan_restore(current: &Table, saved: &Table) -> Result<RestorePlan, Table
             }
         })
         .count();
-    let saved_keys: Vec<String> = saved.rows.iter().map(|row| key_of(row, &key, exact)).collect();
+    let saved_keys: Vec<String> = saved
+        .rows
+        .iter()
+        .map(|row| key_of(row, &key, exact))
+        .collect();
     let deletes = current
         .rows
         .iter()
@@ -446,7 +534,11 @@ pub fn plan_restore(current: &Table, saved: &Table) -> Result<RestorePlan, Table
 fn left_over(after: &Table, saved: &Table, key: &[String]) -> Vec<String> {
     let mut left = differences_by("server", &after.rows, "backup", &saved.rows, key, exact);
     if after.rows.len() != saved.rows.len() {
-        left.push(format!("the server holds {} row(s), the backup {}", after.rows.len(), saved.rows.len()));
+        left.push(format!(
+            "the server holds {} row(s), the backup {}",
+            after.rows.len(),
+            saved.rows.len()
+        ));
     }
     left
 }
@@ -478,9 +570,20 @@ pub fn restore(
             "values": { "dataShape": saved.data_shape, "rows": saved.rows },
         }));
     }
-    for row in current.rows.iter().filter(|row| plan.deletes.contains(&key_of(row, &key, exact))) {
-        let key_values: Map<String, Value> =
-            key.iter().map(|field| (field.clone(), row.get(field).cloned().unwrap_or(Value::Null))).collect();
+    for row in current
+        .rows
+        .iter()
+        .filter(|row| plan.deletes.contains(&key_of(row, &key, exact)))
+    {
+        let key_values: Map<String, Value> = key
+            .iter()
+            .map(|field| {
+                (
+                    field.clone(),
+                    row.get(field).cloned().unwrap_or(Value::Null),
+                )
+            })
+            .collect();
         calls.push(json!({
             "service": "DeleteConfigurationTableRows",
             "tableName": table_name,
@@ -491,7 +594,10 @@ pub fn restore(
     }
     for (index, mut parameters) in calls.into_iter().enumerate() {
         let service = parameters.as_object_mut().and_then(|p| p.remove("service"));
-        let service = service.as_ref().and_then(Value::as_str).expect("every call names its service");
+        let service = service
+            .as_ref()
+            .and_then(Value::as_str)
+            .expect("every call names its service");
         if let Err(why) = remote.call(&target, service, &parameters) {
             if index == 0 {
                 return Err(TableError::Remote(why));
@@ -516,10 +622,14 @@ pub fn restore(
 ///
 /// Only the entity's own `ConfigurationTables` count: a service implementation carries a
 /// `ConfigurationTables` of its own (its `Script` table), which is not the Thing's.
-pub fn repository_rows(src: &[u8], table_name: &str) -> Result<Vec<Map<String, Value>>, TableError> {
+pub fn repository_rows(
+    src: &[u8],
+    table_name: &str,
+) -> Result<Vec<Map<String, Value>>, TableError> {
     let bad = |why: String| TableError::Repository(why);
     let tokens = scan::tokenize(src).map_err(|e| bad(e.to_string()))?;
-    let entity = sidecar::entity_element(&tokens, src).ok_or_else(|| bad("not an entity document".to_string()))?;
+    let entity = sidecar::entity_element(&tokens, src)
+        .ok_or_else(|| bad("not an entity document".to_string()))?;
     let table = scan::child_tags(&tokens, src, "ConfigurationTables", entity)
         .into_iter()
         .flat_map(|tables| scan::child_tags(&tokens, src, "ConfigurationTable", tables))
@@ -539,7 +649,9 @@ pub fn repository_rows(src: &[u8], table_name: &str) -> Result<Vec<Map<String, V
 /// Each child of a row, with all the text under it: a JSON-typed value sits one element deeper.
 fn row_cells(tokens: &[Token], src: &[u8], row: usize) -> Map<String, Value> {
     let mut cells = Map::new();
-    let Some(end) = scan::element_end(tokens, row) else { return cells };
+    let Some(end) = scan::element_end(tokens, row) else {
+        return cells;
+    };
     let mut index = row + 1;
     while index < end {
         let token = &tokens[index];
@@ -549,10 +661,12 @@ fn row_cells(tokens: &[Token], src: &[u8], row: usize) -> Map<String, Value> {
                 let close = scan::element_end(tokens, index).unwrap_or(end);
                 let text: String = (index + 1..close)
                     .filter_map(|i| match tokens[i].kind {
-                        Kind::Cdata => Some(String::from_utf8_lossy(tokens[i].inner.of(src)).into_owned()),
-                        Kind::Text => {
-                            Some(scan::decode_entities(&String::from_utf8_lossy(tokens[i].span.of(src))))
+                        Kind::Cdata => {
+                            Some(String::from_utf8_lossy(tokens[i].inner.of(src)).into_owned())
                         }
+                        Kind::Text => Some(scan::decode_entities(&String::from_utf8_lossy(
+                            tokens[i].span.of(src),
+                        ))),
                         _ => None,
                     })
                     .collect();
@@ -560,7 +674,10 @@ fn row_cells(tokens: &[Token], src: &[u8], row: usize) -> Map<String, Value> {
                 index = close + 1;
             }
             Kind::Empty => {
-                cells.insert(String::from_utf8_lossy(token.name.of(src)).into_owned(), Value::String(String::new()));
+                cells.insert(
+                    String::from_utf8_lossy(token.name.of(src)).into_owned(),
+                    Value::String(String::new()),
+                );
                 index += 1;
             }
             _ => index += 1,
@@ -605,7 +722,10 @@ mod tests {
     impl Fake {
         fn with(rows: Vec<Map<String, Value>>) -> Self {
             Fake {
-                table: RefCell::new(Table { data_shape: shape(&["Key"]), rows }),
+                table: RefCell::new(Table {
+                    data_shape: shape(&["Key"]),
+                    rows,
+                }),
                 calls: RefCell::new(Vec::new()),
                 ignore_set: false,
                 append_set: false,
@@ -615,11 +735,18 @@ mod tests {
     }
 
     impl Remote for Fake {
-        fn call(&self, _: &ServiceTarget, service: &str, parameters: &Value) -> Result<Option<Value>, ServerError> {
+        fn call(
+            &self,
+            _: &ServiceTarget,
+            service: &str,
+            parameters: &Value,
+        ) -> Result<Option<Value>, ServerError> {
             self.calls.borrow_mut().push(service.to_string());
             let mut table = self.table.borrow_mut();
             match service {
-                "GetConfigurationTable" => Ok(Some(json!({ "dataShape": table.data_shape, "rows": table.rows }))),
+                "GetConfigurationTable" => Ok(Some(
+                    json!({ "dataShape": table.data_shape, "rows": table.rows }),
+                )),
                 "SetConfigurationTableRows" if self.append_set => {
                     for new in parameters["values"]["rows"].as_array().unwrap() {
                         table.rows.push(new.as_object().unwrap().clone());
@@ -659,41 +786,80 @@ mod tests {
 
     #[test]
     fn typed_server_values_equal_their_xml_text() {
-        assert_eq!(comparable(Some(&json!(24.0))), comparable(Some(&json!("24.0"))));
-        assert_eq!(comparable(Some(&json!(true))), comparable(Some(&json!("true"))));
+        assert_eq!(
+            comparable(Some(&json!(24.0))),
+            comparable(Some(&json!("24.0")))
+        );
+        assert_eq!(
+            comparable(Some(&json!(true))),
+            comparable(Some(&json!("true")))
+        );
         assert_eq!(
             comparable(Some(&json!({"b": 1, "a": [2.0]}))),
             comparable(Some(&json!(" {\"a\":[2],\"b\":1} ")))
         );
-        assert_ne!(comparable(Some(&json!("small"))), comparable(Some(&json!("large"))));
+        assert_ne!(
+            comparable(Some(&json!("small"))),
+            comparable(Some(&json!("large")))
+        );
         assert_eq!(comparable(None), comparable(Some(&json!(""))));
     }
 
     #[test]
     fn restore_upserts_then_deletes_extras_and_proves_it() {
-        let saved = Table { data_shape: shape(&["Key"]), rows: vec![row("a", json!("1")), row("b", json!("2"))] };
-        let fake = Fake::with(vec![row("a", json!("1")), row("b", json!("20")), row("c", json!("3"))]);
+        let saved = Table {
+            data_shape: shape(&["Key"]),
+            rows: vec![row("a", json!("1")), row("b", json!("2"))],
+        };
+        let fake = Fake::with(vec![
+            row("a", json!("1")),
+            row("b", json!("20")),
+            row("c", json!("3")),
+        ]);
         let plan = restore(&fake, "T", "CT", &saved, true).unwrap();
-        assert_eq!(plan, RestorePlan { writes: 1, deletes: vec!["c".to_string()] });
+        assert_eq!(
+            plan,
+            RestorePlan {
+                writes: 1,
+                deletes: vec!["c".to_string()]
+            }
+        );
         assert_eq!(
             *fake.calls.borrow(),
-            ["GetConfigurationTable", "SetConfigurationTableRows", "DeleteConfigurationTableRows", "GetConfigurationTable"]
+            [
+                "GetConfigurationTable",
+                "SetConfigurationTableRows",
+                "DeleteConfigurationTableRows",
+                "GetConfigurationTable"
+            ]
         );
         assert_eq!(fake.table.borrow().rows, saved.rows);
     }
 
     #[test]
     fn a_dry_run_restore_only_reads() {
-        let saved = Table { data_shape: shape(&["Key"]), rows: vec![row("a", json!("1"))] };
+        let saved = Table {
+            data_shape: shape(&["Key"]),
+            rows: vec![row("a", json!("1"))],
+        };
         let fake = Fake::with(vec![row("a", json!("9")), row("z", json!("0"))]);
         let plan = restore(&fake, "T", "CT", &saved, false).unwrap();
-        assert_eq!(plan, RestorePlan { writes: 1, deletes: vec!["z".to_string()] });
+        assert_eq!(
+            plan,
+            RestorePlan {
+                writes: 1,
+                deletes: vec!["z".to_string()]
+            }
+        );
         assert_eq!(*fake.calls.borrow(), ["GetConfigurationTable"]);
     }
 
     #[test]
     fn an_already_matching_table_is_not_written() {
-        let saved = Table { data_shape: shape(&["Key"]), rows: vec![row("a", json!("1"))] };
+        let saved = Table {
+            data_shape: shape(&["Key"]),
+            rows: vec![row("a", json!("1"))],
+        };
         let fake = Fake::with(vec![row("a", json!(1.0))]);
         restore(&fake, "T", "CT", &saved, true).unwrap();
         assert_eq!(*fake.calls.borrow(), ["GetConfigurationTable"]);
@@ -701,7 +867,10 @@ mod tests {
 
     #[test]
     fn a_restore_the_server_did_not_take_is_reported() {
-        let saved = Table { data_shape: shape(&["Key"]), rows: vec![row("a", json!("1"))] };
+        let saved = Table {
+            data_shape: shape(&["Key"]),
+            rows: vec![row("a", json!("1"))],
+        };
         let mut fake = Fake::with(vec![row("a", json!("9"))]);
         fake.ignore_set = true;
         let error = restore(&fake, "T", "CT", &saved, true).unwrap_err();
@@ -710,7 +879,10 @@ mod tests {
 
     #[test]
     fn a_multi_row_table_without_a_key_is_refused_before_any_write() {
-        let saved = Table { data_shape: shape(&[]), rows: vec![row("a", json!("1")), row("b", json!("2"))] };
+        let saved = Table {
+            data_shape: shape(&[]),
+            rows: vec![row("a", json!("1")), row("b", json!("2"))],
+        };
         let fake = Fake::with(vec![row("a", json!("1"))]);
         fake.table.borrow_mut().data_shape = shape(&[]);
         let error = restore(&fake, "T", "CT", &saved, true).unwrap_err();
@@ -720,7 +892,10 @@ mod tests {
 
     #[test]
     fn an_empty_backup_over_a_filled_keyless_table_is_refused() {
-        let saved = Table { data_shape: shape(&[]), rows: vec![] };
+        let saved = Table {
+            data_shape: shape(&[]),
+            rows: vec![],
+        };
         let fake = Fake::with(vec![row("a", json!("1"))]);
         fake.table.borrow_mut().data_shape = shape(&[]);
         let error = restore(&fake, "T", "CT", &saved, true).unwrap_err();
@@ -730,7 +905,10 @@ mod tests {
 
     #[test]
     fn the_key_is_the_servers_and_a_backup_declaring_another_is_refused() {
-        let saved = Table { data_shape: shape(&["Value"]), rows: vec![row("a", json!("1"))] };
+        let saved = Table {
+            data_shape: shape(&["Value"]),
+            rows: vec![row("a", json!("1"))],
+        };
         let fake = Fake::with(vec![row("a", json!("1")), row("b", json!("2"))]);
         let error = restore(&fake, "T", "CT", &saved, true).unwrap_err();
         assert!(matches!(error, TableError::KeyMismatch { .. }), "{error}");
@@ -740,13 +918,29 @@ mod tests {
     #[test]
     fn saved_rows_with_a_missing_or_repeated_key_are_refused() {
         let fake = Fake::with(vec![row("a", json!("1"))]);
-        let repeated = Table { data_shape: shape(&["Key"]), rows: vec![row("a", json!("1")), row("a", json!("2"))] };
-        assert!(matches!(restore(&fake, "T", "CT", &repeated, true), Err(TableError::BadKey(_))));
+        let repeated = Table {
+            data_shape: shape(&["Key"]),
+            rows: vec![row("a", json!("1")), row("a", json!("2"))],
+        };
+        assert!(matches!(
+            restore(&fake, "T", "CT", &repeated, true),
+            Err(TableError::BadKey(_))
+        ));
         let mut keyless_row = Map::new();
         keyless_row.insert("Value".to_string(), json!("1"));
-        let missing = Table { data_shape: shape(&["Key"]), rows: vec![keyless_row] };
-        assert!(matches!(restore(&fake, "T", "CT", &missing, true), Err(TableError::BadKey(_))));
-        assert!(fake.calls.borrow().iter().all(|call| call == "GetConfigurationTable"));
+        let missing = Table {
+            data_shape: shape(&["Key"]),
+            rows: vec![keyless_row],
+        };
+        assert!(matches!(
+            restore(&fake, "T", "CT", &missing, true),
+            Err(TableError::BadKey(_))
+        ));
+        assert!(fake
+            .calls
+            .borrow()
+            .iter()
+            .all(|call| call == "GetConfigurationTable"));
     }
 
     #[test]
@@ -759,35 +953,56 @@ mod tests {
         };
         let fake = Fake::with(vec![row("1", json!("x"))]);
         let plan = restore(&fake, "T", "CT", &saved, true).unwrap();
-        assert_eq!(plan, RestorePlan { writes: 2, deletes: vec![] });
+        assert_eq!(
+            plan,
+            RestorePlan {
+                writes: 2,
+                deletes: vec![]
+            }
+        );
         assert_eq!(fake.table.borrow().rows, saved.rows);
     }
 
     #[test]
     fn extra_rows_read_back_are_reported() {
-        let saved = Table { data_shape: shape(&["Key"]), rows: vec![row("a", json!("1"))] };
+        let saved = Table {
+            data_shape: shape(&["Key"]),
+            rows: vec![row("a", json!("1"))],
+        };
         let mut fake = Fake::with(vec![row("a", json!("9"))]);
         fake.append_set = true;
         let error = restore(&fake, "T", "CT", &saved, true).unwrap_err();
         match error {
-            TableError::NotRestored(left) => assert!(left.iter().any(|l| l.contains("2 row(s)")), "{left:?}"),
+            TableError::NotRestored(left) => {
+                assert!(left.iter().any(|l| l.contains("2 row(s)")), "{left:?}")
+            }
             other => panic!("{other}"),
         }
     }
 
     #[test]
     fn a_failure_after_a_write_says_where_the_table_was_left() {
-        let saved = Table { data_shape: shape(&["Key"]), rows: vec![row("a", json!("1"))] };
+        let saved = Table {
+            data_shape: shape(&["Key"]),
+            rows: vec![row("a", json!("1"))],
+        };
         let mut fake = Fake::with(vec![row("a", json!("9")), row("z", json!("0"))]);
         fake.fail_delete = true;
         let error = restore(&fake, "T", "CT", &saved, true).unwrap_err();
         match &error {
-            TableError::PartlyRestored { left, .. } => assert!(left.iter().any(|l| l.contains("row z")), "{left:?}"),
+            TableError::PartlyRestored { left, .. } => {
+                assert!(left.iter().any(|l| l.contains("row z")), "{left:?}")
+            }
             other => panic!("{other}"),
         }
         assert_eq!(
             *fake.calls.borrow(),
-            ["GetConfigurationTable", "SetConfigurationTableRows", "DeleteConfigurationTableRows", "GetConfigurationTable"]
+            [
+                "GetConfigurationTable",
+                "SetConfigurationTableRows",
+                "DeleteConfigurationTableRows",
+                "GetConfigurationTable"
+            ]
         );
     }
 
@@ -796,19 +1011,38 @@ mod tests {
         let dir = std::env::temp_dir().join(format!(
             "twaco-ct-{}-{}",
             std::process::id(),
-            std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
         ));
         std::fs::create_dir_all(&dir).unwrap();
         let path = dir.join("backup.json");
-        let table = Table { data_shape: shape(&["Key"]), rows: vec![row("a", json!("1"))] };
+        let table = Table {
+            data_shape: shape(&["Key"]),
+            rows: vec![row("a", json!("1"))],
+        };
         write_backup(&path, "T", "CT", &table).unwrap();
         let before = std::fs::read(&path).unwrap();
-        assert!(matches!(write_backup(&path, "T", "CT", &table), Err(TableError::Backup { .. })));
-        assert_eq!(std::fs::read(&path).unwrap(), before, "the first backup survives");
+        assert!(matches!(
+            write_backup(&path, "T", "CT", &table),
+            Err(TableError::Backup { .. })
+        ));
+        assert_eq!(
+            std::fs::read(&path).unwrap(),
+            before,
+            "the first backup survives"
+        );
 
         assert_eq!(read_backup(&path, "T", "CT").unwrap(), table);
-        assert!(matches!(read_backup(&path, "T", "Other"), Err(TableError::WrongBackup { .. })));
-        assert!(matches!(read_backup(&path, "U", "CT"), Err(TableError::WrongBackup { .. })));
+        assert!(matches!(
+            read_backup(&path, "T", "Other"),
+            Err(TableError::WrongBackup { .. })
+        ));
+        assert!(matches!(
+            read_backup(&path, "U", "CT"),
+            Err(TableError::WrongBackup { .. })
+        ));
         let _ = std::fs::remove_dir_all(dir);
     }
 
@@ -833,7 +1067,10 @@ mod tests {
         assert_eq!(rows[0]["Value"], json!("{\"x\":1}"));
         assert_eq!(rows[1]["Key"], json!("b & c"));
         assert_eq!(rows[1]["Value"], json!(""));
-        assert!(matches!(repository_rows(src, "Script"), Err(TableError::Repository(_))));
+        assert!(matches!(
+            repository_rows(src, "Script"),
+            Err(TableError::Repository(_))
+        ));
     }
 
     #[test]

@@ -29,7 +29,10 @@ impl<'de> Deserialize<'de> for Entry {
         }
 
         Ok(match StoredEntry::deserialize(deserializer)? {
-            StoredEntry::One(hash) => Entry { local: hash.clone(), server: hash },
+            StoredEntry::One(hash) => Entry {
+                local: hash.clone(),
+                server: hash,
+            },
             StoredEntry::Two { local, server } => Entry { local, server },
         })
     }
@@ -55,7 +58,9 @@ impl Baseline {
 
     /// Remove one entity, pruning an empty collection, and report whether it existed.
     pub fn remove(&mut self, collection: &str, name: &str) -> bool {
-        let Some(items) = self.entities.get_mut(collection) else { return false };
+        let Some(items) = self.entities.get_mut(collection) else {
+            return false;
+        };
         let removed = items.remove(name).is_some();
         if items.is_empty() {
             self.entities.remove(collection);
@@ -74,7 +79,10 @@ impl Baseline {
         name: &str,
         server: String,
     ) -> Result<(), BaselineError> {
-        let Some(entry) = self.entities.get_mut(collection).and_then(|items| items.get_mut(name))
+        let Some(entry) = self
+            .entities
+            .get_mut(collection)
+            .and_then(|items| items.get_mut(name))
         else {
             return Err(BaselineError::Missing {
                 collection: collection.to_string(),
@@ -89,26 +97,40 @@ impl Baseline {
         let path = root.join(RELATIVE_PATH);
         let bytes = match std::fs::read(&path) {
             Ok(bytes) => bytes,
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(Self::default()),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+                return Ok(Self::default())
+            }
             Err(error) => {
-                return Err(BaselineError::Io { path, why: error.to_string() });
+                return Err(BaselineError::Io {
+                    path,
+                    why: error.to_string(),
+                });
             }
         };
-        serde_json::from_slice(&bytes)
-            .map_err(|error| BaselineError::Invalid { path, why: error.to_string() })
+        serde_json::from_slice(&bytes).map_err(|error| BaselineError::Invalid {
+            path,
+            why: error.to_string(),
+        })
     }
 
     /// Write a complete deterministic JSON document through a same-directory temporary file.
     pub fn write(&self, root: &Path) -> Result<(), BaselineError> {
         let path = root.join(RELATIVE_PATH);
         let parent = path.parent().expect("baseline has a parent");
-        std::fs::create_dir_all(parent)
-            .map_err(|error| BaselineError::Io { path: parent.to_path_buf(), why: error.to_string() })?;
-        let mut bytes = serde_json::to_vec_pretty(self)
-            .map_err(|error| BaselineError::Invalid { path: path.clone(), why: error.to_string() })?;
+        std::fs::create_dir_all(parent).map_err(|error| BaselineError::Io {
+            path: parent.to_path_buf(),
+            why: error.to_string(),
+        })?;
+        let mut bytes =
+            serde_json::to_vec_pretty(self).map_err(|error| BaselineError::Invalid {
+                path: path.clone(),
+                why: error.to_string(),
+            })?;
         bytes.push(b'\n');
-        super::workspace::atomic_replace(&path, &bytes)
-            .map_err(|error| BaselineError::Io { path: path.clone(), why: error.to_string() })
+        super::workspace::atomic_replace(&path, &bytes).map_err(|error| BaselineError::Io {
+            path: path.clone(),
+            why: error.to_string(),
+        })
     }
 }
 
@@ -141,8 +163,12 @@ mod tests {
     use std::time::{SystemTime, UNIX_EPOCH};
 
     fn temp() -> PathBuf {
-        let nonce = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos();
-        let path = std::env::temp_dir().join(format!("twaco-baseline-{}-{nonce}", std::process::id()));
+        let nonce = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let path =
+            std::env::temp_dir().join(format!("twaco-baseline-{}-{nonce}", std::process::id()));
         std::fs::create_dir_all(&path).unwrap();
         path
     }
@@ -151,9 +177,24 @@ mod tests {
     fn write_is_atomic_deterministic_and_sorted() {
         let root = temp();
         let mut baseline = Baseline::default();
-        baseline.set("Things", "Z", "v1:two-local".to_string(), "v1:two-server".to_string());
-        baseline.set("DataShapes", "A", "v1:one".to_string(), "v1:one".to_string());
-        baseline.set("Things", "A", "v1:three".to_string(), "v1:three".to_string());
+        baseline.set(
+            "Things",
+            "Z",
+            "v1:two-local".to_string(),
+            "v1:two-server".to_string(),
+        );
+        baseline.set(
+            "DataShapes",
+            "A",
+            "v1:one".to_string(),
+            "v1:one".to_string(),
+        );
+        baseline.set(
+            "Things",
+            "A",
+            "v1:three".to_string(),
+            "v1:three".to_string(),
+        );
         baseline.write(&root).unwrap();
         let first = std::fs::read(root.join(RELATIVE_PATH)).unwrap();
         baseline.write(&root).unwrap();
@@ -164,7 +205,10 @@ mod tests {
         assert!(text.find("\"A\": {").unwrap() < text.find("\"Z\"").unwrap());
         assert_eq!(
             Baseline::load(&root).unwrap().get("Things", "Z"),
-            Some(&Entry { local: "v1:two-local".into(), server: "v1:two-server".into() })
+            Some(&Entry {
+                local: "v1:two-local".into(),
+                server: "v1:two-server".into()
+            })
         );
         assert!(
             std::fs::read_dir(root.join(".twaco"))
@@ -189,7 +233,10 @@ mod tests {
         let baseline = Baseline::load(&root).unwrap();
         assert_eq!(
             baseline.get("Things", "T"),
-            Some(&Entry { local: "v3:old".into(), server: "v3:old".into() })
+            Some(&Entry {
+                local: "v3:old".into(),
+                server: "v3:old".into()
+            })
         );
         baseline.write(&root).unwrap();
         assert_eq!(
@@ -210,17 +257,25 @@ mod tests {
         .unwrap();
 
         let mut baseline = Baseline::load(&root).unwrap();
-        baseline.set_server("Things", "T", "v3:after-deploy".into()).unwrap();
+        baseline
+            .set_server("Things", "T", "v3:after-deploy".into())
+            .unwrap();
         assert_eq!(
             baseline.get("Things", "T"),
-            Some(&Entry { local: "v3:local".into(), server: "v3:after-deploy".into() })
+            Some(&Entry {
+                local: "v3:local".into(),
+                server: "v3:after-deploy".into()
+            })
         );
         assert!(matches!(
             baseline.set_server("Things", "Missing", "v3:x".into()),
             Err(BaselineError::Missing { .. })
         ));
         baseline.write(&root).unwrap();
-        assert_eq!(Baseline::load(&root).unwrap().get("Things", "T"), baseline.get("Things", "T"));
+        assert_eq!(
+            Baseline::load(&root).unwrap().get("Things", "T"),
+            baseline.get("Things", "T")
+        );
         let _ = std::fs::remove_dir_all(root);
     }
 
