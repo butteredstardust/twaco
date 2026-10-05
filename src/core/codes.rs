@@ -272,6 +272,7 @@ impl Coded for super::newblock::NewBlockError {
             Self::Invalid(_) => ErrorCode::InvalidArguments,
             Self::Exists(_) => ErrorCode::AlreadyExists,
             Self::Io { .. } => ErrorCode::IoError,
+            Self::Write(error) => error.code(),
         }
     }
 }
@@ -1080,6 +1081,14 @@ mod tests {
                 why: text(),
             },
             ErrorCode::IoError,
+        );
+        is(
+            NewBlockError::Write(crate::core::transaction::TransactionError::Failed {
+                why: text(),
+                rolled_back: false,
+                journal: None,
+            }),
+            ErrorCode::RollbackFailed,
         );
     }
 

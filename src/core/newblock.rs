@@ -20,7 +20,9 @@
 //! a parent's manager configuration that the framework can make.
 
 use super::config::{Solution, CONFIG_FILE};
+use super::lock::WorkspaceLock;
 use super::refs;
+use super::transaction::{Transaction, TransactionError};
 use super::workspace;
 use serde::Serialize;
 use std::collections::BTreeMap;
@@ -104,7 +106,12 @@ pub struct Request {
 pub enum NewBlockError {
     Invalid(String),
     Exists(Vec<String>),
-    Io { path: PathBuf, why: String },
+    Io {
+        path: PathBuf,
+        why: String,
+    },
+    /// The journaled write failed; the error says whether every change was undone.
+    Write(TransactionError),
 }
 
 impl fmt::Display for NewBlockError {
@@ -113,6 +120,23 @@ impl fmt::Display for NewBlockError {
             NewBlockError::Invalid(why) => f.write_str(why),
             NewBlockError::Exists(what) => write!(f, "already exists: {}", what.join(", ")),
             NewBlockError::Io { path, why } => write!(f, "{}: {why}", path.display()),
+            NewBlockError::Write(error) => error.fmt(f),
+        }
+    }
+}
+
+impl From<TransactionError> for NewBlockError {
+    fn from(error: TransactionError) -> Self {
+        match error {
+            TransactionError::Invalid(why) => NewBlockError::Invalid(why),
+            TransactionError::Stale(why) if why.starts_with(CONFIG_FILE) => {
+                NewBlockError::Invalid("twaco.toml changed since the plan; run again".to_string())
+            }
+            TransactionError::Stale(why) => match why.strip_suffix(" exists already") {
+                Some(path) => NewBlockError::Exists(vec![path.to_string()]),
+                None => NewBlockError::Invalid(why),
+            },
+            other => NewBlockError::Write(other),
         }
     }
 }
@@ -581,79 +605,33 @@ pub fn plan(solution: &Solution, request: &Request) -> Result<Plan, NewBlockErro
     })
 }
 
-/// Create the files (never over an existing one) and append the project to `twaco.toml`; a failure
-/// removes what was created and restores the configuration.
-pub fn apply(solution: &Solution, plan: &Plan) -> Result<Vec<PathBuf>, NewBlockError> {
-    let config_path = solution.root.join(CONFIG_FILE);
-    let io = |path: &Path, error: std::io::Error| NewBlockError::Io {
-        path: path.to_path_buf(),
-        why: error.to_string(),
-    };
-    let mut created: Vec<PathBuf> = Vec::new();
-    let mut created_dirs: Vec<PathBuf> = Vec::new();
-    let mut config_written = false;
-    let result = (|| -> Result<(), NewBlockError> {
-        refuse_linked_path(&solution.root, &solution.root.join(&plan.root))?;
-        for file in &plan.files {
-            if let Some(parent) = file.path.parent() {
-                refuse_linked_path(&solution.root, parent)?;
-                let mut missing = Vec::new();
-                let mut at = parent;
-                while !at.exists() {
-                    missing.push(at.to_path_buf());
-                    match at.parent() {
-                        Some(next) => at = next,
-                        None => break,
-                    }
-                }
-                std::fs::create_dir_all(parent).map_err(|error| io(parent, error))?;
-                missing.reverse();
-                created_dirs.extend(missing);
-            }
-            match std::fs::symlink_metadata(&file.path) {
-                Ok(_) => {
-                    return Err(io(
-                        &file.path,
-                        std::io::Error::new(std::io::ErrorKind::AlreadyExists, "file exists"),
-                    ))
-                }
-                Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
-                Err(error) => return Err(io(&file.path, error)),
-            }
-            workspace::atomic_replace(&file.path, file.text.as_bytes())
-                .map_err(|error| io(&file.path, error))?;
-            created.push(file.path.clone());
+/// Create the files (never over an existing one) and append the project to `twaco.toml`, as one
+/// journaled operation: a crash or a failure leaves every file as it was or every file as planned,
+/// and the next command to take the workspace lock finishes or undoes an interrupted run.
+pub fn apply(
+    solution: &Solution,
+    plan: &Plan,
+    lock: &WorkspaceLock,
+) -> Result<Vec<PathBuf>, NewBlockError> {
+    refuse_linked_path(&solution.root, &solution.root.join(&plan.root))?;
+    let mut transaction = Transaction::new(&solution.root, "new building-block");
+    for file in &plan.files {
+        if let Some(parent) = file.path.parent() {
+            refuse_linked_path(&solution.root, parent)?;
         }
-        match std::fs::read_to_string(&config_path) {
-            Ok(current) if current == plan.config_before => {}
-            Ok(_) => {
-                return Err(NewBlockError::Invalid(
-                    "twaco.toml changed since the plan; run again".to_string(),
-                ))
-            }
-            Err(error) => return Err(io(&config_path, error)),
-        }
-        workspace::atomic_replace(&config_path, plan.config_after.as_bytes())
-            .map_err(|error| io(&config_path, error))?;
-        config_written = true;
-        Ok(())
-    })();
-    if let Err(error) = result {
-        for path in created.iter().rev() {
-            let _ = std::fs::remove_file(path);
-        }
-        for dir in created_dirs.iter().rev() {
-            let _ = std::fs::remove_dir(dir);
-        }
-        if config_written
-            && std::fs::read_to_string(&config_path).ok().as_deref()
-                == Some(plan.config_after.as_str())
-        {
-            let _ = workspace::atomic_replace(&config_path, plan.config_before.as_bytes());
-        }
-        return Err(error);
+        transaction
+            .create_file(&file.path, file.text.as_bytes().to_vec())
+            .map_err(NewBlockError::from)?;
     }
-    Ok(created)
+    transaction
+        .replace_file(
+            &solution.root.join(CONFIG_FILE),
+            plan.config_before.as_bytes(),
+            plan.config_after.as_bytes().to_vec(),
+        )
+        .map_err(NewBlockError::from)?;
+    transaction.apply(lock).map_err(NewBlockError::from)?;
+    Ok(plan.files.iter().map(|file| file.path.clone()).collect())
 }
 
 #[cfg(test)]

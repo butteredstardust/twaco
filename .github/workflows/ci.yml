@@ -30,7 +30,7 @@ jobs:
       - name: Test
         run: cargo test --locked
       - name: Crash-recovery tests
-        run: cargo test --locked --features test-failpoints transaction
+        run: cargo test --locked --features test-failpoints -- transaction crash
       - name: Clippy
         run: cargo clippy --all-targets --locked -- -D warnings
       - name: Formatting

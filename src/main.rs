@@ -249,7 +249,7 @@ fn main() -> ExitCode {
                 relocate_cmd(solution, route, &parsed)
             }
             "retemplate" => retemplate_cmd(solution, &parsed),
-            "new building-block" => new_building_block_cmd(solution, &parsed),
+            "new building-block" => new_building_block_cmd(solution, &parsed, _lock.as_ref()),
             "config-table" => config_table(solution, &parsed),
             "entity get" => entity_get(solution, &parsed),
             "entity status" => entity_status(solution, &parsed),
@@ -3708,7 +3708,11 @@ fn entity_delete_force_deprecation() -> &'static str {
 }
 
 /// Create a building block as files and register its project. Plans unless --apply.
-fn new_building_block_cmd(solution: &Solution, args: &Args) -> u8 {
+fn new_building_block_cmd(
+    solution: &Solution,
+    args: &Args,
+    lock: Option<&lock::WorkspaceLock>,
+) -> u8 {
     let [name] = args.names.as_slice() else {
         eprintln!("twaco: new building-block needs one <name>, such as Acme.Orders");
         return FAILED;
@@ -3747,7 +3751,11 @@ fn new_building_block_cmd(solution: &Solution, args: &Args) -> u8 {
     };
     let apply = args.has("--apply");
     if apply {
-        if let Err(error) = newblock::apply(solution, &plan) {
+        let Some(lock) = lock else {
+            eprintln!("twaco: new building-block --apply needs the workspace lock");
+            return FAILED;
+        };
+        if let Err(error) = newblock::apply(solution, &plan, lock) {
             eprintln!("twaco: {error}");
             return FAILED;
         }

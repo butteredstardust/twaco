@@ -10,9 +10,10 @@ classes are ordered from weakest to strongest: `server-partial`, `best-effort ba
   failure, that file is entirely its old content or entirely its new content, so retry freely.
 - **multi-file atomic** writes several local files and undoes files already written if a later
   write fails. That rollback is in-process only: a killed process or power loss between writes
-  cannot run it. A crash-recoverable journal now exists (see [TRANSACTIONS.md](TRANSACTIONS.md))
-  but no command uses it yet; until one does, inspect the workspace after such an interruption
-  before retrying.
+  cannot run it. A crash-recoverable journal now exists (see [TRANSACTIONS.md](TRANSACTIONS.md)) and
+  `new building-block` uses it: the next command to take the workspace lock finishes or undoes an
+  interrupted run. The other multi-file commands still have the in-process rollback only, so
+  inspect the workspace after such an interruption before retrying.
 - **best-effort batch** handles items one after another with no rollback, so a failure can leave
   earlier items changed. Some commands continue past a failing item and some stop at the first
   one; either way the report names what was done and what failed. Retry only the failed or
@@ -101,7 +102,7 @@ when the command is asked to write. A local output named by an option is include
 | `move property` | read-only | multi-file atomic | XML, sidecars | Inspect after interruption; otherwise retry after rollback. | `core/relocate.rs: apply` |
 | `copy service` | read-only | multi-file atomic | XML, sidecars | Inspect after interruption; otherwise retry after rollback. | `core/relocate.rs: apply` |
 | `copy property` | read-only | multi-file atomic | XML, sidecars | Inspect after interruption; otherwise retry after rollback. | `core/relocate.rs: apply` |
-| `new building-block` | read-only | multi-file atomic | project files, config | Inspect after interruption; otherwise retry after rollback. | `core/newblock.rs: apply` |
+| `new building-block` | read-only | multi-file atomic | project files, config | A crash is finished or undone by the next command that takes the workspace lock; if it refuses, follow its message. Otherwise retry. | `core/newblock.rs: apply` |
 | `retemplate` | read-only | single-file atomic | one entity XML | The entity is old or new; retry freely. | `core/retemplate.rs: apply` |
 | `entity restore` | read-only | server-partial | server entities | Read restored entities back before retrying. | `core/backup.rs: restore` |
 | `entity carry` | read-only | server-partial | server permissions, ledger | Read permissions and ledger before retrying. | `core/entity_carry.rs: run` |
@@ -130,7 +131,7 @@ when the command is asked to write. A local output named by an option is include
 | `adopt_apply` | best-effort batch | best-effort batch | entities, sidecars, declarations | Unlike the CLI form, this tool applies directly; inspect completed writes and retry failures. | `mcp.rs: adopt_apply_tool` |
 | `rename` | read-only | multi-file atomic | XML, sidecars, ledger, SQL | Inspect after interruption; otherwise retry the reviewed plan. | `mcp.rs: rename_tool` |
 | `move_member` | read-only | multi-file atomic | XML, sidecars | Inspect after interruption; otherwise retry after rollback. | `mcp.rs: move_member_tool` |
-| `new_building_block` | read-only | multi-file atomic | project files, config | Inspect after interruption; otherwise retry after rollback. | `mcp.rs: new_building_block_tool` |
+| `new_building_block` | read-only | multi-file atomic | project files, config | A crash is finished or undone by the next command that takes the workspace lock; if it refuses, follow its message. Otherwise retry. | `mcp.rs: new_building_block_tool` |
 | `retemplate` | read-only | single-file atomic | one entity XML | The entity is old or new; retry freely. | `mcp.rs: retemplate_tool` |
 | `config_table` | read-only | server-partial | server table | Read the table back before retrying restore. | `mcp.rs: config_table_tool` |
 | `logs` | read-only | read-only | none | Retry freely. | `mcp.rs: logs_tool` |

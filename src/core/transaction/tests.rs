@@ -447,3 +447,35 @@ fn taking_the_lock_is_refused_while_an_edit_stands_in_the_way() {
     assert_eq!(read(&root, "a.txt").as_deref(), Some("edited"));
     let _ = std::fs::remove_dir_all(root);
 }
+
+#[test]
+fn files_created_in_the_same_new_folder_share_it() {
+    let root = workspace("shared-folder");
+    let lock = lock::acquire(&root, "test", &[]).unwrap();
+    let mut transaction = Transaction::new(&root, "test");
+    for name in ["x/y/one.txt", "x/y/two.txt", "x/z/three.txt"] {
+        transaction
+            .create_file(&root.join(name), name.as_bytes().to_vec())
+            .unwrap();
+    }
+    transaction.apply(&lock).unwrap();
+    for name in ["x/y/one.txt", "x/y/two.txt", "x/z/three.txt"] {
+        assert_eq!(read(&root, name).as_deref(), Some(name));
+    }
+    drop(lock);
+    // Undone, every folder it made goes and nothing else does.
+    let mut transaction = Transaction::new(&root, "test");
+    for name in ["p/q/one.txt", "p/q/two.txt"] {
+        transaction
+            .create_file(&root.join(name), name.as_bytes().to_vec())
+            .unwrap();
+    }
+    let journal = transaction.stage().unwrap();
+    recover::install(&root, &journal.steps[0]).unwrap();
+    std::fs::remove_file(root.join(journal.steps[1].stage.as_ref().unwrap())).unwrap();
+    let recovered = recover::recover_pending(&root).unwrap();
+    assert_eq!(recovered[0].action, Action::RolledBack);
+    assert!(!root.join("p").exists());
+    assert!(root.join("x/y/one.txt").exists());
+    let _ = std::fs::remove_dir_all(root);
+}
