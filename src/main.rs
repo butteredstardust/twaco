@@ -3174,6 +3174,13 @@ fn take_lock(solution: &Solution, route: &str) -> Result<lock::WorkspaceLock, u8
     }
 }
 
+/// What an executor reported about taking the workspace lock, as the lines `take_lock` prints.
+fn print_notices(notices: &commands::Notices) {
+    for line in notices.lines() {
+        eprintln!("twaco: {line}");
+    }
+}
+
 fn run(command: impl FnOnce(&Solution) -> u8) -> u8 {
     let here = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
     match Solution::discover(&here) {
@@ -3538,7 +3545,10 @@ fn entity_push(solution: &Solution, args: &Args) -> u8 {
             .clone()
             .unwrap_or_else(|| "default".to_string()),
     };
-    match commands::push::execute(solution, &request, server::Client::new) {
+    let mut notices = commands::Notices::default();
+    let result = commands::push::execute(solution, &request, server::Client::new, &mut notices);
+    print_notices(&notices);
+    match result {
         Ok(commands::push::PushOutcome::Plan {
             entity, decision, ..
         }) => {
@@ -3641,7 +3651,10 @@ fn entity_delete_cmd(solution: &Solution, args: &Args) -> u8 {
             .clone()
             .unwrap_or_else(|| "default".to_string()),
     };
-    let outcome = match commands::delete::execute(solution, &request, server::Client::new) {
+    let mut notices = commands::Notices::default();
+    let result = commands::delete::execute(solution, &request, server::Client::new, &mut notices);
+    print_notices(&notices);
+    let outcome = match result {
         Ok(outcome) => outcome,
         Err(error) => {
             eprintln!("twaco: {error}");
