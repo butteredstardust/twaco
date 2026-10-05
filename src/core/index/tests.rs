@@ -555,3 +555,444 @@ fn the_bundled_repository_has_the_structure_its_files_declare() {
         "{manager:?}"
     );
 }
+
+fn edge(index: &Index, from: &str, to: &str, kind: EdgeKind) -> Vec<Edge> {
+    index
+        .edges()
+        .into_iter()
+        .filter(|(a, b, e)| a == from && b == to && e.kind == kind)
+        .map(|(_, _, e)| e.clone())
+        .collect()
+}
+
+fn implementation(name: &str, script: &str) -> String {
+    format!(
+        r#"<ServiceImplementation name="{name}" handlerName="Script"><ConfigurationTables><ConfigurationTable name="Script"><Rows><Row><code><![CDATA[{script}]]></code></Row></Rows></ConfigurationTable></ConfigurationTables></ServiceImplementation>"#
+    )
+}
+
+fn thing_with(name: &str, scripts: &[(&str, &str)]) -> String {
+    let definitions: String = scripts
+        .iter()
+        .map(|(service, _)| {
+            format!(
+                r#"<ServiceDefinition name="{service}"><ResultType baseType="STRING"/></ServiceDefinition>"#
+            )
+        })
+        .collect();
+    let implementations: String = scripts
+        .iter()
+        .map(|(service, script)| implementation(service, script))
+        .collect();
+    entity(
+        "Things",
+        "Thing",
+        name,
+        "P",
+        "",
+        &format!(
+            "<ThingShape><ServiceDefinitions>{definitions}</ServiceDefinitions><ServiceImplementations>{implementations}</ServiceImplementations></ThingShape>"
+        ),
+    )
+}
+
+/// Things that call each other, a script the parser refuses, a mashup, and a deploy configuration.
+fn wiring() -> (PathBuf, Solution) {
+    let root = scratch("wiring");
+    write(
+        &root,
+        "twaco.toml",
+        "[[project]]\nname = \"P\"\n\n[project.deploy]\nentry_point_thing = \"P.Entry\"\ndeploy_service = \"Deploy\"\n\n[[project.deploy.post_import]]\nthing = \"P.Data\"\nservice = \"Seed\"\n",
+    );
+    write(
+        &root,
+        "Things/P.Entry.xml",
+        &thing_with("P.Entry", &[("Deploy", "var result = 1;")]),
+    );
+    write(
+        &root,
+        "Things/P.Data.xml",
+        &thing_with("P.Data", &[("Seed", "var result = 1;")]),
+    );
+    write(
+        &root,
+        "Things/P.Target.xml",
+        &thing_with(
+            "P.Target",
+            &[("Run", "var result = 1;"), ("Other", "var result = 2;")],
+        ),
+    );
+    write(
+        &root,
+        "Things/P.Caller.xml",
+        &thing_with(
+            "P.Caller",
+            &[
+                ("Direct", r#"var result = Things["P.Target"].Run();"#),
+                (
+                    "ViaVariable",
+                    r#"var t = Things["P.Target"]; var result = t.Other();"#,
+                ),
+                ("Bare", r#"var held = Things["P.Data"]; var result = 1;"#),
+                (
+                    "Unknown",
+                    r#"var result = Things["Elsewhere.Thing"].Run();"#,
+                ),
+                ("Mention", r#"var name = "P.Data"; var short = "Run";"#),
+            ],
+        ),
+    );
+    // E4X: Rhino accepts it, the parser does not.
+    write(
+        &root,
+        "Things/P.Legacy.xml",
+        &thing_with(
+            "P.Legacy",
+            &[(
+                "Old",
+                r#"for each (x in list) { var y = 1; } var name = "P.Target";"#,
+            )],
+        ),
+    );
+    write(
+        &root,
+        "Mashups/P.View.xml",
+        r#"<Entities><Mashups><Mashup name="P.View" projectName="P"><mashupContent><![CDATA[{"UI":{"Id":"View"},"Data":{"Load":{"EntityName":"P.Target","EntityType":"Things","Service":"Run"}},"Note":"P.Data"}]]></mashupContent></Mashup></Mashups></Entities>"#,
+    );
+    write(
+        &root,
+        "Mashups/P.Broken.xml",
+        r#"<Entities><Mashups><Mashup name="P.Broken" projectName="P"><mashupContent><![CDATA[{not json]]></mashupContent></Mashup></Mashups></Entities>"#,
+    );
+    let solution = Solution::load(&root.join("twaco.toml")).unwrap();
+    (root, solution)
+}
+
+#[test]
+fn a_static_call_between_things_is_a_resolved_edge_naming_the_service() {
+    let (root, solution) = wiring();
+    let index = Index::build(&solution);
+    let direct = edge(
+        &index,
+        "Things/P.Caller",
+        "Things/P.Target",
+        EdgeKind::ScriptReference,
+    );
+    let members: Vec<(Option<&str>, Option<&str>)> = direct
+        .iter()
+        .map(|e| (e.from_member.as_deref(), e.to_member.as_deref()))
+        .collect();
+    assert!(
+        members.contains(&(Some("Direct"), Some("Run"))),
+        "{members:?}"
+    );
+    // A Thing held in a variable is still followed, and names the member reached.
+    assert!(
+        members.contains(&(Some("ViaVariable"), Some("Other"))),
+        "{members:?}"
+    );
+    assert!(direct
+        .iter()
+        .all(|e| e.confidence() == Confidence::Resolved));
+    let _ = std::fs::remove_dir_all(root);
+}
+
+#[test]
+fn a_thing_that_is_only_held_is_an_entity_level_reference_and_an_unknown_thing_is_nothing() {
+    let (root, solution) = wiring();
+    let index = Index::build(&solution);
+    let bare = edge(
+        &index,
+        "Things/P.Caller",
+        "Things/P.Data",
+        EdgeKind::ScriptReference,
+    );
+    assert_eq!(bare.len(), 1, "{bare:?}");
+    assert_eq!(
+        (bare[0].from_member.as_deref(), bare[0].to_member.as_deref()),
+        (Some("Bare"), None)
+    );
+    // `Things["Elsewhere.Thing"]` is not in the repository: nothing to point at.
+    assert!(index
+        .edges()
+        .iter()
+        .all(|(_, to, _)| !to.contains("Elsewhere")));
+    // The member-level reference does not also leave an entity-level one behind.
+    assert!(edge(
+        &index,
+        "Things/P.Caller",
+        "Things/P.Target",
+        EdgeKind::ScriptReference
+    )
+    .iter()
+    .all(|e| e.to_member.is_some()));
+    let _ = std::fs::remove_dir_all(root);
+}
+
+#[test]
+fn a_string_that_equals_a_qualified_name_is_a_review_mention_and_a_short_one_is_not() {
+    let (root, solution) = wiring();
+    let index = Index::build(&solution);
+    let mention = edge(
+        &index,
+        "Things/P.Caller",
+        "Things/P.Data",
+        EdgeKind::ScriptMention,
+    );
+    assert_eq!(mention.len(), 1, "{mention:?}");
+    assert_eq!(mention[0].from_member.as_deref(), Some("Mention"));
+    assert_eq!(mention[0].confidence(), Confidence::Review);
+    // "Run" is a service name, not a qualified entity name: not a mention of anything.
+    assert!(index
+        .edges()
+        .iter()
+        .all(|(_, to, e)| !(e.kind == EdgeKind::ScriptMention
+            && e.from_member.as_deref() == Some("Mention")
+            && to != "Things/P.Data")));
+    // Where a real reference to the same entity exists from the same service, the mention adds nothing.
+    assert!(edge(
+        &index,
+        "Things/P.Caller",
+        "Things/P.Target",
+        EdgeKind::ScriptMention
+    )
+    .is_empty());
+    let _ = std::fs::remove_dir_all(root);
+}
+
+#[test]
+fn a_script_the_parser_refuses_is_listed_and_searched_for_names() {
+    let (root, solution) = wiring();
+    let index = Index::build(&solution);
+    assert_eq!(index.unparsed_scripts(), ["Things/P.Legacy/Old"]);
+    let found = edge(
+        &index,
+        "Things/P.Legacy",
+        "Things/P.Target",
+        EdgeKind::ScriptMention,
+    );
+    assert_eq!(found.len(), 1, "{found:?}");
+    assert_eq!(found[0].confidence(), Confidence::Review);
+    // Nothing here claims more than a review: the parser never saw this script.
+    assert!(edge(
+        &index,
+        "Things/P.Legacy",
+        "Things/P.Target",
+        EdgeKind::ScriptReference
+    )
+    .is_empty());
+    let _ = std::fs::remove_dir_all(root);
+}
+
+#[test]
+fn a_mashup_binding_names_the_service_and_other_names_in_it_are_mentions() {
+    let (root, solution) = wiring();
+    let index = Index::build(&solution);
+    let binding = edge(
+        &index,
+        "Mashups/P.View",
+        "Things/P.Target",
+        EdgeKind::MashupBinding,
+    );
+    assert_eq!(binding.len(), 1);
+    assert_eq!(binding[0].to_member.as_deref(), Some("Run"));
+    assert_eq!(binding[0].confidence(), Confidence::Resolved);
+    let note = edge(
+        &index,
+        "Mashups/P.View",
+        "Things/P.Data",
+        EdgeKind::MashupMention,
+    );
+    assert_eq!(note.len(), 1);
+    assert_eq!(note[0].confidence(), Confidence::Review);
+    // The binding's own EntityName string does not also count as a mention.
+    assert!(edge(
+        &index,
+        "Mashups/P.View",
+        "Things/P.Target",
+        EdgeKind::MashupMention
+    )
+    .is_empty());
+    // A mashup whose content is not JSON is listed, and the rest is unaffected.
+    assert!(
+        index
+            .unreadable()
+            .iter()
+            .any(|u| u.what.contains("P.Broken")),
+        "{:?}",
+        index.unreadable()
+    );
+    let _ = std::fs::remove_dir_all(root);
+}
+
+#[test]
+fn the_deploy_configuration_points_a_project_at_the_things_it_runs() {
+    let (root, solution) = wiring();
+    let index = Index::build(&solution);
+    let entry = edge(&index, "project P", "Things/P.Entry", EdgeKind::Deploy);
+    assert_eq!(
+        (
+            entry.len(),
+            entry[0].to_member.as_deref(),
+            entry[0].at.as_deref()
+        ),
+        (1, Some("Deploy"), Some("twaco.toml"))
+    );
+    let seed = edge(&index, "project P", "Things/P.Data", EdgeKind::Deploy);
+    assert_eq!(seed[0].to_member.as_deref(), Some("Seed"));
+    assert!(
+        index.is_deployed(&key("Things", "P.Entry"))
+            && !index.is_deployed(&key("Things", "P.Target"))
+    );
+    let _ = std::fs::remove_dir_all(root);
+}
+
+#[test]
+fn dependents_follow_calls_with_the_weakest_link_as_confidence() {
+    let (root, solution) = wiring();
+    let index = Index::build(&solution);
+    // Who is affected if P.Target.Run changes: the service that calls it, and the mashup that
+    // binds it, each at its own depth.
+    let who = index.dependents(
+        &key("Things", "P.Target"),
+        &DependentOptions {
+            member: Some("Run".into()),
+            min: Confidence::Resolved,
+            ..Default::default()
+        },
+    );
+    let labels: Vec<(&str, usize, Confidence)> = who
+        .iter()
+        .map(|d| (d.label.as_str(), d.depth, d.confidence))
+        .collect();
+    assert!(
+        labels.contains(&("Things/P.Caller", 1, Confidence::Resolved)),
+        "{labels:?}"
+    );
+    assert!(
+        labels.contains(&("Mashups/P.View", 1, Confidence::Resolved)),
+        "{labels:?}"
+    );
+    let caller = who.iter().find(|d| d.label == "Things/P.Caller").unwrap();
+    assert_eq!(
+        caller.members,
+        ["Direct"],
+        "only the service that calls Run, not ViaVariable which calls Other"
+    );
+    // `Other` is reached only by ViaVariable.
+    let other = index.dependents(
+        &key("Things", "P.Target"),
+        &DependentOptions {
+            member: Some("Other".into()),
+            min: Confidence::Resolved,
+            ..Default::default()
+        },
+    );
+    assert_eq!(
+        other.iter().map(|d| d.members.clone()).collect::<Vec<_>>(),
+        [vec!["ViaVariable".to_string()]]
+    );
+    // At review level the script the parser refused is found too, and said to be only a review.
+    let all = index.dependents(&key("Things", "P.Target"), &DependentOptions::default());
+    let legacy = all
+        .iter()
+        .find(|d| d.label == "Things/P.Legacy")
+        .expect("a mention in an unparsed script");
+    assert_eq!(legacy.confidence, Confidence::Review);
+    assert!(
+        who.iter().all(|d| d.label != "Things/P.Legacy"),
+        "resolved and stronger leaves review out"
+    );
+    let _ = std::fs::remove_dir_all(root);
+}
+
+#[test]
+fn a_deploy_call_is_a_dependent_of_the_thing_it_runs() {
+    let (root, solution) = wiring();
+    let index = Index::build(&solution);
+    let who = index.dependents(
+        &key("Things", "P.Data"),
+        &DependentOptions {
+            min: Confidence::Structural,
+            ..Default::default()
+        },
+    );
+    assert_eq!(
+        who.iter().map(|d| d.label.as_str()).collect::<Vec<_>>(),
+        ["project P"]
+    );
+    assert_eq!(
+        index.projects_of(&who.iter().map(|d| d.label.clone()).collect::<Vec<_>>()),
+        [(0, "P".to_string())]
+    );
+    let _ = std::fs::remove_dir_all(root);
+}
+
+#[test]
+fn the_bundled_repository_wires_its_things_together() {
+    let (_, solution) = bundled();
+    let index = Index::build(&solution);
+    let record = edge(
+        &index,
+        "Things/Acme.Orders.Manager",
+        "Things/Acme.Orders.Audit",
+        EdgeKind::ScriptReference,
+    );
+    assert!(
+        record
+            .iter()
+            .any(|e| e.from_member.as_deref() == Some("GetOrder")
+                && e.to_member.as_deref() == Some("Record")),
+        "{record:?}"
+    );
+    let lines = edge(
+        &index,
+        "Things/Acme.Orders.Manager",
+        "Things/Acme.Orders.Lines_DT",
+        EdgeKind::ScriptReference,
+    );
+    assert!(
+        lines
+            .iter()
+            .any(|e| e.to_member.as_deref() == Some("GetDataTableEntries")),
+        "{lines:?}"
+    );
+    let binding = edge(
+        &index,
+        "Mashups/Acme.Orders.Dashboard",
+        "Things/Acme.Orders.Manager",
+        EdgeKind::MashupBinding,
+    );
+    assert_eq!(binding[0].to_member.as_deref(), Some("GetOrder"));
+    let database = edge(
+        &index,
+        "Things/Acme.Orders.Database",
+        "DataShapes/Acme.Orders.OrderLine_DS",
+        EdgeKind::ScriptMention,
+    );
+    assert_eq!(database[0].from_member.as_deref(), Some("GetDBInfo"));
+    assert!(
+        index.unparsed_scripts().is_empty(),
+        "{:?}",
+        index.unparsed_scripts()
+    );
+    // A change to Audit.Record reaches the mashup through GetOrder: two links, both resolved.
+    let who = index.dependents(
+        &key("Things", "Acme.Orders.Audit"),
+        &DependentOptions {
+            member: Some("Record".into()),
+            min: Confidence::Resolved,
+            ..Default::default()
+        },
+    );
+    let chain: Vec<(&str, usize)> = who.iter().map(|d| (d.label.as_str(), d.depth)).collect();
+    assert_eq!(
+        chain,
+        [
+            ("Things/Acme.Orders.Manager", 1),
+            ("Mashups/Acme.Orders.Dashboard", 2)
+        ]
+    );
+    assert_eq!(who[1].path.len(), 2);
+    assert!(index.is_complete(), "{:?}", index.unreadable());
+}

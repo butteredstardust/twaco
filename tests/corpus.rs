@@ -1730,6 +1730,9 @@ fn the_index_holds_its_invariants_over_the_corpus() {
     let mut entities = 0usize;
     let mut edges = 0usize;
     let mut cycles = 0usize;
+    let mut by_kind: std::collections::BTreeMap<&'static str, usize> = Default::default();
+    let mut unparsed = 0usize;
+    let mut unreadable = 0usize;
     let mut failures = Vec::new();
     for root in corpus_roots() {
         let Ok(solution) = twaco::core::config::Solution::load(&root.join("twaco.toml")) else {
@@ -1737,6 +1740,11 @@ fn the_index_holds_its_invariants_over_the_corpus() {
         };
         let index = Index::build(&solution);
         edges += index.edges().len();
+        for (_, _, edge) in index.edges() {
+            *by_kind.entry(edge.kind.word()).or_default() += 1;
+        }
+        unparsed += index.unparsed_scripts().len();
+        unreadable += index.unreadable().len();
         cycles += index.inheritance_cycles().len();
         let keys: Vec<EntityKey> = index.entities().map(|(key, _)| key.clone()).collect();
         for key in keys {
@@ -1776,5 +1784,7 @@ fn the_index_holds_its_invariants_over_the_corpus() {
         )
     );
     assert!(entities > 0, "no repository with a twaco.toml was found");
-    println!("index: {entities} entities, {edges} edges, {cycles} inheritance cycle(s)");
+    println!(
+        "index: {entities} entities, {edges} edges, {cycles} inheritance cycle(s), {unparsed} unparsed script(s), {unreadable} unreadable input(s); by kind {by_kind:?}"
+    );
 }

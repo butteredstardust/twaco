@@ -13,8 +13,11 @@
 //! once per command and never changes.
 
 mod build;
+mod deploy;
 pub(crate) mod inherit;
+mod mashups;
 mod query;
+mod scripts;
 
 #[cfg(test)]
 mod tests;
