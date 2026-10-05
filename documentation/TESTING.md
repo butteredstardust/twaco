@@ -14,6 +14,7 @@ cargo fmt --all --check           # formatting; `cargo fmt` fixes it
 | `tests/offline.rs` | the built binary | nothing; proves offline commands start with an empty environment |
 | `tests/call.rs` | the built binary against a local fake server | nothing |
 | `tests/corpus.rs` | the bundled `Acme.Orders` repository, and real ThingWorx repositories when named | nothing; `TWACO_CORPUS` adds real ones |
+| `tests/snapshots.rs` | the built binary, in a copy of the bundled repository | nothing; golden files in `tests/fixtures/snapshots/` |
 | `tests/properties.rs` | generated documents, edits and scripts | nothing; 256 cases per property, `PROPTEST_CASES=5000` for a deeper run |
 
 ## The corpus tests
@@ -44,6 +45,16 @@ entity, and an entity whose name no rename may take.
 
 Run them after any change to `scan`, `splice`, `sidecar`, `datashape`, `datatable` or
 `mashup`.
+
+## The command-line snapshots
+
+`tests/snapshots.rs` runs 24 offline scenarios (usage, refusals, plans, JSON lines) and compares the
+exit code, standard output and standard error with `tests/fixtures/snapshots/<name>.txt`. The text
+is what people and scripts read, so a change to it should be a decision: the test fails until you
+run `TWACO_BLESS=1 cargo test --test snapshots` and review `git diff tests/fixtures/snapshots`. The
+temporary directory is written `<ROOT>`, path separators are made `/`, and digests and dates are
+masked, so one file serves every platform. Every scenario is a plan, a refusal or an offline
+command; none contacts a server.
 
 ## The property tests
 

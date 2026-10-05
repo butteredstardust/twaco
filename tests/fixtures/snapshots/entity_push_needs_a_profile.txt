@@ -1,0 +1,7 @@
+$ twaco entity push Acme.Orders.Manager
+exit: 2
+
+--- stdout
+
+--- stderr
+twaco: profile "default" was not found (looked in <ROOT>/.twaco/profiles/default.toml) and the environment is incomplete

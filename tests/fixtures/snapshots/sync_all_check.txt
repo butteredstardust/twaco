@@ -1,0 +1,7 @@
+$ twaco sync --all --check
+exit: 0
+
+--- stdout
+6 entity file(s) already in sync
+--- stderr
+

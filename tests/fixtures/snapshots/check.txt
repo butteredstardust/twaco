@@ -1,0 +1,14 @@
+$ twaco check
+exit: 0
+
+--- stdout
+  ok      line endings   26 examined
+  ok      sidecars       6 examined
+  ok      formatting     6 examined
+  ok      script traps   6 examined
+  ok      code order     6 examined
+  ok      project        9 examined
+
+6 gate(s) passed
+--- stderr
+

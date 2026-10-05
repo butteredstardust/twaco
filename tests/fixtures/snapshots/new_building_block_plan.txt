@@ -1,0 +1,21 @@
+$ twaco new building-block Acme.Payments --base-extension PTC.Base:10.1.0
+exit: 0
+
+--- stdout
+new building-block Acme.Payments (standard): a plan, nothing was written (pass --apply)
+  Acme.Payments/Projects/Acme.Payments.xml
+  Acme.Payments/Groups/Acme.Payments.Default_UG.xml
+  Acme.Payments/Groups/Acme.Payments.Admin_UG.xml
+  Acme.Payments/Organizations/Acme.Payments.Default_OR.xml
+  Acme.Payments/ThingTemplates/Acme.Payments.EntryPoint_TT.xml
+  Acme.Payments/Things/Acme.Payments.EntryPoint.xml
+  Acme.Payments/ThingTemplates/Acme.Payments.Manager_TT.xml
+  Acme.Payments/ThingShapes/Acme.Payments.Management_TS.xml
+  Acme.Payments/Things/Acme.Payments.Manager.xml
+  twaco.toml gets:
+    [[project]]
+    name = "Acme.Payments"
+    root = "Acme.Payments"
+  note: The component permission helper is not created: the framework builds it on the server; run `GetComponentPermissionsHelper` there when the block is deployed.
+--- stderr
+

@@ -1,0 +1,7 @@
+$ twaco rename field Acme.Orders.OrderLine_DS quantity count --text
+exit: 2
+
+--- stdout
+
+--- stderr
+twaco: a field rename has no text pass

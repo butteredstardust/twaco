@@ -1,0 +1,7 @@
+$ twaco rename entity Acme.Orders.Nope Acme.Orders.Other
+exit: 2
+
+--- stdout
+
+--- stderr
+twaco: no entity matches "Acme.Orders.Nope"; check the name and rename kind

@@ -1,0 +1,18 @@
+$ twaco rename field Acme.Orders.OrderLine_DS quantity count --sql
+exit: 0
+
+--- stdout
+rename field Acme.Orders.OrderLine_DS: quantity -> count: a plan, nothing was written (pass --apply)
+  entity files   2, 0 tables
+  sidecars       1
+  review         0 occurrences left for a person
+  database       a migration would be written to sql/<DATE>-rename-field-OrderLine_DS-quantity-to-count.sql
+
+Not carried over by a rename:
+  - The rows of a configuration table keep their values on the server unless you deploy with --overwrite-tables
+  - Scripts, mashup bindings and services that read the field by name are not changed; search for "quantity"
+  - If this shape is stored through DBConnection, the column must be renamed in the database before the import
+  - Run <ROOT>/sql/<DATE>-rename-field-OrderLine_DS-quantity-to-count.sql before the import: `twaco db run <ROOT>/sql/<DATE>-rename-field-OrderLine_DS-quantity-to-count.sql --apply` (one atomic script), or psql with ON_ERROR_STOP=1. DeployComponent creates tables and never renames one.
+Next: twaco check; commit; twaco deploy --apply.
+--- stderr
+

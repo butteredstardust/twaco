@@ -1,0 +1,28 @@
+$ twaco rename param Acme.Orders.Manager GetOrder orderId order
+exit: 0
+
+--- stdout
+rename param Acme.Orders.Manager.GetOrder: orderId -> order: a plan, nothing was written (pass --apply)
+  entity files   3 files, 5 references
+  sidecars       4 files, 5 references
+  mashups        2 files, 0 references
+  twaco.toml     0 files, 0 references
+  review         19 occurrences left for a person
+Mashups/Acme.Orders.Dashboard.xml:36  pe":"Things","Id":"GetOrder","Method":"POST","Parameters":{"orderId":{"Type":"STRING","Value":""}},"RefreshInterval":0,"
+ThingShapes/Acme.Orders.Audit_TS.xml:93  * @param {STRING} orderId The order.
+ThingShapes/Acme.Orders.Audit_TS.xml:96  logger.info("order " + orderId + ": " + note);
+Things/Acme.Orders.Database.xml:75  { name: "orderId", notNull: true },
+Things/Acme.Orders.Database.xml:80  { name: "orderId" },
+Things/Acme.Orders.Database.xml:81  { fieldNames: ["orderId", "sku"], unique: true }
+Things/Acme.Orders.Manager.xml:201  const lines = me.LoadLines({ orderId: reference });
+Things/Acme.Orders.Manager.xml:205  orderId: orderId,
+Things/Acme.Orders.Manager.xml:244  * @param {STRING} orderId The order.
+Things/Acme.Orders.Manager.xml:248  query: { filters: { type: "EQ", fieldName: "orderId", value: orderId } }
+and 9 more
+
+Not carried over by a rename:
+  - Callers outside this repository (REST clients, other projects and schedulers) pass parameters by name and break.
+  - 19 occurrence(s) were left for a person to review.
+Next: twaco check; commit; twaco deploy --apply.
+--- stderr
+
