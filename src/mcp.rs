@@ -1608,7 +1608,12 @@ fn push_tool(solution: &Solution, arguments: &Value) -> Result<Value, ToolError>
         commands::push::execute(solution, &request, server::Client::new).map_err(|error| {
             ToolError {
                 code: error.code(),
-                message: error.to_string(),
+                message: match error.backup() {
+                    Some(dir) => {
+                        format!("{error}; the server's copy was saved to {dir} before the push")
+                    }
+                    None => error.to_string(),
+                },
             }
         })?;
     let label = match &outcome {

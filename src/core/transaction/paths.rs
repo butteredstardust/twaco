@@ -24,6 +24,14 @@ pub fn stored(text: &str) -> Result<String, String> {
     for component in Path::new(text).components() {
         match component {
             Component::Normal(part) => match part.to_str() {
+                // Windows reads `a.` and `a ` as `a`, and `a:b` as a stream of `a`: names that are
+                // different here and the same there are refused.
+                Some(part)
+                    if cfg!(windows)
+                        && (part.ends_with('.') || part.ends_with(' ') || part.contains(':')) =>
+                {
+                    return Err(format!("{text} has a name Windows would read as another"))
+                }
                 Some(part) => parts.push(part),
                 None => return Err(format!("{text} is not valid UTF-8")),
             },

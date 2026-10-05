@@ -117,12 +117,6 @@ fn show(digest: &Option<String>) -> String {
 /// workspace lock held, ahead of the sweep for stale temporaries.
 pub fn recover_pending(root: &Path) -> Result<Vec<Recovered>, Refusal> {
     let folder = root.join(journal::DIRECTORY);
-    if paths::is_link(&root.join(".twaco")) || paths::is_link(&folder) {
-        return Err(Refusal(format!(
-            "recovery refused: {} is a link, so what is behind it is not this workspace's",
-            folder.display()
-        )));
-    }
     let Ok(entries) = std::fs::read_dir(&folder) else {
         return Ok(Vec::new());
     };
@@ -208,11 +202,13 @@ pub(super) fn resolve(root: &Path, journal: &Journal) -> Result<Action, Refusal>
             clean(root, journal, false);
             return Ok(Action::Cleaned);
         }
-        State::Staging => {
-            clean(root, journal, true);
-            return Ok(Action::Cleaned);
-        }
-        State::Applying => {}
+        State::Staging | State::Applying => {}
+    }
+    let staging = journal.state == State::Staging;
+    if staging && check_paths(root, journal).is_err() {
+        // Nothing was meant to be visible yet; `clean` touches only what it can prove is ours.
+        clean(root, journal, true);
+        return Ok(Action::Cleaned);
     }
     check_paths(root, journal)?;
     let io = |why: std::io::Error| {
@@ -257,10 +253,13 @@ pub(super) fn resolve(root: &Path, journal: &Journal) -> Result<Action, Refusal>
         .filter(|(_, standing)| matches!(standing, Standing::Before))
         .map(|(step, _)| step)
         .collect();
+    // A journal still marked `staging` can be a stale copy: a destination changed after the
+    // `applying` write that a crash did not keep. What the files say wins over the mark.
     if installed.is_empty() {
         clean(root, journal, true);
         return Ok(Action::Cleaned);
     }
+
     let forward = waiting.iter().all(|step| can_install(root, step));
     let backward = installed.iter().all(|step| can_restore(root, step));
     if forward {
