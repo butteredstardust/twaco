@@ -13,6 +13,7 @@
 //! once per command and never changes.
 
 mod build;
+pub(crate) mod inherit;
 mod query;
 
 #[cfg(test)]

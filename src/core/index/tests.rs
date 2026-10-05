@@ -190,6 +190,12 @@ fn structure() -> (PathBuf, Solution) {
     (root, solution)
 }
 
+fn bundled() -> (PathBuf, Solution) {
+    let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/corpus/acme-orders");
+    let solution = Solution::load(&root.join("twaco.toml")).unwrap();
+    (root, solution)
+}
+
 fn kinds(index: &Index, from: &str, to: &str) -> Vec<EdgeKind> {
     index
         .edges()
@@ -290,24 +296,39 @@ fn inheritance_is_walked_nearest_first_and_shapes_are_implemented_through_templa
 }
 
 #[test]
-fn the_index_agrees_with_the_catalog_on_inheritance_for_every_entity() {
-    let (root, solution) = structure();
-    let index = Index::build(&solution);
-    let (entities, skipped) = catalog::inheritance(&solution);
-    assert!(skipped.is_empty(), "{skipped:?}");
-    assert!(!entities.is_empty());
-    for entity in &entities {
-        let key = key(&entity.collection, &entity.name);
-        assert_eq!(index.inheritance_names(&key), entity.inherits, "{key}");
-        if entity.collection == "ThingShapes" {
+fn the_index_agrees_with_the_model_walk_the_refactors_still_use_for_every_entity() {
+    // `catalog::inheritance_names` and `implementers` walk model entities (the retemplate and
+    // field-rename code holds those); the index walks its own nodes. Both call one function, so
+    // this holds the two representations to the same facts about every entity.
+    for (root, solution) in [structure(), bundled()] {
+        let index = Index::build(&solution);
+        let (model, skipped) = crate::core::types::load_model(&solution);
+        assert!(
+            skipped.is_empty() || root.ends_with("acme-orders"),
+            "{skipped:?}"
+        );
+        assert!(!model.entities.is_empty());
+        for entity in &model.entities {
+            let key = key(&entity.collection, &entity.name);
             assert_eq!(
-                index.implementers(&key, None),
-                entity.implemented_by,
+                index.inheritance_names(&key),
+                catalog::inheritance_names(entity, &model.entities),
                 "{key}"
             );
+            if entity.collection == "ThingShapes" {
+                assert_eq!(
+                    index.implementers(&key, None),
+                    catalog::implementers(entity, &model.entities, None),
+                    "{key}"
+                );
+            }
+        }
+        let (catalogued, _) = catalog::inheritance(&solution);
+        assert_eq!(catalogued.len(), model.entities.len());
+        if !root.ends_with("acme-orders") {
+            let _ = std::fs::remove_dir_all(root);
         }
     }
-    let _ = std::fs::remove_dir_all(root);
 }
 
 #[test]
