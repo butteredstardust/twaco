@@ -13,7 +13,8 @@ These decide most design questions. A change that breaks one needs a very good r
    bytes. twaco tokenises XML into byte spans (`scan`) and replaces only the span it means to
    change (`splice`), so a no-op edit is the identity function, byte for byte. No XML library
    round trip, which would change attribute order, whitespace, empty-element style and CDATA
-   boundaries.
+   boundaries. Scripts follow the same rule: an ECMAScript parser (swc) reads them for byte
+   spans only, and its output is never printed back.
 2. **The server is someone else's.** Every command that writes to a server plans unless told
    to act; CLI `call` is the exception, since twaco cannot know whether a service writes. Deletes
    are dependency-guarded and confirmed absent. Conflicts are refused rather than resolved. A gate that cannot run fails closed.
@@ -42,6 +43,7 @@ main.rs  mcp.rs                 front ends: parse arguments, call core, print or
 | --- | --- |
 | `scan` | Tokenises XML into spans (start, end, empty, text, CDATA, comment), validating UTF-8 and refusing markup it would have to guess at. Finds an attribute's span in a tag. |
 | `splice` | Applies non-overlapping span replacements to a document. |
+| `script` | Parses one service script as ECMAScript and returns facts with byte spans: identifiers and their roles, member accesses and calls, variables bound to a Thing, strings, comments. A script the parser refuses yields no facts, and the rename passes leave it for review. |
 | `entity` | Reads which entity a document is: collection, name, project. |
 | `workspace` | Finds a solution's entity files, reports unreadable ones and links, and reads and writes sidecars atomically; `atomic_replace` is the one way any file that may exist is replaced. |
 | `sidecar`, `datashape`, `datatable`, `mashup` | Extract and sync each sidecar kind. |

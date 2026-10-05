@@ -1261,3 +1261,53 @@ fn a_data_table_round_trips_through_its_sidecar_unchanged() {
     );
     eprintln!("{checked} DataTable(s) round-trip through a sidecar unchanged");
 }
+
+#[test]
+fn scripts_parse_over_the_corpus() {
+    // Every service script of every entity, parsed as ECMAScript. A refusal is a normal outcome
+    // (Rhino accepts a little that the parser does not), so this asserts the rate, and that
+    // every span the facts report fits the bytes it was parsed from.
+    let files = corpus();
+    if skip_without_corpus(&files, "script parsing") {
+        return;
+    }
+    let mut scripts = 0usize;
+    let mut parsed = 0usize;
+    let mut failed = 0usize;
+    let mut failures = Vec::new();
+    for path in &files {
+        let Some((src, tokens)) = tokens_of(path, &mut failures) else { continue };
+        let mut elements: Vec<&[u8]> = Vec::new();
+        for token in &tokens {
+            match token.kind {
+                Kind::Start => elements.push(token.name.of(&src)),
+                Kind::End => {
+                    elements.pop();
+                }
+                Kind::Cdata if elements.last() == Some(&b"code".as_slice()) => {
+                    scripts += 1;
+                    let payload = token.inner.of(&src);
+                    match twaco::core::script::parse(payload) {
+                        Ok(script) => {
+                            parsed += 1;
+                            if let Err(error) = script.verify_spans(payload) {
+                                failures.push(format!("{}: {error}", path.display()));
+                            }
+                        }
+                        Err(_) => failed += 1,
+                    }
+                }
+                _ => {}
+            }
+        }
+    }
+    assert!(
+        failures.is_empty(),
+        "{} failure(s):\n{}",
+        failures.len(),
+        failures.iter().take(10).cloned().collect::<Vec<_>>().join("\n")
+    );
+    assert!(scripts > 0, "corpus contained no script payload, so this proved nothing");
+    println!("scripts={scripts} parsed={parsed} failed={failed}");
+    assert!(parsed * 100 >= scripts * 99, "only {parsed} of {scripts} scripts parse");
+}

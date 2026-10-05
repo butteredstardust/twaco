@@ -4,7 +4,7 @@
 //! Comments and processing instructions are deliberately ignored, while raw attribute values,
 //! non-whitespace text nodes and CDATA payloads are inspected without decoding XML entities.
 
-use super::{refs, scan, sidecar, splice};
+use super::{refs, scan, script, sidecar, splice};
 use serde::Deserialize;
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -261,6 +261,46 @@ pub(crate) struct JsToken {
     pub(crate) span: scan::Span,
 }
 
+/// The reason attached to every mention in a script the parser refused.
+const UNPARSED: &str = "script could not be parsed; left for review";
+
+/// Whether a call's receiver is one the rename reaches: `me` and `this` when the entity's own
+/// service is meant (`local`), or a Thing, named directly or through a variable, that is in
+/// `callers`.
+fn is_caller_receiver(
+    script: &script::Script,
+    receiver: &script::Receiver,
+    local: bool,
+    callers: &BTreeSet<String>,
+) -> bool {
+    match receiver {
+        script::Receiver::Me | script::Receiver::This => local,
+        other => script
+            .thing_of(other)
+            .is_some_and(|entity| callers.contains(entity)),
+    }
+}
+
+/// A script the parser refused is never edited. This reports every whole-word occurrence of
+/// `name` in it, wherever it stands, so that a person decides.
+pub(crate) fn lexical_mentions(text: &[u8], name: &str) -> Vec<scan::Span> {
+    let needle = name.as_bytes();
+    let word = |byte: &u8| byte.is_ascii_alphanumeric() || matches!(*byte, b'_' | b'$');
+    if needle.is_empty() {
+        return Vec::new();
+    }
+    text.windows(needle.len())
+        .enumerate()
+        .filter(|(start, window)| {
+            let end = start + needle.len();
+            *window == needle
+                && !start.checked_sub(1).is_some_and(|before| word(&text[before]))
+                && !text.get(end).is_some_and(word)
+        })
+        .map(|(start, _)| scan::Span::new(start, start + needle.len()))
+        .collect()
+}
+
 #[allow(clippy::too_many_arguments)]
 fn merge_param_script(
     src: &[u8],
@@ -274,116 +314,56 @@ fn merge_param_script(
     pass: &mut XmlPass,
 ) {
     let text = span.of(src);
-    let tokens = js_tokens(text);
-    if own_script {
-        if let Some((at, why)) = unsafe_param_use(text, &tokens, old) {
-            add_review_reason(
-                src,
-                scan::Span::new(span.start + at, span.start + at + old.len()),
-                Place::Script,
-                why,
-                pass,
-            );
-            return;
-        }
-    }
+    let parsed = script::parse(text).ok();
     let mut applied = BTreeSet::new();
-    if own_script {
-        for (index, token) in tokens.iter().enumerate().filter(|(_, token)| {
-            token.kind == JsKind::Ident && token.span.of(text) == old.as_bytes()
-        }) {
-            let after_dot =
-                previous_token(&tokens, index).is_some_and(|token| token.span.of(text) == b".");
-            let object_key = next_token(&tokens, index)
-                .is_some_and(|token| token.span.of(text) == b":")
-                && previous_token(&tokens, index)
-                    .is_some_and(|token| matches!(token.span.of(text), b"{" | b","));
-            if !after_dot && !object_key {
-                applied.insert((token.span.start, token.span.end));
+    if let Some(script) = &parsed {
+        if own_script {
+            if let Some((at, why)) = unsafe_param_use(text, script, old) {
+                add_review_reason(
+                    src,
+                    scan::Span::new(span.start + at, span.start + at + old.len()),
+                    Place::Script,
+                    why,
+                    pass,
+                );
+                return;
             }
-        }
-        for token in tokens.iter().filter(|token| token.kind == JsKind::Comment) {
-            for found in jsdoc_param_spans(token.span.of(text), old) {
-                applied.insert((token.span.start + found.start, token.span.start + found.end));
-            }
-        }
-    }
-    let variables = param_receiver_variables(text, &tokens);
-    for call in param_calls(text, &tokens, service, local_calls, callers, &variables) {
-        let Some(first) = next_token(&tokens, call.open) else {
-            add_review_reason(
-                src,
-                scan::Span::new(
-                    span.start + call.service.start,
-                    span.start + call.service.end,
-                ),
-                Place::Script,
-                "non-literal first argument; parameter keys cannot be proved",
-                pass,
-            );
-            continue;
-        };
-        let first_index = tokens
-            .iter()
-            .position(|token| token.span == first.span)
-            .unwrap();
-        if first.span.of(text) != b"{" {
-            add_review_reason(
-                src,
-                scan::Span::new(
-                    span.start + call.service.start,
-                    span.start + call.service.end,
-                ),
-                Place::Script,
-                "non-literal first argument; parameter keys cannot be proved",
-                pass,
-            );
-            continue;
-        }
-        let mut depth = 0isize;
-        let mut boundary = true;
-        for token in tokens.iter().skip(first_index + 1) {
-            let raw = token.span.of(text);
-            if raw == b"{" || raw == b"[" || raw == b"(" {
-                depth += 1;
-                boundary = false;
-                continue;
-            }
-            if raw == b"}" && depth == 0 {
-                break;
-            }
-            if raw == b"}" || raw == b"]" || raw == b")" {
-                depth -= 1;
-                continue;
-            }
-            if depth != 0 {
-                continue;
-            }
-            if raw == b"," {
-                boundary = true;
-                continue;
-            }
-            if boundary && matches!(token.kind, JsKind::Ident | JsKind::String) {
-                let key = if token.kind == JsKind::String {
-                    &raw[1..raw.len().saturating_sub(1)]
-                } else {
-                    raw
-                };
-                let index = tokens
-                    .iter()
-                    .position(|item| item.span == token.span)
-                    .unwrap();
-                if key == old.as_bytes()
-                    && next_token(&tokens, index).is_some_and(|next| next.span.of(text) == b":")
+            for identifier in &script.identifiers {
+                if identifier.role == script::Role::Reference
+                    && identifier.span.of(text) == old.as_bytes()
                 {
-                    let key_span = if token.kind == JsKind::String {
-                        scan::Span::new(token.span.start + 1, token.span.end - 1)
-                    } else {
-                        token.span
-                    };
-                    applied.insert((key_span.start, key_span.end));
+                    applied.insert((identifier.span.start, identifier.span.end));
                 }
-                boundary = false;
+            }
+            for comment in &script.comments {
+                for found in jsdoc_param_spans(comment.span.of(text), old) {
+                    let start = comment.span.start;
+                    applied.insert((start + found.start, start + found.end));
+                }
+            }
+        }
+        for call in &script.calls {
+            if call.property.of(text) != service.as_bytes()
+                || !is_caller_receiver(script, &call.receiver, local_calls, callers)
+            {
+                continue;
+            }
+            match &call.first {
+                script::FirstArgument::Object(keys) => {
+                    for key in keys.iter().filter(|key| key.text == old) {
+                        applied.insert((key.span.start, key.span.end));
+                    }
+                }
+                script::FirstArgument::Other => add_review_reason(
+                    src,
+                    scan::Span::new(
+                        span.start + call.property.start,
+                        span.start + call.property.end,
+                    ),
+                    Place::Script,
+                    "non-literal first argument; parameter keys cannot be proved",
+                    pass,
+                ),
             }
         }
     }
@@ -401,108 +381,46 @@ fn merge_param_script(
         old,
         refs::Mode::Prefix,
     ) {
-        if !applied.contains(&(hit.start, hit.end)) {
-            add_review(
-                src,
-                scan::Span::new(span.start + hit.start, span.start + hit.end),
-                Place::Script,
-                pass,
-            );
-        }
-    }
-}
-
-pub(crate) fn previous_token(tokens: &[JsToken], at: usize) -> Option<&JsToken> {
-    at.checked_sub(1).and_then(|at| tokens.get(at))
-}
-pub(crate) fn next_token(tokens: &[JsToken], at: usize) -> Option<&JsToken> {
-    tokens.get(at + 1)
-}
-
-fn unsafe_param_use<'a>(src: &[u8], tokens: &[JsToken], old: &str) -> Option<(usize, &'a str)> {
-    for (at, token) in tokens.iter().enumerate() {
-        if token.kind != JsKind::Ident || token.span.of(src) != old.as_bytes() {
+        if applied.contains(&(hit.start, hit.end)) {
             continue;
         }
-        let prev = previous_token(tokens, at).map(|token| token.span.of(src));
-        let next = next_token(tokens, at).map(|token| token.span.of(src));
-        // `{ a, old, b }` is a shorthand property; `f(a, old, b)` and `[a, old]` are not. Only the
-        // innermost open bracket tells them apart.
-        if prev.is_some_and(|raw| matches!(raw, b"{" | b","))
-            && next.is_some_and(|raw| matches!(raw, b"," | b"}"))
-            && innermost_open_bracket(src, tokens, at) == Some(b'{')
-        {
-            return Some((
-                token.span.start,
-                "shorthand property would change meaning; the whole script was left for review",
-            ));
-        }
-        if previous_token(tokens, at)
-            .is_some_and(|token| matches!(token.span.of(src), b"var" | b"let" | b"const"))
-        {
-            return Some((
-                token.span.start,
-                "local re-declaration would change meaning; the whole script was left for review",
-            ));
-        }
-        if parameter_of_function_or_catch(src, tokens, at) {
-            return Some((token.span.start, "nested function or catch parameter would change meaning; the whole script was left for review"));
-        }
-    }
-    None
-}
-
-/// The bracket that most closely encloses token `at`: `(`, `[` or `{`, or `None` at top level.
-fn innermost_open_bracket(src: &[u8], tokens: &[JsToken], at: usize) -> Option<u8> {
-    let mut depth = [0isize; 3];
-    for index in (0..at).rev() {
-        let raw = tokens[index].span.of(src);
-        let (slot, opens) = match raw {
-            b")" => (0, false),
-            b"(" => (0, true),
-            b"]" => (1, false),
-            b"[" => (1, true),
-            b"}" => (2, false),
-            b"{" => (2, true),
-            _ => continue,
-        };
-        if !opens {
-            depth[slot] += 1;
-        } else if depth[slot] > 0 {
-            depth[slot] -= 1;
+        let hit_span = scan::Span::new(span.start + hit.start, span.start + hit.end);
+        if parsed.is_some() {
+            add_review(src, hit_span, Place::Script, pass);
         } else {
-            return Some(raw[0]);
+            add_review_reason(src, hit_span, Place::Script, UNPARSED, pass);
         }
     }
-    None
 }
 
-fn parameter_of_function_or_catch(src: &[u8], tokens: &[JsToken], at: usize) -> bool {
-    let mut depth = 0isize;
-    let mut open = None;
-    for index in (0..at).rev() {
-        match tokens[index].span.of(src) {
-            b")" => depth += 1,
-            b"(" if depth > 0 => depth -= 1,
-            b"(" => {
-                open = Some(index);
-                break;
-            }
-            _ => {}
-        }
-    }
-    let Some(open) = open else {
-        return previous_token(tokens, at).is_some_and(|_| {
-            next_token(tokens, at).is_some_and(|token| token.span.of(src) == b"=>")
-        });
-    };
-    previous_token(tokens, open)
-        .is_some_and(|token| matches!(token.span.of(src), b"function" | b"catch"))
-        || tokens
-            .iter()
-            .skip(at + 1)
-            .take_while(|token| token.span.of(src) != b")")
-            .any(|token| token.span.of(src) == b"=>")
+/// The first place the script gives `old` a meaning of its own: a redeclaration, a parameter, or a
+/// shorthand property. Renaming the free input would change what each of those means.
+fn unsafe_param_use(
+    src: &[u8],
+    script: &script::Script,
+    old: &str,
+) -> Option<(usize, &'static str)> {
+    script
+        .identifiers
+        .iter()
+        .filter(|identifier| identifier.span.of(src) == old.as_bytes())
+        .find_map(|identifier| {
+            let why = match identifier.role {
+                script::Role::Shorthand => {
+                    "shorthand property would change meaning; the whole script was left for review"
+                }
+                script::Role::Declaration => {
+                    "local re-declaration would change meaning; the whole script was left for review"
+                }
+                script::Role::Parameter => {
+                    "nested function or catch parameter would change meaning; the whole script was left for review"
+                }
+                script::Role::Reference | script::Role::ObjectKey | script::Role::MemberProperty => {
+                    return None;
+                }
+            };
+            Some((identifier.span.start, why))
+        })
 }
 
 fn jsdoc_param_spans(src: &[u8], old: &str) -> Vec<scan::Span> {
@@ -545,120 +463,18 @@ fn find_bytes(src: &[u8], needle: &[u8]) -> Option<usize> {
     src.windows(needle.len()).position(|part| part == needle)
 }
 
-struct ParamCall {
-    service: scan::Span,
-    open: usize,
-}
-
-pub(crate) fn param_receiver_variables(src: &[u8], tokens: &[JsToken]) -> BTreeMap<Vec<u8>, String> {
-    let mut out = BTreeMap::new();
-    for at in 0..tokens.len() {
-        if tokens[at].kind != JsKind::Ident
-            || !matches!(tokens[at].span.of(src), b"var" | b"let" | b"const")
-        {
-            continue;
-        }
-        let Some(name) = tokens
-            .get(at + 1)
-            .filter(|token| token.kind == JsKind::Ident)
-        else {
-            continue;
-        };
-        if tokens
-            .get(at + 2)
-            .is_none_or(|token| token.span.of(src) != b"=")
-        {
-            continue;
-        }
-        if let Some((_, entity)) = thing_receiver_tokens(src, tokens, at + 3) {
-            out.insert(name.span.of(src).to_vec(), entity);
-        }
-    }
-    out
-}
-
-fn param_calls(
-    src: &[u8],
-    tokens: &[JsToken],
-    service: &str,
-    local: bool,
-    callers: &BTreeSet<String>,
-    variables: &BTreeMap<Vec<u8>, String>,
-) -> Vec<ParamCall> {
-    let mut out = Vec::new();
-    for at in 0..tokens.len() {
-        let (receiver_end, eligible) =
-            if let Some((end, entity)) = thing_receiver_tokens(src, tokens, at) {
-                (end, callers.contains(&entity))
-            } else if tokens[at].kind == JsKind::Ident {
-                let raw = tokens[at].span.of(src);
-                (
-                    at + 1,
-                    (local && matches!(raw, b"me" | b"this"))
-                        || variables
-                            .get(raw)
-                            .is_some_and(|entity| callers.contains(entity)),
-                )
-            } else {
-                continue;
-            };
-        if !eligible
-            || tokens
-                .get(receiver_end)
-                .is_none_or(|token| token.span.of(src) != b".")
-        {
-            continue;
-        }
-        let Some(member) = tokens.get(receiver_end + 1).filter(|token| {
-            token.kind == JsKind::Ident && token.span.of(src) == service.as_bytes()
-        }) else {
-            continue;
-        };
-        if tokens
-            .get(receiver_end + 2)
-            .is_some_and(|token| token.span.of(src) == b"(")
-        {
-            out.push(ParamCall {
-                service: member.span,
-                open: receiver_end + 2,
-            });
-        }
-    }
-    out
-}
-
-pub(crate) fn thing_receiver_tokens(src: &[u8], tokens: &[JsToken], at: usize) -> Option<(usize, String)> {
-    if tokens.get(at)?.span.of(src) != b"Things" {
-        return None;
-    }
-    if tokens.get(at + 1)?.span.of(src) == b"["
-        && tokens.get(at + 2)?.kind == JsKind::String
-        && tokens.get(at + 3)?.span.of(src) == b"]"
-    {
-        let raw = tokens[at + 2].span.of(src);
-        return Some((
-            at + 4,
-            String::from_utf8_lossy(&raw[1..raw.len() - 1]).into_owned(),
-        ));
-    }
-    if tokens.get(at + 1)?.span.of(src) == b"." && tokens.get(at + 2)?.kind == JsKind::Ident {
-        return Some((
-            at + 3,
-            String::from_utf8_lossy(tokens[at + 2].span.of(src)).into_owned(),
-        ));
-    }
-    None
-}
-
 /// Whether `name` occurs in the script as an identifier (not in a string, comment or regex, and
-/// not after a dot): a parameter renamed to it would be captured by that use.
+/// not as a member name): a parameter renamed to it would be captured by that use. A script that
+/// cannot be parsed is refused rather than guessed at: `true` if `name` occurs in it as a whole
+/// word anywhere.
 pub fn script_uses_identifier(src: &[u8], name: &str) -> bool {
-    let tokens = js_tokens(src);
-    tokens.iter().enumerate().any(|(at, token)| {
-        token.kind == JsKind::Ident
-            && token.span.of(src) == name.as_bytes()
-            && !previous_token(&tokens, at).is_some_and(|previous| previous.span.of(src) == b".")
-    })
+    match script::parse(src) {
+        Ok(script) => script.identifiers.iter().any(|identifier| {
+            identifier.role != script::Role::MemberProperty
+                && identifier.span.of(src) == name.as_bytes()
+        }),
+        Err(_) => !lexical_mentions(src, name).is_empty(),
+    }
 }
 
 pub(crate) fn js_tokens(src: &[u8]) -> Vec<JsToken> {
@@ -936,62 +752,36 @@ fn merge_table_script(
     pass: &mut XmlPass,
 ) {
     let text = span.of(src);
-    let mut found = BTreeSet::new();
-    for (start, _) in String::from_utf8_lossy(text).match_indices(old) {
-        let end = start + old.len();
-        let member_end = text
-            .get(end)
-            .is_none_or(|byte| !byte.is_ascii_alphanumeric() && *byte != b'_');
-        let quoted = start > 0
-            && end < text.len()
-            && matches!(text[start - 1], b'\'' | b'"')
-            && text[end] == text[start - 1];
-        let dot = member_end
-            && start > 0
-            && text[..start]
-                .iter()
-                .rposition(|byte| !byte.is_ascii_whitespace())
-                .is_some_and(|at| text[at] == b'.');
-        if !quoted && !dot {
-            continue;
+    let absolute =
+        |inner: scan::Span| scan::Span::new(span.start + inner.start, span.start + inner.end);
+    let Ok(script) = script::parse(text) else {
+        for mention in lexical_mentions(text, old) {
+            add_review(src, absolute(mention), Place::Script, pass);
         }
-        let applied = quoted && apply_scripts && table_name_value(text, start - 1);
-        if found.insert((start, end)) {
-            let absolute = scan::Span::new(span.start + start, span.start + end);
-            if applied {
-                add_table_edit(src, absolute, new, Place::Script, pass);
-            } else {
-                add_review(src, absolute, Place::Script, pass);
-            }
+        return;
+    };
+    // Each occurrence, in source order, with whether it is the value of a `tableName` key.
+    let mut found = BTreeMap::<(usize, usize), bool>::new();
+    for string in script.strings.iter().filter(|string| string.value == old) {
+        let selector = script
+            .object_strings
+            .iter()
+            .any(|property| property.value_span == string.span && property.key == "tableName");
+        found.insert((string.span.start, string.span.end), selector);
+    }
+    for member in &script.members {
+        if !member.string_index && member.property.of(text) == old.as_bytes() {
+            found.insert((member.property.start, member.property.end), false);
         }
     }
-}
-
-fn table_name_value(src: &[u8], quote: usize) -> bool {
-    let mut at = quote;
-    while at > 0 && src[at - 1].is_ascii_whitespace() {
-        at -= 1;
+    for ((start, end), selector) in found {
+        let hit = absolute(scan::Span::new(start, end));
+        if selector && apply_scripts {
+            add_table_edit(src, hit, new, Place::Script, pass);
+        } else {
+            add_review(src, hit, Place::Script, pass);
+        }
     }
-    if at == 0 || src[at - 1] != b':' {
-        return false;
-    }
-    at -= 1;
-    while at > 0 && src[at - 1].is_ascii_whitespace() {
-        at -= 1;
-    }
-    if at > 0 && matches!(src[at - 1], b'\'' | b'"') {
-        let quote = src[at - 1];
-        at -= 1;
-        let Some(start) = src[..at].iter().rposition(|byte| *byte == quote) else {
-            return false;
-        };
-        return &src[start + 1..at] == b"tableName";
-    }
-    let start = src[..at]
-        .iter()
-        .rposition(|byte| !byte.is_ascii_alphanumeric() && *byte != b'_')
-        .map_or(0, |position| position + 1);
-    &src[start..at] == b"tableName"
 }
 
 fn add_table_edit(src: &[u8], span: scan::Span, new: &str, place: Place, pass: &mut XmlPass) {
@@ -1156,7 +946,8 @@ pub fn scan_service_definition(
     Ok(pass)
 }
 
-/// Scans a JavaScript file. This is deliberately lexical: comments and strings are callers too.
+/// Scans a JavaScript file. Edits come from the parsed calls; the review is lexical, so a string,
+/// comment or member with the old name that is not a proven caller is left for a person.
 pub fn scan_service_script(
     src: &[u8],
     old: &str,
@@ -1193,54 +984,22 @@ fn merge_service_script(
 ) {
     let text = span.of(src);
     let mut applied = BTreeSet::<(usize, usize)>::new();
-    let mut variables = BTreeMap::<Vec<u8>, String>::new();
-    let mut at = 0;
-    while at < text.len() {
-        if rename_function && text.get(at..at + 9) == Some(b"@function") {
-            let name = skip_ws(text, at + 9);
-            if text.get(name..name + old.len()) == Some(old.as_bytes())
-                && text
-                    .get(name + old.len())
-                    .is_none_or(|b| !b.is_ascii_alphanumeric() && *b != b'_')
+    // A script the parser refuses gets no edits; the review below still names its mentions.
+    if let Ok(script) = script::parse(text) {
+        for call in &script.calls {
+            if call.property.of(text) == old.as_bytes()
+                && is_caller_receiver(&script, &call.receiver, local_calls, callers)
             {
-                applied.insert((name, name + old.len()));
+                applied.insert((call.property.start, call.property.end));
             }
         }
-        if let Some((end, entity)) = thing_receiver(text, at) {
-            if callers.contains(&entity) {
-                if let Some(name) = member_call(text, end, old) {
-                    applied.insert((name.start, name.end));
+        if rename_function {
+            for comment in &script.comments {
+                for found in jsdoc_function_spans(comment.span.of(text), old) {
+                    let start = comment.span.start;
+                    applied.insert((start + found.start, start + found.end));
                 }
             }
-        }
-        if let Some(after) = keyword_at(text, at) {
-            let (name, next) = identifier(text, skip_ws(text, after));
-            let equals = skip_ws(text, next);
-            if !name.is_empty() && text.get(equals) == Some(&b'=') {
-                let receiver = skip_ws(text, equals + 1);
-                if let Some((_, entity)) = thing_receiver(text, receiver) {
-                    variables.insert(name.to_vec(), entity);
-                }
-            }
-        }
-        at += 1;
-    }
-    at = 0;
-    while at < text.len() {
-        let (receiver, end) = identifier(text, at);
-        if !receiver.is_empty() {
-            let eligible = (local_calls && (receiver == b"me" || receiver == b"this"))
-                || variables
-                    .get(receiver)
-                    .is_some_and(|entity| callers.contains(entity));
-            if eligible {
-                if let Some(name) = member_call(text, end, old) {
-                    applied.insert((name.start, name.end));
-                }
-            }
-            at = end;
-        } else {
-            at += 1;
         }
     }
     for &(start, end) in &applied {
@@ -1291,82 +1050,23 @@ fn skip_ws(src: &[u8], mut at: usize) -> usize {
     at
 }
 
-fn identifier(src: &[u8], at: usize) -> (&[u8], usize) {
-    if !src
-        .get(at)
-        .is_some_and(|b| b.is_ascii_alphabetic() || *b == b'_' || *b == b'$')
-    {
-        return (&src[at.min(src.len())..at.min(src.len())], at);
-    }
-    let mut end = at + 1;
-    while src
-        .get(end)
-        .is_some_and(|b| b.is_ascii_alphanumeric() || matches!(*b, b'_' | b'$'))
-    {
-        end += 1;
-    }
-    (&src[at..end], end)
-}
-
-fn keyword_at(src: &[u8], at: usize) -> Option<usize> {
-    for word in [b"const".as_slice(), b"let", b"var"] {
-        if src.get(at..at + word.len()) == Some(word)
-            && (at == 0 || !src[at - 1].is_ascii_alphanumeric())
-            && src
-                .get(at + word.len())
-                .is_some_and(u8::is_ascii_whitespace)
-        {
-            return Some(at + word.len());
-        }
-    }
-    None
-}
-
-fn thing_receiver(src: &[u8], at: usize) -> Option<(usize, String)> {
-    if src.get(at..at + 6)? != b"Things" {
-        return None;
-    }
-    let mut p = skip_ws(src, at + 6);
-    if src.get(p) == Some(&b'[') {
-        p = skip_ws(src, p + 1);
-        let quote = *src.get(p)?;
-        if !matches!(quote, b'\'' | b'"') {
-            return None;
-        }
-        let start = p + 1;
-        p = start;
-        while p < src.len() && src[p] != quote {
-            p += 1;
-        }
-        let entity = std::str::from_utf8(src.get(start..p)?).ok()?.to_string();
-        p = skip_ws(src, p + 1);
-        if src.get(p) != Some(&b']') {
-            return None;
-        }
-        Some((p + 1, entity))
-    } else if src.get(p) == Some(&b'.') {
-        let (name, end) = identifier(src, skip_ws(src, p + 1));
-        (!name.is_empty()).then(|| (end, String::from_utf8_lossy(name).into_owned()))
-    } else {
-        None
-    }
-}
-
-fn member_call(src: &[u8], receiver_end: usize, old: &str) -> Option<scan::Span> {
-    let mut p = skip_ws(src, receiver_end);
-    if src.get(p) != Some(&b'.') {
-        return None;
-    }
-    p = skip_ws(src, p + 1);
-    let end = p.checked_add(old.len())?;
-    if src.get(p..end) != Some(old.as_bytes())
-        || src
-            .get(end)
-            .is_some_and(|b| b.is_ascii_alphanumeric() || *b == b'_')
-    {
-        return None;
-    }
-    (src.get(skip_ws(src, end)) == Some(&b'(')).then_some(scan::Span::new(p, end))
+/// The name after each `@function` tag in one comment.
+fn jsdoc_function_spans(comment: &[u8], old: &str) -> Vec<scan::Span> {
+    const TAG: &[u8] = b"@function";
+    comment
+        .windows(TAG.len())
+        .enumerate()
+        .filter(|(_, window)| *window == TAG)
+        .filter_map(|(tag, _)| {
+            let name = skip_ws(comment, tag + TAG.len());
+            let end = name + old.len();
+            let named = comment.get(name..end) == Some(old.as_bytes());
+            let whole = comment
+                .get(end)
+                .is_none_or(|byte| !byte.is_ascii_alphanumeric() && *byte != b'_');
+            (named && whole).then(|| scan::Span::new(name, end))
+        })
+        .collect()
 }
 
 pub(crate) fn add_service_edit(src: &[u8], span: scan::Span, new: &str, place: Place, pass: &mut XmlPass) {
@@ -3399,5 +3099,234 @@ return Number(cardUid);
         assert!(review
             .iter()
             .all(|finding| finding.excerpt.contains("SQL placeholder")));
+    }
+
+    /// The script with every service rename applied, for the one entity `A` and its own calls.
+    fn service_rename(script: &str, rename_function: bool) -> (String, XmlPass) {
+        let callers = BTreeSet::from(["A".to_string()]);
+        let pass = scan_service_script(
+            script.as_bytes(),
+            "Run",
+            "Execute",
+            true,
+            rename_function,
+            &callers,
+        )
+        .unwrap();
+        (String::from_utf8(apply(script.as_bytes(), &pass)).unwrap(), pass)
+    }
+
+    fn review_count(pass: &XmlPass) -> usize {
+        pass.findings.iter().filter(|finding| !finding.applied).count()
+    }
+
+    #[test]
+    fn a_service_call_is_found_wherever_the_parser_finds_it() {
+        // A call split over lines, and one inside a template literal, which a byte recognizer
+        // read as a single opaque token.
+        let (changed, _) = service_rename("Things[\"A\"]\n  .Run(1);", false);
+        assert_eq!(changed, "Things[\"A\"]\n  .Execute(1);");
+        let (changed, _) = service_rename("var s = `${Things.A.Run()} and ${me.Run()}`;", false);
+        assert_eq!(changed, "var s = `${Things.A.Execute()} and ${me.Execute()}`;");
+        let (changed, _) = service_rename("var q = a / b / c; Things.A.Run();", false);
+        assert_eq!(changed, "var q = a / b / c; Things.A.Execute();");
+        let (changed, _) = service_rename("Things.A[\"Run\"]();", false);
+        assert_eq!(changed, "Things.A[\"Execute\"]();");
+    }
+
+    #[test]
+    fn text_that_only_looks_like_a_call_is_left_for_review() {
+        let script = "var s = \"me.Run()\"; var r = /me.Run()/; // me.Run()\n";
+        let (changed, pass) = service_rename(script, false);
+        assert_eq!(changed, script);
+        assert_eq!(review_count(&pass), 3, "{:?}", pass.findings);
+    }
+
+    #[test]
+    fn a_variable_is_followed_only_when_it_can_only_be_one_caller() {
+        let (changed, _) = service_rename("var t = Things.A; t.Run();", false);
+        assert_eq!(changed, "var t = Things.A; t.Execute();");
+        // Reassigned, redeclared as another Thing, or taken as a parameter: nothing is proved.
+        for script in [
+            "var t = Things.A; t = other; t.Run();",
+            "var t = Things.A; var t = Things.B; t.Run();",
+            "var t = Things.A; function f(t) { t.Run(); }",
+            "var t = Things.A; for (t in o) { t.Run(); }",
+        ] {
+            let (changed, pass) = service_rename(script, false);
+            assert_eq!(changed, script);
+            assert!(review_count(&pass) > 0, "{script}");
+        }
+    }
+
+    #[test]
+    fn a_function_tag_is_renamed_inside_comments_only() {
+        let script = "var s = \"@function Run\";\n/** @function Run */\nvar t = '@function Run';";
+        let (changed, _) = service_rename(script, true);
+        assert_eq!(
+            changed,
+            "var s = \"@function Run\";\n/** @function Execute */\nvar t = '@function Run';"
+        );
+        let (unchanged, _) = service_rename(script, false);
+        assert_eq!(unchanged, script);
+    }
+
+    #[test]
+    fn a_service_script_the_parser_refuses_is_not_edited() {
+        // Rhino's `for each` is not ECMAScript; the call inside it is reported, not edited.
+        let script = "for each (x in y) { Things.A.Run(); }";
+        let (changed, pass) = service_rename(script, false);
+        assert_eq!(changed, script);
+        assert_eq!(review_count(&pass), 1, "{:?}", pass.findings);
+    }
+
+    fn param_rename(script: &str, own: bool, local: bool) -> (String, XmlPass) {
+        let callers = BTreeSet::from(["A".to_string()]);
+        let pass = scan_param_script(
+            script.as_bytes(),
+            "Svc",
+            "old",
+            "fresh",
+            own,
+            local,
+            &callers,
+        )
+        .unwrap();
+        (String::from_utf8(apply(script.as_bytes(), &pass)).unwrap(), pass)
+    }
+
+    fn reasons(pass: &XmlPass) -> Vec<&str> {
+        pass.findings
+            .iter()
+            .filter(|finding| !finding.applied)
+            .map(|finding| finding.excerpt.as_str())
+            .collect()
+    }
+
+    #[test]
+    fn a_free_input_is_renamed_through_templates_and_division() {
+        let script = "var s = `${old}`; var q = a / old / b; f(old);";
+        let (changed, _) = param_rename(script, true, false);
+        assert_eq!(changed, "var s = `${fresh}`; var q = a / fresh / b; f(fresh);");
+        // Not a member name, an object key or a string; the key and the string are reviewed, the
+        // member name is not (a dotted occurrence is never a hit).
+        let script = "x.old; var o = { old: 1 }; var s = 'old';";
+        let (changed, pass) = param_rename(script, true, false);
+        assert_eq!(changed, script);
+        assert_eq!(review_count(&pass), 2, "{:?}", pass.findings);
+    }
+
+    #[test]
+    fn a_script_that_gives_the_free_input_a_meaning_of_its_own_is_left_whole() {
+        for (script, reason) in [
+            ("var old = 1; use(old);", "local re-declaration"),
+            ("var { a: old } = x; use(old);", "local re-declaration"),
+            ("function old() {} use(old);", "local re-declaration"),
+            ("f(function (old) {}); use(old);", "nested function or catch parameter"),
+            ("f((old) => old); use(old);", "nested function or catch parameter"),
+            ("try {} catch (old) {} use(old);", "nested function or catch parameter"),
+            ("var o = { old }; use(old);", "shorthand property"),
+            ("var { old } = x; use(old);", "shorthand property"),
+        ] {
+            let (changed, pass) = param_rename(script, true, false);
+            assert_eq!(changed, script, "{script}");
+            let reasons = reasons(&pass);
+            assert!(reasons.iter().any(|text| text.contains(reason)), "{script}: {reasons:?}");
+        }
+    }
+
+    #[test]
+    fn a_call_to_the_service_renames_only_the_keys_of_a_literal_first_argument() {
+        let script = "Things.A.Svc({ old: 1, 'old': 2, other: old, [old]: 3, ...old });\n\
+                      Things.B.Svc({ old: 1 });\n\
+                      Things[\"A\"]\n  .Svc(\n  { old: 1 });";
+        let (changed, _) = param_rename(script, false, false);
+        assert_eq!(
+            changed,
+            "Things.A.Svc({ fresh: 1, 'fresh': 2, other: old, [old]: 3, ...old });\n\
+             Things.B.Svc({ old: 1 });\n\
+             Things[\"A\"]\n  .Svc(\n  { fresh: 1 });"
+        );
+    }
+
+    #[test]
+    fn a_call_whose_keys_cannot_be_proved_is_reviewed() {
+        for script in ["Things.A.Svc(args);", "Things.A.Svc();", "Things.A.Svc(...args);"] {
+            let (changed, pass) = param_rename(script, false, false);
+            assert_eq!(changed, script);
+            assert!(
+                reasons(&pass)
+                    .iter()
+                    .any(|text| text.contains("non-literal first argument")),
+                "{script}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_param_call_through_me_needs_the_local_service_and_a_variable_needs_one_thing() {
+        let (changed, _) = param_rename("me.Svc({ old: 1 }); this.Svc({ old: 2 });", false, true);
+        assert_eq!(changed, "me.Svc({ fresh: 1 }); this.Svc({ fresh: 2 });");
+        let (changed, _) = param_rename("me.Svc({ old: 1 });", false, false);
+        assert_eq!(changed, "me.Svc({ old: 1 });");
+        let (changed, _) = param_rename("var t = Things.A; t.Svc({ old: 1 });", false, false);
+        assert_eq!(changed, "var t = Things.A; t.Svc({ fresh: 1 });");
+        let ambiguous = "var t = Things.A; t = other; t.Svc({ old: 1 });";
+        assert_eq!(param_rename(ambiguous, false, false).0, ambiguous);
+    }
+
+    #[test]
+    fn a_param_script_the_parser_refuses_is_left_for_review_with_the_reason() {
+        let script = "for each (x in y) { old = 1; Things.A.Svc({ old: 1 }); }";
+        let (changed, pass) = param_rename(script, true, false);
+        assert_eq!(changed, script);
+        let reasons = reasons(&pass);
+        assert_eq!(reasons.len(), 2, "{reasons:?}");
+        assert!(reasons
+            .iter()
+            .all(|text| text.contains("script could not be parsed; left for review")));
+    }
+
+    #[test]
+    fn an_identifier_use_is_found_in_a_template_and_refused_when_the_script_cannot_be_read() {
+        let uses = |script: &str| script_uses_identifier(script.as_bytes(), "result");
+        assert!(uses("var s = `${result}`;"));
+        assert!(!uses("var s = `result`; var r = /result/; x.result;"));
+        assert!(uses("var o = { result: 1 };"), "an object key counts, as before");
+        // Unparseable: a whole-word mention anywhere is refused, a longer word is not a mention.
+        assert!(uses("for each (a in b) { // result\n }"));
+        assert!(!uses("for each (a in b) { results; $result; }"));
+        assert!(script_uses_identifier(&[b'r', b'e', b's', b'u', b'l', b't', 0xff], "result"));
+    }
+
+    #[test]
+    fn a_table_name_is_a_selector_only_as_the_value_of_a_table_name_key() {
+        let apply_table = |script: &str| {
+            let pass =
+                scan_table_script(script.as_bytes(), "Limits_CT", "Bounds_CT", true).unwrap();
+            (String::from_utf8(apply(script.as_bytes(), &pass)).unwrap(), pass)
+        };
+        let (changed, _) = apply_table("var s = `${f({ tableName: \"Limits_CT\" })}`;");
+        assert_eq!(changed, "var s = `${f({ tableName: \"Bounds_CT\" })}`;");
+        let (changed, _) = apply_table("f({ tableName\n  :\n  'Limits_CT' });");
+        assert_eq!(changed, "f({ tableName\n  :\n  'Bounds_CT' });");
+        // A conditional with the same neighbours is not an object property.
+        let script = "var v = ok ? tableName : \"Limits_CT\";";
+        let (changed, pass) = apply_table(script);
+        assert_eq!(changed, script);
+        assert_eq!(review_count(&pass), 1);
+        // Another key, or a member name, is review.
+        let script = "f({ other: \"Limits_CT\" }); x.Limits_CT;";
+        let (changed, pass) = apply_table(script);
+        assert_eq!(changed, script);
+        assert_eq!(review_count(&pass), 2);
+    }
+
+    #[test]
+    fn a_table_script_the_parser_refuses_is_not_edited() {
+        let script = "for each (a in b) { f({ tableName: \"Limits_CT\" }); }";
+        let pass = scan_table_script(script.as_bytes(), "Limits_CT", "Bounds_CT", true).unwrap();
+        assert!(pass.edits.is_empty());
+        assert_eq!(review_count(&pass), 1, "{:?}", pass.findings);
     }
 }
