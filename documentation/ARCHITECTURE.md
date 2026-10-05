@@ -32,7 +32,7 @@ These decide most design questions. A change that breaks one needs a very good r
 ```text
 main.rs  mcp.rs                 front ends: parse arguments, call core, print or return JSON
    \      /
-  core::workflow                orchestration shared by both: sync, extract, fmt, types refresh
+  core::{commands, workflow}    orchestration shared by both: command policy; sync, extract, fmt, types refresh
        |
   core::{deploy, push, adopt, status, check, package, catalog, guide, ...}   features
        |
@@ -54,6 +54,7 @@ main.rs  mcp.rs                 front ends: parse arguments, call core, print or
 | `normalise` | The comparison form of an entity: what ThingWorx changes on its own is removed, so the repository and server versions compare by content. |
 | `config`, `profile` | `twaco.toml` and server profiles. |
 | `codes` | Stable error categories shared by front-end adapters. |
+| `commands` | Typed command requests, outcomes and orchestration shared by the CLI and MCP adapters. |
 | `server` | The HTTP client (ureq): REST entity reads, services, Importer, Exporter, file repositories, extension uploads. Credentials are redacted from every `Debug` and error. |
 | `lock` | One writer per workspace, with stale-lock detection; sweeps every hidden temporary a crashed write left. |
 | `parallel` | Bounded parallel map, for server calls. |

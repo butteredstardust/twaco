@@ -384,8 +384,8 @@ pub fn forced_deploy_overwrites(report: &deploy::Report) -> Vec<(String, String)
 
 /// Before `entity push --force --apply`: save the server's copy if it holds changes the repository
 /// never saw. Returns the set's folder, relative to the solution.
-pub fn before_forced_push(
-    client: &Client,
+pub fn before_forced_push<R: push::Remote + Remote>(
+    client: &R,
     solution: &Solution,
     target: &push::Target,
     stamp: &str,
@@ -423,8 +423,8 @@ pub fn before_forced_deploy(
     save_overwritten(client, solution, "deploy --force", &overwritten, stamp)
 }
 
-fn save_overwritten(
-    client: &Client,
+fn save_overwritten<R: Remote>(
+    client: &R,
     solution: &Solution,
     reason: &str,
     entities: &[(String, String)],

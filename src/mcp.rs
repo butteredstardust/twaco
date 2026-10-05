@@ -13,8 +13,8 @@
 //! opaque, twaco cannot tell whether it writes, and an agent must opt in to running one.
 
 use crate::core::codes::{Coded, ErrorCode};
+use crate::core::commands::{self, Mode};
 use crate::core::config::Solution;
-use crate::core::entity_key::EntityKey;
 use crate::core::index::Confidence;
 use crate::core::{
     adopt, backup, baseline, catalog, check, config_table, datatable_copy, db, deploy, docs,
@@ -1597,58 +1597,28 @@ fn push_tool(solution: &Solution, arguments: &Value) -> Result<Value, ToolError>
     let name = required(arguments, "entity")?;
     let dry_run = flag(arguments, "dry_run", true);
     let force = flag(arguments, "force", false);
-    // Applying writes the baseline, so it holds the workspace lock from before the entity is
-    // read: bytes read first could be another writer's, replaced before the push. A dry run
-    // reads only.
-    let _lock = if dry_run {
-        None
-    } else {
-        Some(lock::acquire_for(solution, "mcp push").map_err(ToolError::coded)?)
-    };
-    let found = workspace::discover(solution).entities;
-    let entity = workspace::resolve(&found, name)
-        .map_err(ToolError::coded)?
-        .clone();
-    let bytes = std::fs::read(&entity.path).map_err(|e| {
-        ToolError::with(
-            ErrorCode::IoError,
-            format!("{}: {e}", entity.path.display()),
-        )
-    })?;
-    let file_name = entity
-        .path
-        .file_name()
-        .map(|n| n.to_string_lossy().into_owned())
-        .unwrap_or_else(|| format!("{}.xml", entity.info.name));
-    let client = client(solution, arguments)?;
-    let key =
-        EntityKey::new(&entity.info.collection, &entity.info.name).map_err(|error| ToolError {
-            code: error.code(),
-            message: format!("{}/{}: {error}", entity.info.collection, entity.info.name),
-        })?;
-    let target = push::Target {
-        key,
-        document: push::EntityDocument {
-            file_name: &file_name,
-            bytes: &bytes,
-        },
-    };
-    let label = format!("{}/{}", entity.info.collection, entity.info.name);
-    let saved = if !dry_run && force && flag(arguments, "backup", true) {
-        backup::before_forced_push(&client, solution, &target, &backup::new_stamp()).map_err(
-            |e| ToolError {
-                code: e.code(),
-                message: format!("{label}: {e}"),
-            },
-        )?
-    } else {
-        None
+    let request = commands::push::PushRequest {
+        entity: name.to_string(),
+        mode: if dry_run { Mode::Plan } else { Mode::Apply },
+        force,
+        backup: flag(arguments, "backup", true),
+        profile: text(arguments, "profile").unwrap_or("default").to_string(),
     };
     let outcome =
-        push::push(&client, &solution.root, &target, !dry_run, force).map_err(|e| ToolError {
-            code: e.code(),
-            message: format!("{label}: {e}"),
+        commands::push::execute(solution, &request, server::Client::new).map_err(|error| {
+            ToolError {
+                code: error.code(),
+                message: error.to_string(),
+            }
         })?;
+    let label = match &outcome {
+        commands::push::PushOutcome::Plan { entity, .. }
+        | commands::push::PushOutcome::Applied { entity, .. } => entity.to_string(),
+    };
+    let saved = match &outcome {
+        commands::push::PushOutcome::Applied { backup, .. } => backup.clone(),
+        commands::push::PushOutcome::Plan { .. } => None,
+    };
     let mut result = push_outcome_json(&label, dry_run, force, outcome);
     if let Some(dir) = saved {
         result["backup"] = json!(dir);
@@ -1656,9 +1626,14 @@ fn push_tool(solution: &Solution, arguments: &Value) -> Result<Value, ToolError>
     Ok(result)
 }
 
-fn push_outcome_json(label: &str, dry_run: bool, force: bool, outcome: push::Outcome) -> Value {
+fn push_outcome_json(
+    label: &str,
+    dry_run: bool,
+    force: bool,
+    outcome: commands::push::PushOutcome,
+) -> Value {
     match outcome {
-        push::Outcome::WouldDo(decision) => {
+        commands::push::PushOutcome::Plan { decision, .. } => {
             let (would, refusal) = match &decision {
                 push::Decision::AlreadyThere => {
                     ("nothing: the server already has this version", None)
@@ -1682,15 +1657,28 @@ fn push_outcome_json(label: &str, dry_run: bool, force: bool, outcome: push::Out
                 }
             }
         }
-        push::Outcome::AlreadyThere => {
+        commands::push::PushOutcome::Applied {
+            result: push::Outcome::AlreadyThere,
+            ..
+        } => {
             json!({ "entity": label, "dry_run": dry_run, "pushed": false, "note": "the server already has this version; baseline recorded" })
         }
-        push::Outcome::Pushed { created } => {
+        commands::push::PushOutcome::Applied {
+            result: push::Outcome::Pushed { created },
+            ..
+        } => {
             json!({ "entity": label, "dry_run": dry_run, "pushed": true, "created": created, "note": "read back and matching; baseline recorded" })
         }
-        push::Outcome::Refused(refusal) => {
+        commands::push::PushOutcome::Applied {
+            result: push::Outcome::Refused(refusal),
+            ..
+        } => {
             json!({ "entity": label, "dry_run": dry_run, "pushed": false, "refusal": refusal.to_string(), "code": refusal.code().as_str(), "note": "nothing was sent; force: true pushes anyway" })
         }
+        commands::push::PushOutcome::Applied {
+            result: push::Outcome::WouldDo(_),
+            ..
+        } => unreachable!("an applied outcome cannot be a plan"),
     }
 }
 
@@ -3810,7 +3798,12 @@ mod tests {
             "Things/P.T",
             false,
             false,
-            push::Outcome::Refused(refusal.clone()),
+            commands::push::PushOutcome::Applied {
+                entity: crate::core::entity_key::EntityKey::new("Things", "P.T").unwrap(),
+                result: push::Outcome::Refused(refusal.clone()),
+                backup: None,
+                effects: commands::Effects::new(commands::Access::Read, commands::Access::Read),
+            },
         );
         assert_eq!(result["code"], "server_conflict");
         assert_eq!(result["refusal"], refusal.to_string());

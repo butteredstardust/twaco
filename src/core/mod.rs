@@ -7,6 +7,7 @@ pub mod bundle;
 pub mod catalog;
 pub mod check;
 pub mod codes;
+pub mod commands;
 pub mod config;
 pub mod config_table;
 pub mod datashape;

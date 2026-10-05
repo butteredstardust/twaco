@@ -94,7 +94,7 @@ when the command is asked to write. A local output named by an option is include
 | `javadoc class` | single-file atomic | single-file atomic | user cache file | The cache file is old or new; retry freely. | `core/javadoc.rs: cached` |
 | `init` | read-only | best-effort batch | config and optional guide files | Inspect files already created; retry only missing work. | `main.rs: main; core/init.rs: write_agent_files` |
 | `adopt` | read-only | best-effort batch | entities, sidecars, declarations | Earlier writes remain; retry the reported export after inspection. | `core/adopt.rs: apply` |
-| `entity push` | read-only | server-partial | server entity, baseline, backup | Read the entity back and check the baseline before retrying. | `core/push.rs: run` |
+| `entity push` | read-only | server-partial | server entity, baseline, backup | Read the entity back and check the baseline before retrying. | `core/commands/push.rs: execute` |
 | `entity delete` | read-only | server-partial | server entities, ledger, backups | Inspect confirmed deletions and ledger entries before retrying. | `core/entity_delete.rs: run` |
 | `move service` | read-only | multi-file atomic | XML, sidecars | Inspect after interruption; otherwise retry after rollback. | `core/relocate.rs: apply` |
 | `move property` | read-only | multi-file atomic | XML, sidecars | Inspect after interruption; otherwise retry after rollback. | `core/relocate.rs: apply` |
@@ -116,7 +116,7 @@ when the command is asked to write. A local output named by an option is include
 | `sync` | best-effort batch | best-effort batch | entity XML, declarations | Earlier entities remain synced; retry failed entities. | `mcp.rs: sync_tool` |
 | `extract` | best-effort batch | best-effort batch | sidecars, declarations | Earlier entities remain extracted; retry failed entities. | `mcp.rs: extract_tool` |
 | `fmt` | best-effort batch | best-effort batch | script sidecars | Earlier scripts remain formatted; retry reported scripts. | `mcp.rs: fmt_tool` |
-| `push` | read-only | server-partial | server entity, baseline, backup | Read the entity and baseline before retrying. | `mcp.rs: push_tool` |
+| `push` | read-only | server-partial | server entity, baseline, backup | Read the entity and baseline before retrying. | `core/commands/push.rs: execute` |
 | `entity_delete` | read-only | server-partial | server entities, ledger, backups | Inspect confirmed deletions and ledger entries before retrying. | `mcp.rs: entity_delete_tool` |
 | `entity_restore` | read-only | server-partial | server entities | Read restored entities back before retrying. | `mcp.rs: entity_restore_tool` |
 | `entity_carry` | read-only | server-partial | server permissions, ledger | Read permissions and ledger before retrying. | `mcp.rs: entity_carry_tool` |
