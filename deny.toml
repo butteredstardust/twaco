@@ -1,0 +1,57 @@
+# Dependency policy, checked by `cargo deny check` (see .github/workflows/ci.yml).
+#
+# Licenses: twaco is MIT. Everything it links must be permissive, or weak copyleft that applies per
+# file (MPL-2.0) and so does not reach twaco's own code. A new license is a decision: read the
+# crate's terms, then add it here with the reason, never just to make the check pass.
+
+[graph]
+# Check every platform the release builds for, not only the machine running the check.
+targets = [
+    "x86_64-pc-windows-msvc",
+    "x86_64-unknown-linux-gnu",
+    "aarch64-apple-darwin",
+]
+
+[advisories]
+# Known vulnerabilities and unmaintained or yanked crates fail the check. An advisory that does not
+# apply to how twaco uses the crate goes here with its id and the reason, and is reviewed again
+# when the dependency is next updated.
+yanked = "deny"
+ignore = [
+    { id = "RUSTSEC-2026-0249", reason = "smartstring is unmaintained (no vulnerability reported); it arrives only through the swc crates that parse and format scripts, which twaco cannot swap out. Re-check at each swc update." },
+]
+
+[licenses]
+confidence-threshold = 0.9
+allow = [
+    "MIT",
+    "MIT-0",
+    "Apache-2.0",
+    "Apache-2.0 WITH LLVM-exception",
+    "BSD-2-Clause",
+    "BSD-3-Clause",
+    "ISC",
+    "Zlib",
+    "0BSD",
+    "CC0-1.0",
+    "Unlicense",
+    "Unicode-3.0",
+    # Weak copyleft, per file: scraper's CSS parser (cssparser, selectors) and smartstring.
+    "MPL-2.0",
+    # Data licence of the bundled root-certificate lists (webpki-roots).
+    "CDLA-Permissive-2.0",
+    # bzip2's own permissive licence (libbz2-rs-sys, via zip).
+    "bzip2-1.0.6",
+]
+
+[bans]
+# Two versions of one crate are common while dependencies catch up with each other; they cost
+# build time, not correctness, so they are listed rather than refused.
+multiple-versions = "warn"
+wildcards = "deny"
+
+[sources]
+# Only crates.io: no git dependencies and no other registries.
+unknown-registry = "deny"
+unknown-git = "deny"
+allow-registry = ["https://github.com/rust-lang/crates.io-index"]
