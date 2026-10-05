@@ -102,3 +102,53 @@ fn a_person_s_edit_after_the_crash_stops_recovery_and_is_left_untouched() {
     assert_eq!(read(&root, "new/dir/c.txt"), None);
     let _ = std::fs::remove_dir_all(root);
 }
+
+/// Runs in the child. Does nothing when the test binary runs it as an ordinary test.
+#[test]
+fn child_applies_the_folder_plan() {
+    let Ok(root) = std::env::var(ROOT_VARIABLE) else {
+        return;
+    };
+    let root = PathBuf::from(root);
+    let lock = lock::acquire(&root, "child", &[]).unwrap();
+    let _ = folder_plan(&root).apply(&lock);
+}
+
+#[test]
+fn a_folder_move_with_edits_inside_it_recovers_whenever_the_process_dies() {
+    let mut points: Vec<(String, bool)> = vec![
+        ("after-journal".to_string(), false),
+        ("after-stage".to_string(), false),
+        ("after-applying".to_string(), false),
+    ];
+    for step in 1..=3 {
+        points.push((format!("after-step-{step}-visible"), true));
+        points.push((format!("after-step-{step}-marked"), true));
+    }
+    points.push(("after-commit".to_string(), true));
+    for (point, expect_after) in points {
+        let root = folder_workspace("failpoint-folder");
+        let status = Command::new(std::env::current_exe().unwrap())
+            .args([
+                "--exact",
+                "core::transaction::tests::failpoints::child_applies_the_folder_plan",
+                "--nocapture",
+            ])
+            .env(ROOT_VARIABLE, &root)
+            .env("TWACO_TEST_FAILPOINT", &point)
+            .output()
+            .unwrap()
+            .status;
+        assert!(!status.success(), "{point}: the child was not stopped");
+        let lock = lock::acquire(&root, "recovering command", &[]).unwrap();
+        assert_eq!(lock.recovery.len(), 1, "{point}: {:?}", lock.recovery);
+        drop(lock);
+        if expect_after {
+            assert_folder_after(&root);
+        } else {
+            assert_folder_before(&root);
+        }
+        assert_eq!(leftovers(&root), Vec::<String>::new(), "{point}");
+        let _ = std::fs::remove_dir_all(root);
+    }
+}

@@ -12,8 +12,11 @@ when it does.
 
 ## What it covers
 
-- Local files only: create a file, replace a file, delete a file. A folder is created for a new
-  file and removed again if the operation is undone.
+- Local files only: create a file, replace a file, delete a file, and rename a file or a whole
+  folder. A folder is created for a new file or a rename's destination and removed again if the
+  operation is undone. Files an operation rewrites inside a folder it also renames are named at
+  their old path and rewritten first; the rename comes last, and recovery finds such a file at its
+  new place once the rename has happened.
 - A server call is never part of a transaction. An import or a delete can succeed on the server
   while a read-back or a local record fails, and no local journal can undo that. Commands that
   talk to a server stay `server-partial`; only their local bookkeeping can use a journal.
@@ -61,16 +64,20 @@ the files as they are, merges or restores them deliberately so that each matches
 before the operation (to undo it) or after it (to finish it), and runs twaco again; it then
 finishes the recovery.
 
-If a step fails while the operation is running, it is undone straight away by the same code. If
-that cannot finish, the error says so and names the journal; the next command recovers or refuses.
+If a step fails while the operation is running, the steps already made are put back at once,
+newest first. A file that somebody saved after the operation wrote it is never overwritten: it is
+named in the error, the journal stays, and the next command that takes the lock recovers or
+refuses. A file saved between the plan and its step is refused as changed, and the steps before it
+are put back. A caller can ask to be called before each step (to make a failure happen at an exact
+point in a test).
 
 ## Not covered
 
 - A journal file that is deleted by hand while its stages remain: nothing records what they were
   for, so they stay where they are. They are hidden files ending `.twaco-stage` or
   `.twaco-backup` and can be deleted once the workspace is in a state a person trusts.
-- Directory moves: a caller expresses one as file steps. A service folder emptied by a move is
-  removed after the commit, when it is empty; a crash in that instant leaves an empty folder.
+- Folders a command empties by moving files out of them are removed after the commit, when they
+  are empty; a crash in that instant leaves an empty folder.
 - Durability of directory entries on Windows: files and the journal are synced; on other
   platforms the containing directory is synced too. Recovery reads digests, so a rename that was
   not made durable is found in whichever state the filesystem kept.

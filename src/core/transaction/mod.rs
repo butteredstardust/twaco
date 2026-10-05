@@ -65,6 +65,8 @@ pub struct Transaction<'a> {
 struct Planned {
     kind: Kind,
     path: String,
+    /// Where a move puts what is at `path`.
+    to: Option<String>,
     before: Option<Vec<u8>>,
     after: Option<Vec<u8>>,
 }
@@ -93,6 +95,8 @@ pub enum TransactionError {
         why: String,
         rolled_back: bool,
         journal: Option<PathBuf>,
+        /// Paths that could not be put back because something else is there now.
+        leftover: Vec<PathBuf>,
     },
 }
 
@@ -110,8 +114,16 @@ impl fmt::Display for TransactionError {
                 why,
                 rolled_back: false,
                 journal,
+                leftover,
             } => {
                 write!(f, "{why}; some changes could not be undone")?;
+                if !leftover.is_empty() {
+                    let names: Vec<String> = leftover
+                        .iter()
+                        .map(|path| path.display().to_string())
+                        .collect();
+                    write!(f, ": {}", names.join(", "))?;
+                }
                 if let Some(journal) = journal {
                     write!(
                         f,
@@ -171,10 +183,29 @@ impl<'a> Transaction<'a> {
         self.plan(Kind::Delete, path, Some(expected_before.to_vec()), None)
     }
 
+    /// Rename a file or a whole folder. Anything the operation also rewrites inside it is named
+    /// at its old path and rewritten first; the rename comes after.
+    pub fn move_path(&mut self, from: &Path, to: &Path) -> Result<(), TransactionError> {
+        let destination = paths::relative(self.root, to).map_err(TransactionError::Invalid)?;
+        paths::reject_links(self.root, &destination).map_err(TransactionError::Invalid)?;
+        self.plan_to(Kind::Move, from, Some(destination), None, None)
+    }
+
     fn plan(
         &mut self,
         kind: Kind,
         path: &Path,
+        before: Option<Vec<u8>>,
+        after: Option<Vec<u8>>,
+    ) -> Result<(), TransactionError> {
+        self.plan_to(kind, path, None, before, after)
+    }
+
+    fn plan_to(
+        &mut self,
+        kind: Kind,
+        path: &Path,
+        to: Option<String>,
         before: Option<Vec<u8>>,
         after: Option<Vec<u8>>,
     ) -> Result<(), TransactionError> {
@@ -188,6 +219,7 @@ impl<'a> Transaction<'a> {
         self.planned.push(Planned {
             kind,
             path: relative,
+            to,
             before,
             after,
         });
@@ -200,7 +232,18 @@ impl<'a> Transaction<'a> {
 
     /// Carry the operation out. The lock proves no other twaco is writing; taking it also ran any
     /// recovery an earlier crash needed.
-    pub fn apply(self, _lock: &WorkspaceLock) -> Result<Committed, TransactionError> {
+    pub fn apply(self, lock: &WorkspaceLock) -> Result<Committed, TransactionError> {
+        self.apply_with(lock, &mut |_, _| Ok(()))
+    }
+
+    /// As `apply`, calling `before_step` with each step's position and the step just before it is
+    /// made. An error from it stops the operation and undoes what was done: how a caller makes
+    /// a failure happen at an exact point.
+    pub fn apply_with(
+        self,
+        _lock: &WorkspaceLock,
+        before_step: &mut dyn FnMut(usize, &Step) -> std::io::Result<()>,
+    ) -> Result<Committed, TransactionError> {
         if self.planned.is_empty() {
             return Ok(Committed {
                 operation_id: String::new(),
@@ -210,8 +253,8 @@ impl<'a> Transaction<'a> {
         let mut journal = self.stage()?;
         let operation_id = journal.operation_id.clone();
         let steps = journal.steps.len();
-        if let Err(why) = self.install_all(&mut journal) {
-            return Err(self.undo(journal, why));
+        if let Err(stop) = self.install_all(&mut journal, before_step) {
+            return Err(self.undo(journal, stop));
         }
         journal.state = State::Committed;
         journal::write(self.root, &journal).map_err(|why| self.io(&journal, why))?;
@@ -233,14 +276,16 @@ impl<'a> Transaction<'a> {
     /// Check every file against the plan, write the journal, then stage the new bytes and the
     /// backups. Nothing a user can see has changed when this returns.
     fn stage(&self) -> Result<Journal, TransactionError> {
+        let io = |path: &str, why: std::io::Error| TransactionError::Io {
+            path: paths::absolute(self.root, path),
+            why: why.to_string(),
+        };
         for planned in &self.planned {
-            let found =
-                recover::observe(&paths::absolute(self.root, &planned.path)).map_err(|why| {
-                    TransactionError::Io {
-                        path: paths::absolute(self.root, &planned.path),
-                        why: why.to_string(),
-                    }
-                })?;
+            if planned.kind == Kind::Move {
+                continue;
+            }
+            let found = recover::observe(&paths::absolute(self.root, &planned.path))
+                .map_err(|why| io(&planned.path, why))?;
             let expected = planned.before.as_deref().map(digest);
             if found != expected {
                 return Err(TransactionError::Stale(match planned.kind {
@@ -249,10 +294,55 @@ impl<'a> Transaction<'a> {
                 }));
             }
         }
+        // What the files a move carries will hold by the time it is made.
+        let rewritten: std::collections::BTreeMap<String, Option<Vec<u8>>> = self
+            .planned
+            .iter()
+            .filter_map(|planned| match planned.kind {
+                Kind::Replace => Some((planned.path.clone(), planned.after.clone())),
+                Kind::Delete => Some((planned.path.clone(), None)),
+                _ => None,
+            })
+            .collect();
+        let mut moves = Vec::new();
+        for planned in self.planned.iter().filter(|p| p.kind == Kind::Move) {
+            let to = planned.to.as_deref().expect("a move has a destination");
+            if std::fs::symlink_metadata(paths::absolute(self.root, &planned.path)).is_err() {
+                return Err(TransactionError::Stale(format!(
+                    "{} changed since it was read",
+                    planned.path
+                )));
+            }
+            if std::fs::symlink_metadata(paths::absolute(self.root, to)).is_ok() {
+                return Err(TransactionError::Stale(format!("{to} exists already")));
+            }
+            let tree = journal::tree_digest(self.root, &planned.path, &rewritten)
+                .map_err(|why| io(&planned.path, why))?;
+            moves.push((planned.path.clone(), to.to_string(), tree));
+        }
+        let inside = |path: &str, folder: &str| {
+            path == folder
+                || path
+                    .strip_prefix(folder)
+                    .is_some_and(|rest| rest.starts_with('/'))
+        };
         let operation_id = new_operation_id();
         let mut steps = Vec::new();
         let mut claimed: std::collections::BTreeSet<String> = std::collections::BTreeSet::new();
         for (index, planned) in self.planned.iter().enumerate() {
+            let carried = moves
+                .iter()
+                .find(|(from, _, _)| planned.kind != Kind::Move && inside(&planned.path, from));
+            if planned.kind == Kind::Create && carried.is_some() {
+                return Err(TransactionError::Invalid(format!(
+                    "{} would be created inside a folder the same operation moves",
+                    planned.path
+                )));
+            }
+            let tree = moves
+                .iter()
+                .find(|(from, _, _)| planned.kind == Kind::Move && *from == planned.path)
+                .map(|(_, _, tree)| tree.clone());
             let (stage, backup) = (
                 planned
                     .after
@@ -267,19 +357,28 @@ impl<'a> Transaction<'a> {
                 id: index + 1,
                 kind: planned.kind,
                 path: planned.path.clone(),
-                before: planned.before.as_deref().map(digest),
-                after: planned.after.as_deref().map(digest),
+                before: tree
+                    .clone()
+                    .or_else(|| planned.before.as_deref().map(digest)),
+                after: tree.or_else(|| planned.after.as_deref().map(digest)),
                 stage,
                 backup,
+                to: planned.to.clone(),
+                then_at: carried.map(|(from, to, _)| {
+                    format!(
+                        "{to}{}",
+                        planned.path.strip_prefix(from.as_str()).unwrap_or("")
+                    )
+                }),
                 // A folder two files need is made, and later removed, by the first of them.
-                new_dirs: if planned.kind == Kind::Create {
-                    paths::missing_folders(self.root, &planned.path)
-                        .into_iter()
-                        .filter(|folder| claimed.insert(folder.clone()))
-                        .collect()
-                } else {
-                    Vec::new()
-                },
+                new_dirs: match (planned.kind, planned.to.as_deref()) {
+                    (Kind::Create, _) => paths::missing_folders(self.root, &planned.path),
+                    (Kind::Move, Some(to)) => paths::missing_folders(self.root, to),
+                    _ => Vec::new(),
+                }
+                .into_iter()
+                .filter(|folder| claimed.insert(folder.clone()))
+                .collect(),
                 completed: false,
             });
         }
@@ -329,31 +428,54 @@ impl<'a> Transaction<'a> {
         Ok(())
     }
 
-    fn install_all(&self, journal: &mut Journal) -> Result<(), String> {
+    fn install_all(
+        &self,
+        journal: &mut Journal,
+        before_step: &mut dyn FnMut(usize, &Step) -> std::io::Result<()>,
+    ) -> Result<(), recover::Stop> {
         for at in 0..journal.steps.len() {
             let step = journal.steps[at].clone();
+            before_step(at, &step)
+                .map_err(|why| recover::Stop::Failed(format!("{}: {why}", step.path)))?;
+            // Looked at again right before the change: an editor can save the file after the
+            // plan was checked.
+            match recover::standing(self.root, &step) {
+                Ok(recover::Standing::Before) => {}
+                Ok(_) => return Err(recover::Stop::Stale(recover::stale_text(&step))),
+                Err(why) => return Err(recover::Stop::Failed(format!("{}: {why}", step.path))),
+            }
             recover::install(self.root, &step)?;
             failpoint!("after-step-{}-visible", step.id);
             journal.steps[at].completed = true;
-            journal::write(self.root, journal).map_err(|why| format!("{}: {why}", step.path))?;
+            journal::write(self.root, journal)
+                .map_err(|why| recover::Stop::Failed(format!("{}: {why}", step.path)))?;
             failpoint!("after-step-{}-marked", step.id);
         }
         Ok(())
     }
 
-    /// A step failed: put back what was changed, under the same lock.
-    fn undo(&self, journal: Journal, why: String) -> TransactionError {
-        match recover::resolve(self.root, &journal, recover::Prefer::Backward) {
-            Ok(_) => TransactionError::Failed {
-                why,
-                rolled_back: true,
-                journal: None,
-            },
-            Err(_) => TransactionError::Failed {
-                why,
-                rolled_back: false,
-                journal: Some(journal::path_of(self.root, &journal.operation_id)),
-            },
+    /// A step failed: put back what was changed, under the same lock. A file somebody saved since
+    /// the operation wrote it is never overwritten: it is named instead, and the journal stays.
+    fn undo(&self, journal: Journal, stop: recover::Stop) -> TransactionError {
+        let leftover = recover::undo_installed(self.root, &journal);
+        if leftover.is_empty() {
+            recover::clean(self.root, &journal, true);
+            return match stop {
+                recover::Stop::Stale(why) => TransactionError::Stale(why),
+                recover::Stop::Failed(why) => TransactionError::Failed {
+                    why,
+                    rolled_back: true,
+                    journal: None,
+                    leftover,
+                },
+            };
+        }
+        let (recover::Stop::Stale(why) | recover::Stop::Failed(why)) = stop;
+        TransactionError::Failed {
+            why,
+            rolled_back: false,
+            journal: Some(journal::path_of(self.root, &journal.operation_id)),
+            leftover,
         }
     }
 }

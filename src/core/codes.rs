@@ -565,6 +565,7 @@ mod tests {
                 why: text(),
                 rolled_back: true,
                 journal: None,
+                leftover: vec![],
             },
             ErrorCode::IoError,
         );
@@ -573,6 +574,7 @@ mod tests {
                 why: text(),
                 rolled_back: false,
                 journal: Some(path()),
+                leftover: vec![],
             },
             ErrorCode::RollbackFailed,
         );
@@ -1074,6 +1076,7 @@ mod tests {
                 why: text(),
                 rolled_back: false,
                 journal: None,
+                leftover: vec![],
             }),
             ErrorCode::RollbackFailed,
         );
@@ -1096,6 +1099,7 @@ mod tests {
                 why: text(),
                 rolled_back: false,
                 journal: None,
+                leftover: vec![],
             }),
             ErrorCode::RollbackFailed,
         );
