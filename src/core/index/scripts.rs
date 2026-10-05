@@ -62,13 +62,11 @@ impl Builder<'_> {
             Ok(facts) => {
                 let bytes = text.as_bytes();
                 // `Things["X"].Run()` and `var t = Things["X"]; t.Run()` reach a member of X.
-                let mut reached: BTreeSet<String> = BTreeSet::new();
                 for member in &facts.members {
                     let Some(entity) = facts.thing_of(&member.receiver) else {
                         continue;
                     };
                     let to_member = String::from_utf8_lossy(member.property.of(bytes)).into_owned();
-                    reached.insert(entity.to_string());
                     self.link(
                         from,
                         "Things",
@@ -78,23 +76,44 @@ impl Builder<'_> {
                         Some(&to_member),
                     );
                 }
-                // `Things["X"]` itself, when no member of X is reached from it in this script: the
-                // Thing is passed along or stored, so the whole entity is what is referred to.
+                // `Things["X"]` itself, wherever no member of X is reached from that occurrence:
+                // the Thing is passed along or stored, so the whole entity is what is referred to.
+                // Each occurrence is judged on its own: `Things["X"].Run()` consumes one, a
+                // variable that holds one and has a member reached through it consumes one, and
+                // an occurrence left over is a reference to every member.
+                let mut occurrences: BTreeMap<String, usize> = BTreeMap::new();
+                let mut consumed: BTreeMap<String, usize> = BTreeMap::new();
+                let mut variables_used: BTreeSet<&str> = BTreeSet::new();
                 for member in &facts.members {
-                    if matches!(&member.receiver, script::Receiver::Variable(name) if name == "Things")
-                    {
-                        let entity =
-                            String::from_utf8_lossy(member.property.of(bytes)).into_owned();
-                        if !reached.contains(&entity) {
-                            self.link(
-                                from,
-                                "Things",
-                                &entity,
-                                EdgeKind::ScriptReference,
-                                Some(service),
-                                None,
-                            );
+                    match &member.receiver {
+                        script::Receiver::Variable(name) if name == "Things" => {
+                            let entity =
+                                String::from_utf8_lossy(member.property.of(bytes)).into_owned();
+                            *occurrences.entry(entity).or_default() += 1;
                         }
+                        script::Receiver::Thing(entity) => {
+                            *consumed.entry(entity.clone()).or_default() += 1;
+                        }
+                        script::Receiver::Variable(name) => {
+                            if let Some(entity) = facts.thing_variables.get(name) {
+                                if variables_used.insert(name.as_str()) {
+                                    *consumed.entry(entity.clone()).or_default() += 1;
+                                }
+                            }
+                        }
+                        _ => {}
+                    }
+                }
+                for (entity, count) in &occurrences {
+                    if *count > consumed.get(entity).copied().unwrap_or(0) {
+                        self.link(
+                            from,
+                            "Things",
+                            entity,
+                            EdgeKind::ScriptReference,
+                            Some(service),
+                            None,
+                        );
                     }
                 }
                 for string in &facts.strings {

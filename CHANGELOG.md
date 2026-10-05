@@ -49,6 +49,12 @@ All notable changes to twaco are recorded here. The format follows
 
 ### Fixed
 
+- `twaco impact` no longer drops a caller that calls one member of a Thing and also passes the
+  Thing along in the same service: the passed Thing concerns every member, so asking about another
+  member still finds it. A template or DataShape that inherits itself is now reported as an
+  inheritance cycle. A Graphviz graph (and the `dot` form of the MCP tool) from a partly unreadable
+  repository now says so, as the text and JSON forms always did.
+
 - A rename that is refused for the database now says why. An entity or prefix rename in a
   solution with DBConnection tables said "a GetDBInfo it could not read completely" even when every
   `GetDBInfo` was read; it now says the tables' rows store entity names.
