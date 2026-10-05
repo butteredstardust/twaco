@@ -17,10 +17,9 @@ use crate::core::commands::{self, Mode};
 use crate::core::config::Solution;
 use crate::core::index::Confidence;
 use crate::core::{
-    adopt, backup, catalog, check, config_table, datatable_copy, db, deploy, docs, entity_carry,
-    entity_delete, export, extensions, guide, help, impact, imports, javadoc, lock, logs, newblock,
-    profile, push, relocate, rename, repo, retemplate, server, settings, status, types, unused,
-    workspace,
+    adopt, backup, catalog, check, config_table, db, deploy, docs, entity_carry, entity_delete,
+    export, extensions, guide, help, impact, imports, javadoc, lock, logs, newblock, profile, push,
+    relocate, rename, repo, retemplate, server, settings, status, types, unused, workspace,
 };
 use serde_json::{json, Map, Value};
 use std::io::{BufRead, Write};
@@ -1852,45 +1851,58 @@ fn retemplate_tool(solution: &Solution, arguments: &Value) -> Result<Value, Tool
 }
 
 fn entity_restore_tool(solution: &Solution, arguments: &Value) -> Result<Value, ToolError> {
-    let Some(id) = text(arguments, "set").filter(|id| !id.is_empty()) else {
-        let sets = backup::list(solution);
-        return Ok(json!({ "ok": true, "sets": sets.iter().map(|set| json!({
-            "id": set.id, "created": set.manifest.created, "reason": set.manifest.reason,
-            "entities": set.manifest.entities.iter().map(|item| format!("{}/{}", item.collection, item.name)).collect::<Vec<_>>(),
-        })).collect::<Vec<_>>() }));
-    };
     let dry_run = flag(arguments, "dry_run", true);
-    let set = backup::find(solution, id).map_err(ToolError::coded)?;
-    let client = client(solution, arguments)?;
-    let report = backup::restore(&client, &set, &strings(arguments, "entities"), !dry_run)
+    let request = commands::restore::RestoreRequest {
+        set: text(arguments, "set")
+            .filter(|id| !id.is_empty())
+            .map(str::to_string),
+        only: strings(arguments, "entities"),
+        mode: if dry_run { Mode::Plan } else { Mode::Apply },
+        profile: text(arguments, "profile").unwrap_or("default").to_string(),
+    };
+    let mut notices = commands::Notices::default();
+    let outcome = commands::restore::execute(solution, &request, server::Client::new, &mut notices)
         .map_err(ToolError::coded)?;
-    let failed = report
-        .iter()
-        .any(|entry| entry.status == backup::Status::Failed);
-    let mut result = json!({ "ok": !failed, "set": set.id, "entities": report });
-    result[if dry_run { "plan" } else { "applied" }] = json!(true);
+    let mut result = match outcome {
+        commands::restore::RestoreOutcome::Sets { sets, .. } => {
+            json!({ "ok": true, "sets": sets.iter().map(|set| json!({
+                "id": set.id, "created": set.manifest.created, "reason": set.manifest.reason,
+                "entities": set.manifest.entities.iter().map(|item| format!("{}/{}", item.collection, item.name)).collect::<Vec<_>>(),
+            })).collect::<Vec<_>>() })
+        }
+        commands::restore::RestoreOutcome::Plan { set, entities, .. }
+        | commands::restore::RestoreOutcome::Applied { set, entities, .. } => {
+            let failed = entities
+                .iter()
+                .any(|entry| entry.status == backup::Status::Failed);
+            let mut result = json!({ "ok": !failed, "set": set.id, "entities": entities });
+            result[if dry_run { "plan" } else { "applied" }] = json!(true);
+            result
+        }
+    };
+    add_notices(&mut result, &notices);
     Ok(result)
 }
 
 fn entity_carry_tool(solution: &Solution, arguments: &Value) -> Result<Value, ToolError> {
     let dry_run = flag(arguments, "dry_run", true);
-    let renamed = flag(arguments, "renamed", false);
     let pairs =
         entity_carry::pairs_from_names(&strings(arguments, "pairs")).map_err(ToolError::coded)?;
-    let _lock = if !dry_run && renamed {
-        Some(lock::acquire_for(solution, "mcp entity_carry").map_err(ToolError::coded)?)
-    } else {
-        None
-    };
-    let client = client(solution, arguments)?;
-    let date = jiff::Zoned::now().strftime("%Y-%m-%d").to_string();
-    let request = entity_carry::Request {
+    let request = commands::carry::CarryRequest {
         pairs,
-        renamed,
-        apply: !dry_run,
+        renamed: flag(arguments, "renamed", false),
+        mode: if dry_run { Mode::Plan } else { Mode::Apply },
         detail: flag(arguments, "detail", false),
+        profile: text(arguments, "profile").unwrap_or("default").to_string(),
+        lock_label: "mcp entity_carry",
     };
-    let report = entity_carry::run(&client, solution, &request, &date).map_err(ToolError::coded)?;
+    let mut notices = commands::Notices::default();
+    let outcome = commands::carry::execute(solution, &request, server::Client::new, &mut notices)
+        .map_err(ToolError::coded)?;
+    let (report, date) = match outcome {
+        commands::carry::CarryOutcome::Plan { report, .. } => (report, None),
+        commands::carry::CarryOutcome::Applied { report, date, .. } => (report, Some(date)),
+    };
     let failed = !dry_run
         && report
             .entities
@@ -1899,8 +1911,9 @@ fn entity_carry_tool(solution: &Solution, arguments: &Value) -> Result<Value, To
     let mut result = json!({ "ok": !failed, "entities": report.entities });
     result[if dry_run { "plan" } else { "applied" }] = json!(true);
     if report.ledger_changed {
-        result["ledger_marked"] = json!(date);
+        result["ledger_marked"] = json!(date.expect("an applied carry has a date"));
     }
+    add_notices(&mut result, &notices);
     Ok(result)
 }
 
@@ -1931,19 +1944,27 @@ fn datatable_copy_tool(solution: &Solution, arguments: &Value) -> Result<Value, 
             .filter(|value| *value > 0)
             .ok_or_else(|| ToolError::invalid("`max_rows` must be a positive whole number"))?,
     };
-    let request = datatable_copy::Request {
+    let request = commands::datatable_copy::DataTableCopyRequest {
         old: name("old")?,
         new: name("new")?,
         map,
         drop_unmapped: flag(arguments, "drop_unmapped", false),
         append: flag(arguments, "append", false),
         max_rows,
-        apply: !dry_run,
+        mode: if dry_run { Mode::Plan } else { Mode::Apply },
+        profile: text(arguments, "profile").unwrap_or("default").to_string(),
     };
-    let client = client(solution, arguments)?;
-    let report = datatable_copy::run(&client, solution, &request).map_err(ToolError::coded)?;
+    let mut notices = commands::Notices::default();
+    let outcome =
+        commands::datatable_copy::execute(solution, &request, server::Client::new, &mut notices)
+            .map_err(ToolError::coded)?;
+    let report = match outcome {
+        commands::datatable_copy::DataTableCopyOutcome::Plan { report, .. }
+        | commands::datatable_copy::DataTableCopyOutcome::Applied { report, .. } => report,
+    };
     let mut result = json!({ "ok": true, "report": report });
     result[if dry_run { "plan" } else { "applied" }] = json!(true);
+    add_notices(&mut result, &notices);
     Ok(result)
 }
 
