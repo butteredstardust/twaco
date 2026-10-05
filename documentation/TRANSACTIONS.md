@@ -20,7 +20,8 @@ when it does.
 - A server call is never part of a transaction. An import or a delete can succeed on the server
   while a read-back or a local record fails, and no local journal can undo that. Commands that
   talk to a server stay `server-partial`; only their local bookkeeping can use a journal.
-- The workspace lock is held for the whole operation, so no other twaco is writing.
+- The workspace lock is held for the whole operation, so no other twaco is writing; a transaction
+  refuses a lock that is not the one for its own workspace.
 
 ## The protocol
 
@@ -49,14 +50,15 @@ the files, not from the journal's marks: each destination holds its **before** s
 | --- | --- |
 | No journal | Nothing; the sweep for stale temporaries runs as before. |
 | `committed` | Only the artifacts are removed. A later edit of a file is never rolled back. |
-| `staging`, or every file in its before state | Nothing was visible: artifacts and the folders it made are removed. |
+| `staging` or `applying`, and every file in its before state | Nothing was visible: artifacts and the folders it made are removed. |
+| `staging`, but a file already holds its after state | The mark is a stale copy (a power cut kept the older journal): the files win, and the operation is treated as `applying`. |
 | Every file before or after, and the bytes still to install are staged and match | The operation is finished, then committed and cleaned up. |
 | The staged bytes are missing or damaged, and every installed file has a matching backup | The installed steps are undone in reverse order, then cleaned up. |
 | Any file holds neither state | Refused. Every such path is named with the digest found and the digests expected. Nothing is changed. |
 | Neither finishing nor undoing is possible | Refused, as above. |
 | More than one `applying` journal | Refused: no order between them is safe to guess. |
 | A journal from a newer twaco, or one that cannot be read | Refused; it is not deleted. |
-| A journal that names a path outside the workspace or behind a link | Refused before any file is opened, replaced or removed. |
+| A journal that names a path outside the workspace or behind a link, or whose operation id is not the name of its own file | Refused before any file is opened, replaced or removed. |
 
 A refusal fails the lock with the error code `rollback_failed` and a message that is the repair
 plan: the paths involved, what was expected, and where the remaining copies are. A person keeps

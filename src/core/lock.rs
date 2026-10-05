@@ -36,6 +36,20 @@ pub struct WorkspaceLock {
     pub recovered: Vec<PathBuf>,
     /// Interrupted operations finished or undone when the lock was taken, one line each.
     pub recovery: Vec<String>,
+    root: PathBuf,
+}
+
+impl WorkspaceLock {
+    /// Whether this lock is the one for the workspace at `root`.
+    pub fn covers(&self, root: &Path) -> bool {
+        match (
+            std::fs::canonicalize(&self.root),
+            std::fs::canonicalize(root),
+        ) {
+            (Ok(held), Ok(asked)) => held == asked,
+            _ => self.root == root,
+        }
+    }
 }
 
 #[derive(Debug)]
@@ -172,6 +186,7 @@ fn acquire_then_sweep(
         _file: file,
         recovered,
         recovery,
+        root: root.to_path_buf(),
     })
 }
 

@@ -189,7 +189,24 @@ pub fn read(path: &Path) -> Result<Journal, ReadError> {
         }
         None => return Err(ReadError::Malformed("it has no format version".to_string())),
     }
-    serde_json::from_value(value).map_err(|why| ReadError::Malformed(why.to_string()))
+    let journal: Journal =
+        serde_json::from_value(value).map_err(|why| ReadError::Malformed(why.to_string()))?;
+    // The operation id names files and is the journal's own file name: it may not be a path.
+    let id = &journal.operation_id;
+    let plain = !id.is_empty()
+        && !id.starts_with('.')
+        && id
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.'));
+    let named = path
+        .file_stem()
+        .is_some_and(|stem| stem.to_string_lossy() == id.as_str());
+    if !plain || !named {
+        return Err(ReadError::Malformed(
+            "its operation id is not the name of the file that holds it".to_string(),
+        ));
+    }
+    Ok(journal)
 }
 
 /// Replace the journal on disk in one step and make the replacement durable.

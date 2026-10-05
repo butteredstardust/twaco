@@ -1139,17 +1139,11 @@ pub fn apply(plan: &Plan, lock: &WorkspaceLock) -> Result<Applied, RelocateError
             put_sidecar(&mut transaction, &folder, after)?;
             written.push(folder);
         } else {
-            for entry in std::fs::read_dir(&folder)
-                .map_err(|error| xml(&folder, error))?
-                .flatten()
-            {
-                if entry.path().is_file() {
-                    let bytes =
-                        std::fs::read(entry.path()).map_err(|error| xml(&entry.path(), error))?;
-                    transaction
-                        .delete_file(&entry.path(), &bytes)
-                        .map_err(RelocateError::from)?;
-                }
+            for file in files_under(&folder).map_err(|error| xml(&folder, error))? {
+                let bytes = std::fs::read(&file).map_err(|error| xml(&file, error))?;
+                transaction
+                    .delete_file(&file, &bytes)
+                    .map_err(RelocateError::from)?;
             }
             removed.push(folder.clone());
             emptied = Some(folder);
@@ -1157,15 +1151,43 @@ pub fn apply(plan: &Plan, lock: &WorkspaceLock) -> Result<Applied, RelocateError
     }
     transaction.apply(lock).map_err(RelocateError::from)?;
     if let Some(folder) = emptied {
+        remove_empty_folders(&folder);
         // The service folder may have been the last thing under its entity's folder. Empty
         // folders only: whatever else a person put there stays.
-        for parent in folder.ancestors().take(3) {
+        for parent in folder.ancestors().skip(1).take(2) {
             if std::fs::remove_dir(parent).is_err() {
                 break;
             }
         }
     }
     Ok(Applied { written, removed })
+}
+
+/// Every regular file under `folder`, at any depth.
+fn files_under(folder: &Path) -> std::io::Result<Vec<PathBuf>> {
+    let mut files = Vec::new();
+    for entry in std::fs::read_dir(folder)? {
+        let path = entry?.path();
+        if path.is_dir() {
+            files.extend(files_under(&path)?);
+        } else if path.is_file() {
+            files.push(path);
+        }
+    }
+    files.sort();
+    Ok(files)
+}
+
+/// Remove `folder` and every folder under it that is empty, deepest first; nothing else.
+fn remove_empty_folders(folder: &Path) {
+    if let Ok(entries) = std::fs::read_dir(folder) {
+        for entry in entries.flatten() {
+            if entry.path().is_dir() {
+                remove_empty_folders(&entry.path());
+            }
+        }
+    }
+    let _ = std::fs::remove_dir(folder);
 }
 
 /// A service's sidecar files as the transaction's steps: created when absent, replaced when they

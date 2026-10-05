@@ -639,3 +639,31 @@ mod crash {
         }
     }
 }
+
+#[test]
+fn a_moved_services_source_folder_goes_whole_even_with_nested_content() {
+    let fixture = fixture();
+    let planned = plan(
+        &fixture.solution,
+        &request(Member::Service, false, "P.Base_TS", "P.Target_TS", "Alpha"),
+    )
+    .unwrap();
+    let nested = fixture
+        .root
+        .join("src/P.Base_TS/services/Alpha/notes/deep/x.txt");
+    std::fs::create_dir_all(nested.parent().unwrap()).unwrap();
+    std::fs::write(&nested, b"kept in the journal's backup").unwrap();
+    let applied = apply(&planned, &locked(&fixture)).unwrap();
+    assert!(!fixture.root.join("src/P.Base_TS/services/Alpha").exists());
+    assert_eq!(applied.removed.len(), 1);
+    assert_eq!(
+        snapshot(&fixture.root)
+            .keys()
+            .filter(|path| {
+                let name = path.file_name().unwrap().to_string_lossy();
+                name.ends_with(".twaco-stage") || name.ends_with(".twaco-backup")
+            })
+            .count(),
+        0
+    );
+}

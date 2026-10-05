@@ -704,3 +704,78 @@ fn a_save_made_after_the_operation_wrote_a_file_is_named_not_overwritten_by_the_
     assert_eq!(read(&root, "a.txt").as_deref(), Some("a before"));
     let _ = std::fs::remove_dir_all(root);
 }
+
+#[test]
+fn a_journal_still_marked_staging_is_judged_by_the_files_not_the_mark() {
+    // After a power cut the older copy of the journal can be the one that survived, while a
+    // destination's rename was kept: the files say the operation had begun.
+    let root = workspace("stale-staging");
+    let mut journal = plan(&root).stage().unwrap();
+    recover::install(&root, &journal.steps[0]).unwrap();
+    journal.state = State::Staging;
+    journal::write(&root, &journal).unwrap();
+    let recovered = recover::recover_pending(&root).unwrap();
+    assert_eq!(recovered[0].action, Action::RolledForward);
+    assert_after(&root);
+    assert_eq!(leftovers(&root), Vec::<String>::new());
+    let _ = std::fs::remove_dir_all(root);
+}
+
+#[test]
+fn an_operation_id_that_is_a_path_is_refused_and_nothing_outside_the_journals_is_removed() {
+    let root = workspace("hostile-id");
+    let victim = root.join("victim.txt");
+    put(&root, "victim.txt", "keep me");
+    let mut journal = plan(&root).stage().unwrap();
+    journal.state = State::Committed;
+    journal.operation_id = "../../victim".to_string();
+    let file = root.join(journal::DIRECTORY).join("x.json");
+    std::fs::create_dir_all(file.parent().unwrap()).unwrap();
+    std::fs::write(&file, serde_json::to_vec(&journal).unwrap()).unwrap();
+    // The real journal of `stage` is still there too; remove it so only the hostile one remains.
+    for entry in std::fs::read_dir(root.join(journal::DIRECTORY))
+        .unwrap()
+        .flatten()
+    {
+        if entry.path() != file {
+            std::fs::remove_file(entry.path()).unwrap();
+        }
+    }
+    let refusal = recover::recover_pending(&root).unwrap_err();
+    assert!(refusal.0.contains("cannot be read"), "{refusal}");
+    assert_eq!(std::fs::read_to_string(&victim).unwrap(), "keep me");
+    let _ = std::fs::remove_dir_all(root);
+}
+
+#[test]
+fn a_lock_for_another_workspace_does_not_allow_a_transaction() {
+    let here = workspace("lock-here");
+    let there = workspace("lock-there");
+    let lock = lock::acquire(&there, "test", &[]).unwrap();
+    let error = plan(&here).apply(&lock).unwrap_err();
+    assert!(matches!(error, TransactionError::Invalid(_)), "{error}");
+    assert_before(&here);
+    drop(lock);
+    let lock = lock::acquire(&here, "test", &[]).unwrap();
+    plan(&here).apply(&lock).unwrap();
+    drop(lock);
+    let _ = std::fs::remove_dir_all(here);
+    let _ = std::fs::remove_dir_all(there);
+}
+
+#[cfg(windows)]
+#[test]
+fn a_name_windows_would_read_as_another_is_refused() {
+    let root = workspace("aliases");
+    let mut transaction = Transaction::new(&root, "test");
+    for bad in ["a.", "a ", "a:stream", "sub/b."] {
+        let error = transaction
+            .create_file(&root.join(bad), b"x".to_vec())
+            .unwrap_err();
+        assert!(
+            matches!(error, TransactionError::Invalid(_)),
+            "{bad}: {error}"
+        );
+    }
+    let _ = std::fs::remove_dir_all(root);
+}

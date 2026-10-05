@@ -250,9 +250,14 @@ impl<'a> Transaction<'a> {
     /// a failure happen at an exact point.
     pub fn apply_with(
         self,
-        _lock: &WorkspaceLock,
+        lock: &WorkspaceLock,
         before_step: &mut dyn FnMut(usize, &Step) -> std::io::Result<()>,
     ) -> Result<Committed, TransactionError> {
+        if !lock.covers(self.root) {
+            return Err(TransactionError::Invalid(
+                "the workspace lock held is not the one for this workspace".to_string(),
+            ));
+        }
         if self.planned.is_empty() {
             return Ok(Committed {
                 operation_id: String::new(),
