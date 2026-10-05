@@ -50,7 +50,7 @@ pub struct Report {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct DbError(String);
+pub struct DbError(pub(crate) String);
 
 impl fmt::Display for DbError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {

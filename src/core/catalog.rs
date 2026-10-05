@@ -106,11 +106,19 @@ pub fn inheritance(solution: &Solution) -> (Vec<CatalogEntity>, Vec<String>) {
 }
 
 #[derive(Debug)]
-pub struct CatalogError(String);
+pub enum CatalogError {
+    Invalid(String),
+    UnknownEntity(String),
+    Ambiguous(String),
+}
 
 impl fmt::Display for CatalogError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_str(&self.0)
+        match self {
+            Self::Invalid(message) | Self::UnknownEntity(message) | Self::Ambiguous(message) => {
+                f.write_str(message)
+            }
+        }
     }
 }
 
@@ -120,7 +128,7 @@ impl std::error::Error for CatalogError {}
 pub fn build(solution: &Solution, query: Query<'_>) -> Result<Catalog, CatalogError> {
     if let Some(project) = query.project {
         if solution.project(project).is_none() {
-            return Err(CatalogError(format!(
+            return Err(CatalogError::Invalid(format!(
                 "this solution has no project named {project}"
             )));
         }
@@ -187,7 +195,7 @@ fn resolve<'a>(entities: &[&'a Entity], name: &str) -> Result<&'a Entity, Catalo
         return Ok(exact[0]);
     }
     if exact.len() > 1 {
-        return Err(CatalogError(format!(
+        return Err(CatalogError::Ambiguous(format!(
             "entity {name} is ambiguous in this solution"
         )));
     }
@@ -203,11 +211,11 @@ fn resolve<'a>(entities: &[&'a Entity], name: &str) -> Result<&'a Entity, Catalo
         })
         .collect();
     match suffix.as_slice() {
-        [] => Err(CatalogError(format!(
+        [] => Err(CatalogError::UnknownEntity(format!(
             "no entity named {name} in this solution"
         ))),
         [entity] => Ok(entity),
-        many => Err(CatalogError(format!(
+        many => Err(CatalogError::Ambiguous(format!(
             "{name} is ambiguous; it could be {}",
             many.iter()
                 .map(|entity| entity.name.as_str())

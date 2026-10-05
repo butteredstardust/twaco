@@ -12,6 +12,7 @@
 //! and it is true unless the caller says otherwise. That includes `call`: a service call is
 //! opaque, twaco cannot tell whether it writes, and an agent must opt in to running one.
 
+use crate::core::codes::{Coded, ErrorCode};
 use crate::core::config::Solution;
 use crate::core::entity_key::EntityKey;
 use crate::core::{
@@ -150,7 +151,7 @@ fn handle(root: &Path, message: &Value, protocol: &mut String) -> Option<Value> 
                     match validate_arguments(&definition["inputSchema"], &arguments) {
                         // A tool error, not a protocol one, so the agent sees it and can correct it.
                         Err(why) => Ok(tool_result(
-                            Err(format!("{why}; nothing was done")),
+                            Err(ToolError::invalid(format!("{why}; nothing was done"))),
                             protocol,
                         )),
                         Ok(()) => match call_tool(root, name, &arguments) {
@@ -281,10 +282,60 @@ fn error_response(id: Value, code: i64, message: &str) -> Value {
 
 /// A tool's JSON as MCP content. `structuredContent` exists from 2025-06-18; the text block
 /// carries the same JSON for clients that predate it.
-fn tool_result(outcome: Result<Value, String>, protocol: &str) -> Value {
+#[derive(Clone, Debug)]
+struct ToolError {
+    code: ErrorCode,
+    message: String,
+}
+
+impl ToolError {
+    fn coded<E: Coded + std::fmt::Display>(error: E) -> Self {
+        Self {
+            code: error.code(),
+            message: error.to_string(),
+        }
+    }
+
+    fn invalid(message: impl Into<String>) -> Self {
+        Self {
+            code: ErrorCode::InvalidArguments,
+            message: message.into(),
+        }
+    }
+
+    fn io(error: std::io::Error) -> Self {
+        Self::with(ErrorCode::IoError, error.to_string())
+    }
+
+    fn with(code: ErrorCode, message: impl Into<String>) -> Self {
+        Self {
+            code,
+            message: message.into(),
+        }
+    }
+}
+
+impl From<String> for ToolError {
+    fn from(message: String) -> Self {
+        Self {
+            code: ErrorCode::Unclassified,
+            message,
+        }
+    }
+}
+impl From<&str> for ToolError {
+    fn from(message: &str) -> Self {
+        message.to_string().into()
+    }
+}
+
+fn tool_result(outcome: Result<Value, ToolError>, protocol: &str) -> Value {
     let (value, is_error) = match outcome {
         Ok(value) => (value, false),
-        Err(message) => (json!({ "error": message }), true),
+        Err(error) => (
+            json!({ "error": error.message, "code": error.code.as_str() }),
+            true,
+        ),
     };
     let mut result = json!({
         "content": [{ "type": "text", "text": serde_json::to_string(&value).expect("JSON values serialise") }],
@@ -872,7 +923,7 @@ pub fn tool_definitions() -> Vec<Value> {
 
 // ---- tool implementations -------------------------------------------------------------------
 
-fn call_tool(root: &Path, name: &str, arguments: &Value) -> Option<Result<Value, String>> {
+fn call_tool(root: &Path, name: &str, arguments: &Value) -> Option<Result<Value, ToolError>> {
     let started = Instant::now();
     let outcome = match name {
         "projects" => with_solution(root, projects),
@@ -929,9 +980,9 @@ fn call_tool(root: &Path, name: &str, arguments: &Value) -> Option<Result<Value,
 
 fn with_solution(
     root: &Path,
-    tool: impl FnOnce(&Solution) -> Result<Value, String>,
-) -> Result<Value, String> {
-    let solution = Solution::discover(root).map_err(|error| error.to_string())?;
+    tool: impl FnOnce(&Solution) -> Result<Value, ToolError>,
+) -> Result<Value, ToolError> {
+    let solution = Solution::discover(root).map_err(ToolError::coded)?;
     tool(&solution)
 }
 
@@ -946,17 +997,17 @@ fn text<'a>(arguments: &'a Value, name: &str) -> Option<&'a str> {
     arguments.get(name).and_then(Value::as_str)
 }
 
-fn required<'a>(arguments: &'a Value, name: &str) -> Result<&'a str, String> {
+fn required<'a>(arguments: &'a Value, name: &str) -> Result<&'a str, ToolError> {
     text(arguments, name)
         .filter(|v| !v.is_empty())
-        .ok_or_else(|| format!("`{name}` is required"))
+        .ok_or_else(|| ToolError::invalid(format!("`{name}` is required")))
 }
 
-fn client(solution: &Solution, arguments: &Value) -> Result<server::Client, String> {
+fn client(solution: &Solution, arguments: &Value) -> Result<server::Client, ToolError> {
     let name = text(arguments, "profile").unwrap_or("default");
     profile::load(&solution.root, name)
         .map(server::Client::new)
-        .map_err(|error| error.to_string())
+        .map_err(ToolError::coded)
 }
 
 fn relative(solution: &Solution, path: &Path) -> String {
@@ -975,8 +1026,8 @@ fn relative(solution: &Solution, path: &Path) -> String {
     }
 }
 
-fn projects(solution: &Solution) -> Result<Value, String> {
-    let order = solution.deploy_order().map_err(|error| error.to_string())?;
+fn projects(solution: &Solution) -> Result<Value, ToolError> {
+    let order = solution.deploy_order().map_err(ToolError::coded)?;
     let found = workspace::discover(solution);
     let projects: Vec<Value> = order
         .iter()
@@ -996,7 +1047,7 @@ fn projects(solution: &Solution) -> Result<Value, String> {
     }))
 }
 
-fn types_tool(solution: &Solution, arguments: &Value) -> Result<Value, String> {
+fn types_tool(solution: &Solution, arguments: &Value) -> Result<Value, ToolError> {
     types_tool_with_compiler(solution, arguments, None)
 }
 
@@ -1004,11 +1055,11 @@ fn types_tool_with_compiler(
     solution: &Solution,
     arguments: &Value,
     compiler: Option<&dyn types::CompilerRunner>,
-) -> Result<Value, String> {
-    let _lock = lock::acquire_for(solution, "mcp types").map_err(|e| e.to_string())?;
+) -> Result<Value, ToolError> {
+    let _lock = lock::acquire_for(solution, "mcp types").map_err(ToolError::coded)?;
     match text(arguments, "action").unwrap_or("generate") {
         "generate" => {
-            let outcome = types::write(solution).map_err(|e| e.to_string())?;
+            let outcome = types::write(solution).map_err(ToolError::coded)?;
             let mut result = json!({
                 "ok": true,
                 "entities": outcome.entities,
@@ -1027,7 +1078,7 @@ fn types_tool_with_compiler(
                 Some(compiler) => types::check_with(solution, compiler),
                 None => types::check(solution),
             }
-            .map_err(|e| e.to_string())?;
+            .map_err(ToolError::coded)?;
             let mut by_code = std::collections::BTreeMap::new();
             for finding in &outcome.findings {
                 *by_code
@@ -1060,7 +1111,7 @@ fn types_tool_with_compiler(
         }
         "platform" => {
             let client = client(solution, arguments)?;
-            let outcome = types::fetch_platform(&client, solution).map_err(|e| e.to_string())?;
+            let outcome = types::fetch_platform(&client, solution).map_err(ToolError::coded)?;
             Ok(json!({
                 "ok": true,
                 "templates": outcome.templates,
@@ -1069,9 +1120,9 @@ fn types_tool_with_compiler(
                 "skipped": outcome.skipped.into_iter().chain(outcome.types.skipped).collect::<Vec<_>>(),
             }))
         }
-        action => Err(format!(
+        action => Err(ToolError::invalid(format!(
             "action must be generate, check or platform, not {action:?}"
-        )),
+        ))),
     }
 }
 
@@ -1079,7 +1130,7 @@ fn types_tool_with_compiler(
 fn run_gates(solution: &Solution, arguments: &Value, live: bool) -> check::CheckReport {
     let mut report = check::run(solution);
     if live {
-        let built = client(solution, arguments);
+        let built = client(solution, arguments).map_err(|error| error.message);
         let checker = built
             .as_ref()
             .map(|c| c as &dyn check::ScriptChecker)
@@ -1089,7 +1140,7 @@ fn run_gates(solution: &Solution, arguments: &Value, live: bool) -> check::Check
     report
 }
 
-fn check_tool(solution: &Solution, arguments: &Value) -> Result<Value, String> {
+fn check_tool(solution: &Solution, arguments: &Value) -> Result<Value, ToolError> {
     let report = run_gates(
         solution,
         arguments,
@@ -1128,11 +1179,11 @@ fn check_tool(solution: &Solution, arguments: &Value) -> Result<Value, String> {
     Ok(result)
 }
 
-fn status_tool(solution: &Solution, arguments: &Value) -> Result<Value, String> {
+fn status_tool(solution: &Solution, arguments: &Value) -> Result<Value, ToolError> {
     let record = flag(arguments, "record", false);
     // Taken before anything is read, so what is recorded is what this call saw.
     let _lock = if record {
-        Some(lock::acquire_for(solution, "mcp status --record").map_err(|e| e.to_string())?)
+        Some(lock::acquire_for(solution, "mcp status --record").map_err(ToolError::coded)?)
     } else {
         None
     };
@@ -1140,22 +1191,27 @@ fn status_tool(solution: &Solution, arguments: &Value) -> Result<Value, String> 
     // An unreadable entity file is as much a partial read as a failed server read, and is
     // known before the server is asked anything.
     if record && !found.unreadable.is_empty() {
-        return Err(format!(
-            "nothing was recorded: {} entity file(s) could not be read: {}",
-            found.unreadable.len(),
-            found.unreadable.join("; ")
+        return Err(ToolError::with(
+            ErrorCode::InvalidData,
+            format!(
+                "nothing was recorded: {} entity file(s) could not be read: {}",
+                found.unreadable.len(),
+                found.unreadable.join("; ")
+            ),
         ));
     }
     let mut pool = found.entities;
     if let Some(project) = text(arguments, "project") {
         if solution.project(project).is_none() {
-            return Err(format!("this solution has no project named {project}"));
+            return Err(ToolError::invalid(format!(
+                "this solution has no project named {project}"
+            )));
         }
         pool.retain(|e| e.found_under == project);
     }
     let (chosen, _) = pick(pool, arguments)?;
     let client = client(solution, arguments)?;
-    let mut baseline = baseline::Baseline::load(&solution.root).map_err(|e| e.to_string())?;
+    let mut baseline = baseline::Baseline::load(&solution.root).map_err(ToolError::coded)?;
     let (statuses, failures) = status::compute(&client, &baseline, &chosen);
     if record && !failures.is_empty() {
         // As on the command line: a baseline recorded from a partial read is a partial truth.
@@ -1167,11 +1223,12 @@ fn status_tool(solution: &Solution, arguments: &Value) -> Result<Value, String> 
                 .map(|f| f.to_string())
                 .collect::<Vec<_>>()
                 .join("; ")
-        ));
+        )
+        .into());
     }
     let recorded = if record {
         let recorded = status::record_matching(&mut baseline, &statuses);
-        baseline.write(&solution.root).map_err(|e| e.to_string())?;
+        baseline.write(&solution.root).map_err(ToolError::coded)?;
         Some(recorded)
     } else {
         None
@@ -1212,12 +1269,14 @@ fn status_tool(solution: &Solution, arguments: &Value) -> Result<Value, String> 
 fn chosen_entities(
     solution: &Solution,
     arguments: &Value,
-) -> Result<(Vec<workspace::EntityFile>, Vec<String>, bool), String> {
+) -> Result<(Vec<workspace::EntityFile>, Vec<String>, bool), ToolError> {
     let found = workspace::discover(solution);
     let mut pool = found.entities;
     if let Some(project) = text(arguments, "project") {
         if solution.project(project).is_none() {
-            return Err(format!("this solution has no project named {project}"));
+            return Err(ToolError::invalid(format!(
+                "this solution has no project named {project}"
+            )));
         }
         pool.retain(|e| e.found_under == project);
     }
@@ -1230,28 +1289,30 @@ fn chosen_entities(
 fn pick(
     pool: Vec<workspace::EntityFile>,
     arguments: &Value,
-) -> Result<(Vec<workspace::EntityFile>, bool), String> {
+) -> Result<(Vec<workspace::EntityFile>, bool), ToolError> {
     match (text(arguments, "entity"), flag(arguments, "all", false)) {
-        (Some(_), true) => Err("name an entity or pass all: true, not both".to_string()),
+        (Some(_), true) => Err(ToolError::invalid(
+            "name an entity or pass all: true, not both",
+        )),
         (Some(name), false) => Ok((
             vec![workspace::resolve(&pool, name)
-                .map_err(|e| e.to_string())?
+                .map_err(ToolError::coded)?
                 .clone()],
             true,
         )),
         (None, true) => Ok((pool, false)),
-        (None, false) => Err("name an entity, or pass all: true".to_string()),
+        (None, false) => Err(ToolError::invalid("name an entity, or pass all: true")),
     }
 }
 
-fn sync_tool(solution: &Solution, arguments: &Value) -> Result<Value, String> {
+fn sync_tool(solution: &Solution, arguments: &Value) -> Result<Value, ToolError> {
     let check = flag(arguments, "check", false);
     // Held until this function returns, from before the first read. A check writes nothing and
     // runs alongside anything.
     let _lock = if check {
         None
     } else {
-        Some(lock::acquire_for(solution, "mcp sync").map_err(|e| e.to_string())?)
+        Some(lock::acquire_for(solution, "mcp sync").map_err(ToolError::coded)?)
     };
     let (chosen, unreadable, named) = chosen_entities(solution, arguments)?;
     let options = workflow::SyncOptions {
@@ -1274,8 +1335,8 @@ fn sync_tool(solution: &Solution, arguments: &Value) -> Result<Value, String> {
     Ok(result)
 }
 
-fn extract_tool(solution: &Solution, arguments: &Value) -> Result<Value, String> {
-    let _lock = lock::acquire_for(solution, "mcp extract").map_err(|e| e.to_string())?;
+fn extract_tool(solution: &Solution, arguments: &Value) -> Result<Value, ToolError> {
+    let _lock = lock::acquire_for(solution, "mcp extract").map_err(ToolError::coded)?;
     let (chosen, unreadable, named) = chosen_entities(solution, arguments)?;
     let outcome = workflow::extract(solution, &chosen, &unreadable, named);
     let mut result = json!({
@@ -1299,12 +1360,12 @@ fn add_types_refresh(result: &mut Value, refresh: &types::Refresh) {
     }
 }
 
-fn fmt_tool(solution: &Solution, arguments: &Value) -> Result<Value, String> {
+fn fmt_tool(solution: &Solution, arguments: &Value) -> Result<Value, ToolError> {
     let check = flag(arguments, "check", false);
     let _lock = if check {
         None
     } else {
-        Some(lock::acquire_for(solution, "mcp fmt").map_err(|e| e.to_string())?)
+        Some(lock::acquire_for(solution, "mcp fmt").map_err(ToolError::coded)?)
     };
     let outcome = workflow::fmt(solution, check);
     Ok(json!({
@@ -1331,7 +1392,7 @@ fn strings(arguments: &Value, name: &str) -> Vec<String> {
         .unwrap_or_default()
 }
 
-fn deploy_tool(solution: &Solution, arguments: &Value) -> Result<Value, String> {
+fn deploy_tool(solution: &Solution, arguments: &Value) -> Result<Value, ToolError> {
     let dry_run = flag(arguments, "dry_run", true);
     let force = flag(arguments, "force", false);
     let detail = flag(arguments, "detail", false);
@@ -1340,7 +1401,7 @@ fn deploy_tool(solution: &Solution, arguments: &Value) -> Result<Value, String> 
     let _lock = if dry_run {
         None
     } else {
-        Some(lock::acquire_for(solution, "mcp deploy").map_err(|e| e.to_string())?)
+        Some(lock::acquire_for(solution, "mcp deploy").map_err(ToolError::coded)?)
     };
     if !flag(arguments, "skip_checks", false) {
         // The same gates as `twaco deploy`, the configured live parse included.
@@ -1373,11 +1434,11 @@ fn deploy_tool(solution: &Solution, arguments: &Value) -> Result<Value, String> 
         },
     )?;
     let name = text(arguments, "profile").unwrap_or("default");
-    let profile = profile::load(&solution.root, name).map_err(|e| e.to_string())?;
+    let profile = profile::load(&solution.root, name).map_err(ToolError::coded)?;
     let client = server::Client::new(profile.clone());
     let saved = if !dry_run && force && flag(arguments, "backup", true) {
         backup::before_forced_deploy(&client, solution, &projects, &backup::new_stamp())
-            .map_err(|e| e.to_string())?
+            .map_err(ToolError::coded)?
     } else {
         None
     };
@@ -1482,7 +1543,7 @@ fn deploy_tool(solution: &Solution, arguments: &Value) -> Result<Value, String> 
                 .map(|n| json!({ "entity": format!("{}/{}", n.collection, n.name), "sent": n.sent, "read_back": n.read_back, "error": n.error }))
                 .collect::<Vec<_>>(),
         }),
-        Err(error) => return Err(error.to_string()),
+        Err(error) => return Err(ToolError::coded(error)),
     })
 }
 
@@ -1494,7 +1555,7 @@ fn refusal_code(refusal: &push::Refusal) -> &'static str {
     }
 }
 
-fn push_tool(solution: &Solution, arguments: &Value) -> Result<Value, String> {
+fn push_tool(solution: &Solution, arguments: &Value) -> Result<Value, ToolError> {
     let name = required(arguments, "entity")?;
     let dry_run = flag(arguments, "dry_run", true);
     let force = flag(arguments, "force", false);
@@ -1504,22 +1565,29 @@ fn push_tool(solution: &Solution, arguments: &Value) -> Result<Value, String> {
     let _lock = if dry_run {
         None
     } else {
-        Some(lock::acquire_for(solution, "mcp push").map_err(|e| e.to_string())?)
+        Some(lock::acquire_for(solution, "mcp push").map_err(ToolError::coded)?)
     };
     let found = workspace::discover(solution).entities;
     let entity = workspace::resolve(&found, name)
-        .map_err(|e| e.to_string())?
+        .map_err(ToolError::coded)?
         .clone();
-    let bytes =
-        std::fs::read(&entity.path).map_err(|e| format!("{}: {e}", entity.path.display()))?;
+    let bytes = std::fs::read(&entity.path).map_err(|e| {
+        ToolError::with(
+            ErrorCode::IoError,
+            format!("{}: {e}", entity.path.display()),
+        )
+    })?;
     let file_name = entity
         .path
         .file_name()
         .map(|n| n.to_string_lossy().into_owned())
         .unwrap_or_else(|| format!("{}.xml", entity.info.name));
     let client = client(solution, arguments)?;
-    let key = EntityKey::new(&entity.info.collection, &entity.info.name)
-        .map_err(|error| format!("{}/{}: {error}", entity.info.collection, entity.info.name))?;
+    let key =
+        EntityKey::new(&entity.info.collection, &entity.info.name).map_err(|error| ToolError {
+            code: error.code(),
+            message: format!("{}/{}: {error}", entity.info.collection, entity.info.name),
+        })?;
     let target = push::Target {
         key,
         document: push::EntityDocument {
@@ -1529,14 +1597,29 @@ fn push_tool(solution: &Solution, arguments: &Value) -> Result<Value, String> {
     };
     let label = format!("{}/{}", entity.info.collection, entity.info.name);
     let saved = if !dry_run && force && flag(arguments, "backup", true) {
-        backup::before_forced_push(&client, solution, &target, &backup::new_stamp())
-            .map_err(|e| format!("{label}: {e}"))?
+        backup::before_forced_push(&client, solution, &target, &backup::new_stamp()).map_err(
+            |e| ToolError {
+                code: e.code(),
+                message: format!("{label}: {e}"),
+            },
+        )?
     } else {
         None
     };
-    let outcome = push::push(&client, &solution.root, &target, !dry_run, force)
-        .map_err(|e| format!("{label}: {e}"))?;
-    let mut result = match outcome {
+    let outcome =
+        push::push(&client, &solution.root, &target, !dry_run, force).map_err(|e| ToolError {
+            code: e.code(),
+            message: format!("{label}: {e}"),
+        })?;
+    let mut result = push_outcome_json(&label, dry_run, force, outcome);
+    if let Some(dir) = saved {
+        result["backup"] = json!(dir);
+    }
+    Ok(result)
+}
+
+fn push_outcome_json(label: &str, dry_run: bool, force: bool, outcome: push::Outcome) -> Value {
+    match outcome {
         push::Outcome::WouldDo(decision) => {
             let (would, refusal) = match &decision {
                 push::Decision::AlreadyThere => {
@@ -1547,27 +1630,33 @@ fn push_tool(solution: &Solution, arguments: &Value) -> Result<Value, String> {
                     "update it; the server is unchanged since the last sync",
                     None,
                 ),
-                push::Decision::Refuse(refusal) => ("refuse", Some(refusal.to_string())),
+                push::Decision::Refuse(refusal) => (
+                    "refuse",
+                    Some((refusal.to_string(), refusal.code().as_str())),
+                ),
             };
-            json!({ "entity": label, "dry_run": true, "would": would, "refusal": refusal, "force": force })
+            match refusal {
+                Some((refusal, code)) => {
+                    json!({ "entity": label, "dry_run": dry_run, "would": would, "refusal": refusal, "code": code, "force": force })
+                }
+                None => {
+                    json!({ "entity": label, "dry_run": dry_run, "would": would, "refusal": null, "force": force })
+                }
+            }
         }
         push::Outcome::AlreadyThere => {
-            json!({ "entity": label, "dry_run": false, "pushed": false, "note": "the server already has this version; baseline recorded" })
+            json!({ "entity": label, "dry_run": dry_run, "pushed": false, "note": "the server already has this version; baseline recorded" })
         }
         push::Outcome::Pushed { created } => {
-            json!({ "entity": label, "dry_run": false, "pushed": true, "created": created, "note": "read back and matching; baseline recorded" })
+            json!({ "entity": label, "dry_run": dry_run, "pushed": true, "created": created, "note": "read back and matching; baseline recorded" })
         }
         push::Outcome::Refused(refusal) => {
-            json!({ "entity": label, "dry_run": false, "pushed": false, "refusal": refusal.to_string(), "note": "nothing was sent; force: true pushes anyway" })
+            json!({ "entity": label, "dry_run": dry_run, "pushed": false, "refusal": refusal.to_string(), "code": refusal.code().as_str(), "note": "nothing was sent; force: true pushes anyway" })
         }
-    };
-    if let Some(dir) = saved {
-        result["backup"] = json!(dir);
     }
-    Ok(result)
 }
 
-fn entity_delete_tool(solution: &Solution, arguments: &Value) -> Result<Value, String> {
+fn entity_delete_tool(solution: &Solution, arguments: &Value) -> Result<Value, ToolError> {
     let dry_run = flag(arguments, "dry_run", true);
     let (acknowledged, force_used) = entity_delete::acknowledged(
         flag(arguments, "force", false),
@@ -1577,21 +1666,21 @@ fn entity_delete_tool(solution: &Solution, arguments: &Value) -> Result<Value, S
     );
     let entities = strings(arguments, "entities");
     let prepared = entity_delete::prepare(solution, &entities, flag(arguments, "renamed", false))
-        .map_err(|error| error.to_string())?;
+        .map_err(ToolError::coded)?;
     let prepared = if flag(arguments, "backup", true) {
         prepared.with_backup(&backup::new_stamp())
     } else {
         prepared
     };
     let _lock = if prepared.ledger_will_be_written(!dry_run) {
-        Some(lock::acquire_for(solution, "mcp entity_delete").map_err(|error| error.to_string())?)
+        Some(lock::acquire_for(solution, "mcp entity_delete").map_err(ToolError::coded)?)
     } else {
         None
     };
     let client = client(solution, arguments)?;
     let date = jiff::Zoned::now().strftime("%Y-%m-%d").to_string();
     let report = entity_delete::run(&client, solution, prepared, !dry_run, acknowledged, &date)
-        .map_err(|error| error.to_string())?;
+        .map_err(ToolError::coded)?;
     let mut result = json!({
         "ok": !report.failed(),
         "entities": report.entities,
@@ -1610,15 +1699,20 @@ fn entity_delete_tool(solution: &Solution, arguments: &Value) -> Result<Value, S
     Ok(result)
 }
 
-fn move_member_tool(solution: &Solution, arguments: &Value) -> Result<Value, String> {
+fn move_member_tool(solution: &Solution, arguments: &Value) -> Result<Value, ToolError> {
     let dry_run = flag(arguments, "dry_run", true);
     let action = required(arguments, "action")?;
     if !matches!(action, "move" | "copy") {
-        return Err(format!("unknown action `{action}`; use `move` or `copy`"));
+        return Err(ToolError::invalid(format!(
+            "unknown action `{action}`; use `move` or `copy`"
+        )));
     }
     let kind = required(arguments, "kind")?;
-    let member = relocate::Member::from_word(kind)
-        .ok_or_else(|| format!("unknown kind `{kind}`; use `service` or `property`"))?;
+    let member = relocate::Member::from_word(kind).ok_or_else(|| {
+        ToolError::invalid(format!(
+            "unknown kind `{kind}`; use `service` or `property`"
+        ))
+    })?;
     let request = relocate::Request {
         member,
         copy: action == "copy",
@@ -1631,12 +1725,12 @@ fn move_member_tool(solution: &Solution, arguments: &Value) -> Result<Value, Str
     let _lock = if dry_run {
         None
     } else {
-        Some(lock::acquire_for(solution, "mcp move_member").map_err(|error| error.to_string())?)
+        Some(lock::acquire_for(solution, "mcp move_member").map_err(ToolError::coded)?)
     };
-    let plan = relocate::plan(solution, &request).map_err(|error| error.to_string())?;
+    let plan = relocate::plan(solution, &request).map_err(ToolError::coded)?;
     let mut problems = Vec::new();
     if !dry_run {
-        relocate::apply(&plan).map_err(|error| error.to_string())?;
+        relocate::apply(&plan).map_err(ToolError::coded)?;
         problems = relocate::verify(solution, &plan);
     }
     let mut result = json!({
@@ -1648,27 +1742,26 @@ fn move_member_tool(solution: &Solution, arguments: &Value) -> Result<Value, Str
     Ok(result)
 }
 
-fn new_building_block_tool(solution: &Solution, arguments: &Value) -> Result<Value, String> {
+fn new_building_block_tool(solution: &Solution, arguments: &Value) -> Result<Value, ToolError> {
     let dry_run = flag(arguments, "dry_run", true);
     let _lock = if dry_run {
         None
     } else {
-        Some(
-            lock::acquire_for(solution, "mcp new_building_block")
-                .map_err(|error| error.to_string())?,
-        )
+        Some(lock::acquire_for(solution, "mcp new_building_block").map_err(ToolError::coded)?)
     };
     let reloaded;
     let solution = if dry_run {
         solution
     } else {
         reloaded = Solution::load(&solution.root.join(crate::core::config::CONFIG_FILE))
-            .map_err(|error| error.to_string())?;
+            .map_err(ToolError::coded)?;
         &reloaded
     };
     let kind_word = text(arguments, "type").unwrap_or("standard");
     let kind = newblock::BlockType::from_word(kind_word).ok_or_else(|| {
-        format!("unknown type `{kind_word}`; use standard, abstract or implementation")
+        ToolError::invalid(format!(
+            "unknown type `{kind_word}`; use standard, abstract or implementation"
+        ))
     })?;
     let request = newblock::Request {
         name: required(arguments, "name")?.to_string(),
@@ -1683,9 +1776,9 @@ fn new_building_block_tool(solution: &Solution, arguments: &Value) -> Result<Val
         root: text(arguments, "root").map(str::to_string),
         base_extension: text(arguments, "base_extension").map(str::to_string),
     };
-    let plan = newblock::plan(solution, &request).map_err(|error| error.to_string())?;
+    let plan = newblock::plan(solution, &request).map_err(ToolError::coded)?;
     if !dry_run {
-        newblock::apply(solution, &plan).map_err(|error| error.to_string())?;
+        newblock::apply(solution, &plan).map_err(ToolError::coded)?;
     }
     let files: Vec<String> = plan
         .files
@@ -1707,7 +1800,7 @@ fn new_building_block_tool(solution: &Solution, arguments: &Value) -> Result<Val
     Ok(result)
 }
 
-fn retemplate_tool(solution: &Solution, arguments: &Value) -> Result<Value, String> {
+fn retemplate_tool(solution: &Solution, arguments: &Value) -> Result<Value, ToolError> {
     let dry_run = flag(arguments, "dry_run", true);
     let request = retemplate::Request {
         entity: required(arguments, "entity")?.to_string(),
@@ -1719,11 +1812,11 @@ fn retemplate_tool(solution: &Solution, arguments: &Value) -> Result<Value, Stri
     let _lock = if dry_run {
         None
     } else {
-        Some(lock::acquire_for(solution, "mcp retemplate").map_err(|error| error.to_string())?)
+        Some(lock::acquire_for(solution, "mcp retemplate").map_err(ToolError::coded)?)
     };
-    let plan = retemplate::plan(solution, &request).map_err(|error| error.to_string())?;
+    let plan = retemplate::plan(solution, &request).map_err(ToolError::coded)?;
     if !dry_run {
-        retemplate::apply(&plan).map_err(|error| error.to_string())?;
+        retemplate::apply(&plan).map_err(ToolError::coded)?;
     }
     let mut result = json!({
         "ok": true, "entity": plan.request.entity, "collection": plan.collection, "file": plan.file_relative(solution),
@@ -1734,7 +1827,7 @@ fn retemplate_tool(solution: &Solution, arguments: &Value) -> Result<Value, Stri
     Ok(result)
 }
 
-fn entity_restore_tool(solution: &Solution, arguments: &Value) -> Result<Value, String> {
+fn entity_restore_tool(solution: &Solution, arguments: &Value) -> Result<Value, ToolError> {
     let Some(id) = text(arguments, "set").filter(|id| !id.is_empty()) else {
         let sets = backup::list(solution);
         return Ok(json!({ "ok": true, "sets": sets.iter().map(|set| json!({
@@ -1743,10 +1836,10 @@ fn entity_restore_tool(solution: &Solution, arguments: &Value) -> Result<Value, 
         })).collect::<Vec<_>>() }));
     };
     let dry_run = flag(arguments, "dry_run", true);
-    let set = backup::find(solution, id).map_err(|error| error.to_string())?;
+    let set = backup::find(solution, id).map_err(ToolError::coded)?;
     let client = client(solution, arguments)?;
     let report = backup::restore(&client, &set, &strings(arguments, "entities"), !dry_run)
-        .map_err(|error| error.to_string())?;
+        .map_err(ToolError::coded)?;
     let failed = report
         .iter()
         .any(|entry| entry.status == backup::Status::Failed);
@@ -1755,13 +1848,13 @@ fn entity_restore_tool(solution: &Solution, arguments: &Value) -> Result<Value, 
     Ok(result)
 }
 
-fn entity_carry_tool(solution: &Solution, arguments: &Value) -> Result<Value, String> {
+fn entity_carry_tool(solution: &Solution, arguments: &Value) -> Result<Value, ToolError> {
     let dry_run = flag(arguments, "dry_run", true);
     let renamed = flag(arguments, "renamed", false);
-    let pairs = entity_carry::pairs_from_names(&strings(arguments, "pairs"))
-        .map_err(|error| error.to_string())?;
+    let pairs =
+        entity_carry::pairs_from_names(&strings(arguments, "pairs")).map_err(ToolError::coded)?;
     let _lock = if !dry_run && renamed {
-        Some(lock::acquire_for(solution, "mcp entity_carry").map_err(|error| error.to_string())?)
+        Some(lock::acquire_for(solution, "mcp entity_carry").map_err(ToolError::coded)?)
     } else {
         None
     };
@@ -1773,8 +1866,7 @@ fn entity_carry_tool(solution: &Solution, arguments: &Value) -> Result<Value, St
         apply: !dry_run,
         detail: flag(arguments, "detail", false),
     };
-    let report =
-        entity_carry::run(&client, solution, &request, &date).map_err(|error| error.to_string())?;
+    let report = entity_carry::run(&client, solution, &request, &date).map_err(ToolError::coded)?;
     let failed = !dry_run
         && report
             .entities
@@ -1788,13 +1880,13 @@ fn entity_carry_tool(solution: &Solution, arguments: &Value) -> Result<Value, St
     Ok(result)
 }
 
-fn datatable_copy_tool(solution: &Solution, arguments: &Value) -> Result<Value, String> {
+fn datatable_copy_tool(solution: &Solution, arguments: &Value) -> Result<Value, ToolError> {
     let dry_run = flag(arguments, "dry_run", true);
     let name = |key: &str| {
         text(arguments, key)
             .filter(|value| !value.is_empty())
             .map(str::to_string)
-            .ok_or_else(|| format!("`{key}` is required"))
+            .ok_or_else(|| ToolError::invalid(format!("`{key}` is required")))
     };
     let mut map = std::collections::BTreeMap::new();
     for (from, to) in arguments
@@ -1805,7 +1897,7 @@ fn datatable_copy_tool(solution: &Solution, arguments: &Value) -> Result<Value, 
     {
         let to = to
             .as_str()
-            .ok_or_else(|| format!("map.{from} must be a field name"))?;
+            .ok_or_else(|| ToolError::invalid(format!("map.{from} must be a field name")))?;
         map.insert(from.clone(), to.to_string());
     }
     let max_rows = match arguments.get("max_rows") {
@@ -1813,7 +1905,7 @@ fn datatable_copy_tool(solution: &Solution, arguments: &Value) -> Result<Value, 
         Some(value) => value
             .as_u64()
             .filter(|value| *value > 0)
-            .ok_or("`max_rows` must be a positive whole number")?,
+            .ok_or_else(|| ToolError::invalid("`max_rows` must be a positive whole number"))?,
     };
     let request = datatable_copy::Request {
         old: name("old")?,
@@ -1825,17 +1917,16 @@ fn datatable_copy_tool(solution: &Solution, arguments: &Value) -> Result<Value, 
         apply: !dry_run,
     };
     let client = client(solution, arguments)?;
-    let report =
-        datatable_copy::run(&client, solution, &request).map_err(|error| error.to_string())?;
+    let report = datatable_copy::run(&client, solution, &request).map_err(ToolError::coded)?;
     let mut result = json!({ "ok": true, "report": report });
     result[if dry_run { "plan" } else { "applied" }] = json!(true);
     Ok(result)
 }
 
-fn db_clean_tool(solution: &Solution, arguments: &Value) -> Result<Value, String> {
+fn db_clean_tool(solution: &Solution, arguments: &Value) -> Result<Value, ToolError> {
     let dry_run = flag(arguments, "dry_run", true);
     let client = client(solution, arguments)?;
-    let swept = db::sweep(&client, !dry_run).map_err(|error| error.to_string())?;
+    let swept = db::sweep(&client, !dry_run).map_err(ToolError::coded)?;
     let failed = swept
         .iter()
         .any(|thing| thing.status == db::SweepStatus::Failed);
@@ -1844,35 +1935,36 @@ fn db_clean_tool(solution: &Solution, arguments: &Value) -> Result<Value, String
     Ok(result)
 }
 
-fn db_tool(solution: &Solution, arguments: &Value, mode: db::Mode) -> Result<Value, String> {
+fn db_tool(solution: &Solution, arguments: &Value, mode: db::Mode) -> Result<Value, ToolError> {
     let sql = match (text(arguments, "file"), text(arguments, "sql")) {
         (Some(file), None) if !file.is_empty() => {
             let candidate = solution.root.join(file);
-            let real =
-                std::fs::canonicalize(&candidate).map_err(|error| format!("{file}: {error}"))?;
-            let root = std::fs::canonicalize(&solution.root).map_err(|error| error.to_string())?;
+            let real = std::fs::canonicalize(&candidate)
+                .map_err(|error| ToolError::with(ErrorCode::IoError, format!("{file}: {error}")))?;
+            let root = std::fs::canonicalize(&solution.root).map_err(ToolError::io)?;
             if !real.starts_with(&root) {
-                return Err(format!("{file} is outside the solution"));
+                return Err(ToolError::invalid(format!(
+                    "{file} is outside the solution"
+                )));
             }
-            std::fs::read_to_string(&real).map_err(|error| format!("{file}: {error}"))?
+            std::fs::read_to_string(&real)
+                .map_err(|error| ToolError::with(ErrorCode::IoError, format!("{file}: {error}")))?
         }
         (None, Some(sql)) if !sql.is_empty() => sql.to_string(),
-        _ => return Err("give exactly one of `file` or `sql`".to_string()),
+        _ => return Err(ToolError::invalid("give exactly one of `file` or `sql`")),
     };
-    let positive = |name: &str, default: u64| -> Result<u64, String> {
+    let positive = |name: &str, default: u64| -> Result<u64, ToolError> {
         match arguments.get(name) {
             None => Ok(default),
-            Some(value) => value
-                .as_u64()
-                .filter(|value| *value > 0)
-                .ok_or_else(|| format!("`{name}` must be a positive whole number")),
+            Some(value) => value.as_u64().filter(|value| *value > 0).ok_or_else(|| {
+                ToolError::invalid(format!("`{name}` must be a positive whole number"))
+            }),
         }
     };
     let timeout = positive("timeout", 120)?;
     let max_rows = positive("max_rows", 500)?;
     let profile_name = text(arguments, "profile").unwrap_or("default");
-    let selected =
-        profile::load(&solution.root, profile_name).map_err(|error| error.to_string())?;
+    let selected = profile::load(&solution.root, profile_name).map_err(ToolError::coded)?;
     let client = server::Client::new(selected.clone());
     let options = db::Options {
         mode,
@@ -1882,8 +1974,8 @@ fn db_tool(solution: &Solution, arguments: &Value, mode: db::Mode) -> Result<Val
         max_rows,
         timeout: Duration::from_secs(timeout),
     };
-    let report = db::execute(&client, solution, &selected, &sql, &options)
-        .map_err(|error| error.to_string())?;
+    let report =
+        db::execute(&client, solution, &selected, &sql, &options).map_err(ToolError::coded)?;
     let mut value = serde_json::to_value(report).expect("db report serialises");
     if mode == db::Mode::Query {
         if let Some(result) = value.get_mut("result").and_then(Value::as_object_mut) {
@@ -1918,7 +2010,7 @@ fn db_tool(solution: &Solution, arguments: &Value, mode: db::Mode) -> Result<Val
     Ok(value)
 }
 
-fn adopt_apply_tool(solution: &Solution, arguments: &Value) -> Result<Value, String> {
+fn adopt_apply_tool(solution: &Solution, arguments: &Value) -> Result<Value, ToolError> {
     let export = required(arguments, "export")?;
     let export = {
         let path = PathBuf::from(export);
@@ -1939,9 +2031,9 @@ fn adopt_apply_tool(solution: &Solution, arguments: &Value) -> Result<Value, Str
                 .collect()
         })
         .unwrap_or_default();
-    let _lock = lock::acquire_for(solution, "mcp adopt_apply").map_err(|e| e.to_string())?;
-    let report = adopt::compare(solution, &export, &only).map_err(|e| e.to_string())?;
-    let outcome = adopt::apply(solution, &export, &report).map_err(|e| e.to_string())?;
+    let _lock = lock::acquire_for(solution, "mcp adopt_apply").map_err(ToolError::coded)?;
+    let report = adopt::compare(solution, &export, &only).map_err(ToolError::coded)?;
+    let outcome = adopt::apply(solution, &export, &report).map_err(ToolError::coded)?;
     let mut result = json!({
         "applied": outcome.lines,
         "reverts_not_applied": report.reverts().count(),
@@ -1951,7 +2043,7 @@ fn adopt_apply_tool(solution: &Solution, arguments: &Value) -> Result<Value, Str
     Ok(result)
 }
 
-fn adopt_tool(solution: &Solution, arguments: &Value) -> Result<Value, String> {
+fn adopt_tool(solution: &Solution, arguments: &Value) -> Result<Value, ToolError> {
     let export = required(arguments, "export")?;
     let export = {
         let path = PathBuf::from(export);
@@ -1972,7 +2064,7 @@ fn adopt_tool(solution: &Solution, arguments: &Value) -> Result<Value, String> {
                 .collect()
         })
         .unwrap_or_default();
-    let report = adopt::compare(solution, &export, &only).map_err(|e| e.to_string())?;
+    let report = adopt::compare(solution, &export, &only).map_err(ToolError::coded)?;
     let detail = flag(arguments, "detail", false);
     let services: Vec<Value> = report
         .services
@@ -2016,13 +2108,13 @@ fn adopt_tool(solution: &Solution, arguments: &Value) -> Result<Value, String> {
     }))
 }
 
-fn rename_tool(solution: &Solution, arguments: &Value) -> Result<Value, String> {
+fn rename_tool(solution: &Solution, arguments: &Value) -> Result<Value, ToolError> {
     let word = required(arguments, "kind")?;
     let kind = rename::Kind::from_word(word).ok_or_else(|| {
-        format!(
+        ToolError::invalid(format!(
             "unknown rename kind `{word}`; use {}",
             rename::Kind::list_words()
-        )
+        ))
     })?;
     let dry_run = flag(arguments, "dry_run", true);
     let request = rename::Request {
@@ -2042,13 +2134,15 @@ fn rename_tool(solution: &Solution, arguments: &Value) -> Result<Value, String> 
         },
     };
     let date = jiff::Zoned::now().strftime("%Y-%m-%d").to_string();
-    let (spec, options) = request.build(&solution.root, &date)?;
+    let (spec, options) = request
+        .build(&solution.root, &date)
+        .map_err(ToolError::invalid)?;
     let _lock = if dry_run {
         None
     } else {
-        Some(lock::acquire_for(solution, "mcp rename").map_err(|error| error.to_string())?)
+        Some(lock::acquire_for(solution, "mcp rename").map_err(ToolError::coded)?)
     };
-    let outcome = rename::run(solution, &spec, &options).map_err(|error| error.to_string())?;
+    let outcome = rename::run(solution, &spec, &options).map_err(ToolError::coded)?;
     Ok(rename::summary_json(
         solution,
         &outcome,
@@ -2057,7 +2151,7 @@ fn rename_tool(solution: &Solution, arguments: &Value) -> Result<Value, String> 
     ))
 }
 
-fn config_table_tool(solution: &Solution, arguments: &Value) -> Result<Value, String> {
+fn config_table_tool(solution: &Solution, arguments: &Value) -> Result<Value, ToolError> {
     let thing_arg = required(arguments, "thing")?;
     let table = required(arguments, "table")?;
     let action = text(arguments, "action").unwrap_or("read");
@@ -2067,13 +2161,13 @@ fn config_table_tool(solution: &Solution, arguments: &Value) -> Result<Value, St
     let resolved = match workspace::resolve(&found, thing_arg) {
         Ok(entity) if entity.info.collection == "Things" => Some(entity),
         Ok(entity) => {
-            return Err(format!(
+            return Err(ToolError::invalid(format!(
                 "{} is a {}, and only a Thing has configuration tables here",
                 entity.info.name, entity.info.collection
-            ))
+            )))
         }
         Err(workspace::WorkspaceError::UnknownEntity { .. }) => None,
-        Err(error) => return Err(error.to_string()),
+        Err(error) => return Err(ToolError::coded(error)),
     };
     let thing = resolved
         .map(|e| e.info.name.clone())
@@ -2089,10 +2183,10 @@ fn config_table_tool(solution: &Solution, arguments: &Value) -> Result<Value, St
                 solution.root.join(path)
             }
         };
-        let saved = config_table::read_backup(&backup, &thing, table).map_err(|e| e.to_string())?;
+        let saved = config_table::read_backup(&backup, &thing, table).map_err(ToolError::coded)?;
         let dry_run = flag(arguments, "dry_run", true);
         let plan = config_table::restore(&client, &thing, table, &saved, !dry_run)
-            .map_err(|e| e.to_string())?;
+            .map_err(ToolError::coded)?;
         return Ok(json!({
             "thing": thing,
             "table": table,
@@ -2102,7 +2196,7 @@ fn config_table_tool(solution: &Solution, arguments: &Value) -> Result<Value, St
             "note": if dry_run { "nothing was written; pass dry_run: false to restore" } else { "restored and read back" },
         }));
     }
-    let live = config_table::fetch(&client, &thing, table).map_err(|e| e.to_string())?;
+    let live = config_table::fetch(&client, &thing, table).map_err(ToolError::coded)?;
     let key = config_table::primary_key(&live.data_shape);
     match action {
         "read" => {
@@ -2121,12 +2215,20 @@ fn config_table_tool(solution: &Solution, arguments: &Value) -> Result<Value, St
             Ok(result)
         }
         "diff" => {
-            let entity =
-                resolved.ok_or_else(|| format!("{thing_arg} is not an entity of this solution"))?;
-            let src = std::fs::read(&entity.path)
-                .map_err(|e| format!("{}: {e}", entity.path.display()))?;
+            let entity = resolved.ok_or_else(|| {
+                ToolError::with(
+                    ErrorCode::UnknownEntity,
+                    format!("{thing_arg} is not an entity of this solution"),
+                )
+            })?;
+            let src = std::fs::read(&entity.path).map_err(|e| {
+                ToolError::with(
+                    ErrorCode::IoError,
+                    format!("{}: {e}", entity.path.display()),
+                )
+            })?;
             let repository =
-                config_table::repository_rows(&src, table).map_err(|e| e.to_string())?;
+                config_table::repository_rows(&src, table).map_err(ToolError::coded)?;
             let differences = config_table::differences(
                 "server",
                 &live.rows,
@@ -2142,18 +2244,18 @@ fn config_table_tool(solution: &Solution, arguments: &Value) -> Result<Value, St
                 "differences": differences,
             }))
         }
-        other => Err(format!(
+        other => Err(ToolError::invalid(format!(
             "action must be read, diff or restore, not {other:?}"
-        )),
+        ))),
     }
 }
 
 /// The server's file repositories, read-only.
-fn repo_tool(solution: &Solution, arguments: &Value) -> Result<Value, String> {
+fn repo_tool(solution: &Solution, arguments: &Value) -> Result<Value, ToolError> {
     let client = client(solution, arguments)?;
     let action = text(arguments, "action").unwrap_or("list");
     if action == "list" {
-        let names = repo::Remote::repositories(&client).map_err(|e| e.to_string())?;
+        let names = repo::Remote::repositories(&client).map_err(ToolError::coded)?;
         return Ok(json!({ "ok": true, "repositories": names }));
     }
     let repository = required(arguments, "repository")?;
@@ -2166,7 +2268,7 @@ fn repo_tool(solution: &Solution, arguments: &Value) -> Result<Value, String> {
                 folder,
                 flag(arguments, "recursive", false),
             )
-            .map_err(|e| e.to_string())?;
+            .map_err(ToolError::coded)?;
             let shown = if flag(arguments, "detail", false) {
                 usize::MAX
             } else {
@@ -2193,7 +2295,7 @@ fn repo_tool(solution: &Solution, arguments: &Value) -> Result<Value, String> {
         }
         "get" => {
             let path = required(arguments, "path")?;
-            let bytes = repo::get(&client, repository, path).map_err(|e| e.to_string())?;
+            let bytes = repo::get(&client, repository, path).map_err(ToolError::coded)?;
             let max = arguments
                 .get("max_chars")
                 .and_then(Value::as_u64)
@@ -2205,7 +2307,7 @@ fn repo_tool(solution: &Solution, arguments: &Value) -> Result<Value, String> {
                     let mut result = json!({
                         "ok": true,
                         "repository": repository,
-                        "path": repo::remote_path(path).map_err(|e| e.to_string())?,
+                        "path": repo::remote_path(path).map_err(ToolError::coded)?,
                         "size": bytes.len(),
                         "sha256": digest,
                         "text": text.chars().take(max).collect::<String>(),
@@ -2221,7 +2323,7 @@ fn repo_tool(solution: &Solution, arguments: &Value) -> Result<Value, String> {
                 Err(_) => Ok(json!({
                     "ok": true,
                     "repository": repository,
-                    "path": repo::remote_path(path).map_err(|e| e.to_string())?,
+                    "path": repo::remote_path(path).map_err(ToolError::coded)?,
                     "size": bytes.len(),
                     "sha256": digest,
                     "binary": true,
@@ -2235,7 +2337,7 @@ fn repo_tool(solution: &Solution, arguments: &Value) -> Result<Value, String> {
                 solution.repositories.root.as_deref(),
                 repository,
             );
-            let compared = repo::status(&client, repository, &local).map_err(|e| e.to_string())?;
+            let compared = repo::status(&client, repository, &local).map_err(ToolError::coded)?;
             let mut counts = std::collections::BTreeMap::new();
             for item in &compared {
                 *counts.entry(item.state.label()).or_insert(0usize) += 1;
@@ -2255,14 +2357,14 @@ fn repo_tool(solution: &Solution, arguments: &Value) -> Result<Value, String> {
                 (if detail { "files" } else { "attention" }): listed,
             }))
         }
-        other => Err(format!(
+        other => Err(ToolError::invalid(format!(
             "action must be list, ls, get or status, not {other:?}"
-        )),
+        ))),
     }
 }
 
 /// An import into the server, a plan unless dry_run is false.
-fn import_tool(solution: &Solution, arguments: &Value) -> Result<Value, String> {
+fn import_tool(solution: &Solution, arguments: &Value) -> Result<Value, ToolError> {
     let client = client(solution, arguments)?;
     let dry_run = flag(arguments, "dry_run", true);
     let (properties, tables) = (
@@ -2278,19 +2380,22 @@ fn import_tool(solution: &Solution, arguments: &Value) -> Result<Value, String> 
         "file" => {
             let relative = required(arguments, "file")?;
             let real = std::fs::canonicalize(solution.root.join(relative))
-                .map_err(|e| format!("{relative}: {e}"))?;
-            let root = std::fs::canonicalize(&solution.root).map_err(|e| e.to_string())?;
+                .map_err(|e| ToolError::with(ErrorCode::IoError, format!("{relative}: {e}")))?;
+            let root = std::fs::canonicalize(&solution.root).map_err(ToolError::io)?;
             if !real.starts_with(&root) {
-                return Err(format!("{relative} is outside the solution"));
+                return Err(ToolError::invalid(format!(
+                    "{relative} is outside the solution"
+                )));
             }
-            let bytes = std::fs::read(&real).map_err(|e| format!("{relative}: {e}"))?;
+            let bytes = std::fs::read(&real)
+                .map_err(|e| ToolError::with(ErrorCode::IoError, format!("{relative}: {e}")))?;
             let file_name = real
                 .file_name()
                 .map(|n| n.to_string_lossy().into_owned())
                 .unwrap_or_else(|| "import.xml".into());
             let plan =
                 imports::import_file(&client, &file_name, &bytes, properties, tables, !dry_run)
-                    .map_err(|e| e.to_string())?;
+                    .map_err(ToolError::coded)?;
             let names = |list: &[(String, String)]| {
                 list.iter()
                     .map(|(c, n)| format!("{c}/{n}"))
@@ -2313,21 +2418,21 @@ fn import_tool(solution: &Solution, arguments: &Value) -> Result<Value, String> 
                 tables,
                 !dry_run,
             )
-            .map_err(|e| e.to_string())?;
+            .map_err(ToolError::coded)?;
             let mut result = json!({ "ok": true, "dry_run": dry_run, "entities": imported.total, "differ": differs(&imported.differ) });
             if let Some(after) = &imported.still_differ {
                 result["still_differ"] = json!(differs(after));
             }
             Ok(result)
         }
-        other => Err(format!(
+        other => Err(ToolError::invalid(format!(
             "action must be file or source_control, not {other:?}"
-        )),
+        ))),
     }
 }
 
 /// An export from the server, to a file inside the solution or into a repository.
-fn export_tool(solution: &Solution, arguments: &Value) -> Result<Value, String> {
+fn export_tool(solution: &Solution, arguments: &Value) -> Result<Value, ToolError> {
     let client = client(solution, arguments)?;
     let action = required(arguments, "action")?;
     if action == "source_control" {
@@ -2346,12 +2451,12 @@ fn export_tool(solution: &Solution, arguments: &Value) -> Result<Value, String> 
             text(arguments, "zip"),
             !dry_run,
         )
-        .map_err(|e| e.to_string())?;
+        .map_err(ToolError::coded)?;
         return Ok(json!({ "ok": true, "dry_run": dry_run, "change": plan, "download": link }));
     }
     let what = match action {
         "entity" => {
-            export::What::entity(required(arguments, "entity")?).map_err(|e| e.to_string())?
+            export::What::entity(required(arguments, "entity")?).map_err(ToolError::coded)?
         }
         "collection" => export::What::Collection {
             collection: required(arguments, "collection")?.to_string(),
@@ -2361,18 +2466,20 @@ fn export_tool(solution: &Solution, arguments: &Value) -> Result<Value, String> 
             project: required(arguments, "project")?.to_string(),
         },
         other => {
-            return Err(format!(
+            return Err(ToolError::invalid(format!(
                 "action must be entity, collection, project or source_control, not {other:?}"
-            ))
+            )))
         }
     };
     let relative = required(arguments, "out")?;
     let out = out_path(solution, relative, flag(arguments, "overwrite", false))?;
-    let exported = export::export(&client, &what).map_err(|e| e.to_string())?;
+    let exported = export::export(&client, &what).map_err(ToolError::coded)?;
     if let Some(folder) = out.parent() {
-        std::fs::create_dir_all(folder).map_err(|e| format!("{}: {e}", folder.display()))?;
+        std::fs::create_dir_all(folder).map_err(|e| {
+            ToolError::with(ErrorCode::IoError, format!("{}: {e}", folder.display()))
+        })?;
     }
-    workspace::write_entity(&out, &exported.xml).map_err(|e| e.to_string())?;
+    workspace::write_entity(&out, &exported.xml).map_err(ToolError::coded)?;
     Ok(json!({
         "ok": true,
         "out": relative,
@@ -2387,39 +2494,42 @@ fn out_path(
     solution: &Solution,
     relative: &str,
     overwrite: bool,
-) -> Result<std::path::PathBuf, String> {
+) -> Result<std::path::PathBuf, ToolError> {
     // Only plain names: `\\x` or `C:x` is not absolute to Rust on Windows, yet joins outside.
     let plain = std::path::Path::new(relative)
         .components()
         .all(|c| matches!(c, std::path::Component::Normal(_)));
     if !plain || relative.trim().is_empty() {
-        return Err(format!(
+        return Err(ToolError::invalid(format!(
             "{relative} must be a plain path inside the solution"
-        ));
+        )));
     }
     let out = solution.root.join(relative);
     // And no link along the way may lead out: the nearest folder that exists must be inside.
-    let root = std::fs::canonicalize(&solution.root).map_err(|e| e.to_string())?;
+    let root = std::fs::canonicalize(&solution.root).map_err(ToolError::io)?;
     let existing = out
         .ancestors()
         .skip(1)
         .find(|a| a.exists())
         .unwrap_or(&solution.root);
-    let real =
-        std::fs::canonicalize(existing).map_err(|e| format!("{}: {e}", existing.display()))?;
+    let real = std::fs::canonicalize(existing)
+        .map_err(|e| ToolError::with(ErrorCode::IoError, format!("{}: {e}", existing.display())))?;
     if !real.starts_with(&root) {
-        return Err(format!("{relative} leads outside the solution"));
+        return Err(ToolError::invalid(format!(
+            "{relative} leads outside the solution"
+        )));
     }
     if out.exists() && !overwrite {
-        return Err(format!(
-            "{relative} exists; pass overwrite: true to replace it"
+        return Err(ToolError::with(
+            ErrorCode::AlreadyExists,
+            format!("{relative} exists; pass overwrite: true to replace it"),
         ));
     }
     Ok(out)
 }
 
 /// The repository packaged for release, offline, into a file inside the solution.
-fn package_tool(solution: &Solution, arguments: &Value) -> Result<Value, String> {
+fn package_tool(solution: &Solution, arguments: &Value) -> Result<Value, ToolError> {
     use crate::core::package;
     let relative = required(arguments, "out")?;
     let out = out_path(solution, relative, flag(arguments, "overwrite", false))?;
@@ -2431,12 +2541,12 @@ fn package_tool(solution: &Solution, arguments: &Value) -> Result<Value, String>
                 "backend" => package::Part::Backend,
                 "frontend" => package::Part::Frontend,
                 other => {
-                    return Err(format!(
+                    return Err(ToolError::invalid(format!(
                         "part must be all, backend or frontend, not {other:?}"
-                    ))
+                    )))
                 }
             };
-            let built = package::bundle(solution, project, part).map_err(|e| e.to_string())?;
+            let built = package::bundle(solution, project, part).map_err(ToolError::coded)?;
             let count: usize = built.entities.values().sum();
             (
                 built.bytes,
@@ -2445,7 +2555,7 @@ fn package_tool(solution: &Solution, arguments: &Value) -> Result<Value, String>
         }
         "source_control" => {
             let (bytes, count) =
-                package::source_control(solution, project).map_err(|e| e.to_string())?;
+                package::source_control(solution, project).map_err(ToolError::coded)?;
             (bytes, json!({ "entities": count }))
         }
         "extension" => {
@@ -2454,7 +2564,7 @@ fn package_tool(solution: &Solution, arguments: &Value) -> Result<Value, String>
             match project {
                 Some(project) => {
                     let (bytes, count) = package::extension(solution, project, editable, &meta)
-                        .map_err(|e| e.to_string())?;
+                        .map_err(ToolError::coded)?;
                     (
                         bytes,
                         json!({ "editable": editable, "version": meta.version, "entities": count }),
@@ -2462,7 +2572,7 @@ fn package_tool(solution: &Solution, arguments: &Value) -> Result<Value, String>
                 }
                 None => {
                     let (bytes, counts) = package::solution_extensions(solution, editable, &meta)
-                        .map_err(|e| e.to_string())?;
+                        .map_err(ToolError::coded)?;
                     let projects: Vec<Value> = counts
                         .iter()
                         .map(|(p, n)| json!({ "project": p, "entities": n }))
@@ -2475,24 +2585,26 @@ fn package_tool(solution: &Solution, arguments: &Value) -> Result<Value, String>
             }
         }
         other => {
-            return Err(format!(
+            return Err(ToolError::invalid(format!(
                 "action must be bundle, source_control or extension, not {other:?}"
-            ))
+            )))
         }
     };
     if let Some(folder) = out.parent() {
-        std::fs::create_dir_all(folder).map_err(|e| format!("{}: {e}", folder.display()))?;
+        std::fs::create_dir_all(folder).map_err(|e| {
+            ToolError::with(ErrorCode::IoError, format!("{}: {e}", folder.display()))
+        })?;
     }
-    workspace::write_entity(&out, &bytes).map_err(|e| e.to_string())?;
+    workspace::write_entity(&out, &bytes).map_err(ToolError::coded)?;
     Ok(json!({ "ok": true, "out": relative, "bytes": bytes.len(), "detail": detail }))
 }
 
 /// The server's subsystem settings, read-only, secrets hidden.
-fn settings_tool(solution: &Solution, arguments: &Value) -> Result<Value, String> {
+fn settings_tool(solution: &Solution, arguments: &Value) -> Result<Value, ToolError> {
     let client = client(solution, arguments)?;
     match text(arguments, "action").unwrap_or("list") {
         "list" => {
-            let all = settings::summaries(&client).map_err(|e| e.to_string())?;
+            let all = settings::summaries(&client).map_err(ToolError::coded)?;
             Ok(json!({ "ok": true, "subsystems": all.iter().map(|s| json!({
                 "name": s.name,
                 "running": s.running,
@@ -2500,17 +2612,17 @@ fn settings_tool(solution: &Solution, arguments: &Value) -> Result<Value, String
             })).collect::<Vec<_>>() }))
         }
         "show" => {
-            let names = settings::Remote::subsystems(&client).map_err(|e| e.to_string())?;
+            let names = settings::Remote::subsystems(&client).map_err(ToolError::coded)?;
             let name = settings::resolve(&names, required(arguments, "subsystem")?)
-                .map_err(|e| e.to_string())?;
-            let read = settings::read(&client, name).map_err(|e| e.to_string())?;
+                .map_err(ToolError::coded)?;
+            let read = settings::read(&client, name).map_err(ToolError::coded)?;
             Ok(
                 json!({ "ok": true, "subsystem": read.name, "running": read.running, "tables": read.tables.iter().map(|t| settings::table_json(&read.name, t)).collect::<Vec<_>>() }),
             )
         }
         "search" => {
             let wanted = required(arguments, "text")?;
-            let all = settings::read_all(&client).map_err(|e| e.to_string())?;
+            let all = settings::read_all(&client).map_err(ToolError::coded)?;
             let found = settings::search(&all, wanted);
             Ok(json!({ "ok": true, "matches": found.iter().map(|f| json!({
                 "subsystem": f.subsystem,
@@ -2521,14 +2633,14 @@ fn settings_tool(solution: &Solution, arguments: &Value) -> Result<Value, String
                 "description": f.field.description,
             })).collect::<Vec<_>>() }))
         }
-        other => Err(format!(
+        other => Err(ToolError::invalid(format!(
             "action must be list, show or search, not {other:?}"
-        )),
+        ))),
     }
 }
 
 /// The repository-derived service catalog, offline and read-only.
-fn catalog_tool(solution: &Solution, arguments: &Value) -> Result<Value, String> {
+fn catalog_tool(solution: &Solution, arguments: &Value) -> Result<Value, ToolError> {
     let catalog = catalog::build(
         solution,
         catalog::Query {
@@ -2537,7 +2649,7 @@ fn catalog_tool(solution: &Solution, arguments: &Value) -> Result<Value, String>
             text: text(arguments, "text"),
         },
     )
-    .map_err(|error| error.to_string())?;
+    .map_err(ToolError::coded)?;
     let service_count = catalog.service_count();
     let entity_count = catalog.entities.len();
     let limit = if flag(arguments, "detail", false) {
@@ -2588,29 +2700,31 @@ fn catalog_tool(solution: &Solution, arguments: &Value) -> Result<Value, String>
 }
 
 /// The server's extension packages, read-only.
-fn extensions_tool(solution: &Solution, arguments: &Value) -> Result<Value, String> {
+fn extensions_tool(solution: &Solution, arguments: &Value) -> Result<Value, ToolError> {
     let client = client(solution, arguments)?;
     let package_json = |p: &extensions::Package| json!({ "name": p.name, "version": p.version, "vendor": p.vendor, "description": p.description, "minimumThingWorxVersion": p.minimum_thingworx });
     match text(arguments, "action").unwrap_or("list") {
         "list" => {
-            let packages = extensions::list(&client).map_err(|e| e.to_string())?;
+            let packages = extensions::list(&client).map_err(ToolError::coded)?;
             Ok(
                 json!({ "ok": true, "packages": packages.iter().map(package_json).collect::<Vec<_>>() }),
             )
         }
         "show" => {
             let shown = extensions::show(&client, required(arguments, "package")?)
-                .map_err(|e| e.to_string())?;
+                .map_err(ToolError::coded)?;
             Ok(
                 json!({ "ok": true, "package": package_json(&shown.package), "extensions": shown.extensions, "in_use": shown.in_use }),
             )
         }
-        other => Err(format!("action must be list or show, not {other:?}")),
+        other => Err(ToolError::invalid(format!(
+            "action must be list or show, not {other:?}"
+        ))),
     }
 }
 
 /// Import or remove an extension package, a plan unless dry_run is false.
-fn extension_write_tool(solution: &Solution, arguments: &Value) -> Result<Value, String> {
+fn extension_write_tool(solution: &Solution, arguments: &Value) -> Result<Value, ToolError> {
     let dry_run = flag(arguments, "dry_run", true);
     let client = client(solution, arguments)?;
     match required(arguments, "action")? {
@@ -2618,18 +2732,21 @@ fn extension_write_tool(solution: &Solution, arguments: &Value) -> Result<Value,
             let relative = required(arguments, "zip")?;
             // A zip of the solution, never one outside it.
             let real = std::fs::canonicalize(solution.root.join(relative))
-                .map_err(|e| format!("{relative}: {e}"))?;
-            let root = std::fs::canonicalize(&solution.root).map_err(|e| e.to_string())?;
+                .map_err(|e| ToolError::with(ErrorCode::IoError, format!("{relative}: {e}")))?;
+            let root = std::fs::canonicalize(&solution.root).map_err(ToolError::io)?;
             if !real.starts_with(&root) {
-                return Err(format!("{relative} is outside the solution"));
+                return Err(ToolError::invalid(format!(
+                    "{relative} is outside the solution"
+                )));
             }
-            let zip = std::fs::read(&real).map_err(|e| format!("{relative}: {e}"))?;
+            let zip = std::fs::read(&real)
+                .map_err(|e| ToolError::with(ErrorCode::IoError, format!("{relative}: {e}")))?;
             let file_name = real
                 .file_name()
                 .map(|n| n.to_string_lossy().into_owned())
                 .unwrap_or_else(|| "package.zip".into());
             let imported = extensions::import(&client, &file_name, &zip, !dry_run)
-                .map_err(|e| e.to_string())?;
+                .map_err(ToolError::coded)?;
             Ok(json!({
                 "ok": true,
                 "dry_run": dry_run,
@@ -2640,15 +2757,17 @@ fn extension_write_tool(solution: &Solution, arguments: &Value) -> Result<Value,
         }
         "remove" => {
             let plan = extensions::remove(&client, required(arguments, "package")?, !dry_run)
-                .map_err(|e| e.to_string())?;
+                .map_err(ToolError::coded)?;
             Ok(json!({ "ok": true, "dry_run": dry_run, "change": plan, "applied": !dry_run }))
         }
-        other => Err(format!("action must be import or remove, not {other:?}")),
+        other => Err(ToolError::invalid(format!(
+            "action must be import or remove, not {other:?}"
+        ))),
     }
 }
 
 /// One change to a file repository, a plan unless dry_run is false.
-fn repo_write_tool(solution: &Solution, arguments: &Value) -> Result<Value, String> {
+fn repo_write_tool(solution: &Solution, arguments: &Value) -> Result<Value, ToolError> {
     let repository = required(arguments, "repository")?;
     let dry_run = flag(arguments, "dry_run", true);
     if let Some(direction) = text(arguments, "action").filter(|a| *a == "push" || *a == "pull") {
@@ -2659,7 +2778,7 @@ fn repo_write_tool(solution: &Solution, arguments: &Value) -> Result<Value, Stri
         };
         // A pull writes the solution's tree, so it holds the workspace lock from the start.
         let _lock = if way == repo::Direction::Pull && !dry_run {
-            Some(lock::acquire_for(solution, "mcp repo pull").map_err(|e| e.to_string())?)
+            Some(lock::acquire_for(solution, "mcp repo pull").map_err(ToolError::coded)?)
         } else {
             None
         };
@@ -2677,7 +2796,7 @@ fn repo_write_tool(solution: &Solution, arguments: &Value) -> Result<Value, Stri
             flag(arguments, "overwrite", false),
             !dry_run,
         )
-        .map_err(|e| e.to_string())?;
+        .map_err(ToolError::coded)?;
         let mut result = json!({
             "ok": true,
             "repository": repository,
@@ -2692,25 +2811,31 @@ fn repo_write_tool(solution: &Solution, arguments: &Value) -> Result<Value, Stri
         }
         return Ok(result);
     }
-    let path = repo::remote_path(required(arguments, "path")?).map_err(|e| e.to_string())?;
+    let path = repo::remote_path(required(arguments, "path")?).map_err(ToolError::coded)?;
     let overwrite = flag(arguments, "overwrite", false);
     let change = match required(arguments, "action")? {
         "put" => {
             let bytes = match (text(arguments, "text"), text(arguments, "local")) {
-                (Some(_), Some(_)) => return Err("give text or local, not both".to_string()),
+                (Some(_), Some(_)) => {
+                    return Err(ToolError::invalid("give text or local, not both"))
+                }
                 (Some(content), None) => content.as_bytes().to_vec(),
                 (None, Some(local)) => {
                     // A file of the solution, never one outside it.
                     let candidate = solution.root.join(local);
-                    let real =
-                        std::fs::canonicalize(&candidate).map_err(|e| format!("{local}: {e}"))?;
-                    let root = std::fs::canonicalize(&solution.root).map_err(|e| e.to_string())?;
+                    let real = std::fs::canonicalize(&candidate).map_err(|e| {
+                        ToolError::with(ErrorCode::IoError, format!("{local}: {e}"))
+                    })?;
+                    let root = std::fs::canonicalize(&solution.root).map_err(ToolError::io)?;
                     if !real.starts_with(&root) {
-                        return Err(format!("{local} is outside the solution"));
+                        return Err(ToolError::invalid(format!(
+                            "{local} is outside the solution"
+                        )));
                     }
-                    std::fs::read(&real).map_err(|e| format!("{local}: {e}"))?
+                    std::fs::read(&real)
+                        .map_err(|e| ToolError::with(ErrorCode::IoError, format!("{local}: {e}")))?
                 }
-                (None, None) => return Err("put needs text or local".to_string()),
+                (None, None) => return Err(ToolError::invalid("put needs text or local")),
             };
             repo::Change::Put {
                 path,
@@ -2719,13 +2844,15 @@ fn repo_write_tool(solution: &Solution, arguments: &Value) -> Result<Value, Stri
             }
         }
         "mkdir" => repo::Change::Mkdir { path },
-        "rm" if path == "/" => return Err("the repository root cannot be deleted".to_string()),
+        "rm" if path == "/" => {
+            return Err(ToolError::invalid("the repository root cannot be deleted"))
+        }
         "rm" => repo::Change::Remove {
             path,
             recursive: flag(arguments, "recursive", false),
         },
         "mv" => {
-            let to = repo::remote_path(required(arguments, "to")?).map_err(|e| e.to_string())?;
+            let to = repo::remote_path(required(arguments, "to")?).map_err(ToolError::coded)?;
             repo::Change::Move {
                 from: path,
                 to,
@@ -2733,14 +2860,13 @@ fn repo_write_tool(solution: &Solution, arguments: &Value) -> Result<Value, Stri
             }
         }
         other => {
-            return Err(format!(
+            return Err(ToolError::invalid(format!(
                 "action must be put, mkdir, rm or mv, not {other:?}"
-            ))
+            )))
         }
     };
     let client = client(solution, arguments)?;
-    let planned =
-        repo::change(&client, repository, &change, !dry_run).map_err(|e| e.to_string())?;
+    let planned = repo::change(&client, repository, &change, !dry_run).map_err(ToolError::coded)?;
     let mut result = json!({
         "ok": true,
         "repository": repository,
@@ -2761,12 +2887,12 @@ fn help_version(
     root: &Path,
     arguments: &Value,
     named: Option<String>,
-) -> Result<(String, Vec<String>), String> {
+) -> Result<(String, Vec<String>), ToolError> {
     // No twaco.toml means no solution; a broken one is an error.
     let solution = match Solution::discover(root) {
         Ok(solution) => Some(solution),
         Err(crate::core::config::ConfigError::NotFound { .. }) => None,
-        Err(error) => return Err(error.to_string()),
+        Err(error) => return Err(ToolError::coded(error)),
     };
     let mut notes = Vec::new();
     let version = help::choose_version(
@@ -2775,17 +2901,27 @@ fn help_version(
         solution.as_ref(),
         text(arguments, "profile").unwrap_or("default"),
         &mut notes,
-    )?;
+    )
+    // The only failures are a version that does not parse: the caller's own text when one was
+    // given, otherwise the solution's `[help] version`.
+    .map_err(|why| {
+        let code = if text(arguments, "version").is_some() {
+            ErrorCode::InvalidArguments
+        } else {
+            ErrorCode::InvalidData
+        };
+        ToolError::with(code, why)
+    })?;
     Ok((version, notes))
 }
 
 /// Search the help center. Needs no solution; downloads go to the user's cache.
 /// The knowledge topics, built in and the solution's own; needs no solution.
-fn guide_tool(root: &Path, arguments: &Value) -> Result<Value, String> {
+fn guide_tool(root: &Path, arguments: &Value) -> Result<Value, ToolError> {
     let solution = match Solution::discover(root) {
         Ok(solution) => Some(solution),
         Err(crate::core::config::ConfigError::NotFound { .. }) => None,
-        Err(error) => return Err(error.to_string()),
+        Err(error) => return Err(ToolError::coded(error)),
     };
     let (topics, problems) = guide::topics(solution.as_ref());
     let mut result = match text(arguments, "action").unwrap_or("search") {
@@ -2807,8 +2943,8 @@ fn guide_tool(root: &Path, arguments: &Value) -> Result<Value, String> {
         }
         "read" => {
             let topic =
-                guide::find(&topics, required(arguments, "topic")?).map_err(|e| e.to_string())?;
-            match guide::read(topic, text(arguments, "section")).map_err(|e| e.to_string())? {
+                guide::find(&topics, required(arguments, "topic")?).map_err(ToolError::coded)?;
+            match guide::read(topic, text(arguments, "section")).map_err(ToolError::coded)? {
                 guide::Reading::Text(markdown) => {
                     json!({ "ok": true, "topic": topic.id, "markdown": markdown })
                 }
@@ -2822,9 +2958,9 @@ fn guide_tool(root: &Path, arguments: &Value) -> Result<Value, String> {
             }
         }
         other => {
-            return Err(format!(
+            return Err(ToolError::invalid(format!(
                 "action must be list, search or read, not {other:?}"
-            ))
+            )))
         }
     };
     if !problems.is_empty() {
@@ -2833,10 +2969,10 @@ fn guide_tool(root: &Path, arguments: &Value) -> Result<Value, String> {
     Ok(result)
 }
 
-fn help_search_tool(root: &Path, arguments: &Value) -> Result<Value, String> {
+fn help_search_tool(root: &Path, arguments: &Value) -> Result<Value, ToolError> {
     let query = required(arguments, "query")?;
     let (version, notes) = help_version(root, arguments, None)?;
-    let cache = help::cache_root().map_err(|e| e.to_string())?;
+    let cache = help::cache_root().map_err(ToolError::coded)?;
     let bytes = help::cached(
         &help::Web::default(),
         &cache,
@@ -2844,8 +2980,8 @@ fn help_search_tool(root: &Path, arguments: &Value) -> Result<Value, String> {
         help::INDEX_FILE,
         flag(arguments, "refresh", false),
     )
-    .map_err(|e| e.to_string())?;
-    let index = help::Index::parse(&String::from_utf8_lossy(&bytes)).map_err(|e| e.to_string())?;
+    .map_err(ToolError::coded)?;
+    let index = help::Index::parse(&String::from_utf8_lossy(&bytes)).map_err(ToolError::coded)?;
     let limit = arguments.get("limit").and_then(Value::as_u64).unwrap_or(10) as usize;
     let found = help::search(&index, &version, query, limit);
     let mut result = json!({
@@ -2870,11 +3006,11 @@ fn help_search_tool(root: &Path, arguments: &Value) -> Result<Value, String> {
 }
 
 /// Read one help page as Markdown, bounded by max_chars.
-fn help_page_tool(root: &Path, arguments: &Value) -> Result<Value, String> {
+fn help_page_tool(root: &Path, arguments: &Value) -> Result<Value, ToolError> {
     let page = required(arguments, "page")?;
-    let (named, path) = help::page_path(page).map_err(|e| e.to_string())?;
+    let (named, path) = help::page_path(page).map_err(ToolError::coded)?;
     let (version, notes) = help_version(root, arguments, named)?;
-    let cache = help::cache_root().map_err(|e| e.to_string())?;
+    let cache = help::cache_root().map_err(ToolError::coded)?;
     let html = help::cached(
         &help::Web::default(),
         &cache,
@@ -2882,9 +3018,9 @@ fn help_page_tool(root: &Path, arguments: &Value) -> Result<Value, String> {
         &path,
         flag(arguments, "refresh", false),
     )
-    .map_err(|e| e.to_string())?;
-    let read = help::read(&html, &version, &path, text(arguments, "section"))
-        .map_err(|e| e.to_string())?;
+    .map_err(ToolError::coded)?;
+    let read =
+        help::read(&html, &version, &path, text(arguments, "section")).map_err(ToolError::coded)?;
     let max = arguments
         .get("max_chars")
         .and_then(Value::as_u64)
@@ -2912,24 +3048,25 @@ fn help_page_tool(root: &Path, arguments: &Value) -> Result<Value, String> {
 
 /// Search or read the fixed-version Java API docs. It needs no solution and contacts only the
 /// Javadoc site, never a ThingWorx server.
-fn javadoc_tool(arguments: &Value) -> Result<Value, String> {
+fn javadoc_tool(arguments: &Value) -> Result<Value, ToolError> {
     let action = required(arguments, "action")?;
     let name = required(arguments, "name")?;
     let refresh = flag(arguments, "refresh", false);
-    let cache = javadoc::cache_root()?;
+    let cache = javadoc::cache_root().map_err(|why| ToolError::with(ErrorCode::IoError, why))?;
     let web = help::Web::new(javadoc::BASE);
     let fetch = |path: &str| javadoc::cached(&web, &cache, path, refresh);
     let types = fetch(javadoc::TYPE_INDEX)?;
     let result = match action {
         "search" => {
             if arguments.get("member").is_some() {
-                return Err("`member` is only for action class".to_string());
+                return Err(ToolError::invalid("`member` is only for action class"));
             }
             let members = fetch(javadoc::MEMBER_INDEX)?;
             let index = javadoc::Index::parse(
                 &String::from_utf8_lossy(&types),
                 &String::from_utf8_lossy(&members),
-            )?;
+            )
+            .map_err(|why| ToolError::with(ErrorCode::InvalidData, why))?;
             let limit = arguments.get("limit").and_then(Value::as_u64).unwrap_or(10) as usize;
             let hits = javadoc::search(&index, name, limit);
             json!({
@@ -2945,9 +3082,13 @@ fn javadoc_tool(arguments: &Value) -> Result<Value, String> {
         }
         "class" => {
             let index =
-                javadoc::Index::parse(&String::from_utf8_lossy(&types), "memberSearchIndex = []")?;
-            let class = javadoc::find_class(&index, name)?;
-            let path = javadoc::class_path(&class)?;
+                javadoc::Index::parse(&String::from_utf8_lossy(&types), "memberSearchIndex = []")
+                    .map_err(|why| ToolError::with(ErrorCode::InvalidData, why))?;
+            // Unknown and ambiguous alike: the name the caller gave does not pick one class.
+            let class = javadoc::find_class(&index, name)
+                .map_err(|why| ToolError::with(ErrorCode::InvalidArguments, why))?;
+            let path = javadoc::class_path(&class)
+                .map_err(|why| ToolError::with(ErrorCode::InvalidData, why))?;
             let html = fetch(&path)?;
             let read = javadoc::read(&html, &class, text(arguments, "member"))?;
             json!({
@@ -2960,13 +3101,17 @@ fn javadoc_tool(arguments: &Value) -> Result<Value, String> {
                 "markdown": read.markdown,
             })
         }
-        other => return Err(format!("action must be search or class, not {other:?}")),
+        other => {
+            return Err(ToolError::invalid(format!(
+                "action must be search or class, not {other:?}"
+            )))
+        }
     };
     Ok(result)
 }
 
 /// One of the server's logs, summary first. Read-only, so it takes no lock.
-fn logs_tool(solution: &Solution, arguments: &Value) -> Result<Value, String> {
+fn logs_tool(solution: &Solution, arguments: &Value) -> Result<Value, ToolError> {
     let log = required(arguments, "log")?;
     let now = logs::now_ms();
     let (from_ms, to_ms) = match (
@@ -2975,18 +3120,18 @@ fn logs_tool(solution: &Solution, arguments: &Value) -> Result<Value, String> {
         text(arguments, "to"),
     ) {
         (Some(_), Some(_), _) | (Some(_), _, Some(_)) => {
-            return Err(
-                "since is a window ending now; give it, or from and to, not both".to_string(),
-            )
+            return Err(ToolError::invalid(
+                "since is a window ending now; give it, or from and to, not both",
+            ))
         }
         (since, None, None) => (
-            now - logs::parse_since(since.unwrap_or("1h")).map_err(|e| e.to_string())?,
+            now - logs::parse_since(since.unwrap_or("1h")).map_err(ToolError::coded)?,
             now,
         ),
         (None, from, to) => {
-            let to_ms = logs::parse_time(to.unwrap_or("now"), now).map_err(|e| e.to_string())?;
+            let to_ms = logs::parse_time(to.unwrap_or("now"), now).map_err(ToolError::coded)?;
             let from_ms = match from {
-                Some(from) => logs::parse_time(from, now).map_err(|e| e.to_string())?,
+                Some(from) => logs::parse_time(from, now).map_err(ToolError::coded)?,
                 None => to_ms - 3_600_000,
             };
             (from_ms, to_ms)
@@ -2994,7 +3139,9 @@ fn logs_tool(solution: &Solution, arguments: &Value) -> Result<Value, String> {
     };
     let search = match (text(arguments, "grep"), text(arguments, "regex")) {
         (Some(_), Some(_)) => {
-            return Err("grep and regex are two ways to search; give one".to_string())
+            return Err(ToolError::invalid(
+                "grep and regex are two ways to search; give one",
+            ))
         }
         (Some(grep), None) => Some(logs::Search::Grep(grep.to_string())),
         (None, Some(regex)) => Some(logs::Search::Regex(regex.to_string())),
@@ -3007,7 +3154,7 @@ fn logs_tool(solution: &Solution, arguments: &Value) -> Result<Value, String> {
         level: text(arguments, "level")
             .map(logs::level)
             .transpose()
-            .map_err(|e| e.to_string())?,
+            .map_err(ToolError::coded)?,
         search,
         user: text(arguments, "user").map(str::to_string),
         thread: text(arguments, "thread").map(str::to_string),
@@ -3019,7 +3166,7 @@ fn logs_tool(solution: &Solution, arguments: &Value) -> Result<Value, String> {
         oldest_first: flag(arguments, "oldest_first", false),
     };
     let client = client(solution, arguments)?;
-    let outcome = logs::query(&client, &query).map_err(|e| e.to_string())?;
+    let outcome = logs::query(&client, &query).map_err(ToolError::coded)?;
     Ok(logs::summary(
         log,
         &outcome,
@@ -3028,19 +3175,21 @@ fn logs_tool(solution: &Solution, arguments: &Value) -> Result<Value, String> {
 }
 
 /// A log's levels, read, or changed as a plan unless dry_run is false. Writes no workspace file.
-fn log_level_tool(solution: &Solution, arguments: &Value) -> Result<Value, String> {
+fn log_level_tool(solution: &Solution, arguments: &Value) -> Result<Value, ToolError> {
     let log = required(arguments, "log")?;
     let sublogger = text(arguments, "sublogger").map(str::to_string);
     let reset = flag(arguments, "reset", false);
     let change = match (text(arguments, "level"), reset) {
-        (Some(_), true) => return Err("give a level or reset, not both".to_string()),
+        (Some(_), true) => return Err(ToolError::invalid("give a level or reset, not both")),
         (Some(level), false) => Some(logs::Change::Set {
-            level: logs::level(level).map_err(|e| e.to_string())?,
+            level: logs::level(level).map_err(ToolError::coded)?,
             sublogger,
         }),
         (None, true) => Some(logs::Change::Reset { sublogger }),
         (None, false) if sublogger.is_some() => {
-            return Err("a sublogger needs a level to set, or reset".to_string())
+            return Err(ToolError::invalid(
+                "a sublogger needs a level to set, or reset",
+            ))
         }
         (None, false) => None,
     };
@@ -3052,11 +3201,11 @@ fn log_level_tool(solution: &Solution, arguments: &Value) -> Result<Value, Strin
         })
     };
     let Some(change) = change else {
-        let levels = logs::levels(&client, log).map_err(|e| e.to_string())?;
+        let levels = logs::levels(&client, log).map_err(ToolError::coded)?;
         return Ok(json!({ "ok": true, "log": log, "levels": levels_json(&levels) }));
     };
     let dry_run = flag(arguments, "dry_run", true);
-    let report = logs::change(&client, log, &change, !dry_run).map_err(|e| e.to_string())?;
+    let report = logs::change(&client, log, &change, !dry_run).map_err(ToolError::coded)?;
     let mut result = json!({
         "ok": true,
         "log": log,
@@ -3075,19 +3224,19 @@ fn log_level_tool(solution: &Solution, arguments: &Value) -> Result<Value, Strin
     Ok(result)
 }
 
-fn call_service_tool(solution: &Solution, arguments: &Value) -> Result<Value, String> {
+fn call_service_tool(solution: &Solution, arguments: &Value) -> Result<Value, ToolError> {
     let target = workspace::call_target(
         &workspace::discover(solution).entities,
         required(arguments, "target")?,
     )
-    .map_err(|e| e.to_string())?;
+    .map_err(ToolError::coded)?;
     let service = required(arguments, "service")?;
     let parameters = arguments
         .get("parameters")
         .cloned()
         .unwrap_or_else(|| json!({}));
     if !parameters.is_object() {
-        return Err("`parameters` must be a JSON object".to_string());
+        return Err(ToolError::invalid("`parameters` must be a JSON object"));
     }
     if flag(arguments, "dry_run", true) {
         return Ok(json!({
@@ -3134,7 +3283,7 @@ fn call_service_tool(solution: &Solution, arguments: &Value) -> Result<Value, St
         // A tool error, so the agent cannot take the failed call for a success; its logs, the
         // most useful thing about it, are in the message.
         Err(error) => {
-            return Err(match &logged {
+            let message = match &logged {
                 Some(Ok(entries)) if !entries.is_empty() => {
                     let lines: Vec<String> = entries
                         .iter()
@@ -3142,9 +3291,12 @@ fn call_service_tool(solution: &Solution, arguments: &Value) -> Result<Value, St
                         .collect();
                     format!("{error}\nlogged during the call:\n{}", lines.join("\n"))
                 }
-                Some(Err(why)) => format!("{error}\n(the call's logs could not be read: {why})"),
+                Some(Err(why)) => {
+                    format!("{error}\n(the call's logs could not be read: {why})")
+                }
                 _ => error.to_string(),
-            })
+            };
+            return Err(ToolError::with(error.code(), message));
         }
     };
     let detail = flag(arguments, "detail", false);
@@ -3401,6 +3553,154 @@ mod tests {
             validate_arguments(&objects, &json!({"rows": 1})),
             Err("`rows` must be an array, not 1".to_string())
         );
+    }
+
+    #[test]
+    fn tool_errors_include_stable_codes() {
+        let root = solution_dir();
+        let reply = converse(
+            &root,
+            &[
+                json!({"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"projects","arguments":{"unexpected":true}}}),
+            ],
+        );
+        let value: Value =
+            serde_json::from_str(reply[0]["result"]["content"][0]["text"].as_str().unwrap())
+                .unwrap();
+        assert_eq!(
+            value["error"],
+            "this tool takes no argument `unexpected` (it takes: ); nothing was done"
+        );
+        assert_eq!(value["code"], "invalid_arguments");
+
+        let unclassified = tool_result(Err(ToolError::from("free text")), LATEST);
+        let value: Value =
+            serde_json::from_str(unclassified["content"][0]["text"].as_str().unwrap()).unwrap();
+        assert_eq!(
+            value,
+            json!({ "error": "free text", "code": "unclassified" })
+        );
+    }
+
+    #[test]
+    fn typed_and_argument_failures_keep_their_codes() {
+        let root = solution_dir();
+        let cases = [
+            (
+                "rename",
+                json!({"kind":"service","old":"A","new":"B"}),
+                "invalid_arguments",
+            ),
+            (
+                "status",
+                json!({"entity":"No.Such.Thing"}),
+                "unknown_entity",
+            ),
+            ("sync", json!({"entity":"No.Such.Thing"}), "unknown_entity"),
+            (
+                "catalog",
+                json!({"entity":"No.Such.Thing"}),
+                "unknown_entity",
+            ),
+            (
+                "call",
+                json!({"target":"Things/..","service":"X"}),
+                "invalid_arguments",
+            ),
+            ("db_run", json!({}), "invalid_arguments"),
+            ("entity_delete", json!({}), "invalid_arguments"),
+            (
+                "rename",
+                json!({"kind":"entity","old":"No.Such.Thing","new":"No.Such.Other"}),
+                "unknown_entity",
+            ),
+            (
+                "push",
+                json!({"entity":"Things/No.Such.Thing"}),
+                "unknown_entity",
+            ),
+            (
+                "new_building_block",
+                json!({"name":"Bad Name!"}),
+                "invalid_arguments",
+            ),
+            (
+                "rename",
+                json!({"kind":"entity","old":"P.T","new":"P.T"}),
+                "invalid_arguments",
+            ),
+        ];
+        for (id, (tool, arguments, code)) in cases.into_iter().enumerate() {
+            let reply = converse(
+                &root,
+                &[
+                    json!({"jsonrpc":"2.0","id":id,"method":"tools/call","params":{"name":tool,"arguments":arguments}}),
+                ],
+            );
+            assert_eq!(reply[0]["result"]["isError"], true, "{tool}");
+            let body: Value =
+                serde_json::from_str(reply[0]["result"]["content"][0]["text"].as_str().unwrap())
+                    .unwrap();
+            assert_eq!(body["code"], code, "{tool}: {body}");
+            assert!(body["error"]
+                .as_str()
+                .is_some_and(|message| !message.is_empty()));
+        }
+    }
+
+    #[test]
+    fn every_empty_tool_failure_has_a_classified_code() {
+        let root = solution_dir();
+        let definitions = tool_definitions();
+        let messages: Vec<Value> = definitions
+            .iter()
+            .enumerate()
+            .map(|(id, definition)| {
+                json!({
+                    "jsonrpc": "2.0",
+                    "id": id,
+                    "method": "tools/call",
+                    "params": { "name": definition["name"], "arguments": {} },
+                })
+            })
+            .collect();
+        let replies = converse(&root, &messages);
+        let mut unclassified = Vec::new();
+        for (definition, reply) in definitions.iter().zip(replies) {
+            if reply["result"]["isError"] == true {
+                let body: Value =
+                    serde_json::from_str(reply["result"]["content"][0]["text"].as_str().unwrap())
+                        .unwrap();
+                if body["code"]
+                    .as_str()
+                    .is_none_or(|code| code == "unclassified")
+                {
+                    unclassified.push(format!("{}: {body}", definition["name"]));
+                }
+            }
+        }
+        assert!(
+            unclassified.is_empty(),
+            "empty calls with missing or unclassified codes: {}",
+            unclassified.join("; ")
+        );
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn refused_push_result_has_a_server_conflict_code() {
+        let refusal = push::Refusal::Conflict {
+            server: "server".to_string(),
+            baseline: "baseline".to_string(),
+        };
+        let result = push_outcome_json(
+            "Things/P.T",
+            false,
+            false,
+            push::Outcome::Refused(refusal.clone()),
+        );
+        assert_eq!(result["code"], "server_conflict");
+        assert_eq!(result["refusal"], refusal.to_string());
     }
 
     #[test]
@@ -4211,6 +4511,35 @@ mod tests {
                 .to_string();
             assert!(text.contains("another twaco command"), "{tool}: {text}");
         }
+        drop(held);
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn a_held_workspace_lock_has_its_stable_code() {
+        let root = solution_dir();
+        let solution = Solution::load(&root.join("twaco.toml")).unwrap();
+        let held = lock::acquire_for(&solution, "test holder").unwrap();
+        let replies = converse(
+            &root,
+            &[json!({
+                "jsonrpc": "2.0",
+                "id": 1,
+                "method": "tools/call",
+                "params": { "name": "sync", "arguments": { "entity": "P.T" } },
+            })],
+        );
+        let result = &replies[0]["result"];
+        assert_eq!(result["isError"], true);
+        let body: Value =
+            serde_json::from_str(result["content"][0]["text"].as_str().unwrap()).unwrap();
+        assert_eq!(body["code"], "workspace_locked");
+        assert!(
+            body["error"].as_str().is_some_and(
+                |message| message.contains("another twaco command is changing this workspace")
+            ),
+            "{body}"
+        );
         drop(held);
         let _ = std::fs::remove_dir_all(root);
     }

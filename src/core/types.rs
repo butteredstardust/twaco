@@ -156,7 +156,7 @@ pub fn check_summary(outcome: &CheckOutcome) -> String {
 }
 
 #[derive(Debug)]
-pub struct CheckError(String);
+pub struct CheckError(pub(crate) String);
 
 impl fmt::Display for CheckError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
