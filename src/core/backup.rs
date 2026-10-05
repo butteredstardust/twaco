@@ -405,8 +405,8 @@ pub fn before_forced_push<R: push::Remote + Remote>(
 
 /// Before `deploy --force --apply`: save the server's copy of every entity the deploy would
 /// overwrite although the server holds changes the repository never saw.
-pub fn before_forced_deploy(
-    client: &Client,
+pub fn before_forced_deploy<R: deploy::Remote + Remote>(
+    client: &R,
     solution: &Solution,
     projects: &[deploy::ProjectBundle],
     stamp: &str,

@@ -41,8 +41,8 @@ when the command is asked to write. A local output named by an option is include
 | `sync --all` | best-effort batch | best-effort batch | entity XML, declarations | Earlier entities remain synced; retry failed entities. | `core/commands/sync.rs: execute` |
 | `fmt` | best-effort batch | best-effort batch | script sidecars | Earlier scripts remain formatted; retry reported scripts. | `core/commands/fmt.rs: execute` |
 | `check` | read-only | read-only | none | Retry freely. | `core/check.rs: run` |
-| `bundle` | single-file atomic | single-file atomic | generated bundle | The generated bundle is old or new; retry freely. | `main.rs: bundle` |
-| `deploy` | read-only | server-partial | server, baseline, backups | Read back reported imports and baseline; use the plan and backups before retrying. | `core/deploy.rs: run` |
+| `bundle` | single-file atomic | single-file atomic | generated bundle | The generated bundle is old or new; retry freely. | `core/commands/bundle.rs: execute` |
+| `deploy` | read-only | server-partial | server, baseline, backups | Read back reported imports and baseline; use the plan and backups before retrying. | `core/commands/deploy.rs: execute` |
 | `call` | server-partial | server-partial | service effects | Inspect the service's effects and logs before retrying. | `main.rs: call` |
 | `logs` | read-only | read-only | none | Retry freely. | `main.rs: logs_cmd` |
 | `logs level` | read-only | server-partial | server log level | Read the current level and use the printed undo before retrying. | `main.rs: log_level_cmd` |
@@ -52,7 +52,7 @@ when the command is asked to write. A local output named by an option is include
 | `db query` | server-partial | server-partial | temporary server Thing | A cleanup failure can leave the temporary Thing; run `db clean` before retrying. | `core/db.rs: run` |
 | `datatable copy` | read-only | server-partial | target DataTable | Read the target back; retry only after reconciling copied rows. | `core/datatable_copy.rs: run` |
 | `db clean` | read-only | server-partial | temporary server Things | List remaining temporary Things before retrying. | `core/db.rs: clean` |
-| `entity status` | read-only | single-file atomic | baseline | The baseline is old or new; retry freely after fixing a read failure. | `main.rs: entity_status` |
+| `entity status` | read-only | single-file atomic | baseline | The baseline is old or new; retry freely after fixing a read failure. | `core/commands/status.rs: execute` |
 | `rename entity` | read-only | multi-file atomic | XML, sidecars, ledger, SQL | A crash is finished or undone by the next command that takes the workspace lock; if it refuses, follow its message. Otherwise retry. | `core/commands/rename.rs: execute` |
 | `rename prefix` | read-only | multi-file atomic | XML, sidecars, ledger, SQL | A crash is finished or undone by the next command that takes the workspace lock; if it refuses, follow its message. Otherwise retry. | `core/commands/rename.rs: execute` |
 | `rename field` | read-only | multi-file atomic | XML, sidecars, ledger, SQL | A crash is finished or undone by the next command that takes the workspace lock; if it refuses, follow its message. Otherwise retry. | `core/commands/rename.rs: execute` |
@@ -115,7 +115,7 @@ when the command is asked to write. A local output named by an option is include
 | `projects` | read-only | read-only | none | Retry freely. | `mcp.rs: projects` |
 | `types` | best-effort batch | best-effort batch | declarations or platform cache | Every action can regenerate declarations; inspect completed files and retry. | `core/commands/types.rs: execute` |
 | `check` | read-only | read-only | none | Retry freely. | `mcp.rs: check_tool` |
-| `status` | read-only | single-file atomic | baseline | `record: true` replaces one baseline atomically; retry freely. | `mcp.rs: status_tool` |
+| `status` | read-only | single-file atomic | baseline | `record: true` replaces one baseline atomically; retry freely. | `core/commands/status.rs: execute` |
 | `sync` | best-effort batch | best-effort batch | entity XML, declarations | Earlier entities remain synced; retry failed entities. | `core/commands/sync.rs: execute` |
 | `extract` | best-effort batch | best-effort batch | sidecars, declarations | Earlier entities remain extracted; retry failed entities. | `core/commands/extract.rs: execute` |
 | `fmt` | best-effort batch | best-effort batch | script sidecars | Earlier scripts remain formatted; retry reported scripts. | `core/commands/fmt.rs: execute` |
@@ -127,7 +127,7 @@ when the command is asked to write. A local output named by an option is include
 | `db_query` | server-partial | server-partial | temporary server Thing | Run `db_clean` if temporary cleanup failed. | `mcp.rs: db_tool` |
 | `datatable_copy` | read-only | server-partial | target DataTable | Read the target back before retrying. | `mcp.rs: datatable_copy_tool` |
 | `db_clean` | read-only | server-partial | temporary server Things | List remaining temporary Things before retrying. | `mcp.rs: db_clean_tool` |
-| `deploy` | read-only | server-partial | server, baseline, backups | Read back imports and baseline; use plan and backups before retrying. | `mcp.rs: deploy_tool` |
+| `deploy` | read-only | server-partial | server, baseline, backups | Read back imports and baseline; use plan and backups before retrying. | `core/commands/deploy.rs: execute` |
 | `adopt_report` | read-only | read-only | none | Retry freely. | `mcp.rs: adopt_tool` |
 | `adopt_apply` | best-effort batch | best-effort batch | entities, sidecars, declarations | Unlike the CLI form, this tool applies directly; inspect completed writes and retry failures. | `core/commands/adopt.rs: execute` |
 | `rename` | read-only | multi-file atomic | XML, sidecars, ledger, SQL | A crash is finished or undone by the next command that takes the workspace lock; if it refuses, follow its message. Otherwise retry the reviewed plan. | `core/commands/rename.rs: execute` |

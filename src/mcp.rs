@@ -17,10 +17,10 @@ use crate::core::commands::{self, Mode};
 use crate::core::config::Solution;
 use crate::core::index::Confidence;
 use crate::core::{
-    adopt, backup, baseline, catalog, check, config_table, datatable_copy, db, deploy, docs,
-    entity_carry, entity_delete, export, extensions, guide, help, impact, imports, javadoc, lock,
-    logs, newblock, profile, push, relocate, rename, repo, retemplate, server, settings, status,
-    types, unused, workspace,
+    adopt, backup, catalog, check, config_table, datatable_copy, db, deploy, docs, entity_carry,
+    entity_delete, export, extensions, guide, help, impact, imports, javadoc, lock, logs, newblock,
+    profile, push, relocate, rename, repo, retemplate, server, settings, status, types, unused,
+    workspace,
 };
 use serde_json::{json, Map, Value};
 use std::io::{BufRead, Write};
@@ -1232,64 +1232,47 @@ fn check_tool(solution: &Solution, arguments: &Value) -> Result<Value, ToolError
 
 fn status_tool(solution: &Solution, arguments: &Value) -> Result<Value, ToolError> {
     let record = flag(arguments, "record", false);
-    // Taken before anything is read, so what is recorded is what this call saw.
-    let _lock = if record {
-        Some(lock::acquire_for(solution, "mcp status --record").map_err(ToolError::coded)?)
-    } else {
-        None
-    };
-    let found = workspace::discover(solution);
-    // An unreadable entity file is as much a partial read as a failed server read, and is
-    // known before the server is asked anything.
-    if record && !found.unreadable.is_empty() {
-        return Err(ToolError::with(
-            ErrorCode::InvalidData,
-            format!(
-                "nothing was recorded: {} entity file(s) could not be read: {}",
-                found.unreadable.len(),
-                found.unreadable.join("; ")
-            ),
-        ));
-    }
-    let mut pool = found.entities;
-    if let Some(project) = text(arguments, "project") {
-        if solution.project(project).is_none() {
-            return Err(ToolError::invalid(format!(
-                "this solution has no project named {project}"
-            )));
+    let target = match (text(arguments, "entity"), flag(arguments, "all", false)) {
+        (Some(_), true) => {
+            return Err(ToolError::invalid(
+                "name an entity or pass all: true, not both",
+            ))
         }
-        pool.retain(|e| e.found_under == project);
-    }
-    let (chosen, _) = pick(pool, arguments)?;
-    let client = client(solution, arguments)?;
-    let mut baseline = baseline::Baseline::load(&solution.root).map_err(ToolError::coded)?;
-    let (statuses, failures) = status::compute(&client, &baseline, &chosen);
-    if record && !failures.is_empty() {
-        // As on the command line: a baseline recorded from a partial read is a partial truth.
-        return Err(format!(
-            "nothing was recorded: {} entity read(s) failed: {}",
-            failures.len(),
-            failures
-                .iter()
-                .map(|f| f.to_string())
-                .collect::<Vec<_>>()
-                .join("; ")
-        )
-        .into());
-    }
-    let recorded = if record {
-        let recorded = status::record_matching(&mut baseline, &statuses);
-        baseline.write(&solution.root).map_err(ToolError::coded)?;
-        Some(recorded)
-    } else {
-        None
+        (Some(name), false) => commands::status::StatusTarget::Names(vec![name.to_string()]),
+        (None, true) => commands::status::StatusTarget::All,
+        (None, false) => return Err(ToolError::invalid("name an entity, or pass all: true")),
     };
-    let counts: Map<String, Value> = status::counts(&statuses)
+    let request = commands::status::StatusRequest {
+        target,
+        project: text(arguments, "project").map(str::to_string),
+        record,
+        profile: text(arguments, "profile").unwrap_or("default").to_string(),
+        lock_label: "mcp status --record",
+        refuse_unreadable: record,
+        refuse_record_failures: record,
+    };
+    let mut notices = commands::Notices::default();
+    let outcome =
+        match commands::status::execute(solution, &request, server::Client::new, &mut notices) {
+            Ok(outcome) => outcome,
+            Err(commands::status::StatusCommandError::Unreadable(items)) if record => {
+                return Err(ToolError::with(
+                    ErrorCode::InvalidData,
+                    format!(
+                        "nothing was recorded: {} entity file(s) could not be read: {}",
+                        items.len(),
+                        items.join("; ")
+                    ),
+                ));
+            }
+            Err(error) => return Err(ToolError::coded(error)),
+        };
+    let counts: Map<String, Value> = status::counts(&outcome.statuses)
         .into_iter()
         .map(|(v, n)| (v.label().to_string(), json!(n)))
         .collect();
     let detail = flag(arguments, "detail", false);
-    let listed: Vec<Value> = statuses
+    let listed: Vec<Value> = outcome.statuses
         .iter()
         .filter(|s| detail || s.verdict.is_drift())
         .map(|s| {
@@ -1304,15 +1287,16 @@ fn status_tool(solution: &Solution, arguments: &Value) -> Result<Value, ToolErro
         })
         .collect();
     let mut result = json!({
-        "ok": failures.is_empty() && statuses.iter().all(|s| !s.verdict.is_drift()),
-        "recorded": recorded,
-        "entities": statuses.len(),
+        "ok": outcome.failures.is_empty() && outcome.statuses.iter().all(|s| !s.verdict.is_drift()),
+        "recorded": outcome.recorded,
+        "entities": outcome.statuses.len(),
         "counts": counts,
-        "failures": failures,
-        "unreadable": found.unreadable,
+        "failures": outcome.failures,
+        "unreadable": outcome.unreadable,
     });
     // Summary: only what needs attention. Detail: every entity, with its hashes.
     result[if detail { "statuses" } else { "attention" }] = json!(listed);
+    add_notices(&mut result, &notices);
     Ok(result)
 }
 
@@ -1322,27 +1306,6 @@ fn tool_target(arguments: &Value) -> Vec<String> {
         .map(str::to_string)
         .into_iter()
         .collect()
-}
-
-/// One entity by name, or every one with `all: true`; status uses this after it has discovered
-/// the workspace because it needs resolved entity files for its server reads.
-fn pick(
-    pool: Vec<workspace::EntityFile>,
-    arguments: &Value,
-) -> Result<(Vec<workspace::EntityFile>, bool), ToolError> {
-    match (text(arguments, "entity"), flag(arguments, "all", false)) {
-        (Some(_), true) => Err(ToolError::invalid(
-            "name an entity or pass all: true, not both",
-        )),
-        (Some(name), false) => Ok((
-            vec![workspace::resolve(&pool, name)
-                .map_err(ToolError::coded)?
-                .clone()],
-            true,
-        )),
-        (None, true) => Ok((pool, false)),
-        (None, false) => Err(ToolError::invalid("name an entity, or pass all: true")),
-    }
 }
 
 fn sync_tool(solution: &Solution, arguments: &Value) -> Result<Value, ToolError> {
@@ -1457,61 +1420,50 @@ fn deploy_tool(solution: &Solution, arguments: &Value) -> Result<Value, ToolErro
     let dry_run = flag(arguments, "dry_run", true);
     let force = flag(arguments, "force", false);
     let detail = flag(arguments, "detail", false);
-    // A real deploy writes the baseline, so it holds the workspace lock from before the checks
-    // read the files it sends; a plan reads only.
-    let _lock = if dry_run {
-        None
-    } else {
-        Some(lock::acquire_for(solution, "mcp deploy").map_err(ToolError::coded)?)
+    let only = strings(arguments, "only");
+    let only_projects = strings(arguments, "only_projects");
+    let request = commands::deploy::DeployRequest {
+        mode: if dry_run { Mode::Plan } else { Mode::Apply },
+        force,
+        backup: flag(arguments, "backup", true),
+        skip_checks: flag(arguments, "skip_checks", false),
+        only_projects,
+        only,
+        backend_only: flag(arguments, "backend_only", false),
+        profile: text(arguments, "profile").unwrap_or("default").to_string(),
+        lock_label: "mcp deploy",
     };
-    if !flag(arguments, "skip_checks", false) {
-        // The same gates as `twaco deploy`, the configured live parse included.
-        let report = run_gates(solution, arguments, solution.gates.live);
-        if report.blocks() {
-            let failing: Vec<Value> = report
-                .gates
-                .iter()
-                .filter(|g| g.blocks())
-                .map(
-                    |g| json!({ "gate": g.name, "findings": g.findings.len(), "broken": g.broken }),
-                )
-                .collect();
-            return Ok(json!({
+    let mut notices = commands::Notices::default();
+    let (result, notes, saved) = match commands::deploy::execute(
+        solution,
+        &request,
+        server::Client::new,
+        &mut notices,
+    ) {
+        Ok(commands::deploy::DeployOutcome::GatesBlocked { report, .. }) => {
+            let failing: Vec<Value> = report.gates.iter().filter(|gate| gate.blocks()).map(
+                |gate| json!({ "gate": gate.name, "findings": gate.findings.len(), "broken": gate.broken }),
+            ).collect();
+            let mut value = json!({
                 "ok": false,
                 "stage": "offline gates",
                 "blocking_gates": failing,
                 "note": "nothing was sent; fix these, or pass skip_checks: true",
-            }));
+            });
+            add_notices(&mut value, &notices);
+            return Ok(value);
         }
-    }
-    let only = strings(arguments, "only");
-    let only_projects = strings(arguments, "only_projects");
-    let (projects, notes) = deploy::plan_bundles(
-        solution,
-        deploy::PlanOptions {
-            only_projects: &only_projects,
-            only: &only,
-            backend_only: flag(arguments, "backend_only", false),
-        },
-    )?;
-    let name = text(arguments, "profile").unwrap_or("default");
-    let profile = profile::load(&solution.root, name).map_err(ToolError::coded)?;
-    let client = server::Client::new(profile.clone());
-    let saved = if !dry_run && force && flag(arguments, "backup", true) {
-        backup::before_forced_deploy(&client, solution, &projects, &backup::new_stamp())
-            .map_err(ToolError::coded)?
-    } else {
-        None
+        Ok(commands::deploy::DeployOutcome::Complete {
+            report,
+            notes,
+            backup,
+            ..
+        }) => (Ok(report), notes, backup),
+        Err(commands::deploy::DeployCommandError::Deploy { why, backup, .. }) => {
+            (Err(*why), Vec::new(), backup)
+        }
+        Err(error) => return Err(ToolError::coded(error)),
     };
-    let result = deploy::run(
-        &client,
-        &deploy::DiskBaseline::new(&solution.root),
-        &profile,
-        &projects,
-        !dry_run,
-        force,
-        !only.is_empty(),
-    );
     let plans = |report: &deploy::Report| -> Value {
         let mut counts: std::collections::BTreeMap<&str, usize> = std::collections::BTreeMap::new();
         for plan in &report.plans {
@@ -1532,7 +1484,7 @@ fn deploy_tool(solution: &Solution, arguments: &Value) -> Result<Value, ToolErro
             .map(|c| json!({ "project": c.project, "call": c.call.to_string(), "post_import": c.post_import, "skipped": c.skipped }))
             .collect()
     };
-    Ok(match result {
+    let mut value = match result {
         Ok(report) => {
             let mut value = json!({
                 "ok": true,
@@ -1605,7 +1557,9 @@ fn deploy_tool(solution: &Solution, arguments: &Value) -> Result<Value, ToolErro
                 .collect::<Vec<_>>(),
         }),
         Err(error) => return Err(ToolError::coded(error)),
-    })
+    };
+    add_notices(&mut value, &notices);
+    Ok(value)
 }
 
 fn refusal_code(refusal: &push::Refusal) -> &'static str {
