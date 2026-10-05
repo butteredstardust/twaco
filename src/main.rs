@@ -4045,57 +4045,61 @@ fn relocate_cmd(solution: &Solution, route: &str, args: &Args) -> u8 {
 /// List backup sets, or plan (and with --apply perform) importing one back.
 fn entity_restore_cmd(solution: &Solution, args: &Args) -> u8 {
     let json = args.has("--json");
-    let Some((id, only)) = args.names.split_first() else {
-        let sets = backup::list(solution);
-        if json {
-            let value = serde_json::json!({ "sets": sets.iter().map(|set| serde_json::json!({
+    let request = commands::restore::RestoreRequest {
+        set: args.names.first().cloned(),
+        only: args.names.iter().skip(1).cloned().collect(),
+        mode: if args.has("--apply") {
+            Mode::Apply
+        } else {
+            Mode::Plan
+        },
+        profile: args
+            .profile
+            .clone()
+            .unwrap_or_else(|| "default".to_string()),
+    };
+    let mut notices = commands::Notices::default();
+    let outcome =
+        match commands::restore::execute(solution, &request, server::Client::new, &mut notices) {
+            Ok(outcome) => outcome,
+            Err(error) => {
+                print_notices(&notices);
+                eprintln!("twaco: {error}");
+                return FAILED;
+            }
+        };
+    print_notices(&notices);
+    let (set, report, apply) = match outcome {
+        commands::restore::RestoreOutcome::Sets { sets, .. } => {
+            if json {
+                let value = serde_json::json!({ "sets": sets.iter().map(|set| serde_json::json!({
                 "id": set.id, "created": set.manifest.created, "reason": set.manifest.reason, "entities": set.manifest.entities.len(),
             })).collect::<Vec<_>>() });
-            println!(
-                "{}",
-                serde_json::to_string_pretty(&value).expect("sets serialise")
-            );
-        } else if sets.is_empty() {
-            println!("no backup sets under {}", backup::DIR);
-        } else {
-            for set in &sets {
                 println!(
-                    "{}  {}  {} entit{}",
-                    set.id,
-                    set.manifest.reason,
-                    set.manifest.entities.len(),
-                    if set.manifest.entities.len() == 1 {
-                        "y"
-                    } else {
-                        "ies"
-                    }
+                    "{}",
+                    serde_json::to_string_pretty(&value).expect("sets serialise")
                 );
+            } else if sets.is_empty() {
+                println!("no backup sets under {}", backup::DIR);
+            } else {
+                for set in &sets {
+                    println!(
+                        "{}  {}  {} entit{}",
+                        set.id,
+                        set.manifest.reason,
+                        set.manifest.entities.len(),
+                        if set.manifest.entities.len() == 1 {
+                            "y"
+                        } else {
+                            "ies"
+                        }
+                    );
+                }
             }
+            return OK;
         }
-        return OK;
-    };
-    let set = match backup::find(solution, id) {
-        Ok(set) => set,
-        Err(error) => {
-            eprintln!("twaco: {error}");
-            return FAILED;
-        }
-    };
-    let profile_name = args.profile.as_deref().unwrap_or("default");
-    let profile = match profile::load(&solution.root, profile_name) {
-        Ok(profile) => profile,
-        Err(error) => {
-            eprintln!("twaco: {error}");
-            return FAILED;
-        }
-    };
-    let apply = args.has("--apply");
-    let report = match backup::restore(&server::Client::new(profile), &set, only, apply) {
-        Ok(report) => report,
-        Err(error) => {
-            eprintln!("twaco: {error}");
-            return FAILED;
-        }
+        commands::restore::RestoreOutcome::Plan { set, entities, .. } => (set, entities, false),
+        commands::restore::RestoreOutcome::Applied { set, entities, .. } => (set, entities, true),
     };
     if json {
         let value = serde_json::json!({ (if apply { "applied" } else { "plan" }): true, "set": set.id, "entities": report });
@@ -4129,8 +4133,6 @@ fn entity_restore_cmd(solution: &Solution, args: &Args) -> u8 {
 /// writes what differs and reports any failure as exit 2 after attempting the rest. Only an apply
 /// that reads the ledger's pending entries writes the workspace, and so takes its lock.
 fn entity_carry_cmd(solution: &Solution, args: &Args) -> u8 {
-    let apply = args.has("--apply");
-    let renamed = args.has("--renamed");
     let pairs = match entity_carry::pairs_from_names(&args.names) {
         Ok(pairs) => pairs,
         Err(error) => {
@@ -4138,35 +4140,35 @@ fn entity_carry_cmd(solution: &Solution, args: &Args) -> u8 {
             return FAILED;
         }
     };
-    let _lock = if apply && renamed {
-        match take_lock(solution, "entity carry") {
-            Ok(lock) => Some(lock),
-            Err(code) => return code,
-        }
-    } else {
-        None
-    };
-    let profile_name = args.profile.as_deref().unwrap_or("default");
-    let profile = match profile::load(&solution.root, profile_name) {
-        Ok(profile) => profile,
-        Err(error) => {
-            eprintln!("twaco: {error}");
-            return FAILED;
-        }
-    };
-    let date = jiff::Zoned::now().strftime("%Y-%m-%d").to_string();
-    let request = entity_carry::Request {
+    let request = commands::carry::CarryRequest {
         pairs,
-        renamed,
-        apply,
+        renamed: args.has("--renamed"),
+        mode: if args.has("--apply") {
+            Mode::Apply
+        } else {
+            Mode::Plan
+        },
         detail: args.has("--detail"),
+        profile: args
+            .profile
+            .clone()
+            .unwrap_or_else(|| "default".to_string()),
+        lock_label: "entity carry",
     };
-    let report = match entity_carry::run(&server::Client::new(profile), solution, &request, &date) {
-        Ok(report) => report,
-        Err(error) => {
-            eprintln!("twaco: {error}");
-            return FAILED;
-        }
+    let mut notices = commands::Notices::default();
+    let outcome =
+        match commands::carry::execute(solution, &request, server::Client::new, &mut notices) {
+            Ok(outcome) => outcome,
+            Err(error) => {
+                print_notices(&notices);
+                eprintln!("twaco: {error}");
+                return FAILED;
+            }
+        };
+    print_notices(&notices);
+    let (report, apply, date) = match outcome {
+        commands::carry::CarryOutcome::Plan { report, .. } => (report, false, None),
+        commands::carry::CarryOutcome::Applied { report, date, .. } => (report, true, Some(date)),
     };
     if args.has("--json") {
         let key = if apply { "applied" } else { "plan" };
@@ -4197,7 +4199,10 @@ fn entity_carry_cmd(solution: &Solution, args: &Args) -> u8 {
         if !apply {
             println!("dry run: nothing was written; pass --apply to carry");
         } else if report.ledger_changed {
-            println!("rename ledger marked with {date}");
+            println!(
+                "rename ledger marked with {}",
+                date.expect("an applied carry has a date")
+            );
         }
     }
     if report
@@ -4243,30 +4248,41 @@ fn datatable_copy_cmd(solution: &Solution, args: &Args) -> u8 {
             return FAILED;
         }
     };
-    let profile_name = args.profile.as_deref().unwrap_or("default");
-    let profile = match profile::load(&solution.root, profile_name) {
-        Ok(profile) => profile,
-        Err(error) => {
-            eprintln!("twaco: {error}");
-            return FAILED;
-        }
-    };
-    let apply = args.has("--apply");
-    let request = datatable_copy::Request {
+    let request = commands::datatable_copy::DataTableCopyRequest {
         old: old.clone(),
         new: new.clone(),
         map,
         drop_unmapped: args.has("--drop-unmapped"),
         append: args.has("--append"),
         max_rows,
-        apply,
+        mode: if args.has("--apply") {
+            Mode::Apply
+        } else {
+            Mode::Plan
+        },
+        profile: args
+            .profile
+            .clone()
+            .unwrap_or_else(|| "default".to_string()),
     };
-    let report = match datatable_copy::run(&server::Client::new(profile), solution, &request) {
-        Ok(report) => report,
+    let mut notices = commands::Notices::default();
+    let outcome = match commands::datatable_copy::execute(
+        solution,
+        &request,
+        server::Client::new,
+        &mut notices,
+    ) {
+        Ok(outcome) => outcome,
         Err(error) => {
+            print_notices(&notices);
             eprintln!("twaco: {error}");
             return FAILED;
         }
+    };
+    print_notices(&notices);
+    let (report, apply) = match outcome {
+        commands::datatable_copy::DataTableCopyOutcome::Plan { report, .. } => (report, false),
+        commands::datatable_copy::DataTableCopyOutcome::Applied { report, .. } => (report, true),
     };
     if args.has("--json") {
         let value = serde_json::to_value(&report).expect("copy report serialises");

@@ -50,7 +50,7 @@ when the command is asked to write. A local output named by an option is include
 | `entity get` | read-only | single-file atomic | named local output | The output is old or new; retry freely. | `main.rs: entity_get` |
 | `db run` | read-only | server-partial | SQL, temporary server Thing | Inspect SQL effects and run `db clean` if needed before retrying. | `core/db.rs: run` |
 | `db query` | server-partial | server-partial | temporary server Thing | A cleanup failure can leave the temporary Thing; run `db clean` before retrying. | `core/db.rs: run` |
-| `datatable copy` | read-only | server-partial | target DataTable | Read the target back; retry only after reconciling copied rows. | `core/datatable_copy.rs: run` |
+| `datatable copy` | read-only | server-partial | target DataTable | Read the target back; retry only after reconciling copied rows. | `core/commands/datatable_copy.rs: execute` |
 | `db clean` | read-only | server-partial | temporary server Things | List remaining temporary Things before retrying. | `core/db.rs: clean` |
 | `entity status` | read-only | single-file atomic | baseline | The baseline is old or new; retry freely after fixing a read failure. | `core/commands/status.rs: execute` |
 | `rename entity` | read-only | multi-file atomic | XML, sidecars, ledger, SQL | A crash is finished or undone by the next command that takes the workspace lock; if it refuses, follow its message. Otherwise retry. | `core/commands/rename.rs: execute` |
@@ -105,8 +105,8 @@ when the command is asked to write. A local output named by an option is include
 | `copy property` | read-only | multi-file atomic | XML, sidecars | A crash is finished or undone by the next command that takes the workspace lock; if it refuses, follow its message. Otherwise retry. | `core/commands/relocate.rs: execute` |
 | `new building-block` | read-only | multi-file atomic | project files, config | A crash is finished or undone by the next command that takes the workspace lock; if it refuses, follow its message. Otherwise retry. | `core/commands/newblock.rs: execute` |
 | `retemplate` | read-only | single-file atomic | one entity XML | The entity is old or new; retry freely. | `core/commands/retemplate.rs: execute` |
-| `entity restore` | read-only | server-partial | server entities | Read restored entities back before retrying. | `core/backup.rs: restore` |
-| `entity carry` | read-only | server-partial | server permissions, ledger | Read permissions and ledger before retrying. | `core/entity_carry.rs: run` |
+| `entity restore` | read-only | server-partial | server entities | Read restored entities back before retrying. | `core/commands/restore.rs: execute` |
+| `entity carry` | read-only | server-partial | server permissions, ledger | Read permissions and ledger before retrying. | `core/commands/carry.rs: execute` |
 
 ## MCP tools
 
@@ -121,11 +121,11 @@ when the command is asked to write. A local output named by an option is include
 | `fmt` | best-effort batch | best-effort batch | script sidecars | Earlier scripts remain formatted; retry reported scripts. | `core/commands/fmt.rs: execute` |
 | `push` | read-only | server-partial | server entity, baseline, backup | Read the entity and baseline before retrying. | `core/commands/push.rs: execute` |
 | `entity_delete` | read-only | server-partial | server entities, ledger, backups | Inspect confirmed deletions and ledger entries before retrying. | `core/commands/delete.rs: execute` |
-| `entity_restore` | read-only | server-partial | server entities | Read restored entities back before retrying. | `mcp.rs: entity_restore_tool` |
-| `entity_carry` | read-only | server-partial | server permissions, ledger | Read permissions and ledger before retrying. | `mcp.rs: entity_carry_tool` |
+| `entity_restore` | read-only | server-partial | server entities | Read restored entities back before retrying. | `core/commands/restore.rs: execute` |
+| `entity_carry` | read-only | server-partial | server permissions, ledger | Read permissions and ledger before retrying. | `core/commands/carry.rs: execute` |
 | `db_run` | read-only | server-partial | SQL, temporary server Thing | Inspect SQL effects and clean temporary Things before retrying. | `mcp.rs: db_tool` |
 | `db_query` | server-partial | server-partial | temporary server Thing | Run `db_clean` if temporary cleanup failed. | `mcp.rs: db_tool` |
-| `datatable_copy` | read-only | server-partial | target DataTable | Read the target back before retrying. | `mcp.rs: datatable_copy_tool` |
+| `datatable_copy` | read-only | server-partial | target DataTable | Read the target back before retrying. | `core/commands/datatable_copy.rs: execute` |
 | `db_clean` | read-only | server-partial | temporary server Things | List remaining temporary Things before retrying. | `mcp.rs: db_clean_tool` |
 | `deploy` | read-only | server-partial | server, baseline, backups | Read back imports and baseline; use plan and backups before retrying. | `core/commands/deploy.rs: execute` |
 | `adopt_report` | read-only | read-only | none | Retry freely. | `mcp.rs: adopt_tool` |

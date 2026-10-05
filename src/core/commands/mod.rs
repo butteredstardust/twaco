@@ -2,6 +2,8 @@
 
 pub mod adopt;
 pub mod bundle;
+pub mod carry;
+pub mod datatable_copy;
 pub mod delete;
 pub mod deploy;
 pub mod extract;
@@ -10,6 +12,7 @@ pub mod newblock;
 pub mod push;
 pub mod relocate;
 pub mod rename;
+pub mod restore;
 pub mod retemplate;
 pub mod status;
 pub mod sync;
