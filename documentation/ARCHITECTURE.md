@@ -48,6 +48,7 @@ main.rs  mcp.rs                 front ends: parse arguments, call core, print or
 | `script` | Parses one service script as ECMAScript and returns facts with byte spans: identifiers and their roles, member accesses and calls, variables bound to a Thing, strings, comments. A script the parser refuses yields no facts, and the rename passes leave it for review. |
 | `entity` | Reads which entity a document is: collection, name, project. |
 | `entity_key` | Validates entity and service-call addresses, preserving whether a service target was a bare Thing or a qualified entity. |
+| `index` | The solution as one immutable graph (petgraph) of what depends on what: entities and projects as nodes, references as edges that say how sure they are (structural, resolved, review). Answers dependents, inheritance, cycles and reachability, and lists what it could not read so a command can say what it left out. |
 | `workspace` | Finds a solution's entity files, reports unreadable ones and links, and reads and writes sidecars atomically; `atomic_replace` is the one way any file that may exist is replaced. |
 | `sidecar`, `datashape`, `datatable`, `mashup` | Extract and sync each sidecar kind. |
 | `normalise` | The comparison form of an entity: what ThingWorx changes on its own is removed, so the repository and server versions compare by content. |

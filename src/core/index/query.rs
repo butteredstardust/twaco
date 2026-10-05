@@ -1,0 +1,386 @@
+//! Questions asked of an [`Index`].
+
+use super::{Confidence, Edge, EdgeKind, Index};
+use crate::core::entity_key::EntityKey;
+use petgraph::graph::NodeIndex;
+use petgraph::visit::{EdgeFiltered, EdgeRef};
+use petgraph::Direction;
+use serde::Serialize;
+use std::collections::{BTreeMap, BTreeSet, VecDeque};
+
+/// What to ask [`Index::dependents`].
+#[derive(Clone, Debug)]
+pub struct DependentOptions {
+    /// Restrict the question to one service, property or field of the entity: who calls `Run`,
+    /// not who uses the entity at all.
+    pub member: Option<String>,
+    /// The weakest edge to follow. `Review` follows everything.
+    pub min: Confidence,
+    /// How many references away to look; none is no limit.
+    pub max_depth: Option<usize>,
+}
+
+impl Default for DependentOptions {
+    fn default() -> Self {
+        DependentOptions {
+            member: None,
+            min: Confidence::Review,
+            max_depth: None,
+        }
+    }
+}
+
+/// One reference on the way from a dependent to what it depends on.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+pub struct Step {
+    pub from: String,
+    pub to: String,
+    pub kind: EdgeKind,
+    pub from_member: Option<String>,
+    pub to_member: Option<String>,
+    pub at: Option<String>,
+}
+
+/// Something that depends, directly or through others, on the thing asked about.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+pub struct Dependent {
+    /// `Collection/Name`, or `project <name>`.
+    pub label: String,
+    /// The project it belongs to.
+    pub project: String,
+    /// How many references away it is.
+    pub depth: usize,
+    /// The strongest chain of references that reaches it is only as sure as its weakest link.
+    pub confidence: Confidence,
+    /// The services, properties or fields of it that are involved.
+    pub members: Vec<String>,
+    /// The shortest chain that reaches it, starting at the thing asked about.
+    pub path: Vec<Step>,
+}
+
+/// The member a reference carries onward. Inheritance and typing carry the member that was
+/// asked about; any other reference carries the member that holds it.
+fn carried(edge: &Edge, current: &Option<String>) -> Option<String> {
+    if edge.kind.is_inheritance() {
+        current.clone()
+    } else {
+        edge.from_member.clone()
+    }
+}
+
+/// Whether following `edge` backwards answers a question about `member` of its target. A
+/// reference that names no member (inheritance, a typed field, a mention, a deploy call) concerns
+/// every member; one that names a member concerns only that one.
+fn concerns(edge: &Edge, member: &Option<String>) -> bool {
+    match (member, &edge.to_member) {
+        (None, _) => true,
+        (Some(_), None) => true,
+        (Some(asked), Some(named)) => asked == named,
+    }
+}
+
+impl Index {
+    fn at(&self, key: &EntityKey) -> Option<NodeIndex> {
+        self.entities.get(key).copied()
+    }
+
+    fn step(&self, edge: petgraph::graph::EdgeReference<'_, Edge>) -> Step {
+        let weight = edge.weight();
+        Step {
+            from: self.graph[edge.source()].label(),
+            to: self.graph[edge.target()].label(),
+            kind: weight.kind,
+            from_member: weight.from_member.clone(),
+            to_member: weight.to_member.clone(),
+            at: weight.at.clone(),
+        }
+    }
+
+    /// Everything that depends on `key`, directly or through others, nearest first.
+    ///
+    /// Each dependent carries the strongest confidence at which it is reached: it is found once
+    /// at the strongest tier that reaches it, with the shortest chain at that tier. A dependent
+    /// reached only through a review-level reference is reported as review.
+    pub fn dependents(&self, key: &EntityKey, options: &DependentOptions) -> Vec<Dependent> {
+        let Some(start) = self.at(key) else {
+            return Vec::new();
+        };
+        let tiers: Vec<Confidence> = [
+            Confidence::Structural,
+            Confidence::Resolved,
+            Confidence::Review,
+        ]
+        .into_iter()
+        .filter(|tier| *tier >= options.min)
+        .collect();
+        let mut found: BTreeMap<NodeIndex, Dependent> = BTreeMap::new();
+        for tier in tiers {
+            let mut seen: BTreeSet<(NodeIndex, Option<String>)> = BTreeSet::new();
+            let mut queue: VecDeque<(NodeIndex, Option<String>, usize, Vec<Step>)> =
+                VecDeque::new();
+            seen.insert((start, options.member.clone()));
+            queue.push_back((start, options.member.clone(), 0, Vec::new()));
+            while let Some((node, member, depth, path)) = queue.pop_front() {
+                if options.max_depth.is_some_and(|limit| depth >= limit) {
+                    continue;
+                }
+                for edge in self.graph.edges_directed(node, Direction::Incoming) {
+                    let weight = edge.weight();
+                    if weight.confidence() < tier || !concerns(weight, &member) {
+                        continue;
+                    }
+                    let from = edge.source();
+                    if from == start {
+                        continue;
+                    }
+                    let next_member = carried(weight, &member);
+                    let mut next_path = path.clone();
+                    next_path.push(self.step(edge));
+                    if seen.insert((from, next_member.clone())) {
+                        queue.push_back((from, next_member.clone(), depth + 1, next_path.clone()));
+                    }
+                    let entry = found.entry(from).or_insert_with(|| Dependent {
+                        label: self.graph[from].label(),
+                        project: self.graph[from].project.clone(),
+                        depth: depth + 1,
+                        confidence: tier,
+                        members: Vec::new(),
+                        path: next_path.clone(),
+                    });
+                    // A later, stronger tier does not run (tiers go strongest first), so the
+                    // first sighting fixes confidence and path; only the members accumulate.
+                    if entry.confidence == tier {
+                        if let Some(name) = &next_member {
+                            if !entry.members.contains(name) {
+                                entry.members.push(name.clone());
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        let mut out: Vec<Dependent> = found.into_values().collect();
+        for dependent in &mut out {
+            dependent.members.sort();
+        }
+        out.sort_by(|a, b| {
+            (a.depth, std::cmp::Reverse(a.confidence), &a.label).cmp(&(
+                b.depth,
+                std::cmp::Reverse(b.confidence),
+                &b.label,
+            ))
+        });
+        out
+    }
+
+    /// What `key` refers to directly, as the references themselves, strongest first.
+    pub fn references_from(&self, key: &EntityKey) -> Vec<Step> {
+        let Some(from) = self.at(key) else {
+            return Vec::new();
+        };
+        let mut out: Vec<(Confidence, Step)> = self
+            .graph
+            .edges_directed(from, Direction::Outgoing)
+            .map(|edge| (edge.weight().confidence(), self.step(edge)))
+            .collect();
+        out.sort_by(|a, b| {
+            (std::cmp::Reverse(a.0), &a.1.to, a.1.kind, &a.1.from_member).cmp(&(
+                std::cmp::Reverse(b.0),
+                &b.1.to,
+                b.1.kind,
+                &b.1.from_member,
+            ))
+        });
+        out.into_iter().map(|(_, step)| step).collect()
+    }
+
+    fn entity_at(&self, key: &EntityKey) -> Option<&super::Node> {
+        self.node(key)
+    }
+
+    /// The templates and shapes `key` inherits, nearest first: its own shapes, then its template's
+    /// name, then that template's shapes, then its base template's name, and so on up to a platform
+    /// template the repository does not hold. A ThingShape inherits nothing here. This is how the
+    /// service catalog has always walked a template chain, and a test holds the two equal.
+    pub fn inheritance_names(&self, key: &EntityKey) -> Vec<String> {
+        if key.collection() == "ThingShapes" {
+            return Vec::new();
+        }
+        let mut out = Vec::new();
+        let mut visited = BTreeSet::new();
+        let mut current = self.entity_at(key);
+        while let Some(item) = current {
+            for shape in &item.shapes {
+                if visited.insert(shape.clone()) {
+                    out.push(shape.clone());
+                }
+            }
+            let Some(template) = item.template.as_deref() else {
+                break;
+            };
+            if !visited.insert(template.to_string()) {
+                break;
+            }
+            out.push(template.to_string());
+            current = EntityKey::new("ThingTemplates", template)
+                .ok()
+                .and_then(|next| self.entity_at(&next));
+        }
+        out
+    }
+
+    /// The Things and templates that implement `shape`, directly or through a template chain, by
+    /// name, sorted. `project` limits the answer to one project's entities.
+    pub fn implementers(&self, shape: &EntityKey, project: Option<&str>) -> Vec<String> {
+        let mut out = Vec::new();
+        for (key, node) in self.entities() {
+            if key.collection() == "ThingShapes"
+                || !project.is_none_or(|project| node.project == project)
+            {
+                continue;
+            }
+            let mut visited = BTreeSet::new();
+            let mut current = Some(node);
+            let mut implements = false;
+            while let Some(item) = current {
+                if item.shapes.iter().any(|name| name == shape.name()) {
+                    implements = true;
+                    break;
+                }
+                let Some(template) = item.template.as_deref() else {
+                    break;
+                };
+                if !visited.insert(template.to_string()) {
+                    break;
+                }
+                current = EntityKey::new("ThingTemplates", template)
+                    .ok()
+                    .and_then(|next| self.entity_at(&next));
+            }
+            if implements {
+                out.push(key.name().to_string());
+            }
+        }
+        out.sort();
+        out
+    }
+
+    /// Groups of entities that inherit from each other in a circle (a template that is its own
+    /// ancestor, a DataShape whose base leads back to itself). An empty answer means inheritance
+    /// is a tree.
+    pub fn inheritance_cycles(&self) -> Vec<Vec<String>> {
+        let inheritance =
+            EdgeFiltered::from_fn(&self.graph, |edge| edge.weight().kind.is_inheritance());
+        let mut cycles: Vec<Vec<String>> = petgraph::algo::tarjan_scc(&inheritance)
+            .into_iter()
+            .filter(|group| {
+                group.len() > 1
+                    || group.first().is_some_and(|node| {
+                        self.graph
+                            .edges_connecting(*node, *node)
+                            .any(|edge| edge.weight().kind.is_inheritance())
+                    })
+            })
+            .map(|group| {
+                let mut names: Vec<String> =
+                    group.iter().map(|node| self.graph[*node].label()).collect();
+                names.sort();
+                names
+            })
+            .collect();
+        cycles.sort();
+        cycles
+    }
+
+    /// Everything reachable by following references forward from `roots`, the roots included.
+    pub fn reachable_from(&self, roots: &[EntityKey], min: Confidence) -> BTreeSet<EntityKey> {
+        let mut seen: BTreeSet<NodeIndex> = BTreeSet::new();
+        let mut queue: VecDeque<NodeIndex> = VecDeque::new();
+        for root in roots {
+            if let Some(at) = self.at(root) {
+                if seen.insert(at) {
+                    queue.push_back(at);
+                }
+            }
+        }
+        while let Some(node) = queue.pop_front() {
+            for edge in self.graph.edges_directed(node, Direction::Outgoing) {
+                if edge.weight().confidence() >= min && seen.insert(edge.target()) {
+                    queue.push_back(edge.target());
+                }
+            }
+        }
+        seen.into_iter()
+            .filter_map(|node| self.graph[node].key().cloned())
+            .collect()
+    }
+
+    /// The projects that hold any of `labels` (entity labels as returned in [`Dependent::label`]
+    /// or `Collection/Name`), with each project's place in the deploy order, in that order.
+    pub fn projects_of(&self, labels: &[String]) -> Vec<(usize, String)> {
+        let mut names: BTreeSet<String> = BTreeSet::new();
+        for label in labels {
+            if let Some(name) = label.strip_prefix("project ") {
+                names.insert(name.to_string());
+                continue;
+            }
+            if let Some(node) = label
+                .split_once('/')
+                .and_then(|(collection, name)| EntityKey::new(collection, name).ok())
+                .and_then(|key| self.node(&key))
+            {
+                names.insert(node.project.clone());
+            }
+        }
+        let mut out: Vec<(usize, String)> = names
+            .into_iter()
+            .map(|name| {
+                let place = self
+                    .deploy_order
+                    .iter()
+                    .position(|candidate| candidate == &name)
+                    .unwrap_or(usize::MAX);
+                (place, name)
+            })
+            .collect();
+        out.sort();
+        out
+    }
+
+    /// The project nodes of the graph, by name.
+    pub fn project_names(&self) -> Vec<&str> {
+        self.projects.keys().map(String::as_str).collect()
+    }
+
+    /// Whether the node standing for `key` is a configured project's entry point or deploy call
+    /// target, as `twaco.toml` names it.
+    pub fn is_deployed(&self, key: &EntityKey) -> bool {
+        self.at(key).is_some_and(|node| {
+            self.graph
+                .edges_directed(node, Direction::Incoming)
+                .any(|edge| edge.weight().kind == EdgeKind::Deploy)
+        })
+    }
+
+    /// The kind of node `label` names, for rendering.
+    pub fn is_project(&self, label: &str) -> bool {
+        label
+            .strip_prefix("project ")
+            .is_some_and(|name| self.projects.contains_key(name))
+    }
+
+    /// Entities no reference points at, sorted. Not a verdict that they are unused: see
+    /// `unused` for that.
+    pub fn unreferenced(&self) -> Vec<EntityKey> {
+        self.entities
+            .iter()
+            .filter(|(_, node)| {
+                self.graph
+                    .edges_directed(**node, Direction::Incoming)
+                    .next()
+                    .is_none()
+            })
+            .map(|(key, _)| key.clone())
+            .collect()
+    }
+}

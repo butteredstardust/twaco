@@ -30,6 +30,7 @@ swc_ecma_parser = "=27.0.7"
 swc_common = "=17.0.1"
 swc_ecma_ast = "=18.0.0"
 swc_ecma_visit = "=18.0.1"
+petgraph = { version = "0.8", default-features = false, features = ["std"] }
 
 [dev-dependencies]
 proptest = "1.11.0"
