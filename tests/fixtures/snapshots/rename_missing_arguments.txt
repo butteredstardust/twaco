@@ -1,0 +1,7 @@
+$ twaco rename service
+exit: 2
+
+--- stdout
+
+--- stderr
+twaco: rename service needs <entity> <old> <new>

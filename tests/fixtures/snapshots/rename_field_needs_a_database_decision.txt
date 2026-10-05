@@ -1,0 +1,7 @@
+$ twaco rename field Acme.Orders.OrderLine_DS quantity count
+exit: 2
+
+--- stdout
+
+--- stderr
+twaco: this rename touches the database: DBConnection table(s) of Acme.Orders.OrderLine_DS. Pass --sql to write the migration script (run it before the import), or --no-sql if the tables are not in use

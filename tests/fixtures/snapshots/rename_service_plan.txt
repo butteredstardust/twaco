@@ -1,0 +1,17 @@
+$ twaco rename service Acme.Orders.Manager Normalise Tidy
+exit: 0
+
+--- stdout
+rename service Acme.Orders.Manager: Normalise -> Tidy: a plan, nothing was written (pass --apply)
+  entity files   1 file, 3 references
+  sidecars       3 files, 3 references
+  mashups        0 files, 0 references
+  twaco.toml     0 files, 0 references
+  review         0 occurrences left for a person
+
+Not carried over by a rename:
+  - A deploy replaces the entity's services: the old name disappears from the server and anything outside this repository that calls it (other projects, REST clients, schedulers) breaks
+  - 0 occurrence(s) were left for a person to review.
+Next: twaco check; commit; twaco deploy --apply.
+--- stderr
+

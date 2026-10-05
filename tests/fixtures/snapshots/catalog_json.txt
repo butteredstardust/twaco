@@ -1,0 +1,11 @@
+$ twaco catalog Acme.Orders.Manager --json
+exit: 0
+
+--- stdout
+{"collection":"Things","entity":"Acme.Orders.Manager","project":"Acme.Orders","inherits":["Acme.Orders.Base_TT"],"implemented_by":[],"service":"Describe","parameters":[],"result":{"baseType":"STRING"},"description":"Name the component.","from":"Acme.Orders.Base_TT","has_script":true}
+{"collection":"Things","entity":"Acme.Orders.Manager","project":"Acme.Orders","inherits":["Acme.Orders.Base_TT"],"implemented_by":[],"service":"GetOrder","parameters":[{"name":"orderId","baseType":"STRING","required":false}],"result":{"baseType":"INFOTABLE","dataShape":"Acme.Orders.OrderLine_DS"},"description":"Look up one order.","from":"own","has_script":true}
+{"collection":"Things","entity":"Acme.Orders.Manager","project":"Acme.Orders","inherits":["Acme.Orders.Base_TT"],"implemented_by":[],"service":"LoadLines","parameters":[{"name":"orderId","baseType":"STRING","required":false}],"result":{"baseType":"INFOTABLE","dataShape":"Acme.Orders.OrderLine_DS"},"description":"The lines of one order.","from":"own","has_script":true}
+{"collection":"Things","entity":"Acme.Orders.Manager","project":"Acme.Orders","inherits":["Acme.Orders.Base_TT"],"implemented_by":[],"service":"Normalise","parameters":[{"name":"text","baseType":"STRING","required":false}],"result":{"baseType":"STRING"},"description":"Tidy an order reference.","from":"own","has_script":true}
+{"collection":"Things","entity":"Acme.Orders.Manager","project":"Acme.Orders","inherits":["Acme.Orders.Base_TT"],"implemented_by":[],"service":"Recount","parameters":[],"result":{"baseType":"INTEGER"},"description":"Count the settings.","from":"own","has_script":true}
+--- stderr
+5 service(s) on 1 entities

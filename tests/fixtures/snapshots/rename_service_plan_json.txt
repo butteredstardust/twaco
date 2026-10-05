@@ -1,0 +1,73 @@
+$ twaco rename service Acme.Orders.Manager Normalise Tidy --json
+exit: 0
+
+--- stdout
+{
+  "spec": {
+    "kind": "service",
+    "old": "Normalise",
+    "new": "Tidy",
+    "scope": "Acme.Orders.Manager",
+    "service": null
+  },
+  "plan_digest": "<DIGEST>",
+  "moves": {
+    "count": 1,
+    "first": [
+      {
+        "collection": "Things",
+        "old": "Acme.Orders.Manager",
+        "new": "Acme.Orders.Manager"
+      }
+    ]
+  },
+  "tables": 0,
+  "counts": {
+    "entity": {
+      "files": 1,
+      "exact": 3,
+      "embedded": 0,
+      "review": 0
+    },
+    "sidecar": {
+      "files": 3,
+      "exact": 3,
+      "embedded": 0,
+      "review": 0
+    },
+    "config": {
+      "files": 0,
+      "exact": 0,
+      "embedded": 0,
+      "review": 0
+    },
+    "outside": {
+      "files": 0,
+      "exact": 0,
+      "embedded": 0,
+      "review": 0
+    },
+    "mashup": {
+      "files": 0,
+      "exact": 0,
+      "embedded": 0,
+      "review": 0
+    }
+  },
+  "review": [],
+  "named": {
+    "count": 0,
+    "first": []
+  },
+  "outside_applied": false,
+  "applied": false,
+  "verification": null,
+  "follow_up": [
+    "A deploy replaces the entity's services: the old name disappears from the server and anything outside this repository that calls it (other projects, REST clients, schedulers) breaks",
+    "0 occurrence(s) were left for a person to review."
+  ],
+  "sql": null,
+  "skipped": 0
+}
+--- stderr
+

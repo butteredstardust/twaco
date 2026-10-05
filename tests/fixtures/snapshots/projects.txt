@@ -1,0 +1,14 @@
+$ twaco projects
+exit: 0
+
+--- stdout
+solution Acme.Orders  root <ROOT>
+sidecars <ROOT>/src
+
+deploy order:
+  1. Acme.Orders
+       root <ROOT>/.
+
+9 entity document(s)
+--- stderr
+

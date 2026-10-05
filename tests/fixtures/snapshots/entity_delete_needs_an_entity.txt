@@ -1,0 +1,7 @@
+$ twaco entity delete
+exit: 2
+
+--- stdout
+
+--- stderr
+twaco: entity delete needs at least one entity, or --renamed

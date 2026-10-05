@@ -7,6 +7,10 @@ dist = "dist"
 [format]
 indent_cdata_payload = false
 
+[validate]
+# The database Thing overrides an inherited service on purpose.
+inherited_overrides = ["Acme.Orders.Database.GetDBInfo"]
+
 [[project]]
 name = "Acme.Orders"
 root = "."

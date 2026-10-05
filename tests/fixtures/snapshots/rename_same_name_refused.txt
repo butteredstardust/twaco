@@ -1,0 +1,7 @@
+$ twaco rename entity Acme.Orders.Audit Acme.Orders.Audit
+exit: 2
+
+--- stdout
+
+--- stderr
+twaco: old and new are both "Acme.Orders.Audit"; choose a different new name

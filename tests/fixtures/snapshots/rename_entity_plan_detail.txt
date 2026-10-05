@@ -1,0 +1,19 @@
+$ twaco rename entity Acme.Orders.Audit Acme.Orders.Ledger --detail --no-sql
+exit: 0
+
+--- stdout
+rename entity Acme.Orders.Audit -> Acme.Orders.Ledger: a plan, nothing was written (pass --apply)
+  moves          1 entity, with their sidecar folders and repository folders; first: Things/Acme.Orders.Audit -> Acme.Orders.Ledger
+  entity files   2 files, 2 references
+  sidecars       1 file, 1 reference
+  review         0 occurrences left for a person
+Things/Acme.Orders.Audit.xml:15  Acme.Orders.Audit
+Things/Acme.Orders.Manager.xml:204  Things["Acme.Orders.Audit"].Record({
+src/Acme.Orders.Manager/services/GetOrder/script.js:12  Things["Acme.Orders.Audit"].Record({
+
+Not carried over by a rename:
+  - The old entities stay on any server that has them (an import never removes one); `twaco deploy` creates the renamed ones. .twaco/renames.json lists the old names.
+  - Persisted property values, a Stream's or ValueStream's logged data and DataTable rows stay with the old Thing, and a renamed DataTable starts empty.
+Next: twaco check; commit; twaco deploy --apply; then delete the old entities from each server.
+--- stderr
+

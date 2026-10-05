@@ -1,0 +1,7 @@
+$ twaco extract Nope.Entity
+exit: 2
+
+--- stdout
+
+--- stderr
+twaco: no entity named Nope.Entity in this solution

@@ -1,0 +1,7 @@
+$ twaco rename entity Acme.Orders.Audit Acme.Orders.Ledger
+exit: 2
+
+--- stdout
+
+--- stderr
+twaco: this rename touches the database: this solution has DBConnection tables, whose rows store entity names. Pass --sql to write the migration script (run it before the import), or --no-sql if the tables are not in use

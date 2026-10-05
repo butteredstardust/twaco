@@ -1,0 +1,13 @@
+$ twaco move service Acme.Orders.Manager Acme.Orders.Audit Normalise
+exit: 0
+
+--- stdout
+move service Acme.Orders.Manager.Normalise -> Acme.Orders.Audit.Normalise: a plan, nothing was written (pass --apply)
+  Things/Acme.Orders.Audit.xml
+  Things/Acme.Orders.Manager.xml
+  src/Acme.Orders.Audit/services/Normalise
+  src/Acme.Orders.Manager/services/Normalise
+  note: 1 reference(s) in 1 file(s) stop resolving once Normalise leaves Acme.Orders.Manager; update them, or use --leave-delegate for a service.
+  caller: src/Acme.Orders.Manager/services/GetOrder/script.js:8  const reference = me.Normalise({ text: orderId });
+--- stderr
+
