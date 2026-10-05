@@ -3,6 +3,7 @@
 ```sh
 cargo test                        # everything; no server, no network, no TypeScript needed
 cargo clippy --all-targets        # lints
+cargo fmt --all --check           # formatting; `cargo fmt` fixes it
 ```
 
 ## What runs where

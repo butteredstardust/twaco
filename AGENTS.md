@@ -28,6 +28,7 @@ before changing code; it names the principles and where everything lives.
 ```sh
 cargo test                       # all tests; no server or network needed
 cargo clippy --all-targets       # no new warnings in files you touch
+cargo fmt --all --check          # formatting; `cargo fmt` fixes it
 TWACO_CORPUS=<repo>[:<repo>] cargo test --test corpus   # after touching scan, splice or sidecars
 ```
 
@@ -37,7 +38,9 @@ On Windows, build with the MSVC toolchain (`rustup default stable-msvc`).
 
 - Match the surrounding code: naming, error types per module, comment density.
 - Comments say why, not what. Doc comments state the contract and what is refused.
-- Do not run `cargo fmt` over files you are not otherwise changing.
+- Format with `cargo fmt` before you commit; CI runs `cargo fmt --all --check`. The tree was
+  formatted in one commit (listed in `.git-blame-ignore-revs`), so formatting touches only what you
+  changed.
 - Results lead with a summary; detail is opt-in (`--detail`, `detail: true`).
 - Error messages name the file, entity or flag, and say what to do.
 
