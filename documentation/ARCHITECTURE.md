@@ -52,6 +52,7 @@ main.rs  mcp.rs                 front ends: parse arguments, call core, print or
 | `sidecar`, `datashape`, `datatable`, `mashup` | Extract and sync each sidecar kind. |
 | `normalise` | The comparison form of an entity: what ThingWorx changes on its own is removed, so the repository and server versions compare by content. |
 | `config`, `profile` | `twaco.toml` and server profiles. |
+| `codes` | Stable error categories shared by front-end adapters. |
 | `server` | The HTTP client (ureq): REST entity reads, services, Importer, Exporter, file repositories, extension uploads. Credentials are redacted from every `Debug` and error. |
 | `lock` | One writer per workspace, with stale-lock detection; sweeps every hidden temporary a crashed write left. |
 | `parallel` | Bounded parallel map, for server calls. |

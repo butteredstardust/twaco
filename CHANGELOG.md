@@ -8,6 +8,9 @@ All notable changes to twaco are recorded here. The format follows
 
 ### Changed
 
+- MCP tool failures now carry a stable `code` alongside their unchanged message; refused `push`
+  results carry the corresponding code as well.
+
 - MCP tool input schemas now declare `additionalProperties: false` and nested arguments are
   validated; the published tool definitions are held by a golden file.
 - `entity delete` now has separate acknowledgements for repository-defined entities, outside

@@ -48,6 +48,30 @@ pass `profile` to choose one.
   without it.
 - **A failure is an error** (`isError`), with what went wrong in the message.
 
+## Errors and codes
+
+An errored tool result has `{"error":"the unchanged message","code":"stable_code"}` in its
+text and structured content. The code identifies the next action.
+
+| Code | Meaning and next action |
+| --- | --- |
+| `invalid_arguments` | The request is invalid; correct the arguments. |
+| `unknown_entity` | The named entity is absent; inspect the repository. |
+| `ambiguous` | More than one entity matches; disambiguate it. |
+| `already_exists` | A target already exists; choose another target. |
+| `guard_refused` | A safety guard refused; ask a person. |
+| `gate_failed` | A gate failed; inspect and fix the repository. |
+| `stale_plan` | State changed since planning; re-plan. |
+| `workspace_locked` | Another write is active; retry later. |
+| `server_conflict` | Server state conflicts with the plan; re-plan. |
+| `server_unreachable` | The server could not be reached; retry later. |
+| `server_error` | The server returned an error; inspect its response. |
+| `not_verified` | A write could not be verified; inspect server state. |
+| `rollback_failed` | Rollback was incomplete; ask a person. |
+| `io_error` | A local read or write failed; inspect the repository. |
+| `invalid_data` | Repository or server data is invalid; inspect it. |
+| `unclassified` | No typed classification is available; inspect the message. |
+
 ## The tools
 
 | Tool | Writes | What it does |
