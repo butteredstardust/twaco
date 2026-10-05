@@ -49,7 +49,13 @@ fn a_property_rename_follows_the_shape_its_implementers_and_their_values_and_rou
     )
     .unwrap();
     assert_eq!(snapshot(&fixture.root), before, "a plan writes nothing");
-    apply(&fixture.solution, &planned, &options(false)).unwrap();
+    apply(
+        &fixture.solution,
+        &planned,
+        &options(false),
+        &locked(&fixture),
+    )
+    .unwrap();
     let read = |path: &str| std::fs::read_to_string(fixture.root.join(path)).unwrap();
     assert!(
         read("ThingShapes/P.Shape.xml").contains("PropertyDefinition name=\"Height\"")
@@ -74,7 +80,7 @@ fn a_property_rename_follows_the_shape_its_implementers_and_their_values_and_rou
         &property_spec("P.Shape", "Height", "Level"),
     )
     .unwrap();
-    apply(&fixture.solution, &back, &options(false)).unwrap();
+    apply(&fixture.solution, &back, &options(false), &locked(&fixture)).unwrap();
     assert_eq!(snapshot_without_twaco(&fixture.root), before);
 }
 

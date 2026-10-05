@@ -243,7 +243,7 @@ fn main() -> ExitCode {
             "adopt" => adopt_cmd(solution, &parsed),
             "rename entity" | "rename prefix" | "rename field" | "rename service"
             | "rename param" | "rename table" | "rename property" => {
-                rename_cmd(solution, route, &parsed)
+                rename_cmd(solution, route, &parsed, _lock.as_ref())
             }
             "move service" | "move property" | "copy service" | "copy property" => {
                 relocate_cmd(solution, route, &parsed, _lock.as_ref())
@@ -1105,7 +1105,12 @@ fn adopt_cmd(solution: &Solution, args: &Args) -> u8 {
     }
 }
 
-fn rename_cmd(solution: &Solution, route: &str, args: &Args) -> u8 {
+fn rename_cmd(
+    solution: &Solution,
+    route: &str,
+    args: &Args,
+    lock: Option<&lock::WorkspaceLock>,
+) -> u8 {
     let word = route.strip_prefix("rename ").unwrap_or(route);
     let kind = rename::Kind::from_word(word).expect("the route names a rename kind");
     let mut request = match rename::Request::from_names(kind, &args.names) {
@@ -1131,7 +1136,7 @@ fn rename_cmd(solution: &Solution, route: &str, args: &Args) -> u8 {
             return FAILED;
         }
     };
-    let outcome = match rename::run(solution, &spec, &options) {
+    let outcome = match rename::run(solution, &spec, &options, lock) {
         Ok(outcome) => outcome,
         Err(error) => {
             eprintln!("twaco: {error}");

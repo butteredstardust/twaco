@@ -71,6 +71,7 @@ fn a_rename_that_touches_a_dbconnection_table_is_refused_until_the_caller_choose
         &fixture.solution,
         &field_spec("P.Dashboards", "UserName", "OwnerName"),
         &db_options(&fixture.root, SqlChoice::Unset),
+        Some(&locked(&fixture)),
     )
     .unwrap_err();
     match &error {
@@ -84,6 +85,7 @@ fn a_rename_that_touches_a_dbconnection_table_is_refused_until_the_caller_choose
         &fixture.solution,
         &spec(Kind::Entity, "P.Dashboards", "P.Boards"),
         &db_options(&fixture.root, SqlChoice::Unset),
+        Some(&locked(&fixture)),
     )
     .unwrap_err();
     assert!(matches!(error, RenameError::DatabaseHalf { .. }), "{error}");
@@ -107,6 +109,7 @@ fn a_rename_that_touches_a_dbconnection_table_is_refused_until_the_caller_choose
         &solution,
         &field_spec("P.Plain", "Name", "Title"),
         &db_options(&plain.root, SqlChoice::Unset),
+        Some(&locked(&plain)),
     )
     .unwrap();
 }
@@ -119,6 +122,7 @@ fn a_field_rename_follows_get_db_info_for_its_own_shape_and_writes_the_column_mi
         &fixture.solution,
         &field_spec("P.Dashboards", "UserName", "OwnerName"),
         &db_options(&fixture.root, SqlChoice::Write(PathBuf::new())),
+        Some(&locked(&fixture)),
     )
     .unwrap();
     let script =
@@ -166,6 +170,7 @@ fn a_field_rename_follows_get_db_info_for_its_own_shape_and_writes_the_column_mi
         &fixture.solution,
         &field_spec("P.Dashboards", "OwnerName", "UserName"),
         &db_options(&fixture.root, SqlChoice::Write(PathBuf::new())),
+        Some(&locked(&fixture)),
     )
     .unwrap();
     let mut after = snapshot_without_twaco(&fixture.root);
@@ -180,6 +185,7 @@ fn an_entity_rename_of_a_dbconnection_shape_renames_the_table_and_its_derived_na
         &fixture.solution,
         &spec(Kind::Entity, "P.Dashboards", "P.Boards"),
         &db_options(&fixture.root, SqlChoice::Write(PathBuf::new())),
+        Some(&locked(&fixture)),
     )
     .unwrap();
     let sql = outcome.sql.unwrap().text;
@@ -213,6 +219,7 @@ fn no_sql_writes_no_script_and_a_failed_apply_removes_the_one_it_wrote() {
         &fixture.solution,
         &field_spec("P.Dashboards", "UserName", "OwnerName"),
         &db_options(&fixture.root, SqlChoice::Off),
+        Some(&locked(&fixture)),
     )
     .unwrap();
     assert!(outcome.sql.is_none() && !fixture.root.join("sql").exists());
@@ -233,6 +240,7 @@ fn no_sql_writes_no_script_and_a_failed_apply_removes_the_one_it_wrote() {
             date: "2026-10-02".to_string(),
             extra_files: vec![(extra.clone(), b"-- migration".to_vec())],
         },
+        &locked(&failing),
         &mut |step| {
             if matches!(step, Step::Ledger) {
                 Err(std::io::Error::other("injected"))
@@ -262,6 +270,7 @@ fn no_sql_writes_no_script_and_a_failed_apply_removes_the_one_it_wrote() {
             date: "d".to_string(),
             extra_files: vec![(extra, b"x".to_vec())],
         },
+        &locked(&failing),
     )
     .unwrap_err();
     assert!(matches!(error, RenameError::Exists { .. }), "{error}");

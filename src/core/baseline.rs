@@ -113,6 +113,17 @@ impl Baseline {
         })
     }
 
+    /// The complete deterministic JSON document, as `write` writes it.
+    pub fn to_bytes(&self, root: &Path) -> Result<Vec<u8>, BaselineError> {
+        let mut bytes =
+            serde_json::to_vec_pretty(self).map_err(|error| BaselineError::Invalid {
+                path: root.join(RELATIVE_PATH),
+                why: error.to_string(),
+            })?;
+        bytes.push(b'\n');
+        Ok(bytes)
+    }
+
     /// Write a complete deterministic JSON document through a same-directory temporary file.
     pub fn write(&self, root: &Path) -> Result<(), BaselineError> {
         let path = root.join(RELATIVE_PATH);
@@ -121,12 +132,7 @@ impl Baseline {
             path: parent.to_path_buf(),
             why: error.to_string(),
         })?;
-        let mut bytes =
-            serde_json::to_vec_pretty(self).map_err(|error| BaselineError::Invalid {
-                path: path.clone(),
-                why: error.to_string(),
-            })?;
-        bytes.push(b'\n');
+        let bytes = self.to_bytes(root)?;
         super::workspace::atomic_replace(&path, &bytes).map_err(|error| BaselineError::Io {
             path: path.clone(),
             why: error.to_string(),

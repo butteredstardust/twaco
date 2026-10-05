@@ -143,15 +143,23 @@ impl Ledger {
         Ok(Ledger(ledger))
     }
 
+    /// The whole ledger as the bytes `write` writes.
+    pub fn to_bytes(&self, path: &Path) -> Result<Vec<u8>, LedgerError> {
+        let mut bytes = serde_json::to_vec_pretty(self).map_err(|error| LedgerError::Write {
+            path: path.to_path_buf(),
+            why: error.to_string(),
+        })?;
+        bytes.push(b'\n');
+        Ok(bytes)
+    }
+
     /// Write the whole ledger, replacing the file in one step and creating `.twaco` if needed.
     pub fn write(&self, path: &Path) -> Result<(), LedgerError> {
         let write = |why: String| LedgerError::Write {
             path: path.to_path_buf(),
             why,
         };
-        let mut bytes =
-            serde_json::to_vec_pretty(self).map_err(|error| write(error.to_string()))?;
-        bytes.push(b'\n');
+        let bytes = self.to_bytes(path)?;
         if let Some(parent) = path.parent() {
             std::fs::create_dir_all(parent).map_err(|error| LedgerError::Write {
                 path: parent.to_path_buf(),

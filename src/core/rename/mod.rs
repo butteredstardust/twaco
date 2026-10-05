@@ -7,6 +7,7 @@
 use super::baseline::{Baseline, RELATIVE_PATH as BASELINE_PATH};
 use super::config::{Solution, CONFIG_FILE};
 use super::ledger::{self, Ledger, LedgerError};
+use super::lock::WorkspaceLock;
 use super::{
     catalog, check, datashape, datatable, dbinfo, entity, refs, rename_property, rename_scan,
     rename_sql, repo, splice, types, workspace,
