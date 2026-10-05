@@ -95,7 +95,7 @@ when the command is asked to write. A local output named by an option is include
 | `init` | read-only | best-effort batch | config and optional guide files | Inspect files already created; retry only missing work. | `main.rs: main; core/init.rs: write_agent_files` |
 | `adopt` | read-only | best-effort batch | entities, sidecars, declarations | Earlier writes remain; retry the reported export after inspection. | `core/adopt.rs: apply` |
 | `entity push` | read-only | server-partial | server entity, baseline, backup | Read the entity back and check the baseline before retrying. | `core/commands/push.rs: execute` |
-| `entity delete` | read-only | server-partial | server entities, ledger, backups | Inspect confirmed deletions and ledger entries before retrying. | `core/entity_delete.rs: run` |
+| `entity delete` | read-only | server-partial | server entities, ledger, backups | Inspect confirmed deletions and ledger entries before retrying. | `core/commands/delete.rs: execute` |
 | `move service` | read-only | multi-file atomic | XML, sidecars | Inspect after interruption; otherwise retry after rollback. | `core/relocate.rs: apply` |
 | `move property` | read-only | multi-file atomic | XML, sidecars | Inspect after interruption; otherwise retry after rollback. | `core/relocate.rs: apply` |
 | `copy service` | read-only | multi-file atomic | XML, sidecars | Inspect after interruption; otherwise retry after rollback. | `core/relocate.rs: apply` |
@@ -117,7 +117,7 @@ when the command is asked to write. A local output named by an option is include
 | `extract` | best-effort batch | best-effort batch | sidecars, declarations | Earlier entities remain extracted; retry failed entities. | `mcp.rs: extract_tool` |
 | `fmt` | best-effort batch | best-effort batch | script sidecars | Earlier scripts remain formatted; retry reported scripts. | `mcp.rs: fmt_tool` |
 | `push` | read-only | server-partial | server entity, baseline, backup | Read the entity and baseline before retrying. | `core/commands/push.rs: execute` |
-| `entity_delete` | read-only | server-partial | server entities, ledger, backups | Inspect confirmed deletions and ledger entries before retrying. | `mcp.rs: entity_delete_tool` |
+| `entity_delete` | read-only | server-partial | server entities, ledger, backups | Inspect confirmed deletions and ledger entries before retrying. | `core/commands/delete.rs: execute` |
 | `entity_restore` | read-only | server-partial | server entities | Read restored entities back before retrying. | `mcp.rs: entity_restore_tool` |
 | `entity_carry` | read-only | server-partial | server permissions, ledger | Read permissions and ledger before retrying. | `mcp.rs: entity_carry_tool` |
 | `db_run` | read-only | server-partial | SQL, temporary server Thing | Inspect SQL effects and clean temporary Things before retrying. | `mcp.rs: db_tool` |
