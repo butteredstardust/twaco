@@ -1,0 +1,4 @@
+# The one-off rustfmt of the whole tree. Use with
+#   git config blame.ignoreRevsFile .git-blame-ignore-revs
+# (GitHub applies this file by itself.)
+cbe7fbf7aa0a18bd19a89bf33ecb028fb4ee8485
