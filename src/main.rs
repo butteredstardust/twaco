@@ -246,7 +246,7 @@ fn main() -> ExitCode {
                 rename_cmd(solution, route, &parsed)
             }
             "move service" | "move property" | "copy service" | "copy property" => {
-                relocate_cmd(solution, route, &parsed)
+                relocate_cmd(solution, route, &parsed, _lock.as_ref())
             }
             "retemplate" => retemplate_cmd(solution, &parsed),
             "new building-block" => new_building_block_cmd(solution, &parsed, _lock.as_ref()),
@@ -3956,7 +3956,12 @@ fn retemplate_cmd(solution: &Solution, args: &Args) -> u8 {
 
 /// Move or copy a service or property between entities. Plans unless --apply; an apply checks the
 /// sidecars still match the XML and exits 2 if they do not.
-fn relocate_cmd(solution: &Solution, route: &str, args: &Args) -> u8 {
+fn relocate_cmd(
+    solution: &Solution,
+    route: &str,
+    args: &Args,
+    lock: Option<&lock::WorkspaceLock>,
+) -> u8 {
     let (verb, word) = route
         .split_once(' ')
         .expect("the route has a verb and a member");
@@ -3984,7 +3989,11 @@ fn relocate_cmd(solution: &Solution, route: &str, args: &Args) -> u8 {
     };
     let mut problems = Vec::new();
     if apply {
-        if let Err(error) = relocate::apply(&plan) {
+        let Some(lock) = lock else {
+            eprintln!("twaco: {route} --apply needs the workspace lock");
+            return FAILED;
+        };
+        if let Err(error) = relocate::apply(&plan, lock) {
             eprintln!("twaco: {error}");
             return FAILED;
         }

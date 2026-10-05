@@ -263,6 +263,7 @@ impl Coded for super::relocate::RelocateError {
             Self::Exists { .. } => ErrorCode::AlreadyExists,
             Self::Apply { .. } => ErrorCode::IoError,
             Self::Verification(_) => ErrorCode::StalePlan,
+            Self::Write(error) => error.code(),
         }
     }
 }
@@ -1068,6 +1069,14 @@ mod tests {
             ErrorCode::IoError,
         );
         is(RelocateError::Verification(text()), ErrorCode::StalePlan);
+        is(
+            RelocateError::Write(crate::core::transaction::TransactionError::Failed {
+                why: text(),
+                rolled_back: false,
+                journal: None,
+            }),
+            ErrorCode::RollbackFailed,
+        );
     }
 
     #[test]

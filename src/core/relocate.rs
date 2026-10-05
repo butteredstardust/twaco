@@ -17,12 +17,14 @@
 
 use super::catalog;
 use super::config::Solution;
+use super::lock::WorkspaceLock;
 use super::refs;
 use super::rename::{self, Kind as RenameKind, Spec};
 use super::scan::{self, Kind as TokenKind, Span, Token};
 use super::sidecar::{self, ServiceSidecar};
 use super::splice::{self, Edit};
 use super::sync;
+use super::transaction::{Transaction, TransactionError};
 use super::workspace::{self, EntityFile};
 use serde::Serialize;
 use std::collections::BTreeSet;
@@ -99,6 +101,8 @@ pub enum RelocateError {
         why: String,
     },
     Verification(String),
+    /// The journaled write failed; the error says whether every change was undone.
+    Write(TransactionError),
 }
 
 impl fmt::Display for RelocateError {
@@ -107,6 +111,7 @@ impl fmt::Display for RelocateError {
             RelocateError::Invalid(why)
             | RelocateError::Refused(why)
             | RelocateError::Verification(why) => f.write_str(why),
+            RelocateError::Write(error) => error.fmt(f),
             RelocateError::Unknown { name } => write!(
                 f,
                 "no Thing, ThingTemplate or ThingShape named {name} in this solution"
@@ -152,6 +157,8 @@ pub struct Callers {
 /// A planned relocation.
 #[derive(Debug, Clone)]
 pub struct Plan {
+    /// The solution root the paths below are inside of.
+    root: PathBuf,
     pub request: Request,
     /// The member's name on the target.
     pub final_name: String,
@@ -218,6 +225,27 @@ pub(crate) fn find_entity<'a>(
         _ => Err(RelocateError::Invalid(format!(
             "{name} is defined more than once in this solution"
         ))),
+    }
+}
+
+impl From<TransactionError> for RelocateError {
+    fn from(error: TransactionError) -> Self {
+        match error {
+            TransactionError::Invalid(why) => RelocateError::Invalid(why),
+            TransactionError::Stale(why) => match (
+                why.strip_suffix(" changed since it was read"),
+                why.strip_suffix(" exists already"),
+            ) {
+                (Some(path), _) => RelocateError::Refused(format!(
+                    "{path} changed since the plan was made; plan again"
+                )),
+                (_, Some(path)) => RelocateError::Exists {
+                    conflicts: vec![path.to_string()],
+                },
+                _ => RelocateError::Refused(why),
+            },
+            other => RelocateError::Write(other),
+        }
     }
 }
 
@@ -882,6 +910,7 @@ pub fn plan(solution: &Solution, request: &Request) -> Result<Plan, RelocateErro
     }
 
     Ok(Plan {
+        root: solution.root.clone(),
         request: request.clone(),
         final_name,
         from_file: from.path.clone(),
@@ -1079,118 +1108,89 @@ pub struct Applied {
     pub removed: Vec<PathBuf>,
 }
 
-/// Write the plan. Every file is re-read first (a file changed since the plan is refused), and a
-/// failure part-way restores what was written.
-pub fn apply(plan: &Plan) -> Result<Applied, RelocateError> {
-    let still = |path: &Path, expected: &[u8]| -> Result<(), RelocateError> {
-        match std::fs::read(path) {
-            Ok(bytes) if bytes == expected => Ok(()),
-            Ok(_) => Err(RelocateError::Refused(format!(
-                "{} changed since the plan was made; plan again",
-                path.display()
-            ))),
-            Err(error) => Err(xml(path, error)),
-        }
-    };
-    still(&plan.to_file, &plan.to_old)?;
-    still(&plan.from_file, &plan.from_old)?;
-
-    enum Undo {
-        Restore(PathBuf, Vec<u8>),
-        RemoveDir(PathBuf),
-        Recreate(PathBuf, Vec<(String, Vec<u8>)>),
+/// Write the plan as one journaled operation. Every file is checked against the plan first (a file
+/// changed since is refused and nothing is written); a failure or a crash part-way leaves every
+/// file as it was or finished, and the next command to take the workspace lock completes or undoes
+/// an interrupted run.
+pub fn apply(plan: &Plan, lock: &WorkspaceLock) -> Result<Applied, RelocateError> {
+    let mut transaction = Transaction::new(&plan.root, "move or copy a member");
+    transaction
+        .replace_file(&plan.to_file, &plan.to_old, plan.to_new.clone())
+        .map_err(RelocateError::from)?;
+    if let Some(bytes) = &plan.from_new {
+        transaction
+            .replace_file(&plan.from_file, &plan.from_old, bytes.clone())
+            .map_err(RelocateError::from)?;
     }
-    let mut undo: Vec<Undo> = Vec::new();
-    let mut written = Vec::new();
+    let mut written = vec![plan.to_file.clone()];
+    if plan.from_new.is_some() {
+        written.push(plan.from_file.clone());
+    }
     let mut removed = Vec::new();
-    let result = (|| -> Result<(), RelocateError> {
-        let put = |path: &Path, bytes: &[u8]| {
-            workspace::atomic_replace(path, bytes).map_err(|error| RelocateError::Apply {
-                path: path.to_path_buf(),
-                why: error.to_string(),
-            })
-        };
-        put(&plan.to_file, &plan.to_new)?;
-        undo.push(Undo::Restore(plan.to_file.clone(), plan.to_old.clone()));
-        written.push(plan.to_file.clone());
-        if let Some(bytes) = &plan.from_new {
-            put(&plan.from_file, bytes)?;
-            undo.push(Undo::Restore(plan.from_file.clone(), plan.from_old.clone()));
-            written.push(plan.from_file.clone());
-        }
-        if let (Some(dir), Some(sidecar)) = (&plan.to_sidecars, &plan.to_sidecar) {
-            let folder = dir.join(&sidecar.name);
-            let existed = dir.exists();
-            workspace::write_sidecars(dir, std::slice::from_ref(sidecar)).map_err(|error| {
-                RelocateError::Apply {
-                    path: folder.clone(),
-                    why: error.to_string(),
-                }
-            })?;
-            undo.push(if existed {
-                Undo::RemoveDir(folder.clone())
-            } else {
-                Undo::RemoveDir(dir.clone())
-            });
+    let mut emptied = None;
+    if let (Some(dir), Some(sidecar)) = (&plan.to_sidecars, &plan.to_sidecar) {
+        let folder = dir.join(&sidecar.name);
+        put_sidecar(&mut transaction, &folder, sidecar)?;
+        written.push(folder);
+    }
+    if let Some(dir) = &plan.from_sidecars {
+        let folder = dir.join(&plan.request.name);
+        if let Some(after) = &plan.from_sidecar_after {
+            put_sidecar(&mut transaction, &folder, after)?;
             written.push(folder);
-        }
-        if let Some(dir) = &plan.from_sidecars {
-            let folder = dir.join(&plan.request.name);
-            if let Some(after) = &plan.from_sidecar_after {
-                workspace::write_sidecars(dir, std::slice::from_ref(after)).map_err(|error| {
-                    RelocateError::Apply {
-                        path: folder.clone(),
-                        why: error.to_string(),
-                    }
-                })?;
-                written.push(folder);
-            } else {
-                let mut files = Vec::new();
-                for entry in std::fs::read_dir(&folder)
-                    .map_err(|error| xml(&folder, error))?
-                    .flatten()
-                {
-                    if entry.path().is_file() {
-                        files.push((
-                            entry.file_name().to_string_lossy().into_owned(),
-                            std::fs::read(entry.path())
-                                .map_err(|error| xml(&entry.path(), error))?,
-                        ));
-                    }
-                }
-                std::fs::remove_dir_all(&folder).map_err(|error| xml(&folder, error))?;
-                // The service folder may have been the last thing under its entity's folder.
-                for parent in folder.ancestors().skip(1).take(2) {
-                    if std::fs::remove_dir(parent).is_err() {
-                        break;
-                    }
-                }
-                undo.push(Undo::Recreate(folder.clone(), files));
-                removed.push(folder);
-            }
-        }
-        Ok(())
-    })();
-    if let Err(error) = result {
-        for step in undo.into_iter().rev() {
-            match step {
-                Undo::Restore(path, bytes) => {
-                    let _ = workspace::atomic_replace(&path, &bytes);
-                }
-                Undo::RemoveDir(path) => {
-                    let _ = std::fs::remove_dir_all(path);
-                }
-                Undo::Recreate(path, files) => {
-                    let _ = std::fs::create_dir_all(&path);
-                    for (name, bytes) in files {
-                        let _ = std::fs::write(path.join(name), bytes);
-                    }
+        } else {
+            for entry in std::fs::read_dir(&folder)
+                .map_err(|error| xml(&folder, error))?
+                .flatten()
+            {
+                if entry.path().is_file() {
+                    let bytes =
+                        std::fs::read(entry.path()).map_err(|error| xml(&entry.path(), error))?;
+                    transaction
+                        .delete_file(&entry.path(), &bytes)
+                        .map_err(RelocateError::from)?;
                 }
             }
+            removed.push(folder.clone());
+            emptied = Some(folder);
         }
-        return Err(error);
+    }
+    transaction.apply(lock).map_err(RelocateError::from)?;
+    if let Some(folder) = emptied {
+        // The service folder may have been the last thing under its entity's folder. Empty
+        // folders only: whatever else a person put there stays.
+        for parent in folder.ancestors().take(3) {
+            if std::fs::remove_dir(parent).is_err() {
+                break;
+            }
+        }
     }
     Ok(Applied { written, removed })
+}
+
+/// A service's sidecar files as the transaction's steps: created when absent, replaced when they
+/// differ. Always LF, as `workspace::write_sidecars` writes them.
+fn put_sidecar(
+    transaction: &mut Transaction<'_>,
+    folder: &Path,
+    sidecar: &ServiceSidecar,
+) -> Result<(), RelocateError> {
+    for (file, text) in [
+        ("definition.xml", &sidecar.definition),
+        ("script.js", &sidecar.script),
+    ] {
+        let path = folder.join(file);
+        let after = text.replace("\r\n", "\n").into_bytes();
+        match std::fs::read(&path) {
+            Ok(current) => transaction.replace_file(&path, &current, after),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+                transaction.create_file(&path, after)
+            }
+            Err(error) => return Err(xml(&path, error)),
+        }
+        .map_err(RelocateError::from)?;
+    }
+    Ok(())
 }
 
 #[cfg(test)]

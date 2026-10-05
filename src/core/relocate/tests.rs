@@ -81,6 +81,10 @@ fn thing(name: &str, shapes: &[&str], members: &str) -> String {
 
 /// Base shape with Alpha and Level; an empty target shape; an instance that implements Base; and a
 /// caller of the instance. Sidecars are extracted, so everything starts in step.
+fn locked(fixture: &Fixture) -> crate::core::lock::WorkspaceLock {
+    crate::core::lock::acquire(&fixture.root, "test", &[]).unwrap()
+}
+
 fn fixture() -> Fixture {
     static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
     let nonce = format!(
@@ -182,7 +186,7 @@ fn copying_a_service_lands_it_re_indented_with_its_script_unchanged_and_in_step(
     .unwrap();
     assert_eq!(snapshot(&fixture.root), before, "a plan writes nothing");
     assert!(planned.callers.files == 0 && planned.from_new.is_none());
-    apply(&planned).unwrap();
+    apply(&planned, &locked(&fixture)).unwrap();
     let target = read(&fixture, "ThingShapes/P.Target_TS.xml");
     // The one-line empty sections were opened, the block sits at the section's nesting.
     assert!(
@@ -236,7 +240,7 @@ fn moving_a_service_away_lists_who_calls_it_and_removes_it_and_its_sidecar_from_
         .notes
         .iter()
         .any(|note| note.contains("stop resolving")));
-    apply(&planned).unwrap();
+    apply(&planned, &locked(&fixture)).unwrap();
     let base = read(&fixture, "ThingShapes/P.Base_TS.xml");
     assert!(!base.contains("Alpha"), "{base}");
     assert!(base.contains("Level"), "the property stayed");
@@ -272,6 +276,7 @@ fn moving_up_into_something_the_source_inherits_breaks_no_caller() {
             },
         )
         .unwrap(),
+        &locked(&fixture),
     )
     .unwrap();
     let planned = plan(
@@ -312,6 +317,7 @@ fn a_name_the_target_its_ancestors_or_its_descendants_already_use_is_refused() {
             &request(Member::Service, true, "P.Base_TS", "P.Target_TS", "Alpha"),
         )
         .unwrap(),
+        &locked(&fixture),
     )
     .unwrap();
     let again = plan(
@@ -364,7 +370,7 @@ fn a_member_can_be_renamed_on_the_way() {
         .notes
         .iter()
         .any(|note| note.contains("renamed to Beta")));
-    apply(&planned).unwrap();
+    apply(&planned, &locked(&fixture)).unwrap();
     let target = read(&fixture, "ThingShapes/P.Target_TS.xml");
     assert!(
         target.contains("name=\"Beta\"") && !target.contains("name=\"Alpha\""),
@@ -394,7 +400,7 @@ fn a_property_moves_into_an_empty_one_line_section() {
         &request(Member::Property, true, "P.Base_TS", "P.Target_TS", "Level"),
     )
     .unwrap();
-    apply(&planned).unwrap();
+    apply(&planned, &locked(&fixture)).unwrap();
     let target = read(&fixture, "ThingShapes/P.Target_TS.xml");
     assert!(target.contains("<PropertyDefinitions>\n                <PropertyDefinition baseType=\"NUMBER\" name=\"Level\"></PropertyDefinition>\n            </PropertyDefinitions>"), "{target}");
     assert!(read(&fixture, "ThingShapes/P.Base_TS.xml").contains("Level"));
@@ -432,6 +438,7 @@ fn a_missing_section_is_added_where_composer_would_put_it() {
             &request(Member::Service, true, "P.Base_TS", "P.Bare_TS", "Alpha"),
         )
         .unwrap(),
+        &locked(&fixture),
     )
     .unwrap();
     let bare = read(&fixture, "ThingShapes/P.Bare_TS.xml");
@@ -474,7 +481,7 @@ fn leaving_a_delegate_keeps_the_service_on_the_source_and_calls_the_moved_one() 
     };
     let planned = plan(&fixture.solution, &delegating).unwrap();
     assert!(planned.notes.iter().any(|note| note.contains("delegate")));
-    apply(&planned).unwrap();
+    apply(&planned, &locked(&fixture)).unwrap();
     let base = read(&fixture, "ThingShapes/P.Base_TS.xml");
     assert!(base.contains("name=\"Alpha\""), "the definition stays");
     assert!(
@@ -524,16 +531,111 @@ fn a_file_changed_since_the_plan_is_refused_and_a_failed_write_is_undone() {
     let mut edited = original.clone();
     edited.extend_from_slice(b"<!-- later -->\n");
     std::fs::write(&target_path, &edited).unwrap();
-    assert!(matches!(apply(&planned), Err(RelocateError::Refused(_))));
+    assert!(matches!(
+        apply(&planned, &locked(&fixture)),
+        Err(RelocateError::Refused(_))
+    ));
     std::fs::write(&target_path, &original).unwrap();
     // A sidecar write that cannot happen (a file where the folder must go) restores the XML.
     std::fs::create_dir_all(fixture.root.join("src")).unwrap();
     std::fs::write(fixture.root.join("src/P.Target_TS"), b"in the way").unwrap();
     let before = snapshot(&fixture.root);
-    assert!(apply(&planned).is_err());
+    assert!(apply(&planned, &locked(&fixture)).is_err());
     assert_eq!(
         snapshot(&fixture.root),
         before,
         "everything written was put back, the source sidecar included"
     );
+}
+
+/// A move written by a process that is killed at every point of the journaled write, then
+/// recovered by the next command to take the lock.
+#[cfg(feature = "test-failpoints")]
+mod crash {
+    use super::*;
+
+    const ROOT_VARIABLE: &str = "TWACO_TEST_CHILD_ROOT";
+
+    fn the_move(solution: &Solution) -> Plan {
+        plan(
+            solution,
+            &request(Member::Service, false, "P.Base_TS", "P.Target_TS", "Alpha"),
+        )
+        .unwrap()
+    }
+
+    fn relative(root: &Path) -> BTreeMap<PathBuf, Vec<u8>> {
+        snapshot(root)
+            .into_iter()
+            .filter(|(path, _)| !path.starts_with(root.join(".twaco")))
+            .map(|(path, bytes)| (path.strip_prefix(root).unwrap().to_path_buf(), bytes))
+            .collect()
+    }
+
+    /// Runs in the child. Does nothing when the test binary runs it as an ordinary test.
+    #[test]
+    fn child_moves_the_service() {
+        let Ok(root) = std::env::var(ROOT_VARIABLE) else {
+            return;
+        };
+        let solution = Solution::load(&Path::new(&root).join("twaco.toml")).unwrap();
+        let planned = the_move(&solution);
+        let lock = crate::core::lock::acquire(&solution.root, "child", &[]).unwrap();
+        let _ = apply(&planned, &lock);
+    }
+
+    #[test]
+    fn a_move_is_wholly_done_or_not_at_all_whenever_the_process_dies() {
+        let before = relative(&fixture().root);
+        let after = {
+            let done = fixture();
+            apply(&the_move(&done.solution), &locked(&done)).unwrap();
+            relative(&done.root)
+        };
+        assert_ne!(before, after);
+        let mut points: Vec<(String, bool)> = vec![
+            ("after-journal".to_string(), false),
+            ("after-stage".to_string(), false),
+            ("after-applying".to_string(), false),
+        ];
+        for step in 1..=6 {
+            points.push((format!("after-step-{step}-visible"), true));
+            points.push((format!("after-step-{step}-marked"), true));
+        }
+        points.push(("after-commit".to_string(), true));
+        for (point, finished) in points {
+            let fixture = fixture();
+            let status = std::process::Command::new(std::env::current_exe().unwrap())
+                .args([
+                    "--exact",
+                    "core::relocate::tests::crash::child_moves_the_service",
+                    "--nocapture",
+                ])
+                .env(ROOT_VARIABLE, &fixture.root)
+                .env("TWACO_TEST_FAILPOINT", &point)
+                .output()
+                .unwrap()
+                .status;
+            assert!(!status.success(), "{point}: the child was not stopped");
+            drop(locked(&fixture));
+            let now = relative(&fixture.root);
+            let hidden: Vec<&PathBuf> = now
+                .keys()
+                .filter(|path| {
+                    let name = path.file_name().unwrap().to_string_lossy();
+                    name.ends_with(".twaco-stage") || name.ends_with(".twaco-backup")
+                })
+                .collect();
+            assert!(hidden.is_empty(), "{point}: {hidden:?}");
+            let expected = if finished { &after } else { &before };
+            assert_eq!(
+                now.keys().collect::<Vec<_>>(),
+                expected.keys().collect::<Vec<_>>(),
+                "{point}"
+            );
+            for (path, bytes) in expected {
+                assert!(&now[path] == bytes, "{point}: {} differs", path.display());
+            }
+        }
+    }
 }
