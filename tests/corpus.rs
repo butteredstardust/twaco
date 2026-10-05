@@ -312,6 +312,7 @@ fn rename_scan_counts_on_the_corpus() {
     }
 
     let mut checked = 0usize;
+    let mut skipped = 0usize;
     let mut failures = Vec::new();
     for root in &roots {
         for path in xml_files(root) {
@@ -328,6 +329,14 @@ fn rename_scan_counts_on_the_corpus() {
             let mut new = format!("{}-TwacoRoundTrip", info.name);
             while text.contains(&new) {
                 new.push('X');
+            }
+            // A rename only ever takes a validated name, in either direction, so an entity whose
+            // own name could not be a rename target has no round trip to check.
+            if twaco::core::refs::validate_new_name(&new).is_err()
+                || twaco::core::refs::validate_new_name(&info.name).is_err()
+            {
+                skipped += 1;
+                continue;
             }
             let forward = match twaco::core::rename_scan::scan_xml(
                 &src,
@@ -385,7 +394,9 @@ fn rename_scan_counts_on_the_corpus() {
         checked > 0,
         "corpus contained no entity document with a name"
     );
-    eprintln!("rename scan round-trips {checked} entity document(s) byte for byte");
+    eprintln!(
+        "rename scan round-trips {checked} entity document(s) byte for byte ({skipped} skipped: a name a rename would refuse)"
+    );
 }
 
 #[test]
@@ -845,6 +856,7 @@ fn extraction_handles_every_service_bearing_entity_in_the_corpus() {
     }
     let mut entities = 0usize;
     let mut services = 0usize;
+    let mut refused = 0usize;
     let mut failures = Vec::new();
     for path in &files {
         let Ok(src) = std::fs::read(path) else {
@@ -860,6 +872,9 @@ fn extraction_handles_every_service_bearing_entity_in_the_corpus() {
         entities += 1;
         match twaco::core::sidecar::extract_services(&src) {
             Ok(list) => services += list.len(),
+            // Two services of one name cannot be told apart by name, so extraction refuses the
+            // entity; the refusal is the behaviour to keep, not a failure.
+            Err(twaco::core::sidecar::SidecarError::Duplicate { .. }) => refused += 1,
             Err(e) => failures.push(format!("{}: {e}", path.display())),
         }
     }
@@ -874,7 +889,9 @@ fn extraction_handles_every_service_bearing_entity_in_the_corpus() {
             .collect::<Vec<_>>()
             .join("\n")
     );
-    eprintln!("{services} service(s) extracted from {entities} service-bearing entity file(s)");
+    eprintln!(
+        "{services} service(s) extracted from {entities} service-bearing entity file(s); {refused} refused for a duplicate service name"
+    );
 }
 
 /// Read the committed sidecars for one entity from disk.
@@ -994,6 +1011,8 @@ fn syncing_extracted_sidecars_is_the_identity_in_each_corpus_mode() {
         }
         let extraction = match twaco::core::sidecar::extract(&src) {
             Ok(e) => e,
+            // A duplicate service name is refused on purpose; there is nothing to sync back.
+            Err(twaco::core::sidecar::SidecarError::Duplicate { .. }) => continue,
             Err(e) => {
                 failures.push(format!("{}: extract: {e}", path.display()));
                 continue;
@@ -1456,6 +1475,7 @@ fn a_data_table_round_trips_through_its_sidecar_unchanged() {
         return;
     }
     let mut checked = 0usize;
+    let mut refused = Vec::new();
     let mut failures = Vec::new();
     for path in &files {
         let src = std::fs::read(path).expect("entity is readable");
@@ -1468,6 +1488,15 @@ fn a_data_table_round_trips_through_its_sidecar_unchanged() {
         };
         let text = match twaco::core::datatable::to_sidecar(&configuration) {
             Ok(text) => text,
+            // The platform has been seen to store an accumulated shape that is not JSON (a
+            // missing quote). twaco refuses to make a sidecar from text it cannot read, which
+            // is the behaviour to keep; any other refusal is a failure.
+            Err(twaco::core::datatable::DataTableError::Malformed(why))
+                if why.starts_with("the accumulated shape will not parse") =>
+            {
+                refused.push(path.display().to_string());
+                continue;
+            }
             Err(e) => {
                 failures.push(format!(
                     "{}: will not become a sidecar: {e}",
@@ -1509,7 +1538,10 @@ fn a_data_table_round_trips_through_its_sidecar_unchanged() {
             .collect::<Vec<_>>()
             .join("\n")
     );
-    eprintln!("{checked} DataTable(s) round-trip through a sidecar unchanged");
+    eprintln!(
+        "{checked} DataTable(s) round-trip through a sidecar unchanged; {} refused for an accumulated shape that is not JSON",
+        refused.len()
+    );
 }
 
 #[test]
