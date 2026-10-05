@@ -6,6 +6,7 @@
 //! repository's content under `filerepository/<repo>/`, so the useful
 //! question is how that tree and the server's differ.
 
+use super::entity_key::ServiceTarget;
 use super::server::{Client, ServerError};
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
@@ -28,7 +29,8 @@ pub trait Remote: Sync {
 
 impl Remote for Client {
     fn service(&self, repository: &str, service: &str, body: &Value) -> Result<Option<Value>, ServerError> {
-        self.call_service(&format!("Things/{repository}"), service, body, TIMEOUT)
+        let target = ServiceTarget::entity("Things", repository)?;
+        self.call_service(&target, service, body, TIMEOUT)
     }
 
     fn download(&self, repository: &str, path: &str) -> Result<Vec<u8>, ServerError> {
@@ -36,7 +38,7 @@ impl Remote for Client {
     }
 
     fn repositories(&self) -> Result<Vec<String>, ServerError> {
-        let reply = self.call_service("ThingTemplates/FileRepository", "GetImplementingThings", &json!({}), TIMEOUT)?;
+        let reply = self.call_service(&ServiceTarget::platform("ThingTemplates", "FileRepository"), "GetImplementingThings", &json!({}), TIMEOUT)?;
         let mut names: Vec<String> = reply
             .as_ref()
             .and_then(|value| value.get("rows"))

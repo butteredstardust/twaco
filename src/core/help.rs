@@ -229,7 +229,7 @@ pub fn choose_version(
 /// The server's ThingWorx version, such as `10.1.0-b47`. Read-only.
 pub fn server_version(client: &super::server::Client) -> Result<String, String> {
     let reply = client
-        .call_service("Subsystems/PlatformSubsystem", "GetPlatformStats", &serde_json::json!({}), Duration::from_secs(20))
+        .call_service(&super::entity_key::ServiceTarget::platform("Subsystems", "PlatformSubsystem"), "GetPlatformStats", &serde_json::json!({}), Duration::from_secs(20))
         .map_err(|e| e.to_string())?;
     reply
         .as_ref()

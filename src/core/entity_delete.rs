@@ -8,6 +8,7 @@
 use super::bundle::COLLECTION_ORDER;
 use super::backup;
 use super::config::Solution;
+use super::entity_key::ServiceTarget;
 use super::ledger::{Ledger, LedgerError};
 use super::scan::{self, Kind};
 use super::server::{Client, ServerError};
@@ -123,7 +124,7 @@ impl Remote for Client {
     }
 
     fn incoming(&self, collection: &str, name: &str) -> Result<Vec<Dependent>, ServerError> {
-        let target = format!("{collection}/{name}");
+        let target = ServiceTarget::entity(collection, name)?;
         let value = self
             .call_service(
                 &target,
@@ -166,7 +167,7 @@ impl Remote for Client {
 
     fn delete_service(&self, service: &str, name: &str) -> Result<(), ServerError> {
         self.call_service(
-            "Resources/EntityServices",
+            &ServiceTarget::platform("Resources", "EntityServices"),
             service,
             &serde_json::json!({ "name": name }),
             Duration::from_secs(120),

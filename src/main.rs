@@ -1223,7 +1223,7 @@ fn call(solution: &Solution, args: &Args) -> u8 {
     let target = match workspace::call_target(&workspace::discover(solution).entities, &args.names[0]) {
         Ok(target) => {
             // Said aloud: a platform Thing with the same short name is reached as Things/<Name>.
-            if target != args.names[0] {
+            if target.to_string() != args.names[0] {
                 eprintln!("twaco: calling {target}");
             }
             target

@@ -10,6 +10,7 @@
 //! - the window must span at least five seconds;
 //! - reaching `maxItems` truncates silently, so it is reported here.
 
+use super::entity_key::ServiceTarget;
 use super::server::{Client, ServerError};
 use jiff::civil::DateTime;
 use jiff::tz::TimeZone;
@@ -35,7 +36,8 @@ pub trait Remote {
 
 impl Remote for Client {
     fn service(&self, log: &str, service: &str, body: &Value) -> Result<Option<Value>, ServerError> {
-        self.call_service(&format!("Logs/{log}"), service, body, TIMEOUT)
+        let target = ServiceTarget::entity("Logs", log)?;
+        self.call_service(&target, service, body, TIMEOUT)
     }
 }
 

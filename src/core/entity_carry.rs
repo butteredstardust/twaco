@@ -13,6 +13,7 @@
 //! organizational unit, never a group.
 
 use super::config::Solution;
+use super::entity_key::ServiceTarget;
 use super::ledger::{self, Ledger};
 use super::refs;
 use super::server::{Client, ServerError};
@@ -72,7 +73,7 @@ impl Remote for Client {
     }
 
     fn get(&self, collection: &str, name: &str, kind: Kind) -> Result<Value, ServerError> {
-        let target = format!("{collection}/{name}");
+        let target = ServiceTarget::entity(collection, name)?;
         self.call_service(&target, kind.get_service(), &json!({}), Duration::from_secs(60))?
             .ok_or_else(|| ServerError::InvalidResponse {
                 url: format!("{target}/Services/{}", kind.get_service()),
@@ -81,7 +82,7 @@ impl Remote for Client {
     }
 
     fn set(&self, collection: &str, name: &str, kind: Kind, value: &Value) -> Result<(), ServerError> {
-        let target = format!("{collection}/{name}");
+        let target = ServiceTarget::entity(collection, name)?;
         // The JSON parameter is accepted as the text of the object, for all three sets.
         let parameters = json!({ "permissions": value.to_string() });
         self.call_service(&target, kind.set_service(), &parameters, Duration::from_secs(60))?;
@@ -89,7 +90,7 @@ impl Remote for Client {
     }
 
     fn differences(&self, collection: &str, name: &str, other: &str) -> Result<usize, ServerError> {
-        let target = format!("{collection}/{name}");
+        let target = ServiceTarget::entity(collection, name)?;
         let value = self
             .call_service(&target, "GetDifferencesAsJSON", &json!({ "otherEntity": other }), Duration::from_secs(120))?
             .unwrap_or_else(|| json!({ "rows": [] }));

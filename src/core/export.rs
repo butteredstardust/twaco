@@ -5,6 +5,7 @@
 //! repository folder, or a zip there. Exports read the server; only the source-control export
 //! writes to it, so only it is a plan unless applied.
 
+use super::entity_key::ServiceTarget;
 use super::server::{Client, ServerError};
 use serde_json::{json, Value};
 use std::fmt;
@@ -22,7 +23,7 @@ impl Remote for Client {
     }
 
     fn source_control(&self, service: &str, body: &Value) -> Result<Option<Value>, ServerError> {
-        self.call_service("Resources/SourceControlFunctions", service, body, Duration::from_secs(900))
+        self.call_service(&ServiceTarget::platform("Resources", "SourceControlFunctions"), service, body, Duration::from_secs(900))
     }
 }
 

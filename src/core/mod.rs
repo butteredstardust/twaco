@@ -15,6 +15,7 @@ pub mod db;
 pub mod dbinfo;
 pub mod doctor;
 pub mod entity;
+pub mod entity_key;
 pub mod datatable_copy;
 pub mod entity_carry;
 pub mod ledger;

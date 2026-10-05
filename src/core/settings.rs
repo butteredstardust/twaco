@@ -5,6 +5,7 @@
 //! fields are described, so a setting can be found by name or by what it does. A setting is
 //! the whole server's, so twaco only reads them; a PASSWORD field's value is never shown.
 
+use super::entity_key::ServiceTarget;
 use super::server::{Client, ServerError};
 use serde_json::{json, Value};
 use std::fmt;
@@ -22,7 +23,7 @@ pub trait Remote: Sync {
 impl Remote for Client {
     fn subsystems(&self) -> Result<Vec<String>, ServerError> {
         let reply = self.call_service(
-            "Resources/EntityServices",
+            &ServiceTarget::platform("Resources", "EntityServices"),
             "GetEntityList",
             &json!({ "type": "Subsystem", "maxItems": 500 }),
             TIMEOUT,
@@ -42,7 +43,8 @@ impl Remote for Client {
     }
 
     fn service(&self, subsystem: &str, service: &str, body: &Value) -> Result<Option<Value>, ServerError> {
-        self.call_service(&format!("Subsystems/{subsystem}"), service, body, TIMEOUT)
+        let target = ServiceTarget::entity("Subsystems", subsystem)?;
+        self.call_service(&target, service, body, TIMEOUT)
     }
 }
 

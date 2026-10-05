@@ -3,6 +3,7 @@
 //! the live Thing and the selected profile. The temporary Thing is removed on every exit path.
 
 use super::config::Solution;
+use super::entity_key::ServiceTarget;
 use super::profile::Profile;
 use super::scan::{self, Kind};
 use super::server::Client;
@@ -66,7 +67,7 @@ pub trait Remote {
     fn import(&self, file_name: &str, xml: &[u8]) -> Result<(), String>;
     fn call(
         &self,
-        target: &str,
+        target: &ServiceTarget,
         service: &str,
         parameters: &Value,
         timeout: Duration,
@@ -88,7 +89,7 @@ impl Remote for Client {
 
     fn call(
         &self,
-        target: &str,
+        target: &ServiceTarget,
         service: &str,
         parameters: &Value,
         timeout: Duration,
@@ -99,7 +100,7 @@ impl Remote for Client {
 
     fn delete_thing(&self, name: &str) -> Result<(), String> {
         self.call_service(
-            "Resources/EntityServices",
+            &ServiceTarget::platform("Resources", "EntityServices"),
             "DeleteThing",
             &json!({ "name": name }),
             Duration::from_secs(120),
@@ -275,7 +276,7 @@ pub fn execute(
             .map_err(|why| secret_error(why, password))?;
         let encrypted = remote
             .call(
-                "Resources/EncryptionServices",
+                &ServiceTarget::platform("Resources", "EncryptionServices"),
                 "EncryptPropertyValue",
                 &json!({ "data": password }),
                 options.timeout,
@@ -293,7 +294,7 @@ pub fn execute(
         let table = connection_table(&connection, &encrypted);
         remote
             .call(
-                &format!("Things/{temporary}"),
+                &ServiceTarget::entity("Things", &temporary).map_err(|error| secret_error(error.to_string(), password))?,
                 "SetConfigurationTable",
                 &json!({ "tableName": "ConnectionInfo", "configurationTable": table }),
                 options.timeout,
@@ -301,7 +302,7 @@ pub fn execute(
             .map_err(|why| secret_error(why, password))?;
         remote
             .call(
-                &format!("Things/{temporary}"),
+                &ServiceTarget::entity("Things", &temporary).map_err(|error| secret_error(error.to_string(), password))?,
                 "RestartThing",
                 &json!({}),
                 options.timeout,
@@ -309,7 +310,7 @@ pub fn execute(
             .map_err(|why| secret_error(why, password))?;
         remote
             .call(
-                &format!("Things/{temporary}"),
+                &ServiceTarget::entity("Things", &temporary).map_err(|error| secret_error(error.to_string(), password))?,
                 "Run",
                 &json!({}),
                 options.timeout,
@@ -872,7 +873,7 @@ mod tests {
 
         fn call(
             &self,
-            target: &str,
+            target: &ServiceTarget,
             service: &str,
             parameters: &Value,
             _timeout: Duration,
