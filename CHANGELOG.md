@@ -32,7 +32,7 @@ All notable changes to twaco are recorded here. The format follows
   intent to `.twaco/transactions/` before the first change, stages every new file and keeps a copy
   of every original beside it, and the next command to take the workspace lock finishes the
   interrupted operation or undoes it. When a person has edited a file in between, it refuses,
-  names every path with the digests found and expected, and changes nothing. `twaco new building-block --apply` is the first command on it: a
+  names every path with the digests found and expected, and changes nothing. `twaco new building-block --apply` and `twaco move` / `copy` are on it: a
   crash while it writes leaves the workspace as it was, or finished, once the next command runs;
   see `documentation/TRANSACTIONS.md`.
 

@@ -1768,7 +1768,10 @@ fn move_member_tool(solution: &Solution, arguments: &Value) -> Result<Value, Too
     let plan = relocate::plan(solution, &request).map_err(ToolError::coded)?;
     let mut problems = Vec::new();
     if !dry_run {
-        relocate::apply(&plan).map_err(ToolError::coded)?;
+        let lock = _lock
+            .as_ref()
+            .ok_or_else(|| ToolError::invalid("applying needs the workspace lock"))?;
+        relocate::apply(&plan, lock).map_err(ToolError::coded)?;
         problems = relocate::verify(solution, &plan);
     }
     let mut result = json!({

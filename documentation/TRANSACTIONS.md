@@ -6,8 +6,8 @@ operation survive a crash: a killed process or a power cut between two writes no
 workspace half changed. The next twaco command that takes the workspace lock finishes the
 operation or undoes it.
 
-`new building-block` uses it. The other multi-file commands (`relocate`, `rename`, ...) move onto
-it one at a time, and each one's entry in [MUTATION_CLASSES.md](MUTATION_CLASSES.md) changes only
+`new building-block`, `move` and `copy` use it. The other multi-file commands (`rename`, ...)
+move onto it one at a time, and each one's entry in [MUTATION_CLASSES.md](MUTATION_CLASSES.md) changes only
 when it does.
 
 ## What it covers
@@ -69,7 +69,8 @@ that cannot finish, the error says so and names the journal; the next command re
 - A journal file that is deleted by hand while its stages remain: nothing records what they were
   for, so they stay where they are. They are hidden files ending `.twaco-stage` or
   `.twaco-backup` and can be deleted once the workspace is in a state a person trusts.
-- Directory moves: a caller expresses one as file steps.
+- Directory moves: a caller expresses one as file steps. A service folder emptied by a move is
+  removed after the commit, when it is empty; a crash in that instant leaves an empty folder.
 - Durability of directory entries on Windows: files and the journal are synced; on other
   platforms the containing directory is synced too. Recovery reads digests, so a rename that was
   not made durable is found in whichever state the filesystem kept.
@@ -80,7 +81,7 @@ that cannot finish, the error says so and names the journal; the next command re
 `src/core/transaction/tests/failpoints.rs` runs a plan in a child process that aborts at every
 point of the protocol (after the journal, after staging, after each step is visible and after each
 mark, after the commit) and has the parent recover it through the real lock; the building-block
-tests do the same for a real `new building-block` run; it also kills the
+and relocate tests do the same for real `new building-block` and `move service` runs; it also kills the
 child, edits a file, and checks that recovery refuses and leaves the edit alone. Those tests need
 `--features test-failpoints`, which compiles the abort points in; a normal build contains none.
 
