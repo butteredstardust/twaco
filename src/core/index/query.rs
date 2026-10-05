@@ -3,6 +3,7 @@
 use super::inherit::{implements_shape, inheritance_chain, Inherits};
 use super::{Confidence, Edge, EdgeKind, Index};
 use crate::core::entity_key::EntityKey;
+use crate::core::workspace::WorkspaceError;
 use petgraph::graph::NodeIndex;
 use petgraph::visit::{EdgeFiltered, EdgeRef};
 use petgraph::Direction;
@@ -193,6 +194,55 @@ impl Index {
             ))
         });
         out.into_iter().map(|(_, step)| step).collect()
+    }
+
+    /// The entity a person means by `given`: `Collection/Name`, a full name, or its last dotted
+    /// segment (case-insensitively, as typed on Windows). A name that fits two entities is an
+    /// error listing them, never a first-match win.
+    pub fn resolve(&self, given: &str) -> Result<EntityKey, WorkspaceError> {
+        let unknown = || WorkspaceError::UnknownEntity {
+            name: given.to_string(),
+        };
+        if given.contains('/') {
+            return EntityKey::parse(given)
+                .ok()
+                .filter(|key| self.contains(key))
+                .ok_or_else(unknown);
+        }
+        let labels = |keys: &[&EntityKey]| keys.iter().map(|key| key.to_string()).collect();
+        let exact: Vec<&EntityKey> = self
+            .entities
+            .keys()
+            .filter(|key| key.name() == given)
+            .collect();
+        match exact.len() {
+            1 => return Ok(exact[0].clone()),
+            0 => {}
+            _ => {
+                return Err(WorkspaceError::Ambiguous {
+                    name: given.to_string(),
+                    found: labels(&exact),
+                })
+            }
+        }
+        let suffix: Vec<&EntityKey> = self
+            .entities
+            .keys()
+            .filter(|key| {
+                key.name()
+                    .rsplit('.')
+                    .next()
+                    .is_some_and(|last| last.eq_ignore_ascii_case(given))
+            })
+            .collect();
+        match suffix.len() {
+            0 => Err(unknown()),
+            1 => Ok(suffix[0].clone()),
+            _ => Err(WorkspaceError::Ambiguous {
+                name: given.to_string(),
+                found: labels(&suffix),
+            }),
+        }
     }
 
     fn inherits_of<'a>(&'a self, key: &'a EntityKey) -> Option<Inherits<'a>> {

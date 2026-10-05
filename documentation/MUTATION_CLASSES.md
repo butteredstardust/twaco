@@ -70,6 +70,7 @@ when the command is asked to write. A local output named by an option is include
 | `import source-control` | read-only | server-partial | server entities | Read the post-import diff before retrying. | `core/imports.rs: import_source_control` |
 | `settings` | read-only | read-only | none | Retry freely. | `main.rs: settings_cmd` |
 | `catalog` | read-only | read-only | none | Retry freely. | `main.rs: catalog_cmd` |
+| `impact` | read-only | read-only | none | Retry freely. | `core/impact.rs: run` |
 | `ext list` | read-only | read-only | none | Retry freely. | `main.rs: ext_cmd` |
 | `ext show` | read-only | read-only | none | Retry freely. | `main.rs: ext_cmd` |
 | `ext import` | read-only | server-partial | server extension | Check installed extensions before retrying. | `main.rs: ext_cmd` |
@@ -140,6 +141,7 @@ when the command is asked to write. A local output named by an option is include
 | `import` | read-only | server-partial | server entities | Compare again with the server before retrying. | `mcp.rs: import_tool` |
 | `settings` | read-only | read-only | none | Retry freely. | `mcp.rs: settings_tool` |
 | `catalog` | read-only | read-only | none | Retry freely. | `mcp.rs: catalog_tool` |
+| `impact` | read-only | read-only | none | Retry freely. | `mcp.rs: impact_tool` |
 | `guide` | read-only | read-only | none | Retry freely. | `mcp.rs: guide_tool` |
 | `help_search` | single-file atomic | single-file atomic | user cache file | The cache file is old or new; retry freely. | `mcp.rs: help_search_tool` |
 | `help_page` | single-file atomic | single-file atomic | user cache file | The cache file is old or new; retry freely. | `mcp.rs: help_page_tool` |

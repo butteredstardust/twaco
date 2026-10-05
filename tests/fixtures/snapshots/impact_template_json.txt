@@ -1,0 +1,48 @@
+$ twaco impact Base_TT --json
+exit: 0
+
+--- stdout
+{
+  "entity": "ThingTemplates/Acme.Orders.Base_TT",
+  "project": "Acme.Orders",
+  "member": null,
+  "min_confidence": "review",
+  "depth": null,
+  "dependents": [
+    {
+      "label": "Things/Acme.Orders.Manager",
+      "project": "Acme.Orders",
+      "depth": 1,
+      "confidence": "structural",
+      "members": []
+    },
+    {
+      "label": "Mashups/Acme.Orders.Dashboard",
+      "project": "Acme.Orders",
+      "depth": 2,
+      "confidence": "resolved",
+      "members": []
+    }
+  ],
+  "counts": {
+    "structural": 1,
+    "resolved": 1,
+    "review": 0
+  },
+  "inherited_by": [
+    "Things/Acme.Orders.Manager"
+  ],
+  "projects": [
+    {
+      "deploy_order": 1,
+      "name": "Acme.Orders"
+    }
+  ],
+  "complete": true,
+  "unreadable": [],
+  "unparsed_scripts": [],
+  "notes": [],
+  "limits": "references built at run time, and anything outside this repository, are not seen"
+}
+--- stderr
+

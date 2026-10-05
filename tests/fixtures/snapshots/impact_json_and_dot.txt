@@ -1,0 +1,7 @@
+$ twaco impact Audit --json --dot
+exit: 2
+
+--- stdout
+
+--- stderr
+twaco: --json and --dot are different outputs; pick one

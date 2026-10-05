@@ -1,0 +1,13 @@
+$ twaco impact Audit --member Record --dot
+exit: 0
+
+--- stdout
+digraph impact {
+  rankdir=LR;
+  node [shape=box, fontsize=10];
+  "Things/Acme.Orders.Audit" [style=filled, fillcolor="#dbe6ff"];
+  "Mashups/Acme.Orders.Dashboard" -> "Things/Acme.Orders.Manager" [label="mashup_binding GetOrder", style=dashed];
+  "Things/Acme.Orders.Manager" -> "Things/Acme.Orders.Audit" [label="script_reference Record", style=dashed];
+}
+--- stderr
+

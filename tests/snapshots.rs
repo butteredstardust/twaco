@@ -31,6 +31,28 @@ const SCENARIOS: &[(&str, &[&str])] = &[
     ),
     ("guide_topics", &["guide"]),
     (
+        "impact_service_plan",
+        &["impact", "Audit", "--member", "Record"],
+    ),
+    (
+        "impact_service_detail",
+        &["impact", "Audit", "--member", "Record", "--detail"],
+    ),
+    ("impact_template_json", &["impact", "Base_TT", "--json"]),
+    (
+        "impact_service_dot",
+        &["impact", "Audit", "--member", "Record", "--dot"],
+    ),
+    ("impact_unknown_entity", &["impact", "Acme.Orders.Nope"]),
+    (
+        "impact_bad_confidence",
+        &["impact", "Audit", "--min-confidence", "sure"],
+    ),
+    (
+        "impact_json_and_dot",
+        &["impact", "Audit", "--json", "--dot"],
+    ),
+    (
         "rename_service_plan",
         &[
             "rename",

@@ -1565,6 +1565,61 @@
     }
   },
   {
+    "name": "impact",
+    "description": "What changing an entity, or one service, property or field of it, would reach: the Things, templates, shapes, mashups and projects that depend on it, directly or through others, each at the strength of its weakest reference (structural: declared in the XML or twaco.toml; resolved: a static name in a script or a mashup binding; review: a string that looks like the name, for a person to judge). Offline and read-only. It cannot see references built at run time or outside the repository; `complete` says whether every input was read and `unreadable` lists what was not. Summary leaves the chain to each dependent out; detail includes it.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "entity": {
+          "type": "string",
+          "description": "Collection/Name, a full name, or its last dotted segment."
+        },
+        "member": {
+          "type": "string",
+          "description": "A service, property or field of the entity: ask only about what names it."
+        },
+        "min_confidence": {
+          "type": "string",
+          "enum": [
+            "structural",
+            "resolved",
+            "review"
+          ],
+          "default": "review",
+          "description": "The weakest reference to follow."
+        },
+        "depth": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "How many references away to look; omit for no limit."
+        },
+        "format": {
+          "type": "string",
+          "enum": [
+            "json",
+            "dot"
+          ],
+          "default": "json",
+          "description": "dot returns the dependents as a Graphviz graph in `dot`."
+        },
+        "detail": {
+          "type": "boolean",
+          "description": "Return everything instead of the summary.",
+          "default": false
+        }
+      },
+      "required": [
+        "entity"
+      ],
+      "additionalProperties": false
+    },
+    "annotations": {
+      "readOnlyHint": true,
+      "destructiveHint": false,
+      "openWorldHint": false
+    }
+  },
+  {
     "name": "guide",
     "description": "Knowledge for working on this solution: twaco's workflow, the ThingWorx platform's verified-live quirks, the service-code reference, and the solution's own AGENTS.md, CLAUDE.md and docs/. Search before a live import, a hand-written mashup binding, a configuration-table change, or a service that introspects metadata or touches JSON. list: the topics; search: the best-matching sections; read: a topic (a long one gives its outline) or one section by heading.",
     "inputSchema": {

@@ -25,6 +25,7 @@ pub mod extensions;
 pub mod fmt;
 pub mod guide;
 pub mod help;
+pub mod impact;
 pub mod imports;
 pub mod index;
 pub mod init;

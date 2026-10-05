@@ -15,10 +15,11 @@ use std::time::Duration;
 
 use twaco::core::config::Solution;
 use twaco::core::entity_key::EntityKey;
+use twaco::core::index::Confidence;
 use twaco::core::{
     adopt, backup, baseline, catalog, config_table, datatable_copy, db, deploy, entity_carry,
-    entity_delete, lock, newblock, profile, push, relocate, rename, retemplate, server, status,
-    types, workflow, workspace,
+    entity_delete, impact, lock, newblock, profile, push, relocate, rename, retemplate, server,
+    status, types, workflow, workspace,
 };
 
 /// Success.
@@ -232,6 +233,7 @@ fn main() -> ExitCode {
             "ext" => ext_cmd(solution, &parsed),
             "settings" => settings_cmd(solution, &parsed),
             "catalog" => catalog_cmd(solution, &parsed),
+            "impact" => impact_cmd(solution, &parsed),
             "package" => package_cmd(solution, &parsed),
             "export" => export_cmd(solution, &parsed),
             "import" => import_cmd(solution, &parsed),
@@ -294,6 +296,11 @@ fn route(args: &[String]) -> Result<Route, String> {
         "ext" => ("ext", 1, &["--apply", "--json", "--profile"]),
         "settings" => ("settings", 1, &["--search", "--json", "--profile"]),
         "catalog" => ("catalog", 1, &["--project", "--search", "--json"]),
+        "impact" => (
+            "impact",
+            1,
+            &["--member", "--min-confidence", "--depth", "--detail", "--json", "--dot"],
+        ),
         "package" => ("package", 1, &["--project", "--backend-only", "--frontend-only", "--editable", "--out", "--force"]),
         "import" => (
             "import",
@@ -447,6 +454,8 @@ const VALUE_FLAGS: &[&str] = &[
     "--version",
     "--section",
     "--member",
+    "--min-confidence",
+    "--depth",
     "--repository",
     "--path",
     "--collection",
@@ -733,6 +742,11 @@ const USAGE: &str = r#"usage: twaco <command>
                               (read-only; PASSWORD values are never shown); --json
   catalog [<entity>] [--project P] [--search <text>] [--json]
                               offline services, signatures, origins and descriptions
+  impact <entity> [--member <name>] [--min-confidence structural|resolved|review] [--depth <n>]
+                              what changing an entity, or one service/property/field of it, reaches
+      --detail                list every dependent and the chain of references to each
+      --json                  the report as JSON (chains with --detail)
+      --dot                   the dependents as a Graphviz graph
   ext list [--json]           the server's extension packages
   ext show <package>          one package: its extensions, and which are in use
   ext import <zip>            validate a package on the server; --apply installs it
@@ -2553,6 +2567,66 @@ fn settings_cmd(solution: &Solution, args: &Args) -> u8 {
 }
 
 /// `twaco catalog [<entity>] [--project P] [--search <text>] [--json]`.
+/// What changing an entity, or one service, property or field of it, would reach. Offline and
+/// read-only: it reads the solution into the index and asks it.
+fn impact_cmd(solution: &Solution, args: &Args) -> u8 {
+    let [entity] = args.names.as_slice() else {
+        eprintln!("twaco: impact needs one <entity>, such as Acme.Orders.Manager");
+        return FAILED;
+    };
+    if args.has("--json") && args.has("--dot") {
+        eprintln!("twaco: --json and --dot are different outputs; pick one");
+        return FAILED;
+    }
+    let min = match args.values.get("--min-confidence") {
+        None => Confidence::Review,
+        Some(word) => match Confidence::parse(word) {
+            Some(confidence) => confidence,
+            None => {
+                eprintln!(
+                    "twaco: --min-confidence is structural, resolved or review, not {word:?}"
+                );
+                return FAILED;
+            }
+        },
+    };
+    let depth = match args.values.get("--depth") {
+        None => None,
+        Some(text) => match text.parse::<usize>() {
+            Ok(depth) if depth > 0 => Some(depth),
+            _ => {
+                eprintln!("twaco: --depth is a positive whole number, not {text:?}");
+                return FAILED;
+            }
+        },
+    };
+    let request = impact::Request {
+        entity: entity.clone(),
+        member: args.values.get("--member").cloned(),
+        min,
+        depth,
+    };
+    let report = match impact::run(solution, &request) {
+        Ok(report) => report,
+        Err(error) => {
+            eprintln!("twaco: {error}");
+            return FAILED;
+        }
+    };
+    if args.has("--json") {
+        let value = report.to_json(args.has("--detail"));
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&value).expect("a report serialises")
+        );
+    } else if args.has("--dot") {
+        print!("{}", impact::render_dot(&report));
+    } else {
+        print!("{}", impact::render_text(&report, args.has("--detail")));
+    }
+    OK
+}
+
 fn catalog_cmd(solution: &Solution, args: &Args) -> u8 {
     if args.names.len() > 1 {
         eprintln!("twaco: catalog takes at most one entity name");
@@ -5239,6 +5313,7 @@ mod tests {
             "ext",
             "settings",
             "catalog",
+            "impact",
             "package",
             "import",
             "export",

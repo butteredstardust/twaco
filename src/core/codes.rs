@@ -303,6 +303,13 @@ impl Coded for super::catalog::CatalogError {
         }
     }
 }
+impl Coded for super::impact::ImpactError {
+    fn code(&self) -> ErrorCode {
+        match self {
+            Self::Entity(error) => error.code(),
+        }
+    }
+}
 impl Coded for super::config_table::TableError {
     fn code(&self) -> ErrorCode {
         match self {
@@ -1200,6 +1207,23 @@ mod tests {
         is(LogsError::Remote(transport()), ErrorCode::ServerUnreachable);
         is(LogsError::Shape(text()), ErrorCode::InvalidData);
         is(LogsError::Invalid(text()), ErrorCode::InvalidArguments);
+    }
+
+    #[test]
+    fn impact_error() {
+        use crate::core::impact::ImpactError;
+        use crate::core::workspace::WorkspaceError;
+        is(
+            ImpactError::Entity(WorkspaceError::UnknownEntity { name: text() }),
+            ErrorCode::UnknownEntity,
+        );
+        is(
+            ImpactError::Entity(WorkspaceError::Ambiguous {
+                name: text(),
+                found: vec![text()],
+            }),
+            ErrorCode::Ambiguous,
+        );
     }
 
     #[test]
