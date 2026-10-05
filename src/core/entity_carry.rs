@@ -13,7 +13,7 @@
 //! organizational unit, never a group.
 
 use super::config::Solution;
-use super::entity_key::ServiceTarget;
+use super::entity_key::{EntityKey, ServiceTarget};
 use super::ledger::{self, Ledger};
 use super::refs;
 use super::server::{Client, ServerError};
@@ -101,9 +101,43 @@ impl Remote for Client {
 /// One old entity and the one that replaced it.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Pair {
-    pub collection: String,
-    pub old: String,
-    pub new: String,
+    old: EntityKey,
+    new: EntityKey,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PairError {
+    old: EntityKey,
+    new: EntityKey,
+}
+
+impl fmt::Display for PairError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{} and {} are in different collections", self.old, self.new)
+    }
+}
+
+impl std::error::Error for PairError {}
+
+impl Pair {
+    pub fn new(old: EntityKey, new: EntityKey) -> Result<Self, PairError> {
+        if old.collection() != new.collection() {
+            return Err(PairError { old, new });
+        }
+        Ok(Self { old, new })
+    }
+
+    pub fn collection(&self) -> &str {
+        self.old.collection()
+    }
+
+    pub fn old(&self) -> &str {
+        self.old.name()
+    }
+
+    pub fn new_name(&self) -> &str {
+        self.new.name()
+    }
 }
 
 #[derive(Debug)]
@@ -235,25 +269,17 @@ pub fn pairs_from_names(names: &[String]) -> Result<Vec<Pair>, CarryError> {
             why: "give entities in pairs: <Collection/Old> <Collection/New>".to_string(),
         });
     }
-    let split = |text: &str| -> Result<(String, String), CarryError> {
-        match text.split_once('/') {
-            Some((collection, name)) if !collection.is_empty() && !name.is_empty() => Ok((collection.to_string(), name.to_string())),
-            _ => Err(CarryError::Arguments {
-                why: format!("{text:?} must be written Collection/Name"),
-            }),
-        }
+    let parse = |text: &str| -> Result<EntityKey, CarryError> {
+        EntityKey::parse(text).map_err(|_| CarryError::Arguments {
+            why: format!("{text:?} must be written Collection/Name"),
+        })
     };
     names
         .chunks(2)
         .map(|pair| {
-            let (collection, old) = split(&pair[0])?;
-            let (new_collection, new) = split(&pair[1])?;
-            if collection != new_collection {
-                return Err(CarryError::Arguments {
-                    why: format!("{} and {} are in different collections", pair[0], pair[1]),
-                });
-            }
-            Ok(Pair { collection, old, new })
+            let old = parse(&pair[0])?;
+            let new = parse(&pair[1])?;
+            Pair::new(old, new).map_err(|error| CarryError::Arguments { why: error.to_string() })
         })
         .collect()
 }
@@ -274,7 +300,13 @@ pub fn run(
     if request.renamed {
         for at in ledger.replaced(|entity| entity.carried.is_none() && entity.deleted.is_none()) {
             let entity = ledger.entity(at);
-            let pair = Pair { collection: entity.collection.clone(), old: entity.old.clone(), new: entity.new.clone() };
+            let old = EntityKey::new(&entity.collection, &entity.old).map_err(|_| CarryError::Ledger {
+                why: format!("{}/{} is not a valid entity key", entity.collection, entity.old),
+            })?;
+            let new = EntityKey::new(&entity.collection, &entity.new).map_err(|_| CarryError::Ledger {
+                why: format!("{}/{} is not a valid entity key", entity.collection, entity.new),
+            })?;
+            let pair = Pair::new(old, new).map_err(|error| CarryError::Ledger { why: error.to_string() })?;
             work.push((pair, Some(at)));
         }
     }
@@ -288,9 +320,9 @@ pub fn run(
     let mut marks = Vec::new();
     for (pair, origin) in work {
         let mut result = EntityResult {
-            collection: pair.collection.clone(),
-            old: pair.old.clone(),
-            new: pair.new.clone(),
+            collection: pair.collection().to_string(),
+            old: pair.old().to_string(),
+            new: pair.new_name().to_string(),
             status: Status::Equal,
             kinds: Vec::new(),
             differences: None,
@@ -330,18 +362,18 @@ fn carry_one(
     request: &Request,
     result: &mut EntityResult,
 ) -> Result<(), ServerError> {
-    if !remote.exists(&pair.collection, &pair.old)? {
+    if !remote.exists(pair.collection(), pair.old())? {
         result.status = Status::OldAbsent;
         return Ok(());
     }
-    if !remote.exists(&pair.collection, &pair.new)? {
+    if !remote.exists(pair.collection(), pair.new_name())? {
         result.status = Status::NewAbsent;
         return Ok(());
     }
     let mut to_write = Vec::new();
     for kind in Kind::ALL {
-        let old = remote.get(&pair.collection, &pair.old, kind)?;
-        let new = remote.get(&pair.collection, &pair.new, kind)?;
+        let old = remote.get(pair.collection(), pair.old(), kind)?;
+        let new = remote.get(pair.collection(), pair.new_name(), kind)?;
         let wanted = mapping.map_value(&old);
         if canonical(&wanted) != canonical(&new) {
             to_write.push((kind, wanted));
@@ -357,12 +389,12 @@ fn carry_one(
         return measure(remote, pair, request, result);
     }
     for (kind, wanted) in &to_write {
-        remote.set(&pair.collection, &pair.new, *kind, wanted)?;
+        remote.set(pair.collection(), pair.new_name(), *kind, wanted)?;
         // Read it back: a set that answers success and changes nothing is a failure, not a carry.
-        let after = remote.get(&pair.collection, &pair.new, *kind)?;
+        let after = remote.get(pair.collection(), pair.new_name(), *kind)?;
         if canonical(&after) != canonical(wanted) {
             return Err(ServerError::InvalidResponse {
-                url: format!("{}/{}", pair.collection, pair.new),
+                url: format!("{}/{}", pair.collection(), pair.new_name()),
                 why: format!("the {} permissions did not read back equal after the write", kind.label()),
             });
         }
@@ -374,7 +406,7 @@ fn carry_one(
 /// The platform's own count of what still differs, taken after any write.
 fn measure(remote: &dyn Remote, pair: &Pair, request: &Request, result: &mut EntityResult) -> Result<(), ServerError> {
     if request.detail {
-        result.differences = Some(remote.differences(&pair.collection, &pair.new, &pair.old)?);
+        result.differences = Some(remote.differences(pair.collection(), pair.new_name(), pair.old())?);
     }
     Ok(())
 }
@@ -475,6 +507,44 @@ mod tests {
         let b = json!({ "permissions": [ { "resourceName": "y" }, { "resourceName": "x", "a": [2, 1] } ] });
         assert_eq!(canonical(&a), canonical(&b));
         assert_ne!(canonical(&a), canonical(&json!({ "permissions": [] })));
+    }
+
+    #[test]
+    fn pairs_are_validated_entity_keys_with_the_existing_argument_errors() {
+        let pairs = pairs_from_names(&["Things/Old".into(), "Things/New".into()]).unwrap();
+        assert_eq!(pairs.len(), 1);
+        assert_eq!(pairs[0].collection(), "Things");
+        assert_eq!(pairs[0].old(), "Old");
+        assert_eq!(pairs[0].new_name(), "New");
+
+        let odd = pairs_from_names(&["Things/Old".into()]).unwrap_err();
+        assert_eq!(odd.to_string(), "give entities in pairs: <Collection/Old> <Collection/New>");
+        let bad = pairs_from_names(&["Old".into(), "Things/New".into()]).unwrap_err();
+        assert_eq!(bad.to_string(), "\"Old\" must be written Collection/Name");
+        let different = pairs_from_names(&["Things/Old".into(), "Groups/New".into()]).unwrap_err();
+        assert_eq!(different.to_string(), "Things/Old and Groups/New are in different collections");
+        let invalid = pairs_from_names(&["Things/A".into(), "Things/../B".into()]).unwrap_err();
+        assert_eq!(invalid.to_string(), "\"Things/../B\" must be written Collection/Name");
+    }
+
+    #[test]
+    fn a_pair_refuses_different_collections() {
+        let error = Pair::new(EntityKey::new("Things", "Old").unwrap(), EntityKey::new("Groups", "New").unwrap()).unwrap_err();
+        assert_eq!(error.to_string(), "Things/Old and Groups/New are in different collections");
+    }
+
+    #[test]
+    fn an_invalid_ledger_entity_is_a_carry_error_not_a_panic() {
+        let ledger = r#"[
+  { "date": "2026-10-01", "kind": "entity", "old": "Old", "new": "New",
+    "entities": [ { "collection": "Things", "old": "A/B", "new": "C" } ] }
+]"#;
+        let (root, solution) = solution("invalid-ledger-entity", Some(ledger));
+        let fake = Fake::default();
+        let error = run(&fake, &solution, &Request { renamed: true, ..Default::default() }, "d").unwrap_err();
+        assert_eq!(error.to_string(), "Things/A/B is not a valid entity key; fix or remove .twaco/renames.json");
+        assert!(fake.calls.borrow().is_empty());
+        let _ = std::fs::remove_dir_all(root);
     }
 
     #[test]

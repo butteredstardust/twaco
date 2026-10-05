@@ -5,7 +5,7 @@
 //! repository folder, or a zip there. Exports read the server; only the source-control export
 //! writes to it, so only it is a plan unless applied.
 
-use super::entity_key::ServiceTarget;
+use super::entity_key::{EntityKey, ServiceTarget};
 use super::server::{Client, ServerError};
 use serde_json::{json, Value};
 use std::fmt;
@@ -48,7 +48,7 @@ impl std::error::Error for ExportError {}
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum What {
     /// `Collection/Name`.
-    Entity { collection: String, name: String },
+    Entity { key: EntityKey },
     Collection { collection: String, project: Option<String> },
     Project { project: String },
 }
@@ -56,12 +56,9 @@ pub enum What {
 impl What {
     /// `Things/X` as an entity.
     pub fn entity(text: &str) -> Result<What, ExportError> {
-        match text.split_once('/') {
-            Some((collection, name)) if !collection.is_empty() && !name.is_empty() && !name.contains('/') => {
-                Ok(What::Entity { collection: collection.to_string(), name: name.to_string() })
-            }
-            _ => Err(ExportError::Invalid(format!("an entity is Collection/Name, such as Things/My.Thing, not {text:?}"))),
-        }
+        EntityKey::parse(text)
+            .map(|key| What::Entity { key })
+            .map_err(|_| ExportError::Invalid(format!("an entity is Collection/Name, such as Things/My.Thing, not {text:?}")))
     }
 }
 
@@ -75,7 +72,7 @@ pub struct Exported {
 /// The export's XML, with how many entities of each collection it holds.
 pub fn export(remote: &dyn Remote, what: &What) -> Result<Exported, ExportError> {
     let xml = match what {
-        What::Entity { collection, name } => remote.export_xml(Some(collection), Some(name), None),
+        What::Entity { key } => remote.export_xml(Some(key.collection()), Some(key.name()), None),
         What::Collection { collection, project } => remote.export_xml(Some(collection), None, project.as_deref()),
         What::Project { project } => remote.export_xml(None, None, Some(project)),
     }
@@ -235,9 +232,15 @@ mod tests {
 
     #[test]
     fn an_entity_is_collection_slash_name() {
-        assert_eq!(What::entity("Things/My.Thing").unwrap(), What::Entity { collection: "Things".into(), name: "My.Thing".into() });
-        for bad in ["Things", "Things/", "/X", "A/B/C"] {
-            assert!(What::entity(bad).is_err(), "{bad:?}");
+        assert_eq!(What::entity("Things/My.Thing").unwrap(), What::Entity { key: EntityKey::new("Things", "My.Thing").unwrap() });
+    }
+
+    #[test]
+    fn entity_names_are_valid_entity_keys() {
+        assert!(What::entity("Things/Acme.Thing").is_ok());
+        for bad in ["Things", "/X", "Things/", "A/B/C", "Things/.."] {
+            let error = What::entity(bad).unwrap_err();
+            assert_eq!(error.to_string(), format!("an entity is Collection/Name, such as Things/My.Thing, not {bad:?}"));
         }
     }
 
