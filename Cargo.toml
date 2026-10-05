@@ -26,6 +26,10 @@ url = "2.5.8"
 base64 = "0.23.1"
 zip = "8.6.0"
 ignore = "0.4.33"
+swc_ecma_parser = "=27.0.7"
+swc_common = "=17.0.1"
+swc_ecma_ast = "=18.0.0"
+swc_ecma_visit = "=18.0.1"
 
 [dev-dependencies]
 

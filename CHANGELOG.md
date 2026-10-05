@@ -4,6 +4,18 @@ All notable changes to twaco are recorded here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and versions follow
 [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Changed
+
+- Rename now analyses service scripts with a real ECMAScript parser instead of a lexical scan,
+  so calls split over lines or inside template literals are found, and text in strings,
+  comments and regular expressions is not mistaken for code. A script the parser refuses
+  (Rhino-only syntax such as `for each`) is no longer edited; its mentions are left for review.
+- A variable counts as a Thing only if every declaration of it names the same `Things` entity and
+  it is never reassigned or taken as a parameter. A service rename follows an `@function` tag
+  only inside comments.
+
 ## [0.1.0] - 2026-10-03
 
 The first public release.

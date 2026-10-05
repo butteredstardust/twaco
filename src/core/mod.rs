@@ -47,6 +47,7 @@ pub mod relocate;
 pub mod retemplate;
 pub mod repo;
 pub mod scan;
+pub mod script;
 pub mod server;
 pub mod settings;
 pub mod sidecar;

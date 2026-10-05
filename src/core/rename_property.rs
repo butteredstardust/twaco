@@ -8,11 +8,10 @@
 //! Everything else that is exactly the name (another receiver, a quoted string) is a review finding.
 
 use super::rename_scan::{
-    add_field_edit, add_review, add_service_edit, js_tokens, param_receiver_variables, previous_token,
-    span_text, thing_receiver_tokens, JsKind, JsToken, Place, XmlPass,
+    add_field_edit, add_review, add_service_edit, lexical_mentions, span_text, Place, XmlPass,
 };
-use super::scan;
-use std::collections::BTreeSet;
+use super::{scan, script};
+use std::collections::{BTreeMap, BTreeSet};
 
 /// What one entity says about the property, and the edits for it.
 pub struct PropertyPass {
@@ -148,6 +147,9 @@ pub fn scan_property_script_file(
 
 /// The property reads in `span` of `src`. `local`: `me.<name>` and `this.<name>` are this entity's
 /// own property. `affected`: the entities whose `Things["T"].<name>` is the property.
+///
+/// A script the parser refuses gets no edits; every whole-word mention of the name is left for
+/// review.
 fn scan_property_script(
     src: &[u8],
     span: scan::Span,
@@ -159,78 +161,43 @@ fn scan_property_script(
 ) {
     let text = span.of(src);
     let shift = |inner: scan::Span| scan::Span::new(span.start + inner.start, span.start + inner.end);
-    let tokens: Vec<JsToken> = js_tokens(text).into_iter().filter(|token| token.kind != JsKind::Comment).collect();
-    let variables = param_receiver_variables(text, &tokens);
-    let is_call = |at: usize| tokens.get(at + 1).is_some_and(|next| next.span.of(text) == b"(");
-    for (at, token) in tokens.iter().enumerate() {
-        let raw = token.span.of(text);
-        match token.kind {
-            JsKind::Ident if raw == old.as_bytes() && previous_token(&tokens, at).is_some_and(|dot| dot.span.of(text) == b".") => {
-                if is_call(at) {
-                    continue; // `me.Name(` is a service call
-                }
-                let receiver = receiver_before(text, &tokens, at);
-                let owns = match &receiver {
-                    Receiver::Own => local,
-                    Receiver::Thing(entity) => affected.contains(entity),
-                    Receiver::Variable(name) => variables.get(name).is_some_and(|entity| affected.contains(entity)),
-                    Receiver::Other => false,
-                };
-                if owns {
-                    add_service_edit(src, shift(token.span), new, Place::Property, pass);
-                } else {
-                    add_review(src, shift(token.span), Place::Property, pass);
-                }
-            }
-            JsKind::String if raw.len() >= 2 && &raw[1..raw.len() - 1] == old.as_bytes() => {
-                // `me["Name"]` is a read of the property; any other literal is only a mention.
-                let inner = scan::Span::new(token.span.start + 1, token.span.end - 1);
-                let own_index = at >= 2
-                    && tokens[at - 1].span.of(text) == b"["
-                    && matches!(tokens[at - 2].span.of(text), b"me" | b"this")
-                    && tokens.get(at + 1).is_some_and(|close| close.span.of(text) == b"]");
-                if own_index && local {
-                    add_service_edit(src, shift(inner), new, Place::Property, pass);
-                } else {
-                    add_review(src, shift(inner), Place::Property, pass);
-                }
-            }
-            _ => {}
+    let Ok(script) = script::parse(text) else {
+        for mention in lexical_mentions(text, old) {
+            add_review(src, shift(mention), Place::Property, pass);
         }
-    }
-}
-
-enum Receiver {
-    Own,
-    Thing(String),
-    Variable(Vec<u8>),
-    Other,
-}
-
-/// What stands before the `.` that precedes token `at`.
-fn receiver_before(text: &[u8], tokens: &[JsToken], at: usize) -> Receiver {
-    if at < 2 {
-        return Receiver::Other;
-    }
-    let receiver = &tokens[at - 2];
-    match receiver.span.of(text) {
-        b"me" | b"this" => Receiver::Own,
-        b"]" => {
-            // Walk back to `Things [ "X" ]`.
-            let mut start = at - 2;
-            while start > 0 && tokens[start].span.of(text) != b"Things" {
-                start -= 1;
-                if at - start > 6 {
-                    return Receiver::Other;
-                }
-            }
-            match thing_receiver_tokens(text, tokens, start) {
-                Some((end, entity)) if end == at - 1 => Receiver::Thing(entity),
-                _ => Receiver::Other,
-            }
+        return;
+    };
+    // Each occurrence, in source order, with whether it is the entity's property.
+    let mut found = BTreeMap::<(usize, usize), bool>::new();
+    for member in &script.members {
+        // `me.Name(` is a service call, never a property.
+        if member.string_index || member.is_callee || member.property.of(text) != old.as_bytes() {
+            continue;
         }
-        _ if receiver.kind == JsKind::Ident => Receiver::Variable(receiver.span.of(text).to_vec()),
-        _ => Receiver::Other,
+        let owns = match &member.receiver {
+            script::Receiver::Me | script::Receiver::This => local,
+            other => script
+                .thing_of(other)
+                .is_some_and(|entity| affected.contains(entity)),
+        };
+        found.insert((member.property.start, member.property.end), owns);
+    }
+    for string in script.strings.iter().filter(|string| string.value == old) {
+        // `me["Name"]` is a read of the property; any other literal is only a mention.
+        let own_index = script.members.iter().any(|member| {
+            member.string_index
+                && member.property == string.span
+                && matches!(member.receiver, script::Receiver::Me | script::Receiver::This)
+        });
+        found.insert((string.span.start, string.span.end), own_index && local);
+    }
+    for ((start, end), owns) in found {
+        let hit = shift(scan::Span::new(start, end));
+        if owns {
+            add_service_edit(src, hit, new, Place::Property, pass);
+        } else {
+            add_review(src, hit, Place::Property, pass);
+        }
     }
 }
 
@@ -287,5 +254,57 @@ mod tests {
         let pass = scan_property_script_file(script, "Temperature", "Heat", false, &affected()).unwrap();
         let out = apply(script, &pass);
         assert_eq!(out, "const t = Things[\"P.T\"]; const o = Things[\"Else\"]; t.Heat; o.Temperature; t.Temperature();");
+    }
+
+    /// The script after a property rename of `Temperature`, and the findings that were not edits.
+    fn rename(script: &str, local: bool) -> (String, usize) {
+        let pass =
+            scan_property_script_file(script.as_bytes(), "Temperature", "Heat", local, &affected()).unwrap();
+        let reviews = pass.findings.iter().filter(|finding| !finding.applied).count();
+        (apply(script.as_bytes(), &pass), reviews)
+    }
+
+    #[test]
+    fn a_read_is_found_through_line_breaks_and_templates() {
+        let (out, reviews) = rename("me\n  .Temperature = 1;\nvar s = `${me.Temperature} ${this.Temperature}`;", true);
+        assert_eq!(out, "me\n  .Heat = 1;\nvar s = `${me.Heat} ${this.Heat}`;");
+        assert_eq!(reviews, 0);
+    }
+
+    #[test]
+    fn text_that_only_looks_like_a_read_is_not_a_property() {
+        // A string holding a path, a regex and a comment hold no property access at all.
+        let script = "var s = 'me.Temperature'; var r = /me.Temperature/; // me.Temperature\n";
+        assert_eq!(rename(script, true), (script.to_string(), 0));
+    }
+
+    #[test]
+    fn a_chain_is_not_a_variable_and_an_ambiguous_variable_proves_nothing() {
+        // The receiver of `.Temperature` here is `a.b`, not the variable `b`.
+        let chain = "var b = Things[\"P.T\"]; a.b.Temperature;";
+        assert_eq!(rename(chain, false), (chain.to_string(), 1));
+        for ambiguous in [
+            "var t = Things[\"P.T\"]; t = other; t.Temperature;",
+            "var t = Things[\"P.T\"]; var t = Things[\"Else\"]; t.Temperature;",
+            "var t = Things[\"P.T\"]; function f(t) { return t.Temperature; }",
+        ] {
+            assert_eq!(rename(ambiguous, false), (ambiguous.to_string(), 1), "{ambiguous}");
+        }
+    }
+
+    #[test]
+    fn an_index_on_me_is_a_read_and_any_other_literal_is_a_mention() {
+        let (out, reviews) = rename("me[\"Temperature\"]; this['Temperature']; x[\"Temperature\"]; f('Temperature');", true);
+        assert_eq!(out, "me[\"Heat\"]; this['Heat']; x[\"Temperature\"]; f('Temperature');");
+        assert_eq!(reviews, 2);
+        let own = "me[\"Temperature\"];";
+        assert_eq!(rename(own, false), (own.to_string(), 1), "not the entity's own property");
+    }
+
+    #[test]
+    fn a_script_the_parser_refuses_is_not_edited() {
+        // Rhino's `for each` is not ECMAScript: every mention of the name is left for a person.
+        let script = "for each (x in y) { me.Temperature; 'Temperature'; }";
+        assert_eq!(rename(script, true), (script.to_string(), 2));
     }
 }
