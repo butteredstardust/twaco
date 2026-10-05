@@ -31,20 +31,23 @@ impl Index {
         builder.add_projects();
         builder.add_entities();
         builder.add_structural_edges();
+        builder.add_script_edges();
+        builder.add_mashup_edges();
+        builder.add_deploy_edges();
         builder.finish()
     }
 }
 
-struct Builder<'a> {
-    solution: &'a Solution,
+pub(super) struct Builder<'a> {
+    pub(super) solution: &'a Solution,
     /// Read once: the entity model and what it could not read.
-    model: types::Model,
-    skipped: Vec<String>,
-    graph: DiGraph<Node, Edge>,
-    entities: BTreeMap<EntityKey, NodeIndex>,
-    projects: BTreeMap<String, NodeIndex>,
-    unreadable: Vec<Unreadable>,
-    unparsed: Vec<String>,
+    pub(super) model: types::Model,
+    pub(super) skipped: Vec<String>,
+    pub(super) graph: DiGraph<Node, Edge>,
+    pub(super) entities: BTreeMap<EntityKey, NodeIndex>,
+    pub(super) projects: BTreeMap<String, NodeIndex>,
+    pub(super) unreadable: Vec<Unreadable>,
+    pub(super) unparsed: Vec<String>,
 }
 
 /// What the entity model says about one entity, for the node that stands for it.
@@ -56,7 +59,7 @@ struct Declared {
 }
 
 impl Builder<'_> {
-    fn note_unreadable(&mut self, message: &str) {
+    pub(super) fn note_unreadable(&mut self, message: &str) {
         // Discovery and the model report `path: reason`; keep them apart when they say so.
         let (what, why) = message.split_once(": ").unwrap_or((message, ""));
         let entry = Unreadable {
@@ -98,6 +101,54 @@ impl Builder<'_> {
                     }
                 }
             }
+        }
+    }
+
+    /// Every entity whose name is qualified (contains a dot), by name. Short names such as `Run`
+    /// would match any string, so a string is taken for an entity's name only when it is
+    /// qualified.
+    pub(super) fn qualified_names(&self) -> BTreeMap<String, Vec<EntityKey>> {
+        let mut names: BTreeMap<String, Vec<EntityKey>> = BTreeMap::new();
+        for key in self.entities.keys() {
+            if crate::core::refs::is_qualified(key.name()) {
+                names
+                    .entry(key.name().to_string())
+                    .or_default()
+                    .push(key.clone());
+            }
+        }
+        names
+    }
+
+    /// Whether any reference already goes from `from` (from `member`) to `to`.
+    pub(super) fn referenced(&self, from: NodeIndex, to: NodeIndex, member: Option<&str>) -> bool {
+        self.graph
+            .edges_connecting(from, to)
+            .any(|edge| edge.weight().from_member.as_deref() == member)
+    }
+
+    /// A review-level edge to every entity whose qualified name `text` equals, unless a reference
+    /// from the same place to the same entity is already there: a string that merely names an
+    /// entity says less than a binding or a `Things[...]` access that does.
+    pub(super) fn mention(
+        &mut self,
+        from: NodeIndex,
+        member: Option<&str>,
+        text: &str,
+        kind: EdgeKind,
+        names: &BTreeMap<String, Vec<EntityKey>>,
+    ) {
+        let Some(keys) = names.get(text) else {
+            return;
+        };
+        for key in keys {
+            let Some(&to) = self.entities.get(key) else {
+                continue;
+            };
+            if to == from || self.referenced(from, to, member) {
+                continue;
+            }
+            self.link(from, key.collection(), key.name(), kind, member, None);
         }
     }
 
@@ -175,7 +226,7 @@ impl Builder<'_> {
     /// An edge from `from` to the entity `collection/name`, if the repository holds it. A name
     /// that is not here (a platform template, an extension's shape) names something the index
     /// cannot see, so there is nothing to point at.
-    fn link(
+    pub(super) fn link(
         &mut self,
         from: NodeIndex,
         collection: &str,
@@ -193,10 +244,11 @@ impl Builder<'_> {
         if to == from {
             return;
         }
-        let at = self.graph[from]
-            .file
-            .as_ref()
-            .map(|path| path.to_string_lossy().replace('\\', "/"));
+        // A project has no file of its own: what it names is written in `twaco.toml`.
+        let at = match &self.graph[from].file {
+            Some(path) => Some(path.to_string_lossy().replace('\\', "/")),
+            None => Some(crate::core::config::CONFIG_FILE.to_string()),
+        };
         let edge = Edge {
             kind,
             from_member: from_member.map(str::to_string),
