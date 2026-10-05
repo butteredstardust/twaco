@@ -109,7 +109,10 @@ impl fmt::Display for ScanError {
             ScanError::Malformed { what, at } => write!(f, "malformed {what} at byte {at}"),
             ScanError::NotUtf8 { at } => write!(f, "not valid UTF-8 at byte {at}"),
             ScanError::UnsupportedEncoding { what } => {
-                write!(f, "{what} encoding is not supported; entity XML must be UTF-8")
+                write!(
+                    f,
+                    "{what} encoding is not supported; entity XML must be UTF-8"
+                )
             }
         }
     }
@@ -138,7 +141,9 @@ pub fn tokenize(src: &[u8]) -> Result<Vec<Token>, ScanError> {
 pub fn scan(src: &[u8]) -> Result<Scanned, ScanError> {
     reject_unsupported_encoding(src)?;
     if let Err(e) = std::str::from_utf8(src) {
-        return Err(ScanError::NotUtf8 { at: e.valid_up_to() });
+        return Err(ScanError::NotUtf8 {
+            at: e.valid_up_to(),
+        });
     }
 
     let has_bom = src.starts_with(UTF8_BOM);
@@ -193,14 +198,23 @@ fn text_token(start: usize, end: usize) -> Token {
 fn scan_markup(src: &[u8], start: usize) -> Result<Token, ScanError> {
     let empty = Span::new(start, start);
     if starts_with(src, start, b"<!--") {
-        let end = find(src, start + 4, b"-->")
-            .ok_or(ScanError::Unterminated { what: "comment", at: start })?;
-        return Ok(Token { kind: Kind::Comment, span: Span::new(start, end + 3), name: empty, inner: empty });
+        let end = find(src, start + 4, b"-->").ok_or(ScanError::Unterminated {
+            what: "comment",
+            at: start,
+        })?;
+        return Ok(Token {
+            kind: Kind::Comment,
+            span: Span::new(start, end + 3),
+            name: empty,
+            inner: empty,
+        });
     }
     if starts_with(src, start, b"<![CDATA[") {
         let body = start + 9;
-        let end = find(src, body, b"]]>")
-            .ok_or(ScanError::Unterminated { what: "CDATA section", at: start })?;
+        let end = find(src, body, b"]]>").ok_or(ScanError::Unterminated {
+            what: "CDATA section",
+            at: start,
+        })?;
         return Ok(Token {
             kind: Kind::Cdata,
             span: Span::new(start, end + 3),
@@ -210,18 +224,33 @@ fn scan_markup(src: &[u8], start: usize) -> Result<Token, ScanError> {
     }
     if starts_with(src, start, b"<!DOCTYPE") {
         let end = scan_doctype(src, start)?;
-        return Ok(Token { kind: Kind::DocType, span: Span::new(start, end), name: empty, inner: empty });
+        return Ok(Token {
+            kind: Kind::DocType,
+            span: Span::new(start, end),
+            name: empty,
+            inner: empty,
+        });
     }
     if starts_with(src, start, b"<!") {
         // `<!ENTITY`, `<!ELEMENT` and friends only appear inside a DOCTYPE internal subset,
         // which scan_doctype consumes whole. One out here is markup this tool does not model,
         // and guessing it is an element would name it `!ENTITY`.
-        return Err(ScanError::Malformed { what: "declaration outside a DOCTYPE", at: start });
+        return Err(ScanError::Malformed {
+            what: "declaration outside a DOCTYPE",
+            at: start,
+        });
     }
     if starts_with(src, start, b"<?") {
-        let end = find(src, start + 2, b"?>")
-            .ok_or(ScanError::Unterminated { what: "processing instruction", at: start })?;
-        return Ok(Token { kind: Kind::Pi, span: Span::new(start, end + 2), name: empty, inner: empty });
+        let end = find(src, start + 2, b"?>").ok_or(ScanError::Unterminated {
+            what: "processing instruction",
+            at: start,
+        })?;
+        return Ok(Token {
+            kind: Kind::Pi,
+            span: Span::new(start, end + 2),
+            name: empty,
+            inner: empty,
+        });
     }
 
     let closing = starts_with(src, start, b"</");
@@ -232,13 +261,19 @@ fn scan_markup(src: &[u8], start: usize) -> Result<Token, ScanError> {
     }
     let name = Span::new(name_start, n);
     if !is_valid_name(&src[name_start..n.min(src.len())]) {
-        return Err(ScanError::Malformed { what: "element name", at: start });
+        return Err(ScanError::Malformed {
+            what: "element name",
+            at: start,
+        });
     }
     let end = scan_tag(src, n, start)?;
     let self_closing = end >= 2 && src[end - 2] == b'/';
     let kind = if closing {
         if self_closing {
-            return Err(ScanError::Malformed { what: "end tag written as self-closing", at: start });
+            return Err(ScanError::Malformed {
+                what: "end tag written as self-closing",
+                at: start,
+            });
         }
         Kind::End
     } else if self_closing {
@@ -246,7 +281,12 @@ fn scan_markup(src: &[u8], start: usize) -> Result<Token, ScanError> {
     } else {
         Kind::Start
     };
-    Ok(Token { kind, span: Span::new(start, end), name, inner: empty })
+    Ok(Token {
+        kind,
+        span: Span::new(start, end),
+        name,
+        inner: empty,
+    })
 }
 
 /// Consume a DOCTYPE, including an internal subset.
@@ -274,7 +314,10 @@ fn scan_doctype(src: &[u8], start: usize) -> Result<usize, ScanError> {
         }
         i += 1;
     }
-    Err(ScanError::Unterminated { what: "doctype", at: start })
+    Err(ScanError::Unterminated {
+        what: "doctype",
+        at: start,
+    })
 }
 
 /// Advance to just past the `>` that closes a tag.
@@ -291,18 +334,27 @@ fn scan_tag(src: &[u8], from: usize, tag_start: usize) -> Result<usize, ScanErro
             if b == quote {
                 quote = 0;
             } else if b == b'<' {
-                return Err(ScanError::Malformed { what: "'<' inside an attribute value", at: i });
+                return Err(ScanError::Malformed {
+                    what: "'<' inside an attribute value",
+                    at: i,
+                });
             }
         } else if b == b'"' || b == b'\'' {
             quote = b;
         } else if b == b'<' {
-            return Err(ScanError::Malformed { what: "'<' inside a tag", at: i });
+            return Err(ScanError::Malformed {
+                what: "'<' inside a tag",
+                at: i,
+            });
         } else if b == b'>' {
             return Ok(i + 1);
         }
         i += 1;
     }
-    Err(ScanError::Unterminated { what: "tag", at: tag_start })
+    Err(ScanError::Unterminated {
+        what: "tag",
+        at: tag_start,
+    })
 }
 
 fn is_name_end(b: u8) -> bool {
@@ -314,14 +366,16 @@ fn is_name_end(b: u8) -> bool {
 /// Deliberately permissive about non-ASCII, which XML allows and ThingWorx does not use, and
 /// strict about the ASCII punctuation that would indicate this is not an element at all.
 fn is_valid_name(name: &[u8]) -> bool {
-    let Some(&first) = name.first() else { return false };
+    let Some(&first) = name.first() else {
+        return false;
+    };
     let start_ok = first.is_ascii_alphabetic() || first == b'_' || first == b':' || first >= 0x80;
     if !start_ok {
         return false;
     }
-    name[1..].iter().all(|&b| {
-        b.is_ascii_alphanumeric() || matches!(b, b'_' | b':' | b'-' | b'.') || b >= 0x80
-    })
+    name[1..]
+        .iter()
+        .all(|&b| b.is_ascii_alphanumeric() || matches!(b, b'_' | b':' | b'-' | b'.') || b >= 0x80)
 }
 
 fn starts_with(src: &[u8], at: usize, prefix: &[u8]) -> bool {
@@ -338,7 +392,11 @@ fn find(src: &[u8], from: usize, needle: &[u8]) -> Option<usize> {
 
 /// Every CDATA section in the document, in order.
 pub fn cdata_sections(tokens: &[Token]) -> Vec<Token> {
-    tokens.iter().copied().filter(|t| t.kind == Kind::Cdata).collect()
+    tokens
+        .iter()
+        .copied()
+        .filter(|t| t.kind == Kind::Cdata)
+        .collect()
 }
 
 /// The value of one attribute on a tag token, as a span into the source.
@@ -375,25 +433,39 @@ pub fn attributes(src: &[u8], tag: &Token) -> Result<Vec<Attribute>, ScanError> 
             return Ok(found);
         }
         let key_start = i;
-        while i < limit && src[i] != b'=' && !src[i].is_ascii_whitespace() && src[i] != b'>' && src[i] != b'/' {
+        while i < limit
+            && src[i] != b'='
+            && !src[i].is_ascii_whitespace()
+            && src[i] != b'>'
+            && src[i] != b'/'
+        {
             i += 1;
         }
         let key = &src[key_start..i];
         if key.is_empty() {
-            return Err(ScanError::Malformed { what: "attribute name", at: key_start });
+            return Err(ScanError::Malformed {
+                what: "attribute name",
+                at: key_start,
+            });
         }
         while i < limit && src[i].is_ascii_whitespace() {
             i += 1;
         }
         if i >= limit || src[i] != b'=' {
-            return Err(ScanError::Malformed { what: "attribute without a value", at: key_start });
+            return Err(ScanError::Malformed {
+                what: "attribute without a value",
+                at: key_start,
+            });
         }
         i += 1;
         while i < limit && src[i].is_ascii_whitespace() {
             i += 1;
         }
         if i >= limit || (src[i] != b'"' && src[i] != b'\'') {
-            return Err(ScanError::Malformed { what: "unquoted attribute value", at: i.min(limit) });
+            return Err(ScanError::Malformed {
+                what: "unquoted attribute value",
+                at: i.min(limit),
+            });
         }
         let quote = src[i];
         i += 1;
@@ -402,7 +474,10 @@ pub fn attributes(src: &[u8], tag: &Token) -> Result<Vec<Attribute>, ScanError> 
             i += 1;
         }
         if i >= limit {
-            return Err(ScanError::Unterminated { what: "attribute value", at: value_start });
+            return Err(ScanError::Unterminated {
+                what: "attribute value",
+                at: value_start,
+            });
         }
         found.push(Attribute {
             name: Span::new(key_start, key_start + key.len()),
@@ -480,18 +555,28 @@ pub fn element_span(tokens: &[Token], start: usize) -> Option<Span> {
 }
 
 /// The index of the first tag named `name` at or after `from`, within `limit`.
-pub fn find_tag(tokens: &[Token], src: &[u8], name: &str, from: usize, limit: usize) -> Option<usize> {
+pub fn find_tag(
+    tokens: &[Token],
+    src: &[u8],
+    name: &str,
+    from: usize,
+    limit: usize,
+) -> Option<usize> {
     (from..limit.min(tokens.len())).find(|&i| {
-        matches!(tokens[i].kind, Kind::Start | Kind::Empty) && tokens[i].name.of(src) == name.as_bytes()
+        matches!(tokens[i].kind, Kind::Start | Kind::Empty)
+            && tokens[i].name.of(src) == name.as_bytes()
     })
 }
 
 /// Every tag named `name` strictly inside the element opening at `parent`.
 pub fn tags_within(tokens: &[Token], src: &[u8], name: &str, parent: usize) -> Vec<usize> {
-    let Some(end) = element_end(tokens, parent) else { return Vec::new() };
+    let Some(end) = element_end(tokens, parent) else {
+        return Vec::new();
+    };
     (parent + 1..end)
         .filter(|&i| {
-            matches!(tokens[i].kind, Kind::Start | Kind::Empty) && tokens[i].name.of(src) == name.as_bytes()
+            matches!(tokens[i].kind, Kind::Start | Kind::Empty)
+                && tokens[i].name.of(src) == name.as_bytes()
         })
         .collect()
 }
@@ -502,7 +587,9 @@ pub fn tags_within(tokens: &[Token], src: &[u8], name: &str, parent: usize) -> V
 /// with its own `ServiceDefinitions`, and treating that as the template's own merges two
 /// entities' services into one sidecar tree.
 pub fn child_tags(tokens: &[Token], src: &[u8], name: &str, parent: usize) -> Vec<usize> {
-    let Some(end) = element_end(tokens, parent) else { return Vec::new() };
+    let Some(end) = element_end(tokens, parent) else {
+        return Vec::new();
+    };
     let mut out = Vec::new();
     let mut index = parent + 1;
     while index < end {
@@ -607,7 +694,10 @@ mod tests {
         let t = tokenize(src).unwrap();
         assert_eq!(t.len(), 2);
         assert_eq!(t[0].kind, Kind::DocType);
-        assert_eq!(t[0].span.of(src), b"<!DOCTYPE root [<!ELEMENT root (#PCDATA)>]>");
+        assert_eq!(
+            t[0].span.of(src),
+            b"<!DOCTYPE root [<!ELEMENT root (#PCDATA)>]>"
+        );
         assert_eq!(t[1].kind, Kind::Empty);
     }
 
@@ -640,7 +730,11 @@ mod tests {
             &b"<![CDATA[ unterminated"[..],
             &b"</a/>"[..],
         ] {
-            assert!(tokenize(bad).is_err(), "expected an error for {:?}", String::from_utf8_lossy(bad));
+            assert!(
+                tokenize(bad).is_err(),
+                "expected an error for {:?}",
+                String::from_utf8_lossy(bad)
+            );
         }
     }
 
@@ -655,14 +749,21 @@ mod tests {
         src.extend_from_slice(b"<a/>");
         let scanned = scan(&src).unwrap();
         assert!(scanned.has_bom);
-        let rebuilt: Vec<u8> = scanned.tokens.iter().flat_map(|t| t.span.of(&src).to_vec()).collect();
+        let rebuilt: Vec<u8> = scanned
+            .tokens
+            .iter()
+            .flat_map(|t| t.span.of(&src).to_vec())
+            .collect();
         assert_eq!(rebuilt, src);
     }
 
     #[test]
     fn utf16_is_refused_rather_than_guessed_at() {
         let src = [0xFF, 0xFE, b'<', 0x00];
-        assert!(matches!(scan(&src), Err(ScanError::UnsupportedEncoding { .. })));
+        assert!(matches!(
+            scan(&src),
+            Err(ScanError::UnsupportedEncoding { .. })
+        ));
     }
 
     #[test]

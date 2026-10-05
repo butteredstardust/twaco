@@ -53,7 +53,16 @@ impl Migration {
 
 /// The file name for a migration: `<date>-rename-<what>.sql`, safe on every platform.
 pub fn file_name(date: &str, label: &str) -> String {
-    let safe: String = label.chars().map(|c| if c.is_ascii_alphanumeric() || c == '.' || c == '-' || c == '_' { c } else { '-' }).collect();
+    let safe: String = label
+        .chars()
+        .map(|c| {
+            if c.is_ascii_alphanumeric() || c == '.' || c == '-' || c == '_' {
+                c
+            } else {
+                '-'
+            }
+        })
+        .collect();
     format!("{date}-rename-{safe}.sql")
 }
 
@@ -92,10 +101,16 @@ pub fn render(migration: &Migration) -> String {
     let dump: String = tables.iter().map(|table| format!(" -t {table}")).collect();
     let _ = writeln!(out, "--     pg_dump -d <database>{dump} > backup.sql");
     let _ = writeln!(out, "--");
-    let _ = writeln!(out, "-- Run it as one atomic script with `twaco db run <this file> --apply`, or with psql:");
+    let _ = writeln!(
+        out,
+        "-- Run it as one atomic script with `twaco db run <this file> --apply`, or with psql:"
+    );
     let _ = writeln!(out, "--     psql -v ON_ERROR_STOP=1 -f <this file>");
     let _ = writeln!(out, "--");
-    let _ = writeln!(out, "-- Safe to re-run: every statement is guarded and does nothing once it has been applied.");
+    let _ = writeln!(
+        out,
+        "-- Safe to re-run: every statement is guarded and does nothing once it has been applied."
+    );
     for note in &migration.notes {
         let _ = writeln!(out, "-- NOTE: {note}");
     }
@@ -105,11 +120,27 @@ pub fn render(migration: &Migration) -> String {
     for rename in &migration.tables {
         let (old, new) = (&rename.old_table, &rename.new_table);
         let _ = writeln!(out);
-        let _ = writeln!(out, "-- Table {old} -> {new}. DBConnection names a table for its DataShape, lowercased.");
-        let _ = writeln!(out, "ALTER TABLE IF EXISTS {} RENAME TO {};", ident(old), ident(new));
-        let _ = writeln!(out, "-- Postgres keeps the old names of what belongs to the table: rename them so a later");
+        let _ = writeln!(
+            out,
+            "-- Table {old} -> {new}. DBConnection names a table for its DataShape, lowercased."
+        );
+        let _ = writeln!(
+            out,
+            "ALTER TABLE IF EXISTS {} RENAME TO {};",
+            ident(old),
+            ident(new)
+        );
+        let _ = writeln!(
+            out,
+            "-- Postgres keeps the old names of what belongs to the table: rename them so a later"
+        );
         let _ = writeln!(out, "-- UpdateDatabaseSchema finds the names it expects.");
-        let _ = writeln!(out, "ALTER INDEX IF EXISTS {} RENAME TO {};", ident(&format!("{old}_pkey")), ident(&format!("{new}_pkey")));
+        let _ = writeln!(
+            out,
+            "ALTER INDEX IF EXISTS {} RENAME TO {};",
+            ident(&format!("{old}_pkey")),
+            ident(&format!("{new}_pkey"))
+        );
         for columns in &rename.indexes {
             let _ = writeln!(
                 out,
@@ -119,7 +150,15 @@ pub fn render(migration: &Migration) -> String {
             );
         }
         for column in &rename.foreign_keys {
-            let _ = write!(out, "{}", rename_constraint(new, &format!("{old}_{column}_fk"), &format!("{new}_{column}_fk")));
+            let _ = write!(
+                out,
+                "{}",
+                rename_constraint(
+                    new,
+                    &format!("{old}_{column}_fk"),
+                    &format!("{new}_{column}_fk")
+                )
+            );
         }
         let _ = writeln!(
             out,
@@ -136,15 +175,40 @@ pub fn render(migration: &Migration) -> String {
         let _ = writeln!(out, "-- Column {table}.{old} -> {new}. DBConnection names a column for its field, lowercased.");
         let _ = writeln!(out, "DO $$");
         let _ = writeln!(out, "BEGIN");
-        let _ = writeln!(out, "    IF EXISTS (SELECT 1 FROM information_schema.columns");
+        let _ = writeln!(
+            out,
+            "    IF EXISTS (SELECT 1 FROM information_schema.columns"
+        );
         let _ = writeln!(out, "               WHERE table_schema = current_schema() AND table_name = {} AND column_name = {})", literal(table), literal(old));
-        let _ = writeln!(out, "       AND NOT EXISTS (SELECT 1 FROM information_schema.columns");
+        let _ = writeln!(
+            out,
+            "       AND NOT EXISTS (SELECT 1 FROM information_schema.columns"
+        );
         let _ = writeln!(out, "               WHERE table_schema = current_schema() AND table_name = {} AND column_name = {}) THEN", literal(table), literal(new));
-        let _ = writeln!(out, "        ALTER TABLE {} RENAME COLUMN {} TO {};", ident(table), ident(old), ident(new));
+        let _ = writeln!(
+            out,
+            "        ALTER TABLE {} RENAME COLUMN {} TO {};",
+            ident(table),
+            ident(old),
+            ident(new)
+        );
         let _ = writeln!(out, "    END IF;");
         let _ = writeln!(out, "END $$;");
-        for columns in rename.indexes.iter().filter(|columns| columns.contains(old)) {
-            let renamed: Vec<String> = columns.iter().map(|column| if column == old { new.clone() } else { column.clone() }).collect();
+        for columns in rename
+            .indexes
+            .iter()
+            .filter(|columns| columns.contains(old))
+        {
+            let renamed: Vec<String> = columns
+                .iter()
+                .map(|column| {
+                    if column == old {
+                        new.clone()
+                    } else {
+                        column.clone()
+                    }
+                })
+                .collect();
             let _ = writeln!(
                 out,
                 "ALTER INDEX IF EXISTS {} RENAME TO {};",
@@ -153,7 +217,15 @@ pub fn render(migration: &Migration) -> String {
             );
         }
         if rename.foreign_keys.contains(old) {
-            let _ = write!(out, "{}", rename_constraint(table, &format!("{table}_{old}_fk"), &format!("{table}_{new}_fk")));
+            let _ = write!(
+                out,
+                "{}",
+                rename_constraint(
+                    table,
+                    &format!("{table}_{old}_fk"),
+                    &format!("{table}_{new}_fk")
+                )
+            );
         }
         let _ = writeln!(
             out,
@@ -164,10 +236,20 @@ pub fn render(migration: &Migration) -> String {
     }
 
     if !migration.replacements.is_empty() && !migration.backed_tables.is_empty() {
-        let list: Vec<String> = migration.backed_tables.iter().map(|table| literal(table)).collect();
+        let list: Vec<String> = migration
+            .backed_tables
+            .iter()
+            .map(|table| literal(table))
+            .collect();
         let _ = writeln!(out);
-        let _ = writeln!(out, "-- Rows name entities by their full name (a card stores the mashup it renders).");
-        let _ = writeln!(out, "-- This is a plain substring replace in every text column of the DBConnection tables:");
+        let _ = writeln!(
+            out,
+            "-- Rows name entities by their full name (a card stores the mashup it renders)."
+        );
+        let _ = writeln!(
+            out,
+            "-- This is a plain substring replace in every text column of the DBConnection tables:"
+        );
         for (old, new) in &migration.replacements {
             let _ = writeln!(out, "--     {old} -> {new}");
         }
@@ -176,9 +258,19 @@ pub fn render(migration: &Migration) -> String {
         let _ = writeln!(out, "    col record;");
         let _ = writeln!(out, "BEGIN");
         let _ = writeln!(out, "    FOR col IN");
-        let _ = writeln!(out, "        SELECT table_name, column_name FROM information_schema.columns");
-        let _ = writeln!(out, "        WHERE table_schema = current_schema() AND table_name IN ({})", list.join(", "));
-        let _ = writeln!(out, "          AND data_type IN ('character varying', 'text')");
+        let _ = writeln!(
+            out,
+            "        SELECT table_name, column_name FROM information_schema.columns"
+        );
+        let _ = writeln!(
+            out,
+            "        WHERE table_schema = current_schema() AND table_name IN ({})",
+            list.join(", ")
+        );
+        let _ = writeln!(
+            out,
+            "          AND data_type IN ('character varying', 'text')"
+        );
         let _ = writeln!(out, "    LOOP");
         for (old, new) in &migration.replacements {
             let _ = writeln!(
@@ -200,9 +292,18 @@ pub fn render(migration: &Migration) -> String {
     let _ = writeln!(out);
     let _ = writeln!(out, "COMMIT;");
     let _ = writeln!(out);
-    let _ = writeln!(out, "-- Check afterwards (expect the new names and no old ones):");
-    let _ = writeln!(out, "--     SELECT table_name, column_name FROM information_schema.columns");
-    let _ = writeln!(out, "--     WHERE table_schema = current_schema() ORDER BY 1, 2;");
+    let _ = writeln!(
+        out,
+        "-- Check afterwards (expect the new names and no old ones):"
+    );
+    let _ = writeln!(
+        out,
+        "--     SELECT table_name, column_name FROM information_schema.columns"
+    );
+    let _ = writeln!(
+        out,
+        "--     WHERE table_schema = current_schema() ORDER BY 1, 2;"
+    );
     out
 }
 
@@ -229,7 +330,10 @@ mod tests {
                 table: "dashboards".into(),
                 old: "username".into(),
                 new: "ownername".into(),
-                indexes: vec![vec!["username".into()], vec!["dashboard_uid".into(), "username".into()]],
+                indexes: vec![
+                    vec!["username".into()],
+                    vec!["dashboard_uid".into(), "username".into()],
+                ],
                 foreign_keys: vec!["username".into()],
             }],
             ..Default::default()
@@ -241,13 +345,28 @@ mod tests {
         let sql = render(&column());
         assert!(sql.contains("BEGIN;") && sql.trim_end().lines().any(|line| line == "COMMIT;"));
         // Only renamed when the old column exists and the new one does not.
-        assert!(sql.contains("AND NOT EXISTS (SELECT 1 FROM information_schema.columns"), "{sql}");
-        assert!(sql.contains("column_name = 'username')") && sql.contains("column_name = 'ownername') THEN"), "{sql}");
-        assert!(sql.contains("ALTER TABLE \"dashboards\" RENAME COLUMN \"username\" TO \"ownername\";"), "{sql}");
+        assert!(
+            sql.contains("AND NOT EXISTS (SELECT 1 FROM information_schema.columns"),
+            "{sql}"
+        );
+        assert!(
+            sql.contains("column_name = 'username')")
+                && sql.contains("column_name = 'ownername') THEN"),
+            "{sql}"
+        );
+        assert!(
+            sql.contains("ALTER TABLE \"dashboards\" RENAME COLUMN \"username\" TO \"ownername\";"),
+            "{sql}"
+        );
         // Both indexes that list the column, under the names DBConnection gave them.
         assert!(sql.contains("ALTER INDEX IF EXISTS \"dashboards_username_idx\" RENAME TO \"dashboards_ownername_idx\";"), "{sql}");
         assert!(sql.contains("ALTER INDEX IF EXISTS \"dashboards_dashboard_uid_username_idx\" RENAME TO \"dashboards_dashboard_uid_ownername_idx\";"), "{sql}");
-        assert!(sql.contains("RENAME CONSTRAINT \"dashboards_username_fk\" TO \"dashboards_ownername_fk\""), "{sql}");
+        assert!(
+            sql.contains(
+                "RENAME CONSTRAINT \"dashboards_username_fk\" TO \"dashboards_ownername_fk\""
+            ),
+            "{sql}"
+        );
         assert!(sql.contains("before importing") || sql.contains("BEFORE importing"));
     }
 
@@ -265,11 +384,23 @@ mod tests {
             ..Default::default()
         };
         let sql = render(&migration);
-        assert!(sql.contains("ALTER TABLE IF EXISTS \"dashboards\" RENAME TO \"boards\";"), "{sql}");
-        assert!(sql.contains("\"dashboards_pkey\" RENAME TO \"boards_pkey\""), "{sql}");
-        assert!(sql.contains("\"dashboards_username_idx\" RENAME TO \"boards_username_idx\""), "{sql}");
+        assert!(
+            sql.contains("ALTER TABLE IF EXISTS \"dashboards\" RENAME TO \"boards\";"),
+            "{sql}"
+        );
+        assert!(
+            sql.contains("\"dashboards_pkey\" RENAME TO \"boards_pkey\""),
+            "{sql}"
+        );
+        assert!(
+            sql.contains("\"dashboards_username_idx\" RENAME TO \"boards_username_idx\""),
+            "{sql}"
+        );
         assert!(sql.contains("ALTER TABLE \"boards\" RENAME CONSTRAINT \"dashboards_owner_uid_fk\" TO \"boards_owner_uid_fk\""), "{sql}");
-        assert!(sql.contains("\"dashboards_uid_seq\" RENAME TO \"boards_uid_seq\""), "{sql}");
+        assert!(
+            sql.contains("\"dashboards_uid_seq\" RENAME TO \"boards_uid_seq\""),
+            "{sql}"
+        );
     }
 
     #[test]
@@ -277,15 +408,27 @@ mod tests {
         let migration = Migration {
             date: "2026-10-02".into(),
             title: "Rename prefix".into(),
-            replacements: vec![("Acme.Old".into(), "Acme.New".into()), ("It's".into(), "Its".into())],
+            replacements: vec![
+                ("Acme.Old".into(), "Acme.New".into()),
+                ("It's".into(), "Its".into()),
+            ],
             backed_tables: vec!["dashboards".into(), "dashboardcards".into()],
             ..Default::default()
         };
         let sql = render(&migration);
-        assert!(sql.contains("table_name IN ('dashboards', 'dashboardcards')"), "{sql}");
-        assert!(sql.contains("data_type IN ('character varying', 'text')"), "{sql}");
+        assert!(
+            sql.contains("table_name IN ('dashboards', 'dashboardcards')"),
+            "{sql}"
+        );
+        assert!(
+            sql.contains("data_type IN ('character varying', 'text')"),
+            "{sql}"
+        );
         assert!(sql.contains("'Acme.Old', 'Acme.New', 'Acme.Old'"), "{sql}");
-        assert!(sql.contains("'It''s', 'Its', 'It''s'"), "a quote in a name is doubled: {sql}");
+        assert!(
+            sql.contains("'It''s', 'Its', 'It''s'"),
+            "a quote in a name is doubled: {sql}"
+        );
         assert!(sql.contains("plain substring replace"));
     }
 
@@ -293,7 +436,13 @@ mod tests {
     fn nothing_to_say_is_empty_and_file_names_are_safe() {
         assert!(Migration::default().is_empty());
         assert!(!column().is_empty());
-        assert_eq!(file_name("2026-10-02", "field-Acme.D.UserName-to-OwnerName"), "2026-10-02-rename-field-Acme.D.UserName-to-OwnerName.sql");
-        assert_eq!(file_name("2026-10-02", "a b/c"), "2026-10-02-rename-a-b-c.sql");
+        assert_eq!(
+            file_name("2026-10-02", "field-Acme.D.UserName-to-OwnerName"),
+            "2026-10-02-rename-field-Acme.D.UserName-to-OwnerName.sql"
+        );
+        assert_eq!(
+            file_name("2026-10-02", "a b/c"),
+            "2026-10-02-rename-a-b-c.sql"
+        );
     }
 }

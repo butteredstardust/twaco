@@ -175,7 +175,11 @@ pub struct SolutionMeta {
 /// serde default -- and an empty `src` would quietly resolve sidecars to the solution root.
 impl Default for SolutionMeta {
     fn default() -> Self {
-        SolutionMeta { name: String::new(), src: default_src(), dist: default_dist() }
+        SolutionMeta {
+            name: String::new(),
+            src: default_src(),
+            dist: default_dist(),
+        }
     }
 }
 
@@ -267,19 +271,41 @@ fn default_backend_name() -> String {
 
 #[derive(Debug)]
 pub enum ConfigError {
-    NotFound { from: PathBuf },
-    Unreadable { path: PathBuf, why: String },
-    Invalid { path: PathBuf, why: String },
-    NoProjects { path: PathBuf },
-    DuplicateProject { name: String },
+    NotFound {
+        from: PathBuf,
+    },
+    Unreadable {
+        path: PathBuf,
+        why: String,
+    },
+    Invalid {
+        path: PathBuf,
+        why: String,
+    },
+    NoProjects {
+        path: PathBuf,
+    },
+    DuplicateProject {
+        name: String,
+    },
     BlankProjectName,
     BlankCheckName,
-    EmptyCheckCommand { name: String },
+    EmptyCheckCommand {
+        name: String,
+    },
     EmptyTypesCompiler,
     /// A path that would reach outside the solution, which nothing here has a reason to do.
-    EscapingPath { what: &'static str, value: String },
-    UnknownDependency { project: String, missing: String },
-    DependencyCycle { names: Vec<String> },
+    EscapingPath {
+        what: &'static str,
+        value: String,
+    },
+    UnknownDependency {
+        project: String,
+        missing: String,
+    },
+    DependencyCycle {
+        names: Vec<String>,
+    },
 }
 
 impl fmt::Display for ConfigError {
@@ -331,10 +357,15 @@ impl std::error::Error for ConfigError {}
 fn check_contained(what: &'static str, value: &str) -> Result<(), ConfigError> {
     let path = Path::new(value);
     let escapes = path.is_absolute()
-        || path.components().any(|c| matches!(c, std::path::Component::ParentDir))
+        || path
+            .components()
+            .any(|c| matches!(c, std::path::Component::ParentDir))
         || value.contains(':');
     if escapes {
-        return Err(ConfigError::EscapingPath { what, value: value.to_string() });
+        return Err(ConfigError::EscapingPath {
+            what,
+            value: value.to_string(),
+        });
     }
     Ok(())
 }
@@ -350,14 +381,20 @@ impl Solution {
             }
             dir = here.parent();
         }
-        Err(ConfigError::NotFound { from: start.to_path_buf() })
+        Err(ConfigError::NotFound {
+            from: start.to_path_buf(),
+        })
     }
 
     pub fn load(path: &Path) -> Result<Solution, ConfigError> {
-        let text = std::fs::read_to_string(path)
-            .map_err(|e| ConfigError::Unreadable { path: path.to_path_buf(), why: e.to_string() })?;
-        let mut solution: Solution = toml::from_str(&text)
-            .map_err(|e| ConfigError::Invalid { path: path.to_path_buf(), why: e.to_string() })?;
+        let text = std::fs::read_to_string(path).map_err(|e| ConfigError::Unreadable {
+            path: path.to_path_buf(),
+            why: e.to_string(),
+        })?;
+        let mut solution: Solution = toml::from_str(&text).map_err(|e| ConfigError::Invalid {
+            path: path.to_path_buf(),
+            why: e.to_string(),
+        })?;
         solution.root = path.parent().unwrap_or(Path::new(".")).to_path_buf();
         solution.validate(path)?;
         Ok(solution)
@@ -365,7 +402,9 @@ impl Solution {
 
     fn validate(&self, path: &Path) -> Result<(), ConfigError> {
         if self.projects.is_empty() {
-            return Err(ConfigError::NoProjects { path: path.to_path_buf() });
+            return Err(ConfigError::NoProjects {
+                path: path.to_path_buf(),
+            });
         }
         check_contained("solution.src", &self.solution.src)?;
         for gate in &self.gates.advisory {
@@ -392,7 +431,9 @@ impl Solution {
                 check_contained("project.collections", collection)?;
             }
             if !seen.insert(project.name.as_str()) {
-                return Err(ConfigError::DuplicateProject { name: project.name.clone() });
+                return Err(ConfigError::DuplicateProject {
+                    name: project.name.clone(),
+                });
             }
         }
         for project in &self.projects {
@@ -410,7 +451,9 @@ impl Solution {
                 return Err(ConfigError::BlankCheckName);
             }
             if check.command.is_empty() {
-                return Err(ConfigError::EmptyCheckCommand { name: check.name.clone() });
+                return Err(ConfigError::EmptyCheckCommand {
+                    name: check.name.clone(),
+                });
             }
         }
         if self.types.tsc.as_ref().is_some_and(Vec::is_empty) {
@@ -470,8 +513,10 @@ mod tests {
     use super::*;
 
     fn solution(toml_text: &str) -> Result<Solution, ConfigError> {
-        let mut s: Solution = toml::from_str(toml_text)
-            .map_err(|e| ConfigError::Invalid { path: PathBuf::from("x"), why: e.to_string() })?;
+        let mut s: Solution = toml::from_str(toml_text).map_err(|e| ConfigError::Invalid {
+            path: PathBuf::from("x"),
+            why: e.to_string(),
+        })?;
         s.root = PathBuf::from(".");
         s.validate(Path::new("twaco.toml"))?;
         Ok(s)
@@ -483,7 +528,12 @@ mod tests {
         assert_eq!(s.projects.len(), 1);
         assert_eq!(s.solution.src, "src");
         assert_eq!(s.project_root(&s.projects[0]), PathBuf::from("./."));
-        let order: Vec<&str> = s.deploy_order().unwrap().iter().map(|p| p.name.as_str()).collect();
+        let order: Vec<&str> = s
+            .deploy_order()
+            .unwrap()
+            .iter()
+            .map(|p| p.name.as_str())
+            .collect();
         assert_eq!(order, vec!["Only"]);
         assert_eq!(s.projects[0].deploy, Deploy::default());
     }
@@ -512,16 +562,25 @@ post_import = [
             deploy.deploy_parameters.as_ref().unwrap()["deploymentConfig"]["password"].as_str(),
             Some("${profile:database_password}")
         );
-        assert_eq!(deploy.post_import[1].target.as_deref(), Some("Resources/P.Resource"));
-        assert_eq!(deploy.post_import[1].parameters.as_ref().unwrap()["n"].as_integer(), Some(2));
+        assert_eq!(
+            deploy.post_import[1].target.as_deref(),
+            Some("Resources/P.Resource")
+        );
+        assert_eq!(
+            deploy.post_import[1].parameters.as_ref().unwrap()["n"].as_integer(),
+            Some(2)
+        );
     }
 
     #[test]
     fn an_absent_solution_table_still_gets_the_real_defaults() {
         // Regression: a derived Default gave src = "", so sidecars resolved to the root.
-        let s = solution("[[project]]
+        let s = solution(
+            "[[project]]
 name = \"Only\"
-").unwrap();
+",
+        )
+        .unwrap();
         assert_eq!(s.solution.src, "src");
         assert_eq!(s.solution.dist, "dist");
     }
@@ -531,18 +590,21 @@ name = \"Only\"
         let default = solution("[[project]]\nname = \"Only\"\n").unwrap();
         assert!(!default.format.indent_cdata_payload);
 
-        let indented = solution(
-            "[format]\nindent_cdata_payload = true\n\n[[project]]\nname = \"Only\"\n",
-        )
-        .unwrap();
+        let indented =
+            solution("[format]\nindent_cdata_payload = true\n\n[[project]]\nname = \"Only\"\n")
+                .unwrap();
         assert!(indented.format.indent_cdata_payload);
     }
 
     #[test]
     fn the_live_gate_is_off_unless_the_project_asks_for_it() {
         let off: Solution = toml::from_str("[[project]]\nname = \"P\"\n").unwrap();
-        assert!(!off.gates.live, "the offline loop must stay credential-free by default");
-        let on: Solution = toml::from_str("[gates]\nlive = true\n\n[[project]]\nname = \"P\"\n").unwrap();
+        assert!(
+            !off.gates.live,
+            "the offline loop must stay credential-free by default"
+        );
+        let on: Solution =
+            toml::from_str("[gates]\nlive = true\n\n[[project]]\nname = \"P\"\n").unwrap();
         assert!(on.gates.live);
     }
 
@@ -552,8 +614,17 @@ name = \"Only\"
             "[[project]]\nname = \"UI\"\ndepends_on = [\"Backend\"]\n\n[[project]]\nname = \"Backend\"\n",
         )
         .unwrap();
-        let order: Vec<&str> = s.deploy_order().unwrap().iter().map(|p| p.name.as_str()).collect();
-        assert_eq!(order, vec!["Backend", "UI"], "a dependency must import first");
+        let order: Vec<&str> = s
+            .deploy_order()
+            .unwrap()
+            .iter()
+            .map(|p| p.name.as_str())
+            .collect();
+        assert_eq!(
+            order,
+            vec!["Backend", "UI"],
+            "a dependency must import first"
+        );
     }
 
     #[test]
@@ -598,26 +669,43 @@ name = \"Only\"
     #[test]
     fn a_check_needs_a_name_and_a_command() {
         let no_command = "[[project]]\nname = \"P\"\n[[check]]\nname = \"c\"\ncommand = []\n";
-        assert!(matches!(solution(no_command), Err(ConfigError::EmptyCheckCommand { .. })));
+        assert!(matches!(
+            solution(no_command),
+            Err(ConfigError::EmptyCheckCommand { .. })
+        ));
         let no_name = "[[project]]\nname = \"P\"\n[[check]]\nname = \" \"\ncommand = [\"x\"]\n";
-        assert!(matches!(solution(no_name), Err(ConfigError::BlankCheckName)));
+        assert!(matches!(
+            solution(no_name),
+            Err(ConfigError::BlankCheckName)
+        ));
     }
 
     #[test]
     fn a_check_gates_and_withholds_credentials_by_default() {
         let text = "[[project]]\nname = \"P\"\n[[check]]\nname = \"c\"\ncommand = [\"x\"]\n";
         let s = solution(text).unwrap();
-        assert!(s.checks[0].gate, "a declared check blocks unless it says otherwise");
-        assert!(!s.checks[0].needs_credentials, "credentials are withheld unless asked for");
+        assert!(
+            s.checks[0].gate,
+            "a declared check blocks unless it says otherwise"
+        );
+        assert!(
+            !s.checks[0].needs_credentials,
+            "credentials are withheld unless asked for"
+        );
         assert_eq!(s.checks[0].timeout_seconds, 120);
     }
 
     #[test]
     fn a_types_compiler_command_must_not_be_empty() {
         let empty = "[[project]]\nname = \"P\"\n[types]\ntsc = []\n";
-        assert!(matches!(solution(empty), Err(ConfigError::EmptyTypesCompiler)));
+        assert!(matches!(
+            solution(empty),
+            Err(ConfigError::EmptyTypesCompiler)
+        ));
 
-        let configured = solution("[[project]]\nname = \"P\"\n[types]\ntsc = [\"node\", \"tools/tsc.js\"]\n").unwrap();
+        let configured =
+            solution("[[project]]\nname = \"P\"\n[types]\ntsc = [\"node\", \"tools/tsc.js\"]\n")
+                .unwrap();
         assert_eq!(
             configured.types.tsc.as_deref(),
             Some(["node".to_string(), "tools/tsc.js".to_string()].as_slice())
@@ -627,14 +715,22 @@ name = \"Only\"
     #[test]
     fn a_collection_leaving_the_solution_is_refused() {
         let bad = "[[project]]\nname = \"P\"\ncollections = [\"../outside/Things\"]\n";
-        assert!(matches!(solution(bad), Err(ConfigError::EscapingPath { .. })));
+        assert!(matches!(
+            solution(bad),
+            Err(ConfigError::EscapingPath { .. })
+        ));
     }
 
     #[test]
     fn a_blank_project_name_is_refused() {
-        assert!(matches!(solution("[[project]]
+        assert!(matches!(
+            solution(
+                "[[project]]
 name = \"  \"
-"), Err(ConfigError::BlankProjectName)));
+"
+            ),
+            Err(ConfigError::BlankProjectName)
+        ));
     }
 
     #[test]

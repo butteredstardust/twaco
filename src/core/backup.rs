@@ -38,7 +38,10 @@ impl Remote for Client {
     fn export(&self, collection: &str, name: &str) -> Result<Option<Vec<u8>>, ServerError> {
         let bytes = self.export_xml(Some(collection), Some(name), None)?;
         // The Exporter answers 200 with an empty export for an entity it does not have.
-        Ok(entity::parse(&bytes).ok().filter(|info| info.name == name).map(|_| bytes))
+        Ok(entity::parse(&bytes)
+            .ok()
+            .filter(|info| info.name == name)
+            .map(|_| bytes))
     }
 
     fn import(&self, file_name: &str, xml: &[u8]) -> Result<(), ServerError> {
@@ -52,14 +55,27 @@ impl Remote for Client {
 
 #[derive(Debug)]
 pub enum BackupError {
-    Remote { entity: String, why: ServerError },
-    Io { path: PathBuf, why: String },
+    Remote {
+        entity: String,
+        why: ServerError,
+    },
+    Io {
+        path: PathBuf,
+        why: String,
+    },
     /// The entity is on the server but its export holds nothing twaco can save.
-    Unreadable { entity: String },
-    NoSuchSet { id: String },
+    Unreadable {
+        entity: String,
+    },
+    NoSuchSet {
+        id: String,
+    },
     /// What a forced push or deploy would overwrite could not be worked out.
     Plan(String),
-    Invalid { path: PathBuf, why: String },
+    Invalid {
+        path: PathBuf,
+        why: String,
+    },
 }
 
 impl fmt::Display for BackupError {
@@ -110,12 +126,19 @@ fn root(solution: &Solution) -> PathBuf {
 /// A file name for an entity: names are plain, but nothing is trusted to be a path segment.
 fn file_stem(name: &str) -> String {
     name.chars()
-        .map(|c| if c.is_ascii_alphanumeric() || matches!(c, '_' | '.' | '-') { c.to_string() } else { format!("%{:02X}", c as u32 & 0xFF) })
+        .map(|c| {
+            if c.is_ascii_alphanumeric() || matches!(c, '_' | '.' | '-') {
+                c.to_string()
+            } else {
+                format!("%{:02X}", c as u32 & 0xFF)
+            }
+        })
         .collect()
 }
 
 fn entity_path(dir: &Path, collection: &str, name: &str) -> PathBuf {
-    dir.join(file_stem(collection)).join(format!("{}.xml", file_stem(name)))
+    dir.join(file_stem(collection))
+        .join(format!("{}.xml", file_stem(name)))
 }
 
 /// Save the server's current version of each entity that exists. Entities the server does not
@@ -130,9 +153,21 @@ pub fn save(
     let mut fetched = Vec::new();
     for (collection, name) in entities {
         let label = format!("{collection}/{name}");
-        if let Some(bytes) = remote.export(collection, name).map_err(|why| BackupError::Remote { entity: label.clone(), why })? {
+        if let Some(bytes) = remote
+            .export(collection, name)
+            .map_err(|why| BackupError::Remote {
+                entity: label.clone(),
+                why,
+            })?
+        {
             fetched.push((collection.clone(), name.clone(), bytes));
-        } else if remote.exists(collection, name).map_err(|why| BackupError::Remote { entity: label.clone(), why })? {
+        } else if remote
+            .exists(collection, name)
+            .map_err(|why| BackupError::Remote {
+                entity: label.clone(),
+                why,
+            })?
+        {
             // It is there, but the export came back empty: refuse rather than delete or replace
             // something that was not saved.
             return Err(BackupError::Unreadable { entity: label });
@@ -143,16 +178,26 @@ pub fn save(
     }
     let base = root(solution);
     let (id, dir) = unused_dir(&base, stamp);
-    let io = |path: &Path, error: std::io::Error| BackupError::Io { path: path.to_path_buf(), why: error.to_string() };
+    let io = |path: &Path, error: std::io::Error| BackupError::Io {
+        path: path.to_path_buf(),
+        why: error.to_string(),
+    };
     for (collection, name, bytes) in &fetched {
         let path = entity_path(&dir, collection, name);
-        std::fs::create_dir_all(path.parent().expect("a backup file has a parent")).map_err(|error| io(&dir, error))?;
+        std::fs::create_dir_all(path.parent().expect("a backup file has a parent"))
+            .map_err(|error| io(&dir, error))?;
         workspace::atomic_replace(&path, bytes).map_err(|error| io(&path, error))?;
     }
     let manifest = Manifest {
         created: stamp.to_string(),
         reason: reason.to_string(),
-        entities: fetched.iter().map(|(collection, name, _)| Item { collection: collection.clone(), name: name.clone() }).collect(),
+        entities: fetched
+            .iter()
+            .map(|(collection, name, _)| Item {
+                collection: collection.clone(),
+                name: name.clone(),
+            })
+            .collect(),
     };
     let mut text = serde_json::to_string_pretty(&manifest).expect("a manifest serialises");
     text.push('\n');
@@ -177,11 +222,20 @@ fn unused_dir(base: &Path, stamp: &str) -> (String, PathBuf) {
 /// Every set, oldest first.
 pub fn list(solution: &Solution) -> Vec<Set> {
     let mut sets = Vec::new();
-    let Ok(entries) = std::fs::read_dir(root(solution)) else { return sets };
+    let Ok(entries) = std::fs::read_dir(root(solution)) else {
+        return sets;
+    };
     for entry in entries.flatten() {
         let dir = entry.path();
-        if let Some(manifest) = std::fs::read_to_string(dir.join(MANIFEST)).ok().and_then(|text| serde_json::from_str::<Manifest>(&text).ok()) {
-            sets.push(Set { id: entry.file_name().to_string_lossy().into_owned(), dir, manifest });
+        if let Some(manifest) = std::fs::read_to_string(dir.join(MANIFEST))
+            .ok()
+            .and_then(|text| serde_json::from_str::<Manifest>(&text).ok())
+        {
+            sets.push(Set {
+                id: entry.file_name().to_string_lossy().into_owned(),
+                dir,
+                manifest,
+            });
         }
     }
     sets.sort_by(|a, b| a.id.cmp(&b.id));
@@ -197,7 +251,10 @@ pub fn rotate(solution: &Solution, keep: usize) {
 }
 
 pub fn find(solution: &Solution, id: &str) -> Result<Set, BackupError> {
-    list(solution).into_iter().find(|set| set.id == id).ok_or_else(|| BackupError::NoSuchSet { id: id.to_string() })
+    list(solution)
+        .into_iter()
+        .find(|set| set.id == id)
+        .ok_or_else(|| BackupError::NoSuchSet { id: id.to_string() })
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -223,26 +280,53 @@ pub struct Restored {
 /// Plan, or with `apply` perform, importing a set (or the entities of it that `only` names, as
 /// `Collection/Name` or a bare name) back to the server. Each import is confirmed by asking the
 /// server for the entity; a failure is reported and the rest are still tried.
-pub fn restore(remote: &dyn Remote, set: &Set, only: &[String], apply: bool) -> Result<Vec<Restored>, BackupError> {
+pub fn restore(
+    remote: &dyn Remote,
+    set: &Set,
+    only: &[String],
+    apply: bool,
+) -> Result<Vec<Restored>, BackupError> {
     for wanted in only {
-        let known = set.manifest.entities.iter().any(|item| wanted == &item.name || wanted == &format!("{}/{}", item.collection, item.name));
+        let known = set.manifest.entities.iter().any(|item| {
+            wanted == &item.name || wanted == &format!("{}/{}", item.collection, item.name)
+        });
         if !known {
-            return Err(BackupError::Invalid { path: set.dir.clone(), why: format!("{wanted} is not in this set") });
+            return Err(BackupError::Invalid {
+                path: set.dir.clone(),
+                why: format!("{wanted} is not in this set"),
+            });
         }
     }
     let mut report = Vec::new();
     for item in &set.manifest.entities {
         let label = format!("{}/{}", item.collection, item.name);
-        if !only.is_empty() && !only.iter().any(|wanted| wanted == &item.name || wanted == &label) {
+        if !only.is_empty()
+            && !only
+                .iter()
+                .any(|wanted| wanted == &item.name || wanted == &label)
+        {
             continue;
         }
         let path = entity_path(&set.dir, &item.collection, &item.name);
-        let bytes = std::fs::read(&path).map_err(|error| BackupError::Io { path: path.clone(), why: error.to_string() })?;
-        let present = remote.exists(&item.collection, &item.name).map_err(|why| BackupError::Remote { entity: label.clone(), why })?;
+        let bytes = std::fs::read(&path).map_err(|error| BackupError::Io {
+            path: path.clone(),
+            why: error.to_string(),
+        })?;
+        let present =
+            remote
+                .exists(&item.collection, &item.name)
+                .map_err(|why| BackupError::Remote {
+                    entity: label.clone(),
+                    why,
+                })?;
         let mut entry = Restored {
             collection: item.collection.clone(),
             name: item.name.clone(),
-            status: if present { Status::WouldReplace } else { Status::WouldCreate },
+            status: if present {
+                Status::WouldReplace
+            } else {
+                Status::WouldCreate
+            },
             error: None,
         };
         if apply {
@@ -251,7 +335,10 @@ pub fn restore(remote: &dyn Remote, set: &Set, only: &[String], apply: bool) -> 
                 .map_err(|error| error.to_string())
                 .and_then(|()| match remote.exists(&item.collection, &item.name) {
                     Ok(true) => Ok(()),
-                    Ok(false) => Err("the import was accepted, but the server does not have the entity".to_string()),
+                    Ok(false) => Err(
+                        "the import was accepted, but the server does not have the entity"
+                            .to_string(),
+                    ),
                     Err(error) => Err(error.to_string()),
                 });
             match outcome {
@@ -269,38 +356,80 @@ pub fn restore(remote: &dyn Remote, set: &Set, only: &[String], apply: bool) -> 
 
 /// The entities a forced push or deploy would overwrite although the server holds changes the
 /// repository has not seen: the ones worth saving first.
-pub fn forced_overwrites(decisions: impl IntoIterator<Item = (String, String, Decision)>) -> Vec<(String, String)> {
+pub fn forced_overwrites(
+    decisions: impl IntoIterator<Item = (String, String, Decision)>,
+) -> Vec<(String, String)> {
     decisions
         .into_iter()
-        .filter(|(_, _, decision)| matches!(decision, Decision::Refuse(Refusal::UnknownAncestor { .. } | Refusal::Conflict { .. })))
+        .filter(|(_, _, decision)| {
+            matches!(
+                decision,
+                Decision::Refuse(Refusal::UnknownAncestor { .. } | Refusal::Conflict { .. })
+            )
+        })
         .map(|(collection, name, _)| (collection, name))
         .collect()
 }
 
 /// The same, from a deploy plan.
 pub fn forced_deploy_overwrites(report: &deploy::Report) -> Vec<(String, String)> {
-    forced_overwrites(report.plans.iter().map(|plan| (plan.collection.clone(), plan.name.clone(), plan.decision.clone())))
+    forced_overwrites(report.plans.iter().map(|plan| {
+        (
+            plan.collection.clone(),
+            plan.name.clone(),
+            plan.decision.clone(),
+        )
+    }))
 }
 
 /// Before `entity push --force --apply`: save the server's copy if it holds changes the repository
 /// never saw. Returns the set's folder, relative to the solution.
-pub fn before_forced_push(client: &Client, solution: &Solution, target: &push::Target, stamp: &str) -> Result<Option<String>, BackupError> {
-    let outcome = push::push(client, &solution.root, target, false, true).map_err(|error| BackupError::Plan(error.to_string()))?;
-    let push::Outcome::WouldDo(decision) = outcome else { return Ok(None) };
-    let overwritten = forced_overwrites([(target.key.collection().to_string(), target.key.name().to_string(), decision)]);
+pub fn before_forced_push(
+    client: &Client,
+    solution: &Solution,
+    target: &push::Target,
+    stamp: &str,
+) -> Result<Option<String>, BackupError> {
+    let outcome = push::push(client, &solution.root, target, false, true)
+        .map_err(|error| BackupError::Plan(error.to_string()))?;
+    let push::Outcome::WouldDo(decision) = outcome else {
+        return Ok(None);
+    };
+    let overwritten = forced_overwrites([(
+        target.key.collection().to_string(),
+        target.key.name().to_string(),
+        decision,
+    )]);
     save_overwritten(client, solution, "entity push --force", &overwritten, stamp)
 }
 
 /// Before `deploy --force --apply`: save the server's copy of every entity the deploy would
 /// overwrite although the server holds changes the repository never saw.
-pub fn before_forced_deploy(client: &Client, solution: &Solution, projects: &[deploy::ProjectBundle], stamp: &str) -> Result<Option<String>, BackupError> {
-    let baseline = super::baseline::Baseline::load(&solution.root).map_err(|error| BackupError::Plan(error.to_string()))?;
-    let plans = deploy::decide_all(client, &baseline, projects).map_err(|error| BackupError::Plan(error.to_string()))?;
-    let overwritten = forced_overwrites(plans.into_iter().map(|plan| (plan.collection, plan.name, plan.decision)));
+pub fn before_forced_deploy(
+    client: &Client,
+    solution: &Solution,
+    projects: &[deploy::ProjectBundle],
+    stamp: &str,
+) -> Result<Option<String>, BackupError> {
+    let baseline = super::baseline::Baseline::load(&solution.root)
+        .map_err(|error| BackupError::Plan(error.to_string()))?;
+    let plans = deploy::decide_all(client, &baseline, projects)
+        .map_err(|error| BackupError::Plan(error.to_string()))?;
+    let overwritten = forced_overwrites(
+        plans
+            .into_iter()
+            .map(|plan| (plan.collection, plan.name, plan.decision)),
+    );
     save_overwritten(client, solution, "deploy --force", &overwritten, stamp)
 }
 
-fn save_overwritten(client: &Client, solution: &Solution, reason: &str, entities: &[(String, String)], stamp: &str) -> Result<Option<String>, BackupError> {
+fn save_overwritten(
+    client: &Client,
+    solution: &Solution,
+    reason: &str,
+    entities: &[(String, String)],
+    stamp: &str,
+) -> Result<Option<String>, BackupError> {
     if entities.is_empty() {
         return Ok(None);
     }
@@ -309,7 +438,11 @@ fn save_overwritten(client: &Client, solution: &Solution, reason: &str, entities
 
 /// A path as `/`-separated text, relative to the solution when it is under it.
 pub fn relative(solution: &Solution, path: &Path) -> String {
-    path.strip_prefix(&solution.root).unwrap_or(path).display().to_string().replace('\\', "/")
+    path.strip_prefix(&solution.root)
+        .unwrap_or(path)
+        .display()
+        .to_string()
+        .replace('\\', "/")
 }
 
 #[cfg(test)]
@@ -329,31 +462,47 @@ mod tests {
 
     impl Fake {
         fn with(self, collection: &str, name: &str, xml: &str) -> Self {
-            self.entities.borrow_mut().insert((collection.into(), name.into()), xml.as_bytes().to_vec());
+            self.entities
+                .borrow_mut()
+                .insert((collection.into(), name.into()), xml.as_bytes().to_vec());
             self
         }
     }
 
     impl Remote for Fake {
         fn export(&self, collection: &str, name: &str) -> Result<Option<Vec<u8>>, ServerError> {
-            Ok(self.entities.borrow().get(&(collection.to_string(), name.to_string())).filter(|bytes| !bytes.is_empty()).cloned())
+            Ok(self
+                .entities
+                .borrow()
+                .get(&(collection.to_string(), name.to_string()))
+                .filter(|bytes| !bytes.is_empty())
+                .cloned())
         }
         fn import(&self, file_name: &str, xml: &[u8]) -> Result<(), ServerError> {
             self.imported.borrow_mut().push(file_name.to_string());
             if !self.swallow_imports {
                 let name = file_name.trim_end_matches(".xml").to_string();
-                self.entities.borrow_mut().insert(("Things".into(), name), xml.to_vec());
+                self.entities
+                    .borrow_mut()
+                    .insert(("Things".into(), name), xml.to_vec());
             }
             Ok(())
         }
         fn exists(&self, collection: &str, name: &str) -> Result<bool, ServerError> {
-            Ok(self.entities.borrow().contains_key(&(collection.to_string(), name.to_string())))
+            Ok(self
+                .entities
+                .borrow()
+                .contains_key(&(collection.to_string(), name.to_string())))
         }
     }
 
     fn solution() -> (PathBuf, Solution) {
-        let nonce = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos();
-        let root = std::env::temp_dir().join(format!("twaco-backup-{}-{nonce}", std::process::id()));
+        let nonce = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let root =
+            std::env::temp_dir().join(format!("twaco-backup-{}-{nonce}", std::process::id()));
         std::fs::create_dir_all(&root).unwrap();
         std::fs::write(root.join("twaco.toml"), "[[project]]\nname = \"P\"\n").unwrap();
         let solution = Solution::load(&root.join("twaco.toml")).unwrap();
@@ -361,26 +510,57 @@ mod tests {
     }
 
     fn pairs(names: &[&str]) -> Vec<(String, String)> {
-        names.iter().map(|name| ("Things".to_string(), name.to_string())).collect()
+        names
+            .iter()
+            .map(|name| ("Things".to_string(), name.to_string()))
+            .collect()
     }
 
-    const XML: &str = "<Entities><Things><Thing name=\"A\" projectName=\"P\"></Thing></Things></Entities>";
+    const XML: &str =
+        "<Entities><Things><Thing name=\"A\" projectName=\"P\"></Thing></Things></Entities>";
 
     #[test]
     fn a_set_holds_the_servers_export_of_each_entity_that_exists_and_says_why() {
         let (root, solution) = solution();
         let fake = Fake::default().with("Things", "A", XML);
-        let set = save(&fake, &solution, "entity delete", &pairs(&["A", "Absent"]), "20261002-120000").unwrap().unwrap();
+        let set = save(
+            &fake,
+            &solution,
+            "entity delete",
+            &pairs(&["A", "Absent"]),
+            "20261002-120000",
+        )
+        .unwrap()
+        .unwrap();
         assert_eq!(set.id, "20261002-120000");
-        assert_eq!(set.manifest.entities, [Item { collection: "Things".into(), name: "A".into() }]);
-        assert_eq!(std::fs::read_to_string(set.dir.join("Things/A.xml")).unwrap(), XML);
+        assert_eq!(
+            set.manifest.entities,
+            [Item {
+                collection: "Things".into(),
+                name: "A".into()
+            }]
+        );
+        assert_eq!(
+            std::fs::read_to_string(set.dir.join("Things/A.xml")).unwrap(),
+            XML
+        );
         let listed = list(&solution);
         assert_eq!(listed.len(), 1);
         assert_eq!(listed[0].manifest.reason, "entity delete");
         // Nothing on the server, nothing saved.
-        assert!(save(&fake, &solution, "x", &pairs(&["Absent"]), "20261002-120001").unwrap().is_none());
+        assert!(save(
+            &fake,
+            &solution,
+            "x",
+            &pairs(&["Absent"]),
+            "20261002-120001"
+        )
+        .unwrap()
+        .is_none());
         // The same stamp twice does not overwrite the first set.
-        let again = save(&fake, &solution, "x", &pairs(&["A"]), "20261002-120000").unwrap().unwrap();
+        let again = save(&fake, &solution, "x", &pairs(&["A"]), "20261002-120000")
+            .unwrap()
+            .unwrap();
         assert_eq!(again.id, "20261002-120000-2");
         let _ = std::fs::remove_dir_all(root);
     }
@@ -401,7 +581,14 @@ mod tests {
         let fake = Fake::default().with("Things", "A", XML);
         std::fs::create_dir_all(root.join(DIR).join("not-a-set")).unwrap();
         for at in 0..(KEEP + 3) {
-            save(&fake, &solution, "r", &pairs(&["A"]), &format!("2026-{at:04}")).unwrap();
+            save(
+                &fake,
+                &solution,
+                "r",
+                &pairs(&["A"]),
+                &format!("2026-{at:04}"),
+            )
+            .unwrap();
         }
         let sets = list(&solution);
         assert_eq!(sets.len(), KEEP);
@@ -413,12 +600,24 @@ mod tests {
     #[test]
     fn restore_plans_by_default_imports_on_apply_and_confirms_each_entity() {
         let (root, solution) = solution();
-        let fake = Fake::default().with("Things", "A", XML).with("Things", "B", XML);
-        let set = save(&fake, &solution, "entity delete", &pairs(&["A", "B"]), "s").unwrap().unwrap();
-        fake.entities.borrow_mut().remove(&("Things".to_string(), "A".to_string()));
+        let fake = Fake::default()
+            .with("Things", "A", XML)
+            .with("Things", "B", XML);
+        let set = save(&fake, &solution, "entity delete", &pairs(&["A", "B"]), "s")
+            .unwrap()
+            .unwrap();
+        fake.entities
+            .borrow_mut()
+            .remove(&("Things".to_string(), "A".to_string()));
         let plan = restore(&fake, &set, &[], false).unwrap();
-        let statuses: Vec<(&str, &Status)> = plan.iter().map(|entry| (entry.name.as_str(), &entry.status)).collect();
-        assert_eq!(statuses, [("A", &Status::WouldCreate), ("B", &Status::WouldReplace)]);
+        let statuses: Vec<(&str, &Status)> = plan
+            .iter()
+            .map(|entry| (entry.name.as_str(), &entry.status))
+            .collect();
+        assert_eq!(
+            statuses,
+            [("A", &Status::WouldCreate), ("B", &Status::WouldReplace)]
+        );
         assert!(fake.imported.borrow().is_empty(), "a plan imports nothing");
         // One entity, by bare name; an unknown one is refused before any request.
         let applied = restore(&fake, &set, &["A".to_string()], true).unwrap();
@@ -432,12 +631,22 @@ mod tests {
     #[test]
     fn an_import_the_server_accepts_but_ignores_is_a_failure() {
         let (root, solution) = solution();
-        let fake = Fake { swallow_imports: true, ..Default::default() }.with("Things", "A", XML);
-        let set = save(&fake, &solution, "r", &pairs(&["A"]), "s").unwrap().unwrap();
+        let fake = Fake {
+            swallow_imports: true,
+            ..Default::default()
+        }
+        .with("Things", "A", XML);
+        let set = save(&fake, &solution, "r", &pairs(&["A"]), "s")
+            .unwrap()
+            .unwrap();
         fake.entities.borrow_mut().clear();
         let applied = restore(&fake, &set, &[], true).unwrap();
         assert_eq!(applied[0].status, Status::Failed);
-        assert!(applied[0].error.as_deref().unwrap().contains("does not have the entity"));
+        assert!(applied[0]
+            .error
+            .as_deref()
+            .unwrap()
+            .contains("does not have the entity"));
         let _ = std::fs::remove_dir_all(root);
     }
 
@@ -445,11 +654,30 @@ mod tests {
     fn only_overwrites_of_changes_the_repository_never_saw_are_saved_before_a_force() {
         let decisions = vec![
             ("Things".to_string(), "Create".to_string(), Decision::Create),
-            ("Things".to_string(), "Same".to_string(), Decision::AlreadyThere),
+            (
+                "Things".to_string(),
+                "Same".to_string(),
+                Decision::AlreadyThere,
+            ),
             ("Things".to_string(), "Update".to_string(), Decision::Update),
-            ("Things".to_string(), "Gone".to_string(), Decision::Refuse(Refusal::DeletedOnServer)),
-            ("Things".to_string(), "Unknown".to_string(), Decision::Refuse(Refusal::UnknownAncestor { server: "s".into() })),
-            ("Things".to_string(), "Changed".to_string(), Decision::Refuse(Refusal::Conflict { server: "s".into(), baseline: "b".into() })),
+            (
+                "Things".to_string(),
+                "Gone".to_string(),
+                Decision::Refuse(Refusal::DeletedOnServer),
+            ),
+            (
+                "Things".to_string(),
+                "Unknown".to_string(),
+                Decision::Refuse(Refusal::UnknownAncestor { server: "s".into() }),
+            ),
+            (
+                "Things".to_string(),
+                "Changed".to_string(),
+                Decision::Refuse(Refusal::Conflict {
+                    server: "s".into(),
+                    baseline: "b".into(),
+                }),
+            ),
         ];
         assert_eq!(forced_overwrites(decisions), pairs(&["Unknown", "Changed"]));
         assert_eq!(file_stem("A.b_c-1"), "A.b_c-1");

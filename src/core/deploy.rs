@@ -8,8 +8,8 @@ use super::baseline::{Baseline, BaselineError};
 use super::entity_key::ServiceTarget;
 use super::normalise;
 use super::parallel;
-use super::push::{self, Decision};
 use super::profile::Profile;
+use super::push::{self, Decision};
 use super::server::{Client, ScriptCheck, ServerError};
 use serde_json::Value;
 use std::collections::BTreeMap;
@@ -100,7 +100,9 @@ pub struct DiskBaseline {
 
 impl DiskBaseline {
     pub fn new(root: &Path) -> Self {
-        Self { root: root.to_path_buf() }
+        Self {
+            root: root.to_path_buf(),
+        }
     }
 }
 
@@ -164,21 +166,53 @@ pub struct ParseFailure {
 #[derive(Debug)]
 pub enum DeployError {
     Baseline(BaselineError),
-    Working { collection: String, name: String, why: String },
-    Server { collection: String, name: String, why: String },
-    ParseUnavailable { entity: String, service: String, source: ServerError },
+    Working {
+        collection: String,
+        name: String,
+        why: String,
+    },
+    Server {
+        collection: String,
+        name: String,
+        why: String,
+    },
+    ParseUnavailable {
+        entity: String,
+        service: String,
+        source: ServerError,
+    },
     ParseFailed(Vec<ParseFailure>),
     Conflicts(Vec<EntityPlan>),
     /// `imported` are the projects that imported before this one; the baseline records them.
-    Import { project: String, source: ServerError, imported: Vec<String> },
-    UnknownPlaceholder { project: String, key: String },
+    Import {
+        project: String,
+        source: ServerError,
+        imported: Vec<String>,
+    },
+    UnknownPlaceholder {
+        project: String,
+        key: String,
+    },
     /// Every project had imported, and the baseline records them, when a call failed.
-    Call { project: String, target: String, service: String, why: String, imported: Vec<String> },
+    Call {
+        project: String,
+        target: String,
+        service: String,
+        why: String,
+        imported: Vec<String>,
+    },
     NotKept(Box<Report>),
     /// A failure after projects had imported, which the server therefore already holds.
-    AfterImport { imported: Vec<String>, source: Box<DeployError> },
+    AfterImport {
+        imported: Vec<String>,
+        source: Box<DeployError>,
+    },
     /// A failure, and then the baseline for what did import could not be written either.
-    Unrecorded { failure: Box<DeployError>, why: BaselineError, imported: Vec<String> },
+    Unrecorded {
+        failure: Box<DeployError>,
+        why: BaselineError,
+        imported: Vec<String>,
+    },
 }
 
 impl fmt::Display for DeployError {
@@ -237,7 +271,11 @@ impl std::error::Error for DeployError {}
 
 /// What deploying each entity of the bundles would do: the working copy, the server's copy and the
 /// baseline through the push decision table. Reads from the server; changes nothing.
-pub fn decide_all(remote: &dyn Remote, baseline: &Baseline, projects: &[ProjectBundle]) -> Result<Vec<EntityPlan>, DeployError> {
+pub fn decide_all(
+    remote: &dyn Remote,
+    baseline: &Baseline,
+    projects: &[ProjectBundle],
+) -> Result<Vec<EntityPlan>, DeployError> {
     let entities: Vec<(&ProjectBundle, &Entity)> = projects
         .iter()
         .flat_map(|project| project.entities.iter().map(move |entity| (project, entity)))
@@ -290,14 +328,18 @@ pub fn run(
     only: bool,
 ) -> Result<Report, DeployError> {
     let mut report = Report {
-        projects: projects.iter().map(|project| project.project.clone()).collect(),
+        projects: projects
+            .iter()
+            .map(|project| project.project.clone())
+            .collect(),
         ..Report::default()
     };
 
     // Resolve every placeholder before the first server operation (including live parse). The
     // resolved copies are deliberately kept out of Report and every error type, so a plan and
     // diagnostics can show `${profile:key}` but can never print the substituted secret.
-    let mut resolved_calls: BTreeMap<String, (Option<ServiceCall>, Vec<ServiceCall>)> = BTreeMap::new();
+    let mut resolved_calls: BTreeMap<String, (Option<ServiceCall>, Vec<ServiceCall>)> =
+        BTreeMap::new();
     for project in projects {
         let deploy = project
             .deploy
@@ -318,26 +360,29 @@ pub fn run(
                 skipped: false,
             });
         }
-        report.calls.extend(project.post_import.iter().cloned().map(|call| PlannedCall {
-            project: project.project.clone(),
-            call,
-            post_import: true,
-            skipped: only,
-        }));
+        report
+            .calls
+            .extend(project.post_import.iter().cloned().map(|call| PlannedCall {
+                project: project.project.clone(),
+                call,
+                post_import: true,
+                skipped: only,
+            }));
     }
 
-    let scripts: Vec<&Script> = projects.iter().flat_map(|project| &project.scripts).collect();
+    let scripts: Vec<&Script> = projects
+        .iter()
+        .flat_map(|project| &project.scripts)
+        .collect();
     let checks = parallel::map(&scripts, |script| {
         let script = *script;
         remote
             .check_script(&script.source)
             .map(|checked| (script, checked))
-            .map_err(|source| {
-                DeployError::ParseUnavailable {
-                    entity: script.entity.clone(),
-                    service: script.service.clone(),
-                    source,
-                }
+            .map_err(|source| DeployError::ParseUnavailable {
+                entity: script.entity.clone(),
+                service: script.service.clone(),
+                source,
             })
     });
     let mut parse_failures = Vec::new();
@@ -427,7 +472,9 @@ pub fn run(
                 read_back.clone(),
             );
             first_read_back.insert((entity.collection.clone(), entity.name.clone()), read_back);
-            report.kept.push((entity.collection.clone(), entity.name.clone()));
+            report
+                .kept
+                .push((entity.collection.clone(), entity.name.clone()));
         } else {
             report.not_kept.push(NotKept {
                 collection: entity.collection.clone(),
@@ -445,7 +492,11 @@ pub fn run(
         // The import's failure is the news; a baseline write failing after it is added to it,
         // never put in its place.
         if let Err(why) = baselines.write(&baseline) {
-            return Err(DeployError::Unrecorded { failure: Box::new(failure), why, imported: report.imported.clone() });
+            return Err(DeployError::Unrecorded {
+                failure: Box::new(failure),
+                why,
+                imported: report.imported.clone(),
+            });
         }
         return Err(failure);
     }
@@ -459,11 +510,20 @@ pub fn run(
         let (deploy, post_import) = resolved_calls
             .get(&project.project)
             .expect("every project was resolved before server traffic");
-        let calls = deploy.iter().chain((!only).then_some(post_import).into_iter().flatten());
+        let calls = deploy
+            .iter()
+            .chain((!only).then_some(post_import).into_iter().flatten());
         for call in calls {
             let outcome = ServiceTarget::parse(&call.target)
                 .map_err(ServerError::from)
-                .and_then(|target| remote.call_service(&target, &call.service, &call.parameters, Duration::from_secs(300)));
+                .and_then(|target| {
+                    remote.call_service(
+                        &target,
+                        &call.service,
+                        &call.parameters,
+                        Duration::from_secs(300),
+                    )
+                });
             if let Err(source) = outcome {
                 call_failure = Some(DeployError::Call {
                     project: project.project.clone(),
@@ -503,7 +563,10 @@ pub fn run(
             match result {
                 Ok((entity, hash)) => {
                     let key = (entity.collection.clone(), entity.name.clone());
-                    if first_read_back.get(&key).is_some_and(|before| before != &hash) {
+                    if first_read_back
+                        .get(&key)
+                        .is_some_and(|before| before != &hash)
+                    {
                         // Deploy-service mutations (for example restoring an imported Database
                         // password) are part of this deploy. The working file correctly omits
                         // them; advancing only the server side keeps both sides in sync.
@@ -515,7 +578,10 @@ pub fn run(
                 }
                 Err(error) => {
                     // Every project had imported by now; say so with the failure.
-                    call_failure = Some(DeployError::AfterImport { imported: report.imported.clone(), source: Box::new(error) });
+                    call_failure = Some(DeployError::AfterImport {
+                        imported: report.imported.clone(),
+                        source: Box::new(error),
+                    });
                     break;
                 }
             }
@@ -524,7 +590,11 @@ pub fn run(
 
     if let Err(why) = baselines.write(&baseline) {
         return Err(match call_failure {
-            Some(failure) => DeployError::Unrecorded { failure: Box::new(failure), why, imported: report.imported.clone() },
+            Some(failure) => DeployError::Unrecorded {
+                failure: Box::new(failure),
+                why,
+                imported: report.imported.clone(),
+            },
             None => DeployError::Baseline(why),
         });
     }
@@ -535,7 +605,11 @@ pub fn run(
     }
 }
 
-fn resolve_call(call: &ServiceCall, profile: &Profile, project: &str) -> Result<ServiceCall, DeployError> {
+fn resolve_call(
+    call: &ServiceCall,
+    profile: &Profile,
+    project: &str,
+) -> Result<ServiceCall, DeployError> {
     Ok(ServiceCall {
         target: call.target.clone(),
         service: call.service.clone(),
@@ -550,10 +624,12 @@ fn resolve_value(value: &Value, profile: &Profile, project: &str) -> Result<Valu
                 .strip_prefix("${profile:")
                 .and_then(|rest| rest.strip_suffix('}'));
             if let Some(key) = key {
-                let value = profile.value(key).ok_or_else(|| DeployError::UnknownPlaceholder {
-                    project: project.to_string(),
-                    key: key.to_string(),
-                })?;
+                let value = profile
+                    .value(key)
+                    .ok_or_else(|| DeployError::UnknownPlaceholder {
+                        project: project.to_string(),
+                        key: key.to_string(),
+                    })?;
                 Ok(serde_json::to_value(value).expect("TOML values serialize as JSON"))
             } else {
                 Ok(value.clone())
@@ -573,7 +649,11 @@ fn resolve_value(value: &Value, profile: &Profile, project: &str) -> Result<Valu
     }
 }
 
-fn redact_placeholder_values(message: &str, profile: &Profile, projects: &[ProjectBundle]) -> String {
+fn redact_placeholder_values(
+    message: &str,
+    profile: &Profile,
+    projects: &[ProjectBundle],
+) -> String {
     let mut keys = Vec::new();
     for call in projects
         .iter()
@@ -584,7 +664,9 @@ fn redact_placeholder_values(message: &str, profile: &Profile, projects: &[Proje
     keys.sort();
     keys.dedup();
     keys.into_iter().fold(message.to_string(), |redacted, key| {
-        let Some(value) = profile.value(&key) else { return redacted };
+        let Some(value) = profile.value(&key) else {
+            return redacted;
+        };
         let json = serde_json::to_value(value).expect("TOML values serialize as JSON");
         let mut renderings = vec![json.to_string()];
         if let Value::String(text) = &json {
@@ -711,7 +793,10 @@ pub fn plan_bundles(
 
     let source_order = super::bundle::source_files(solution);
     let mut projects = Vec::new();
-    for project in order.into_iter().filter(|project| selected_projects.contains(project.name.as_str())) {
+    for project in order
+        .into_iter()
+        .filter(|project| selected_projects.contains(project.name.as_str()))
+    {
         let mut chosen: Vec<super::workspace::EntityFile> = pool
             .iter()
             .filter(|entity| {
@@ -726,7 +811,8 @@ pub fn plan_bundles(
         if chosen.is_empty() {
             continue;
         }
-        let wanted_paths: BTreeSet<PathBuf> = chosen.iter().map(|entity| entity.path.clone()).collect();
+        let wanted_paths: BTreeSet<PathBuf> =
+            chosen.iter().map(|entity| entity.path.clone()).collect();
         let files: Vec<PathBuf> = source_order
             .iter()
             .filter(|path| wanted_paths.contains(*path))
@@ -739,7 +825,8 @@ pub fn plan_bundles(
             }
         };
         chosen.sort_by(|left, right| {
-            (&left.info.collection, &left.info.name).cmp(&(&right.info.collection, &right.info.name))
+            (&left.info.collection, &left.info.name)
+                .cmp(&(&right.info.collection, &right.info.name))
         });
         let mut entities = Vec::new();
         let mut scripts = Vec::new();
@@ -803,7 +890,10 @@ pub fn plan_bundles(
                 .post_import
                 .iter()
                 .map(|call| ServiceCall {
-                    target: call.target.clone().unwrap_or_else(|| format!("Things/{}", call.thing)),
+                    target: call
+                        .target
+                        .clone()
+                        .unwrap_or_else(|| format!("Things/{}", call.thing)),
                     service: call.service.clone(),
                     parameters: toml_parameters(call.parameters.as_ref()),
                 })
@@ -871,11 +961,23 @@ mod tests {
         apply: bool,
         force: bool,
     ) -> Result<Report, DeployError> {
-        run(remote, baselines, &profile(BTreeMap::new()), projects, apply, force, false)
+        run(
+            remote,
+            baselines,
+            &profile(BTreeMap::new()),
+            projects,
+            apply,
+            force,
+            false,
+        )
     }
 
     fn target(name: &str, script: &str) -> Entity {
-        Entity { collection: "Things".to_string(), name: name.to_string(), bytes: entity(name, script) }
+        Entity {
+            collection: "Things".to_string(),
+            name: name.to_string(),
+            bytes: entity(name, script),
+        }
     }
 
     #[derive(Default)]
@@ -893,7 +995,10 @@ mod tests {
         fn write(&self, baseline: &Baseline) -> Result<(), BaselineError> {
             *self.writes.borrow_mut() += 1;
             if self.fail_write {
-                return Err(BaselineError::Io { path: "baseline.json".into(), why: "disk full".into() });
+                return Err(BaselineError::Io {
+                    path: "baseline.json".into(),
+                    why: "disk full".into(),
+                });
             }
             *self.value.borrow_mut() = baseline.clone();
             Ok(())
@@ -918,7 +1023,10 @@ mod tests {
 
     impl push::Remote for Fake {
         fn fetch(&self, collection: &str, name: &str) -> Result<Option<Vec<u8>>, ServerError> {
-            self.events.lock().unwrap().push(format!("fetch:{collection}/{name}"));
+            self.events
+                .lock()
+                .unwrap()
+                .push(format!("fetch:{collection}/{name}"));
             let key = (collection.to_string(), name.to_string());
             if self.fetch_failures.contains(&key) {
                 return Err(ServerError::Transport {
@@ -931,7 +1039,10 @@ mod tests {
         }
 
         fn import(&self, file_name: &str, _: &[u8]) -> Result<(), ServerError> {
-            self.events.lock().unwrap().push(format!("import:{file_name}"));
+            self.events
+                .lock()
+                .unwrap()
+                .push(format!("import:{file_name}"));
             self.imports.lock().unwrap().push(file_name.to_string());
             if self.fail_import.as_deref() == Some(file_name) {
                 return Err(ServerError::Rejected {
@@ -977,7 +1088,10 @@ mod tests {
             parameters: &Value,
             timeout: Duration,
         ) -> Result<Option<Value>, ServerError> {
-            self.events.lock().unwrap().push(format!("call:{target}.{service}"));
+            self.events
+                .lock()
+                .unwrap()
+                .push(format!("call:{target}.{service}"));
             self.calls.lock().unwrap().push((
                 target.to_string(),
                 service.to_string(),
@@ -1001,7 +1115,11 @@ mod tests {
     }
 
     fn script(entity: &str, source: &str) -> Script {
-        Script { entity: entity.to_string(), service: "S".to_string(), source: source.to_string() }
+        Script {
+            entity: entity.to_string(),
+            service: "S".to_string(),
+            source: source.to_string(),
+        }
     }
 
     #[test]
@@ -1018,9 +1136,14 @@ mod tests {
 
     #[test]
     fn parse_failure_aborts_before_an_import() {
-        let projects = [project("A", vec![target("A", "BAD")], vec![script("A", "BAD")])];
+        let projects = [project(
+            "A",
+            vec![target("A", "BAD")],
+            vec![script("A", "BAD")],
+        )];
         let remote = Fake::default();
-        let error = run_test(&remote, &MemoryBaseline::default(), &projects, true, false).unwrap_err();
+        let error =
+            run_test(&remote, &MemoryBaseline::default(), &projects, true, false).unwrap_err();
         assert!(matches!(error, DeployError::ParseFailed(_)));
         assert!(remote.imports.lock().unwrap().is_empty());
     }
@@ -1030,22 +1153,45 @@ mod tests {
         let projects = [project(
             "P",
             vec![],
-            vec![script("First", "BAD one"), script("Good", "ok();"), script("Last", "BAD two")],
+            vec![
+                script("First", "BAD one"),
+                script("Good", "ok();"),
+                script("Last", "BAD two"),
+            ],
         )];
-        let error = run_test(&Fake::default(), &MemoryBaseline::default(), &projects, false, false)
-            .unwrap_err();
-        let DeployError::ParseFailed(failures) = error else { panic!("{error}") };
+        let error = run_test(
+            &Fake::default(),
+            &MemoryBaseline::default(),
+            &projects,
+            false,
+            false,
+        )
+        .unwrap_err();
+        let DeployError::ParseFailed(failures) = error else {
+            panic!("{error}")
+        };
         assert_eq!(
-            failures.iter().map(|failure| failure.entity.as_str()).collect::<Vec<_>>(),
+            failures
+                .iter()
+                .map(|failure| failure.entity.as_str())
+                .collect::<Vec<_>>(),
             ["First", "Last"]
         );
     }
 
     #[test]
     fn an_unreachable_parser_aborts_fail_closed() {
-        let projects = [project("A", vec![target("A", "ok();")], vec![script("A", "ok();")])];
-        let remote = Fake { parse_unreachable: true, ..Fake::default() };
-        let error = run_test(&remote, &MemoryBaseline::default(), &projects, true, false).unwrap_err();
+        let projects = [project(
+            "A",
+            vec![target("A", "ok();")],
+            vec![script("A", "ok();")],
+        )];
+        let remote = Fake {
+            parse_unreachable: true,
+            ..Fake::default()
+        };
+        let error =
+            run_test(&remote, &MemoryBaseline::default(), &projects, true, false).unwrap_err();
         assert!(matches!(error, DeployError::ParseUnavailable { .. }));
         assert!(remote.imports.lock().unwrap().is_empty());
     }
@@ -1057,9 +1203,16 @@ mod tests {
         let server = entity("A", "theirs();");
         let baselines = MemoryBaseline::default();
         let ancestor = normalise::hash(&ancestor).unwrap();
-        baselines.value.borrow_mut().set("Things", "A", ancestor.clone(), ancestor);
+        baselines
+            .value
+            .borrow_mut()
+            .set("Things", "A", ancestor.clone(), ancestor);
         let remote = Fake::default();
-        remote.held.lock().unwrap().insert(("Things".into(), "A".into()), server);
+        remote
+            .held
+            .lock()
+            .unwrap()
+            .insert(("Things".into(), "A".into()), server);
         let projects = [project("A", vec![working], vec![])];
         let error = run_test(&remote, &baselines, &projects, true, false).unwrap_err();
         assert!(matches!(error, DeployError::Conflicts(_)));
@@ -1080,7 +1233,8 @@ mod tests {
             ]),
             ..Fake::default()
         };
-        let error = run_test(&remote, &MemoryBaseline::default(), &projects, false, false).unwrap_err();
+        let error =
+            run_test(&remote, &MemoryBaseline::default(), &projects, false, false).unwrap_err();
         assert!(matches!(
             error,
             DeployError::Server { collection, name, .. }
@@ -1093,8 +1247,12 @@ mod tests {
         let a = target("A", "a();");
         let b = target("B", "b();");
         let projects = [project("A", vec![a], vec![]), project("B", vec![b], vec![])];
-        let remote = Fake { fail_import: Some("A.xml".to_string()), ..Fake::default() };
-        let error = run_test(&remote, &MemoryBaseline::default(), &projects, true, false).unwrap_err();
+        let remote = Fake {
+            fail_import: Some("A.xml".to_string()),
+            ..Fake::default()
+        };
+        let error =
+            run_test(&remote, &MemoryBaseline::default(), &projects, true, false).unwrap_err();
         assert!(matches!(error, DeployError::Import { project, .. } if project == "A"));
         assert_eq!(remote.imports.lock().unwrap().as_slice(), ["A.xml"]);
     }
@@ -1103,7 +1261,10 @@ mod tests {
     fn a_later_failure_still_records_the_projects_that_did_import() {
         let a = target("A", "a();");
         let b = target("B", "b();");
-        let projects = [project("A", vec![a.clone()], vec![]), project("B", vec![b], vec![])];
+        let projects = [
+            project("A", vec![a.clone()], vec![]),
+            project("B", vec![b], vec![]),
+        ];
         let remote = Fake {
             import_values: BTreeMap::from([("A.xml".to_string(), vec![a])]),
             fail_import: Some("B.xml".to_string()),
@@ -1111,11 +1272,18 @@ mod tests {
         };
         let baselines = MemoryBaseline::default();
         let error = run_test(&remote, &baselines, &projects, true, false).unwrap_err();
-        assert!(error.to_string().ends_with("; already imported and recorded: A"), "{error}");
+        assert!(
+            error
+                .to_string()
+                .ends_with("; already imported and recorded: A"),
+            "{error}"
+        );
         assert!(matches!(error, DeployError::Import { project, .. } if project == "B"));
         assert_eq!(*baselines.writes.borrow(), 1);
         let baseline = baselines.value.borrow();
-        let a = baseline.get("Things", "A").expect("A reached the server and was read back");
+        let a = baseline
+            .get("Things", "A")
+            .expect("A reached the server and was read back");
         assert_eq!(a.local, a.server);
         assert!(baseline.get("Things", "B").is_none(), "B never imported");
     }
@@ -1124,17 +1292,29 @@ mod tests {
     fn a_baseline_that_cannot_be_written_adds_to_the_failure_rather_than_hiding_it() {
         let a = target("A", "a();");
         let b = target("B", "b();");
-        let projects = [project("A", vec![a.clone()], vec![]), project("B", vec![b], vec![])];
+        let projects = [
+            project("A", vec![a.clone()], vec![]),
+            project("B", vec![b], vec![]),
+        ];
         let remote = Fake {
             import_values: BTreeMap::from([("A.xml".to_string(), vec![a])]),
             fail_import: Some("B.xml".to_string()),
             ..Fake::default()
         };
-        let baselines = MemoryBaseline { fail_write: true, ..MemoryBaseline::default() };
+        let baselines = MemoryBaseline {
+            fail_write: true,
+            ..MemoryBaseline::default()
+        };
         let error = run_test(&remote, &baselines, &projects, true, false).unwrap_err();
         let text = error.to_string();
-        assert!(text.starts_with("project B import failed"), "the import failure leads: {text}");
-        assert!(text.contains("imported (A) could not be written: "), "{text}");
+        assert!(
+            text.starts_with("project B import failed"),
+            "the import failure leads: {text}"
+        );
+        assert!(
+            text.contains("imported (A) could not be written: "),
+            "{text}"
+        );
         assert!(text.contains("disk full"), "{text}");
     }
 
@@ -1161,7 +1341,10 @@ mod tests {
     fn two_projects_import_in_the_given_dependency_order() {
         let a = target("A", "a();");
         let b = target("B", "b();");
-        let projects = [project("A", vec![a.clone()], vec![]), project("B", vec![b.clone()], vec![])];
+        let projects = [
+            project("A", vec![a.clone()], vec![]),
+            project("B", vec![b.clone()], vec![]),
+        ];
         let remote = Fake {
             import_values: BTreeMap::from([
                 ("A.xml".to_string(), vec![a]),
@@ -1170,11 +1353,18 @@ mod tests {
             ..Fake::default()
         };
         run_test(&remote, &MemoryBaseline::default(), &projects, true, false).unwrap();
-        assert_eq!(remote.imports.lock().unwrap().as_slice(), ["A.xml", "B.xml"]);
+        assert_eq!(
+            remote.imports.lock().unwrap().as_slice(),
+            ["A.xml", "B.xml"]
+        );
     }
 
     fn call(target: &str, service: &str, parameters: Value) -> ServiceCall {
-        ServiceCall { target: target.into(), service: service.into(), parameters }
+        ServiceCall {
+            target: target.into(),
+            service: service.into(),
+            parameters,
+        }
     }
 
     #[test]
@@ -1188,16 +1378,16 @@ mod tests {
         pb.deploy = Some(call("Things/B.Entry", "DeployB", serde_json::json!({})));
         pb.post_import = vec![call("Things/B.Seed", "SeedB", serde_json::json!({}))];
         let remote = Fake {
-            import_values: BTreeMap::from([
-                ("A.xml".into(), vec![a]),
-                ("B.xml".into(), vec![b]),
-            ]),
+            import_values: BTreeMap::from([("A.xml".into(), vec![a]), ("B.xml".into(), vec![b])]),
             ..Fake::default()
         };
 
         run_test(&remote, &MemoryBaseline::default(), &[pa, pb], true, false).unwrap();
         let events = remote.events.lock().unwrap();
-        let start = events.iter().position(|event| event == "import:A.xml").unwrap();
+        let start = events
+            .iter()
+            .position(|event| event == "import:A.xml")
+            .unwrap();
         let deploy = &events[start..];
         assert_eq!(&deploy[..2], ["import:A.xml", "import:B.xml"]);
         let calls: Vec<&str> = deploy
@@ -1214,9 +1404,18 @@ mod tests {
                 "call:Things/B.Seed.SeedB",
             ]
         );
-        let first_call = deploy.iter().position(|event| event.starts_with("call:")).unwrap();
-        let reads_before = deploy[2..first_call].iter().filter(|event| event.starts_with("fetch:")).count();
-        let reads_after = deploy[first_call + 4..].iter().filter(|event| event.starts_with("fetch:")).count();
+        let first_call = deploy
+            .iter()
+            .position(|event| event.starts_with("call:"))
+            .unwrap();
+        let reads_before = deploy[2..first_call]
+            .iter()
+            .filter(|event| event.starts_with("fetch:"))
+            .count();
+        let reads_after = deploy[first_call + 4..]
+            .iter()
+            .filter(|event| event.starts_with("fetch:"))
+            .count();
         assert_eq!((reads_before, reads_after), (2, 2));
     }
 
@@ -1243,7 +1442,10 @@ mod tests {
         assert_eq!(remote.calls.lock().unwrap()[0].1, "Deploy");
         assert_eq!(remote.calls.lock().unwrap()[0].3, Duration::from_secs(300));
         assert_eq!(remote.calls.lock().unwrap().len(), 1);
-        assert!(report.calls.iter().any(|planned| planned.call.service == "Seed" && planned.skipped));
+        assert!(report
+            .calls
+            .iter()
+            .any(|planned| planned.call.service == "Seed" && planned.skipped));
     }
 
     #[test]
@@ -1294,17 +1496,27 @@ mod tests {
             false,
         )
         .unwrap();
-        assert_eq!(remote.calls.lock().unwrap()[0].2["deploymentConfig"]["password"], secret);
+        assert_eq!(
+            remote.calls.lock().unwrap()[0].2["deploymentConfig"]["password"],
+            secret
+        );
         let rendered = format!("{report:?}");
         assert!(rendered.contains("${profile:database_password}"));
         assert!(!rendered.contains(secret));
-        let plan_text = report.calls.iter().map(|planned| planned.call.to_string()).collect::<String>();
+        let plan_text = report
+            .calls
+            .iter()
+            .map(|planned| planned.call.to_string())
+            .collect::<String>();
         assert!(plan_text.contains("${profile:database_password}"));
         assert!(!plan_text.contains(secret));
         assert!(!format!("{active:?}").contains(secret));
 
         let rejected = Fake {
-            import_values: BTreeMap::from([("SecretProject.xml".into(), vec![target("A", "a();")])]),
+            import_values: BTreeMap::from([(
+                "SecretProject.xml".into(),
+                vec![target("A", "a();")],
+            )]),
             fail_service: Some("Deploy".into()),
             ..Fake::default()
         };
@@ -1357,11 +1569,17 @@ mod tests {
         };
         let baselines = MemoryBaseline::default();
         let report = run_test(&remote, &baselines, &[project], true, false).unwrap();
-        assert_eq!(report.changed_by_deploy, [("Things".into(), "Changed".into())]);
+        assert_eq!(
+            report.changed_by_deploy,
+            [("Things".into(), "Changed".into())]
+        );
         assert_eq!(*baselines.writes.borrow(), 1);
         let baseline = baselines.value.borrow();
         let changed_entry = baseline.get("Things", "Changed").unwrap();
-        assert_eq!(changed_entry.local, normalise::hash(&changed.bytes).unwrap());
+        assert_eq!(
+            changed_entry.local,
+            normalise::hash(&changed.bytes).unwrap()
+        );
         assert_eq!(changed_entry.server, normalise::hash(&after.bytes).unwrap());
         let same_entry = baseline.get("Things", "Same").unwrap();
         assert_eq!(same_entry.local, same_entry.server);

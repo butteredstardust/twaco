@@ -22,16 +22,26 @@ pub struct EntityInfo {
 
 #[derive(Debug)]
 pub enum EntityError {
-    Unreadable { path: PathBuf, why: String },
-    Scan { path: PathBuf, why: ScanError },
+    Unreadable {
+        path: PathBuf,
+        why: String,
+    },
+    Scan {
+        path: PathBuf,
+        why: ScanError,
+    },
     /// The file parsed but is not an entity export: no `<Entities>` wrapper with a collection.
-    NotAnEntityDocument { path: PathBuf },
+    NotAnEntityDocument {
+        path: PathBuf,
+    },
 }
 
 impl fmt::Display for EntityError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            EntityError::Unreadable { path, why } => write!(f, "cannot read {}: {why}", path.display()),
+            EntityError::Unreadable { path, why } => {
+                write!(f, "cannot read {}: {why}", path.display())
+            }
             EntityError::Scan { path, why } => write!(f, "{}: {why}", path.display()),
             EntityError::NotAnEntityDocument { path } => {
                 write!(f, "{} is not a ThingWorx entity export", path.display())
@@ -52,11 +62,18 @@ const WRAPPER: &str = "Entities";
 /// entity. The corpus is 425 XML files of which 141 are exactly that, so telling them apart
 /// matters and cannot be done by file extension.
 pub fn read(path: &Path) -> Result<EntityInfo, EntityError> {
-    let src = std::fs::read(path)
-        .map_err(|e| EntityError::Unreadable { path: path.to_path_buf(), why: e.to_string() })?;
+    let src = std::fs::read(path).map_err(|e| EntityError::Unreadable {
+        path: path.to_path_buf(),
+        why: e.to_string(),
+    })?;
     parse(&src).map_err(|e| match e {
-        ParseFailureKind::Scan(why) => EntityError::Scan { path: path.to_path_buf(), why },
-        ParseFailureKind::NotAnEntity => EntityError::NotAnEntityDocument { path: path.to_path_buf() },
+        ParseFailureKind::Scan(why) => EntityError::Scan {
+            path: path.to_path_buf(),
+            why,
+        },
+        ParseFailureKind::NotAnEntity => EntityError::NotAnEntityDocument {
+            path: path.to_path_buf(),
+        },
     })
 }
 
@@ -118,7 +135,9 @@ pub fn attribute_to(info: &EntityInfo, project: &str) -> Attribution {
     } else if info.project == project {
         Attribution::Matches
     } else {
-        Attribution::Mismatched { declared: info.project.clone() }
+        Attribution::Mismatched {
+            declared: info.project.clone(),
+        }
     }
 }
 
@@ -171,12 +190,17 @@ mod tests {
         assert_eq!(attribute_to(&info, "My.Project"), Attribution::Matches);
         assert_eq!(
             attribute_to(&info, "Other.Project"),
-            Attribution::Mismatched { declared: "My.Project".to_string() }
+            Attribution::Mismatched {
+                declared: "My.Project".to_string()
+            }
         );
     }
 
     #[test]
     fn malformed_xml_is_an_error_not_a_guess() {
-        assert!(matches!(parse(b"<Entities><Things><Thing name=\"oops"), Err(ParseFailureKind::Scan(_))));
+        assert!(matches!(
+            parse(b"<Entities><Things><Thing name=\"oops"),
+            Err(ParseFailureKind::Scan(_))
+        ));
     }
 }

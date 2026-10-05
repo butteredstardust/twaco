@@ -17,7 +17,12 @@ pub const HIDDEN: &str = "(hidden)";
 /// What this module asks of a server, as a trait so it is tested offline.
 pub trait Remote: Sync {
     fn subsystems(&self) -> Result<Vec<String>, ServerError>;
-    fn service(&self, subsystem: &str, service: &str, body: &Value) -> Result<Option<Value>, ServerError>;
+    fn service(
+        &self,
+        subsystem: &str,
+        service: &str,
+        body: &Value,
+    ) -> Result<Option<Value>, ServerError>;
 }
 
 impl Remote for Client {
@@ -28,7 +33,10 @@ impl Remote for Client {
             &json!({ "type": "Subsystem", "maxItems": 500 }),
             TIMEOUT,
         )?;
-        let shape = |why: &str| ServerError::InvalidResponse { url: "Resources/EntityServices/Services/GetEntityList".to_string(), why: format!("subsystems: {why}") };
+        let shape = |why: &str| ServerError::InvalidResponse {
+            url: "Resources/EntityServices/Services/GetEntityList".to_string(),
+            why: format!("subsystems: {why}"),
+        };
         let rows = reply
             .as_ref()
             .and_then(|v| v.get("rows"))
@@ -36,13 +44,23 @@ impl Remote for Client {
             .ok_or_else(|| shape("no rows"))?;
         let mut names = rows
             .iter()
-            .map(|row| row.get("name").and_then(Value::as_str).map(str::to_string).ok_or_else(|| shape("a row without a name")))
+            .map(|row| {
+                row.get("name")
+                    .and_then(Value::as_str)
+                    .map(str::to_string)
+                    .ok_or_else(|| shape("a row without a name"))
+            })
             .collect::<Result<Vec<String>, ServerError>>()?;
         names.sort();
         Ok(names)
     }
 
-    fn service(&self, subsystem: &str, service: &str, body: &Value) -> Result<Option<Value>, ServerError> {
+    fn service(
+        &self,
+        subsystem: &str,
+        service: &str,
+        body: &Value,
+    ) -> Result<Option<Value>, ServerError> {
         let target = ServiceTarget::entity("Subsystems", subsystem)?;
         self.call_service(&target, service, body, TIMEOUT)
     }
@@ -107,15 +125,20 @@ fn running(remote: &dyn Remote, name: &str) -> Result<bool, SettingsError> {
 /// The table names a subsystem lists; a row without a name is an error.
 fn table_names(remote: &dyn Remote, name: &str) -> Result<Vec<String>, SettingsError> {
     let what = format!("{name}.GetConfigurationTables");
-    let mut names = rows_of(remote.service(name, "GetConfigurationTables", &json!({})).map_err(SettingsError::Remote)?, &what)?
-        .iter()
-        .map(|row| {
-            row.get("name")
-                .and_then(Value::as_str)
-                .map(str::to_string)
-                .ok_or_else(|| SettingsError::Shape(format!("{what}: a row without a name")))
-        })
-        .collect::<Result<Vec<String>, SettingsError>>()?;
+    let mut names = rows_of(
+        remote
+            .service(name, "GetConfigurationTables", &json!({}))
+            .map_err(SettingsError::Remote)?,
+        &what,
+    )?
+    .iter()
+    .map(|row| {
+        row.get("name")
+            .and_then(Value::as_str)
+            .map(str::to_string)
+            .ok_or_else(|| SettingsError::Shape(format!("{what}: a row without a name")))
+    })
+    .collect::<Result<Vec<String>, SettingsError>>()?;
     names.sort_by_key(|t| t.to_lowercase());
     Ok(names)
 }
@@ -137,26 +160,51 @@ fn table(name: &str, table: &str, reply: &Value) -> Result<Table, SettingsError>
         let description = match def.get("description") {
             None | Some(Value::Null) => "",
             Some(Value::String(text)) => text,
-            Some(_) => return Err(shape(format!("field {field} has a description that is not text"))),
+            Some(_) => {
+                return Err(shape(format!(
+                    "field {field} has a description that is not text"
+                )))
+            }
         };
-        fields.push(Field { name: field.clone(), base_type: base_type.to_string(), description: description.to_string() });
+        fields.push(Field {
+            name: field.clone(),
+            base_type: base_type.to_string(),
+            description: description.to_string(),
+        });
     }
     fields.sort_by_key(|f| f.name.to_lowercase());
-    let secret: Vec<&str> = fields.iter().filter(|f| f.base_type == "PASSWORD").map(|f| f.name.as_str()).collect();
-    let rows = reply.get("rows").and_then(Value::as_array).ok_or_else(|| shape("no rows".to_string()))?;
+    let secret: Vec<&str> = fields
+        .iter()
+        .filter(|f| f.base_type == "PASSWORD")
+        .map(|f| f.name.as_str())
+        .collect();
+    let rows = reply
+        .get("rows")
+        .and_then(Value::as_array)
+        .ok_or_else(|| shape("no rows".to_string()))?;
     let rows = rows
         .iter()
         .map(|row| {
-            let mut row = row.as_object().ok_or_else(|| shape("a row that is not an object".to_string()))?.clone();
+            let mut row = row
+                .as_object()
+                .ok_or_else(|| shape("a row that is not an object".to_string()))?
+                .clone();
             for field in &secret {
-                if row.get(*field).is_some_and(|v| !v.is_null() && v.as_str() != Some("")) {
+                if row
+                    .get(*field)
+                    .is_some_and(|v| !v.is_null() && v.as_str() != Some(""))
+                {
                     row.insert((*field).to_string(), json!(HIDDEN));
                 }
             }
             Ok(row)
         })
         .collect::<Result<Vec<_>, SettingsError>>()?;
-    Ok(Table { name: table.to_string(), fields, rows })
+    Ok(Table {
+        name: table.to_string(),
+        fields,
+        rows,
+    })
 }
 
 /// One subsystem: whether it runs, and every configuration table with its fields and values.
@@ -165,12 +213,20 @@ pub fn read(remote: &dyn Remote, name: &str) -> Result<Subsystem, SettingsError>
     let mut tables = Vec::new();
     for wanted in table_names(remote, name)? {
         let reply = remote
-            .service(name, "GetConfigurationTable", &json!({ "tableName": wanted }))
+            .service(
+                name,
+                "GetConfigurationTable",
+                &json!({ "tableName": wanted }),
+            )
             .map_err(SettingsError::Remote)?
             .ok_or_else(|| SettingsError::Shape(format!("{name}.{wanted} returned nothing")))?;
         tables.push(table(name, &wanted, &reply)?);
     }
-    Ok(Subsystem { name: name.to_string(), running, tables })
+    Ok(Subsystem {
+        name: name.to_string(),
+        running,
+        tables,
+    })
 }
 
 /// A subsystem as the list shows it.
@@ -186,7 +242,11 @@ pub struct Summary {
 pub fn summaries(remote: &dyn Remote) -> Result<Vec<Summary>, SettingsError> {
     let names = remote.subsystems().map_err(SettingsError::Remote)?;
     super::parallel::map(&names, |name| -> Result<Summary, SettingsError> {
-        Ok(Summary { name: name.clone(), running: running(remote, name)?, tables: table_names(remote, name)? })
+        Ok(Summary {
+            name: name.clone(),
+            running: running(remote, name)?,
+            tables: table_names(remote, name)?,
+        })
     })
     .into_iter()
     .collect()
@@ -195,7 +255,9 @@ pub fn summaries(remote: &dyn Remote) -> Result<Vec<Summary>, SettingsError> {
 /// Every subsystem, read in parallel.
 pub fn read_all(remote: &dyn Remote) -> Result<Vec<Subsystem>, SettingsError> {
     let names = remote.subsystems().map_err(SettingsError::Remote)?;
-    super::parallel::map(&names, |name| read(remote, name)).into_iter().collect()
+    super::parallel::map(&names, |name| read(remote, name))
+        .into_iter()
+        .collect()
 }
 
 /// The subsystem a name means: exactly, or without its `Subsystem` suffix, any case.
@@ -205,7 +267,12 @@ pub fn resolve<'a>(names: &'a [String], wanted: &str) -> Result<&'a str, Setting
         .iter()
         .find(|n| n.to_lowercase() == wanted || n.to_lowercase() == format!("{wanted}subsystem"))
         .map(String::as_str)
-        .ok_or_else(|| SettingsError::Invalid(format!("no subsystem {wanted:?}; there are: {}", names.join(", "))))
+        .ok_or_else(|| {
+            SettingsError::Invalid(format!(
+                "no subsystem {wanted:?}; there are: {}",
+                names.join(", ")
+            ))
+        })
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -224,13 +291,21 @@ pub fn search(all: &[Subsystem], text: &str) -> Vec<Found> {
     for subsystem in all {
         for table in &subsystem.tables {
             for field in &table.fields {
-                let haystack = format!("{}.{}.{} {}", subsystem.name, table.name, field.name, field.description).to_lowercase();
+                let haystack = format!(
+                    "{}.{}.{} {}",
+                    subsystem.name, table.name, field.name, field.description
+                )
+                .to_lowercase();
                 if haystack.contains(&text) {
                     found.push(Found {
                         subsystem: subsystem.name.clone(),
                         table: table.name.clone(),
                         field: field.clone(),
-                        values: table.rows.iter().map(|row| row.get(&field.name).cloned().unwrap_or(Value::Null)).collect(),
+                        values: table
+                            .rows
+                            .iter()
+                            .map(|row| row.get(&field.name).cloned().unwrap_or(Value::Null))
+                            .collect(),
                     });
                 }
             }
@@ -270,14 +345,26 @@ mod tests {
 
     impl Remote for Fake {
         fn subsystems(&self) -> Result<Vec<String>, ServerError> {
-            Ok(vec!["LoggingSubsystem".into(), "FederationSubsystem".into()])
+            Ok(vec![
+                "LoggingSubsystem".into(),
+                "FederationSubsystem".into(),
+            ])
         }
 
-        fn service(&self, subsystem: &str, service: &str, body: &Value) -> Result<Option<Value>, ServerError> {
+        fn service(
+            &self,
+            subsystem: &str,
+            service: &str,
+            body: &Value,
+        ) -> Result<Option<Value>, ServerError> {
             Ok(Some(match (subsystem, service) {
                 (_, "IsRunning") => json!({ "rows": [{ "result": true }] }),
-                ("LoggingSubsystem", "GetConfigurationTables") => json!({ "rows": [{ "name": "LogRetentionSettings" }] }),
-                ("FederationSubsystem", "GetConfigurationTables") => json!({ "rows": [{ "name": "Subscribers" }] }),
+                ("LoggingSubsystem", "GetConfigurationTables") => {
+                    json!({ "rows": [{ "name": "LogRetentionSettings" }] })
+                }
+                ("FederationSubsystem", "GetConfigurationTables") => {
+                    json!({ "rows": [{ "name": "Subscribers" }] })
+                }
                 ("LoggingSubsystem", "GetConfigurationTable") => {
                     assert_eq!(body["tableName"], "LogRetentionSettings");
                     json!({
@@ -305,11 +392,27 @@ mod tests {
         let all = read_all(&Fake).unwrap();
         let logging = all.iter().find(|s| s.name == "LoggingSubsystem").unwrap();
         assert!(logging.running);
-        assert_eq!(logging.tables[0].fields.iter().map(|f| f.name.as_str()).collect::<Vec<_>>(), ["enabled", "maxDays"]);
+        assert_eq!(
+            logging.tables[0]
+                .fields
+                .iter()
+                .map(|f| f.name.as_str())
+                .collect::<Vec<_>>(),
+            ["enabled", "maxDays"]
+        );
         assert_eq!(logging.tables[0].rows[0]["maxDays"], 7);
-        let federation = all.iter().find(|s| s.name == "FederationSubsystem").unwrap();
-        assert_eq!(federation.tables[0].rows[0]["applicationKey"], HIDDEN, "a secret is never shown");
-        assert_eq!(federation.tables[0].rows[1]["applicationKey"], "", "an empty secret says it is empty");
+        let federation = all
+            .iter()
+            .find(|s| s.name == "FederationSubsystem")
+            .unwrap();
+        assert_eq!(
+            federation.tables[0].rows[0]["applicationKey"], HIDDEN,
+            "a secret is never shown"
+        );
+        assert_eq!(
+            federation.tables[0].rows[1]["applicationKey"], "",
+            "an empty secret says it is empty"
+        );
     }
 
     #[test]
@@ -317,10 +420,16 @@ mod tests {
         let all = read_all(&Fake).unwrap();
         let by_name = search(&all, "maxdays");
         assert_eq!(by_name.len(), 1);
-        assert_eq!((by_name[0].subsystem.as_str(), by_name[0].table.as_str()), ("LoggingSubsystem", "LogRetentionSettings"));
+        assert_eq!(
+            (by_name[0].subsystem.as_str(), by_name[0].table.as_str()),
+            ("LoggingSubsystem", "LogRetentionSettings")
+        );
         assert_eq!(by_name[0].values, [json!(7)]);
         assert_eq!(search(&all, "kept").len(), 1, "by description");
-        assert!(search(&all, "s3cret").is_empty(), "a hidden value is not searchable");
+        assert!(
+            search(&all, "s3cret").is_empty(),
+            "a hidden value is not searchable"
+        );
     }
 
     #[test]
@@ -329,15 +438,31 @@ mod tests {
         // A field that does not say its type might be a PASSWORD: refuse rather than show it.
         for def in [json!({}), json!({ "baseType": 7 }), json!("PASSWORD")] {
             let error = table("S", "T", &defs(def.clone())).unwrap_err();
-            assert!(error.to_string().contains("applicationKey has no baseType"), "{def}: {error}");
+            assert!(
+                error.to_string().contains("applicationKey has no baseType"),
+                "{def}: {error}"
+            );
         }
-        assert!(table("S", "T", &json!({ "dataShape": {}, "rows": [] })).is_err(), "no field definitions");
+        assert!(
+            table("S", "T", &json!({ "dataShape": {}, "rows": [] })).is_err(),
+            "no field definitions"
+        );
         let fields = json!({ "x": { "baseType": "STRING" } });
         for rows in [json!("invalid"), json!(["not a row"]), Value::Null] {
             let reply = json!({ "dataShape": { "fieldDefinitions": fields }, "rows": rows });
             assert!(table("S", "T", &reply).is_err(), "rows {rows}");
         }
-        assert!(table("S", "T", &json!({ "dataShape": { "fieldDefinitions": fields }, "rows": [] })).unwrap().rows.is_empty(), "an empty table is fine");
+        assert!(
+            table(
+                "S",
+                "T",
+                &json!({ "dataShape": { "fieldDefinitions": fields }, "rows": [] })
+            )
+            .unwrap()
+            .rows
+            .is_empty(),
+            "an empty table is fine"
+        );
     }
 
     struct Broken(&'static str);
@@ -351,7 +476,9 @@ mod tests {
             match (self.0, service) {
                 ("running fails", "IsRunning") => Err(ServerError::InvalidUrl("down".into())),
                 ("running odd", "IsRunning") => Ok(Some(json!({ "rows": [{ "result": "yes" }] }))),
-                ("unnamed table", "GetConfigurationTables") => Ok(Some(json!({ "rows": [{ "title": "x" }] }))),
+                ("unnamed table", "GetConfigurationTables") => {
+                    Ok(Some(json!({ "rows": [{ "title": "x" }] })))
+                }
                 (_, "IsRunning") => Ok(Some(json!({ "rows": [{ "result": false }] }))),
                 (_, "GetConfigurationTables") => Ok(Some(json!({ "rows": [] }))),
                 other => panic!("unexpected {other:?}"),
@@ -363,7 +490,10 @@ mod tests {
     fn a_failed_or_odd_running_state_or_table_list_is_an_error() {
         for case in ["running fails", "running odd", "unnamed table"] {
             assert!(summaries(&Broken(case)).is_err(), "{case}: summaries");
-            assert!(read(&Broken(case), "LoggingSubsystem").is_err(), "{case}: read");
+            assert!(
+                read(&Broken(case), "LoggingSubsystem").is_err(),
+                "{case}: read"
+            );
         }
         assert!(!summaries(&Broken("fine")).unwrap()[0].running);
     }
@@ -372,7 +502,10 @@ mod tests {
     fn a_subsystem_is_named_with_or_without_its_suffix() {
         let names = vec!["LoggingSubsystem".to_string()];
         assert_eq!(resolve(&names, "logging").unwrap(), "LoggingSubsystem");
-        assert_eq!(resolve(&names, "LoggingSubsystem").unwrap(), "LoggingSubsystem");
+        assert_eq!(
+            resolve(&names, "LoggingSubsystem").unwrap(),
+            "LoggingSubsystem"
+        );
         assert!(resolve(&names, "Nope").is_err());
     }
 }

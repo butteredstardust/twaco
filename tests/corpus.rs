@@ -20,21 +20,33 @@ use twaco::core::splice::{self, Edit};
 
 /// The real repositories `TWACO_CORPUS` names.
 fn corpus_roots() -> Vec<PathBuf> {
-    let Ok(joined) = std::env::var("TWACO_CORPUS") else { return Vec::new() };
-    std::env::split_paths(&joined).filter(|p| p.is_dir()).collect()
+    let Ok(joined) = std::env::var("TWACO_CORPUS") else {
+        return Vec::new();
+    };
+    std::env::split_paths(&joined)
+        .filter(|p| p.is_dir())
+        .collect()
 }
 
 /// Every XML file under a project root, skipping build output and foreign trees.
 fn xml_files(root: &Path) -> Vec<PathBuf> {
     fn walk(dir: &Path, out: &mut Vec<PathBuf>) {
-        let Ok(entries) = std::fs::read_dir(dir) else { return };
+        let Ok(entries) = std::fs::read_dir(dir) else {
+            return;
+        };
         for entry in entries.flatten() {
             let path = entry.path();
             let name = entry.file_name();
             let name = name.to_string_lossy();
             if path.is_dir() {
                 // dist and distribution-backend are generated; .git and target are not ours.
-                let skip = [".git", "target", "dist", "distribution-backend", "node_modules"];
+                let skip = [
+                    ".git",
+                    "target",
+                    "dist",
+                    "distribution-backend",
+                    "node_modules",
+                ];
                 if skip.contains(&name.as_ref()) {
                     continue;
                 }
@@ -57,12 +69,17 @@ fn corpus() -> Vec<PathBuf> {
 /// Whether a corpus repository keeps its scripts indented to their `<code>` element, decided
 /// from its own payloads exactly as `twaco init` decides it.
 fn indented(root: &Path) -> bool {
-    twaco::core::init::propose(root).toml.contains("indent_cdata_payload = true")
+    twaco::core::init::propose(root)
+        .toml
+        .contains("indent_cdata_payload = true")
 }
 
 /// The compatibility layout of the corpus repository a file belongs to.
 fn indent_cdata_payload(path: &Path) -> bool {
-    corpus_roots().iter().find(|root| path.starts_with(root)).is_some_and(|root| indented(root))
+    corpus_roots()
+        .iter()
+        .find(|root| path.starts_with(root))
+        .is_some_and(|root| indented(root))
 }
 
 /// True when there is no corpus and the environment has not demanded one.
@@ -97,7 +114,10 @@ fn rename_plan_counts_on_the_corpus() {
         if !config.is_file() {
             continue;
         }
-        let repo = root.file_name().unwrap_or(root.as_os_str()).to_string_lossy();
+        let repo = root
+            .file_name()
+            .unwrap_or(root.as_os_str())
+            .to_string_lossy();
         let solution = match twaco::core::config::Solution::load(&config) {
             Ok(solution) => solution,
             Err(error) => {
@@ -116,7 +136,10 @@ fn rename_plan_counts_on_the_corpus() {
             Ok(plan) => {
                 let counts = plan.counts();
                 let show = |count: twaco::core::rename::KindCounts| {
-                    format!("{}/{}/{}/{}", count.files, count.exact, count.embedded, count.review)
+                    format!(
+                        "{}/{}/{}/{}",
+                        count.files, count.exact, count.embedded, count.review
+                    )
                 };
                 eprintln!(
                     "rename-plan {repo} {name} {mode_name} moves={} entity={} sidecar={} config={} outside={} skipped={}",
@@ -160,7 +183,9 @@ fn tokens_tile_every_document() {
     let mut checked = 0usize;
     let mut failures = Vec::new();
     for path in &files {
-        let Some((src, tokens)) = tokens_of(path, &mut failures) else { continue };
+        let Some((src, tokens)) = tokens_of(path, &mut failures) else {
+            continue;
+        };
         let mut cursor = 0usize;
         let mut problem = None;
         for token in &tokens {
@@ -178,7 +203,12 @@ fn tokens_tile_every_document() {
             None => checked += 1,
         }
     }
-    assert!(failures.is_empty(), "{} file(s) failed:\n{}", failures.len(), failures.join("\n"));
+    assert!(
+        failures.is_empty(),
+        "{} file(s) failed:\n{}",
+        failures.len(),
+        failures.join("\n")
+    );
     assert!(checked > 0, "corpus produced no readable files");
     eprintln!("tokens tile {checked} document(s)");
 }
@@ -192,14 +222,21 @@ fn a_no_op_edit_is_the_identity_function() {
     let mut checked = 0usize;
     let mut failures = Vec::new();
     for path in &files {
-        let Ok(src) = std::fs::read(path) else { continue };
+        let Ok(src) = std::fs::read(path) else {
+            continue;
+        };
         match splice::splice(&src, &[]) {
             Ok(out) if out == src => checked += 1,
             Ok(_) => failures.push(format!("{}: empty splice changed the file", path.display())),
             Err(e) => failures.push(format!("{}: {e}", path.display())),
         }
     }
-    assert!(failures.is_empty(), "{} file(s) failed:\n{}", failures.len(), failures.join("\n"));
+    assert!(
+        failures.is_empty(),
+        "{} file(s) failed:\n{}",
+        failures.len(),
+        failures.join("\n")
+    );
     assert!(checked > 0, "corpus produced no readable files");
     eprintln!("no-op splice is the identity over {checked} document(s)");
 }
@@ -232,7 +269,9 @@ fn rename_scan_counts_on_the_corpus() {
             let mut review = 0usize;
             let mut failures = Vec::new();
             for path in xml_files(root) {
-                let Ok(src) = std::fs::read(&path) else { continue };
+                let Ok(src) = std::fs::read(&path) else {
+                    continue;
+                };
                 if twaco::core::entity::parse(&src).is_err() {
                     continue;
                 }
@@ -252,7 +291,9 @@ fn rename_scan_counts_on_the_corpus() {
             }
             println!(
                 "rename-scan {} {} {} files={} exact={} embedded={} review={}",
-                root.file_name().unwrap_or(root.as_os_str()).to_string_lossy(),
+                root.file_name()
+                    .unwrap_or(root.as_os_str())
+                    .to_string_lossy(),
                 name,
                 mode_name,
                 files,
@@ -274,8 +315,12 @@ fn rename_scan_counts_on_the_corpus() {
     let mut failures = Vec::new();
     for root in &roots {
         for path in xml_files(root) {
-            let Ok(src) = std::fs::read(&path) else { continue };
-            let Ok(info) = twaco::core::entity::parse(&src) else { continue };
+            let Ok(src) = std::fs::read(&path) else {
+                continue;
+            };
+            let Ok(info) = twaco::core::entity::parse(&src) else {
+                continue;
+            };
             if info.name.is_empty() {
                 continue;
             }
@@ -317,7 +362,10 @@ fn rename_scan_counts_on_the_corpus() {
             };
             match splice::splice(&renamed, &reverse.edits) {
                 Ok(restored) if restored == src => checked += 1,
-                Ok(_) => failures.push(format!("{}: rename round trip changed bytes", path.display())),
+                Ok(_) => failures.push(format!(
+                    "{}: rename round trip changed bytes",
+                    path.display()
+                )),
                 Err(error) => failures.push(format!("{}: reverse splice: {error}", path.display())),
             }
         }
@@ -326,9 +374,17 @@ fn rename_scan_counts_on_the_corpus() {
         failures.is_empty(),
         "{} rename round-trip failure(s):\n{}",
         failures.len(),
-        failures.iter().take(10).cloned().collect::<Vec<_>>().join("\n")
+        failures
+            .iter()
+            .take(10)
+            .cloned()
+            .collect::<Vec<_>>()
+            .join("\n")
     );
-    assert!(checked > 0, "corpus contained no entity document with a name");
+    assert!(
+        checked > 0,
+        "corpus contained no entity document with a name"
+    );
     eprintln!("rename scan round-trips {checked} entity document(s) byte for byte");
 }
 
@@ -342,7 +398,9 @@ fn replacing_every_cdata_payload_with_itself_is_the_identity() {
     let mut payloads = 0usize;
     let mut failures = Vec::new();
     for path in &files {
-        let Some((src, tokens)) = tokens_of(path, &mut failures) else { continue };
+        let Some((src, tokens)) = tokens_of(path, &mut failures) else {
+            continue;
+        };
         let edits: Vec<Edit> = tokens
             .iter()
             .filter(|t| t.kind == Kind::Cdata)
@@ -354,12 +412,23 @@ fn replacing_every_cdata_payload_with_itself_is_the_identity() {
         payloads += edits.len();
         match splice::splice(&src, &edits) {
             Ok(out) if out == src => checked += 1,
-            Ok(_) => failures.push(format!("{}: rewriting CDATA with itself changed it", path.display())),
+            Ok(_) => failures.push(format!(
+                "{}: rewriting CDATA with itself changed it",
+                path.display()
+            )),
             Err(e) => failures.push(format!("{}: {e}", path.display())),
         }
     }
-    assert!(failures.is_empty(), "{} file(s) failed:\n{}", failures.len(), failures.join("\n"));
-    assert!(payloads > 0, "corpus contained no CDATA at all, so this proved nothing");
+    assert!(
+        failures.is_empty(),
+        "{} file(s) failed:\n{}",
+        failures.len(),
+        failures.join("\n")
+    );
+    assert!(
+        payloads > 0,
+        "corpus contained no CDATA at all, so this proved nothing"
+    );
     eprintln!("{payloads} CDATA payload(s) across {checked} file(s) round-trip unchanged");
 }
 
@@ -375,14 +444,19 @@ fn every_payload_survives_the_writer() {
     let mut payloads = 0usize;
     let mut failures = Vec::new();
     for path in &files {
-        let Some((src, tokens)) = tokens_of(path, &mut failures) else { continue };
+        let Some((src, tokens)) = tokens_of(path, &mut failures) else {
+            continue;
+        };
         for token in tokens.iter().filter(|t| t.kind == Kind::Cdata) {
             let payload = token.inner.of(&src);
             let rendered = scan::render_cdata(payload);
             let reparsed = match scan::tokenize(&rendered) {
                 Ok(t) => t,
                 Err(e) => {
-                    failures.push(format!("{}: rendered CDATA will not re-scan: {e}", path.display()));
+                    failures.push(format!(
+                        "{}: rendered CDATA will not re-scan: {e}",
+                        path.display()
+                    ));
                     continue;
                 }
             };
@@ -392,12 +466,20 @@ fn every_payload_survives_the_writer() {
                 .flat_map(|t| t.inner.of(&rendered).to_vec())
                 .collect();
             if joined != payload {
-                failures.push(format!("{}: payload changed through the writer", path.display()));
+                failures.push(format!(
+                    "{}: payload changed through the writer",
+                    path.display()
+                ));
             }
             payloads += 1;
         }
     }
-    assert!(failures.is_empty(), "{} failure(s):\n{}", failures.len(), failures.join("\n"));
+    assert!(
+        failures.is_empty(),
+        "{} failure(s):\n{}",
+        failures.len(),
+        failures.join("\n")
+    );
     assert!(payloads > 0, "no payloads exercised");
     eprintln!("{payloads} payload(s) survive render_cdata and re-scan");
 }
@@ -413,13 +495,19 @@ fn an_attribute_value_is_never_reported_outside_its_tag() {
     let mut seen = 0usize;
     let mut failures = Vec::new();
     for path in &files {
-        let Some((src, tokens)) = tokens_of(path, &mut failures) else { continue };
-        for tag in tokens.iter().filter(|t| matches!(t.kind, Kind::Start | Kind::Empty)) {
+        let Some((src, tokens)) = tokens_of(path, &mut failures) else {
+            continue;
+        };
+        for tag in tokens
+            .iter()
+            .filter(|t| matches!(t.kind, Kind::Start | Kind::Empty))
+        {
             for key in ["name", "projectName", "baseType", "description"] {
                 match scan::attribute(&src, tag, key) {
                     Ok(Some(span)) => {
                         if span.start < tag.span.start || span.end > tag.span.end {
-                            failures.push(format!("{}: {key} value escapes its tag", path.display()));
+                            failures
+                                .push(format!("{}: {key} value escapes its tag", path.display()));
                         }
                         seen += 1;
                     }
@@ -429,7 +517,12 @@ fn an_attribute_value_is_never_reported_outside_its_tag() {
             }
         }
     }
-    assert!(failures.is_empty(), "{} failure(s):\n{}", failures.len(), failures.join("\n"));
+    assert!(
+        failures.is_empty(),
+        "{} failure(s):\n{}",
+        failures.len(),
+        failures.join("\n")
+    );
     assert!(seen > 0, "no attributes exercised");
     eprintln!("{seen} attribute value(s) stay inside their tag");
 }
@@ -447,7 +540,9 @@ fn project_attribution_is_possible_for_entity_documents() {
     let mut without: Vec<String> = Vec::new();
     let mut failures = Vec::new();
     for path in &files {
-        let Some((src, tokens)) = tokens_of(path, &mut failures) else { continue };
+        let Some((src, tokens)) = tokens_of(path, &mut failures) else {
+            continue;
+        };
         let found = tokens
             .iter()
             .filter(|t| matches!(t.kind, Kind::Start | Kind::Empty))
@@ -458,17 +553,28 @@ fn project_attribution_is_possible_for_entity_documents() {
             without.push(path.file_name().unwrap().to_string_lossy().into_owned());
         }
     }
-    assert!(failures.is_empty(), "{} failure(s):\n{}", failures.len(), failures.join("\n"));
+    assert!(
+        failures.is_empty(),
+        "{} failure(s):\n{}",
+        failures.len(),
+        failures.join("\n")
+    );
     assert!(with > 0, "no document carried a projectName");
     // Every file lacking one should be a fragment, not an entity export.
-    let unexpected: Vec<&String> = without.iter().filter(|n| n.as_str() != "definition.xml").collect();
+    let unexpected: Vec<&String> = without
+        .iter()
+        .filter(|n| n.as_str() != "definition.xml")
+        .collect();
     eprintln!(
         "{with} document(s) carry projectName; {} do not ({} are definition.xml fragments)",
         without.len(),
         without.len() - unexpected.len()
     );
     if !unexpected.is_empty() {
-        eprintln!("  not fragments: {:?}", unexpected.iter().take(8).collect::<Vec<_>>());
+        eprintln!(
+            "  not fragments: {:?}",
+            unexpected.iter().take(8).collect::<Vec<_>>()
+        );
     }
 }
 
@@ -488,7 +594,9 @@ fn every_entity_document_attributes_to_exactly_one_project() {
     let mut failures = Vec::new();
 
     for path in &files {
-        let Ok(src) = std::fs::read(path) else { continue };
+        let Ok(src) = std::fs::read(path) else {
+            continue;
+        };
         match twaco::core::entity::parse(&src) {
             Ok(info) => {
                 entities += 1;
@@ -497,7 +605,11 @@ fn every_entity_document_attributes_to_exactly_one_project() {
                 } else {
                     *projects.entry(info.project.clone()).or_default() += 1;
                 }
-                assert!(!info.collection.is_empty(), "{}: no collection", path.display());
+                assert!(
+                    !info.collection.is_empty(),
+                    "{}: no collection",
+                    path.display()
+                );
                 assert!(!info.name.is_empty(), "{}: no name", path.display());
             }
             Err(twaco::core::entity::ParseFailureKind::NotAnEntity) => fragments += 1,
@@ -507,14 +619,23 @@ fn every_entity_document_attributes_to_exactly_one_project() {
         }
     }
 
-    assert!(failures.is_empty(), "{} failure(s):\n{}", failures.len(), failures.join("\n"));
+    assert!(
+        failures.is_empty(),
+        "{} failure(s):\n{}",
+        failures.len(),
+        failures.join("\n")
+    );
     assert!(entities > 0, "no entity documents recognised");
     eprintln!("{entities} entity document(s), {fragments} fragment(s)");
     for (project, count) in &projects {
         eprintln!("  {project}: {count}");
     }
     if !undeclared.is_empty() {
-        eprintln!("  no projectName: {} ({:?})", undeclared.len(), undeclared.iter().take(5).collect::<Vec<_>>());
+        eprintln!(
+            "  no projectName: {} ({:?})",
+            undeclared.len(),
+            undeclared.iter().take(5).collect::<Vec<_>>()
+        );
     }
 }
 
@@ -575,7 +696,12 @@ fn every_entity_document_normalises_without_error() {
             }
         }
     }
-    assert!(failures.is_empty(), "{} failure(s):\n{}", failures.len(), failures.join("\n"));
+    assert!(
+        failures.is_empty(),
+        "{} failure(s):\n{}",
+        failures.len(),
+        failures.join("\n")
+    );
     assert!(entities > 0, "no entity documents recognised");
     eprintln!("{entities} entity document(s) normalised without error");
 }
@@ -589,8 +715,12 @@ fn service_entities() -> Vec<(PathBuf, PathBuf, bool)> {
             continue;
         }
         for path in xml_files(&root) {
-            let Ok(bytes) = std::fs::read(&path) else { continue };
-            let Ok(info) = twaco::core::entity::parse(&bytes) else { continue };
+            let Ok(bytes) = std::fs::read(&path) else {
+                continue;
+            };
+            let Ok(info) = twaco::core::entity::parse(&bytes) else {
+                continue;
+            };
             let services = src_root.join(&info.name).join("services");
             if services.is_dir() {
                 let indent = indent_cdata_payload(&path);
@@ -633,18 +763,30 @@ fn extraction_reproduces_the_committed_sidecars_byte_for_byte() {
             let want_def = dir.join("definition.xml");
             let want_js = dir.join("script.js");
             if !want_def.is_file() || !want_js.is_file() {
-                failures.push(format!("{}: no committed sidecar for {}", entity_path.display(), service.name));
+                failures.push(format!(
+                    "{}: no committed sidecar for {}",
+                    entity_path.display(),
+                    service.name
+                ));
                 continue;
             }
             services += 1;
-            let committed_def = std::fs::read_to_string(&want_def).unwrap().replace("\r\n", "\n");
-            let committed_js = std::fs::read_to_string(&want_js).unwrap().replace("\r\n", "\n");
+            let committed_def = std::fs::read_to_string(&want_def)
+                .unwrap()
+                .replace("\r\n", "\n");
+            let committed_js = std::fs::read_to_string(&want_js)
+                .unwrap()
+                .replace("\r\n", "\n");
             if service.definition != committed_def {
                 // Some committed definition sidecars end without their trailing newline. The
                 // canonical extracted form includes one, so the file on disk is stale. Counted
                 // and reported so it cannot quietly become a licence to differ.
-                if service.definition == format!("{committed_def}
-") {
+                if service.definition
+                    == format!(
+                        "{committed_def}
+"
+                    )
+                {
                     stale.push(want_def.display().to_string());
                 } else {
                     failures.push(format!("{}: definition differs", want_def.display()));
@@ -665,7 +807,12 @@ fn extraction_reproduces_the_committed_sidecars_byte_for_byte() {
         failures.is_empty(),
         "{} mismatch(es) out of {services} service(s):\n{}",
         failures.len(),
-        failures.iter().take(12).cloned().collect::<Vec<_>>().join("\n")
+        failures
+            .iter()
+            .take(12)
+            .cloned()
+            .collect::<Vec<_>>()
+            .join("\n")
     );
     assert!(services > 0, "no services compared");
     eprintln!("{services} service sidecar(s) across {entities} entity file(s) reproduced exactly");
@@ -679,10 +826,7 @@ fn extraction_reproduces_the_committed_sidecars_byte_for_byte() {
         }
     }
     // Pinned by name, not by count: any *other* file differing is twaco drifting, not a wart.
-    const KNOWN_STALE: [&str; 2] = [
-        "CleanAndReseedTestData",
-        "GetDefaultConfigurationRows",
-    ];
+    const KNOWN_STALE: [&str; 2] = ["CleanAndReseedTestData", "GetDefaultConfigurationRows"];
     for path in &stale {
         assert!(
             KNOWN_STALE.iter().any(|known| path.contains(known)),
@@ -703,7 +847,9 @@ fn extraction_handles_every_service_bearing_entity_in_the_corpus() {
     let mut services = 0usize;
     let mut failures = Vec::new();
     for path in &files {
-        let Ok(src) = std::fs::read(path) else { continue };
+        let Ok(src) = std::fs::read(path) else {
+            continue;
+        };
         if twaco::core::entity::parse(&src).is_err() {
             continue;
         }
@@ -721,7 +867,12 @@ fn extraction_handles_every_service_bearing_entity_in_the_corpus() {
         failures.is_empty(),
         "{} entity file(s) failed to extract:\n{}",
         failures.len(),
-        failures.iter().take(10).cloned().collect::<Vec<_>>().join("\n")
+        failures
+            .iter()
+            .take(10)
+            .cloned()
+            .collect::<Vec<_>>()
+            .join("\n")
     );
     eprintln!("{services} service(s) extracted from {entities} service-bearing entity file(s)");
 }
@@ -730,9 +881,13 @@ fn extraction_handles_every_service_bearing_entity_in_the_corpus() {
 ///
 /// Deliberately not re-extracted from the entity: that would only prove sync is the inverse of
 /// extract, when what matters is that the files a person edits write back cleanly.
-fn committed_sidecars(dir: &Path) -> std::collections::BTreeMap<String, twaco::core::sidecar::ServiceSidecar> {
+fn committed_sidecars(
+    dir: &Path,
+) -> std::collections::BTreeMap<String, twaco::core::sidecar::ServiceSidecar> {
     let mut out = std::collections::BTreeMap::new();
-    let Ok(entries) = std::fs::read_dir(dir) else { return out };
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return out;
+    };
     for entry in entries.flatten() {
         let service = entry.path();
         if !service.is_dir() {
@@ -788,7 +943,11 @@ fn syncing_the_committed_sidecars_back_changes_nothing() {
                 entities += 1;
                 services += report.unchanged.len() + report.changed.len();
                 if out != src {
-                    let at = out.iter().zip(src.iter()).position(|(a, b)| a != b).unwrap_or(0);
+                    let at = out
+                        .iter()
+                        .zip(src.iter())
+                        .position(|(a, b)| a != b)
+                        .unwrap_or(0);
                     failures.push(format!(
                         "{}: writing the committed sidecars back changed byte {at} (changed: {:?})",
                         path.display(),
@@ -803,10 +962,17 @@ fn syncing_the_committed_sidecars_back_changes_nothing() {
         failures.is_empty(),
         "{} failure(s):\n{}",
         failures.len(),
-        failures.iter().take(10).cloned().collect::<Vec<_>>().join("\n")
+        failures
+            .iter()
+            .take(10)
+            .cloned()
+            .collect::<Vec<_>>()
+            .join("\n")
     );
     assert!(services > 0, "no services synced");
-    eprintln!("{services} committed sidecar(s) across {entities} entity file(s) write back unchanged");
+    eprintln!(
+        "{services} committed sidecar(s) across {entities} entity file(s) write back unchanged"
+    );
 }
 
 #[test]
@@ -820,7 +986,9 @@ fn syncing_extracted_sidecars_is_the_identity_in_each_corpus_mode() {
     let mut checked = 0usize;
     let mut failures = Vec::new();
     for path in &files {
-        let Ok(src) = std::fs::read(path) else { continue };
+        let Ok(src) = std::fs::read(path) else {
+            continue;
+        };
         if twaco::core::entity::parse(&src).is_err() {
             continue;
         }
@@ -834,8 +1002,11 @@ fn syncing_extracted_sidecars_is_the_identity_in_each_corpus_mode() {
         if extraction.services.is_empty() {
             continue;
         }
-        let sidecars: std::collections::BTreeMap<String, _> =
-            extraction.services.iter().map(|s| (s.name.clone(), s.clone())).collect();
+        let sidecars: std::collections::BTreeMap<String, _> = extraction
+            .services
+            .iter()
+            .map(|s| (s.name.clone(), s.clone()))
+            .collect();
         for indent_cdata_payload in [false, true] {
             match twaco::core::sync::sync(&src, &sidecars, true, indent_cdata_payload, false) {
                 Ok((once, first)) if once == src && first.changed.is_empty() => {
@@ -894,7 +1065,9 @@ fn an_indented_corpus_relayout_to_flush_rewrites_once_and_settles() {
     let mut rewritten = 0usize;
     let mut failures = Vec::new();
     for path in xml_files(&root) {
-        let Ok(src) = std::fs::read(&path) else { continue };
+        let Ok(src) = std::fs::read(&path) else {
+            continue;
+        };
         if twaco::core::entity::parse(&src).is_err() {
             continue;
         }
@@ -925,7 +1098,10 @@ fn an_indented_corpus_relayout_to_flush_rewrites_once_and_settles() {
         let again = match twaco::core::sidecar::extract(&once) {
             Ok(extraction) => extraction,
             Err(e) => {
-                failures.push(format!("{}: relayout output will not extract: {e}", path.display()));
+                failures.push(format!(
+                    "{}: relayout output will not extract: {e}",
+                    path.display()
+                ));
                 continue;
             }
         };
@@ -945,8 +1121,16 @@ fn an_indented_corpus_relayout_to_flush_rewrites_once_and_settles() {
         }
     }
 
-    assert!(failures.is_empty(), "{} relayout failure(s):\n{}", failures.len(), failures.join("\n"));
-    assert!(rewritten > 0, "the indented corpus had no indented payloads to migrate");
+    assert!(
+        failures.is_empty(),
+        "{} relayout failure(s):\n{}",
+        failures.len(),
+        failures.join("\n")
+    );
+    assert!(
+        rewritten > 0,
+        "the indented corpus had no indented payloads to migrate"
+    );
     eprintln!(
         "flush relayout rewrites {rewritten} of {services} payload(s) across {entities} entity file(s); the second pass changes none"
     );
@@ -962,14 +1146,25 @@ fn a_script_carrying_the_cdata_terminator_survives_a_real_entity() {
     let (path, dir, indent_cdata_payload) = &pairs[0];
     let src = std::fs::read(path).expect("entity is readable");
     let mut sidecars = committed_sidecars(dir);
-    let victim = sidecars.keys().next().expect("at least one sidecar").clone();
+    let victim = sidecars
+        .keys()
+        .next()
+        .expect("at least one sidecar")
+        .clone();
     sidecars.get_mut(&victim).unwrap().script = "var marker = \"]]>\";".to_string();
 
     let (out, _) = twaco::core::sync::sync(&src, &sidecars, true, *indent_cdata_payload, false)
         .expect("sync succeeds");
     let back = twaco::core::sidecar::extract(&out).expect("output re-extracts");
-    let written = back.services.iter().find(|s| s.name == victim).expect("service survives");
-    assert_eq!(written.script, "var marker = \"]]>\";", "the terminator must survive a round trip");
+    let written = back
+        .services
+        .iter()
+        .find(|s| s.name == victim)
+        .expect("service survives");
+    assert_eq!(
+        written.script, "var marker = \"]]>\";",
+        "the terminator must survive a round trip"
+    );
 }
 
 /// DataShape entity files paired with their committed `fields.json`.
@@ -981,8 +1176,12 @@ fn datashape_pairs() -> Vec<(PathBuf, PathBuf)> {
             continue;
         }
         for path in xml_files(&root) {
-            let Ok(bytes) = std::fs::read(&path) else { continue };
-            let Ok(info) = twaco::core::entity::parse(&bytes) else { continue };
+            let Ok(bytes) = std::fs::read(&path) else {
+                continue;
+            };
+            let Ok(info) = twaco::core::entity::parse(&bytes) else {
+                continue;
+            };
             if info.collection != "DataShapes" {
                 continue;
             }
@@ -1015,8 +1214,9 @@ fn datashape_fields_reproduce_the_committed_sidecars_byte_for_byte() {
             Ok(extracted) => {
                 fields += extracted.len();
                 let produced = twaco::core::datashape::to_sidecar(&extracted);
-                let committed =
-                    std::fs::read_to_string(sidecar).unwrap().replace("\r\n", "\n");
+                let committed = std::fs::read_to_string(sidecar)
+                    .unwrap()
+                    .replace("\r\n", "\n");
                 if produced != committed {
                     failures.push(format!("{}: differs", sidecar.display()));
                 } else {
@@ -1031,7 +1231,12 @@ fn datashape_fields_reproduce_the_committed_sidecars_byte_for_byte() {
         "{} of {} differ:\n{}",
         failures.len(),
         pairs.len(),
-        failures.iter().take(8).cloned().collect::<Vec<_>>().join("\n")
+        failures
+            .iter()
+            .take(8)
+            .cloned()
+            .collect::<Vec<_>>()
+            .join("\n")
     );
     eprintln!("{checked} fields.json reproduced exactly, {fields} field(s) total");
 }
@@ -1046,7 +1251,9 @@ fn syncing_the_committed_datashape_fields_back_changes_nothing() {
     let mut failures = Vec::new();
     for (entity, sidecar) in &pairs {
         let src = std::fs::read(entity).expect("entity is readable");
-        let text = std::fs::read_to_string(sidecar).unwrap().replace("\r\n", "\n");
+        let text = std::fs::read_to_string(sidecar)
+            .unwrap()
+            .replace("\r\n", "\n");
         let desired = match twaco::core::datashape::from_sidecar(&text) {
             Ok(d) => d,
             Err(e) => {
@@ -1057,8 +1264,15 @@ fn syncing_the_committed_datashape_fields_back_changes_nothing() {
         match twaco::core::datashape::sync(&src, &desired, false) {
             Ok((out, changes)) => {
                 if out != src {
-                    let at = out.iter().zip(src.iter()).position(|(a, b)| a != b).unwrap_or(0);
-                    failures.push(format!("{}: changed at byte {at} ({changes:?})", entity.display()));
+                    let at = out
+                        .iter()
+                        .zip(src.iter())
+                        .position(|(a, b)| a != b)
+                        .unwrap_or(0);
+                    failures.push(format!(
+                        "{}: changed at byte {at} ({changes:?})",
+                        entity.display()
+                    ));
                 } else {
                     checked += 1;
                 }
@@ -1070,7 +1284,12 @@ fn syncing_the_committed_datashape_fields_back_changes_nothing() {
         failures.is_empty(),
         "{} failure(s):\n{}",
         failures.len(),
-        failures.iter().take(8).cloned().collect::<Vec<_>>().join("\n")
+        failures
+            .iter()
+            .take(8)
+            .cloned()
+            .collect::<Vec<_>>()
+            .join("\n")
     );
     eprintln!("{checked} DataShape(s) survive a no-op field sync unchanged");
 }
@@ -1084,8 +1303,12 @@ fn mashup_pairs() -> Vec<(PathBuf, PathBuf)> {
             continue;
         }
         for path in xml_files(&root) {
-            let Ok(bytes) = std::fs::read(&path) else { continue };
-            let Ok(info) = twaco::core::entity::parse(&bytes) else { continue };
+            let Ok(bytes) = std::fs::read(&path) else {
+                continue;
+            };
+            let Ok(info) = twaco::core::entity::parse(&bytes) else {
+                continue;
+            };
             if info.collection != "Mashups" {
                 continue;
             }
@@ -1148,7 +1371,12 @@ fn mashup_assets_reproduce_the_committed_sidecars_byte_for_byte() {
         "{} of {} differ:\n{}",
         failures.len(),
         pairs.len(),
-        failures.iter().take(3).cloned().collect::<Vec<_>>().join("\n")
+        failures
+            .iter()
+            .take(3)
+            .cloned()
+            .collect::<Vec<_>>()
+            .join("\n")
     );
     eprintln!("{checked} mashup sidecar pair(s) reproduced exactly");
 }
@@ -1164,8 +1392,12 @@ fn syncing_the_committed_mashup_assets_back_changes_nothing() {
     for (entity, dir) in &pairs {
         let src = std::fs::read(entity).expect("entity is readable");
         let assets = twaco::core::mashup::Assets {
-            content: std::fs::read_to_string(dir.join("content.json")).unwrap().replace("\r\n", "\n"),
-            css: std::fs::read_to_string(dir.join("custom.css")).unwrap_or_default().replace("\r\n", "\n"),
+            content: std::fs::read_to_string(dir.join("content.json"))
+                .unwrap()
+                .replace("\r\n", "\n"),
+            css: std::fs::read_to_string(dir.join("custom.css"))
+                .unwrap_or_default()
+                .replace("\r\n", "\n"),
         };
         match twaco::core::mashup::sync(&src, &assets) {
             Ok((out, changes)) => {
@@ -1182,7 +1414,12 @@ fn syncing_the_committed_mashup_assets_back_changes_nothing() {
         failures.is_empty(),
         "{} failure(s):\n{}",
         failures.len(),
-        failures.iter().take(5).cloned().collect::<Vec<_>>().join("\n")
+        failures
+            .iter()
+            .take(5)
+            .cloned()
+            .collect::<Vec<_>>()
+            .join("\n")
     );
     eprintln!("{checked} mashup(s) survive a no-op sync unchanged");
 }
@@ -1196,7 +1433,9 @@ fn data_table_files() -> Vec<PathBuf> {
     let mut found = Vec::new();
     for root in corpus_roots() {
         for path in xml_files(&root) {
-            let Ok(bytes) = std::fs::read(&path) else { continue };
+            let Ok(bytes) = std::fs::read(&path) else {
+                continue;
+            };
             if twaco::core::datatable::is_data_table(&bytes) {
                 found.push(path);
             }
@@ -1230,14 +1469,20 @@ fn a_data_table_round_trips_through_its_sidecar_unchanged() {
         let text = match twaco::core::datatable::to_sidecar(&configuration) {
             Ok(text) => text,
             Err(e) => {
-                failures.push(format!("{}: will not become a sidecar: {e}", path.display()));
+                failures.push(format!(
+                    "{}: will not become a sidecar: {e}",
+                    path.display()
+                ));
                 continue;
             }
         };
         let back = match twaco::core::datatable::from_sidecar(&text) {
             Ok(back) => back,
             Err(e) => {
-                failures.push(format!("{}: sidecar will not read back: {e}", path.display()));
+                failures.push(format!(
+                    "{}: sidecar will not read back: {e}",
+                    path.display()
+                ));
                 continue;
             }
         };
@@ -1257,7 +1502,12 @@ fn a_data_table_round_trips_through_its_sidecar_unchanged() {
         "{} of {} failed:\n{}",
         failures.len(),
         files.len(),
-        failures.iter().take(5).cloned().collect::<Vec<_>>().join("\n")
+        failures
+            .iter()
+            .take(5)
+            .cloned()
+            .collect::<Vec<_>>()
+            .join("\n")
     );
     eprintln!("{checked} DataTable(s) round-trip through a sidecar unchanged");
 }
@@ -1274,10 +1524,13 @@ fn get_db_info_scripts_read_the_same_over_the_corpus() {
         return;
     }
     let mut dump = String::new();
-    let (mut scripts, mut shapes, mut fields, mut indexes, mut keys, mut unsure) = (0, 0, 0, 0, 0, 0);
+    let (mut scripts, mut shapes, mut fields, mut indexes, mut keys, mut unsure) =
+        (0, 0, 0, 0, 0, 0);
     let mut failures = Vec::new();
     for path in &files {
-        let Ok(src) = std::fs::read(path) else { continue };
+        let Ok(src) = std::fs::read(path) else {
+            continue;
+        };
         if !src.windows(9).any(|window| window == b"GetDBInfo") {
             continue;
         }
@@ -1302,7 +1555,10 @@ fn get_db_info_scripts_read_the_same_over_the_corpus() {
         }
     }
     assert!(failures.is_empty(), "{}", failures.join("\n"));
-    let digest: String = Sha256::digest(dump.as_bytes()).iter().map(|byte| format!("{byte:02x}")).collect();
+    let digest: String = Sha256::digest(dump.as_bytes())
+        .iter()
+        .map(|byte| format!("{byte:02x}"))
+        .collect();
     println!(
         "getdbinfo scripts={scripts} shapes={shapes} fields={fields} indexes={indexes} foreign_keys={keys} unsure={unsure} digest={digest}"
     );
@@ -1322,7 +1578,9 @@ fn scripts_parse_over_the_corpus() {
     let mut failed = 0usize;
     let mut failures = Vec::new();
     for path in &files {
-        let Some((src, tokens)) = tokens_of(path, &mut failures) else { continue };
+        let Some((src, tokens)) = tokens_of(path, &mut failures) else {
+            continue;
+        };
         let mut elements: Vec<&[u8]> = Vec::new();
         for token in &tokens {
             match token.kind {
@@ -1351,9 +1609,20 @@ fn scripts_parse_over_the_corpus() {
         failures.is_empty(),
         "{} failure(s):\n{}",
         failures.len(),
-        failures.iter().take(10).cloned().collect::<Vec<_>>().join("\n")
+        failures
+            .iter()
+            .take(10)
+            .cloned()
+            .collect::<Vec<_>>()
+            .join("\n")
     );
-    assert!(scripts > 0, "corpus contained no script payload, so this proved nothing");
+    assert!(
+        scripts > 0,
+        "corpus contained no script payload, so this proved nothing"
+    );
     println!("scripts={scripts} parsed={parsed} failed={failed}");
-    assert!(parsed * 100 >= scripts * 99, "only {parsed} of {scripts} scripts parse");
+    assert!(
+        parsed * 100 >= scripts * 99,
+        "only {parsed} of {scripts} scripts parse"
+    );
 }

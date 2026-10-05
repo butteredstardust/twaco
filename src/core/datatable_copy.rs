@@ -19,7 +19,14 @@ use std::fmt;
 use std::time::Duration;
 
 /// Columns the platform adds to every DataTable row; they are not part of the shape.
-pub const SYSTEM_COLUMNS: [&str; 6] = ["key", "location", "source", "sourceType", "tags", "timestamp"];
+pub const SYSTEM_COLUMNS: [&str; 6] = [
+    "key",
+    "location",
+    "source",
+    "sourceType",
+    "tags",
+    "timestamp",
+];
 
 const BATCH: usize = 200;
 
@@ -39,7 +46,12 @@ impl Remote for Client {
 
     fn count(&self, table: &str) -> Result<u64, ServerError> {
         let target = ServiceTarget::entity("Things", table)?;
-        let value = self.call_service(&target, "GetDataTableEntryCount", &json!({}), Duration::from_secs(120))?;
+        let value = self.call_service(
+            &target,
+            "GetDataTableEntryCount",
+            &json!({}),
+            Duration::from_secs(120),
+        )?;
         value
             .as_ref()
             .and_then(|value| value.get("rows"))
@@ -47,18 +59,34 @@ impl Remote for Client {
             .and_then(|row| row.get("result"))
             .and_then(Value::as_f64)
             .map(|count| count as u64)
-            .ok_or_else(|| ServerError::InvalidResponse { url: table.to_string(), why: "GetDataTableEntryCount returned no count".to_string() })
+            .ok_or_else(|| ServerError::InvalidResponse {
+                url: table.to_string(),
+                why: "GetDataTableEntryCount returned no count".to_string(),
+            })
     }
 
     fn entries(&self, table: &str, max_items: u64) -> Result<Value, ServerError> {
         let target = ServiceTarget::entity("Things", table)?;
-        self.call_service(&target, "GetDataTableEntries", &json!({ "maxItems": max_items }), Duration::from_secs(300))?
-            .ok_or_else(|| ServerError::InvalidResponse { url: table.to_string(), why: "GetDataTableEntries returned nothing".to_string() })
+        self.call_service(
+            &target,
+            "GetDataTableEntries",
+            &json!({ "maxItems": max_items }),
+            Duration::from_secs(300),
+        )?
+        .ok_or_else(|| ServerError::InvalidResponse {
+            url: table.to_string(),
+            why: "GetDataTableEntries returned nothing".to_string(),
+        })
     }
 
     fn add(&self, table: &str, rows: &Value) -> Result<(), ServerError> {
         let target = ServiceTarget::entity("Things", table)?;
-        self.call_service(&target, "AddDataTableEntries", &json!({ "values": rows }), Duration::from_secs(300))?;
+        self.call_service(
+            &target,
+            "AddDataTableEntries",
+            &json!({ "values": rows }),
+            Duration::from_secs(300),
+        )?;
         Ok(())
     }
 }
@@ -133,11 +161,21 @@ pub fn parse_map(text: &str) -> Result<BTreeMap<String, String>, CopyError> {
     for pair in text.split(',').filter(|pair| !pair.trim().is_empty()) {
         match pair.split_once('=') {
             Some((from, to)) if !from.trim().is_empty() && !to.trim().is_empty() => {
-                if map.insert(from.trim().to_string(), to.trim().to_string()).is_some() {
-                    return Err(CopyError::Arguments(format!("--map names {} twice", from.trim())));
+                if map
+                    .insert(from.trim().to_string(), to.trim().to_string())
+                    .is_some()
+                {
+                    return Err(CopyError::Arguments(format!(
+                        "--map names {} twice",
+                        from.trim()
+                    )));
                 }
             }
-            _ => return Err(CopyError::Arguments(format!("--map wants old=new pairs, got {pair:?}"))),
+            _ => {
+                return Err(CopyError::Arguments(format!(
+                    "--map wants old=new pairs, got {pair:?}"
+                )))
+            }
         }
     }
     Ok(map)
@@ -162,16 +200,30 @@ fn shape_fields(entries: &Value) -> BTreeMap<String, String> {
         .into_iter()
         .flatten()
         .filter(|(name, _)| !SYSTEM_COLUMNS.contains(&name.as_str()))
-        .map(|(name, definition)| (name.clone(), definition["baseType"].as_str().unwrap_or_default().to_string()))
+        .map(|(name, definition)| {
+            (
+                name.clone(),
+                definition["baseType"]
+                    .as_str()
+                    .unwrap_or_default()
+                    .to_string(),
+            )
+        })
         .collect()
 }
 
 /// Compare numbers as numbers: the platform writes `2` and reads `2.0`.
 fn canonical(value: &Value) -> Value {
     match value {
-        Value::Number(number) => json!(number.as_f64().map_or_else(|| number.to_string(), |float| format!("{float}"))),
+        Value::Number(number) => json!(number
+            .as_f64()
+            .map_or_else(|| number.to_string(), |float| format!("{float}"))),
         Value::Array(items) => Value::Array(items.iter().map(canonical).collect()),
-        Value::Object(map) => Value::Object(map.iter().map(|(key, item)| (key.clone(), canonical(item))).collect::<Map<_, _>>()),
+        Value::Object(map) => Value::Object(
+            map.iter()
+                .map(|(key, item)| (key.clone(), canonical(item)))
+                .collect::<Map<_, _>>(),
+        ),
         other => other.clone(),
     }
 }
@@ -192,26 +244,45 @@ fn rows_of(entries: &Value, fields: &BTreeSet<&str>) -> Vec<Map<String, Value>> 
         .into_iter()
         .flatten()
         .filter_map(Value::as_object)
-        .map(|row| row.iter().filter(|(name, _)| fields.contains(name.as_str())).map(|(name, value)| (name.clone(), value.clone())).collect())
+        .map(|row| {
+            row.iter()
+                .filter(|(name, _)| fields.contains(name.as_str()))
+                .map(|(name, value)| (name.clone(), value.clone()))
+                .collect()
+        })
         .collect()
 }
 
-pub fn run(remote: &dyn Remote, solution: &Solution, request: &Request) -> Result<Report, CopyError> {
+pub fn run(
+    remote: &dyn Remote,
+    solution: &Solution,
+    request: &Request,
+) -> Result<Report, CopyError> {
     if request.old == request.new {
-        return Err(CopyError::Arguments("the source and the target are the same DataTable".to_string()));
+        return Err(CopyError::Arguments(
+            "the source and the target are the same DataTable".to_string(),
+        ));
     }
     for name in [&request.old, &request.new] {
         if !remote.exists(name)? {
-            return Err(CopyError::Refused(format!("{name} is not on the server; deploy it first")));
+            return Err(CopyError::Refused(format!(
+                "{name} is not on the server; deploy it first"
+            )));
         }
     }
     let source_rows = remote.count(&request.old)?;
     let target_before = remote.count(&request.new)?;
     if source_rows > request.max_rows {
-        return Err(CopyError::Refused(format!("{} has {source_rows} rows, over --max-rows {}", request.old, request.max_rows)));
+        return Err(CopyError::Refused(format!(
+            "{} has {source_rows} rows, over --max-rows {}",
+            request.old, request.max_rows
+        )));
     }
     if target_before > 0 && !request.append {
-        return Err(CopyError::Refused(format!("{} already has {target_before} row(s); copy with --append to add to them", request.new)));
+        return Err(CopyError::Refused(format!(
+            "{} already has {target_before} row(s); copy with --append to add to them",
+            request.new
+        )));
     }
 
     let old_entries = remote.entries(&request.old, source_rows.max(1))?;
@@ -222,10 +293,16 @@ pub fn run(remote: &dyn Remote, solution: &Solution, request: &Request) -> Resul
 
     for (from, to) in &request.map {
         if !old_fields.contains_key(from) {
-            return Err(CopyError::Arguments(format!("--map: {} has no field {from}", request.old)));
+            return Err(CopyError::Arguments(format!(
+                "--map: {} has no field {from}",
+                request.old
+            )));
         }
         if !new_fields.contains_key(to) {
-            return Err(CopyError::Arguments(format!("--map: {} has no field {to}", request.new)));
+            return Err(CopyError::Arguments(format!(
+                "--map: {} has no field {to}",
+                request.new
+            )));
         }
     }
     let mut fields = Vec::new();
@@ -242,18 +319,28 @@ pub fn run(remote: &dyn Remote, solution: &Solution, request: &Request) -> Resul
                 .map(|(_, new)| (new.clone(), "ledger"))
         };
         match chosen {
-            Some((to, by)) => fields.push(FieldMove { from: from.clone(), to, by }),
+            Some((to, by)) => fields.push(FieldMove {
+                from: from.clone(),
+                to,
+                by,
+            }),
             None => dropped.push(from.clone()),
         }
     }
     let mut targets = BTreeSet::new();
     for field in &fields {
         if !targets.insert(field.to.clone()) {
-            return Err(CopyError::Refused(format!("two fields of {} would fill {} in {}", request.old, field.to, request.new)));
+            return Err(CopyError::Refused(format!(
+                "two fields of {} would fill {} in {}",
+                request.old, field.to, request.new
+            )));
         }
         let (from_type, to_type) = (&old_fields[&field.from], &new_fields[&field.to]);
         if from_type != to_type {
-            return Err(CopyError::Refused(format!("field {} is {from_type} in {} but {} is {to_type} in {}", field.from, request.old, field.to, request.new)));
+            return Err(CopyError::Refused(format!(
+                "field {} is {from_type} in {} but {} is {to_type} in {}",
+                field.from, request.old, field.to, request.new
+            )));
         }
     }
     if !dropped.is_empty() && !request.drop_unmapped {
@@ -264,7 +351,11 @@ pub fn run(remote: &dyn Remote, solution: &Solution, request: &Request) -> Resul
             dropped.join(", ")
         )));
     }
-    let unfilled: Vec<String> = new_fields.keys().filter(|name| !targets.contains(name.as_str())).cloned().collect();
+    let unfilled: Vec<String> = new_fields
+        .keys()
+        .filter(|name| !targets.contains(name.as_str()))
+        .cloned()
+        .collect();
 
     let mut report = Report {
         old: request.old.clone(),
@@ -290,7 +381,10 @@ pub fn run(remote: &dyn Remote, solution: &Solution, request: &Request) -> Resul
             report
                 .fields
                 .iter()
-                .filter_map(|field| row.get(&field.from).map(|value| (field.to.clone(), value.clone())))
+                .filter_map(|field| {
+                    row.get(&field.from)
+                        .map(|value| (field.to.clone(), value.clone()))
+                })
                 .collect()
         })
         .collect();
@@ -358,8 +452,19 @@ mod tests {
     }
 
     impl Fake {
-        fn table(self, name: &str, fields: &[(&'static str, &'static str)], rows: Vec<Value>) -> Self {
-            self.tables.borrow_mut().insert(name.to_string(), Table { fields: fields.to_vec(), rows });
+        fn table(
+            self,
+            name: &str,
+            fields: &[(&'static str, &'static str)],
+            rows: Vec<Value>,
+        ) -> Self {
+            self.tables.borrow_mut().insert(
+                name.to_string(),
+                Table {
+                    fields: fields.to_vec(),
+                    rows,
+                },
+            );
             self
         }
     }
@@ -376,7 +481,10 @@ mod tests {
             let table = &tables[table];
             let mut definitions = Map::new();
             for system in SYSTEM_COLUMNS {
-                definitions.insert(system.to_string(), json!({ "name": system, "baseType": "STRING" }));
+                definitions.insert(
+                    system.to_string(),
+                    json!({ "name": system, "baseType": "STRING" }),
+                );
             }
             for (name, base) in &table.fields {
                 definitions.insert(name.to_string(), json!({ "name": name, "baseType": base }));
@@ -399,7 +507,11 @@ mod tests {
             if !self.lose_writes {
                 let mut tables = self.tables.borrow_mut();
                 // The platform reads numbers back as floats.
-                let added = rows["rows"].as_array().unwrap().iter().map(canonical_numbers);
+                let added = rows["rows"]
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .map(canonical_numbers);
                 tables.get_mut(table).unwrap().rows.extend(added);
             }
             Ok(())
@@ -411,14 +523,25 @@ mod tests {
             row.as_object()
                 .unwrap()
                 .iter()
-                .map(|(name, value)| (name.clone(), value.as_i64().map_or_else(|| value.clone(), |int| json!(int as f64))))
+                .map(|(name, value)| {
+                    (
+                        name.clone(),
+                        value
+                            .as_i64()
+                            .map_or_else(|| value.clone(), |int| json!(int as f64)),
+                    )
+                })
                 .collect(),
         )
     }
 
     fn solution(ledger: Option<&str>) -> (std::path::PathBuf, Solution) {
-        let nonce = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos();
-        let root = std::env::temp_dir().join(format!("twaco-dtcopy-{}-{nonce}", std::process::id()));
+        let nonce = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let root =
+            std::env::temp_dir().join(format!("twaco-dtcopy-{}-{nonce}", std::process::id()));
         std::fs::create_dir_all(root.join(".twaco")).unwrap();
         std::fs::write(root.join("twaco.toml"), "[[project]]\nname = \"P\"\n").unwrap();
         if let Some(ledger) = ledger {
@@ -429,11 +552,20 @@ mod tests {
     }
 
     fn request(apply: bool) -> Request {
-        Request { old: "Old_DT".into(), new: "New_DT".into(), max_rows: 1000, apply, ..Default::default() }
+        Request {
+            old: "Old_DT".into(),
+            new: "New_DT".into(),
+            max_rows: 1000,
+            apply,
+            ..Default::default()
+        }
     }
 
     fn rows() -> Vec<Value> {
-        vec![json!({ "id": "1", "label": "first", "amount": 1.5 }), json!({ "id": "2", "label": "second", "amount": 2.0 })]
+        vec![
+            json!({ "id": "1", "label": "first", "amount": 1.5 }),
+            json!({ "id": "2", "label": "second", "amount": 2.0 }),
+        ]
     }
 
     const OLD: [(&str, &str); 3] = [("id", "STRING"), ("label", "STRING"), ("amount", "NUMBER")];
@@ -442,12 +574,30 @@ mod tests {
     #[test]
     fn a_plan_reads_the_shapes_maps_fields_by_name_and_the_ledger_and_writes_nothing() {
         let (root, solution) = solution(Some(LEDGER));
-        let fake = Fake::default()
-            .table("Old_DT", &OLD, rows())
-            .table("New_DT", &[("id", "STRING"), ("title", "STRING"), ("amount", "NUMBER"), ("extra", "STRING")], vec![]);
+        let fake = Fake::default().table("Old_DT", &OLD, rows()).table(
+            "New_DT",
+            &[
+                ("id", "STRING"),
+                ("title", "STRING"),
+                ("amount", "NUMBER"),
+                ("extra", "STRING"),
+            ],
+            vec![],
+        );
         let report = run(&fake, &solution, &request(false)).unwrap();
-        let moves: Vec<(&str, &str, &str)> = report.fields.iter().map(|f| (f.from.as_str(), f.to.as_str(), f.by)).collect();
-        assert_eq!(moves, [("amount", "amount", "same name"), ("id", "id", "same name"), ("label", "title", "ledger")]);
+        let moves: Vec<(&str, &str, &str)> = report
+            .fields
+            .iter()
+            .map(|f| (f.from.as_str(), f.to.as_str(), f.by))
+            .collect();
+        assert_eq!(
+            moves,
+            [
+                ("amount", "amount", "same name"),
+                ("id", "id", "same name"),
+                ("label", "title", "ledger")
+            ]
+        );
         assert_eq!(report.unfilled, ["extra"]);
         assert_eq!((report.source_rows, report.applied), (2, false));
         assert_eq!(*fake.adds.borrow(), 0);
@@ -457,42 +607,63 @@ mod tests {
     #[test]
     fn an_apply_copies_renamed_rows_and_confirms_them_read_back() {
         let (root, solution) = solution(Some(LEDGER));
-        let fake = Fake::default()
-            .table("Old_DT", &OLD, rows())
-            .table("New_DT", &[("id", "STRING"), ("title", "STRING"), ("amount", "NUMBER")], vec![]);
+        let fake = Fake::default().table("Old_DT", &OLD, rows()).table(
+            "New_DT",
+            &[("id", "STRING"), ("title", "STRING"), ("amount", "NUMBER")],
+            vec![],
+        );
         let report = run(&fake, &solution, &request(true)).unwrap();
         assert!(report.applied && report.verified);
         assert_eq!(report.written, 2);
         let tables = fake.tables.borrow();
-        assert_eq!(tables["New_DT"].rows[1], json!({ "id": "2", "title": "second", "amount": 2.0 }));
+        assert_eq!(
+            tables["New_DT"].rows[1],
+            json!({ "id": "2", "title": "second", "amount": 2.0 })
+        );
         assert_eq!(tables["Old_DT"].rows.len(), 2, "the source keeps its rows");
         drop(tables);
         // A second copy is refused: the target is not empty.
         let again = run(&fake, &solution, &request(true)).unwrap_err();
-        assert!(again.to_string().contains("already has 2 row(s)"), "{again}");
+        assert!(
+            again.to_string().contains("already has 2 row(s)"),
+            "{again}"
+        );
         let _ = std::fs::remove_dir_all(root);
     }
 
     #[test]
     fn unmapped_fields_type_mismatches_and_collisions_are_refused_before_any_write() {
         let (root, solution) = solution(None);
-        let renamed = Fake::default()
-            .table("Old_DT", &OLD, rows())
-            .table("New_DT", &[("id", "STRING"), ("title", "STRING"), ("amount", "NUMBER")], vec![]);
+        let renamed = Fake::default().table("Old_DT", &OLD, rows()).table(
+            "New_DT",
+            &[("id", "STRING"), ("title", "STRING"), ("amount", "NUMBER")],
+            vec![],
+        );
         let refused = run(&renamed, &solution, &request(true)).unwrap_err();
-        assert!(refused.to_string().contains("label") && refused.to_string().contains("--map"), "{refused}");
+        assert!(
+            refused.to_string().contains("label") && refused.to_string().contains("--map"),
+            "{refused}"
+        );
         // --map names it; --drop-unmapped leaves it behind.
         let mut mapped = request(false);
         mapped.map = parse_map("label=title").unwrap();
         assert_eq!(run(&renamed, &solution, &mapped).unwrap().fields.len(), 3);
         let mut dropping = request(false);
         dropping.drop_unmapped = true;
-        assert_eq!(run(&renamed, &solution, &dropping).unwrap().dropped, ["label"]);
+        assert_eq!(
+            run(&renamed, &solution, &dropping).unwrap().dropped,
+            ["label"]
+        );
         // A type change is refused.
-        let retyped = Fake::default()
-            .table("Old_DT", &OLD, rows())
-            .table("New_DT", &[("id", "STRING"), ("label", "STRING"), ("amount", "STRING")], vec![]);
-        assert!(run(&retyped, &solution, &request(true)).unwrap_err().to_string().contains("NUMBER"));
+        let retyped = Fake::default().table("Old_DT", &OLD, rows()).table(
+            "New_DT",
+            &[("id", "STRING"), ("label", "STRING"), ("amount", "STRING")],
+            vec![],
+        );
+        assert!(run(&retyped, &solution, &request(true))
+            .unwrap_err()
+            .to_string()
+            .contains("NUMBER"));
         // Two source fields cannot fill one target field.
         let mut collide = request(false);
         collide.map = parse_map("label=id").unwrap();
@@ -504,11 +675,17 @@ mod tests {
     #[test]
     fn a_write_the_server_loses_is_a_failure_not_a_success() {
         let (root, solution) = solution(None);
-        let fake = Fake { lose_writes: true, ..Default::default() }
-            .table("Old_DT", &OLD, rows())
-            .table("New_DT", &OLD, vec![]);
+        let fake = Fake {
+            lose_writes: true,
+            ..Default::default()
+        }
+        .table("Old_DT", &OLD, rows())
+        .table("New_DT", &OLD, vec![]);
         let error = run(&fake, &solution, &request(true)).unwrap_err();
-        assert!(error.to_string().contains("has 0 row(s) after copying 2"), "{error}");
+        assert!(
+            error.to_string().contains("has 0 row(s) after copying 2"),
+            "{error}"
+        );
         let _ = std::fs::remove_dir_all(root);
     }
 
@@ -516,18 +693,33 @@ mod tests {
     fn missing_tables_sizes_and_arguments_are_refused() {
         let (root, solution) = solution(None);
         let fake = Fake::default().table("Old_DT", &OLD, rows());
-        assert!(run(&fake, &solution, &request(false)).unwrap_err().to_string().contains("New_DT is not on the server"));
-        let both = Fake::default().table("Old_DT", &OLD, rows()).table("New_DT", &OLD, vec![]);
+        assert!(run(&fake, &solution, &request(false))
+            .unwrap_err()
+            .to_string()
+            .contains("New_DT is not on the server"));
+        let both = Fake::default()
+            .table("Old_DT", &OLD, rows())
+            .table("New_DT", &OLD, vec![]);
         let mut small = request(false);
         small.max_rows = 1;
-        assert!(run(&both, &solution, &small).unwrap_err().to_string().contains("over --max-rows 1"));
+        assert!(run(&both, &solution, &small)
+            .unwrap_err()
+            .to_string()
+            .contains("over --max-rows 1"));
         let mut same = request(false);
         same.new = "Old_DT".into();
         assert!(run(&both, &solution, &same).is_err());
-        assert!(parse_map("a=b,c").is_err() && parse_map("a=b,a=c").is_err() && parse_map("").unwrap().is_empty());
+        assert!(
+            parse_map("a=b,c").is_err()
+                && parse_map("a=b,a=c").is_err()
+                && parse_map("").unwrap().is_empty()
+        );
         let mut unknown = request(false);
         unknown.map = parse_map("nope=id").unwrap();
-        assert!(run(&both, &solution, &unknown).unwrap_err().to_string().contains("no field nope"));
+        assert!(run(&both, &solution, &unknown)
+            .unwrap_err()
+            .to_string()
+            .contains("no field nope"));
         let _ = std::fs::remove_dir_all(root);
     }
 }

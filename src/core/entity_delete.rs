@@ -5,8 +5,8 @@
 //! Script strings and Mashup JSON are outside ThingWorx's incoming-dependency graph and the
 //! result says so rather than presenting the guard as complete.
 
-use super::bundle::COLLECTION_ORDER;
 use super::backup;
+use super::bundle::COLLECTION_ORDER;
 use super::config::Solution;
 use super::entity_key::{EntityKey, ServiceTarget};
 use super::ledger::{Ledger, LedgerError};
@@ -362,10 +362,19 @@ struct LedgerLocation {
 
 #[derive(Debug)]
 pub enum DeleteError {
-    Ledger { path: PathBuf, why: String },
+    Ledger {
+        path: PathBuf,
+        why: String,
+    },
     Target(String),
-    Remote { entity: String, why: ServerError },
-    Write { path: PathBuf, why: String },
+    Remote {
+        entity: String,
+        why: ServerError,
+    },
+    Write {
+        path: PathBuf,
+        why: String,
+    },
     /// A backup could not be taken, so nothing was deleted.
     Backup(String),
 }
@@ -490,7 +499,11 @@ pub fn run(
         .collect();
     let mut entities = Vec::new();
     for target in targets {
-        let Target { key, method, ledger } = target;
+        let Target {
+            key,
+            method,
+            ledger,
+        } = target;
         if method == Method::Composer {
             entities.push(EntityResult {
                 collection: key.collection().to_string(),
@@ -502,20 +515,19 @@ pub fn run(
                 error: None,
                 refusals: vec![Refusal {
                     code: GuardCode::NoDeleteMethod,
-                    message: "twaco has no delete method for this collection; delete it in Composer"
-                        .to_string(),
+                    message:
+                        "twaco has no delete method for this collection; delete it in Composer"
+                            .to_string(),
                 }],
                 ledger,
             });
             continue;
         }
         let label = key.to_string();
-        let exists = remote
-            .exists(&key)
-            .map_err(|why| DeleteError::Remote {
-                entity: label.clone(),
-                why,
-            })?;
+        let exists = remote.exists(&key).map_err(|why| DeleteError::Remote {
+            entity: label.clone(),
+            why,
+        })?;
         if !exists {
             entities.push(EntityResult {
                 collection: key.collection().to_string(),
@@ -530,12 +542,10 @@ pub fn run(
             });
             continue;
         }
-        let dependents = remote
-            .incoming(&key)
-            .map_err(|why| DeleteError::Remote {
-                entity: label.clone(),
-                why,
-            })?;
+        let dependents = remote.incoming(&key).map_err(|why| DeleteError::Remote {
+            entity: label.clone(),
+            why,
+        })?;
         let outside: Vec<&Dependent> = dependents
             .iter()
             .filter(|dependent| {
@@ -650,7 +660,9 @@ pub fn run(
         for entity in &entities {
             if matches!(entity.status, Status::Deleted | Status::Absent) {
                 for location in &entity.ledger {
-                    let item = prepared.ledger.entity_mut((location.record, location.entity));
+                    let item = prepared
+                        .ledger
+                        .entity_mut((location.record, location.entity));
                     if item.deleted.is_none() {
                         item.deleted = Some(date.to_string());
                         ledger_changed = true;
@@ -683,22 +695,22 @@ fn resolve_targets(remote: &dyn Remote, prepared: &Prepared) -> Result<Vec<Targe
             false => resolve_bare(remote, requested)?,
         };
         let method = method_for(key.collection()).unwrap_or(Method::Composer);
-        targets
-            .entry(key.clone())
-            .or_insert(Target {
-                key,
-                method,
-                ledger: Vec::new(),
-            });
+        targets.entry(key.clone()).or_insert(Target {
+            key,
+            method,
+            ledger: Vec::new(),
+        });
     }
     for (record_at, entity_at) in prepared.ledger.replaced(|entity| entity.deleted.is_none()) {
         let pending = prepared.ledger.entity((record_at, entity_at));
-        let key = EntityKey::new(&pending.collection, &pending.old).map_err(|_| {
-            DeleteError::Ledger {
+        let key =
+            EntityKey::new(&pending.collection, &pending.old).map_err(|_| DeleteError::Ledger {
                 path: prepared.ledger_path.clone(),
-                why: format!("{}/{} is not a valid entity key", pending.collection, pending.old),
-            }
-        })?;
+                why: format!(
+                    "{}/{} is not a valid entity key",
+                    pending.collection, pending.old
+                ),
+            })?;
         if !prepared.renamed && !targets.contains_key(&key) {
             continue;
         }
@@ -727,14 +739,12 @@ fn resolve_bare(remote: &dyn Remote, name: &str) -> Result<EntityKey, DeleteErro
     }
     let mut found = Vec::new();
     for collection in known_collections() {
-        let key = EntityKey::new(collection, name).expect("known collections are valid entity keys");
-        if remote
-            .exists(&key)
-            .map_err(|why| DeleteError::Remote {
-                entity: name.to_string(),
-                why,
-            })?
-        {
+        let key =
+            EntityKey::new(collection, name).expect("known collections are valid entity keys");
+        if remote.exists(&key).map_err(|why| DeleteError::Remote {
+            entity: name.to_string(),
+            why,
+        })? {
             found.push(key);
         }
     }
@@ -809,7 +819,8 @@ fn order_targets(targets: &mut [Target]) {
                 .position(|known| *known == collection)
         };
         match (rank(left.key.collection()), rank(right.key.collection())) {
-            (None, None) => (left.key.name(), left.key.collection()).cmp(&(right.key.name(), right.key.collection())),
+            (None, None) => (left.key.name(), left.key.collection())
+                .cmp(&(right.key.name(), right.key.collection())),
             (None, Some(_)) => std::cmp::Ordering::Less,
             (Some(_), None) => std::cmp::Ordering::Greater,
             (Some(left_rank), Some(right_rank)) => right_rank
@@ -871,18 +882,14 @@ mod tests {
 
     impl Remote for Fake {
         fn exists(&self, key: &EntityKey) -> Result<bool, ServerError> {
-            self.calls
-                .borrow_mut()
-                .push(format!("GET {key}"));
+            self.calls.borrow_mut().push(format!("GET {key}"));
             Ok(self
                 .held
                 .borrow()
                 .contains(&(key.collection().to_string(), key.name().to_string())))
         }
         fn incoming(&self, key: &EntityKey) -> Result<Vec<Dependent>, ServerError> {
-            self.calls
-                .borrow_mut()
-                .push(format!("DEPS {key}"));
+            self.calls.borrow_mut().push(format!("DEPS {key}"));
             Ok(self
                 .dependencies
                 .get(&(key.collection().to_string(), key.name().to_string()))
@@ -896,9 +903,13 @@ mod tests {
             stamp: &str,
         ) -> Result<Option<String>, backup::BackupError> {
             let names: Vec<&str> = entities.iter().map(EntityKey::name).collect();
-            self.calls.borrow_mut().push(format!("BACKUP {stamp} {}", names.join(",")));
+            self.calls
+                .borrow_mut()
+                .push(format!("BACKUP {stamp} {}", names.join(",")));
             if self.backup_fails {
-                return Err(backup::BackupError::Unreadable { entity: "Things/X".to_string() });
+                return Err(backup::BackupError::Unreadable {
+                    entity: "Things/X".to_string(),
+                });
             }
             Ok(Some(format!(".twaco/backups/{stamp}")))
         }
@@ -929,9 +940,7 @@ mod tests {
             Ok(())
         }
         fn delete_rest(&self, key: &EntityKey) -> Result<(), ServerError> {
-            self.calls
-                .borrow_mut()
-                .push(format!("DELETE {key}"));
+            self.calls.borrow_mut().push(format!("DELETE {key}"));
             let held_key = (key.collection().to_string(), key.name().to_string());
             if !self.keep_after_delete.contains(&held_key) {
                 self.held.borrow_mut().remove(&held_key);
@@ -987,15 +996,7 @@ mod tests {
             .map(|name| (*name).to_string())
             .collect::<Vec<_>>();
         let prepared = prepare(solution, &names, false).unwrap();
-        run(
-            fake,
-            solution,
-            prepared,
-            apply,
-            acknowledged,
-            "2026-10-02",
-        )
-        .unwrap()
+        run(fake, solution, prepared, apply, acknowledged, "2026-10-02").unwrap()
     }
 
     #[test]
@@ -1122,8 +1123,18 @@ mod tests {
                     .flatten()
                     .collect::<Vec<_>>();
                     assert_eq!(entity.refusal_codes().collect::<Vec<_>>(), expected);
-                    assert_eq!(entity.status, if expected.is_empty() { Status::Ready } else { Status::Refused });
-                    assert_eq!(entity.warnings.len(), usize::from(file_repository_data_loss));
+                    assert_eq!(
+                        entity.status,
+                        if expected.is_empty() {
+                            Status::Ready
+                        } else {
+                            Status::Refused
+                        }
+                    );
+                    assert_eq!(
+                        entity.warnings.len(),
+                        usize::from(file_repository_data_loss)
+                    );
                 }
             }
         }
@@ -1187,10 +1198,26 @@ mod tests {
         let (root, solution) = solution();
         let fake = Fake::new(&[("Unknowns", "T")]);
         let prepared = prepare(&solution, &["Unknowns/T".into()], false).unwrap();
-        let refused = run(&fake, &solution, prepared, false, Acknowledged::default(), "2026-10-02").unwrap();
+        let refused = run(
+            &fake,
+            &solution,
+            prepared,
+            false,
+            Acknowledged::default(),
+            "2026-10-02",
+        )
+        .unwrap();
         let value = serde_json::to_value(&refused.entities[0]).unwrap();
-        assert_eq!(value["refusals"], serde_json::json!(["twaco has no delete method for this collection; delete it in Composer"]));
-        assert_eq!(value["refusal_codes"], serde_json::json!(["no_delete_method"]));
+        assert_eq!(
+            value["refusals"],
+            serde_json::json!([
+                "twaco has no delete method for this collection; delete it in Composer"
+            ])
+        );
+        assert_eq!(
+            value["refusal_codes"],
+            serde_json::json!(["no_delete_method"])
+        );
 
         let prepared = prepare(&solution, &["Unknowns/T".into()], false).unwrap();
         let still_refused = run(
@@ -1207,7 +1234,12 @@ mod tests {
         )
         .unwrap();
         assert_eq!(still_refused.entities[0].status, Status::Refused);
-        assert_eq!(still_refused.entities[0].refusal_codes().collect::<Vec<_>>(), [GuardCode::NoDeleteMethod]);
+        assert_eq!(
+            still_refused.entities[0]
+                .refusal_codes()
+                .collect::<Vec<_>>(),
+            [GuardCode::NoDeleteMethod]
+        );
 
         let absent = execute(&fake, &solution, &["Things/Missing"], false, false);
         let value = serde_json::to_value(&absent.entities[0]).unwrap();
@@ -1222,9 +1254,16 @@ mod tests {
         let fake = Fake::new(&[]);
         for requested in ["Things/..", "Things/A/B", "/X"] {
             let prepared = prepare(&solution, &[requested.to_string()], false).unwrap();
-            let error = run(&fake, &solution, prepared, false, Acknowledged::default(), "2026-10-02")
-                .unwrap_err()
-                .to_string();
+            let error = run(
+                &fake,
+                &solution,
+                prepared,
+                false,
+                Acknowledged::default(),
+                "2026-10-02",
+            )
+            .unwrap_err()
+            .to_string();
             assert_eq!(
                 error,
                 format!("{requested:?} must be Collection/Name or a bare server entity name")
@@ -1245,9 +1284,16 @@ mod tests {
         .unwrap();
         let fake = Fake::new(&[]);
         let prepared = prepare(&solution, &[], true).unwrap();
-        let error = run(&fake, &solution, prepared, false, Acknowledged::default(), "2026-10-02")
-            .unwrap_err()
-            .to_string();
+        let error = run(
+            &fake,
+            &solution,
+            prepared,
+            false,
+            Acknowledged::default(),
+            "2026-10-02",
+        )
+        .unwrap_err()
+        .to_string();
         assert_eq!(
             error,
             format!(
@@ -1273,7 +1319,10 @@ mod tests {
         let report = execute(&fake, &solution, &["Things/T"], false, false);
         let entity = &report.entities[0];
         assert_eq!(entity.status, Status::Refused);
-        assert_eq!(entity.refusal_codes().collect::<Vec<_>>(), [GuardCode::OutsideDependents]);
+        assert_eq!(
+            entity.refusal_codes().collect::<Vec<_>>(),
+            [GuardCode::OutsideDependents]
+        );
         assert_eq!(
             entity.refusals().collect::<Vec<_>>(),
             ["incoming dependents outside this delete set: Mashups/.. (pass --allow-outside-dependents)"]
@@ -1399,7 +1448,15 @@ mod tests {
         .unwrap();
         let fake = Fake::new(&[("Things", "Old")]);
         let prepared = prepare(&solution, &[], true).unwrap();
-        let report = run(&fake, &solution, prepared, true, Acknowledged::default(), "2026-10-02").unwrap();
+        let report = run(
+            &fake,
+            &solution,
+            prepared,
+            true,
+            Acknowledged::default(),
+            "2026-10-02",
+        )
+        .unwrap();
         assert_eq!(report.entities.len(), 1);
         assert!(report.ledger_changed);
         let updated: Value =
@@ -1415,44 +1472,135 @@ mod tests {
     fn the_delete_set_is_backed_up_before_the_first_delete_and_a_failed_backup_deletes_nothing() {
         let (root, solution) = solution();
         let fake = Fake::new(&[("Things", "A"), ("Things", "B")]);
-        let names = vec!["Things/A".to_string(), "Things/B".to_string(), "Things/Absent".to_string()];
-        let prepared = prepare(&solution, &names, false).unwrap().with_backup("20261002-1");
-        let report = run(&fake, &solution, prepared, true, Acknowledged::default(), "2026-10-02").unwrap();
+        let names = vec![
+            "Things/A".to_string(),
+            "Things/B".to_string(),
+            "Things/Absent".to_string(),
+        ];
+        let prepared = prepare(&solution, &names, false)
+            .unwrap()
+            .with_backup("20261002-1");
+        let report = run(
+            &fake,
+            &solution,
+            prepared,
+            true,
+            Acknowledged::default(),
+            "2026-10-02",
+        )
+        .unwrap();
         assert_eq!(report.backup.as_deref(), Some(".twaco/backups/20261002-1"));
         let calls = fake.calls.borrow();
-        let backup_at = calls.iter().position(|call| call.starts_with("BACKUP")).unwrap();
-        let first_delete = calls.iter().position(|call| call.starts_with("SERVICE")).unwrap();
+        let backup_at = calls
+            .iter()
+            .position(|call| call.starts_with("BACKUP"))
+            .unwrap();
+        let first_delete = calls
+            .iter()
+            .position(|call| call.starts_with("SERVICE"))
+            .unwrap();
         assert!(backup_at < first_delete, "{calls:?}");
-        assert_eq!(calls[backup_at], "BACKUP 20261002-1 A,B", "only what will be deleted is saved");
+        assert_eq!(
+            calls[backup_at], "BACKUP 20261002-1 A,B",
+            "only what will be deleted is saved"
+        );
         drop(calls);
         // A plan takes no backup, and --no-backup (no stamp) takes none.
         let plan_fake = Fake::new(&[("Things", "A")]);
-        let planned = prepare(&solution, &["Things/A".to_string()], false).unwrap().with_backup("s");
-        run(&plan_fake, &solution, planned, false, Acknowledged::default(), "d").unwrap();
+        let planned = prepare(&solution, &["Things/A".to_string()], false)
+            .unwrap()
+            .with_backup("s");
+        run(
+            &plan_fake,
+            &solution,
+            planned,
+            false,
+            Acknowledged::default(),
+            "d",
+        )
+        .unwrap();
         let unbacked = Fake::new(&[("Things", "A")]);
         execute(&unbacked, &solution, &["Things/A"], true, false);
-        assert!(plan_fake.calls.borrow().iter().chain(unbacked.calls.borrow().iter()).all(|call| !call.starts_with("BACKUP")));
+        assert!(plan_fake
+            .calls
+            .borrow()
+            .iter()
+            .chain(unbacked.calls.borrow().iter())
+            .all(|call| !call.starts_with("BACKUP")));
         // A backup that fails stops everything before any delete.
         let mut failing = Fake::new(&[("Things", "A")]);
         failing.backup_fails = true;
-        let prepared = prepare(&solution, &["Things/A".to_string()], false).unwrap().with_backup("s");
-        let error = run(&failing, &solution, prepared, true, Acknowledged::default(), "d").unwrap_err().to_string();
-        assert!(error.contains("nothing was deleted") && error.contains("--no-backup"), "{error}");
-        assert!(failing.calls.borrow().iter().all(|call| !call.starts_with("SERVICE") && !call.starts_with("DELETE")));
+        let prepared = prepare(&solution, &["Things/A".to_string()], false)
+            .unwrap()
+            .with_backup("s");
+        let error = run(
+            &failing,
+            &solution,
+            prepared,
+            true,
+            Acknowledged::default(),
+            "d",
+        )
+        .unwrap_err()
+        .to_string();
+        assert!(
+            error.contains("nothing was deleted") && error.contains("--no-backup"),
+            "{error}"
+        );
+        assert!(failing
+            .calls
+            .borrow()
+            .iter()
+            .all(|call| !call.starts_with("SERVICE") && !call.starts_with("DELETE")));
         let _ = std::fs::remove_dir_all(root);
     }
 
     #[test]
     fn an_entity_is_deleted_after_the_entities_of_the_set_that_depend_on_it() {
         let (root, solution) = solution();
-        let mut fake = Fake::new(&[("ThingTemplates", "A_TT"), ("ThingTemplates", "B_TT"), ("ThingTemplates", "C_TT")]);
+        let mut fake = Fake::new(&[
+            ("ThingTemplates", "A_TT"),
+            ("ThingTemplates", "B_TT"),
+            ("ThingTemplates", "C_TT"),
+        ]);
         // B and C inherit from A: both must go first, though A sorts before them by name.
-        let dependent = |name: &str| Dependent { collection: "ThingTemplates".to_string(), name: name.to_string() };
-        fake.dependencies.insert(("ThingTemplates".to_string(), "A_TT".to_string()), vec![dependent("B_TT"), dependent("C_TT")]);
-        let report = execute(&fake, &solution, &["ThingTemplates/A_TT", "ThingTemplates/B_TT", "ThingTemplates/C_TT"], true, false);
-        let order: Vec<&str> = report.entities.iter().map(|entity| entity.name.as_str()).collect();
+        let dependent = |name: &str| Dependent {
+            collection: "ThingTemplates".to_string(),
+            name: name.to_string(),
+        };
+        fake.dependencies.insert(
+            ("ThingTemplates".to_string(), "A_TT".to_string()),
+            vec![dependent("B_TT"), dependent("C_TT")],
+        );
+        let report = execute(
+            &fake,
+            &solution,
+            &[
+                "ThingTemplates/A_TT",
+                "ThingTemplates/B_TT",
+                "ThingTemplates/C_TT",
+            ],
+            true,
+            false,
+        );
+        let order: Vec<&str> = report
+            .entities
+            .iter()
+            .map(|entity| entity.name.as_str())
+            .collect();
         assert_eq!(order, ["B_TT", "C_TT", "A_TT"]);
-        assert!(report.entities.iter().all(|entity| entity.status == Status::Deleted), "{:?}", report.entities.iter().map(|e| (&e.name, &e.status)).collect::<Vec<_>>());
+        assert!(
+            report
+                .entities
+                .iter()
+                .all(|entity| entity.status == Status::Deleted),
+            "{:?}",
+            report
+                .entities
+                .iter()
+                .map(|e| (&e.name, &e.status))
+                .collect::<Vec<_>>()
+        );
         let _ = std::fs::remove_dir_all(root);
     }
 
@@ -1466,7 +1614,15 @@ mod tests {
         assert!(fake.calls.borrow().is_empty());
         std::fs::write(root.join(".twaco/renames.json"), "[]").unwrap();
         let prepared = prepare(&solution, &["Unknowns/T".into()], false).unwrap();
-        let report = run(&fake, &solution, prepared, false, Acknowledged::default(), "2026-10-02").unwrap();
+        let report = run(
+            &fake,
+            &solution,
+            prepared,
+            false,
+            Acknowledged::default(),
+            "2026-10-02",
+        )
+        .unwrap();
         assert_eq!(report.entities[0].status, Status::Refused);
         assert_eq!(report.entities[0].method, Method::Composer);
         assert!(fake.calls.borrow().is_empty());
@@ -1485,8 +1641,14 @@ mod tests {
         let report = execute_ack(&fake, &solution, &["Unknowns/T"], true, everything);
         let entity = &report.entities[0];
         assert_eq!(entity.status, Status::Refused);
-        assert_eq!(entity.refusal_codes().collect::<Vec<_>>(), [GuardCode::NoDeleteMethod]);
-        assert!(fake.calls.borrow().is_empty(), "nothing is asked of the server for it");
+        assert_eq!(
+            entity.refusal_codes().collect::<Vec<_>>(),
+            [GuardCode::NoDeleteMethod]
+        );
+        assert!(
+            fake.calls.borrow().is_empty(),
+            "nothing is asked of the server for it"
+        );
         let _ = std::fs::remove_dir_all(root);
     }
 
@@ -1505,9 +1667,16 @@ mod tests {
 
         let several = Fake::new(&[("Mashups", "Shared"), ("Things", "Shared")]);
         let prepared = prepare(&solution, &["Shared".into()], false).unwrap();
-        let error = run(&several, &solution, prepared, false, Acknowledged::default(), "2026-10-02")
-            .unwrap_err()
-            .to_string();
+        let error = run(
+            &several,
+            &solution,
+            prepared,
+            false,
+            Acknowledged::default(),
+            "2026-10-02",
+        )
+        .unwrap_err()
+        .to_string();
         assert!(
             error.contains("ambiguous") && error.contains("Mashups") && error.contains("Things"),
             "{error}"

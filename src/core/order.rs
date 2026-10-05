@@ -29,7 +29,10 @@ pub struct Misplaced {
 /// What appears below the first top-level function that should be above it.
 pub fn check(text: &str) -> Vec<Misplaced> {
     let classified = classify(text);
-    let Some(first) = classified.iter().find(|(_, kind)| *kind == Kind::Function).map(|(n, _)| *n)
+    let Some(first) = classified
+        .iter()
+        .find(|(_, kind)| *kind == Kind::Function)
+        .map(|(n, _)| *n)
     else {
         return Vec::new();
     };
@@ -105,14 +108,24 @@ fn classify(text: &str) -> Vec<(usize, Kind)> {
 }
 
 fn is_function(stripped: &str) -> bool {
-    let Some(rest) = stripped.strip_prefix("function ") else { return false };
-    let name: String =
-        rest.trim_start().chars().take_while(|c| c.is_alphanumeric() || *c == '_' || *c == '$').collect();
-    !name.is_empty() && rest.trim_start()[name.len()..].trim_start().starts_with('(')
+    let Some(rest) = stripped.strip_prefix("function ") else {
+        return false;
+    };
+    let name: String = rest
+        .trim_start()
+        .chars()
+        .take_while(|c| c.is_alphanumeric() || *c == '_' || *c == '$')
+        .collect();
+    !name.is_empty()
+        && rest.trim_start()[name.len()..]
+            .trim_start()
+            .starts_with('(')
 }
 
 fn is_declaration(stripped: &str) -> bool {
-    ["const ", "let ", "var "].iter().any(|k| stripped.starts_with(k))
+    ["const ", "let ", "var "]
+        .iter()
+        .any(|k| stripped.starts_with(k))
 }
 
 /// Remove string literals and trailing comments, so their braces are not counted.
@@ -188,7 +201,8 @@ mod tests {
 
     #[test]
     fn a_comment_below_a_helper_is_not_main_code() {
-        let source = "function a() {\n    return 1;\n}\n// just explaining\n/* and a block\n   comment */\n";
+        let source =
+            "function a() {\n    return 1;\n}\n// just explaining\n/* and a block\n   comment */\n";
         assert!(rules(source).is_empty(), "got {:?}", check(source));
     }
 
@@ -210,6 +224,10 @@ mod tests {
     fn a_misplaced_line_reports_where_it_is_and_what_it_is_below() {
         let found = check("function a() {\n    return 1;\n}\nresult = a();\n");
         assert_eq!(found[0].line, 4);
-        assert!(found[0].message.contains("line 1"), "got {}", found[0].message);
+        assert!(
+            found[0].message.contains("line 1"),
+            "got {}",
+            found[0].message
+        );
     }
 }

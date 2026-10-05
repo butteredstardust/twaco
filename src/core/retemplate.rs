@@ -43,12 +43,24 @@ pub struct Request {
 #[derive(Debug)]
 pub enum RetemplateError {
     Invalid(String),
-    Unknown { name: String },
-    Unreadable { files: Vec<String> },
-    Xml { path: PathBuf, why: String },
+    Unknown {
+        name: String,
+    },
+    Unreadable {
+        files: Vec<String>,
+    },
+    Xml {
+        path: PathBuf,
+        why: String,
+    },
     /// A loss that needs `--accept-loss`.
-    Loss { reasons: Vec<String> },
-    Apply { path: PathBuf, why: String },
+    Loss {
+        reasons: Vec<String>,
+    },
+    Apply {
+        path: PathBuf,
+        why: String,
+    },
 }
 
 impl fmt::Display for RetemplateError {
@@ -100,19 +112,27 @@ pub struct Plan {
 type Effective = BTreeMap<(&'static str, String), String>;
 
 fn xml(path: &Path, error: impl fmt::Display) -> RetemplateError {
-    RetemplateError::Xml { path: path.to_path_buf(), why: error.to_string() }
+    RetemplateError::Xml {
+        path: path.to_path_buf(),
+        why: error.to_string(),
+    }
 }
 
 /// What an entity has: its own members and those of everything it inherits, nearest first.
 fn effective(entities: &[Entity], entity: &Entity) -> Effective {
     let mut out = Effective::new();
     for (kind, name) in entity.member_list() {
-        out.entry((kind, name.to_string())).or_insert_with(|| entity.name.clone());
+        out.entry((kind, name.to_string()))
+            .or_insert_with(|| entity.name.clone());
     }
     for ancestor in catalog::inheritance_names(entity, entities) {
-        if let Some(parent) = entities.iter().find(|item| item.name == ancestor && matches!(item.collection.as_str(), "ThingTemplates" | "ThingShapes")) {
+        if let Some(parent) = entities.iter().find(|item| {
+            item.name == ancestor
+                && matches!(item.collection.as_str(), "ThingTemplates" | "ThingShapes")
+        }) {
             for (kind, name) in parent.member_list() {
-                out.entry((kind, name.to_string())).or_insert_with(|| parent.name.clone());
+                out.entry((kind, name.to_string()))
+                    .or_insert_with(|| parent.name.clone());
             }
         }
     }
@@ -122,11 +142,24 @@ fn effective(entities: &[Entity], entity: &Entity) -> Effective {
 /// The names of the configuration tables an entity document defines.
 fn config_table_names(bytes: &[u8]) -> BTreeSet<String> {
     let mut names = BTreeSet::new();
-    let Ok(tokens) = scan::tokenize(bytes) else { return names };
-    for section in tokens.iter().enumerate().filter(|(_, token)| matches!(token.kind, TokenKind::Start | TokenKind::Empty) && token.name.of(bytes) == b"ConfigurationTableDefinitions").map(|(at, _)| at) {
-        for definition in scan::child_tags(&tokens, bytes, "ConfigurationTableDefinition", section) {
+    let Ok(tokens) = scan::tokenize(bytes) else {
+        return names;
+    };
+    for section in tokens
+        .iter()
+        .enumerate()
+        .filter(|(_, token)| {
+            matches!(token.kind, TokenKind::Start | TokenKind::Empty)
+                && token.name.of(bytes) == b"ConfigurationTableDefinitions"
+        })
+        .map(|(at, _)| at)
+    {
+        for definition in scan::child_tags(&tokens, bytes, "ConfigurationTableDefinition", section)
+        {
             if let Ok(Some(value)) = scan::attribute(bytes, &tokens[definition], "name") {
-                names.insert(scan::decode_entities(&String::from_utf8_lossy(value.of(bytes))));
+                names.insert(scan::decode_entities(&String::from_utf8_lossy(
+                    value.of(bytes),
+                )));
             }
         }
     }
@@ -136,19 +169,27 @@ fn config_table_names(bytes: &[u8]) -> BTreeSet<String> {
 /// The names a Thing or template holds stored values for, and the configuration tables it holds.
 fn held(bytes: &[u8]) -> (BTreeSet<String>, BTreeSet<String>) {
     let (mut values, mut tables) = (BTreeSet::new(), BTreeSet::new());
-    let Ok(tokens) = scan::tokenize(bytes) else { return (values, tables) };
-    let Some(entity) = sidecar::entity_element(&tokens, bytes) else { return (values, tables) };
+    let Ok(tokens) = scan::tokenize(bytes) else {
+        return (values, tables);
+    };
+    let Some(entity) = sidecar::entity_element(&tokens, bytes) else {
+        return (values, tables);
+    };
     if let Some(&section) = scan::child_tags(&tokens, bytes, "ThingProperties", entity).first() {
         if let Some(end) = scan::element_end(&tokens, section) {
             let mut index = section + 1;
             while index < end {
                 match tokens[index].kind {
                     TokenKind::Start => {
-                        values.insert(String::from_utf8_lossy(tokens[index].name.of(bytes)).into_owned());
+                        values.insert(
+                            String::from_utf8_lossy(tokens[index].name.of(bytes)).into_owned(),
+                        );
                         index = scan::element_end(&tokens, index).map_or(end, |e| e + 1);
                     }
                     TokenKind::Empty => {
-                        values.insert(String::from_utf8_lossy(tokens[index].name.of(bytes)).into_owned());
+                        values.insert(
+                            String::from_utf8_lossy(tokens[index].name.of(bytes)).into_owned(),
+                        );
                         index += 1;
                     }
                     _ => index += 1,
@@ -159,19 +200,39 @@ fn held(bytes: &[u8]) -> (BTreeSet<String>, BTreeSet<String>) {
     for section in scan::child_tags(&tokens, bytes, "ConfigurationTables", entity) {
         for table in scan::child_tags(&tokens, bytes, "ConfigurationTable", section) {
             if let Ok(Some(value)) = scan::attribute(bytes, &tokens[table], "name") {
-                tables.insert(scan::decode_entities(&String::from_utf8_lossy(value.of(bytes))));
+                tables.insert(scan::decode_entities(&String::from_utf8_lossy(
+                    value.of(bytes),
+                )));
             }
         }
     }
     (values, tables)
 }
 
-fn config_tables_of(files: &[EntityFile], entities: &[Entity], entity: &Entity) -> BTreeMap<String, String> {
+fn config_tables_of(
+    files: &[EntityFile],
+    entities: &[Entity],
+    entity: &Entity,
+) -> BTreeMap<String, String> {
     let mut out = BTreeMap::new();
-    let names = std::iter::once(entity.name.clone()).chain(catalog::inheritance_names(entity, entities));
+    let names =
+        std::iter::once(entity.name.clone()).chain(catalog::inheritance_names(entity, entities));
     for name in names {
-        let Some(item) = entities.iter().find(|item| item.name == name && matches!(item.collection.as_str(), "Things" | "ThingTemplates" | "ThingShapes")) else { continue };
-        let Some(file) = files.iter().find(|file| file.info.name == name && file.info.collection == item.collection) else { continue };
+        let Some(item) = entities.iter().find(|item| {
+            item.name == name
+                && matches!(
+                    item.collection.as_str(),
+                    "Things" | "ThingTemplates" | "ThingShapes"
+                )
+        }) else {
+            continue;
+        };
+        let Some(file) = files
+            .iter()
+            .find(|file| file.info.name == name && file.info.collection == item.collection)
+        else {
+            continue;
+        };
         if let Ok(bytes) = std::fs::read(&file.path) {
             for table in config_table_names(&bytes) {
                 out.entry(table).or_insert_with(|| name.clone());
@@ -182,26 +243,47 @@ fn config_tables_of(files: &[EntityFile], entities: &[Entity], entity: &Entity) 
 }
 
 pub fn plan(solution: &Solution, request: &Request) -> Result<Plan, RetemplateError> {
-    if request.template.is_none() && request.add_shapes.is_empty() && request.remove_shapes.is_empty() {
-        return Err(RetemplateError::Invalid("nothing to change: give --to <template>, --add-shapes or --remove-shapes".to_string()));
+    if request.template.is_none()
+        && request.add_shapes.is_empty()
+        && request.remove_shapes.is_empty()
+    {
+        return Err(RetemplateError::Invalid(
+            "nothing to change: give --to <template>, --add-shapes or --remove-shapes".to_string(),
+        ));
     }
     let mut discovery = workspace::discover(solution);
     if !discovery.unreadable.is_empty() {
-        return Err(RetemplateError::Unreadable { files: discovery.unreadable });
+        return Err(RetemplateError::Unreadable {
+            files: discovery.unreadable,
+        });
     }
     discovery.entities.sort_by(|a, b| a.path.cmp(&b.path));
     discovery.entities.dedup_by(|a, b| a.path == b.path);
-    let found: Vec<&EntityFile> = discovery.entities.iter().filter(|item| item.info.name == request.entity && matches!(item.info.collection.as_str(), "Things" | "ThingTemplates")).collect();
+    let found: Vec<&EntityFile> = discovery
+        .entities
+        .iter()
+        .filter(|item| {
+            item.info.name == request.entity
+                && matches!(item.info.collection.as_str(), "Things" | "ThingTemplates")
+        })
+        .collect();
     let [file] = found.as_slice() else {
-        return Err(RetemplateError::Unknown { name: request.entity.clone() });
+        return Err(RetemplateError::Unknown {
+            name: request.entity.clone(),
+        });
     };
     let (model, skipped) = types::load_model(solution);
     if !skipped.is_empty() {
         return Err(RetemplateError::Unreadable { files: skipped });
     }
     let entities = &model.entities;
-    let Some(target) = entities.iter().find(|item| item.name == request.entity && item.collection == file.info.collection) else {
-        return Err(RetemplateError::Unknown { name: request.entity.clone() });
+    let Some(target) = entities
+        .iter()
+        .find(|item| item.name == request.entity && item.collection == file.info.collection)
+    else {
+        return Err(RetemplateError::Unknown {
+            name: request.entity.clone(),
+        });
     };
     let mut notes = Vec::new();
 
@@ -209,7 +291,10 @@ pub fn plan(solution: &Solution, request: &Request) -> Result<Plan, RetemplateEr
     let mut after_target = target.clone();
     if let Some(template) = &request.template {
         if target.template.as_deref() == Some(template.as_str()) {
-            return Err(RetemplateError::Invalid(format!("{} already has template {template}", request.entity)));
+            return Err(RetemplateError::Invalid(format!(
+                "{} already has template {template}",
+                request.entity
+            )));
         }
         match entities.iter().find(|item| &item.name == template && item.collection == "ThingTemplates") {
             Some(parent) => {
@@ -223,21 +308,35 @@ pub fn plan(solution: &Solution, request: &Request) -> Result<Plan, RetemplateEr
     }
     for shape in &request.add_shapes {
         if target.shapes.contains(shape) {
-            return Err(RetemplateError::Invalid(format!("{} already implements {shape}", request.entity)));
+            return Err(RetemplateError::Invalid(format!(
+                "{} already implements {shape}",
+                request.entity
+            )));
         }
-        if !entities.iter().any(|item| &item.name == shape && item.collection == "ThingShapes") {
-            notes.push(format!("{shape} is not in this solution, so what it declares is not known here."));
+        if !entities
+            .iter()
+            .any(|item| &item.name == shape && item.collection == "ThingShapes")
+        {
+            notes.push(format!(
+                "{shape} is not in this solution, so what it declares is not known here."
+            ));
         }
         after_target.shapes.push(shape.clone());
     }
     for shape in &request.remove_shapes {
         if !target.shapes.contains(shape) {
-            return Err(RetemplateError::Invalid(format!("{} does not itself implement {shape} (it may inherit it from its template)", request.entity)));
+            return Err(RetemplateError::Invalid(format!(
+                "{} does not itself implement {shape} (it may inherit it from its template)",
+                request.entity
+            )));
         }
         after_target.shapes.retain(|item| item != shape);
     }
     let mut after: Vec<Entity> = entities.clone();
-    if let Some(slot) = after.iter_mut().find(|item| item.name == target.name && item.collection == target.collection) {
+    if let Some(slot) = after
+        .iter_mut()
+        .find(|item| item.name == target.name && item.collection == target.collection)
+    {
         *slot = after_target;
     }
 
@@ -245,16 +344,38 @@ pub fn plan(solution: &Solution, request: &Request) -> Result<Plan, RetemplateEr
     let affected: Vec<&Entity> = entities
         .iter()
         .filter(|item| item.collection == "Things" || item.collection == "ThingTemplates")
-        .filter(|item| (item.name == target.name && item.collection == target.collection) || catalog::inheritance_names(item, entities).contains(&target.name))
+        .filter(|item| {
+            (item.name == target.name && item.collection == target.collection)
+                || catalog::inheritance_names(item, entities).contains(&target.name)
+        })
         .collect();
     let mut lost: BTreeMap<(&'static str, String), Change> = BTreeMap::new();
     let mut gained: BTreeMap<(&'static str, String), Change> = BTreeMap::new();
     for entity in &affected {
-        let now = after.iter().find(|item| item.name == entity.name && item.collection == entity.collection).expect("every affected entity is in the copy");
+        let now = after
+            .iter()
+            .find(|item| item.name == entity.name && item.collection == entity.collection)
+            .expect("every affected entity is in the copy");
         let (before_members, after_members) = (effective(entities, entity), effective(&after, now));
-        let (before_tables, after_tables) = (config_tables_of(&discovery.entities, entities, entity), config_tables_of(&discovery.entities, &after, now));
-        let record = |map: &mut BTreeMap<(&'static str, String), Change>, kind: &'static str, name: &str, declared_on: &str| {
-            map.entry((kind, name.to_string())).or_insert_with(|| Change { kind, name: name.to_string(), declared_on: declared_on.to_string(), entities: Vec::new(), orphaned: 0, references: Vec::new() }).entities.push(entity.name.clone());
+        let (before_tables, after_tables) = (
+            config_tables_of(&discovery.entities, entities, entity),
+            config_tables_of(&discovery.entities, &after, now),
+        );
+        let record = |map: &mut BTreeMap<(&'static str, String), Change>,
+                      kind: &'static str,
+                      name: &str,
+                      declared_on: &str| {
+            map.entry((kind, name.to_string()))
+                .or_insert_with(|| Change {
+                    kind,
+                    name: name.to_string(),
+                    declared_on: declared_on.to_string(),
+                    entities: Vec::new(),
+                    orphaned: 0,
+                    references: Vec::new(),
+                })
+                .entities
+                .push(entity.name.clone());
         };
         for (key, declared_on) in &before_members {
             if !after_members.contains_key(key) {
@@ -281,16 +402,30 @@ pub fn plan(solution: &Solution, request: &Request) -> Result<Plan, RetemplateEr
     // Stored values and rows with no definition left.
     let mut file_of: BTreeMap<String, &EntityFile> = BTreeMap::new();
     for entity in &affected {
-        if let Some(file) = discovery.entities.iter().find(|item| item.info.name == entity.name && item.info.collection == entity.collection) {
+        if let Some(file) = discovery
+            .entities
+            .iter()
+            .find(|item| item.info.name == entity.name && item.info.collection == entity.collection)
+        {
             file_of.insert(entity.name.clone(), file);
         }
     }
     for change in lost.values_mut() {
         for name in &change.entities {
-            let Some(file) = file_of.get(name) else { continue };
-            let Ok(bytes) = std::fs::read(&file.path) else { continue };
+            let Some(file) = file_of.get(name) else {
+                continue;
+            };
+            let Ok(bytes) = std::fs::read(&file.path) else {
+                continue;
+            };
             let (values, tables) = held(&bytes);
-            let present = if change.kind == "property" { values.contains(&change.name) } else if change.kind == "configuration table" { tables.contains(&change.name) } else { false };
+            let present = if change.kind == "property" {
+                values.contains(&change.name)
+            } else if change.kind == "configuration table" {
+                tables.contains(&change.name)
+            } else {
+                false
+            };
             change.orphaned += usize::from(present);
         }
     }
@@ -299,21 +434,68 @@ pub fn plan(solution: &Solution, request: &Request) -> Result<Plan, RetemplateEr
     if lost.len() > TRACE_LIMIT {
         notes.push(format!("{} members would be lost: too many to trace references for; search for the ones you rely on.", lost.len()));
     } else {
-        let affected_names: BTreeSet<&str> = affected.iter().map(|entity| entity.name.as_str()).collect();
-        for change in lost.values_mut().filter(|change| matches!(change.kind, "service" | "property")) {
-            let kind = if change.kind == "service" { RenameKind::Service } else { RenameKind::Property };
-            let probe = Spec { kind, old: change.name.clone(), new: "TwacoProbeName".to_string(), scope: Some(change.declared_on.clone()), service: None };
-            let Ok(planned) = rename::plan(solution, &probe) else { continue };
+        let affected_names: BTreeSet<&str> =
+            affected.iter().map(|entity| entity.name.as_str()).collect();
+        for change in lost
+            .values_mut()
+            .filter(|change| matches!(change.kind, "service" | "property"))
+        {
+            let kind = if change.kind == "service" {
+                RenameKind::Service
+            } else {
+                RenameKind::Property
+            };
+            let probe = Spec {
+                kind,
+                old: change.name.clone(),
+                new: "TwacoProbeName".to_string(),
+                scope: Some(change.declared_on.clone()),
+                service: None,
+            };
+            let Ok(planned) = rename::plan(solution, &probe) else {
+                continue;
+            };
             for item in planned.changes.iter().chain(&planned.outside) {
-                let declaring = discovery.entities.iter().find(|entity| entity.info.name == change.declared_on);
-                if declaring.is_some_and(|entity| item.path == entity.path || item.path.starts_with(workspace::services_dir(solution, entity))) {
+                let declaring = discovery
+                    .entities
+                    .iter()
+                    .find(|entity| entity.info.name == change.declared_on);
+                if declaring.is_some_and(|entity| {
+                    item.path == entity.path
+                        || item
+                            .path
+                            .starts_with(workspace::services_dir(solution, entity))
+                }) {
                     continue;
                 }
-                let in_affected = discovery.entities.iter().any(|entity| affected_names.contains(entity.info.name.as_str()) && (item.path == entity.path || item.path.starts_with(workspace::services_dir(solution, entity))));
-                for finding in item.findings.iter().filter(|finding| matches!(finding.tier, super::refs::Tier::Exact | super::refs::Tier::Embedded)) {
-                    let names_affected = affected_names.iter().any(|name| finding.excerpt.contains(&format!("\"{name}\"")));
+                let in_affected = discovery.entities.iter().any(|entity| {
+                    affected_names.contains(entity.info.name.as_str())
+                        && (item.path == entity.path
+                            || item
+                                .path
+                                .starts_with(workspace::services_dir(solution, entity)))
+                });
+                for finding in item.findings.iter().filter(|finding| {
+                    matches!(
+                        finding.tier,
+                        super::refs::Tier::Exact | super::refs::Tier::Embedded
+                    )
+                }) {
+                    let names_affected = affected_names
+                        .iter()
+                        .any(|name| finding.excerpt.contains(&format!("\"{name}\"")));
                     if in_affected || names_affected {
-                        change.references.push(format!("{}:{}  {}", item.path.strip_prefix(&solution.root).unwrap_or(&item.path).display().to_string().replace('\\', "/"), finding.line, finding.excerpt));
+                        change.references.push(format!(
+                            "{}:{}  {}",
+                            item.path
+                                .strip_prefix(&solution.root)
+                                .unwrap_or(&item.path)
+                                .display()
+                                .to_string()
+                                .replace('\\', "/"),
+                            finding.line,
+                            finding.excerpt
+                        ));
                     }
                 }
             }
@@ -325,10 +507,21 @@ pub fn plan(solution: &Solution, request: &Request) -> Result<Plan, RetemplateEr
     let mut blocked = Vec::new();
     for change in &lost {
         if change.orphaned > 0 {
-            blocked.push(format!("{} {} is held by {} entit{} with no definition left", change.kind, change.name, change.orphaned, if change.orphaned == 1 { "y" } else { "ies" }));
+            blocked.push(format!(
+                "{} {} is held by {} entit{} with no definition left",
+                change.kind,
+                change.name,
+                change.orphaned,
+                if change.orphaned == 1 { "y" } else { "ies" }
+            ));
         }
         if !change.references.is_empty() {
-            blocked.push(format!("{} {} is still referenced {} time(s)", change.kind, change.name, change.references.len()));
+            blocked.push(format!(
+                "{} {} is still referenced {} time(s)",
+                change.kind,
+                change.name,
+                change.references.len()
+            ));
         }
     }
 
@@ -336,7 +529,10 @@ pub fn plan(solution: &Solution, request: &Request) -> Result<Plan, RetemplateEr
     let old = std::fs::read(&file.path).map_err(|error| xml(&file.path, error))?;
     let new = edit_document(&old, file, request).map_err(|why| xml(&file.path, why))?;
     if scan::tokenize(&new).is_err() {
-        return Err(xml(&file.path, "the edited document would not read back; nothing was written"));
+        return Err(xml(
+            &file.path,
+            "the edited document would not read back; nothing was written",
+        ));
     }
     if file.info.collection == "Things" || file.info.collection == "ThingTemplates" {
         sidecar::extract_services(&new).map_err(|error| xml(&file.path, error))?;
@@ -366,36 +562,66 @@ fn edit_document(src: &[u8], file: &EntityFile, request: &Request) -> Result<Vec
     let entity = sidecar::entity_element(&tokens, src).ok_or("not an entity document")?;
     let mut edits = Vec::new();
     if let Some(template) = &request.template {
-        let attribute = if file.info.collection == "Things" { "thingTemplate" } else { "baseThingTemplate" };
-        let span = attribute_value(src, &tokens[entity], attribute).ok_or_else(|| format!("the entity has no {attribute} attribute to change"))?;
+        let attribute = if file.info.collection == "Things" {
+            "thingTemplate"
+        } else {
+            "baseThingTemplate"
+        };
+        let span = attribute_value(src, &tokens[entity], attribute)
+            .ok_or_else(|| format!("the entity has no {attribute} attribute to change"))?;
         edits.push(Edit::new(span, template.as_bytes().to_vec()));
     }
     if !request.add_shapes.is_empty() || !request.remove_shapes.is_empty() {
         let host = sidecar::member_host_of(&tokens, src).ok_or("the entity has no member host")?;
-        let section = [entity, host].into_iter().find_map(|parent| scan::child_tags(&tokens, src, "ImplementedShapes", parent).first().copied().map(|at| (parent, at)));
+        let section = [entity, host].into_iter().find_map(|parent| {
+            scan::child_tags(&tokens, src, "ImplementedShapes", parent)
+                .first()
+                .copied()
+                .map(|at| (parent, at))
+        });
         // Remove: drop the element's line.
         for shape in &request.remove_shapes {
             let (_, section_at) = section.ok_or("the entity has no ImplementedShapes section")?;
-            let element = scan::child_tags(&tokens, src, "ImplementedShape", section_at).into_iter().find(|&at| {
-                attribute_value(src, &tokens[at], "name").is_some_and(|value| scan::decode_entities(&String::from_utf8_lossy(value.of(src))) == *shape)
-            });
-            let Some(element) = element else { return Err(format!("{shape} is not listed in ImplementedShapes")) };
+            let element = scan::child_tags(&tokens, src, "ImplementedShape", section_at)
+                .into_iter()
+                .find(|&at| {
+                    attribute_value(src, &tokens[at], "name").is_some_and(|value| {
+                        scan::decode_entities(&String::from_utf8_lossy(value.of(src))) == *shape
+                    })
+                });
+            let Some(element) = element else {
+                return Err(format!("{shape} is not listed in ImplementedShapes"));
+            };
             let span = scan::element_span(&tokens, element).ok_or("malformed ImplementedShape")?;
             edits.push(Edit::new(line_bounds(src, span), Vec::new()));
         }
         // Add: all in one insertion, in the style of the section.
-        let newline = if src.windows(2).any(|pair| pair == b"\r\n") { "\r\n" } else { "\n" };
-        let elements: Vec<String> = request.add_shapes.iter().map(|shape| format!("<ImplementedShape name=\"{shape}\"></ImplementedShape>")).collect();
+        let newline = if src.windows(2).any(|pair| pair == b"\r\n") {
+            "\r\n"
+        } else {
+            "\n"
+        };
+        let elements: Vec<String> = request
+            .add_shapes
+            .iter()
+            .map(|shape| format!("<ImplementedShape name=\"{shape}\"></ImplementedShape>"))
+            .collect();
         if !elements.is_empty() {
             match section {
                 Some((_, section_at)) if tokens[section_at].kind == TokenKind::Start => {
-                    let close = scan::element_end(&tokens, section_at).ok_or("ImplementedShapes is not closed")?;
+                    let close = scan::element_end(&tokens, section_at)
+                        .ok_or("ImplementedShapes is not closed")?;
                     let section_indent = indent_at(src, tokens[section_at].span.start).len();
                     let children = scan::child_tags(&tokens, src, "ImplementedShape", section_at);
-                    let indent = children.first().map_or(section_indent + 4, |&child| indent_at(src, tokens[child].span.start).len());
+                    let indent = children.first().map_or(section_indent + 4, |&child| {
+                        indent_at(src, tokens[child].span.start).len()
+                    });
                     let close_start = tokens[close].span.start;
                     let pad = " ".repeat(indent);
-                    let lines: String = elements.iter().map(|element| format!("{pad}{element}{newline}")).collect();
+                    let lines: String = elements
+                        .iter()
+                        .map(|element| format!("{pad}{element}{newline}"))
+                        .collect();
                     if starts_line(src, close_start) {
                         let mut line = close_start;
                         while line > 0 && src[line - 1] != b'\n' {
@@ -404,31 +630,50 @@ fn edit_document(src: &[u8], file: &EntityFile, request: &Request) -> Result<Vec
                         edits.push(Edit::new(Span::new(line, line), lines.into_bytes()));
                     } else {
                         let text = format!("{newline}{lines}{}", " ".repeat(section_indent));
-                        edits.push(Edit::new(Span::new(close_start, close_start), text.into_bytes()));
+                        edits.push(Edit::new(
+                            Span::new(close_start, close_start),
+                            text.into_bytes(),
+                        ));
                     }
                 }
                 Some((_, section_at)) => {
                     let token = tokens[section_at];
                     let name = token.name.of(src);
                     if token.span.len() != name.len() + 3 {
-                        return Err("ImplementedShapes is an empty element with attributes".to_string());
+                        return Err(
+                            "ImplementedShapes is an empty element with attributes".to_string()
+                        );
                     }
                     let section_indent = indent_at(src, token.span.start).len();
                     let pad = " ".repeat(section_indent + 4);
-                    let lines: String = elements.iter().map(|element| format!("{pad}{element}{newline}")).collect();
-                    let text = format!("<ImplementedShapes>{newline}{lines}{}</ImplementedShapes>", " ".repeat(section_indent));
+                    let lines: String = elements
+                        .iter()
+                        .map(|element| format!("{pad}{element}{newline}"))
+                        .collect();
+                    let text = format!(
+                        "<ImplementedShapes>{newline}{lines}{}</ImplementedShapes>",
+                        " ".repeat(section_indent)
+                    );
                     edits.push(Edit::new(token.span, text.into_bytes()));
                 }
                 None => {
-                    let end = scan::element_end(&tokens, entity).ok_or("the entity is not closed")?;
-                    let first = (entity + 1..end).find(|&index| matches!(tokens[index].kind, TokenKind::Start | TokenKind::Empty)).ok_or("the entity has no content to place a section before")?;
+                    let end =
+                        scan::element_end(&tokens, entity).ok_or("the entity is not closed")?;
+                    let first = (entity + 1..end)
+                        .find(|&index| {
+                            matches!(tokens[index].kind, TokenKind::Start | TokenKind::Empty)
+                        })
+                        .ok_or("the entity has no content to place a section before")?;
                     let indent = indent_at(src, tokens[first].span.start).len();
                     let mut line = tokens[first].span.start;
                     while line > 0 && src[line - 1] != b'\n' {
                         line -= 1;
                     }
                     let pad = " ".repeat(indent);
-                    let lines: String = elements.iter().map(|element| format!("{pad}    {element}{newline}")).collect();
+                    let lines: String = elements
+                        .iter()
+                        .map(|element| format!("{pad}    {element}{newline}"))
+                        .collect();
                     let text = format!("{pad}<ImplementedShapes>{newline}{lines}{pad}</ImplementedShapes>{newline}");
                     edits.push(Edit::new(Span::new(line, line), text.into_bytes()));
                 }
@@ -440,21 +685,36 @@ fn edit_document(src: &[u8], file: &EntityFile, request: &Request) -> Result<Vec
 
 impl Plan {
     pub fn file_relative(&self, solution: &Solution) -> String {
-        self.file.strip_prefix(&solution.root).unwrap_or(&self.file).display().to_string().replace('\\', "/")
+        self.file
+            .strip_prefix(&solution.root)
+            .unwrap_or(&self.file)
+            .display()
+            .to_string()
+            .replace('\\', "/")
     }
 }
 
 /// Write the plan. A file changed since the plan is refused; a loss needs `--accept-loss`.
 pub fn apply(plan: &Plan) -> Result<(), RetemplateError> {
     if !plan.request.accept_loss && !plan.blocked.is_empty() {
-        return Err(RetemplateError::Loss { reasons: plan.blocked.clone() });
+        return Err(RetemplateError::Loss {
+            reasons: plan.blocked.clone(),
+        });
     }
     match std::fs::read(&plan.file) {
         Ok(bytes) if bytes == plan.old => {}
-        Ok(_) => return Err(RetemplateError::Invalid(format!("{} changed since the plan was made; plan again", plan.file.display()))),
+        Ok(_) => {
+            return Err(RetemplateError::Invalid(format!(
+                "{} changed since the plan was made; plan again",
+                plan.file.display()
+            )))
+        }
         Err(error) => return Err(xml(&plan.file, error)),
     }
-    workspace::atomic_replace(&plan.file, &plan.new).map_err(|error| RetemplateError::Apply { path: plan.file.clone(), why: error.to_string() })
+    workspace::atomic_replace(&plan.file, &plan.new).map_err(|error| RetemplateError::Apply {
+        path: plan.file.clone(),
+        why: error.to_string(),
+    })
 }
 
 #[cfg(test)]

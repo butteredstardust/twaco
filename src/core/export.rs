@@ -13,17 +13,32 @@ use std::time::Duration;
 
 /// What this module asks of a server, as a trait so it is tested offline.
 pub trait Remote {
-    fn export_xml(&self, collection: Option<&str>, name: Option<&str>, project: Option<&str>) -> Result<Vec<u8>, ServerError>;
+    fn export_xml(
+        &self,
+        collection: Option<&str>,
+        name: Option<&str>,
+        project: Option<&str>,
+    ) -> Result<Vec<u8>, ServerError>;
     fn source_control(&self, service: &str, body: &Value) -> Result<Option<Value>, ServerError>;
 }
 
 impl Remote for Client {
-    fn export_xml(&self, collection: Option<&str>, name: Option<&str>, project: Option<&str>) -> Result<Vec<u8>, ServerError> {
+    fn export_xml(
+        &self,
+        collection: Option<&str>,
+        name: Option<&str>,
+        project: Option<&str>,
+    ) -> Result<Vec<u8>, ServerError> {
         Client::export_xml(self, collection, name, project)
     }
 
     fn source_control(&self, service: &str, body: &Value) -> Result<Option<Value>, ServerError> {
-        self.call_service(&ServiceTarget::platform("Resources", "SourceControlFunctions"), service, body, Duration::from_secs(900))
+        self.call_service(
+            &ServiceTarget::platform("Resources", "SourceControlFunctions"),
+            service,
+            body,
+            Duration::from_secs(900),
+        )
     }
 }
 
@@ -48,9 +63,16 @@ impl std::error::Error for ExportError {}
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum What {
     /// `Collection/Name`.
-    Entity { key: EntityKey },
-    Collection { collection: String, project: Option<String> },
-    Project { project: String },
+    Entity {
+        key: EntityKey,
+    },
+    Collection {
+        collection: String,
+        project: Option<String>,
+    },
+    Project {
+        project: String,
+    },
 }
 
 impl What {
@@ -58,7 +80,11 @@ impl What {
     pub fn entity(text: &str) -> Result<What, ExportError> {
         EntityKey::parse(text)
             .map(|key| What::Entity { key })
-            .map_err(|_| ExportError::Invalid(format!("an entity is Collection/Name, such as Things/My.Thing, not {text:?}")))
+            .map_err(|_| {
+                ExportError::Invalid(format!(
+                    "an entity is Collection/Name, such as Things/My.Thing, not {text:?}"
+                ))
+            })
     }
 }
 
@@ -73,7 +99,10 @@ pub struct Exported {
 pub fn export(remote: &dyn Remote, what: &What) -> Result<Exported, ExportError> {
     let xml = match what {
         What::Entity { key } => remote.export_xml(Some(key.collection()), Some(key.name()), None),
-        What::Collection { collection, project } => remote.export_xml(Some(collection), None, project.as_deref()),
+        What::Collection {
+            collection,
+            project,
+        } => remote.export_xml(Some(collection), None, project.as_deref()),
         What::Project { project } => remote.export_xml(None, None, Some(project)),
     }
     .map_err(ExportError::Remote)?;
@@ -97,7 +126,9 @@ pub fn export(remote: &dyn Remote, what: &What) -> Result<Exported, ExportError>
 /// Entities by collection: the children of each collection element under `<Entities>`.
 pub fn count_entities(xml: &[u8]) -> Vec<(String, usize)> {
     use super::scan::Kind;
-    let Ok(tokens) = super::scan::tokenize(xml) else { return Vec::new() };
+    let Ok(tokens) = super::scan::tokenize(xml) else {
+        return Vec::new();
+    };
     let mut depth = 0usize;
     let mut collection = String::new();
     let mut counts: Vec<(String, usize)> = Vec::new();
@@ -145,7 +176,13 @@ pub fn source_control(
     apply: bool,
 ) -> Result<(String, Option<String>), ExportError> {
     // An empty value is no filter: sent, the server would take it as none and export everything.
-    let set = |value: &Option<String>| value.as_deref().map(str::trim).filter(|v| !v.is_empty()).map(str::to_string);
+    let set = |value: &Option<String>| {
+        value
+            .as_deref()
+            .map(str::trim)
+            .filter(|v| !v.is_empty())
+            .map(str::to_string)
+    };
     let filters = &Filters {
         project: set(&filters.project),
         collection: set(&filters.collection),
@@ -171,7 +208,15 @@ pub fn source_control(
         Some(name) => format!("a zip {name} in {repository}:{path}"),
         None => format!("{repository}:{path}"),
     };
-    let plan = format!("export {} to {target}{}", chosen.join(", "), if filters.include_dependents { ", with dependents" } else { "" });
+    let plan = format!(
+        "export {} to {target}{}",
+        chosen.join(", "),
+        if filters.include_dependents {
+            ", with dependents"
+        } else {
+            ""
+        }
+    );
     if !apply {
         return Ok((plan, None));
     }
@@ -180,7 +225,11 @@ pub fn source_control(
         "path": path,
         "includeDependents": filters.include_dependents,
     });
-    for (key, value) in [("projectName", &filters.project), ("collection", &filters.collection), ("tags", &filters.tags)] {
+    for (key, value) in [
+        ("projectName", &filters.project),
+        ("collection", &filters.collection),
+        ("tags", &filters.tags),
+    ] {
         if let Some(value) = value {
             body[key] = json!(value);
         }
@@ -189,17 +238,25 @@ pub fn source_control(
         Some(name) => {
             // The server appends ".zip" itself: p.zip would become p.zip.zip.
             body["name"] = json!(name.strip_suffix(".zip").unwrap_or(name));
-            let reply = remote.source_control("ExportSourceControlledEntitiesToZipFile", &body).map_err(ExportError::Remote)?;
+            let reply = remote
+                .source_control("ExportSourceControlledEntitiesToZipFile", &body)
+                .map_err(ExportError::Remote)?;
             let link = reply
                 .as_ref()
                 .and_then(|value| value.pointer("/rows/0/result"))
                 .and_then(Value::as_str)
                 .map(str::to_string)
-                .ok_or_else(|| ExportError::Invalid("the server made the zip export but returned no download link".to_string()))?;
+                .ok_or_else(|| {
+                    ExportError::Invalid(
+                        "the server made the zip export but returned no download link".to_string(),
+                    )
+                })?;
             Some(link)
         }
         None => {
-            remote.source_control("ExportSourceControlledEntities", &body).map_err(ExportError::Remote)?;
+            remote
+                .source_control("ExportSourceControlledEntities", &body)
+                .map_err(ExportError::Remote)?;
             None
         }
     };
@@ -216,23 +273,43 @@ mod tests {
     }
 
     impl Remote for Fake {
-        fn export_xml(&self, collection: Option<&str>, name: Option<&str>, project: Option<&str>) -> Result<Vec<u8>, ServerError> {
-            self.calls.borrow_mut().push((format!("{collection:?} {name:?} {project:?}"), Value::Null));
+        fn export_xml(
+            &self,
+            collection: Option<&str>,
+            name: Option<&str>,
+            project: Option<&str>,
+        ) -> Result<Vec<u8>, ServerError> {
+            self.calls
+                .borrow_mut()
+                .push((format!("{collection:?} {name:?} {project:?}"), Value::Null));
             if project == Some("login") {
                 return Ok(b"<html><body>Please log in</body></html>".to_vec());
             }
             Ok(b"<Entities><Things><Thing name=\"A\"><x/></Thing><Thing name=\"B\"/></Things><DataShapes><DataShape name=\"D\"/></DataShapes></Entities>".to_vec())
         }
 
-        fn source_control(&self, service: &str, body: &Value) -> Result<Option<Value>, ServerError> {
-            self.calls.borrow_mut().push((service.to_string(), body.clone()));
-            Ok(Some(json!({ "rows": [{ "result": "/Thingworx/FileRepositories/R/out/x.zip" }] })))
+        fn source_control(
+            &self,
+            service: &str,
+            body: &Value,
+        ) -> Result<Option<Value>, ServerError> {
+            self.calls
+                .borrow_mut()
+                .push((service.to_string(), body.clone()));
+            Ok(Some(
+                json!({ "rows": [{ "result": "/Thingworx/FileRepositories/R/out/x.zip" }] }),
+            ))
         }
     }
 
     #[test]
     fn an_entity_is_collection_slash_name() {
-        assert_eq!(What::entity("Things/My.Thing").unwrap(), What::Entity { key: EntityKey::new("Things", "My.Thing").unwrap() });
+        assert_eq!(
+            What::entity("Things/My.Thing").unwrap(),
+            What::Entity {
+                key: EntityKey::new("Things", "My.Thing").unwrap()
+            }
+        );
     }
 
     #[test]
@@ -240,38 +317,86 @@ mod tests {
         assert!(What::entity("Things/Acme.Thing").is_ok());
         for bad in ["Things", "/X", "Things/", "A/B/C", "Things/.."] {
             let error = What::entity(bad).unwrap_err();
-            assert_eq!(error.to_string(), format!("an entity is Collection/Name, such as Things/My.Thing, not {bad:?}"));
+            assert_eq!(
+                error.to_string(),
+                format!("an entity is Collection/Name, such as Things/My.Thing, not {bad:?}")
+            );
         }
     }
 
     #[test]
     fn an_export_counts_its_entities_by_collection() {
-        let fake = Fake { calls: RefCell::new(Vec::new()) };
-        let exported = export(&fake, &What::Project { project: "P".into() }).unwrap();
-        assert_eq!(exported.counts, [("Things".to_string(), 2), ("DataShapes".to_string(), 1)]);
+        let fake = Fake {
+            calls: RefCell::new(Vec::new()),
+        };
+        let exported = export(
+            &fake,
+            &What::Project {
+                project: "P".into(),
+            },
+        )
+        .unwrap();
+        assert_eq!(
+            exported.counts,
+            [("Things".to_string(), 2), ("DataShapes".to_string(), 1)]
+        );
         assert_eq!(fake.calls.borrow()[0].0, "None None Some(\"P\")");
-        export(&fake, &What::Collection { collection: "Things".into(), project: Some("P".into()) }).unwrap();
-        assert_eq!(fake.calls.borrow()[1].0, "Some(\"Things\") None Some(\"P\")");
-        let error = export(&fake, &What::Project { project: "login".into() }).unwrap_err();
-        assert!(error.to_string().contains("not an <Entities> export"), "{error}");
+        export(
+            &fake,
+            &What::Collection {
+                collection: "Things".into(),
+                project: Some("P".into()),
+            },
+        )
+        .unwrap();
+        assert_eq!(
+            fake.calls.borrow()[1].0,
+            "Some(\"Things\") None Some(\"P\")"
+        );
+        let error = export(
+            &fake,
+            &What::Project {
+                project: "login".into(),
+            },
+        )
+        .unwrap_err();
+        assert!(
+            error.to_string().contains("not an <Entities> export"),
+            "{error}"
+        );
     }
 
     #[test]
     fn a_source_control_export_is_a_plan_unless_applied_and_needs_a_filter() {
-        let fake = Fake { calls: RefCell::new(Vec::new()) };
-        let filters = Filters { project: Some("P".into()), ..Filters::default() };
-        let (plan, link) = source_control(&fake, "R", "/out", &filters, Some("x.zip"), false).unwrap();
+        let fake = Fake {
+            calls: RefCell::new(Vec::new()),
+        };
+        let filters = Filters {
+            project: Some("P".into()),
+            ..Filters::default()
+        };
+        let (plan, link) =
+            source_control(&fake, "R", "/out", &filters, Some("x.zip"), false).unwrap();
         assert_eq!(plan, "export project P to a zip x.zip in R:/out");
         assert!(link.is_none() && fake.calls.borrow().is_empty());
         let (_, link) = source_control(&fake, "R", "/out", &filters, Some("x.zip"), true).unwrap();
-        assert_eq!(link.as_deref(), Some("/Thingworx/FileRepositories/R/out/x.zip"));
+        assert_eq!(
+            link.as_deref(),
+            Some("/Thingworx/FileRepositories/R/out/x.zip")
+        );
         let (service, body) = fake.calls.borrow()[0].clone();
         assert_eq!(service, "ExportSourceControlledEntitiesToZipFile");
         assert_eq!(body["projectName"], "P");
         assert_eq!(body["name"], "x", "the server adds .zip itself");
         assert!(body.get("tags").is_none(), "only what is set is sent");
         assert!(source_control(&fake, "R", "/out", &Filters::default(), None, true).is_err());
-        let empty = Filters { project: Some("  ".into()), ..Filters::default() };
-        assert!(source_control(&fake, "R", "/out", &empty, None, true).is_err(), "an empty filter is no filter");
+        let empty = Filters {
+            project: Some("  ".into()),
+            ..Filters::default()
+        };
+        assert!(
+            source_control(&fake, "R", "/out", &empty, None, true).is_err(),
+            "an empty filter is no filter"
+        );
     }
 }

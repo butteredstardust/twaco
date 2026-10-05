@@ -48,14 +48,13 @@ fn payload(src: &[u8]) -> Result<(String, super::scan::Span), MashupError> {
     let tokens = super::scan::tokenize(src).map_err(MashupError::Scan)?;
     let content = tokens
         .iter()
-        .position(|t| {
-            t.kind == super::scan::Kind::Start && t.name.of(src) == b"mashupContent"
-        })
+        .position(|t| t.kind == super::scan::Kind::Start && t.name.of(src) == b"mashupContent")
         .ok_or(MashupError::NoContent)?;
     let end = super::scan::element_end_in(&tokens, src, content).ok_or(MashupError::NoContent)?;
 
-    let cdata: Vec<usize> =
-        (content + 1..end).filter(|&i| tokens[i].kind == super::scan::Kind::Cdata).collect();
+    let cdata: Vec<usize> = (content + 1..end)
+        .filter(|&i| tokens[i].kind == super::scan::Kind::Cdata)
+        .collect();
     let (Some(&first), Some(&last)) = (cdata.first(), cdata.last()) else {
         return Err(MashupError::NoContent);
     };
@@ -88,7 +87,10 @@ pub fn assets_from_payload(text: &str) -> Result<Assets, MashupError> {
         })
         .unwrap_or_default();
 
-    Ok(Assets { content: to_sidecar(&value), css: format!("{css}\n") })
+    Ok(Assets {
+        content: to_sidecar(&value),
+        css: format!("{css}\n"),
+    })
 }
 
 /// The `content.json` text: two-space indent, key order intact, one trailing newline.
@@ -104,7 +106,9 @@ pub fn sync(src: &[u8], assets: &Assets) -> Result<(Vec<u8>, Vec<String>), Mashu
     let mut wanted: serde_json::Value = serde_json::from_str(assets.content.trim())
         .map_err(|e| MashupError::Malformed(format!("content.json will not parse: {e}")))?;
     if !wanted.is_object() {
-        return Err(MashupError::Malformed("content.json is not an object".into()));
+        return Err(MashupError::Malformed(
+            "content.json is not an object".into(),
+        ));
     }
     let css = without_terminator(&assets.css);
     if let Some(object) = wanted.as_object_mut() {
@@ -116,7 +120,10 @@ pub fn sync(src: &[u8], assets: &Assets) -> Result<(Vec<u8>, Vec<String>), Mashu
             // empty custom.css is exactly what a null extracts to, so it stays null.
             Some(serde_json::Value::Null) if css.is_empty() => {}
             _ => {
-                object.insert("CustomMashupCss".to_string(), serde_json::Value::String(css.clone()));
+                object.insert(
+                    "CustomMashupCss".to_string(),
+                    serde_json::Value::String(css.clone()),
+                );
             }
         }
     }
@@ -126,7 +133,10 @@ pub fn sync(src: &[u8], assets: &Assets) -> Result<(Vec<u8>, Vec<String>), Mashu
         serde_json::from_str(text.trim()).map_err(|e| MashupError::NotJson(e.to_string()))?;
 
     let mut changes = Vec::new();
-    let current_css = current.get("CustomMashupCss").and_then(|v| v.as_str()).unwrap_or("");
+    let current_css = current
+        .get("CustomMashupCss")
+        .and_then(|v| v.as_str())
+        .unwrap_or("");
     if current_css != css {
         changes.push("custom.css".to_string());
     }
@@ -156,7 +166,10 @@ pub fn sync(src: &[u8], assets: &Assets) -> Result<(Vec<u8>, Vec<String>), Mashu
 /// ends in a blank line come back one character shorter than it went out, so a mashup nobody
 /// had touched reported drift.
 fn without_terminator(css: &str) -> String {
-    css.strip_suffix("\r\n").or_else(|| css.strip_suffix('\n')).unwrap_or(css).to_string()
+    css.strip_suffix("\r\n")
+        .or_else(|| css.strip_suffix('\n'))
+        .unwrap_or(css)
+        .to_string()
 }
 
 /// The text between the CDATA markers of a region that may hold several sections.
@@ -369,6 +382,9 @@ mod tests {
     fn the_json_uses_the_canonical_shape() {
         let value: serde_json::Value =
             serde_json::from_str("{\"a\":[1,2],\"b\":{},\"c\":[],\"d\":\"x\"}").unwrap();
-        assert_eq!(pretty(&value), "{\n  \"a\": [\n    1,\n    2\n  ],\n  \"b\": {},\n  \"c\": [],\n  \"d\": \"x\"\n}");
+        assert_eq!(
+            pretty(&value),
+            "{\n  \"a\": [\n    1,\n    2\n  ],\n  \"b\": {},\n  \"c\": [],\n  \"d\": \"x\"\n}"
+        );
     }
 }

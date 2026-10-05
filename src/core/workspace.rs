@@ -18,11 +18,36 @@ use std::path::{Path, PathBuf};
 /// A fixed list rather than "every subdirectory": a repository also holds `exported/`, `dist/`
 /// and scratch trees full of entity documents that are not the project's source.
 const KNOWN_COLLECTIONS: &[&str] = &[
-    "ApplicationKeys", "Dashboards", "DataShapes", "DataTables", "Groups", "Localizations",
-    "MashupGadgets", "Mashups", "MediaEntities", "Menus", "ModelTags", "Networks",
-    "Organizations", "Projects", "Resources", "Schedulers", "StateDefinitions",
-    "StyleDefinitions", "StyleThemes", "Subsystems", "ThingShapes", "ThingTemplates", "Things",
-    "Timers", "Users", "ValueStreams", "Streams", "Widgets", "MCPNamespaces", "AIAgents",
+    "ApplicationKeys",
+    "Dashboards",
+    "DataShapes",
+    "DataTables",
+    "Groups",
+    "Localizations",
+    "MashupGadgets",
+    "Mashups",
+    "MediaEntities",
+    "Menus",
+    "ModelTags",
+    "Networks",
+    "Organizations",
+    "Projects",
+    "Resources",
+    "Schedulers",
+    "StateDefinitions",
+    "StyleDefinitions",
+    "StyleThemes",
+    "Subsystems",
+    "ThingShapes",
+    "ThingTemplates",
+    "Things",
+    "Timers",
+    "Users",
+    "ValueStreams",
+    "Streams",
+    "Widgets",
+    "MCPNamespaces",
+    "AIAgents",
 ];
 
 /// One entity file, and what it says about itself.
@@ -55,13 +80,14 @@ impl fmt::Display for WorkspaceError {
             WorkspaceError::UnknownEntity { name } => {
                 write!(f, "no entity named {name} in this solution")
             }
-            WorkspaceError::Ambiguous { name, found } => write!(
-                f,
-                "{name} is ambiguous; it could be {}",
-                found.join(", ")
-            ),
+            WorkspaceError::Ambiguous { name, found } => {
+                write!(f, "{name} is ambiguous; it could be {}", found.join(", "))
+            }
             WorkspaceError::InvalidCallTarget { name } => {
-                write!(f, "call target {name:?} must be a Thing name or Collection/Name")
+                write!(
+                    f,
+                    "call target {name:?} must be a Thing name or Collection/Name"
+                )
             }
             WorkspaceError::Io { path, why } => write!(f, "{}: {why}", path.display()),
         }
@@ -170,10 +196,16 @@ fn collect_xml(dir: &Path, out: &mut Vec<PathBuf>, failures: &mut Vec<String>) {
             }
         };
         if kind.is_symlink() {
-            failures.push(format!("{}: a link; twaco does not follow links", path.display()));
+            failures.push(format!(
+                "{}: a link; twaco does not follow links",
+                path.display()
+            ));
         } else if kind.is_dir() {
             collect_xml(&path, out, failures);
-        } else if path.extension().is_some_and(|e| e.eq_ignore_ascii_case("xml")) {
+        } else if path
+            .extension()
+            .is_some_and(|e| e.eq_ignore_ascii_case("xml"))
+        {
             out.push(path);
         }
     }
@@ -208,7 +240,9 @@ pub fn resolve<'a>(found: &'a [EntityFile], name: &str) -> Result<&'a EntityFile
         })
         .collect();
     match suffix.len() {
-        0 => Err(WorkspaceError::UnknownEntity { name: name.to_string() }),
+        0 => Err(WorkspaceError::UnknownEntity {
+            name: name.to_string(),
+        }),
         1 => Ok(suffix[0]),
         _ => Err(WorkspaceError::Ambiguous {
             name: name.to_string(),
@@ -227,13 +261,22 @@ pub fn resolve<'a>(found: &'a [EntityFile], name: &str) -> Result<&'a EntityFile
 /// `Things/<Name>`, and the CLI says which target it resolved.
 pub fn call_target(found: &[EntityFile], given: &str) -> Result<ServiceTarget, WorkspaceError> {
     if given.contains('/') {
-        return ServiceTarget::parse(given).map_err(|_| WorkspaceError::InvalidCallTarget { name: given.to_string() });
+        return ServiceTarget::parse(given).map_err(|_| WorkspaceError::InvalidCallTarget {
+            name: given.to_string(),
+        });
     }
     match resolve(found, given) {
-        Ok(entity) => ServiceTarget::entity(&entity.info.collection, &entity.info.name)
-            .map_err(|_| WorkspaceError::InvalidCallTarget { name: given.to_string() }),
+        Ok(entity) => {
+            ServiceTarget::entity(&entity.info.collection, &entity.info.name).map_err(|_| {
+                WorkspaceError::InvalidCallTarget {
+                    name: given.to_string(),
+                }
+            })
+        }
         Err(WorkspaceError::UnknownEntity { .. }) => {
-            ServiceTarget::parse(given).map_err(|_| WorkspaceError::InvalidCallTarget { name: given.to_string() })
+            ServiceTarget::parse(given).map_err(|_| WorkspaceError::InvalidCallTarget {
+                name: given.to_string(),
+            })
         }
         Err(error) => Err(error),
     }
@@ -246,14 +289,19 @@ pub fn services_dir(solution: &Solution, entity: &EntityFile) -> PathBuf {
 
 /// Where one DataShape's field sidecar lives.
 pub fn fields_path(solution: &Solution, entity: &EntityFile) -> PathBuf {
-    solution.src_root().join(&entity.info.name).join("fields.json")
+    solution
+        .src_root()
+        .join(&entity.info.name)
+        .join("fields.json")
 }
 
 /// Write one DataShape's field sidecar.
 pub fn write_fields(path: &Path, text: &str) -> Result<(), WorkspaceError> {
     if let Some(parent) = path.parent() {
-        std::fs::create_dir_all(parent)
-            .map_err(|e| WorkspaceError::Io { path: parent.to_path_buf(), why: e.to_string() })?;
+        std::fs::create_dir_all(parent).map_err(|e| WorkspaceError::Io {
+            path: parent.to_path_buf(),
+            why: e.to_string(),
+        })?;
     }
     write_lf(path, text)
 }
@@ -265,8 +313,10 @@ pub fn mashup_dir(solution: &Solution, entity: &EntityFile) -> PathBuf {
 
 /// Write one mashup's two sidecars.
 pub fn write_mashup(dir: &Path, assets: &super::mashup::Assets) -> Result<(), WorkspaceError> {
-    std::fs::create_dir_all(dir)
-        .map_err(|e| WorkspaceError::Io { path: dir.to_path_buf(), why: e.to_string() })?;
+    std::fs::create_dir_all(dir).map_err(|e| WorkspaceError::Io {
+        path: dir.to_path_buf(),
+        why: e.to_string(),
+    })?;
     write_lf(&dir.join("content.json"), &assets.content)?;
     write_lf(&dir.join("custom.css"), &assets.css)
 }
@@ -292,7 +342,10 @@ pub fn read_mashup(dir: &Path) -> Result<Option<super::mashup::Assets>, Workspac
         Ok(text) => text,
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => String::new(),
         Err(e) => {
-            return Err(WorkspaceError::Io { path: dir.join("custom.css"), why: e.to_string() })
+            return Err(WorkspaceError::Io {
+                path: dir.join("custom.css"),
+                why: e.to_string(),
+            })
         }
     };
     Ok(Some(super::mashup::Assets {
@@ -306,20 +359,28 @@ pub fn read_datatable(path: &Path) -> Result<Option<String>, WorkspaceError> {
     match std::fs::read_to_string(path) {
         Ok(text) => Ok(Some(text.replace("\r\n", "\n"))),
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(None),
-        Err(e) => Err(WorkspaceError::Io { path: path.to_path_buf(), why: e.to_string() }),
+        Err(e) => Err(WorkspaceError::Io {
+            path: path.to_path_buf(),
+            why: e.to_string(),
+        }),
     }
 }
 
 /// Where one DataTable's configuration sidecar lives.
 pub fn datatable_path(solution: &Solution, entity: &EntityFile) -> PathBuf {
-    solution.src_root().join(&entity.info.name).join("datatable.json")
+    solution
+        .src_root()
+        .join(&entity.info.name)
+        .join("datatable.json")
 }
 
 /// Write one DataTable's configuration sidecar.
 pub fn write_datatable(path: &Path, text: &str) -> Result<(), WorkspaceError> {
     if let Some(parent) = path.parent() {
-        std::fs::create_dir_all(parent)
-            .map_err(|e| WorkspaceError::Io { path: parent.to_path_buf(), why: e.to_string() })?;
+        std::fs::create_dir_all(parent).map_err(|e| WorkspaceError::Io {
+            path: parent.to_path_buf(),
+            why: e.to_string(),
+        })?;
     }
     write_lf(path, text)
 }
@@ -331,7 +392,9 @@ pub fn write_datatable(path: &Path, text: &str) -> Result<(), WorkspaceError> {
 /// machine configured differently from the one that wrote them.
 pub fn read_sidecars(dir: &Path) -> BTreeMap<String, ServiceSidecar> {
     let mut out = BTreeMap::new();
-    let Ok(entries) = std::fs::read_dir(dir) else { return out };
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return out;
+    };
     for entry in entries.flatten() {
         let service = entry.path();
         if !service.is_dir() {
@@ -364,22 +427,29 @@ pub fn read_sidecars(dir: &Path) -> BTreeMap<String, ServiceSidecar> {
 ///
 /// Always LF, whatever the entity XML around them uses: these are source files an editor and a
 /// formatter work on, not fragments of the document.
-pub fn write_sidecars(dir: &Path, services: &[ServiceSidecar]) -> Result<Vec<String>, WorkspaceError> {
+pub fn write_sidecars(
+    dir: &Path,
+    services: &[ServiceSidecar],
+) -> Result<Vec<String>, WorkspaceError> {
     for service in services {
         let service_dir = dir.join(&service.name);
-        std::fs::create_dir_all(&service_dir)
-            .map_err(|e| WorkspaceError::Io { path: service_dir.clone(), why: e.to_string() })?;
+        std::fs::create_dir_all(&service_dir).map_err(|e| WorkspaceError::Io {
+            path: service_dir.clone(),
+            why: e.to_string(),
+        })?;
         write_lf(&service_dir.join("definition.xml"), &service.definition)?;
         write_lf(&service_dir.join("script.js"), &service.script)?;
     }
 
-    let wanted: std::collections::BTreeSet<&str> = services.iter().map(|s| s.name.as_str()).collect();
+    let wanted: std::collections::BTreeSet<&str> =
+        services.iter().map(|s| s.name.as_str()).collect();
     let mut stale = Vec::new();
     if let Ok(entries) = std::fs::read_dir(dir) {
         for entry in entries.flatten() {
             let path = entry.path();
             let name = entry.file_name().to_string_lossy().into_owned();
-            if path.is_dir() && !wanted.contains(name.as_str()) && path.join("script.js").is_file() {
+            if path.is_dir() && !wanted.contains(name.as_str()) && path.join("script.js").is_file()
+            {
                 stale.push(name);
             }
         }
@@ -394,7 +464,10 @@ pub fn write_sidecars(dir: &Path, services: &[ServiceSidecar]) -> Result<Vec<Str
 /// is not atomic and may not be a rename at all.
 fn write_lf(path: &Path, text: &str) -> Result<(), WorkspaceError> {
     let normalised = text.replace("\r\n", "\n");
-    atomic_replace(path, normalised.as_bytes()).map_err(|e| WorkspaceError::Io { path: path.to_path_buf(), why: e.to_string() })
+    atomic_replace(path, normalised.as_bytes()).map_err(|e| WorkspaceError::Io {
+        path: path.to_path_buf(),
+        why: e.to_string(),
+    })
 }
 
 /// Atomically write generated UTF-8 text with LF endings, but leave an identical file alone.
@@ -407,8 +480,10 @@ pub fn write_lf_if_changed(path: &Path, text: &str) -> Result<bool, WorkspaceErr
         return Ok(false);
     }
     if let Some(parent) = path.parent() {
-        std::fs::create_dir_all(parent)
-            .map_err(|e| WorkspaceError::Io { path: parent.to_path_buf(), why: e.to_string() })?;
+        std::fs::create_dir_all(parent).map_err(|e| WorkspaceError::Io {
+            path: parent.to_path_buf(),
+            why: e.to_string(),
+        })?;
     }
     write_lf(path, &normalised)?;
     Ok(true)
@@ -417,7 +492,10 @@ pub fn write_lf_if_changed(path: &Path, text: &str) -> Result<bool, WorkspaceErr
 /// Replace an entity document in one step. Same reasoning as `write_lf`, without the newline
 /// normalisation: an entity's bytes are exactly what the splice produced.
 pub fn write_entity(path: &Path, bytes: &[u8]) -> Result<(), WorkspaceError> {
-    atomic_replace(path, bytes).map_err(|e| WorkspaceError::Io { path: path.to_path_buf(), why: e.to_string() })
+    atomic_replace(path, bytes).map_err(|e| WorkspaceError::Io {
+        path: path.to_path_buf(),
+        why: e.to_string(),
+    })
 }
 
 /// Replace a file's contents in one step: the one way twaco writes a file that may already exist.
@@ -429,11 +507,19 @@ pub fn write_entity(path: &Path, bytes: &[u8]) -> Result<(), WorkspaceError> {
 /// fails, it is removed. A crash leaves a hidden `*.twaco-tmp` that the workspace lock sweeps.
 pub fn atomic_replace(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
     static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
-    let parent = path.parent().filter(|parent| !parent.as_os_str().is_empty()).unwrap_or(Path::new("."));
-    let nanos = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_nanos()).unwrap_or(0);
+    let parent = path
+        .parent()
+        .filter(|parent| !parent.as_os_str().is_empty())
+        .unwrap_or(Path::new("."));
+    let nanos = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_nanos())
+        .unwrap_or(0);
     let temporary = parent.join(format!(
         ".{}.{}-{nanos}-{}.twaco-tmp",
-        path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default(),
+        path.file_name()
+            .map(|n| n.to_string_lossy().into_owned())
+            .unwrap_or_default(),
         std::process::id(),
         NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed),
     ));
@@ -441,7 +527,9 @@ pub fn atomic_replace(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
         .write(true)
         .create_new(true)
         .open(&temporary)
-        .and_then(|mut file| std::io::Write::write_all(&mut file, bytes).and_then(|()| file.sync_all()))
+        .and_then(|mut file| {
+            std::io::Write::write_all(&mut file, bytes).and_then(|()| file.sync_all())
+        })
         .and_then(|()| {
             if let Ok(metadata) = std::fs::metadata(path) {
                 let _ = std::fs::set_permissions(&temporary, metadata.permissions());
@@ -457,7 +545,9 @@ pub fn atomic_replace(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
 /// Every `script.js` under the sidecar root, for the formatter to work on.
 pub fn script_files(solution: &Solution) -> Vec<PathBuf> {
     fn walk(dir: &Path, out: &mut Vec<PathBuf>) {
-        let Ok(entries) = std::fs::read_dir(dir) else { return };
+        let Ok(entries) = std::fs::read_dir(dir) else {
+            return;
+        };
         for entry in entries.flatten() {
             let path = entry.path();
             if path.is_dir() {
@@ -488,7 +578,10 @@ mod tests {
 
     #[test]
     fn atomic_replace_creates_replaces_keeps_no_temporary_and_cleans_up_a_failed_rename() {
-        let nonce = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos();
+        let nonce = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
         let dir = std::env::temp_dir().join(format!("twaco-atomic-{}-{nonce}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         let target = dir.join("a.txt");
@@ -507,7 +600,10 @@ mod tests {
             use std::os::unix::fs::PermissionsExt;
             std::fs::set_permissions(&target, std::fs::Permissions::from_mode(0o750)).unwrap();
             atomic_replace(&target, b"three").unwrap();
-            assert_eq!(std::fs::metadata(&target).unwrap().permissions().mode() & 0o777, 0o750);
+            assert_eq!(
+                std::fs::metadata(&target).unwrap().permissions().mode() & 0o777,
+                0o750
+            );
         }
         let _ = std::fs::remove_dir_all(dir);
     }
@@ -526,19 +622,34 @@ mod tests {
 
     #[test]
     fn a_fully_qualified_name_resolves() {
-        let found = vec![file("A.Manager", "A", "a.xml"), file("B.Manager", "B", "b.xml")];
-        assert_eq!(resolve(&found, "A.Manager").unwrap().path, PathBuf::from("a.xml"));
+        let found = vec![
+            file("A.Manager", "A", "a.xml"),
+            file("B.Manager", "B", "b.xml"),
+        ];
+        assert_eq!(
+            resolve(&found, "A.Manager").unwrap().path,
+            PathBuf::from("a.xml")
+        );
     }
 
     #[test]
     fn a_bare_name_resolves_when_only_one_project_has_it() {
-        let found = vec![file("A.Manager", "A", "a.xml"), file("B.Other", "B", "b.xml")];
-        assert_eq!(resolve(&found, "Manager").unwrap().path, PathBuf::from("a.xml"));
+        let found = vec![
+            file("A.Manager", "A", "a.xml"),
+            file("B.Other", "B", "b.xml"),
+        ];
+        assert_eq!(
+            resolve(&found, "Manager").unwrap().path,
+            PathBuf::from("a.xml")
+        );
     }
 
     #[test]
     fn an_ambiguous_bare_name_lists_the_candidates_rather_than_guessing() {
-        let found = vec![file("A.Manager", "A", "a.xml"), file("B.Manager", "B", "b.xml")];
+        let found = vec![
+            file("A.Manager", "A", "a.xml"),
+            file("B.Manager", "B", "b.xml"),
+        ];
         match resolve(&found, "Manager") {
             Err(WorkspaceError::Ambiguous { found, .. }) => {
                 assert_eq!(found, vec!["A.Manager", "B.Manager"]);
@@ -550,32 +661,73 @@ mod tests {
     #[test]
     fn an_unknown_name_says_so() {
         let found = vec![file("A.Manager", "A", "a.xml")];
-        assert!(matches!(resolve(&found, "Ghost"), Err(WorkspaceError::UnknownEntity { .. })));
+        assert!(matches!(
+            resolve(&found, "Ghost"),
+            Err(WorkspaceError::UnknownEntity { .. })
+        ));
     }
 
     #[test]
     fn a_call_target_is_qualified_from_the_solution_or_passed_on() {
         let mut template = file("Acme.Base_TT", "A", "t.xml");
         template.info.collection = "ThingTemplates".to_string();
-        let found = vec![file("Acme.Manager", "A", "m.xml"), template, file("Acme.Other.Manager", "B", "o.xml")];
-        assert_eq!(call_target(&found[..1], "Manager").unwrap().to_string(), "Things/Acme.Manager");
-        assert_eq!(call_target(&found, "Acme.Manager").unwrap().to_string(), "Things/Acme.Manager", "a full name is exact");
-        assert_eq!(call_target(&found, "Base_TT").unwrap().to_string(), "ThingTemplates/Acme.Base_TT");
-        assert_eq!(call_target(&found, "Resources/EntityServices").unwrap().to_string(), "Resources/EntityServices");
-        assert_eq!(call_target(&found, "PlatformThing").unwrap().to_string(), "PlatformThing", "not ours: as typed");
-        assert_eq!(call_target(&found[..1], "Things/Manager").unwrap().to_string(), "Things/Manager", "a platform namesake, explicitly");
-        assert!(matches!(call_target(&found, "Manager"), Err(WorkspaceError::Ambiguous { .. })));
+        let found = vec![
+            file("Acme.Manager", "A", "m.xml"),
+            template,
+            file("Acme.Other.Manager", "B", "o.xml"),
+        ];
+        assert_eq!(
+            call_target(&found[..1], "Manager").unwrap().to_string(),
+            "Things/Acme.Manager"
+        );
+        assert_eq!(
+            call_target(&found, "Acme.Manager").unwrap().to_string(),
+            "Things/Acme.Manager",
+            "a full name is exact"
+        );
+        assert_eq!(
+            call_target(&found, "Base_TT").unwrap().to_string(),
+            "ThingTemplates/Acme.Base_TT"
+        );
+        assert_eq!(
+            call_target(&found, "Resources/EntityServices")
+                .unwrap()
+                .to_string(),
+            "Resources/EntityServices"
+        );
+        assert_eq!(
+            call_target(&found, "PlatformThing").unwrap().to_string(),
+            "PlatformThing",
+            "not ours: as typed"
+        );
+        assert_eq!(
+            call_target(&found[..1], "Things/Manager")
+                .unwrap()
+                .to_string(),
+            "Things/Manager",
+            "a platform namesake, explicitly"
+        );
+        assert!(matches!(
+            call_target(&found, "Manager"),
+            Err(WorkspaceError::Ambiguous { .. })
+        ));
     }
 
     #[test]
     fn an_invalid_call_target_is_refused() {
-        assert!(matches!(call_target(&[], "Things/../Users"), Err(WorkspaceError::InvalidCallTarget { .. })));
+        assert!(matches!(
+            call_target(&[], "Things/../Users"),
+            Err(WorkspaceError::InvalidCallTarget { .. })
+        ));
     }
 
     #[test]
     fn a_bare_name_is_matched_regardless_of_case() {
         let found = vec![file("Acme.Management_TS", "A", "a.xml")];
-        assert!(resolve(&found, "management_ts").is_ok(), "Windows users type what they see");
+        assert!(
+            resolve(&found, "management_ts").is_ok(),
+            "Windows users type what they see"
+        );
     }
 
     #[test]

@@ -37,7 +37,9 @@ impl fmt::Display for HelpError {
         match self {
             HelpError::Fetch { url, why } => write!(f, "{url}: {why}"),
             HelpError::Cache { path, why } => write!(f, "{}: {why}", path.display()),
-            HelpError::Index(why) => write!(f, "the help center's search index cannot be read: {why}"),
+            HelpError::Index(why) => {
+                write!(f, "the help center's search index cannot be read: {why}")
+            }
             HelpError::Invalid(why) => write!(f, "{why}"),
         }
     }
@@ -76,7 +78,10 @@ impl Web {
             .max_redirects(0)
             .max_redirects_will_error(false)
             .build();
-        Web { agent: config.into(), base: base.trim_end_matches('/').to_string() }
+        Web {
+            agent: config.into(),
+            base: base.trim_end_matches('/').to_string(),
+        }
     }
 
     fn within(&self, url: &str) -> bool {
@@ -103,7 +108,10 @@ impl Fetch for Web {
                     .map_err(|e| format!("{current} redirected to {location:?}: {e}"))?
                     .to_string();
                 if !self.within(&next) {
-                    return Err(format!("redirected to {next}, which is outside {}", self.base));
+                    return Err(format!(
+                        "redirected to {next}, which is outside {}",
+                        self.base
+                    ));
                 }
                 current = next;
                 continue;
@@ -124,10 +132,14 @@ pub fn version(text: &str) -> Result<String, HelpError> {
     let text = text.trim().trim_start_matches(['r', 'R']);
     let mut parts = text.split(['.', '-']);
     let (Some(major), Some(minor)) = (parts.next(), parts.next()) else {
-        return Err(HelpError::Invalid(format!("a help version looks like 10.1, not {text:?}")));
+        return Err(HelpError::Invalid(format!(
+            "a help version looks like 10.1, not {text:?}"
+        )));
     };
     if major.parse::<u32>().is_err() || minor.parse::<u32>().is_err() {
-        return Err(HelpError::Invalid(format!("a help version looks like 10.1, not {text:?}")));
+        return Err(HelpError::Invalid(format!(
+            "a help version looks like 10.1, not {text:?}"
+        )));
     }
     let wanted = format!("r{major}.{minor}");
     if VERSIONS.contains(&wanted.as_str()) {
@@ -146,9 +158,13 @@ pub fn newest() -> &'static str {
 
 /// Where the help is cached: the user's cache folder, shared by every project.
 pub fn cache_root() -> Result<PathBuf, HelpError> {
-    dirs::cache_dir().map(|dir| dir.join("twaco").join("help")).ok_or_else(|| {
-        HelpError::Invalid("this machine has no user cache folder to keep the help in".to_string())
-    })
+    dirs::cache_dir()
+        .map(|dir| dir.join("twaco").join("help"))
+        .ok_or_else(|| {
+            HelpError::Invalid(
+                "this machine has no user cache folder to keep the help in".to_string(),
+            )
+        })
 }
 
 /// A file of one version of the help, from the cache, or fetched into it.
@@ -159,7 +175,9 @@ pub fn cached(
     path: &str,
     refresh: bool,
 ) -> Result<Vec<u8>, HelpError> {
-    let local = cache.join(version).join(path.replace('/', std::path::MAIN_SEPARATOR_STR));
+    let local = cache
+        .join(version)
+        .join(path.replace('/', std::path::MAIN_SEPARATOR_STR));
     let url = format!("{BASE}/{version}/en/{path}");
     cached_file(fetch, &local, &url, refresh)
 }
@@ -177,14 +195,23 @@ pub fn cached_file(
             return Ok(bytes);
         }
     }
-    let bytes = fetch.get(url).map_err(|why| HelpError::Fetch { url: url.to_string(), why })?;
-    let io = |e: std::io::Error| HelpError::Cache { path: local.to_path_buf(), why: e.to_string() };
+    let bytes = fetch.get(url).map_err(|why| HelpError::Fetch {
+        url: url.to_string(),
+        why,
+    })?;
+    let io = |e: std::io::Error| HelpError::Cache {
+        path: local.to_path_buf(),
+        why: e.to_string(),
+    };
     std::fs::create_dir_all(local.parent().expect("a cached file has a folder")).map_err(io)?;
     // Through a temporary, so an interrupted download never leaves half a file behind.
     let temporary = local.with_extension(format!(
         "{}.{}.part",
         std::process::id(),
-        std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_nanos()).unwrap_or(0)
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_nanos())
+            .unwrap_or(0)
     ));
     std::fs::write(&temporary, &bytes).map_err(io)?;
     std::fs::rename(&temporary, local).map_err(io)?;
@@ -208,7 +235,10 @@ pub fn choose_version(
         return Ok(version);
     }
     let Some(solution) = solution else {
-        notes.push(format!("no solution here, so no server to ask its version; reading the newest help, {}", newest()));
+        notes.push(format!(
+            "no solution here, so no server to ask its version; reading the newest help, {}",
+            newest()
+        ));
         return Ok(newest().to_string());
     };
     if let Some(text) = &solution.help.version {
@@ -220,7 +250,10 @@ pub fn choose_version(
     match detected.and_then(|text| version(&text).map_err(|e| e.to_string())) {
         Ok(version) => Ok(version),
         Err(why) => {
-            notes.push(format!("the server's version is unknown ({why}); reading the newest help, {}", newest()));
+            notes.push(format!(
+                "the server's version is unknown ({why}); reading the newest help, {}",
+                newest()
+            ));
             Ok(newest().to_string())
         }
     }
@@ -229,7 +262,12 @@ pub fn choose_version(
 /// The server's ThingWorx version, such as `10.1.0-b47`. Read-only.
 pub fn server_version(client: &super::server::Client) -> Result<String, String> {
     let reply = client
-        .call_service(&super::entity_key::ServiceTarget::platform("Subsystems", "PlatformSubsystem"), "GetPlatformStats", &serde_json::json!({}), Duration::from_secs(20))
+        .call_service(
+            &super::entity_key::ServiceTarget::platform("Subsystems", "PlatformSubsystem"),
+            "GetPlatformStats",
+            &serde_json::json!({}),
+            Duration::from_secs(20),
+        )
         .map_err(|e| e.to_string())?;
     reply
         .as_ref()
@@ -259,16 +297,30 @@ impl Index {
     /// `ThingWorx_sx.js`: `var info = { "pages": [[path, title, summary, ...]], "words": {word:
     /// [page, count, page, count, ...]} }`.
     pub fn parse(text: &str) -> Result<Index, HelpError> {
-        let start = text.find('{').ok_or_else(|| HelpError::Index("no object".to_string()))?;
-        let end = text.rfind('}').ok_or_else(|| HelpError::Index("no object".to_string()))?;
-        let info: Value = serde_json::from_str(&text[start..=end]).map_err(|e| HelpError::Index(e.to_string()))?;
+        let start = text
+            .find('{')
+            .ok_or_else(|| HelpError::Index("no object".to_string()))?;
+        let end = text
+            .rfind('}')
+            .ok_or_else(|| HelpError::Index("no object".to_string()))?;
+        let info: Value = serde_json::from_str(&text[start..=end])
+            .map_err(|e| HelpError::Index(e.to_string()))?;
         let pages = info["pages"]
             .as_array()
             .ok_or_else(|| HelpError::Index("no pages".to_string()))?
             .iter()
             .map(|page| {
-                let field = |i: usize| page.get(i).and_then(Value::as_str).unwrap_or_default().to_string();
-                Page { path: field(0), title: field(1), summary: field(2) }
+                let field = |i: usize| {
+                    page.get(i)
+                        .and_then(Value::as_str)
+                        .unwrap_or_default()
+                        .to_string()
+                };
+                Page {
+                    path: field(0),
+                    title: field(1),
+                    summary: field(2),
+                }
             })
             .collect();
         let words = info["words"]
@@ -276,8 +328,18 @@ impl Index {
             .ok_or_else(|| HelpError::Index("no words".to_string()))?
             .iter()
             .map(|(word, postings)| {
-                let numbers: Vec<u64> = postings.as_array().into_iter().flatten().filter_map(Value::as_u64).collect();
-                let postings = numbers.as_chunks::<2>().0.iter().map(|[page, count]| (*page as usize, *count)).collect();
+                let numbers: Vec<u64> = postings
+                    .as_array()
+                    .into_iter()
+                    .flatten()
+                    .filter_map(Value::as_u64)
+                    .collect();
+                let postings = numbers
+                    .as_chunks::<2>()
+                    .0
+                    .iter()
+                    .map(|[page, count]| (*page as usize, *count))
+                    .collect();
                 (word.clone(), postings)
             })
             .collect();
@@ -291,8 +353,13 @@ impl Index {
 pub fn words(query: &str) -> Vec<String> {
     query
         .to_lowercase()
-        .split(|c: char| !(c.is_alphanumeric() || matches!(c, '.' | '-' | '_' | ':' | '\'' | '@' | '$' | '&')))
-        .map(|word| word.trim_matches(|c: char| !c.is_alphanumeric()).to_string())
+        .split(|c: char| {
+            !(c.is_alphanumeric() || matches!(c, '.' | '-' | '_' | ':' | '\'' | '@' | '$' | '&'))
+        })
+        .map(|word| {
+            word.trim_matches(|c: char| !c.is_alphanumeric())
+                .to_string()
+        })
         .filter(|word| !word.is_empty())
         .collect()
 }
@@ -322,14 +389,26 @@ pub fn search(index: &Index, version: &str, query: &str, limit: usize) -> Found 
         if index.words.contains_key(&word) || !word.contains('.') {
             terms.push(word);
         } else {
-            terms.extend(word.split('.').filter(|part| !part.is_empty()).map(str::to_string));
+            terms.extend(
+                word.split('.')
+                    .filter(|part| !part.is_empty())
+                    .map(str::to_string),
+            );
         }
     }
     terms.sort();
     terms.dedup();
-    let unknown: Vec<String> = terms.iter().filter(|t| !index.words.contains_key(*t)).cloned().collect();
+    let unknown: Vec<String> = terms
+        .iter()
+        .filter(|t| !index.words.contains_key(*t))
+        .cloned()
+        .collect();
     if terms.is_empty() || !unknown.is_empty() {
-        return Found { hits: Vec::new(), matched: 0, unknown };
+        return Found {
+            hits: Vec::new(),
+            matched: 0,
+            unknown,
+        };
     }
     // TF-IDF: a word counts for more the fewer pages use it, and repeats on one page count
     // for less each time, so a long page that mentions a common word often does not outrank
@@ -354,7 +433,8 @@ pub fn search(index: &Index, version: &str, query: &str, limit: usize) -> Found 
             let titled = index.pages.get(*page).is_some_and(|p| in_title(p, term));
             let entry = scores.entry(*page).or_default();
             entry.0 += 1;
-            entry.1 += rarity * (1.0 + (*count as f64).ln()) + if titled { TITLE_WEIGHT * rarity } else { 0.0 };
+            entry.1 += rarity * (1.0 + (*count as f64).ln())
+                + if titled { TITLE_WEIGHT * rarity } else { 0.0 };
             counted.insert(*page);
         }
         for (page, info) in index.pages.iter().enumerate() {
@@ -370,7 +450,10 @@ pub fn search(index: &Index, version: &str, query: &str, limit: usize) -> Found 
         .filter(|(page, (seen, _))| *seen == terms.len() && *page < index.pages.len())
         .map(|(page, (_, score))| (page, (score * 1000.0).round() as u64))
         .collect();
-    matching.sort_by(|a, b| b.1.cmp(&a.1).then_with(|| index.pages[a.0].title.cmp(&index.pages[b.0].title)));
+    matching.sort_by(|a, b| {
+        b.1.cmp(&a.1)
+            .then_with(|| index.pages[a.0].title.cmp(&index.pages[b.0].title))
+    });
     let matched = matching.len();
     let hits = matching
         .into_iter()
@@ -381,7 +464,11 @@ pub fn search(index: &Index, version: &str, query: &str, limit: usize) -> Found 
             Hit { page, url, score }
         })
         .collect();
-    Found { hits, matched, unknown }
+    Found {
+        hits,
+        matched,
+        unknown,
+    }
 }
 
 /// The address a person opens: the site's own frame, at that page.
@@ -405,12 +492,24 @@ pub fn page_path(text: &str) -> Result<(Option<String>, String), HelpError> {
             (Some(self::version(version)?), rest.to_string())
         }
         None if text.contains("://") => return Err(bad_page(text)),
-        None => (None, text.trim_start_matches('/').strip_prefix("#page/").unwrap_or(text).to_string()),
+        None => (
+            None,
+            text.trim_start_matches('/')
+                .strip_prefix("#page/")
+                .unwrap_or(text)
+                .to_string(),
+        ),
     };
-    let path = path.split(['#', '?']).next().unwrap_or_default().to_string();
+    let path = path
+        .split(['#', '?'])
+        .next()
+        .unwrap_or_default()
+        .to_string();
     // Plain `/`-separated segments only. A backslash, a drive or UNC prefix, a colon or a
     // percent-escape could climb out once the path becomes a cache file or a URL on Windows.
-    let plain = |part: &str| !part.is_empty() && part != "." && part != ".." && !part.contains(['\\', ':', '%']);
+    let plain = |part: &str| {
+        !part.is_empty() && part != "." && part != ".." && !part.contains(['\\', ':', '%'])
+    };
     if path.is_empty() || !path.ends_with(".html") || !path.split('/').all(plain) {
         return Err(bad_page(text));
     }
@@ -436,13 +535,19 @@ pub struct Read {
 /// A page's content as Markdown, its links made absolute. With `section`, only the part under
 /// the first heading containing that text, down to the next heading of the same or a higher
 /// level.
-pub fn read(html: &[u8], version: &str, path: &str, section: Option<&str>) -> Result<Read, HelpError> {
+pub fn read(
+    html: &[u8],
+    version: &str,
+    path: &str,
+    section: Option<&str>,
+) -> Result<Read, HelpError> {
     let document = scraper::Html::parse_document(&String::from_utf8_lossy(html));
     let content = scraper::Selector::parse("#page_content").expect("a valid selector");
-    let element = document
-        .select(&content)
-        .next()
-        .ok_or_else(|| HelpError::Invalid(format!("{path} has no page content; it may not be a help page")))?;
+    let element = document.select(&content).next().ok_or_else(|| {
+        HelpError::Invalid(format!(
+            "{path} has no page content; it may not be a help page"
+        ))
+    })?;
     let inner = headings_as_tags(element);
     let markdown = htmd::convert(&inner).map_err(|e| HelpError::Invalid(format!("{path}: {e}")))?;
     let source = format!("{BASE}/{version}/en/{path}");
@@ -452,14 +557,25 @@ pub fn read(html: &[u8], version: &str, path: &str, section: Option<&str>) -> Re
         .filter(|line| line.starts_with('#'))
         .map(|line| line.trim_start_matches('#').trim().to_string())
         .collect();
-    let title = headings.first().cloned().unwrap_or_else(|| path.to_string());
+    let title = headings
+        .first()
+        .cloned()
+        .unwrap_or_else(|| path.to_string());
     let markdown = match section {
         None => markdown,
         Some(wanted) => self::section(&markdown, wanted).ok_or_else(|| {
-            HelpError::Invalid(format!("{path} has no section {wanted:?}; its headings are: {}", headings.join("; ")))
+            HelpError::Invalid(format!(
+                "{path} has no section {wanted:?}; its headings are: {}",
+                headings.join("; ")
+            ))
         })?,
     };
-    Ok(Read { title, url: page_url(version, path), headings, markdown })
+    Ok(Read {
+        title,
+        url: page_url(version, path),
+        headings,
+        markdown,
+    })
 }
 
 /// The level a help-page heading class stands for. The site marks headings with classes on
@@ -469,7 +585,10 @@ fn heading_level(class: &str) -> Option<usize> {
     match class {
         "Title" => Some(1),
         "Section_Title" | "PubsSection_Title" | "Related_Topics_Title" => Some(2),
-        _ => class.strip_prefix("Heading_").and_then(|n| n.parse::<usize>().ok()).map(|n| n.clamp(2, 6)),
+        _ => class
+            .strip_prefix("Heading_")
+            .and_then(|n| n.parse::<usize>().ok())
+            .map(|n| n.clamp(2, 6)),
     }
 }
 
@@ -479,15 +598,27 @@ fn headings_as_tags(content: scraper::ElementRef) -> String {
     let mut html = content.inner_html();
     let any = scraper::Selector::parse("[class]").expect("a valid selector");
     for element in content.select(&any) {
-        let Some(level) = element.value().attr("class").and_then(|c| c.split_whitespace().find_map(heading_level))
+        let Some(level) = element
+            .value()
+            .attr("class")
+            .and_then(|c| c.split_whitespace().find_map(heading_level))
         else {
             continue;
         };
-        let text: String = element.text().collect::<String>().split_whitespace().collect::<Vec<_>>().join(" ");
+        let text: String = element
+            .text()
+            .collect::<String>()
+            .split_whitespace()
+            .collect::<Vec<_>>()
+            .join(" ");
         if text.is_empty() {
             continue;
         }
-        html = html.replacen(&element.html(), &format!("<h{level}>{}</h{level}>", escape(&text)), 1);
+        html = html.replacen(
+            &element.html(),
+            &format!("<h{level}>{}</h{level}>", escape(&text)),
+            1,
+        );
     }
     // Code is a `pre` whose lines are `<br />`s, which Markdown would turn into soft line
     // breaks in a paragraph; written as `pre > code` with real newlines it stays a code block.
@@ -502,25 +633,37 @@ fn headings_as_tags(content: scraper::ElementRef) -> String {
                 _ => {}
             }
         }
-        html = html.replacen(&element.html(), &format!("<pre><code>{}</code></pre>", escape(&code)), 1);
+        html = html.replacen(
+            &element.html(),
+            &format!("<pre><code>{}</code></pre>", escape(&code)),
+            1,
+        );
     }
     let inline = scraper::Selector::parse("span.codeph").expect("a valid selector");
     for element in content.select(&inline) {
         let text: String = element.text().collect();
-        html = html.replacen(&element.html(), &format!("<code>{}</code>", escape(&text)), 1);
+        html = html.replacen(
+            &element.html(),
+            &format!("<code>{}</code>", escape(&text)),
+            1,
+        );
     }
     html
 }
 
 fn escape(text: &str) -> String {
-    text.replace('&', "&amp;").replace('<', "&lt;").replace('>', "&gt;")
+    text.replace('&', "&amp;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
 }
 
 fn section(markdown: &str, wanted: &str) -> Option<String> {
     let wanted = wanted.to_lowercase();
     let level = |line: &str| line.chars().take_while(|c| *c == '#').count();
     let lines: Vec<&str> = markdown.lines().collect();
-    let start = lines.iter().position(|line| level(line) > 0 && line.to_lowercase().contains(&wanted))?;
+    let start = lines
+        .iter()
+        .position(|line| level(line) > 0 && line.to_lowercase().contains(&wanted))?;
     let depth = level(lines[start]);
     let end = lines[start + 1..]
         .iter()
@@ -532,7 +675,9 @@ fn section(markdown: &str, wanted: &str) -> Option<String> {
 /// Every `](target)` in Markdown, resolved against the page's own address, so a link can be
 /// followed from where the text ends up.
 pub(crate) fn absolute_links(markdown: &str, source: &str) -> String {
-    let Ok(base) = url::Url::parse(source) else { return markdown.to_string() };
+    let Ok(base) = url::Url::parse(source) else {
+        return markdown.to_string();
+    };
     let mut out = String::with_capacity(markdown.len());
     let mut rest = markdown;
     while let Some(at) = rest.find("](") {
@@ -574,7 +719,13 @@ mod tests {
                 let (mut stream, _) = listener.accept().unwrap();
                 let mut buffer = [0u8; 4096];
                 let read = stream.read(&mut buffer).unwrap();
-                asked.push(String::from_utf8_lossy(&buffer[..read]).lines().next().unwrap_or("").to_string());
+                asked.push(
+                    String::from_utf8_lossy(&buffer[..read])
+                        .lines()
+                        .next()
+                        .unwrap_or("")
+                        .to_string(),
+                );
                 stream.write_all(answer.as_bytes()).unwrap();
             }
             asked
@@ -589,8 +740,17 @@ mod tests {
             "HTTP/1.1 200 OK\r\nContent-Length: 5\r\nConnection: close\r\n\r\nhello".into(),
         ]);
         let web = Web::new(&format!("{address}/docs"));
-        assert_eq!(web.get(&format!("{address}/docs/old.html")).unwrap(), b"hello");
-        assert_eq!(server.join().unwrap(), ["GET /docs/old.html HTTP/1.1", "GET /docs/moved.html HTTP/1.1"]);
+        assert_eq!(
+            web.get(&format!("{address}/docs/old.html")).unwrap(),
+            b"hello"
+        );
+        assert_eq!(
+            server.join().unwrap(),
+            [
+                "GET /docs/old.html HTTP/1.1",
+                "GET /docs/moved.html HTTP/1.1"
+            ]
+        );
 
         // Port 1 is closed: had twaco followed the redirect, the error would be a refused
         // connection, not this.
@@ -601,7 +761,12 @@ mod tests {
         let error = web.get(&format!("{address}/docs/a.html")).unwrap_err();
         assert!(error.contains("outside"), "{error}");
         server.join().unwrap();
-        assert!(web.get("http://127.0.0.1:1/elsewhere").unwrap_err().contains("outside"), "never asked");
+        assert!(
+            web.get("http://127.0.0.1:1/elsewhere")
+                .unwrap_err()
+                .contains("outside"),
+            "never asked"
+        );
     }
 
     const INDEX: &str = r#"var info =
@@ -631,8 +796,14 @@ mod tests {
 
     #[test]
     fn a_query_is_split_as_the_index_is() {
-        assert_eq!(words("Resources[\"InfoTableFunctions\"].Sort"), ["resources", "infotablefunctions", "sort"]);
-        assert_eq!(words("server-side me.name, (logger)"), ["server-side", "me.name", "logger"]);
+        assert_eq!(
+            words("Resources[\"InfoTableFunctions\"].Sort"),
+            ["resources", "infotablefunctions", "sort"]
+        );
+        assert_eq!(
+            words("server-side me.name, (logger)"),
+            ["server-side", "me.name", "logger"]
+        );
     }
 
     #[test]
@@ -644,8 +815,19 @@ mod tests {
         assert_eq!(found.hits[0].url, "https://support.ptc.com/help/thingworx/platform/r10.1/en/#page/ThingWorx/Help/InfoTables.html");
 
         let found = search(&index(), "r10.1", "logger", 10);
-        assert_eq!(found.hits.iter().map(|h| h.page.title.as_str()).collect::<Vec<_>>(), ["Logging", "Welcome"]);
-        assert_eq!(search(&index(), "r10.1", "logger", 1).matched, 2, "matched counts beyond the limit");
+        assert_eq!(
+            found
+                .hits
+                .iter()
+                .map(|h| h.page.title.as_str())
+                .collect::<Vec<_>>(),
+            ["Logging", "Welcome"]
+        );
+        assert_eq!(
+            search(&index(), "r10.1", "logger", 1).matched,
+            2,
+            "matched counts beyond the limit"
+        );
     }
 
     #[test]
@@ -656,7 +838,11 @@ mod tests {
             "words": { "datashape": [0, 30, 2, 1] } };"#,
         )
         .unwrap();
-        let titles: Vec<String> = search(&index, "r10.1", "DataShape", 3).hits.into_iter().map(|h| h.page.title).collect();
+        let titles: Vec<String> = search(&index, "r10.1", "DataShape", 3)
+            .hits
+            .into_iter()
+            .map(|h| h.page.title)
+            .collect();
         assert_eq!(titles, ["Data Shapes", "CacheThings", "Other"]);
     }
 
@@ -668,7 +854,11 @@ mod tests {
             "words": { "at": [1, 1] } };"#,
         )
         .unwrap();
-        let titles: Vec<String> = search(&index, "r10.1", "at", 5).hits.into_iter().map(|h| h.page.title).collect();
+        let titles: Vec<String> = search(&index, "r10.1", "at", 5)
+            .hits
+            .into_iter()
+            .map(|h| h.page.title)
+            .collect();
         assert_eq!(titles, ["Look at this"]);
     }
 
@@ -678,7 +868,10 @@ mod tests {
         assert!(found.hits.is_empty());
         assert_eq!(found.unknown, ["querylogentries"]);
         // A dotted word the index lacks is looked for as its parts.
-        assert_eq!(search(&index(), "r10.1", "InfoTableFunctions.Sort", 10).matched, 1);
+        assert_eq!(
+            search(&index(), "r10.1", "InfoTableFunctions.Sort", 10).matched,
+            1
+        );
         assert_eq!(search(&index(), "r10.1", "me.name", 10).matched, 1);
     }
 
@@ -693,7 +886,10 @@ mod tests {
 
     #[test]
     fn only_help_center_pages_are_read() {
-        assert_eq!(page_path("ThingWorx/Welcome.html").unwrap(), (None, "ThingWorx/Welcome.html".to_string()));
+        assert_eq!(
+            page_path("ThingWorx/Welcome.html").unwrap(),
+            (None, "ThingWorx/Welcome.html".to_string())
+        );
         assert_eq!(
             page_path("https://support.ptc.com/help/thingworx/platform/r10.2/en/#page/ThingWorx/Help/X.html").unwrap(),
             (Some("r10.2".to_string()), "ThingWorx/Help/X.html".to_string())
@@ -732,26 +928,56 @@ mod tests {
 
     #[test]
     fn a_page_is_its_content_as_markdown_with_links_made_absolute() {
-        let read = read(PAGE.as_bytes(), "r10.1", "ThingWorx/Help/Logging.html", None).unwrap();
+        let read = read(
+            PAGE.as_bytes(),
+            "r10.1",
+            "ThingWorx/Help/Logging.html",
+            None,
+        )
+        .unwrap();
         assert_eq!(read.title, "Logging");
         assert_eq!(read.headings, ["Logging", "Levels", "Script Log"]);
-        assert!(!read.markdown.contains("toolbar"), "only the page content: {}", read.markdown);
+        assert!(
+            !read.markdown.contains("toolbar"),
+            "only the page content: {}",
+            read.markdown
+        );
         assert!(
             read.markdown.contains("(https://support.ptc.com/help/thingworx/platform/r10.1/en/ThingWorx/Other/Logger.html)"),
             "{}",
             read.markdown
         );
         assert!(read.markdown.contains("DEBUG"));
-        assert!(read.markdown.contains("`logger.warn`"), "inline code: {}", read.markdown);
-        assert!(read.markdown.contains("```\nvar a = 1;\nlogger.warn(\"a < b\");\n```"), "a code block: {}", read.markdown);
+        assert!(
+            read.markdown.contains("`logger.warn`"),
+            "inline code: {}",
+            read.markdown
+        );
+        assert!(
+            read.markdown
+                .contains("```\nvar a = 1;\nlogger.warn(\"a < b\");\n```"),
+            "a code block: {}",
+            read.markdown
+        );
     }
 
     #[test]
     fn a_section_runs_to_the_next_heading_of_its_level() {
-        let read = read(PAGE.as_bytes(), "r10.1", "ThingWorx/Help/Logging.html", Some("levels")).unwrap();
+        let read = read(
+            PAGE.as_bytes(),
+            "r10.1",
+            "ThingWorx/Help/Logging.html",
+            Some("levels"),
+        )
+        .unwrap();
         assert!(read.markdown.starts_with("## Levels"), "{}", read.markdown);
-        assert!(read.markdown.contains("INFO") && !read.markdown.contains("Scripts write here"), "{}", read.markdown);
-        let error = super::read(PAGE.as_bytes(), "r10.1", "x.html", Some("nothing like it")).unwrap_err();
+        assert!(
+            read.markdown.contains("INFO") && !read.markdown.contains("Scripts write here"),
+            "{}",
+            read.markdown
+        );
+        let error =
+            super::read(PAGE.as_bytes(), "r10.1", "x.html", Some("nothing like it")).unwrap_err();
         assert!(error.to_string().contains("Levels; Script Log"), "{error}");
     }
 
@@ -771,13 +997,24 @@ mod tests {
         let cache = std::env::temp_dir().join(format!(
             "twaco-help-{}-{}",
             std::process::id(),
-            std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
         ));
-        let web = Counting { calls: RefCell::new(Vec::new()) };
+        let web = Counting {
+            calls: RefCell::new(Vec::new()),
+        };
         for _ in 0..2 {
-            assert_eq!(cached(&web, &cache, "r10.1", "ThingWorx/Welcome.html", false).unwrap(), b"fetched");
+            assert_eq!(
+                cached(&web, &cache, "r10.1", "ThingWorx/Welcome.html", false).unwrap(),
+                b"fetched"
+            );
         }
-        assert_eq!(*web.calls.borrow(), ["https://support.ptc.com/help/thingworx/platform/r10.1/en/ThingWorx/Welcome.html"]);
+        assert_eq!(
+            *web.calls.borrow(),
+            ["https://support.ptc.com/help/thingworx/platform/r10.1/en/ThingWorx/Welcome.html"]
+        );
         cached(&web, &cache, "r10.1", "ThingWorx/Welcome.html", true).unwrap();
         assert_eq!(web.calls.borrow().len(), 2, "refresh fetches again");
         let _ = std::fs::remove_dir_all(cache);

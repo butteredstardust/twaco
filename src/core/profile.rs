@@ -51,33 +51,53 @@ impl Profile {
 
     /// The database login override kept in the uncommitted server profile.
     pub fn database_user(&self) -> Option<&str> {
-        self.extra.get("database_user").and_then(toml::Value::as_str).filter(|value| !value.is_empty())
+        self.extra
+            .get("database_user")
+            .and_then(toml::Value::as_str)
+            .filter(|value| !value.is_empty())
     }
 
     /// The database secret kept in the uncommitted server profile.
     pub fn database_password(&self) -> Option<&str> {
-        self.extra.get("database_password").and_then(toml::Value::as_str).filter(|value| !value.is_empty())
+        self.extra
+            .get("database_password")
+            .and_then(toml::Value::as_str)
+            .filter(|value| !value.is_empty())
     }
 }
 
 #[derive(Debug)]
 pub enum ProfileError {
     InvalidName(String),
-    Missing { name: String, searched: Vec<PathBuf> },
-    Unreadable { path: PathBuf, why: String },
-    Invalid { path: PathBuf, why: String },
-    Incomplete { source: String, missing: Vec<&'static str> },
+    Missing {
+        name: String,
+        searched: Vec<PathBuf>,
+    },
+    Unreadable {
+        path: PathBuf,
+        why: String,
+    },
+    Invalid {
+        path: PathBuf,
+        why: String,
+    },
+    Incomplete {
+        source: String,
+        missing: Vec<&'static str>,
+    },
 }
 
 impl fmt::Display for ProfileError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             ProfileError::InvalidName(name) => write!(f, "invalid profile name {name:?}"),
-            ProfileError::Missing { name, searched } => write!(
+            ProfileError::Missing { name, searched } => {
+                write!(
                 f,
                 "profile {name:?} was not found (looked in {}) and the environment is incomplete",
                 searched.iter().map(|p| p.display().to_string()).collect::<Vec<_>>().join(", ")
-            ),
+            )
+            }
             ProfileError::Unreadable { path, why } => {
                 write!(f, "cannot read profile {}: {why}", path.display())
             }
@@ -106,7 +126,9 @@ pub fn load(solution_root: &Path, name: &str) -> Result<Profile, ProfileError> {
 /// workspace's, then the user's), else the environment, and whether environment variables
 /// override any of its fields. Mirrors [`load`]'s selection; it never reads a secret.
 pub fn source(solution_root: &Path, name: &str) -> String {
-    let home = std::env::var_os("USERPROFILE").or_else(|| std::env::var_os("HOME")).map(PathBuf::from);
+    let home = std::env::var_os("USERPROFILE")
+        .or_else(|| std::env::var_os("HOME"))
+        .map(PathBuf::from);
     let file = format!("{name}.toml");
     let local = solution_root.join(".twaco").join("profiles").join(&file);
     let global = home.map(|home| home.join(".twaco").join("profiles").join(&file));
@@ -128,7 +150,10 @@ pub fn source(solution_root: &Path, name: &str) -> String {
     if overridden.is_empty() || base == "the environment" {
         base
     } else {
-        format!("{base}, with {} from the environment", overridden.join(", ").to_lowercase())
+        format!(
+            "{base}, with {} from the environment",
+            overridden.join(", ").to_lowercase()
+        )
     }
 }
 
@@ -150,9 +175,16 @@ fn load_from(
         return Err(ProfileError::InvalidName(name.to_string()));
     }
 
-    let local = solution_root.join(".twaco").join("profiles").join(format!("{name}.toml"));
+    let local = solution_root
+        .join(".twaco")
+        .join("profiles")
+        .join(format!("{name}.toml"));
     let mut searched = vec![local.clone()];
-    let global = home.map(|home| home.join(".twaco").join("profiles").join(format!("{name}.toml")));
+    let global = home.map(|home| {
+        home.join(".twaco")
+            .join("profiles")
+            .join(format!("{name}.toml"))
+    });
     if let Some(path) = &global {
         searched.push(path.clone());
     }
@@ -167,10 +199,14 @@ fn load_from(
     let mut extra = BTreeMap::<String, toml::Value>::new();
     let mut source = "environment".to_string();
     if let Some(path) = selected {
-        let text = std::fs::read_to_string(path)
-            .map_err(|e| ProfileError::Unreadable { path: path.to_path_buf(), why: e.to_string() })?;
-        let profile: Profile = toml::from_str(&text)
-            .map_err(|e| ProfileError::Invalid { path: path.to_path_buf(), why: e.to_string() })?;
+        let text = std::fs::read_to_string(path).map_err(|e| ProfileError::Unreadable {
+            path: path.to_path_buf(),
+            why: e.to_string(),
+        })?;
+        let profile: Profile = toml::from_str(&text).map_err(|e| ProfileError::Invalid {
+            path: path.to_path_buf(),
+            why: e.to_string(),
+        })?;
         values.insert("url", profile.url);
         values.insert("username", profile.username);
         values.insert("password", profile.password);
@@ -198,20 +234,32 @@ fn load_from(
     // Free-form keys use their TOML spelling in a file and the conventional uppercase,
     // underscore-separated spelling in the environment. Standard fields were handled above.
     for (key, value) in environment {
-        let Some(suffix) = key.strip_prefix("TWACO_") else { continue };
+        let Some(suffix) = key.strip_prefix("TWACO_") else {
+            continue;
+        };
         if matches!(suffix, "URL" | "USERNAME" | "PASSWORD" | "APP_KEY") || value.is_empty() {
             continue;
         }
-        extra.insert(suffix.to_ascii_lowercase(), toml::Value::String(value.clone()));
+        extra.insert(
+            suffix.to_ascii_lowercase(),
+            toml::Value::String(value.clone()),
+        );
     }
 
     let missing: Vec<&'static str> = ["url", "username", "password"]
         .into_iter()
-        .filter(|field| values.get(field).is_none_or(|value| value.trim().is_empty()))
+        .filter(|field| {
+            values
+                .get(field)
+                .is_none_or(|value| value.trim().is_empty())
+        })
         .collect();
     if !missing.is_empty() {
         if selected.is_none() && values.is_empty() {
-            return Err(ProfileError::Missing { name: name.to_string(), searched });
+            return Err(ProfileError::Missing {
+                name: name.to_string(),
+                searched,
+            });
         }
         return Err(ProfileError::Incomplete { source, missing });
     }
@@ -231,8 +279,14 @@ mod tests {
     use std::time::{SystemTime, UNIX_EPOCH};
 
     fn temp(label: &str) -> PathBuf {
-        let nonce = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos();
-        let path = std::env::temp_dir().join(format!("twaco-profile-{label}-{}-{nonce}", std::process::id()));
+        let nonce = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let path = std::env::temp_dir().join(format!(
+            "twaco-profile-{label}-{}-{nonce}",
+            std::process::id()
+        ));
         std::fs::create_dir_all(&path).unwrap();
         path
     }
@@ -264,7 +318,8 @@ mod tests {
         assert_eq!(profile.password, "local-pass");
 
         std::fs::remove_file(local).unwrap();
-        let profile = load_from(&root.join("repo"), Some(&home), "default", &BTreeMap::new()).unwrap();
+        let profile =
+            load_from(&root.join("repo"), Some(&home), "default", &BTreeMap::new()).unwrap();
         assert_eq!(profile.url, "https://global/");
         let _ = std::fs::remove_dir_all(root);
     }
@@ -281,7 +336,12 @@ mod tests {
         .unwrap();
         let env = BTreeMap::from([("TWACO_PROBE_MARKER".into(), "environment".into())]);
         let profile = load_from(&root.join("repo"), None, "default", &env).unwrap();
-        assert_eq!(profile.value("probe_marker").and_then(|v| v.as_str().map(str::to_owned)), Some("environment".into()));
+        assert_eq!(
+            profile
+                .value("probe_marker")
+                .and_then(|v| v.as_str().map(str::to_owned)),
+            Some("environment".into())
+        );
         assert_eq!(profile.value("count").and_then(|v| v.as_integer()), Some(2));
         assert!(!format!("{profile:?}").contains("environment"));
         let _ = std::fs::remove_dir_all(root);
@@ -291,11 +351,17 @@ mod tests {
     fn environment_alone_can_form_a_profile() {
         let root = temp("environment");
         let env = BTreeMap::from([
-            ("TWX_URL".to_string(), "http://server/Thingworx/".to_string()),
+            (
+                "TWX_URL".to_string(),
+                "http://server/Thingworx/".to_string(),
+            ),
             ("TWX_USERNAME".to_string(), "user".to_string()),
             ("TWX_PASSWORD".to_string(), "pass".to_string()),
         ]);
-        assert_eq!(load_from(&root, None, "default", &env).unwrap().username, "user");
+        assert_eq!(
+            load_from(&root, None, "default", &env).unwrap().username,
+            "user"
+        );
         let _ = std::fs::remove_dir_all(root);
     }
 

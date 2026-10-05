@@ -15,7 +15,11 @@ use std::time::Duration;
 
 use twaco::core::config::Solution;
 use twaco::core::entity_key::EntityKey;
-use twaco::core::{adopt, backup, baseline, newblock, relocate, retemplate, catalog, status, workflow, lock, config_table, db, datatable_copy, deploy, entity_carry, entity_delete, push, profile, rename, server, types, workspace};
+use twaco::core::{
+    adopt, backup, baseline, catalog, config_table, datatable_copy, db, deploy, entity_carry,
+    entity_delete, lock, newblock, profile, push, relocate, rename, retemplate, server, status,
+    types, workflow, workspace,
+};
 
 /// Success.
 const OK: u8 = 0;
@@ -95,7 +99,10 @@ fn main() -> ExitCode {
         match created {
             Ok(()) => {}
             Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => {
-                eprintln!("twaco: {} exists and is never overwritten; remove it first to start again", target.display());
+                eprintln!(
+                    "twaco: {} exists and is never overwritten; remove it first to start again",
+                    target.display()
+                );
                 return ExitCode::from(FAILED);
             }
             Err(error) => {
@@ -106,7 +113,11 @@ fn main() -> ExitCode {
         // Prove it loads, so a proposal twaco cannot read is never left behind silently.
         return match Solution::load(&target) {
             Ok(solution) => {
-                println!("wrote {} with {} project(s); `twaco doctor` checks the rest", target.display(), solution.projects.len());
+                println!(
+                    "wrote {} with {} project(s); `twaco doctor` checks the rest",
+                    target.display(),
+                    solution.projects.len()
+                );
                 ExitCode::from(write_agent_files(&solution))
             }
             Err(error) => {
@@ -139,7 +150,9 @@ fn main() -> ExitCode {
             };
             println!("  {mark}  {:<15} {}", item.subject, item.detail);
         }
-        let failed = items.iter().any(|i| i.health == twaco::core::doctor::Health::Fail);
+        let failed = items
+            .iter()
+            .any(|i| i.health == twaco::core::doctor::Health::Fail);
         return ExitCode::from(if failed { FAILED } else { OK });
     }
 
@@ -224,8 +237,13 @@ fn main() -> ExitCode {
             "import" => import_cmd(solution, &parsed),
             "logs" => logs_cmd(solution, &parsed),
             "adopt" => adopt_cmd(solution, &parsed),
-            "rename entity" | "rename prefix" | "rename field" | "rename service" | "rename param" | "rename table" | "rename property" => rename_cmd(solution, route, &parsed),
-            "move service" | "move property" | "copy service" | "copy property" => relocate_cmd(solution, route, &parsed),
+            "rename entity" | "rename prefix" | "rename field" | "rename service"
+            | "rename param" | "rename table" | "rename property" => {
+                rename_cmd(solution, route, &parsed)
+            }
+            "move service" | "move property" | "copy service" | "copy property" => {
+                relocate_cmd(solution, route, &parsed)
+            }
             "retemplate" => retemplate_cmd(solution, &parsed),
             "new building-block" => new_building_block_cmd(solution, &parsed),
             "config-table" => config_table(solution, &parsed),
@@ -363,8 +381,6 @@ fn route(args: &[String]) -> Result<Route, String> {
     })
 }
 
-
-
 /// Exit quietly when stdout's reader has gone, as `twaco projects | head` does once it has its
 /// lines. `println!` panics on a closed pipe, and a panic there is noise. The exit is 141, what
 /// a shell reports for a process its pipe closed: the command's own result is unknown at this
@@ -380,7 +396,9 @@ fn quiet_when_the_reader_leaves() {
             .unwrap_or_default();
         // Broken pipe: os error 32 on Unix; ERROR_NO_DATA (232) or ERROR_BROKEN_PIPE (109) on
         // Windows.
-        let closed = ["(os error 32)", "(os error 232)", "(os error 109)"].iter().any(|code| message.contains(code));
+        let closed = ["(os error 32)", "(os error 232)", "(os error 109)"]
+            .iter()
+            .any(|code| message.contains(code));
         if message.starts_with("failed printing to stdout") && closed {
             std::process::exit(141);
         }
@@ -414,12 +432,42 @@ struct Args {
 }
 
 /// Flags whose value is kept as text in `Args::values`, for the command to read.
-const VALUE_FLAGS: &[&str] =
-    &[
-        "--since", "--from", "--to", "--level", "--grep", "--regex", "--user", "--thread", "--origin", "--limit", "--sublogger",
-        "--version", "--section", "--member", "--repository", "--path", "--collection", "--tags", "--zip", "--search",
-        "--thing", "--max-rows", "-q", "--sql-dir", "--map", "--as", "--add-shapes", "--remove-shapes", "--type", "--display-name", "--description", "--parent", "--root", "--base-extension",
-    ];
+const VALUE_FLAGS: &[&str] = &[
+    "--since",
+    "--from",
+    "--to",
+    "--level",
+    "--grep",
+    "--regex",
+    "--user",
+    "--thread",
+    "--origin",
+    "--limit",
+    "--sublogger",
+    "--version",
+    "--section",
+    "--member",
+    "--repository",
+    "--path",
+    "--collection",
+    "--tags",
+    "--zip",
+    "--search",
+    "--thing",
+    "--max-rows",
+    "-q",
+    "--sql-dir",
+    "--map",
+    "--as",
+    "--add-shapes",
+    "--remove-shapes",
+    "--type",
+    "--display-name",
+    "--description",
+    "--parent",
+    "--root",
+    "--base-extension",
+];
 
 impl Args {
     /// Split arguments into names and flags, refusing anything the command does not accept.
@@ -438,37 +486,52 @@ impl Args {
         let mut values = std::collections::BTreeMap::new();
         let mut rest = args.iter();
         while let Some(arg) = rest.next() {
-            if let Some(flag) = arg.strip_prefix("--").map(|_| arg.as_str()).or_else(|| (arg == "-q").then_some("-q")) {
+            if let Some(flag) = arg
+                .strip_prefix("--")
+                .map(|_| arg.as_str())
+                .or_else(|| (arg == "-q").then_some("-q"))
+            {
                 if !known.contains(&flag) {
                     return Err(format!(
                         "`{flag}` is not a flag this command takes ({})",
-                        if known.is_empty() { "it takes none".to_string() } else { known.join(", ") }
+                        if known.is_empty() {
+                            "it takes none".to_string()
+                        } else {
+                            known.join(", ")
+                        }
                     ));
                 }
                 match flag {
                     "--project" => {
                         project = Some(
-                            rest.next().cloned().ok_or_else(|| "--project needs a name".to_string())?,
+                            rest.next()
+                                .cloned()
+                                .ok_or_else(|| "--project needs a name".to_string())?,
                         );
                     }
                     "--profile" => {
                         profile = Some(
-                            rest.next().cloned().ok_or_else(|| "--profile needs a name".to_string())?,
+                            rest.next()
+                                .cloned()
+                                .ok_or_else(|| "--profile needs a name".to_string())?,
                         );
                     }
                     "--out" => {
                         out = Some(PathBuf::from(
-                            rest.next().cloned().ok_or_else(|| "--out needs a path".to_string())?,
+                            rest.next()
+                                .cloned()
+                                .ok_or_else(|| "--out needs a path".to_string())?,
                         ));
                     }
                     "--only" => only.push(
-                        rest.next().cloned().ok_or_else(|| "--only needs an entity name".to_string())?,
+                        rest.next()
+                            .cloned()
+                            .ok_or_else(|| "--only needs an entity name".to_string())?,
                     ),
                     "--only-projects" => {
-                        let value = rest
-                            .next()
-                            .cloned()
-                            .ok_or_else(|| "--only-projects needs a comma-separated list".to_string())?;
+                        let value = rest.next().cloned().ok_or_else(|| {
+                            "--only-projects needs a comma-separated list".to_string()
+                        })?;
                         let selected: Vec<String> = value
                             .split(',')
                             .map(str::trim)
@@ -481,32 +544,43 @@ impl Args {
                         only_projects.extend(selected);
                     }
                     "--timeout" => {
-                        let value = rest
-                            .next()
-                            .ok_or_else(|| "--timeout needs a positive number of seconds".to_string())?;
+                        let value = rest.next().ok_or_else(|| {
+                            "--timeout needs a positive number of seconds".to_string()
+                        })?;
                         let seconds = value.parse::<u64>().map_err(|_| {
                             "--timeout needs a positive whole number of seconds".to_string()
                         })?;
                         if seconds == 0 {
-                            return Err("--timeout needs a positive whole number of seconds".to_string());
+                            return Err(
+                                "--timeout needs a positive whole number of seconds".to_string()
+                            );
                         }
                         timeout = Some(Duration::from_secs(seconds));
                     }
                     "--entity" => entity_filters.push(
-                        rest.next().cloned().ok_or_else(|| "--entity needs a name fragment".to_string())?,
+                        rest.next()
+                            .cloned()
+                            .ok_or_else(|| "--entity needs a name fragment".to_string())?,
                     ),
                     "--backup" => {
                         backup = Some(PathBuf::from(
-                            rest.next().cloned().ok_or_else(|| "--backup needs a file".to_string())?,
+                            rest.next()
+                                .cloned()
+                                .ok_or_else(|| "--backup needs a file".to_string())?,
                         ));
                     }
                     "--restore" => {
                         restore = Some(PathBuf::from(
-                            rest.next().cloned().ok_or_else(|| "--restore needs a file".to_string())?,
+                            rest.next()
+                                .cloned()
+                                .ok_or_else(|| "--restore needs a file".to_string())?,
                         ));
                     }
                     valued if VALUE_FLAGS.contains(&valued) => {
-                        let value = rest.next().cloned().ok_or_else(|| format!("{valued} needs a value"))?;
+                        let value = rest
+                            .next()
+                            .cloned()
+                            .ok_or_else(|| format!("{valued} needs a value"))?;
                         if values.insert(valued.to_string(), value).is_some() {
                             return Err(format!("{valued} is given twice"));
                         }
@@ -518,7 +592,9 @@ impl Args {
             }
         }
         if flags.iter().any(|f| f == "--all") && !names.is_empty() {
-            return Err(format!("--all and {names:?} say different things; pass one or the other"));
+            return Err(format!(
+                "--all and {names:?} say different things; pass one or the other"
+            ));
         }
         Ok(Args {
             names,
@@ -758,7 +834,11 @@ fn config_table(solution: &Solution, args: &Args) -> u8 {
         eprintln!("twaco: config-table needs <thing> <table>");
         return FAILED;
     }
-    let modes = [args.backup.is_some(), args.restore.is_some(), args.has("--diff")];
+    let modes = [
+        args.backup.is_some(),
+        args.restore.is_some(),
+        args.has("--diff"),
+    ];
     if modes.iter().filter(|m| **m).count() > 1 {
         eprintln!("twaco: --backup, --restore and --diff are separate actions; pass one");
         return FAILED;
@@ -771,12 +851,19 @@ fn config_table(solution: &Solution, args: &Args) -> u8 {
     // the solution is taken as given, except by --diff, which needs the repository's copy.
     let found = workspace::discover(solution).entities;
     let (thing, entity_file) = match workspace::resolve(&found, &args.names[0]) {
-        Ok(entity) if entity.info.collection == "Things" => (entity.info.name.clone(), Some(entity.path.clone())),
+        Ok(entity) if entity.info.collection == "Things" => {
+            (entity.info.name.clone(), Some(entity.path.clone()))
+        }
         Ok(entity) => {
-            eprintln!("twaco: {} is a {}, and only a Thing has configuration tables here", entity.info.name, entity.info.collection);
+            eprintln!(
+                "twaco: {} is a {}, and only a Thing has configuration tables here",
+                entity.info.name, entity.info.collection
+            );
             return FAILED;
         }
-        Err(workspace::WorkspaceError::UnknownEntity { .. }) if !args.has("--diff") => (args.names[0].clone(), None),
+        Err(workspace::WorkspaceError::UnknownEntity { .. }) if !args.has("--diff") => {
+            (args.names[0].clone(), None)
+        }
         Err(error) => {
             eprintln!("twaco: {error}");
             return FAILED;
@@ -809,12 +896,20 @@ fn config_table(solution: &Solution, args: &Args) -> u8 {
                 OK
             }
             Ok(plan) => {
-                let (verb, removal) = if apply { ("restored", "removed") } else { ("would restore", "remove") };
+                let (verb, removal) = if apply {
+                    ("restored", "removed")
+                } else {
+                    ("would restore", "remove")
+                };
                 println!(
                     "{label}: {verb} {} row(s) and {removal} {} added since the backup{}",
                     plan.writes,
                     plan.deletes.len(),
-                    if plan.deletes.is_empty() { String::new() } else { format!(" ({})", plan.deletes.join(", ")) }
+                    if plan.deletes.is_empty() {
+                        String::new()
+                    } else {
+                        format!(" ({})", plan.deletes.join(", "))
+                    }
                 );
                 if apply {
                     println!("read back and matching the backup");
@@ -840,7 +935,11 @@ fn config_table(solution: &Solution, args: &Args) -> u8 {
     if let Some(path) = &args.backup {
         return match config_table::write_backup(path, &thing, table, &live) {
             Ok(()) => {
-                println!("backed up {} row(s) of {label} to {}", live.rows.len(), path.display());
+                println!(
+                    "backed up {} row(s) of {label} to {}",
+                    live.rows.len(),
+                    path.display()
+                );
                 OK
             }
             Err(error) => {
@@ -866,9 +965,13 @@ fn config_table(solution: &Solution, args: &Args) -> u8 {
             }
         };
         let key = config_table::primary_key(&live.data_shape);
-        let found = config_table::differences("server", &live.rows, "source control", &repository, &key);
+        let found =
+            config_table::differences("server", &live.rows, "source control", &repository, &key);
         if found.is_empty() {
-            println!("{label}: {} row(s), identical to source control", live.rows.len());
+            println!(
+                "{label}: {} row(s), identical to source control",
+                live.rows.len()
+            );
             return OK;
         }
         println!("{label}: {} difference(s) from source control", found.len());
@@ -881,12 +984,22 @@ fn config_table(solution: &Solution, args: &Args) -> u8 {
     println!(
         "{label}: {} row(s); primary key {}",
         live.rows.len(),
-        if key.is_empty() { "none".to_string() } else { key.join(", ") }
+        if key.is_empty() {
+            "none".to_string()
+        } else {
+            key.join(", ")
+        }
     );
     if args.has("--detail") {
-        println!("{}", serde_json::to_string_pretty(&live.rows).expect("JSON values serialise"));
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&live.rows).expect("JSON values serialise")
+        );
     } else if let Some(first) = live.rows.first() {
-        println!("first row: {}", serde_json::to_string(first).expect("JSON values serialise"));
+        println!(
+            "first row: {}",
+            serde_json::to_string(first).expect("JSON values serialise")
+        );
     }
     OK
 }
@@ -927,7 +1040,10 @@ fn adopt_cmd(solution: &Solution, args: &Args) -> u8 {
             "changed": changed,
             "identical": report.with_status(adopt::Status::Identical).count(),
         });
-        println!("{}", serde_json::to_string_pretty(&summary).expect("JSON values serialise"));
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&summary).expect("JSON values serialise")
+        );
     } else {
         print_adopt_report(solution, &report, args.has("--detail"));
     }
@@ -993,7 +1109,12 @@ fn rename_cmd(solution: &Solution, route: &str, args: &Args) -> u8 {
     if args.has("--json") {
         print_rename_json(solution, &outcome, options.include_outside);
     } else {
-        print_rename_outcome(solution, &outcome, options.include_outside, args.has("--detail"));
+        print_rename_outcome(
+            solution,
+            &outcome,
+            options.include_outside,
+            args.has("--detail"),
+        );
     }
     let verification_failed = outcome.verification.as_ref().is_some_and(|verification| {
         !verification.sync_problems.is_empty() || !verification.blocking_gates.is_empty()
@@ -1006,7 +1127,12 @@ fn rename_cmd(solution: &Solution, route: &str, args: &Args) -> u8 {
     }
 }
 
-fn print_rename_outcome(solution: &Solution, outcome: &rename::Outcome, include_outside: bool, detail: bool) {
+fn print_rename_outcome(
+    solution: &Solution,
+    outcome: &rename::Outcome,
+    include_outside: bool,
+    detail: bool,
+) {
     let plan = &outcome.plan;
     let state = if outcome.applied.is_some() {
         "applied"
@@ -1018,8 +1144,16 @@ fn print_rename_outcome(solution: &Solution, outcome: &rename::Outcome, include_
         println!("  {label:<14} {text}");
     }
     let counts = plan.counts();
-    let review = [counts.entity, counts.sidecar, counts.config, counts.outside, counts.mashup]
-        .iter().map(|count| count.review).sum::<usize>();
+    let review = [
+        counts.entity,
+        counts.sidecar,
+        counts.config,
+        counts.outside,
+        counts.mashup,
+    ]
+    .iter()
+    .map(|count| count.review)
+    .sum::<usize>();
     println!("  review         {review} occurrences left for a person");
     if !plan.named.is_empty() {
         println!(
@@ -1028,11 +1162,21 @@ fn print_rename_outcome(solution: &Solution, outcome: &rename::Outcome, include_
         );
     }
     if !plan.skipped.is_empty() {
-        println!("  skipped        {} files that are not text", plan.skipped.len());
+        println!(
+            "  skipped        {} files that are not text",
+            plan.skipped.len()
+        );
     }
     if let Some(script) = &outcome.sql {
-        let verb = if outcome.applied.is_some() { "written to" } else { "would be written to" };
-        println!("  database       a migration {verb} {}", display_relative(solution, &script.path));
+        let verb = if outcome.applied.is_some() {
+            "written to"
+        } else {
+            "would be written to"
+        };
+        println!(
+            "  database       a migration {verb} {}",
+            display_relative(solution, &script.path)
+        );
     }
 
     if detail {
@@ -1041,19 +1185,37 @@ fn print_rename_outcome(solution: &Solution, outcome: &rename::Outcome, include_
         }
         for change in plan.changes.iter().chain(&plan.outside) {
             for finding in &change.findings {
-                println!("{}:{}  {}", display_relative(solution, &change.path), finding.line, finding.excerpt);
+                println!(
+                    "{}:{}  {}",
+                    display_relative(solution, &change.path),
+                    finding.line,
+                    finding.excerpt
+                );
             }
         }
         for path in &plan.named {
             println!("{}", display_relative(solution, path));
         }
     } else if review > 0 {
-        let findings = plan.changes.iter().chain(&plan.outside).flat_map(|change| {
-            change.findings.iter().filter(|finding| finding.tier == twaco::core::refs::Tier::Review)
-                .map(move |finding| (change, finding))
-        }).collect::<Vec<_>>();
+        let findings = plan
+            .changes
+            .iter()
+            .chain(&plan.outside)
+            .flat_map(|change| {
+                change
+                    .findings
+                    .iter()
+                    .filter(|finding| finding.tier == twaco::core::refs::Tier::Review)
+                    .map(move |finding| (change, finding))
+            })
+            .collect::<Vec<_>>();
         for (change, finding) in findings.iter().take(10) {
-            println!("{}:{}  {}", display_relative(solution, &change.path), finding.line, finding.excerpt);
+            println!(
+                "{}:{}  {}",
+                display_relative(solution, &change.path),
+                finding.line,
+                finding.excerpt
+            );
         }
         if findings.len() > 10 {
             println!("and {} more", findings.len() - 10);
@@ -1083,7 +1245,14 @@ fn print_rename_outcome(solution: &Solution, outcome: &rename::Outcome, include_
             println!("  - {item}");
         }
     }
-    if matches!(plan.spec.kind, rename::Kind::Field | rename::Kind::Service | rename::Kind::Param | rename::Kind::Table | rename::Kind::Property) {
+    if matches!(
+        plan.spec.kind,
+        rename::Kind::Field
+            | rename::Kind::Service
+            | rename::Kind::Param
+            | rename::Kind::Table
+            | rename::Kind::Property
+    ) {
         println!("Next: twaco check; commit; twaco deploy --apply.");
     } else {
         println!("Next: twaco check; commit; twaco deploy --apply; then delete the old entities from each server.");
@@ -1092,7 +1261,10 @@ fn print_rename_outcome(solution: &Solution, outcome: &rename::Outcome, include_
 
 fn print_rename_json(solution: &Solution, outcome: &rename::Outcome, include_outside: bool) {
     let value = rename::summary_json(solution, outcome, include_outside, usize::MAX);
-    println!("{}", serde_json::to_string_pretty(&value).expect("rename result serialises"));
+    println!(
+        "{}",
+        serde_json::to_string_pretty(&value).expect("rename result serialises")
+    );
 }
 
 fn print_adopt_report(solution: &Solution, report: &adopt::Report, detail: bool) {
@@ -1108,18 +1280,31 @@ fn print_adopt_report(solution: &Solution, report: &adopt::Report, detail: bool)
         if !service.sidecar {
             notes.push("compared against entity XML, no sidecar");
         }
-        let suffix = if notes.is_empty() { String::new() } else { format!("  ({})", notes.join("; ")) };
+        let suffix = if notes.is_empty() {
+            String::new()
+        } else {
+            format!("  ({})", notes.join("; "))
+        };
         println!("  {}.{}{suffix}", service.entity, service.service);
         println!("      {}", display_relative(solution, &service.source));
     }
     let reverts = report.reverts().count();
     if reverts > 0 {
-        println!("\n  {reverts} service(s) differ and are not marked generated. Each is either the");
-        println!("  designer's change to adopt or one of ours they never had: read the diff before");
+        println!(
+            "\n  {reverts} service(s) differ and are not marked generated. Each is either the"
+        );
+        println!(
+            "  designer's change to adopt or one of ours they never had: read the diff before"
+        );
         println!("  importing, and redeploy the entity afterwards.");
     }
     if !report.unmatched_services.is_empty() {
-        let shown: Vec<&str> = report.unmatched_services.iter().take(5).map(String::as_str).collect();
+        let shown: Vec<&str> = report
+            .unmatched_services
+            .iter()
+            .take(5)
+            .map(String::as_str)
+            .collect();
         println!(
             "\n  {} exported service(s) have no counterpart here: {}",
             report.unmatched_services.len(),
@@ -1137,15 +1322,23 @@ fn print_adopt_report(solution: &Solution, report: &adopt::Report, detail: bool)
         } else {
             format!(" (project {})", entry.project)
         };
-        println!("  {:16} {}{project}", entry.entity.collection, entry.entity.name);
+        println!(
+            "  {:16} {}{project}",
+            entry.entity.collection, entry.entity.name
+        );
     }
 
-    println!("\n=== here but not in the export ({}) ===", report.absent.len());
+    println!(
+        "\n=== here but not in the export ({}) ===",
+        report.absent.len()
+    );
     for entity in &report.absent {
         println!("  {:16} {}", entity.collection, entity.name);
     }
     if !report.absent.is_empty() {
-        println!("  The export does not say whether these were deleted or never left their server.");
+        println!(
+            "  The export does not say whether these were deleted or never left their server."
+        );
         println!("  Ask before dropping one: an import will not remove them either way.");
     }
 
@@ -1159,7 +1352,11 @@ fn print_adopt_report(solution: &Solution, report: &adopt::Report, detail: bool)
         if entry.ignored > 0 {
             extra.push(format!("{} ignored", entry.ignored));
         }
-        let suffix = if extra.is_empty() { String::new() } else { format!("  [{}]", extra.join(", ")) };
+        let suffix = if extra.is_empty() {
+            String::new()
+        } else {
+            format!("  [{}]", extra.join(", "))
+        };
         println!(
             "  {:16} {}  ({} node(s)){suffix}",
             entry.entity.collection,
@@ -1169,7 +1366,9 @@ fn print_adopt_report(solution: &Solution, report: &adopt::Report, detail: bool)
         if detail {
             let side = |value: &Option<String>| match value {
                 None => "<absent>".to_string(),
-                Some(text) if text.chars().count() > 160 => format!("{}...", text.chars().take(160).collect::<String>()),
+                Some(text) if text.chars().count() > 160 => {
+                    format!("{}...", text.chars().take(160).collect::<String>())
+                }
                 Some(text) => text.clone(),
             };
             for difference in &entry.differences {
@@ -1191,7 +1390,10 @@ fn print_adopt_report(solution: &Solution, report: &adopt::Report, detail: bool)
 }
 
 fn display_relative(solution: &Solution, path: &Path) -> String {
-    path.strip_prefix(&solution.root).unwrap_or(path).display().to_string()
+    path.strip_prefix(&solution.root)
+        .unwrap_or(path)
+        .display()
+        .to_string()
 }
 
 fn call(solution: &Solution, args: &Args) -> u8 {
@@ -1221,19 +1423,20 @@ fn call(solution: &Solution, args: &Args) -> u8 {
             return FAILED;
         }
     };
-    let target = match workspace::call_target(&workspace::discover(solution).entities, &args.names[0]) {
-        Ok(target) => {
-            // Said aloud: a platform Thing with the same short name is reached as Things/<Name>.
-            if target.to_string() != args.names[0] {
-                eprintln!("twaco: calling {target}");
+    let target =
+        match workspace::call_target(&workspace::discover(solution).entities, &args.names[0]) {
+            Ok(target) => {
+                // Said aloud: a platform Thing with the same short name is reached as Things/<Name>.
+                if target.to_string() != args.names[0] {
+                    eprintln!("twaco: calling {target}");
+                }
+                target
             }
-            target
-        }
-        Err(error) => {
-            eprintln!("twaco: {error}");
-            return FAILED;
-        }
-    };
+            Err(error) => {
+                eprintln!("twaco: {error}");
+                return FAILED;
+            }
+        };
     let client = server::Client::new(profile);
     let started = twaco::core::logs::now_ms();
     let result = client.call_service(
@@ -1246,9 +1449,20 @@ fn call(solution: &Solution, args: &Args) -> u8 {
         // Printed first, so a failure's own lines come before its error, as they happened.
         use twaco::core::logs;
         let ended = logs::now_ms();
-        match logs::during_call(&client, started, ended, logs::Wait::default(), &logs::now_ms, &std::thread::sleep) {
+        match logs::during_call(
+            &client,
+            started,
+            ended,
+            logs::Wait::default(),
+            &logs::now_ms,
+            &std::thread::sleep,
+        ) {
             Ok(entries) => {
-                println!("--- logged during the call: {} entr{}", entries.len(), if entries.len() == 1 { "y" } else { "ies" });
+                println!(
+                    "--- logged during the call: {} entr{}",
+                    entries.len(),
+                    if entries.len() == 1 { "y" } else { "ies" }
+                );
                 for (log, entry) in &entries {
                     println!("{log}: {}", logs::line(entry));
                 }
@@ -1260,7 +1474,10 @@ fn call(solution: &Solution, args: &Args) -> u8 {
     match result {
         Ok(None) => println!("done"),
         Ok(Some(value)) if args.has("--detail") || !is_info_table(&value) => {
-            println!("{}", serde_json::to_string_pretty(&value).expect("JSON value serialises"));
+            println!(
+                "{}",
+                serde_json::to_string_pretty(&value).expect("JSON value serialises")
+            );
         }
         Ok(Some(value)) => print_info_table_summary(&value),
         Err(error) => {
@@ -1286,16 +1503,26 @@ fn logs_cmd(solution: &Solution, args: &Args) -> u8 {
     }
     let built = (|| -> Result<logs::Query, String> {
         let [log] = args.names.as_slice() else {
-            return Err(format!("logs needs one log name: {}", logs::LOGS.join(", ")));
+            return Err(format!(
+                "logs needs one log name: {}",
+                logs::LOGS.join(", ")
+            ));
         };
         let now = logs::now_ms();
         let (from_ms, to_ms) = match (value("--since"), value("--from"), value("--to")) {
             (Some(_), Some(_), _) | (Some(_), _, Some(_)) => {
-                return Err("--since is a window ending now; give it, or --from and --to, not both".to_string())
+                return Err(
+                    "--since is a window ending now; give it, or --from and --to, not both"
+                        .to_string(),
+                )
             }
-            (since, None, None) => (now - logs::parse_since(since.unwrap_or("1h")).map_err(|e| e.to_string())?, now),
+            (since, None, None) => (
+                now - logs::parse_since(since.unwrap_or("1h")).map_err(|e| e.to_string())?,
+                now,
+            ),
             (None, from, to) => {
-                let to_ms = logs::parse_time(to.unwrap_or("now"), now).map_err(|e| e.to_string())?;
+                let to_ms =
+                    logs::parse_time(to.unwrap_or("now"), now).map_err(|e| e.to_string())?;
                 let from_ms = match from {
                     Some(from) => logs::parse_time(from, now).map_err(|e| e.to_string())?,
                     None => to_ms - 3_600_000,
@@ -1304,20 +1531,27 @@ fn logs_cmd(solution: &Solution, args: &Args) -> u8 {
             }
         };
         let search = match (value("--grep"), value("--regex")) {
-            (Some(_), Some(_)) => return Err("--grep and --regex are two ways to search; give one".to_string()),
+            (Some(_), Some(_)) => {
+                return Err("--grep and --regex are two ways to search; give one".to_string())
+            }
             (Some(text), None) => Some(logs::Search::Grep(text.to_string())),
             (None, Some(expression)) => Some(logs::Search::Regex(expression.to_string())),
             (None, None) => None,
         };
         let limit = match value("--limit") {
-            Some(text) => text.parse::<u64>().map_err(|_| format!("--limit needs a whole number, not {text:?}"))?,
+            Some(text) => text
+                .parse::<u64>()
+                .map_err(|_| format!("--limit needs a whole number, not {text:?}"))?,
             None => 100,
         };
         Ok(logs::Query {
             log: log.clone(),
             from_ms,
             to_ms,
-            level: value("--level").map(logs::level).transpose().map_err(|e| e.to_string())?,
+            level: value("--level")
+                .map(logs::level)
+                .transpose()
+                .map_err(|e| e.to_string())?,
             search,
             user: value("--user").map(str::to_string),
             thread: value("--thread").map(str::to_string),
@@ -1386,7 +1620,10 @@ fn log_level_cmd(solution: &Solution, args: &Args) -> u8 {
         let sublogger = args.values.get("--sublogger").cloned();
         let (log, level) = match rest {
             [log] => (log.clone(), None),
-            [log, level] => (log.clone(), Some(logs::level(level).map_err(|e| e.to_string())?)),
+            [log, level] => (
+                log.clone(),
+                Some(logs::level(level).map_err(|e| e.to_string())?),
+            ),
             _ => return Err("logs level needs a log name and, to change it, a level".to_string()),
         };
         let change = match (level, args.has("--reset")) {
@@ -1439,7 +1676,10 @@ fn log_level_cmd(solution: &Solution, args: &Args) -> u8 {
             if apply {
                 println!("changed {}", report.plan);
             } else {
-                println!("would change {}; nothing sent (pass --apply; the level is the whole server's)", report.plan);
+                println!(
+                    "would change {}; nothing sent (pass --apply; the level is the whole server's)",
+                    report.plan
+                );
             }
             for undo in &report.undo {
                 println!("to put it back: {undo}");
@@ -1484,7 +1724,14 @@ fn write_agent_files(solution: &Solution) -> u8 {
 /// `twaco guide [<topic> [--section <heading>]] [--search <words>]`: the knowledge an agent needs
 /// besides the CLI, built in and the solution's own. Works outside a solution too.
 const GUIDE_FLAGS: &[&str] = &["--section", "--search", "--limit", "--json"];
-const HELP_FLAGS: &[&str] = &["--version", "--limit", "--section", "--refresh", "--json", "--profile"];
+const HELP_FLAGS: &[&str] = &[
+    "--version",
+    "--limit",
+    "--section",
+    "--refresh",
+    "--json",
+    "--profile",
+];
 const JAVADOC_FLAGS: &[&str] = &["--member", "--limit", "--refresh", "--json"];
 
 fn guide_cmd(args: &[String]) -> u8 {
@@ -1515,7 +1762,11 @@ fn guide_cmd(args: &[String]) -> u8 {
                 return Err("--search searches every topic; pass no topic with it".to_string());
             }
             let limit = match parsed.values.get("--limit") {
-                Some(n) => n.parse::<usize>().ok().filter(|n| *n > 0).ok_or("--limit takes a positive number")?,
+                Some(n) => n
+                    .parse::<usize>()
+                    .ok()
+                    .filter(|n| *n > 0)
+                    .ok_or("--limit takes a positive number")?,
                 None => 10,
             };
             let hits = guide::search(&topics, query, limit);
@@ -1526,8 +1777,15 @@ fn guide_cmd(args: &[String]) -> u8 {
                         serde_json::json!({ "topic": hit.topic, "section": hit.heading, "matched": hit.matched, "of": hit.of, "line": hit.line })
                     );
                 } else {
-                    let heading = if hit.heading.is_empty() { "(introduction)" } else { hit.heading.as_str() };
-                    println!("{}: {heading}  [{}/{} words]", hit.topic, hit.matched, hit.of);
+                    let heading = if hit.heading.is_empty() {
+                        "(introduction)"
+                    } else {
+                        hit.heading.as_str()
+                    };
+                    println!(
+                        "{}: {heading}  [{}/{} words]",
+                        hit.topic, hit.matched, hit.of
+                    );
                     if !hit.line.is_empty() {
                         println!("    {}", hit.line);
                     }
@@ -1543,15 +1801,29 @@ fn guide_cmd(args: &[String]) -> u8 {
         match parsed.names.as_slice() {
             [] => {
                 for topic in &topics {
-                    let origin = if topic.file.is_some() { "solution" } else { "built in" };
-                    println!("{:<width$}  {:<9} {}", topic.id, origin, topic.title, width = topics.iter().map(|t| t.id.len()).max().unwrap_or(0));
+                    let origin = if topic.file.is_some() {
+                        "solution"
+                    } else {
+                        "built in"
+                    };
+                    println!(
+                        "{:<width$}  {:<9} {}",
+                        topic.id,
+                        origin,
+                        topic.title,
+                        width = topics.iter().map(|t| t.id.len()).max().unwrap_or(0)
+                    );
                 }
-                eprintln!("read one: twaco guide <topic>; search all: twaco guide --search <words>");
+                eprintln!(
+                    "read one: twaco guide <topic>; search all: twaco guide --search <words>"
+                );
                 Ok(())
             }
             [wanted] => {
                 let topic = guide::find(&topics, wanted).map_err(|e| e.to_string())?;
-                match guide::read(topic, parsed.values.get("--section").map(String::as_str)).map_err(|e| e.to_string())? {
+                match guide::read(topic, parsed.values.get("--section").map(String::as_str))
+                    .map_err(|e| e.to_string())?
+                {
                     guide::Reading::Text(text) => print!("{text}"),
                     guide::Reading::Outline { title, headings } => {
                         println!("# {title}\n");
@@ -1584,8 +1856,10 @@ fn help_cmd(args: &[String]) -> u8 {
             return FAILED;
         }
     };
-    let (Some(action), rest) = (parsed.names.first().map(String::as_str), parsed.names.get(1..).unwrap_or_default())
-    else {
+    let (Some(action), rest) = (
+        parsed.names.first().map(String::as_str),
+        parsed.names.get(1..).unwrap_or_default(),
+    ) else {
         eprintln!("twaco: help needs `search <words>` or `page <page>`");
         return FAILED;
     };
@@ -1675,16 +1949,26 @@ fn help_cmd(args: &[String]) -> u8 {
                 }
             } else {
                 for hit in &found.hits {
-                    println!("{}
+                    println!(
+                        "{}
   {}
   {}
-", hit.page.title, hit.page.path, hit.page.summary);
+",
+                        hit.page.title, hit.page.path, hit.page.summary
+                    );
                 }
             }
             if !found.unknown.is_empty() {
-                eprintln!("twaco: the {version} help never uses: {}", found.unknown.join(", "));
+                eprintln!(
+                    "twaco: the {version} help never uses: {}",
+                    found.unknown.join(", ")
+                );
             }
-            eprintln!("{} of {} matching page(s) from the ThingWorx Platform {version} help", found.hits.len(), found.matched);
+            eprintln!(
+                "{} of {} matching page(s) from the ThingWorx Platform {version} help",
+                found.hits.len(),
+                found.matched
+            );
             OK
         }
         "page" => {
@@ -1722,8 +2006,10 @@ fn javadoc_cmd(args: &[String]) -> u8 {
             return FAILED;
         }
     };
-    let (Some(action), rest) = (parsed.names.first().map(String::as_str), parsed.names.get(1..).unwrap_or_default())
-    else {
+    let (Some(action), rest) = (
+        parsed.names.first().map(String::as_str),
+        parsed.names.get(1..).unwrap_or_default(),
+    ) else {
         eprintln!("twaco: javadoc needs `search <name>` or `class <Name>`");
         return FAILED;
     };
@@ -1780,7 +2066,10 @@ fn javadoc_cmd(args: &[String]) -> u8 {
                     return FAILED;
                 }
             };
-            let index = match javadoc::Index::parse(&String::from_utf8_lossy(&types), &String::from_utf8_lossy(&members)) {
+            let index = match javadoc::Index::parse(
+                &String::from_utf8_lossy(&types),
+                &String::from_utf8_lossy(&members),
+            ) {
                 Ok(index) => index,
                 Err(error) => {
                     eprintln!("twaco: javadoc: {error}");
@@ -1790,20 +2079,30 @@ fn javadoc_cmd(args: &[String]) -> u8 {
             let hits = javadoc::search(&index, &rest.join(" "), limit);
             for hit in &hits {
                 if parsed.has("--json") {
-                    println!("{}", serde_json::json!({
-                        "kind": if hit.kind == javadoc::Kind::Class { "class" } else { "member" },
-                        "package": hit.package, "class": hit.class, "label": hit.label,
-                        "path": hit.path, "url": hit.url, "rank": hit.rank,
-                    }));
+                    println!(
+                        "{}",
+                        serde_json::json!({
+                            "kind": if hit.kind == javadoc::Kind::Class { "class" } else { "member" },
+                            "package": hit.package, "class": hit.class, "label": hit.label,
+                            "path": hit.path, "url": hit.url, "rank": hit.rank,
+                        })
+                    );
                 } else {
                     println!("{}", hit.display());
                 }
             }
-            eprintln!("{} result(s) from the ThingWorx Platform API {} Javadoc", hits.len(), javadoc::VERSION);
+            eprintln!(
+                "{} result(s) from the ThingWorx Platform API {} Javadoc",
+                hits.len(),
+                javadoc::VERSION
+            );
             OK
         }
         "class" => {
-            let index = match javadoc::Index::parse(&String::from_utf8_lossy(&types), "memberSearchIndex = []") {
+            let index = match javadoc::Index::parse(
+                &String::from_utf8_lossy(&types),
+                "memberSearchIndex = []",
+            ) {
                 Ok(index) => index,
                 Err(error) => {
                     eprintln!("twaco: javadoc: {error}");
@@ -1824,13 +2123,22 @@ fn javadoc_cmd(args: &[String]) -> u8 {
                     return FAILED;
                 }
             };
-            match fetch(&path).and_then(|html| javadoc::read(&html, &class, parsed.values.get("--member").map(String::as_str))) {
+            match fetch(&path).and_then(|html| {
+                javadoc::read(
+                    &html,
+                    &class,
+                    parsed.values.get("--member").map(String::as_str),
+                )
+            }) {
                 Ok(read) => {
                     if parsed.has("--json") {
-                        println!("{}", serde_json::json!({
-                            "version": javadoc::VERSION, "title": read.title, "path": read.path,
-                            "url": read.url, "methods": read.methods, "markdown": read.markdown,
-                        }));
+                        println!(
+                            "{}",
+                            serde_json::json!({
+                                "version": javadoc::VERSION, "title": read.title, "path": read.path,
+                                "url": read.url, "methods": read.methods, "markdown": read.markdown,
+                            })
+                        );
                     } else {
                         println!("{}", read.markdown);
                         eprintln!("from {}", read.url);
@@ -1892,19 +2200,30 @@ fn export_cmd(solution: &Solution, args: &Args) -> u8 {
         };
         let out = args.out.as_ref().ok_or("an export needs --out <file>")?;
         if out.exists() && !args.has("--force") {
-            return Err(format!("{} exists; pass --force to replace it", out.display()));
+            return Err(format!(
+                "{} exists; pass --force to replace it",
+                out.display()
+            ));
         }
         let exported = export::export(&client, &what).map_err(|e| e.to_string())?;
         if let Some(folder) = out.parent().filter(|p| !p.as_os_str().is_empty()) {
             std::fs::create_dir_all(folder).map_err(|e| format!("{}: {e}", folder.display()))?;
         }
         workspace::write_entity(out, &exported.xml).map_err(|e| e.to_string())?;
-        let counts: Vec<String> = exported.counts.iter().map(|(c, n)| format!("{n} {c}")).collect();
+        let counts: Vec<String> = exported
+            .counts
+            .iter()
+            .map(|(c, n)| format!("{n} {c}"))
+            .collect();
         println!(
             "{} bytes to {}: {}",
             exported.xml.len(),
             out.display(),
-            if counts.is_empty() { "no entities".to_string() } else { counts.join(", ") }
+            if counts.is_empty() {
+                "no entities".to_string()
+            } else {
+                counts.join(", ")
+            }
         );
         Ok(())
     })();
@@ -1929,25 +2248,44 @@ fn import_cmd(solution: &Solution, args: &Args) -> u8 {
         }
     };
     let apply = args.has("--apply");
-    let (properties, tables) = (args.has("--overwrite-properties"), args.has("--overwrite-tables"));
-    let differs_line = |d: &imports::Differs| format!("{} {}: {}", d.entity_type, d.name, d.what.join("; "));
+    let (properties, tables) = (
+        args.has("--overwrite-properties"),
+        args.has("--overwrite-tables"),
+    );
+    let differs_line =
+        |d: &imports::Differs| format!("{} {}: {}", d.entity_type, d.name, d.what.join("; "));
     let names: Vec<&str> = args.names.iter().map(String::as_str).collect();
     let result: Result<(), String> = (|| match names.as_slice() {
         ["source-control"] => {
-            let repository = args.values.get("--repository").ok_or("import source-control needs --repository")?;
-            let path = args.values.get("--path").ok_or("import source-control needs --path")?;
-            let imported = imports::import_source_control(&client, repository, path, properties, tables, apply)
-                .map_err(|e| e.to_string())?;
+            let repository = args
+                .values
+                .get("--repository")
+                .ok_or("import source-control needs --repository")?;
+            let path = args
+                .values
+                .get("--path")
+                .ok_or("import source-control needs --path")?;
+            let imported = imports::import_source_control(
+                &client, repository, path, properties, tables, apply,
+            )
+            .map_err(|e| e.to_string())?;
             let (total, before, after) = (imported.total, imported.differ, imported.still_differ);
             let shown = if args.has("--detail") { usize::MAX } else { 20 };
-            println!("{total} entities in {repository}:{path}; {} differ from the server", before.len());
+            println!(
+                "{total} entities in {repository}:{path}; {} differ from the server",
+                before.len()
+            );
             for d in before.iter().take(shown) {
                 println!("  {}", differs_line(d));
             }
             match after {
                 None => println!("nothing sent (pass --apply to import them)"),
                 Some(after) => {
-                    println!("imported; {} still differ{}", after.len(), if after.is_empty() { "" } else { ":" });
+                    println!(
+                        "imported; {} still differ{}",
+                        after.len(),
+                        if after.is_empty() { "" } else { ":" }
+                    );
                     for d in after.iter().take(shown) {
                         println!("  {}", differs_line(d));
                     }
@@ -1957,8 +2295,12 @@ fn import_cmd(solution: &Solution, args: &Args) -> u8 {
         }
         [file] => {
             let bytes = std::fs::read(file).map_err(|e| format!("{file}: {e}"))?;
-            let file_name = std::path::Path::new(file).file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_else(|| "import.xml".into());
-            let plan = imports::import_file(&client, &file_name, &bytes, properties, tables, apply).map_err(|e| e.to_string())?;
+            let file_name = std::path::Path::new(file)
+                .file_name()
+                .map(|n| n.to_string_lossy().into_owned())
+                .unwrap_or_else(|| "import.xml".into());
+            let plan = imports::import_file(&client, &file_name, &bytes, properties, tables, apply)
+                .map_err(|e| e.to_string())?;
             let shown = if args.has("--detail") { usize::MAX } else { 20 };
             for (collection, name) in plan.replaced.iter().take(shown) {
                 println!("  replaces {collection}/{name}");
@@ -1968,14 +2310,24 @@ fn import_cmd(solution: &Solution, args: &Args) -> u8 {
             }
             println!(
                 "{} {} new and {} replaced entities{}",
-                if plan.applied { "imported:" } else { "would import:" },
+                if plan.applied {
+                    "imported:"
+                } else {
+                    "would import:"
+                },
                 plan.new.len(),
                 plan.replaced.len(),
-                if plan.applied { "; every one is on the server" } else { "; nothing sent (pass --apply)" }
+                if plan.applied {
+                    "; every one is on the server"
+                } else {
+                    "; nothing sent (pass --apply)"
+                }
             );
             Ok(())
         }
-        _ => Err("import takes: <file.xml|.zip> | source-control --repository R --path <p>".to_string()),
+        _ => Err(
+            "import takes: <file.xml|.zip> | source-control --repository R --path <p>".to_string(),
+        ),
     })();
     match result {
         Ok(()) => OK,
@@ -1993,23 +2345,40 @@ fn package_cmd(solution: &Solution, args: &Args) -> u8 {
     let result: Result<(), String> = (|| {
         let out = args.out.as_ref().ok_or("package needs --out <file>")?;
         if out.exists() && !args.has("--force") {
-            return Err(format!("{} exists; pass --force to replace it", out.display()));
+            return Err(format!(
+                "{} exists; pass --force to replace it",
+                out.display()
+            ));
         }
         let project = args.project.as_deref();
-        let (bytes, summary) = match args.names.iter().map(String::as_str).collect::<Vec<_>>().as_slice() {
+        let (bytes, summary) = match args
+            .names
+            .iter()
+            .map(String::as_str)
+            .collect::<Vec<_>>()
+            .as_slice()
+        {
             ["bundle"] => {
                 let part = match (args.has("--backend-only"), args.has("--frontend-only")) {
-                    (true, true) => return Err("--backend-only and --frontend-only say different things".to_string()),
+                    (true, true) => {
+                        return Err(
+                            "--backend-only and --frontend-only say different things".to_string()
+                        )
+                    }
                     (true, false) => package::Part::Backend,
                     (false, true) => package::Part::Frontend,
                     (false, false) => package::Part::All,
                 };
                 let built = package::bundle(solution, project, part).map_err(|e| e.to_string())?;
                 let count: usize = built.entities.values().sum();
-                (built.bytes, format!("{count} entities from {} files", built.files))
+                (
+                    built.bytes,
+                    format!("{count} entities from {} files", built.files),
+                )
             }
             ["source-control"] => {
-                let (bytes, count) = package::source_control(solution, project).map_err(|e| e.to_string())?;
+                let (bytes, count) =
+                    package::source_control(solution, project).map_err(|e| e.to_string())?;
                 (bytes, format!("{count} entities"))
             }
             ["extension"] => {
@@ -2018,13 +2387,28 @@ fn package_cmd(solution: &Solution, args: &Args) -> u8 {
                 let kind = if editable { "editable" } else { "non-editable" };
                 match project {
                     Some(project) => {
-                        let (bytes, count) = package::extension(solution, project, editable, &meta).map_err(|e| e.to_string())?;
-                        (bytes, format!("{kind} {project} {}, {count} entities", meta.version))
+                        let (bytes, count) = package::extension(solution, project, editable, &meta)
+                            .map_err(|e| e.to_string())?;
+                        (
+                            bytes,
+                            format!("{kind} {project} {}, {count} entities", meta.version),
+                        )
                     }
                     None => {
-                        let (bytes, counts) = package::solution_extensions(solution, editable, &meta).map_err(|e| e.to_string())?;
-                        let each: Vec<String> = counts.iter().map(|(p, n)| format!("{p} ({n})")).collect();
-                        (bytes, format!("{kind} {} {}: {}", solution.solution.name, meta.version, each.join(", ")))
+                        let (bytes, counts) =
+                            package::solution_extensions(solution, editable, &meta)
+                                .map_err(|e| e.to_string())?;
+                        let each: Vec<String> =
+                            counts.iter().map(|(p, n)| format!("{p} ({n})")).collect();
+                        (
+                            bytes,
+                            format!(
+                                "{kind} {} {}: {}",
+                                solution.solution.name,
+                                meta.version,
+                                each.join(", ")
+                            ),
+                        )
                     }
                 }
             }
@@ -2068,7 +2452,10 @@ fn settings_cmd(solution: &Solution, args: &Args) -> u8 {
                 println!("  row {}", index + 1);
             }
             for field in &table.fields {
-                let value = row.get(&field.name).map(settings::shown).unwrap_or_default();
+                let value = row
+                    .get(&field.name)
+                    .map(settings::shown)
+                    .unwrap_or_default();
                 println!("  {:<40} {:<24} {}", field.name, value, field.description);
             }
         }
@@ -2085,7 +2472,14 @@ fn settings_cmd(solution: &Solution, args: &Args) -> u8 {
                         serde_json::json!({ "subsystem": f.subsystem, "table": f.table, "setting": f.field.name, "type": f.field.base_type, "values": f.values, "description": f.field.description })
                     );
                 } else {
-                    println!("{}.{}.{} = {}  ({})", f.subsystem, f.table, f.field.name, values.join(" | "), f.field.description);
+                    println!(
+                        "{}.{}.{} = {}  ({})",
+                        f.subsystem,
+                        f.table,
+                        f.field.name,
+                        values.join(" | "),
+                        f.field.description
+                    );
                 }
             }
             eprintln!("{} setting(s) match {text:?}", found.len());
@@ -2095,11 +2489,23 @@ fn settings_cmd(solution: &Solution, args: &Args) -> u8 {
         match args.names.as_slice() {
             [] => {
                 let all = settings::summaries(&client).map_err(|e| e.to_string())?;
-                for settings::Summary { name, running, tables } in &all {
+                for settings::Summary {
+                    name,
+                    running,
+                    tables,
+                } in &all
+                {
                     if args.has("--json") {
-                        println!("{}", serde_json::json!({ "subsystem": name, "running": running, "tables": tables }));
+                        println!(
+                            "{}",
+                            serde_json::json!({ "subsystem": name, "running": running, "tables": tables })
+                        );
                     } else {
-                        println!("{name:<34} {:<8} {}", if *running { "running" } else { "stopped" }, tables.join(", "));
+                        println!(
+                            "{name:<34} {:<8} {}",
+                            if *running { "running" } else { "stopped" },
+                            tables.join(", ")
+                        );
                     }
                 }
                 eprintln!("{} subsystem(s)", all.len());
@@ -2110,7 +2516,10 @@ fn settings_cmd(solution: &Solution, args: &Args) -> u8 {
                 let read = settings::read(&client, name).map_err(|e| e.to_string())?;
                 let mut shown = 0;
                 for table in &read.tables {
-                    if rest.first().is_some_and(|wanted| !table.name.eq_ignore_ascii_case(wanted)) {
+                    if rest
+                        .first()
+                        .is_some_and(|wanted| !table.name.eq_ignore_ascii_case(wanted))
+                    {
                         continue;
                     }
                     shown += 1;
@@ -2122,7 +2531,12 @@ fn settings_cmd(solution: &Solution, args: &Args) -> u8 {
                 }
                 if shown == 0 {
                     let tables: Vec<&str> = read.tables.iter().map(|t| t.name.as_str()).collect();
-                    return Err(format!("{} has no table {:?}; it has: {}", read.name, rest.first().map(String::as_str).unwrap_or(""), tables.join(", ")));
+                    return Err(format!(
+                        "{} has no table {:?}; it has: {}",
+                        read.name,
+                        rest.first().map(String::as_str).unwrap_or(""),
+                        tables.join(", ")
+                    ));
                 }
                 Ok(())
             }
@@ -2166,41 +2580,85 @@ fn catalog_cmd(solution: &Solution, args: &Args) -> u8 {
                 notes.push(format!("inherits {}", entity.inherits.join(", ")));
             }
             if !entity.implemented_by.is_empty() {
-                notes.push(format!("implemented by {}", entity.implemented_by.join(", ")));
+                notes.push(format!(
+                    "implemented by {}",
+                    entity.implemented_by.join(", ")
+                ));
             }
-            let notes = if notes.is_empty() { String::new() } else { format!("  [{}]", notes.join("; ")) };
+            let notes = if notes.is_empty() {
+                String::new()
+            } else {
+                format!("  [{}]", notes.join("; "))
+            };
             println!("{}/{}{}", entity.collection, entity.name, notes);
         }
         for service in &entity.services {
             if args.has("--json") {
-                println!("{}", serde_json::json!({
-                    "collection": entity.collection,
-                    "entity": entity.name,
-                    "project": entity.project,
-                    "inherits": entity.inherits,
-                    "implemented_by": entity.implemented_by,
-                    "service": service.name,
-                    "parameters": service.parameters,
-                    "result": service.result,
-                    "description": service.description,
-                    "from": service.from,
-                    "has_script": service.has_script,
-                }));
+                println!(
+                    "{}",
+                    serde_json::json!({
+                        "collection": entity.collection,
+                        "entity": entity.name,
+                        "project": entity.project,
+                        "inherits": entity.inherits,
+                        "implemented_by": entity.implemented_by,
+                        "service": service.name,
+                        "parameters": service.parameters,
+                        "result": service.result,
+                        "description": service.description,
+                        "from": service.from,
+                        "has_script": service.has_script,
+                    })
+                );
             } else {
-                let parameters = service.parameters.iter().map(|parameter| {
-                    format!("{}: {}", parameter.name, catalog_type(&parameter.base_type, parameter.data_shape.as_deref()))
-                }).collect::<Vec<_>>().join(", ");
-                let origin = if service.from == "own" { "[own]".to_string() } else { format!("[from {}]", service.from) };
+                let parameters = service
+                    .parameters
+                    .iter()
+                    .map(|parameter| {
+                        format!(
+                            "{}: {}",
+                            parameter.name,
+                            catalog_type(&parameter.base_type, parameter.data_shape.as_deref())
+                        )
+                    })
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                let origin = if service.from == "own" {
+                    "[own]".to_string()
+                } else {
+                    format!("[from {}]", service.from)
+                };
                 let description = if service.description.is_empty() {
                     String::new()
                 } else {
-                    format!("  {}", service.description.split_whitespace().collect::<Vec<_>>().join(" "))
+                    format!(
+                        "  {}",
+                        service
+                            .description
+                            .split_whitespace()
+                            .collect::<Vec<_>>()
+                            .join(" ")
+                    )
                 };
-                println!("  {}({}) -> {}  {}{}", service.name, parameters, catalog_type(&service.result.base_type, service.result.data_shape.as_deref()), origin, description);
+                println!(
+                    "  {}({}) -> {}  {}{}",
+                    service.name,
+                    parameters,
+                    catalog_type(
+                        &service.result.base_type,
+                        service.result.data_shape.as_deref()
+                    ),
+                    origin,
+                    description
+                );
             }
         }
     }
-    eprintln!("{} service(s) on {} entities", result.service_count(), result.entities.len());
+    eprintln!(
+        "{} service(s) on {} entities",
+        result.service_count(),
+        result.entities.len()
+    );
     OK
 }
 
@@ -2242,14 +2700,27 @@ fn ext_cmd(solution: &Solution, args: &Args) -> u8 {
         ["show", name] => {
             let shown = extensions::show(&client, name).map_err(|e| e.to_string())?;
             let p = &shown.package;
-            println!("{} {} by {} (needs ThingWorx {})", p.name, p.version, if p.vendor.is_empty() { "?" } else { &p.vendor }, p.minimum_thingworx);
+            println!(
+                "{} {} by {} (needs ThingWorx {})",
+                p.name,
+                p.version,
+                if p.vendor.is_empty() { "?" } else { &p.vendor },
+                p.minimum_thingworx
+            );
             if !p.description.is_empty() {
                 println!("  {}", p.description);
             }
             println!("{} extension(s):", shown.extensions.len());
             for row in &shown.extensions {
-                let name = row.get("name").and_then(serde_json::Value::as_str).unwrap_or("?");
-                let kind = row.get("extensionType").or_else(|| row.get("type")).and_then(serde_json::Value::as_str).unwrap_or("");
+                let name = row
+                    .get("name")
+                    .and_then(serde_json::Value::as_str)
+                    .unwrap_or("?");
+                let kind = row
+                    .get("extensionType")
+                    .or_else(|| row.get("type"))
+                    .and_then(serde_json::Value::as_str)
+                    .unwrap_or("");
                 println!("  {name} {kind}");
             }
             println!("{} in use", shown.in_use.len());
@@ -2257,17 +2728,25 @@ fn ext_cmd(solution: &Solution, args: &Args) -> u8 {
         }
         ["import", file] => {
             let zip = std::fs::read(file).map_err(|e| format!("{file}: {e}"))?;
-            let file_name = std::path::Path::new(file).file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_else(|| "package.zip".into());
-            let imported = extensions::import(&client, &file_name, &zip, args.has("--apply")).map_err(|e| e.to_string())?;
+            let file_name = std::path::Path::new(file)
+                .file_name()
+                .map(|n| n.to_string_lossy().into_owned())
+                .unwrap_or_else(|| "package.zip".into());
+            let imported = extensions::import(&client, &file_name, &zip, args.has("--apply"))
+                .map_err(|e| e.to_string())?;
             if imported.applied {
                 println!("done: {}; the package list now shows it", imported.plan);
             } else {
-                println!("would {}; the server validated it and installed nothing (pass --apply)", imported.plan);
+                println!(
+                    "would {}; the server validated it and installed nothing (pass --apply)",
+                    imported.plan
+                );
             }
             Ok(())
         }
         ["remove", name] => {
-            let plan = extensions::remove(&client, name, args.has("--apply")).map_err(|e| e.to_string())?;
+            let plan = extensions::remove(&client, name, args.has("--apply"))
+                .map_err(|e| e.to_string())?;
             if args.has("--apply") {
                 println!("done: {plan}; it is gone from the package list");
             } else {
@@ -2298,7 +2777,8 @@ fn repo_cmd(solution: &Solution, args: &Args) -> u8 {
         }
     };
     let names: Vec<&str> = args.names.iter().map(String::as_str).collect();
-    let result: Result<(), String> = (|| match names.as_slice() {
+    let result: Result<(), String> = (|| {
+        match names.as_slice() {
         ["list"] => {
             for name in repo::Remote::repositories(&client).map_err(|e| e.to_string())? {
                 println!("{name}");
@@ -2415,6 +2895,7 @@ fn repo_cmd(solution: &Solution, args: &Args) -> u8 {
             repo_change(&client, repository, &repo::Change::Move { from, to, overwrite: args.has("--overwrite") }, args)
         }
         _ => Err("repo takes: list | ls <repo> [<path>] | get <repo> <path> | status <repo> | put <repo> <file> <path> | mkdir <repo> <path> | rm <repo> <path> | mv <repo> <from> <to>".to_string()),
+    }
     })();
     match result {
         Ok(()) => OK,
@@ -2432,13 +2913,17 @@ fn repo_change(
     change: &twaco::core::repo::Change,
     args: &Args,
 ) -> Result<(), String> {
-    let planned = twaco::core::repo::change(client, repository, change, args.has("--apply")).map_err(|e| e.to_string())?;
+    let planned = twaco::core::repo::change(client, repository, change, args.has("--apply"))
+        .map_err(|e| e.to_string())?;
     if planned.nothing {
         println!("{}: nothing to do", planned.plan);
     } else if planned.applied {
         println!("done: {} in {repository}, read back", planned.plan);
     } else {
-        println!("would {} in {repository}; nothing sent (pass --apply)", planned.plan);
+        println!(
+            "would {} in {repository}; nothing sent (pass --apply)",
+            planned.plan
+        );
     }
     Ok(())
 }
@@ -2448,7 +2933,9 @@ fn is_info_table(value: &serde_json::Value) -> bool {
 }
 
 fn print_info_table_summary(value: &serde_json::Value) {
-    let rows = value["rows"].as_array().expect("is_info_table checked rows");
+    let rows = value["rows"]
+        .as_array()
+        .expect("is_info_table checked rows");
     let fields: Vec<&str> = value["dataShape"]
         .get("fieldDefinitions")
         .and_then(serde_json::Value::as_object)
@@ -2463,7 +2950,10 @@ fn print_info_table_summary(value: &serde_json::Value) {
     println!("fields: {}", fields.join(", "));
     if let Some(first) = rows.first() {
         println!("first row:");
-        println!("{}", serde_json::to_string_pretty(first).expect("JSON value serialises"));
+        println!(
+            "{}",
+            serde_json::to_string_pretty(first).expect("JSON value serialises")
+        );
     }
 }
 
@@ -2477,7 +2967,10 @@ fn writes_workspace(route: &str, args: &Args) -> bool {
     match route {
         "extract" | "types" => true,
         "sync" | "fmt" | "bundle" => !args.has("--check"),
-        "deploy" | "entity push" | "adopt" | "rename entity" | "rename prefix" | "rename field" | "rename service" | "rename param" | "rename table" | "rename property" | "move service" | "move property" | "copy service" | "copy property" | "retemplate" | "new building-block" => args.has("--apply"),
+        "deploy" | "entity push" | "adopt" | "rename entity" | "rename prefix" | "rename field"
+        | "rename service" | "rename param" | "rename table" | "rename property"
+        | "move service" | "move property" | "copy service" | "copy property" | "retemplate"
+        | "new building-block" => args.has("--apply"),
         "entity status" => args.has("--record"),
         // Even with --apply, db run writes only a throwaway server Thing and needs no workspace lock.
         "db run" => false,
@@ -2493,7 +2986,10 @@ fn take_lock(solution: &Solution, route: &str) -> Result<lock::WorkspaceLock, u8
     match lock::acquire_for(solution, route) {
         Ok(lock) => {
             for path in &lock.recovered {
-                eprintln!("twaco: removed {}, left by an interrupted write", path.display());
+                eprintln!(
+                    "twaco: removed {}, left by an interrupted write",
+                    path.display()
+                );
             }
             Ok(lock)
         }
@@ -2560,7 +3056,14 @@ fn types_cmd(solution: &Solution, args: &Args) -> u8 {
                     if args.has("--json") {
                         println!("{}", types::finding_json(finding));
                     } else {
-                        println!("{}:{}:{}: TS{} {}", finding.file, finding.line, finding.column, finding.code, finding.message);
+                        println!(
+                            "{}:{}:{}: TS{} {}",
+                            finding.file,
+                            finding.line,
+                            finding.column,
+                            finding.code,
+                            finding.message
+                        );
                     }
                 }
                 if args.has("--json") {
@@ -2568,7 +3071,11 @@ fn types_cmd(solution: &Solution, args: &Args) -> u8 {
                 } else {
                     println!("{}", types::check_summary(&outcome));
                 }
-                if outcome.findings.is_empty() { OK } else { DRIFT }
+                if outcome.findings.is_empty() {
+                    OK
+                } else {
+                    DRIFT
+                }
             }
             Err(error) => {
                 eprintln!("twaco: types: {error}");
@@ -2608,7 +3115,11 @@ fn projects(solution: &Solution) -> u8 {
             return FAILED;
         }
     };
-    let label = if solution.solution.name.is_empty() { "(unnamed)" } else { &solution.solution.name };
+    let label = if solution.solution.name.is_empty() {
+        "(unnamed)"
+    } else {
+        &solution.solution.name
+    };
     println!("solution {label}  root {}", solution.root.display());
     println!("sidecars {}", solution.src_root().display());
     println!();
@@ -2635,7 +3146,10 @@ fn projects(solution: &Solution) -> u8 {
         println!();
         println!("{} misfiled entity document(s):", misfiled.len());
         for entity in &misfiled {
-            println!("  {} says {} but is filed under {}", entity.info.name, entity.info.project, entity.found_under);
+            println!(
+                "  {} says {} but is filed under {}",
+                entity.info.name, entity.info.project, entity.found_under
+            );
         }
     }
     if !found.unreadable.is_empty() {
@@ -2672,7 +3186,11 @@ fn targets(
     }
     let mut chosen = Vec::new();
     for name in &args.names {
-        chosen.push(workspace::resolve(&pool, name).map_err(|e| e.to_string())?.clone());
+        chosen.push(
+            workspace::resolve(&pool, name)
+                .map_err(|e| e.to_string())?
+                .clone(),
+        );
     }
     Ok((chosen, found.unreadable))
 }
@@ -2699,7 +3217,10 @@ fn entity_get(solution: &Solution, args: &Args) -> u8 {
     let entity = &chosen[0];
     if let Some(out) = &args.out {
         let protected = workspace::entities(solution);
-        if protected.iter().any(|candidate| same_path(out, &candidate.path)) {
+        if protected
+            .iter()
+            .any(|candidate| same_path(out, &candidate.path))
+        {
             eprintln!(
                 "twaco: --out {} is a project entity file; entity get never overwrites project source",
                 out.display()
@@ -2716,7 +3237,9 @@ fn entity_get(solution: &Solution, args: &Args) -> u8 {
             return FAILED;
         }
     };
-    let live = match server::Client::new(profile).fetch_entity(&entity.info.collection, &entity.info.name) {
+    let live = match server::Client::new(profile)
+        .fetch_entity(&entity.info.collection, &entity.info.name)
+    {
         Ok(bytes) => bytes,
         Err(error) => {
             eprintln!("twaco: {error}");
@@ -2789,11 +3312,22 @@ fn entity_status(solution: &Solution, args: &Args) -> u8 {
     if args.has("--detail") {
         println!();
         for status in &statuses {
-            println!("{}/{}  {}", status.collection, status.name, status.verdict.label());
+            println!(
+                "{}/{}  {}",
+                status.collection,
+                status.name,
+                status.verdict.label()
+            );
             println!("  working  {}", status.working);
             println!("  server   {}", status.server.as_deref().unwrap_or("-"));
-            println!("  baseline local  {}", status.local_baseline.as_deref().unwrap_or("-"));
-            println!("  baseline server {}", status.server_baseline.as_deref().unwrap_or("-"));
+            println!(
+                "  baseline local  {}",
+                status.local_baseline.as_deref().unwrap_or("-")
+            );
+            println!(
+                "  baseline server {}",
+                status.server_baseline.as_deref().unwrap_or("-")
+            );
         }
     }
     if args.has("--record") {
@@ -2853,7 +3387,10 @@ fn entity_push(solution: &Solution, args: &Args) -> u8 {
     let key = match EntityKey::new(&entity.info.collection, &entity.info.name) {
         Ok(key) => key,
         Err(error) => {
-            eprintln!("twaco: {}/{}: {error}", entity.info.collection, entity.info.name);
+            eprintln!(
+                "twaco: {}/{}: {error}",
+                entity.info.collection, entity.info.name
+            );
             return FAILED;
         }
     };
@@ -2870,7 +3407,9 @@ fn entity_push(solution: &Solution, args: &Args) -> u8 {
     let client = server::Client::new(profile);
     if apply && force && !args.has("--no-backup") {
         match backup::before_forced_push(&client, solution, &target, &backup::new_stamp()) {
-            Ok(Some(dir)) => println!("{label}: the server's copy was saved to {dir} before it is overwritten"),
+            Ok(Some(dir)) => {
+                println!("{label}: the server's copy was saved to {dir} before it is overwritten")
+            }
             Ok(None) => {}
             Err(error) => {
                 eprintln!("twaco: {label}: {error} (--no-backup pushes without one)");
@@ -2886,7 +3425,9 @@ fn entity_push(solution: &Solution, args: &Args) -> u8 {
                 }
                 push::Decision::Create => println!("{label}: would create it on the server"),
                 push::Decision::Update => {
-                    println!("{label}: would update it; the server is unchanged since the last sync")
+                    println!(
+                        "{label}: would update it; the server is unchanged since the last sync"
+                    )
                 }
                 push::Decision::Refuse(refusal) => {
                     println!("{label}: would refuse: {refusal}");
@@ -2960,7 +3501,11 @@ fn entity_delete_cmd(solution: &Solution, args: &Args) -> u8 {
         }
     };
     let date = jiff::Zoned::now().strftime("%Y-%m-%d").to_string();
-    let prepared = if args.has("--no-backup") { prepared } else { prepared.with_backup(&backup::new_stamp()) };
+    let prepared = if args.has("--no-backup") {
+        prepared
+    } else {
+        prepared.with_backup(&backup::new_stamp())
+    };
     let report = match entity_delete::run(
         &server::Client::new(profile),
         solution,
@@ -2978,7 +3523,10 @@ fn entity_delete_cmd(solution: &Solution, args: &Args) -> u8 {
     if args.has("--json") {
         let key = if apply { "applied" } else { "plan" };
         let value = serde_json::json!({ (key): true, "entities": report.entities, "backup": report.backup });
-        println!("{}", serde_json::to_string_pretty(&value).expect("delete report serialises"));
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&value).expect("delete report serialises")
+        );
     } else {
         println!("{}:", if apply { "applied" } else { "plan" });
         for (at, entity) in report.entities.iter().enumerate() {
@@ -2994,7 +3542,10 @@ fn entity_delete_cmd(solution: &Solution, args: &Args) -> u8 {
                 println!("     refused [{}]: {refusal}", code.as_str());
             }
             for dependent in &entity.dependents {
-                println!("     dependent: {}/{}", dependent.collection, dependent.name);
+                println!(
+                    "     dependent: {}/{}",
+                    dependent.collection, dependent.name
+                );
             }
             for warning in &entity.warnings {
                 println!("     warning: {warning}");
@@ -3013,7 +3564,11 @@ fn entity_delete_cmd(solution: &Solution, args: &Args) -> u8 {
             println!("rename ledger marked with {date}");
         }
     }
-    if apply && report.failed() { FAILED } else { OK }
+    if apply && report.failed() {
+        FAILED
+    } else {
+        OK
+    }
 }
 
 fn entity_delete_force_deprecation() -> &'static str {
@@ -3040,7 +3595,11 @@ fn new_building_block_cmd(solution: &Solution, args: &Args) -> u8 {
         name: name.clone(),
         kind,
         display_name: args.values.get("--display-name").cloned(),
-        description: args.values.get("--description").cloned().unwrap_or_default(),
+        description: args
+            .values
+            .get("--description")
+            .cloned()
+            .unwrap_or_default(),
         parent: args.values.get("--parent").cloned(),
         model_logic: args.has("--model-logic"),
         management_shape: !args.has("--no-management-shape"),
@@ -3061,21 +3620,47 @@ fn new_building_block_cmd(solution: &Solution, args: &Args) -> u8 {
             return FAILED;
         }
     }
-    let files: Vec<String> = plan.files.iter().map(|file| file.path.strip_prefix(&solution.root).unwrap_or(&file.path).display().to_string().replace('\\', "/")).collect();
+    let files: Vec<String> = plan
+        .files
+        .iter()
+        .map(|file| {
+            file.path
+                .strip_prefix(&solution.root)
+                .unwrap_or(&file.path)
+                .display()
+                .to_string()
+                .replace('\\', "/")
+        })
+        .collect();
     if args.has("--json") {
         let value = serde_json::json!({
             (if apply { "applied" } else { "plan" }): true,
             "name": request.name, "type": request.kind.word(), "root": plan.root,
             "files": files, "twaco_toml": plan.config_addition, "notes": plan.notes,
         });
-        println!("{}", serde_json::to_string_pretty(&value).expect("new block plan serialises"));
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&value).expect("new block plan serialises")
+        );
         return OK;
     }
-    println!("new building-block {} ({}): {}", request.name, request.kind.word(), if apply { "created" } else { "a plan, nothing was written (pass --apply)" });
+    println!(
+        "new building-block {} ({}): {}",
+        request.name,
+        request.kind.word(),
+        if apply {
+            "created"
+        } else {
+            "a plan, nothing was written (pass --apply)"
+        }
+    );
     for file in &files {
         println!("  {file}");
     }
-    println!("  twaco.toml gets:{}", plan.config_addition.trim_end().replace('\n', "\n    "));
+    println!(
+        "  twaco.toml gets:{}",
+        plan.config_addition.trim_end().replace('\n', "\n    ")
+    );
     for note in &plan.notes {
         println!("  note: {note}");
     }
@@ -3093,7 +3678,16 @@ fn retemplate_cmd(solution: &Solution, args: &Args) -> u8 {
         return FAILED;
     };
     let list = |flag: &str| -> Vec<String> {
-        args.values.get(flag).map(|text| text.split(',').map(str::trim).filter(|item| !item.is_empty()).map(str::to_string).collect()).unwrap_or_default()
+        args.values
+            .get(flag)
+            .map(|text| {
+                text.split(',')
+                    .map(str::trim)
+                    .filter(|item| !item.is_empty())
+                    .map(str::to_string)
+                    .collect()
+            })
+            .unwrap_or_default()
     };
     let request = retemplate::Request {
         entity: entity.clone(),
@@ -3123,10 +3717,21 @@ fn retemplate_cmd(solution: &Solution, args: &Args) -> u8 {
             "affected": plan.affected, "gained": plan.gained, "lost": plan.lost,
             "needs_accept_loss": plan.blocked, "notes": plan.notes,
         });
-        println!("{}", serde_json::to_string_pretty(&value).expect("retemplate plan serialises"));
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&value).expect("retemplate plan serialises")
+        );
         return OK;
     }
-    println!("retemplate {}: {}", plan.request.entity, if apply { "applied" } else { "a plan, nothing was written (pass --apply)" });
+    println!(
+        "retemplate {}: {}",
+        plan.request.entity,
+        if apply {
+            "applied"
+        } else {
+            "a plan, nothing was written (pass --apply)"
+        }
+    );
     println!("  {}", plan.file_relative(solution));
     let detail = args.has("--detail");
     let shown = |items: &[retemplate::Change]| -> String {
@@ -3134,19 +3739,51 @@ fn retemplate_cmd(solution: &Solution, args: &Args) -> u8 {
             return "nothing".to_string();
         }
         let count = |kind: &str| items.iter().filter(|change| change.kind == kind).count();
-        let summary = format!("{} (services {}, properties {}, configuration tables {})", items.len(), count("service"), count("property"), count("configuration table"));
-        let limit = if detail { items.len() } else { items.len().min(6) };
-        let names = items.iter().take(limit).map(|change| change.name.as_str()).collect::<Vec<_>>().join(", ");
-        format!("{summary}: {names}{}", if limit < items.len() { ", ..." } else { "" })
+        let summary = format!(
+            "{} (services {}, properties {}, configuration tables {})",
+            items.len(),
+            count("service"),
+            count("property"),
+            count("configuration table")
+        );
+        let limit = if detail {
+            items.len()
+        } else {
+            items.len().min(6)
+        };
+        let names = items
+            .iter()
+            .take(limit)
+            .map(|change| change.name.as_str())
+            .collect::<Vec<_>>()
+            .join(", ");
+        format!(
+            "{summary}: {names}{}",
+            if limit < items.len() { ", ..." } else { "" }
+        )
     };
-    println!("  affects        {} entit{}", plan.affected.len(), if plan.affected.len() == 1 { "y" } else { "ies" });
+    println!(
+        "  affects        {} entit{}",
+        plan.affected.len(),
+        if plan.affected.len() == 1 { "y" } else { "ies" }
+    );
     println!("  gains          {}", shown(&plan.gained));
     println!("  loses          {}", shown(&plan.lost));
     for change in &plan.lost {
         if change.orphaned > 0 {
-            println!("  holds          {} {} is held by {} entit{}", change.kind, change.name, change.orphaned, if change.orphaned == 1 { "y" } else { "ies" });
+            println!(
+                "  holds          {} {} is held by {} entit{}",
+                change.kind,
+                change.name,
+                change.orphaned,
+                if change.orphaned == 1 { "y" } else { "ies" }
+            );
         }
-        let limit = if detail { change.references.len() } else { change.references.len().min(3) };
+        let limit = if detail {
+            change.references.len()
+        } else {
+            change.references.len().min(3)
+        };
         for line in change.references.iter().take(limit) {
             println!("  references     {} {}: {line}", change.kind, change.name);
         }
@@ -3155,8 +3792,21 @@ fn retemplate_cmd(solution: &Solution, args: &Args) -> u8 {
         println!("  note: {note}");
     }
     if !plan.blocked.is_empty() && !apply {
-        let shown_reasons = if detail { plan.blocked.len() } else { plan.blocked.len().min(3) };
-        println!("needs --accept-loss: {} reason(s): {}{}", plan.blocked.len(), plan.blocked[..shown_reasons].join("; "), if shown_reasons < plan.blocked.len() { "; ..." } else { "" });
+        let shown_reasons = if detail {
+            plan.blocked.len()
+        } else {
+            plan.blocked.len().min(3)
+        };
+        println!(
+            "needs --accept-loss: {} reason(s): {}{}",
+            plan.blocked.len(),
+            plan.blocked[..shown_reasons].join("; "),
+            if shown_reasons < plan.blocked.len() {
+                "; ..."
+            } else {
+                ""
+            }
+        );
     }
     if apply {
         println!("Next: twaco check; commit; twaco deploy --apply.");
@@ -3167,7 +3817,9 @@ fn retemplate_cmd(solution: &Solution, args: &Args) -> u8 {
 /// Move or copy a service or property between entities. Plans unless --apply; an apply checks the
 /// sidecars still match the XML and exits 2 if they do not.
 fn relocate_cmd(solution: &Solution, route: &str, args: &Args) -> u8 {
-    let (verb, word) = route.split_once(' ').expect("the route has a verb and a member");
+    let (verb, word) = route
+        .split_once(' ')
+        .expect("the route has a verb and a member");
     let member = relocate::Member::from_word(word).expect("the route names a member");
     let [from, to, name] = args.names.as_slice() else {
         eprintln!("twaco: {route} needs <from> <to> <name>");
@@ -3206,16 +3858,34 @@ fn relocate_cmd(solution: &Solution, route: &str, args: &Args) -> u8 {
             "files": plan.files(solution), "callers": plan.callers, "notes": plan.notes,
             "out_of_step": problems,
         });
-        println!("{}", serde_json::to_string_pretty(&value).expect("relocation serialises"));
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&value).expect("relocation serialises")
+        );
     } else {
-        println!("{verb} {word} {}.{} -> {}.{}: {}", plan.request.from, plan.request.name, plan.request.to, plan.final_name, if apply { "applied" } else { "a plan, nothing was written (pass --apply)" });
+        println!(
+            "{verb} {word} {}.{} -> {}.{}: {}",
+            plan.request.from,
+            plan.request.name,
+            plan.request.to,
+            plan.final_name,
+            if apply {
+                "applied"
+            } else {
+                "a plan, nothing was written (pass --apply)"
+            }
+        );
         for file in plan.files(solution) {
             println!("  {file}");
         }
         for note in &plan.notes {
             println!("  note: {note}");
         }
-        let shown = if args.has("--detail") { plan.callers.first.len() } else { plan.callers.first.len().min(3) };
+        let shown = if args.has("--detail") {
+            plan.callers.first.len()
+        } else {
+            plan.callers.first.len().min(3)
+        };
         for line in plan.callers.first.iter().take(shown) {
             println!("  caller: {line}");
         }
@@ -3226,7 +3896,11 @@ fn relocate_cmd(solution: &Solution, route: &str, args: &Args) -> u8 {
             println!("Next: twaco check; commit; twaco deploy --apply. Property values stored on Things are not moved.");
         }
     }
-    if problems.is_empty() { OK } else { FAILED }
+    if problems.is_empty() {
+        OK
+    } else {
+        FAILED
+    }
 }
 
 /// List backup sets, or plan (and with --apply perform) importing one back.
@@ -3238,12 +3912,25 @@ fn entity_restore_cmd(solution: &Solution, args: &Args) -> u8 {
             let value = serde_json::json!({ "sets": sets.iter().map(|set| serde_json::json!({
                 "id": set.id, "created": set.manifest.created, "reason": set.manifest.reason, "entities": set.manifest.entities.len(),
             })).collect::<Vec<_>>() });
-            println!("{}", serde_json::to_string_pretty(&value).expect("sets serialise"));
+            println!(
+                "{}",
+                serde_json::to_string_pretty(&value).expect("sets serialise")
+            );
         } else if sets.is_empty() {
             println!("no backup sets under {}", backup::DIR);
         } else {
             for set in &sets {
-                println!("{}  {}  {} entit{}", set.id, set.manifest.reason, set.manifest.entities.len(), if set.manifest.entities.len() == 1 { "y" } else { "ies" });
+                println!(
+                    "{}  {}  {} entit{}",
+                    set.id,
+                    set.manifest.reason,
+                    set.manifest.entities.len(),
+                    if set.manifest.entities.len() == 1 {
+                        "y"
+                    } else {
+                        "ies"
+                    }
+                );
             }
         }
         return OK;
@@ -3273,7 +3960,10 @@ fn entity_restore_cmd(solution: &Solution, args: &Args) -> u8 {
     };
     if json {
         let value = serde_json::json!({ (if apply { "applied" } else { "plan" }): true, "set": set.id, "entities": report });
-        println!("{}", serde_json::to_string_pretty(&value).expect("restore report serialises"));
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&value).expect("restore report serialises")
+        );
     } else {
         println!("{} of {}:", if apply { "applied" } else { "plan" }, set.id);
         for entry in &report {
@@ -3286,7 +3976,14 @@ fn entity_restore_cmd(solution: &Solution, args: &Args) -> u8 {
             println!("dry run: nothing was imported; pass --apply to restore");
         }
     }
-    if report.iter().any(|entry| entry.status == backup::Status::Failed) { FAILED } else { OK }
+    if report
+        .iter()
+        .any(|entry| entry.status == backup::Status::Failed)
+    {
+        FAILED
+    } else {
+        OK
+    }
 }
 
 /// Copy permissions from old entities to the ones that replaced them. A plan only reads; an apply
@@ -3319,7 +4016,12 @@ fn entity_carry_cmd(solution: &Solution, args: &Args) -> u8 {
         }
     };
     let date = jiff::Zoned::now().strftime("%Y-%m-%d").to_string();
-    let request = entity_carry::Request { pairs, renamed, apply, detail: args.has("--detail") };
+    let request = entity_carry::Request {
+        pairs,
+        renamed,
+        apply,
+        detail: args.has("--detail"),
+    };
     let report = match entity_carry::run(&server::Client::new(profile), solution, &request, &date) {
         Ok(report) => report,
         Err(error) => {
@@ -3330,12 +4032,22 @@ fn entity_carry_cmd(solution: &Solution, args: &Args) -> u8 {
     if args.has("--json") {
         let key = if apply { "applied" } else { "plan" };
         let value = serde_json::json!({ (key): true, "entities": report.entities });
-        println!("{}", serde_json::to_string_pretty(&value).expect("carry report serialises"));
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&value).expect("carry report serialises")
+        );
     } else {
         println!("{}:", if apply { "applied" } else { "plan" });
         for entity in &report.entities {
-            let kinds = if entity.kinds.is_empty() { String::new() } else { format!("  [{}]", entity.kinds.join(", ")) };
-            println!("  {}/{} -> {}  {:?}{kinds}", entity.collection, entity.old, entity.new, entity.status);
+            let kinds = if entity.kinds.is_empty() {
+                String::new()
+            } else {
+                format!("  [{}]", entity.kinds.join(", "))
+            };
+            println!(
+                "  {}/{} -> {}  {:?}{kinds}",
+                entity.collection, entity.old, entity.new, entity.status
+            );
             if let Some(count) = entity.differences {
                 println!("     the platform reports {count} difference(s) between them");
             }
@@ -3349,7 +4061,16 @@ fn entity_carry_cmd(solution: &Solution, args: &Args) -> u8 {
             println!("rename ledger marked with {date}");
         }
     }
-    if report.entities.iter().any(|entity| entity.status == entity_carry::Status::Failed) && apply { FAILED } else { OK }
+    if report
+        .entities
+        .iter()
+        .any(|entity| entity.status == entity_carry::Status::Failed)
+        && apply
+    {
+        FAILED
+    } else {
+        OK
+    }
 }
 
 /// Copy a DataTable's rows into the one that replaced it. A plan reads; an apply writes, then
@@ -3359,14 +4080,23 @@ fn datatable_copy_cmd(solution: &Solution, args: &Args) -> u8 {
         eprintln!("twaco: datatable copy needs <old> <new> DataTable names");
         return FAILED;
     };
-    let map = match args.values.get("--map").map(|text| datatable_copy::parse_map(text)).transpose() {
+    let map = match args
+        .values
+        .get("--map")
+        .map(|text| datatable_copy::parse_map(text))
+        .transpose()
+    {
         Ok(map) => map.unwrap_or_default(),
         Err(error) => {
             eprintln!("twaco: {error}");
             return FAILED;
         }
     };
-    let max_rows = match args.values.get("--max-rows").map(|value| value.parse::<u64>()) {
+    let max_rows = match args
+        .values
+        .get("--max-rows")
+        .map(|value| value.parse::<u64>())
+    {
         None => 100_000,
         Some(Ok(value)) if value > 0 => value,
         Some(_) => {
@@ -3401,11 +4131,22 @@ fn datatable_copy_cmd(solution: &Solution, args: &Args) -> u8 {
     };
     if args.has("--json") {
         let value = serde_json::to_value(&report).expect("copy report serialises");
-        println!("{}", serde_json::to_string_pretty(&value).expect("copy report serialises"));
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&value).expect("copy report serialises")
+        );
         return OK;
     }
-    println!("{}: {} -> {}", if apply { "applied" } else { "plan" }, report.old, report.new);
-    println!("  rows: {} to copy, {} already in the target", report.source_rows, report.target_rows_before);
+    println!(
+        "{}: {} -> {}",
+        if apply { "applied" } else { "plan" },
+        report.old,
+        report.new
+    );
+    println!(
+        "  rows: {} to copy, {} already in the target",
+        report.source_rows, report.target_rows_before
+    );
     for field in &report.fields {
         println!("  field {} -> {}  ({})", field.from, field.to, field.by);
     }
@@ -3416,7 +4157,10 @@ fn datatable_copy_cmd(solution: &Solution, args: &Args) -> u8 {
         println!("  field {field} of the target is not filled");
     }
     if apply {
-        println!("  wrote {} row(s); read back equal: {}", report.written, report.verified);
+        println!(
+            "  wrote {} row(s); read back equal: {}",
+            report.written, report.verified
+        );
         println!("  not carried: each row's source, tags and timestamp (the write stamps the caller and the time)");
     } else {
         println!("dry run: nothing was written; pass --apply to copy");
@@ -3446,11 +4190,18 @@ fn db_clean_cmd(solution: &Solution, args: &Args) -> u8 {
     if args.has("--json") {
         let key = if apply { "applied" } else { "plan" };
         let value = serde_json::json!({ (key): true, "things": swept });
-        println!("{}", serde_json::to_string_pretty(&value).expect("sweep report serialises"));
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&value).expect("sweep report serialises")
+        );
     } else {
         println!("{}:", if apply { "applied" } else { "plan" });
         for thing in &swept {
-            let why = thing.why.as_ref().map(|why| format!("  ({why})")).unwrap_or_default();
+            let why = thing
+                .why
+                .as_ref()
+                .map(|why| format!("  ({why})"))
+                .unwrap_or_default();
             println!("  {}  {:?}{why}", thing.name, thing.status);
         }
         if swept.is_empty() {
@@ -3459,11 +4210,22 @@ fn db_clean_cmd(solution: &Solution, args: &Args) -> u8 {
             println!("dry run: nothing was deleted; pass --apply to delete the stale ones");
         }
     }
-    if swept.iter().any(|thing| thing.status == db::SweepStatus::Failed) { FAILED } else { OK }
+    if swept
+        .iter()
+        .any(|thing| thing.status == db::SweepStatus::Failed)
+    {
+        FAILED
+    } else {
+        OK
+    }
 }
 
 fn db_cmd(solution: &Solution, route: &str, args: &Args) -> u8 {
-    let mode = if route == "db run" { db::Mode::Run } else { db::Mode::Query };
+    let mode = if route == "db run" {
+        db::Mode::Run
+    } else {
+        db::Mode::Query
+    };
     let inline = args.values.get("-q");
     let sql = match (mode, args.names.as_slice(), inline) {
         (db::Mode::Run, [file], None) | (db::Mode::Query, [file], None) => {
@@ -3515,7 +4277,13 @@ fn db_cmd(solution: &Solution, route: &str, args: &Args) -> u8 {
         max_rows,
         timeout: args.timeout.unwrap_or(Duration::from_secs(120)),
     };
-    let report = match db::execute(&server::Client::new(profile.clone()), solution, &profile, &sql, &options) {
+    let report = match db::execute(
+        &server::Client::new(profile.clone()),
+        solution,
+        &profile,
+        &sql,
+        &options,
+    ) {
         Ok(report) => report,
         Err(error) => {
             eprintln!("twaco: {error}");
@@ -3527,7 +4295,10 @@ fn db_cmd(solution: &Solution, route: &str, args: &Args) -> u8 {
         if mode == db::Mode::Query {
             summarise_db_json(&mut value, args.has("--detail"));
         }
-        println!("{}", serde_json::to_string_pretty(&value).expect("db report serialises"));
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&value).expect("db report serialises")
+        );
         return OK;
     }
     if !report.applied {
@@ -3539,46 +4310,94 @@ fn db_cmd(solution: &Solution, route: &str, args: &Args) -> u8 {
         println!("dry run: nothing was sent; pass --apply to run it");
         return OK;
     }
-    println!("{} through {}: {} SQL bytes", if mode == db::Mode::Run { "ran" } else { "queried" }, report.thing, report.bytes);
+    println!(
+        "{} through {}: {} SQL bytes",
+        if mode == db::Mode::Run {
+            "ran"
+        } else {
+            "queried"
+        },
+        report.thing,
+        report.bytes
+    );
     match report.result {
         None => println!("done"),
         Some(value) if mode == db::Mode::Query => print_db_rows(&value, args.has("--detail")),
-        Some(value) => println!("{}", serde_json::to_string_pretty(&value).expect("db result serialises")),
+        Some(value) => println!(
+            "{}",
+            serde_json::to_string_pretty(&value).expect("db result serialises")
+        ),
     }
     OK
 }
 
 fn summarise_db_json(value: &mut serde_json::Value, detail: bool) {
-    let Some(result) = value.get_mut("result").and_then(serde_json::Value::as_object_mut) else { return };
-    let total = result.get("rows").and_then(serde_json::Value::as_array).map(Vec::len).unwrap_or(0);
-    let columns: Vec<String> = result.get("dataShape")
+    let Some(result) = value
+        .get_mut("result")
+        .and_then(serde_json::Value::as_object_mut)
+    else {
+        return;
+    };
+    let total = result
+        .get("rows")
+        .and_then(serde_json::Value::as_array)
+        .map(Vec::len)
+        .unwrap_or(0);
+    let columns: Vec<String> = result
+        .get("dataShape")
         .and_then(|shape| shape.get("fieldDefinitions"))
         .and_then(serde_json::Value::as_object)
         .map(|fields| fields.keys().cloned().collect())
-        .or_else(|| result.get("rows").and_then(serde_json::Value::as_array).and_then(|rows| rows.first())
-            .and_then(serde_json::Value::as_object).map(|row| row.keys().cloned().collect()))
+        .or_else(|| {
+            result
+                .get("rows")
+                .and_then(serde_json::Value::as_array)
+                .and_then(|rows| rows.first())
+                .and_then(serde_json::Value::as_object)
+                .map(|row| row.keys().cloned().collect())
+        })
         .unwrap_or_default();
     if !detail {
-        if let Some(rows) = result.get_mut("rows").and_then(serde_json::Value::as_array_mut) { rows.truncate(20); }
+        if let Some(rows) = result
+            .get_mut("rows")
+            .and_then(serde_json::Value::as_array_mut)
+        {
+            rows.truncate(20);
+        }
     }
     result.insert("total_rows".to_string(), serde_json::json!(total));
     result.insert("columns".to_string(), serde_json::json!(columns));
 }
 
 fn print_db_rows(value: &serde_json::Value, detail: bool) {
-    let rows = value.get("rows").and_then(serde_json::Value::as_array).map(Vec::as_slice).unwrap_or(&[]);
-    let columns: Vec<&str> = value.pointer("/dataShape/fieldDefinitions")
+    let rows = value
+        .get("rows")
+        .and_then(serde_json::Value::as_array)
+        .map(Vec::as_slice)
+        .unwrap_or(&[]);
+    let columns: Vec<&str> = value
+        .pointer("/dataShape/fieldDefinitions")
         .and_then(serde_json::Value::as_object)
         .map(|fields| fields.keys().map(String::as_str).collect())
-        .or_else(|| rows.first().and_then(serde_json::Value::as_object).map(|row| row.keys().map(String::as_str).collect()))
+        .or_else(|| {
+            rows.first()
+                .and_then(serde_json::Value::as_object)
+                .map(|row| row.keys().map(String::as_str).collect())
+        })
         .unwrap_or_default();
     println!("{} column(s): {}", columns.len(), columns.join(", "));
     println!("{} row(s)", rows.len());
-    let shown = if detail { rows.len() } else { rows.len().min(20) };
+    let shown = if detail {
+        rows.len()
+    } else {
+        rows.len().min(20)
+    };
     for row in &rows[..shown] {
         println!("{}", serde_json::to_string(row).expect("db row serialises"));
     }
-    if shown < rows.len() { println!("... {} more; pass --detail for all", rows.len() - shown); }
+    if shown < rows.len() {
+        println!("... {} more; pass --detail for all", rows.len() - shown);
+    }
 }
 
 fn same_path(left: &Path, right: &Path) -> bool {
@@ -3587,11 +4406,17 @@ fn same_path(left: &Path, right: &Path) -> bool {
             if path.is_absolute() {
                 path.to_path_buf()
             } else {
-                std::env::current_dir().unwrap_or_else(|_| PathBuf::from(".")).join(path)
+                std::env::current_dir()
+                    .unwrap_or_else(|_| PathBuf::from("."))
+                    .join(path)
             }
         });
         let text = absolute.to_string_lossy();
-        if cfg!(windows) { text.to_ascii_lowercase() } else { text.into_owned() }
+        if cfg!(windows) {
+            text.to_ascii_lowercase()
+        } else {
+            text.into_owned()
+        }
     }
     comparable(left) == comparable(right)
 }
@@ -3609,14 +4434,16 @@ fn extract(solution: &Solution, args: &Args) -> u8 {
     print_types_refresh(&outcome.types);
     // "part" rather than "service": an entity yields services or fields depending on what
     // it is, and one counter covers both.
-    println!("{} part(s) from {} entity file(s)", outcome.written, outcome.entities);
+    println!(
+        "{} part(s) from {} entity file(s)",
+        outcome.written, outcome.entities
+    );
     if outcome.failed > 0 {
         eprintln!("twaco: {} file(s) failed", outcome.failed);
         return FAILED;
     }
     OK
 }
-
 
 fn sync_cmd(solution: &Solution, args: &Args) -> u8 {
     let check = args.has("--check");
@@ -3646,10 +4473,16 @@ fn sync_cmd(solution: &Solution, args: &Args) -> u8 {
         return OK;
     }
     if check {
-        println!("{} of {} entity file(s) would change", outcome.changed, outcome.checked);
+        println!(
+            "{} of {} entity file(s) would change",
+            outcome.changed, outcome.checked
+        );
         DRIFT
     } else {
-        println!("{} of {} entity file(s) updated", outcome.changed, outcome.checked);
+        println!(
+            "{} of {} entity file(s) updated",
+            outcome.changed, outcome.checked
+        );
         OK
     }
 }
@@ -3673,7 +4506,6 @@ fn print_types_refresh(refresh: &types::Refresh) {
     }
 }
 
-
 fn fmt(solution: &Solution, args: &Args) -> u8 {
     let check = args.has("--check");
     let outcome = workflow::fmt(solution, check);
@@ -3683,7 +4515,15 @@ fn fmt(solution: &Solution, args: &Args) -> u8 {
     }
     print_log(&outcome.log);
     for path in &outcome.changed {
-        println!("{} {}", if check { "would reformat" } else { "reformatted" }, path.display());
+        println!(
+            "{} {}",
+            if check {
+                "would reformat"
+            } else {
+                "reformatted"
+            },
+            path.display()
+        );
     }
     if outcome.failed > 0 {
         eprintln!("twaco: {} script(s) failed", outcome.failed);
@@ -3697,7 +4537,11 @@ fn fmt(solution: &Solution, args: &Args) -> u8 {
         "{} of {} service script(s) {}",
         outcome.changed.len(),
         outcome.files,
-        if check { "need formatting" } else { "reformatted" }
+        if check {
+            "need formatting"
+        } else {
+            "reformatted"
+        }
     );
     if check {
         DRIFT
@@ -3719,7 +4563,9 @@ fn check(solution: &Solution, args: &Args) -> u8 {
             .as_ref()
             .map(|client| client as &dyn twaco::core::check::ScriptChecker)
             .map_err(Clone::clone);
-        report.gates.push(twaco::core::check::live_parse(solution, checker));
+        report
+            .gates
+            .push(twaco::core::check::live_parse(solution, checker));
     }
     // Summary by default, detail on request.
     let detail = args.has("--detail");
@@ -3761,7 +4607,11 @@ fn check(solution: &Solution, args: &Args) -> u8 {
     println!(
         "{} finding(s) across {} gate(s); {} gate(s) could not run",
         report.findings(),
-        report.gates.iter().filter(|g| !g.findings.is_empty()).count(),
+        report
+            .gates
+            .iter()
+            .filter(|g| !g.findings.is_empty())
+            .count(),
         report.broken()
     );
     if !detail {
@@ -3785,11 +4635,17 @@ fn bundle(solution: &Solution, args: &Args) -> u8 {
     use twaco::core::bundle;
 
     let backend_only = args.has("--backend-only");
-    let selection =
-        if backend_only { bundle::Selection::backend(solution) } else { bundle::Selection::everything() };
+    let selection = if backend_only {
+        bundle::Selection::backend(solution)
+    } else {
+        bundle::Selection::everything()
+    };
     let files = bundle::source_files(solution);
     if files.is_empty() {
-        eprintln!("twaco: no entity XML found under {}", solution.root.display());
+        eprintln!(
+            "twaco: no entity XML found under {}",
+            solution.root.display()
+        );
         return FAILED;
     }
 
@@ -3833,7 +4689,10 @@ fn bundle(solution: &Solution, args: &Args) -> u8 {
                 DRIFT
             }
             Err(_) => {
-                println!("{} has not been built; run `twaco bundle`", target.display());
+                println!(
+                    "{} has not been built; run `twaco bundle`",
+                    target.display()
+                );
                 DRIFT
             }
         };
@@ -3906,7 +4765,9 @@ fn deploy_cmd(solution: &Solution, args: &Args) -> u8 {
     let client = server::Client::new(profile.clone());
     if apply && force && !args.has("--no-backup") {
         match backup::before_forced_deploy(&client, solution, &projects, &backup::new_stamp()) {
-            Ok(Some(dir)) => println!("the server's copies of the entities --force overwrites were saved to {dir}"),
+            Ok(Some(dir)) => println!(
+                "the server's copies of the entities --force overwrites were saved to {dir}"
+            ),
             Ok(None) => {}
             Err(error) => {
                 eprintln!("twaco: {error} (--no-backup deploys without one)");
@@ -3940,7 +4801,12 @@ fn deploy_cmd(solution: &Solution, args: &Args) -> u8 {
         }
         Err(deploy::DeployError::Conflicts(conflicts)) => {
             for conflict in conflicts {
-                let deploy::EntityPlan { collection, name, decision, .. } = conflict;
+                let deploy::EntityPlan {
+                    collection,
+                    name,
+                    decision,
+                    ..
+                } = conflict;
                 if let push::Decision::Refuse(reason) = decision {
                     eprintln!("twaco: {collection}/{name}: refused: {reason}");
                 }
@@ -3957,7 +4823,10 @@ fn deploy_cmd(solution: &Solution, args: &Args) -> u8 {
                     item.name,
                     item.sent,
                     item.read_back.as_deref().unwrap_or("nothing"),
-                    item.error.as_ref().map(|why| format!("; {why}")).unwrap_or_default()
+                    item.error
+                        .as_ref()
+                        .map(|why| format!("; {why}"))
+                        .unwrap_or_default()
                 );
             }
             FAILED
@@ -3970,13 +4839,18 @@ fn deploy_cmd(solution: &Solution, args: &Args) -> u8 {
 }
 
 fn print_deploy_report(report: &deploy::Report, apply: bool, force: bool) {
-    println!("live parse: {} script service(s) passed", report.scripts_checked);
+    println!(
+        "live parse: {} script service(s) passed",
+        report.scripts_checked
+    );
     for plan in &report.plans {
         let label = format!("{}/{}", plan.collection, plan.name);
         match &plan.decision {
             push::Decision::AlreadyThere => println!("  {label}: nothing to push"),
             push::Decision::Create => println!("  {label}: would create"),
-            push::Decision::Update => println!("  {label}: would update; server unchanged since baseline"),
+            push::Decision::Update => {
+                println!("  {label}: would update; server unchanged since baseline")
+            }
             push::Decision::Refuse(reason) if force => {
                 println!("  {label}: would overwrite with --force ({reason})")
             }
@@ -4033,7 +4907,10 @@ mod tests {
         for line in USAGE.lines().skip(2) {
             if line.starts_with("  ") && !line.starts_with("    ") {
                 let words: Vec<&str> = line.split_whitespace().collect();
-                let key = if matches!(words[0], "entity" | "rename" | "db" | "datatable" | "move" | "copy" | "new") {
+                let key = if matches!(
+                    words[0],
+                    "entity" | "rename" | "db" | "datatable" | "move" | "copy" | "new"
+                ) {
                     format!("{} {}", words[0], words[1])
                 } else {
                     words[0].to_string()
@@ -4087,11 +4964,27 @@ mod tests {
     /// its shared path is enough to reject a table row for a command absent from usage.
     fn usage_paths() -> std::collections::BTreeSet<String> {
         let two_words = [
-            "entity", "rename", "db", "datatable", "move", "copy", "new", "export", "package", "import",
-            "ext", "repo", "help", "javadoc",
+            "entity",
+            "rename",
+            "db",
+            "datatable",
+            "move",
+            "copy",
+            "new",
+            "export",
+            "package",
+            "import",
+            "ext",
+            "repo",
+            "help",
+            "javadoc",
         ];
         let mut paths = std::collections::BTreeSet::new();
-        for line in USAGE.lines().skip(2).filter(|line| line.starts_with("  ") && !line.starts_with("    ")) {
+        for line in USAGE
+            .lines()
+            .skip(2)
+            .filter(|line| line.starts_with("  ") && !line.starts_with("    "))
+        {
             let words: Vec<&str> = line.split_whitespace().collect();
             let Some(first) = words.first() else { continue };
             if first.starts_with('-') {
@@ -4100,7 +4993,11 @@ mod tests {
             let path = if *first == "logs" && words.get(1) == Some(&"level") {
                 "logs level".to_string()
             } else if two_words.contains(first) {
-                words.get(1).filter(|word| !word.starts_with(['[', '<'])).map(|word| format!("{first} {word}")).unwrap_or_else(|| (*first).to_string())
+                words
+                    .get(1)
+                    .filter(|word| !word.starts_with(['[', '<']))
+                    .map(|word| format!("{first} {word}"))
+                    .unwrap_or_else(|| (*first).to_string())
             } else {
                 (*first).to_string()
             };
@@ -4110,7 +5007,10 @@ mod tests {
     }
 
     fn mutation_document() -> Option<String> {
-        let path = concat!(env!("CARGO_MANIFEST_DIR"), "/documentation/MUTATION_CLASSES.md");
+        let path = concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/documentation/MUTATION_CLASSES.md"
+        );
         match std::fs::read_to_string(path) {
             Ok(document) => Some(document),
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
@@ -4123,26 +5023,58 @@ mod tests {
 
     #[test]
     fn mutation_classes_name_every_cli_command_and_known_class() {
-        let Some(document) = mutation_document() else { return };
+        let Some(document) = mutation_document() else {
+            return;
+        };
         let rows = mutation_rows(&document, "## CLI commands");
         let paths = usage_paths();
-        let classes = ["read-only", "single-file atomic", "multi-file atomic", "best-effort batch", "server-partial"];
+        let classes = [
+            "read-only",
+            "single-file atomic",
+            "multi-file atomic",
+            "best-effort batch",
+            "server-partial",
+        ];
         let mut names = std::collections::BTreeSet::new();
         for row in &rows {
-            assert!(names.insert(&row.name), "CLI mutation class is duplicated: {}", row.name);
-            assert!(classes.contains(&row.default.as_str()), "{} has invalid Default class {:?}", row.name, row.default);
-            assert!(classes.contains(&row.applied.as_str()), "{} has invalid Applied class {:?}", row.name, row.applied);
+            assert!(
+                names.insert(&row.name),
+                "CLI mutation class is duplicated: {}",
+                row.name
+            );
+            assert!(
+                classes.contains(&row.default.as_str()),
+                "{} has invalid Default class {:?}",
+                row.name,
+                row.default
+            );
+            assert!(
+                classes.contains(&row.applied.as_str()),
+                "{} has invalid Applied class {:?}",
+                row.name,
+                row.applied
+            );
             let path = row.name.split(" --").next().unwrap();
-            assert!(paths.contains(path), "{} is not a command path in USAGE", row.name);
+            assert!(
+                paths.contains(path),
+                "{} is not a command path in USAGE",
+                row.name
+            );
         }
         for path in &paths {
-            assert!(rows.iter().any(|row| row.name == *path || row.name.starts_with(&format!("{path} --"))), "{path} has no CLI mutation-class row");
+            assert!(
+                rows.iter()
+                    .any(|row| row.name == *path || row.name.starts_with(&format!("{path} --"))),
+                "{path} has no CLI mutation-class row"
+            );
         }
     }
 
     #[test]
     fn mutation_classes_hold_cli_plans_and_workspace_writes() {
-        let Some(document) = mutation_document() else { return };
+        let Some(document) = mutation_document() else {
+            return;
+        };
         let rows = mutation_rows(&document, "## CLI commands");
         for row in &rows {
             let command = row.name.split(" --").next().unwrap();
@@ -4150,49 +5082,123 @@ mod tests {
             if let Ok((_, _, flags)) = route(&args) {
                 // `export` has one routed flag list, but only its source-control form uses
                 // --apply; entity, collection and project write their requested local output.
-                if flags.contains(&"--apply") && !matches!(command, "export entity" | "export collection" | "export project") {
-                    assert_eq!(row.default, "read-only", "{command} plans by default, so its Default class must be read-only");
+                if flags.contains(&"--apply")
+                    && !matches!(
+                        command,
+                        "export entity" | "export collection" | "export project"
+                    )
+                {
+                    assert_eq!(
+                        row.default, "read-only",
+                        "{command} plans by default, so its Default class must be read-only"
+                    );
                 }
             }
         }
         for (command, args) in [
-            ("extract", vec![]), ("types", vec![]), ("sync", vec![]), ("fmt", vec![]), ("bundle", vec![]),
-            ("deploy", vec!["--apply"]), ("entity push", vec!["--apply"]), ("adopt", vec!["--apply"]),
-            ("rename entity", vec!["--apply"]), ("rename prefix", vec!["--apply"]), ("rename field", vec!["--apply"]),
-            ("rename service", vec!["--apply"]), ("rename param", vec!["--apply"]), ("rename table", vec!["--apply"]),
-            ("rename property", vec!["--apply"]), ("move service", vec!["--apply"]), ("move property", vec!["--apply"]),
-            ("copy service", vec!["--apply"]), ("copy property", vec!["--apply"]), ("retemplate", vec!["--apply"]),
-            ("new building-block", vec!["--apply"]), ("entity status", vec!["--record"]), ("repo pull", vec!["pull", "--apply"]),
+            ("extract", vec![]),
+            ("types", vec![]),
+            ("sync", vec![]),
+            ("fmt", vec![]),
+            ("bundle", vec![]),
+            ("deploy", vec!["--apply"]),
+            ("entity push", vec!["--apply"]),
+            ("adopt", vec!["--apply"]),
+            ("rename entity", vec!["--apply"]),
+            ("rename prefix", vec!["--apply"]),
+            ("rename field", vec!["--apply"]),
+            ("rename service", vec!["--apply"]),
+            ("rename param", vec!["--apply"]),
+            ("rename table", vec!["--apply"]),
+            ("rename property", vec!["--apply"]),
+            ("move service", vec!["--apply"]),
+            ("move property", vec!["--apply"]),
+            ("copy service", vec!["--apply"]),
+            ("copy property", vec!["--apply"]),
+            ("retemplate", vec!["--apply"]),
+            ("new building-block", vec!["--apply"]),
+            ("entity status", vec!["--record"]),
+            ("repo pull", vec!["pull", "--apply"]),
         ] {
             let route_args: Vec<String> = command.split_whitespace().map(str::to_string).collect();
             let (route_name, _, flags) = route(&route_args).unwrap();
-            let parsed = Args::parse(&args.into_iter().map(str::to_string).collect::<Vec<_>>(), flags).unwrap();
-            assert!(writes_workspace(route_name, &parsed), "test setup: {command} must write the workspace");
-            let row = rows.iter().find(|row| row.name == command).unwrap_or_else(|| panic!("{command} has no CLI mutation-class row"));
-            assert_ne!(row.applied, "read-only", "{command} writes the workspace, so its Applied class cannot be read-only");
+            let parsed = Args::parse(
+                &args.into_iter().map(str::to_string).collect::<Vec<_>>(),
+                flags,
+            )
+            .unwrap();
+            assert!(
+                writes_workspace(route_name, &parsed),
+                "test setup: {command} must write the workspace"
+            );
+            let row = rows
+                .iter()
+                .find(|row| row.name == command)
+                .unwrap_or_else(|| panic!("{command} has no CLI mutation-class row"));
+            assert_ne!(
+                row.applied, "read-only",
+                "{command} writes the workspace, so its Applied class cannot be read-only"
+            );
         }
     }
 
     #[test]
     fn mutation_classes_name_every_mcp_tool_and_its_dry_runs() {
-        let Some(document) = mutation_document() else { return };
+        let Some(document) = mutation_document() else {
+            return;
+        };
         let rows = mutation_rows(&document, "## MCP tools");
         let tools = twaco::mcp::tool_definitions();
-        let known: std::collections::BTreeSet<&str> = tools.iter().filter_map(|tool| tool["name"].as_str()).collect();
-        let classes = ["read-only", "single-file atomic", "multi-file atomic", "best-effort batch", "server-partial"];
+        let known: std::collections::BTreeSet<&str> = tools
+            .iter()
+            .filter_map(|tool| tool["name"].as_str())
+            .collect();
+        let classes = [
+            "read-only",
+            "single-file atomic",
+            "multi-file atomic",
+            "best-effort batch",
+            "server-partial",
+        ];
         let mut names = std::collections::BTreeSet::new();
         for row in &rows {
-            assert!(names.insert(&row.name), "MCP mutation class is duplicated: {}", row.name);
-            assert!(known.contains(row.name.as_str()), "{} is not an MCP tool", row.name);
-            assert!(classes.contains(&row.default.as_str()), "{} has invalid Default class {:?}", row.name, row.default);
-            assert!(classes.contains(&row.applied.as_str()), "{} has invalid Applied class {:?}", row.name, row.applied);
+            assert!(
+                names.insert(&row.name),
+                "MCP mutation class is duplicated: {}",
+                row.name
+            );
+            assert!(
+                known.contains(row.name.as_str()),
+                "{} is not an MCP tool",
+                row.name
+            );
+            assert!(
+                classes.contains(&row.default.as_str()),
+                "{} has invalid Default class {:?}",
+                row.name,
+                row.default
+            );
+            assert!(
+                classes.contains(&row.applied.as_str()),
+                "{} has invalid Applied class {:?}",
+                row.name,
+                row.applied
+            );
         }
         for tool in tools {
             let name = tool["name"].as_str().unwrap();
-            let row = rows.iter().find(|row| row.name == name).unwrap_or_else(|| panic!("{name} has no MCP mutation-class row"));
-            let dry_run = tool.pointer("/inputSchema/properties/dry_run/default").and_then(serde_json::Value::as_bool);
+            let row = rows
+                .iter()
+                .find(|row| row.name == name)
+                .unwrap_or_else(|| panic!("{name} has no MCP mutation-class row"));
+            let dry_run = tool
+                .pointer("/inputSchema/properties/dry_run/default")
+                .and_then(serde_json::Value::as_bool);
             if dry_run == Some(true) {
-                assert_eq!(row.default, "read-only", "{name} has dry_run defaulting to true, so its Default class must be read-only");
+                assert_eq!(
+                    row.default, "read-only",
+                    "{name} has dry_run defaulting to true, so its Default class must be read-only"
+                );
             }
         }
     }
@@ -4221,21 +5227,70 @@ mod tests {
     #[test]
     fn usage_names_every_flag_each_command_accepts() {
         let commands = [
-            "projects", "types", "extract", "sync", "fmt", "check", "bundle", "deploy", "call", "ext",
-            "settings", "catalog", "package", "import", "export", "repo", "logs", "adopt", "rename entity", "rename prefix", "rename field", "rename service", "rename param", "rename table", "rename property", "move service", "move property", "copy service", "copy property", "retemplate", "new building-block", "config-table",
-            "entity get", "entity push", "entity delete", "entity carry", "entity restore", "entity status", "db run", "db query", "db clean", "datatable copy",
+            "projects",
+            "types",
+            "extract",
+            "sync",
+            "fmt",
+            "check",
+            "bundle",
+            "deploy",
+            "call",
+            "ext",
+            "settings",
+            "catalog",
+            "package",
+            "import",
+            "export",
+            "repo",
+            "logs",
+            "adopt",
+            "rename entity",
+            "rename prefix",
+            "rename field",
+            "rename service",
+            "rename param",
+            "rename table",
+            "rename property",
+            "move service",
+            "move property",
+            "copy service",
+            "copy property",
+            "retemplate",
+            "new building-block",
+            "config-table",
+            "entity get",
+            "entity push",
+            "entity delete",
+            "entity carry",
+            "entity restore",
+            "entity status",
+            "db run",
+            "db query",
+            "db clean",
+            "datatable copy",
         ];
         let mut absent = Vec::new();
         for command in commands {
             let args: Vec<String> = command.split(' ').map(str::to_string).collect();
             let (_, _, known) = route(&args).unwrap_or_else(|why| panic!("{command}: {why}"));
-            assert!(!usage_of(command).is_empty(), "{command} has no usage block");
+            assert!(
+                !usage_of(command).is_empty(),
+                "{command} has no usage block"
+            );
             absent.extend(missing(command, known));
         }
-        for (command, known) in [("help", HELP_FLAGS), ("guide", GUIDE_FLAGS), ("javadoc", JAVADOC_FLAGS)] {
+        for (command, known) in [
+            ("help", HELP_FLAGS),
+            ("guide", GUIDE_FLAGS),
+            ("javadoc", JAVADOC_FLAGS),
+        ] {
             absent.extend(missing(command, known));
         }
-        assert!(absent.is_empty(), "flags accepted but not in the command's usage: {absent:?}");
+        assert!(
+            absent.is_empty(),
+            "flags accepted but not in the command's usage: {absent:?}"
+        );
     }
 
     #[test]
@@ -4249,8 +5304,15 @@ mod tests {
 
     #[test]
     fn entity_delete_takes_no_generic_workspace_lock() {
-        let args = Args::parse(&["Things/T".to_string(), "--apply".to_string()], &["--apply"]).unwrap();
-        assert!(!writes_workspace("entity delete", &args), "only a pending rename ledger is a workspace write");
+        let args = Args::parse(
+            &["Things/T".to_string(), "--apply".to_string()],
+            &["--apply"],
+        )
+        .unwrap();
+        assert!(
+            !writes_workspace("entity delete", &args),
+            "only a pending rename ledger is a workspace write"
+        );
     }
 
     #[test]
@@ -4262,7 +5324,10 @@ mod tests {
             "--allow-outside-dependents",
             "--allow-file-repository-data-loss",
         ] {
-            assert!(Args::parse(&["Things/T".to_string(), flag.to_string()], flags).is_ok(), "{flag}");
+            assert!(
+                Args::parse(&["Things/T".to_string(), flag.to_string()], flags).is_ok(),
+                "{flag}"
+            );
         }
         let push = ["entity".to_string(), "push".to_string()];
         let (_, _, flags) = route(&push).unwrap();
@@ -4271,7 +5336,10 @@ mod tests {
             "--allow-outside-dependents",
             "--allow-file-repository-data-loss",
         ] {
-            assert!(Args::parse(&["Things/T".to_string(), flag.to_string()], flags).is_err(), "{flag}");
+            assert!(
+                Args::parse(&["Things/T".to_string(), flag.to_string()], flags).is_err(),
+                "{flag}"
+            );
         }
     }
 
@@ -4285,13 +5353,24 @@ mod tests {
 
     #[test]
     fn entity_carry_takes_no_generic_workspace_lock() {
-        let args = Args::parse(&["--renamed".to_string(), "--apply".to_string()], &["--apply", "--renamed"]).unwrap();
-        assert!(!writes_workspace("entity carry", &args), "the command takes its own lock, only when it marks the ledger");
+        let args = Args::parse(
+            &["--renamed".to_string(), "--apply".to_string()],
+            &["--apply", "--renamed"],
+        )
+        .unwrap();
+        assert!(
+            !writes_workspace("entity carry", &args),
+            "the command takes its own lock, only when it marks the ledger"
+        );
     }
 
     #[test]
     fn db_run_apply_takes_no_workspace_lock() {
-        let args = Args::parse(&["migration.sql".to_string(), "--apply".to_string()], &["--apply"]).unwrap();
+        let args = Args::parse(
+            &["migration.sql".to_string(), "--apply".to_string()],
+            &["--apply"],
+        )
+        .unwrap();
         assert!(!writes_workspace("db run", &args));
     }
 }

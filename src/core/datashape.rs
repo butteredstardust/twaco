@@ -61,8 +61,12 @@ pub enum FieldError {
     Scan(ScanError),
     NotADataShape,
     /// More than one `FieldDefinitions` section, so there is no single place to write.
-    Ambiguous { count: usize },
-    Malformed { why: String },
+    Ambiguous {
+        count: usize,
+    },
+    Malformed {
+        why: String,
+    },
 }
 
 impl fmt::Display for FieldError {
@@ -96,8 +100,9 @@ pub fn extract(src: &[u8]) -> Result<Vec<Field>, FieldError> {
     if tokens[section].kind == Kind::Empty {
         return Ok(Vec::new());
     }
-    let end = scan::element_end_in(&tokens, src, section)
-        .ok_or_else(|| FieldError::Malformed { why: "<FieldDefinitions> is not closed".into() })?;
+    let end = scan::element_end_in(&tokens, src, section).ok_or_else(|| FieldError::Malformed {
+        why: "<FieldDefinitions> is not closed".into(),
+    })?;
 
     let mut fields = Vec::new();
     let mut index = section + 1;
@@ -161,7 +166,12 @@ fn attribute_names(tag: &Token, src: &[u8]) -> Vec<String> {
             break;
         }
         let start = i;
-        while i < limit && src[i] != b'=' && !src[i].is_ascii_whitespace() && src[i] != b'>' && src[i] != b'/' {
+        while i < limit
+            && src[i] != b'='
+            && !src[i].is_ascii_whitespace()
+            && src[i] != b'>'
+            && src[i] != b'/'
+        {
             i += 1;
         }
         if start == i {
@@ -236,9 +246,18 @@ pub fn to_sidecar(fields: &[Field]) -> String {
     for (index, field) in fields.iter().enumerate() {
         out.push_str("  {\n");
         out.push_str(&format!("    \"name\": {},\n", json_string(&field.name)));
-        out.push_str(&format!("    \"baseType\": {},\n", json_string(&field.base_type)));
-        out.push_str(&format!("    \"ordinal\": {},\n", json_string(&field.ordinal)));
-        out.push_str(&format!("    \"description\": {},\n", json_string(&field.description)));
+        out.push_str(&format!(
+            "    \"baseType\": {},\n",
+            json_string(&field.base_type)
+        ));
+        out.push_str(&format!(
+            "    \"ordinal\": {},\n",
+            json_string(&field.ordinal)
+        ));
+        out.push_str(&format!(
+            "    \"description\": {},\n",
+            json_string(&field.description)
+        ));
         if field.aspects.is_empty() {
             out.push_str("    \"aspects\": {}\n");
         } else {
@@ -246,11 +265,19 @@ pub fn to_sidecar(fields: &[Field]) -> String {
             let last = field.aspects.len() - 1;
             for (position, (key, value)) in field.aspects.iter().enumerate() {
                 let comma = if position == last { "" } else { "," };
-                out.push_str(&format!("      {}: {}{comma}\n", json_string(key), value.to_json()));
+                out.push_str(&format!(
+                    "      {}: {}{comma}\n",
+                    json_string(key),
+                    value.to_json()
+                ));
             }
             out.push_str("    }\n");
         }
-        out.push_str(if index == fields.len() - 1 { "  }\n" } else { "  },\n" });
+        out.push_str(if index == fields.len() - 1 {
+            "  }\n"
+        } else {
+            "  },\n"
+        });
     }
     out.push_str("]\n");
     out
@@ -258,17 +285,19 @@ pub fn to_sidecar(fields: &[Field]) -> String {
 
 /// Parse a `fields.json` sidecar.
 pub fn from_sidecar(text: &str) -> Result<Vec<Field>, FieldError> {
-    let value: serde_json::Value = serde_json::from_str(text)
-        .map_err(|e| FieldError::Malformed { why: format!("fields.json is not valid JSON: {e}") })?;
-    let array = value
-        .as_array()
-        .ok_or_else(|| FieldError::Malformed { why: "fields.json is not a list".into() })?;
+    let value: serde_json::Value =
+        serde_json::from_str(text).map_err(|e| FieldError::Malformed {
+            why: format!("fields.json is not valid JSON: {e}"),
+        })?;
+    let array = value.as_array().ok_or_else(|| FieldError::Malformed {
+        why: "fields.json is not a list".into(),
+    })?;
 
     let mut fields = Vec::new();
     for entry in array {
-        let object = entry
-            .as_object()
-            .ok_or_else(|| FieldError::Malformed { why: "a field is not an object".into() })?;
+        let object = entry.as_object().ok_or_else(|| FieldError::Malformed {
+            why: "a field is not an object".into(),
+        })?;
         // Strings must be strings. Defaulting a wrong type to "" would quietly rewrite a
         // field's baseType to nothing, which for a persisted shape is a dropped column.
         let text_of = |key: &str| -> Result<String, FieldError> {
@@ -290,7 +319,9 @@ pub fn from_sidecar(text: &str) -> Result<Vec<Field>, FieldError> {
                         serde_json::Value::String(s) => Aspect::Text(s.clone()),
                         other => {
                             return Err(FieldError::Malformed {
-                                why: format!("aspect {key} must be a string or a boolean, found {other}"),
+                                why: format!(
+                                    "aspect {key} must be a string or a boolean, found {other}"
+                                ),
                             })
                         }
                     };
@@ -305,10 +336,14 @@ pub fn from_sidecar(text: &str) -> Result<Vec<Field>, FieldError> {
         }
         let name = text_of("name")?;
         if name.is_empty() {
-            return Err(FieldError::Malformed { why: "a field has no name".into() });
+            return Err(FieldError::Malformed {
+                why: "a field has no name".into(),
+            });
         }
         if fields.iter().any(|f: &Field| f.name == name) {
-            return Err(FieldError::Malformed { why: format!("two fields are named {name}") });
+            return Err(FieldError::Malformed {
+                why: format!("two fields are named {name}"),
+            });
         }
         fields.push(Field {
             name,
@@ -343,10 +378,16 @@ pub fn sync(
         for field in desired {
             tally.entry(field.name.as_str()).or_default().1 += 1;
         }
-        let added: Vec<&str> =
-            tally.iter().filter(|(_, (before, after))| after > before).map(|(n, _)| *n).collect();
-        let removed: Vec<&str> =
-            tally.iter().filter(|(_, (before, after))| after < before).map(|(n, _)| *n).collect();
+        let added: Vec<&str> = tally
+            .iter()
+            .filter(|(_, (before, after))| after > before)
+            .map(|(n, _)| *n)
+            .collect();
+        let removed: Vec<&str> = tally
+            .iter()
+            .filter(|(_, (before, after))| after < before)
+            .map(|(n, _)| *n)
+            .collect();
         if !added.is_empty() || !removed.is_empty() {
             return Err(FieldError::Malformed {
                 why: format!(
@@ -378,8 +419,9 @@ pub fn sync(
     let section_end = if tokens[section].kind == Kind::Empty {
         section
     } else {
-        scan::element_end_in(&tokens, src, section)
-            .ok_or_else(|| FieldError::Malformed { why: "<FieldDefinitions> is not closed".into() })?
+        scan::element_end_in(&tokens, src, section).ok_or_else(|| FieldError::Malformed {
+            why: "<FieldDefinitions> is not closed".into(),
+        })?
     };
 
     // The rendered section carries its own indentation, so the document's is replaced along
@@ -401,14 +443,20 @@ pub fn sync(
     if rendered.as_bytes() == span.of(src) {
         return Ok((src.to_vec(), changes));
     }
-    let out = super::splice::splice(src, &[super::splice::Edit::new(span, rendered.into_bytes())])
-        .map_err(|e| FieldError::Malformed { why: e.to_string() })?;
+    let out = super::splice::splice(
+        src,
+        &[super::splice::Edit::new(span, rendered.into_bytes())],
+    )
+    .map_err(|e| FieldError::Malformed { why: e.to_string() })?;
     Ok((out, changes))
 }
 
 /// The indentation before an offset, or `None` when the tag does not start its own line.
 fn own_line_indent(src: &[u8], at: usize) -> Option<String> {
-    let line_start = src[..at].iter().rposition(|&b| b == b'\n').map_or(0, |i| i + 1);
+    let line_start = src[..at]
+        .iter()
+        .rposition(|&b| b == b'\n')
+        .map_or(0, |i| i + 1);
     let prefix = &src[line_start..at];
     if prefix.iter().all(|b| *b == b' ' || *b == b'\t') {
         Some(String::from_utf8_lossy(prefix).into_owned())
@@ -438,8 +486,15 @@ fn render_section(fields: &[Field], indent: &str, newline: &str) -> String {
         lines.push(format!("{child}<FieldDefinition"));
         let last = attributes.len() - 1;
         for (index, (key, value)) in attributes.iter().enumerate() {
-            let suffix = if index == last { "></FieldDefinition>" } else { "" };
-            lines.push(format!("{attribute}{key}=\"{}\"{suffix}", escape_attribute(value)));
+            let suffix = if index == last {
+                "></FieldDefinition>"
+            } else {
+                ""
+            };
+            lines.push(format!(
+                "{attribute}{key}=\"{}\"{suffix}",
+                escape_attribute(value)
+            ));
         }
     }
     lines.push(format!("{indent}</FieldDefinitions>"));
@@ -499,14 +554,17 @@ fn json_string(value: &str) -> String {
 mod tests {
     use super::*;
 
-
     #[test]
     fn unchanged_fields_keep_their_layout_even_when_it_is_not_ours() {
         // A supported export style: one FieldDefinition per line, tab-indented, CRLF.
         let src = "<Entities>\r\n\t<DataShapes>\r\n\t\t<DataShape name=\"D\">\r\n\t\t\t<FieldDefinitions>\r\n\t\t\t\t<FieldDefinition baseType=\"STRING\" description=\"d\" name=\"a\" ordinal=\"0\"/>\r\n\t\t\t</FieldDefinitions>\r\n\t\t</DataShape>\r\n\t</DataShapes>\r\n</Entities>\r\n";
         let fields = extract(src.as_bytes()).unwrap();
         let (out, changes) = sync(src.as_bytes(), &fields, false).unwrap();
-        assert_eq!(out, src.as_bytes(), "a sync with nothing to change is the identity");
+        assert_eq!(
+            out,
+            src.as_bytes(),
+            "a sync with nothing to change is the identity"
+        );
         assert!(changes.is_empty());
 
         // A real change is still written.
@@ -519,7 +577,11 @@ mod tests {
         // A CRLF document stays CRLF: a lone LF among CRLFs is the mixed file the line-endings
         // gate refuses.
         let text = String::from_utf8(out).unwrap();
-        assert_eq!(text.matches('\n').count(), text.matches("\r\n").count(), "mixed line endings: {text:?}");
+        assert_eq!(
+            text.matches('\n').count(),
+            text.matches("\r\n").count(),
+            "mixed line endings: {text:?}"
+        );
     }
 
     const SHAPE: &[u8] = br#"<Entities>
@@ -550,8 +612,14 @@ mod tests {
         assert_eq!(names, vec!["Name", "Count"]);
         assert_eq!(fields[0].base_type, "STRING");
         assert_eq!(fields[0].ordinal, "1");
-        assert_eq!(fields[0].aspects.get("isPrimaryKey"), Some(&Aspect::Bool(true)));
-        assert_eq!(fields[1].aspects.get("isPrimaryKey"), Some(&Aspect::Bool(false)));
+        assert_eq!(
+            fields[0].aspects.get("isPrimaryKey"),
+            Some(&Aspect::Bool(true))
+        );
+        assert_eq!(
+            fields[1].aspects.get("isPrimaryKey"),
+            Some(&Aspect::Bool(false))
+        );
     }
 
     #[test]
@@ -565,7 +633,10 @@ mod tests {
     fn the_sidecar_is_shaped_the_way_the_reference_writes_it() {
         let fields = extract(SHAPE).unwrap();
         let text = to_sidecar(&fields);
-        assert!(text.starts_with("[\n  {\n    \"name\": \"Name\",\n"), "got:\n{text}");
+        assert!(
+            text.starts_with("[\n  {\n    \"name\": \"Name\",\n"),
+            "got:\n{text}"
+        );
         assert!(text.contains("    \"aspects\": {\n      \"isPrimaryKey\": true\n    }\n"));
         assert!(text.ends_with("]\n"));
     }
@@ -609,7 +680,10 @@ mod tests {
             description: String::new(),
             aspects: BTreeMap::new(),
         });
-        assert!(sync(SHAPE, &fields, false).is_err(), "a column is not added by accident");
+        assert!(
+            sync(SHAPE, &fields, false).is_err(),
+            "a column is not added by accident"
+        );
         let (out, changes) = sync(SHAPE, &fields, true).unwrap();
         assert_eq!(changes, vec!["added Extra"]);
         assert_eq!(extract(&out).unwrap().len(), 3);
@@ -634,7 +708,10 @@ mod tests {
         // And through the JSON, where a quote is escaped rather than entity-encoded.
         let text = to_sidecar(&extract(&out).unwrap());
         assert!(text.contains(r#"joined with \", \""#), "got: {text}");
-        assert_eq!(from_sidecar(&text).unwrap()[0].description, "joined with \", \"");
+        assert_eq!(
+            from_sidecar(&text).unwrap()[0].description,
+            "joined with \", \""
+        );
     }
 
     #[test]
@@ -645,7 +722,11 @@ mod tests {
         let fields = extract(src).unwrap();
         let (out, _) = sync(src, &fields, false).unwrap();
         let text = String::from_utf8(out).unwrap();
-        assert_eq!(text.matches("<DataShape ").count(), 1, "the DataShape tag was duplicated:\n{text}");
+        assert_eq!(
+            text.matches("<DataShape ").count(),
+            1,
+            "the DataShape tag was duplicated:\n{text}"
+        );
         assert_eq!(extract(text.as_bytes()).unwrap(), fields);
     }
 
@@ -674,7 +755,10 @@ mod tests {
         let src = br#"<Entities><DataShapes><DataShape name="D"><Metadata><FieldDefinitions><FieldDefinition baseType="STRING" description="" name="Nested" ordinal="1"></FieldDefinition></FieldDefinitions></Metadata></DataShape></DataShapes></Entities>"#;
         // The DataShape itself declares none, so there is nothing to extract and nothing to write.
         assert!(extract(src).unwrap().is_empty());
-        assert!(sync(src, &[], false).is_err(), "a nested section is not ours to overwrite");
+        assert!(
+            sync(src, &[], false).is_err(),
+            "a nested section is not ours to overwrite"
+        );
     }
 
     #[test]
@@ -687,7 +771,8 @@ mod tests {
     #[test]
     fn a_wrongly_typed_value_is_refused_rather_than_defaulted() {
         // A numeric ordinal used to become "", which for a persisted shape is a dropped column.
-        let text = r#"[{"name":"A","baseType":"STRING","ordinal":3,"description":"","aspects":{}}]"#;
+        let text =
+            r#"[{"name":"A","baseType":"STRING","ordinal":3,"description":"","aspects":{}}]"#;
         assert!(from_sidecar(text).is_err());
         let bad_aspect = r#"[{"name":"A","baseType":"STRING","ordinal":"1","description":"","aspects":{"x":1}}]"#;
         assert!(from_sidecar(bad_aspect).is_err());
@@ -695,7 +780,8 @@ mod tests {
 
     #[test]
     fn a_datashape_with_no_fields_extracts_to_an_empty_list() {
-        let src = br#"<Entities><DataShapes><DataShape name="E"></DataShape></DataShapes></Entities>"#;
+        let src =
+            br#"<Entities><DataShapes><DataShape name="E"></DataShape></DataShapes></Entities>"#;
         assert!(extract(src).unwrap().is_empty());
         assert_eq!(to_sidecar(&[]), "[]\n");
     }
@@ -706,7 +792,10 @@ mod tests {
             <FieldDefinition aspect.dataShape="Other_DS" baseType="INFOTABLE" description="" name="F" ordinal="1"></FieldDefinition>
         </FieldDefinitions></DataShape></DataShapes></Entities>"#;
         let fields = extract(src).unwrap();
-        assert_eq!(fields[0].aspects.get("dataShape"), Some(&Aspect::Text("Other_DS".into())));
+        assert_eq!(
+            fields[0].aspects.get("dataShape"),
+            Some(&Aspect::Text("Other_DS".into()))
+        );
         assert!(to_sidecar(&fields).contains("\"dataShape\": \"Other_DS\""));
     }
 }

@@ -59,7 +59,11 @@ fn const_in_loop(lines: &[&str]) -> Vec<Trap> {
         }
         if starts_loop(stripped) {
             // A one-line loop has no body to trip over.
-            loop_indent = if stripped.ends_with('}') { None } else { Some(indent_of(line)) };
+            loop_indent = if stripped.ends_with('}') {
+                None
+            } else {
+                Some(indent_of(line))
+            };
             continue;
         }
         if loop_indent.is_some() {
@@ -158,7 +162,10 @@ fn per_line_rules(lines: &[&str], whole: &str) -> Vec<Trap> {
                 source: stripped.to_string(),
             });
         }
-        if stripped.starts_with("while") && stripped[5..].trim_start().starts_with('(') && !stripped.contains("false") {
+        if stripped.starts_with("while")
+            && stripped[5..].trim_start().starts_with('(')
+            && !stripped.contains("false")
+        {
             traps.push(Trap {
                 line: number,
                 rule: "unbounded-loop",
@@ -201,8 +208,10 @@ fn read_before_assign(lines: &[&str]) -> Vec<Trap> {
 
     // A helper's body runs when it is called, not where it sits, so an assignment inside one
     // says nothing about order. Only the main code can be the statement that comes too late.
-    let main: Vec<&(usize, Vec<String>)> =
-        groups.iter().filter(|(_, body)| top_function_name(&body[0]).is_none()).collect();
+    let main: Vec<&(usize, Vec<String>)> = groups
+        .iter()
+        .filter(|(_, body)| top_function_name(&body[0]).is_none())
+        .collect();
 
     let mut declared: BTreeMap<String, usize> = BTreeMap::new();
     for (number, body) in &main {
@@ -217,10 +226,7 @@ fn read_before_assign(lines: &[&str]) -> Vec<Trap> {
         // Comments are removed before anything is matched. A prose mention of a variable is not
         // a read of it, and a statement group picks up the comment lines that follow it.
         let text = stripped.join("\n");
-        let called: Vec<&String> = readers
-            .keys()
-            .filter(|name| calls(&text, name))
-            .collect();
+        let called: Vec<&String> = readers.keys().filter(|name| calls(&text, name)).collect();
 
         for (name, declared_at) in &declared {
             if declared_at >= number || declares_same(&body[0], name) {
@@ -241,7 +247,13 @@ fn read_before_assign(lines: &[&str]) -> Vec<Trap> {
             let Some(later) = main[index + 1..]
                 .iter()
                 .find(|(_, other)| {
-                    assigns(name, &other.iter().map(|l| strip_comment(l)).collect::<Vec<String>>())
+                    assigns(
+                        name,
+                        &other
+                            .iter()
+                            .map(|l| strip_comment(l))
+                            .collect::<Vec<String>>(),
+                    )
                 })
                 .map(|(n, _)| *n)
             else {
@@ -251,12 +263,22 @@ fn read_before_assign(lines: &[&str]) -> Vec<Trap> {
             // the assignment this read was waiting for.
             let filled_above = main[..index].iter().any(|(n, other)| {
                 n > declared_at
-                    && assigns(name, &other.iter().map(|l| strip_comment(l)).collect::<Vec<String>>())
+                    && assigns(
+                        name,
+                        &other
+                            .iter()
+                            .map(|l| strip_comment(l))
+                            .collect::<Vec<String>>(),
+                    )
             });
             if filled_above {
                 continue;
             }
-            let how = if direct { "directly".to_string() } else { format!("through {}()", through[0]) };
+            let how = if direct {
+                "directly".to_string()
+            } else {
+                format!("through {}()", through[0])
+            };
             traps.push(Trap {
                 line: *number,
                 rule: "read-before-assign",
@@ -302,9 +324,15 @@ fn helper_readers(lines: &[&str]) -> BTreeMap<String, BTreeSet<String>> {
             readers.entry(name).or_default();
             continue;
         }
-        let Some(name) = current.clone() else { continue };
+        let Some(name) = current.clone() else {
+            continue;
+        };
         let stripped = line.trim();
-        if indent_of(line) == 0 && !stripped.is_empty() && !stripped.starts_with('}') && !is_comment(stripped) {
+        if indent_of(line) == 0
+            && !stripped.is_empty()
+            && !stripped.starts_with('}')
+            && !is_comment(stripped)
+        {
             current = None;
             continue;
         }
@@ -334,9 +362,14 @@ fn assigns_in_line(name: &str, line: &str) -> bool {
         let rest = line[end..].trim_start();
         // `name = `, `name.x = `, `name[i] = `, but never `name ==`.
         let after_access = match rest.strip_prefix('.') {
-            Some(tail) => tail.trim_start_matches(|c: char| c.is_alphanumeric() || c == '_' || c == '$').trim_start(),
+            Some(tail) => tail
+                .trim_start_matches(|c: char| c.is_alphanumeric() || c == '_' || c == '$')
+                .trim_start(),
             None => match rest.strip_prefix('[') {
-                Some(tail) => tail.split_once(']').map(|(_, t)| t.trim_start()).unwrap_or(""),
+                Some(tail) => tail
+                    .split_once(']')
+                    .map(|(_, t)| t.trim_start())
+                    .unwrap_or(""),
                 None => rest,
             },
         };
@@ -440,7 +473,9 @@ fn declared_name(stripped: &str, keywords: &[&str]) -> Option<String> {
 /// and the supported declaration pattern requires the `=`.
 fn declared(stripped: &str, keywords: &[&str], allow_bare: bool) -> Option<String> {
     for keyword in keywords {
-        let Some(rest) = stripped.strip_prefix(keyword) else { continue };
+        let Some(rest) = stripped.strip_prefix(keyword) else {
+            continue;
+        };
         // Any whitespace, not just a space: a tab-indented script is still a declaration.
         if !rest.starts_with(char::is_whitespace) {
             continue;
@@ -450,8 +485,10 @@ fn declared(stripped: &str, keywords: &[&str], allow_bare: bool) -> Option<Strin
         if !rest.starts_with(|c: char| c.is_ascii_alphabetic() || c == '_' || c == '$') {
             continue;
         }
-        let name: String =
-            rest.chars().take_while(|c| c.is_alphanumeric() || *c == '_' || *c == '$').collect();
+        let name: String = rest
+            .chars()
+            .take_while(|c| c.is_alphanumeric() || *c == '_' || *c == '$')
+            .collect();
         let after = rest[name.len()..].trim_start();
         if after.starts_with('=') || (allow_bare && after.starts_with(';')) {
             return Some(name);
@@ -499,7 +536,11 @@ fn top_function(line: &str) -> Option<(String, BTreeSet<String>)> {
     let parameters = rest
         .split_once(')')
         .map(|(inside, _)| {
-            inside.split(',').map(|p| p.trim().to_string()).filter(|p| !p.is_empty()).collect()
+            inside
+                .split(',')
+                .map(|p| p.trim().to_string())
+                .filter(|p| !p.is_empty())
+                .collect()
         })
         .unwrap_or_default();
     Some((name, parameters))
@@ -513,10 +554,14 @@ fn is_for_in(stripped: &str) -> bool {
         let start = from + at;
         from = start + 3;
         let rest = stripped[start + 3..].trim_start();
-        let Some(inside) = rest.strip_prefix('(') else { continue };
+        let Some(inside) = rest.strip_prefix('(') else {
+            continue;
+        };
         let inside = inside.trim_start();
         for keyword in ["const", "let", "var"] {
-            let Some(tail) = inside.strip_prefix(keyword) else { continue };
+            let Some(tail) = inside.strip_prefix(keyword) else {
+                continue;
+            };
             if !tail.starts_with(char::is_whitespace) {
                 continue;
             }
@@ -555,7 +600,9 @@ fn indexes_rows(stripped: &str) -> bool {
         if !before.ends_with("rows") && !before.ends_with("Rows") {
             continue;
         }
-        let Some((index, _)) = stripped[open + 1..].split_once(']') else { continue };
+        let Some((index, _)) = stripped[open + 1..].split_once(']') else {
+            continue;
+        };
         if matches!(index.trim(), "i" | "j" | "index" | "idx") {
             return true;
         }
@@ -573,9 +620,15 @@ fn numbers_into_rows(stripped: &str) -> Vec<String> {
     // The line must *start* with `key:`. That anchor is what confines the rule to a property on
     // its own line, which is what a row literal looks like once the formatter has been through
     // it. Without it, `manager.DeleteCard({ uid: Number(card.uid) })` reads as a row and is not.
-    let Some(colon) = stripped.find(':') else { return Vec::new() };
+    let Some(colon) = stripped.find(':') else {
+        return Vec::new();
+    };
     let key = stripped[..colon].trim_end();
-    if key.is_empty() || !key.chars().all(|c| c.is_alphanumeric() || c == '_' || c == '$') {
+    if key.is_empty()
+        || !key
+            .chars()
+            .all(|c| c.is_alphanumeric() || c == '_' || c == '$')
+    {
         return Vec::new();
     }
     // And `Number(` must be what the property is assigned, not something further along.
@@ -648,7 +701,10 @@ mod tests {
 
     #[test]
     fn for_in_is_reported() {
-        assert_eq!(rules("for (const key in map) {\n    use(key);\n}\n"), vec!["for-in"]);
+        assert_eq!(
+            rules("for (const key in map) {\n    use(key);\n}\n"),
+            vec!["for-in"]
+        );
         // for..of is fine.
         assert!(rules("for (const item of list) {\n    use(item);\n}\n").is_empty());
     }
@@ -656,12 +712,18 @@ mod tests {
     #[test]
     fn indexing_into_rows_is_reported() {
         assert_eq!(rules("var r = result.rows[i];\n"), vec!["indexed-rows"]);
-        assert!(rules("var r = rows[0];\n").is_empty(), "a constant index is not the trap");
+        assert!(
+            rules("var r = rows[0];\n").is_empty(),
+            "a constant index is not the trap"
+        );
     }
 
     #[test]
     fn a_while_loop_is_reported_unless_it_is_the_idiom() {
-        assert_eq!(rules("while (more()) {\n    step();\n}\n"), vec!["unbounded-loop"]);
+        assert_eq!(
+            rules("while (more()) {\n    step();\n}\n"),
+            vec!["unbounded-loop"]
+        );
         assert!(rules("while (false) {\n    never();\n}\n").is_empty());
     }
 
@@ -711,7 +773,10 @@ mod tests {
 
     #[test]
     fn a_for_in_that_is_not_first_on_the_line_is_found() {
-        assert_eq!(rules("if (before) for (let k in obj) { use(k); }\n"), vec!["for-in"]);
+        assert_eq!(
+            rules("if (before) for (let k in obj) { use(k); }\n"),
+            vec!["for-in"]
+        );
     }
 
     #[test]
@@ -721,7 +786,11 @@ mod tests {
         let source = "out.AddRow({\n    a: Number(x + 1), b: Number(row.value)\n});\n";
         let traps = lint(source);
         assert_eq!(traps.len(), 1, "got {traps:?}");
-        assert!(traps[0].message.contains("Number(row.value)"), "got {}", traps[0].message);
+        assert!(
+            traps[0].message.contains("Number(row.value)"),
+            "got {}",
+            traps[0].message
+        );
     }
 
     #[test]

@@ -48,10 +48,13 @@ mod tests {
     #[test]
     fn one_item_runs_once() {
         let calls = AtomicUsize::new(0);
-        assert_eq!(map(&[7], |item| {
-            calls.fetch_add(1, Ordering::Relaxed);
-            item * 2
-        }), [14]);
+        assert_eq!(
+            map(&[7], |item| {
+                calls.fetch_add(1, Ordering::Relaxed);
+                item * 2
+            }),
+            [14]
+        );
         assert_eq!(calls.load(Ordering::Relaxed), 1);
     }
 
@@ -67,7 +70,10 @@ mod tests {
             std::thread::sleep(std::time::Duration::from_micros((64 - item) as u64));
             item * 3
         });
-        assert_eq!(result, items.iter().map(|item| item * 3).collect::<Vec<_>>());
+        assert_eq!(
+            result,
+            items.iter().map(|item| item * 3).collect::<Vec<_>>()
+        );
         assert!(calls.iter().all(|count| count.load(Ordering::Relaxed) == 1));
         assert!(threads.lock().unwrap().len() > 1);
     }

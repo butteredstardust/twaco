@@ -52,14 +52,28 @@ pub enum SidecarError {
     Scan(ScanError),
     /// The document is not an entity export, so it has no entity element to look inside.
     NotAnEntity,
-    Unnamed { what: &'static str, at: usize },
-    Duplicate { what: &'static str, name: String },
+    Unnamed {
+        what: &'static str,
+        at: usize,
+    },
+    Duplicate {
+        what: &'static str,
+        name: String,
+    },
     /// A `Script` implementation whose script cannot be located.
-    NoScript { name: String },
+    NoScript {
+        name: String,
+    },
     /// Several CDATA nodes in one `<code>`: writing one of them would truncate the script.
-    ManyPayloads { name: String, count: usize },
+    ManyPayloads {
+        name: String,
+        count: usize,
+    },
     /// A sync would add or remove a service without having been told it may.
-    StructuralChange { added: Vec<String>, removed: Vec<String> },
+    StructuralChange {
+        added: Vec<String>,
+        removed: Vec<String>,
+    },
     Splice(super::splice::SpliceError),
 }
 
@@ -105,9 +119,20 @@ pub fn extract(src: &[u8]) -> Result<Extraction, SidecarError> {
     let entity = entity_element(&tokens, src).ok_or(SidecarError::NotAnEntity)?;
     let host = member_host(&tokens, src, entity);
 
-    let definitions = named_children(&tokens, src, host, "ServiceDefinitions", "ServiceDefinition")?;
-    let implementations =
-        named_children(&tokens, src, host, "ServiceImplementations", "ServiceImplementation")?;
+    let definitions = named_children(
+        &tokens,
+        src,
+        host,
+        "ServiceDefinitions",
+        "ServiceDefinition",
+    )?;
+    let implementations = named_children(
+        &tokens,
+        src,
+        host,
+        "ServiceImplementations",
+        "ServiceImplementation",
+    )?;
 
     let mut out = Extraction::default();
     for (name, &index) in &implementations {
@@ -120,8 +145,10 @@ pub fn extract(src: &[u8]) -> Result<Extraction, SidecarError> {
             continue;
         };
         let script = script_of(&tokens, src, index, name)?;
-        let block = scan::element_span(&tokens, definition)
-            .ok_or(SidecarError::Unnamed { what: "ServiceDefinition", at: tokens[definition].span.start })?;
+        let block = scan::element_span(&tokens, definition).ok_or(SidecarError::Unnamed {
+            what: "ServiceDefinition",
+            at: tokens[definition].span.start,
+        })?;
         out.services.push(ServiceSidecar {
             name: name.clone(),
             definition: definition_text(block.of(src)),
@@ -147,8 +174,13 @@ pub fn script_services(src: &[u8]) -> Result<Vec<ScriptService>, SidecarError> {
     let tokens = scan::tokenize(src)?;
     let entity = entity_element(&tokens, src).ok_or(SidecarError::NotAnEntity)?;
     let host = member_host(&tokens, src, entity);
-    let implementations =
-        named_children(&tokens, src, host, "ServiceImplementations", "ServiceImplementation")?;
+    let implementations = named_children(
+        &tokens,
+        src,
+        host,
+        "ServiceImplementations",
+        "ServiceImplementation",
+    )?;
     let mut scripts = Vec::new();
     for (name, index) in implementations {
         if handler_of(&tokens, src, index)? == "Script" {
@@ -197,7 +229,9 @@ fn member_host(tokens: &[Token], src: &[u8], entity: usize) -> usize {
 
 /// Indices of every direct child element of the element opening at `parent`.
 fn direct_children(tokens: &[Token], parent: usize) -> Vec<usize> {
-    let Some(end) = scan::element_end(tokens, parent) else { return Vec::new() };
+    let Some(end) = scan::element_end(tokens, parent) else {
+        return Vec::new();
+    };
     let mut out = Vec::new();
     let mut index = parent + 1;
     while index < end {
@@ -223,10 +257,16 @@ pub fn member_host_of(tokens: &[Token], src: &[u8]) -> Option<usize> {
 }
 
 /// A service implementation's handler, defaulting to `Script` when it declares none.
-pub fn handler_of(tokens: &[Token], src: &[u8], implementation: usize) -> Result<String, SidecarError> {
-    Ok(scan::attribute(src, &tokens[implementation], "handlerName")?
-        .map(|s| scan::decode_entities(&String::from_utf8_lossy(s.of(src))))
-        .unwrap_or_else(|| "Script".to_string()))
+pub fn handler_of(
+    tokens: &[Token],
+    src: &[u8],
+    implementation: usize,
+) -> Result<String, SidecarError> {
+    Ok(
+        scan::attribute(src, &tokens[implementation], "handlerName")?
+            .map(|s| scan::decode_entities(&String::from_utf8_lossy(s.of(src))))
+            .unwrap_or_else(|| "Script".to_string()),
+    )
 }
 
 /// The `<code>` element under an implementation's Script configuration table.
@@ -237,7 +277,9 @@ pub fn code_element_of(tokens: &[Token], src: &[u8], implementation: usize) -> O
         .flat_map(|&t| scan::child_tags(tokens, src, "ConfigurationTable", t))
         .find(|&t| matches!(scan::attribute(src, &tokens[t], "name"), Ok(Some(v)) if v.of(src) == b"Script"));
     let root = script_table.unwrap_or(implementation);
-    scan::tags_within(tokens, src, "code", root).into_iter().next()
+    scan::tags_within(tokens, src, "code", root)
+        .into_iter()
+        .next()
 }
 
 /// Named blocks inside one direct-child section of the entity. Shared with `sync`.
@@ -266,7 +308,10 @@ fn named_children(
         let name = scan::attribute(src, &tokens[index], "name")?
             .map(|s| scan::decode_entities(&String::from_utf8_lossy(s.of(src))))
             .filter(|n| !n.is_empty())
-            .ok_or(SidecarError::Unnamed { what: block, at: tokens[index].span.start })?;
+            .ok_or(SidecarError::Unnamed {
+                what: block,
+                at: tokens[index].span.start,
+            })?;
         if found.insert(name.clone(), index).is_some() {
             return Err(SidecarError::Duplicate { what: block, name });
         }
@@ -285,20 +330,25 @@ pub(crate) fn script_of(
     implementation: usize,
     name: &str,
 ) -> Result<String, SidecarError> {
-    let code = code_element_of(tokens, src, implementation)
-        .ok_or_else(|| SidecarError::NoScript { name: name.to_string() })?;
+    let code =
+        code_element_of(tokens, src, implementation).ok_or_else(|| SidecarError::NoScript {
+            name: name.to_string(),
+        })?;
     if tokens[code].kind == Kind::Empty {
         // `<code/>`: a service with no body, which is empty rather than missing.
         return Ok(String::new());
     }
-    let end = scan::element_end(tokens, code)
-        .ok_or_else(|| SidecarError::NoScript { name: name.to_string() })?;
+    let end = scan::element_end(tokens, code).ok_or_else(|| SidecarError::NoScript {
+        name: name.to_string(),
+    })?;
 
     let mut payload = String::new();
     for token in &tokens[code + 1..end] {
         match token.kind {
             Kind::Cdata => payload.push_str(&String::from_utf8_lossy(token.inner.of(src))),
-            Kind::Text => payload.push_str(&scan::decode_entities(&String::from_utf8_lossy(token.span.of(src)))),
+            Kind::Text => payload.push_str(&scan::decode_entities(&String::from_utf8_lossy(
+                token.span.of(src),
+            ))),
             _ => {}
         }
     }
@@ -401,12 +451,18 @@ mod tests {
 </Entities>"#;
 
     fn wrap(body: &str) -> Vec<u8> {
-        format!("<Entities><Things><Thing name=\"T\">{body}</Thing></Things></Entities>").into_bytes()
+        format!("<Entities><Things><Thing name=\"T\">{body}</Thing></Things></Entities>")
+            .into_bytes()
     }
 
     #[test]
     fn services_come_back_named_and_sorted() {
-        let names: Vec<String> = extract(ENTITY).unwrap().services.iter().map(|s| s.name.clone()).collect();
+        let names: Vec<String> = extract(ENTITY)
+            .unwrap()
+            .services
+            .iter()
+            .map(|s| s.name.clone())
+            .collect();
         assert_eq!(names, vec!["Alpha", "Beta"]);
     }
 
@@ -427,7 +483,10 @@ mod tests {
         );
         assert_eq!(
             script_services(&inherited).unwrap(),
-            vec![ScriptService { name: "Inherited".to_string(), script: "result = 7;".to_string() }]
+            vec![ScriptService {
+                name: "Inherited".to_string(),
+                script: "result = 7;".to_string()
+            }]
         );
     }
 

@@ -26,7 +26,10 @@ pub struct Style {
 
 impl Default for Style {
     fn default() -> Self {
-        Style { indent_width: 4, line_width: 100_000 }
+        Style {
+            indent_width: 4,
+            line_width: 100_000,
+        }
     }
 }
 
@@ -98,8 +101,14 @@ mod tests {
         let src = "logger.debug(\"{} - a rather long message indeed, padded out\", me.name, other, third);\n";
         let out = format(src, &Style::default()).unwrap();
         let text = out.unwrap_or_else(|| src.to_string());
-        assert!(!text.contains(",)"), "Rhino-unsafe trailing comma in a call: {text}");
-        assert!(!text.contains(",\n)"), "Rhino-unsafe trailing comma in a call: {text}");
+        assert!(
+            !text.contains(",)"),
+            "Rhino-unsafe trailing comma in a call: {text}"
+        );
+        assert!(
+            !text.contains(",\n)"),
+            "Rhino-unsafe trailing comma in a call: {text}"
+        );
     }
 
     #[test]
@@ -123,9 +132,16 @@ mod tests {
         // Regression: dprint always adds one, extraction always strips it, and the two would
         // have taken turns rewriting the same file.
         let src = "var a = 1;";
-        assert_eq!(format(src, &Style::default()).unwrap(), None, "already formatted");
+        assert_eq!(
+            format(src, &Style::default()).unwrap(),
+            None,
+            "already formatted"
+        );
         let raw = format_raw(src, &Style::default()).unwrap().unwrap();
-        assert!(raw.ends_with('\n'), "dprint does add one, so the trim is doing real work");
+        assert!(
+            raw.ends_with('\n'),
+            "dprint does add one, so the trim is doing real work"
+        );
     }
 
     #[test]
@@ -139,8 +155,14 @@ mod tests {
     #[test]
     fn formatting_settles_immediately() {
         let src = "const a={b:1};\nif(a.b){result=1;}";
-        let once = format(src, &Style::default()).unwrap().expect("needs formatting");
-        assert_eq!(format(&once, &Style::default()).unwrap(), None, "a second pass must be a no-op");
+        let once = format(src, &Style::default())
+            .unwrap()
+            .expect("needs formatting");
+        assert_eq!(
+            format(&once, &Style::default()).unwrap(),
+            None,
+            "a second pass must be a no-op"
+        );
     }
 
     #[test]

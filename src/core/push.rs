@@ -62,18 +62,14 @@ impl fmt::Display for Refusal {
 }
 
 /// The decision table. Pure, so every row is testable.
-pub fn decide(
-    working: &str,
-    server: Option<&str>,
-    baseline: Option<(&str, &str)>,
-) -> Decision {
+pub fn decide(working: &str, server: Option<&str>, baseline: Option<(&str, &str)>) -> Decision {
     match (server, baseline) {
         (Some(server), _) if server == working => Decision::AlreadyThere,
         (None, None) => Decision::Create,
         (None, Some(_)) => Decision::Refuse(Refusal::DeletedOnServer),
-        (Some(server), None) => {
-            Decision::Refuse(Refusal::UnknownAncestor { server: server.to_string() })
-        }
+        (Some(server), None) => Decision::Refuse(Refusal::UnknownAncestor {
+            server: server.to_string(),
+        }),
         (Some(server), Some((local, server_baseline)))
             if working == local && server == server_baseline =>
         {
@@ -145,7 +141,10 @@ pub enum PushError {
     Baseline(BaselineError),
     /// The import said success, but the entity read back is not what was sent. The baseline
     /// was left alone, so `entity status` still shows the difference.
-    NotKept { sent: String, read_back: Option<String> },
+    NotKept {
+        sent: String,
+        read_back: Option<String>,
+    },
 }
 
 impl fmt::Display for PushError {
@@ -168,7 +167,9 @@ impl fmt::Display for PushError {
                  configuration table the template does not define is dropped, and a file \
                  missing sections the server always writes (a hand-written one, typically) \
                  comes back with them filled in. `twaco entity get` shows what the server kept",
-                read_back.as_deref().unwrap_or("nothing: the entity is missing")
+                read_back
+                    .as_deref()
+                    .unwrap_or("nothing: the entity is missing")
             ),
         }
     }
@@ -218,7 +219,9 @@ pub fn push(
         Decision::Update => false,
     };
 
-    remote.import(target.document.file_name, target.document.bytes).map_err(PushError::Remote)?;
+    remote
+        .import(target.document.file_name, target.document.bytes)
+        .map_err(PushError::Remote)?;
     // From here on the server has changed, so a failure must say so rather than read like the
     // fetch before the import did.
     let read_back = remote
@@ -228,7 +231,10 @@ pub fn push(
         .transpose()
         .map_err(PushError::Server)?;
     if read_back.as_deref() != Some(working.as_str()) {
-        return Err(PushError::NotKept { sent: working, read_back });
+        return Err(PushError::NotKept {
+            sent: working,
+            read_back,
+        });
     }
     record(root, target, working.clone(), working)?;
     Ok(Outcome::Pushed { created })
@@ -264,7 +270,11 @@ mod tests {
 
     impl Fake {
         fn holding(held: Option<Vec<u8>>) -> Self {
-            Fake { held: RefCell::new(held), keep: true, imports: RefCell::new(0) }
+            Fake {
+                held: RefCell::new(held),
+                keep: true,
+                imports: RefCell::new(0),
+            }
         }
     }
 
@@ -286,7 +296,10 @@ mod tests {
     }
 
     fn temp() -> std::path::PathBuf {
-        let nonce = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos();
+        let nonce = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
         let path = std::env::temp_dir().join(format!("twaco-push-{}-{nonce}", std::process::id()));
         std::fs::create_dir_all(&path).unwrap();
         path
@@ -295,7 +308,10 @@ mod tests {
     fn target(bytes: &[u8]) -> Target<'_> {
         Target {
             key: EntityKey::new("Things", "T").unwrap(),
-            document: EntityDocument { file_name: "T.xml", bytes },
+            document: EntityDocument {
+                file_name: "T.xml",
+                bytes,
+            },
         }
     }
 
@@ -311,15 +327,23 @@ mod tests {
         let fake = Fake::holding(None);
         push(&fake, &root, &target, true, false).unwrap();
         let baseline = Baseline::load(&root).unwrap();
-        assert!(baseline.get(target.key.collection(), target.key.name()).is_some());
+        assert!(baseline
+            .get(target.key.collection(), target.key.name())
+            .is_some());
         let _ = std::fs::remove_dir_all(root);
     }
 
     #[test]
     fn every_row_of_the_decision_table() {
         assert_eq!(decide("w", Some("w"), None), Decision::AlreadyThere);
-        assert_eq!(decide("w", Some("w"), Some(("l", "b"))), Decision::AlreadyThere);
-        assert_eq!(decide("l", Some("s"), Some(("l", "s"))), Decision::AlreadyThere);
+        assert_eq!(
+            decide("w", Some("w"), Some(("l", "b"))),
+            Decision::AlreadyThere
+        );
+        assert_eq!(
+            decide("l", Some("s"), Some(("l", "s"))),
+            Decision::AlreadyThere
+        );
         assert_eq!(decide("w", None, None), Decision::Create);
         assert_eq!(
             decide("w", None, Some(("l", "b"))),
@@ -332,7 +356,10 @@ mod tests {
         assert_eq!(decide("w", Some("b"), Some(("l", "b"))), Decision::Update);
         assert_eq!(
             decide("w", Some("s"), Some(("l", "b"))),
-            Decision::Refuse(Refusal::Conflict { server: "s".into(), baseline: "b".into() })
+            Decision::Refuse(Refusal::Conflict {
+                server: "s".into(),
+                baseline: "b".into()
+            })
         );
     }
 
@@ -362,7 +389,10 @@ mod tests {
             push(&fake, &root, &target(&second), true, false).unwrap(),
             Outcome::Pushed { created: false }
         );
-        assert_eq!(push(&fake, &root, &target(&second), true, false).unwrap(), Outcome::AlreadyThere);
+        assert_eq!(
+            push(&fake, &root, &target(&second), true, false).unwrap(),
+            Outcome::AlreadyThere
+        );
         assert_eq!(*fake.imports.borrow(), 2);
         let _ = std::fs::remove_dir_all(root);
     }
@@ -383,7 +413,10 @@ mod tests {
         let before = std::fs::read(root.join(super::super::baseline::RELATIVE_PATH)).unwrap();
         let fake = Fake::holding(Some(server));
 
-        assert_eq!(push(&fake, &root, &target(&working), true, false).unwrap(), Outcome::AlreadyThere);
+        assert_eq!(
+            push(&fake, &root, &target(&working), true, false).unwrap(),
+            Outcome::AlreadyThere
+        );
         assert_eq!(*fake.imports.borrow(), 0);
         assert_eq!(
             std::fs::read(root.join(super::super::baseline::RELATIVE_PATH)).unwrap(),
@@ -403,7 +436,10 @@ mod tests {
 
         let edited = entity("mine2();");
         let outcome = push(&fake, &root, &target(&edited), true, false).unwrap();
-        assert!(matches!(outcome, Outcome::Refused(Refusal::Conflict { .. })));
+        assert!(matches!(
+            outcome,
+            Outcome::Refused(Refusal::Conflict { .. })
+        ));
         assert_eq!(*fake.imports.borrow(), 1, "a refusal sends nothing");
 
         let forced = push(&fake, &root, &target(&edited), true, true).unwrap();
@@ -423,7 +459,10 @@ mod tests {
         let second = entity("b();");
         let error = push(&fake, &root, &target(&second), true, false).unwrap_err();
         assert!(matches!(error, PushError::NotKept { .. }), "{error}");
-        assert_eq!(std::fs::read(root.join(".twaco/baseline.json")).unwrap(), before);
+        assert_eq!(
+            std::fs::read(root.join(".twaco/baseline.json")).unwrap(),
+            before
+        );
         let _ = std::fs::remove_dir_all(root);
     }
 
@@ -453,7 +492,9 @@ mod tests {
     #[test]
     fn a_failed_read_back_says_the_server_changed_and_records_nothing() {
         let root = temp();
-        let remote = FailsAfterImport { imported: RefCell::new(false) };
+        let remote = FailsAfterImport {
+            imported: RefCell::new(false),
+        };
         let bytes = entity("a();");
         let error = push(&remote, &root, &target(&bytes), true, false).unwrap_err();
         assert!(matches!(error, PushError::Unverified(_)), "{error}");
@@ -473,15 +514,50 @@ mod tests {
         let ancestor = entity("ancestor();");
         // (label, server holds, baseline local/server, pushes when applied, only when forced,
         // records when applied without importing)
-        type Row<'a> = (&'a str, Option<&'a [u8]>, Option<(&'a [u8], &'a [u8])>, bool, bool, bool);
+        type Row<'a> = (
+            &'a str,
+            Option<&'a [u8]>,
+            Option<(&'a [u8], &'a [u8])>,
+            bool,
+            bool,
+            bool,
+        );
         let rows: [Row; 7] = [
             ("already there", Some(&working), None, false, false, true),
-            ("in sync with differing sides", Some(&other), Some((&working, &other)), false, false, false),
+            (
+                "in sync with differing sides",
+                Some(&other),
+                Some((&working, &other)),
+                false,
+                false,
+                false,
+            ),
             ("create", None, None, true, false, false),
-            ("update", Some(&other), Some((&other, &other)), true, false, false),
-            ("deleted on server", None, Some((&other, &other)), false, true, false),
+            (
+                "update",
+                Some(&other),
+                Some((&other, &other)),
+                true,
+                false,
+                false,
+            ),
+            (
+                "deleted on server",
+                None,
+                Some((&other, &other)),
+                false,
+                true,
+                false,
+            ),
             ("unknown ancestor", Some(&other), None, false, true, false),
-            ("conflict", Some(&other), Some((&ancestor, &ancestor)), false, true, false),
+            (
+                "conflict",
+                Some(&other),
+                Some((&ancestor, &ancestor)),
+                false,
+                true,
+                false,
+            ),
         ];
         for (label, server, ancestor, pushes, forced, records_without_import) in rows {
             for (apply, force) in [(false, false), (false, true), (true, false), (true, true)] {
@@ -499,13 +575,23 @@ mod tests {
 
                 let sent = *fake.imports.borrow();
                 let expected_sends = apply && (pushes || (forced && force));
-                assert_eq!(sent, usize::from(expected_sends), "{label} apply={apply} force={force}");
+                assert_eq!(
+                    sent,
+                    usize::from(expected_sends),
+                    "{label} apply={apply} force={force}"
+                );
                 let after = std::fs::read(&path).ok();
                 let records = apply && (expected_sends || records_without_import);
                 if records {
-                    assert_ne!(after, before, "{label} apply={apply} force={force}: baseline must record");
+                    assert_ne!(
+                        after, before,
+                        "{label} apply={apply} force={force}: baseline must record"
+                    );
                 } else {
-                    assert_eq!(after, before, "{label} apply={apply} force={force}: baseline must not move");
+                    assert_eq!(
+                        after, before,
+                        "{label} apply={apply} force={force}: baseline must not move"
+                    );
                 }
                 let _ = std::fs::remove_dir_all(root);
             }

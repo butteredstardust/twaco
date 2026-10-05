@@ -68,7 +68,9 @@ fn data_table_thing(tokens: &[Token], src: &[u8]) -> Option<(usize, usize)> {
 
 /// Whether a document is a DataTable Thing.
 pub fn is_data_table(src: &[u8]) -> bool {
-    let Ok(tokens) = scan::tokenize(src) else { return false };
+    let Ok(tokens) = scan::tokenize(src) else {
+        return false;
+    };
     data_table_thing(&tokens, src).is_some()
 }
 
@@ -97,7 +99,11 @@ pub fn extract(src: &[u8]) -> Result<Configuration, DataTableError> {
         None => Vec::new(),
     };
 
-    Ok(Configuration { data_shape, accumulated, indexes })
+    Ok(Configuration {
+        data_shape,
+        accumulated,
+        indexes,
+    })
 }
 
 /// The `datatable.json` text.
@@ -117,7 +123,10 @@ pub fn to_sidecar(configuration: &Configuration) -> Result<String, DataTableErro
     };
 
     let mut document = serde_json::Map::new();
-    document.insert("dataShape".into(), serde_json::Value::String(configuration.data_shape.clone()));
+    document.insert(
+        "dataShape".into(),
+        serde_json::Value::String(configuration.data_shape.clone()),
+    );
     document.insert("accumulatedDataShape".into(), accumulated);
     document.insert(
         "indexes".into(),
@@ -137,7 +146,9 @@ pub fn to_sidecar(configuration: &Configuration) -> Result<String, DataTableErro
                 .collect(),
         ),
     );
-    Ok(super::mashup::to_sidecar(&serde_json::Value::Object(document)))
+    Ok(super::mashup::to_sidecar(&serde_json::Value::Object(
+        document,
+    )))
 }
 
 /// Parse a `datatable.json` sidecar.
@@ -156,7 +167,9 @@ pub fn from_sidecar(text: &str) -> Result<Configuration, DataTableError> {
         Some(serde_json::Value::String(s)) => s.clone(),
         None => return Err(missing("dataShape")),
         Some(other) => {
-            return Err(DataTableError::Malformed(format!("dataShape must be a string, found {other}")))
+            return Err(DataTableError::Malformed(format!(
+                "dataShape must be a string, found {other}"
+            )))
         }
     };
     let accumulated = match object.get("accumulatedDataShape") {
@@ -182,10 +195,16 @@ pub fn from_sidecar(text: &str) -> Result<Configuration, DataTableError> {
         }
         None => return Err(missing("indexes")),
         Some(other) => {
-            return Err(DataTableError::Malformed(format!("indexes must be a list, found {other}")))
+            return Err(DataTableError::Malformed(format!(
+                "indexes must be a list, found {other}"
+            )))
         }
     }
-    Ok(Configuration { data_shape, accumulated, indexes })
+    Ok(Configuration {
+        data_shape,
+        accumulated,
+        indexes,
+    })
 }
 
 fn missing(key: &str) -> DataTableError {
@@ -206,7 +225,9 @@ fn index_string(
 ) -> Result<String, DataTableError> {
     match entry.get(key) {
         Some(serde_json::Value::String(s)) => Ok(s.clone()),
-        None => Err(DataTableError::Malformed(format!("index {position} has no {key}"))),
+        None => Err(DataTableError::Malformed(format!(
+            "index {position} has no {key}"
+        ))),
         Some(other) => Err(DataTableError::Malformed(format!(
             "index {position}: {key} must be a string, found {other}"
         ))),
@@ -257,14 +278,22 @@ pub fn sync(src: &[u8], wanted: &Configuration) -> Result<(Vec<u8>, Vec<String>)
     }
 
     if current.indexes != wanted.indexes {
-        edits.extend(index_edits(&tokens, src, thing, &current, wanted, document_newline)?);
+        edits.extend(index_edits(
+            &tokens,
+            src,
+            thing,
+            &current,
+            wanted,
+            document_newline,
+        )?);
         changes.push("indexes".to_string());
     }
 
     if edits.is_empty() {
         return Ok((src.to_vec(), changes));
     }
-    let out = super::splice::splice(src, &edits).map_err(|e| DataTableError::Malformed(e.to_string()))?;
+    let out =
+        super::splice::splice(src, &edits).map_err(|e| DataTableError::Malformed(e.to_string()))?;
     Ok((out, changes))
 }
 
@@ -281,10 +310,14 @@ fn index_edits(
     wanted: &Configuration,
     newline: &str,
 ) -> Result<Vec<super::splice::Edit>, DataTableError> {
-    let table = table_named(tokens, src, thing, "Indexes").ok_or(DataTableError::MissingTable("Indexes"))?;
-    let rows_tag = scan::child_tags(tokens, src, "Rows", table).first().copied().ok_or_else(|| {
-        DataTableError::Malformed("the Indexes table has no <Rows> to write into".into())
-    })?;
+    let table = table_named(tokens, src, thing, "Indexes")
+        .ok_or(DataTableError::MissingTable("Indexes"))?;
+    let rows_tag = scan::child_tags(tokens, src, "Rows", table)
+        .first()
+        .copied()
+        .ok_or_else(|| {
+            DataTableError::Malformed("the Indexes table has no <Rows> to write into".into())
+        })?;
     // Checked here rather than relied on: a child search over an unclosed element quietly
     // returns nothing, which would read as "this table has no rows".
     let _closed = scan::element_end_in(tokens, src, rows_tag)
@@ -296,7 +329,11 @@ fn index_edits(
     // Rows the document already has: only the values that differ are written.
     for (position, row) in rows.iter().enumerate().take(wanted.indexes.len()) {
         for (name, before, after) in [
-            ("name", &current.indexes[position].name, &wanted.indexes[position].name),
+            (
+                "name",
+                &current.indexes[position].name,
+                &wanted.indexes[position].name,
+            ),
             (
                 "fieldNames",
                 &current.indexes[position].field_names,
@@ -311,7 +348,10 @@ fn index_edits(
             })?;
             let existing = String::from_utf8_lossy(span.of(src));
             let local = super::sync::newline_of(&existing);
-            edits.push(super::splice::Edit::new(span, render_value(&existing, after, local)));
+            edits.push(super::splice::Edit::new(
+                span,
+                render_value(&existing, after, local),
+            ));
         }
     }
 
@@ -321,7 +361,10 @@ fn index_edits(
         let end = scan::element_end_in(tokens, src, *row)
             .ok_or_else(|| DataTableError::Malformed("a <Row> is not closed".into()))?;
         let start = line_start(src, tokens[*row].span.start);
-        edits.push(super::splice::Edit::new(scan::Span::new(start, tokens[end].span.end), Vec::new()));
+        edits.push(super::splice::Edit::new(
+            scan::Span::new(start, tokens[end].span.end),
+            Vec::new(),
+        ));
     }
 
     // Rows the sidecar adds, written after the last one the document already has so the
@@ -343,7 +386,10 @@ fn index_edits(
             None => tokens[rows_tag].span.end,
         };
         let added = render_rows(&wanted.indexes[rows.len()..], &indent, newline);
-        edits.push(super::splice::Edit::new(scan::Span::new(at, at), added.into_bytes()));
+        edits.push(super::splice::Edit::new(
+            scan::Span::new(at, at),
+            added.into_bytes(),
+        ));
     }
     Ok(edits)
 }
@@ -387,18 +433,27 @@ fn same_json(a: &str, b: &str) -> bool {
 /// sections and nothing else, so the whitespace the exporter put around them stays put.
 fn value_region(tokens: &[Token], src: &[u8], row: usize, name: &str) -> Option<scan::Span> {
     let child = scan::child_tags(tokens, src, name, row).first().copied()?;
-    let holder = scan::child_tags(tokens, src, "json", child).first().copied().unwrap_or(child);
+    let holder = scan::child_tags(tokens, src, "json", child)
+        .first()
+        .copied()
+        .unwrap_or(child);
     if tokens[holder].kind == Kind::Empty {
         return None;
     }
     let end = scan::element_end_in(tokens, src, holder)?;
-    let cdata: Vec<usize> = (holder + 1..end).filter(|&i| tokens[i].kind == Kind::Cdata).collect();
+    let cdata: Vec<usize> = (holder + 1..end)
+        .filter(|&i| tokens[i].kind == Kind::Cdata)
+        .collect();
     match (cdata.first(), cdata.last()) {
-        (Some(&first), Some(&last)) => {
-            Some(scan::Span::new(tokens[first].span.start, tokens[last].span.end))
-        }
+        (Some(&first), Some(&last)) => Some(scan::Span::new(
+            tokens[first].span.start,
+            tokens[last].span.end,
+        )),
         // No CDATA at all: the element holds plain text, or nothing yet.
-        _ => Some(scan::Span::new(tokens[holder].span.end, tokens[end].span.start)),
+        _ => Some(scan::Span::new(
+            tokens[holder].span.end,
+            tokens[end].span.start,
+        )),
     }
 }
 
@@ -426,9 +481,13 @@ fn render_rows(indexes: &[Index], indent: &str, newline: &str) -> String {
         out.push_str(newline);
         out.push_str(indent);
         out.push_str("  <Row><name>");
-        out.push_str(&String::from_utf8_lossy(&scan::render_cdata(index.name.as_bytes())));
+        out.push_str(&String::from_utf8_lossy(&scan::render_cdata(
+            index.name.as_bytes(),
+        )));
         out.push_str("</name><fieldNames>");
-        out.push_str(&String::from_utf8_lossy(&scan::render_cdata(index.field_names.as_bytes())));
+        out.push_str(&String::from_utf8_lossy(&scan::render_cdata(
+            index.field_names.as_bytes(),
+        )));
         out.push_str("</fieldNames></Row>");
     }
     out
@@ -436,9 +495,16 @@ fn render_rows(indexes: &[Index], indent: &str, newline: &str) -> String {
 
 /// The whitespace before a tag, when nothing else shares its line.
 fn own_line_indent(src: &[u8], at: usize) -> Option<String> {
-    let start = src[..at].iter().rposition(|b| *b == b'\n').map(|i| i + 1).unwrap_or(0);
+    let start = src[..at]
+        .iter()
+        .rposition(|b| *b == b'\n')
+        .map(|i| i + 1)
+        .unwrap_or(0);
     let prefix = &src[start..at];
-    prefix.iter().all(|b| *b == b' ' || *b == b'\t').then(|| String::from_utf8_lossy(prefix).into_owned())
+    prefix
+        .iter()
+        .all(|b| *b == b' ' || *b == b'\t')
+        .then(|| String::from_utf8_lossy(prefix).into_owned())
 }
 
 /// The index of a `ConfigurationTable` with the given name, inside the DataTable Thing.
@@ -451,7 +517,10 @@ fn table_named(tokens: &[Token], src: &[u8], thing: (usize, usize), name: &str) 
 }
 
 fn rows_of(tokens: &[Token], src: &[u8], table: usize) -> Vec<usize> {
-    let Some(rows) = scan::child_tags(tokens, src, "Rows", table).first().copied() else {
+    let Some(rows) = scan::child_tags(tokens, src, "Rows", table)
+        .first()
+        .copied()
+    else {
         return Vec::new();
     };
     scan::child_tags(tokens, src, "Row", rows)
@@ -471,7 +540,9 @@ fn child_text(tokens: &[Token], src: &[u8], row: usize, name: &str) -> Option<St
     let text: String = (child + 1..end)
         .filter_map(|i| match tokens[i].kind {
             Kind::Cdata => Some(String::from_utf8_lossy(tokens[i].inner.of(src)).into_owned()),
-            Kind::Text => Some(scan::decode_entities(&String::from_utf8_lossy(tokens[i].span.of(src)))),
+            Kind::Text => Some(scan::decode_entities(&String::from_utf8_lossy(
+                tokens[i].span.of(src),
+            ))),
             _ => None,
         })
         .collect();
@@ -521,7 +592,9 @@ mod tests {
     fn the_accumulated_shape_comes_out_of_its_json_wrapper() {
         // A JSON-typed value is wrapped twice: a <json> element inside the CDATA.
         let configuration = extract(TABLE).unwrap();
-        assert!(configuration.accumulated.starts_with("{\"fieldDefinitions\""));
+        assert!(configuration
+            .accumulated
+            .starts_with("{\"fieldDefinitions\""));
     }
 
     #[test]
@@ -546,14 +619,19 @@ mod tests {
         </Thing></Things></Entities>"#;
         let configuration = extract(src).unwrap();
         assert!(configuration.indexes.is_empty());
-        assert!(to_sidecar(&configuration).unwrap().contains("\"indexes\": []"));
+        assert!(to_sidecar(&configuration)
+            .unwrap()
+            .contains("\"indexes\": []"));
     }
 
     #[test]
     fn a_missing_settings_table_is_named_in_the_error() {
         let src = br#"<Entities><Things><Thing name="T" thingTemplate="DataTable">
             <ConfigurationTables></ConfigurationTables></Thing></Things></Entities>"#;
-        assert!(matches!(extract(src), Err(DataTableError::MissingTable("Settings"))));
+        assert!(matches!(
+            extract(src),
+            Err(DataTableError::MissingTable("Settings"))
+        ));
     }
 
     #[test]
@@ -579,18 +657,26 @@ mod tests {
     #[test]
     fn the_accumulated_shape_is_written_inside_its_json_wrapper() {
         let mut configuration = extract(TABLE).unwrap();
-        configuration.accumulated = r#"{"fieldDefinitions":{"id":{"name":"id"},"b":{"name":"b"}}}"#.to_string();
+        configuration.accumulated =
+            r#"{"fieldDefinitions":{"id":{"name":"id"},"b":{"name":"b"}}}"#.to_string();
         let (out, changes) = sync(TABLE, &configuration).unwrap();
         assert_eq!(changes, vec!["accumulatedDataShape"]);
         let text = String::from_utf8(out.clone()).unwrap();
-        assert!(text.contains("<accumulatedDataShape><json><![CDATA[{"), "{text}");
-        assert!(same_json(&extract(&out).unwrap().accumulated, &configuration.accumulated));
+        assert!(
+            text.contains("<accumulatedDataShape><json><![CDATA[{"),
+            "{text}"
+        );
+        assert!(same_json(
+            &extract(&out).unwrap().accumulated,
+            &configuration.accumulated
+        ));
     }
 
     #[test]
     fn reordered_spacing_in_the_accumulated_shape_is_not_a_change() {
         let mut configuration = extract(TABLE).unwrap();
-        configuration.accumulated = r#"{ "fieldDefinitions" : { "id" : { "name" : "id" } } }"#.to_string();
+        configuration.accumulated =
+            r#"{ "fieldDefinitions" : { "id" : { "name" : "id" } } }"#.to_string();
         let (out, changes) = sync(TABLE, &configuration).unwrap();
         assert!(changes.is_empty(), "got {changes:?}");
         assert_eq!(out, TABLE);
@@ -628,7 +714,10 @@ mod tests {
         configuration.data_shape = "New_DS".to_string();
         let (out, _) = sync(src, &configuration).unwrap();
         let text = String::from_utf8(out.clone()).unwrap();
-        assert!(text.contains("<![CDATA[\n        New_DS\n        ]]>"), "{text}");
+        assert!(
+            text.contains("<![CDATA[\n        New_DS\n        ]]>"),
+            "{text}"
+        );
         assert_eq!(extract(&out).unwrap().data_shape, "New_DS");
     }
 
@@ -644,8 +733,14 @@ mod tests {
 
     #[test]
     fn a_wrongly_typed_sidecar_value_is_refused() {
-        assert!(from_sidecar(r#"{"dataShape": 3, "accumulatedDataShape": null, "indexes": []}"#).is_err());
-        assert!(from_sidecar(r#"{"dataShape": "S", "accumulatedDataShape": null, "indexes": "no"}"#).is_err());
+        assert!(
+            from_sidecar(r#"{"dataShape": 3, "accumulatedDataShape": null, "indexes": []}"#)
+                .is_err()
+        );
+        assert!(from_sidecar(
+            r#"{"dataShape": "S", "accumulatedDataShape": null, "indexes": "no"}"#
+        )
+        .is_err());
     }
 
     #[test]
@@ -697,7 +792,10 @@ mod tests {
         let stated = Configuration {
             data_shape: "My_DS".to_string(),
             accumulated: r#"{"fieldDefinitions":{"id":{"name":"id"}}}"#.to_string(),
-            indexes: vec![Index { name: "byName".to_string(), field_names: "dashboardName".to_string() }],
+            indexes: vec![Index {
+                name: "byName".to_string(),
+                field_names: "dashboardName".to_string(),
+            }],
         };
         assert_eq!(extract(TABLE).unwrap(), stated);
         let (out, changes) = sync(TABLE, &stated).unwrap();
@@ -715,8 +813,14 @@ mod tests {
         let (out, _) = sync(src, &configuration).unwrap();
         let text = String::from_utf8(out.clone()).unwrap();
         assert!(text.contains("<!-- kept -->"), "{text}");
-        assert!(text.contains("<Row order=\"1\"><name><![CDATA[a]]></name>"), "{text}");
-        assert!(text.contains("<Row order=\"2\"><name><![CDATA[b]]></name><fieldNames><![CDATA[z]]>"), "{text}");
+        assert!(
+            text.contains("<Row order=\"1\"><name><![CDATA[a]]></name>"),
+            "{text}"
+        );
+        assert!(
+            text.contains("<Row order=\"2\"><name><![CDATA[b]]></name><fieldNames><![CDATA[z]]>"),
+            "{text}"
+        );
         assert_eq!(extract(&out).unwrap(), configuration);
     }
 
@@ -728,7 +832,10 @@ mod tests {
         let (out, _) = sync(src, &configuration).unwrap();
         let text = String::from_utf8(out.clone()).unwrap();
         assert!(!text.contains("CDATA[b]"), "{text}");
-        assert!(!text.contains("\n\n"), "a blank line was left behind:\n{text}");
+        assert!(
+            !text.contains("\n\n"),
+            "a blank line was left behind:\n{text}"
+        );
         assert_eq!(extract(&out).unwrap().indexes, configuration.indexes);
     }
 
