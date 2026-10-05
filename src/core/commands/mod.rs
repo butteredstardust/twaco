@@ -3,6 +3,9 @@
 pub mod delete;
 pub mod push;
 
+use super::config::Solution;
+use super::lock::{self, LockError, WorkspaceLock};
+
 /// Whether a command describes a change or carries it out.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Mode {
@@ -28,5 +31,67 @@ pub struct Effects {
 impl Effects {
     pub const fn new(workspace: Access, server: Access) -> Self {
         Self { workspace, server }
+    }
+}
+
+/// What an executor has to tell the person that is not its result: files swept after an
+/// interrupted write, and interrupted operations finished or undone, when it took the workspace
+/// lock. Filled when the lock is taken, so it is there even if the command then fails.
+#[derive(Debug, Default)]
+pub struct Notices(Vec<String>);
+
+impl Notices {
+    pub fn lines(&self) -> &[String] {
+        &self.0
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.0.is_empty()
+    }
+}
+
+/// Take the workspace lock for a command that changes the workspace, recording what taking it
+/// did. Every executor takes its lock here, so none of them is a second place that decides how.
+pub fn lock_workspace(
+    solution: &Solution,
+    label: &str,
+    notices: &mut Notices,
+) -> Result<WorkspaceLock, LockError> {
+    let held = lock::acquire_for(solution, label)?;
+    for path in &held.recovered {
+        notices.0.push(format!(
+            "removed {}, left by an interrupted write",
+            path.display()
+        ));
+    }
+    notices.0.extend(held.recovery.iter().cloned());
+    Ok(held)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn taking_the_lock_records_what_it_swept_and_what_it_recovered() {
+        let root = std::env::temp_dir().join(format!("twaco-commands-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(root.join(".twaco")).unwrap();
+        std::fs::write(root.join("twaco.toml"), "[[project]]\nname = \"P\"\n").unwrap();
+        std::fs::write(root.join(".twaco/.baseline.json.1.twaco-tmp"), b"half").unwrap();
+        let solution = Solution::load(&root.join("twaco.toml")).unwrap();
+        let mut notices = Notices::default();
+        let held = lock_workspace(&solution, "test", &mut notices).unwrap();
+        assert_eq!(notices.lines().len(), 1, "{:?}", notices.lines());
+        assert!(
+            notices.lines()[0].contains("left by an interrupted write"),
+            "{:?}",
+            notices.lines()
+        );
+        drop(held);
+        let mut quiet = Notices::default();
+        drop(lock_workspace(&solution, "test", &mut quiet).unwrap());
+        assert!(quiet.is_empty());
+        let _ = std::fs::remove_dir_all(root);
     }
 }

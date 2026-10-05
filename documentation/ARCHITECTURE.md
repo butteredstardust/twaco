@@ -54,7 +54,6 @@ main.rs  mcp.rs                 front ends: parse arguments, call core, print or
 | `normalise` | The comparison form of an entity: what ThingWorx changes on its own is removed, so the repository and server versions compare by content. |
 | `config`, `profile` | `twaco.toml` and server profiles. |
 | `codes` | Stable error categories shared by front-end adapters. |
-| `commands` | Typed command requests, outcomes and orchestration shared by the CLI and MCP adapters, including entity push and delete policy. |
 | `server` | The HTTP client (ureq): REST entity reads, services, Importer, Exporter, file repositories, extension uploads. Credentials are redacted from every `Debug` and error. |
 | `lock` | One writer per workspace, with stale-lock detection; sweeps every hidden temporary a crashed write left. |
 | `parallel` | Bounded parallel map, for server calls. |
@@ -78,6 +77,7 @@ main.rs  mcp.rs                 front ends: parse arguments, call core, print or
 | `logs`, `settings` | `logs`, `logs level`, `settings` |
 | `repo`, `extensions`, `export`, `imports` | `repo`, `ext`, `export`, `import` |
 | `package` | `package`: bundles, source-control zips, extension packages |
+| `commands` | One module per state-changing command that holds its policy (lock, profile, plan versus apply, backup) as a request, a typed outcome and an executor; the CLI and MCP adapters only parse and project. See [COMMAND_FACADE.md](COMMAND_FACADE.md). |
 | `transaction` | Local file changes that survive a crash: a journal written before the first change, stages and backups beside each file, and recovery on the next workspace lock that finishes the operation, undoes it, or refuses and names every path when a person has edited something. Used by `new building-block`, `move`, `copy` and `rename`; the other multi-file commands follow. See [TRANSACTIONS.md](TRANSACTIONS.md). |
 | `docs` | `twaco docs`: the solution written down as deterministic Markdown or JSON, from the index, the catalog and the DataShape model; it says what it does not cover (permissions, run-time references). |
 | `catalog` | `catalog`, on the same model `types` builds |

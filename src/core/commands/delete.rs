@@ -1,6 +1,6 @@
 //! The command policy around guarded entity deletion.
 
-use super::{Access, Effects, Mode};
+use super::{lock_workspace, Access, Effects, Mode, Notices};
 use crate::core::codes::{Coded, ErrorCode};
 use crate::core::config::Solution;
 use crate::core::{entity_delete, lock, profile};
@@ -99,18 +99,20 @@ pub fn execute<R, F>(
     solution: &Solution,
     request: &EntityDeleteRequest,
     open: F,
+    notices: &mut Notices,
 ) -> Result<EntityDeleteOutcome, EntityDeleteCommandError>
 where
     R: Remote,
     F: FnOnce(profile::Profile) -> R,
 {
-    execute_after_lock(solution, request, open, || {})
+    execute_after_lock(solution, request, open, notices, || {})
 }
 
 fn execute_after_lock<R, F, H>(
     solution: &Solution,
     request: &EntityDeleteRequest,
     open: F,
+    notices: &mut Notices,
     after_lock: H,
 ) -> Result<EntityDeleteOutcome, EntityDeleteCommandError>
 where
@@ -121,8 +123,8 @@ where
     let mut prepared = entity_delete::prepare(solution, &request.entities, request.renamed)
         .map_err(EntityDeleteCommandError::Delete)?;
     let _lock = if prepared.ledger_will_be_written(matches!(request.mode, Mode::Apply)) {
-        let lock =
-            lock::acquire_for(solution, "entity delete").map_err(EntityDeleteCommandError::Lock)?;
+        let lock = lock_workspace(solution, "entity delete", notices)
+            .map_err(EntityDeleteCommandError::Lock)?;
         after_lock();
         prepared = entity_delete::prepare(solution, &request.entities, request.renamed)
             .map_err(EntityDeleteCommandError::Delete)?;
@@ -186,6 +188,18 @@ fn effects(report: &entity_delete::Report) -> Effects {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn execute<R, F>(
+        solution: &Solution,
+        request: &EntityDeleteRequest,
+        open: F,
+    ) -> Result<EntityDeleteOutcome, EntityDeleteCommandError>
+    where
+        R: Remote,
+        F: FnOnce(profile::Profile) -> R,
+    {
+        super::execute(solution, request, open, &mut Notices::default())
+    }
     use crate::core::backup;
     use crate::core::entity_key::EntityKey;
     use crate::core::server::ServerError;
@@ -443,6 +457,7 @@ mod tests {
                 let remote = remote.clone();
                 move |_| remote
             },
+            &mut Notices::default(),
             || {
                 std::fs::write(
                     &ledger_path,

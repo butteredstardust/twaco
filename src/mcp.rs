@@ -1604,17 +1604,16 @@ fn push_tool(solution: &Solution, arguments: &Value) -> Result<Value, ToolError>
         backup: flag(arguments, "backup", true),
         profile: text(arguments, "profile").unwrap_or("default").to_string(),
     };
-    let outcome =
-        commands::push::execute(solution, &request, server::Client::new).map_err(|error| {
-            ToolError {
-                code: error.code(),
-                message: match error.backup() {
-                    Some(dir) => {
-                        format!("{error}; the server's copy was saved to {dir} before the push")
-                    }
-                    None => error.to_string(),
-                },
-            }
+    let mut notices = commands::Notices::default();
+    let outcome = commands::push::execute(solution, &request, server::Client::new, &mut notices)
+        .map_err(|error| ToolError {
+            code: error.code(),
+            message: match error.backup() {
+                Some(dir) => {
+                    format!("{error}; the server's copy was saved to {dir} before the push")
+                }
+                None => error.to_string(),
+            },
         })?;
     let label = match &outcome {
         commands::push::PushOutcome::Plan { entity, .. }
@@ -1628,7 +1627,16 @@ fn push_tool(solution: &Solution, arguments: &Value) -> Result<Value, ToolError>
     if let Some(dir) = saved {
         result["backup"] = json!(dir);
     }
+    add_notices(&mut result, &notices);
     Ok(result)
+}
+
+/// What taking the workspace lock did (files swept, interrupted operations recovered), when it
+/// did anything.
+fn add_notices(result: &mut Value, notices: &commands::Notices) {
+    if !notices.is_empty() {
+        result["notices"] = json!(notices.lines());
+    }
 }
 
 fn push_outcome_json(
@@ -1704,12 +1712,11 @@ fn entity_delete_tool(solution: &Solution, arguments: &Value) -> Result<Value, T
         backup: flag(arguments, "backup", true),
         profile: text(arguments, "profile").unwrap_or("default").to_string(),
     };
-    let outcome =
-        commands::delete::execute(solution, &request, server::Client::new).map_err(|error| {
-            ToolError {
-                code: error.code(),
-                message: error.to_string(),
-            }
+    let mut notices = commands::Notices::default();
+    let outcome = commands::delete::execute(solution, &request, server::Client::new, &mut notices)
+        .map_err(|error| ToolError {
+            code: error.code(),
+            message: error.to_string(),
         })?;
     let (report, date, force_used) = match outcome {
         commands::delete::EntityDeleteOutcome::Plan {
@@ -1739,6 +1746,7 @@ fn entity_delete_tool(solution: &Solution, arguments: &Value) -> Result<Value, T
     if force_used {
         result["deprecated"] = json!(entity_delete::FORCE_DEPRECATION);
     }
+    add_notices(&mut result, &notices);
     Ok(result)
 }
 

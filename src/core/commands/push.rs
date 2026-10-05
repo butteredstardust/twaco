@@ -1,6 +1,6 @@
 //! The command policy around one entity push.
 
-use super::{Access, Effects, Mode};
+use super::{lock_workspace, Access, Effects, Mode, Notices};
 use crate::core::backup;
 use crate::core::codes::{Coded, ErrorCode};
 use crate::core::config::Solution;
@@ -141,6 +141,7 @@ pub fn execute<R, F>(
     solution: &Solution,
     request: &PushRequest,
     open: F,
+    notices: &mut Notices,
 ) -> Result<PushOutcome, PushCommandError>
 where
     R: Remote,
@@ -149,7 +150,7 @@ where
     let _lock = match request.mode {
         Mode::Plan => None,
         Mode::Apply => {
-            Some(lock::acquire_for(solution, "entity push").map_err(PushCommandError::Lock)?)
+            Some(lock_workspace(solution, "entity push", notices).map_err(PushCommandError::Lock)?)
         }
     };
     let found = workspace::discover(solution);
@@ -236,6 +237,19 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn execute<R, F>(
+        solution: &Solution,
+        request: &PushRequest,
+        open: F,
+    ) -> Result<PushOutcome, PushCommandError>
+    where
+        R: Remote,
+        F: FnOnce(profile::Profile) -> R,
+    {
+        super::execute(solution, request, open, &mut Notices::default())
+    }
+
     use crate::core::baseline::Baseline;
     use crate::core::normalise;
     use crate::core::server::ServerError;
