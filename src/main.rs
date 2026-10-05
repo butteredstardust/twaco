@@ -17,7 +17,7 @@ use twaco::core::commands::{self, Mode};
 use twaco::core::config::Solution;
 use twaco::core::index::Confidence;
 use twaco::core::{
-    adopt, backup, baseline, catalog, config_table, datatable_copy, db, deploy, docs, entity_carry,
+    adopt, backup, catalog, config_table, datatable_copy, db, deploy, docs, entity_carry,
     entity_delete, impact, lock, newblock, profile, push, relocate, rename, retemplate, server,
     status, types, unused, workflow, workspace,
 };
@@ -3131,9 +3131,6 @@ fn print_info_table_summary(value: &serde_json::Value) {
 /// the user's choosing, and `entity get --out` writes a file the user named, so neither does.
 fn writes_workspace(route: &str, args: &Args) -> bool {
     match route {
-        "bundle" => !args.has("--check"),
-        "deploy" => args.has("--apply"),
-        "entity status" => args.has("--record"),
         // Even with --apply, db run writes only a throwaway server Thing and needs no workspace lock.
         "db run" => false,
         // A pull writes the repository's tree into the solution; everything else in repo
@@ -3427,52 +3424,57 @@ fn entity_status(solution: &Solution, args: &Args) -> u8 {
         eprintln!("twaco: entity status accepts one entity name, or --all");
         return FAILED;
     }
-    let (chosen, unreadable) = match targets(solution, args) {
-        Ok(result) => result,
-        Err(error) => {
-            eprintln!("twaco: {error}");
-            return FAILED;
-        }
+    let request = commands::status::StatusRequest {
+        target: if args.has("--all") {
+            commands::status::StatusTarget::All
+        } else {
+            commands::status::StatusTarget::Names(args.names.clone())
+        },
+        project: args.project.clone(),
+        record: args.has("--record"),
+        profile: args
+            .profile
+            .clone()
+            .unwrap_or_else(|| "default".to_string()),
+        lock_label: "entity status",
+        refuse_unreadable: true,
+        refuse_record_failures: false,
     };
-    if !unreadable.is_empty() {
-        for problem in unreadable {
-            eprintln!("twaco: {problem}");
-        }
-        return FAILED;
-    }
-    let profile_name = args.profile.as_deref().unwrap_or("default");
-    let profile = match profile::load(&solution.root, profile_name) {
-        Ok(profile) => profile,
-        Err(error) => {
-            eprintln!("twaco: {error}");
-            return FAILED;
-        }
-    };
-    let client = server::Client::new(profile);
-    let mut baseline = match baseline::Baseline::load(&solution.root) {
-        Ok(baseline) => baseline,
-        Err(error) => {
-            eprintln!("twaco: {error}");
-            return FAILED;
-        }
-    };
-
-    let (statuses, failures) = status::compute(&client, &baseline, &chosen);
-    if !failures.is_empty() {
-        for failure in &failures {
+    let mut notices = commands::Notices::default();
+    let outcome =
+        match commands::status::execute(solution, &request, server::Client::new, &mut notices) {
+            Ok(outcome) => outcome,
+            Err(error) => {
+                print_notices(&notices);
+                if let commands::status::StatusCommandError::Unreadable(items) = &error {
+                    for problem in items {
+                        eprintln!("twaco: {problem}");
+                    }
+                } else {
+                    eprintln!("twaco: {error}");
+                }
+                return FAILED;
+            }
+        };
+    print_notices(&notices);
+    if !outcome.failures.is_empty() {
+        for failure in &outcome.failures {
             eprintln!("twaco: {failure}");
         }
-        eprintln!("twaco: {} entity status request(s) failed", failures.len());
+        eprintln!(
+            "twaco: {} entity status request(s) failed",
+            outcome.failures.len()
+        );
         return FAILED;
     }
 
-    println!("{} entity status(es)", statuses.len());
-    for (verdict, count) in status::counts(&statuses) {
+    println!("{} entity status(es)", outcome.statuses.len());
+    for (verdict, count) in status::counts(&outcome.statuses) {
         println!("  {:<19} {count}", verdict.label());
     }
     if args.has("--detail") {
         println!();
-        for status in &statuses {
+        for status in &outcome.statuses {
             println!(
                 "{}/{}  {}",
                 status.collection,
@@ -3491,14 +3493,11 @@ fn entity_status(solution: &Solution, args: &Args) -> u8 {
             );
         }
     }
-    if args.has("--record") {
-        status::record_matching(&mut baseline, &statuses);
-        if let Err(error) = baseline.write(&solution.root) {
-            eprintln!("twaco: {error}");
-            return FAILED;
-        }
-    }
-    if statuses.iter().all(|status| !status.verdict.is_drift()) {
+    if outcome
+        .statuses
+        .iter()
+        .all(|status| !status.verdict.is_drift())
+    {
         OK
     } else {
         DRIFT
@@ -4804,90 +4803,116 @@ fn check(solution: &Solution, args: &Args) -> u8 {
     }
 }
 
+/// Print a gate report in the command-line form shared by `check` and deploy's gate outcome.
+fn print_check_report(report: &twaco::core::check::CheckReport, detail: bool) {
+    for gate in &report.gates {
+        match &gate.broken {
+            Some(why) => println!("  BROKEN  {:<14} {why}", gate.name),
+            None if gate.findings.is_empty() => {
+                println!("  ok      {:<14} {} examined", gate.name, gate.examined)
+            }
+            None => println!(
+                "  {:<7} {:<14} {} finding(s) in {} examined",
+                if gate.gates_the_run { "FAIL" } else { "warn" },
+                gate.name,
+                gate.findings.len(),
+                gate.examined
+            ),
+        }
+    }
+    if detail {
+        for gate in &report.gates {
+            for line in &gate.prose {
+                println!("    {}: {line}", gate.name);
+            }
+            for finding in &gate.findings {
+                println!("    {finding}");
+            }
+        }
+    }
+    println!();
+    if report.ok() {
+        println!("{} gate(s) passed", report.gates.len());
+    } else {
+        println!(
+            "{} finding(s) across {} gate(s); {} gate(s) could not run",
+            report.findings(),
+            report
+                .gates
+                .iter()
+                .filter(|gate| !gate.findings.is_empty())
+                .count(),
+            report.broken()
+        );
+        if !detail {
+            println!("run `twaco check --detail` to see them");
+        }
+        if !report.blocks() {
+            println!("nothing found blocks the run");
+        }
+    }
+}
+
 /// Assemble one importable document from the split entity files.
 fn bundle(solution: &Solution, args: &Args) -> u8 {
-    use twaco::core::bundle;
-
     let backend_only = args.has("--backend-only");
-    let selection = if backend_only {
-        bundle::Selection::backend(solution)
-    } else {
-        bundle::Selection::everything()
+    let request = commands::bundle::BundleRequest {
+        backend_only,
+        mode: if args.has("--check") {
+            Mode::Plan
+        } else {
+            Mode::Apply
+        },
+        lock_label: "bundle",
     };
-    let files = bundle::source_files(solution);
-    if files.is_empty() {
-        eprintln!(
-            "twaco: no entity XML found under {}",
-            solution.root.display()
-        );
-        return FAILED;
-    }
-
-    let built = match bundle::build(&files, &selection) {
-        Ok(b) => b,
-        Err(e) => {
-            eprintln!("twaco: {e}");
+    let mut notices = commands::Notices::default();
+    let outcome = match commands::bundle::execute(solution, &request, &mut notices) {
+        Ok(outcome) => outcome,
+        Err(error) => {
+            print_notices(&notices);
+            eprintln!("twaco: {error}");
             return FAILED;
         }
     };
-
+    print_notices(&notices);
     // A reference to something this repository owns but this bundle leaves out. Scoped to the
     // selection, so a backend-only build reports what it dropped rather than what it kept.
-    for dangling in bundle::dangling_references(&files, &files) {
+    let files = twaco::core::bundle::source_files(solution);
+    for dangling in twaco::core::bundle::dangling_references(&files, &files) {
         println!("  note: {dangling}");
     }
-
-    let name = if backend_only {
-        solution.bundle.backend_name.clone()
-    } else {
-        solution.bundle.name.clone()
-    };
-    let directory = solution.root.join(&solution.solution.dist);
-    let target = directory.join(&name);
-
-    if args.has("--check") {
-        // A check compares against what is on disk. Rebuilding and reporting the size would say
-        // nothing about whether the bundle anyone is about to import is the current one.
-        return match std::fs::read(&target) {
-            Ok(existing) if existing == built.bytes => {
-                println!(
-                    "{} is current: {} entities from {} file(s)",
-                    target.display(),
-                    built.entities.len(),
-                    built.files
-                );
-                OK
-            }
-            Ok(_) => {
-                println!("{} is out of date; run `twaco bundle`", target.display());
-                DRIFT
-            }
-            Err(_) => {
-                println!(
-                    "{} has not been built; run `twaco bundle`",
-                    target.display()
-                );
-                DRIFT
-            }
-        };
+    match outcome {
+        commands::bundle::BundleOutcome::Current { target, bundle, .. } => {
+            println!(
+                "{} is current: {} entities from {} file(s)",
+                target.display(),
+                bundle.entities.len(),
+                bundle.files
+            );
+            OK
+        }
+        commands::bundle::BundleOutcome::OutOfDate { target, .. } => {
+            println!("{} is out of date; run `twaco bundle`", target.display());
+            DRIFT
+        }
+        commands::bundle::BundleOutcome::Missing { target, .. } => {
+            println!(
+                "{} has not been built; run `twaco bundle`",
+                target.display()
+            );
+            DRIFT
+        }
+        commands::bundle::BundleOutcome::Written { target, bundle, .. } => {
+            println!(
+                "wrote {}: {} entities from {} file(s), {} bytes",
+                target.display(),
+                bundle.entities.len(),
+                bundle.files,
+                bundle.bytes.len()
+            );
+            OK
+        }
     }
-
-    if let Err(e) = std::fs::create_dir_all(&directory) {
-        eprintln!("twaco: {}: {e}", directory.display());
-        return FAILED;
-    }
-    if let Err(e) = workspace::write_entity(&target, &built.bytes) {
-        eprintln!("twaco: {e}");
-        return FAILED;
-    }
-    println!(
-        "wrote {}: {} entities from {} file(s), {} bytes",
-        target.display(),
-        built.entities.len(),
-        built.files,
-        built.bytes.len()
-    );
-    OK
 }
 
 /// Deploy through import, read-back, configured service calls, and a post-service re-read.
@@ -4897,117 +4922,142 @@ fn deploy_cmd(solution: &Solution, args: &Args) -> u8 {
         return FAILED;
     }
 
-    // Offline gates are first, before profiles, bundles, or server traffic.
-    if !args.has("--skip-checks") {
-        println!("offline gates:");
-        let code = check(solution, args);
-        if code != OK {
-            eprintln!("twaco: offline gates block deploy");
-            return code;
-        }
-        println!();
-    }
-
-    let (projects, notes) = match deploy::plan_bundles(
-        solution,
-        deploy::PlanOptions {
-            only_projects: &args.only_projects,
-            only: &args.only,
-            backend_only: args.has("--backend-only"),
-        },
-    ) {
-        Ok(planned) => planned,
-        Err(error) => {
-            eprintln!("twaco: {error}");
-            return FAILED;
-        }
-    };
-    for note in &notes {
-        println!("{note}");
-    }
-
-    let profile_name = args.profile.as_deref().unwrap_or("default");
-    let profile = match profile::load(&solution.root, profile_name) {
-        Ok(profile) => profile,
-        Err(error) => {
-            eprintln!("twaco: {error}");
-            return FAILED;
-        }
-    };
     let apply = args.has("--apply");
     let force = args.has("--force");
-    let client = server::Client::new(profile.clone());
-    if apply && force && !args.has("--no-backup") {
-        match backup::before_forced_deploy(&client, solution, &projects, &backup::new_stamp()) {
-            Ok(Some(dir)) => println!(
-                "the server's copies of the entities --force overwrites were saved to {dir}"
-            ),
-            Ok(None) => {}
-            Err(error) => {
+    let request = commands::deploy::DeployRequest {
+        mode: if apply { Mode::Apply } else { Mode::Plan },
+        force,
+        backup: !args.has("--no-backup"),
+        skip_checks: args.has("--skip-checks"),
+        only_projects: args.only_projects.clone(),
+        only: args.only.clone(),
+        backend_only: args.has("--backend-only"),
+        profile: args
+            .profile
+            .clone()
+            .unwrap_or_else(|| "default".to_string()),
+        lock_label: "deploy",
+    };
+    let mut notices = commands::Notices::default();
+    let outcome = match commands::deploy::execute(
+        solution,
+        &request,
+        server::Client::new,
+        &mut notices,
+    ) {
+        Ok(outcome) => outcome,
+        Err(error) => {
+            print_notices(&notices);
+            if let Some(gates) = error.gates() {
+                println!("offline gates:");
+                print_check_report(gates, args.has("--detail"));
+                println!();
+            }
+            if matches!(error, commands::deploy::DeployCommandError::Backup { .. }) {
                 eprintln!("twaco: {error} (--no-backup deploys without one)");
                 return FAILED;
             }
+            if let Some(dir) = error.backup() {
+                println!(
+                    "the server's copies of the entities --force overwrites were saved to {dir}"
+                );
+            }
+            return match error {
+                commands::deploy::DeployCommandError::Deploy { why, .. } => {
+                    match *why {
+                        deploy::DeployError::ParseFailed(failures) => {
+                            for failure in failures {
+                                eprintln!(
+                                    "twaco: {}/{} {}:{} {}",
+                                    failure.entity,
+                                    failure.service,
+                                    failure.line,
+                                    failure.column,
+                                    failure.message
+                                );
+                            }
+                            eprintln!("twaco: live parse failed; no import was sent");
+                            FAILED
+                        }
+                        deploy::DeployError::Conflicts(conflicts) => {
+                            for conflict in conflicts {
+                                let deploy::EntityPlan {
+                                    collection,
+                                    name,
+                                    decision,
+                                    ..
+                                } = conflict;
+                                if let push::Decision::Refuse(reason) = decision {
+                                    eprintln!("twaco: {collection}/{name}: refused: {reason}");
+                                }
+                            }
+                            eprintln!("twaco: nothing was imported; pass --force to overwrite these changes");
+                            DRIFT
+                        }
+                        deploy::DeployError::NotKept(report) => {
+                            print_deploy_report(&report, true, force);
+                            for item in &report.not_kept {
+                                eprintln!(
+                                    "twaco: {}/{}: not kept (sent {}, read back {}{})",
+                                    item.collection,
+                                    item.name,
+                                    item.sent,
+                                    item.read_back.as_deref().unwrap_or("nothing"),
+                                    item.error
+                                        .as_ref()
+                                        .map(|why| format!("; {why}"))
+                                        .unwrap_or_default()
+                                );
+                            }
+                            FAILED
+                        }
+                        why => {
+                            eprintln!("twaco: {why}");
+                            FAILED
+                        }
+                    }
+                }
+                error => {
+                    eprintln!("twaco: {error}");
+                    FAILED
+                }
+            };
         }
-    }
-    let result = deploy::run(
-        &client,
-        &deploy::DiskBaseline::new(&solution.root),
-        &profile,
-        &projects,
-        apply,
-        force,
-        !args.only.is_empty(),
-    );
-    match result {
-        Ok(report) => {
+    };
+    print_notices(&notices);
+    match outcome {
+        commands::deploy::DeployOutcome::GatesBlocked { report, .. } => {
+            println!("offline gates:");
+            print_check_report(&report, args.has("--detail"));
+            eprintln!("twaco: offline gates block deploy");
+            if report.broken() > 0 {
+                FAILED
+            } else {
+                DRIFT
+            }
+        }
+        commands::deploy::DeployOutcome::Complete {
+            report,
+            gates,
+            notes,
+            backup,
+            ..
+        } => {
+            if let Some(gates) = gates {
+                println!("offline gates:");
+                print_check_report(&gates, args.has("--detail"));
+                println!();
+            }
+            for note in notes {
+                println!("{note}");
+            }
+            if let Some(dir) = backup {
+                println!(
+                    "the server's copies of the entities --force overwrites were saved to {dir}"
+                );
+            }
             print_deploy_report(&report, apply, force);
             OK
-        }
-        Err(deploy::DeployError::ParseFailed(failures)) => {
-            for failure in failures {
-                eprintln!(
-                    "twaco: {}/{} {}:{} {}",
-                    failure.entity, failure.service, failure.line, failure.column, failure.message
-                );
-            }
-            eprintln!("twaco: live parse failed; no import was sent");
-            FAILED
-        }
-        Err(deploy::DeployError::Conflicts(conflicts)) => {
-            for conflict in conflicts {
-                let deploy::EntityPlan {
-                    collection,
-                    name,
-                    decision,
-                    ..
-                } = conflict;
-                if let push::Decision::Refuse(reason) = decision {
-                    eprintln!("twaco: {collection}/{name}: refused: {reason}");
-                }
-            }
-            eprintln!("twaco: nothing was imported; pass --force to overwrite these changes");
-            DRIFT
-        }
-        Err(deploy::DeployError::NotKept(report)) => {
-            print_deploy_report(&report, true, force);
-            for item in &report.not_kept {
-                eprintln!(
-                    "twaco: {}/{}: not kept (sent {}, read back {}{})",
-                    item.collection,
-                    item.name,
-                    item.sent,
-                    item.read_back.as_deref().unwrap_or("nothing"),
-                    item.error
-                        .as_ref()
-                        .map(|why| format!("; {why}"))
-                        .unwrap_or_default()
-                );
-            }
-            FAILED
-        }
-        Err(error) => {
-            eprintln!("twaco: {error}");
-            FAILED
         }
     }
 }
@@ -5269,11 +5319,11 @@ mod tests {
                 }
             }
         }
-        for (command, args) in [
-            ("bundle", vec![]),
-            ("deploy", vec!["--apply"]),
-            ("entity status", vec!["--record"]),
-            ("repo pull", vec!["pull", "--apply"]),
+        for (command, args, generic_lock) in [
+            ("bundle", vec![], false),
+            ("deploy", vec!["--apply"], false),
+            ("entity status", vec!["--record"], false),
+            ("repo pull", vec!["pull", "--apply"], true),
         ] {
             let route_args: Vec<String> = command.split_whitespace().map(str::to_string).collect();
             let (route_name, _, flags) = route(&route_args).unwrap();
@@ -5282,9 +5332,15 @@ mod tests {
                 flags,
             )
             .unwrap();
-            assert!(
+            assert_eq!(
                 writes_workspace(route_name, &parsed),
-                "test setup: {command} must write the workspace"
+                generic_lock,
+                "{command} must {} the generic workspace lock",
+                if generic_lock {
+                    "take"
+                } else {
+                    "leave to its executor"
+                }
             );
             let row = rows
                 .iter()
