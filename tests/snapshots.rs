@@ -69,6 +69,11 @@ const SCENARIOS: &[(&str, &[&str])] = &[
         "unused_bad_collection",
         &["unused", "--collection", "Mashups"],
     ),
+    ("docs_summary", &["docs"]),
+    ("docs_detail", &["docs", "--detail"]),
+    ("docs_json", &["docs", "--json"]),
+    ("docs_force_needs_out", &["docs", "--force"]),
+    ("docs_takes_no_entity", &["docs", "Audit"]),
     (
         "rename_service_plan",
         &[

@@ -47,6 +47,12 @@ unused [--min-confidence structural|resolved|review] [--collection <name>]
                             entities no entry point reaches; advisory, deletes nothing
     --detail                list every one, with the entry points and each file
     --json                  the report as JSON
+docs [--out <file>] [--force]
+                            the solution written down: projects and deploy order, inheritance,
+                            services, DataShapes, and the references to review; Markdown
+    --detail                every signature and field, and every review reference
+    --json                  JSON instead of Markdown
+    --out <file>            write it to one file (atomically) instead of printing; --force replaces
 adopt <export.xml>          what a designer's Composer export really changes; --apply writes it in
     --entity <name>         only this entity; --detail; --json; --fail-on-revert
 rename entity <old> <new> [--apply] [--text] [--detail] [--json] [--skip-checks]

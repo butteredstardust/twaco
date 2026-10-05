@@ -113,6 +113,7 @@ text and structured content. The code identifies the next action.
 | `catalog` | no | Every service in the repository, with its signature and origin |
 | `impact` | no | What changing an entity, or one service, property or field of it, would reach, each dependent at the strength of its weakest reference |
 | `unused` | no | Entities no entry point reaches (advisory; deletes nothing), with what still names them |
+| `docs` | no | The solution written down: projects and deploy order, inheritance, services, DataShapes and the references to review, as JSON and Markdown |
 | `guide` | no | twaco's workflow, the platform's quirks and the solution's own documents |
 | `help_search` | no | Search the ThingWorx Platform help center |
 | `help_page` | no | Read a help page as Markdown |

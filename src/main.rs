@@ -17,7 +17,7 @@ use twaco::core::config::Solution;
 use twaco::core::entity_key::EntityKey;
 use twaco::core::index::Confidence;
 use twaco::core::{
-    adopt, backup, baseline, catalog, config_table, datatable_copy, db, deploy, entity_carry,
+    adopt, backup, baseline, catalog, config_table, datatable_copy, db, deploy, docs, entity_carry,
     entity_delete, impact, lock, newblock, profile, push, relocate, rename, retemplate, server,
     status, types, unused, workflow, workspace,
 };
@@ -235,6 +235,7 @@ fn main() -> ExitCode {
             "catalog" => catalog_cmd(solution, &parsed),
             "impact" => impact_cmd(solution, &parsed),
             "unused" => unused_cmd(solution, &parsed),
+            "docs" => docs_cmd(solution, &parsed),
             "package" => package_cmd(solution, &parsed),
             "export" => export_cmd(solution, &parsed),
             "import" => import_cmd(solution, &parsed),
@@ -307,6 +308,7 @@ fn route(args: &[String]) -> Result<Route, String> {
             1,
             &["--min-confidence", "--collection", "--detail", "--json"],
         ),
+        "docs" => ("docs", 1, &["--detail", "--json", "--out", "--force"]),
         "package" => ("package", 1, &["--project", "--backend-only", "--frontend-only", "--editable", "--out", "--force"]),
         "import" => (
             "import",
@@ -757,6 +759,12 @@ const USAGE: &str = r#"usage: twaco <command>
                               entities no entry point reaches; advisory, deletes nothing
       --detail                list every one, with the entry points and each file
       --json                  the report as JSON
+  docs [--out <file>] [--force]
+                              the solution written down: projects and deploy order, inheritance,
+                              services, DataShapes, and the references to review; Markdown
+      --detail                every signature and field, and every review reference
+      --json                  JSON instead of Markdown
+      --out <file>            write it to one file (atomically) instead of printing; --force replaces
   ext list [--json]           the server's extension packages
   ext show <package>          one package: its extensions, and which are in use
   ext import <zip>            validate a package on the server; --apply installs it
@@ -2674,6 +2682,39 @@ fn unused_cmd(solution: &Solution, args: &Args) -> u8 {
         );
     } else {
         print!("{}", unused::render_text(&report, args.has("--detail")));
+    }
+    OK
+}
+
+/// The solution written down. Offline; with `--out` it writes exactly one file.
+fn docs_cmd(solution: &Solution, args: &Args) -> u8 {
+    if !args.names.is_empty() {
+        eprintln!("twaco: docs takes no entity name");
+        return FAILED;
+    }
+    if args.has("--force") && args.out.is_none() {
+        eprintln!("twaco: --force only applies to --out");
+        return FAILED;
+    }
+    let document = docs::build(solution);
+    let detail = args.has("--detail");
+    let text = if args.has("--json") {
+        let mut json =
+            serde_json::to_string_pretty(&document.to_json(detail)).expect("a document serialises");
+        json.push('\n');
+        json
+    } else {
+        docs::render_markdown(&document, detail)
+    };
+    match &args.out {
+        None => print!("{text}"),
+        Some(path) => {
+            if let Err(error) = docs::write(path, &text, args.has("--force")) {
+                eprintln!("twaco: docs: {error}");
+                return FAILED;
+            }
+            println!("{} bytes to {}", text.len(), path.display());
+        }
     }
     OK
 }
@@ -5366,6 +5407,7 @@ mod tests {
             "catalog",
             "impact",
             "unused",
+            "docs",
             "package",
             "import",
             "export",

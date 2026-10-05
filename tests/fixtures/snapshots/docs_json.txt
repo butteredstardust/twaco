@@ -1,0 +1,250 @@
+$ twaco docs --json
+exit: 0
+
+--- stdout
+{
+  "solution": "Acme.Orders",
+  "projects": [
+    {
+      "name": "Acme.Orders",
+      "deploy_order": 1,
+      "depends_on": [],
+      "entities": {
+        "DataShapes": 2,
+        "Mashups": 1,
+        "Projects": 1,
+        "ThingShapes": 2,
+        "ThingTemplates": 1,
+        "Things": 5
+      }
+    }
+  ],
+  "entities": [
+    {
+      "entity": "ThingShapes/Acme.Orders.Audit_TS",
+      "collection": "ThingShapes",
+      "name": "Acme.Orders.Audit_TS",
+      "project": "Acme.Orders",
+      "file": "ThingShapes/Acme.Orders.Audit_TS.xml",
+      "template": null,
+      "shapes": [],
+      "inherits": [],
+      "implemented_by": [
+        "Acme.Orders.Audit"
+      ],
+      "referred_to_by": {
+        "structural": 1,
+        "resolved": 0,
+        "review": 0
+      },
+      "refers_to": {
+        "structural": 0,
+        "resolved": 0,
+        "review": 0
+      },
+      "service_count": 1
+    },
+    {
+      "entity": "ThingShapes/Acme.Orders.Legacy_TS",
+      "collection": "ThingShapes",
+      "name": "Acme.Orders.Legacy_TS",
+      "project": "Acme.Orders",
+      "file": "ThingShapes/Acme.Orders.Legacy_TS.xml",
+      "template": null,
+      "shapes": [],
+      "inherits": [],
+      "implemented_by": [],
+      "referred_to_by": {
+        "structural": 0,
+        "resolved": 0,
+        "review": 0
+      },
+      "refers_to": {
+        "structural": 1,
+        "resolved": 0,
+        "review": 0
+      },
+      "service_count": 1
+    },
+    {
+      "entity": "ThingTemplates/Acme.Orders.Base_TT",
+      "collection": "ThingTemplates",
+      "name": "Acme.Orders.Base_TT",
+      "project": "Acme.Orders",
+      "file": "ThingTemplates/Acme.Orders.Base_TT.xml",
+      "template": null,
+      "shapes": [],
+      "inherits": [],
+      "implemented_by": [],
+      "referred_to_by": {
+        "structural": 1,
+        "resolved": 0,
+        "review": 0
+      },
+      "refers_to": {
+        "structural": 0,
+        "resolved": 0,
+        "review": 0
+      },
+      "service_count": 1
+    },
+    {
+      "entity": "Things/Acme.Orders.Audit",
+      "collection": "Things",
+      "name": "Acme.Orders.Audit",
+      "project": "Acme.Orders",
+      "file": "Things/Acme.Orders.Audit.xml",
+      "template": "GenericThing",
+      "shapes": [
+        "Acme.Orders.Audit_TS"
+      ],
+      "inherits": [
+        "Acme.Orders.Audit_TS",
+        "GenericThing"
+      ],
+      "implemented_by": [],
+      "referred_to_by": {
+        "structural": 0,
+        "resolved": 1,
+        "review": 0
+      },
+      "refers_to": {
+        "structural": 1,
+        "resolved": 0,
+        "review": 0
+      },
+      "service_count": 1
+    },
+    {
+      "entity": "Things/Acme.Orders.Database",
+      "collection": "Things",
+      "name": "Acme.Orders.Database",
+      "project": "Acme.Orders",
+      "file": "Things/Acme.Orders.Database.xml",
+      "template": "GenericThing",
+      "shapes": [],
+      "inherits": [
+        "GenericThing"
+      ],
+      "implemented_by": [],
+      "referred_to_by": {
+        "structural": 0,
+        "resolved": 0,
+        "review": 0
+      },
+      "refers_to": {
+        "structural": 0,
+        "resolved": 0,
+        "review": 1
+      },
+      "service_count": 0
+    },
+    {
+      "entity": "Things/Acme.Orders.Lines_DT",
+      "collection": "Things",
+      "name": "Acme.Orders.Lines_DT",
+      "project": "Acme.Orders",
+      "file": "Things/Acme.Orders.Lines_DT.xml",
+      "template": "DataTable",
+      "shapes": [],
+      "inherits": [
+        "DataTable"
+      ],
+      "implemented_by": [],
+      "referred_to_by": {
+        "structural": 0,
+        "resolved": 1,
+        "review": 0
+      },
+      "refers_to": {
+        "structural": 0,
+        "resolved": 0,
+        "review": 0
+      },
+      "service_count": 0
+    },
+    {
+      "entity": "Things/Acme.Orders.Manager",
+      "collection": "Things",
+      "name": "Acme.Orders.Manager",
+      "project": "Acme.Orders",
+      "file": "Things/Acme.Orders.Manager.xml",
+      "template": "Acme.Orders.Base_TT",
+      "shapes": [],
+      "inherits": [
+        "Acme.Orders.Base_TT"
+      ],
+      "implemented_by": [],
+      "referred_to_by": {
+        "structural": 0,
+        "resolved": 1,
+        "review": 0
+      },
+      "refers_to": {
+        "structural": 3,
+        "resolved": 2,
+        "review": 0
+      },
+      "service_count": 5
+    },
+    {
+      "entity": "Things/Acme.Orders.Poller",
+      "collection": "Things",
+      "name": "Acme.Orders.Poller",
+      "project": "Acme.Orders",
+      "file": "Things/Acme.Orders.Poller.xml",
+      "template": "Timer",
+      "shapes": [],
+      "inherits": [
+        "Timer"
+      ],
+      "implemented_by": [],
+      "referred_to_by": {
+        "structural": 0,
+        "resolved": 0,
+        "review": 0
+      },
+      "refers_to": {
+        "structural": 0,
+        "resolved": 0,
+        "review": 0
+      },
+      "service_count": 0
+    }
+  ],
+  "data_shapes": [
+    {
+      "name": "Acme.Orders.OrderLine_DS",
+      "project": "Acme.Orders",
+      "base": null,
+      "used_by": [
+        "Things/Acme.Orders.Manager"
+      ],
+      "field_count": 4
+    },
+    {
+      "name": "Acme.Orders.Retired_DS",
+      "project": "Acme.Orders",
+      "base": null,
+      "used_by": [
+        "ThingShapes/Acme.Orders.Legacy_TS"
+      ],
+      "field_count": 1
+    }
+  ],
+  "review_references": [
+    {
+      "from": "Things/Acme.Orders.Database",
+      "to": "DataShapes/Acme.Orders.OrderLine_DS",
+      "kind": "script_mention",
+      "member": "GetDBInfo",
+      "at": "Things/Acme.Orders.Database.xml"
+    }
+  ],
+  "unparsed_scripts": [],
+  "unreadable": [],
+  "complete": true,
+  "limits": "references built at run time, and anything outside this repository, are not seen; permissions are not read yet"
+}
+--- stderr
+

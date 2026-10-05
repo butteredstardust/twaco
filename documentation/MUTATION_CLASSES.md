@@ -72,6 +72,7 @@ when the command is asked to write. A local output named by an option is include
 | `catalog` | read-only | read-only | none | Retry freely. | `main.rs: catalog_cmd` |
 | `impact` | read-only | read-only | none | Retry freely. | `core/impact.rs: run` |
 | `unused` | read-only | read-only | none | Retry freely. | `core/unused.rs: run` |
+| `docs` | read-only | single-file atomic | named output file | The output is old or new; retry freely. | `main.rs: docs_cmd` |
 | `ext list` | read-only | read-only | none | Retry freely. | `main.rs: ext_cmd` |
 | `ext show` | read-only | read-only | none | Retry freely. | `main.rs: ext_cmd` |
 | `ext import` | read-only | server-partial | server extension | Check installed extensions before retrying. | `main.rs: ext_cmd` |
@@ -144,6 +145,7 @@ when the command is asked to write. A local output named by an option is include
 | `catalog` | read-only | read-only | none | Retry freely. | `mcp.rs: catalog_tool` |
 | `impact` | read-only | read-only | none | Retry freely. | `mcp.rs: impact_tool` |
 | `unused` | read-only | read-only | none | Retry freely. | `mcp.rs: unused_tool` |
+| `docs` | read-only | read-only | none | Retry freely. | `mcp.rs: docs_tool` |
 | `guide` | read-only | read-only | none | Retry freely. | `mcp.rs: guide_tool` |
 | `help_search` | single-file atomic | single-file atomic | user cache file | The cache file is old or new; retry freely. | `mcp.rs: help_search_tool` |
 | `help_page` | single-file atomic | single-file atomic | user cache file | The cache file is old or new; retry freely. | `mcp.rs: help_page_tool` |

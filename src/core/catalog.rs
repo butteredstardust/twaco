@@ -43,7 +43,7 @@ pub struct CatalogEntity {
     pub services: Vec<CatalogService>,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Clone, Debug, Serialize)]
 pub struct CatalogService {
     pub name: String,
     pub parameters: Vec<CatalogParameter>,
@@ -53,7 +53,7 @@ pub struct CatalogService {
     pub has_script: bool,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Clone, Debug, Serialize)]
 pub struct CatalogParameter {
     pub name: String,
     #[serde(rename = "baseType")]
@@ -65,7 +65,7 @@ pub struct CatalogParameter {
     pub default: Option<String>,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Clone, Debug, Serialize)]
 pub struct CatalogValue {
     #[serde(rename = "baseType")]
     pub base_type: String,

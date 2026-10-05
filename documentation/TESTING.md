@@ -48,7 +48,7 @@ Run them after any change to `scan`, `splice`, `sidecar`, `datashape`, `datatabl
 
 ## The command-line snapshots
 
-`tests/snapshots.rs` runs 36 offline scenarios (usage, refusals, plans, JSON lines) and compares the
+`tests/snapshots.rs` runs 41 offline scenarios (usage, refusals, plans, JSON lines) and compares the
 exit code, standard output and standard error with `tests/fixtures/snapshots/<name>.txt`. The text
 is what people and scripts read, so a change to it should be a decision: the test fails until you
 run `TWACO_BLESS=1 cargo test --test snapshots` and review `git diff tests/fixtures/snapshots`. The

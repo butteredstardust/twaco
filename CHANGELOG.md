@@ -40,6 +40,13 @@ All notable changes to twaco are recorded here. The format follows
   are what `twaco.toml` deploys, every mashup, anything that runs on events (subscriptions, Timers,
   Schedulers) and what the new `[unused] keep` list names. It is advisory and deletes nothing.
 
+- `twaco docs` (and the `docs` MCP tool) writes the solution down from the repository: the projects
+  in deploy order, how Things, templates and shapes inherit, every service with its signature, the
+  DataShapes with their fields and where they are used, a dependency diagram, and the references
+  that only look like a name. The text has no dates, so regenerating it and diffing shows what
+  changed. `--out <file>` writes it atomically and refuses to replace a file without `--force`.
+  It says what it does not cover: permissions are not read yet.
+
 ### Fixed
 
 - A rename that is refused for the database now says why. An entity or prefix rename in a
