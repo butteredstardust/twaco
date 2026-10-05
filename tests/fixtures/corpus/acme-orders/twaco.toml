@@ -1,0 +1,12 @@
+# A small repository invented for twaco's own tests: every name is made up.
+[solution]
+name = "Acme.Orders"
+src = "src"
+dist = "dist"
+
+[format]
+indent_cdata_payload = false
+
+[[project]]
+name = "Acme.Orders"
+root = "."

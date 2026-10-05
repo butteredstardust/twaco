@@ -13,7 +13,7 @@ cargo fmt --all --check           # formatting; `cargo fmt` fixes it
 | Unit tests | beside the code, `src/**` | nothing; servers are fakes behind a trait or a local TCP listener |
 | `tests/offline.rs` | the built binary | nothing; proves offline commands start with an empty environment |
 | `tests/call.rs` | the built binary against a local fake server | nothing |
-| `tests/corpus.rs` | real ThingWorx repositories | `TWACO_CORPUS` |
+| `tests/corpus.rs` | the bundled `Acme.Orders` repository, and real ThingWorx repositories when named | nothing; `TWACO_CORPUS` adds real ones |
 | `tests/properties.rs` | generated documents, edits and scripts | nothing; 256 cases per property, `PROPTEST_CASES=5000` for a deeper run |
 
 ## The corpus tests
@@ -30,9 +30,17 @@ TWACO_CORPUS=~/work/solution-a:~/work/solution-b cargo test --test corpus
 $env:TWACO_CORPUS = "C:\work\solution-a;C:\work\solution-b"; cargo test --test corpus
 ```
 
-Without `TWACO_CORPUS` they skip and pass. Set `TWACO_REQUIRE_CORPUS=1` to make a missing
-corpus fail instead. Each repository's script layout is detected from its own files, as
-`twaco init` detects it.
+They always run over `tests/fixtures/corpus/acme-orders`, a small repository of invented
+entities (a project, template, shape, DataShape, DataTable, mashup and three Things) whose scripts
+include the awkward cases: a CDATA terminator inside a string, template literals, a division after
+a call, a `GetDBInfo` override. `TWACO_CORPUS` adds real repositories to it. The bundled one cannot
+show what ThingWorx really writes, so run real ones after touching `scan`, `splice` or a sidecar
+module. Each repository's script layout is detected from its own files, as `twaco init` detects
+it.
+
+A few real exports are refused by design and the tests expect exactly those refusals: a DataTable
+whose accumulated shape the platform stored as invalid JSON, two services of one name in one
+entity, and an entity whose name no rename may take.
 
 Run them after any change to `scan`, `splice`, `sidecar`, `datashape`, `datatable` or
 `mashup`.

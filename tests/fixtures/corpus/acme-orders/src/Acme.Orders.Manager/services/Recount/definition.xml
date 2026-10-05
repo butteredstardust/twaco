@@ -1,0 +1,16 @@
+<ServiceDefinition
+                     aspect.isAsync="false"
+                     category=""
+                     description="Count the settings."
+                     isAllowOverride="false"
+                     isLocalOnly="false"
+                     isOpen="false"
+                     isPrivate="false"
+                     name="Recount">
+                        <ResultType
+                         baseType="INTEGER"
+                         description=""
+                         name="result"
+                         ordinal="0"></ResultType>
+                        <ParameterDefinitions></ParameterDefinitions>
+                    </ServiceDefinition>

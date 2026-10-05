@@ -1,0 +1,22 @@
+<ServiceDefinition
+                     aspect.isAsync="false"
+                     category=""
+                     description="Tidy an order reference."
+                     isAllowOverride="false"
+                     isLocalOnly="false"
+                     isOpen="false"
+                     isPrivate="false"
+                     name="Normalise">
+                        <ResultType
+                         baseType="STRING"
+                         description=""
+                         name="result"
+                         ordinal="0"></ResultType>
+                        <ParameterDefinitions>
+                            <FieldDefinition
+                             baseType="STRING"
+                             description="The reference as typed"
+                             name="text"
+                             ordinal="0"></FieldDefinition>
+                        </ParameterDefinitions>
+                    </ServiceDefinition>

@@ -1,0 +1,108 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Entities
+ majorVersion="10"
+ minorVersion="1"
+ universal="password">
+    <ThingShapes>
+        <ThingShape
+         description="Something that can write an audit line."
+         documentationContent=""
+         homeMashup=""
+         name="Acme.Orders.Audit_TS"
+         projectName="Acme.Orders"
+         tags="">
+            <avatar></avatar>
+            <DesignTimePermissions>
+                <Create></Create>
+                <Read></Read>
+                <Update></Update>
+                <Delete></Delete>
+                <Metadata></Metadata>
+            </DesignTimePermissions>
+            <RunTimePermissions></RunTimePermissions>
+            <VisibilityPermissions>
+                <Visibility>
+                    <Principal
+                     isPermitted="true"
+                     name="Acme.Orders.Default_OR"
+                     type="Organization"></Principal>
+                </Visibility>
+            </VisibilityPermissions>
+            <ConfigurationTableDefinitions></ConfigurationTableDefinitions>
+            <ConfigurationTables></ConfigurationTables>
+            <PropertyDefinitions></PropertyDefinitions>
+            <ServiceDefinitions>
+                <ServiceDefinition
+                 aspect.isAsync="false"
+                 category=""
+                 description="Write one audit line."
+                 isAllowOverride="false"
+                 isLocalOnly="false"
+                 isOpen="false"
+                 isPrivate="false"
+                 name="Record">
+                    <ResultType
+                     baseType="NOTHING"
+                     description=""
+                     name="result"
+                     ordinal="0"></ResultType>
+                    <ParameterDefinitions>
+                        <FieldDefinition
+                         baseType="STRING"
+                         description="The order"
+                         name="orderId"
+                         ordinal="0"></FieldDefinition>
+                        <FieldDefinition
+                         baseType="STRING"
+                         description="What happened"
+                         name="note"
+                         ordinal="1"></FieldDefinition>
+                    </ParameterDefinitions>
+                </ServiceDefinition>
+            </ServiceDefinitions>
+            <EventDefinitions></EventDefinitions>
+            <ServiceImplementations>
+                <ServiceImplementation
+                 description=""
+                 handlerName="Script"
+                 name="Record">
+                    <ConfigurationTables>
+                        <ConfigurationTable
+                         dataShapeName=""
+                         description=""
+                         isMultiRow="false"
+                         name="Script"
+                         ordinal="0">
+                            <DataShape>
+                                <FieldDefinitions>
+                                    <FieldDefinition
+                                     baseType="STRING"
+                                     description="code"
+                                     name="code"
+                                     ordinal="0"></FieldDefinition>
+                                </FieldDefinitions>
+                            </DataShape>
+                            <Rows>
+                                                <Row>
+                                                    <code>
+                                                    <![CDATA[
+/**
+ * Write one audit line.
+ *
+ * @function Record
+ * @param {STRING} orderId The order.
+ * @param {STRING} note What happened.
+ */
+logger.info("order " + orderId + ": " + note);
+]]>
+                                                    </code>
+                                                </Row>
+                            </Rows>
+                        </ConfigurationTable>
+                    </ConfigurationTables>
+                </ServiceImplementation>
+            </ServiceImplementations>
+            <Subscriptions></Subscriptions>
+        </ThingShape>
+    </ThingShapes>
+</Entities>

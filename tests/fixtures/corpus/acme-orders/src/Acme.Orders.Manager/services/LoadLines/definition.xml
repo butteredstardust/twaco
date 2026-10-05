@@ -1,0 +1,23 @@
+<ServiceDefinition
+                     aspect.isAsync="false"
+                     category=""
+                     description="The lines of one order."
+                     isAllowOverride="false"
+                     isLocalOnly="false"
+                     isOpen="false"
+                     isPrivate="false"
+                     name="LoadLines">
+                        <ResultType
+                         aspect.dataShape="Acme.Orders.OrderLine_DS"
+                         baseType="INFOTABLE"
+                         description=""
+                         name="result"
+                         ordinal="0"></ResultType>
+                        <ParameterDefinitions>
+                            <FieldDefinition
+                             baseType="STRING"
+                             description="The order"
+                             name="orderId"
+                             ordinal="0"></FieldDefinition>
+                        </ParameterDefinitions>
+                    </ServiceDefinition>

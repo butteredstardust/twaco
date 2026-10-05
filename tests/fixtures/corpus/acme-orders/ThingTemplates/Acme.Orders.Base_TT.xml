@@ -1,0 +1,110 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Entities
+ majorVersion="10"
+ minorVersion="1"
+ universal="password">
+    <ThingTemplates>
+        <ThingTemplate
+         aspect.thingTemplate="GenericThing"
+         description="The base of every order component."
+         documentationContent=""
+         effectiveThingPackage=""
+         homeMashup=""
+         name="Acme.Orders.Base_TT"
+         projectName="Acme.Orders"
+         tags=""
+         valueStream="">
+            <avatar></avatar>
+            <DesignTimePermissions>
+                <Create></Create>
+                <Read></Read>
+                <Update></Update>
+                <Delete></Delete>
+                <Metadata></Metadata>
+            </DesignTimePermissions>
+            <RunTimePermissions></RunTimePermissions>
+            <VisibilityPermissions>
+                <Visibility>
+                    <Principal
+                     isPermitted="true"
+                     name="Acme.Orders.Default_OR"
+                     type="Organization"></Principal>
+                </Visibility>
+            </VisibilityPermissions>
+            <ConfigurationTableDefinitions></ConfigurationTableDefinitions>
+            <ConfigurationTables></ConfigurationTables>
+            <ThingShape>
+                <PropertyDefinitions>
+                    <PropertyDefinition
+                     aspect.dataChangeType="VALUE"
+                     aspect.isPersistent="true"
+                     baseType="STRING"
+                     category=""
+                     description="Where the component runs"
+                     isLocalOnly="false"
+                     name="Region"
+                     ordinal="0"></PropertyDefinition>
+                </PropertyDefinitions>
+                <ServiceDefinitions>
+                    <ServiceDefinition
+                     aspect.isAsync="false"
+                     category=""
+                     description="Name the component."
+                     isAllowOverride="false"
+                     isLocalOnly="false"
+                     isOpen="false"
+                     isPrivate="false"
+                     name="Describe">
+                        <ResultType
+                         baseType="STRING"
+                         description=""
+                         name="result"
+                         ordinal="0"></ResultType>
+                        <ParameterDefinitions></ParameterDefinitions>
+                    </ServiceDefinition>
+                </ServiceDefinitions>
+                <EventDefinitions></EventDefinitions>
+                <ServiceImplementations>
+                    <ServiceImplementation
+                     description=""
+                     handlerName="Script"
+                     name="Describe">
+                        <ConfigurationTables>
+                            <ConfigurationTable
+                             dataShapeName=""
+                             description=""
+                             isMultiRow="false"
+                             name="Script"
+                             ordinal="0">
+                                <DataShape>
+                                    <FieldDefinitions>
+                                        <FieldDefinition
+                                         baseType="STRING"
+                                         description="code"
+                                         name="code"
+                                         ordinal="0"></FieldDefinition>
+                                    </FieldDefinitions>
+                                </DataShape>
+                                <Rows>
+                                                    <Row>
+                                                        <code>
+                                                        <![CDATA[
+/**
+ * @function Describe
+ * @returns {STRING} A line naming the component.
+ */
+var result = "Acme order component " + me.name;
+]]>
+                                                        </code>
+                                                    </Row>
+                                </Rows>
+                            </ConfigurationTable>
+                        </ConfigurationTables>
+                    </ServiceImplementation>
+                </ServiceImplementations>
+                <Subscriptions></Subscriptions>
+            </ThingShape>
+            <ImplementedShapes></ImplementedShapes>
+        </ThingTemplate>
+    </ThingTemplates>
+</Entities>

@@ -1,0 +1,38 @@
+[
+  {
+    "name": "orderId",
+    "baseType": "STRING",
+    "ordinal": "1",
+    "description": "The order",
+    "aspects": {
+      "isPrimaryKey": true
+    }
+  },
+  {
+    "name": "sku",
+    "baseType": "STRING",
+    "ordinal": "2",
+    "description": "The product",
+    "aspects": {
+      "isPrimaryKey": true
+    }
+  },
+  {
+    "name": "quantity",
+    "baseType": "INTEGER",
+    "ordinal": "3",
+    "description": "How many",
+    "aspects": {
+      "isPrimaryKey": false
+    }
+  },
+  {
+    "name": "note",
+    "baseType": "STRING",
+    "ordinal": "4",
+    "description": "A remark with <markup> & an é",
+    "aspects": {
+      "isPrimaryKey": false
+    }
+  }
+]

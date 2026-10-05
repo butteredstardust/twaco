@@ -1,0 +1,38 @@
+{
+  "CustomMashupCss": ".orders-title { color: #333; }",
+  "UI": {
+    "Widgets": {
+      "Title": {
+        "Properties": {
+          "Text": "Orders",
+          "Type": "label"
+        },
+        "Id": "Title"
+      }
+    },
+    "Id": "Dashboard"
+  },
+  "Data": {
+    "GetOrder": {
+      "DataName": "GetOrder",
+      "EntityName": "Acme.Orders.Manager",
+      "EntityType": "Things",
+      "Id": "GetOrder",
+      "Method": "POST",
+      "Parameters": {
+        "orderId": {
+          "Type": "STRING",
+          "Value": ""
+        }
+      },
+      "RefreshInterval": 0,
+      "Service": "GetOrder"
+    }
+  },
+  "Bindings": [
+    {
+      "Source": "GetOrder",
+      "Target": "Title"
+    }
+  ]
+}
