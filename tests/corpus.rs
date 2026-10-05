@@ -1263,6 +1263,52 @@ fn a_data_table_round_trips_through_its_sidecar_unchanged() {
 }
 
 #[test]
+fn get_db_info_scripts_read_the_same_over_the_corpus() {
+    // What the DBConnection reader finds in every `GetDBInfo` script of the corpus, as totals and
+    // one digest of every name with its span. A change to how scripts are read must keep the digest
+    // unless it is meant to read something different.
+    use sha2::{Digest, Sha256};
+    use std::fmt::Write as _;
+    let files = corpus();
+    if skip_without_corpus(&files, "GetDBInfo reading") {
+        return;
+    }
+    let mut dump = String::new();
+    let (mut scripts, mut shapes, mut fields, mut indexes, mut keys, mut unsure) = (0, 0, 0, 0, 0, 0);
+    let mut failures = Vec::new();
+    for path in &files {
+        let Ok(src) = std::fs::read(path) else { continue };
+        if !src.windows(9).any(|window| window == b"GetDBInfo") {
+            continue;
+        }
+        let scanned = match twaco::core::dbinfo::scan_entity(&src) {
+            Ok(scanned) => scanned,
+            Err(error) => {
+                failures.push(format!("{}: {error}", path.display()));
+                continue;
+            }
+        };
+        for (base, scan) in scanned {
+            scripts += 1;
+            unsure += usize::from(scan.unsure);
+            let _ = writeln!(dump, "{} @{base} unsure={}", path.display(), scan.unsure);
+            for shape in &scan.shapes {
+                shapes += 1;
+                fields += shape.fields.len();
+                indexes += shape.indexes.len();
+                keys += shape.foreign_keys.len();
+                let _ = writeln!(dump, "{shape:?}");
+            }
+        }
+    }
+    assert!(failures.is_empty(), "{}", failures.join("\n"));
+    let digest: String = Sha256::digest(dump.as_bytes()).iter().map(|byte| format!("{byte:02x}")).collect();
+    println!(
+        "getdbinfo scripts={scripts} shapes={shapes} fields={fields} indexes={indexes} foreign_keys={keys} unsure={unsure} digest={digest}"
+    );
+}
+
+#[test]
 fn scripts_parse_over_the_corpus() {
     // Every service script of every entity, parsed as ECMAScript. A refusal is a normal outcome
     // (Rhino accepts a little that the parser does not), so this asserts the rate, and that
