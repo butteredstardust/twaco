@@ -14,6 +14,7 @@ cargo fmt --all --check           # formatting; `cargo fmt` fixes it
 | `tests/offline.rs` | the built binary | nothing; proves offline commands start with an empty environment |
 | `tests/call.rs` | the built binary against a local fake server | nothing |
 | `tests/corpus.rs` | real ThingWorx repositories | `TWACO_CORPUS` |
+| `tests/properties.rs` | generated documents, edits and scripts | nothing; 256 cases per property, `PROPTEST_CASES=5000` for a deeper run |
 
 ## The corpus tests
 
@@ -35,6 +36,15 @@ corpus fail instead. Each repository's script layout is detected from its own fi
 
 Run them after any change to `scan`, `splice`, `sidecar`, `datashape`, `datatable` or
 `mashup`.
+
+## The property tests
+
+`tests/properties.rs` holds the laws the byte-preserving core rests on, asserted over generated
+inputs: tokens tile every document exactly, each start tag finds its own end tag, attribute spans
+lie inside their quotes, `splice` with no edits or with each span replaced by its own bytes is the
+identity, edit order never matters, overlapping or out-of-bounds edits are refused, and the readers
+of files twaco does not write never panic. A failing case shrinks to a small input and is saved in
+`tests/properties.proptest-regressions`; commit that file so everyone replays it.
 
 ## Against a live server
 
