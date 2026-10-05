@@ -92,6 +92,22 @@ impl Coded for super::lock::LockError {
         match self {
             Self::Held { .. } => ErrorCode::WorkspaceLocked,
             Self::Io { .. } => ErrorCode::IoError,
+            Self::Recovery { .. } => ErrorCode::RollbackFailed,
+        }
+    }
+}
+impl Coded for super::transaction::TransactionError {
+    fn code(&self) -> ErrorCode {
+        match self {
+            Self::Invalid(_) => ErrorCode::InvalidArguments,
+            Self::Stale(_) => ErrorCode::StalePlan,
+            Self::Io { .. }
+            | Self::Failed {
+                rolled_back: true, ..
+            } => ErrorCode::IoError,
+            Self::Failed {
+                rolled_back: false, ..
+            } => ErrorCode::RollbackFailed,
         }
     }
 }
@@ -520,6 +536,43 @@ mod tests {
                 why: text(),
             },
             ErrorCode::IoError,
+        );
+        is(
+            LockError::Recovery { message: text() },
+            ErrorCode::RollbackFailed,
+        );
+    }
+
+    #[test]
+    fn transaction_error() {
+        use crate::core::transaction::TransactionError;
+        is(
+            TransactionError::Invalid(text()),
+            ErrorCode::InvalidArguments,
+        );
+        is(TransactionError::Stale(text()), ErrorCode::StalePlan);
+        is(
+            TransactionError::Io {
+                path: path(),
+                why: text(),
+            },
+            ErrorCode::IoError,
+        );
+        is(
+            TransactionError::Failed {
+                why: text(),
+                rolled_back: true,
+                journal: None,
+            },
+            ErrorCode::IoError,
+        );
+        is(
+            TransactionError::Failed {
+                why: text(),
+                rolled_back: false,
+                journal: Some(path()),
+            },
+            ErrorCode::RollbackFailed,
         );
     }
 

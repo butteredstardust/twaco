@@ -3157,6 +3157,9 @@ fn take_lock(solution: &Solution, route: &str) -> Result<lock::WorkspaceLock, u8
                     path.display()
                 );
             }
+            for line in &lock.recovery {
+                eprintln!("twaco: {line}");
+            }
             Ok(lock)
         }
         Err(error) => {

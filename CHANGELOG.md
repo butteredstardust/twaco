@@ -28,6 +28,13 @@ All notable changes to twaco are recorded here. The format follows
 
 ### Added
 
+- A crash-recoverable journal for local multi-file writes (`core::transaction`). It writes its
+  intent to `.twaco/transactions/` before the first change, stages every new file and keeps a copy
+  of every original beside it, and the next command to take the workspace lock finishes the
+  interrupted operation or undoes it. When a person has edited a file in between, it refuses,
+  names every path with the digests found and expected, and changes nothing. No command uses it
+  yet; see `documentation/TRANSACTIONS.md`.
+
 - `twaco impact <entity> [--member <name>]` (and the `impact` MCP tool) reports what changing an
   entity, or one service, property or field of it, would reach: the Things, templates, shapes,
   mashups and projects that depend on it, directly or through others, each at the strength of its

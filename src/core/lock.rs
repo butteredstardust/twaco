@@ -34,6 +34,8 @@ pub struct WorkspaceLock {
     _file: File,
     /// Leftover temporaries removed when the lock was taken.
     pub recovered: Vec<PathBuf>,
+    /// Interrupted operations finished or undone when the lock was taken, one line each.
+    pub recovery: Vec<String>,
 }
 
 #[derive(Debug)]
@@ -46,6 +48,11 @@ pub enum LockError {
         path: PathBuf,
         why: String,
     },
+    /// An interrupted operation could not be finished or undone safely. The text says why and
+    /// what a person must do.
+    Recovery {
+        message: String,
+    },
 }
 
 impl fmt::Display for LockError {
@@ -57,6 +64,7 @@ impl fmt::Display for LockError {
                  it finishes"
             ),
             LockError::Io { path, why } => write!(f, "{}: {why}", path.display()),
+            LockError::Recovery { message } => f.write_str(message),
         }
     }
 }
@@ -142,6 +150,14 @@ fn acquire_then_sweep(
         }
     }
 
+    // An operation a crash interrupted is finished or undone before anything else is read or
+    // swept: its stages and backups are not stale temporaries.
+    let recovery = super::transaction::recover_pending(root)
+        .map_err(|refusal| LockError::Recovery { message: refusal.0 })?
+        .iter()
+        .map(super::transaction::Recovered::describe)
+        .collect();
+
     // Only folders inside the workspace are swept. A configured folder that is a link to
     // somewhere else is left alone: what lies there is not this lock's to recover.
     let mut recovered = Vec::new();
@@ -155,6 +171,7 @@ fn acquire_then_sweep(
     Ok(WorkspaceLock {
         _file: file,
         recovered,
+        recovery,
     })
 }
 
@@ -283,6 +300,13 @@ mod tests {
         );
         drop(again);
         let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn a_transactions_stages_and_backups_are_not_stale_temporaries() {
+        assert!(!is_temporary(".a.txt.20261005T093015Z-1-0.twaco-stage"));
+        assert!(!is_temporary(".a.txt.20261005T093015Z-1-0.twaco-backup"));
+        assert!(is_temporary(".a.txt.42-7-0.twaco-tmp"));
     }
 
     #[test]
