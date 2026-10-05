@@ -32,14 +32,14 @@ when the command is asked to write. A local output named by an option is include
 | Command | Default | Applied | Writes | After a failure | Evidence |
 | --- | --- | --- | --- | --- | --- |
 | `projects` | read-only | read-only | none | Retry freely. | `main.rs: projects` |
-| `types` | best-effort batch | best-effort batch | generated declarations | Inspect files already regenerated; retry failed generation. | `core/types.rs: write_model` |
-| `types --check` | read-only | read-only | none | Retry freely. | `core/types.rs: check` |
-| `types --platform` | best-effort batch | best-effort batch | platform cache, declarations | Inspect generated files and retry after the reported failure. | `core/types.rs: fetch_platform` |
-| `extract` | best-effort batch | best-effort batch | sidecars, declarations | Earlier sidecars can exist; retry the reported entity. | `core/workflow.rs: extract` |
-| `extract --all` | best-effort batch | best-effort batch | sidecars, declarations | Earlier entities remain extracted; retry failed entities. | `core/workflow.rs: extract` |
-| `sync` | best-effort batch | best-effort batch | entity XML, declarations | Inspect the entity and generated declarations, then retry the reported item. | `core/workflow.rs: sync` |
-| `sync --all` | best-effort batch | best-effort batch | entity XML, declarations | Earlier entities remain synced; retry failed entities. | `core/workflow.rs: sync` |
-| `fmt` | best-effort batch | best-effort batch | script sidecars | Earlier scripts remain formatted; retry reported scripts. | `core/workflow.rs: fmt` |
+| `types` | best-effort batch | best-effort batch | generated declarations | Inspect files already regenerated; retry failed generation. | `core/commands/types.rs: execute` |
+| `types --check` | best-effort batch | best-effort batch | generated declarations, check project | Inspect generated files and retry the compiler after fixing its failure. | `core/commands/types.rs: execute` |
+| `types --platform` | best-effort batch | best-effort batch | platform cache, declarations | Inspect generated files and retry after the reported failure. | `core/commands/types.rs: execute` |
+| `extract` | best-effort batch | best-effort batch | sidecars, declarations | Earlier sidecars can exist; retry the reported entity. | `core/commands/extract.rs: execute` |
+| `extract --all` | best-effort batch | best-effort batch | sidecars, declarations | Earlier entities remain extracted; retry failed entities. | `core/commands/extract.rs: execute` |
+| `sync` | best-effort batch | best-effort batch | entity XML, declarations | Inspect the entity and generated declarations, then retry the reported item. | `core/commands/sync.rs: execute` |
+| `sync --all` | best-effort batch | best-effort batch | entity XML, declarations | Earlier entities remain synced; retry failed entities. | `core/commands/sync.rs: execute` |
+| `fmt` | best-effort batch | best-effort batch | script sidecars | Earlier scripts remain formatted; retry reported scripts. | `core/commands/fmt.rs: execute` |
 | `check` | read-only | read-only | none | Retry freely. | `core/check.rs: run` |
 | `bundle` | single-file atomic | single-file atomic | generated bundle | The generated bundle is old or new; retry freely. | `main.rs: bundle` |
 | `deploy` | read-only | server-partial | server, baseline, backups | Read back reported imports and baseline; use the plan and backups before retrying. | `core/deploy.rs: run` |
@@ -113,12 +113,12 @@ when the command is asked to write. A local output named by an option is include
 | Tool | Default | Applied | Writes | After a failure | Evidence |
 | --- | --- | --- | --- | --- | --- |
 | `projects` | read-only | read-only | none | Retry freely. | `mcp.rs: projects` |
-| `types` | best-effort batch | best-effort batch | declarations or platform cache | `action: check` is read-only; otherwise inspect completed files and retry. | `mcp.rs: types_tool_with_compiler` |
+| `types` | best-effort batch | best-effort batch | declarations or platform cache | Every action can regenerate declarations; inspect completed files and retry. | `core/commands/types.rs: execute` |
 | `check` | read-only | read-only | none | Retry freely. | `mcp.rs: check_tool` |
 | `status` | read-only | single-file atomic | baseline | `record: true` replaces one baseline atomically; retry freely. | `mcp.rs: status_tool` |
-| `sync` | best-effort batch | best-effort batch | entity XML, declarations | Earlier entities remain synced; retry failed entities. | `mcp.rs: sync_tool` |
-| `extract` | best-effort batch | best-effort batch | sidecars, declarations | Earlier entities remain extracted; retry failed entities. | `mcp.rs: extract_tool` |
-| `fmt` | best-effort batch | best-effort batch | script sidecars | Earlier scripts remain formatted; retry reported scripts. | `mcp.rs: fmt_tool` |
+| `sync` | best-effort batch | best-effort batch | entity XML, declarations | Earlier entities remain synced; retry failed entities. | `core/commands/sync.rs: execute` |
+| `extract` | best-effort batch | best-effort batch | sidecars, declarations | Earlier entities remain extracted; retry failed entities. | `core/commands/extract.rs: execute` |
+| `fmt` | best-effort batch | best-effort batch | script sidecars | Earlier scripts remain formatted; retry reported scripts. | `core/commands/fmt.rs: execute` |
 | `push` | read-only | server-partial | server entity, baseline, backup | Read the entity and baseline before retrying. | `core/commands/push.rs: execute` |
 | `entity_delete` | read-only | server-partial | server entities, ledger, backups | Inspect confirmed deletions and ledger entries before retrying. | `core/commands/delete.rs: execute` |
 | `entity_restore` | read-only | server-partial | server entities | Read restored entities back before retrying. | `mcp.rs: entity_restore_tool` |

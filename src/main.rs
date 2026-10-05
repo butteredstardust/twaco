@@ -3136,8 +3136,7 @@ fn print_info_table_summary(value: &serde_json::Value) {
 /// the user's choosing, and `entity get --out` writes a file the user named, so neither does.
 fn writes_workspace(route: &str, args: &Args) -> bool {
     match route {
-        "extract" | "types" => true,
-        "sync" | "fmt" | "bundle" => !args.has("--check"),
+        "bundle" => !args.has("--check"),
         "deploy" | "adopt" | "rename entity" | "rename prefix" | "rename field"
         | "rename service" | "rename param" | "rename table" | "rename property"
         | "move service" | "move property" | "copy service" | "copy property" | "retemplate"
@@ -3193,79 +3192,68 @@ fn run(command: impl FnOnce(&Solution) -> u8) -> u8 {
 }
 
 fn types_cmd(solution: &Solution, args: &Args) -> u8 {
-    if args.has("--check") && args.has("--platform") {
-        eprintln!("twaco: types: --check and --platform cannot be used together");
-        return FAILED;
-    }
-    if args.has("--json") && !args.has("--check") {
-        eprintln!("twaco: types: --json requires --check");
-        return FAILED;
-    }
-    if args.has("--platform") {
-        let profile_name = args.profile.as_deref().unwrap_or("default");
-        let profile = match profile::load(&solution.root, profile_name) {
-            Ok(profile) => profile,
-            Err(error) => {
-                eprintln!("twaco: types: {error}");
-                return FAILED;
+    let action = if args.has("--check") && args.has("--platform") {
+        commands::types::TypesAction::Invalid(
+            "--check and --platform cannot be used together".to_string(),
+        )
+    } else if args.has("--json") && !args.has("--check") {
+        commands::types::TypesAction::Invalid("--json requires --check".to_string())
+    } else if args.has("--platform") {
+        commands::types::TypesAction::Platform
+    } else if args.has("--check") {
+        commands::types::TypesAction::Check
+    } else {
+        commands::types::TypesAction::Generate
+    };
+    let request = commands::types::TypesRequest {
+        action,
+        profile: args
+            .profile
+            .clone()
+            .unwrap_or_else(|| "default".to_string()),
+        lock_label: "types",
+    };
+    let mut notices = commands::Notices::default();
+    let result =
+        commands::types::execute(solution, &request, server::Client::new, None, &mut notices);
+    print_notices(&notices);
+    match result {
+        Ok(commands::types::TypesOutcome::Platform(outcome)) => {
+            for skipped in outcome.skipped.iter().chain(&outcome.types.skipped) {
+                eprintln!("twaco: skipped {skipped}");
             }
-        };
-        return match types::fetch_platform(&server::Client::new(profile), solution) {
-            Ok(outcome) => {
-                for skipped in outcome.skipped.iter().chain(&outcome.types.skipped) {
-                    eprintln!("twaco: skipped {skipped}");
-                }
-                println!(
-                    "fetched {} templates, {} shapes and {} resources from the server into .twaco/platform.json",
-                    outcome.templates, outcome.shapes, outcome.resources
-                );
-                OK
+            println!(
+                "fetched {} templates, {} shapes and {} resources from the server into .twaco/platform.json",
+                outcome.templates, outcome.shapes, outcome.resources
+            );
+            OK
+        }
+        Ok(commands::types::TypesOutcome::Checked(outcome)) => {
+            for skipped in &outcome.declarations.skipped {
+                eprintln!("twaco: skipped {skipped}");
             }
-            Err(error) => {
-                eprintln!("twaco: types: {error}");
-                FAILED
-            }
-        };
-    }
-    if args.has("--check") {
-        return match types::check(solution) {
-            Ok(outcome) => {
-                for skipped in &outcome.declarations.skipped {
-                    eprintln!("twaco: skipped {skipped}");
-                }
-                for finding in &outcome.findings {
-                    if args.has("--json") {
-                        println!("{}", types::finding_json(finding));
-                    } else {
-                        println!(
-                            "{}:{}:{}: TS{} {}",
-                            finding.file,
-                            finding.line,
-                            finding.column,
-                            finding.code,
-                            finding.message
-                        );
-                    }
-                }
+            for finding in &outcome.findings {
                 if args.has("--json") {
-                    eprintln!("{}", types::check_summary(&outcome));
+                    println!("{}", types::finding_json(finding));
                 } else {
-                    println!("{}", types::check_summary(&outcome));
-                }
-                if outcome.findings.is_empty() {
-                    OK
-                } else {
-                    DRIFT
+                    println!(
+                        "{}:{}:{}: TS{} {}",
+                        finding.file, finding.line, finding.column, finding.code, finding.message
+                    );
                 }
             }
-            Err(error) => {
-                eprintln!("twaco: types: {error}");
-                FAILED
+            if args.has("--json") {
+                eprintln!("{}", types::check_summary(&outcome));
+            } else {
+                println!("{}", types::check_summary(&outcome));
             }
-        };
-    }
-    match types::write(solution) {
-        Ok(outcome) => {
+            if outcome.findings.is_empty() {
+                OK
+            } else {
+                DRIFT
+            }
+        }
+        Ok(commands::types::TypesOutcome::Generated(outcome)) => {
             for skipped in &outcome.skipped {
                 eprintln!("twaco: skipped {skipped}");
             }
@@ -4589,14 +4577,26 @@ fn same_path(left: &Path, right: &Path) -> bool {
 }
 
 fn extract(solution: &Solution, args: &Args) -> u8 {
-    let (chosen, unreadable) = match targets(solution, args) {
-        Ok(t) => t,
-        Err(e) => {
-            eprintln!("twaco: {e}");
+    let request = commands::extract::ExtractRequest {
+        target: commands::extract::ExtractTarget {
+            project: args.project.clone(),
+            entities: args.names.clone(),
+            all: args.has("--all"),
+            reject_entities_with_all: false,
+            missing_target: "name an entity, or pass --all",
+        },
+        lock_label: "extract",
+    };
+    let mut notices = commands::Notices::default();
+    let result = commands::extract::execute(solution, &request, &mut notices);
+    print_notices(&notices);
+    let outcome = match result {
+        Ok(outcome) => outcome.report,
+        Err(error) => {
+            eprintln!("twaco: {error}");
             return FAILED;
         }
     };
-    let outcome = workflow::extract(solution, &chosen, &unreadable, !args.has("--all"));
     print_log(&outcome.log);
     print_types_refresh(&outcome.types);
     // "part" rather than "service": an entity yields services or fields depending on what
@@ -4614,20 +4614,29 @@ fn extract(solution: &Solution, args: &Args) -> u8 {
 
 fn sync_cmd(solution: &Solution, args: &Args) -> u8 {
     let check = args.has("--check");
-    let (chosen, unreadable) = match targets(solution, args) {
-        Ok(t) => t,
-        Err(e) => {
-            eprintln!("twaco: {e}");
+    let request = commands::sync::SyncRequest {
+        target: commands::sync::SyncTarget {
+            project: args.project.clone(),
+            entities: args.names.clone(),
+            all: args.has("--all"),
+            reject_entities_with_all: false,
+            missing_target: "name an entity, or pass --all",
+        },
+        mode: if check { Mode::Plan } else { Mode::Apply },
+        allow_structural: args.has("--allow-add-remove"),
+        relayout: args.has("--relayout"),
+        lock_label: "sync",
+    };
+    let mut notices = commands::Notices::default();
+    let result = commands::sync::execute(solution, &request, &mut notices);
+    print_notices(&notices);
+    let outcome = match result {
+        Ok(outcome) => outcome.report,
+        Err(error) => {
+            eprintln!("twaco: {error}");
             return FAILED;
         }
     };
-    let options = workflow::SyncOptions {
-        check,
-        allow_structural: args.has("--allow-add-remove"),
-        relayout: args.has("--relayout"),
-        named: !args.has("--all"),
-    };
-    let outcome = workflow::sync(solution, &chosen, &unreadable, options);
     print_log(&outcome.log);
     print_types_refresh(&outcome.types);
 
@@ -4675,7 +4684,20 @@ fn print_types_refresh(refresh: &types::Refresh) {
 
 fn fmt(solution: &Solution, args: &Args) -> u8 {
     let check = args.has("--check");
-    let outcome = workflow::fmt(solution, check);
+    let request = commands::fmt::FmtRequest {
+        mode: if check { Mode::Plan } else { Mode::Apply },
+        lock_label: "fmt",
+    };
+    let mut notices = commands::Notices::default();
+    let result = commands::fmt::execute(solution, &request, &mut notices);
+    print_notices(&notices);
+    let outcome = match result {
+        Ok(outcome) => outcome.report,
+        Err(error) => {
+            eprintln!("twaco: {error}");
+            return FAILED;
+        }
+    };
     if outcome.files == 0 {
         println!("no service scripts under {}", solution.src_root().display());
         return OK;
@@ -5263,10 +5285,6 @@ mod tests {
             }
         }
         for (command, args) in [
-            ("extract", vec![]),
-            ("types", vec![]),
-            ("sync", vec![]),
-            ("fmt", vec![]),
             ("bundle", vec![]),
             ("deploy", vec!["--apply"]),
             ("adopt", vec!["--apply"]),
@@ -5519,6 +5537,30 @@ mod tests {
             !writes_workspace("entity push", &args),
             "the command executor takes the lock before it discovers the entity"
         );
+    }
+
+    #[test]
+    fn facade_commands_take_no_generic_workspace_lock() {
+        for (route, args) in [
+            (
+                "extract",
+                Args::parse(&["--all".to_string()], &["--all"]).unwrap(),
+            ),
+            (
+                "types",
+                Args::parse(&[], &["--check", "--platform"]).unwrap(),
+            ),
+            (
+                "sync",
+                Args::parse(&["--all".to_string()], &["--all"]).unwrap(),
+            ),
+            ("fmt", Args::parse(&[], &["--check"]).unwrap()),
+        ] {
+            assert!(
+                !writes_workspace(route, &args),
+                "the {route} executor takes its own workspace lock"
+            );
+        }
     }
 
     #[test]
