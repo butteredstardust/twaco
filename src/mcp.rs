@@ -131,47 +131,80 @@ fn handle(root: &Path, message: &Value, protocol: &mut String) -> Option<Value> 
 /// schema does not declare, a value of the wrong type or outside its enum, or a missing
 /// required argument is refused before the tool runs.
 fn validate_arguments(schema: &Value, arguments: &Value) -> Result<(), String> {
-    let Some(given) = arguments.as_object() else {
+    if !arguments.is_object() {
         return Err("`arguments` must be a JSON object".to_string());
+    }
+    validate_value(schema, arguments, "")
+}
+
+/// Validate one value against the small JSON Schema subset advertised by MCP tools.
+fn validate_value(schema: &Value, value: &Value, path: &str) -> Result<(), String> {
+    let fits = match schema["type"].as_str() {
+        Some("string") => value.is_string(),
+        Some("boolean") => value.is_boolean(),
+        Some("integer") => value.as_u64().is_some_and(|n| schema["minimum"].as_u64().is_none_or(|min| n >= min)),
+        Some("object") => value.is_object(),
+        Some("array") => value.is_array(),
+        _ => true,
     };
-    let empty = Map::new();
-    let properties = schema["properties"].as_object().unwrap_or(&empty);
-    for name in schema["required"].as_array().into_iter().flatten().filter_map(Value::as_str) {
-        if !given.contains_key(name) {
-            return Err(format!("`{name}` is required"));
+    if !fits {
+        let wanted = match schema["type"].as_str() {
+            Some("array") if array_of_strings(schema) => "an array of strings".to_string(),
+            Some("array") => "an array".to_string(),
+            Some("integer") => format!("an integer of at least {}", schema["minimum"].as_u64().unwrap_or(0)),
+            Some(other) => format!("a {other}"),
+            None => "something else".to_string(),
+        };
+        return Err(format!("`{path}` must be {wanted}, not {value}"));
+    }
+    if let Some(allowed) = schema["enum"].as_array() {
+        if !allowed.contains(value) {
+            return Err(format!("`{path}` must be one of {}, not {value}", Value::Array(allowed.clone())));
         }
     }
-    for (name, value) in given {
-        let Some(property) = properties.get(name) else {
-            let mut known: Vec<&String> = properties.keys().collect();
-            known.sort();
-            let known: Vec<&str> = known.into_iter().map(String::as_str).collect();
-            return Err(format!("this tool takes no argument `{name}` (it takes: {})", known.join(", ")));
-        };
-        let fits = match property["type"].as_str() {
-            Some("string") => value.is_string(),
-            Some("boolean") => value.is_boolean(),
-            Some("object") => value.is_object(),
-            Some("integer") => value.as_u64().is_some_and(|n| property["minimum"].as_u64().is_none_or(|min| n >= min)),
-            Some("array") => value.as_array().is_some_and(|items| items.iter().all(Value::is_string)),
-            _ => true,
-        };
-        if !fits {
-            let wanted = match property["type"].as_str() {
-                Some("array") => "an array of strings".to_string(),
-                Some("integer") => format!("an integer of at least {}", property["minimum"].as_u64().unwrap_or(0)),
-                Some(other) => format!("a {other}"),
-                None => "something else".to_string(),
-            };
-            return Err(format!("`{name}` must be {wanted}, not {value}"));
+    if let Some(given) = value.as_object() {
+        let empty = Map::new();
+        let properties = schema["properties"].as_object().unwrap_or(&empty);
+        for name in schema["required"].as_array().into_iter().flatten().filter_map(Value::as_str) {
+            if !given.contains_key(name) {
+                let path = property_path(path, name);
+                return Err(format!("`{path}` is required"));
+            }
         }
-        if let Some(allowed) = property["enum"].as_array() {
-            if !allowed.contains(value) {
-                return Err(format!("`{name}` must be one of {}, not {value}", Value::Array(allowed.clone())));
+        for (name, value) in given {
+            let name_path = property_path(path, name);
+            match properties.get(name) {
+                Some(property) => validate_value(property, value, &name_path)?,
+                None if schema["additionalProperties"] == false => {
+                    if path.is_empty() {
+                        let mut known: Vec<&String> = properties.keys().collect();
+                        known.sort();
+                        let known: Vec<&str> = known.into_iter().map(String::as_str).collect();
+                        return Err(format!("this tool takes no argument `{name}` (it takes: {})", known.join(", ")));
+                    }
+                    return Err(format!("`{name_path}` is not allowed"));
+                }
+                None if schema["additionalProperties"].is_object() => validate_value(&schema["additionalProperties"], value, &name_path)?,
+                None => {}
+            }
+        }
+    }
+    if let Some(items) = value.as_array() {
+        if schema["items"].is_object() {
+            for (index, value) in items.iter().enumerate() {
+                validate_value(&schema["items"], value, &format!("{path}[{index}]"))?;
             }
         }
     }
     Ok(())
+}
+
+fn property_path(parent: &str, name: &str) -> String {
+    if parent.is_empty() { name.to_string() } else { format!("{parent}.{name}") }
+}
+
+fn array_of_strings(schema: &Value) -> bool {
+    schema["items"].as_object().is_some_and(|items| items.len() == 1 && items.get("type").and_then(Value::as_str) == Some("string"))
 }
 
 fn error_response(id: Value, code: i64, message: &str) -> Value {
@@ -201,7 +234,7 @@ fn tool(name: &str, description: &str, properties: Value, required: &[&str], rea
     json!({
         "name": name,
         "description": description,
-        "inputSchema": { "type": "object", "properties": properties, "required": required },
+        "inputSchema": { "type": "object", "properties": properties, "required": required, "additionalProperties": false },
         "annotations": {
             "readOnlyHint": read_only,
             "destructiveHint": !read_only,
@@ -2668,6 +2701,138 @@ mod tests {
         )
         .unwrap();
         root
+    }
+
+    fn default_matches_type(schema: &Value, value: &Value) -> bool {
+        match schema["type"].as_str() {
+            Some("string") => value.is_string(),
+            Some("boolean") => value.is_boolean(),
+            Some("integer") => value.as_u64().is_some(),
+            Some("object") => value.is_object(),
+            Some("array") => value.is_array(),
+            _ => false,
+        }
+    }
+
+    fn assert_schema_hygiene(tool: &str, path: &str, schema: &Value) {
+        let object = schema.as_object().unwrap_or_else(|| panic!("{tool} {path} is not a schema object"));
+        for keyword in object.keys() {
+            assert!(
+                matches!(keyword.as_str(), "type" | "properties" | "required" | "additionalProperties" | "items" | "enum" | "minimum" | "default" | "description"),
+                "{tool} {path} uses unsupported keyword `{keyword}`"
+            );
+        }
+        let kind = schema["type"].as_str().unwrap_or_else(|| panic!("{tool} {path} has no type"));
+        assert!(matches!(kind, "string" | "boolean" | "integer" | "object" | "array"), "{tool} {path} has unsupported type `{kind}`");
+        if let Some(default) = schema.get("default") {
+            assert!(default_matches_type(schema, default), "{tool} {path} has a default with the wrong type");
+        }
+
+        let empty = Map::new();
+        let properties = schema["properties"].as_object().unwrap_or(&empty);
+        for name in schema["required"].as_array().into_iter().flatten().filter_map(Value::as_str) {
+            assert!(properties.contains_key(name), "{tool} {path}.{name} is required but not a property");
+        }
+        for (name, property) in properties {
+            let property_path = if path.is_empty() { name.to_string() } else { format!("{path}.{name}") };
+            assert_schema_hygiene(tool, &property_path, property);
+        }
+        if let Some(additional) = schema.get("additionalProperties") {
+            assert!(additional == false || additional.is_object(), "{tool} {path} has unsupported additionalProperties");
+            if additional.is_object() {
+                assert_schema_hygiene(tool, &format!("{path}.*"), additional);
+            }
+        }
+        if let Some(items) = schema.get("items") {
+            assert!(items.is_object(), "{tool} {path} has non-schema items");
+            assert_schema_hygiene(tool, &format!("{path}[]"), items);
+        }
+    }
+
+    #[test]
+    fn tool_definitions_match_golden_file() {
+        const GOLDEN: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fixtures/mcp_tools.json");
+        let current = format!("{}\n", serde_json::to_string_pretty(&tool_definitions()).unwrap());
+        if std::env::var("TWACO_BLESS").as_deref() == Ok("1") {
+            std::fs::write(GOLDEN, current).unwrap();
+            return;
+        }
+        let expected = std::fs::read_to_string(GOLDEN).unwrap();
+        assert_eq!(current, expected, "run with TWACO_BLESS=1 to rewrite tests/fixtures/mcp_tools.json, then review the diff");
+    }
+
+    #[test]
+    fn tool_schemas_use_the_supported_subset() {
+        for tool in tool_definitions() {
+            let name = tool["name"].as_str().unwrap();
+            let schema = &tool["inputSchema"];
+            assert_eq!(schema["additionalProperties"], false, "{name} inputSchema must refuse unknown arguments");
+            assert_schema_hygiene(name, "inputSchema", schema);
+        }
+    }
+
+    #[test]
+    fn validator_keeps_top_level_messages_stable() {
+        let required = json!({ "type": "object", "properties": { "x": { "type": "string" } }, "required": ["x"], "additionalProperties": false });
+        assert_eq!(validate_arguments(&required, &json!({})), Err("`x` is required".to_string()));
+
+        let names = json!({ "type": "object", "properties": { "a": { "type": "string" }, "b": { "type": "string" } }, "required": [], "additionalProperties": false });
+        assert_eq!(validate_arguments(&names, &json!({"x": 1})), Err("this tool takes no argument `x` (it takes: a, b)".to_string()));
+
+        let boolean = json!({ "type": "object", "properties": { "x": { "type": "boolean" } }, "required": [], "additionalProperties": false });
+        assert_eq!(validate_arguments(&boolean, &json!({"x": 1})), Err("`x` must be a boolean, not 1".to_string()));
+
+        let array = json!({ "type": "object", "properties": { "x": { "type": "array", "items": { "type": "string" } } }, "required": [], "additionalProperties": false });
+        assert_eq!(validate_arguments(&array, &json!({"x": "not an array"})), Err("`x` must be an array of strings, not \"not an array\"".to_string()));
+
+        let integer = json!({ "type": "object", "properties": { "x": { "type": "integer", "minimum": 3 } }, "required": [], "additionalProperties": false });
+        assert_eq!(validate_arguments(&integer, &json!({"x": 1})), Err("`x` must be an integer of at least 3, not 1".to_string()));
+
+        let choices = json!({ "type": "object", "properties": { "x": { "type": "string", "enum": ["a", "b"] } }, "required": [], "additionalProperties": false });
+        assert_eq!(validate_arguments(&choices, &json!({"x": "c"})), Err("`x` must be one of [\"a\",\"b\"], not \"c\"".to_string()));
+        assert_eq!(validate_arguments(&choices, &json!([])), Err("`arguments` must be a JSON object".to_string()));
+    }
+
+    #[test]
+    fn validator_follows_nested_schemas() {
+        let map = json!({ "type": "object", "properties": { "map": { "type": "object", "additionalProperties": { "type": "string" } } }, "required": [], "additionalProperties": false });
+        assert_eq!(validate_arguments(&map, &json!({"map": {"title": 1}})), Err("`map.title` must be a string, not 1".to_string()));
+
+        let closed = json!({ "type": "object", "properties": { "map": { "type": "object", "properties": { "title": { "type": "string" } }, "additionalProperties": false } }, "required": [], "additionalProperties": false });
+        assert_eq!(validate_arguments(&closed, &json!({"map": {"other": "x"}})), Err("`map.other` is not allowed".to_string()));
+
+        let array = json!({ "type": "object", "properties": { "only": { "type": "array", "items": { "type": "string" } } }, "required": [], "additionalProperties": false });
+        assert_eq!(validate_arguments(&array, &json!({"only": ["P.T", 2]})), Err("`only[1]` must be a string, not 2".to_string()));
+
+        let objects = json!({ "type": "object", "properties": { "rows": { "type": "array", "items": { "type": "object" } } }, "required": [], "additionalProperties": false });
+        assert_eq!(validate_arguments(&objects, &json!({"rows": 1})), Err("`rows` must be an array, not 1".to_string()));
+    }
+
+    #[test]
+    fn nested_tool_arguments_are_validated_without_closing_parameters() {
+        let root = solution_dir();
+        let map = converse(
+            &root,
+            &[json!({"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"datatable_copy","arguments":{"old":"P.Old","new":"P.New","map":{"title":1}}}})],
+        );
+        assert_eq!(map[0]["result"]["isError"], true);
+        assert!(map[0]["result"]["content"][0]["text"].as_str().unwrap().contains("`map.title` must be a string, not 1"));
+
+        let parameters = json!({ "row": { "title": "x", "values": [1, { "nested": true }] } });
+        let call = converse(
+            &root,
+            &[json!({"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"call","arguments":{"target":"T","service":"Reset","parameters":parameters}}})],
+        );
+        assert_eq!(call[0]["result"]["isError"], false);
+        assert_eq!(call[0]["result"]["structuredContent"]["would_call"]["parameters"], parameters);
+
+        let unknown = converse(
+            &root,
+            &[json!({"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"projects","arguments":{"x":1}}})],
+        );
+        assert_eq!(unknown[0]["result"]["isError"], true);
+        assert!(unknown[0]["result"]["content"][0]["text"].as_str().unwrap().contains("this tool takes no argument `x` (it takes: )"));
+        let _ = std::fs::remove_dir_all(root);
     }
 
     #[test]
