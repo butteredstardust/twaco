@@ -2,12 +2,16 @@
 
 pub mod adopt;
 pub mod bundle;
+pub mod call;
 pub mod carry;
+pub mod config_table;
 pub mod datatable_copy;
+pub mod db;
 pub mod delete;
 pub mod deploy;
 pub mod extract;
 pub mod fmt;
+pub mod logs;
 pub mod newblock;
 pub mod push;
 pub mod relocate;

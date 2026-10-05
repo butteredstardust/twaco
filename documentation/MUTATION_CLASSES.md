@@ -43,15 +43,15 @@ when the command is asked to write. A local output named by an option is include
 | `check` | read-only | read-only | none | Retry freely. | `core/check.rs: run` |
 | `bundle` | single-file atomic | single-file atomic | generated bundle | The generated bundle is old or new; retry freely. | `core/commands/bundle.rs: execute` |
 | `deploy` | read-only | server-partial | server, baseline, backups | Read back reported imports and baseline; use the plan and backups before retrying. | `core/commands/deploy.rs: execute` |
-| `call` | server-partial | server-partial | service effects | Inspect the service's effects and logs before retrying. | `main.rs: call` |
+| `call` | server-partial | server-partial | service effects | Inspect the service's effects and logs before retrying. | `core/commands/call.rs: execute` |
 | `logs` | read-only | read-only | none | Retry freely. | `main.rs: logs_cmd` |
-| `logs level` | read-only | server-partial | server log level | Read the current level and use the printed undo before retrying. | `main.rs: log_level_cmd` |
-| `config-table` | read-only | server-partial | server table, optional backup | Read the table back and use the backup before retrying a restore. | `main.rs: config_table` |
+| `logs level` | read-only | server-partial | server log level | Read the current level and use the printed undo before retrying. | `core/commands/logs.rs: execute` |
+| `config-table` | read-only | server-partial | server table, optional backup | Read the table back and use the backup before retrying a restore. | `core/commands/config_table.rs: execute` |
 | `entity get` | read-only | single-file atomic | named local output | The output is old or new; retry freely. | `main.rs: entity_get` |
-| `db run` | read-only | server-partial | SQL, temporary server Thing | Inspect SQL effects and run `db clean` if needed before retrying. | `core/db.rs: run` |
-| `db query` | server-partial | server-partial | temporary server Thing | A cleanup failure can leave the temporary Thing; run `db clean` before retrying. | `core/db.rs: run` |
+| `db run` | read-only | server-partial | SQL, temporary server Thing | Inspect SQL effects and run `db clean` if needed before retrying. | `core/commands/db.rs: execute` |
+| `db query` | server-partial | server-partial | temporary server Thing | A cleanup failure can leave the temporary Thing; run `db clean` before retrying. | `core/commands/db.rs: execute` |
 | `datatable copy` | read-only | server-partial | target DataTable | Read the target back; retry only after reconciling copied rows. | `core/commands/datatable_copy.rs: execute` |
-| `db clean` | read-only | server-partial | temporary server Things | List remaining temporary Things before retrying. | `core/db.rs: clean` |
+| `db clean` | read-only | server-partial | temporary server Things | List remaining temporary Things before retrying. | `core/commands/db.rs: execute` |
 | `entity status` | read-only | single-file atomic | baseline | The baseline is old or new; retry freely after fixing a read failure. | `core/commands/status.rs: execute` |
 | `rename entity` | read-only | multi-file atomic | XML, sidecars, ledger, SQL | A crash is finished or undone by the next command that takes the workspace lock; if it refuses, follow its message. Otherwise retry. | `core/commands/rename.rs: execute` |
 | `rename prefix` | read-only | multi-file atomic | XML, sidecars, ledger, SQL | A crash is finished or undone by the next command that takes the workspace lock; if it refuses, follow its message. Otherwise retry. | `core/commands/rename.rs: execute` |
@@ -123,10 +123,10 @@ when the command is asked to write. A local output named by an option is include
 | `entity_delete` | read-only | server-partial | server entities, ledger, backups | Inspect confirmed deletions and ledger entries before retrying. | `core/commands/delete.rs: execute` |
 | `entity_restore` | read-only | server-partial | server entities | Read restored entities back before retrying. | `core/commands/restore.rs: execute` |
 | `entity_carry` | read-only | server-partial | server permissions, ledger | Read permissions and ledger before retrying. | `core/commands/carry.rs: execute` |
-| `db_run` | read-only | server-partial | SQL, temporary server Thing | Inspect SQL effects and clean temporary Things before retrying. | `mcp.rs: db_tool` |
-| `db_query` | server-partial | server-partial | temporary server Thing | Run `db_clean` if temporary cleanup failed. | `mcp.rs: db_tool` |
+| `db_run` | read-only | server-partial | SQL, temporary server Thing | Inspect SQL effects and clean temporary Things before retrying. | `core/commands/db.rs: execute` |
+| `db_query` | server-partial | server-partial | temporary server Thing | Run `db_clean` if temporary cleanup failed. | `core/commands/db.rs: execute` |
 | `datatable_copy` | read-only | server-partial | target DataTable | Read the target back before retrying. | `core/commands/datatable_copy.rs: execute` |
-| `db_clean` | read-only | server-partial | temporary server Things | List remaining temporary Things before retrying. | `mcp.rs: db_clean_tool` |
+| `db_clean` | read-only | server-partial | temporary server Things | List remaining temporary Things before retrying. | `core/commands/db.rs: execute` |
 | `deploy` | read-only | server-partial | server, baseline, backups | Read back imports and baseline; use plan and backups before retrying. | `core/commands/deploy.rs: execute` |
 | `adopt_report` | read-only | read-only | none | Retry freely. | `mcp.rs: adopt_tool` |
 | `adopt_apply` | best-effort batch | best-effort batch | entities, sidecars, declarations | Unlike the CLI form, this tool applies directly; inspect completed writes and retry failures. | `core/commands/adopt.rs: execute` |
@@ -134,9 +134,9 @@ when the command is asked to write. A local output named by an option is include
 | `move_member` | read-only | multi-file atomic | XML, sidecars | A crash is finished or undone by the next command that takes the workspace lock; if it refuses, follow its message. Otherwise retry. | `core/commands/relocate.rs: execute` |
 | `new_building_block` | read-only | multi-file atomic | project files, config | A crash is finished or undone by the next command that takes the workspace lock; if it refuses, follow its message. Otherwise retry. | `core/commands/newblock.rs: execute` |
 | `retemplate` | read-only | single-file atomic | one entity XML | The entity is old or new; retry freely. | `core/commands/retemplate.rs: execute` |
-| `config_table` | read-only | server-partial | server table | Read the table back before retrying restore. | `mcp.rs: config_table_tool` |
+| `config_table` | read-only | server-partial | server table | Read the table back before retrying restore. | `core/commands/config_table.rs: execute` |
 | `logs` | read-only | read-only | none | Retry freely. | `mcp.rs: logs_tool` |
-| `log_level` | read-only | server-partial | server log level | Read the current level and use the undo before retrying. | `mcp.rs: log_level_tool` |
+| `log_level` | read-only | server-partial | server log level | Read the current level and use the undo before retrying. | `core/commands/logs.rs: execute` |
 | `repo` | read-only | read-only | none | Retry freely. | `mcp.rs: repo_tool` |
 | `repo_write` | read-only | server-partial | server repository or local pull | Inspect copied paths before retrying. | `mcp.rs: repo_write_tool` |
 | `extensions` | read-only | read-only | none | Retry freely. | `mcp.rs: extensions_tool` |
@@ -153,4 +153,4 @@ when the command is asked to write. A local output named by an option is include
 | `help_search` | single-file atomic | single-file atomic | user cache file | The cache file is old or new; retry freely. | `mcp.rs: help_search_tool` |
 | `help_page` | single-file atomic | single-file atomic | user cache file | The cache file is old or new; retry freely. | `mcp.rs: help_page_tool` |
 | `javadoc` | single-file atomic | single-file atomic | user cache file | The cache file is old or new; retry freely. | `mcp.rs: javadoc_tool` |
-| `call` | read-only | server-partial | service effects | `dry_run` differs from CLI `call`; inspect service effects before retrying. | `mcp.rs: call_service_tool` |
+| `call` | read-only | server-partial | service effects | `dry_run` differs from CLI `call`; inspect service effects before retrying. | `core/commands/call.rs: execute` |

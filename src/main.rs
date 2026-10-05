@@ -890,137 +890,140 @@ fn config_table(solution: &Solution, args: &Args) -> u8 {
     };
     let table = &args.names[1];
     let label = format!("{thing}.{table}");
-    let profile_name = args.profile.as_deref().unwrap_or("default");
-    let profile = match profile::load(&solution.root, profile_name) {
-        Ok(profile) => profile,
-        Err(error) => {
-            eprintln!("twaco: {error}");
-            return FAILED;
+    let action = if let Some(path) = &args.restore {
+        commands::config_table::ConfigTableAction::Restore {
+            path: path.clone(),
+            mode: if args.has("--apply") {
+                Mode::Apply
+            } else {
+                Mode::Plan
+            },
         }
+    } else if let Some(path) = &args.backup {
+        commands::config_table::ConfigTableAction::Backup { path: path.clone() }
+    } else if args.has("--diff") {
+        commands::config_table::ConfigTableAction::Diff {
+            entity: entity_file.expect("--diff resolved the Thing in the solution"),
+        }
+    } else {
+        commands::config_table::ConfigTableAction::Read
     };
-    let client = server::Client::new(profile);
-
-    if let Some(path) = &args.restore {
-        let saved = match config_table::read_backup(path, &thing, table) {
-            Ok(saved) => saved,
-            Err(error) => {
+    let request = commands::config_table::ConfigTableRequest {
+        thing,
+        table: table.to_string(),
+        action,
+        profile: args.profile.as_deref().unwrap_or("default").to_string(),
+    };
+    let mut notices = commands::Notices::default();
+    let outcome = match commands::config_table::execute(
+        solution,
+        &request,
+        server::Client::new,
+        &mut notices,
+    ) {
+        Ok(outcome) => outcome,
+        Err(error) => {
+            print_notices(&notices);
+            if matches!(
+                error,
+                commands::config_table::ConfigTableCommandError::Backup(_)
+            ) {
                 eprintln!("twaco: {error}");
-                return FAILED;
-            }
-        };
-        let apply = args.has("--apply");
-        return match config_table::restore(&client, &thing, table, &saved, apply) {
-            Ok(plan) if plan.writes == 0 && plan.deletes.is_empty() => {
-                println!("{label}: already matches the backup; nothing to restore");
-                OK
-            }
-            Ok(plan) => {
-                let (verb, removal) = if apply {
-                    ("restored", "removed")
-                } else {
-                    ("would restore", "remove")
-                };
-                println!(
-                    "{label}: {verb} {} row(s) and {removal} {} added since the backup{}",
-                    plan.writes,
-                    plan.deletes.len(),
-                    if plan.deletes.is_empty() {
-                        String::new()
-                    } else {
-                        format!(" ({})", plan.deletes.join(", "))
-                    }
-                );
-                if apply {
-                    println!("read back and matching the backup");
-                } else {
-                    println!("dry run: nothing was written; pass --apply to restore");
-                }
-                OK
-            }
-            Err(error) => {
+            } else {
                 eprintln!("twaco: {label}: {error}");
-                FAILED
             }
-        };
-    }
-
-    let live = match config_table::fetch(&client, &thing, table) {
-        Ok(live) => live,
-        Err(error) => {
-            eprintln!("twaco: {label}: {error}");
             return FAILED;
         }
     };
-    if let Some(path) = &args.backup {
-        return match config_table::write_backup(path, &thing, table, &live) {
-            Ok(()) => {
-                println!(
-                    "backed up {} row(s) of {label} to {}",
-                    live.rows.len(),
-                    path.display()
-                );
-                OK
+    print_notices(&notices);
+    match outcome {
+        commands::config_table::ConfigTableOutcome::Restored { plan, .. } => {
+            let apply = args.has("--apply");
+            match Ok::<_, config_table::TableError>(plan) {
+                Ok(plan) if plan.writes == 0 && plan.deletes.is_empty() => {
+                    println!("{label}: already matches the backup; nothing to restore");
+                    OK
+                }
+                Ok(plan) => {
+                    let (verb, removal) = if apply {
+                        ("restored", "removed")
+                    } else {
+                        ("would restore", "remove")
+                    };
+                    println!(
+                        "{label}: {verb} {} row(s) and {removal} {} added since the backup{}",
+                        plan.writes,
+                        plan.deletes.len(),
+                        if plan.deletes.is_empty() {
+                            String::new()
+                        } else {
+                            format!(" ({})", plan.deletes.join(", "))
+                        }
+                    );
+                    if apply {
+                        println!("read back and matching the backup");
+                    } else {
+                        println!("dry run: nothing was written; pass --apply to restore");
+                    }
+                    OK
+                }
+                Err(_) => unreachable!(),
             }
-            Err(error) => {
-                eprintln!("twaco: {error}");
-                FAILED
-            }
-        };
-    }
-    if args.has("--diff") {
-        let path = entity_file.expect("--diff resolved the Thing in the solution");
-        let src = match std::fs::read(&path) {
-            Ok(src) => src,
-            Err(error) => {
-                eprintln!("twaco: {}: {error}", path.display());
-                return FAILED;
-            }
-        };
-        let repository = match config_table::repository_rows(&src, table) {
-            Ok(rows) => rows,
-            Err(error) => {
-                eprintln!("twaco: {}: {error}", path.display());
-                return FAILED;
-            }
-        };
-        let key = config_table::primary_key(&live.data_shape);
-        let found =
-            config_table::differences("server", &live.rows, "source control", &repository, &key);
-        if found.is_empty() {
+        }
+        commands::config_table::ConfigTableOutcome::BackedUp { table: live, .. } => {
             println!(
-                "{label}: {} row(s), identical to source control",
-                live.rows.len()
+                "backed up {} row(s) of {label} to {}",
+                live.rows.len(),
+                args.backup
+                    .as_ref()
+                    .expect("backup action has a path")
+                    .display()
             );
-            return OK;
+            OK
         }
-        println!("{label}: {} difference(s) from source control", found.len());
-        for line in found {
-            println!("  {line}");
+        commands::config_table::ConfigTableOutcome::Diffed {
+            table: live,
+            differences: found,
+            ..
+        } => {
+            if found.is_empty() {
+                println!(
+                    "{label}: {} row(s), identical to source control",
+                    live.rows.len()
+                );
+                return OK;
+            }
+            println!("{label}: {} difference(s) from source control", found.len());
+            for line in found {
+                println!("  {line}");
+            }
+            DRIFT
         }
-        return DRIFT;
+        commands::config_table::ConfigTableOutcome::Read { table: live, .. } => {
+            let key = config_table::primary_key(&live.data_shape);
+            println!(
+                "{label}: {} row(s); primary key {}",
+                live.rows.len(),
+                if key.is_empty() {
+                    "none".to_string()
+                } else {
+                    key.join(", ")
+                }
+            );
+            if args.has("--detail") {
+                println!(
+                    "{}",
+                    serde_json::to_string_pretty(&live.rows).expect("JSON values serialise")
+                );
+            } else if let Some(first) = live.rows.first() {
+                println!(
+                    "first row: {}",
+                    serde_json::to_string(first).expect("JSON values serialise")
+                );
+            }
+            OK
+        }
     }
-    let key = config_table::primary_key(&live.data_shape);
-    println!(
-        "{label}: {} row(s); primary key {}",
-        live.rows.len(),
-        if key.is_empty() {
-            "none".to_string()
-        } else {
-            key.join(", ")
-        }
-    );
-    if args.has("--detail") {
-        println!(
-            "{}",
-            serde_json::to_string_pretty(&live.rows).expect("JSON values serialise")
-        );
-    } else if let Some(first) = live.rows.first() {
-        println!(
-            "first row: {}",
-            serde_json::to_string(first).expect("JSON values serialise")
-        );
-    }
-    OK
 }
 
 /// Compare a designer's export with the solution: what it would revert, and what it would change.
@@ -1447,48 +1450,73 @@ fn call(solution: &Solution, args: &Args) -> u8 {
         },
         None => serde_json::json!({}),
     };
-    let profile_name = args.profile.as_deref().unwrap_or("default");
-    let profile = match profile::load(&solution.root, profile_name) {
-        Ok(profile) => profile,
-        Err(error) => {
-            eprintln!("twaco: {error}");
-            return FAILED;
-        }
+    let request = commands::call::CallRequest {
+        target: args.names[0].clone(),
+        service: args.names[1].clone(),
+        parameters,
+        timeout: args.timeout.unwrap_or(Duration::from_secs(120)),
+        mode: Mode::Apply,
+        profile: args.profile.as_deref().unwrap_or("default").to_string(),
+        with_logs: args.has("--with-logs"),
+        profile_before_target: true,
     };
-    let target =
-        match workspace::call_target(&workspace::discover(solution).entities, &args.names[0]) {
-            Ok(target) => {
-                // Said aloud: a platform Thing with the same short name is reached as Things/<Name>.
-                if target.to_string() != args.names[0] {
-                    eprintln!("twaco: calling {target}");
-                }
-                target
-            }
+    let mut notices = commands::Notices::default();
+    let outcome =
+        match commands::call::execute(solution, &request, server::Client::new, &mut notices) {
+            Ok(outcome) => outcome,
             Err(error) => {
+                print_notices(&notices);
+                if let commands::call::CallCommandError::Call {
+                    target,
+                    error: call_error,
+                    logs,
+                } = &error
+                {
+                    if let Some(logged) = &**logs {
+                        if target.to_string() != args.names[0] {
+                            eprintln!("twaco: calling {target}");
+                        }
+                        use twaco::core::logs;
+                        match logged {
+                            Ok(entries) => {
+                                println!(
+                                    "--- logged during the call: {} entr{}",
+                                    entries.len(),
+                                    if entries.len() == 1 { "y" } else { "ies" }
+                                );
+                                for (log, entry) in entries {
+                                    println!("{log}: {}", logs::line(entry));
+                                }
+                                println!("---");
+                            }
+                            Err(log_error) => {
+                                eprintln!("twaco: the call's logs could not be read: {log_error}")
+                            }
+                        }
+                        eprintln!("twaco: {call_error}");
+                        return FAILED;
+                    }
+                }
                 eprintln!("twaco: {error}");
                 return FAILED;
             }
         };
-    let client = server::Client::new(profile);
-    let started = twaco::core::logs::now_ms();
-    let result = client.call_service(
-        &target,
-        &args.names[1],
-        &parameters,
-        args.timeout.unwrap_or(Duration::from_secs(120)),
-    );
-    if args.has("--with-logs") {
-        // Printed first, so a failure's own lines come before its error, as they happened.
+    print_notices(&notices);
+    let commands::call::CallOutcome::Applied {
+        target,
+        reply,
+        logs,
+        ..
+    } = outcome
+    else {
+        unreachable!("the command line always calls")
+    };
+    if target.to_string() != args.names[0] {
+        eprintln!("twaco: calling {target}");
+    }
+    if let Some(logged) = logs {
         use twaco::core::logs;
-        let ended = logs::now_ms();
-        match logs::during_call(
-            &client,
-            started,
-            ended,
-            logs::Wait::default(),
-            &logs::now_ms,
-            &std::thread::sleep,
-        ) {
+        match logged {
             Ok(entries) => {
                 println!(
                     "--- logged during the call: {} entr{}",
@@ -1503,19 +1531,15 @@ fn call(solution: &Solution, args: &Args) -> u8 {
             Err(error) => eprintln!("twaco: the call's logs could not be read: {error}"),
         }
     }
-    match result {
-        Ok(None) => println!("done"),
-        Ok(Some(value)) if args.has("--detail") || !is_info_table(&value) => {
+    match reply {
+        None => println!("done"),
+        Some(value) if args.has("--detail") || !is_info_table(&value) => {
             println!(
                 "{}",
                 serde_json::to_string_pretty(&value).expect("JSON value serialises")
             );
         }
-        Ok(Some(value)) => print_info_table_summary(&value),
-        Err(error) => {
-            eprintln!("twaco: {error}");
-            return FAILED;
-        }
+        Some(value) => print_info_table_summary(&value),
     }
     OK
 }
@@ -1679,32 +1703,38 @@ fn log_level_cmd(solution: &Solution, args: &Args) -> u8 {
             return FAILED;
         }
     };
-    let profile_name = args.profile.as_deref().unwrap_or("default");
-    let client = match profile::load(&solution.root, profile_name) {
-        Ok(profile) => server::Client::new(profile),
-        Err(error) => {
-            eprintln!("twaco: {error}");
-            return FAILED;
-        }
+    let request = commands::logs::LogLevelRequest {
+        log: log.clone(),
+        change,
+        mode: if args.has("--apply") {
+            Mode::Apply
+        } else {
+            Mode::Plan
+        },
+        profile: args.profile.as_deref().unwrap_or("default").to_string(),
     };
-    let Some(change) = change else {
-        return match logs::levels(&client, &log) {
-            Ok(levels) => {
-                println!("{log}: {}", levels.level);
-                for (name, level) in &levels.subloggers {
-                    println!("  {name}: {level}");
-                }
-                OK
-            }
+    let mut notices = commands::Notices::default();
+    let outcome =
+        match commands::logs::execute(solution, &request, server::Client::new, &mut notices) {
+            Ok(outcome) => outcome,
             Err(error) => {
+                print_notices(&notices);
                 eprintln!("twaco: logs level: {error}");
-                FAILED
+                return FAILED;
             }
         };
-    };
-    let apply = args.has("--apply");
-    match logs::change(&client, &log, &change, apply) {
-        Ok(report) => {
+    print_notices(&notices);
+    match outcome {
+        commands::logs::LogLevelOutcome::Levels { levels, .. } => {
+            println!("{log}: {}", levels.level);
+            for (name, level) in &levels.subloggers {
+                println!("  {name}: {level}");
+            }
+            OK
+        }
+        commands::logs::LogLevelOutcome::Plan { report, .. }
+        | commands::logs::LogLevelOutcome::Applied { report, .. } => {
+            let apply = args.has("--apply");
             if apply {
                 println!("changed {}", report.plan);
             } else {
@@ -1717,10 +1747,6 @@ fn log_level_cmd(solution: &Solution, args: &Args) -> u8 {
                 println!("to put it back: {undo}");
             }
             OK
-        }
-        Err(error) => {
-            eprintln!("twaco: logs level: {error}");
-            FAILED
         }
     }
 }
@@ -4327,21 +4353,21 @@ fn datatable_copy_cmd(solution: &Solution, args: &Args) -> u8 {
 /// default; touches only names twaco generates, on `Database` Things.
 fn db_clean_cmd(solution: &Solution, args: &Args) -> u8 {
     let apply = args.has("--apply");
-    let profile_name = args.profile.as_deref().unwrap_or("default");
-    let profile = match profile::load(&solution.root, profile_name) {
-        Ok(profile) => profile,
+    let request = commands::db::DbRequest::Clean {
+        mode: if apply { Mode::Apply } else { Mode::Plan },
+        profile: args.profile.as_deref().unwrap_or("default").to_string(),
+    };
+    let mut notices = commands::Notices::default();
+    let swept = match commands::db::execute(solution, &request, server::Client::new, &mut notices) {
+        Ok(commands::db::DbOutcome::Cleaned { things, .. }) => things,
+        Ok(commands::db::DbOutcome::Executed { .. }) => unreachable!(),
         Err(error) => {
+            print_notices(&notices);
             eprintln!("twaco: {error}");
             return FAILED;
         }
     };
-    let swept = match db::sweep(&server::Client::new(profile), apply) {
-        Ok(swept) => swept,
-        Err(error) => {
-            eprintln!("twaco: {error}");
-            return FAILED;
-        }
-    };
+    print_notices(&notices);
     if args.has("--json") {
         let key = if apply { "applied" } else { "plan" };
         let value = serde_json::json!({ (key): true, "things": swept });
@@ -4416,14 +4442,6 @@ fn db_cmd(solution: &Solution, route: &str, args: &Args) -> u8 {
         },
         None => 500,
     };
-    let profile_name = args.profile.as_deref().unwrap_or("default");
-    let profile = match profile::load(&solution.root, profile_name) {
-        Ok(profile) => profile,
-        Err(error) => {
-            eprintln!("twaco: {error}");
-            return FAILED;
-        }
-    };
     let options = db::Options {
         mode,
         thing: args.values.get("--thing").cloned(),
@@ -4432,19 +4450,23 @@ fn db_cmd(solution: &Solution, route: &str, args: &Args) -> u8 {
         max_rows,
         timeout: args.timeout.unwrap_or(Duration::from_secs(120)),
     };
-    let report = match db::execute(
-        &server::Client::new(profile.clone()),
-        solution,
-        &profile,
-        &sql,
-        &options,
-    ) {
-        Ok(report) => report,
+    let request = commands::db::DbRequest::Execute {
+        sql,
+        options,
+        profile: args.profile.as_deref().unwrap_or("default").to_string(),
+    };
+    let mut notices = commands::Notices::default();
+    let report = match commands::db::execute(solution, &request, server::Client::new, &mut notices)
+    {
+        Ok(commands::db::DbOutcome::Executed { report, .. }) => report,
+        Ok(commands::db::DbOutcome::Cleaned { .. }) => unreachable!(),
         Err(error) => {
+            print_notices(&notices);
             eprintln!("twaco: {error}");
             return FAILED;
         }
     };
+    print_notices(&notices);
     if args.has("--json") {
         let mut value = serde_json::to_value(&report).expect("db report serialises");
         if mode == db::Mode::Query {
