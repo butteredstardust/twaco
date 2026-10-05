@@ -399,7 +399,10 @@ fn a_failed_step_undoes_the_ones_before_it() {
     recover::install(&root, &journal.steps[0]).unwrap();
     journal.steps[0].completed = true;
     journal::write(&root, &journal).unwrap();
-    let error = transaction.undo(journal, "the disk said no".to_string());
+    let error = transaction.undo(
+        journal,
+        recover::Stop::Failed("the disk said no".to_string()),
+    );
     assert!(
         matches!(
             error,
@@ -477,5 +480,227 @@ fn files_created_in_the_same_new_folder_share_it() {
     assert_eq!(recovered[0].action, Action::RolledBack);
     assert!(!root.join("p").exists());
     assert!(root.join("x/y/one.txt").exists());
+    let _ = std::fs::remove_dir_all(root);
+}
+
+/// `dir/x.txt` and `dir/y.txt` in a workspace that also has `a.txt`; a plan that edits
+/// `dir/x.txt`, replaces `a.txt` and renames `dir` to `moved/dir2`.
+fn folder_workspace(label: &str) -> PathBuf {
+    let root = scratch(label);
+    put(&root, "dir/x.txt", "x before");
+    put(&root, "dir/y.txt", "y before");
+    put(&root, "a.txt", "a before");
+    root
+}
+
+fn folder_plan<'a>(root: &'a Path) -> Transaction<'a> {
+    let mut transaction = Transaction::new(root, "test move");
+    transaction
+        .replace_file(&root.join("dir/x.txt"), b"x before", b"x after".to_vec())
+        .unwrap();
+    transaction
+        .replace_file(&root.join("a.txt"), b"a before", b"a after".to_vec())
+        .unwrap();
+    transaction
+        .move_path(&root.join("dir"), &root.join("moved/dir2"))
+        .unwrap();
+    transaction
+}
+
+fn assert_folder_before(root: &Path) {
+    assert_eq!(read(root, "dir/x.txt").as_deref(), Some("x before"));
+    assert_eq!(read(root, "dir/y.txt").as_deref(), Some("y before"));
+    assert_eq!(read(root, "a.txt").as_deref(), Some("a before"));
+    assert!(!root.join("moved").exists());
+}
+
+fn assert_folder_after(root: &Path) {
+    assert_eq!(read(root, "moved/dir2/x.txt").as_deref(), Some("x after"));
+    assert_eq!(read(root, "moved/dir2/y.txt").as_deref(), Some("y before"));
+    assert_eq!(read(root, "a.txt").as_deref(), Some("a after"));
+    assert!(!root.join("dir").exists());
+}
+
+#[test]
+fn a_folder_move_with_an_edit_inside_it_applies_and_leaves_no_artifact_behind() {
+    let root = folder_workspace("move-applies");
+    let lock = lock::acquire(&root, "test", &[]).unwrap();
+    folder_plan(&root).apply(&lock).unwrap();
+    assert_folder_after(&root);
+    // The backup of the edited file travelled with the folder; it is removed all the same.
+    assert_eq!(leftovers(&root), Vec::<String>::new());
+    drop(lock);
+    let _ = std::fs::remove_dir_all(root);
+}
+
+#[test]
+fn a_move_onto_something_that_exists_or_from_something_that_is_gone_changes_nothing() {
+    let root = folder_workspace("move-refused");
+    put(&root, "moved/dir2/in-the-way.txt", "here already");
+    let lock = lock::acquire(&root, "test", &[]).unwrap();
+    let error = folder_plan(&root).apply(&lock).unwrap_err();
+    assert!(error.to_string().contains("exists already"), "{error}");
+    assert_eq!(read(&root, "dir/x.txt").as_deref(), Some("x before"));
+    assert_eq!(read(&root, "a.txt").as_deref(), Some("a before"));
+    drop(lock);
+    let _ = std::fs::remove_dir_all(&root);
+    let root = folder_workspace("move-gone");
+    let mut transaction = Transaction::new(&root, "test");
+    transaction
+        .move_path(&root.join("nothing"), &root.join("elsewhere"))
+        .unwrap();
+    let lock = lock::acquire(&root, "test", &[]).unwrap();
+    assert!(matches!(
+        transaction.apply(&lock),
+        Err(TransactionError::Stale(_))
+    ));
+    drop(lock);
+    let _ = std::fs::remove_dir_all(root);
+}
+
+#[test]
+fn a_crash_after_the_edits_but_before_the_move_finishes_the_move() {
+    let root = folder_workspace("move-forward");
+    let journal = folder_plan(&root).stage().unwrap();
+    recover::install(&root, &journal.steps[0]).unwrap();
+    recover::install(&root, &journal.steps[1]).unwrap();
+    let recovered = recover::recover_pending(&root).unwrap();
+    assert_eq!(recovered[0].action, Action::RolledForward);
+    assert_folder_after(&root);
+    assert_eq!(leftovers(&root), Vec::<String>::new());
+    let _ = std::fs::remove_dir_all(root);
+}
+
+#[test]
+fn a_crash_just_after_the_move_is_seen_by_where_the_edited_file_now_is() {
+    let root = folder_workspace("move-after");
+    let journal = folder_plan(&root).stage().unwrap();
+    for step in &journal.steps {
+        recover::install(&root, step).unwrap();
+    }
+    // Nothing was marked: the edited file is found at its new place, not its old one.
+    let recovered = recover::recover_pending(&root).unwrap();
+    assert_eq!(recovered[0].action, Action::RolledForward);
+    assert_folder_after(&root);
+    assert_eq!(leftovers(&root), Vec::<String>::new());
+    let _ = std::fs::remove_dir_all(root);
+}
+
+#[test]
+fn a_crash_is_undone_when_it_cannot_be_finished_and_the_move_goes_back() {
+    let root = folder_workspace("move-backward");
+    let journal = folder_plan(&root).stage().unwrap();
+    recover::install(&root, &journal.steps[0]).unwrap();
+    // The staged bytes of the other edit are gone, so the operation cannot be finished.
+    std::fs::remove_file(root.join(journal.steps[1].stage.as_ref().unwrap())).unwrap();
+    let recovered = recover::recover_pending(&root).unwrap();
+    assert_eq!(recovered[0].action, Action::RolledBack);
+    assert_folder_before(&root);
+    assert_eq!(leftovers(&root), Vec::<String>::new());
+    let _ = std::fs::remove_dir_all(root);
+}
+
+#[test]
+fn a_failure_at_any_step_undoes_the_ones_before_it_and_the_hook_sees_every_step() {
+    let steps = {
+        let root = folder_workspace("hook-count");
+        let lock = lock::acquire(&root, "test", &[]).unwrap();
+        let mut seen = Vec::new();
+        folder_plan(&root)
+            .apply_with(&lock, &mut |at, step| {
+                seen.push((at, step.kind));
+                Ok(())
+            })
+            .unwrap();
+        drop(lock);
+        let _ = std::fs::remove_dir_all(root);
+        seen
+    };
+    assert_eq!(
+        steps,
+        [(0, Kind::Replace), (1, Kind::Replace), (2, Kind::Move)]
+    );
+    for fail_at in 0..steps.len() {
+        let root = folder_workspace("hook-fail");
+        let lock = lock::acquire(&root, "test", &[]).unwrap();
+        let error = folder_plan(&root)
+            .apply_with(&lock, &mut |at, _| {
+                if at == fail_at {
+                    Err(std::io::Error::other("injected"))
+                } else {
+                    Ok(())
+                }
+            })
+            .unwrap_err();
+        assert!(
+            matches!(
+                error,
+                TransactionError::Failed {
+                    rolled_back: true,
+                    ..
+                }
+            ),
+            "{fail_at}: {error}"
+        );
+        assert_folder_before(&root);
+        assert_eq!(leftovers(&root), Vec::<String>::new(), "{fail_at}");
+        drop(lock);
+        let _ = std::fs::remove_dir_all(root);
+    }
+}
+
+#[test]
+fn a_file_saved_just_before_its_step_is_refused_and_the_rest_is_undone() {
+    let root = folder_workspace("saved-before");
+    let lock = lock::acquire(&root, "test", &[]).unwrap();
+    let error = folder_plan(&root)
+        .apply_with(&lock, &mut |at, _| {
+            if at == 1 {
+                put(&root, "a.txt", "a saved by a person");
+            }
+            Ok(())
+        })
+        .unwrap_err();
+    assert!(matches!(error, TransactionError::Stale(_)), "{error}");
+    assert_eq!(read(&root, "a.txt").as_deref(), Some("a saved by a person"));
+    assert_eq!(read(&root, "dir/x.txt").as_deref(), Some("x before"));
+    assert_eq!(leftovers(&root), Vec::<String>::new());
+    drop(lock);
+    let _ = std::fs::remove_dir_all(root);
+}
+
+#[test]
+fn a_save_made_after_the_operation_wrote_a_file_is_named_not_overwritten_by_the_undo() {
+    let root = folder_workspace("saved-after");
+    let lock = lock::acquire(&root, "test", &[]).unwrap();
+    let error = folder_plan(&root)
+        .apply_with(&lock, &mut |at, _| {
+            if at == 2 {
+                // Both edits are in; a person saves the edited file, and then the move fails.
+                put(&root, "dir/x.txt", "saved by a person");
+                return Err(std::io::Error::other("injected"));
+            }
+            Ok(())
+        })
+        .unwrap_err();
+    match &error {
+        TransactionError::Failed {
+            rolled_back: false,
+            leftover,
+            journal: Some(journal),
+            ..
+        } => {
+            assert_eq!(leftover, &vec![root.join("dir/x.txt")]);
+            assert!(journal.exists());
+        }
+        other => panic!("{other}"),
+    }
+    assert_eq!(error.code(), ErrorCode::RollbackFailed);
+    assert_eq!(
+        read(&root, "dir/x.txt").as_deref(),
+        Some("saved by a person")
+    );
+    // The other edit was put back.
+    assert_eq!(read(&root, "a.txt").as_deref(), Some("a before"));
     let _ = std::fs::remove_dir_all(root);
 }

@@ -52,15 +52,16 @@ impl Recovered {
     }
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum Prefer {
-    /// A crash: complete the operation when the bytes to install are still staged.
-    Forward,
-    /// A step failed: undo what was installed.
-    Backward,
+/// Why a step could not be made.
+#[derive(Debug)]
+pub(super) enum Stop {
+    /// What the step was planned against is no longer there.
+    Stale(String),
+    Failed(String),
 }
 
-enum Standing {
+/// Where a step's file stands: as it was, as it will be, or as neither.
+pub(super) enum Standing {
     Before,
     After,
     Other(Option<String>),
@@ -77,8 +78,28 @@ pub(super) fn observe(path: &Path) -> std::io::Result<Option<String>> {
     }
 }
 
-fn standing(root: &Path, step: &Step) -> std::io::Result<Standing> {
-    let found = observe(&paths::absolute(root, &step.path))?;
+pub(super) fn standing(root: &Path, step: &Step) -> std::io::Result<Standing> {
+    if step.kind == Kind::Move {
+        let to = step.to.as_deref().unwrap_or_default();
+        let from_there = std::fs::symlink_metadata(paths::absolute(root, &step.path)).is_ok();
+        let to_there = std::fs::symlink_metadata(paths::absolute(root, to)).is_ok();
+        return Ok(match (from_there, to_there) {
+            (true, false) => Standing::Before,
+            (false, true) => Standing::After,
+            (true, true) => {
+                Standing::Other(Some("both the source and the destination".to_string()))
+            }
+            (false, false) => Standing::Other(None),
+        });
+    }
+    let mut found = observe(&paths::absolute(root, &step.path))?;
+    // A file inside a folder that a later step renames is found at its new place once that has
+    // happened.
+    if found.is_none() {
+        if let Some(moved) = &step.then_at {
+            found = observe(&paths::absolute(root, moved))?;
+        }
+    }
     Ok(if found == step.before {
         Standing::Before
     } else if found == step.after {
@@ -170,7 +191,7 @@ pub fn recover_pending(root: &Path) -> Result<Vec<Recovered>, Refusal> {
     }
     let mut recovered = Vec::new();
     for journal in &journals {
-        let action = resolve(root, journal, Prefer::Forward)?;
+        let action = resolve(root, journal)?;
         recovered.push(Recovered {
             operation_id: journal.operation_id.clone(),
             command: journal.command.clone(),
@@ -181,7 +202,7 @@ pub fn recover_pending(root: &Path) -> Result<Vec<Recovered>, Refusal> {
 }
 
 /// Bring one journal's operation to an end: committed, or undone.
-pub(super) fn resolve(root: &Path, journal: &Journal, prefer: Prefer) -> Result<Action, Refusal> {
+pub(super) fn resolve(root: &Path, journal: &Journal) -> Result<Action, Refusal> {
     match journal.state {
         State::Committed => {
             clean(root, journal, false);
@@ -242,13 +263,10 @@ pub(super) fn resolve(root: &Path, journal: &Journal, prefer: Prefer) -> Result<
     }
     let forward = waiting.iter().all(|step| can_install(root, step));
     let backward = installed.iter().all(|step| can_restore(root, step));
-    let go_forward = match prefer {
-        Prefer::Forward => forward,
-        Prefer::Backward => false,
-    };
-    if go_forward {
+    if forward {
         for step in waiting {
-            install(root, step).map_err(|why| {
+            install(root, step).map_err(|stop| {
+                let (Stop::Stale(why) | Stop::Failed(why)) = stop;
                 Refusal(format!(
                     "recovery stopped for operation {}: {why}\n{}",
                     journal.operation_id,
@@ -289,6 +307,8 @@ fn check_paths(root: &Path, journal: &Journal) -> Result<(), Refusal> {
     let mut problems = Vec::new();
     for step in &journal.steps {
         let named = std::iter::once(&step.path)
+            .chain(step.to.iter())
+            .chain(step.then_at.iter())
             .chain(step.stage.iter())
             .chain(step.backup.iter())
             .chain(step.new_dirs.iter());
@@ -340,44 +360,83 @@ fn refusal_text(journal: &Journal, conflicts: &[String]) -> String {
 /// The staged bytes of a step that has not been installed are present and are the planned ones.
 fn can_install(root: &Path, step: &Step) -> bool {
     match step.kind {
-        Kind::Delete => true,
-        Kind::Replace | Kind::Create => holds(root, step.stage.as_deref(), &step.after),
+        Kind::Delete | Kind::Move => true,
+        Kind::Replace | Kind::Create => holds(root, step, step.stage.as_deref(), &step.after),
     }
 }
 
 /// What it takes to put an installed step back is present.
 fn can_restore(root: &Path, step: &Step) -> bool {
     match step.kind {
-        Kind::Create => true,
-        Kind::Replace | Kind::Delete => holds(root, step.backup.as_deref(), &step.before),
+        Kind::Create | Kind::Move => true,
+        Kind::Replace | Kind::Delete => holds(root, step, step.backup.as_deref(), &step.before),
     }
 }
 
-fn holds(root: &Path, artifact: Option<&str>, digest: &Option<String>) -> bool {
+fn holds(root: &Path, step: &Step, artifact: Option<&str>, digest: &Option<String>) -> bool {
     artifact.is_some_and(|artifact| {
-        std::fs::read(paths::absolute(root, artifact))
+        std::fs::read(located(root, step, artifact))
             .is_ok_and(|bytes| Some(journal::digest(&bytes)) == *digest)
     })
 }
 
+/// Where one of a step's hidden files is now. It sits beside the file it belongs to, so it moved
+/// with the folder if a later step renamed it.
+fn located(root: &Path, step: &Step, artifact: &str) -> std::path::PathBuf {
+    let here = paths::absolute(root, artifact);
+    if here.exists() {
+        return here;
+    }
+    match (&step.then_at, artifact.rsplit_once('/')) {
+        (Some(moved), Some((_, name))) => match moved.rsplit_once('/') {
+            Some((folder, _)) => paths::absolute(root, &format!("{folder}/{name}")),
+            None => paths::absolute(root, name),
+        },
+        _ => here,
+    }
+}
+
 /// Make one step visible: rename its staged bytes over the destination, or remove the
 /// destination.
-pub(super) fn install(root: &Path, step: &Step) -> Result<(), String> {
+pub(super) fn install(root: &Path, step: &Step) -> Result<(), Stop> {
     let destination = paths::absolute(root, &step.path);
-    let fail = |why: std::io::Error| format!("{}: {why}", step.path);
+    let fail = |why: std::io::Error| Stop::Failed(format!("{}: {why}", step.path));
     match step.kind {
         Kind::Delete => retry(|| std::fs::remove_file(&destination)).map_err(fail),
         Kind::Replace | Kind::Create => {
             let stage = step
                 .stage
                 .as_deref()
-                .ok_or_else(|| format!("{} has no staged bytes", step.path))?;
+                .ok_or_else(|| Stop::Failed(format!("{} has no staged bytes", step.path)))?;
             if step.kind == Kind::Create && destination.exists() {
-                return Err(format!("{} exists already", step.path));
+                return Err(Stop::Stale(stale_text(step)));
             }
             let stage = paths::absolute(root, stage);
             retry(|| std::fs::rename(&stage, &destination)).map_err(fail)
         }
+        Kind::Move => {
+            let to = step.to.as_deref().unwrap_or_default();
+            let target = paths::absolute(root, to);
+            // The tree is read again right before it is renamed: everything the operation
+            // rewrites inside it has been, and nothing else may have changed.
+            let tree = journal::tree_digest(root, &step.path, &Default::default());
+            if tree.as_ref().ok() != step.before.as_ref() {
+                return Err(Stop::Stale(stale_text(step)));
+            }
+            if target.exists() {
+                return Err(Stop::Stale(format!("{to} exists already")));
+            }
+            retry(|| std::fs::rename(&destination, &target))
+                .map_err(|why| Stop::Failed(format!("{}: cannot move to {to}: {why}", step.path)))
+        }
+    }
+}
+
+/// The text of a refusal because what a step was planned against has changed.
+pub(super) fn stale_text(step: &Step) -> String {
+    match step.kind {
+        Kind::Create => format!("{} exists already", step.path),
+        _ => format!("{} changed since it was read", step.path),
     }
 }
 
@@ -387,15 +446,42 @@ fn restore(root: &Path, step: &Step) -> Result<(), String> {
     let fail = |why: std::io::Error| format!("{}: {why}", step.path);
     match step.kind {
         Kind::Create => retry(|| std::fs::remove_file(&destination)).map_err(fail),
+        Kind::Move => {
+            let target = paths::absolute(root, step.to.as_deref().unwrap_or_default());
+            retry(|| std::fs::rename(&target, &destination)).map_err(fail)
+        }
         Kind::Replace | Kind::Delete => {
             let backup = step
                 .backup
                 .as_deref()
                 .ok_or_else(|| format!("{} has no backup", step.path))?;
-            let bytes = std::fs::read(paths::absolute(root, backup)).map_err(fail)?;
+            let bytes = std::fs::read(located(root, step, backup)).map_err(fail)?;
             retry(|| crate::core::workspace::atomic_replace(&destination, &bytes)).map_err(fail)
         }
     }
+}
+
+/// Put back what a failed operation installed, newest first. A step whose file somebody has
+/// changed since is left alone and named: it is not this operation's to overwrite.
+pub(super) fn undo_installed(root: &Path, journal: &Journal) -> Vec<std::path::PathBuf> {
+    let mut leftover = Vec::new();
+    for step in journal.steps.iter().rev() {
+        match standing(root, step) {
+            Ok(Standing::After) => {
+                if restore(root, step).is_err() {
+                    leftover.push(paths::absolute(root, &step.path));
+                }
+            }
+            Ok(Standing::Before) => {}
+            // Changed after the operation made it, or unreadable. A step it never got to is
+            // somebody else's to keep as it is.
+            Ok(Standing::Other(_)) if !step.completed => {}
+            Ok(Standing::Other(_)) | Err(_) => leftover.push(paths::absolute(root, &step.path)),
+        }
+    }
+    leftover.sort();
+    leftover.dedup();
+    leftover
 }
 
 /// An editor or a virus scanner can hold a file for a moment without sharing it, which Windows
@@ -422,7 +508,7 @@ pub(super) fn clean(root: &Path, journal: &Journal, undone: bool) {
             if paths::stored(artifact)
                 .is_ok_and(|artifact| paths::reject_links(root, &artifact).is_ok())
             {
-                let _ = std::fs::remove_file(paths::absolute(root, artifact));
+                let _ = std::fs::remove_file(located(root, step, artifact));
             }
         }
     }

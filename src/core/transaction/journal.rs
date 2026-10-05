@@ -36,6 +36,8 @@ pub enum Kind {
     Create,
     /// The destination holds the `before` bytes and will be absent.
     Delete,
+    /// A file or a whole folder is renamed from `path` to `to`.
+    Move,
 }
 
 impl Kind {
@@ -44,6 +46,7 @@ impl Kind {
             Kind::Replace => "replace",
             Kind::Create => "create",
             Kind::Delete => "delete",
+            Kind::Move => "move",
         }
     }
 }
@@ -62,6 +65,12 @@ pub struct Step {
     pub stage: Option<String>,
     /// A copy of the original bytes, kept so the step can be undone.
     pub backup: Option<String>,
+    /// Where a `move` puts what is at `path`.
+    #[serde(default)]
+    pub to: Option<String>,
+    /// For a file inside something a later `move` renames: where it is once that has happened.
+    #[serde(default)]
+    pub then_at: Option<String>,
     /// Folders this step created, shallowest first; removed again if the step is undone.
     #[serde(default)]
     pub new_dirs: Vec<String>,
@@ -84,6 +93,68 @@ pub fn digest(bytes: &[u8]) -> String {
         text.push_str(&format!("{byte:02x}"));
     }
     text
+}
+
+/// The digest of a file, or of a whole folder: every regular file under it by relative path.
+/// `overrides` stands for files the operation will have rewritten before the digest is taken
+/// again (`None`: removed). A link anywhere inside is an error.
+pub fn tree_digest(
+    root: &Path,
+    relative: &str,
+    overrides: &std::collections::BTreeMap<String, Option<Vec<u8>>>,
+) -> std::io::Result<String> {
+    use std::io::{Error, ErrorKind};
+    fn walk(
+        root: &Path,
+        relative: &str,
+        overrides: &std::collections::BTreeMap<String, Option<Vec<u8>>>,
+        entries: &mut std::collections::BTreeMap<String, String>,
+    ) -> std::io::Result<()> {
+        let path = super::paths::absolute(root, relative);
+        if super::paths::is_link(&path) {
+            return Err(Error::new(
+                ErrorKind::InvalidData,
+                format!("{relative} is or holds a link"),
+            ));
+        }
+        let metadata = std::fs::symlink_metadata(&path)?;
+        if metadata.is_dir() {
+            // The operation's own stages and backups sit beside the files they belong to; they
+            // are not part of what is being moved.
+            let mut names: Vec<String> = std::fs::read_dir(&path)?
+                .flatten()
+                .map(|entry| entry.file_name().to_string_lossy().into_owned())
+                .filter(|name| {
+                    !(name.starts_with('.')
+                        && (name.ends_with(".twaco-stage") || name.ends_with(".twaco-backup")))
+                })
+                .collect();
+            names.sort();
+            for name in names {
+                walk(root, &format!("{relative}/{name}"), overrides, entries)?;
+            }
+        } else if metadata.is_file() {
+            let digest = match overrides.get(relative) {
+                Some(Some(bytes)) => digest(bytes),
+                Some(None) => return Ok(()),
+                None => digest(&std::fs::read(&path)?),
+            };
+            entries.insert(relative.to_string(), digest);
+        } else {
+            return Err(Error::new(
+                ErrorKind::InvalidData,
+                format!("{relative} is not a file or a folder"),
+            ));
+        }
+        Ok(())
+    }
+    let mut entries = std::collections::BTreeMap::new();
+    walk(root, relative, overrides, &mut entries)?;
+    let mut text = String::new();
+    for (path, found) in entries {
+        text.push_str(&format!("{path}\0{found}\n"));
+    }
+    Ok(format!("sha256-tree:{}", &digest(text.as_bytes())[7..]))
 }
 
 pub fn path_of(root: &Path, operation_id: &str) -> PathBuf {
