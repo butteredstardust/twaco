@@ -1,7 +1,11 @@
 //! Command contracts shared by the command-line and MCP adapters.
 
 pub mod delete;
+pub mod extract;
+pub mod fmt;
 pub mod push;
+pub mod sync;
+pub mod types;
 
 use super::config::Solution;
 use super::lock::{self, LockError, WorkspaceLock};

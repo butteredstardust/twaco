@@ -20,7 +20,7 @@ use crate::core::{
     adopt, backup, baseline, catalog, check, config_table, datatable_copy, db, deploy, docs,
     entity_carry, entity_delete, export, extensions, guide, help, impact, imports, javadoc, lock,
     logs, newblock, profile, push, relocate, rename, repo, retemplate, server, settings, status,
-    types, unused, workflow, workspace,
+    types, unused, workspace,
 };
 use serde_json::{json, Map, Value};
 use std::io::{BufRead, Write};
@@ -1094,10 +1094,29 @@ fn types_tool_with_compiler(
     arguments: &Value,
     compiler: Option<&dyn types::CompilerRunner>,
 ) -> Result<Value, ToolError> {
-    let _lock = lock::acquire_for(solution, "mcp types").map_err(ToolError::coded)?;
-    match text(arguments, "action").unwrap_or("generate") {
-        "generate" => {
-            let outcome = types::write(solution).map_err(ToolError::coded)?;
+    let action = match text(arguments, "action").unwrap_or("generate") {
+        "generate" => commands::types::TypesAction::Generate,
+        "check" => commands::types::TypesAction::Check,
+        "platform" => commands::types::TypesAction::Platform,
+        action => commands::types::TypesAction::Invalid(format!(
+            "action must be generate, check or platform, not {action:?}"
+        )),
+    };
+    let request = commands::types::TypesRequest {
+        action,
+        profile: text(arguments, "profile").unwrap_or("default").to_string(),
+        lock_label: "mcp types",
+    };
+    let mut notices = commands::Notices::default();
+    let result = commands::types::execute(
+        solution,
+        &request,
+        server::Client::new,
+        compiler,
+        &mut notices,
+    );
+    match result.map_err(ToolError::coded)? {
+        commands::types::TypesOutcome::Generated(outcome) => {
             let mut result = json!({
                 "ok": true,
                 "entities": outcome.entities,
@@ -1109,14 +1128,10 @@ fn types_tool_with_compiler(
             if !outcome.gitignore_covers_types {
                 result["gitignore_note"] = json!("add `.twaco/types/`, `**/services/*/jsconfig.json`, and `**/services/*/twaco-globals.d.ts` to the solution root's .gitignore");
             }
+            add_notices(&mut result, &notices);
             Ok(result)
         }
-        "check" => {
-            let outcome = match compiler {
-                Some(compiler) => types::check_with(solution, compiler),
-                None => types::check(solution),
-            }
-            .map_err(ToolError::coded)?;
+        commands::types::TypesOutcome::Checked(outcome) => {
             let mut by_code = std::collections::BTreeMap::new();
             for finding in &outcome.findings {
                 *by_code
@@ -1145,22 +1160,20 @@ fn types_tool_with_compiler(
             } else {
                 result["first"] = Value::Array(findings.take(20).collect());
             }
+            add_notices(&mut result, &notices);
             Ok(result)
         }
-        "platform" => {
-            let client = client(solution, arguments)?;
-            let outcome = types::fetch_platform(&client, solution).map_err(ToolError::coded)?;
-            Ok(json!({
+        commands::types::TypesOutcome::Platform(outcome) => {
+            let mut result = json!({
                 "ok": true,
                 "templates": outcome.templates,
                 "shapes": outcome.shapes,
                 "resources": outcome.resources,
                 "skipped": outcome.skipped.into_iter().chain(outcome.types.skipped).collect::<Vec<_>>(),
-            }))
+            });
+            add_notices(&mut result, &notices);
+            Ok(result)
         }
-        action => Err(ToolError::invalid(format!(
-            "action must be generate, check or platform, not {action:?}"
-        ))),
     }
 }
 
@@ -1303,27 +1316,16 @@ fn status_tool(solution: &Solution, arguments: &Value) -> Result<Value, ToolErro
     Ok(result)
 }
 
-/// The entities a tool acts on: one by name, or all of one project, or all of the solution.
-fn chosen_entities(
-    solution: &Solution,
-    arguments: &Value,
-) -> Result<(Vec<workspace::EntityFile>, Vec<String>, bool), ToolError> {
-    let found = workspace::discover(solution);
-    let mut pool = found.entities;
-    if let Some(project) = text(arguments, "project") {
-        if solution.project(project).is_none() {
-            return Err(ToolError::invalid(format!(
-                "this solution has no project named {project}"
-            )));
-        }
-        pool.retain(|e| e.found_under == project);
-    }
-    let (chosen, named) = pick(pool, arguments)?;
-    Ok((chosen, found.unreadable, named))
+/// The optional entity spelling that an executor will validate after taking a write lock.
+fn tool_target(arguments: &Value) -> Vec<String> {
+    text(arguments, "entity")
+        .map(str::to_string)
+        .into_iter()
+        .collect()
 }
 
-/// One entity by name, or every one with `all: true`; as on the command line, neither is refused,
-/// so a forgotten argument never widens a write to the whole solution.
+/// One entity by name, or every one with `all: true`; status uses this after it has discovered
+/// the workspace because it needs resolved entity files for its server reads.
 fn pick(
     pool: Vec<workspace::EntityFile>,
     arguments: &Value,
@@ -1345,21 +1347,24 @@ fn pick(
 
 fn sync_tool(solution: &Solution, arguments: &Value) -> Result<Value, ToolError> {
     let check = flag(arguments, "check", false);
-    // Held until this function returns, from before the first read. A check writes nothing and
-    // runs alongside anything.
-    let _lock = if check {
-        None
-    } else {
-        Some(lock::acquire_for(solution, "mcp sync").map_err(ToolError::coded)?)
-    };
-    let (chosen, unreadable, named) = chosen_entities(solution, arguments)?;
-    let options = workflow::SyncOptions {
-        check,
+    let target = tool_target(arguments);
+    let request = commands::sync::SyncRequest {
+        target: commands::sync::SyncTarget {
+            project: text(arguments, "project").map(str::to_string),
+            entities: target,
+            all: flag(arguments, "all", false),
+            reject_entities_with_all: true,
+            missing_target: "name an entity, or pass all: true",
+        },
+        mode: if check { Mode::Plan } else { Mode::Apply },
         allow_structural: flag(arguments, "allow_add_remove", false),
         relayout: flag(arguments, "relayout", false),
-        named,
+        lock_label: "mcp sync",
     };
-    let outcome = workflow::sync(solution, &chosen, &unreadable, options);
+    let mut notices = commands::Notices::default();
+    let outcome = commands::sync::execute(solution, &request, &mut notices)
+        .map_err(ToolError::coded)?
+        .report;
     let mut result = json!({
         "ok": outcome.failed == 0,
         "check": check,
@@ -1370,13 +1375,26 @@ fn sync_tool(solution: &Solution, arguments: &Value) -> Result<Value, ToolError>
         "errors": outcome.log.errors().collect::<Vec<_>>(),
     });
     add_types_refresh(&mut result, &outcome.types);
+    add_notices(&mut result, &notices);
     Ok(result)
 }
 
 fn extract_tool(solution: &Solution, arguments: &Value) -> Result<Value, ToolError> {
-    let _lock = lock::acquire_for(solution, "mcp extract").map_err(ToolError::coded)?;
-    let (chosen, unreadable, named) = chosen_entities(solution, arguments)?;
-    let outcome = workflow::extract(solution, &chosen, &unreadable, named);
+    let target = tool_target(arguments);
+    let request = commands::extract::ExtractRequest {
+        target: commands::extract::ExtractTarget {
+            project: text(arguments, "project").map(str::to_string),
+            entities: target,
+            all: flag(arguments, "all", false),
+            reject_entities_with_all: true,
+            missing_target: "name an entity, or pass all: true",
+        },
+        lock_label: "mcp extract",
+    };
+    let mut notices = commands::Notices::default();
+    let outcome = commands::extract::execute(solution, &request, &mut notices)
+        .map_err(ToolError::coded)?
+        .report;
     let mut result = json!({
         "ok": outcome.failed == 0,
         "parts": outcome.written,
@@ -1386,6 +1404,7 @@ fn extract_tool(solution: &Solution, arguments: &Value) -> Result<Value, ToolErr
         "errors": outcome.log.errors().collect::<Vec<_>>(),
     });
     add_types_refresh(&mut result, &outcome.types);
+    add_notices(&mut result, &notices);
     Ok(result)
 }
 
@@ -1400,20 +1419,24 @@ fn add_types_refresh(result: &mut Value, refresh: &types::Refresh) {
 
 fn fmt_tool(solution: &Solution, arguments: &Value) -> Result<Value, ToolError> {
     let check = flag(arguments, "check", false);
-    let _lock = if check {
-        None
-    } else {
-        Some(lock::acquire_for(solution, "mcp fmt").map_err(ToolError::coded)?)
+    let request = commands::fmt::FmtRequest {
+        mode: if check { Mode::Plan } else { Mode::Apply },
+        lock_label: "mcp fmt",
     };
-    let outcome = workflow::fmt(solution, check);
-    Ok(json!({
+    let mut notices = commands::Notices::default();
+    let outcome = commands::fmt::execute(solution, &request, &mut notices)
+        .map_err(ToolError::coded)?
+        .report;
+    let mut result = json!({
         "ok": outcome.failed == 0 && (!check || outcome.changed.is_empty()),
         "check": check,
         "scripts": outcome.files,
         "changed": outcome.changed.iter().map(|p| relative(solution, p)).collect::<Vec<_>>(),
         "failed": outcome.failed,
         "errors": outcome.log.errors().collect::<Vec<_>>(),
-    }))
+    });
+    add_notices(&mut result, &notices);
+    Ok(result)
 }
 
 fn strings(arguments: &Value, name: &str) -> Vec<String> {
