@@ -24,6 +24,8 @@ These decide most design questions. A change that breaks one needs a very good r
    server; everything about the repository works without one.
 5. **Measured, not assumed.** Platform behaviour twaco relies on was verified against a live
    server, and the knowledge topics record what was found.
+6. **Failure guarantees are explicit.** Every command and MCP tool has a checked mutation class
+   in [Mutation classes](MUTATION_CLASSES.md), including its safe retry rule.
 
 ## Layers
 
@@ -103,3 +105,5 @@ See [Testing](TESTING.md) for commands.
    does it per tool).
 5. Regenerate [Commands](COMMANDS.md) with `python scripts/commands_doc.py`, and document
    the command wherever it belongs in the user guide.
+6. Classify the command in [Mutation classes](MUTATION_CLASSES.md); its coverage test fails
+   until the CLI command and MCP tool each have a row.

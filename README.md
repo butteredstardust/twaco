@@ -126,6 +126,7 @@ See [MCP server](documentation/MCP_SERVER.md).
 | [MCP server](documentation/MCP_SERVER.md) | Setup and the tools an agent gets |
 | [Knowledge](documentation/KNOWLEDGE.md) | `guide`, `catalog`, `help`, `javadoc` and `types` |
 | [Architecture](documentation/ARCHITECTURE.md) | How twaco works inside, for contributors |
+| [Mutation classes](documentation/MUTATION_CLASSES.md) | What may have changed after each command or tool fails |
 
 ## Safety
 

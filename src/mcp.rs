@@ -251,7 +251,7 @@ fn profile_arg() -> Value {
     json!({ "type": "string", "description": "Server profile name.", "default": "default" })
 }
 
-fn tool_definitions() -> Vec<Value> {
+pub fn tool_definitions() -> Vec<Value> {
     vec![
         tool(
             "projects",

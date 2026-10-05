@@ -4048,6 +4048,155 @@ mod tests {
         text
     }
 
+    #[derive(Debug)]
+    struct MutationRow {
+        name: String,
+        default: String,
+        applied: String,
+    }
+
+    /// Read one of MUTATION_CLASSES.md's tables without adding a Markdown parser to the binary.
+    fn mutation_rows(document: &str, heading: &str) -> Vec<MutationRow> {
+        let mut in_table = false;
+        let mut rows = Vec::new();
+        for line in document.lines() {
+            if line == heading {
+                in_table = true;
+                continue;
+            }
+            if in_table && line.starts_with("## ") {
+                break;
+            }
+            if !in_table || !line.starts_with('|') {
+                continue;
+            }
+            let cells: Vec<&str> = line.split('|').map(str::trim).collect();
+            if cells.len() != 8 || !cells[1].starts_with('`') || !cells[1].ends_with('`') {
+                continue;
+            }
+            rows.push(MutationRow {
+                name: cells[1].trim_matches('`').to_string(),
+                default: cells[2].to_string(),
+                applied: cells[3].to_string(),
+            });
+        }
+        rows
+    }
+
+    /// Command paths as the usage headings name them.  A heading may describe several forms;
+    /// its shared path is enough to reject a table row for a command absent from usage.
+    fn usage_paths() -> std::collections::BTreeSet<String> {
+        let two_words = [
+            "entity", "rename", "db", "datatable", "move", "copy", "new", "export", "package", "import",
+            "ext", "repo", "help", "javadoc",
+        ];
+        let mut paths = std::collections::BTreeSet::new();
+        for line in USAGE.lines().skip(2).filter(|line| line.starts_with("  ") && !line.starts_with("    ")) {
+            let words: Vec<&str> = line.split_whitespace().collect();
+            let Some(first) = words.first() else { continue };
+            if first.starts_with('-') {
+                continue;
+            }
+            let path = if *first == "logs" && words.get(1) == Some(&"level") {
+                "logs level".to_string()
+            } else if two_words.contains(first) {
+                words.get(1).filter(|word| !word.starts_with(['[', '<'])).map(|word| format!("{first} {word}")).unwrap_or_else(|| (*first).to_string())
+            } else {
+                (*first).to_string()
+            };
+            paths.insert(path);
+        }
+        paths
+    }
+
+    fn mutation_document() -> Option<String> {
+        let path = concat!(env!("CARGO_MANIFEST_DIR"), "/documentation/MUTATION_CLASSES.md");
+        match std::fs::read_to_string(path) {
+            Ok(document) => Some(document),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+                eprintln!("skipping mutation-class documentation checks: {path} is not packaged");
+                None
+            }
+            Err(error) => panic!("cannot read {path}: {error}"),
+        }
+    }
+
+    #[test]
+    fn mutation_classes_name_every_cli_command_and_known_class() {
+        let Some(document) = mutation_document() else { return };
+        let rows = mutation_rows(&document, "## CLI commands");
+        let paths = usage_paths();
+        let classes = ["read-only", "single-file atomic", "multi-file atomic", "best-effort batch", "server-partial"];
+        let mut names = std::collections::BTreeSet::new();
+        for row in &rows {
+            assert!(names.insert(&row.name), "CLI mutation class is duplicated: {}", row.name);
+            assert!(classes.contains(&row.default.as_str()), "{} has invalid Default class {:?}", row.name, row.default);
+            assert!(classes.contains(&row.applied.as_str()), "{} has invalid Applied class {:?}", row.name, row.applied);
+            let path = row.name.split(" --").next().unwrap();
+            assert!(paths.contains(path), "{} is not a command path in USAGE", row.name);
+        }
+        for path in &paths {
+            assert!(rows.iter().any(|row| row.name == *path || row.name.starts_with(&format!("{path} --"))), "{path} has no CLI mutation-class row");
+        }
+    }
+
+    #[test]
+    fn mutation_classes_hold_cli_plans_and_workspace_writes() {
+        let Some(document) = mutation_document() else { return };
+        let rows = mutation_rows(&document, "## CLI commands");
+        for row in &rows {
+            let command = row.name.split(" --").next().unwrap();
+            let args: Vec<String> = command.split_whitespace().map(str::to_string).collect();
+            if let Ok((_, _, flags)) = route(&args) {
+                // `export` has one routed flag list, but only its source-control form uses
+                // --apply; entity, collection and project write their requested local output.
+                if flags.contains(&"--apply") && !matches!(command, "export entity" | "export collection" | "export project") {
+                    assert_eq!(row.default, "read-only", "{command} plans by default, so its Default class must be read-only");
+                }
+            }
+        }
+        for (command, args) in [
+            ("extract", vec![]), ("types", vec![]), ("sync", vec![]), ("fmt", vec![]), ("bundle", vec![]),
+            ("deploy", vec!["--apply"]), ("entity push", vec!["--apply"]), ("adopt", vec!["--apply"]),
+            ("rename entity", vec!["--apply"]), ("rename prefix", vec!["--apply"]), ("rename field", vec!["--apply"]),
+            ("rename service", vec!["--apply"]), ("rename param", vec!["--apply"]), ("rename table", vec!["--apply"]),
+            ("rename property", vec!["--apply"]), ("move service", vec!["--apply"]), ("move property", vec!["--apply"]),
+            ("copy service", vec!["--apply"]), ("copy property", vec!["--apply"]), ("retemplate", vec!["--apply"]),
+            ("new building-block", vec!["--apply"]), ("entity status", vec!["--record"]), ("repo pull", vec!["pull", "--apply"]),
+        ] {
+            let route_args: Vec<String> = command.split_whitespace().map(str::to_string).collect();
+            let (route_name, _, flags) = route(&route_args).unwrap();
+            let parsed = Args::parse(&args.into_iter().map(str::to_string).collect::<Vec<_>>(), flags).unwrap();
+            assert!(writes_workspace(route_name, &parsed), "test setup: {command} must write the workspace");
+            let row = rows.iter().find(|row| row.name == command).unwrap_or_else(|| panic!("{command} has no CLI mutation-class row"));
+            assert_ne!(row.applied, "read-only", "{command} writes the workspace, so its Applied class cannot be read-only");
+        }
+    }
+
+    #[test]
+    fn mutation_classes_name_every_mcp_tool_and_its_dry_runs() {
+        let Some(document) = mutation_document() else { return };
+        let rows = mutation_rows(&document, "## MCP tools");
+        let tools = twaco::mcp::tool_definitions();
+        let known: std::collections::BTreeSet<&str> = tools.iter().filter_map(|tool| tool["name"].as_str()).collect();
+        let classes = ["read-only", "single-file atomic", "multi-file atomic", "best-effort batch", "server-partial"];
+        let mut names = std::collections::BTreeSet::new();
+        for row in &rows {
+            assert!(names.insert(&row.name), "MCP mutation class is duplicated: {}", row.name);
+            assert!(known.contains(row.name.as_str()), "{} is not an MCP tool", row.name);
+            assert!(classes.contains(&row.default.as_str()), "{} has invalid Default class {:?}", row.name, row.default);
+            assert!(classes.contains(&row.applied.as_str()), "{} has invalid Applied class {:?}", row.name, row.applied);
+        }
+        for tool in tools {
+            let name = tool["name"].as_str().unwrap();
+            let row = rows.iter().find(|row| row.name == name).unwrap_or_else(|| panic!("{name} has no MCP mutation-class row"));
+            let dry_run = tool.pointer("/inputSchema/properties/dry_run/default").and_then(serde_json::Value::as_bool);
+            if dry_run == Some(true) {
+                assert_eq!(row.default, "read-only", "{name} has dry_run defaulting to true, so its Default class must be read-only");
+            }
+        }
+    }
+
     /// Whether `text` names `flag` as a whole word, so `--only` is not found inside
     /// `--only-projects`.
     fn names(text: &str, flag: &str) -> bool {
