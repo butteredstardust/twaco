@@ -1,0 +1,7 @@
+$ twaco docs --force
+exit: 2
+
+--- stdout
+
+--- stderr
+twaco: --force only applies to --out

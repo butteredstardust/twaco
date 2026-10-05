@@ -175,6 +175,27 @@ impl Index {
         out
     }
 
+    /// What refers to `key` directly, as the references themselves, strongest first.
+    pub fn references_to(&self, key: &EntityKey) -> Vec<Step> {
+        let Some(to) = self.at(key) else {
+            return Vec::new();
+        };
+        let mut out: Vec<(Confidence, Step)> = self
+            .graph
+            .edges_directed(to, Direction::Incoming)
+            .map(|edge| (edge.weight().confidence(), self.step(edge)))
+            .collect();
+        out.sort_by(|a, b| {
+            (std::cmp::Reverse(a.0), &a.1.from, a.1.kind, &a.1.to_member).cmp(&(
+                std::cmp::Reverse(b.0),
+                &b.1.from,
+                b.1.kind,
+                &b.1.to_member,
+            ))
+        });
+        out.into_iter().map(|(_, step)| step).collect()
+    }
+
     /// What `key` refers to directly, as the references themselves, strongest first.
     pub fn references_from(&self, key: &EntityKey) -> Vec<Step> {
         let Some(from) = self.at(key) else {

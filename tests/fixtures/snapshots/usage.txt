@@ -123,6 +123,12 @@ usage: twaco <command>
                               entities no entry point reaches; advisory, deletes nothing
       --detail                list every one, with the entry points and each file
       --json                  the report as JSON
+  docs [--out <file>] [--force]
+                              the solution written down: projects and deploy order, inheritance,
+                              services, DataShapes, and the references to review; Markdown
+      --detail                every signature and field, and every review reference
+      --json                  JSON instead of Markdown
+      --out <file>            write it to one file (atomically) instead of printing; --force replaces
   ext list [--json]           the server's extension packages
   ext show <package>          one package: its extensions, and which are in use
   ext import <zip>            validate a package on the server; --apply installs it

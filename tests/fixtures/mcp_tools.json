@@ -1661,6 +1661,27 @@
     }
   },
   {
+    "name": "docs",
+    "description": "The solution written down from the repository: the projects and their deploy order, how Things, templates and shapes inherit, every service with its signature, the DataShapes with their fields and where they are used, and the references that only look like a name and need a person's judgement. Offline and read-only; it has no dates, so regenerating it and diffing shows what changed. Permissions are not read yet, and references built at run time are not seen; `complete` says whether every input was read. Returns the document as JSON in `document` and as Markdown in `markdown`. Summary gives service and field counts; detail gives every signature and field.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "detail": {
+          "type": "boolean",
+          "description": "Return everything instead of the summary.",
+          "default": false
+        }
+      },
+      "required": [],
+      "additionalProperties": false
+    },
+    "annotations": {
+      "readOnlyHint": true,
+      "destructiveHint": false,
+      "openWorldHint": false
+    }
+  },
+  {
     "name": "guide",
     "description": "Knowledge for working on this solution: twaco's workflow, the ThingWorx platform's verified-live quirks, the service-code reference, and the solution's own AGENTS.md, CLAUDE.md and docs/. Search before a live import, a hand-written mashup binding, a configuration-table change, or a service that introspects metadata or touches JSON. list: the topics; search: the best-matching sections; read: a topic (a long one gives its outline) or one section by heading.",
     "inputSchema": {

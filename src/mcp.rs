@@ -17,7 +17,7 @@ use crate::core::config::Solution;
 use crate::core::entity_key::EntityKey;
 use crate::core::index::Confidence;
 use crate::core::{
-    adopt, backup, baseline, catalog, check, config_table, datatable_copy, db, deploy,
+    adopt, backup, baseline, catalog, check, config_table, datatable_copy, db, deploy, docs,
     entity_carry, entity_delete, export, extensions, guide, help, impact, imports, javadoc, lock,
     logs, newblock, profile, push, relocate, rename, repo, retemplate, server, settings, status,
     types, unused, workflow, workspace,
@@ -876,6 +876,15 @@ pub fn tool_definitions() -> Vec<Value> {
             true,
         ),
         tool(
+            "docs",
+            "The solution written down from the repository: the projects and their deploy order, how Things, templates and shapes inherit, every service with its signature, the DataShapes with their fields and where they are used, and the references that only look like a name and need a person's judgement. Offline and read-only; it has no dates, so regenerating it and diffing shows what changed. Permissions are not read yet, and references built at run time are not seen; `complete` says whether every input was read. Returns the document as JSON in `document` and as Markdown in `markdown`. Summary gives service and field counts; detail gives every signature and field.",
+            json!({
+                "detail": detail(),
+            }),
+            &[],
+            true,
+        ),
+        tool(
             "guide",
             "Knowledge for working on this solution: twaco's workflow, the ThingWorx platform's verified-live quirks, the service-code reference, and the solution's own AGENTS.md, CLAUDE.md and docs/. Search before a live import, a hand-written mashup binding, a configuration-table change, or a service that introspects metadata or touches JSON. list: the topics; search: the best-matching sections; read: a topic (a long one gives its outline) or one section by heading.",
             json!({
@@ -986,6 +995,7 @@ fn call_tool(root: &Path, name: &str, arguments: &Value) -> Option<Result<Value,
         "catalog" => with_solution(root, |s| catalog_tool(s, arguments)),
         "impact" => with_solution(root, |s| impact_tool(s, arguments)),
         "unused" => with_solution(root, |s| unused_tool(s, arguments)),
+        "docs" => with_solution(root, |s| docs_tool(s, arguments)),
         "export" => with_solution(root, |s| export_tool(s, arguments)),
         "package" => with_solution(root, |s| package_tool(s, arguments)),
         "import" => with_solution(root, |s| import_tool(s, arguments)),
@@ -2687,6 +2697,15 @@ fn unused_tool(solution: &Solution, arguments: &Value) -> Result<Value, ToolErro
     Ok(report.to_json(flag(arguments, "detail", false)))
 }
 
+fn docs_tool(solution: &Solution, arguments: &Value) -> Result<Value, ToolError> {
+    let detail = flag(arguments, "detail", false);
+    let document = docs::build(solution);
+    Ok(json!({
+        "document": document.to_json(detail),
+        "markdown": docs::render_markdown(&document, detail),
+    }))
+}
+
 fn impact_tool(solution: &Solution, arguments: &Value) -> Result<Value, ToolError> {
     let min = match text(arguments, "min_confidence") {
         None => Confidence::Review,
@@ -3966,6 +3985,7 @@ mod tests {
                 "catalog",
                 "impact",
                 "unused",
+                "docs",
                 "guide",
                 "help_search",
                 "help_page",
@@ -4329,6 +4349,50 @@ mod tests {
         // A bad confidence is refused by the schema before the tool runs, and nothing was written.
         let bad = call(json!({"entity":"Audit","min_confidence":"sure"}));
         assert_eq!(bad["isError"], true);
+        assert!(
+            !root.join(".twaco").exists(),
+            "a read-only tool leaves no trace"
+        );
+    }
+
+    #[test]
+    fn docs_returns_the_document_and_its_markdown_and_writes_nothing() {
+        let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/corpus/acme-orders");
+        let call = |arguments: Value| {
+            let responses = converse(
+                &root,
+                &[
+                    json!({"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"docs","arguments":arguments}}),
+                ],
+            );
+            responses[0]["result"].clone()
+        };
+        let manager_of = |result: &Value| {
+            result["structuredContent"]["document"]["entities"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .find(|entity| entity["entity"] == "Things/Acme.Orders.Manager")
+                .unwrap()
+                .clone()
+        };
+        let summary = call(json!({}));
+        assert_eq!(summary["isError"], false, "{summary}");
+        let content = &summary["structuredContent"];
+        assert_eq!(content["document"]["complete"], true);
+        assert_eq!(content["document"]["solution"], "Acme.Orders");
+        let manager = manager_of(&summary);
+        assert_eq!(manager["service_count"], 5, "a summary counts the services");
+        assert!(manager.get("services").is_none());
+        assert!(content["markdown"]
+            .as_str()
+            .unwrap()
+            .starts_with("# Acme.Orders: solution documentation"));
+        let detail = call(json!({"detail": true}));
+        assert_eq!(
+            manager_of(&detail)["services"].as_array().map(Vec::len),
+            Some(5)
+        );
         assert!(
             !root.join(".twaco").exists(),
             "a read-only tool leaves no trace"

@@ -1,0 +1,7 @@
+$ twaco docs Audit
+exit: 2
+
+--- stdout
+
+--- stderr
+twaco: docs takes no entity name

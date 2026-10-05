@@ -77,6 +77,7 @@ main.rs  mcp.rs                 front ends: parse arguments, call core, print or
 | `logs`, `settings` | `logs`, `logs level`, `settings` |
 | `repo`, `extensions`, `export`, `imports` | `repo`, `ext`, `export`, `import` |
 | `package` | `package`: bundles, source-control zips, extension packages |
+| `docs` | `twaco docs`: the solution written down as deterministic Markdown or JSON, from the index, the catalog and the DataShape model; it says what it does not cover (permissions, run-time references). |
 | `catalog` | `catalog`, on the same model `types` builds |
 | `guide`, `help`, `javadoc` | `guide` (topics in `knowledge/`, compiled in), `help`, `javadoc` (fetched and cached) |
 | `init`, `doctor` | `init`, `doctor` |

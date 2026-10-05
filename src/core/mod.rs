@@ -15,6 +15,7 @@ pub mod datatable_copy;
 pub mod db;
 pub mod dbinfo;
 pub mod deploy;
+pub mod docs;
 pub mod doctor;
 pub mod entity;
 pub mod entity_carry;
