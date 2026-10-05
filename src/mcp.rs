@@ -15,11 +15,12 @@
 use crate::core::codes::{Coded, ErrorCode};
 use crate::core::config::Solution;
 use crate::core::entity_key::EntityKey;
+use crate::core::index::Confidence;
 use crate::core::{
     adopt, backup, baseline, catalog, check, config_table, datatable_copy, db, deploy,
-    entity_carry, entity_delete, export, extensions, guide, help, imports, javadoc, lock, logs,
-    newblock, profile, push, relocate, rename, repo, retemplate, server, settings, status, types,
-    workflow, workspace,
+    entity_carry, entity_delete, export, extensions, guide, help, impact, imports, javadoc, lock,
+    logs, newblock, profile, push, relocate, rename, repo, retemplate, server, settings, status,
+    types, workflow, workspace,
 };
 use serde_json::{json, Map, Value};
 use std::io::{BufRead, Write};
@@ -850,6 +851,20 @@ pub fn tool_definitions() -> Vec<Value> {
             true,
         ),
         tool(
+            "impact",
+            "What changing an entity, or one service, property or field of it, would reach: the Things, templates, shapes, mashups and projects that depend on it, directly or through others, each at the strength of its weakest reference (structural: declared in the XML or twaco.toml; resolved: a static name in a script or a mashup binding; review: a string that looks like the name, for a person to judge). Offline and read-only. It cannot see references built at run time or outside the repository; `complete` says whether every input was read and `unreadable` lists what was not. Summary leaves the chain to each dependent out; detail includes it.",
+            json!({
+                "entity": { "type": "string", "description": "Collection/Name, a full name, or its last dotted segment." },
+                "member": { "type": "string", "description": "A service, property or field of the entity: ask only about what names it." },
+                "min_confidence": { "type": "string", "enum": ["structural", "resolved", "review"], "default": "review", "description": "The weakest reference to follow." },
+                "depth": { "type": "integer", "minimum": 1, "description": "How many references away to look; omit for no limit." },
+                "format": { "type": "string", "enum": ["json", "dot"], "default": "json", "description": "dot returns the dependents as a Graphviz graph in `dot`." },
+                "detail": detail(),
+            }),
+            &["entity"],
+            true,
+        ),
+        tool(
             "guide",
             "Knowledge for working on this solution: twaco's workflow, the ThingWorx platform's verified-live quirks, the service-code reference, and the solution's own AGENTS.md, CLAUDE.md and docs/. Search before a live import, a hand-written mashup binding, a configuration-table change, or a service that introspects metadata or touches JSON. list: the topics; search: the best-matching sections; read: a topic (a long one gives its outline) or one section by heading.",
             json!({
@@ -958,6 +973,7 @@ fn call_tool(root: &Path, name: &str, arguments: &Value) -> Option<Result<Value,
         "extensions" => with_solution(root, |s| extensions_tool(s, arguments)),
         "settings" => with_solution(root, |s| settings_tool(s, arguments)),
         "catalog" => with_solution(root, |s| catalog_tool(s, arguments)),
+        "impact" => with_solution(root, |s| impact_tool(s, arguments)),
         "export" => with_solution(root, |s| export_tool(s, arguments)),
         "package" => with_solution(root, |s| package_tool(s, arguments)),
         "import" => with_solution(root, |s| import_tool(s, arguments)),
@@ -2640,6 +2656,41 @@ fn settings_tool(solution: &Solution, arguments: &Value) -> Result<Value, ToolEr
 }
 
 /// The repository-derived service catalog, offline and read-only.
+fn impact_tool(solution: &Solution, arguments: &Value) -> Result<Value, ToolError> {
+    let min = match text(arguments, "min_confidence") {
+        None => Confidence::Review,
+        Some(word) => Confidence::parse(word).ok_or_else(|| {
+            ToolError::invalid(format!(
+                "`min_confidence` is structural, resolved or review, not {word:?}"
+            ))
+        })?,
+    };
+    let depth = match arguments.get("depth") {
+        None => None,
+        Some(value) => Some(
+            value
+                .as_u64()
+                .filter(|depth| *depth > 0)
+                .and_then(|depth| usize::try_from(depth).ok())
+                .ok_or_else(|| ToolError::invalid("`depth` must be a positive whole number"))?,
+        ),
+    };
+    let report = impact::run(
+        solution,
+        &impact::Request {
+            entity: required(arguments, "entity")?.to_string(),
+            member: text(arguments, "member").map(str::to_string),
+            min,
+            depth,
+        },
+    )
+    .map_err(ToolError::coded)?;
+    if text(arguments, "format") == Some("dot") {
+        return Ok(json!({ "entity": report.entity, "dot": impact::render_dot(&report) }));
+    }
+    Ok(report.to_json(flag(arguments, "detail", false)))
+}
+
 fn catalog_tool(solution: &Solution, arguments: &Value) -> Result<Value, ToolError> {
     let catalog = catalog::build(
         solution,
@@ -3603,6 +3654,11 @@ mod tests {
                 "unknown_entity",
             ),
             (
+                "impact",
+                json!({"entity":"No.Such.Thing"}),
+                "unknown_entity",
+            ),
+            (
                 "call",
                 json!({"target":"Things/..","service":"X"}),
                 "invalid_arguments",
@@ -3877,6 +3933,7 @@ mod tests {
                 "import",
                 "settings",
                 "catalog",
+                "impact",
                 "guide",
                 "help_search",
                 "help_page",
@@ -4192,6 +4249,58 @@ mod tests {
         assert_eq!(catalog["services"][0]["entity"], "P.T");
         assert_eq!(catalog["services"][0]["name"], "Run");
         let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn impact_answers_offline_and_read_only_with_the_strength_of_each_reference() {
+        let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/corpus/acme-orders");
+        let call = |arguments: Value| {
+            let responses = converse(
+                &root,
+                &[
+                    json!({"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"impact","arguments":arguments}}),
+                ],
+            );
+            responses[0]["result"].clone()
+        };
+        let summary = call(json!({"entity":"Audit","member":"Record"}));
+        assert_eq!(summary["isError"], false, "{summary}");
+        let report = &summary["structuredContent"];
+        assert_eq!(report["entity"], "Things/Acme.Orders.Audit");
+        assert_eq!(report["counts"]["resolved"], 2);
+        assert_eq!(report["complete"], true);
+        assert!(
+            report["dependents"][0].get("path").is_none(),
+            "a summary has no chains"
+        );
+        let detailed = call(json!({"entity":"Audit","member":"Record","detail":true}));
+        assert_eq!(
+            detailed["structuredContent"]["dependents"][1]["path"]
+                .as_array()
+                .map(Vec::len),
+            Some(2)
+        );
+        let strong = call(json!({"entity":"OrderLine_DS","min_confidence":"structural"}));
+        assert!(strong["structuredContent"]["dependents"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .all(|d| d["confidence"] == "structural"));
+        let dot = call(json!({"entity":"Audit","member":"Record","format":"dot"}));
+        assert!(
+            dot["structuredContent"]["dot"]
+                .as_str()
+                .unwrap()
+                .starts_with("digraph impact {"),
+            "{dot}"
+        );
+        // A bad confidence is refused by the schema before the tool runs, and nothing was written.
+        let bad = call(json!({"entity":"Audit","min_confidence":"sure"}));
+        assert_eq!(bad["isError"], true);
+        assert!(
+            !root.join(".twaco").exists(),
+            "a read-only tool leaves no trace"
+        );
     }
 
     #[test]

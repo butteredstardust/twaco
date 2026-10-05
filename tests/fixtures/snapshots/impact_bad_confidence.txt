@@ -1,0 +1,7 @@
+$ twaco impact Audit --min-confidence sure
+exit: 2
+
+--- stdout
+
+--- stderr
+twaco: --min-confidence is structural, resolved or review, not "sure"

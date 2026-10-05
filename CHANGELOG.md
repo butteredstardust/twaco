@@ -26,6 +26,15 @@ All notable changes to twaco are recorded here. The format follows
 - The `GetDBInfo` reader now uses the ECMAScript parser; a script it refuses or whose literal
   cannot be read completely is reported as unsure, and the former JavaScript lexer is removed.
 
+### Added
+
+- `twaco impact <entity> [--member <name>]` (and the `impact` MCP tool) reports what changing an
+  entity, or one service, property or field of it, would reach: the Things, templates, shapes,
+  mashups and projects that depend on it, directly or through others, each at the strength of its
+  weakest reference (structural, resolved or review), with the projects in deploy order, as text,
+  JSON or a Graphviz graph. It is offline and read-only, says what it cannot see, and lists any
+  input it could not read.
+
 ### Fixed
 
 - A rename that is refused for the database now says why. An entity or prefix rename in a

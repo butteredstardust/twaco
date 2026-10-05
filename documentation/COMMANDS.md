@@ -20,7 +20,7 @@ mcp                         serve the tools over MCP on stdio (TWACO_ROOT: the s
 
 ## Work on the repository
 
-Offline: sidecars, gates, types, the service catalog, a designer's export, renames.
+Offline: sidecars, gates, types, the service catalog, what a change reaches, a designer's export, renames.
 
 ```text
 extract <entity>|--all      entity XML -> sidecars
@@ -38,6 +38,11 @@ types [--check [--json]|--platform] [--profile <name>]
                             [[check]] hook: command = ["twaco", "types", "--check", "--json"]
 catalog [<entity>] [--project P] [--search <text>] [--json]
                             offline services, signatures, origins and descriptions
+impact <entity> [--member <name>] [--min-confidence structural|resolved|review] [--depth <n>]
+                            what changing an entity, or one service/property/field of it, reaches
+    --detail                list every dependent and the chain of references to each
+    --json                  the report as JSON (chains with --detail)
+    --dot                   the dependents as a Graphviz graph
 adopt <export.xml>          what a designer's Composer export really changes; --apply writes it in
     --entity <name>         only this entity; --detail; --json; --fail-on-revert
 rename entity <old> <new> [--apply] [--text] [--detail] [--json] [--skip-checks]

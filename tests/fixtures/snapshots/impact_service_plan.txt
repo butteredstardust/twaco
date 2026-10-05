@@ -1,0 +1,16 @@
+$ twaco impact Audit --member Record
+exit: 0
+
+--- stdout
+impact of Things/Acme.Orders.Audit.Record
+  project     Acme.Orders
+  dependents  2: 0 structural, 2 resolved, 0 review
+  projects    Acme.Orders (deploy 1)
+
+resolved: a static name in a script or a mashup binding
+  Things/Acme.Orders.Manager  (depth 1; GetOrder)
+  Mashups/Acme.Orders.Dashboard  (depth 2)
+
+limits: references built at run time, and anything outside this repository, are not seen
+--- stderr
+

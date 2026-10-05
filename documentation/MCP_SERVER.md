@@ -111,6 +111,7 @@ text and structured content. The code identifies the next action.
 | `import` | server | Import a file of the solution, or a source-control tree |
 | `package` | workspace | Bundles, a source-control zip or extension packages, offline |
 | `catalog` | no | Every service in the repository, with its signature and origin |
+| `impact` | no | What changing an entity, or one service, property or field of it, would reach, each dependent at the strength of its weakest reference |
 | `guide` | no | twaco's workflow, the platform's quirks and the solution's own documents |
 | `help_search` | no | Search the ThingWorx Platform help center |
 | `help_page` | no | Read a help page as Markdown |

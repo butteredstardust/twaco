@@ -115,6 +115,11 @@ usage: twaco <command>
                               (read-only; PASSWORD values are never shown); --json
   catalog [<entity>] [--project P] [--search <text>] [--json]
                               offline services, signatures, origins and descriptions
+  impact <entity> [--member <name>] [--min-confidence structural|resolved|review] [--depth <n>]
+                              what changing an entity, or one service/property/field of it, reaches
+      --detail                list every dependent and the chain of references to each
+      --json                  the report as JSON (chains with --detail)
+      --dot                   the dependents as a Graphviz graph
   ext list [--json]           the server's extension packages
   ext show <package>          one package: its extensions, and which are in use
   ext import <zip>            validate a package on the server; --apply installs it

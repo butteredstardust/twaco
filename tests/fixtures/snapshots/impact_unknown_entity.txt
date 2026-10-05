@@ -1,0 +1,7 @@
+$ twaco impact Acme.Orders.Nope
+exit: 2
+
+--- stdout
+
+--- stderr
+twaco: no entity named Acme.Orders.Nope in this solution
