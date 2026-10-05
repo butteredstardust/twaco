@@ -1,0 +1,41 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Entities
+ majorVersion="10"
+ minorVersion="1"
+ universal="password">
+    <Mashups>
+        <Mashup
+         aspect.mashupType="mashup"
+         description="A page that shows one order."
+         documentationContent=""
+         homeMashup=""
+         name="Acme.Orders.Dashboard"
+         projectName="Acme.Orders"
+         tags="">
+            <avatar></avatar>
+            <DesignTimePermissions>
+                <Create></Create>
+                <Read></Read>
+                <Update></Update>
+                <Delete></Delete>
+                <Metadata></Metadata>
+            </DesignTimePermissions>
+            <RunTimePermissions></RunTimePermissions>
+            <VisibilityPermissions>
+                <Visibility>
+                    <Principal
+                     isPermitted="true"
+                     name="Acme.Orders.Default_OR"
+                     type="Organization"></Principal>
+                </Visibility>
+            </VisibilityPermissions>
+            <ConfigurationTableDefinitions></ConfigurationTableDefinitions>
+            <ConfigurationTables></ConfigurationTables>
+            <mashupContent>
+                <![CDATA[
+{"CustomMashupCss":".orders-title { color: #333; }","UI":{"Widgets":{"Title":{"Properties":{"Text":"Orders","Type":"label"},"Id":"Title"}},"Id":"Dashboard"},"Data":{"GetOrder":{"DataName":"GetOrder","EntityName":"Acme.Orders.Manager","EntityType":"Things","Id":"GetOrder","Method":"POST","Parameters":{"orderId":{"Type":"STRING","Value":""}},"RefreshInterval":0,"Service":"GetOrder"}},"Bindings":[{"Source":"GetOrder","Target":"Title"}]}
+                ]]>
+            </mashupContent>
+        </Mashup>
+    </Mashups>
+</Entities>

@@ -1,0 +1,23 @@
+{
+  "dataShape": "Acme.Orders.OrderLine_DS",
+  "accumulatedDataShape": {
+    "fieldDefinitions": {
+      "orderId": {
+        "name": "orderId",
+        "baseType": "STRING",
+        "ordinal": 1
+      },
+      "sku": {
+        "name": "sku",
+        "baseType": "STRING",
+        "ordinal": 2
+      }
+    }
+  },
+  "indexes": [
+    {
+      "name": "byOrder",
+      "fieldNames": "orderId"
+    }
+  ]
+}

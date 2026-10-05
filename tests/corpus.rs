@@ -9,23 +9,69 @@
 //! `src/core/scan.rs`. What the corpus adds is scale and real data: hundreds of documents that
 //! must all survive a rewrite unchanged.
 //!
-//! The corpus is whatever real ThingWorx repositories `TWACO_CORPUS` names, separated as `PATH`
-//! is. Without it (CI, a fresh clone) these skip rather than fail, because a missing corpus is
-//! not a defect in twaco. Set `TWACO_REQUIRE_CORPUS=1` to make a missing corpus a failure.
+//! The corpus is the small invented repository bundled in `tests/fixtures/corpus/` (so CI and a
+//! fresh clone always run these) plus whatever real ThingWorx repositories `TWACO_CORPUS` names,
+//! separated as `PATH` is. The bundled one holds every kind of entity twaco reads and the awkward
+//! script cases (a CDATA terminator inside a string, template literals, division after a call), but
+//! only a real export proves the design against what ThingWorx really writes, so run those after
+//! touching `scan`, `splice` or a sidecar module.
 
 use std::path::{Path, PathBuf};
 
 use twaco::core::scan::{self, Kind};
 use twaco::core::splice::{self, Edit};
 
-/// The real repositories `TWACO_CORPUS` names.
+/// The repositories bundled with the tests: invented entities, so the laws below always have
+/// something to hold, whatever machine runs them.
+fn bundled_roots() -> Vec<PathBuf> {
+    let base = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/corpus");
+    let mut roots: Vec<PathBuf> = std::fs::read_dir(base)
+        .into_iter()
+        .flatten()
+        .flatten()
+        .map(|entry| entry.path())
+        .filter(|path| path.is_dir())
+        .collect();
+    roots.sort();
+    roots
+}
+
+/// The bundled repositories, then the real ones `TWACO_CORPUS` names.
 fn corpus_roots() -> Vec<PathBuf> {
-    let Ok(joined) = std::env::var("TWACO_CORPUS") else {
-        return Vec::new();
-    };
-    std::env::split_paths(&joined)
-        .filter(|p| p.is_dir())
-        .collect()
+    let mut roots = bundled_roots();
+    if let Ok(joined) = std::env::var("TWACO_CORPUS") {
+        roots.extend(std::env::split_paths(&joined).filter(|p| p.is_dir()));
+    }
+    roots
+}
+
+/// The bundled repository is what keeps these tests from skipping everywhere, so its absence (a
+/// deleted folder, a packaging rule that leaves it out) is a failure, not a pass.
+#[test]
+fn the_bundled_repository_is_present_so_these_tests_never_skip() {
+    let roots = bundled_roots();
+    assert!(
+        !roots.is_empty(),
+        "tests/fixtures/corpus holds no repository"
+    );
+    for root in &roots {
+        assert!(
+            root.join("twaco.toml").is_file(),
+            "{} has no twaco.toml",
+            root.display()
+        );
+        let entities = xml_files(root)
+            .iter()
+            .filter(|path| {
+                std::fs::read(path).is_ok_and(|bytes| twaco::core::entity::parse(&bytes).is_ok())
+            })
+            .count();
+        assert!(
+            entities >= 8,
+            "{} holds only {entities} entity document(s); the fixture was meant to cover every kind",
+            root.display()
+        );
+    }
 }
 
 /// Every XML file under a project root, skipping build output and foreign trees.
@@ -1614,23 +1660,37 @@ fn scripts_parse_over_the_corpus() {
             continue;
         };
         let mut elements: Vec<&[u8]> = Vec::new();
+        // A script holding the CDATA terminator is written as several adjacent sections, and
+        // extraction joins them, so a script is everything between `<code>` and `</code>`.
+        let mut script: Option<Vec<u8>> = None;
         for token in &tokens {
             match token.kind {
-                Kind::Start => elements.push(token.name.of(&src)),
+                Kind::Start => {
+                    elements.push(token.name.of(&src));
+                    if token.name.of(&src) == b"code" {
+                        script = Some(Vec::new());
+                    }
+                }
                 Kind::End => {
+                    if elements.last() == Some(&b"code".as_slice()) {
+                        if let Some(payload) = script.take().filter(|payload| !payload.is_empty()) {
+                            scripts += 1;
+                            match twaco::core::script::parse(&payload) {
+                                Ok(facts) => {
+                                    parsed += 1;
+                                    if let Err(error) = facts.verify_spans(&payload) {
+                                        failures.push(format!("{}: {error}", path.display()));
+                                    }
+                                }
+                                Err(_) => failed += 1,
+                            }
+                        }
+                    }
                     elements.pop();
                 }
                 Kind::Cdata if elements.last() == Some(&b"code".as_slice()) => {
-                    scripts += 1;
-                    let payload = token.inner.of(&src);
-                    match twaco::core::script::parse(payload) {
-                        Ok(script) => {
-                            parsed += 1;
-                            if let Err(error) = script.verify_spans(payload) {
-                                failures.push(format!("{}: {error}", path.display()));
-                            }
-                        }
-                        Err(_) => failed += 1,
+                    if let Some(payload) = script.as_mut() {
+                        payload.extend_from_slice(token.inner.of(&src));
                     }
                 }
                 _ => {}
