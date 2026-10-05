@@ -21,6 +21,8 @@ use std::time::Duration;
 
 pub const DEPENDENCY_LIMIT: &str =
     "GetIncomingDependencies sees structural dependents only, never names inside scripts or mashup JSON";
+pub const FORCE_DEPRECATION: &str =
+    "--force is deprecated for entity delete; it now means --allow-repository-defined --allow-outside-dependents and never covers FileRepository data loss";
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Method {
@@ -218,7 +220,60 @@ pub enum Status {
     Failed,
 }
 
-#[derive(Clone, Debug, Serialize)]
+/// Conditions a caller explicitly accepts before deleting an entity.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct Acknowledged {
+    pub repository_defined: bool,
+    pub outside_dependents: bool,
+    pub file_repository_data_loss: bool,
+}
+
+/// A stable reason why an entity delete was refused.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum GuardCode {
+    RepositoryDefined,
+    OutsideDependents,
+    FileRepositoryDataLoss,
+    NoDeleteMethod,
+}
+
+impl GuardCode {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::RepositoryDefined => "repository_defined",
+            Self::OutsideDependents => "outside_dependents",
+            Self::FileRepositoryDataLoss => "file_repository_data_loss",
+            Self::NoDeleteMethod => "no_delete_method",
+        }
+    }
+}
+
+#[derive(Clone, Debug)]
+struct Refusal {
+    code: GuardCode,
+    message: String,
+}
+
+/// Map the legacy alias and explicit acknowledgements into the core delete options.
+/// `force` never acknowledges FileRepository data loss.
+pub fn acknowledged(
+    force: bool,
+    repository_defined: bool,
+    outside_dependents: bool,
+    file_repository_data_loss: bool,
+) -> (Acknowledged, bool) {
+    (
+        Acknowledged {
+            repository_defined: force || repository_defined,
+            outside_dependents: force || outside_dependents,
+            file_repository_data_loss,
+        },
+        force,
+    )
+}
+
+#[derive(Clone, Debug)]
 pub struct EntityResult {
     pub collection: String,
     pub name: String,
@@ -226,12 +281,60 @@ pub struct EntityResult {
     pub method: Method,
     pub dependents: Vec<Dependent>,
     pub warnings: Vec<String>,
-    #[serde(skip_serializing_if = "Vec::is_empty")]
-    pub refusals: Vec<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub error: Option<String>,
-    #[serde(skip)]
+    refusals: Vec<Refusal>,
     ledger: Vec<LedgerLocation>,
+}
+
+impl EntityResult {
+    pub fn refusals(&self) -> impl Iterator<Item = &str> {
+        self.refusals.iter().map(|refusal| refusal.message.as_str())
+    }
+
+    pub fn refusal_codes(&self) -> impl Iterator<Item = GuardCode> + '_ {
+        self.refusals.iter().map(|refusal| refusal.code)
+    }
+
+    pub fn refusal_pairs(&self) -> impl Iterator<Item = (GuardCode, &str)> {
+        self.refusals
+            .iter()
+            .map(|refusal| (refusal.code, refusal.message.as_str()))
+    }
+}
+
+impl Serialize for EntityResult {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        #[derive(Serialize)]
+        struct Wire<'a> {
+            collection: &'a str,
+            name: &'a str,
+            status: &'a Status,
+            method: &'a Method,
+            dependents: &'a [Dependent],
+            warnings: &'a [String],
+            #[serde(skip_serializing_if = "Vec::is_empty")]
+            refusals: Vec<&'a str>,
+            #[serde(skip_serializing_if = "Vec::is_empty")]
+            refusal_codes: Vec<GuardCode>,
+            #[serde(skip_serializing_if = "Option::is_none")]
+            error: &'a Option<String>,
+        }
+        Wire {
+            collection: &self.collection,
+            name: &self.name,
+            status: &self.status,
+            method: &self.method,
+            dependents: &self.dependents,
+            warnings: &self.warnings,
+            refusals: self.refusals().collect(),
+            refusal_codes: self.refusal_codes().collect(),
+            error: &self.error,
+        }
+        .serialize(serializer)
+    }
 }
 
 #[derive(Clone, Debug)]
@@ -365,7 +468,7 @@ pub fn run(
     solution: &Solution,
     mut prepared: Prepared,
     apply: bool,
-    force: bool,
+    acknowledged: Acknowledged,
     date: &str,
 ) -> Result<Report, DeleteError> {
     let mut targets = resolve_targets(remote, &prepared)?;
@@ -389,11 +492,12 @@ pub fn run(
                 method: target.method,
                 dependents: Vec::new(),
                 warnings: Vec::new(),
-                refusals: vec![
-                    "twaco has no delete method for this collection; delete it in Composer"
-                        .to_string(),
-                ],
                 error: None,
+                refusals: vec![Refusal {
+                    code: GuardCode::NoDeleteMethod,
+                    message: "twaco has no delete method for this collection; delete it in Composer"
+                        .to_string(),
+                }],
                 ledger: target.ledger,
             });
             continue;
@@ -413,8 +517,8 @@ pub fn run(
                 method: target.method,
                 dependents: Vec::new(),
                 warnings: Vec::new(),
-                refusals: Vec::new(),
                 error: None,
+                refusals: Vec::new(),
                 ledger: target.ledger,
             });
             continue;
@@ -432,18 +536,24 @@ pub fn run(
             })
             .collect();
         let mut refusals = Vec::new();
-        if !force && repository.contains(&(target.collection.clone(), target.name.clone())) {
-            refusals.push("the repository still defines this entity; deploying would create it again (pass --force)".to_string());
+        if !acknowledged.repository_defined && repository.contains(&(target.collection.clone(), target.name.clone())) {
+            refusals.push(Refusal {
+                code: GuardCode::RepositoryDefined,
+                message: "the repository still defines this entity; deploying would create it again (pass --allow-repository-defined)".to_string(),
+            });
         }
-        if !force && !outside.is_empty() {
-            refusals.push(format!(
-                "incoming dependents outside this delete set: {} (pass --force)",
+        if !acknowledged.outside_dependents && !outside.is_empty() {
+            refusals.push(Refusal {
+                code: GuardCode::OutsideDependents,
+                message: format!(
+                "incoming dependents outside this delete set: {} (pass --allow-outside-dependents)",
                 outside
                     .iter()
                     .map(|d| format!("{}/{}", d.collection, d.name))
                     .collect::<Vec<_>>()
                     .join(", ")
-            ));
+                ),
+            });
         }
         let mut warnings = Vec::new();
         if target.collection == "Things" {
@@ -451,9 +561,15 @@ pub fn run(
                 .fetch(&target.collection, &target.name)
                 .map_err(|why| DeleteError::Remote { entity: label, why })?;
             if is_file_repository(&bytes) {
-                warnings.push(
-                    "deleting this FileRepository Thing deletes all of its files".to_string(),
-                );
+                let message = "deleting this FileRepository Thing deletes all of its files";
+                if acknowledged.file_repository_data_loss {
+                    warnings.push(message.to_string());
+                } else {
+                    refusals.push(Refusal {
+                        code: GuardCode::FileRepositoryDataLoss,
+                        message: format!("{message} (pass --allow-file-repository-data-loss)"),
+                    });
+                }
             }
         }
         entities.push(EntityResult {
@@ -467,8 +583,8 @@ pub fn run(
             method: target.method,
             dependents,
             warnings,
-            refusals,
             error: None,
+            refusals,
             ledger: target.ledger,
         });
     }
@@ -842,12 +958,36 @@ mod tests {
         apply: bool,
         force: bool,
     ) -> Report {
+        execute_ack(
+            fake,
+            solution,
+            names,
+            apply,
+            acknowledged(force, false, false, false).0,
+        )
+    }
+
+    fn execute_ack(
+        fake: &Fake,
+        solution: &Solution,
+        names: &[&str],
+        apply: bool,
+        acknowledged: Acknowledged,
+    ) -> Report {
         let names = names
             .iter()
             .map(|name| (*name).to_string())
             .collect::<Vec<_>>();
         let prepared = prepare(solution, &names, false).unwrap();
-        run(fake, solution, prepared, apply, force, "2026-10-02").unwrap()
+        run(
+            fake,
+            solution,
+            prepared,
+            apply,
+            acknowledged,
+            "2026-10-02",
+        )
+        .unwrap()
     }
 
     #[test]
@@ -926,9 +1066,145 @@ mod tests {
         );
         let refused = execute(&fake, &solution, &["Things/T"], true, false);
         assert_eq!(refused.entities[0].status, Status::Refused);
-        assert_eq!(refused.entities[0].refusals.len(), 2);
+        assert_eq!(refused.entities[0].refusals().count(), 2);
         let forced = execute(&fake, &solution, &["Things/T"], true, true);
         assert_eq!(forced.entities[0].status, Status::Deleted);
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn acknowledgements_independently_guard_repository_dependents_and_file_data() {
+        let (root, solution) = solution();
+        std::fs::create_dir_all(root.join("Things")).unwrap();
+        std::fs::write(
+            root.join("Things/Repo.xml"),
+            "<Entities><Things><Thing name=\"Repo\" projectName=\"P\"/></Things></Entities>",
+        )
+        .unwrap();
+        let mut fake = Fake::new(&[("Things", "Repo")]);
+        fake.repository_things.insert("Repo".into());
+        fake.dependencies.insert(
+            ("Things".into(), "Repo".into()),
+            vec![Dependent {
+                collection: "Mashups".into(),
+                name: "Outside".into(),
+            }],
+        );
+        for repository_defined in [false, true] {
+            for outside_dependents in [false, true] {
+                for file_repository_data_loss in [false, true] {
+                    let report = execute_ack(
+                        &fake,
+                        &solution,
+                        &["Things/Repo"],
+                        false,
+                        Acknowledged {
+                            repository_defined,
+                            outside_dependents,
+                            file_repository_data_loss,
+                        },
+                    );
+                    let entity = &report.entities[0];
+                    let expected = [
+                        (!repository_defined).then_some(GuardCode::RepositoryDefined),
+                        (!outside_dependents).then_some(GuardCode::OutsideDependents),
+                        (!file_repository_data_loss).then_some(GuardCode::FileRepositoryDataLoss),
+                    ]
+                    .into_iter()
+                    .flatten()
+                    .collect::<Vec<_>>();
+                    assert_eq!(entity.refusal_codes().collect::<Vec<_>>(), expected);
+                    assert_eq!(entity.status, if expected.is_empty() { Status::Ready } else { Status::Refused });
+                    assert_eq!(entity.warnings.len(), usize::from(file_repository_data_loss));
+                }
+            }
+        }
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn legacy_force_acknowledges_only_its_two_original_guards() {
+        assert_eq!(
+            acknowledged(false, false, false, false),
+            (Acknowledged::default(), false)
+        );
+        assert_eq!(
+            acknowledged(true, false, false, false),
+            (
+                Acknowledged {
+                    repository_defined: true,
+                    outside_dependents: true,
+                    file_repository_data_loss: false,
+                },
+                true,
+            )
+        );
+        assert_eq!(
+            acknowledged(true, false, false, true),
+            (
+                Acknowledged {
+                    repository_defined: true,
+                    outside_dependents: true,
+                    file_repository_data_loss: true,
+                },
+                true,
+            )
+        );
+        assert_eq!(
+            acknowledged(false, true, false, true),
+            (
+                Acknowledged {
+                    repository_defined: true,
+                    outside_dependents: false,
+                    file_repository_data_loss: true,
+                },
+                false,
+            )
+        );
+        assert_eq!(
+            acknowledged(false, false, true, false),
+            (
+                Acknowledged {
+                    repository_defined: false,
+                    outside_dependents: true,
+                    file_repository_data_loss: false,
+                },
+                false,
+            )
+        );
+    }
+
+    #[test]
+    fn refusals_serialize_as_parallel_messages_and_codes() {
+        let (root, solution) = solution();
+        let fake = Fake::new(&[("Unknowns", "T")]);
+        let prepared = prepare(&solution, &["Unknowns/T".into()], false).unwrap();
+        let refused = run(&fake, &solution, prepared, false, Acknowledged::default(), "2026-10-02").unwrap();
+        let value = serde_json::to_value(&refused.entities[0]).unwrap();
+        assert_eq!(value["refusals"], serde_json::json!(["twaco has no delete method for this collection; delete it in Composer"]));
+        assert_eq!(value["refusal_codes"], serde_json::json!(["no_delete_method"]));
+
+        let prepared = prepare(&solution, &["Unknowns/T".into()], false).unwrap();
+        let still_refused = run(
+            &fake,
+            &solution,
+            prepared,
+            false,
+            Acknowledged {
+                repository_defined: true,
+                outside_dependents: true,
+                file_repository_data_loss: true,
+            },
+            "2026-10-02",
+        )
+        .unwrap();
+        assert_eq!(still_refused.entities[0].status, Status::Refused);
+        assert_eq!(still_refused.entities[0].refusal_codes().collect::<Vec<_>>(), [GuardCode::NoDeleteMethod]);
+
+        let absent = execute(&fake, &solution, &["Things/Missing"], false, false);
+        let value = serde_json::to_value(&absent.entities[0]).unwrap();
+        assert!(value.get("refusals").is_none());
+        assert!(value.get("refusal_codes").is_none());
         let _ = std::fs::remove_dir_all(root);
     }
 
@@ -944,12 +1220,15 @@ mod tests {
             }],
         );
         fake.repository_things.insert("Repo".into());
-        let report = execute(
+        let report = execute_ack(
             &fake,
             &solution,
             &["ThingTemplates/Base", "Things/Repo"],
             false,
-            false,
+            Acknowledged {
+                file_repository_data_loss: true,
+                ..Acknowledged::default()
+            },
         );
         assert!(report
             .entities
@@ -1014,7 +1293,7 @@ mod tests {
         .unwrap();
         let fake = Fake::new(&[("Things", "Old")]);
         let prepared = prepare(&solution, &[], true).unwrap();
-        let report = run(&fake, &solution, prepared, true, false, "2026-10-02").unwrap();
+        let report = run(&fake, &solution, prepared, true, Acknowledged::default(), "2026-10-02").unwrap();
         assert_eq!(report.entities.len(), 1);
         assert!(report.ledger_changed);
         let updated: Value =
@@ -1032,7 +1311,7 @@ mod tests {
         let fake = Fake::new(&[("Things", "A"), ("Things", "B")]);
         let names = vec!["Things/A".to_string(), "Things/B".to_string(), "Things/Absent".to_string()];
         let prepared = prepare(&solution, &names, false).unwrap().with_backup("20261002-1");
-        let report = run(&fake, &solution, prepared, true, false, "2026-10-02").unwrap();
+        let report = run(&fake, &solution, prepared, true, Acknowledged::default(), "2026-10-02").unwrap();
         assert_eq!(report.backup.as_deref(), Some(".twaco/backups/20261002-1"));
         let calls = fake.calls.borrow();
         let backup_at = calls.iter().position(|call| call.starts_with("BACKUP")).unwrap();
@@ -1043,7 +1322,7 @@ mod tests {
         // A plan takes no backup, and --no-backup (no stamp) takes none.
         let plan_fake = Fake::new(&[("Things", "A")]);
         let planned = prepare(&solution, &["Things/A".to_string()], false).unwrap().with_backup("s");
-        run(&plan_fake, &solution, planned, false, false, "d").unwrap();
+        run(&plan_fake, &solution, planned, false, Acknowledged::default(), "d").unwrap();
         let unbacked = Fake::new(&[("Things", "A")]);
         execute(&unbacked, &solution, &["Things/A"], true, false);
         assert!(plan_fake.calls.borrow().iter().chain(unbacked.calls.borrow().iter()).all(|call| !call.starts_with("BACKUP")));
@@ -1051,7 +1330,7 @@ mod tests {
         let mut failing = Fake::new(&[("Things", "A")]);
         failing.backup_fails = true;
         let prepared = prepare(&solution, &["Things/A".to_string()], false).unwrap().with_backup("s");
-        let error = run(&failing, &solution, prepared, true, false, "d").unwrap_err().to_string();
+        let error = run(&failing, &solution, prepared, true, Acknowledged::default(), "d").unwrap_err().to_string();
         assert!(error.contains("nothing was deleted") && error.contains("--no-backup"), "{error}");
         assert!(failing.calls.borrow().iter().all(|call| !call.starts_with("SERVICE") && !call.starts_with("DELETE")));
         let _ = std::fs::remove_dir_all(root);
@@ -1081,10 +1360,27 @@ mod tests {
         assert!(fake.calls.borrow().is_empty());
         std::fs::write(root.join(".twaco/renames.json"), "[]").unwrap();
         let prepared = prepare(&solution, &["Unknowns/T".into()], false).unwrap();
-        let report = run(&fake, &solution, prepared, false, false, "2026-10-02").unwrap();
+        let report = run(&fake, &solution, prepared, false, Acknowledged::default(), "2026-10-02").unwrap();
         assert_eq!(report.entities[0].status, Status::Refused);
         assert_eq!(report.entities[0].method, Method::Composer);
         assert!(fake.calls.borrow().is_empty());
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn a_collection_without_a_delete_method_is_refused_whatever_is_acknowledged() {
+        let (root, solution) = solution();
+        let fake = Fake::new(&[]);
+        let everything = Acknowledged {
+            repository_defined: true,
+            outside_dependents: true,
+            file_repository_data_loss: true,
+        };
+        let report = execute_ack(&fake, &solution, &["Unknowns/T"], true, everything);
+        let entity = &report.entities[0];
+        assert_eq!(entity.status, Status::Refused);
+        assert_eq!(entity.refusal_codes().collect::<Vec<_>>(), [GuardCode::NoDeleteMethod]);
+        assert!(fake.calls.borrow().is_empty(), "nothing is asked of the server for it");
         let _ = std::fs::remove_dir_all(root);
     }
 
@@ -1103,7 +1399,7 @@ mod tests {
 
         let several = Fake::new(&[("Mashups", "Shared"), ("Things", "Shared")]);
         let prepared = prepare(&solution, &["Shared".into()], false).unwrap();
-        let error = run(&several, &solution, prepared, false, false, "2026-10-02")
+        let error = run(&several, &solution, prepared, false, Acknowledged::default(), "2026-10-02")
             .unwrap_err()
             .to_string();
         assert!(

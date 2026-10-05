@@ -305,11 +305,14 @@ fn tool_definitions() -> Vec<Value> {
         ),
         tool(
             "entity_delete",
-            "Delete server entities in dependency-safe order. Accepts Collection/Name or a bare name resolved on the server; renamed adds undeleted entity/prefix entries from .twaco/renames.json. Repository definitions and outside structural dependents refuse unless force is true. A dry run unless dry_run is false; every applied delete is confirmed absent.",
+            "Delete server entities in dependency-safe order. Accepts Collection/Name or a bare name resolved on the server; renamed adds undeleted entity/prefix entries from .twaco/renames.json. allow_repository_defined accepts a repository definition that deployment would recreate; allow_outside_dependents accepts structural dependents outside the delete set; allow_file_repository_data_loss accepts deleting a FileRepository Thing and all its files. A FileRepository delete needs its own acknowledgement. force is deprecated: it means the first two acknowledgements and never FileRepository data loss. A dry run unless dry_run is false; every applied delete is confirmed absent.",
             json!({
                 "entities": { "type": "array", "items": { "type": "string" }, "description": "Entities to delete; may be empty when renamed is true." },
                 "renamed": { "type": "boolean", "default": false },
-                "force": { "type": "boolean", "default": false },
+                "allow_repository_defined": { "type": "boolean", "default": false },
+                "allow_outside_dependents": { "type": "boolean", "default": false },
+                "allow_file_repository_data_loss": { "type": "boolean", "default": false },
+                "force": { "type": "boolean", "default": false, "description": "Deprecated: means allow_repository_defined and allow_outside_dependents; never accepts FileRepository data loss." },
                 "dry_run": { "type": "boolean", "default": true },
                 "backup": { "type": "boolean", "default": true, "description": "Save the server's copy of every entity under .twaco/backups before deleting (default true); a failed backup deletes nothing." },
                 "profile": profile_arg(),
@@ -1375,6 +1378,12 @@ fn push_tool(solution: &Solution, arguments: &Value) -> Result<Value, String> {
 
 fn entity_delete_tool(solution: &Solution, arguments: &Value) -> Result<Value, String> {
     let dry_run = flag(arguments, "dry_run", true);
+    let (acknowledged, force_used) = entity_delete::acknowledged(
+        flag(arguments, "force", false),
+        flag(arguments, "allow_repository_defined", false),
+        flag(arguments, "allow_outside_dependents", false),
+        flag(arguments, "allow_file_repository_data_loss", false),
+    );
     let entities = strings(arguments, "entities");
     let prepared = entity_delete::prepare(solution, &entities, flag(arguments, "renamed", false))
         .map_err(|error| error.to_string())?;
@@ -1391,7 +1400,7 @@ fn entity_delete_tool(solution: &Solution, arguments: &Value) -> Result<Value, S
         solution,
         prepared,
         !dry_run,
-        flag(arguments, "force", false),
+        acknowledged,
         &date,
     )
     .map_err(|error| error.to_string())?;
@@ -1406,6 +1415,9 @@ fn entity_delete_tool(solution: &Solution, arguments: &Value) -> Result<Value, S
     result[if dry_run { "plan" } else { "applied" }] = json!(true);
     if report.ledger_changed {
         result["ledger_marked"] = json!(date);
+    }
+    if force_used {
+        result["deprecated"] = json!(entity_delete::FORCE_DEPRECATION);
     }
     Ok(result)
 }
@@ -2745,6 +2757,18 @@ mod tests {
         let call = tools.iter().find(|t| t["name"] == "call").unwrap();
         assert_eq!(call["annotations"]["readOnlyHint"], false, "a service call may write");
         assert_eq!(call["inputSchema"]["properties"]["dry_run"]["default"], true);
+        let entity_delete = tools.iter().find(|t| t["name"] == "entity_delete").unwrap();
+        for parameter in [
+            "allow_repository_defined",
+            "allow_outside_dependents",
+            "allow_file_repository_data_loss",
+        ] {
+            assert_eq!(entity_delete["inputSchema"]["properties"][parameter]["default"], false, "{parameter}");
+        }
+        assert!(entity_delete["inputSchema"]["properties"]["force"]["description"]
+            .as_str()
+            .unwrap()
+            .contains("Deprecated"));
         let rename = tools.iter().find(|t| t["name"] == "rename").unwrap();
         assert_eq!(rename["inputSchema"]["required"], json!(["kind", "old", "new"]));
         assert_eq!(rename["inputSchema"]["properties"]["kind"]["enum"], json!(["entity", "prefix", "field", "service", "param", "table", "property"]));

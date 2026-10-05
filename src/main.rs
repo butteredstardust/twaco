@@ -337,7 +337,7 @@ fn route(args: &[String]) -> Result<Route, String> {
         "entity" => match args.get(1).map(String::as_str) {
             Some("get") => ("entity get", 2, &["--out", "--profile"]),
             Some("push") => ("entity push", 2, &["--apply", "--force", "--no-backup", "--profile"]),
-            Some("delete") => ("entity delete", 2, &["--renamed", "--force", "--apply", "--no-backup", "--profile", "--json"]),
+            Some("delete") => ("entity delete", 2, &["--renamed", "--force", "--allow-repository-defined", "--allow-outside-dependents", "--allow-file-repository-data-loss", "--apply", "--no-backup", "--profile", "--json"]),
             Some("restore") => ("entity restore", 2, &["--apply", "--profile", "--json"]),
             Some("carry") => ("entity carry", 2, &["--renamed", "--apply", "--detail", "--profile", "--json"]),
             Some("status") => {
@@ -695,10 +695,13 @@ const USAGE: &str = r#"usage: twaco <command>
       --no-backup             with --force, do not save the server's copy first
   entity delete <entity>...   plan guarded server deletion; Collection/Name or a bare server name
       --renamed               also delete undeleted old entity/prefix names from .twaco/renames.json
-      --force                 allow repository-defined entities and outside structural dependents
+      --allow-repository-defined  accept deletion of an entity the repository still defines
+      --allow-outside-dependents  accept structural dependents outside this delete set
+      --allow-file-repository-data-loss  accept deletion of a FileRepository Thing and its files
+      --force                 deprecated: means the first two acknowledgements, never FileRepository data loss
       --apply                 delete, confirm each entity is absent, and mark ledger entries
       --no-backup             do not save the server's copies under .twaco/backups first
-      --json                  {plan|applied, entities:[collection, name, status, method, dependents, warnings]}
+      --json                  entities include refusal messages and parallel refusal_codes when refused
   move service <from> <to> <name> [--as <new>] [--leave-delegate] [--apply] [--detail] [--json]
                               lift a service out of one Thing, template or shape and put it on another
       --as <new>              give it a new name on the target
@@ -2913,6 +2916,15 @@ fn entity_push(solution: &Solution, args: &Args) -> u8 {
 /// exit 2 after attempting the rest.
 fn entity_delete_cmd(solution: &Solution, args: &Args) -> u8 {
     let apply = args.has("--apply");
+    let (acknowledged, force_used) = entity_delete::acknowledged(
+        args.has("--force"),
+        args.has("--allow-repository-defined"),
+        args.has("--allow-outside-dependents"),
+        args.has("--allow-file-repository-data-loss"),
+    );
+    if force_used {
+        eprintln!("twaco: {}", entity_delete_force_deprecation());
+    }
     let prepared = match entity_delete::prepare(solution, &args.names, args.has("--renamed")) {
         Ok(prepared) => prepared,
         Err(error) => {
@@ -2945,7 +2957,7 @@ fn entity_delete_cmd(solution: &Solution, args: &Args) -> u8 {
         solution,
         prepared,
         apply,
-        args.has("--force"),
+        acknowledged,
         &date,
     ) {
         Ok(report) => report,
@@ -2969,8 +2981,8 @@ fn entity_delete_cmd(solution: &Solution, args: &Args) -> u8 {
                 entity.status,
                 entity.method
             );
-            for refusal in &entity.refusals {
-                println!("     refused: {refusal}");
+            for (code, refusal) in entity.refusal_pairs() {
+                println!("     refused [{}]: {refusal}", code.as_str());
             }
             for dependent in &entity.dependents {
                 println!("     dependent: {}/{}", dependent.collection, dependent.name);
@@ -2993,6 +3005,10 @@ fn entity_delete_cmd(solution: &Solution, args: &Args) -> u8 {
         }
     }
     if apply && report.failed() { FAILED } else { OK }
+}
+
+fn entity_delete_force_deprecation() -> &'static str {
+    entity_delete::FORCE_DEPRECATION
 }
 
 /// Create a building block as files and register its project. Plans unless --apply.
@@ -4077,6 +4093,36 @@ mod tests {
     fn entity_delete_takes_no_generic_workspace_lock() {
         let args = Args::parse(&["Things/T".to_string(), "--apply".to_string()], &["--apply"]).unwrap();
         assert!(!writes_workspace("entity delete", &args), "only a pending rename ledger is a workspace write");
+    }
+
+    #[test]
+    fn entity_delete_acknowledgement_flags_are_scoped_to_entity_delete() {
+        let delete = ["entity".to_string(), "delete".to_string()];
+        let (_, _, flags) = route(&delete).unwrap();
+        for flag in [
+            "--allow-repository-defined",
+            "--allow-outside-dependents",
+            "--allow-file-repository-data-loss",
+        ] {
+            assert!(Args::parse(&["Things/T".to_string(), flag.to_string()], flags).is_ok(), "{flag}");
+        }
+        let push = ["entity".to_string(), "push".to_string()];
+        let (_, _, flags) = route(&push).unwrap();
+        for flag in [
+            "--allow-repository-defined",
+            "--allow-outside-dependents",
+            "--allow-file-repository-data-loss",
+        ] {
+            assert!(Args::parse(&["Things/T".to_string(), flag.to_string()], flags).is_err(), "{flag}");
+        }
+    }
+
+    #[test]
+    fn entity_delete_force_deprecation_text_is_stable() {
+        assert_eq!(
+            entity_delete_force_deprecation(),
+            "--force is deprecated for entity delete; it now means --allow-repository-defined --allow-outside-dependents and never covers FileRepository data loss"
+        );
     }
 
     #[test]

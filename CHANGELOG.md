@@ -8,6 +8,9 @@ All notable changes to twaco are recorded here. The format follows
 
 ### Changed
 
+- `entity delete` now has separate acknowledgements for repository-defined entities, outside
+  dependents and FileRepository data loss; deleting a FileRepository Thing is refused unless
+  `--allow-file-repository-data-loss` is given, and refusals carry stable codes.
 - Rename now analyses service scripts with a real ECMAScript parser instead of a lexical scan,
   so calls split over lines or inside template literals are found, and text in strings,
   comments and regular expressions is not mistaken for code. A script the parser refuses
@@ -17,6 +20,11 @@ All notable changes to twaco are recorded here. The format follows
   only inside comments.
 - The `GetDBInfo` reader now uses the ECMAScript parser; a script it refuses or whose literal
   cannot be read completely is reported as unsure, and the former JavaScript lexer is removed.
+
+### Deprecated
+
+- `--force` on `entity delete`, and `force` for the `entity_delete` tool; use the relevant
+  acknowledgement instead.
 
 ## [0.1.0] - 2026-10-03
 
