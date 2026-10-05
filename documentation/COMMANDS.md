@@ -109,10 +109,13 @@ entity push <entity>        import one entity, refusing if the server changed
     --no-backup             with --force, do not save the server's copy first
 entity delete <entity>...   plan guarded server deletion; Collection/Name or a bare server name
     --renamed               also delete undeleted old entity/prefix names from .twaco/renames.json
-    --force                 allow repository-defined entities and outside structural dependents
+    --allow-repository-defined  accept deletion of an entity the repository still defines
+    --allow-outside-dependents  accept structural dependents outside this delete set
+    --allow-file-repository-data-loss  accept deletion of a FileRepository Thing and its files
+    --force                 deprecated: means the first two acknowledgements, never FileRepository data loss
     --apply                 delete, confirm each entity is absent, and mark ledger entries
     --no-backup             do not save the server's copies under .twaco/backups first
-    --json                  {plan|applied, entities:[collection, name, status, method, dependents, warnings]}
+    --json                  entities include refusal messages and parallel refusal_codes when refused
 entity carry <old> <new>... copy run-time, design-time and visibility permissions of renamed entities
                             (pairs written Collection/Old Collection/New); principals follow the ledger
     --renamed               also every entity the rename ledger has not yet carried or deleted

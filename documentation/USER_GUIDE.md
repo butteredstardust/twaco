@@ -300,10 +300,13 @@ twaco entity delete Things/Acme.Old.Thing DataShapes/Acme.Old.Shape --apply
 each entity twaco asks the server what depends on it (`GetIncomingDependencies`) and refuses
 while something outside the set still does, deletes dependents before what they depend on, and
 confirms each entity is gone afterwards. An entity that the repository still defines is refused,
-since the next deploy would create it again. `--force` overrides both refusals. The dependency
-answer sees structural dependents only, never a name inside a script or a mashup, which the
-rename's own review findings cover. Deleting a file-repository Thing deletes its files; the plan
-says so.
+since the next deploy would create it again. Pass `--allow-repository-defined` to accept that
+specific condition, or `--allow-outside-dependents` to accept structural dependents outside the
+set. Deleting a FileRepository Thing deletes all its files and is refused until
+`--allow-file-repository-data-loss` acknowledges that loss; when acknowledged, the plan still
+warns about it. `--force` is deprecated: it means the first two acknowledgements and never the
+FileRepository data-loss acknowledgement. The dependency answer sees structural dependents only,
+never a name inside a script or a mashup, which the rename's own review findings cover.
 
 ## Moving and copying services and properties
 
@@ -384,7 +387,9 @@ twaco entity restore 20261002-164541 --apply  # import it all, or name entities 
 
 A set is the Exporter's XML of each entity, which the server imports as it is: definitions,
 configuration and permissions. It does not hold persisted property values, DataTable rows, stream
-data or a file repository's files. Keep `.twaco/backups/` out of git.
+data or a FileRepository's files. A delete backup is therefore not a backup of a FileRepository's
+files, which is why deleting one needs its own explicit acknowledgement. Keep `.twaco/backups/`
+out of git.
 
 ## Carrying permissions to the new entities
 
