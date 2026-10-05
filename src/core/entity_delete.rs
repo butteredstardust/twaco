@@ -8,7 +8,7 @@
 use super::bundle::COLLECTION_ORDER;
 use super::backup;
 use super::config::Solution;
-use super::entity_key::ServiceTarget;
+use super::entity_key::{EntityKey, ServiceTarget};
 use super::ledger::{Ledger, LedgerError};
 use super::scan::{self, Kind};
 use super::server::{Client, ServerError};
@@ -103,28 +103,28 @@ pub fn method_for(collection: &str) -> Option<Method> {
 }
 
 pub trait Remote {
-    fn exists(&self, collection: &str, name: &str) -> Result<bool, ServerError>;
-    fn incoming(&self, collection: &str, name: &str) -> Result<Vec<Dependent>, ServerError>;
-    fn fetch(&self, collection: &str, name: &str) -> Result<Vec<u8>, ServerError>;
+    fn exists(&self, key: &EntityKey) -> Result<bool, ServerError>;
+    fn incoming(&self, key: &EntityKey) -> Result<Vec<Dependent>, ServerError>;
+    fn fetch(&self, key: &EntityKey) -> Result<Vec<u8>, ServerError>;
     fn delete_service(&self, service: &str, name: &str) -> Result<(), ServerError>;
-    fn delete_rest(&self, collection: &str, name: &str) -> Result<(), ServerError>;
+    fn delete_rest(&self, key: &EntityKey) -> Result<(), ServerError>;
     /// Save the server's export of each entity before it is deleted; the set's folder, relative to
     /// the solution, or `None` when none of them exists.
     fn backup(
         &self,
         solution: &Solution,
-        entities: &[(String, String)],
+        entities: &[EntityKey],
         stamp: &str,
     ) -> Result<Option<String>, backup::BackupError>;
 }
 
 impl Remote for Client {
-    fn exists(&self, collection: &str, name: &str) -> Result<bool, ServerError> {
-        self.entity_exists(collection, name)
+    fn exists(&self, key: &EntityKey) -> Result<bool, ServerError> {
+        self.entity_exists(key.collection(), key.name())
     }
 
-    fn incoming(&self, collection: &str, name: &str) -> Result<Vec<Dependent>, ServerError> {
-        let target = ServiceTarget::entity(collection, name)?;
+    fn incoming(&self, key: &EntityKey) -> Result<Vec<Dependent>, ServerError> {
+        let target = ServiceTarget::Entity(key.clone());
         let value = self
             .call_service(
                 &target,
@@ -161,8 +161,8 @@ impl Remote for Client {
             .collect()
     }
 
-    fn fetch(&self, collection: &str, name: &str) -> Result<Vec<u8>, ServerError> {
-        self.fetch_entity(collection, name)
+    fn fetch(&self, key: &EntityKey) -> Result<Vec<u8>, ServerError> {
+        self.fetch_entity(key.collection(), key.name())
     }
 
     fn delete_service(&self, service: &str, name: &str) -> Result<(), ServerError> {
@@ -175,17 +175,21 @@ impl Remote for Client {
         Ok(())
     }
 
-    fn delete_rest(&self, collection: &str, name: &str) -> Result<(), ServerError> {
-        self.delete_entity_rest(collection, name)
+    fn delete_rest(&self, key: &EntityKey) -> Result<(), ServerError> {
+        self.delete_entity_rest(key.collection(), key.name())
     }
 
     fn backup(
         &self,
         solution: &Solution,
-        entities: &[(String, String)],
+        entities: &[EntityKey],
         stamp: &str,
     ) -> Result<Option<String>, backup::BackupError> {
-        let set = backup::save(self, solution, "entity delete", entities, stamp)?;
+        let entities = entities
+            .iter()
+            .map(|key| (key.collection().to_string(), key.name().to_string()))
+            .collect::<Vec<_>>();
+        let set = backup::save(self, solution, "entity delete", &entities, stamp)?;
         Ok(set.map(|set| backup::relative(solution, &set.dir)))
     }
 }
@@ -288,6 +292,11 @@ pub struct EntityResult {
 }
 
 impl EntityResult {
+    fn key(&self) -> EntityKey {
+        EntityKey::new(&self.collection, &self.name)
+            .expect("entity results originate from validated delete targets")
+    }
+
     pub fn refusals(&self) -> impl Iterator<Item = &str> {
         self.refusals.iter().map(|refusal| refusal.message.as_str())
     }
@@ -340,8 +349,7 @@ impl Serialize for EntityResult {
 
 #[derive(Clone, Debug)]
 struct Target {
-    collection: String,
-    name: String,
+    key: EntityKey,
     method: Method,
     ledger: Vec<LedgerLocation>,
 }
@@ -474,23 +482,21 @@ pub fn run(
 ) -> Result<Report, DeleteError> {
     let mut targets = resolve_targets(remote, &prepared)?;
     order_targets(&mut targets);
-    let target_set: BTreeSet<(String, String)> = targets
-        .iter()
-        .map(|target| (target.collection.clone(), target.name.clone()))
-        .collect();
-    let repository: BTreeSet<(String, String)> = workspace::discover(solution)
+    let target_set: BTreeSet<EntityKey> = targets.iter().map(|target| target.key.clone()).collect();
+    let repository: BTreeSet<EntityKey> = workspace::discover(solution)
         .entities
         .into_iter()
-        .map(|entity| (entity.info.collection, entity.info.name))
+        .filter_map(|entity| EntityKey::new(entity.info.collection, entity.info.name).ok())
         .collect();
     let mut entities = Vec::new();
     for target in targets {
-        if target.method == Method::Composer {
+        let Target { key, method, ledger } = target;
+        if method == Method::Composer {
             entities.push(EntityResult {
-                collection: target.collection,
-                name: target.name,
+                collection: key.collection().to_string(),
+                name: key.name().to_string(),
                 status: Status::Refused,
-                method: target.method,
+                method,
                 dependents: Vec::new(),
                 warnings: Vec::new(),
                 error: None,
@@ -499,33 +505,33 @@ pub fn run(
                     message: "twaco has no delete method for this collection; delete it in Composer"
                         .to_string(),
                 }],
-                ledger: target.ledger,
+                ledger,
             });
             continue;
         }
-        let label = format!("{}/{}", target.collection, target.name);
+        let label = key.to_string();
         let exists = remote
-            .exists(&target.collection, &target.name)
+            .exists(&key)
             .map_err(|why| DeleteError::Remote {
                 entity: label.clone(),
                 why,
             })?;
         if !exists {
             entities.push(EntityResult {
-                collection: target.collection,
-                name: target.name,
+                collection: key.collection().to_string(),
+                name: key.name().to_string(),
                 status: Status::Absent,
-                method: target.method,
+                method,
                 dependents: Vec::new(),
                 warnings: Vec::new(),
                 error: None,
                 refusals: Vec::new(),
-                ledger: target.ledger,
+                ledger,
             });
             continue;
         }
         let dependents = remote
-            .incoming(&target.collection, &target.name)
+            .incoming(&key)
             .map_err(|why| DeleteError::Remote {
                 entity: label.clone(),
                 why,
@@ -533,11 +539,12 @@ pub fn run(
         let outside: Vec<&Dependent> = dependents
             .iter()
             .filter(|dependent| {
-                !target_set.contains(&(dependent.collection.clone(), dependent.name.clone()))
+                EntityKey::new(&dependent.collection, &dependent.name)
+                    .map_or(true, |key| !target_set.contains(&key))
             })
             .collect();
         let mut refusals = Vec::new();
-        if !acknowledged.repository_defined && repository.contains(&(target.collection.clone(), target.name.clone())) {
+        if !acknowledged.repository_defined && repository.contains(&key) {
             refusals.push(Refusal {
                 code: GuardCode::RepositoryDefined,
                 message: "the repository still defines this entity; deploying would create it again (pass --allow-repository-defined)".to_string(),
@@ -557,9 +564,9 @@ pub fn run(
             });
         }
         let mut warnings = Vec::new();
-        if target.collection == "Things" {
+        if key.collection() == "Things" {
             let bytes = remote
-                .fetch(&target.collection, &target.name)
+                .fetch(&key)
                 .map_err(|why| DeleteError::Remote { entity: label, why })?;
             if is_file_repository(&bytes) {
                 let message = "deleting this FileRepository Thing deletes all of its files";
@@ -574,19 +581,19 @@ pub fn run(
             }
         }
         entities.push(EntityResult {
-            collection: target.collection,
-            name: target.name,
+            collection: key.collection().to_string(),
+            name: key.name().to_string(),
             status: if refusals.is_empty() {
                 Status::Ready
             } else {
                 Status::Refused
             },
-            method: target.method,
+            method,
             dependents,
             warnings,
             error: None,
             refusals,
-            ledger: target.ledger,
+            ledger,
         });
     }
 
@@ -594,10 +601,10 @@ pub fn run(
     let mut backup_dir = None;
     if apply {
         if let Some(stamp) = &prepared.backup_stamp {
-            let ready: Vec<(String, String)> = entities
+            let ready: Vec<EntityKey> = entities
                 .iter()
                 .filter(|entity| entity.status == Status::Ready)
-                .map(|entity| (entity.collection.clone(), entity.name.clone()))
+                .map(EntityResult::key)
                 .collect();
             if !ready.is_empty() {
                 backup_dir = remote
@@ -611,7 +618,7 @@ pub fn run(
             }
             let deleted = match &entity.method {
                 Method::Service { service } => remote.delete_service(service, &entity.name),
-                Method::RestDelete => remote.delete_rest(&entity.collection, &entity.name),
+                Method::RestDelete => remote.delete_rest(&entity.key()),
                 Method::Composer => unreachable!("unsupported methods are refused during planning"),
             };
             if let Err(error) = deleted {
@@ -619,7 +626,7 @@ pub fn run(
                 entity.error = Some(error.to_string());
                 continue;
             }
-            match remote.exists(&entity.collection, &entity.name) {
+            match remote.exists(&entity.key()) {
                 Ok(false) => entity.status = Status::Deleted,
                 Ok(true) => {
                     entity.status = Status::Failed;
@@ -665,43 +672,41 @@ pub fn run(
 }
 
 fn resolve_targets(remote: &dyn Remote, prepared: &Prepared) -> Result<Vec<Target>, DeleteError> {
-    let mut targets: BTreeMap<(String, String), Target> = BTreeMap::new();
+    let mut targets: BTreeMap<EntityKey, Target> = BTreeMap::new();
     for requested in &prepared.requested {
-        let (collection, name) = match requested.split_once('/') {
-            Some((collection, name))
-                if valid_segment(collection) && valid_segment(name) && !name.contains('/') =>
-            {
-                (collection.to_string(), name.to_string())
-            }
-            Some(_) => {
-                return Err(DeleteError::Target(format!(
+        let key = match requested.contains('/') {
+            true => EntityKey::parse(requested).map_err(|_| {
+                DeleteError::Target(format!(
                     "{requested:?} must be Collection/Name or a bare server entity name"
-                )))
-            }
-            None => resolve_bare(remote, requested)?,
+                ))
+            })?,
+            false => resolve_bare(remote, requested)?,
         };
-        let method = method_for(&collection).unwrap_or(Method::Composer);
+        let method = method_for(key.collection()).unwrap_or(Method::Composer);
         targets
-            .entry((collection.clone(), name.clone()))
+            .entry(key.clone())
             .or_insert(Target {
-                collection,
-                name,
+                key,
                 method,
                 ledger: Vec::new(),
             });
     }
     for (record_at, entity_at) in prepared.ledger.replaced(|entity| entity.deleted.is_none()) {
         let pending = prepared.ledger.entity((record_at, entity_at));
-        let (collection, name) = (pending.collection.as_str(), pending.old.as_str());
-        if !prepared.renamed && !targets.contains_key(&(collection.to_string(), name.to_string())) {
+        let key = EntityKey::new(&pending.collection, &pending.old).map_err(|_| {
+            DeleteError::Ledger {
+                path: prepared.ledger_path.clone(),
+                why: format!("{}/{} is not a valid entity key", pending.collection, pending.old),
+            }
+        })?;
+        if !prepared.renamed && !targets.contains_key(&key) {
             continue;
         }
-        let method = method_for(collection).unwrap_or(Method::Composer);
+        let method = method_for(key.collection()).unwrap_or(Method::Composer);
         targets
-            .entry((collection.to_string(), name.to_string()))
+            .entry(key.clone())
             .or_insert(Target {
-                collection: collection.to_string(),
-                name: name.to_string(),
+                key,
                 method,
                 ledger: Vec::new(),
             })
@@ -714,38 +719,39 @@ fn resolve_targets(remote: &dyn Remote, prepared: &Prepared) -> Result<Vec<Targe
     Ok(targets.into_values().collect())
 }
 
-fn resolve_bare(remote: &dyn Remote, name: &str) -> Result<(String, String), DeleteError> {
-    if !valid_segment(name) || name.contains('/') {
+fn resolve_bare(remote: &dyn Remote, name: &str) -> Result<EntityKey, DeleteError> {
+    if EntityKey::new("Things", name).is_err() {
         return Err(DeleteError::Target(format!(
             "{name:?} is not a valid bare entity name"
         )));
     }
     let mut found = Vec::new();
     for collection in known_collections() {
+        let key = EntityKey::new(collection, name).expect("known collections are valid entity keys");
         if remote
-            .exists(collection, name)
+            .exists(&key)
             .map_err(|why| DeleteError::Remote {
                 entity: name.to_string(),
                 why,
             })?
         {
-            found.push((*collection).to_string());
+            found.push(key);
         }
     }
     match found.as_slice() {
         [] => Err(DeleteError::Target(format!(
             "no deletable server entity named {name}"
         ))),
-        [collection] => Ok((collection.clone(), name.to_string())),
+        [key] => Ok(key.clone()),
         _ => Err(DeleteError::Target(format!(
             "{name} is ambiguous on the server; it exists in {}",
-            found.join(", ")
+            found
+                .iter()
+                .map(|key| key.collection())
+                .collect::<Vec<_>>()
+                .join(", ")
         ))),
     }
-}
-
-fn valid_segment(segment: &str) -> bool {
-    !segment.is_empty() && segment != "." && segment != ".."
 }
 
 fn known_collections() -> Vec<&'static str> {
@@ -774,22 +780,23 @@ fn known_collections() -> Vec<&'static str> {
 /// cannot be deleted while another template in the set still inherits from it. The collection order
 /// is kept wherever there is no such dependency; a cycle keeps the order it had.
 fn delete_dependents_first(entities: &mut Vec<EntityResult>) {
-    let key = |entity: &EntityResult| (entity.collection.clone(), entity.name.clone());
-    let in_set: BTreeSet<(String, String)> = entities.iter().map(key).collect();
+    let in_set: BTreeSet<EntityKey> = entities.iter().map(EntityResult::key).collect();
     let mut remaining: Vec<EntityResult> = std::mem::take(entities);
-    let mut done: BTreeSet<(String, String)> = BTreeSet::new();
+    let mut done: BTreeSet<EntityKey> = BTreeSet::new();
     while !remaining.is_empty() {
         let next = remaining
             .iter()
             .position(|entity| {
                 entity.dependents.iter().all(|dependent| {
-                    let pair = (dependent.collection.clone(), dependent.name.clone());
-                    !in_set.contains(&pair) || done.contains(&pair) || pair == key(entity)
+                    let Ok(key) = EntityKey::new(&dependent.collection, &dependent.name) else {
+                        return true;
+                    };
+                    !in_set.contains(&key) || done.contains(&key) || key == entity.key()
                 })
             })
             .unwrap_or(0);
         let entity = remaining.remove(next);
-        done.insert(key(&entity));
+        done.insert(entity.key());
         entities.push(entity);
     }
 }
@@ -801,13 +808,13 @@ fn order_targets(targets: &mut [Target]) {
                 .iter()
                 .position(|known| *known == collection)
         };
-        match (rank(&left.collection), rank(&right.collection)) {
-            (None, None) => (&left.name, &left.collection).cmp(&(&right.name, &right.collection)),
+        match (rank(left.key.collection()), rank(right.key.collection())) {
+            (None, None) => (left.key.name(), left.key.collection()).cmp(&(right.key.name(), right.key.collection())),
             (None, Some(_)) => std::cmp::Ordering::Less,
             (Some(_), None) => std::cmp::Ordering::Greater,
             (Some(left_rank), Some(right_rank)) => right_rank
                 .cmp(&left_rank)
-                .then_with(|| left.name.cmp(&right.name)),
+                .then_with(|| left.key.name().cmp(right.key.name())),
         }
     });
 }
@@ -863,46 +870,46 @@ mod tests {
     }
 
     impl Remote for Fake {
-        fn exists(&self, collection: &str, name: &str) -> Result<bool, ServerError> {
+        fn exists(&self, key: &EntityKey) -> Result<bool, ServerError> {
             self.calls
                 .borrow_mut()
-                .push(format!("GET {collection}/{name}"));
+                .push(format!("GET {key}"));
             Ok(self
                 .held
                 .borrow()
-                .contains(&(collection.to_string(), name.to_string())))
+                .contains(&(key.collection().to_string(), key.name().to_string())))
         }
-        fn incoming(&self, collection: &str, name: &str) -> Result<Vec<Dependent>, ServerError> {
+        fn incoming(&self, key: &EntityKey) -> Result<Vec<Dependent>, ServerError> {
             self.calls
                 .borrow_mut()
-                .push(format!("DEPS {collection}/{name}"));
+                .push(format!("DEPS {key}"));
             Ok(self
                 .dependencies
-                .get(&(collection.to_string(), name.to_string()))
+                .get(&(key.collection().to_string(), key.name().to_string()))
                 .cloned()
                 .unwrap_or_default())
         }
         fn backup(
             &self,
             _: &Solution,
-            entities: &[(String, String)],
+            entities: &[EntityKey],
             stamp: &str,
         ) -> Result<Option<String>, backup::BackupError> {
-            let names: Vec<&str> = entities.iter().map(|(_, name)| name.as_str()).collect();
+            let names: Vec<&str> = entities.iter().map(EntityKey::name).collect();
             self.calls.borrow_mut().push(format!("BACKUP {stamp} {}", names.join(",")));
             if self.backup_fails {
                 return Err(backup::BackupError::Unreadable { entity: "Things/X".to_string() });
             }
             Ok(Some(format!(".twaco/backups/{stamp}")))
         }
-        fn fetch(&self, _: &str, name: &str) -> Result<Vec<u8>, ServerError> {
-            self.calls.borrow_mut().push(format!("FETCH Things/{name}"));
-            let template = if self.repository_things.contains(name) {
+        fn fetch(&self, key: &EntityKey) -> Result<Vec<u8>, ServerError> {
+            self.calls.borrow_mut().push(format!("FETCH {key}"));
+            let template = if self.repository_things.contains(key.name()) {
                 "FileRepository"
             } else {
                 "GenericThing"
             };
-            Ok(format!("<Entities><Things><Thing name=\"{name}\" thingTemplate=\"{template}\"/></Things></Entities>").into_bytes())
+            Ok(format!("<Entities><Things><Thing name=\"{}\" thingTemplate=\"{template}\"/></Things></Entities>", key.name()).into_bytes())
         }
         fn delete_service(&self, service: &str, name: &str) -> Result<(), ServerError> {
             self.calls
@@ -921,13 +928,13 @@ mod tests {
             }
             Ok(())
         }
-        fn delete_rest(&self, collection: &str, name: &str) -> Result<(), ServerError> {
+        fn delete_rest(&self, key: &EntityKey) -> Result<(), ServerError> {
             self.calls
                 .borrow_mut()
-                .push(format!("DELETE {collection}/{name}"));
-            let key = (collection.to_string(), name.to_string());
-            if !self.keep_after_delete.contains(&key) {
-                self.held.borrow_mut().remove(&key);
+                .push(format!("DELETE {key}"));
+            let held_key = (key.collection().to_string(), key.name().to_string());
+            if !self.keep_after_delete.contains(&held_key) {
+                self.held.borrow_mut().remove(&held_key);
             }
             Ok(())
         }
@@ -1206,6 +1213,104 @@ mod tests {
         let value = serde_json::to_value(&absent.entities[0]).unwrap();
         assert!(value.get("refusals").is_none());
         assert!(value.get("refusal_codes").is_none());
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn invalid_qualified_names_keep_the_target_error() {
+        let (root, solution) = solution();
+        let fake = Fake::new(&[]);
+        for requested in ["Things/..", "Things/A/B", "/X"] {
+            let prepared = prepare(&solution, &[requested.to_string()], false).unwrap();
+            let error = run(&fake, &solution, prepared, false, Acknowledged::default(), "2026-10-02")
+                .unwrap_err()
+                .to_string();
+            assert_eq!(
+                error,
+                format!("{requested:?} must be Collection/Name or a bare server entity name")
+            );
+        }
+        assert!(fake.calls.borrow().is_empty());
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn an_invalid_ledger_entity_key_is_reported_without_a_request() {
+        let (root, solution) = solution();
+        std::fs::create_dir_all(root.join(".twaco")).unwrap();
+        std::fs::write(
+            root.join(".twaco/renames.json"),
+            r#"[{"date":"2026-10-01","kind":"entity","old":"Bad","new":"New","entities":[{"collection":"Things","old":"..","new":"New"}]}]"#,
+        )
+        .unwrap();
+        let fake = Fake::new(&[]);
+        let prepared = prepare(&solution, &[], true).unwrap();
+        let error = run(&fake, &solution, prepared, false, Acknowledged::default(), "2026-10-02")
+            .unwrap_err()
+            .to_string();
+        assert_eq!(
+            error,
+            format!(
+                "{}: invalid rename ledger: Things/.. is not a valid entity key",
+                root.join(".twaco/renames.json").display()
+            )
+        );
+        assert!(fake.calls.borrow().is_empty());
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn an_invalid_dependent_key_is_outside_the_delete_set() {
+        let (root, solution) = solution();
+        let mut fake = Fake::new(&[("Things", "T")]);
+        fake.dependencies.insert(
+            ("Things".into(), "T".into()),
+            vec![Dependent {
+                collection: "Mashups".into(),
+                name: "..".into(),
+            }],
+        );
+        let report = execute(&fake, &solution, &["Things/T"], false, false);
+        let entity = &report.entities[0];
+        assert_eq!(entity.status, Status::Refused);
+        assert_eq!(entity.refusal_codes().collect::<Vec<_>>(), [GuardCode::OutsideDependents]);
+        assert_eq!(
+            entity.refusals().collect::<Vec<_>>(),
+            ["incoming dependents outside this delete set: Mashups/.. (pass --allow-outside-dependents)"]
+        );
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn refused_and_deleted_entity_results_keep_their_json_shape() {
+        let (root, solution) = solution();
+        let fake = Fake::new(&[("Unknowns", "T"), ("Mashups", "M")]);
+        let refused = execute(&fake, &solution, &["Unknowns/T"], false, false);
+        assert_eq!(
+            serde_json::to_value(&refused.entities[0]).unwrap(),
+            serde_json::json!({
+                "collection": "Unknowns",
+                "name": "T",
+                "status": "refused",
+                "method": "delete it in Composer",
+                "dependents": [],
+                "warnings": [],
+                "refusals": ["twaco has no delete method for this collection; delete it in Composer"],
+                "refusal_codes": ["no_delete_method"]
+            })
+        );
+        let deleted = execute(&fake, &solution, &["Mashups/M"], true, false);
+        assert_eq!(
+            serde_json::to_value(&deleted.entities[0]).unwrap(),
+            serde_json::json!({
+                "collection": "Mashups",
+                "name": "M",
+                "status": "deleted",
+                "method": "REST DELETE",
+                "dependents": [],
+                "warnings": []
+            })
+        );
         let _ = std::fs::remove_dir_all(root);
     }
 
