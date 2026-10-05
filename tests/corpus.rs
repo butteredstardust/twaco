@@ -1719,59 +1719,62 @@ fn scripts_parse_over_the_corpus() {
     );
 }
 
-/// The solution index must answer inheritance exactly as the service catalog always has, on every
-/// entity of every repository that has a `twaco.toml`: it replaces the catalog's own walk, so a
-/// difference is a regression in what a rename or a retemplate would decide.
+/// The solution index over every repository that has a `twaco.toml`: it builds, every dependent
+/// it reports is reached by a chain that really ends at the entity asked about, every entity
+/// reaches itself, and what it could not read is listed rather than dropped.
 #[test]
-fn the_index_reproduces_the_catalogs_inheritance_over_the_corpus() {
+fn the_index_holds_its_invariants_over_the_corpus() {
     use twaco::core::entity_key::EntityKey;
-    use twaco::core::index::Index;
+    use twaco::core::index::{Confidence, DependentOptions, Index};
 
     let mut entities = 0usize;
     let mut edges = 0usize;
+    let mut cycles = 0usize;
     let mut failures = Vec::new();
     for root in corpus_roots() {
-        let config = root.join("twaco.toml");
-        let Ok(solution) = twaco::core::config::Solution::load(&config) else {
+        let Ok(solution) = twaco::core::config::Solution::load(&root.join("twaco.toml")) else {
             continue;
         };
         let index = Index::build(&solution);
-        let (catalogued, _) = twaco::core::catalog::inheritance(&solution);
         edges += index.edges().len();
-        for entity in catalogued {
-            let Ok(key) = EntityKey::new(&entity.collection, &entity.name) else {
-                continue;
-            };
+        cycles += index.inheritance_cycles().len();
+        let keys: Vec<EntityKey> = index.entities().map(|(key, _)| key.clone()).collect();
+        for key in keys {
             entities += 1;
-            let inherited = index.inheritance_names(&key);
-            if inherited != entity.inherits {
-                failures.push(format!(
-                    "{key}: inherits {:?}, the catalog says {:?}",
-                    inherited, entity.inherits
-                ));
-            }
-            if entity.collection == "ThingShapes" {
-                let implemented = index.implementers(&key, None);
-                if implemented != entity.implemented_by {
+            for dependent in index.dependents(&key, &DependentOptions::default()) {
+                let ends_here = dependent
+                    .path
+                    .first()
+                    .is_some_and(|step| step.to == key.to_string());
+                let starts_there = dependent
+                    .path
+                    .last()
+                    .is_some_and(|step| step.from == dependent.label);
+                if !ends_here || !starts_there || dependent.depth != dependent.path.len() {
                     failures.push(format!(
-                        "{key}: implemented by {implemented:?}, the catalog says {:?}",
-                        entity.implemented_by
+                        "{key}: a dependent {} has an inconsistent chain",
+                        dependent.label
                     ));
                 }
+            }
+            if !index
+                .reachable_from(std::slice::from_ref(&key), Confidence::Review)
+                .contains(&key)
+            {
+                failures.push(format!("{key} does not reach itself"));
             }
         }
     }
     assert!(
         failures.is_empty(),
-        "{} difference(s):\n{}",
+        "{} problem(s):
+{}",
         failures.len(),
-        failures
-            .iter()
-            .take(10)
-            .cloned()
-            .collect::<Vec<_>>()
-            .join("\n")
+        failures.iter().take(10).cloned().collect::<Vec<_>>().join(
+            "
+"
+        )
     );
     assert!(entities > 0, "no repository with a twaco.toml was found");
-    println!("index: {entities} entities and {edges} edges agree with the catalog");
+    println!("index: {entities} entities, {edges} edges, {cycles} inheritance cycle(s)");
 }

@@ -1,5 +1,6 @@
 //! Questions asked of an [`Index`].
 
+use super::inherit::{implements_shape, inheritance_chain, Inherits};
 use super::{Confidence, Edge, EdgeKind, Index};
 use crate::core::entity_key::EntityKey;
 use petgraph::graph::NodeIndex;
@@ -194,73 +195,50 @@ impl Index {
         out.into_iter().map(|(_, step)| step).collect()
     }
 
-    fn entity_at(&self, key: &EntityKey) -> Option<&super::Node> {
-        self.node(key)
+    fn inherits_of<'a>(&'a self, key: &'a EntityKey) -> Option<Inherits<'a>> {
+        let node = self.node(key)?;
+        Some(Inherits {
+            collection: key.collection(),
+            template: node.template.as_deref(),
+            shapes: &node.shapes,
+        })
     }
 
-    /// The templates and shapes `key` inherits, nearest first: its own shapes, then its template's
-    /// name, then that template's shapes, then its base template's name, and so on up to a platform
-    /// template the repository does not hold. A ThingShape inherits nothing here. This is how the
-    /// service catalog has always walked a template chain, and a test holds the two equal.
+    fn template_named(&self, name: &str) -> Option<Inherits<'_>> {
+        let node = self
+            .entities
+            .get_key_value(&EntityKey::new("ThingTemplates", name).ok()?)?;
+        Some(Inherits {
+            collection: node.0.collection(),
+            template: self.graph[*node.1].template.as_deref(),
+            shapes: &self.graph[*node.1].shapes,
+        })
+    }
+
+    /// The templates and shapes `key` inherits, nearest first: see
+    /// [`inheritance_chain`], the one walk the service catalog shares.
     pub fn inheritance_names(&self, key: &EntityKey) -> Vec<String> {
-        if key.collection() == "ThingShapes" {
-            return Vec::new();
-        }
-        let mut out = Vec::new();
-        let mut visited = BTreeSet::new();
-        let mut current = self.entity_at(key);
-        while let Some(item) = current {
-            for shape in &item.shapes {
-                if visited.insert(shape.clone()) {
-                    out.push(shape.clone());
-                }
-            }
-            let Some(template) = item.template.as_deref() else {
-                break;
-            };
-            if !visited.insert(template.to_string()) {
-                break;
-            }
-            out.push(template.to_string());
-            current = EntityKey::new("ThingTemplates", template)
-                .ok()
-                .and_then(|next| self.entity_at(&next));
-        }
-        out
+        self.inherits_of(key)
+            .map(|start| inheritance_chain(start, |name| self.template_named(name)))
+            .unwrap_or_default()
     }
 
     /// The Things and templates that implement `shape`, directly or through a template chain, by
     /// name, sorted. `project` limits the answer to one project's entities.
     pub fn implementers(&self, shape: &EntityKey, project: Option<&str>) -> Vec<String> {
-        let mut out = Vec::new();
-        for (key, node) in self.entities() {
-            if key.collection() == "ThingShapes"
-                || !project.is_none_or(|project| node.project == project)
-            {
-                continue;
-            }
-            let mut visited = BTreeSet::new();
-            let mut current = Some(node);
-            let mut implements = false;
-            while let Some(item) = current {
-                if item.shapes.iter().any(|name| name == shape.name()) {
-                    implements = true;
-                    break;
-                }
-                let Some(template) = item.template.as_deref() else {
-                    break;
-                };
-                if !visited.insert(template.to_string()) {
-                    break;
-                }
-                current = EntityKey::new("ThingTemplates", template)
-                    .ok()
-                    .and_then(|next| self.entity_at(&next));
-            }
-            if implements {
-                out.push(key.name().to_string());
-            }
-        }
+        let mut out: Vec<String> = self
+            .entities()
+            .filter(|(key, node)| {
+                key.collection() != "ThingShapes"
+                    && project.is_none_or(|project| node.project == project)
+            })
+            .filter(|(key, _)| {
+                self.inherits_of(key).is_some_and(|start| {
+                    implements_shape(start, shape.name(), |name| self.template_named(name))
+                })
+            })
+            .map(|(key, _)| key.name().to_string())
+            .collect();
         out.sort();
         out
     }

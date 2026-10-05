@@ -1,6 +1,8 @@
 //! Offline service catalog derived from the entity model used by TypeScript generation.
 
 use super::config::Solution;
+use super::index::inherit::{implements_shape, inheritance_chain, Inherits};
+use super::index::Index;
 use super::types::{self, Entity, Member, Service};
 use serde::Serialize;
 use std::collections::{BTreeMap, BTreeSet};
@@ -79,27 +81,38 @@ pub struct CatalogValue {
 /// a service declaration. The second value lists entities the model could not read: a caller that
 /// scopes a refactor by inheritance must refuse when it is not empty.
 pub fn inheritance(solution: &Solution) -> (Vec<CatalogEntity>, Vec<String>) {
-    let (model, skipped) = types::load_model(solution);
-    let entities = model
-        .entities
-        .iter()
-        .filter(|entity| {
+    let index = Index::build(solution);
+    let mut entities: Vec<CatalogEntity> = index
+        .entities()
+        .filter(|(key, _)| {
             matches!(
-                entity.collection.as_str(),
+                key.collection(),
                 "Things" | "ThingTemplates" | "ThingShapes"
             )
         })
-        .map(|entity| CatalogEntity {
-            collection: entity.collection.clone(),
-            name: entity.name.clone(),
-            project: entity.project.clone(),
-            inherits: inheritance_names(entity, &model.entities),
-            implemented_by: if entity.collection == "ThingShapes" {
-                implementers(entity, &model.entities, None)
+        .map(|(key, node)| CatalogEntity {
+            collection: key.collection().to_string(),
+            name: key.name().to_string(),
+            project: node.project.clone(),
+            inherits: index.inheritance_names(key),
+            implemented_by: if key.collection() == "ThingShapes" {
+                index.implementers(key, None)
             } else {
                 Vec::new()
             },
             services: Vec::new(),
+        })
+        .collect();
+    entities.sort_by(|a, b| (&a.name, &a.collection).cmp(&(&b.name, &b.collection)));
+    let skipped = index
+        .unreadable()
+        .iter()
+        .map(|entry| {
+            if entry.why.is_empty() {
+                entry.what.clone()
+            } else {
+                format!("{}: {}", entry.what, entry.why)
+            }
         })
         .collect();
     (entities, skipped)
@@ -353,64 +366,44 @@ fn service_matches(service: &CatalogService, needle: &str) -> bool {
             .any(|parameter| parameter.name.to_lowercase().contains(needle))
 }
 
-pub(crate) fn inheritance_names(entity: &Entity, entities: &[Entity]) -> Vec<String> {
-    if entity.collection == "ThingShapes" {
-        return Vec::new();
+/// What the shared inheritance walk reads of a model entity.
+fn inherits(entity: &Entity) -> Inherits<'_> {
+    Inherits {
+        collection: &entity.collection,
+        template: entity.template.as_deref(),
+        shapes: &entity.shapes,
     }
-    let mut out = Vec::new();
-    let mut visited = BTreeSet::new();
-    let mut current = Some(entity);
-    while let Some(item) = current {
-        for shape in &item.shapes {
-            if visited.insert(shape.clone()) {
-                out.push(shape.clone());
-            }
-        }
-        let Some(template) = item.template.as_deref() else {
-            break;
-        };
-        if !visited.insert(template.to_string()) {
-            break;
-        }
-        out.push(template.to_string());
-        current = entities.iter().find(|candidate| {
-            candidate.collection == "ThingTemplates" && candidate.name == template
-        });
-    }
-    out
 }
 
-fn implementers(shape: &Entity, entities: &[Entity], project: Option<&str>) -> Vec<String> {
-    let find_template = |name: &str| {
-        entities
-            .iter()
-            .find(|entity| entity.collection == "ThingTemplates" && entity.name == name)
-    };
-    let mut out = Vec::new();
-    for entity in entities.iter().filter(|entity| {
-        entity.collection != "ThingShapes"
-            && project.is_none_or(|project| entity.project == project)
-    }) {
-        let mut visited = BTreeSet::new();
-        let mut current = Some(entity);
-        let mut implements = false;
-        while let Some(item) = current {
-            if item.shapes.iter().any(|name| name == &shape.name) {
-                implements = true;
-                break;
-            }
-            let Some(template) = item.template.as_deref() else {
-                break;
-            };
-            if !visited.insert(template) {
-                break;
-            }
-            current = find_template(template);
-        }
-        if implements {
-            out.push(entity.name.clone());
-        }
-    }
+fn template_in<'a>(entities: &'a [Entity], name: &str) -> Option<Inherits<'a>> {
+    entities
+        .iter()
+        .find(|candidate| candidate.collection == "ThingTemplates" && candidate.name == name)
+        .map(inherits)
+}
+
+pub(crate) fn inheritance_names(entity: &Entity, entities: &[Entity]) -> Vec<String> {
+    inheritance_chain(inherits(entity), |name| template_in(entities, name))
+}
+
+pub(crate) fn implementers(
+    shape: &Entity,
+    entities: &[Entity],
+    project: Option<&str>,
+) -> Vec<String> {
+    let mut out: Vec<String> = entities
+        .iter()
+        .filter(|entity| {
+            entity.collection != "ThingShapes"
+                && project.is_none_or(|project| entity.project == project)
+        })
+        .filter(|entity| {
+            implements_shape(inherits(entity), &shape.name, |name| {
+                template_in(entities, name)
+            })
+        })
+        .map(|entity| entity.name.clone())
+        .collect();
     out.sort();
     out
 }
