@@ -3608,7 +3608,6 @@ fn entity_push(solution: &Solution, args: &Args) -> u8 {
 /// even when it reports guarded refusals; an apply reports any refusal or failed confirmation as
 /// exit 2 after attempting the rest.
 fn entity_delete_cmd(solution: &Solution, args: &Args) -> u8 {
-    let apply = args.has("--apply");
     let (acknowledged, force_used) = entity_delete::acknowledged(
         args.has("--force"),
         args.has("--allow-repository-defined"),
@@ -3618,49 +3617,33 @@ fn entity_delete_cmd(solution: &Solution, args: &Args) -> u8 {
     if force_used {
         eprintln!("twaco: {}", entity_delete_force_deprecation());
     }
-    let prepared = match entity_delete::prepare(solution, &args.names, args.has("--renamed")) {
-        Ok(prepared) => prepared,
+    let request = commands::delete::EntityDeleteRequest {
+        entities: args.names.clone(),
+        renamed: args.has("--renamed"),
+        mode: if args.has("--apply") {
+            Mode::Apply
+        } else {
+            Mode::Plan
+        },
+        acknowledgements: acknowledged,
+        legacy_force_used: force_used,
+        backup: !args.has("--no-backup"),
+        profile: args
+            .profile
+            .clone()
+            .unwrap_or_else(|| "default".to_string()),
+    };
+    let outcome = match commands::delete::execute(solution, &request, server::Client::new) {
+        Ok(outcome) => outcome,
         Err(error) => {
             eprintln!("twaco: {error}");
             return FAILED;
         }
     };
-    // Server-only deletion needs no workspace lock. The ledger is the sole local write, and an
-    // empty/already-complete ledger does not manufacture a writer where there is none.
-    let _lock = if prepared.ledger_will_be_written(apply) {
-        match take_lock(solution, "entity delete") {
-            Ok(lock) => Some(lock),
-            Err(code) => return code,
-        }
-    } else {
-        None
-    };
-    let profile_name = args.profile.as_deref().unwrap_or("default");
-    let profile = match profile::load(&solution.root, profile_name) {
-        Ok(profile) => profile,
-        Err(error) => {
-            eprintln!("twaco: {error}");
-            return FAILED;
-        }
-    };
-    let date = jiff::Zoned::now().strftime("%Y-%m-%d").to_string();
-    let prepared = if args.has("--no-backup") {
-        prepared
-    } else {
-        prepared.with_backup(&backup::new_stamp())
-    };
-    let report = match entity_delete::run(
-        &server::Client::new(profile),
-        solution,
-        prepared,
-        apply,
-        acknowledged,
-        &date,
-    ) {
-        Ok(report) => report,
-        Err(error) => {
-            eprintln!("twaco: {error}");
-            return FAILED;
+    let (report, date, apply) = match outcome {
+        commands::delete::EntityDeleteOutcome::Plan { report, .. } => (report, None, false),
+        commands::delete::EntityDeleteOutcome::Applied { report, date, .. } => {
+            (report, Some(date), true)
         }
     };
     if args.has("--json") {
@@ -3704,7 +3687,10 @@ fn entity_delete_cmd(solution: &Solution, args: &Args) -> u8 {
         if !apply {
             println!("dry run: nothing was deleted; pass --apply to delete");
         } else if report.ledger_changed {
-            println!("rename ledger marked with {date}");
+            println!(
+                "rename ledger marked with {}",
+                date.expect("an applied delete outcome has a date")
+            );
         }
     }
     if apply && report.failed() {

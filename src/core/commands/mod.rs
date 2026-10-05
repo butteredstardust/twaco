@@ -1,5 +1,6 @@
 //! Command contracts shared by the command-line and MCP adapters.
 
+pub mod delete;
 pub mod push;
 
 /// Whether a command describes a change or carries it out.

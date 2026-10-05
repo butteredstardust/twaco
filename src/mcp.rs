@@ -1690,23 +1690,35 @@ fn entity_delete_tool(solution: &Solution, arguments: &Value) -> Result<Value, T
         flag(arguments, "allow_outside_dependents", false),
         flag(arguments, "allow_file_repository_data_loss", false),
     );
-    let entities = strings(arguments, "entities");
-    let prepared = entity_delete::prepare(solution, &entities, flag(arguments, "renamed", false))
-        .map_err(ToolError::coded)?;
-    let prepared = if flag(arguments, "backup", true) {
-        prepared.with_backup(&backup::new_stamp())
-    } else {
-        prepared
+    let request = commands::delete::EntityDeleteRequest {
+        entities: strings(arguments, "entities"),
+        renamed: flag(arguments, "renamed", false),
+        mode: if dry_run { Mode::Plan } else { Mode::Apply },
+        acknowledgements: acknowledged,
+        legacy_force_used: force_used,
+        backup: flag(arguments, "backup", true),
+        profile: text(arguments, "profile").unwrap_or("default").to_string(),
     };
-    let _lock = if prepared.ledger_will_be_written(!dry_run) {
-        Some(lock::acquire_for(solution, "mcp entity_delete").map_err(ToolError::coded)?)
-    } else {
-        None
+    let outcome =
+        commands::delete::execute(solution, &request, server::Client::new).map_err(|error| {
+            ToolError {
+                code: error.code(),
+                message: error.to_string(),
+            }
+        })?;
+    let (report, date, force_used) = match outcome {
+        commands::delete::EntityDeleteOutcome::Plan {
+            report,
+            legacy_force_used,
+            ..
+        } => (report, None, legacy_force_used),
+        commands::delete::EntityDeleteOutcome::Applied {
+            report,
+            date,
+            legacy_force_used,
+            ..
+        } => (report, Some(date), legacy_force_used),
     };
-    let client = client(solution, arguments)?;
-    let date = jiff::Zoned::now().strftime("%Y-%m-%d").to_string();
-    let report = entity_delete::run(&client, solution, prepared, !dry_run, acknowledged, &date)
-        .map_err(ToolError::coded)?;
     let mut result = json!({
         "ok": !report.failed(),
         "entities": report.entities,
@@ -1717,7 +1729,7 @@ fn entity_delete_tool(solution: &Solution, arguments: &Value) -> Result<Value, T
     }
     result[if dry_run { "plan" } else { "applied" }] = json!(true);
     if report.ledger_changed {
-        result["ledger_marked"] = json!(date);
+        result["ledger_marked"] = json!(date.expect("an applied delete outcome has a date"));
     }
     if force_used {
         result["deprecated"] = json!(entity_delete::FORCE_DEPRECATION);
