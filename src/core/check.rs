@@ -1056,6 +1056,62 @@ mod tests {
         (root, solution)
     }
 
+    /// A declared check is third-party code run from the repository, so what it can read from the
+    /// environment is a boundary: credentials reach it only if it says it needs them.
+    #[test]
+    fn a_hook_sees_no_credentials_unless_it_says_it_needs_them() {
+        let (root, solution) = live_solution();
+        std::env::set_var("TWACO_HOOK_PROBE_SECRET", "probe-value-7f3a");
+        std::env::set_var("TWX_HOOK_PROBE_SECRET", "probe-value-7f3a");
+        let printer: Vec<String> = if cfg!(windows) {
+            vec!["cmd".into(), "/C".into(), "set".into()]
+        } else {
+            vec!["env".into()]
+        };
+        let run = |needs_credentials: bool| {
+            run_hook(
+                &solution,
+                &super::super::config::Check {
+                    name: "environment".to_string(),
+                    command: printer.clone(),
+                    gate: false,
+                    needs_credentials,
+                    timeout_seconds: 30,
+                },
+            )
+        };
+        let without = run(false);
+        let with = run(true);
+        std::env::remove_var("TWACO_HOOK_PROBE_SECRET");
+        std::env::remove_var("TWX_HOOK_PROBE_SECRET");
+        let _ = std::fs::remove_dir_all(root);
+
+        assert!(without.broken.is_none(), "{:?}", without.broken);
+        assert!(
+            !without.prose.is_empty(),
+            "the hook printed its environment"
+        );
+        assert!(
+            without
+                .prose
+                .iter()
+                .all(|line| !line.contains("probe-value-7f3a")),
+            "a hook that did not ask for credentials saw one: {:?}",
+            without.prose
+        );
+        assert!(
+            with.prose
+                .iter()
+                .any(|line| line.contains("TWACO_HOOK_PROBE_SECRET=probe-value-7f3a"))
+                && with
+                    .prose
+                    .iter()
+                    .any(|line| line.contains("TWX_HOOK_PROBE_SECRET=probe-value-7f3a")),
+            "a hook that declared needs_credentials gets them: {:?}",
+            with.prose
+        );
+    }
+
     /// Answers as the server was observed to: the fields right, the message's line one too high.
     struct Parser {
         unreachable: bool,

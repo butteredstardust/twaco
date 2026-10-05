@@ -278,6 +278,48 @@ mod tests {
     use super::*;
     use std::time::{SystemTime, UNIX_EPOCH};
 
+    /// A profile's `Debug` is what ends up in a panic message, a log line or an error chain, so it
+    /// must show no secret however awkward: quotes, a newline, URL delimiters, non-ASCII.
+    #[test]
+    fn a_profile_never_prints_its_secrets_whatever_they_contain() {
+        for password in [
+            "plain-secret-1",
+            "q\"u'o\\te",
+            "line\nbreak",
+            "a?b#c&d=e@f/g:h",
+            "p\u{e4}ss\u{65e5}\u{672c}w\u{f6}rd",
+            "]]>&amp;<x>",
+        ] {
+            let mut extra = BTreeMap::new();
+            extra.insert(
+                "database_password".to_string(),
+                toml::Value::String(format!("db-{password}")),
+            );
+            let profile = Profile {
+                url: format!("https://twx.example.test/{password}"),
+                username: format!("user-{password}"),
+                password: password.to_string(),
+                app_key: Some(format!("key-{password}")),
+                extra,
+            };
+            for shown in [format!("{profile:?}"), format!("{profile:#?}")] {
+                for secret in [
+                    password.to_string(),
+                    format!("user-{password}"),
+                    format!("key-{password}"),
+                    format!("db-{password}"),
+                    "twx.example.test".to_string(),
+                ] {
+                    assert!(!shown.contains(&secret), "{secret:?} was printed: {shown}");
+                }
+                assert!(
+                    shown.contains("database_password"),
+                    "the key names stay: {shown}"
+                );
+            }
+        }
+    }
+
     fn temp(label: &str) -> PathBuf {
         let nonce = SystemTime::now()
             .duration_since(UNIX_EPOCH)
