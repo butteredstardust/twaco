@@ -2736,7 +2736,14 @@ fn impact_tool(solution: &Solution, arguments: &Value) -> Result<Value, ToolErro
     )
     .map_err(ToolError::coded)?;
     if text(arguments, "format") == Some("dot") {
-        return Ok(json!({ "entity": report.entity, "dot": impact::render_dot(&report) }));
+        return Ok(json!({
+            "entity": report.entity,
+            "dot": impact::render_dot(&report),
+            "complete": report.complete,
+            "unreadable": report.unreadable,
+            "unparsed_scripts": report.unparsed_scripts,
+            "limits": report.limits,
+        }));
     }
     Ok(report.to_json(flag(arguments, "detail", false)))
 }

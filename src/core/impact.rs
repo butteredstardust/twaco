@@ -344,6 +344,38 @@ pub fn render_dot(report: &Report) -> String {
     let quote = |text: &str| format!("\"{}\"", text.replace('\\', "\\\\").replace('"', "\\\""));
     let mut out =
         String::from("digraph impact {\n  rankdir=LR;\n  node [shape=box, fontsize=10];\n");
+    // A graph cannot say "and more I could not see" by what it draws, so it says it in words.
+    let mut caveats: Vec<String> = Vec::new();
+    if !report.complete {
+        caveats.push(format!(
+            "partial: {} input(s) could not be read",
+            report.unreadable.len()
+        ));
+    }
+    if !report.unparsed_scripts.is_empty() {
+        caveats.push(format!(
+            "{} script(s) not parsed: their references are review-level only",
+            report.unparsed_scripts.len()
+        ));
+    }
+    if !caveats.is_empty() {
+        out.push_str(&format!(
+            "  labelloc=t;\n  label={};\n",
+            quote(&caveats.join("\\n"))
+        ));
+        for entry in &report.unreadable {
+            out.push_str(&format!(
+                "  // unreadable: {}\n",
+                entry.what.replace(['\n', '\r'], " ")
+            ));
+        }
+        for script in &report.unparsed_scripts {
+            out.push_str(&format!(
+                "  // unparsed: {}\n",
+                script.replace(['\n', '\r'], " ")
+            ));
+        }
+    }
     out.push_str(&format!(
         "  {} [style=filled, fillcolor=\"#dbe6ff\"];\n",
         quote(&report.entity)
@@ -557,5 +589,43 @@ mod tests {
             text.contains("dependents  none at review confidence or stronger"),
             "{text}"
         );
+    }
+
+    #[test]
+    fn a_graph_of_an_incomplete_index_says_so() {
+        fn copy(from: &Path, to: &Path) {
+            std::fs::create_dir_all(to).unwrap();
+            for entry in std::fs::read_dir(from).unwrap().flatten() {
+                let target = to.join(entry.file_name());
+                if entry.path().is_dir() {
+                    copy(&entry.path(), &target);
+                } else {
+                    std::fs::copy(entry.path(), target).unwrap();
+                }
+            }
+        }
+        let root = std::env::temp_dir().join(format!("twaco-impact-dot-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        let source =
+            Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/corpus/acme-orders");
+        copy(&source, &root);
+        let complete = render_dot(&ask("Audit", Some("Record"), Confidence::Review));
+        assert!(!complete.contains("labelloc"), "{complete}");
+        std::fs::write(root.join("Things/Acme.Orders.Broken.xml"), "<not xml").unwrap();
+        let solution = Solution::load(&root.join("twaco.toml")).unwrap();
+        let report = run(
+            &solution,
+            &Request {
+                entity: "Audit".into(),
+                member: Some("Record".into()),
+                min: Confidence::Review,
+                depth: None,
+            },
+        )
+        .unwrap();
+        let _ = std::fs::remove_dir_all(&root);
+        let dot = render_dot(&report);
+        assert!(dot.contains("label=\"partial: 1 input(s)"), "{dot}");
+        assert!(dot.contains("// unreadable: "), "{dot}");
     }
 }

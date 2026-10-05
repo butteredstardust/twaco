@@ -243,7 +243,9 @@ impl Builder<'_> {
         let Some(&to) = self.entities.get(&key) else {
             return;
         };
-        if to == from {
+        // An entity that names itself in a script is no dependency, but one that inherits from
+        // itself is a cycle, and the cycle report needs the edge.
+        if to == from && !kind.is_inheritance() {
             return;
         }
         // A project has no file of its own: what it names is written in `twaco.toml`.

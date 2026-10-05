@@ -1099,3 +1099,82 @@ name = \"P\"
     assert!(!runs("Things", "P.Nope"));
     let _ = std::fs::remove_dir_all(root);
 }
+
+#[test]
+fn a_thing_passed_along_beside_a_call_on_it_still_concerns_every_member() {
+    let root = scratch("occurrence");
+    write(&root, "twaco.toml", "[[project]]\nname = \"P\"\n");
+    write(
+        &root,
+        "Things/P.Target.xml",
+        &thing_with(
+            "P.Target",
+            &[("Run", "var r = 1;"), ("Other", "var r = 2;")],
+        ),
+    );
+    write(
+        &root,
+        "Things/P.Both.xml",
+        &thing_with(
+            "P.Both",
+            &[(
+                "Use",
+                r#"Things["P.Target"].Run(); consume(Things["P.Target"]);"#,
+            )],
+        ),
+    );
+    write(
+        &root,
+        "Things/P.CallOnly.xml",
+        &thing_with("P.CallOnly", &[("Use", r#"Things["P.Target"].Run();"#)]),
+    );
+    let solution = Solution::load(&root.join("twaco.toml")).unwrap();
+    let index = Index::build(&solution);
+    let asking_other = index.dependents(
+        &key("Things", "P.Target"),
+        &DependentOptions {
+            member: Some("Other".to_string()),
+            ..DependentOptions::default()
+        },
+    );
+    let names: Vec<&str> = asking_other.iter().map(|d| d.label.as_str()).collect();
+    assert_eq!(
+        names,
+        ["Things/P.Both"],
+        "the passed Thing may use Other; the caller of Run alone may not"
+    );
+    let _ = std::fs::remove_dir_all(root);
+}
+
+#[test]
+fn a_template_that_inherits_itself_is_a_cycle() {
+    let root = scratch("self-cycle");
+    write(&root, "twaco.toml", "[[project]]\nname = \"P\"\n");
+    write(
+        &root,
+        "ThingTemplates/P.Self.xml",
+        &entity(
+            "ThingTemplates",
+            "ThingTemplate",
+            "P.Self",
+            "P",
+            " baseThingTemplate=\"P.Self\"",
+            "",
+        ),
+    );
+    write(
+        &root,
+        "DataShapes/P.Loop.xml",
+        &data_shape("P.Loop", "P.Loop", &[]),
+    );
+    let solution = Solution::load(&root.join("twaco.toml")).unwrap();
+    let index = Index::build(&solution);
+    assert_eq!(
+        index.inheritance_cycles(),
+        [
+            vec!["DataShapes/P.Loop".to_string()],
+            vec!["ThingTemplates/P.Self".to_string()]
+        ]
+    );
+    let _ = std::fs::remove_dir_all(root);
+}
