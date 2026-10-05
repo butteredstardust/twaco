@@ -8,6 +8,8 @@ All notable changes to twaco are recorded here. The format follows
 
 ### Changed
 
+- MCP tool input schemas now declare `additionalProperties: false` and nested arguments are
+  validated; the published tool definitions are held by a golden file.
 - `entity delete` now has separate acknowledgements for repository-defined entities, outside
   dependents and FileRepository data loss; deleting a FileRepository Thing is refused unless
   `--allow-file-repository-data-loss` is given, and refusals carry stable codes.
