@@ -20,10 +20,19 @@ jobs:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
         with:
-          components: clippy
+          components: clippy, rustfmt
       - uses: Swatinem/rust-cache@v2
       - name: Clippy
         run: cargo clippy --all-targets --locked -- -D warnings
+      - name: Formatting
+        run: cargo fmt --all --check
+      # Builds the crate from the files `cargo package` would publish, so a template or knowledge
+      # topic that the binary embeds but the package leaves out fails here, not for a user.
+      - name: The package builds from its own files
+        run: cargo package --locked
+      - uses: EmbarkStudios/cargo-deny-action@v2
+        with:
+          command: check licenses bans sources
       - name: Usage text and COMMANDS.md agree
         run: |
           cargo build --locked
@@ -82,6 +91,33 @@ jobs:
             tar -czf "$name.tar.gz" "$name"
             echo "ASSET=$name.tar.gz" >> "$GITHUB_ENV"
           fi
+      # Run what a user would download, not the build tree: unpack the archive into a clean
+      # directory, check it reports the tagged version, and check the knowledge topics compiled
+      # into it are there (they need no solution and no server).
+      - name: Smoke-run the packaged binary
+        shell: bash
+        run: |
+          name="${ASSET%.zip}"
+          name="${name%.tar.gz}"
+          mkdir smoke
+          if [ "${{ matrix.archive }}" = "zip" ]; then
+            7z x "$ASSET" -osmoke > /dev/null
+            exe=twaco.exe
+          else
+            tar -xzf "$ASSET" -C smoke
+            exe=twaco
+          fi
+          cd smoke
+          got=$("./$name/$exe" --version)
+          want="twaco ${GITHUB_REF_NAME#v}"
+          if [ "$got" != "$want" ]; then
+            echo "the packaged binary says '$got', expected '$want'" >&2
+            exit 1
+          fi
+          topics=$("./$name/$exe" guide)
+          for topic in workflow quirks service-code; do
+            echo "$topics" | grep -q "^$topic " || { echo "guide topic $topic is missing from the packaged binary" >&2; exit 1; }
+          done
       - uses: actions/upload-artifact@v4
         with:
           name: ${{ matrix.target }}
@@ -96,8 +132,16 @@ jobs:
         with:
           path: assets
           merge-multiple: true
+      - name: Every platform's archive is here
+        run: |
+          for pattern in 'twaco-*-x86_64-pc-windows-msvc.zip' 'twaco-*-x86_64-unknown-linux-gnu.tar.gz' 'twaco-*-aarch64-apple-darwin.tar.gz'; do
+            ls assets/$pattern > /dev/null || { echo "no archive matching $pattern" >&2; exit 1; }
+          done
       - name: Checksums
-        run: cd assets && sha256sum * > SHA256SUMS.txt
+        run: |
+          cd assets
+          sha256sum * > SHA256SUMS.txt
+          sha256sum --check SHA256SUMS.txt
       - name: Release notes from CHANGELOG.md
         run: |
           version="${GITHUB_REF_NAME#v}"
