@@ -1796,44 +1796,28 @@ fn move_member_tool(solution: &Solution, arguments: &Value) -> Result<Value, Too
         new_name: text(arguments, "new_name").map(str::to_string),
         leave_delegate: flag(arguments, "leave_delegate", false),
     };
-    let _lock = if dry_run {
-        None
-    } else {
-        Some(lock::acquire_for(solution, "mcp move_member").map_err(ToolError::coded)?)
+    let request = commands::relocate::RelocateRequest {
+        request,
+        mode: if dry_run { Mode::Plan } else { Mode::Apply },
+        lock_label: "mcp move_member".to_string(),
     };
-    let plan = relocate::plan(solution, &request).map_err(ToolError::coded)?;
-    let mut problems = Vec::new();
-    if !dry_run {
-        let lock = _lock
-            .as_ref()
-            .ok_or_else(|| ToolError::invalid("applying needs the workspace lock"))?;
-        relocate::apply(&plan, lock).map_err(ToolError::coded)?;
-        problems = relocate::verify(solution, &plan);
-    }
+    let mut notices = commands::Notices::default();
+    let outcome =
+        commands::relocate::execute(solution, &request, &mut notices).map_err(ToolError::coded)?;
+    let plan = outcome.plan();
+    let problems = outcome.problems();
     let mut result = json!({
         "ok": problems.is_empty(), "action": action, "member": kind, "from": plan.request.from, "to": plan.request.to,
         "name": plan.request.name, "as": plan.final_name, "files": plan.files(solution),
         "callers": plan.callers, "notes": plan.notes, "out_of_step": problems,
     });
     result[if dry_run { "plan" } else { "applied" }] = json!(true);
+    add_notices(&mut result, &notices);
     Ok(result)
 }
 
 fn new_building_block_tool(solution: &Solution, arguments: &Value) -> Result<Value, ToolError> {
     let dry_run = flag(arguments, "dry_run", true);
-    let _lock = if dry_run {
-        None
-    } else {
-        Some(lock::acquire_for(solution, "mcp new_building_block").map_err(ToolError::coded)?)
-    };
-    let reloaded;
-    let solution = if dry_run {
-        solution
-    } else {
-        reloaded = Solution::load(&solution.root.join(crate::core::config::CONFIG_FILE))
-            .map_err(ToolError::coded)?;
-        &reloaded
-    };
     let kind_word = text(arguments, "type").unwrap_or("standard");
     let kind = newblock::BlockType::from_word(kind_word).ok_or_else(|| {
         ToolError::invalid(format!(
@@ -1853,13 +1837,17 @@ fn new_building_block_tool(solution: &Solution, arguments: &Value) -> Result<Val
         root: text(arguments, "root").map(str::to_string),
         base_extension: text(arguments, "base_extension").map(str::to_string),
     };
-    let plan = newblock::plan(solution, &request).map_err(ToolError::coded)?;
-    if !dry_run {
-        let lock = _lock
-            .as_ref()
-            .ok_or_else(|| ToolError::invalid("applying needs the workspace lock"))?;
-        newblock::apply(solution, &plan, lock).map_err(ToolError::coded)?;
-    }
+    let result_name = request.name.clone();
+    let result_kind = request.kind;
+    let request = commands::newblock::NewBlockRequest {
+        request,
+        mode: if dry_run { Mode::Plan } else { Mode::Apply },
+        lock_label: "mcp new_building_block",
+    };
+    let mut notices = commands::Notices::default();
+    let outcome =
+        commands::newblock::execute(solution, &request, &mut notices).map_err(ToolError::coded)?;
+    let plan = outcome.plan();
     let files: Vec<String> = plan
         .files
         .iter()
@@ -1873,10 +1861,11 @@ fn new_building_block_tool(solution: &Solution, arguments: &Value) -> Result<Val
         })
         .collect();
     let mut result = json!({
-        "ok": true, "name": request.name, "type": request.kind.word(), "root": plan.root,
+        "ok": true, "name": result_name, "type": result_kind.word(), "root": plan.root,
         "files": files, "twaco_toml": plan.config_addition, "notes": plan.notes,
     });
     result[if dry_run { "plan" } else { "applied" }] = json!(true);
+    add_notices(&mut result, &notices);
     Ok(result)
 }
 
@@ -1889,21 +1878,22 @@ fn retemplate_tool(solution: &Solution, arguments: &Value) -> Result<Value, Tool
         remove_shapes: strings(arguments, "remove_shapes"),
         accept_loss: flag(arguments, "accept_loss", false),
     };
-    let _lock = if dry_run {
-        None
-    } else {
-        Some(lock::acquire_for(solution, "mcp retemplate").map_err(ToolError::coded)?)
+    let request = commands::retemplate::RetemplateRequest {
+        request,
+        mode: if dry_run { Mode::Plan } else { Mode::Apply },
+        lock_label: "mcp retemplate",
     };
-    let plan = retemplate::plan(solution, &request).map_err(ToolError::coded)?;
-    if !dry_run {
-        retemplate::apply(&plan).map_err(ToolError::coded)?;
-    }
+    let mut notices = commands::Notices::default();
+    let outcome = commands::retemplate::execute(solution, &request, &mut notices)
+        .map_err(ToolError::coded)?;
+    let plan = outcome.plan();
     let mut result = json!({
         "ok": true, "entity": plan.request.entity, "collection": plan.collection, "file": plan.file_relative(solution),
         "affected": plan.affected, "gained": plan.gained, "lost": plan.lost,
         "needs_accept_loss": plan.blocked, "notes": plan.notes,
     });
     result[if dry_run { "plan" } else { "applied" }] = json!(true);
+    add_notices(&mut result, &notices);
     Ok(result)
 }
 
@@ -2111,15 +2101,28 @@ fn adopt_apply_tool(solution: &Solution, arguments: &Value) -> Result<Value, Too
                 .collect()
         })
         .unwrap_or_default();
-    let _lock = lock::acquire_for(solution, "mcp adopt_apply").map_err(ToolError::coded)?;
-    let report = adopt::compare(solution, &export, &only).map_err(ToolError::coded)?;
-    let outcome = adopt::apply(solution, &export, &report).map_err(ToolError::coded)?;
+    let request = commands::adopt::AdoptRequest {
+        export,
+        only,
+        mode: Mode::Apply,
+        lock_label: "mcp adopt_apply",
+    };
+    let mut notices = commands::Notices::default();
+    let outcome =
+        commands::adopt::execute(solution, &request, &mut notices).map_err(ToolError::coded)?;
+    let commands::adopt::AdoptOutcome::Applied {
+        report, outcome, ..
+    } = outcome
+    else {
+        unreachable!("an adopt apply request has an applied outcome")
+    };
     let mut result = json!({
         "applied": outcome.lines,
         "reverts_not_applied": report.reverts().count(),
         "next": "run sync, then check",
     });
     add_types_refresh(&mut result, &outcome.types);
+    add_notices(&mut result, &notices);
     Ok(result)
 }
 
@@ -2144,7 +2147,18 @@ fn adopt_tool(solution: &Solution, arguments: &Value) -> Result<Value, ToolError
                 .collect()
         })
         .unwrap_or_default();
-    let report = adopt::compare(solution, &export, &only).map_err(ToolError::coded)?;
+    let request = commands::adopt::AdoptRequest {
+        export,
+        only,
+        mode: Mode::Plan,
+        lock_label: "mcp adopt_report",
+    };
+    let mut notices = commands::Notices::default();
+    let outcome =
+        commands::adopt::execute(solution, &request, &mut notices).map_err(ToolError::coded)?;
+    let commands::adopt::AdoptOutcome::Plan { report, .. } = outcome else {
+        unreachable!("an adopt report request has a plan outcome")
+    };
     let detail = flag(arguments, "detail", false);
     let services: Vec<Value> = report
         .services
@@ -2177,7 +2191,7 @@ fn adopt_tool(solution: &Solution, arguments: &Value) -> Result<Value, ToolError
             entry
         })
         .collect();
-    Ok(json!({
+    let mut result = json!({
         "reverts": report.reverts().count(),
         "services": services,
         "unmatched_services": report.unmatched_services,
@@ -2185,7 +2199,9 @@ fn adopt_tool(solution: &Solution, arguments: &Value) -> Result<Value, ToolError
         "absent": report.absent.iter().map(adopt::EntityRef::path).collect::<Vec<_>>(),
         "changed": changed,
         "identical": report.with_status(adopt::Status::Identical).count(),
-    }))
+    });
+    add_notices(&mut result, &notices);
+    Ok(result)
 }
 
 fn rename_tool(solution: &Solution, arguments: &Value) -> Result<Value, ToolError> {
@@ -2213,23 +2229,23 @@ fn rename_tool(solution: &Solution, arguments: &Value) -> Result<Value, ToolErro
             dir: text(arguments, "sql_dir").map(str::to_string),
         },
     };
-    let date = jiff::Zoned::now().strftime("%Y-%m-%d").to_string();
-    let (spec, options) = request
-        .build(&solution.root, &date)
-        .map_err(ToolError::invalid)?;
-    let _lock = if dry_run {
-        None
-    } else {
-        Some(lock::acquire_for(solution, "mcp rename").map_err(ToolError::coded)?)
+    let request = commands::rename::RenameRequest {
+        request,
+        mode: if dry_run { Mode::Plan } else { Mode::Apply },
+        date: jiff::Zoned::now().strftime("%Y-%m-%d").to_string(),
+        lock_label: "mcp rename".to_string(),
     };
+    let mut notices = commands::Notices::default();
     let outcome =
-        rename::run(solution, &spec, &options, _lock.as_ref()).map_err(ToolError::coded)?;
-    Ok(rename::summary_json(
+        commands::rename::execute(solution, &request, &mut notices).map_err(ToolError::coded)?;
+    let mut result = rename::summary_json(
         solution,
-        &outcome,
-        options.include_outside,
+        outcome.outcome(),
+        flag(arguments, "include_outside", false),
         10,
-    ))
+    );
+    add_notices(&mut result, &notices);
+    Ok(result)
 }
 
 fn config_table_tool(solution: &Solution, arguments: &Value) -> Result<Value, ToolError> {

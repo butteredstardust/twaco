@@ -206,19 +206,6 @@ fn main() -> ExitCode {
         } else {
             None
         };
-        let reloaded;
-        let solution = if route == "new building-block" && parsed.has("--apply") {
-            reloaded = match Solution::load(&solution.root.join(twaco::core::config::CONFIG_FILE)) {
-                Ok(solution) => solution,
-                Err(error) => {
-                    eprintln!("twaco: {error}");
-                    return FAILED;
-                }
-            };
-            &reloaded
-        } else {
-            solution
-        };
         match route {
             "projects" => projects(solution),
             "types" => types_cmd(solution, &parsed),
@@ -243,13 +230,13 @@ fn main() -> ExitCode {
             "adopt" => adopt_cmd(solution, &parsed),
             "rename entity" | "rename prefix" | "rename field" | "rename service"
             | "rename param" | "rename table" | "rename property" => {
-                rename_cmd(solution, route, &parsed, _lock.as_ref())
+                rename_cmd(solution, route, &parsed)
             }
             "move service" | "move property" | "copy service" | "copy property" => {
-                relocate_cmd(solution, route, &parsed, _lock.as_ref())
+                relocate_cmd(solution, route, &parsed)
             }
             "retemplate" => retemplate_cmd(solution, &parsed),
-            "new building-block" => new_building_block_cmd(solution, &parsed, _lock.as_ref()),
+            "new building-block" => new_building_block_cmd(solution, &parsed),
             "config-table" => config_table(solution, &parsed),
             "entity get" => entity_get(solution, &parsed),
             "entity status" => entity_status(solution, &parsed),
@@ -1045,13 +1032,31 @@ fn adopt_cmd(solution: &Solution, args: &Args) -> u8 {
         eprintln!("twaco: adopt needs the path of one <Entities> export");
         return FAILED;
     }
-    let export = PathBuf::from(&args.names[0]);
-    let report = match adopt::compare(solution, &export, &args.entity_filters) {
-        Ok(report) => report,
+    let request = commands::adopt::AdoptRequest {
+        export: PathBuf::from(&args.names[0]),
+        only: args.entity_filters.clone(),
+        mode: if args.has("--apply") {
+            Mode::Apply
+        } else {
+            Mode::Plan
+        },
+        lock_label: "adopt",
+    };
+    let mut notices = commands::Notices::default();
+    let outcome = match commands::adopt::execute(solution, &request, &mut notices) {
+        Ok(outcome) => outcome,
         Err(error) => {
+            print_notices(&notices);
             eprintln!("twaco: {error}");
             return FAILED;
         }
+    };
+    print_notices(&notices);
+    let (report, applied) = match outcome {
+        commands::adopt::AdoptOutcome::Plan { report, .. } => (report, None),
+        commands::adopt::AdoptOutcome::Applied {
+            report, outcome, ..
+        } => (report, Some(outcome)),
     };
     let reverts = report.reverts().count();
 
@@ -1079,23 +1084,17 @@ fn adopt_cmd(solution: &Solution, args: &Args) -> u8 {
     } else {
         print_adopt_report(solution, &report, args.has("--detail"));
     }
-    if args.has("--apply") {
-        match adopt::apply(solution, &export, &report) {
-            Ok(outcome) => {
-                println!("\n=== applied ({}) ===", outcome.lines.len());
-                for line in &outcome.lines {
-                    println!("  {line}");
-                }
-                print_types_refresh(&outcome.types);
-                println!("\nRun `twaco sync --all` to fold the sidecars into the entity XML, then `twaco check`.");
-                if reverts > 0 {
-                    println!("The {reverts} service difference(s) above were not applied; they need a person.");
-                }
-            }
-            Err(error) => {
-                eprintln!("twaco: {error}");
-                return FAILED;
-            }
+    if let Some(outcome) = applied {
+        println!("\n=== applied ({}) ===", outcome.lines.len());
+        for line in &outcome.lines {
+            println!("  {line}");
+        }
+        print_types_refresh(&outcome.types);
+        println!("\nRun `twaco sync --all` to fold the sidecars into the entity XML, then `twaco check`.");
+        if reverts > 0 {
+            println!(
+                "The {reverts} service difference(s) above were not applied; they need a person."
+            );
         }
     }
     if args.has("--fail-on-revert") && reverts > 0 {
@@ -1105,12 +1104,7 @@ fn adopt_cmd(solution: &Solution, args: &Args) -> u8 {
     }
 }
 
-fn rename_cmd(
-    solution: &Solution,
-    route: &str,
-    args: &Args,
-    lock: Option<&lock::WorkspaceLock>,
-) -> u8 {
+fn rename_cmd(solution: &Solution, route: &str, args: &Args) -> u8 {
     let word = route.strip_prefix("rename ").unwrap_or(route);
     let kind = rename::Kind::from_word(word).expect("the route names a rename kind");
     let mut request = match rename::Request::from_names(kind, &args.names) {
@@ -1128,30 +1122,31 @@ fn rename_cmd(
         no_sql: args.has("--no-sql"),
         dir: args.values.get("--sql-dir").cloned(),
     };
-    let date = jiff::Zoned::now().strftime("%Y-%m-%d").to_string();
-    let (spec, options) = match request.build(&solution.root, &date) {
-        Ok(built) => built,
-        Err(error) => {
-            eprintln!("twaco: {error}");
-            return FAILED;
-        }
+    let request = commands::rename::RenameRequest {
+        mode: if args.has("--apply") {
+            Mode::Apply
+        } else {
+            Mode::Plan
+        },
+        request,
+        date: jiff::Zoned::now().strftime("%Y-%m-%d").to_string(),
+        lock_label: route.to_string(),
     };
-    let outcome = match rename::run(solution, &spec, &options, lock) {
+    let mut notices = commands::Notices::default();
+    let outcome = match commands::rename::execute(solution, &request, &mut notices) {
         Ok(outcome) => outcome,
         Err(error) => {
+            print_notices(&notices);
             eprintln!("twaco: {error}");
             return FAILED;
         }
     };
+    print_notices(&notices);
+    let outcome = outcome.outcome();
     if args.has("--json") {
-        print_rename_json(solution, &outcome, options.include_outside);
+        print_rename_json(solution, outcome, args.has("--text"));
     } else {
-        print_rename_outcome(
-            solution,
-            &outcome,
-            options.include_outside,
-            args.has("--detail"),
-        );
+        print_rename_outcome(solution, outcome, args.has("--text"), args.has("--detail"));
     }
     let verification_failed = outcome.verification.as_ref().is_some_and(|verification| {
         !verification.sync_problems.is_empty() || !verification.blocking_gates.is_empty()
@@ -3137,10 +3132,7 @@ fn print_info_table_summary(value: &serde_json::Value) {
 fn writes_workspace(route: &str, args: &Args) -> bool {
     match route {
         "bundle" => !args.has("--check"),
-        "deploy" | "adopt" | "rename entity" | "rename prefix" | "rename field"
-        | "rename service" | "rename param" | "rename table" | "rename property"
-        | "move service" | "move property" | "copy service" | "copy property" | "retemplate"
-        | "new building-block" => args.has("--apply"),
+        "deploy" => args.has("--apply"),
         "entity status" => args.has("--record"),
         // Even with --apply, db run writes only a throwaway server Thing and needs no workspace lock.
         "db run" => false,
@@ -3714,11 +3706,7 @@ fn entity_delete_force_deprecation() -> &'static str {
 }
 
 /// Create a building block as files and register its project. Plans unless --apply.
-fn new_building_block_cmd(
-    solution: &Solution,
-    args: &Args,
-    lock: Option<&lock::WorkspaceLock>,
-) -> u8 {
+fn new_building_block_cmd(solution: &Solution, args: &Args) -> u8 {
     let [name] = args.names.as_slice() else {
         eprintln!("twaco: new building-block needs one <name>, such as Acme.Orders");
         return FAILED;
@@ -3748,24 +3736,25 @@ fn new_building_block_cmd(
         root: args.values.get("--root").cloned(),
         base_extension: args.values.get("--base-extension").cloned(),
     };
-    let plan = match newblock::plan(solution, &request) {
-        Ok(plan) => plan,
+    let apply = args.has("--apply");
+    let request_name = request.name.clone();
+    let request_kind = request.kind;
+    let facade = commands::newblock::NewBlockRequest {
+        request,
+        mode: if apply { Mode::Apply } else { Mode::Plan },
+        lock_label: "new building-block",
+    };
+    let mut notices = commands::Notices::default();
+    let outcome = match commands::newblock::execute(solution, &facade, &mut notices) {
+        Ok(outcome) => outcome,
         Err(error) => {
+            print_notices(&notices);
             eprintln!("twaco: {error}");
             return FAILED;
         }
     };
-    let apply = args.has("--apply");
-    if apply {
-        let Some(lock) = lock else {
-            eprintln!("twaco: new building-block --apply needs the workspace lock");
-            return FAILED;
-        };
-        if let Err(error) = newblock::apply(solution, &plan, lock) {
-            eprintln!("twaco: {error}");
-            return FAILED;
-        }
-    }
+    print_notices(&notices);
+    let plan = outcome.plan();
     let files: Vec<String> = plan
         .files
         .iter()
@@ -3781,7 +3770,7 @@ fn new_building_block_cmd(
     if args.has("--json") {
         let value = serde_json::json!({
             (if apply { "applied" } else { "plan" }): true,
-            "name": request.name, "type": request.kind.word(), "root": plan.root,
+            "name": request_name, "type": request_kind.word(), "root": plan.root,
             "files": files, "twaco_toml": plan.config_addition, "notes": plan.notes,
         });
         println!(
@@ -3792,8 +3781,8 @@ fn new_building_block_cmd(
     }
     println!(
         "new building-block {} ({}): {}",
-        request.name,
-        request.kind.word(),
+        request_name,
+        request_kind.word(),
         if apply {
             "created"
         } else {
@@ -3842,20 +3831,23 @@ fn retemplate_cmd(solution: &Solution, args: &Args) -> u8 {
         remove_shapes: list("--remove-shapes"),
         accept_loss: args.has("--accept-loss"),
     };
-    let plan = match retemplate::plan(solution, &request) {
-        Ok(plan) => plan,
+    let apply = args.has("--apply");
+    let facade = commands::retemplate::RetemplateRequest {
+        request,
+        mode: if apply { Mode::Apply } else { Mode::Plan },
+        lock_label: "retemplate",
+    };
+    let mut notices = commands::Notices::default();
+    let outcome = match commands::retemplate::execute(solution, &facade, &mut notices) {
+        Ok(outcome) => outcome,
         Err(error) => {
+            print_notices(&notices);
             eprintln!("twaco: {error}");
             return FAILED;
         }
     };
-    let apply = args.has("--apply");
-    if apply {
-        if let Err(error) = retemplate::apply(&plan) {
-            eprintln!("twaco: {error}");
-            return FAILED;
-        }
-    }
+    print_notices(&notices);
+    let plan = outcome.plan();
     if args.has("--json") {
         let value = serde_json::json!({
             (if apply { "applied" } else { "plan" }): true,
@@ -3962,12 +3954,7 @@ fn retemplate_cmd(solution: &Solution, args: &Args) -> u8 {
 
 /// Move or copy a service or property between entities. Plans unless --apply; an apply checks the
 /// sidecars still match the XML and exits 2 if they do not.
-fn relocate_cmd(
-    solution: &Solution,
-    route: &str,
-    args: &Args,
-    lock: Option<&lock::WorkspaceLock>,
-) -> u8 {
+fn relocate_cmd(solution: &Solution, route: &str, args: &Args) -> u8 {
     let (verb, word) = route
         .split_once(' ')
         .expect("the route has a verb and a member");
@@ -3986,25 +3973,23 @@ fn relocate_cmd(
         leave_delegate: args.has("--leave-delegate"),
     };
     let apply = args.has("--apply");
-    let plan = match relocate::plan(solution, &request) {
-        Ok(plan) => plan,
+    let facade = commands::relocate::RelocateRequest {
+        request,
+        mode: if apply { Mode::Apply } else { Mode::Plan },
+        lock_label: route.to_string(),
+    };
+    let mut notices = commands::Notices::default();
+    let outcome = match commands::relocate::execute(solution, &facade, &mut notices) {
+        Ok(outcome) => outcome,
         Err(error) => {
+            print_notices(&notices);
             eprintln!("twaco: {error}");
             return FAILED;
         }
     };
-    let mut problems = Vec::new();
-    if apply {
-        let Some(lock) = lock else {
-            eprintln!("twaco: {route} --apply needs the workspace lock");
-            return FAILED;
-        };
-        if let Err(error) = relocate::apply(&plan, lock) {
-            eprintln!("twaco: {error}");
-            return FAILED;
-        }
-        problems = relocate::verify(solution, &plan);
-    }
+    print_notices(&notices);
+    let plan = outcome.plan();
+    let problems = outcome.problems();
     if args.has("--json") {
         let value = serde_json::json!({
             (if apply { "applied" } else { "plan" }): true,
@@ -4044,7 +4029,7 @@ fn relocate_cmd(
         for line in plan.callers.first.iter().take(shown) {
             println!("  caller: {line}");
         }
-        for entity in &problems {
+        for entity in problems {
             println!("  out of step: {entity} needs attention");
         }
         if apply {
@@ -5287,20 +5272,6 @@ mod tests {
         for (command, args) in [
             ("bundle", vec![]),
             ("deploy", vec!["--apply"]),
-            ("adopt", vec!["--apply"]),
-            ("rename entity", vec!["--apply"]),
-            ("rename prefix", vec!["--apply"]),
-            ("rename field", vec!["--apply"]),
-            ("rename service", vec!["--apply"]),
-            ("rename param", vec!["--apply"]),
-            ("rename table", vec!["--apply"]),
-            ("rename property", vec!["--apply"]),
-            ("move service", vec!["--apply"]),
-            ("move property", vec!["--apply"]),
-            ("copy service", vec!["--apply"]),
-            ("copy property", vec!["--apply"]),
-            ("retemplate", vec!["--apply"]),
-            ("new building-block", vec!["--apply"]),
             ("entity status", vec!["--record"]),
             ("repo pull", vec!["pull", "--apply"]),
         ] {
@@ -5555,6 +5526,60 @@ mod tests {
                 Args::parse(&["--all".to_string()], &["--all"]).unwrap(),
             ),
             ("fmt", Args::parse(&[], &["--check"]).unwrap()),
+            (
+                "adopt",
+                Args::parse(
+                    &["export.xml".to_string(), "--apply".to_string()],
+                    &["--apply"],
+                )
+                .unwrap(),
+            ),
+            (
+                "rename entity",
+                Args::parse(
+                    &["Old".to_string(), "New".to_string(), "--apply".to_string()],
+                    &["--apply"],
+                )
+                .unwrap(),
+            ),
+            (
+                "move service",
+                Args::parse(
+                    &[
+                        "From".to_string(),
+                        "To".to_string(),
+                        "Name".to_string(),
+                        "--apply".to_string(),
+                    ],
+                    &["--apply"],
+                )
+                .unwrap(),
+            ),
+            (
+                "copy property",
+                Args::parse(
+                    &[
+                        "From".to_string(),
+                        "To".to_string(),
+                        "Name".to_string(),
+                        "--apply".to_string(),
+                    ],
+                    &["--apply"],
+                )
+                .unwrap(),
+            ),
+            (
+                "retemplate",
+                Args::parse(&["Thing".to_string(), "--apply".to_string()], &["--apply"]).unwrap(),
+            ),
+            (
+                "new building-block",
+                Args::parse(
+                    &["Acme.Block".to_string(), "--apply".to_string()],
+                    &["--apply"],
+                )
+                .unwrap(),
+            ),
         ] {
             assert!(
                 !writes_workspace(route, &args),

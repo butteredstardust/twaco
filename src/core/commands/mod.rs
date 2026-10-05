@@ -1,9 +1,14 @@
 //! Command contracts shared by the command-line and MCP adapters.
 
+pub mod adopt;
 pub mod delete;
 pub mod extract;
 pub mod fmt;
+pub mod newblock;
 pub mod push;
+pub mod relocate;
+pub mod rename;
+pub mod retemplate;
 pub mod sync;
 pub mod types;
 
