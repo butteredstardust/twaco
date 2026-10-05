@@ -20,6 +20,10 @@ impl Drop for Fixture {
 }
 
 /// A solution with one project that depends on a `PTC.Base` extension, as a real one does.
+fn locked(fixture: &Fixture) -> crate::core::lock::WorkspaceLock {
+    crate::core::lock::acquire(&fixture.root, "test", &[]).unwrap()
+}
+
 fn fixture() -> Fixture {
     static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
     let nonce = format!(
@@ -289,7 +293,7 @@ fn applying_writes_the_entities_and_registers_the_project_and_nothing_else_chang
         !fixture.root.join("Acme.Block").exists(),
         "a plan writes nothing"
     );
-    let created = apply(&fixture.solution, &planned).unwrap();
+    let created = apply(&fixture.solution, &planned, &locked(&fixture)).unwrap();
     assert_eq!(created.len(), planned.files.len());
     let toml = std::fs::read_to_string(fixture.root.join("twaco.toml")).unwrap();
     assert!(
@@ -449,7 +453,9 @@ fn a_link_or_junction_cannot_redirect_a_planned_block_out_of_its_target() {
     std::fs::create_dir(&redirected).unwrap();
     directory_link(&redirected, &link);
 
-    let error = apply(&fixture.solution, &planned).unwrap_err().to_string();
+    let error = apply(&fixture.solution, &planned, &locked(&fixture))
+        .unwrap_err()
+        .to_string();
     assert!(error.contains(&link.display().to_string()), "{error}");
     assert!(error.contains("symlink or junction"), "{error}");
     assert!(!redirected.join("Acme.Block").exists());
@@ -571,7 +577,7 @@ fn a_failed_write_removes_what_was_created_and_restores_the_configuration() {
     // A file where a folder must go: the writes stop part-way.
     std::fs::create_dir_all(fixture.root.join("Acme.Block")).unwrap();
     std::fs::write(fixture.root.join("Acme.Block/ThingTemplates"), "in the way").unwrap();
-    assert!(apply(&fixture.solution, &planned).is_err());
+    assert!(apply(&fixture.solution, &planned, &locked(&fixture)).is_err());
     assert_eq!(
         std::fs::read_to_string(fixture.root.join("twaco.toml")).unwrap(),
         toml
@@ -592,7 +598,7 @@ fn a_file_created_after_the_plan_is_not_replaced_and_earlier_writes_are_rolled_b
     std::fs::create_dir_all(blocker.parent().unwrap()).unwrap();
     std::fs::write(&blocker, "someone else's file").unwrap();
 
-    assert!(apply(&fixture.solution, &planned).is_err());
+    assert!(apply(&fixture.solution, &planned, &locked(&fixture)).is_err());
     assert_eq!(
         std::fs::read_to_string(&blocker).unwrap(),
         "someone else's file"
@@ -613,7 +619,9 @@ fn a_twaco_toml_edit_after_the_plan_is_kept_and_created_entities_are_rolled_back
     let edited = format!("{toml}# edited\n");
     std::fs::write(fixture.root.join("twaco.toml"), &edited).unwrap();
 
-    let error = apply(&fixture.solution, &planned).unwrap_err().to_string();
+    let error = apply(&fixture.solution, &planned, &locked(&fixture))
+        .unwrap_err()
+        .to_string();
     assert_eq!(error, "twaco.toml changed since the plan; run again");
     assert_eq!(
         std::fs::read_to_string(fixture.root.join("twaco.toml")).unwrap(),
@@ -636,4 +644,94 @@ fn walk(dir: &Path) -> Vec<PathBuf> {
     }
     out.sort();
     out
+}
+
+/// A building block written by a process that is killed at every point of the journaled write,
+/// then recovered by the next command to take the lock.
+#[cfg(feature = "test-failpoints")]
+mod crash {
+    use super::*;
+
+    const ROOT_VARIABLE: &str = "TWACO_TEST_CHILD_ROOT";
+
+    /// Runs in the child. Does nothing when the test binary runs it as an ordinary test.
+    #[test]
+    fn child_creates_the_block() {
+        let Ok(root) = std::env::var(ROOT_VARIABLE) else {
+            return;
+        };
+        let solution = Solution::load(&Path::new(&root).join("twaco.toml")).unwrap();
+        let planned = plan(&solution, &standard("Acme.Block")).unwrap();
+        let lock = crate::core::lock::acquire(&solution.root, "child", &[]).unwrap();
+        let _ = apply(&solution, &planned, &lock);
+    }
+
+    #[test]
+    fn a_block_is_wholly_created_or_not_at_all_whenever_the_process_dies() {
+        let mut points: Vec<(String, bool)> = vec![
+            ("after-journal".to_string(), false),
+            ("after-stage".to_string(), false),
+            ("after-applying".to_string(), false),
+        ];
+        let steps = {
+            let fixture = fixture();
+            plan(&fixture.solution, &standard("Acme.Block"))
+                .unwrap()
+                .files
+                .len()
+                + 1
+        };
+        for step in 1..=steps {
+            points.push((format!("after-step-{step}-visible"), true));
+            points.push((format!("after-step-{step}-marked"), true));
+        }
+        points.push(("after-commit".to_string(), true));
+        for (point, finished) in points {
+            let fixture = fixture();
+            let toml = std::fs::read_to_string(fixture.root.join("twaco.toml")).unwrap();
+            let expected = plan(&fixture.solution, &standard("Acme.Block")).unwrap();
+            let status = std::process::Command::new(std::env::current_exe().unwrap())
+                .args([
+                    "--exact",
+                    "core::newblock::tests::crash::child_creates_the_block",
+                    "--nocapture",
+                ])
+                .env(ROOT_VARIABLE, &fixture.root)
+                .env("TWACO_TEST_FAILPOINT", &point)
+                .output()
+                .unwrap()
+                .status;
+            assert!(!status.success(), "{point}: the child was not stopped");
+            let lock = crate::core::lock::acquire(&fixture.root, "next", &[]).unwrap();
+            assert_eq!(lock.recovery.len(), 1, "{point}: {:?}", lock.recovery);
+            drop(lock);
+            let now = std::fs::read_to_string(fixture.root.join("twaco.toml")).unwrap();
+            if finished {
+                assert_eq!(now, expected.config_after, "{point}");
+                for file in &expected.files {
+                    assert_eq!(
+                        std::fs::read_to_string(&file.path).unwrap(),
+                        file.text,
+                        "{point}: {}",
+                        file.path.display()
+                    );
+                }
+            } else {
+                assert_eq!(now, toml, "{point}");
+                assert!(!fixture.root.join("Acme.Block").exists(), "{point}");
+            }
+            let hidden: Vec<PathBuf> = walk(&fixture.root)
+                .into_iter()
+                .filter(|path| {
+                    let name = path.file_name().unwrap().to_string_lossy().into_owned();
+                    name.ends_with(".twaco-stage")
+                        || name.ends_with(".twaco-backup")
+                        || path
+                            .parent()
+                            .is_some_and(|parent| parent.ends_with("transactions"))
+                })
+                .collect();
+            assert!(hidden.is_empty(), "{point}: {hidden:?}");
+        }
+    }
 }

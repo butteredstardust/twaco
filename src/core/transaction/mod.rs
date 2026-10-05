@@ -251,6 +251,7 @@ impl<'a> Transaction<'a> {
         }
         let operation_id = new_operation_id();
         let mut steps = Vec::new();
+        let mut claimed: std::collections::BTreeSet<String> = std::collections::BTreeSet::new();
         for (index, planned) in self.planned.iter().enumerate() {
             let (stage, backup) = (
                 planned
@@ -270,8 +271,12 @@ impl<'a> Transaction<'a> {
                 after: planned.after.as_deref().map(digest),
                 stage,
                 backup,
+                // A folder two files need is made, and later removed, by the first of them.
                 new_dirs: if planned.kind == Kind::Create {
                     paths::missing_folders(self.root, &planned.path)
+                        .into_iter()
+                        .filter(|folder| claimed.insert(folder.clone()))
+                        .collect()
                 } else {
                     Vec::new()
                 },

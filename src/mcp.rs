@@ -1816,7 +1816,10 @@ fn new_building_block_tool(solution: &Solution, arguments: &Value) -> Result<Val
     };
     let plan = newblock::plan(solution, &request).map_err(ToolError::coded)?;
     if !dry_run {
-        newblock::apply(solution, &plan).map_err(ToolError::coded)?;
+        let lock = _lock
+            .as_ref()
+            .ok_or_else(|| ToolError::invalid("applying needs the workspace lock"))?;
+        newblock::apply(solution, &plan, lock).map_err(ToolError::coded)?;
     }
     let files: Vec<String> = plan
         .files

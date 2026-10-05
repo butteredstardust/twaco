@@ -6,9 +6,9 @@ operation survive a crash: a killed process or a power cut between two writes no
 workspace half changed. The next twaco command that takes the workspace lock finishes the
 operation or undoes it.
 
-**No command uses it yet.** The mechanism is built and tested on its own; each command moves onto
-it one at a time, and its entry in [MUTATION_CLASSES.md](MUTATION_CLASSES.md) changes only when it
-does.
+`new building-block` uses it. The other multi-file commands (`relocate`, `rename`, ...) move onto
+it one at a time, and each one's entry in [MUTATION_CLASSES.md](MUTATION_CLASSES.md) changes only
+when it does.
 
 ## What it covers
 
@@ -79,7 +79,8 @@ that cannot finish, the error says so and names the journal; the next command re
 `src/core/transaction/tests.rs` covers the recovery table with hand-built crash states.
 `src/core/transaction/tests/failpoints.rs` runs a plan in a child process that aborts at every
 point of the protocol (after the journal, after staging, after each step is visible and after each
-mark, after the commit) and has the parent recover it through the real lock; it also kills the
+mark, after the commit) and has the parent recover it through the real lock; the building-block
+tests do the same for a real `new building-block` run; it also kills the
 child, edits a file, and checks that recovery refuses and leaves the edit alone. Those tests need
 `--features test-failpoints`, which compiles the abort points in; a normal build contains none.
 
