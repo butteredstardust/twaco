@@ -1,0 +1,34 @@
+name: Dependency policy
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  schedule:
+    # Weekly, so an advisory published after the last change still shows up.
+    - cron: "17 5 * * 1"
+
+permissions:
+  contents: read
+
+jobs:
+  policy:
+    name: licenses, bans and sources
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: EmbarkStudios/cargo-deny-action@v2
+        with:
+          command: check licenses bans sources
+
+  advisories:
+    name: advisories
+    runs-on: ubuntu-latest
+    # A new advisory is news about a dependency, not a fault in the change under review, so it must
+    # not block a pull request; it fails the push and scheduled runs, which is where it is noticed.
+    continue-on-error: ${{ github.event_name == 'pull_request' }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: EmbarkStudios/cargo-deny-action@v2
+        with:
+          command: check advisories
