@@ -26,6 +26,13 @@ All notable changes to twaco are recorded here. The format follows
 - The `GetDBInfo` reader now uses the ECMAScript parser; a script it refuses or whose literal
   cannot be read completely is reported as unsure, and the former JavaScript lexer is removed.
 
+### Fixed
+
+- A server error that echoes the request back (a reflecting proxy, a verbose error page) no longer
+  makes twaco print the credentials: the password, the app key and the Basic token, as given,
+  JSON-escaped and percent-encoded, are replaced by `<redacted>` in error text. Successful
+  responses are returned unchanged.
+
 ### Deprecated
 
 - `--force` on `entity delete`, and `force` for the `entity_delete` tool; use the relevant

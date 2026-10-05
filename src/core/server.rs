@@ -28,6 +28,8 @@ pub struct Client {
     /// Built once, so every request reuses its connection pool. A deploy makes hundreds of
     /// requests, and a new agent per request meant a new connection each time.
     agent: ureq::Agent,
+    /// What an error message must never repeat: see [`secrets_of`].
+    secrets: Vec<String>,
 }
 
 impl Client {
@@ -45,7 +47,12 @@ impl Client {
             .user_agent(concat!("twaco/", env!("CARGO_PKG_VERSION")))
             .build()
             .into();
-        Self { profile, agent }
+        let secrets = secrets_of(&profile);
+        Self {
+            profile,
+            agent,
+            secrets,
+        }
     }
 
     /// Fetch `GET <base>/<Collection>/<Name>` as raw, validated UTF-8 XML bytes.
@@ -75,7 +82,7 @@ impl Client {
             ("X-Requested-With", "XMLHttpRequest"),
         ];
         let response = transport(&self.agent, Method::Get, &url, &headers, None)?;
-        checked(Method::Get, url, response)
+        checked(&self.secrets, Method::Get, url, response)
     }
 
     /// Fetch the ordinary REST representation of an entity as JSON. This is distinct from
@@ -100,7 +107,7 @@ impl Client {
             ("X-Requested-With", "XMLHttpRequest"),
         ];
         let response = transport(&self.agent, Method::Get, &url, &headers, None)?;
-        let bytes = checked(Method::Get, url.clone(), response)?;
+        let bytes = checked(&self.secrets, Method::Get, url.clone(), response)?;
         serde_json::from_slice(&bytes).map_err(|error| ServerError::InvalidResponse {
             url,
             why: error.to_string(),
@@ -117,7 +124,7 @@ impl Client {
             ("X-XSRF-TOKEN", XSRF_VALUE),
         ];
         let response = transport(&self.agent, Method::Get, &url, &headers, None)?;
-        let bytes = checked(Method::Get, url.clone(), response)?;
+        let bytes = checked(&self.secrets, Method::Get, url.clone(), response)?;
         let value: serde_json::Value =
             serde_json::from_slice(&bytes).map_err(|error| ServerError::InvalidResponse {
                 url: url.clone(),
@@ -154,7 +161,7 @@ impl Client {
             ("X-XSRF-TOKEN", XSRF_VALUE),
         ];
         let response = transport(&self.agent, Method::Get, &url, &headers, None)?;
-        match checked_bytes(Method::Get, url, response) {
+        match checked_bytes(&self.secrets, Method::Get, url, response) {
             Ok(_) => Ok(true),
             Err(error) if error.is_not_found() => Ok(false),
             Err(error) => Err(error),
@@ -178,7 +185,7 @@ impl Client {
             ("X-Requested-With", "XMLHttpRequest"),
         ];
         let response = transport(&self.agent, Method::Delete, &url, &headers, None)?;
-        checked(Method::Delete, url, response).map(|_| ())
+        checked(&self.secrets, Method::Delete, url, response).map(|_| ())
     }
 
     /// A file of a FileRepository, exactly as stored: the `FileRepositories` servlet that
@@ -201,7 +208,7 @@ impl Client {
             ("X-XSRF-TOKEN", XSRF_VALUE),
         ];
         let response = transport(&self.agent, Method::Get, &url, &headers, None)?;
-        checked_bytes(Method::Get, url, response)
+        checked_bytes(&self.secrets, Method::Get, url, response)
     }
 
     /// Import one entity document through the Importer, sending its bytes exactly as given.
@@ -247,14 +254,14 @@ impl Client {
             ("X-Requested-With", "XMLHttpRequest"),
         ];
         let response = transport(&self.agent, Method::Post, &url, &headers, Some(&body))?;
-        let reply = checked(Method::Post, url.clone(), response)?;
+        let reply = checked(&self.secrets, Method::Post, url.clone(), response)?;
         let reply = String::from_utf8(reply).expect("checked validated UTF-8");
         if reply.trim().eq_ignore_ascii_case("success") {
             Ok(())
         } else {
             Err(ServerError::Rejected {
                 url,
-                body: excerpt(&reply),
+                body: scrub(&self.secrets, &excerpt(&reply)),
             })
         }
     }
@@ -296,7 +303,7 @@ impl Client {
             None,
             Some(Duration::from_secs(600)),
         )?;
-        checked(Method::Get, url, response)
+        checked(&self.secrets, Method::Get, url, response)
     }
 
     /// Send an extension package to `ExtensionPackageUploader`, as Composer's import dialog does.
@@ -331,7 +338,7 @@ impl Client {
             Some(&body),
             Some(Duration::from_secs(600)),
         )?;
-        let reply = checked(Method::Post, url.clone(), response)?;
+        let reply = checked(&self.secrets, Method::Post, url.clone(), response)?;
         serde_json::from_slice(&reply).map_err(|error| ServerError::InvalidResponse {
             url,
             why: error.to_string(),
@@ -356,7 +363,7 @@ impl Client {
             ("X-Requested-With", "XMLHttpRequest"),
         ];
         let response = transport(&self.agent, Method::Post, &url, &headers, Some(&body))?;
-        let reply = checked(Method::Post, url.clone(), response)?;
+        let reply = checked(&self.secrets, Method::Post, url.clone(), response)?;
         let parsed: ScriptCheckResponse =
             serde_json::from_slice(&reply).map_err(|error| ServerError::InvalidResponse {
                 url: url.clone(),
@@ -406,7 +413,7 @@ impl Client {
             Some(&body),
             Some(timeout),
         )?;
-        let reply = checked(Method::Post, url.clone(), response)?;
+        let reply = checked(&self.secrets, Method::Post, url.clone(), response)?;
         if reply.iter().all(u8::is_ascii_whitespace) {
             return Ok(None);
         }
@@ -546,7 +553,12 @@ struct Response {
 
 /// Validate a response's encoding, and turn a non-2xx into an error carrying the server's own
 /// explanation, which is where ThingWorx puts the useful part of a failure.
-fn checked(method: Method, url: String, response: Response) -> Result<Vec<u8>, ServerError> {
+fn checked(
+    secrets: &[String],
+    method: Method,
+    url: String,
+    response: Response,
+) -> Result<Vec<u8>, ServerError> {
     validate_charset(response.content_type.as_deref(), &response.body)?;
     if !(200..300).contains(&response.status) {
         let detail = std::str::from_utf8(&response.body).expect("validate_charset checked UTF-8");
@@ -554,7 +566,7 @@ fn checked(method: Method, url: String, response: Response) -> Result<Vec<u8>, S
             method,
             status: response.status,
             url,
-            body: excerpt(detail),
+            body: scrub(secrets, &excerpt(detail)),
         });
     }
     Ok(response.body)
@@ -562,16 +574,85 @@ fn checked(method: Method, url: String, response: Response) -> Result<Vec<u8>, S
 
 /// `checked` for a file's bytes, which are not text whatever the response's charset says: the
 /// server labels a repository PNG `UTF-8`. Only an error body is read as (lossy) text.
-fn checked_bytes(method: Method, url: String, response: Response) -> Result<Vec<u8>, ServerError> {
+fn checked_bytes(
+    secrets: &[String],
+    method: Method,
+    url: String,
+    response: Response,
+) -> Result<Vec<u8>, ServerError> {
     if !(200..300).contains(&response.status) {
         return Err(ServerError::Http {
             method,
             status: response.status,
             url,
-            body: excerpt(&String::from_utf8_lossy(&response.body)),
+            body: scrub(secrets, &excerpt(&String::from_utf8_lossy(&response.body))),
         });
     }
     Ok(response.body)
+}
+
+/// Every shape in which a server might echo this profile's credentials back in an error page: the
+/// password, the app key and any secret-looking profile value as given, JSON-escaped and
+/// percent-encoded, and `user:password` and the Basic token twaco sends. Longest first, so a long
+/// form is replaced before a shorter one it contains.
+fn secrets_of(profile: &Profile) -> Vec<String> {
+    let mut raw: Vec<&str> = vec![profile.password.as_str()];
+    raw.extend(profile.app_key.as_deref());
+    for (key, value) in &profile.extra {
+        let key = key.to_ascii_lowercase();
+        if ["password", "secret", "key", "token"]
+            .iter()
+            .any(|word| key.contains(word))
+        {
+            raw.extend(value.as_str());
+        }
+    }
+    let mut forms: Vec<String> = Vec::new();
+    for secret in raw.into_iter().filter(|secret| !secret.is_empty()) {
+        forms.push(secret.to_string());
+        let json = serde_json::to_string(secret).expect("a string serialises");
+        forms.push(json.trim_matches('"').to_string());
+        forms.push(encode_path_segment(secret));
+    }
+    if !profile.password.is_empty() {
+        let pair = format!("{}:{}", profile.username, profile.password);
+        forms.push(base64(pair.as_bytes()));
+        forms.push(pair);
+    }
+    forms.retain(|form| !form.is_empty());
+    forms.sort();
+    forms.dedup();
+    forms.sort_by_key(|form| std::cmp::Reverse(form.len()));
+    forms
+}
+
+/// `text` with every secret replaced by `<redacted>`. A long secret is replaced wherever it
+/// occurs; a short one only as a whole word, because replacing `pass` inside `bypass` would
+/// mangle the message without protecting anything.
+fn scrub(secrets: &[String], text: &str) -> String {
+    let mut out = text.to_string();
+    for secret in secrets {
+        if secret.len() >= 8 {
+            out = out.replace(secret.as_str(), "<redacted>");
+            continue;
+        }
+        let word = |c: char| c.is_alphanumeric() || c == '_';
+        let mut replaced = String::with_capacity(out.len());
+        let mut last = 0;
+        for (at, found) in out.match_indices(secret.as_str()) {
+            let before = out[..at].chars().next_back();
+            let after = out[at + found.len()..].chars().next();
+            if before.is_some_and(word) || after.is_some_and(word) {
+                continue;
+            }
+            replaced.push_str(&out[last..at]);
+            replaced.push_str("<redacted>");
+            last = at + found.len();
+        }
+        replaced.push_str(&out[last..]);
+        out = replaced;
+    }
+    out
 }
 
 /// At most 4096 bytes of a server message, cut on a character boundary: slicing a multi-byte
@@ -943,6 +1024,103 @@ mod tests {
             app_key: None,
             extra: Default::default(),
         })
+    }
+
+    fn profile_with(password: &str, app_key: Option<&str>) -> Profile {
+        Profile {
+            url: "http://127.0.0.1:1/Thingworx".to_string(),
+            username: "user".to_string(),
+            password: password.to_string(),
+            app_key: app_key.map(str::to_string),
+            extra: Default::default(),
+        }
+    }
+
+    /// Replacing `pass` inside `bypass` would mangle a message without protecting anything, so a
+    /// short secret goes only where it stands alone; a long one goes wherever it is.
+    #[test]
+    fn a_short_secret_is_scrubbed_as_a_whole_word_and_a_long_one_anywhere() {
+        let short = secrets_of(&profile_with("pass", None));
+        assert_eq!(
+            scrub(&short, "bypass the pass; pass=pass! passing"),
+            "bypass the <redacted>; <redacted>=<redacted>! passing"
+        );
+        let long = secrets_of(&profile_with("correct-horse-battery", None));
+        assert_eq!(
+            scrub(&long, "x correct-horse-battery-staple y"),
+            "x <redacted>-staple y"
+        );
+    }
+
+    #[test]
+    fn a_profile_without_secrets_scrubs_nothing() {
+        let none = secrets_of(&profile_with("", None));
+        assert!(none.is_empty(), "{none:?}");
+        assert_eq!(scrub(&none, "user: and a message"), "user: and a message");
+    }
+
+    /// Only an error is scrubbed. A successful body is data (an entity export may well contain a
+    /// string equal to the password) and rewriting it would corrupt what is returned.
+    #[test]
+    fn a_successful_response_is_returned_exactly() {
+        let (url, server) =
+            serve_once("200 OK", "<Entities>pass dXNlcjpwYXNz user:pass</Entities>");
+        let client = Client::new(Profile {
+            url,
+            ..profile_with("pass", None)
+        });
+        let body = client.fetch_entity("Things", "T").unwrap();
+        server.join().unwrap();
+        assert_eq!(
+            body,
+            b"<Entities>pass dXNlcjpwYXNz user:pass</Entities>".to_vec()
+        );
+    }
+
+    /// A server, or a proxy in front of one, can reflect the request in its error page. Whatever
+    /// it reflects, the credentials must not come out of twaco again: not as given, not escaped for
+    /// JSON or a URL, not as the Basic token twaco sent.
+    #[test]
+    fn credentials_a_server_echoes_in_an_error_are_not_printed() {
+        let password = "p\"a'ss\\w\u{f6}rd#1";
+        let app_key = "ak-4f9c1d2e-7b3a";
+        let token = base64(format!("user:{password}").as_bytes());
+        let escaped = serde_json::to_string(password).unwrap();
+        let encoded = encode_path_segment(password);
+        let reply: &'static str = Box::leak(
+            format!(
+                "denied user=user password={password} json={escaped} url={encoded} \
+                 appKey={app_key} Authorization: Basic {token}"
+            )
+            .into_boxed_str(),
+        );
+        let (url, server) = serve_once("401 Unauthorized", reply);
+        let client = Client::new(Profile {
+            url,
+            username: "user".to_string(),
+            password: password.to_string(),
+            app_key: Some(app_key.to_string()),
+            extra: Default::default(),
+        });
+        let error = client.fetch_entity("Things", "T").unwrap_err();
+        server.join().unwrap();
+        let shown = format!("{error} | {error:?}");
+        for (what, secret) in [
+            ("the password", password.to_string()),
+            (
+                "the password, JSON-escaped",
+                escaped.trim_matches('"').to_string(),
+            ),
+            ("the password, percent-encoded", encoded),
+            ("the app key", app_key.to_string()),
+            ("the Basic token", token),
+        ] {
+            assert!(!shown.contains(&secret), "{what} was printed: {shown}");
+        }
+        assert!(
+            shown.contains("401") && shown.contains("denied"),
+            "the rest of the answer survives: {shown}"
+        );
     }
 
     #[test]
