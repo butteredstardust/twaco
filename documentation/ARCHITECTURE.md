@@ -78,6 +78,7 @@ main.rs  mcp.rs                 front ends: parse arguments, call core, print or
 | `logs`, `settings` | `logs`, `logs level`, `settings` |
 | `repo`, `extensions`, `export`, `imports` | `repo`, `ext`, `export`, `import` |
 | `package` | `package`: bundles, source-control zips, extension packages |
+| `transaction` | Local file changes that survive a crash: a journal written before the first change, stages and backups beside each file, and recovery on the next workspace lock that finishes the operation, undoes it, or refuses and names every path when a person has edited something. Not used by any command yet. See [TRANSACTIONS.md](TRANSACTIONS.md). |
 | `docs` | `twaco docs`: the solution written down as deterministic Markdown or JSON, from the index, the catalog and the DataShape model; it says what it does not cover (permissions, run-time references). |
 | `catalog` | `catalog`, on the same model `types` builds |
 | `guide`, `help`, `javadoc` | `guide` (topics in `knowledge/`, compiled in), `help`, `javadoc` (fetched and cached) |

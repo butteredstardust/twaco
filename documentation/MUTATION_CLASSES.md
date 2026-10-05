@@ -10,8 +10,9 @@ classes are ordered from weakest to strongest: `server-partial`, `best-effort ba
   failure, that file is entirely its old content or entirely its new content, so retry freely.
 - **multi-file atomic** writes several local files and undoes files already written if a later
   write fails. That rollback is in-process only: a killed process or power loss between writes
-  cannot run it; a future crash-recoverable journal would close this known gap. Inspect the
-  workspace after such an interruption before retrying.
+  cannot run it. A crash-recoverable journal now exists (see [TRANSACTIONS.md](TRANSACTIONS.md))
+  but no command uses it yet; until one does, inspect the workspace after such an interruption
+  before retrying.
 - **best-effort batch** handles items one after another with no rollback, so a failure can leave
   earlier items changed. Some commands continue past a failing item and some stop at the first
   one; either way the report names what was done and what failed. Retry only the failed or
