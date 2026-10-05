@@ -1970,13 +1970,23 @@ fn datatable_copy_tool(solution: &Solution, arguments: &Value) -> Result<Value, 
 
 fn db_clean_tool(solution: &Solution, arguments: &Value) -> Result<Value, ToolError> {
     let dry_run = flag(arguments, "dry_run", true);
-    let client = client(solution, arguments)?;
-    let swept = db::sweep(&client, !dry_run).map_err(ToolError::coded)?;
+    let request = commands::db::DbRequest::Clean {
+        mode: if dry_run { Mode::Plan } else { Mode::Apply },
+        profile: text(arguments, "profile").unwrap_or("default").to_string(),
+    };
+    let mut notices = commands::Notices::default();
+    let swept = match commands::db::execute(solution, &request, server::Client::new, &mut notices)
+        .map_err(ToolError::coded)?
+    {
+        commands::db::DbOutcome::Cleaned { things, .. } => things,
+        commands::db::DbOutcome::Executed { .. } => unreachable!(),
+    };
     let failed = swept
         .iter()
         .any(|thing| thing.status == db::SweepStatus::Failed);
     let mut result = json!({ "ok": !failed, "things": swept });
     result[if dry_run { "plan" } else { "applied" }] = json!(true);
+    add_notices(&mut result, &notices);
     Ok(result)
 }
 
@@ -2008,9 +2018,6 @@ fn db_tool(solution: &Solution, arguments: &Value, mode: db::Mode) -> Result<Val
     };
     let timeout = positive("timeout", 120)?;
     let max_rows = positive("max_rows", 500)?;
-    let profile_name = text(arguments, "profile").unwrap_or("default");
-    let selected = profile::load(&solution.root, profile_name).map_err(ToolError::coded)?;
-    let client = server::Client::new(selected.clone());
     let options = db::Options {
         mode,
         thing: text(arguments, "thing").map(str::to_string),
@@ -2019,8 +2026,18 @@ fn db_tool(solution: &Solution, arguments: &Value, mode: db::Mode) -> Result<Val
         max_rows,
         timeout: Duration::from_secs(timeout),
     };
-    let report =
-        db::execute(&client, solution, &selected, &sql, &options).map_err(ToolError::coded)?;
+    let request = commands::db::DbRequest::Execute {
+        sql,
+        options,
+        profile: text(arguments, "profile").unwrap_or("default").to_string(),
+    };
+    let mut notices = commands::Notices::default();
+    let report = match commands::db::execute(solution, &request, server::Client::new, &mut notices)
+        .map_err(ToolError::coded)?
+    {
+        commands::db::DbOutcome::Executed { report, .. } => report,
+        commands::db::DbOutcome::Cleaned { .. } => unreachable!(),
+    };
     let mut value = serde_json::to_value(report).expect("db report serialises");
     if mode == db::Mode::Query {
         if let Some(result) = value.get_mut("result").and_then(Value::as_object_mut) {
@@ -2052,6 +2069,7 @@ fn db_tool(solution: &Solution, arguments: &Value, mode: db::Mode) -> Result<Val
             result.insert("columns".to_string(), json!(columns));
         }
     }
+    add_notices(&mut value, &notices);
     Ok(value)
 }
 
@@ -2242,10 +2260,15 @@ fn config_table_tool(solution: &Solution, arguments: &Value) -> Result<Value, To
         Err(error) => return Err(ToolError::coded(error)),
     };
     let thing = resolved
+        .as_ref()
         .map(|e| e.info.name.clone())
         .unwrap_or_else(|| thing_arg.to_string());
-    let client = client(solution, arguments)?;
-    if action == "restore" {
+    if !matches!(action, "read" | "diff" | "restore") {
+        return Err(ToolError::invalid(format!(
+            "action must be read, diff or restore, not {action:?}"
+        )));
+    }
+    let request = if action == "restore" {
         let backup = required(arguments, "backup")?;
         let backup = {
             let path = PathBuf::from(backup);
@@ -2255,23 +2278,57 @@ fn config_table_tool(solution: &Solution, arguments: &Value) -> Result<Value, To
                 solution.root.join(path)
             }
         };
-        let saved = config_table::read_backup(&backup, &thing, table).map_err(ToolError::coded)?;
         let dry_run = flag(arguments, "dry_run", true);
-        let plan = config_table::restore(&client, &thing, table, &saved, !dry_run)
+        commands::config_table::ConfigTableRequest {
+            thing: thing.clone(),
+            table: table.to_string(),
+            action: commands::config_table::ConfigTableAction::Restore {
+                path: backup,
+                mode: if dry_run { Mode::Plan } else { Mode::Apply },
+            },
+            profile: text(arguments, "profile").unwrap_or("default").to_string(),
+        }
+    } else if action == "diff" {
+        let entity = resolved.as_ref().ok_or_else(|| {
+            ToolError::with(
+                ErrorCode::UnknownEntity,
+                format!("{thing_arg} is not an entity of this solution"),
+            )
+        })?;
+        commands::config_table::ConfigTableRequest {
+            thing: thing.clone(),
+            table: table.to_string(),
+            action: commands::config_table::ConfigTableAction::Diff {
+                entity: entity.path.clone(),
+            },
+            profile: text(arguments, "profile").unwrap_or("default").to_string(),
+        }
+    } else {
+        commands::config_table::ConfigTableRequest {
+            thing: thing.clone(),
+            table: table.to_string(),
+            action: commands::config_table::ConfigTableAction::Read,
+            profile: text(arguments, "profile").unwrap_or("default").to_string(),
+        }
+    };
+    let mut notices = commands::Notices::default();
+    let outcome =
+        commands::config_table::execute(solution, &request, server::Client::new, &mut notices)
             .map_err(ToolError::coded)?;
-        return Ok(json!({
-            "thing": thing,
-            "table": table,
-            "dry_run": dry_run,
-            "rows_written": plan.writes,
-            "rows_removed": plan.deletes,
-            "note": if dry_run { "nothing was written; pass dry_run: false to restore" } else { "restored and read back" },
-        }));
-    }
-    let live = config_table::fetch(&client, &thing, table).map_err(ToolError::coded)?;
-    let key = config_table::primary_key(&live.data_shape);
-    match action {
-        "read" => {
+    let mut result = match outcome {
+        commands::config_table::ConfigTableOutcome::Restored { plan, .. } => {
+            let dry_run = flag(arguments, "dry_run", true);
+            json!({
+                "thing": thing,
+                "table": table,
+                "dry_run": dry_run,
+                "rows_written": plan.writes,
+                "rows_removed": plan.deletes,
+                "note": if dry_run { "nothing was written; pass dry_run: false to restore" } else { "restored and read back" },
+            })
+        }
+        commands::config_table::ConfigTableOutcome::Read { table: live, .. } => {
+            let key = config_table::primary_key(&live.data_shape);
             let detail = flag(arguments, "detail", false);
             let mut result = json!({
                 "thing": thing,
@@ -2284,42 +2341,23 @@ fn config_table_tool(solution: &Solution, arguments: &Value) -> Result<Value, To
                 .iter()
                 .take(if detail { usize::MAX } else { 3 })
                 .collect::<Vec<_>>());
-            Ok(result)
+            result
         }
-        "diff" => {
-            let entity = resolved.ok_or_else(|| {
-                ToolError::with(
-                    ErrorCode::UnknownEntity,
-                    format!("{thing_arg} is not an entity of this solution"),
-                )
-            })?;
-            let src = std::fs::read(&entity.path).map_err(|e| {
-                ToolError::with(
-                    ErrorCode::IoError,
-                    format!("{}: {e}", entity.path.display()),
-                )
-            })?;
-            let repository =
-                config_table::repository_rows(&src, table).map_err(ToolError::coded)?;
-            let differences = config_table::differences(
-                "server",
-                &live.rows,
-                "source control",
-                &repository,
-                &key,
-            );
-            Ok(json!({
-                "thing": thing,
-                "table": table,
-                "identical": differences.is_empty(),
-                "rows": live.rows.len(),
-                "differences": differences,
-            }))
-        }
-        other => Err(ToolError::invalid(format!(
-            "action must be read, diff or restore, not {other:?}"
-        ))),
-    }
+        commands::config_table::ConfigTableOutcome::Diffed {
+            table: live,
+            differences,
+            ..
+        } => json!({
+            "thing": thing,
+            "table": table,
+            "identical": differences.is_empty(),
+            "rows": live.rows.len(),
+            "differences": differences,
+        }),
+        commands::config_table::ConfigTableOutcome::BackedUp { .. } => unreachable!(),
+    };
+    add_notices(&mut result, &notices);
+    Ok(result)
 }
 
 /// The server's file repositories, read-only.
@@ -3335,43 +3373,53 @@ fn log_level_tool(solution: &Solution, arguments: &Value) -> Result<Value, ToolE
         }
         (None, false) => None,
     };
-    let client = client(solution, arguments)?;
     let levels_json = |levels: &logs::Levels| {
         json!({
             "level": levels.level,
             "subloggers": levels.subloggers.iter().map(|(name, level)| json!({ "sublogger": name, "level": level })).collect::<Vec<_>>(),
         })
     };
-    let Some(change) = change else {
-        let levels = logs::levels(&client, log).map_err(ToolError::coded)?;
-        return Ok(json!({ "ok": true, "log": log, "levels": levels_json(&levels) }));
-    };
     let dry_run = flag(arguments, "dry_run", true);
-    let report = logs::change(&client, log, &change, !dry_run).map_err(ToolError::coded)?;
-    let mut result = json!({
-        "ok": true,
-        "log": log,
-        "dry_run": dry_run,
-        "change": report.plan,
-        "before": levels_json(&report.before),
-        "undo": report.undo,
-    });
-    match &report.after {
-        Some(after) => result["after"] = levels_json(after),
-        None => {
-            result["note"] =
-                json!("nothing was sent; pass dry_run: false. The level is the whole server's")
+    let request = commands::logs::LogLevelRequest {
+        log: log.to_string(),
+        change,
+        mode: if dry_run { Mode::Plan } else { Mode::Apply },
+        profile: text(arguments, "profile").unwrap_or("default").to_string(),
+    };
+    let mut notices = commands::Notices::default();
+    let outcome = commands::logs::execute(solution, &request, server::Client::new, &mut notices)
+        .map_err(ToolError::coded)?;
+    let commands::logs::LogLevelOutcome::Levels { levels, .. } = outcome else {
+        let report = match outcome {
+            commands::logs::LogLevelOutcome::Plan { report, .. }
+            | commands::logs::LogLevelOutcome::Applied { report, .. } => report,
+            commands::logs::LogLevelOutcome::Levels { .. } => unreachable!(),
+        };
+        let mut result = json!({
+            "ok": true,
+            "log": log,
+            "dry_run": dry_run,
+            "change": report.plan,
+            "before": levels_json(&report.before),
+            "undo": report.undo,
+        });
+        match &report.after {
+            Some(after) => result["after"] = levels_json(after),
+            None => {
+                result["note"] =
+                    json!("nothing was sent; pass dry_run: false. The level is the whole server's")
+            }
         }
-    }
+        add_notices(&mut result, &notices);
+        return Ok(result);
+    };
+    let mut result = json!({ "ok": true, "log": log, "levels": levels_json(&levels) });
+    add_notices(&mut result, &notices);
     Ok(result)
 }
 
 fn call_service_tool(solution: &Solution, arguments: &Value) -> Result<Value, ToolError> {
-    let target = workspace::call_target(
-        &workspace::discover(solution).entities,
-        required(arguments, "target")?,
-    )
-    .map_err(ToolError::coded)?;
+    let target_arg = required(arguments, "target")?;
     let service = required(arguments, "service")?;
     let parameters = arguments
         .get("parameters")
@@ -3380,33 +3428,37 @@ fn call_service_tool(solution: &Solution, arguments: &Value) -> Result<Value, To
     if !parameters.is_object() {
         return Err(ToolError::invalid("`parameters` must be a JSON object"));
     }
-    if flag(arguments, "dry_run", true) {
-        return Ok(json!({
-            "dry_run": true,
-            "would_call": { "target": target.to_string(), "service": service, "parameters": parameters },
-            "note": "nothing was sent; pass dry_run: false to call it",
-        }));
-    }
     let timeout = arguments
         .get("timeout_seconds")
         .and_then(Value::as_u64)
         .filter(|s| *s > 0)
         .unwrap_or(120);
-    let client = client(solution, arguments)?;
-    let started = logs::now_ms();
-    let outcome = client.call_service(&target, service, &parameters, Duration::from_secs(timeout));
-    let logged = if flag(arguments, "with_logs", false) {
-        let ended = logs::now_ms();
-        Some(logs::during_call(
-            &client,
-            started,
-            ended,
-            logs::Wait::default(),
-            &logs::now_ms,
-            &std::thread::sleep,
-        ))
-    } else {
-        None
+    let dry_run = flag(arguments, "dry_run", true);
+    let request = commands::call::CallRequest {
+        target: target_arg.to_string(),
+        service: service.to_string(),
+        parameters: parameters.clone(),
+        timeout: Duration::from_secs(timeout),
+        mode: if dry_run { Mode::Plan } else { Mode::Apply },
+        profile: text(arguments, "profile").unwrap_or("default").to_string(),
+        with_logs: flag(arguments, "with_logs", false),
+        profile_before_target: false,
+    };
+    let mut notices = commands::Notices::default();
+    let outcome = commands::call::execute(solution, &request, server::Client::new, &mut notices)
+        .map_err(ToolError::coded)?;
+    let commands::call::CallOutcome::Applied {
+        reply,
+        logs: logged,
+        ..
+    } = outcome
+    else {
+        let target = outcome.target();
+        return Ok(json!({
+            "dry_run": true,
+            "would_call": { "target": target.to_string(), "service": service, "parameters": parameters },
+            "note": "nothing was sent; pass dry_run: false to call it",
+        }));
     };
     let logs_json = |found: &Result<Vec<(String, logs::Entry)>, logs::LogsError>| match found {
         Ok(entries) => json!(entries
@@ -3418,28 +3470,6 @@ fn call_service_tool(solution: &Solution, arguments: &Value) -> Result<Value, To
             })
             .collect::<Vec<_>>()),
         Err(error) => json!({ "error": format!("the logs could not be read: {error}") }),
-    };
-    let reply = match outcome {
-        Ok(reply) => reply,
-        // A failed call's log is the most useful thing about it, so it is returned, not lost.
-        // A tool error, so the agent cannot take the failed call for a success; its logs, the
-        // most useful thing about it, are in the message.
-        Err(error) => {
-            let message = match &logged {
-                Some(Ok(entries)) if !entries.is_empty() => {
-                    let lines: Vec<String> = entries
-                        .iter()
-                        .map(|(log, entry)| format!("{log}: {}", logs::line(entry)))
-                        .collect();
-                    format!("{error}\nlogged during the call:\n{}", lines.join("\n"))
-                }
-                Some(Err(why)) => {
-                    format!("{error}\n(the call's logs could not be read: {why})")
-                }
-                _ => error.to_string(),
-            };
-            return Err(ToolError::with(error.code(), message));
-        }
     };
     let detail = flag(arguments, "detail", false);
     let mut result = match reply {
@@ -3478,6 +3508,7 @@ fn call_service_tool(solution: &Solution, arguments: &Value) -> Result<Value, To
     if let Some(found) = &logged {
         result["logs"] = logs_json(found);
     }
+    add_notices(&mut result, &notices);
     Ok(result)
 }
 
