@@ -55,6 +55,14 @@ All notable changes to twaco are recorded here. The format follows
   changed. `--out <file>` writes it atomically and refuses to replace a file without `--force`.
   It says what it does not cover: permissions are not read yet.
 
+### Changed (internal)
+
+- State-changing commands now keep their policy (lock, profile, plan versus apply, backup) in one
+  executor each under `core::commands`; the command line and the MCP server only parse and
+  project. Output is unchanged. A command that takes the workspace lock now reports what taking it
+  did (temporaries swept, interrupted operations recovered): printed on the command line and
+  returned as `notices` by MCP. See `documentation/COMMAND_FACADE.md`.
+
 ### Fixed
 
 - `twaco impact` no longer drops a caller that calls one member of a Thing and also passes the
