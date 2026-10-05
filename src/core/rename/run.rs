@@ -2,9 +2,15 @@
 
 use super::*;
 
-/// Plans a rename, optionally applies it, and verifies the resulting workspace.
-pub fn run(solution: &Solution, spec: &Spec, options: &RunOptions) -> Result<Outcome, RenameError> {
-    run_with(solution, spec, options, &mut |_| {})
+/// Plans a rename, optionally applies it, and verifies the resulting workspace. Applying needs
+/// the workspace lock, which the caller holds for the whole command.
+pub fn run(
+    solution: &Solution,
+    spec: &Spec,
+    options: &RunOptions,
+    lock: Option<&WorkspaceLock>,
+) -> Result<Outcome, RenameError> {
+    run_with(solution, spec, options, lock, &mut |_| {})
 }
 
 /// `run`, with a hook that may change the scratch copy the rename is verified in (tests only).
@@ -12,6 +18,7 @@ pub(crate) fn run_with(
     solution: &Solution,
     spec: &Spec,
     options: &RunOptions,
+    lock: Option<&WorkspaceLock>,
     scratch_hook: &mut dyn FnMut(&Solution),
 ) -> Result<Outcome, RenameError> {
     if !options.skip_checks {
@@ -70,6 +77,10 @@ pub(crate) fn run_with(
         }
     }
     let (applied, verification) = if options.apply {
+        let lock = lock.ok_or_else(|| RenameError::Apply {
+            path: solution.root.clone(),
+            why: "applying needs the workspace lock".to_string(),
+        })?;
         let applied = apply(
             solution,
             &plan,
@@ -81,6 +92,7 @@ pub(crate) fn run_with(
                     .map(|script| (script.path.clone(), script.text.clone().into_bytes()))
                     .collect(),
             },
+            lock,
         )?;
         // A prefix rename may change project declarations in twaco.toml. Verification must use
         // those new declarations rather than the in-memory solution used to make the plan.
@@ -243,7 +255,16 @@ fn verify_before_writing(
             date: options.date.clone(),
             extra_files: Vec::new(),
         };
-        apply(&copy, &copy_plan, &apply_options)?;
+        // The copy is a workspace of its own, with its own lock.
+        let copy_lock =
+            crate::core::lock::acquire(&scratch, "rename verification", &[]).map_err(|error| {
+                RenameError::Apply {
+                    path: scratch.clone(),
+                    why: error.to_string(),
+                }
+            })?;
+        apply(&copy, &copy_plan, &apply_options, &copy_lock)?;
+        drop(copy_lock);
         scratch_hook(&copy);
         let after_solution =
             Solution::load(&scratch.join(CONFIG_FILE)).map_err(|error| RenameError::Apply {

@@ -6,10 +6,16 @@ fn run_refuses_a_failing_gate_before_planning_and_skip_checks_overrides_it() {
     write(&fixture.root, "notes.md", "one\r\ntwo\n");
     let requested = spec(Kind::Entity, "P.Manager", "P.Director");
     assert!(matches!(
-        run(&fixture.solution, &requested, &run_options(false, false)),
+        run(&fixture.solution, &requested, &run_options(false, false), None),
         Err(RenameError::GatesFail { gates }) if gates.contains(&"line endings".to_string())
     ));
-    let outcome = run(&fixture.solution, &requested, &run_options(false, true)).unwrap();
+    let outcome = run(
+        &fixture.solution,
+        &requested,
+        &run_options(false, true),
+        None,
+    )
+    .unwrap();
     assert!(outcome.applied.is_none());
 }
 
@@ -18,12 +24,24 @@ fn run_dry_run_is_the_identity_and_apply_verifies_cleanly() {
     let fixture = run_fixture();
     let requested = spec(Kind::Entity, "P.Manager", "P.Director");
     let before = snapshot(&fixture.root);
-    let dry = run(&fixture.solution, &requested, &run_options(false, false)).unwrap();
+    let dry = run(
+        &fixture.solution,
+        &requested,
+        &run_options(false, false),
+        None,
+    )
+    .unwrap();
     assert!(dry.applied.is_none());
     assert!(dry.verification.is_none());
     assert_eq!(snapshot(&fixture.root), before);
 
-    let applied = run(&fixture.solution, &requested, &run_options(true, false)).unwrap();
+    let applied = run(
+        &fixture.solution,
+        &requested,
+        &run_options(true, false),
+        Some(&locked(&fixture)),
+    )
+    .unwrap();
     assert!(applied.applied.is_some());
     assert_eq!(
         applied.verification,
@@ -170,6 +188,7 @@ fn a_rename_is_verified_in_a_scratch_copy_that_is_always_removed() {
         &fixture.solution,
         &requested,
         &run_options(true, true),
+        Some(&locked(&fixture)),
         &mut |copy| {
             assert!(copy
                 .root
@@ -202,6 +221,7 @@ fn a_rename_that_would_leave_sidecars_out_of_step_writes_nothing() {
         &fixture.solution,
         &requested,
         &run_options(true, true),
+        Some(&locked(&fixture)),
         &mut |copy| {
             copy_root = copy.root.clone();
             std::fs::write(
@@ -236,6 +256,7 @@ fn sidecar_disagreement_is_a_run_preflight_refusal() {
         &fixture.solution,
         &spec(Kind::Entity, "P.Manager", "P.Director"),
         &run_options(false, false),
+        None,
     )
     .unwrap_err();
     assert!(matches!(
@@ -274,15 +295,20 @@ fn a_plan_digest_applies_exactly_the_plan_that_was_reviewed() {
     let mut options = run_options(true, true);
     options.expect_digest = Some(reviewed.clone());
     assert!(matches!(
-        run(&fixture.solution, &requested, &options),
+        run(&fixture.solution, &requested, &options, None),
         Err(RenameError::PlanChanged { .. })
     ));
     assert_eq!(snapshot(&fixture.root), before);
     // The digest of the plan as it now stands applies.
     options.include_outside = true;
     options.expect_digest = Some(plan(&fixture.solution, &requested).unwrap().digest());
-    assert!(run(&fixture.solution, &requested, &options)
-        .unwrap()
-        .applied
-        .is_some());
+    assert!(run(
+        &fixture.solution,
+        &requested,
+        &options,
+        Some(&locked(&fixture))
+    )
+    .unwrap()
+    .applied
+    .is_some());
 }

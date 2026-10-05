@@ -71,7 +71,13 @@ fn a_shape_the_scope_implements_has_its_table_calls_rewritten() {
     write(&root, "ThingTemplates/P.Mgr.xml", "<Entities><ThingTemplates><ThingTemplate name=\"P.Mgr\" projectName=\"P\" baseThingTemplate=\"GenericThing\"><ImplementedShapes><ImplementedShape name=\"P.Svc\"/></ImplementedShapes><ConfigurationTableDefinitions><ConfigurationTableDefinition dataShapeName=\"P.Limits_CT\" name=\"Limits_CT\"/></ConfigurationTableDefinitions></ThingTemplate></ThingTemplates></Entities>\n");
     let solution = Solution::load(&root.join(CONFIG_FILE)).unwrap();
     let planned = plan(&solution, &table_spec("P.Mgr", "Limits_CT", "Bounds_CT")).unwrap();
-    apply(&solution, &planned, &options(false)).unwrap();
+    apply(
+        &solution,
+        &planned,
+        &options(false),
+        &locked_root(&solution.root),
+    )
+    .unwrap();
     let shape = std::fs::read_to_string(root.join("ThingShapes/P.Svc.xml")).unwrap();
     assert!(
         shape.contains("tableName: \"Bounds_CT\"") && !shape.contains("Limits_CT"),
@@ -104,7 +110,13 @@ fn table_rename_follows_shape_template_thing_ancestry_and_round_trips_bytes() {
         .filter(|finding| finding.tier == refs::Tier::Review)
         .count();
     assert!(reviews >= 7);
-    apply(&fixture.solution, &planned, &options(false)).unwrap();
+    apply(
+        &fixture.solution,
+        &planned,
+        &options(false),
+        &locked(&fixture),
+    )
+    .unwrap();
 
     for relative in [
         "ThingShapes/P.Limits.xml",
@@ -148,7 +160,13 @@ fn table_rename_follows_shape_template_thing_ancestry_and_round_trips_bytes() {
         &table_spec("P.Limits", "Bounds_CT", "Limits_CT"),
     )
     .unwrap();
-    apply(&fixture.solution, &reverse, &options(false)).unwrap();
+    apply(
+        &fixture.solution,
+        &reverse,
+        &options(false),
+        &locked(&fixture),
+    )
+    .unwrap();
     for (relative, bytes) in before {
         if relative != Path::new(".twaco/renames.json") {
             assert_eq!(
@@ -232,6 +250,7 @@ fn every_injected_table_apply_failure_rolls_back_the_complete_tree() {
         &count_fixture.solution,
         &count_plan,
         &options(false),
+        &locked(&count_fixture),
         &mut |step| {
             steps.push(step.clone());
             Ok(())
@@ -254,15 +273,21 @@ fn every_injected_table_apply_failure_rolls_back_the_complete_tree() {
         .unwrap();
         let before = snapshot(&fixture.root);
         let mut index = 0usize;
-        let error = apply_with(&fixture.solution, &planned, &options(false), &mut |_| {
-            let current = index;
-            index += 1;
-            if current == fail_at {
-                Err(std::io::Error::other("injected failure"))
-            } else {
-                Ok(())
-            }
-        })
+        let error = apply_with(
+            &fixture.solution,
+            &planned,
+            &options(false),
+            &locked(&fixture),
+            &mut |_| {
+                let current = index;
+                index += 1;
+                if current == fail_at {
+                    Err(std::io::Error::other("injected failure"))
+                } else {
+                    Ok(())
+                }
+            },
+        )
         .unwrap_err();
         assert!(
             !matches!(error, RenameError::RollbackFailed { .. }),

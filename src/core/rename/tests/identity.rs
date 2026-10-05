@@ -178,7 +178,13 @@ fn repository_content_moves_as_a_tree_without_being_scanned() {
         .iter()
         .any(|path| path.starts_with(fixture.root.join("filerepository"))));
 
-    let applied = apply(&fixture.solution, &planned, &options(false)).unwrap();
+    let applied = apply(
+        &fixture.solution,
+        &planned,
+        &options(false),
+        &locked(&fixture),
+    )
+    .unwrap();
     assert!(applied
         .moved
         .iter()

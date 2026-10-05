@@ -211,7 +211,11 @@ impl<'a> Transaction<'a> {
     ) -> Result<(), TransactionError> {
         let relative = paths::relative(self.root, path).map_err(TransactionError::Invalid)?;
         paths::reject_links(self.root, &relative).map_err(TransactionError::Invalid)?;
-        if self.planned.iter().any(|planned| planned.path == relative) {
+        // A file may be rewritten and also renamed (with the folder it is in); nothing else is
+        // named twice.
+        if self.planned.iter().any(|planned| {
+            planned.path == relative && (planned.kind == Kind::Move) == (kind == Kind::Move)
+        }) {
             return Err(TransactionError::Invalid(format!(
                 "{relative} is named twice in one operation"
             )));
@@ -228,6 +232,11 @@ impl<'a> Transaction<'a> {
 
     pub fn is_empty(&self) -> bool {
         self.planned.is_empty()
+    }
+
+    /// How many steps are planned.
+    pub fn len(&self) -> usize {
+        self.planned.len()
     }
 
     /// Carry the operation out. The lock proves no other twaco is writing; taking it also ran any

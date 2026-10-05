@@ -91,7 +91,13 @@ fn a_field_rename_reaches_inherited_infotable_values_datatables_and_lists_other_
         .filter(|f| !f.applied)
         .count();
     assert_eq!(review, 2);
-    apply(&fixture.solution, &planned, &options(false)).unwrap();
+    apply(
+        &fixture.solution,
+        &planned,
+        &options(false),
+        &locked(&fixture),
+    )
+    .unwrap();
 
     let thing = std::fs::read_to_string(fixture.root.join("Things/P.T.xml")).unwrap();
     // The value typed by P.D (declared on the template) changed; the one typed by P.Other did not.
@@ -131,7 +137,7 @@ fn a_field_rename_reaches_inherited_infotable_values_datatables_and_lists_other_
 
     // And back, byte for byte (the ledger is the only addition).
     let back = plan(&fixture.solution, &field_spec("P.D", "PeriodKey", "Period")).unwrap();
-    apply(&fixture.solution, &back, &options(false)).unwrap();
+    apply(&fixture.solution, &back, &options(false), &locked(&fixture)).unwrap();
     assert_eq!(snapshot_without_twaco(&fixture.root), before);
 }
 
@@ -173,7 +179,13 @@ fn field_rename_edits_shape_sidecar_and_only_matching_configuration_tables() {
             "Scripts, mashup bindings and services that read the field by name are not changed; search for \"Period\"",
             "If this shape is stored through DBConnection, the column must be renamed in the database before the import",
         ]);
-    apply(&fixture.solution, &planned, &options(false)).unwrap();
+    apply(
+        &fixture.solution,
+        &planned,
+        &options(false),
+        &locked(&fixture),
+    )
+    .unwrap();
 
     let ledger: serde_json::Value =
         serde_json::from_slice(&std::fs::read(fixture.root.join(".twaco/renames.json")).unwrap())
@@ -213,7 +225,13 @@ fn field_rename_edits_shape_sidecar_and_only_matching_configuration_tables() {
     assert!(template.contains("<PeriodKey>template</PeriodKey>"));
 
     let reverse = plan(&fixture.solution, &field_spec("P.D", "PeriodKey", "Period")).unwrap();
-    apply(&fixture.solution, &reverse, &options(false)).unwrap();
+    apply(
+        &fixture.solution,
+        &reverse,
+        &options(false),
+        &locked(&fixture),
+    )
+    .unwrap();
     for relative in [
         "DataShapes/P.D.xml",
         "src/P.D/fields.json",
@@ -292,6 +310,7 @@ fn every_injected_field_apply_failure_rolls_back_the_complete_tree() {
         &count_fixture.solution,
         &count_plan,
         &options(false),
+        &locked(&count_fixture),
         &mut |step| {
             steps.push(step.clone());
             Ok(())
@@ -310,15 +329,21 @@ fn every_injected_field_apply_failure_rolls_back_the_complete_tree() {
         let planned = plan(&fixture.solution, &field_spec("P.D", "Period", "PeriodKey")).unwrap();
         let before = snapshot(&fixture.root);
         let mut index = 0usize;
-        let error = apply_with(&fixture.solution, &planned, &options(false), &mut |_| {
-            let current = index;
-            index += 1;
-            if current == fail_at {
-                Err(std::io::Error::other("injected failure"))
-            } else {
-                Ok(())
-            }
-        })
+        let error = apply_with(
+            &fixture.solution,
+            &planned,
+            &options(false),
+            &locked(&fixture),
+            &mut |_| {
+                let current = index;
+                index += 1;
+                if current == fail_at {
+                    Err(std::io::Error::other("injected failure"))
+                } else {
+                    Ok(())
+                }
+            },
+        )
         .unwrap_err();
         assert!(
             !matches!(error, RenameError::RollbackFailed { .. }),

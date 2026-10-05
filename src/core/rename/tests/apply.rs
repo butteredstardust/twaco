@@ -11,7 +11,13 @@ fn apply_prefix_moves_and_edits_source_and_optionally_outside_text() {
             &spec(Kind::Prefix, "Acme.App", "Acme.New"),
         )
         .unwrap();
-        let applied = apply(&fixture.solution, &planned, &options(include_outside)).unwrap();
+        let applied = apply(
+            &fixture.solution,
+            &planned,
+            &options(include_outside),
+            &locked(&fixture),
+        )
+        .unwrap();
         assert_eq!(applied.moved.len(), planned.moves.len() + 2);
         for item in &planned.moves {
             assert!(!item.old_file.exists());
@@ -84,13 +90,25 @@ fn rename_and_reverse_restore_every_non_ledger_byte_including_bom_and_crlf() {
         &spec(Kind::Prefix, "Acme.App", "Acme.New"),
     )
     .unwrap();
-    apply(&fixture.solution, &forward, &options(true)).unwrap();
+    apply(
+        &fixture.solution,
+        &forward,
+        &options(true),
+        &locked(&fixture),
+    )
+    .unwrap();
     let reverse = plan(
         &fixture.solution,
         &spec(Kind::Prefix, "Acme.New", "Acme.App"),
     )
     .unwrap();
-    apply(&fixture.solution, &reverse, &options(true)).unwrap();
+    apply(
+        &fixture.solution,
+        &reverse,
+        &options(true),
+        &locked(&fixture),
+    )
+    .unwrap();
 
     assert_eq!(snapshot_without_twaco(&fixture.root), before);
 }
@@ -103,7 +121,13 @@ fn applied_plan_is_idempotently_unknown_and_leaves_no_applicable_old_hit() {
         &spec(Kind::Prefix, "Acme.App", "Acme.New"),
     )
     .unwrap();
-    apply(&fixture.solution, &planned, &options(true)).unwrap();
+    apply(
+        &fixture.solution,
+        &planned,
+        &options(true),
+        &locked(&fixture),
+    )
+    .unwrap();
     assert!(matches!(
         plan(
             &fixture.solution,
@@ -146,7 +170,12 @@ fn stale_plan_and_new_target_are_refused_without_an_apply_write() {
     .unwrap();
     let before = snapshot(&first_fixture.root);
     assert!(matches!(
-        apply(&first_fixture.solution, &planned, &options(true)),
+        apply(
+            &first_fixture.solution,
+            &planned,
+            &options(true),
+            &locked(&first_fixture)
+        ),
         Err(RenameError::Stale { .. })
     ));
     assert_eq!(snapshot(&first_fixture.root), before);
@@ -160,7 +189,12 @@ fn stale_plan_and_new_target_are_refused_without_an_apply_write() {
     std::fs::write(&planned.moves[0].new_file, "occupied").unwrap();
     let before = snapshot(&fixture.root);
     assert!(matches!(
-        apply(&fixture.solution, &planned, &options(true)),
+        apply(
+            &fixture.solution,
+            &planned,
+            &options(true),
+            &locked(&fixture)
+        ),
         Err(RenameError::Exists { .. })
     ));
     assert_eq!(snapshot(&fixture.root), before);
@@ -180,6 +214,7 @@ fn every_injected_apply_failure_rolls_back_the_complete_tree() {
         &count_fixture.solution,
         &count_plan,
         &options(true),
+        &locked(&count_fixture),
         &mut |step| {
             steps.push(step.clone());
             Ok(())
@@ -199,15 +234,21 @@ fn every_injected_apply_failure_rolls_back_the_complete_tree() {
         seed_baseline(&fixture, &planned);
         let before = snapshot(&fixture.root);
         let mut index = 0usize;
-        let error = apply_with(&fixture.solution, &planned, &options(true), &mut |_| {
-            let current = index;
-            index += 1;
-            if current == fail_at {
-                Err(std::io::Error::other("injected failure"))
-            } else {
-                Ok(())
-            }
-        })
+        let error = apply_with(
+            &fixture.solution,
+            &planned,
+            &options(true),
+            &locked(&fixture),
+            &mut |_| {
+                let current = index;
+                index += 1;
+                if current == fail_at {
+                    Err(std::io::Error::other("injected failure"))
+                } else {
+                    Ok(())
+                }
+            },
+        )
         .unwrap_err();
         assert!(
             !matches!(error, RenameError::RollbackFailed { .. }),
@@ -231,7 +272,13 @@ fn baseline_removes_only_renamed_entries_and_is_not_created_when_absent() {
     )
     .unwrap();
     seed_baseline(&baseline_fixture, &planned);
-    let applied = apply(&baseline_fixture.solution, &planned, &options(false)).unwrap();
+    let applied = apply(
+        &baseline_fixture.solution,
+        &planned,
+        &options(false),
+        &locked(&baseline_fixture),
+    )
+    .unwrap();
     assert_eq!(applied.baseline_removed, planned.baseline_keys.len());
     let baseline = Baseline::load(&baseline_fixture.root).unwrap();
     assert!(baseline.get("Things", "Unchanged").is_some());
@@ -241,7 +288,13 @@ fn baseline_removes_only_renamed_entries_and_is_not_created_when_absent() {
 
     let fixture = fixture();
     let planned = plan(&fixture.solution, &spec(Kind::Entity, "T", "U")).unwrap();
-    apply(&fixture.solution, &planned, &options(false)).unwrap();
+    apply(
+        &fixture.solution,
+        &planned,
+        &options(false),
+        &locked(&fixture),
+    )
+    .unwrap();
     assert!(!fixture.root.join(BASELINE_PATH).exists());
 }
 
@@ -253,9 +306,21 @@ fn ledger_is_created_then_appended_and_corruption_is_a_preflight_refusal() {
         &spec(Kind::Entity, "Acme.App.Manager", "Acme.App.Director"),
     )
     .unwrap();
-    let first_applied = apply(&ledger_fixture.solution, &first, &options(false)).unwrap();
+    let first_applied = apply(
+        &ledger_fixture.solution,
+        &first,
+        &options(false),
+        &locked(&ledger_fixture),
+    )
+    .unwrap();
     let second = plan(&ledger_fixture.solution, &spec(Kind::Entity, "T", "U")).unwrap();
-    apply(&ledger_fixture.solution, &second, &options(false)).unwrap();
+    apply(
+        &ledger_fixture.solution,
+        &second,
+        &options(false),
+        &locked(&ledger_fixture),
+    )
+    .unwrap();
     let ledger: serde_json::Value =
         serde_json::from_slice(&std::fs::read(&first_applied.ledger).unwrap()).unwrap();
     let records = ledger.as_array().unwrap();
@@ -276,7 +341,12 @@ fn ledger_is_created_then_appended_and_corruption_is_a_preflight_refusal() {
     let planned = plan(&fixture.solution, &spec(Kind::Entity, "T", "U")).unwrap();
     let before = snapshot(&fixture.root);
     assert!(matches!(
-        apply(&fixture.solution, &planned, &options(false)),
+        apply(
+            &fixture.solution,
+            &planned,
+            &options(false),
+            &locked(&fixture)
+        ),
         Err(RenameError::InvalidLedger { .. })
     ));
     assert_eq!(snapshot(&fixture.root), before);
@@ -289,7 +359,12 @@ fn a_ledger_holding_something_that_is_not_a_record_is_refused_before_any_write()
     let planned = plan(&fixture.solution, &spec(Kind::Entity, "T", "U")).unwrap();
     let before = snapshot(&fixture.root);
     assert!(matches!(
-        apply(&fixture.solution, &planned, &options(false)),
+        apply(
+            &fixture.solution,
+            &planned,
+            &options(false),
+            &locked(&fixture)
+        ),
         Err(RenameError::InvalidLedger { .. })
     ));
     assert_eq!(snapshot(&fixture.root), before);
@@ -300,7 +375,13 @@ fn one_entity_renamed_twice_leaves_two_records_in_order() {
     let fixture = fixture();
     for (old, new) in [("T", "U"), ("U", "V")] {
         let planned = plan(&fixture.solution, &spec(Kind::Entity, old, new)).unwrap();
-        apply(&fixture.solution, &planned, &options(false)).unwrap();
+        apply(
+            &fixture.solution,
+            &planned,
+            &options(false),
+            &locked(&fixture),
+        )
+        .unwrap();
     }
     let ledger: serde_json::Value =
         serde_json::from_slice(&std::fs::read(fixture.root.join(".twaco/renames.json")).unwrap())
@@ -350,7 +431,13 @@ fn with_src_at_the_root_only_an_entitys_own_folder_is_a_sidecar() {
     assert_eq!(kind_of("script.js"), Some(FileKind::Sidecar));
     assert_eq!(kind_of("ignored.txt"), None);
     let before = std::fs::read_to_string(fixture.root.join("docs/GUIDE.md")).unwrap();
-    apply(&solution, &planned, &options(false)).unwrap();
+    apply(
+        &solution,
+        &planned,
+        &options(false),
+        &locked_root(&solution.root),
+    )
+    .unwrap();
     assert_eq!(
         std::fs::read_to_string(fixture.root.join("docs/GUIDE.md")).unwrap(),
         before
@@ -368,7 +455,13 @@ fn an_entity_already_filed_under_its_new_name_is_edited_but_not_moved() {
     .unwrap();
     let solution = Solution::load(&fixture.root.join(CONFIG_FILE)).unwrap();
     let planned = plan(&solution, &spec(Kind::Entity, "T", "U")).unwrap();
-    apply(&solution, &planned, &options(false)).unwrap();
+    apply(
+        &solution,
+        &planned,
+        &options(false),
+        &locked_root(&solution.root),
+    )
+    .unwrap();
     let text = std::fs::read_to_string(fixture.root.join("Things/U.xml")).unwrap();
     assert!(text.contains("name=\"U\""), "{text}");
 }
@@ -384,16 +477,22 @@ fn a_file_saved_between_the_check_and_its_write_is_refused_and_everything_is_res
     let before = snapshot(&fixture.root);
     let mut writes = 0usize;
     let victim = fixture.root.join("Things/Acme.App.Manager.xml");
-    let error = apply_with(&fixture.solution, &planned, &options(true), &mut |step| {
-        if let Step::Write(path) = step {
-            writes += 1;
-            // An editor saves the file just before twaco gets to it (and after the digest check).
-            if path == &victim {
-                std::fs::write(path, b"<edited-by-a-person/>").unwrap();
+    let error = apply_with(
+        &fixture.solution,
+        &planned,
+        &options(true),
+        &locked(&fixture),
+        &mut |step| {
+            if let Step::Write(path) = step {
+                writes += 1;
+                // An editor saves the file just before twaco gets to it (and after the digest check).
+                if path == &victim {
+                    std::fs::write(path, b"<edited-by-a-person/>").unwrap();
+                }
             }
-        }
-        Ok(())
-    })
+            Ok(())
+        },
+    )
     .unwrap_err();
     assert!(writes >= 2);
     // The person's save survives; everything twaco had done before it is undone.
@@ -416,15 +515,21 @@ fn a_save_made_after_twaco_wrote_a_file_is_not_overwritten_by_the_rollback() {
     .unwrap();
     let victim = fixture.root.join("Things/Acme.App.Manager.xml");
     let moved = fixture.root.join("Things/Acme.New.Manager.xml");
-    let error = apply_with(&fixture.solution, &planned, &options(true), &mut |step| {
-        if matches!(step, Step::Ledger) {
-            // Written and moved already; a person saves the file at its new path, and then the
-            // ledger step fails.
-            std::fs::write(&moved, b"<later-save/>").unwrap();
-            return Err(std::io::Error::other("injected failure"));
-        }
-        Ok(())
-    })
+    let error = apply_with(
+        &fixture.solution,
+        &planned,
+        &options(true),
+        &locked(&fixture),
+        &mut |step| {
+            if matches!(step, Step::Ledger) {
+                // Written and moved already; a person saves the file at its new path, and then the
+                // ledger step fails.
+                std::fs::write(&moved, b"<later-save/>").unwrap();
+                return Err(std::io::Error::other("injected failure"));
+            }
+            Ok(())
+        },
+    )
     .unwrap_err();
     match error {
         RenameError::RollbackFailed { leftover, .. } => {
@@ -451,7 +556,13 @@ fn a_leftover_temporary_of_any_older_name_is_never_truncated() {
     for squatter in &squatters {
         std::fs::write(squatter, b"somebody else's file").unwrap();
     }
-    apply(&fixture.solution, &planned, &options(true)).unwrap();
+    apply(
+        &fixture.solution,
+        &planned,
+        &options(true),
+        &locked(&fixture),
+    )
+    .unwrap();
     for squatter in &squatters {
         assert_eq!(std::fs::read(squatter).unwrap(), b"somebody else's file");
     }
@@ -471,7 +582,13 @@ fn an_edited_file_keeps_its_permissions() {
         &spec(Kind::Entity, "Acme.App.Manager", "Acme.App.Director"),
     )
     .unwrap();
-    apply(&fixture.solution, &planned, &options(false)).unwrap();
+    apply(
+        &fixture.solution,
+        &planned,
+        &options(false),
+        &locked(&fixture),
+    )
+    .unwrap();
     let moved = fixture
         .root
         .join("src/Acme.App.Director/services/Run/script.js");
@@ -510,7 +627,13 @@ fn projects_that_share_a_root_do_not_duplicate_entities_in_a_plan() {
         "a file is planned once"
     );
     assert!(entity_files >= 1);
-    let applied = apply(&solution, &planned, &options(false)).unwrap();
+    let applied = apply(
+        &solution,
+        &planned,
+        &options(false),
+        &locked_root(&solution.root),
+    )
+    .unwrap();
     assert_eq!(
         applied.moved.len(),
         2,

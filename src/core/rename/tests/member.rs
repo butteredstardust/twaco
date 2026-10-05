@@ -90,7 +90,13 @@ fn service_rename_moves_overrides_and_edits_only_resolved_callers_then_round_tri
         .iter()
         .flat_map(|change| &change.findings)
         .any(|finding| finding.tier == refs::Tier::Review));
-    apply(&fixture.solution, &planned, &options(false)).unwrap();
+    apply(
+        &fixture.solution,
+        &planned,
+        &options(false),
+        &locked(&fixture),
+    )
+    .unwrap();
     for entity in ["P.Shape", "P.Template"] {
         assert!(!fixture
             .root
@@ -124,7 +130,13 @@ fn service_rename_moves_overrides_and_edits_only_resolved_callers_then_round_tri
         &service_spec("P.Shape", "Execute", "Run"),
     )
     .unwrap();
-    apply(&fixture.solution, &reverse, &options(false)).unwrap();
+    apply(
+        &fixture.solution,
+        &reverse,
+        &options(false),
+        &locked(&fixture),
+    )
+    .unwrap();
     for (relative, bytes) in before {
         if relative != Path::new(".twaco/renames.json") {
             assert_eq!(
@@ -190,6 +202,7 @@ fn every_injected_service_apply_failure_restores_files_and_folders() {
         &count_fixture.solution,
         &count_plan,
         &options(false),
+        &locked(&count_fixture),
         &mut |step| {
             steps.push(step.clone());
             Ok(())
@@ -206,15 +219,21 @@ fn every_injected_service_apply_failure_restores_files_and_folders() {
         .unwrap();
         let before = snapshot(&fixture.root);
         let mut index = 0usize;
-        let error = apply_with(&fixture.solution, &planned, &options(false), &mut |_| {
-            let current = index;
-            index += 1;
-            if current == fail_at {
-                Err(std::io::Error::other("injected failure"))
-            } else {
-                Ok(())
-            }
-        })
+        let error = apply_with(
+            &fixture.solution,
+            &planned,
+            &options(false),
+            &locked(&fixture),
+            &mut |_| {
+                let current = index;
+                index += 1;
+                if current == fail_at {
+                    Err(std::io::Error::other("injected failure"))
+                } else {
+                    Ok(())
+                }
+            },
+        )
         .unwrap_err();
         assert!(
             !matches!(error, RenameError::RollbackFailed { .. }),

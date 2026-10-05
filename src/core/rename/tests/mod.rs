@@ -123,12 +123,24 @@ fn relative(root: &Path, path: &Path) -> String {
         .replace('\\', "/")
 }
 
+/// The workspace lock, held for the call it is passed to.
+fn locked(fixture: &Fixture) -> crate::core::lock::WorkspaceLock {
+    locked_root(&fixture.root)
+}
+
+fn locked_root(root: &Path) -> crate::core::lock::WorkspaceLock {
+    crate::core::lock::acquire(root, "test", &[]).unwrap()
+}
+
 fn snapshot(root: &Path) -> BTreeMap<PathBuf, Vec<u8>> {
     fn visit(dir: &Path, root: &Path, files: &mut BTreeMap<PathBuf, Vec<u8>>) {
         for entry in std::fs::read_dir(dir).unwrap() {
             let path = entry.unwrap().path();
+            let name = path.file_name().unwrap().to_string_lossy().into_owned();
             if path.is_dir() {
                 visit(&path, root, files);
+            } else if name == "lock" || name == "lock.holder" {
+                // The workspace lock a test takes to apply a plan is not part of the workspace.
             } else {
                 files.insert(
                     path.strip_prefix(root).unwrap().to_path_buf(),
@@ -192,6 +204,8 @@ fn run_options(apply: bool, skip_checks: bool) -> RunOptions {
 }
 
 mod apply;
+#[cfg(feature = "test-failpoints")]
+mod crash;
 mod database;
 mod field;
 mod identity;

@@ -2186,7 +2186,8 @@ fn rename_tool(solution: &Solution, arguments: &Value) -> Result<Value, ToolErro
     } else {
         Some(lock::acquire_for(solution, "mcp rename").map_err(ToolError::coded)?)
     };
-    let outcome = rename::run(solution, &spec, &options).map_err(ToolError::coded)?;
+    let outcome =
+        rename::run(solution, &spec, &options, _lock.as_ref()).map_err(ToolError::coded)?;
     Ok(rename::summary_json(
         solution,
         &outcome,

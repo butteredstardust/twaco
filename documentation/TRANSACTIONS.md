@@ -6,7 +6,7 @@ operation survive a crash: a killed process or a power cut between two writes no
 workspace half changed. The next twaco command that takes the workspace lock finishes the
 operation or undoes it.
 
-`new building-block`, `move` and `copy` use it. The other multi-file commands (`rename`, ...)
+`new building-block`, `move`, `copy` and every `rename` use it. The other multi-file commands
 move onto it one at a time, and each one's entry in [MUTATION_CLASSES.md](MUTATION_CLASSES.md) changes only
 when it does.
 
@@ -88,7 +88,8 @@ point in a test).
 `src/core/transaction/tests/failpoints.rs` runs a plan in a child process that aborts at every
 point of the protocol (after the journal, after staging, after each step is visible and after each
 mark, after the commit) and has the parent recover it through the real lock; the building-block
-and relocate tests do the same for real `new building-block` and `move service` runs; it also kills the
+relocate and rename tests do the same for real `new building-block`, `move service` and prefix
+rename runs; it also kills the
 child, edits a file, and checks that recovery refuses and leaves the edit alone. Those tests need
 `--features test-failpoints`, which compiles the abort points in; a normal build contains none.
 
