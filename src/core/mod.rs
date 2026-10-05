@@ -26,6 +26,7 @@ pub mod fmt;
 pub mod guide;
 pub mod help;
 pub mod imports;
+pub mod index;
 pub mod init;
 pub mod javadoc;
 pub mod ledger;

@@ -1718,3 +1718,60 @@ fn scripts_parse_over_the_corpus() {
         "only {parsed} of {scripts} scripts parse"
     );
 }
+
+/// The solution index must answer inheritance exactly as the service catalog always has, on every
+/// entity of every repository that has a `twaco.toml`: it replaces the catalog's own walk, so a
+/// difference is a regression in what a rename or a retemplate would decide.
+#[test]
+fn the_index_reproduces_the_catalogs_inheritance_over_the_corpus() {
+    use twaco::core::entity_key::EntityKey;
+    use twaco::core::index::Index;
+
+    let mut entities = 0usize;
+    let mut edges = 0usize;
+    let mut failures = Vec::new();
+    for root in corpus_roots() {
+        let config = root.join("twaco.toml");
+        let Ok(solution) = twaco::core::config::Solution::load(&config) else {
+            continue;
+        };
+        let index = Index::build(&solution);
+        let (catalogued, _) = twaco::core::catalog::inheritance(&solution);
+        edges += index.edges().len();
+        for entity in catalogued {
+            let Ok(key) = EntityKey::new(&entity.collection, &entity.name) else {
+                continue;
+            };
+            entities += 1;
+            let inherited = index.inheritance_names(&key);
+            if inherited != entity.inherits {
+                failures.push(format!(
+                    "{key}: inherits {:?}, the catalog says {:?}",
+                    inherited, entity.inherits
+                ));
+            }
+            if entity.collection == "ThingShapes" {
+                let implemented = index.implementers(&key, None);
+                if implemented != entity.implemented_by {
+                    failures.push(format!(
+                        "{key}: implemented by {implemented:?}, the catalog says {:?}",
+                        entity.implemented_by
+                    ));
+                }
+            }
+        }
+    }
+    assert!(
+        failures.is_empty(),
+        "{} difference(s):\n{}",
+        failures.len(),
+        failures
+            .iter()
+            .take(10)
+            .cloned()
+            .collect::<Vec<_>>()
+            .join("\n")
+    );
+    assert!(entities > 0, "no repository with a twaco.toml was found");
+    println!("index: {entities} entities and {edges} edges agree with the catalog");
+}

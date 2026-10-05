@@ -32,9 +32,9 @@ pub(crate) struct Service {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct Property {
-    pub(super) name: String,
-    pub(super) description: String,
-    pub(super) value: TypedValue,
+    pub(crate) name: String,
+    pub(crate) description: String,
+    pub(crate) value: TypedValue,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -44,7 +44,7 @@ pub(crate) enum Member {
 }
 
 impl Member {
-    pub(super) fn name(&self) -> &str {
+    pub(crate) fn name(&self) -> &str {
         match self {
             Member::Service(value) => &value.name,
             Member::Property(value) => &value.name,
@@ -77,15 +77,15 @@ impl Entity {
 }
 
 #[derive(Debug, Clone)]
-pub(super) struct DataShape {
-    pub(super) name: String,
-    pub(super) fields: Vec<datashape::Field>,
+pub(crate) struct DataShape {
+    pub(crate) name: String,
+    pub(crate) fields: Vec<datashape::Field>,
 }
 
 #[derive(Debug, Default)]
 pub(crate) struct Model {
     pub(crate) entities: Vec<Entity>,
-    pub(super) data_shapes: Vec<DataShape>,
+    pub(crate) data_shapes: Vec<DataShape>,
 }
 
 pub(crate) fn load_model(solution: &Solution) -> (Model, Vec<String>) {
