@@ -13,8 +13,8 @@ use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 use std::time::Duration;
 
+use twaco::core::commands::{self, Mode};
 use twaco::core::config::Solution;
-use twaco::core::entity_key::EntityKey;
 use twaco::core::index::Confidence;
 use twaco::core::{
     adopt, backup, baseline, catalog, config_table, datatable_copy, db, deploy, docs, entity_carry,
@@ -3133,7 +3133,7 @@ fn writes_workspace(route: &str, args: &Args) -> bool {
     match route {
         "extract" | "types" => true,
         "sync" | "fmt" | "bundle" => !args.has("--check"),
-        "deploy" | "entity push" | "adopt" | "rename entity" | "rename prefix" | "rename field"
+        "deploy" | "adopt" | "rename entity" | "rename prefix" | "rename field"
         | "rename service" | "rename param" | "rename table" | "rename property"
         | "move service" | "move property" | "copy service" | "copy property" | "retemplate"
         | "new building-block" => args.has("--apply"),
@@ -3516,75 +3516,25 @@ fn entity_push(solution: &Solution, args: &Args) -> u8 {
         eprintln!("twaco: entity push takes exactly one entity name");
         return FAILED;
     }
-    let (chosen, unreadable) = match targets(solution, args) {
-        Ok(result) => result,
-        Err(error) => {
-            eprintln!("twaco: {error}");
-            return FAILED;
-        }
-    };
-    if !unreadable.is_empty() {
-        for problem in unreadable {
-            eprintln!("twaco: {problem}");
-        }
-        return FAILED;
-    }
-    let entity = &chosen[0];
-    let bytes = match std::fs::read(&entity.path) {
-        Ok(bytes) => bytes,
-        Err(error) => {
-            eprintln!("twaco: {}: {error}", entity.path.display());
-            return FAILED;
-        }
-    };
-    let profile_name = args.profile.as_deref().unwrap_or("default");
-    let profile = match profile::load(&solution.root, profile_name) {
-        Ok(profile) => profile,
-        Err(error) => {
-            eprintln!("twaco: {error}");
-            return FAILED;
-        }
-    };
-    let file_name = entity
-        .path
-        .file_name()
-        .map(|name| name.to_string_lossy().into_owned())
-        .unwrap_or_else(|| format!("{}.xml", entity.info.name));
-    let key = match EntityKey::new(&entity.info.collection, &entity.info.name) {
-        Ok(key) => key,
-        Err(error) => {
-            eprintln!(
-                "twaco: {}/{}: {error}",
-                entity.info.collection, entity.info.name
-            );
-            return FAILED;
-        }
-    };
-    let target = push::Target {
-        key,
-        document: push::EntityDocument {
-            file_name: &file_name,
-            bytes: &bytes,
+    let request = commands::push::PushRequest {
+        entity: args.names[0].clone(),
+        mode: if args.has("--apply") {
+            Mode::Apply
+        } else {
+            Mode::Plan
         },
+        force: args.has("--force"),
+        backup: !args.has("--no-backup"),
+        profile: args
+            .profile
+            .clone()
+            .unwrap_or_else(|| "default".to_string()),
     };
-    let apply = args.has("--apply");
-    let force = args.has("--force");
-    let label = format!("{}/{}", entity.info.collection, entity.info.name);
-    let client = server::Client::new(profile);
-    if apply && force && !args.has("--no-backup") {
-        match backup::before_forced_push(&client, solution, &target, &backup::new_stamp()) {
-            Ok(Some(dir)) => {
-                println!("{label}: the server's copy was saved to {dir} before it is overwritten")
-            }
-            Ok(None) => {}
-            Err(error) => {
-                eprintln!("twaco: {label}: {error} (--no-backup pushes without one)");
-                return FAILED;
-            }
-        }
-    }
-    match push::push(&client, &solution.root, &target, apply, force) {
-        Ok(push::Outcome::WouldDo(decision)) => {
+    match commands::push::execute(solution, &request, server::Client::new) {
+        Ok(commands::push::PushOutcome::Plan {
+            entity, decision, ..
+        }) => {
+            let label = entity.to_string();
             match decision {
                 push::Decision::AlreadyThere => {
                     println!("{label}: nothing to push")
@@ -3597,7 +3547,7 @@ fn entity_push(solution: &Solution, args: &Args) -> u8 {
                 }
                 push::Decision::Refuse(refusal) => {
                     println!("{label}: would refuse: {refusal}");
-                    if !force {
+                    if !request.force {
                         return DRIFT;
                     }
                     println!("  --force would push anyway");
@@ -3606,22 +3556,49 @@ fn entity_push(solution: &Solution, args: &Args) -> u8 {
             println!("dry run: nothing was sent; pass --apply to push");
             OK
         }
-        Ok(push::Outcome::AlreadyThere) => {
-            println!("{label}: nothing to push; baseline is current");
-            OK
-        }
-        Ok(push::Outcome::Pushed { created }) => {
-            let verb = if created { "created" } else { "updated" };
-            println!("{label}: {verb}, read back and matching; baseline recorded");
-            OK
-        }
-        Ok(push::Outcome::Refused(refusal)) => {
-            eprintln!("twaco: {label}: refused: {refusal}");
-            eprintln!("twaco: nothing was sent; --force pushes anyway");
-            DRIFT
+        Ok(commands::push::PushOutcome::Applied {
+            entity,
+            result,
+            backup: saved,
+            ..
+        }) => {
+            let label = entity.to_string();
+            if let Some(dir) = saved {
+                println!("{label}: the server's copy was saved to {dir} before it is overwritten");
+            }
+            match result {
+                push::Outcome::AlreadyThere => {
+                    println!("{label}: nothing to push; baseline is current");
+                    OK
+                }
+                push::Outcome::Pushed { created } => {
+                    let verb = if created { "created" } else { "updated" };
+                    println!("{label}: {verb}, read back and matching; baseline recorded");
+                    OK
+                }
+                push::Outcome::Refused(refusal) => {
+                    eprintln!("twaco: {label}: refused: {refusal}");
+                    eprintln!("twaco: nothing was sent; --force pushes anyway");
+                    DRIFT
+                }
+                push::Outcome::WouldDo(_) => unreachable!("an applied outcome cannot be a plan"),
+            }
         }
         Err(error) => {
-            eprintln!("twaco: {label}: {error}");
+            if let commands::push::PushCommandError::Unreadable(unreadable) = &error {
+                for problem in unreadable {
+                    eprintln!("twaco: {problem}");
+                }
+            } else if matches!(error, commands::push::PushCommandError::Backup { .. }) {
+                eprintln!("twaco: {error} (--no-backup pushes without one)");
+            } else {
+                if let (Some(label), Some(dir)) = (error.label(), error.backup()) {
+                    println!(
+                        "{label}: the server's copy was saved to {dir} before it is overwritten"
+                    );
+                }
+                eprintln!("twaco: {error}");
+            }
             FAILED
         }
     }
@@ -5268,7 +5245,6 @@ mod tests {
             ("fmt", vec![]),
             ("bundle", vec![]),
             ("deploy", vec!["--apply"]),
-            ("entity push", vec!["--apply"]),
             ("adopt", vec!["--apply"]),
             ("rename entity", vec!["--apply"]),
             ("rename prefix", vec!["--apply"]),
@@ -5510,6 +5486,15 @@ mod tests {
                 "{flag}"
             );
         }
+    }
+
+    #[test]
+    fn entity_push_takes_no_generic_workspace_lock() {
+        let args = Args::parse(&["P.T".to_string(), "--apply".to_string()], &["--apply"]).unwrap();
+        assert!(
+            !writes_workspace("entity push", &args),
+            "the command executor takes the lock before it discovers the entity"
+        );
     }
 
     #[test]
