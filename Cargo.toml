@@ -32,6 +32,7 @@ swc_ecma_ast = "=18.0.0"
 swc_ecma_visit = "=18.0.1"
 
 [dev-dependencies]
+proptest = "1.11.0"
 
 [profile.release]
 strip = true
