@@ -476,10 +476,13 @@ impl fmt::Display for RenameError {
                 write!(
                     f,
                     "this rename touches the database: {}. Pass --sql to write the migration script (run it before the import), or --no-sql if the tables are not in use",
-                    if shapes.is_empty() {
+                    if !shapes.is_empty() {
+                        format!("DBConnection table(s) of {}", shapes.join(", "))
+                    } else if !unsure.is_empty() {
                         "a GetDBInfo it could not read completely".to_string()
                     } else {
-                        format!("DBConnection table(s) of {}", shapes.join(", "))
+                        // An entity or prefix rename changes names that DBConnection rows store.
+                        "this solution has DBConnection tables, whose rows store entity names".to_string()
                     }
                 )?;
                 if !unsure.is_empty() {

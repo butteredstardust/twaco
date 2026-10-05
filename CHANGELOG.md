@@ -28,6 +28,9 @@ All notable changes to twaco are recorded here. The format follows
 
 ### Fixed
 
+- A rename that is refused for the database now says why. An entity or prefix rename in a
+  solution with DBConnection tables said "a GetDBInfo it could not read completely" even when every
+  `GetDBInfo` was read; it now says the tables' rows store entity names.
 - A server error that echoes the request back (a reflecting proxy, a verbose error page) no longer
   makes twaco print the credentials: the password, the app key and the Basic token, as given,
   JSON-escaped and percent-encoded, are replaced by `<redacted>` in error text. Successful

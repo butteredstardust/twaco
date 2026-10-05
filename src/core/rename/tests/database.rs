@@ -266,3 +266,26 @@ fn no_sql_writes_no_script_and_a_failed_apply_removes_the_one_it_wrote() {
     .unwrap_err();
     assert!(matches!(error, RenameError::Exists { .. }), "{error}");
 }
+
+/// The refusal asks for a decision, so it has to say what the decision is about. Naming an
+/// unreadable `GetDBInfo` when every one was read sent people looking for a script that was fine.
+#[test]
+fn the_database_refusal_says_why_it_is_asking() {
+    let said = |shapes: Vec<String>, unsure: Vec<String>| {
+        RenameError::DatabaseHalf { shapes, unsure }.to_string()
+    };
+    assert!(
+        said(vec!["P.Dashboards".into()], vec![]).contains("DBConnection table(s) of P.Dashboards")
+    );
+    let unreadable = said(vec![], vec!["Things/P.Db".into()]);
+    assert!(
+        unreadable.contains("a GetDBInfo it could not read completely")
+            && unreadable.contains("(could not read completely: Things/P.Db)"),
+        "{unreadable}"
+    );
+    let names = said(vec![], vec![]);
+    assert!(
+        names.contains("whose rows store entity names") && !names.contains("could not read"),
+        "{names}"
+    );
+}
