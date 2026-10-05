@@ -1,0 +1,48 @@
+$ twaco unused --json
+exit: 0
+
+--- stdout
+{
+  "min_confidence": "review",
+  "roots": [
+    {
+      "reason": "a mashup",
+      "count": 1
+    },
+    {
+      "reason": "kept by [unused] keep",
+      "count": 1
+    },
+    {
+      "reason": "runs on events",
+      "count": 1
+    }
+  ],
+  "judged": 10,
+  "reachable": 8,
+  "unused": [
+    {
+      "entity": "DataShapes/Acme.Orders.Retired_DS",
+      "project": "Acme.Orders",
+      "file": "DataShapes/Acme.Orders.Retired_DS.xml",
+      "named_by_unreached": [
+        "ThingShapes/Acme.Orders.Legacy_TS"
+      ],
+      "named_weakly_by": []
+    },
+    {
+      "entity": "ThingShapes/Acme.Orders.Legacy_TS",
+      "project": "Acme.Orders",
+      "file": "ThingShapes/Acme.Orders.Legacy_TS.xml",
+      "named_by_unreached": [],
+      "named_weakly_by": []
+    }
+  ],
+  "keep_unmatched": [],
+  "complete": true,
+  "unreadable": [],
+  "unparsed_scripts": [],
+  "limits": "an entity used only from outside this repository (a REST client, a connected system) looks unused; list it under [unused] keep"
+}
+--- stderr
+

@@ -1,0 +1,17 @@
+<ServiceDefinition
+                 aspect.isAsync="false"
+                 category=""
+                 description="Move an old order away."
+                 isAllowOverride="false"
+                 isLocalOnly="false"
+                 isOpen="false"
+                 isPrivate="false"
+                 name="Archive">
+                    <ResultType
+                     aspect.dataShape="Acme.Orders.Retired_DS"
+                     baseType="INFOTABLE"
+                     description=""
+                     name="result"
+                     ordinal="0"></ResultType>
+                    <ParameterDefinitions></ParameterDefinitions>
+                </ServiceDefinition>

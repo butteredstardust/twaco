@@ -11,6 +11,10 @@ indent_cdata_payload = false
 # The database Thing overrides an inherited service on purpose.
 inherited_overrides = ["Acme.Orders.Database.GetDBInfo"]
 
+[unused]
+# The platform calls this Thing's GetDBInfo; nothing in the repository names it.
+keep = ["Acme.Orders.Database"]
+
 [[project]]
 name = "Acme.Orders"
 root = "."

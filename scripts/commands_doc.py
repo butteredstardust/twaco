@@ -31,7 +31,7 @@ GROUPS = [
     ("Set up", "Describe a solution, check the environment, serve agents.",
      ["init", "doctor", "projects", "mcp"]),
     ("Work on the repository", "Offline: sidecars, gates, types, the service catalog, what a change reaches, a designer's export, renames.",
-     ["extract", "sync", "fmt", "check", "types", "catalog", "impact", "adopt", "rename", "move", "copy", "retemplate", "new"]),
+     ["extract", "sync", "fmt", "check", "types", "catalog", "impact", "unused", "adopt", "rename", "move", "copy", "retemplate", "new"]),
     ("Deploy and compare", "Against a server: what differs, what would be imported, and doing it.",
      ["entity status", "entity get", "entity push", "entity delete", "entity carry", "entity restore", "datatable", "bundle", "deploy", "config-table", "db"]),
     ("Run and observe", "Call services and read what the server says.",

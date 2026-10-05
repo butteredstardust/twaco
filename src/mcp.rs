@@ -20,7 +20,7 @@ use crate::core::{
     adopt, backup, baseline, catalog, check, config_table, datatable_copy, db, deploy,
     entity_carry, entity_delete, export, extensions, guide, help, impact, imports, javadoc, lock,
     logs, newblock, profile, push, relocate, rename, repo, retemplate, server, settings, status,
-    types, workflow, workspace,
+    types, unused, workflow, workspace,
 };
 use serde_json::{json, Map, Value};
 use std::io::{BufRead, Write};
@@ -865,6 +865,17 @@ pub fn tool_definitions() -> Vec<Value> {
             true,
         ),
         tool(
+            "unused",
+            "Entities nothing reaches: Things, templates, shapes and DataShapes with no chain of references from an entry point (what twaco.toml deploys, every mashup, anything that runs on events, and what `[unused] keep` names). Advisory and read-only: it deletes nothing, and an entity used only from outside the repository (a REST client, a connected system) looks unused, so list those under `[unused] keep`. `complete` says whether every input was read; `keep_unmatched` lists keep patterns that match nothing.",
+            json!({
+                "min_confidence": { "type": "string", "enum": ["structural", "resolved", "review"], "default": "review", "description": "The weakest reference that counts as use; a stronger minimum reports more entities." },
+                "collection": { "type": "string", "enum": ["Things", "ThingTemplates", "ThingShapes", "DataShapes"], "description": "Judge one collection only." },
+                "detail": detail(),
+            }),
+            &[],
+            true,
+        ),
+        tool(
             "guide",
             "Knowledge for working on this solution: twaco's workflow, the ThingWorx platform's verified-live quirks, the service-code reference, and the solution's own AGENTS.md, CLAUDE.md and docs/. Search before a live import, a hand-written mashup binding, a configuration-table change, or a service that introspects metadata or touches JSON. list: the topics; search: the best-matching sections; read: a topic (a long one gives its outline) or one section by heading.",
             json!({
@@ -974,6 +985,7 @@ fn call_tool(root: &Path, name: &str, arguments: &Value) -> Option<Result<Value,
         "settings" => with_solution(root, |s| settings_tool(s, arguments)),
         "catalog" => with_solution(root, |s| catalog_tool(s, arguments)),
         "impact" => with_solution(root, |s| impact_tool(s, arguments)),
+        "unused" => with_solution(root, |s| unused_tool(s, arguments)),
         "export" => with_solution(root, |s| export_tool(s, arguments)),
         "package" => with_solution(root, |s| package_tool(s, arguments)),
         "import" => with_solution(root, |s| import_tool(s, arguments)),
@@ -2656,6 +2668,25 @@ fn settings_tool(solution: &Solution, arguments: &Value) -> Result<Value, ToolEr
 }
 
 /// The repository-derived service catalog, offline and read-only.
+fn unused_tool(solution: &Solution, arguments: &Value) -> Result<Value, ToolError> {
+    let min = match text(arguments, "min_confidence") {
+        None => Confidence::Review,
+        Some(word) => Confidence::parse(word).ok_or_else(|| {
+            ToolError::invalid(format!(
+                "`min_confidence` is structural, resolved or review, not {word:?}"
+            ))
+        })?,
+    };
+    let report = unused::run(
+        solution,
+        &unused::Request {
+            min,
+            collection: text(arguments, "collection").map(str::to_string),
+        },
+    );
+    Ok(report.to_json(flag(arguments, "detail", false)))
+}
+
 fn impact_tool(solution: &Solution, arguments: &Value) -> Result<Value, ToolError> {
     let min = match text(arguments, "min_confidence") {
         None => Confidence::Review,
@@ -3934,6 +3965,7 @@ mod tests {
                 "settings",
                 "catalog",
                 "impact",
+                "unused",
                 "guide",
                 "help_search",
                 "help_page",
@@ -4297,6 +4329,54 @@ mod tests {
         // A bad confidence is refused by the schema before the tool runs, and nothing was written.
         let bad = call(json!({"entity":"Audit","min_confidence":"sure"}));
         assert_eq!(bad["isError"], true);
+        assert!(
+            !root.join(".twaco").exists(),
+            "a read-only tool leaves no trace"
+        );
+    }
+
+    #[test]
+    fn unused_reports_what_no_entry_point_reaches_and_deletes_nothing() {
+        let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/corpus/acme-orders");
+        let call = |arguments: Value| {
+            let responses = converse(
+                &root,
+                &[
+                    json!({"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"unused","arguments":arguments}}),
+                ],
+            );
+            responses[0]["result"].clone()
+        };
+        let report = call(json!({}));
+        assert_eq!(report["isError"], false, "{report}");
+        let report = &report["structuredContent"];
+        let unused: Vec<&str> = report["unused"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|item| item["entity"].as_str().unwrap())
+            .collect();
+        assert_eq!(
+            unused,
+            [
+                "DataShapes/Acme.Orders.Retired_DS",
+                "ThingShapes/Acme.Orders.Legacy_TS"
+            ]
+        );
+        assert!(
+            report["roots"][0].get("entities").is_none(),
+            "a summary counts the entry points"
+        );
+        assert_eq!(report["complete"], true);
+        let narrowed = call(json!({"collection":"Things"}));
+        assert_eq!(
+            narrowed["structuredContent"]["unused"]
+                .as_array()
+                .map(Vec::len),
+            Some(0)
+        );
+        // The schema refuses a collection that is not judged, and nothing is written.
+        assert_eq!(call(json!({"collection":"Mashups"}))["isError"], true);
         assert!(
             !root.join(".twaco").exists(),
             "a read-only tool leaves no trace"

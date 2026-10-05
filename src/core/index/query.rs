@@ -380,6 +380,59 @@ impl Index {
         self.projects.keys().map(String::as_str).collect()
     }
 
+    /// The labels of everything that refers to `key` at all, entities and projects, sorted. A
+    /// dependent that is itself unreferenced is a dead end, and shows up here for the entity it
+    /// still names.
+    pub fn referrers(&self, key: &EntityKey) -> Vec<String> {
+        let Some(node) = self.at(key) else {
+            return Vec::new();
+        };
+        let mut out: Vec<String> = self
+            .graph
+            .edges_directed(node, Direction::Incoming)
+            .map(|edge| self.graph[edge.source()].label())
+            .collect();
+        out.sort();
+        out.dedup();
+        out
+    }
+
+    /// The entities `twaco.toml` names as a project's entry point or a post-import call.
+    pub fn deploy_targets(&self) -> Vec<EntityKey> {
+        self.entities
+            .iter()
+            .filter(|(_, node)| {
+                self.graph
+                    .edges_directed(**node, Direction::Incoming)
+                    .any(|edge| edge.weight().kind == EdgeKind::Deploy)
+            })
+            .map(|(key, _)| key.clone())
+            .collect()
+    }
+
+    /// Whether `key` runs without being called: it declares subscriptions, it inherits a template
+    /// or shape that does, or it is a Timer or Scheduler.
+    pub fn runs_on_events(&self, key: &EntityKey) -> bool {
+        let Some(node) = self.node(key) else {
+            return false;
+        };
+        let runs = |name: &str| matches!(name, "Timer" | "Scheduler");
+        if node.subscribes || node.template.as_deref().is_some_and(runs) {
+            return true;
+        }
+        self.inheritance_names(key).iter().any(|name| {
+            runs(name)
+                || ["ThingTemplates", "ThingShapes"].iter().any(|collection| {
+                    EntityKey::new(*collection, name)
+                        .ok()
+                        .and_then(|inherited| self.node(&inherited))
+                        .is_some_and(|node| {
+                            node.subscribes || node.template.as_deref().is_some_and(runs)
+                        })
+                })
+        })
+    }
+
     /// Whether the node standing for `key` is a configured project's entry point or deploy call
     /// target, as `twaco.toml` names it.
     pub fn is_deployed(&self, key: &EntityKey) -> bool {

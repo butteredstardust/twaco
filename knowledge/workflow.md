@@ -15,6 +15,7 @@ a service does before you call it.
 - `twaco entity status --all`: which entities differ between the repository and the server.
 - `twaco catalog`: every service, where it lives, its signature and what it is for.
 - `twaco impact <entity> [--member <name>]`: what changing an entity, or one service of it, would reach, with how sure each reference is; run it before a rename, a move or a delete.
+- `twaco unused`: entities no entry point reaches (advisory); list anything used from outside the repository under `[unused] keep` in `twaco.toml`.
 - `twaco guide --search <words>`: this knowledge, plus the project's own documents.
   `twaco help search <words>` searches the ThingWorx Platform help for the server's version.
   `twaco javadoc search <name>` searches the Java API of objects scripts call and Resource services.

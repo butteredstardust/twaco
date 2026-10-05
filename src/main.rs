@@ -19,7 +19,7 @@ use twaco::core::index::Confidence;
 use twaco::core::{
     adopt, backup, baseline, catalog, config_table, datatable_copy, db, deploy, entity_carry,
     entity_delete, impact, lock, newblock, profile, push, relocate, rename, retemplate, server,
-    status, types, workflow, workspace,
+    status, types, unused, workflow, workspace,
 };
 
 /// Success.
@@ -234,6 +234,7 @@ fn main() -> ExitCode {
             "settings" => settings_cmd(solution, &parsed),
             "catalog" => catalog_cmd(solution, &parsed),
             "impact" => impact_cmd(solution, &parsed),
+            "unused" => unused_cmd(solution, &parsed),
             "package" => package_cmd(solution, &parsed),
             "export" => export_cmd(solution, &parsed),
             "import" => import_cmd(solution, &parsed),
@@ -300,6 +301,11 @@ fn route(args: &[String]) -> Result<Route, String> {
             "impact",
             1,
             &["--member", "--min-confidence", "--depth", "--detail", "--json", "--dot"],
+        ),
+        "unused" => (
+            "unused",
+            1,
+            &["--min-confidence", "--collection", "--detail", "--json"],
         ),
         "package" => ("package", 1, &["--project", "--backend-only", "--frontend-only", "--editable", "--out", "--force"]),
         "import" => (
@@ -747,6 +753,10 @@ const USAGE: &str = r#"usage: twaco <command>
       --detail                list every dependent and the chain of references to each
       --json                  the report as JSON (chains with --detail)
       --dot                   the dependents as a Graphviz graph
+  unused [--min-confidence structural|resolved|review] [--collection <name>]
+                              entities no entry point reaches; advisory, deletes nothing
+      --detail                list every one, with the entry points and each file
+      --json                  the report as JSON
   ext list [--json]           the server's extension packages
   ext show <package>          one package: its extensions, and which are in use
   ext import <zip>            validate a package on the server; --apply installs it
@@ -2623,6 +2633,47 @@ fn impact_cmd(solution: &Solution, args: &Args) -> u8 {
         print!("{}", impact::render_dot(&report));
     } else {
         print!("{}", impact::render_text(&report, args.has("--detail")));
+    }
+    OK
+}
+
+/// Entities no entry point reaches. Offline, advisory and read-only: it deletes nothing.
+fn unused_cmd(solution: &Solution, args: &Args) -> u8 {
+    if !args.names.is_empty() {
+        eprintln!("twaco: unused takes no entity; use --collection to narrow it");
+        return FAILED;
+    }
+    let min = match args.values.get("--min-confidence") {
+        None => Confidence::Review,
+        Some(word) => match Confidence::parse(word) {
+            Some(confidence) => confidence,
+            None => {
+                eprintln!(
+                    "twaco: --min-confidence is structural, resolved or review, not {word:?}"
+                );
+                return FAILED;
+            }
+        },
+    };
+    let collection = args.values.get("--collection").cloned();
+    if let Some(name) = &collection {
+        if !unused::JUDGED.contains(&name.as_str()) {
+            eprintln!(
+                "twaco: --collection is one of {}, not {name:?}",
+                unused::JUDGED.join(", ")
+            );
+            return FAILED;
+        }
+    }
+    let report = unused::run(solution, &unused::Request { min, collection });
+    if args.has("--json") {
+        let value = report.to_json(args.has("--detail"));
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&value).expect("a report serialises")
+        );
+    } else {
+        print!("{}", unused::render_text(&report, args.has("--detail")));
     }
     OK
 }
@@ -5314,6 +5365,7 @@ mod tests {
             "settings",
             "catalog",
             "impact",
+            "unused",
             "package",
             "import",
             "export",
