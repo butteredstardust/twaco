@@ -14,6 +14,7 @@ use std::process::ExitCode;
 use std::time::Duration;
 
 use twaco::core::config::Solution;
+use twaco::core::entity_key::EntityKey;
 use twaco::core::{adopt, backup, baseline, newblock, relocate, retemplate, catalog, status, workflow, lock, config_table, db, datatable_copy, deploy, entity_carry, entity_delete, push, profile, rename, server, types, workspace};
 
 /// Success.
@@ -2849,11 +2850,19 @@ fn entity_push(solution: &Solution, args: &Args) -> u8 {
         .file_name()
         .map(|name| name.to_string_lossy().into_owned())
         .unwrap_or_else(|| format!("{}.xml", entity.info.name));
+    let key = match EntityKey::new(&entity.info.collection, &entity.info.name) {
+        Ok(key) => key,
+        Err(error) => {
+            eprintln!("twaco: {}/{}: {error}", entity.info.collection, entity.info.name);
+            return FAILED;
+        }
+    };
     let target = push::Target {
-        collection: &entity.info.collection,
-        name: &entity.info.name,
-        file_name: &file_name,
-        bytes: &bytes,
+        key,
+        document: push::EntityDocument {
+            file_name: &file_name,
+            bytes: &bytes,
+        },
     };
     let apply = args.has("--apply");
     let force = args.has("--force");

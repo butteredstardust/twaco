@@ -11,6 +11,7 @@
 //! observe on the server.
 
 use super::baseline::{Baseline, BaselineError};
+use super::entity_key::EntityKey;
 use super::normalise::{self, NormaliseError};
 use super::server::{Client, ServerError};
 use std::fmt;
@@ -109,8 +110,12 @@ impl Remote for Client {
 
 /// The entity being pushed.
 pub struct Target<'a> {
-    pub collection: &'a str,
-    pub name: &'a str,
+    pub key: EntityKey,
+    pub document: EntityDocument<'a>,
+}
+
+/// The bytes and importer file name for an entity being pushed.
+pub struct EntityDocument<'a> {
     pub file_name: &'a str,
     pub bytes: &'a [u8],
 }
@@ -182,15 +187,15 @@ pub fn push(
     apply: bool,
     force: bool,
 ) -> Result<Outcome, PushError> {
-    let working = normalise::hash(target.bytes).map_err(PushError::Working)?;
+    let working = normalise::hash(target.document.bytes).map_err(PushError::Working)?;
     let server = remote
-        .fetch(target.collection, target.name)
+        .fetch(target.key.collection(), target.key.name())
         .map_err(PushError::Remote)?
         .map(|bytes| normalise::hash(&bytes))
         .transpose()
         .map_err(PushError::Server)?;
     let baseline = Baseline::load(root).map_err(PushError::Baseline)?;
-    let entry = baseline.get(target.collection, target.name);
+    let entry = baseline.get(target.key.collection(), target.key.name());
     let decision = decide(
         &working,
         server.as_deref(),
@@ -213,11 +218,11 @@ pub fn push(
         Decision::Update => false,
     };
 
-    remote.import(target.file_name, target.bytes).map_err(PushError::Remote)?;
+    remote.import(target.document.file_name, target.document.bytes).map_err(PushError::Remote)?;
     // From here on the server has changed, so a failure must say so rather than read like the
     // fetch before the import did.
     let read_back = remote
-        .fetch(target.collection, target.name)
+        .fetch(target.key.collection(), target.key.name())
         .map_err(PushError::Unverified)?
         .map(|bytes| normalise::hash(&bytes))
         .transpose()
@@ -231,7 +236,7 @@ pub fn push(
 
 fn record(root: &Path, target: &Target, local: String, server: String) -> Result<(), PushError> {
     let mut baseline = Baseline::load(root).map_err(PushError::Baseline)?;
-    baseline.set(target.collection, target.name, local, server);
+    baseline.set(target.key.collection(), target.key.name(), local, server);
     baseline.write(root).map_err(PushError::Baseline)
 }
 
@@ -288,7 +293,26 @@ mod tests {
     }
 
     fn target(bytes: &[u8]) -> Target<'_> {
-        Target { collection: "Things", name: "T", file_name: "T.xml", bytes }
+        Target {
+            key: EntityKey::new("Things", "T").unwrap(),
+            document: EntityDocument { file_name: "T.xml", bytes },
+        }
+    }
+
+    #[test]
+    fn a_target_keeps_its_key_and_document_separate() {
+        let bytes = entity("a();");
+        let target = target(&bytes);
+        assert_eq!(target.key.to_string(), "Things/T");
+        assert_eq!(target.document.file_name, "T.xml");
+        assert_eq!(target.document.bytes, bytes);
+
+        let root = temp();
+        let fake = Fake::holding(None);
+        push(&fake, &root, &target, true, false).unwrap();
+        let baseline = Baseline::load(&root).unwrap();
+        assert!(baseline.get(target.key.collection(), target.key.name()).is_some());
+        let _ = std::fs::remove_dir_all(root);
     }
 
     #[test]

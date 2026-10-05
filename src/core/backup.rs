@@ -287,7 +287,7 @@ pub fn forced_deploy_overwrites(report: &deploy::Report) -> Vec<(String, String)
 pub fn before_forced_push(client: &Client, solution: &Solution, target: &push::Target, stamp: &str) -> Result<Option<String>, BackupError> {
     let outcome = push::push(client, &solution.root, target, false, true).map_err(|error| BackupError::Plan(error.to_string()))?;
     let push::Outcome::WouldDo(decision) = outcome else { return Ok(None) };
-    let overwritten = forced_overwrites([(target.collection.to_string(), target.name.to_string(), decision)]);
+    let overwritten = forced_overwrites([(target.key.collection().to_string(), target.key.name().to_string(), decision)]);
     save_overwritten(client, solution, "entity push --force", &overwritten, stamp)
 }
 

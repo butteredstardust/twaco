@@ -13,6 +13,7 @@
 //! opaque, twaco cannot tell whether it writes, and an agent must opt in to running one.
 
 use crate::core::config::Solution;
+use crate::core::entity_key::EntityKey;
 use crate::core::{adopt, backup, baseline, newblock, relocate, retemplate, catalog, check, config_table, db, datatable_copy, deploy, entity_carry, entity_delete, export, extensions, guide, help, imports, javadoc, lock, logs, profile, push, rename, repo, server, settings, status, types, workflow, workspace};
 use serde_json::{json, Map, Value};
 use std::io::{BufRead, Write};
@@ -1343,11 +1344,14 @@ fn push_tool(solution: &Solution, arguments: &Value) -> Result<Value, String> {
         .map(|n| n.to_string_lossy().into_owned())
         .unwrap_or_else(|| format!("{}.xml", entity.info.name));
     let client = client(solution, arguments)?;
+    let key = EntityKey::new(&entity.info.collection, &entity.info.name)
+        .map_err(|error| format!("{}/{}: {error}", entity.info.collection, entity.info.name))?;
     let target = push::Target {
-        collection: &entity.info.collection,
-        name: &entity.info.name,
-        file_name: &file_name,
-        bytes: &bytes,
+        key,
+        document: push::EntityDocument {
+            file_name: &file_name,
+            bytes: &bytes,
+        },
     };
     let label = format!("{}/{}", entity.info.collection, entity.info.name);
     let saved = if !dry_run && force && flag(arguments, "backup", true) {
