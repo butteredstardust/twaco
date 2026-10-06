@@ -50,6 +50,22 @@ twaco is a single command-line binary that makes the repository the source of tr
 twaco runs on Windows, Linux and macOS, needs no runtime, and works offline for everything
 that does not need a server.
 
+## No server needed
+
+These commands work before you connect to a server.
+
+`twaco guide` reads the platform quirks that twaco's authors verified on a live server:
+
+<img src="documentation/images/guide-quirks.png" alt="twaco guide quirks lists the verified platform quirks" width="800">
+
+`twaco help search` searches the ThingWorx help center:
+
+<img src="documentation/images/help-search.png" alt="twaco help search finds the help pages about Thing subscriptions" width="800">
+
+`twaco javadoc search` searches the ThingWorx Java API:
+
+<img src="documentation/images/javadoc-search.png" alt="twaco javadoc search lists the InfoTable classes and members" width="800">
+
 ## Install
 
 Open the [latest release](https://github.com/butteredstardust/twaco/releases/latest) and
