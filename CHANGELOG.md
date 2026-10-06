@@ -20,6 +20,7 @@ All notable changes to twaco are recorded here. The format follows
   this platform, verifies its signature, and replaces the binary. It is command-line only.
 - Once a day, a command run in a terminal says on stderr when a newer release exists.
   `TWACO_NO_UPDATE_CHECK=1` turns this off; `mcp`, CI and a redirected stderr never check.
+  An old copy of the release manifest cannot hide a newer release that twaco saw before.
 
 ### Changed
 
