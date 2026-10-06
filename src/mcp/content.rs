@@ -1,11 +1,12 @@
+use super::requests::content as tool;
 use super::*;
 
 pub(crate) fn repo_tool(
     solution: &Solution,
-    arguments: crate::mcp::requests::content::RepoRequest,
+    arguments: tool::RepoRequest,
 ) -> Result<Value, ToolError> {
     use crate::core::commands::repo::{self as command, RepoAction, RepoRequest};
-    use crate::mcp::requests::content::RepoAction as RequestAction;
+    use tool::RepoAction as RequestAction;
     if matches!(arguments.action, RequestAction::List) {
         let request = RepoRequest {
             action: RepoAction::List,
@@ -164,27 +165,27 @@ pub(crate) fn repo_tool(
 }
 
 /// An import into the server, a plan unless dry_run is false.
-pub(crate) fn import_tool(solution: &Solution, arguments: &Value) -> Result<Value, ToolError> {
+pub(crate) fn import_tool(
+    solution: &Solution,
+    arguments: tool::ImportRequest,
+) -> Result<Value, ToolError> {
     use crate::core::commands::imports::{self as command, ImportAction, ImportRequest};
-    let dry_run = flag(arguments, "dry_run", true);
-    let (properties, tables) = (
-        flag(arguments, "overwrite_properties", false),
-        flag(arguments, "overwrite_tables", false),
-    );
+    let dry_run = arguments.dry_run;
+    let (properties, tables) = (arguments.overwrite_properties, arguments.overwrite_tables);
     let mode = if dry_run {
         commands::Mode::Plan
     } else {
         commands::Mode::Apply
     };
-    let profile = text(arguments, "profile").unwrap_or("default").to_string();
+    let profile = arguments.profile.clone();
     let differs = |list: &[imports::Differs]| -> Vec<Value> {
         list.iter()
             .map(|d| json!({ "type": d.entity_type, "name": d.name, "what": d.what }))
             .collect()
     };
-    match required(arguments, "action")? {
-        "file" => {
-            let relative = required(arguments, "file")?;
+    match arguments.action {
+        tool::ImportAction::File => {
+            let relative = required_text(&arguments.file, "file")?;
             let real = std::fs::canonicalize(solution.root.join(relative))
                 .map_err(|e| ToolError::with(ErrorCode::IoError, format!("{relative}: {e}")))?;
             let root = std::fs::canonicalize(&solution.root).map_err(ToolError::io)?;
@@ -227,11 +228,11 @@ pub(crate) fn import_tool(solution: &Solution, arguments: &Value) -> Result<Valu
             add_notices(&mut result, &notices);
             Ok(result)
         }
-        "source_control" => {
+        tool::ImportAction::SourceControl => {
             let request = ImportRequest {
                 action: ImportAction::SourceControl {
-                    repository: required(arguments, "repository")?.to_string(),
-                    path: required(arguments, "path")?.to_string(),
+                    repository: required_text(&arguments.repository, "repository")?.to_string(),
+                    path: required_text(&arguments.path, "path")?.to_string(),
                 },
                 mode,
                 overwrite_properties: properties,
@@ -254,31 +255,31 @@ pub(crate) fn import_tool(solution: &Solution, arguments: &Value) -> Result<Valu
             add_notices(&mut result, &notices);
             Ok(result)
         }
-        other => Err(ToolError::invalid(format!(
-            "action must be file or source_control, not {other:?}"
-        ))),
     }
 }
 
 /// An export from the server, to a file inside the solution or into a repository.
-pub(crate) fn export_tool(solution: &Solution, arguments: &Value) -> Result<Value, ToolError> {
+pub(crate) fn export_tool(
+    solution: &Solution,
+    arguments: tool::ExportRequest,
+) -> Result<Value, ToolError> {
     use crate::core::commands::export::{self as command, ExportAction, ExportRequest};
-    let action = required(arguments, "action")?;
-    let profile = text(arguments, "profile").unwrap_or("default").to_string();
-    if action == "source_control" {
+    let action = arguments.action;
+    let profile = arguments.profile.clone();
+    if action == tool::ExportAction::SourceControl {
         let filters = export::Filters {
-            project: text(arguments, "project").map(str::to_string),
-            collection: text(arguments, "collection").map(str::to_string),
-            tags: text(arguments, "tags").map(str::to_string),
-            include_dependents: flag(arguments, "with_dependents", false),
+            project: arguments.project.as_ref().cloned(),
+            collection: arguments.collection.as_ref().cloned(),
+            tags: arguments.tags.as_ref().cloned(),
+            include_dependents: arguments.with_dependents,
         };
-        let dry_run = flag(arguments, "dry_run", true);
+        let dry_run = arguments.dry_run;
         let request = ExportRequest {
             action: ExportAction::SourceControl {
-                repository: required(arguments, "repository")?.to_string(),
-                path: required(arguments, "path")?.to_string(),
+                repository: required_text(&arguments.repository, "repository")?.to_string(),
+                path: required_text(&arguments.path, "path")?.to_string(),
                 filters,
-                zip: text(arguments, "zip").map(str::to_string),
+                zip: arguments.zip.as_ref().cloned(),
                 mode: if dry_run {
                     commands::Mode::Plan
                 } else {
@@ -304,24 +305,21 @@ pub(crate) fn export_tool(solution: &Solution, arguments: &Value) -> Result<Valu
         return Ok(result);
     }
     let what = match action {
-        "entity" => {
-            export::What::entity(required(arguments, "entity")?).map_err(ToolError::coded)?
+        tool::ExportAction::Entity => {
+            export::What::entity(required_text(&arguments.entity, "entity")?)
+                .map_err(ToolError::coded)?
         }
-        "collection" => export::What::Collection {
-            collection: required(arguments, "collection")?.to_string(),
-            project: text(arguments, "project").map(str::to_string),
+        tool::ExportAction::Collection => export::What::Collection {
+            collection: required_text(&arguments.collection, "collection")?.to_string(),
+            project: arguments.project.as_ref().cloned(),
         },
-        "project" => export::What::Project {
-            project: required(arguments, "project")?.to_string(),
+        tool::ExportAction::Project => export::What::Project {
+            project: required_text(&arguments.project, "project")?.to_string(),
         },
-        other => {
-            return Err(ToolError::invalid(format!(
-                "action must be entity, collection, project or source_control, not {other:?}"
-            )))
-        }
+        tool::ExportAction::SourceControl => unreachable!("a source-control export returned above"),
     };
-    let relative = required(arguments, "out")?;
-    let out = out_path(solution, relative, flag(arguments, "overwrite", false))?;
+    let relative = required_text(&arguments.out, "out")?;
+    let out = out_path(solution, relative, arguments.overwrite)?;
     let request = ExportRequest {
         action: ExportAction::Xml {
             what,
@@ -387,22 +385,20 @@ fn out_path(
 }
 
 /// The repository packaged for release, offline, into a file inside the solution.
-pub(crate) fn package_tool(solution: &Solution, arguments: &Value) -> Result<Value, ToolError> {
+pub(crate) fn package_tool(
+    solution: &Solution,
+    arguments: tool::PackageRequest,
+) -> Result<Value, ToolError> {
     use crate::core::commands::package::{self, PackageAction, PackageRequest};
-    let relative = required(arguments, "out")?;
-    let out = out_path(solution, relative, flag(arguments, "overwrite", false))?;
-    let project = text(arguments, "project");
-    let (action, detail) = match required(arguments, "action")? {
-        "bundle" => {
-            let part = match text(arguments, "part").unwrap_or("all") {
-                "all" => crate::core::package::Part::All,
-                "backend" => crate::core::package::Part::Backend,
-                "frontend" => crate::core::package::Part::Frontend,
-                other => {
-                    return Err(ToolError::invalid(format!(
-                        "part must be all, backend or frontend, not {other:?}"
-                    )))
-                }
+    let relative = nonempty(&arguments.out, "out")?;
+    let out = out_path(solution, relative, arguments.overwrite)?;
+    let project = arguments.project.as_deref();
+    let (action, detail) = match arguments.action {
+        tool::PackageAction::Bundle => {
+            let part = match arguments.part {
+                tool::PackagePart::All => crate::core::package::Part::All,
+                tool::PackagePart::Backend => crate::core::package::Part::Backend,
+                tool::PackagePart::Frontend => crate::core::package::Part::Frontend,
             };
             let detail = match crate::core::package::bundle(solution, project, part) {
                 Ok(built) => {
@@ -412,14 +408,14 @@ pub(crate) fn package_tool(solution: &Solution, arguments: &Value) -> Result<Val
             };
             (PackageAction::Bundle { part }, detail)
         }
-        "source_control" => {
+        tool::PackageAction::SourceControl => {
             let count = crate::core::package::source_control(solution, project)
                 .map_err(ToolError::coded)?
                 .1;
             (PackageAction::SourceControl, json!({ "entities": count }))
         }
-        "extension" => {
-            let editable = flag(arguments, "editable", false);
+        tool::PackageAction::Extension => {
+            let editable = arguments.editable;
             match project {
                 Some(project) => {
                     let meta = crate::core::package::Metadata::from_solution(solution);
@@ -448,11 +444,6 @@ pub(crate) fn package_tool(solution: &Solution, arguments: &Value) -> Result<Val
                 }
             }
         }
-        other => {
-            return Err(ToolError::invalid(format!(
-                "action must be bundle, source_control or extension, not {other:?}"
-            )))
-        }
     };
     let outcome = package::execute(
         solution,
@@ -468,14 +459,17 @@ pub(crate) fn package_tool(solution: &Solution, arguments: &Value) -> Result<Val
 }
 
 /// The server's subsystem settings, read-only, secrets hidden.
-pub(crate) fn extensions_tool(solution: &Solution, arguments: &Value) -> Result<Value, ToolError> {
+pub(crate) fn extensions_tool(
+    solution: &Solution,
+    arguments: tool::ExtensionsRequest,
+) -> Result<Value, ToolError> {
     use crate::core::commands::extensions::{self as command, ExtensionAction, ExtensionRequest};
     let package_json = |p: &extensions::Package| json!({ "name": p.name, "version": p.version, "vendor": p.vendor, "description": p.description, "minimumThingWorxVersion": p.minimum_thingworx });
-    match text(arguments, "action").unwrap_or("list") {
-        "list" => {
+    match arguments.action {
+        tool::ExtensionsAction::List => {
             let request = ExtensionRequest {
                 action: ExtensionAction::List,
-                profile: text(arguments, "profile").unwrap_or("default").to_string(),
+                profile: arguments.profile.clone(),
             };
             let mut notices = commands::Notices::default();
             let outcome = command::execute(solution, &request, server::Client::new, &mut notices)
@@ -487,12 +481,12 @@ pub(crate) fn extensions_tool(solution: &Solution, arguments: &Value) -> Result<
             add_notices(&mut result, &notices);
             Ok(result)
         }
-        "show" => {
+        tool::ExtensionsAction::Show => {
             let request = ExtensionRequest {
                 action: ExtensionAction::Show {
-                    name: required(arguments, "package")?.to_string(),
+                    name: required_text(&arguments.package, "package")?.to_string(),
                 },
-                profile: text(arguments, "profile").unwrap_or("default").to_string(),
+                profile: arguments.profile.clone(),
             };
             let mut notices = commands::Notices::default();
             let outcome = command::execute(solution, &request, server::Client::new, &mut notices)
@@ -504,28 +498,25 @@ pub(crate) fn extensions_tool(solution: &Solution, arguments: &Value) -> Result<
             add_notices(&mut result, &notices);
             Ok(result)
         }
-        other => Err(ToolError::invalid(format!(
-            "action must be list or show, not {other:?}"
-        ))),
     }
 }
 
 /// Import or remove an extension package, a plan unless dry_run is false.
 pub(crate) fn extension_write_tool(
     solution: &Solution,
-    arguments: &Value,
+    arguments: tool::ExtensionWriteRequest,
 ) -> Result<Value, ToolError> {
     use crate::core::commands::extensions::{self as command, ExtensionAction, ExtensionRequest};
-    let dry_run = flag(arguments, "dry_run", true);
+    let dry_run = arguments.dry_run;
     let mode = if dry_run {
         commands::Mode::Plan
     } else {
         commands::Mode::Apply
     };
-    let profile = text(arguments, "profile").unwrap_or("default").to_string();
-    match required(arguments, "action")? {
-        "import" => {
-            let relative = required(arguments, "zip")?;
+    let profile = arguments.profile.clone();
+    match arguments.action {
+        tool::ExtensionWriteAction::Import => {
+            let relative = required_text(&arguments.zip, "zip")?;
             // A zip of the solution, never one outside it.
             let real = std::fs::canonicalize(solution.root.join(relative))
                 .map_err(|e| ToolError::with(ErrorCode::IoError, format!("{relative}: {e}")))?;
@@ -565,10 +556,10 @@ pub(crate) fn extension_write_tool(
             add_notices(&mut result, &notices);
             Ok(result)
         }
-        "remove" => {
+        tool::ExtensionWriteAction::Remove => {
             let request = ExtensionRequest {
                 action: ExtensionAction::Remove {
-                    name: required(arguments, "package")?.to_string(),
+                    name: required_text(&arguments.package, "package")?.to_string(),
                     mode,
                 },
                 profile,
@@ -584,35 +575,34 @@ pub(crate) fn extension_write_tool(
             add_notices(&mut result, &notices);
             Ok(result)
         }
-        other => Err(ToolError::invalid(format!(
-            "action must be import or remove, not {other:?}"
-        ))),
     }
 }
 
 /// One change to a file repository, a plan unless dry_run is false.
-pub(crate) fn repo_write_tool(solution: &Solution, arguments: &Value) -> Result<Value, ToolError> {
-    let repository = required(arguments, "repository")?;
-    let dry_run = flag(arguments, "dry_run", true);
-    if let Some(direction) = text(arguments, "action").filter(|a| *a == "push" || *a == "pull") {
+pub(crate) fn repo_write_tool(
+    solution: &Solution,
+    arguments: tool::RepoWriteRequest,
+) -> Result<Value, ToolError> {
+    let repository = nonempty(&arguments.repository, "repository")?;
+    let dry_run = arguments.dry_run;
+    if let Some(way) = match arguments.action {
+        tool::RepoWriteAction::Push => Some(repo::Direction::Push),
+        tool::RepoWriteAction::Pull => Some(repo::Direction::Pull),
+        _ => None,
+    } {
         use crate::core::commands::repo::{self as command, RepoAction, RepoRequest};
-        let way = if direction == "push" {
-            repo::Direction::Push
-        } else {
-            repo::Direction::Pull
-        };
         let request = RepoRequest {
             action: RepoAction::Sync {
                 repository: repository.to_string(),
                 direction: way,
-                overwrite: flag(arguments, "overwrite", false),
+                overwrite: arguments.overwrite,
                 mode: if dry_run {
                     commands::Mode::Plan
                 } else {
                     commands::Mode::Apply
                 },
             },
-            profile: text(arguments, "profile").unwrap_or("default").to_string(),
+            profile: arguments.profile.clone(),
         };
         let mut notices = commands::Notices::default();
         let outcome = command::execute(solution, &request, server::Client::new, &mut notices)
@@ -635,11 +625,12 @@ pub(crate) fn repo_write_tool(solution: &Solution, arguments: &Value) -> Result<
         add_notices(&mut result, &notices);
         return Ok(result);
     }
-    let path = repo::remote_path(required(arguments, "path")?).map_err(ToolError::coded)?;
-    let overwrite = flag(arguments, "overwrite", false);
-    let change = match required(arguments, "action")? {
-        "put" => {
-            let bytes = match (text(arguments, "text"), text(arguments, "local")) {
+    let path =
+        repo::remote_path(required_text(&arguments.path, "path")?).map_err(ToolError::coded)?;
+    let overwrite = arguments.overwrite;
+    let change = match arguments.action {
+        tool::RepoWriteAction::Put => {
+            let bytes = match (arguments.text.as_deref(), arguments.local.as_deref()) {
                 (Some(_), Some(_)) => {
                     return Err(ToolError::invalid("give text or local, not both"))
                 }
@@ -667,26 +658,25 @@ pub(crate) fn repo_write_tool(solution: &Solution, arguments: &Value) -> Result<
                 overwrite,
             }
         }
-        "mkdir" => repo::Change::Mkdir { path },
-        "rm" if path == "/" => {
+        tool::RepoWriteAction::Mkdir => repo::Change::Mkdir { path },
+        tool::RepoWriteAction::Rm if path == "/" => {
             return Err(ToolError::invalid("the repository root cannot be deleted"))
         }
-        "rm" => repo::Change::Remove {
+        tool::RepoWriteAction::Rm => repo::Change::Remove {
             path,
-            recursive: flag(arguments, "recursive", false),
+            recursive: arguments.recursive,
         },
-        "mv" => {
-            let to = repo::remote_path(required(arguments, "to")?).map_err(ToolError::coded)?;
+        tool::RepoWriteAction::Mv => {
+            let to =
+                repo::remote_path(required_text(&arguments.to, "to")?).map_err(ToolError::coded)?;
             repo::Change::Move {
                 from: path,
                 to,
                 overwrite,
             }
         }
-        other => {
-            return Err(ToolError::invalid(format!(
-                "action must be put, mkdir, rm or mv, not {other:?}"
-            )))
+        tool::RepoWriteAction::Push | tool::RepoWriteAction::Pull => {
+            unreachable!("a push or pull returned above")
         }
     };
     use crate::core::commands::repo::{self as command, RepoAction, RepoRequest};
@@ -700,7 +690,7 @@ pub(crate) fn repo_write_tool(solution: &Solution, arguments: &Value) -> Result<
                 commands::Mode::Apply
             },
         },
-        profile: text(arguments, "profile").unwrap_or("default").to_string(),
+        profile: arguments.profile.clone(),
     };
     let mut notices = commands::Notices::default();
     let outcome = command::execute(solution, &request, server::Client::new, &mut notices)

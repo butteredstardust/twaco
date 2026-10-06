@@ -1158,9 +1158,15 @@
     "name": "repo_write",
     "description": "Change a file repository: put (upload text, or a file of the solution), mkdir, rm (a file, or a folder; recursive: true to delete one that holds anything), mv (a file), or push/pull the tree kept in source control. A dry run unless dry_run is false. Nothing existing is replaced without overwrite: true; applied changes are read back.",
     "inputSchema": {
+      "required": [
+        "action",
+        "repository"
+      ],
+      "additionalProperties": false,
       "type": "object",
       "properties": {
         "action": {
+          "description": "push/pull: the whole tree filerepository/<repo>/ to or from the server; neither deletes.",
           "type": "string",
           "enum": [
             "put",
@@ -1169,27 +1175,26 @@
             "mv",
             "push",
             "pull"
-          ],
-          "description": "push/pull: the whole tree filerepository/<repo>/ to or from the server; neither deletes."
+          ]
         },
         "repository": {
           "type": "string"
         },
         "path": {
-          "type": "string",
-          "description": "put/mkdir/rm: the repository path; mv: the source."
+          "description": "put/mkdir/rm: the repository path; mv: the source.",
+          "type": "string"
         },
         "to": {
-          "type": "string",
-          "description": "mv: the file's new path."
+          "description": "mv: the file's new path.",
+          "type": "string"
         },
         "text": {
-          "type": "string",
-          "description": "put: the content, as UTF-8 text."
+          "description": "put: the content, as UTF-8 text.",
+          "type": "string"
         },
         "local": {
-          "type": "string",
-          "description": "put: a file of the solution to upload instead, relative to the solution root."
+          "description": "put: a file of the solution to upload instead, relative to the solution root.",
+          "type": "string"
         },
         "overwrite": {
           "type": "boolean",
@@ -1204,16 +1209,11 @@
           "default": true
         },
         "profile": {
-          "type": "string",
           "description": "Server profile name.",
+          "type": "string",
           "default": "default"
         }
-      },
-      "required": [
-        "action",
-        "repository"
-      ],
-      "additionalProperties": false
+      }
     },
     "annotations": {
       "readOnlyHint": false,
@@ -1225,7 +1225,7 @@
     "name": "extensions",
     "description": "The server's extension packages: list them, or show one (its extensions, and which are in use). Read-only.",
     "inputSchema": {
-      "type": "object",
+      "additionalProperties": false,
       "properties": {
         "action": {
           "type": "string",
@@ -1236,17 +1236,16 @@
           "default": "list"
         },
         "package": {
-          "type": "string",
-          "description": "show: the package name."
+          "description": "show: the package name.",
+          "type": "string"
         },
         "profile": {
-          "type": "string",
           "description": "Server profile name.",
+          "type": "string",
           "default": "default"
         }
       },
-      "required": [],
-      "additionalProperties": false
+      "type": "object"
     },
     "annotations": {
       "readOnlyHint": true,
@@ -1258,6 +1257,10 @@
     "name": "extension_write",
     "description": "Import an extension package zip of the solution, or remove an installed package. A dry run unless dry_run is false: an import is then only validated by the server, which installs nothing. A removal is refused while the package is in use.",
     "inputSchema": {
+      "required": [
+        "action"
+      ],
+      "additionalProperties": false,
       "type": "object",
       "properties": {
         "action": {
@@ -1268,27 +1271,23 @@
           ]
         },
         "zip": {
-          "type": "string",
-          "description": "import: the package zip, relative to the solution root."
+          "description": "import: the package zip, relative to the solution root.",
+          "type": "string"
         },
         "package": {
-          "type": "string",
-          "description": "remove: the package name."
+          "description": "remove: the package name.",
+          "type": "string"
         },
         "dry_run": {
           "type": "boolean",
           "default": true
         },
         "profile": {
-          "type": "string",
           "description": "Server profile name.",
+          "type": "string",
           "default": "default"
         }
-      },
-      "required": [
-        "action"
-      ],
-      "additionalProperties": false
+      }
     },
     "annotations": {
       "readOnlyHint": false,
@@ -1300,6 +1299,10 @@
     "name": "export",
     "description": "Export from the server as Composer's Import/Export does: an entity (Collection/Name), a collection (optionally one project's part), or a whole project, as one XML file written inside the solution; or the source-control layout of a project, collection or tags into a file repository folder or zip (a dry run unless dry_run is false).",
     "inputSchema": {
+      "required": [
+        "action"
+      ],
+      "additionalProperties": false,
       "type": "object",
       "properties": {
         "action": {
@@ -1312,8 +1315,8 @@
           ]
         },
         "entity": {
-          "type": "string",
-          "description": "entity: Collection/Name, such as Things/My.Thing."
+          "description": "entity: Collection/Name, such as Things/My.Thing.",
+          "type": "string"
         },
         "collection": {
           "type": "string"
@@ -1322,27 +1325,27 @@
           "type": "string"
         },
         "out": {
-          "type": "string",
-          "description": "entity/collection/project: the file to write, relative to the solution root."
+          "description": "entity/collection/project: the file to write, relative to the solution root.",
+          "type": "string"
         },
         "overwrite": {
           "type": "boolean",
           "default": false
         },
         "repository": {
-          "type": "string",
-          "description": "source_control: the file repository."
+          "description": "source_control: the file repository.",
+          "type": "string"
         },
         "path": {
-          "type": "string",
-          "description": "source_control: the folder in it."
+          "description": "source_control: the folder in it.",
+          "type": "string"
         },
         "tags": {
           "type": "string"
         },
         "zip": {
-          "type": "string",
-          "description": "source_control: write a zip of this name instead of a folder."
+          "description": "source_control: write a zip of this name instead of a folder.",
+          "type": "string"
         },
         "with_dependents": {
           "type": "boolean",
@@ -1353,15 +1356,11 @@
           "default": true
         },
         "profile": {
-          "type": "string",
           "description": "Server profile name.",
+          "type": "string",
           "default": "default"
         }
-      },
-      "required": [
-        "action"
-      ],
-      "additionalProperties": false
+      }
     },
     "annotations": {
       "readOnlyHint": false,
@@ -1373,6 +1372,11 @@
     "name": "package",
     "description": "Package the repository for release, offline, into a file inside the solution: a bundle (one importable XML; part all, backend or frontend), a source-control zip (<Project>/<Collection>/<Name>.xml), or an extension zip (one project's, or the solution's as a zip of its projects' zips; editable or not; metadata from [package] in twaco.toml).",
     "inputSchema": {
+      "required": [
+        "action",
+        "out"
+      ],
+      "additionalProperties": false,
       "type": "object",
       "properties": {
         "action": {
@@ -1384,38 +1388,33 @@
           ]
         },
         "project": {
-          "type": "string",
-          "description": "Only this project; the whole solution when omitted."
+          "description": "Only this project; the whole solution when omitted.",
+          "type": "string"
         },
         "part": {
+          "description": "bundle: which collections.",
           "type": "string",
           "enum": [
             "all",
             "backend",
             "frontend"
           ],
-          "default": "all",
-          "description": "bundle: which collections."
+          "default": "all"
         },
         "editable": {
+          "description": "extension: whether the entities stay editable once installed.",
           "type": "boolean",
-          "default": false,
-          "description": "extension: whether the entities stay editable once installed."
+          "default": false
         },
         "out": {
-          "type": "string",
-          "description": "The file to write, relative to the solution root."
+          "description": "The file to write, relative to the solution root.",
+          "type": "string"
         },
         "overwrite": {
           "type": "boolean",
           "default": false
         }
-      },
-      "required": [
-        "action",
-        "out"
-      ],
-      "additionalProperties": false
+      }
     },
     "annotations": {
       "readOnlyHint": false,
@@ -1427,6 +1426,10 @@
     "name": "import",
     "description": "Import into the server as Composer's Import/Export does: an export file of the solution (XML, or a zip of them), or a source-control tree in a file repository. A dry run unless dry_run is false: a file's plan lists what it adds and what it replaces; a source-control plan is the server's own diff. The server's property values and configuration table rows are kept unless the overwrite flags say otherwise.",
     "inputSchema": {
+      "required": [
+        "action"
+      ],
+      "additionalProperties": false,
       "type": "object",
       "properties": {
         "action": {
@@ -1437,16 +1440,16 @@
           ]
         },
         "file": {
-          "type": "string",
-          "description": "file: relative to the solution root."
+          "description": "file: relative to the solution root.",
+          "type": "string"
         },
         "repository": {
-          "type": "string",
-          "description": "source_control: the file repository."
+          "description": "source_control: the file repository.",
+          "type": "string"
         },
         "path": {
-          "type": "string",
-          "description": "source_control: the tree's folder in it."
+          "description": "source_control: the tree's folder in it.",
+          "type": "string"
         },
         "overwrite_properties": {
           "type": "boolean",
@@ -1461,15 +1464,11 @@
           "default": true
         },
         "profile": {
-          "type": "string",
           "description": "Server profile name.",
+          "type": "string",
           "default": "default"
         }
-      },
-      "required": [
-        "action"
-      ],
-      "additionalProperties": false
+      }
     },
     "annotations": {
       "readOnlyHint": false,
