@@ -1,9 +1,9 @@
 use super::requests::common::{parse, schema, NoArguments};
 use super::requests::{
     content as content_requests, data as data_requests, entity as entity_requests,
-    refactor as refactor_requests, source as source_requests,
+    info as info_requests, refactor as refactor_requests, source as source_requests,
 };
-use super::{content, data, entity, refactor, source, ToolError};
+use super::{content, data, entity, info, refactor, source, ToolError};
 use crate::core::config::Solution;
 use schemars::JsonSchema;
 use serde::de::DeserializeOwned;
@@ -112,6 +112,30 @@ fn solution_tool<T: DeserializeOwned + Serialize + JsonSchema + 'static>(
     })
 }
 
+/// A tool that needs the solution's root but no solution.
+fn root_tool<T: DeserializeOwned + Serialize + JsonSchema + 'static>(
+    name: &'static str,
+    description: &'static str,
+    read_only: bool,
+    route: fn(&Path, T) -> Result<Value, ToolError>,
+) -> Tool {
+    tool(name, description, read_only, move |root, request| {
+        route(root, request)
+    })
+}
+
+/// A tool that needs neither a solution nor its root.
+fn bare_tool<T: DeserializeOwned + Serialize + JsonSchema + 'static>(
+    name: &'static str,
+    description: &'static str,
+    read_only: bool,
+    route: fn(T) -> Result<Value, ToolError>,
+) -> Tool {
+    tool(name, description, read_only, move |_, request| {
+        route(request)
+    })
+}
+
 static TOOLS: LazyLock<Vec<Tool>> = LazyLock::new(|| {
     vec![
         solution_tool::<NoArguments>(
@@ -120,29 +144,47 @@ static TOOLS: LazyLock<Vec<Tool>> = LazyLock::new(|| {
             true,
             |solution, _| super::projects(solution),
         ),
-        solution_tool::<entity_requests::PushRequest>(
-            "push",
-            "Import one entity's file to the server. Refuses when the server changed since the last sync, was deleted there, or has no baseline, unless force is true. Reads the entity back and records a baseline only for what the server kept. A dry run unless dry_run is false.",
+        solution_tool::<source_requests::TypesRequest>(
+            "types",
+            "Generate editor declarations, type-check every service, or fetch and cache platform declarations. All actions take the workspace lock.",
             false,
-            entity::push_tool,
+            source::types_tool,
         ),
-        solution_tool::<content_requests::RepoRequest>(
-            "repo",
-            "Read the server's file repositories: list them, list a folder (recursive: true for everything below), get a text file's content, or compare the tree kept in source control (filerepository/<repo>/) with the server's (same, differs, local-only, remote-only; equal sizes are compared by SHA-256). Read-only.",
+        solution_tool::<source_requests::CheckRequest>(
+            "check",
+            "Run every gate of the solution (line endings, sidecars in sync, formatting, script traps, code order, project validation, declared hooks). With live: true, every service script is also parsed by the ThingWorx server, and an unreachable server fails the check. live defaults to the solution's [gates] live.",
             true,
-            content::repo_tool,
-        ),
-        solution_tool::<data_requests::DbRunRequest>(
-            "db_run",
-            "Run one SQL script as an atomic SQLCommand through a throwaway Database Thing. Plans by default and shows the SQL and sanitized connection target; pass dry_run: false to execute.",
-            false,
-            data::db_run_tool,
+            source::check_tool,
         ),
         solution_tool::<entity_requests::StatusRequest>(
             "status",
             "Compare entities with the server and the recorded baseline: in-sync, local-changed, server-changed, both-changed, not-on-server, or no baseline yet. Lists every entity that needs attention.",
             false,
             entity::status_tool,
+        ),
+        solution_tool::<source_requests::SyncRequest>(
+            "sync",
+            "Write sidecars back into their entity XML: service scripts, DataShape fields, mashup content, DataTable configuration. This is how an edit to a script.js takes effect. check: true reports what would change and writes nothing. Takes the workspace lock while it writes.",
+            false,
+            source::sync_tool,
+        ),
+        solution_tool::<source_requests::ExtractRequest>(
+            "extract",
+            "Entity XML to sidecars: service scripts, DataShape fields, mashup content, DataTable configuration. Overwrites the sidecars of the entities chosen; takes the workspace lock.",
+            false,
+            source::extract_tool,
+        ),
+        solution_tool::<source_requests::FmtRequest>(
+            "fmt",
+            "Format every service script sidecar with the built-in formatter. check: true reports which would change and writes nothing.",
+            false,
+            source::fmt_tool,
+        ),
+        solution_tool::<entity_requests::PushRequest>(
+            "push",
+            "Import one entity's file to the server. Refuses when the server changed since the last sync, was deleted there, or has no baseline, unless force is true. Reads the entity back and records a baseline only for what the server kept. A dry run unless dry_run is false.",
+            false,
+            entity::push_tool,
         ),
         solution_tool::<entity_requests::EntityDeleteRequest>(
             "entity_delete",
@@ -162,35 +204,29 @@ static TOOLS: LazyLock<Vec<Tool>> = LazyLock::new(|| {
             false,
             entity::entity_carry_tool,
         ),
-        solution_tool::<source_requests::TypesRequest>(
-            "types",
-            "Generate editor declarations, type-check every service, or fetch and cache platform declarations. All actions take the workspace lock.",
+        solution_tool::<data_requests::DbRunRequest>(
+            "db_run",
+            "Run one SQL script as an atomic SQLCommand through a throwaway Database Thing. Plans by default and shows the SQL and sanitized connection target; pass dry_run: false to execute.",
             false,
-            source::types_tool,
+            data::db_run_tool,
         ),
-        solution_tool::<source_requests::CheckRequest>(
-            "check",
-            "Run every gate of the solution (line endings, sidecars in sync, formatting, script traps, code order, project validation, declared hooks). With live: true, every service script is also parsed by the ThingWorx server, and an unreachable server fails the check. live defaults to the solution's [gates] live.",
+        solution_tool::<data_requests::DbQueryRequest>(
+            "db_query",
+            "Run read-only SQLQuery through a throwaway Database Thing. Returns columns and the first 20 rows unless detail is true.",
             true,
-            source::check_tool,
+            data::db_query_tool,
         ),
-        solution_tool::<source_requests::SyncRequest>(
-            "sync",
-            "Write sidecars back into their entity XML: service scripts, DataShape fields, mashup content, DataTable configuration. This is how an edit to a script.js takes effect. check: true reports what would change and writes nothing. Takes the workspace lock while it writes.",
+        solution_tool::<data_requests::DatatableCopyRequest>(
+            "datatable_copy",
+            "Copy the rows of one DataTable into the DataTable that replaced it, mapping fields by name, by the rename ledger, or by map ({old: new}). Refuses unmapped fields (unless drop_unmapped), type changes, and a non-empty target (unless append). A dry run unless dry_run is false; the target is read back and compared. Each row's source, tags and timestamp are not carried.",
             false,
-            source::sync_tool,
+            data::datatable_copy_tool,
         ),
-        solution_tool::<source_requests::ExtractRequest>(
-            "extract",
-            "Entity XML to sidecars: service scripts, DataShape fields, mashup content, DataTable configuration. Overwrites the sidecars of the entities chosen; takes the workspace lock.",
+        solution_tool::<data_requests::DbCleanRequest>(
+            "db_clean",
+            "Find, and with dry_run false delete, the temporary ZZ.Twaco.Sql.* Database Things an interrupted db_run or db_query left on the server. Only names twaco generates, on Database Things, are touched.",
             false,
-            source::extract_tool,
-        ),
-        solution_tool::<source_requests::FmtRequest>(
-            "fmt",
-            "Format every service script sidecar with the built-in formatter. check: true reports which would change and writes nothing.",
-            false,
-            source::fmt_tool,
+            data::db_clean_tool,
         ),
         solution_tool::<source_requests::DeployRequest>(
             "deploy",
@@ -234,24 +270,6 @@ static TOOLS: LazyLock<Vec<Tool>> = LazyLock::new(|| {
             false,
             refactor::retemplate_tool,
         ),
-        solution_tool::<data_requests::DbQueryRequest>(
-            "db_query",
-            "Run read-only SQLQuery through a throwaway Database Thing. Returns columns and the first 20 rows unless detail is true.",
-            true,
-            data::db_query_tool,
-        ),
-        solution_tool::<data_requests::DbCleanRequest>(
-            "db_clean",
-            "Find, and with dry_run false delete, the temporary ZZ.Twaco.Sql.* Database Things an interrupted db_run or db_query left on the server. Only names twaco generates, on Database Things, are touched.",
-            false,
-            data::db_clean_tool,
-        ),
-        solution_tool::<data_requests::DatatableCopyRequest>(
-            "datatable_copy",
-            "Copy the rows of one DataTable into the DataTable that replaced it, mapping fields by name, by the rename ledger, or by map ({old: new}). Refuses unmapped fields (unless drop_unmapped), type changes, and a non-empty target (unless append). A dry run unless dry_run is false; the target is read back and compared. Each row's source, tags and timestamp are not carried.",
-            false,
-            data::datatable_copy_tool,
-        ),
         solution_tool::<data_requests::ConfigTableRequest>(
             "config_table",
             "Read one Thing's configuration table on the server, diff it against the entity XML in the repository, or restore it from a backup file. restore is a dry run unless dry_run is false; it refuses a backup of another Thing or table, and reads the table back.",
@@ -270,11 +288,11 @@ static TOOLS: LazyLock<Vec<Tool>> = LazyLock::new(|| {
             false,
             data::log_level_tool,
         ),
-        solution_tool::<data_requests::CallRequest>(
-            "call",
-            "Call a ThingWorx service. A service can write, and twaco cannot tell which do, so this is a dry run unless dry_run is false. A bare target is a Thing; Collection/Name reaches templates, shapes, resources and subsystems.",
-            false,
-            data::call_service_tool,
+        solution_tool::<content_requests::RepoRequest>(
+            "repo",
+            "Read the server's file repositories: list them, list a folder (recursive: true for everything below), get a text file's content, or compare the tree kept in source control (filerepository/<repo>/) with the server's (same, differs, local-only, remote-only; equal sizes are compared by SHA-256). Read-only.",
+            true,
+            content::repo_tool,
         ),
         solution_tool::<content_requests::RepoWriteRequest>(
             "repo_write",
@@ -312,32 +330,78 @@ static TOOLS: LazyLock<Vec<Tool>> = LazyLock::new(|| {
             false,
             content::import_tool,
         ),
+        solution_tool::<info_requests::SettingsRequest>(
+            "settings",
+            "Read the server's subsystem settings (Composer: Browse > Subsystems): list the subsystems, show one with every setting, its value and description, or search every setting by name or description. Read-only; PASSWORD values are never shown.",
+            true,
+            info::settings_tool,
+        ),
+        solution_tool::<info_requests::CatalogRequest>(
+            "catalog",
+            "The repository's offline service catalog: callable services by entity, their parameters, result, description, origin and whether code exists. Summary returns at most 50 services; detail returns all.",
+            true,
+            info::catalog_tool,
+        ),
+        solution_tool::<info_requests::ImpactRequest>(
+            "impact",
+            "What changing an entity, or one service, property or field of it, would reach: the Things, templates, shapes, mashups and projects that depend on it, directly or through others, each at the strength of its weakest reference (structural: declared in the XML or twaco.toml; resolved: a static name in a script or a mashup binding; review: a string that looks like the name, for a person to judge). Offline and read-only. It cannot see references built at run time or outside the repository; `complete` says whether every input was read and `unreadable` lists what was not. Summary leaves the chain to each dependent out; detail includes it.",
+            true,
+            info::impact_tool,
+        ),
+        solution_tool::<info_requests::UnusedRequest>(
+            "unused",
+            "Entities nothing reaches: Things, templates, shapes and DataShapes with no chain of references from an entry point (what twaco.toml deploys, every mashup, anything that runs on events, and what `[unused] keep` names). Advisory and read-only: it deletes nothing, and an entity used only from outside the repository (a REST client, a connected system) looks unused, so list those under `[unused] keep`. `complete` says whether every input was read; `keep_unmatched` lists keep patterns that match nothing.",
+            true,
+            info::unused_tool,
+        ),
+        solution_tool::<info_requests::DocsRequest>(
+            "docs",
+            "The solution written down from the repository: the projects and their deploy order, how Things, templates and shapes inherit, every service with its signature, the DataShapes with their fields and where they are used, and the references that only look like a name and need a person's judgement. Offline and read-only; it has no dates, so regenerating it and diffing shows what changed. Permissions are not read yet, and references built at run time are not seen; `complete` says whether every input was read. Returns the document as JSON in `document` and as Markdown in `markdown`. Summary gives service and field counts; detail gives every signature and field.",
+            true,
+            info::docs_tool,
+        ),
+        root_tool::<info_requests::GuideRequest>(
+            "guide",
+            "Knowledge for working on this solution: twaco's workflow, the ThingWorx platform's verified-live quirks, the service-code reference, and the solution's own AGENTS.md, CLAUDE.md and docs/. Search before a live import, a hand-written mashup binding, a configuration-table change, or a service that introspects metadata or touches JSON. list: the topics; search: the best-matching sections; read: a topic (a long one gives its outline) or one section by heading.",
+            true,
+            info::guide_tool,
+        ),
+        root_tool::<info_requests::HelpSearchRequest>(
+            "help_search",
+            "Search the ThingWorx Platform help center for the server's version (or another): pages holding every word, best first, with title, path, summary and address. It explains concepts and how-tos; for one service's parameters, the editor types (`types`) are better.",
+            true,
+            info::help_search_tool,
+        ),
+        root_tool::<info_requests::HelpPageRequest>(
+            "help_page",
+            "Read one ThingWorx Platform help page as Markdown, from a path or address that help_search returned. Long pages: ask for one section by heading; the result lists every heading.",
+            true,
+            info::help_page_tool,
+        ),
+        bare_tool::<info_requests::JavadocRequest>(
+            "javadoc",
+            "Search or read the ThingWorx Platform API 10.1.0 Javadoc as Markdown. search ranks class and member simple names exact, prefix, then contains. class gives the class description and method summaries; member gives every overload with parameters, returns and throws. Useful for the Java methods of objects scripts call and Resource service parameter descriptions.",
+            true,
+            info::javadoc_tool,
+        ),
+        solution_tool::<data_requests::CallRequest>(
+            "call",
+            "Call a ThingWorx service. A service can write, and twaco cannot tell which do, so this is a dry run unless dry_run is false. A bare target is a Thing; Collection/Name reaches templates, shapes, resources and subsystems.",
+            false,
+            data::call_service_tool,
+        ),
     ]
 });
 
-/// The typed tool's `tools/list` entry, if it is registered.
-pub(crate) fn definition(name: &str, protocol: &str) -> Option<Value> {
-    TOOLS
-        .iter()
-        .find(|tool| tool.name == name)
-        .map(|tool| tool.definition(protocol))
+/// Every tool's `tools/list` entry, in the order the tools are published.
+pub(crate) fn definitions(protocol: &str) -> Vec<Value> {
+    TOOLS.iter().map(|tool| tool.definition(protocol)).collect()
 }
 
 /// Run a registered tool, arguments read and checked first.
 pub(crate) fn call(root: &Path, name: &str, arguments: &Value) -> Option<Result<Value, ToolError>> {
     let tool = TOOLS.iter().find(|tool| tool.name == name)?;
     Some((tool.call)(root, arguments))
-}
-
-/// Swap the hand-written entry of every registered tool for the generated one.
-pub(crate) fn replace_definitions(definitions: &mut [Value], protocol: &str) {
-    for definition in definitions {
-        if let Some(name) = definition["name"].as_str() {
-            if let Some(replacement) = self::definition(name, protocol) {
-                *definition = replacement;
-            }
-        }
-    }
 }
 
 /// Whether the typed tool accepts these arguments, without running it.

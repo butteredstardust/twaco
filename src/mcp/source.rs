@@ -97,7 +97,7 @@ pub(crate) fn types_tool_with_compiler(
 fn run_gates(solution: &Solution, profile: &str, live: bool) -> check::CheckReport {
     let mut report = check::run(solution);
     if live {
-        let built = client_for(solution, profile).map_err(|error| error.message);
+        let built = client(solution, profile).map_err(|error| error.message);
         let checker = built
             .as_ref()
             .map(|c| c as &dyn check::ScriptChecker)

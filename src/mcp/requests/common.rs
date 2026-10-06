@@ -74,19 +74,24 @@ pub(crate) fn schema<T: JsonSchema>() -> Value {
     value
 }
 
+/// Drop the keywords Schemars adds that MCP clients need not see. Only schema keywords go: a
+/// property of a tool may itself be called `format` or `title`.
 fn remove_generated_keywords(value: &mut Value) {
     let Some(object) = value.as_object_mut() else {
         return;
     };
-    for key in ["$schema", "$defs", "$ref", "title"] {
-        object.remove(key);
+    for keyword in ["$schema", "$defs", "$ref", "title", "format"] {
+        object.remove(keyword);
     }
-    object.remove("format");
-    for value in object.values_mut() {
-        remove_generated_keywords(value);
+    if let Some(properties) = object.get_mut("properties").and_then(Value::as_object_mut) {
+        for property in properties.values_mut() {
+            remove_generated_keywords(property);
+        }
     }
-    if let Some(items) = object.get_mut("items") {
-        remove_generated_keywords(items);
+    for keyword in ["items", "additionalProperties"] {
+        if let Some(schema) = object.get_mut(keyword) {
+            remove_generated_keywords(schema);
+        }
     }
 }
 
