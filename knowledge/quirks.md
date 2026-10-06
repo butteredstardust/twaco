@@ -676,8 +676,7 @@ A Thing export has two `<Subscriptions>` elements: one inside `<ThingShape>`, ri
 `</ServiceImplementations>`, and one at the end after `</ImplementedShapes>`. A subscription
 placed in the trailing element **imports silently and is then absent** — the entity comes back
 from `/Thingworx/Things/<name>` with both blocks empty, no error anywhere. Put it in the
-`ThingShape` block, which is where PTC's own extensions carry theirs (see
-`PTCDTS.DatabaseManagement.DBManagement_TS`).
+`ThingShape` block, which is where the platform's own extensions carry theirs.
 
 ## A Timer with no `runAsUser` never runs its handlers
 
@@ -924,8 +923,7 @@ them reformats the whole tree and buries the handful of real changes.
 ## Paging a grid: the PTCS pagination widget's contract, and three ways to wire it wrong
 
 `ptcspagination` does not page anything by itself. It holds `PageNumber` (1-based), `PageSize` and
-`ResultsNumber`, and PTC's own paged grids — `PTCDTS.DPMAdmin.MaterialConfiguration_MU` and its
-siblings — wire it as two services:
+`ResultsNumber`, and the paged grids in the platform's own extensions wire it as two services:
 
 ```
 pagination.PageNumber -> pagedService.pageToLoad     (NUMBER -> INTEGER)

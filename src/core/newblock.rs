@@ -1,6 +1,6 @@
 //! Create a new building block in the repository.
 //!
-//! A building block is a ThingWorx project with a fixed skeleton that the PTC Solution Framework
+//! A building block is a ThingWorx project with a fixed skeleton that the building-block framework
 //! builds on a server with its `AddNewComponent` service: an entry point (a ThingTemplate and a
 //! Thing, which names the block and its manager), a management shape and a manager template (and
 //! a manager Thing unless the block is abstract), and an organization with a default and an admin

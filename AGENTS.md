@@ -18,7 +18,7 @@ before changing code; it names the principles and where everything lives.
   defaults to `true`. `twaco call` on the CLI is the one exception, by design.
 - **Credentials are never printed, logged, or written,** and `[[check]]` hooks do not receive
   them unless they declare `needs_credentials`.
-- **Behaviour lives in `src/core/`.** `main.rs` and `mcp.rs` parse, call and print. A
+- **Behaviour lives in `src/core/`.** `src/main.rs` with `src/cli/`, and `src/mcp/`, parse, call and print. A
   feature exists in both, or there is a reason it does not.
 - **Every behaviour has a test that fails without it.** Servers are fakes behind a `Remote`
   trait or a local TCP listener; no test contacts a real server or the network.

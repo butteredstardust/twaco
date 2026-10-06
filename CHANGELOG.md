@@ -154,7 +154,7 @@ The first public release.
 
 ### Release
 
-- `package` creates offline importable bundles, source-control layout zips and DPM-style extension
+- `package` creates offline importable bundles, source-control layout zips and extension
   packages for a project or the full solution.
 
 ### Knowledge and MCP

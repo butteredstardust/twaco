@@ -37,8 +37,8 @@ add a command.
 
 ## What a good change looks like
 
-- **Behaviour lives in `src/core/`.** The CLI (`main.rs`) and the MCP server (`mcp.rs`) only
-  parse, call and print.
+- **Behaviour lives in `src/core/`.** The CLI (`src/main.rs`, `src/cli/`) and the MCP server
+  (`src/mcp/`) only parse, call and print.
 - **Entities are never re-serialised.** Edit by span, through `scan` and `splice`.
 - **A server write plans by default,** on the CLI (`--apply`) and over MCP (`dry_run`). CLI
   `call` is the one exception: it invokes the service it is given.

@@ -42,7 +42,7 @@ twaco is a single command-line binary that makes the repository the source of tr
   settings.
 - **Knowledge for agents:** verified-live platform quirks, a service catalog derived from your
   entities, and the ThingWorx help center and Java API docs, searchable from the CLI.
-- **An MCP server.** `twaco mcp` serves 39 tools to Claude Code, Codex, Cursor or any MCP
+- **An MCP server.** `twaco mcp` serves its commands as tools to Claude Code, Codex, Cursor or any MCP
   client. Server writes are dry runs unless the agent says otherwise.
 
 twaco runs on Windows, Linux and macOS, needs no runtime, and works offline for everything

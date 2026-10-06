@@ -1,8 +1,8 @@
 # The command facade
 
 A command that changes something (the workspace, a server, or both) has its policy in one place:
-`src/core/commands/<command>.rs`. The command line (`src/main.rs`) and the MCP server
-(`src/mcp.rs`) parse their own input into a request, call the executor, and project the outcome
+`src/core/commands/<command>.rs`. The command line (`src/main.rs`, `src/cli/`) and the MCP
+server (`src/mcp/`) parse their own input into a request, call the executor, and project the outcome
 to their own output. Neither decides anything about locking, plan versus apply, profiles or
 backups, so the two cannot drift apart. `push.rs` and `delete.rs` are the reference
 implementations.

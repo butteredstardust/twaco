@@ -1,7 +1,7 @@
 //! Packaging the repository for release, offline: a bundle of the solution or a
-//! project (all, backend or frontend), a source-control zip, or DPM-style extension zips.
+//! project (all, backend or frontend), a source-control zip, or extension zips.
 //!
-//! The extension format follows the DPM package layout: a zip with `metadata.xml` and one file
+//! The extension format is the ThingWorx extension package layout: a zip with `metadata.xml` and one file
 //! per entity at `Entities/<Collection>/<Name>.xml`, editability being only the entity
 //! attribute `aspect.isEditableExtensionObject`. A solution is an outer zip of its projects'
 //! extension zips. Entity files go in byte for byte, but for that one attribute.

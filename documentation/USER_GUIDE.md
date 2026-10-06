@@ -342,7 +342,7 @@ twaco new building-block Acme.Base --type abstract --apply
 twaco new building-block Acme.Orders.Plant --type implementation --parent Acme.Base --apply
 ```
 
-Plans by default. It writes what the PTC Solution Framework's Create New Building Block builds on a
+Plans by default. It writes what the building-block framework's Create New Building Block builds on a
 server: the project, an `EntryPoint` template and Thing naming the block, a `Management_TS` shape, a
 `Manager_TT` template and `Manager` Thing (none for an abstract block), a default and an admin group,
 and an organization, in the repository's layout, and appends the project to `twaco.toml`. The text
