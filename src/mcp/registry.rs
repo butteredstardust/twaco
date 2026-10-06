@@ -1,9 +1,9 @@
 use super::requests::common::{parse, schema, NoArguments};
 use super::requests::{
     content as content_requests, data as data_requests, entity as entity_requests,
-    source as source_requests,
+    refactor as refactor_requests, source as source_requests,
 };
-use super::{content, data, entity, source, ToolError};
+use super::{content, data, entity, refactor, source, ToolError};
 use crate::core::config::Solution;
 use schemars::JsonSchema;
 use serde::de::DeserializeOwned;
@@ -197,6 +197,42 @@ static TOOLS: LazyLock<Vec<Tool>> = LazyLock::new(|| {
             "Deploy the solution: offline gates, one bundle per project in dependency order, every script parsed by the server (fails closed), a conflict check per entity, then import, read-back, and the project's deploy and post-import services. A dry run (a plan) unless dry_run is false.",
             false,
             source::deploy_tool,
+        ),
+        solution_tool::<refactor_requests::AdoptReportRequest>(
+            "adopt_report",
+            "Compare a designer's Composer <Entities> export with the repository: which services it would revert, which entities it adds or changes (node by node with detail), and which it lacks. Writes nothing.",
+            true,
+            refactor::adopt_tool,
+        ),
+        solution_tool::<refactor_requests::AdoptApplyRequest>(
+            "adopt_apply",
+            "Adopt the mechanical half of a designer's export: mashup content into sidecars, a new mashup's entity file, changed media. Never writes a service or configuration table; run sync afterwards. Takes the workspace lock.",
+            false,
+            refactor::adopt_apply_tool,
+        ),
+        solution_tool::<refactor_requests::RenameRequest>(
+            "rename",
+            "Rename one entity, a dotted project/building-block prefix, a DataShape field, a declared service, one service parameter, or a configuration table. A dry run unless dry_run is false; an apply takes the workspace lock. The result carries a plan_digest: pass it back with dry_run false to apply exactly the plan that was reviewed.",
+            false,
+            refactor::rename_tool,
+        ),
+        solution_tool::<refactor_requests::MoveMemberRequest>(
+            "move_member",
+            "Move or copy a service or a property from one Thing, template or shape to another in the repository: the definition (and a service's implementation and sidecar) is lifted out byte for byte and re-indented where it lands. Refuses a name the target, its ancestors or its descendants already use; reports the callers that stop resolving when the target is not something the source inherits; leave_delegate keeps a service on the source that calls the moved one (a Thing target). A dry run unless dry_run is false; an apply takes the workspace lock.",
+            false,
+            refactor::move_member_tool,
+        ),
+        solution_tool::<refactor_requests::NewBuildingBlockRequest>(
+            "new_building_block",
+            "Create a new building block in the repository, as the PTC Solution Framework's Create New Building Block does on a server: its project, EntryPoint template and Thing, Management shape, Manager template and Thing (not for an abstract block), default and admin groups and organization, as files, plus the project in twaco.toml. The files match what the framework produced on a server. The permission helper and the ui and test types are not created. A dry run unless dry_run is false; an apply takes the workspace lock.",
+            false,
+            refactor::new_building_block_tool,
+        ),
+        solution_tool::<refactor_requests::RetemplateRequest>(
+            "retemplate",
+            "Change a Thing's template (or a template's base template) and/or the shapes it implements, in the repository. The plan lists what the entity and everything inheriting it gains and loses, the stored property values and configuration-table rows left with no definition, and the references to a lost member; such a loss is refused unless accept_loss is true. A dry run unless dry_run is false; an apply takes the workspace lock.",
+            false,
+            refactor::retemplate_tool,
         ),
     ]
 });

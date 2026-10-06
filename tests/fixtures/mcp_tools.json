@@ -617,29 +617,29 @@
     "name": "adopt_report",
     "description": "Compare a designer's Composer <Entities> export with the repository: which services it would revert, which entities it adds or changes (node by node with detail), and which it lacks. Writes nothing.",
     "inputSchema": {
-      "type": "object",
-      "properties": {
-        "export": {
-          "type": "string",
-          "description": "Path to the export, absolute or relative to the solution root."
-        },
-        "entity": {
-          "type": "array",
-          "items": {
-            "type": "string"
-          },
-          "description": "Only entities whose name contains one of these."
-        },
-        "detail": {
-          "type": "boolean",
-          "description": "Return everything instead of the summary.",
-          "default": false
-        }
-      },
       "required": [
         "export"
       ],
-      "additionalProperties": false
+      "additionalProperties": false,
+      "type": "object",
+      "properties": {
+        "export": {
+          "description": "Path to the export, absolute or relative to the solution root.",
+          "type": "string"
+        },
+        "entity": {
+          "description": "Only entities whose name contains one of these.",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "detail": {
+          "description": "Return everything instead of the summary.",
+          "type": "boolean",
+          "default": false
+        }
+      }
     },
     "annotations": {
       "readOnlyHint": true,
@@ -651,11 +651,15 @@
     "name": "adopt_apply",
     "description": "Adopt the mechanical half of a designer's export: mashup content into sidecars, a new mashup's entity file, changed media. Never writes a service or configuration table; run sync afterwards. Takes the workspace lock.",
     "inputSchema": {
+      "required": [
+        "export"
+      ],
+      "additionalProperties": false,
       "type": "object",
       "properties": {
         "export": {
-          "type": "string",
-          "description": "Path to the export, absolute or relative to the solution root."
+          "description": "Path to the export, absolute or relative to the solution root.",
+          "type": "string"
         },
         "entity": {
           "type": "array",
@@ -663,11 +667,7 @@
             "type": "string"
           }
         }
-      },
-      "required": [
-        "export"
-      ],
-      "additionalProperties": false
+      }
     },
     "annotations": {
       "readOnlyHint": false,
@@ -679,6 +679,12 @@
     "name": "rename",
     "description": "Rename one entity, a dotted project/building-block prefix, a DataShape field, a declared service, one service parameter, or a configuration table. A dry run unless dry_run is false; an apply takes the workspace lock. The result carries a plan_digest: pass it back with dry_run false to apply exactly the plan that was reviewed.",
     "inputSchema": {
+      "required": [
+        "kind",
+        "old",
+        "new"
+      ],
+      "additionalProperties": false,
       "type": "object",
       "properties": {
         "kind": {
@@ -694,12 +700,12 @@
           ]
         },
         "scope": {
-          "type": "string",
-          "description": "Entity full name; required for kind field, service or table."
+          "description": "Entity full name; required for kind field, service or table.",
+          "type": "string"
         },
         "service": {
-          "type": "string",
-          "description": "Service name; required for kind param and refused otherwise."
+          "description": "Service name; required for kind param and refused otherwise.",
+          "type": "string"
         },
         "old": {
           "type": "string"
@@ -716,34 +722,28 @@
           "default": false
         },
         "sql": {
+          "description": "Write the database migration script when the rename touches DBConnection tables (into sql/ or sql_dir). Such a rename is refused unless sql or no_sql is given.",
           "type": "boolean",
-          "default": false,
-          "description": "Write the database migration script when the rename touches DBConnection tables (into sql/ or sql_dir). Such a rename is refused unless sql or no_sql is given."
+          "default": false
         },
         "sql_dir": {
-          "type": "string",
-          "description": "Folder for the migration script, relative to the solution; implies sql."
+          "description": "Folder for the migration script, relative to the solution; implies sql.",
+          "type": "string"
         },
         "no_sql": {
+          "description": "The DBConnection tables are not in use: write no script.",
           "type": "boolean",
-          "default": false,
-          "description": "The DBConnection tables are not in use: write no script."
+          "default": false
         },
         "skip_checks": {
           "type": "boolean",
           "default": false
         },
         "plan_digest": {
-          "type": "string",
-          "description": "The plan_digest a dry run returned. With dry_run false, the rename is refused (nothing written) unless the plan is still exactly that one."
+          "description": "The plan_digest a dry run returned. With dry_run false, the rename is refused (nothing written) unless the plan is still exactly that one.",
+          "type": "string"
         }
-      },
-      "required": [
-        "kind",
-        "old",
-        "new"
-      ],
-      "additionalProperties": false
+      }
     },
     "annotations": {
       "readOnlyHint": false,
@@ -755,6 +755,14 @@
     "name": "move_member",
     "description": "Move or copy a service or a property from one Thing, template or shape to another in the repository: the definition (and a service's implementation and sidecar) is lifted out byte for byte and re-indented where it lands. Refuses a name the target, its ancestors or its descendants already use; reports the callers that stop resolving when the target is not something the source inherits; leave_delegate keeps a service on the source that calls the moved one (a Thing target). A dry run unless dry_run is false; an apply takes the workspace lock.",
     "inputSchema": {
+      "required": [
+        "action",
+        "kind",
+        "from",
+        "to",
+        "name"
+      ],
+      "additionalProperties": false,
       "type": "object",
       "properties": {
         "action": {
@@ -772,19 +780,19 @@
           ]
         },
         "from": {
-          "type": "string",
-          "description": "The entity the member is on."
+          "description": "The entity the member is on.",
+          "type": "string"
         },
         "to": {
-          "type": "string",
-          "description": "The entity it goes to."
+          "description": "The entity it goes to.",
+          "type": "string"
         },
         "name": {
           "type": "string"
         },
         "new_name": {
-          "type": "string",
-          "description": "A new name on the target."
+          "description": "A new name on the target.",
+          "type": "string"
         },
         "leave_delegate": {
           "type": "boolean",
@@ -794,15 +802,7 @@
           "type": "boolean",
           "default": true
         }
-      },
-      "required": [
-        "action",
-        "kind",
-        "from",
-        "to",
-        "name"
-      ],
-      "additionalProperties": false
+      }
     },
     "annotations": {
       "readOnlyHint": false,
@@ -814,11 +814,15 @@
     "name": "new_building_block",
     "description": "Create a new building block in the repository, as the PTC Solution Framework's Create New Building Block does on a server: its project, EntryPoint template and Thing, Management shape, Manager template and Thing (not for an abstract block), default and admin groups and organization, as files, plus the project in twaco.toml. The files match what the framework produced on a server. The permission helper and the ui and test types are not created. A dry run unless dry_run is false; an apply takes the workspace lock.",
     "inputSchema": {
+      "required": [
+        "name"
+      ],
+      "additionalProperties": false,
       "type": "object",
       "properties": {
         "name": {
-          "type": "string",
-          "description": "The block's name with its namespace, such as Acme.Orders."
+          "description": "The block's name with its namespace, such as Acme.Orders.",
+          "type": "string"
         },
         "type": {
           "type": "string",
@@ -836,35 +840,31 @@
           "type": "string"
         },
         "parent": {
-          "type": "string",
-          "description": "The abstract block an implementation implements."
+          "description": "The abstract block an implementation implements.",
+          "type": "string"
         },
         "model_logic": {
           "type": "boolean",
           "default": false
         },
         "management_shape": {
+          "description": "An implementation may leave out its Management_TS.",
           "type": "boolean",
-          "default": true,
-          "description": "An implementation may leave out its Management_TS."
+          "default": true
         },
         "root": {
-          "type": "string",
-          "description": "The project's folder, relative to the solution; default the block's name."
+          "description": "The project's folder, relative to the solution; default the block's name.",
+          "type": "string"
         },
         "base_extension": {
-          "type": "string",
-          "description": "PTC.Base:<version>; default what another project of the solution declares."
+          "description": "PTC.Base:<version>; default what another project of the solution declares.",
+          "type": "string"
         },
         "dry_run": {
           "type": "boolean",
           "default": true
         }
-      },
-      "required": [
-        "name"
-      ],
-      "additionalProperties": false
+      }
     },
     "annotations": {
       "readOnlyHint": false,
@@ -876,15 +876,19 @@
     "name": "retemplate",
     "description": "Change a Thing's template (or a template's base template) and/or the shapes it implements, in the repository. The plan lists what the entity and everything inheriting it gains and loses, the stored property values and configuration-table rows left with no definition, and the references to a lost member; such a loss is refused unless accept_loss is true. A dry run unless dry_run is false; an apply takes the workspace lock.",
     "inputSchema": {
+      "required": [
+        "entity"
+      ],
+      "additionalProperties": false,
       "type": "object",
       "properties": {
         "entity": {
-          "type": "string",
-          "description": "The Thing or template to change."
+          "description": "The Thing or template to change.",
+          "type": "string"
         },
         "template": {
-          "type": "string",
-          "description": "The new template (a Thing) or base template (a template)."
+          "description": "The new template (a Thing) or base template (a template).",
+          "type": "string"
         },
         "add_shapes": {
           "type": "array",
@@ -906,11 +910,7 @@
           "type": "boolean",
           "default": true
         }
-      },
-      "required": [
-        "entity"
-      ],
-      "additionalProperties": false
+      }
     },
     "annotations": {
       "readOnlyHint": false,
