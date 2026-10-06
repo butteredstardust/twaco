@@ -148,10 +148,7 @@ mod tests {
     use std::path::PathBuf;
 
     fn setup() -> (PathBuf, Solution) {
-        let nonce = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap()
-            .as_nanos();
+        let nonce = crate::test_nonce();
         let root = std::env::temp_dir()
             .join(format!("twaco-command-sync-{}-{nonce}", std::process::id(),));
         let _ = std::fs::remove_dir_all(&root);

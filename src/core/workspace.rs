@@ -589,10 +589,7 @@ mod tests {
 
     #[test]
     fn atomic_replace_creates_replaces_keeps_no_temporary_and_cleans_up_a_failed_rename() {
-        let nonce = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap()
-            .as_nanos();
+        let nonce = crate::test_nonce();
         let dir = std::env::temp_dir().join(format!("twaco-atomic-{}-{nonce}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         let target = dir.join("a.txt");

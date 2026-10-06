@@ -8,13 +8,10 @@ use serde_json::{json, Value};
 use std::cell::{Cell, RefCell};
 use std::collections::BTreeMap;
 use std::path::PathBuf;
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::time::Duration;
 
 fn temp(label: &str) -> PathBuf {
-    let nonce = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap()
-        .as_nanos();
+    let nonce = crate::test_nonce();
     let root =
         std::env::temp_dir().join(format!("twaco-db-{label}-{}-{nonce}", std::process::id()));
     std::fs::create_dir_all(&root).unwrap();

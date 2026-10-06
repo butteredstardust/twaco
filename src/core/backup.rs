@@ -497,10 +497,7 @@ mod tests {
     }
 
     fn solution() -> (PathBuf, Solution) {
-        let nonce = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap()
-            .as_nanos();
+        let nonce = crate::test_nonce();
         let root =
             std::env::temp_dir().join(format!("twaco-backup-{}-{nonce}", std::process::id()));
         std::fs::create_dir_all(&root).unwrap();

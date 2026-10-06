@@ -283,7 +283,6 @@ mod tests {
     use super::*;
     use crate::core::server::ServerError;
     use serde_json::Value;
-    use std::time::{SystemTime, UNIX_EPOCH};
 
     struct Never;
 
@@ -319,10 +318,7 @@ mod tests {
 
     #[test]
     fn a_pull_plan_does_not_lock_and_an_apply_locks_before_loading_its_profile() {
-        let nonce = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap()
-            .as_nanos();
+        let nonce = crate::test_nonce();
         let root =
             std::env::temp_dir().join(format!("twaco-command-repo-{}-{nonce}", std::process::id()));
         std::fs::create_dir_all(&root).unwrap();
@@ -364,10 +360,7 @@ mod tests {
 
     #[test]
     fn get_output_refuses_an_existing_file_unless_forced() {
-        let nonce = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap()
-            .as_nanos();
+        let nonce = crate::test_nonce();
         let root = std::env::temp_dir().join(format!(
             "twaco-command-repo-get-{}-{nonce}",
             std::process::id()

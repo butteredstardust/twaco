@@ -128,7 +128,6 @@ mod tests {
     use std::collections::BTreeMap;
     use std::path::PathBuf;
     use std::rc::Rc;
-    use std::time::{SystemTime, UNIX_EPOCH};
 
     type Entities = BTreeMap<(String, String), Vec<u8>>;
 
@@ -173,10 +172,7 @@ mod tests {
     }
 
     fn setup() -> (PathBuf, Solution, backup::Set, Fake) {
-        let nonce = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap()
-            .as_nanos();
+        let nonce = crate::test_nonce();
         let root = std::env::temp_dir().join(format!(
             "twaco-command-restore-{}-{nonce}",
             std::process::id()

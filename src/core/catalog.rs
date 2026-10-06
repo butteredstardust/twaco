@@ -414,10 +414,7 @@ mod tests {
     use std::path::PathBuf;
 
     fn fixture() -> (PathBuf, Solution) {
-        let nonce = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap()
-            .as_nanos();
+        let nonce = crate::test_nonce();
         let root =
             std::env::temp_dir().join(format!("twaco-catalog-{}-{nonce}", std::process::id()));
         for collection in ["ThingShapes", "ThingTemplates", "Things"] {

@@ -200,10 +200,7 @@ mod tests {
     use super::*;
 
     fn dir(tag: &str) -> PathBuf {
-        let nonce = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap()
-            .as_nanos();
+        let nonce = crate::test_nonce();
         let dir =
             std::env::temp_dir().join(format!("twaco-ledger-{tag}-{}-{nonce}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
