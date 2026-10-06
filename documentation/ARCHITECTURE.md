@@ -2,7 +2,7 @@
 
 How twaco is built, for anyone changing it. It is one Rust crate: a library (`src/lib.rs`,
 `src/core/`) with two thin front ends, the command line (`src/main.rs`) and the MCP server
-(`src/mcp.rs`). Every behaviour lives in `core`, so the two front ends stay thin and are meant to agree
+(`src/mcp/`). Every behaviour lives in `core`, so the two front ends stay thin and are meant to agree
 wherever they share a feature.
 
 ## Principles
@@ -30,7 +30,7 @@ These decide most design questions. A change that breaks one needs a very good r
 ## Layers
 
 ```text
-main.rs  mcp.rs                 front ends: parse arguments, call core, print or return JSON
+main.rs  mcp/                   front ends: parse arguments, call core, print or return JSON
    \      /
   core::{commands, workflow}    orchestration shared by both: command policy; sync, extract, fmt, types refresh
        |
@@ -103,7 +103,7 @@ See [Testing](TESTING.md) for commands.
    fake it.
 2. Add the CLI route: the command table and dispatch in `main.rs`, and its lines in the usage
    text.
-3. Add the MCP tool in `mcp.rs`: its schema in `tool_definitions`, its route, and its name in
+3. Add the MCP tool in `mcp/definitions.rs: tool_definitions`, its route in `mcp/mod.rs: call_tool`, and its name in
    the `tools/list` test. Writes take `dry_run` defaulting to `true`; results lead with a
    summary.
 4. If it writes the workspace, take the lock (`writes_workspace` in `main.rs`; the MCP route
