@@ -52,10 +52,6 @@ use info::{
     catalog_tool, docs_tool, guide_tool, help_page_tool, help_search_tool, impact_tool,
     javadoc_tool, settings_tool, unused_tool,
 };
-use refactor::{
-    adopt_apply_tool, adopt_tool, move_member_tool, new_building_block_tool, rename_tool,
-    retemplate_tool,
-};
 use schema::validate_arguments;
 
 #[cfg(test)]
@@ -301,12 +297,6 @@ fn call_tool(root: &Path, name: &str, arguments: &Value) -> Option<Result<Value,
         outcome
     } else {
         match name {
-            "adopt_report" => with_solution(root, |s| adopt_tool(s, arguments)),
-            "adopt_apply" => with_solution(root, |s| adopt_apply_tool(s, arguments)),
-            "rename" => with_solution(root, |s| rename_tool(s, arguments)),
-            "move_member" => with_solution(root, |s| move_member_tool(s, arguments)),
-            "retemplate" => with_solution(root, |s| retemplate_tool(s, arguments)),
-            "new_building_block" => with_solution(root, |s| new_building_block_tool(s, arguments)),
             "db_query" => with_solution(root, |s| db_tool(s, arguments, db::Mode::Query)),
             "db_clean" => with_solution(root, |s| db_clean_tool(s, arguments)),
             "datatable_copy" => with_solution(root, |s| datatable_copy_tool(s, arguments)),
@@ -368,6 +358,13 @@ pub(crate) fn required<'a>(arguments: &'a Value, name: &str) -> Result<&'a str, 
         .ok_or_else(|| ToolError::invalid(format!("`{name}` is required")))
 }
 
+/// A text argument the tool cannot do without: an empty one is as missing as an absent one.
+pub(crate) fn nonempty<'a>(value: &'a str, name: &str) -> Result<&'a str, ToolError> {
+    Some(value)
+        .filter(|value| !value.is_empty())
+        .ok_or_else(|| ToolError::invalid(format!("`{name}` is required")))
+}
+
 pub(crate) fn client(solution: &Solution, arguments: &Value) -> Result<server::Client, ToolError> {
     client_for(solution, text(arguments, "profile").unwrap_or("default"))
 }
@@ -414,20 +411,6 @@ fn projects(solution: &Solution) -> Result<Value, ToolError> {
         "projects": projects,
         "unreadable": found.unreadable,
     }))
-}
-
-pub(crate) fn strings(arguments: &Value, name: &str) -> Vec<String> {
-    arguments
-        .get(name)
-        .and_then(Value::as_array)
-        .map(|items| {
-            items
-                .iter()
-                .filter_map(Value::as_str)
-                .map(str::to_string)
-                .collect()
-        })
-        .unwrap_or_default()
 }
 
 pub(crate) fn add_notices(result: &mut Value, notices: &commands::Notices) {

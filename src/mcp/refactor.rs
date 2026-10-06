@@ -1,15 +1,22 @@
+use super::requests::refactor::{
+    AdoptApplyRequest, AdoptReportRequest, MoveMemberRequest, NewBuildingBlockRequest,
+    RenameRequest, RetemplateRequest,
+};
 use super::source::add_types_refresh;
 use super::*;
 
-pub(crate) fn move_member_tool(solution: &Solution, arguments: &Value) -> Result<Value, ToolError> {
-    let dry_run = flag(arguments, "dry_run", true);
-    let action = required(arguments, "action")?;
+pub(crate) fn move_member_tool(
+    solution: &Solution,
+    arguments: MoveMemberRequest,
+) -> Result<Value, ToolError> {
+    let dry_run = arguments.dry_run;
+    let action = arguments.action.as_str();
     if !matches!(action, "move" | "copy") {
         return Err(ToolError::invalid(format!(
             "unknown action `{action}`; use `move` or `copy`"
         )));
     }
-    let kind = required(arguments, "kind")?;
+    let kind = arguments.kind.as_str();
     let member = relocate::Member::from_word(kind).ok_or_else(|| {
         ToolError::invalid(format!(
             "unknown kind `{kind}`; use `service` or `property`"
@@ -18,11 +25,11 @@ pub(crate) fn move_member_tool(solution: &Solution, arguments: &Value) -> Result
     let request = relocate::Request {
         member,
         copy: action == "copy",
-        from: required(arguments, "from")?.to_string(),
-        to: required(arguments, "to")?.to_string(),
-        name: required(arguments, "name")?.to_string(),
-        new_name: text(arguments, "new_name").map(str::to_string),
-        leave_delegate: flag(arguments, "leave_delegate", false),
+        from: nonempty(&arguments.from, "from")?.to_string(),
+        to: nonempty(&arguments.to, "to")?.to_string(),
+        name: nonempty(&arguments.name, "name")?.to_string(),
+        new_name: arguments.new_name.as_ref().cloned(),
+        leave_delegate: arguments.leave_delegate,
     };
     let request = commands::relocate::RelocateRequest {
         request,
@@ -46,27 +53,25 @@ pub(crate) fn move_member_tool(solution: &Solution, arguments: &Value) -> Result
 
 pub(crate) fn new_building_block_tool(
     solution: &Solution,
-    arguments: &Value,
+    arguments: NewBuildingBlockRequest,
 ) -> Result<Value, ToolError> {
-    let dry_run = flag(arguments, "dry_run", true);
-    let kind_word = text(arguments, "type").unwrap_or("standard");
+    let dry_run = arguments.dry_run;
+    let kind_word = arguments.r#type.as_str();
     let kind = newblock::BlockType::from_word(kind_word).ok_or_else(|| {
         ToolError::invalid(format!(
             "unknown type `{kind_word}`; use standard, abstract or implementation"
         ))
     })?;
     let request = newblock::Request {
-        name: required(arguments, "name")?.to_string(),
+        name: nonempty(&arguments.name, "name")?.to_string(),
         kind,
-        display_name: text(arguments, "display_name").map(str::to_string),
-        description: text(arguments, "description")
-            .unwrap_or_default()
-            .to_string(),
-        parent: text(arguments, "parent").map(str::to_string),
-        model_logic: flag(arguments, "model_logic", false),
-        management_shape: flag(arguments, "management_shape", true),
-        root: text(arguments, "root").map(str::to_string),
-        base_extension: text(arguments, "base_extension").map(str::to_string),
+        display_name: arguments.display_name.as_ref().cloned(),
+        description: arguments.description.as_ref().cloned().unwrap_or_default(),
+        parent: arguments.parent.as_ref().cloned(),
+        model_logic: arguments.model_logic,
+        management_shape: arguments.management_shape,
+        root: arguments.root.as_ref().cloned(),
+        base_extension: arguments.base_extension.as_ref().cloned(),
     };
     let result_name = request.name.clone();
     let result_kind = request.kind;
@@ -100,14 +105,17 @@ pub(crate) fn new_building_block_tool(
     Ok(result)
 }
 
-pub(crate) fn retemplate_tool(solution: &Solution, arguments: &Value) -> Result<Value, ToolError> {
-    let dry_run = flag(arguments, "dry_run", true);
+pub(crate) fn retemplate_tool(
+    solution: &Solution,
+    arguments: RetemplateRequest,
+) -> Result<Value, ToolError> {
+    let dry_run = arguments.dry_run;
     let request = retemplate::Request {
-        entity: required(arguments, "entity")?.to_string(),
-        template: text(arguments, "template").map(str::to_string),
-        add_shapes: strings(arguments, "add_shapes"),
-        remove_shapes: strings(arguments, "remove_shapes"),
-        accept_loss: flag(arguments, "accept_loss", false),
+        entity: nonempty(&arguments.entity, "entity")?.to_string(),
+        template: arguments.template.as_ref().cloned(),
+        add_shapes: arguments.add_shapes.items().to_vec(),
+        remove_shapes: arguments.remove_shapes.items().to_vec(),
+        accept_loss: arguments.accept_loss,
     };
     let request = commands::retemplate::RetemplateRequest {
         request,
@@ -128,8 +136,11 @@ pub(crate) fn retemplate_tool(solution: &Solution, arguments: &Value) -> Result<
     Ok(result)
 }
 
-pub(crate) fn adopt_apply_tool(solution: &Solution, arguments: &Value) -> Result<Value, ToolError> {
-    let export = required(arguments, "export")?;
+pub(crate) fn adopt_apply_tool(
+    solution: &Solution,
+    arguments: AdoptApplyRequest,
+) -> Result<Value, ToolError> {
+    let export = nonempty(&arguments.export, "export")?;
     let export = {
         let path = PathBuf::from(export);
         if path.is_absolute() {
@@ -138,17 +149,7 @@ pub(crate) fn adopt_apply_tool(solution: &Solution, arguments: &Value) -> Result
             solution.root.join(path)
         }
     };
-    let only: Vec<String> = arguments
-        .get("entity")
-        .and_then(Value::as_array)
-        .map(|items| {
-            items
-                .iter()
-                .filter_map(Value::as_str)
-                .map(str::to_string)
-                .collect()
-        })
-        .unwrap_or_default();
+    let only = arguments.entity.items().to_vec();
     let request = commands::adopt::AdoptRequest {
         export,
         only,
@@ -174,8 +175,11 @@ pub(crate) fn adopt_apply_tool(solution: &Solution, arguments: &Value) -> Result
     Ok(result)
 }
 
-pub(crate) fn adopt_tool(solution: &Solution, arguments: &Value) -> Result<Value, ToolError> {
-    let export = required(arguments, "export")?;
+pub(crate) fn adopt_tool(
+    solution: &Solution,
+    arguments: AdoptReportRequest,
+) -> Result<Value, ToolError> {
+    let export = nonempty(&arguments.export, "export")?;
     let export = {
         let path = PathBuf::from(export);
         if path.is_absolute() {
@@ -184,17 +188,7 @@ pub(crate) fn adopt_tool(solution: &Solution, arguments: &Value) -> Result<Value
             solution.root.join(path)
         }
     };
-    let only: Vec<String> = arguments
-        .get("entity")
-        .and_then(Value::as_array)
-        .map(|items| {
-            items
-                .iter()
-                .filter_map(Value::as_str)
-                .map(str::to_string)
-                .collect()
-        })
-        .unwrap_or_default();
+    let only = arguments.entity.items().to_vec();
     let request = commands::adopt::AdoptRequest {
         export,
         only,
@@ -207,7 +201,7 @@ pub(crate) fn adopt_tool(solution: &Solution, arguments: &Value) -> Result<Value
     let commands::adopt::AdoptOutcome::Plan { report, .. } = outcome else {
         unreachable!("an adopt report request has a plan outcome")
     };
-    let detail = flag(arguments, "detail", false);
+    let detail = arguments.detail;
     let services: Vec<Value> = report
         .services
         .iter()
@@ -252,29 +246,32 @@ pub(crate) fn adopt_tool(solution: &Solution, arguments: &Value) -> Result<Value
     Ok(result)
 }
 
-pub(crate) fn rename_tool(solution: &Solution, arguments: &Value) -> Result<Value, ToolError> {
-    let word = required(arguments, "kind")?;
+pub(crate) fn rename_tool(
+    solution: &Solution,
+    arguments: RenameRequest,
+) -> Result<Value, ToolError> {
+    let word = arguments.kind.as_str();
     let kind = rename::Kind::from_word(word).ok_or_else(|| {
         ToolError::invalid(format!(
             "unknown rename kind `{word}`; use {}",
             rename::Kind::list_words()
         ))
     })?;
-    let dry_run = flag(arguments, "dry_run", true);
+    let dry_run = arguments.dry_run;
     let request = rename::Request {
         kind,
-        scope: text(arguments, "scope").map(str::to_string),
-        service: text(arguments, "service").map(str::to_string),
-        old: required(arguments, "old")?.to_string(),
-        new: required(arguments, "new")?.to_string(),
+        scope: arguments.scope.as_ref().cloned(),
+        service: arguments.service.as_ref().cloned(),
+        old: nonempty(&arguments.old, "old")?.to_string(),
+        new: nonempty(&arguments.new, "new")?.to_string(),
         apply: !dry_run,
-        include_outside: flag(arguments, "include_outside", false),
-        skip_checks: flag(arguments, "skip_checks", false),
-        expect_digest: text(arguments, "plan_digest").map(str::to_string),
+        include_outside: arguments.include_outside,
+        skip_checks: arguments.skip_checks,
+        expect_digest: arguments.plan_digest.as_ref().cloned(),
         database: rename::DatabaseFlags {
-            sql: flag(arguments, "sql", false),
-            no_sql: flag(arguments, "no_sql", false),
-            dir: text(arguments, "sql_dir").map(str::to_string),
+            sql: arguments.sql,
+            no_sql: arguments.no_sql,
+            dir: arguments.sql_dir.as_ref().cloned(),
         },
     };
     let request = commands::rename::RenameRequest {
@@ -286,12 +283,8 @@ pub(crate) fn rename_tool(solution: &Solution, arguments: &Value) -> Result<Valu
     let mut notices = commands::Notices::default();
     let outcome =
         commands::rename::execute(solution, &request, &mut notices).map_err(ToolError::coded)?;
-    let mut result = rename::summary_json(
-        solution,
-        outcome.outcome(),
-        flag(arguments, "include_outside", false),
-        10,
-    );
+    let mut result =
+        rename::summary_json(solution, outcome.outcome(), arguments.include_outside, 10);
     add_notices(&mut result, &notices);
     Ok(result)
 }
