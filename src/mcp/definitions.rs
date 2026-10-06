@@ -39,13 +39,6 @@ pub(crate) fn tool_definitions_for(protocol: &str) -> Vec<Value> {
     definitions
 }
 
-#[cfg(test)]
-pub(crate) fn legacy_definition(name: &str) -> Option<Value> {
-    legacy_tool_definitions()
-        .into_iter()
-        .find(|definition| definition["name"] == name)
-}
-
 fn legacy_tool_definitions() -> Vec<Value> {
     vec![
         tool(

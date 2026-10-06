@@ -4,7 +4,6 @@ use super::*;
 use crate::core::datashape;
 use crate::core::lock;
 use serde::de::DeserializeOwned;
-use serde::Serialize;
 
 /// Run a whole conversation through `serve` and return the responses, one per line.
 fn converse(root: &Path, messages: &[Value]) -> Vec<Value> {
@@ -188,99 +187,188 @@ fn generated_schemas_are_valid_conservative_json_schema() {
     }
 }
 
-#[test]
-fn typed_request_contract_matches_the_legacy_validator() {
-    const CONTRACT: &str = concat!(
+/// The tool definitions as they were written by hand, before any was generated.
+fn hand_written_tools() -> Vec<Value> {
+    const HAND_WRITTEN: &str = concat!(
         env!("CARGO_MANIFEST_DIR"),
-        "/tests/fixtures/mcp_input_contract.json"
+        "/tests/fixtures/mcp_tools_hand_written.json"
     );
-    let cases: Map<String, Value> =
-        serde_json::from_str(&std::fs::read_to_string(CONTRACT).unwrap()).unwrap();
-    for (name, values) in cases {
-        let legacy = definitions::legacy_definition(&name).unwrap();
-        let values = values.as_array().unwrap();
-        let mut inputs = values.clone();
-        for value in values {
-            if let Some(object) = value.as_object() {
-                let mut mutation = object.clone();
-                mutation.insert("unknown_argument".to_string(), json!(true));
-                inputs.push(Value::Object(mutation));
+    serde_json::from_str(&std::fs::read_to_string(HAND_WRITTEN).unwrap()).unwrap()
+}
+
+/// A value that fits a property, for every way the hand-written schema allows one.
+fn fitting_values(property: &Value) -> Vec<Value> {
+    let mut values = Vec::new();
+    if let Some(default) = property.get("default") {
+        values.push(default.clone());
+    }
+    if let Some(allowed) = property["enum"].as_array() {
+        values.extend(allowed.iter().cloned());
+        return values;
+    }
+    match property["type"].as_str() {
+        Some("string") => values.extend([json!("x"), json!("")]),
+        Some("boolean") => values.extend([json!(true), json!(false)]),
+        Some("integer") => {
+            let minimum = property["minimum"].as_u64().unwrap_or(0);
+            values.extend([
+                json!(minimum),
+                json!(minimum + 1),
+                json!(minimum.saturating_sub(1)),
+            ]);
+        }
+        Some("array") => values.extend([json!([]), json!(["x"]), json!([1])]),
+        Some("object") => values.extend([json!({}), json!({"x": "y"}), json!({"x": 1})]),
+        _ => {}
+    }
+    values
+}
+
+fn misfitting_values() -> Vec<Value> {
+    vec![
+        json!(null),
+        json!(1),
+        json!(-1),
+        json!("zzz"),
+        json!(true),
+        json!([]),
+        json!({}),
+    ]
+}
+
+/// Every argument object worth asking a tool about, made from its hand-written schema: the
+/// minimum, each property fitting and misfitting, a required property missing, an unknown one.
+fn contract_inputs(schema: &Value) -> Vec<Value> {
+    let properties = schema["properties"].as_object().unwrap();
+    let required: Vec<&str> = schema["required"]
+        .as_array()
+        .map(|names| names.iter().filter_map(Value::as_str).collect())
+        .unwrap_or_default();
+    let mut base = Map::new();
+    for name in &required {
+        base.insert(
+            (*name).to_string(),
+            fitting_values(&properties[*name]).remove(0),
+        );
+    }
+    let mut inputs = vec![
+        json!({}),
+        Value::Object(base.clone()),
+        json!(null),
+        json!([]),
+        json!("x"),
+    ];
+    for (name, property) in properties {
+        for value in fitting_values(property)
+            .into_iter()
+            .chain(misfitting_values())
+        {
+            let mut input = base.clone();
+            input.insert(name.clone(), value);
+            inputs.push(Value::Object(input));
+        }
+    }
+    for name in &required {
+        let mut input = base.clone();
+        input.remove(*name);
+        inputs.push(Value::Object(input));
+    }
+    let mut unknown = base;
+    unknown.insert("unknown_argument".to_string(), json!(true));
+    inputs.push(Value::Object(unknown));
+    inputs
+}
+
+#[test]
+fn typed_requests_accept_and_reject_what_the_hand_written_schemas_did() {
+    let mut checked = 0;
+    for tool in hand_written_tools() {
+        let name = tool["name"].as_str().unwrap();
+        for arguments in contract_inputs(&tool["inputSchema"]) {
+            let Some(typed) = registry::accepts(name, &arguments) else {
+                break;
+            };
+            let old = legacy_schema(&tool["inputSchema"], &arguments);
+            assert_eq!(
+                old.is_ok(),
+                typed.is_ok(),
+                "{name}: {arguments}: hand-written {old:?}, typed {typed:?}"
+            );
+            if let (Err(old), Err(typed)) = (&old, &typed) {
+                assert_eq!(old, typed, "{name}: {arguments}");
+            }
+            checked += 1;
+        }
+    }
+    assert!(checked > 100, "only {checked} inputs were compared");
+}
+
+/// What a client can read from a property of a schema, without the order of its keys.
+fn meaning(schema: &Value) -> Value {
+    let mut normalised = schema.clone();
+    if let Some(object) = normalised.as_object_mut() {
+        if object
+            .get("required")
+            .is_some_and(|required| required == &json!([]))
+        {
+            object.remove("required");
+        }
+        if object["type"] == "object" {
+            object.entry("properties").or_insert_with(|| json!({}));
+        }
+        if let Some(properties) = object.get_mut("properties").and_then(Value::as_object_mut) {
+            for property in properties.values_mut() {
+                *property = meaning(property);
             }
         }
-        for arguments in inputs {
-            let old = legacy_schema(&legacy["inputSchema"], &arguments).is_ok();
-            let new = match name.as_str() {
-                "push" => {
-                    requests::common::parse::<requests::entity::PushRequest>(&arguments).is_ok()
-                }
-                "repo" => {
-                    requests::common::parse::<requests::content::RepoRequest>(&arguments).is_ok()
-                }
-                "db_run" => {
-                    requests::common::parse::<requests::data::DbRunRequest>(&arguments).is_ok()
-                }
-                _ => unreachable!(),
-            };
-            assert_eq!(old, new, "{name}: {arguments}");
-            if new {
-                let generated = tool_definitions()
-                    .into_iter()
-                    .find(|tool| tool["name"] == name)
-                    .unwrap();
-                match name.as_str() {
-                    "push" => round_trip::<requests::entity::PushRequest>(
-                        &generated["inputSchema"],
-                        &arguments,
-                    ),
-                    "repo" => round_trip::<requests::content::RepoRequest>(
-                        &generated["inputSchema"],
-                        &arguments,
-                    ),
-                    "db_run" => round_trip::<requests::data::DbRunRequest>(
-                        &generated["inputSchema"],
-                        &arguments,
-                    ),
-                    _ => unreachable!(),
-                }
-            }
+    }
+    normalised
+}
+
+#[test]
+fn generated_schemas_mean_what_the_hand_written_ones_did() {
+    for tool in hand_written_tools() {
+        let name = tool["name"].as_str().unwrap();
+        let Some(generated) = registry::definition(name, LATEST) else {
+            continue;
+        };
+        assert_eq!(
+            meaning(&generated["inputSchema"]),
+            meaning(&tool["inputSchema"]),
+            "{name}"
+        );
+        for key in ["description", "annotations"] {
+            assert_eq!(generated[key], tool[key], "{name}: {key}");
         }
     }
 }
 
-fn round_trip<T>(schema: &Value, arguments: &Value)
-where
-    T: DeserializeOwned + schemars::JsonSchema + Serialize,
-{
-    let request = requests::common::parse::<T>(arguments).unwrap();
-    let encoded = serde_json::to_value(request).unwrap();
-    assert!(jsonschema::draft202012::is_valid(schema, &encoded));
-    assert!(requests::common::parse::<T>(&encoded).is_ok());
+fn parse_typed<T: DeserializeOwned + schemars::JsonSchema>(arguments: &Value) -> Result<T, String> {
+    requests::common::parse(&requests::common::schema::<T>(), arguments)
 }
 
 #[test]
 fn typed_requests_keep_defaults_and_argument_errors() {
-    let push =
-        requests::common::parse::<requests::entity::PushRequest>(&json!({"entity":"P.T"})).unwrap();
+    let push = parse_typed::<requests::entity::PushRequest>(&json!({"entity":"P.T"})).unwrap();
     assert!(push.dry_run);
     assert!(!push.force);
     assert!(push.backup);
     assert_eq!(push.profile, "default");
 
-    let repo = requests::common::parse::<requests::content::RepoRequest>(&json!({})).unwrap();
+    let repo = parse_typed::<requests::content::RepoRequest>(&json!({})).unwrap();
     assert_eq!(repo.max_chars, 100_000);
     assert!(!repo.detail);
 
-    let db = requests::common::parse::<requests::data::DbRunRequest>(&json!({})).unwrap();
+    let db = parse_typed::<requests::data::DbRunRequest>(&json!({})).unwrap();
     assert_eq!(db.timeout, 120);
     assert!(db.dry_run);
 
     assert_eq!(
-        requests::common::parse::<requests::entity::PushRequest>(&json!({"entity":null}))
-            .unwrap_err(),
+        parse_typed::<requests::entity::PushRequest>(&json!({"entity":null})).unwrap_err(),
         "`entity` must be a string, not null"
     );
     assert_eq!(
-        requests::common::parse::<requests::data::DbRunRequest>(&json!({"unknown":true}))
+        parse_typed::<requests::data::DbRunRequest>(&json!({"unknown":true}))
             .unwrap_err(),
         "this tool takes no argument `unknown` (it takes: dry_run, file, no_transaction, profile, sql, thing, timeout)"
     );

@@ -48,7 +48,6 @@ use data::{
     call_service_tool, config_table_tool, datatable_copy_tool, db_clean_tool, db_tool,
     log_level_tool, logs_tool,
 };
-use entity::{entity_carry_tool, entity_delete_tool, entity_restore_tool, status_tool};
 use info::{
     catalog_tool, docs_tool, guide_tool, help_page_tool, help_search_tool, impact_tool,
     javadoc_tool, settings_tool, unused_tool,
@@ -299,26 +298,21 @@ pub(crate) fn tool_result(outcome: Result<Value, ToolError>, protocol: &str) -> 
 
 fn call_tool(root: &Path, name: &str, arguments: &Value) -> Option<Result<Value, ToolError>> {
     let started = Instant::now();
-    let outcome = if let Some(outcome) = registry::call_with_solution(root, name, arguments) {
+    let outcome = if let Some(outcome) = registry::call(root, name, arguments) {
         outcome
     } else {
         match name {
-            "projects" => with_solution(root, projects),
             "types" => with_solution(root, |s| types_tool(s, arguments)),
             "check" => with_solution(root, |s| check_tool(s, arguments)),
-            "status" => with_solution(root, |s| status_tool(s, arguments)),
             "sync" => with_solution(root, |s| sync_tool(s, arguments)),
             "extract" => with_solution(root, |s| extract_tool(s, arguments)),
             "fmt" => with_solution(root, |s| fmt_tool(s, arguments)),
             "adopt_report" => with_solution(root, |s| adopt_tool(s, arguments)),
             "adopt_apply" => with_solution(root, |s| adopt_apply_tool(s, arguments)),
             "rename" => with_solution(root, |s| rename_tool(s, arguments)),
-            "entity_delete" => with_solution(root, |s| entity_delete_tool(s, arguments)),
-            "entity_carry" => with_solution(root, |s| entity_carry_tool(s, arguments)),
             "move_member" => with_solution(root, |s| move_member_tool(s, arguments)),
             "retemplate" => with_solution(root, |s| retemplate_tool(s, arguments)),
             "new_building_block" => with_solution(root, |s| new_building_block_tool(s, arguments)),
-            "entity_restore" => with_solution(root, |s| entity_restore_tool(s, arguments)),
             "db_query" => with_solution(root, |s| db_tool(s, arguments, db::Mode::Query)),
             "db_clean" => with_solution(root, |s| db_clean_tool(s, arguments)),
             "datatable_copy" => with_solution(root, |s| datatable_copy_tool(s, arguments)),

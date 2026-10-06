@@ -1,3 +1,4 @@
+use super::common::{default_profile, default_true, Absent};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
@@ -17,10 +18,86 @@ pub(crate) struct PushRequest {
     pub(crate) profile: String,
 }
 
-fn default_true() -> bool {
-    true
+#[derive(Debug, Deserialize, JsonSchema, Serialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct StatusRequest {
+    /// One entity name, full or its last dotted segment. Name one, or pass all: true.
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) entity: Absent<String>,
+    /// Every entity (of the project, if one is named).
+    #[serde(default)]
+    pub(crate) all: bool,
+    /// Narrow to one project of the solution.
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) project: Absent<String>,
+    /// Record a baseline for every entity whose two sides agree. Writes .twaco/baseline.json under the workspace lock.
+    #[serde(default)]
+    pub(crate) record: bool,
+    /// Server profile name.
+    #[serde(default = "default_profile")]
+    pub(crate) profile: String,
+    /// Return everything instead of the summary.
+    #[serde(default)]
+    pub(crate) detail: bool,
 }
 
-fn default_profile() -> String {
-    "default".to_string()
+#[derive(Debug, Deserialize, JsonSchema, Serialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct EntityDeleteRequest {
+    /// Entities to delete; may be empty when renamed is true.
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) entities: Absent<Vec<String>>,
+    #[serde(default)]
+    pub(crate) renamed: bool,
+    #[serde(default)]
+    pub(crate) allow_repository_defined: bool,
+    #[serde(default)]
+    pub(crate) allow_outside_dependents: bool,
+    #[serde(default)]
+    pub(crate) allow_file_repository_data_loss: bool,
+    /// Deprecated: means allow_repository_defined and allow_outside_dependents; never accepts FileRepository data loss.
+    #[serde(default)]
+    pub(crate) force: bool,
+    #[serde(default = "default_true")]
+    pub(crate) dry_run: bool,
+    /// Save the server's copy of every entity under .twaco/backups before deleting (default true); a failed backup deletes nothing.
+    #[serde(default = "default_true")]
+    pub(crate) backup: bool,
+    /// Server profile name.
+    #[serde(default = "default_profile")]
+    pub(crate) profile: String,
+}
+
+#[derive(Debug, Deserialize, JsonSchema, Serialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct EntityRestoreRequest {
+    /// A set id from the listing; omit to list sets.
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) set: Absent<String>,
+    /// Only these (Collection/Name or a bare name).
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) entities: Absent<Vec<String>>,
+    #[serde(default = "default_true")]
+    pub(crate) dry_run: bool,
+    /// Server profile name.
+    #[serde(default = "default_profile")]
+    pub(crate) profile: String,
+}
+
+#[derive(Debug, Deserialize, JsonSchema, Serialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct EntityCarryRequest {
+    /// Collection/Old, Collection/New, in pairs; may be empty when renamed is true.
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) pairs: Absent<Vec<String>>,
+    #[serde(default)]
+    pub(crate) renamed: bool,
+    #[serde(default = "default_true")]
+    pub(crate) dry_run: bool,
+    /// Also ask the platform for its own difference count.
+    #[serde(default)]
+    pub(crate) detail: bool,
+    /// Server profile name.
+    #[serde(default = "default_profile")]
+    pub(crate) profile: String,
 }

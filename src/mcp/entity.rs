@@ -1,8 +1,11 @@
+use super::requests::entity::{
+    EntityCarryRequest, EntityDeleteRequest, EntityRestoreRequest, PushRequest, StatusRequest,
+};
 use super::*;
 
-pub(crate) fn status_tool(solution: &Solution, arguments: &Value) -> Result<Value, ToolError> {
-    let record = flag(arguments, "record", false);
-    let target = match (text(arguments, "entity"), flag(arguments, "all", false)) {
+pub(crate) fn status_tool(solution: &Solution, request: StatusRequest) -> Result<Value, ToolError> {
+    let record = request.record;
+    let target = match (request.entity.as_deref(), request.all) {
         (Some(_), true) => {
             return Err(ToolError::invalid(
                 "name an entity or pass all: true, not both",
@@ -12,18 +15,18 @@ pub(crate) fn status_tool(solution: &Solution, arguments: &Value) -> Result<Valu
         (None, true) => commands::status::StatusTarget::All,
         (None, false) => return Err(ToolError::invalid("name an entity, or pass all: true")),
     };
-    let request = commands::status::StatusRequest {
+    let command = commands::status::StatusRequest {
         target,
-        project: text(arguments, "project").map(str::to_string),
+        project: request.project.as_ref().cloned(),
         record,
-        profile: text(arguments, "profile").unwrap_or("default").to_string(),
+        profile: request.profile.clone(),
         lock_label: "mcp status --record",
         refuse_unreadable: record,
         refuse_record_failures: record,
     };
     let mut notices = commands::Notices::default();
     let outcome =
-        match commands::status::execute(solution, &request, server::Client::new, &mut notices) {
+        match commands::status::execute(solution, &command, server::Client::new, &mut notices) {
             Ok(outcome) => outcome,
             Err(commands::status::StatusCommandError::Unreadable(items)) if record => {
                 return Err(ToolError::with(
@@ -41,7 +44,7 @@ pub(crate) fn status_tool(solution: &Solution, arguments: &Value) -> Result<Valu
         .into_iter()
         .map(|(v, n)| (v.label().to_string(), json!(n)))
         .collect();
-    let detail = flag(arguments, "detail", false);
+    let detail = request.detail;
     let listed: Vec<Value> = outcome.statuses
         .iter()
         .filter(|s| detail || s.verdict.is_drift())
@@ -86,10 +89,7 @@ pub(crate) fn refusal_code(refusal: &push::Refusal) -> &'static str {
     }
 }
 
-pub(crate) fn push_tool(
-    solution: &Solution,
-    request: crate::mcp::requests::entity::PushRequest,
-) -> Result<Value, ToolError> {
+pub(crate) fn push_tool(solution: &Solution, request: PushRequest) -> Result<Value, ToolError> {
     let dry_run = request.dry_run;
     let force = request.force;
     let request = commands::push::PushRequest {
@@ -186,23 +186,23 @@ pub(crate) fn push_outcome_json(
 
 pub(crate) fn entity_delete_tool(
     solution: &Solution,
-    arguments: &Value,
+    request: EntityDeleteRequest,
 ) -> Result<Value, ToolError> {
-    let dry_run = flag(arguments, "dry_run", true);
+    let dry_run = request.dry_run;
     let (acknowledged, force_used) = entity_delete::acknowledged(
-        flag(arguments, "force", false),
-        flag(arguments, "allow_repository_defined", false),
-        flag(arguments, "allow_outside_dependents", false),
-        flag(arguments, "allow_file_repository_data_loss", false),
+        request.force,
+        request.allow_repository_defined,
+        request.allow_outside_dependents,
+        request.allow_file_repository_data_loss,
     );
     let request = commands::delete::EntityDeleteRequest {
-        entities: strings(arguments, "entities"),
-        renamed: flag(arguments, "renamed", false),
+        entities: request.entities.items().to_vec(),
+        renamed: request.renamed,
         mode: if dry_run { Mode::Plan } else { Mode::Apply },
         acknowledgements: acknowledged,
         legacy_force_used: force_used,
-        backup: flag(arguments, "backup", true),
-        profile: text(arguments, "profile").unwrap_or("default").to_string(),
+        backup: request.backup,
+        profile: request.profile,
     };
     let mut notices = commands::Notices::default();
     let outcome = commands::delete::execute(solution, &request, server::Client::new, &mut notices)
@@ -244,16 +244,18 @@ pub(crate) fn entity_delete_tool(
 
 pub(crate) fn entity_restore_tool(
     solution: &Solution,
-    arguments: &Value,
+    request: EntityRestoreRequest,
 ) -> Result<Value, ToolError> {
-    let dry_run = flag(arguments, "dry_run", true);
+    let dry_run = request.dry_run;
     let request = commands::restore::RestoreRequest {
-        set: text(arguments, "set")
+        set: request
+            .set
+            .as_deref()
             .filter(|id| !id.is_empty())
             .map(str::to_string),
-        only: strings(arguments, "entities"),
+        only: request.entities.items().to_vec(),
         mode: if dry_run { Mode::Plan } else { Mode::Apply },
-        profile: text(arguments, "profile").unwrap_or("default").to_string(),
+        profile: request.profile,
     };
     let mut notices = commands::Notices::default();
     let outcome = commands::restore::execute(solution, &request, server::Client::new, &mut notices)
@@ -281,17 +283,16 @@ pub(crate) fn entity_restore_tool(
 
 pub(crate) fn entity_carry_tool(
     solution: &Solution,
-    arguments: &Value,
+    request: EntityCarryRequest,
 ) -> Result<Value, ToolError> {
-    let dry_run = flag(arguments, "dry_run", true);
-    let pairs =
-        entity_carry::pairs_from_names(&strings(arguments, "pairs")).map_err(ToolError::coded)?;
+    let dry_run = request.dry_run;
+    let pairs = entity_carry::pairs_from_names(request.pairs.items()).map_err(ToolError::coded)?;
     let request = commands::carry::CarryRequest {
         pairs,
-        renamed: flag(arguments, "renamed", false),
+        renamed: request.renamed,
         mode: if dry_run { Mode::Plan } else { Mode::Apply },
-        detail: flag(arguments, "detail", false),
-        profile: text(arguments, "profile").unwrap_or("default").to_string(),
+        detail: request.detail,
+        profile: request.profile,
         lock_label: "mcp entity_carry",
     };
     let mut notices = commands::Notices::default();

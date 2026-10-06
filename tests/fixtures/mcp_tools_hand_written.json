@@ -3,8 +3,10 @@
     "name": "projects",
     "description": "The solution's ThingWorx projects, their roots, their deploy order and how many entity documents each holds.",
     "inputSchema": {
-      "additionalProperties": false,
-      "type": "object"
+      "type": "object",
+      "properties": {},
+      "required": [],
+      "additionalProperties": false
     },
     "annotations": {
       "readOnlyHint": true,
@@ -81,38 +83,39 @@
     "name": "status",
     "description": "Compare entities with the server and the recorded baseline: in-sync, local-changed, server-changed, both-changed, not-on-server, or no baseline yet. Lists every entity that needs attention.",
     "inputSchema": {
-      "additionalProperties": false,
+      "type": "object",
       "properties": {
         "entity": {
-          "description": "One entity name, full or its last dotted segment. Name one, or pass all: true.",
-          "type": "string"
+          "type": "string",
+          "description": "One entity name, full or its last dotted segment. Name one, or pass all: true."
         },
         "all": {
-          "description": "Every entity (of the project, if one is named).",
           "type": "boolean",
-          "default": false
+          "default": false,
+          "description": "Every entity (of the project, if one is named)."
         },
         "project": {
-          "description": "Narrow to one project of the solution.",
-          "type": "string"
+          "type": "string",
+          "description": "Narrow to one project of the solution."
         },
         "record": {
-          "description": "Record a baseline for every entity whose two sides agree. Writes .twaco/baseline.json under the workspace lock.",
           "type": "boolean",
-          "default": false
+          "default": false,
+          "description": "Record a baseline for every entity whose two sides agree. Writes .twaco/baseline.json under the workspace lock."
         },
         "profile": {
-          "description": "Server profile name.",
           "type": "string",
+          "description": "Server profile name.",
           "default": "default"
         },
         "detail": {
-          "description": "Return everything instead of the summary.",
           "type": "boolean",
+          "description": "Return everything instead of the summary.",
           "default": false
         }
       },
-      "type": "object"
+      "required": [],
+      "additionalProperties": false
     },
     "annotations": {
       "readOnlyHint": false,
@@ -215,10 +218,6 @@
     "name": "push",
     "description": "Import one entity's file to the server. Refuses when the server changed since the last sync, was deleted there, or has no baseline, unless force is true. Reads the entity back and records a baseline only for what the server kept. A dry run unless dry_run is false.",
     "inputSchema": {
-      "required": [
-        "entity"
-      ],
-      "additionalProperties": false,
       "type": "object",
       "properties": {
         "entity": {
@@ -233,16 +232,20 @@
           "default": false
         },
         "backup": {
-          "description": "With force, save the server's copy under .twaco/backups first (default true); false skips it.",
           "type": "boolean",
-          "default": true
+          "default": true,
+          "description": "With force, save the server's copy under .twaco/backups first (default true); false skips it."
         },
         "profile": {
-          "description": "Server profile name.",
           "type": "string",
+          "description": "Server profile name.",
           "default": "default"
         }
-      }
+      },
+      "required": [
+        "entity"
+      ],
+      "additionalProperties": false
     },
     "annotations": {
       "readOnlyHint": false,
@@ -254,14 +257,14 @@
     "name": "entity_delete",
     "description": "Delete server entities in dependency-safe order. Accepts Collection/Name or a bare name resolved on the server; renamed adds undeleted entity/prefix entries from .twaco/renames.json. allow_repository_defined accepts a repository definition that deployment would recreate; allow_outside_dependents accepts structural dependents outside the delete set; allow_file_repository_data_loss accepts deleting a FileRepository Thing and all its files. A FileRepository delete needs its own acknowledgement. force is deprecated: it means the first two acknowledgements and never FileRepository data loss. A dry run unless dry_run is false; every applied delete is confirmed absent.",
     "inputSchema": {
-      "additionalProperties": false,
+      "type": "object",
       "properties": {
         "entities": {
-          "description": "Entities to delete; may be empty when renamed is true.",
           "type": "array",
           "items": {
             "type": "string"
-          }
+          },
+          "description": "Entities to delete; may be empty when renamed is true."
         },
         "renamed": {
           "type": "boolean",
@@ -280,26 +283,27 @@
           "default": false
         },
         "force": {
-          "description": "Deprecated: means allow_repository_defined and allow_outside_dependents; never accepts FileRepository data loss.",
           "type": "boolean",
-          "default": false
+          "default": false,
+          "description": "Deprecated: means allow_repository_defined and allow_outside_dependents; never accepts FileRepository data loss."
         },
         "dry_run": {
           "type": "boolean",
           "default": true
         },
         "backup": {
-          "description": "Save the server's copy of every entity under .twaco/backups before deleting (default true); a failed backup deletes nothing.",
           "type": "boolean",
-          "default": true
+          "default": true,
+          "description": "Save the server's copy of every entity under .twaco/backups before deleting (default true); a failed backup deletes nothing."
         },
         "profile": {
-          "description": "Server profile name.",
           "type": "string",
+          "description": "Server profile name.",
           "default": "default"
         }
       },
-      "type": "object"
+      "required": [],
+      "additionalProperties": false
     },
     "annotations": {
       "readOnlyHint": false,
@@ -311,30 +315,31 @@
     "name": "entity_restore",
     "description": "List the backup sets taken before deletes and forced overwrites (no set given), or import one back: all its entities, or the named ones. A dry run unless dry_run is false; each import is confirmed on the server.",
     "inputSchema": {
-      "additionalProperties": false,
+      "type": "object",
       "properties": {
         "set": {
-          "description": "A set id from the listing; omit to list sets.",
-          "type": "string"
+          "type": "string",
+          "description": "A set id from the listing; omit to list sets."
         },
         "entities": {
-          "description": "Only these (Collection/Name or a bare name).",
           "type": "array",
           "items": {
             "type": "string"
-          }
+          },
+          "description": "Only these (Collection/Name or a bare name)."
         },
         "dry_run": {
           "type": "boolean",
           "default": true
         },
         "profile": {
-          "description": "Server profile name.",
           "type": "string",
+          "description": "Server profile name.",
           "default": "default"
         }
       },
-      "type": "object"
+      "required": [],
+      "additionalProperties": false
     },
     "annotations": {
       "readOnlyHint": false,
@@ -346,14 +351,14 @@
     "name": "entity_carry",
     "description": "Copy run-time, design-time and visibility permissions from renamed (old) entities to the ones that replaced them, mapping principals through the rename ledger. pairs is a flat list [old, new, old, new, ...] of Collection/Name; renamed adds every pending ledger entity. A dry run unless dry_run is false; every write is read back and the ledger marked carried.",
     "inputSchema": {
-      "additionalProperties": false,
+      "type": "object",
       "properties": {
         "pairs": {
-          "description": "Collection/Old, Collection/New, in pairs; may be empty when renamed is true.",
           "type": "array",
           "items": {
             "type": "string"
-          }
+          },
+          "description": "Collection/Old, Collection/New, in pairs; may be empty when renamed is true."
         },
         "renamed": {
           "type": "boolean",
@@ -364,17 +369,18 @@
           "default": true
         },
         "detail": {
-          "description": "Also ask the platform for its own difference count.",
           "type": "boolean",
-          "default": false
+          "default": false,
+          "description": "Also ask the platform for its own difference count."
         },
         "profile": {
-          "description": "Server profile name.",
           "type": "string",
+          "description": "Server profile name.",
           "default": "default"
         }
       },
-      "type": "object"
+      "required": [],
+      "additionalProperties": false
     },
     "annotations": {
       "readOnlyHint": false,
@@ -386,41 +392,42 @@
     "name": "db_run",
     "description": "Run one SQL script as an atomic SQLCommand through a throwaway Database Thing. Plans by default and shows the SQL and sanitized connection target; pass dry_run: false to execute.",
     "inputSchema": {
-      "additionalProperties": false,
+      "type": "object",
       "properties": {
         "file": {
-          "description": "A UTF-8 SQL file relative to the solution; give file or sql.",
-          "type": "string"
+          "type": "string",
+          "description": "A UTF-8 SQL file relative to the solution; give file or sql."
         },
         "sql": {
-          "description": "Inline SQL; give sql or file.",
-          "type": "string"
+          "type": "string",
+          "description": "Inline SQL; give sql or file."
         },
         "thing": {
-          "description": "Database Thing; otherwise resolve the one in the solution.",
-          "type": "string"
+          "type": "string",
+          "description": "Database Thing; otherwise resolve the one in the solution."
         },
         "no_transaction": {
-          "description": "Prefix COMMIT; for statements such as CREATE DATABASE.",
           "type": "boolean",
-          "default": false
+          "default": false,
+          "description": "Prefix COMMIT; for statements such as CREATE DATABASE."
         },
         "timeout": {
           "type": "integer",
-          "default": 120,
-          "minimum": 1
+          "minimum": 1,
+          "default": 120
         },
         "dry_run": {
           "type": "boolean",
           "default": true
         },
         "profile": {
-          "description": "Server profile name.",
           "type": "string",
+          "description": "Server profile name.",
           "default": "default"
         }
       },
-      "type": "object"
+      "required": [],
+      "additionalProperties": false
     },
     "annotations": {
       "readOnlyHint": false,
@@ -1113,7 +1120,7 @@
     "name": "repo",
     "description": "Read the server's file repositories: list them, list a folder (recursive: true for everything below), get a text file's content, or compare the tree kept in source control (filerepository/<repo>/) with the server's (same, differs, local-only, remote-only; equal sizes are compared by SHA-256). Read-only.",
     "inputSchema": {
-      "additionalProperties": false,
+      "type": "object",
       "properties": {
         "action": {
           "type": "string",
@@ -1126,35 +1133,36 @@
           "default": "list"
         },
         "repository": {
-          "description": "A FileRepository Thing, such as SystemRepository. Not for list.",
-          "type": "string"
+          "type": "string",
+          "description": "A FileRepository Thing, such as SystemRepository. Not for list."
         },
         "path": {
-          "description": "ls: a folder (default /); get: a file, such as Thumbnails/a.png.",
-          "type": "string"
+          "type": "string",
+          "description": "ls: a folder (default /); get: a file, such as Thumbnails/a.png."
         },
         "recursive": {
           "type": "boolean",
           "default": false
         },
         "max_chars": {
-          "description": "get: the most text returned.",
           "type": "integer",
+          "minimum": 1000,
           "default": 100000,
-          "minimum": 1000
+          "description": "get: the most text returned."
         },
         "profile": {
-          "description": "Server profile name.",
           "type": "string",
+          "description": "Server profile name.",
           "default": "default"
         },
         "detail": {
-          "description": "Return everything instead of the summary.",
           "type": "boolean",
+          "description": "Return everything instead of the summary.",
           "default": false
         }
       },
-      "type": "object"
+      "required": [],
+      "additionalProperties": false
     },
     "annotations": {
       "readOnlyHint": true,
