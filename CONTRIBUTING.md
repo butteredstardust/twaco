@@ -66,8 +66,6 @@ Every merge to `main` that changes what ships is released. The release workflow
 
 1. It runs the gates and commits the new version to a temporary `release/v<version>` branch.
 2. It builds, tests and packages each platform from that commit, and smoke-runs each installer.
-   `.github/workflows/package.yml` holds this step. CI also runs it on every pull request, so a
-   packaging failure stops the pull request.
 3. It signs the archives, fast-forwards `main` to the version commit, and publishes the release.
 
 `main` receives the version commit only when every platform builds. Follow these rules:
