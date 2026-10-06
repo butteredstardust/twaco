@@ -1,9 +1,10 @@
 use super::entity::push_outcome_json;
-use super::schema::validate_arguments;
 use super::source::types_tool_with_compiler;
 use super::*;
 use crate::core::datashape;
 use crate::core::lock;
+use serde::de::DeserializeOwned;
+use serde::Serialize;
 
 /// Run a whole conversation through `serve` and return the responses, one per line.
 fn converse(root: &Path, messages: &[Value]) -> Vec<Value> {
@@ -146,45 +147,195 @@ fn tool_schemas_use_the_supported_subset() {
     }
 }
 
+fn contains_forbidden_keyword(schema: &Value) -> bool {
+    let Some(object) = schema.as_object() else {
+        return false;
+    };
+    if object.keys().any(|key| {
+        matches!(
+            key.as_str(),
+            "$schema" | "$defs" | "$ref" | "title" | "format"
+        )
+    }) {
+        return true;
+    }
+    object
+        .get("properties")
+        .and_then(Value::as_object)
+        .is_some_and(|properties| properties.values().any(contains_forbidden_keyword))
+        || object.get("items").is_some_and(contains_forbidden_keyword)
+        || object
+            .get("additionalProperties")
+            .is_some_and(contains_forbidden_keyword)
+}
+
+#[test]
+fn generated_schemas_are_valid_conservative_json_schema() {
+    for tool in tool_definitions() {
+        let schema = &tool["inputSchema"];
+        assert_eq!(schema["type"], "object", "{}", tool["name"]);
+        assert!(
+            jsonschema::draft202012::meta::is_valid(schema),
+            "{}: {:?}",
+            tool["name"],
+            jsonschema::draft202012::meta::validate(schema).err()
+        );
+        assert!(
+            !contains_forbidden_keyword(schema),
+            "{} has a generated-only keyword",
+            tool["name"]
+        );
+    }
+}
+
+#[test]
+fn typed_request_contract_matches_the_legacy_validator() {
+    const CONTRACT: &str = concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/tests/fixtures/mcp_input_contract.json"
+    );
+    let cases: Map<String, Value> =
+        serde_json::from_str(&std::fs::read_to_string(CONTRACT).unwrap()).unwrap();
+    for (name, values) in cases {
+        let legacy = definitions::legacy_definition(&name).unwrap();
+        let values = values.as_array().unwrap();
+        let mut inputs = values.clone();
+        for value in values {
+            if let Some(object) = value.as_object() {
+                let mut mutation = object.clone();
+                mutation.insert("unknown_argument".to_string(), json!(true));
+                inputs.push(Value::Object(mutation));
+            }
+        }
+        for arguments in inputs {
+            let old = legacy_schema(&legacy["inputSchema"], &arguments).is_ok();
+            let new = match name.as_str() {
+                "push" => {
+                    requests::common::parse::<requests::entity::PushRequest>(&arguments).is_ok()
+                }
+                "repo" => {
+                    requests::common::parse::<requests::content::RepoRequest>(&arguments).is_ok()
+                }
+                "db_run" => {
+                    requests::common::parse::<requests::data::DbRunRequest>(&arguments).is_ok()
+                }
+                _ => unreachable!(),
+            };
+            assert_eq!(old, new, "{name}: {arguments}");
+            if new {
+                let generated = tool_definitions()
+                    .into_iter()
+                    .find(|tool| tool["name"] == name)
+                    .unwrap();
+                match name.as_str() {
+                    "push" => round_trip::<requests::entity::PushRequest>(
+                        &generated["inputSchema"],
+                        &arguments,
+                    ),
+                    "repo" => round_trip::<requests::content::RepoRequest>(
+                        &generated["inputSchema"],
+                        &arguments,
+                    ),
+                    "db_run" => round_trip::<requests::data::DbRunRequest>(
+                        &generated["inputSchema"],
+                        &arguments,
+                    ),
+                    _ => unreachable!(),
+                }
+            }
+        }
+    }
+}
+
+fn round_trip<T>(schema: &Value, arguments: &Value)
+where
+    T: DeserializeOwned + schemars::JsonSchema + Serialize,
+{
+    let request = requests::common::parse::<T>(arguments).unwrap();
+    let encoded = serde_json::to_value(request).unwrap();
+    assert!(jsonschema::draft202012::is_valid(schema, &encoded));
+    assert!(requests::common::parse::<T>(&encoded).is_ok());
+}
+
+#[test]
+fn typed_requests_keep_defaults_and_argument_errors() {
+    let push =
+        requests::common::parse::<requests::entity::PushRequest>(&json!({"entity":"P.T"})).unwrap();
+    assert!(push.dry_run);
+    assert!(!push.force);
+    assert!(push.backup);
+    assert_eq!(push.profile, "default");
+
+    let repo = requests::common::parse::<requests::content::RepoRequest>(&json!({})).unwrap();
+    assert_eq!(repo.max_chars, 100_000);
+    assert!(!repo.detail);
+
+    let db = requests::common::parse::<requests::data::DbRunRequest>(&json!({})).unwrap();
+    assert_eq!(db.timeout, 120);
+    assert!(db.dry_run);
+
+    assert_eq!(
+        requests::common::parse::<requests::entity::PushRequest>(&json!({"entity":null}))
+            .unwrap_err(),
+        "`entity` must be a string, not null"
+    );
+    assert_eq!(
+        requests::common::parse::<requests::data::DbRunRequest>(&json!({"unknown":true}))
+            .unwrap_err(),
+        "this tool takes no argument `unknown` (it takes: dry_run, file, no_transaction, profile, sql, thing, timeout)"
+    );
+}
+
+#[test]
+fn output_schema_waits_for_the_new_protocol() {
+    let old = registry::output_definition_for_test("2025-03-26");
+    let new = registry::output_definition_for_test("2025-06-18");
+    assert!(old.get("outputSchema").is_none());
+    assert_eq!(new["outputSchema"]["type"], "object");
+    assert!(jsonschema::draft202012::meta::is_valid(
+        &new["outputSchema"]
+    ));
+}
+
 #[test]
 fn validator_keeps_top_level_messages_stable() {
     let required = json!({ "type": "object", "properties": { "x": { "type": "string" } }, "required": ["x"], "additionalProperties": false });
     assert_eq!(
-        validate_arguments(&required, &json!({})),
+        legacy_schema(&required, &json!({})),
         Err("`x` is required".to_string())
     );
 
     let names = json!({ "type": "object", "properties": { "a": { "type": "string" }, "b": { "type": "string" } }, "required": [], "additionalProperties": false });
     assert_eq!(
-        validate_arguments(&names, &json!({"x": 1})),
+        legacy_schema(&names, &json!({"x": 1})),
         Err("this tool takes no argument `x` (it takes: a, b)".to_string())
     );
 
     let boolean = json!({ "type": "object", "properties": { "x": { "type": "boolean" } }, "required": [], "additionalProperties": false });
     assert_eq!(
-        validate_arguments(&boolean, &json!({"x": 1})),
+        legacy_schema(&boolean, &json!({"x": 1})),
         Err("`x` must be a boolean, not 1".to_string())
     );
 
     let array = json!({ "type": "object", "properties": { "x": { "type": "array", "items": { "type": "string" } } }, "required": [], "additionalProperties": false });
     assert_eq!(
-        validate_arguments(&array, &json!({"x": "not an array"})),
+        legacy_schema(&array, &json!({"x": "not an array"})),
         Err("`x` must be an array of strings, not \"not an array\"".to_string())
     );
 
     let integer = json!({ "type": "object", "properties": { "x": { "type": "integer", "minimum": 3 } }, "required": [], "additionalProperties": false });
     assert_eq!(
-        validate_arguments(&integer, &json!({"x": 1})),
+        legacy_schema(&integer, &json!({"x": 1})),
         Err("`x` must be an integer of at least 3, not 1".to_string())
     );
 
     let choices = json!({ "type": "object", "properties": { "x": { "type": "string", "enum": ["a", "b"] } }, "required": [], "additionalProperties": false });
     assert_eq!(
-        validate_arguments(&choices, &json!({"x": "c"})),
+        legacy_schema(&choices, &json!({"x": "c"})),
         Err("`x` must be one of [\"a\",\"b\"], not \"c\"".to_string())
     );
     assert_eq!(
-        validate_arguments(&choices, &json!([])),
+        legacy_schema(&choices, &json!([])),
         Err("`arguments` must be a JSON object".to_string())
     );
 }
@@ -193,25 +344,25 @@ fn validator_keeps_top_level_messages_stable() {
 fn validator_follows_nested_schemas() {
     let map = json!({ "type": "object", "properties": { "map": { "type": "object", "additionalProperties": { "type": "string" } } }, "required": [], "additionalProperties": false });
     assert_eq!(
-        validate_arguments(&map, &json!({"map": {"title": 1}})),
+        legacy_schema(&map, &json!({"map": {"title": 1}})),
         Err("`map.title` must be a string, not 1".to_string())
     );
 
     let closed = json!({ "type": "object", "properties": { "map": { "type": "object", "properties": { "title": { "type": "string" } }, "additionalProperties": false } }, "required": [], "additionalProperties": false });
     assert_eq!(
-        validate_arguments(&closed, &json!({"map": {"other": "x"}})),
+        legacy_schema(&closed, &json!({"map": {"other": "x"}})),
         Err("`map.other` is not allowed".to_string())
     );
 
     let array = json!({ "type": "object", "properties": { "only": { "type": "array", "items": { "type": "string" } } }, "required": [], "additionalProperties": false });
     assert_eq!(
-        validate_arguments(&array, &json!({"only": ["P.T", 2]})),
+        legacy_schema(&array, &json!({"only": ["P.T", 2]})),
         Err("`only[1]` must be a string, not 2".to_string())
     );
 
     let objects = json!({ "type": "object", "properties": { "rows": { "type": "array", "items": { "type": "object" } } }, "required": [], "additionalProperties": false });
     assert_eq!(
-        validate_arguments(&objects, &json!({"rows": 1})),
+        legacy_schema(&objects, &json!({"rows": 1})),
         Err("`rows` must be an array, not 1".to_string())
     );
 }

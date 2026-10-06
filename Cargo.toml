@@ -31,6 +31,7 @@ swc_common = "=17.0.1"
 swc_ecma_ast = "=18.0.0"
 swc_ecma_visit = "=18.0.1"
 petgraph = { version = "0.8", default-features = false, features = ["std"] }
+schemars = { version = "=1.2.2", default-features = false, features = ["derive", "std", "preserve_order"] }
 
 [features]
 # Lets a test make the process abort at a named point of a transaction. Not part of any build
@@ -39,6 +40,7 @@ test-failpoints = []
 
 [dev-dependencies]
 proptest = "1.11.0"
+jsonschema = { version = "=0.30.0", default-features = false }
 
 [profile.release]
 strip = true

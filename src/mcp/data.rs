@@ -163,6 +163,52 @@ pub(crate) fn db_tool(
     Ok(value)
 }
 
+pub(crate) fn db_run_tool(
+    solution: &Solution,
+    request: crate::mcp::requests::data::DbRunRequest,
+) -> Result<Value, ToolError> {
+    let sql = match (request.file.as_ref(), request.sql.as_ref()) {
+        (Some(file), None) if !file.is_empty() => {
+            let candidate = solution.root.join(file);
+            let real = std::fs::canonicalize(&candidate)
+                .map_err(|error| ToolError::with(ErrorCode::IoError, format!("{file}: {error}")))?;
+            let root = std::fs::canonicalize(&solution.root).map_err(ToolError::io)?;
+            if !real.starts_with(&root) {
+                return Err(ToolError::invalid(format!(
+                    "{file} is outside the solution"
+                )));
+            }
+            std::fs::read_to_string(&real)
+                .map_err(|error| ToolError::with(ErrorCode::IoError, format!("{file}: {error}")))?
+        }
+        (None, Some(sql)) if !sql.is_empty() => sql.clone(),
+        _ => return Err(ToolError::invalid("give exactly one of `file` or `sql`")),
+    };
+    let options = db::Options {
+        mode: db::Mode::Run,
+        thing: request.thing.as_ref().cloned(),
+        apply: !request.dry_run,
+        no_transaction: request.no_transaction,
+        max_rows: 500,
+        timeout: Duration::from_secs(request.timeout),
+    };
+    let request = commands::db::DbRequest::Execute {
+        sql,
+        options,
+        profile: request.profile,
+    };
+    let mut notices = commands::Notices::default();
+    let report = match commands::db::execute(solution, &request, server::Client::new, &mut notices)
+        .map_err(ToolError::coded)?
+    {
+        commands::db::DbOutcome::Executed { report, .. } => report,
+        commands::db::DbOutcome::Cleaned { .. } => unreachable!(),
+    };
+    let mut value = serde_json::to_value(report).expect("db report serialises");
+    add_notices(&mut value, &notices);
+    Ok(value)
+}
+
 pub(crate) fn config_table_tool(
     solution: &Solution,
     arguments: &Value,

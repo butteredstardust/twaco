@@ -30,6 +30,23 @@ fn profile_arg() -> Value {
 }
 
 pub fn tool_definitions() -> Vec<Value> {
+    tool_definitions_for(super::LATEST)
+}
+
+pub(crate) fn tool_definitions_for(protocol: &str) -> Vec<Value> {
+    let mut definitions = legacy_tool_definitions();
+    super::registry::replace_definitions(&mut definitions, protocol);
+    definitions
+}
+
+#[cfg(test)]
+pub(crate) fn legacy_definition(name: &str) -> Option<Value> {
+    legacy_tool_definitions()
+        .into_iter()
+        .find(|definition| definition["name"] == name)
+}
+
+fn legacy_tool_definitions() -> Vec<Value> {
     vec![
         tool(
             "projects",

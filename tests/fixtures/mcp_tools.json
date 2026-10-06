@@ -218,6 +218,10 @@
     "name": "push",
     "description": "Import one entity's file to the server. Refuses when the server changed since the last sync, was deleted there, or has no baseline, unless force is true. Reads the entity back and records a baseline only for what the server kept. A dry run unless dry_run is false.",
     "inputSchema": {
+      "required": [
+        "entity"
+      ],
+      "additionalProperties": false,
       "type": "object",
       "properties": {
         "entity": {
@@ -232,20 +236,16 @@
           "default": false
         },
         "backup": {
+          "description": "With force, save the server's copy under .twaco/backups first (default true); false skips it.",
           "type": "boolean",
-          "default": true,
-          "description": "With force, save the server's copy under .twaco/backups first (default true); false skips it."
+          "default": true
         },
         "profile": {
-          "type": "string",
           "description": "Server profile name.",
+          "type": "string",
           "default": "default"
         }
-      },
-      "required": [
-        "entity"
-      ],
-      "additionalProperties": false
+      }
     },
     "annotations": {
       "readOnlyHint": false,
@@ -392,42 +392,41 @@
     "name": "db_run",
     "description": "Run one SQL script as an atomic SQLCommand through a throwaway Database Thing. Plans by default and shows the SQL and sanitized connection target; pass dry_run: false to execute.",
     "inputSchema": {
-      "type": "object",
+      "additionalProperties": false,
       "properties": {
         "file": {
-          "type": "string",
-          "description": "A UTF-8 SQL file relative to the solution; give file or sql."
+          "description": "A UTF-8 SQL file relative to the solution; give file or sql.",
+          "type": "string"
         },
         "sql": {
-          "type": "string",
-          "description": "Inline SQL; give sql or file."
+          "description": "Inline SQL; give sql or file.",
+          "type": "string"
         },
         "thing": {
-          "type": "string",
-          "description": "Database Thing; otherwise resolve the one in the solution."
+          "description": "Database Thing; otherwise resolve the one in the solution.",
+          "type": "string"
         },
         "no_transaction": {
+          "description": "Prefix COMMIT; for statements such as CREATE DATABASE.",
           "type": "boolean",
-          "default": false,
-          "description": "Prefix COMMIT; for statements such as CREATE DATABASE."
+          "default": false
         },
         "timeout": {
           "type": "integer",
-          "minimum": 1,
-          "default": 120
+          "default": 120,
+          "minimum": 1
         },
         "dry_run": {
           "type": "boolean",
           "default": true
         },
         "profile": {
-          "type": "string",
           "description": "Server profile name.",
+          "type": "string",
           "default": "default"
         }
       },
-      "required": [],
-      "additionalProperties": false
+      "type": "object"
     },
     "annotations": {
       "readOnlyHint": false,
@@ -1120,7 +1119,7 @@
     "name": "repo",
     "description": "Read the server's file repositories: list them, list a folder (recursive: true for everything below), get a text file's content, or compare the tree kept in source control (filerepository/<repo>/) with the server's (same, differs, local-only, remote-only; equal sizes are compared by SHA-256). Read-only.",
     "inputSchema": {
-      "type": "object",
+      "additionalProperties": false,
       "properties": {
         "action": {
           "type": "string",
@@ -1133,36 +1132,35 @@
           "default": "list"
         },
         "repository": {
-          "type": "string",
-          "description": "A FileRepository Thing, such as SystemRepository. Not for list."
+          "description": "A FileRepository Thing, such as SystemRepository. Not for list.",
+          "type": "string"
         },
         "path": {
-          "type": "string",
-          "description": "ls: a folder (default /); get: a file, such as Thumbnails/a.png."
+          "description": "ls: a folder (default /); get: a file, such as Thumbnails/a.png.",
+          "type": "string"
         },
         "recursive": {
           "type": "boolean",
           "default": false
         },
         "max_chars": {
+          "description": "get: the most text returned.",
           "type": "integer",
-          "minimum": 1000,
           "default": 100000,
-          "description": "get: the most text returned."
+          "minimum": 1000
         },
         "profile": {
-          "type": "string",
           "description": "Server profile name.",
+          "type": "string",
           "default": "default"
         },
         "detail": {
-          "type": "boolean",
           "description": "Return everything instead of the summary.",
+          "type": "boolean",
           "default": false
         }
       },
-      "required": [],
-      "additionalProperties": false
+      "type": "object"
     },
     "annotations": {
       "readOnlyHint": true,

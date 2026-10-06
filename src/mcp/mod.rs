@@ -31,6 +31,8 @@ mod definitions;
 mod entity;
 mod info;
 mod refactor;
+mod registry;
+mod requests;
 mod schema;
 mod source;
 
@@ -40,14 +42,13 @@ mod tests;
 pub use definitions::tool_definitions;
 
 use content::{
-    export_tool, extension_write_tool, extensions_tool, import_tool, package_tool, repo_tool,
-    repo_write_tool,
+    export_tool, extension_write_tool, extensions_tool, import_tool, package_tool, repo_write_tool,
 };
 use data::{
     call_service_tool, config_table_tool, datatable_copy_tool, db_clean_tool, db_tool,
     log_level_tool, logs_tool,
 };
-use entity::{entity_carry_tool, entity_delete_tool, entity_restore_tool, push_tool, status_tool};
+use entity::{entity_carry_tool, entity_delete_tool, entity_restore_tool, status_tool};
 use info::{
     catalog_tool, docs_tool, guide_tool, help_page_tool, help_search_tool, impact_tool,
     javadoc_tool, settings_tool, unused_tool,
@@ -58,6 +59,11 @@ use refactor::{
 };
 use schema::validate_arguments;
 use source::{check_tool, deploy_tool, extract_tool, fmt_tool, sync_tool, types_tool};
+
+#[cfg(test)]
+pub(crate) fn legacy_schema(schema: &Value, arguments: &Value) -> Result<(), String> {
+    schema::validate_arguments(schema, arguments)
+}
 
 /// Protocol revisions this server speaks. A client asking for one of these gets it; any other
 /// gets [`LATEST`], and the client decides whether it can continue.
@@ -171,26 +177,36 @@ fn handle(root: &Path, message: &Value, protocol: &mut String) -> Option<Value> 
             }))
         }
         "ping" => Ok(json!({})),
-        "tools/list" => Ok(json!({ "tools": tool_definitions() })),
+        "tools/list" => Ok(json!({ "tools": definitions::tool_definitions_for(protocol) })),
         "tools/call" => {
             let name = params.get("name").and_then(Value::as_str).unwrap_or("");
             let arguments = params
                 .get("arguments")
                 .cloned()
                 .unwrap_or_else(|| json!({}));
-            match tool_definitions().into_iter().find(|t| t["name"] == name) {
+            match definitions::tool_definitions_for(protocol)
+                .into_iter()
+                .find(|t| t["name"] == name)
+            {
                 None => Err((-32602, format!("unknown tool {name:?}"))),
                 Some(definition) => {
-                    match validate_arguments(&definition["inputSchema"], &arguments) {
-                        // A tool error, not a protocol one, so the agent sees it and can correct it.
-                        Err(why) => Ok(tool_result(
-                            Err(ToolError::invalid(format!("{why}; nothing was done"))),
-                            protocol,
-                        )),
-                        Ok(()) => match call_tool(root, name, &arguments) {
+                    if registry::definition(name, protocol).is_some() {
+                        match call_tool(root, name, &arguments) {
                             Some(outcome) => Ok(tool_result(outcome, protocol)),
                             None => Err((-32602, format!("unknown tool {name:?}"))),
-                        },
+                        }
+                    } else {
+                        match validate_arguments(&definition["inputSchema"], &arguments) {
+                            // A tool error, not a protocol one, so the agent sees it and can correct it.
+                            Err(why) => Ok(tool_result(
+                                Err(ToolError::invalid(format!("{why}; nothing was done"))),
+                                protocol,
+                            )),
+                            Ok(()) => match call_tool(root, name, &arguments) {
+                                Some(outcome) => Ok(tool_result(outcome, protocol)),
+                                None => Err((-32602, format!("unknown tool {name:?}"))),
+                            },
+                        }
                     }
                 }
             }
@@ -283,50 +299,51 @@ pub(crate) fn tool_result(outcome: Result<Value, ToolError>, protocol: &str) -> 
 
 fn call_tool(root: &Path, name: &str, arguments: &Value) -> Option<Result<Value, ToolError>> {
     let started = Instant::now();
-    let outcome = match name {
-        "projects" => with_solution(root, projects),
-        "types" => with_solution(root, |s| types_tool(s, arguments)),
-        "check" => with_solution(root, |s| check_tool(s, arguments)),
-        "status" => with_solution(root, |s| status_tool(s, arguments)),
-        "sync" => with_solution(root, |s| sync_tool(s, arguments)),
-        "extract" => with_solution(root, |s| extract_tool(s, arguments)),
-        "fmt" => with_solution(root, |s| fmt_tool(s, arguments)),
-        "adopt_report" => with_solution(root, |s| adopt_tool(s, arguments)),
-        "adopt_apply" => with_solution(root, |s| adopt_apply_tool(s, arguments)),
-        "rename" => with_solution(root, |s| rename_tool(s, arguments)),
-        "push" => with_solution(root, |s| push_tool(s, arguments)),
-        "entity_delete" => with_solution(root, |s| entity_delete_tool(s, arguments)),
-        "entity_carry" => with_solution(root, |s| entity_carry_tool(s, arguments)),
-        "move_member" => with_solution(root, |s| move_member_tool(s, arguments)),
-        "retemplate" => with_solution(root, |s| retemplate_tool(s, arguments)),
-        "new_building_block" => with_solution(root, |s| new_building_block_tool(s, arguments)),
-        "entity_restore" => with_solution(root, |s| entity_restore_tool(s, arguments)),
-        "db_run" => with_solution(root, |s| db_tool(s, arguments, db::Mode::Run)),
-        "db_query" => with_solution(root, |s| db_tool(s, arguments, db::Mode::Query)),
-        "db_clean" => with_solution(root, |s| db_clean_tool(s, arguments)),
-        "datatable_copy" => with_solution(root, |s| datatable_copy_tool(s, arguments)),
-        "deploy" => with_solution(root, |s| deploy_tool(s, arguments)),
-        "config_table" => with_solution(root, |s| config_table_tool(s, arguments)),
-        "call" => with_solution(root, |s| call_service_tool(s, arguments)),
-        "logs" => with_solution(root, |s| logs_tool(s, arguments)),
-        "help_search" => help_search_tool(root, arguments),
-        "guide" => guide_tool(root, arguments),
-        "repo" => with_solution(root, |s| repo_tool(s, arguments)),
-        "repo_write" => with_solution(root, |s| repo_write_tool(s, arguments)),
-        "extensions" => with_solution(root, |s| extensions_tool(s, arguments)),
-        "settings" => with_solution(root, |s| settings_tool(s, arguments)),
-        "catalog" => with_solution(root, |s| catalog_tool(s, arguments)),
-        "impact" => with_solution(root, |s| impact_tool(s, arguments)),
-        "unused" => with_solution(root, |s| unused_tool(s, arguments)),
-        "docs" => with_solution(root, |s| docs_tool(s, arguments)),
-        "export" => with_solution(root, |s| export_tool(s, arguments)),
-        "package" => with_solution(root, |s| package_tool(s, arguments)),
-        "import" => with_solution(root, |s| import_tool(s, arguments)),
-        "extension_write" => with_solution(root, |s| extension_write_tool(s, arguments)),
-        "help_page" => help_page_tool(root, arguments),
-        "javadoc" => javadoc_tool(arguments),
-        "log_level" => with_solution(root, |s| log_level_tool(s, arguments)),
-        _ => return None,
+    let outcome = if let Some(outcome) = registry::call_with_solution(root, name, arguments) {
+        outcome
+    } else {
+        match name {
+            "projects" => with_solution(root, projects),
+            "types" => with_solution(root, |s| types_tool(s, arguments)),
+            "check" => with_solution(root, |s| check_tool(s, arguments)),
+            "status" => with_solution(root, |s| status_tool(s, arguments)),
+            "sync" => with_solution(root, |s| sync_tool(s, arguments)),
+            "extract" => with_solution(root, |s| extract_tool(s, arguments)),
+            "fmt" => with_solution(root, |s| fmt_tool(s, arguments)),
+            "adopt_report" => with_solution(root, |s| adopt_tool(s, arguments)),
+            "adopt_apply" => with_solution(root, |s| adopt_apply_tool(s, arguments)),
+            "rename" => with_solution(root, |s| rename_tool(s, arguments)),
+            "entity_delete" => with_solution(root, |s| entity_delete_tool(s, arguments)),
+            "entity_carry" => with_solution(root, |s| entity_carry_tool(s, arguments)),
+            "move_member" => with_solution(root, |s| move_member_tool(s, arguments)),
+            "retemplate" => with_solution(root, |s| retemplate_tool(s, arguments)),
+            "new_building_block" => with_solution(root, |s| new_building_block_tool(s, arguments)),
+            "entity_restore" => with_solution(root, |s| entity_restore_tool(s, arguments)),
+            "db_query" => with_solution(root, |s| db_tool(s, arguments, db::Mode::Query)),
+            "db_clean" => with_solution(root, |s| db_clean_tool(s, arguments)),
+            "datatable_copy" => with_solution(root, |s| datatable_copy_tool(s, arguments)),
+            "deploy" => with_solution(root, |s| deploy_tool(s, arguments)),
+            "config_table" => with_solution(root, |s| config_table_tool(s, arguments)),
+            "call" => with_solution(root, |s| call_service_tool(s, arguments)),
+            "logs" => with_solution(root, |s| logs_tool(s, arguments)),
+            "help_search" => help_search_tool(root, arguments),
+            "guide" => guide_tool(root, arguments),
+            "repo_write" => with_solution(root, |s| repo_write_tool(s, arguments)),
+            "extensions" => with_solution(root, |s| extensions_tool(s, arguments)),
+            "settings" => with_solution(root, |s| settings_tool(s, arguments)),
+            "catalog" => with_solution(root, |s| catalog_tool(s, arguments)),
+            "impact" => with_solution(root, |s| impact_tool(s, arguments)),
+            "unused" => with_solution(root, |s| unused_tool(s, arguments)),
+            "docs" => with_solution(root, |s| docs_tool(s, arguments)),
+            "export" => with_solution(root, |s| export_tool(s, arguments)),
+            "package" => with_solution(root, |s| package_tool(s, arguments)),
+            "import" => with_solution(root, |s| import_tool(s, arguments)),
+            "extension_write" => with_solution(root, |s| extension_write_tool(s, arguments)),
+            "help_page" => help_page_tool(root, arguments),
+            "javadoc" => javadoc_tool(arguments),
+            "log_level" => with_solution(root, |s| log_level_tool(s, arguments)),
+            _ => return None,
+        }
     };
     Some(outcome.map(|mut value| {
         if let Some(object) = value.as_object_mut() {

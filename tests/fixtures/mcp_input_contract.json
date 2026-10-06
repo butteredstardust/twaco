@@ -1,0 +1,37 @@
+{
+  "push": [
+    {},
+    {"entity": "P.T"},
+    {"entity": "P.T", "dry_run": false, "force": true, "backup": false, "profile": "staging"},
+    {"entity": null},
+    {"entity": 1},
+    {"entity": "P.T", "dry_run": null},
+    {"entity": "P.T", "dry_run": "false"},
+    {"entity": "P.T", "unexpected": true}
+  ],
+  "repo": [
+    {},
+    {"action": "list"},
+    {"action": "ls", "repository": "SystemRepository", "path": "/", "recursive": true},
+    {"action": "get", "repository": "SystemRepository", "path": "a.txt", "max_chars": 1000, "detail": true},
+    {"action": "status", "repository": "SystemRepository"},
+    {"action": "other"},
+    {"repository": null},
+    {"max_chars": 999},
+    {"max_chars": 1.5},
+    {"detail": null},
+    {"unexpected": true}
+  ],
+  "db_run": [
+    {},
+    {"file": "sql/setup.sql"},
+    {"sql": "SELECT 1", "thing": "Database", "no_transaction": true, "timeout": 1, "dry_run": false, "profile": "staging"},
+    {"file": "sql/setup.sql", "sql": "SELECT 1"},
+    {"file": null},
+    {"timeout": 0},
+    {"timeout": -1},
+    {"timeout": 1.5},
+    {"dry_run": null},
+    {"unexpected": true}
+  ]
+}
