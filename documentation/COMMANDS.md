@@ -11,8 +11,9 @@ Describe a solution, check the environment, serve agents.
 
 ```text
 init [--write]              propose a twaco.toml from the repository's own entities; --write
-                            also writes AGENTS.md and CLAUDE.md where absent
-init --agents               write only AGENTS.md and CLAUDE.md, where absent
+                            also writes AGENTS.md and CLAUDE.md where absent, and adds the
+                            lines twaco needs to .gitignore
+init --agents               write only those, where absent
 doctor [--profile <name>]   what resolved, what is reachable, what is missing
 projects                    the solution's projects and their deploy order
 mcp                         serve the tools over MCP on stdio (TWACO_ROOT: the solution)

@@ -8,7 +8,7 @@
 
 use super::baseline::Baseline;
 use super::config::Solution;
-use super::{lock, profile, server, workspace};
+use super::{gitignore, lock, profile, server, workspace};
 use std::path::Path;
 use std::time::Instant;
 
@@ -43,7 +43,7 @@ pub fn diagnose(root: &Path, profile_name: &str) -> Vec<Item> {
         "twaco",
         format!(
             "{} for {}-{}",
-            env!("CARGO_PKG_VERSION"),
+            crate::version(),
             std::env::consts::OS,
             std::env::consts::ARCH
         ),
@@ -115,6 +115,21 @@ pub fn diagnose(root: &Path, profile_name: &str) -> Vec<Item> {
             ),
         )
     });
+    if gitignore::in_git_work_tree(&solution.root) {
+        let missing = gitignore::missing(&solution.root);
+        items.push(if missing.is_empty() {
+            item(Health::Ok, "gitignore", "keeps twaco's local state out of git")
+        } else {
+            item(
+                Health::Warn,
+                "gitignore",
+                format!(
+                    "does not ignore {}; backups can hold a server's secrets. `twaco init --agents` adds them",
+                    missing.join(", ")
+                ),
+            )
+        });
+    }
     items.push(item(
         Health::Ok,
         "script layout",

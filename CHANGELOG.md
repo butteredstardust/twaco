@@ -30,6 +30,17 @@ All notable changes to twaco are recorded here. The format follows
   only inside comments.
 - The `GetDBInfo` reader now uses the ECMAScript parser; a script it refuses or whose literal
   cannot be read completely is reported as unsure, and the former JavaScript lexer is removed.
+- `twaco --version` and `twaco doctor` name the commit a build came from (`0.1.0 (a1b2c3d4e
+  2026-10-06)`, with `+dirty` for uncommitted changes), so a stale binary can be told from a current
+  one. A build outside a git checkout says only the version.
+- `twaco init --write` and `twaco init --agents` add twaco's local state to the solution's
+  `.gitignore` when it is in a git repository, backups and the transaction journal included (a backup
+  holds a server's copy of an entity, secrets and all); `twaco doctor` warns when any line is missing.
+  An existing file is only appended to, in its own line endings.
+- `new building-block` writes the project it adds to `twaco.toml` in that file's line endings, so a
+  CRLF file no longer fails the line-endings gate; the rest of the file is left exactly as it was.
+- CONFIGURATION.md says that `[[project.deploy.post_import]]` tables belong to the last
+  `[[project]]` written above them.
 
 ### Added
 

@@ -735,3 +735,45 @@ mod crash {
         }
     }
 }
+
+#[test]
+fn a_crlf_twaco_toml_gets_a_block_in_crlf() {
+    let fixture = fixture();
+    let path = fixture.root.join("twaco.toml");
+    std::fs::write(
+        &path,
+        "[[project]]\r\nname = \"Acme.Existing\"\r\nroot = \".\"\r\n",
+    )
+    .unwrap();
+    let solution = Solution::load(&path).unwrap();
+    let planned = plan(&solution, &standard("Acme.Block")).unwrap();
+    let after = &planned.config_after;
+    assert_eq!(
+        after.matches('\n').count(),
+        after.matches("\r\n").count(),
+        "no bare line feed was added: {after:?}"
+    );
+    assert!(
+        after.contains("\r\n[[project]]\r\nname = \"Acme.Block\"\r\n"),
+        "{after:?}"
+    );
+    // What the plan shows the person stays plain text.
+    assert!(!planned.config_addition.contains('\r'));
+}
+
+#[test]
+fn a_twaco_toml_that_mixes_line_endings_keeps_every_byte_it_had() {
+    let fixture = fixture();
+    let path = fixture.root.join("twaco.toml");
+    let before = "[[project]]\r\nname = \"Acme.Existing\"\nroot = \".\"\r\n";
+    std::fs::write(&path, before).unwrap();
+    let solution = Solution::load(&path).unwrap();
+    let planned = plan(&solution, &standard("Acme.Block")).unwrap();
+    assert!(
+        planned.config_after.starts_with(before),
+        "{:?}",
+        planned.config_after
+    );
+    // Two CRLF to one bare line feed: the block is written in the file's majority style.
+    assert!(planned.config_after[before.len()..].contains("\r\n"));
+}

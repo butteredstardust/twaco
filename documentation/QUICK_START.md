@@ -79,18 +79,24 @@ or see [User guide: gates](USER_GUIDE.md#the-gates) for what each gate means.
 
 ## 5. Connect a server
 
-First keep twaco's local files out of git. Add to the solution's `.gitignore`:
+First keep twaco's local files out of git. `twaco init --write` (or `twaco init --agents`, for a solution
+that already has its config) adds these lines to the solution's `.gitignore`, and `twaco doctor` warns
+when they are missing. By hand, they are:
 
 ```gitignore
 .twaco/profiles/
 .twaco/lock
 .twaco/lock.holder
 .twaco/backups/
+.twaco/transactions/
 .twaco/types/
 .twaco/platform.json
 **/services/*/jsconfig.json
 **/services/*/twaco-globals.d.ts
 ```
+
+Backups matter most: a server's copy of an entity, a database Thing's password included, is kept
+there as the server holds it.
 
 Commit `.twaco/baseline.json` when it appears: it records what was last deployed or pushed
 (or adopted with `entity status --record`), so a teammate's deploy can tell your change from theirs.

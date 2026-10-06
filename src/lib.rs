@@ -5,5 +5,14 @@
 
 pub mod core;
 
+/// The version, and the commit a build came from when it was built in a git checkout:
+/// `0.1.0 (a1b2c3d4e 2026-10-06)`. A build with uncommitted changes says `+dirty` after the commit.
+pub fn version() -> String {
+    match option_env!("TWACO_BUILD") {
+        Some(build) => format!("{} ({build})", env!("CARGO_PKG_VERSION")),
+        None => env!("CARGO_PKG_VERSION").to_string(),
+    }
+}
+
 /// The Model Context Protocol server, the other adapter beside the CLI.
 pub mod mcp;

@@ -2,7 +2,8 @@ use super::super::*;
 
 /// `twaco help search <words> | page <page>`: the ThingWorx Platform help center, for the
 /// server's own version unless told otherwise. Read-only; downloads go to the user's cache.
-/// AGENTS.md and CLAUDE.md for the solution, each only where none exists.
+/// AGENTS.md and CLAUDE.md for the solution, each only where none exists, and the `.gitignore`
+/// lines twaco's local state needs.
 pub(crate) fn write_agent_files(solution: &Solution) -> u8 {
     let projects: Vec<String> = match solution.deploy_order() {
         Ok(order) => order.iter().map(|p| p.name.clone()).collect(),
@@ -18,6 +19,19 @@ pub(crate) fn write_agent_files(solution: &Solution) -> u8 {
             }
             for file in &kept {
                 println!("{file} exists and is left alone");
+            }
+            if twaco::core::gitignore::in_git_work_tree(&solution.root) {
+                match twaco::core::gitignore::add_missing(&solution.root) {
+                    Ok(added) if added.is_empty() => {}
+                    Ok(added) => println!(
+                        "added {} line(s) to .gitignore: twaco's local state, backups included, is never committed",
+                        added.len()
+                    ),
+                    Err(error) => {
+                        eprintln!("twaco: .gitignore: {error}");
+                        return FAILED;
+                    }
+                }
             }
             OK
         }
