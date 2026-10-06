@@ -48,7 +48,7 @@ jobs:
       version: ${{ steps.bump.outputs.version }}
       sha: ${{ steps.commit.outputs.sha }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           ref: main
           fetch-depth: 0
@@ -77,7 +77,10 @@ jobs:
       # topic that the binary embeds but the package leaves out fails here, not for a user.
       - name: The package builds from its own files
         if: steps.head.outputs.skip != 'true'
-        run: cargo package --locked
+        # rust-cache cannot clean target/package, so remove it here.
+        run: |
+          cargo package --locked
+          rm -rf target/package
       - if: steps.head.outputs.skip != 'true'
         uses: EmbarkStudios/cargo-deny-action@v2
         with:
@@ -117,13 +120,17 @@ jobs:
     if: needs.prepare.outputs.skip != 'true'
     name: build (${{ matrix.target }})
     strategy:
-      fail-fast: true
+      # Every leg runs to the end, so one failure does not cancel the others. "Re-run failed jobs"
+      # then reruns only the legs that failed.
+      fail-fast: false
       matrix:
         include:
           - os: windows-latest
             target: x86_64-pc-windows-msvc
             archive: zip
-          - os: ubuntu-latest
+          # The oldest supported Ubuntu runner: the binary, the .deb and the AppImage need at
+          # least the glibc that built them.
+          - os: ubuntu-22.04
             target: x86_64-unknown-linux-gnu
             archive: tar.gz
           - os: macos-latest
@@ -133,7 +140,7 @@ jobs:
     env:
       VERSION: ${{ needs.prepare.outputs.version }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           ref: ${{ needs.prepare.outputs.sha }}
       - uses: dtolnay/rust-toolchain@stable
@@ -225,6 +232,14 @@ jobs:
           if (Test-Path "$dir\twaco.exe") { throw "the uninstaller left $dir\twaco.exe" }
           $path = (Get-ItemProperty HKCU:\Environment).Path
           if (($path -split ';') -contains $dir) { throw "the uninstaller left $dir in PATH: $path" }
+          # A PATH entry that was there before the install stays after the uninstall.
+          $before = (Get-ItemProperty HKCU:\Environment).Path
+          Set-ItemProperty HKCU:\Environment -Name Path -Value "$before;$dir" -Type ExpandString
+          Start-Process -Wait -FilePath "dist\twaco-$env:VERSION-x64-setup.exe" -ArgumentList '/S'
+          Start-Process -Wait -FilePath "$dir\uninstall.exe" -ArgumentList '/S', "_?=$dir"
+          $path = (Get-ItemProperty HKCU:\Environment).Path
+          if (($path -split ';') -notcontains $dir) { throw "the uninstaller removed a PATH entry it did not add: $path" }
+          Set-ItemProperty HKCU:\Environment -Name Path -Value $before -Type ExpandString
 
       # macOS: an unsigned .pkg that installs /usr/local/bin/twaco.
       - name: Installer (macOS)
@@ -264,7 +279,7 @@ jobs:
           chmod +x "dist/twaco-$VERSION-x86_64.AppImage"
           check "$(APPIMAGE_EXTRACT_AND_RUN=1 "dist/twaco-$VERSION-x86_64.AppImage" --version)" "the AppImage"
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: ${{ matrix.target }}
           path: dist/*
@@ -279,11 +294,11 @@ jobs:
       VERSION: ${{ needs.prepare.outputs.version }}
       SHA: ${{ needs.prepare.outputs.sha }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           ref: ${{ needs.prepare.outputs.sha }}
           fetch-depth: 0
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           path: dist
           merge-multiple: true
@@ -375,7 +390,7 @@ jobs:
       # then releases this version with it. A re-run after this step pushes nothing.
       - name: Fast-forward main to the version commit
         run: git push origin "$SHA:refs/heads/main"
-      - uses: softprops/action-gh-release@v2
+      - uses: softprops/action-gh-release@v3
         with:
           tag_name: v${{ env.VERSION }}
           target_commitish: ${{ env.SHA }}

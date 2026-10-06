@@ -80,7 +80,10 @@ Every merge to `main` that changes what ships is released. The release workflow
   ships in the archives of the next release.
 - Releases run one at a time. Merges that arrive during a release go into one release
   together.
-- To recover from a failed release, use "Re-run failed jobs". Each job can run again.
+- To recover from a failed release, use "Re-run failed jobs". Each job can run again. A
+  platform build that fails does not cancel the other platforms.
+- The Linux build runs on `ubuntu-22.04`, the oldest supported runner, so the packages need only
+  glibc 2.35. When GitHub retires that runner, move to the next oldest and update `README.md`.
 - When `main` moves during a release, the final push fails. The run for the newer commit then
   releases the same version.
 

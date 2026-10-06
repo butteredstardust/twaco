@@ -11,8 +11,10 @@
 //! - Each archive's signature is in the manifest. Its comment names the archive, and so its
 //!   version and platform, so a signed archive of another release does not pass as this one.
 //!
-//! A replayed manifest of an older release can still pass. It is installed only when that
-//! release is newer than this binary.
+//! A replayed manifest of an older release still has a valid signature. The check record keeps
+//! the highest version that a signed manifest showed, so an older manifest cannot hide a newer
+//! release that twaco saw before: the notice still names it, and `twaco update` refuses the
+//! older manifest.
 
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
@@ -242,6 +244,9 @@ pub fn owner(exe: &Path, appimage: Option<&str>) -> Option<String> {
 
 /// Replace `exe` with `binary`. The new file is written beside it first, so a failure leaves
 /// the old binary in place. On Windows `exe` must be the running executable.
+///
+/// Leftover files are named `.twaco-update-<pid>` and `.twaco-backup-<pid>.exe`. The Windows
+/// uninstaller in packaging/windows/twaco.nsi removes these names; keep the two in step.
 pub fn install(binary: &[u8], exe: &Path) -> Result<(), String> {
     let dir = exe
         .parent()
@@ -291,14 +296,33 @@ fn replace(staged: &Path, exe: &Path) -> std::io::Result<()> {
 /// When a later step fails, `exe` is missing, so a copy of the old binary is kept to put back.
 #[cfg(windows)]
 fn replace(staged: &Path, exe: &Path) -> std::io::Result<()> {
+    with_backup(exe, || self_replace::self_replace(staged))
+}
+
+/// Run `swap`, which replaces `exe`, with a copy of `exe` kept aside. When `swap` fails and
+/// `exe` is missing, put the copy back. When that fails too, keep the copy and name it in the
+/// error, so the person can put it back by hand.
+#[cfg_attr(not(windows), allow(dead_code))]
+fn with_backup(exe: &Path, swap: impl FnOnce() -> std::io::Result<()>) -> std::io::Result<()> {
     let backup = exe.with_file_name(format!(".twaco-backup-{}.exe", std::process::id()));
     std::fs::copy(exe, &backup)?;
-    let replaced = self_replace::self_replace(staged);
-    if replaced.is_err() && !exe.exists() {
-        let _ = std::fs::rename(&backup, exe);
+    let swapped = swap();
+    if swapped.is_err() && !exe.exists() {
+        if let Err(error) = std::fs::rename(&backup, exe) {
+            return Err(std::io::Error::new(
+                error.kind(),
+                format!(
+                    "the update failed and {} is missing. The old twaco is at {}: rename it to {} ({error})",
+                    exe.display(),
+                    backup.display(),
+                    exe.display()
+                ),
+            ));
+        }
+        return swapped;
     }
     let _ = std::fs::remove_file(&backup);
-    replaced
+    swapped
 }
 
 /// The last check, kept in the user's cache folder so the network is asked once a day.
@@ -308,6 +332,54 @@ pub struct CheckRecord {
     pub checked: i64,
     /// The latest release then, or none when the check failed.
     pub latest: Option<String>,
+    /// The highest version that any signed manifest showed.
+    #[serde(default)]
+    pub highest: Option<String>,
+}
+
+fn read_record(cache: &Path) -> CheckRecord {
+    std::fs::read(cache)
+        .ok()
+        .and_then(|bytes| serde_json::from_slice(&bytes).ok())
+        .unwrap_or_default()
+}
+
+/// Best effort: a record that is not written only means the network is asked again.
+fn write_record(cache: &Path, record: &CheckRecord) {
+    if let Some(dir) = cache.parent() {
+        let _ = std::fs::create_dir_all(dir);
+    }
+    if let Ok(json) = serde_json::to_vec(record) {
+        let _ = std::fs::write(cache, json);
+    }
+}
+
+/// The higher of two versions. Either can be missing.
+fn higher(a: Option<String>, b: Option<String>) -> Option<String> {
+    match (a, b) {
+        (Some(a), Some(b)) => Some(if is_newer(&b, &a) { b } else { a }),
+        (a, b) => a.or(b),
+    }
+}
+
+/// Accept the version of a verified manifest for `twaco update`, and record it.
+///
+/// Refuse it when a signed manifest showed a newer version before: then this manifest is an old
+/// copy, replayed or cached on the way.
+pub fn accept(cache: &Path, version: &str) -> Result<(), String> {
+    let mut record = read_record(cache);
+    // A record that has no `highest` yet still has the `latest` it saw.
+    record.highest = higher(record.highest, record.latest.clone());
+    if let Some(highest) = record.highest.as_deref() {
+        if is_newer(highest, version) {
+            return Err(format!(
+                "the release manifest names twaco {version}, but twaco {highest} was released before it. The manifest is an old copy; try again later, or download {highest} from {RELEASES_URL}"
+            ));
+        }
+    }
+    record.highest = higher(record.highest, Some(version.to_string()));
+    write_record(cache, &record);
+    Ok(())
 }
 
 pub fn cache_file() -> Option<PathBuf> {
@@ -339,28 +411,23 @@ pub fn notice(
     now: i64,
     current: &str,
 ) -> Option<String> {
-    let record: CheckRecord = std::fs::read(cache)
-        .ok()
-        .and_then(|bytes| serde_json::from_slice(&bytes).ok())
-        .unwrap_or_default();
+    let record = read_record(cache);
     let fresh = (0..CHECK_INTERVAL_SECS).contains(&(now - record.checked));
-    let latest = if fresh {
-        record.latest
+    let record = if fresh {
+        record
     } else {
         let latest = manifest(fetch, url, public_key).ok().map(|m| m.version);
         let record = CheckRecord {
             checked: now,
-            latest: latest.clone(),
+            highest: higher(record.highest, latest.clone()),
+            latest,
         };
-        if let Some(dir) = cache.parent() {
-            let _ = std::fs::create_dir_all(dir);
-        }
-        if let Ok(json) = serde_json::to_vec(&record) {
-            let _ = std::fs::write(cache, json);
-        }
-        latest
+        write_record(cache, &record);
+        record
     };
-    let latest = latest.filter(|latest| is_newer(latest, current))?;
+    // An older manifest does not hide a newer release that twaco saw before.
+    let latest =
+        higher(record.latest, record.highest).filter(|latest| is_newer(latest, current))?;
     Some(format!(
         "twaco {latest} is available (this is {current}); `twaco update --apply` installs it. {OPT_OUT}=1 turns this notice off"
     ))
@@ -664,5 +731,131 @@ mod tests {
         notice(&fake, "m", &test_key(), &cache, 9_000_000, "0.1.0");
         notice(&fake, "m", &test_key(), &cache, 8_000_000, "0.1.0");
         assert_eq!(fake.calls.get(), 4);
+    }
+
+    #[test]
+    fn an_older_manifest_does_not_hide_a_newer_release_seen_before() {
+        let cache = cache_path("replay");
+        notice(
+            &signed_manifest("0.2.0"),
+            "m",
+            &test_key(),
+            &cache,
+            1_000_000,
+            "0.1.0",
+        );
+        // A day later an old, validly signed manifest arrives.
+        let line = notice(
+            &signed_manifest("0.1.0"),
+            "m",
+            &test_key(),
+            &cache,
+            1_000_000 + CHECK_INTERVAL_SECS,
+            "0.1.0",
+        )
+        .unwrap();
+        assert!(line.contains("twaco 0.2.0 is available"), "{line}");
+        // Offline: the release seen before still counts.
+        let offline = Fake {
+            files: HashMap::new(),
+            calls: Cell::new(0),
+        };
+        let line = notice(
+            &offline,
+            "m",
+            &test_key(),
+            &cache,
+            1_000_000 + 2 * CHECK_INTERVAL_SECS,
+            "0.1.0",
+        );
+        assert!(line.is_some());
+    }
+
+    #[test]
+    fn update_refuses_a_manifest_older_than_one_seen_before() {
+        let cache = cache_path("accept");
+        accept(&cache, "0.2.0").unwrap();
+        accept(&cache, "0.2.0").unwrap();
+        let error = accept(&cache, "0.1.9").unwrap_err();
+        assert!(
+            error.contains("twaco 0.2.0 was released before it"),
+            "{error}"
+        );
+        accept(&cache, "0.3.0").unwrap();
+        assert!(accept(&cache, "0.2.0").is_err());
+        // The notice reads the same record.
+        let record = read_record(&cache);
+        assert_eq!(record.highest.as_deref(), Some("0.3.0"));
+    }
+
+    #[test]
+    fn a_record_without_highest_still_reads() {
+        let cache = cache_path("old-record");
+        std::fs::create_dir_all(cache.parent().unwrap()).unwrap();
+        std::fs::write(&cache, br#"{"checked":5,"latest":"0.2.0"}"#).unwrap();
+        let record = read_record(&cache);
+        assert_eq!((record.checked, record.highest), (5, None));
+        // `update` still compares with the `latest` that the record saw.
+        assert!(accept(&cache, "0.1.0").is_err());
+        accept(&cache, "0.2.0").unwrap();
+    }
+
+    fn backup_dir(name: &str) -> PathBuf {
+        let dir =
+            std::env::temp_dir().join(format!("twaco-backup-test-{}-{name}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        dir
+    }
+
+    fn entries(dir: &Path) -> Vec<String> {
+        let mut names: Vec<String> = std::fs::read_dir(dir)
+            .unwrap()
+            .map(|entry| entry.unwrap().file_name().to_string_lossy().into_owned())
+            .collect();
+        names.sort();
+        names
+    }
+
+    #[test]
+    fn a_failed_swap_puts_the_old_binary_back() {
+        let dir = backup_dir("restore");
+        let exe = dir.join("twaco.exe");
+        std::fs::write(&exe, b"old").unwrap();
+        let result = with_backup(&exe, || {
+            std::fs::remove_file(&exe)?;
+            Err(std::io::Error::other("swap failed"))
+        });
+        assert_eq!(result.unwrap_err().to_string(), "swap failed");
+        assert_eq!(std::fs::read(&exe).unwrap(), b"old");
+        assert_eq!(entries(&dir), ["twaco.exe"]);
+    }
+
+    #[test]
+    fn a_successful_swap_leaves_no_backup() {
+        let dir = backup_dir("success");
+        let exe = dir.join("twaco.exe");
+        std::fs::write(&exe, b"old").unwrap();
+        with_backup(&exe, || std::fs::write(&exe, b"new")).unwrap();
+        assert_eq!(std::fs::read(&exe).unwrap(), b"new");
+        assert_eq!(entries(&dir), ["twaco.exe"]);
+    }
+
+    #[test]
+    fn a_failed_restore_names_the_backup() {
+        let dir = backup_dir("keep");
+        let exe = dir.join("twaco.exe");
+        std::fs::write(&exe, b"old").unwrap();
+        let backup = dir.join(format!(".twaco-backup-{}.exe", std::process::id()));
+        // With the backup gone, the rename back fails.
+        let error = with_backup(&exe, || {
+            std::fs::remove_file(&exe)?;
+            std::fs::remove_file(&backup)?;
+            Err(std::io::Error::other("swap failed"))
+        })
+        .unwrap_err()
+        .to_string();
+        assert!(error.contains("is missing. The old twaco is at"), "{error}");
+        assert!(error.contains(&backup.display().to_string()), "{error}");
     }
 }
