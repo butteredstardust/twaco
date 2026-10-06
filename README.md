@@ -1,5 +1,7 @@
 <div align="center">
 
+<img src="assets/icon/twaco-512.png" alt="" width="128" height="128">
+
 # twaco
 
 **Keep a ThingWorx solution in source control, and work on it from a terminal or an AI agent.**
@@ -51,21 +53,46 @@ that does not need a server.
 ## Install
 
 Open the [latest release](https://github.com/butteredstardust/twaco/releases/latest) and
-download the archive for your platform:
+download the installer for your platform. Each merge to `main` that changes the binary
+publishes a new release.
 
-| Platform              | Asset                                    |
-| --------------------- | ---------------------------------------- |
-| Windows x64           | `twaco-<version>-x86_64-pc-windows-msvc.zip` |
-| Linux x64             | `twaco-<version>-x86_64-unknown-linux-gnu.tar.gz` |
-| macOS (Apple Silicon) | `twaco-<version>-aarch64-apple-darwin.tar.gz` |
+| Platform              | Installer                               | Installs to                         |
+| --------------------- | --------------------------------------- | ----------------------------------- |
+| Windows x64           | `twaco-<version>-x64-setup.exe`         | `%LOCALAPPDATA%\Programs\twaco`, on your `PATH` |
+| macOS (Apple Silicon) | `twaco-<version>-aarch64-apple-darwin.pkg` | `/usr/local/bin/twaco`           |
+| Linux x64 (Debian, Ubuntu) | `twaco_<version>_amd64.deb`        | `/usr/bin/twaco`                    |
+| Linux x64 (other)     | `twaco-<version>-x86_64.AppImage`       | wherever you put the file           |
 
-Unpack it and put `twaco` (or `twaco.exe`) on your `PATH`. Or build from source with Rust:
+- The Windows installer needs no administrator. Uninstall twaco from Settings > Apps.
+- The macOS package is not signed, so Gatekeeper blocks a double-click. Right-click it and
+  choose Open, or run `sudo installer -pkg twaco-<version>-aarch64-apple-darwin.pkg -target /`.
+- Make the AppImage executable (`chmod +x`) and put it on your `PATH`, renamed to `twaco`.
+
+Each release also has a plain archive per platform (`twaco-<version>-<target>.zip` or
+`.tar.gz`): unpack it and put `twaco` (or `twaco.exe`) on your `PATH`. `SHA256SUMS.txt` lists
+the checksum of every asset. Or build from source with Rust:
 
 ```sh
 cargo install --git https://github.com/butteredstardust/twaco
 ```
 
 `twaco types --check` also needs TypeScript (`npm install -g typescript`). Nothing else does.
+
+### Updates
+
+Once a day, a command run in a terminal checks for a newer release. When one exists, twaco
+writes one line on stderr after the command's own output. `twaco mcp`, CI and a redirected
+stderr never check. Set `TWACO_NO_UPDATE_CHECK=1` to turn the check off.
+
+```sh
+twaco update           # compare with the latest release
+twaco update --apply   # download it, verify its signature, and replace this binary
+```
+
+- On Windows, macOS and from an archive, `twaco update --apply` replaces the binary in place.
+  For `/usr/local/bin/twaco`, run it with `sudo`.
+- `twaco update` does not replace a `.deb` install or an AppImage. Install the next release's
+  `.deb` or AppImage instead.
 
 ## Quick start
 

@@ -28,8 +28,8 @@ for line in usage.splitlines()[2:]:
         blocks[-1][1].append(line[2:])
 
 GROUPS = [
-    ("Set up", "Describe a solution, check the environment, serve agents.",
-     ["init", "doctor", "projects", "mcp"]),
+    ("Set up", "Describe a solution, check the environment, serve agents, update twaco.",
+     ["init", "doctor", "projects", "mcp", "update"]),
     ("Work on the repository", "Offline: sidecars, gates, types, the service catalog, what a change reaches, a designer's export, renames.",
      ["extract", "sync", "fmt", "check", "types", "catalog", "impact", "unused", "docs", "adopt", "rename", "move", "copy", "retemplate", "new"]),
     ("Deploy and compare", "Against a server: what differs, what would be imported, and doing it.",

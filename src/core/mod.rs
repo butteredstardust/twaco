@@ -64,6 +64,7 @@ pub mod sync;
 pub mod transaction;
 pub mod types;
 pub mod unused;
+pub mod update;
 pub mod validate;
 pub mod workflow;
 pub mod workspace;

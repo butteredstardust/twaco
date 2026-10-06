@@ -62,6 +62,7 @@ when the command is asked to write. A local output named by an option is include
 | `rename property` | read-only | multi-file atomic | XML, sidecars, ledger | A crash is finished or undone by the next command that takes the workspace lock; if it refuses, follow its message. Otherwise retry. | `core/commands/rename.rs: execute` |
 | `mcp` | read-only | read-only | none | Retry freely. | `main.rs: main` |
 | `doctor` | read-only | read-only | none | Retry freely. | `main.rs: doctor` |
+| `update` | read-only | single-file atomic | the twaco executable | The executable is old or new; retry freely. | `core/update.rs: install` |
 | `export entity` | single-file atomic | single-file atomic | named export file | The output is old or new; retry freely. | `cli/content.rs: export_cmd` |
 | `export collection` | single-file atomic | single-file atomic | named export file | The output is old or new; retry freely. | `cli/content.rs: export_cmd` |
 | `export project` | single-file atomic | single-file atomic | named export file | The output is old or new; retry freely. | `cli/content.rs: export_cmd` |
