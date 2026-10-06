@@ -54,6 +54,81 @@ pub(crate) const HELP_FLAGS: &[&str] = &[
     "--profile",
 ];
 pub(crate) const JAVADOC_FLAGS: &[&str] = &["--member", "--limit", "--refresh", "--json"];
+pub(crate) const UPDATE_FLAGS: &[&str] = &["--apply"];
+
+/// `twaco update [--apply]`: compare with the latest release, and with `--apply` replace this
+/// binary with it. No MCP tool: an agent must not replace the server it is talking to.
+pub(crate) fn update_cmd(args: &[String]) -> u8 {
+    use twaco::core::update;
+    let parsed = match Args::parse(args, UPDATE_FLAGS) {
+        Ok(parsed) => parsed,
+        Err(why) => {
+            eprintln!("twaco: update: {why}");
+            return FAILED;
+        }
+    };
+    if !parsed.names.is_empty() {
+        eprintln!("twaco: update takes only --apply");
+        return FAILED;
+    }
+    let current = env!("CARGO_PKG_VERSION");
+    let web = update::Web::new(Duration::from_secs(120));
+    let manifest = match update::manifest(&web, update::MANIFEST_URL, update::PUBLIC_KEY) {
+        Ok(manifest) => manifest,
+        Err(error) => {
+            eprintln!("twaco: update: {error}");
+            return FAILED;
+        }
+    };
+    if !update::is_newer(&manifest.version, current) {
+        println!("twaco {current} is the latest release");
+        return OK;
+    }
+    println!(
+        "twaco {} is available (this is {current})",
+        manifest.version
+    );
+    if !manifest.notes.trim().is_empty() {
+        println!("\n{}\n", manifest.notes.trim());
+    }
+    // The real file, not a link to it: a link is replaced by a file otherwise.
+    let exe = match std::env::current_exe().and_then(std::fs::canonicalize) {
+        Ok(exe) => exe,
+        Err(error) => {
+            eprintln!("twaco: update: cannot find this executable: {error}");
+            return FAILED;
+        }
+    };
+    // A package manager or an AppImage owns some installs: say how to update those instead.
+    let appimage = std::env::var("APPIMAGE").ok();
+    let owner = update::owner(&exe, appimage.as_deref());
+    if !parsed.flags.iter().any(|flag| flag == "--apply") {
+        match owner {
+            Some(why) => println!("nothing installed; {why}"),
+            None => println!(
+                "nothing installed; `twaco update --apply` replaces {}",
+                exe.display()
+            ),
+        }
+        return OK;
+    }
+    if let Some(why) = owner {
+        eprintln!("twaco: update: {why}");
+        return FAILED;
+    }
+    let installed = update::download(&web, &manifest, update::TARGET, update::PUBLIC_KEY)
+        .and_then(|binary| update::install(&binary, &exe));
+    match installed {
+        Ok(()) => {
+            println!("installed twaco {} at {}", manifest.version, exe.display());
+            OK
+        }
+        Err(error) => {
+            eprintln!("twaco: update: {error}");
+            FAILED
+        }
+    }
+}
 
 pub(crate) fn guide_cmd(args: &[String]) -> u8 {
     use twaco::core::guide;

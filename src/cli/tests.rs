@@ -1,6 +1,6 @@
 use super::super::*;
 use super::entity::entity_delete_force_deprecation;
-use super::info::{GUIDE_FLAGS, HELP_FLAGS, JAVADOC_FLAGS};
+use super::info::{GUIDE_FLAGS, HELP_FLAGS, JAVADOC_FLAGS, UPDATE_FLAGS};
 use super::usage::USAGE;
 
 /// The usage text of one command: every block whose first line names it, with the lines
@@ -378,6 +378,7 @@ fn usage_names_every_flag_each_command_accepts() {
         ("help", HELP_FLAGS),
         ("guide", GUIDE_FLAGS),
         ("javadoc", JAVADOC_FLAGS),
+        ("update", UPDATE_FLAGS),
     ] {
         absent.extend(missing(command, known));
     }

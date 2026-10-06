@@ -59,6 +59,40 @@ server. A new one is welcome when:
 Use neutral entity names (`Acme.*`), and add it as one `##` section, since `twaco guide`
 searches by section.
 
+## Releases
+
+Every merge to `main` that changes what ships is released. The release workflow
+(`.github/workflows/release.yml`) does this:
+
+1. It runs the gates and commits the new version to a temporary `release/v<version>` branch.
+2. It builds, tests and packages each platform from that commit, and smoke-runs each installer.
+3. It signs the archives, fast-forwards `main` to the version commit, and publishes the release.
+
+`main` receives the version commit only when every platform builds. Follow these rules:
+
+- Record a user-visible change under `## [Unreleased]` in `CHANGELOG.md`. That section becomes
+  the release notes.
+- Do not change the version for a fix. The workflow bumps the patch number.
+- For a minor or major release, set the version in `Cargo.toml` in your pull request. Run
+  `cargo metadata > /dev/null` and commit the changed `Cargo.lock` too: the release builds with
+  `--locked`.
+- A change to Markdown at the root, `documentation/` or the icon sources does not release. It
+  ships in the archives of the next release.
+- Releases run one at a time. Merges that arrive during a release go into one release
+  together.
+- To recover from a failed release, use "Re-run failed jobs". Each job can run again.
+- When `main` moves during a release, the final push fails. The run for the newer commit then
+  releases the same version.
+
+The workflow needs two repository settings:
+
+- The `TWACO_SIGNING_KEY` secret holds the minisign secret key. `twaco update` trusts only its
+  public key, `PUBLIC_KEY` in `src/core/update.rs`.
+- A branch rule on `main` must let `github-actions[bot]` push, or the release cannot
+  fast-forward it.
+
+`python3 -m unittest discover -s scripts` tests `scripts/release_version.py`.
+
 ## Commit messages
 
 Write the subject as what the change does, in the imperative and under about 72 characters:

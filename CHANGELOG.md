@@ -6,6 +6,21 @@ All notable changes to twaco are recorded here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- twaco has an icon. `twaco.exe` shows it in Explorer, and `assets/icon/` holds the sources, a
+  macOS `.icns` and a Windows `.ico`.
+- Every merge to `main` that changes what ships publishes a release, with archives for Windows,
+  Linux and macOS. The patch number bumps on its own; a minor or major version is set by hand in
+  `Cargo.toml`.
+- Installers: a per-user Windows setup that adds twaco to `PATH`, a macOS `.pkg`, a Linux
+  `.deb` and an AppImage. The plain archives stay, with a minisign signature each, and
+  `SHA256SUMS.txt` covers every asset.
+- `update` compares twaco with the latest release. `update --apply` downloads the release for
+  this platform, verifies its signature, and replaces the binary. It is command-line only.
+- Once a day, a command run in a terminal says on stderr when a newer release exists.
+  `TWACO_NO_UPDATE_CHECK=1` turns this off; `mcp`, CI and a redirected stderr never check.
+
 ### Changed
 
 - MCP tool input schemas are generated from the typed request objects the tools read their

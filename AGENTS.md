@@ -50,6 +50,16 @@ Follow "Adding a command" in ARCHITECTURE.md: core module, CLI route and usage l
 and the `tools/list` test, the workspace lock if it writes, and documentation. When the usage text
 changes, regenerate `documentation/COMMANDS.md` with `python scripts/commands_doc.py`.
 
+## Releases
+
+Merging to `main` releases (`.github/workflows/release.yml`). Record user-visible changes under
+`## [Unreleased]` in `CHANGELOG.md`, and leave the version alone unless the change is a minor or
+major release. CONTRIBUTING.md has the details.
+
+`twaco update` and the daily notice read `updater.json` from the latest release
+(`src/core/update.rs`). Keep its format, the archive names and the signing step in the workflow
+in step with that file. Tests use the fixtures in `tests/fixtures/update/`, never the network.
+
 ## Knowledge topics
 
 `knowledge/*.md` is compiled into the binary and served by `twaco guide`. A quirk is one `##`
