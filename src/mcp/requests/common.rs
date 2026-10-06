@@ -7,8 +7,14 @@ use serde_json::Value;
 use std::ops::Deref;
 
 /// An argument that may be absent, but may not be JSON `null`.
-#[derive(Clone, Debug, Default, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct Absent<T>(Option<T>);
+
+impl<T> Default for Absent<T> {
+    fn default() -> Self {
+        Self(None)
+    }
+}
 
 impl<T> Absent<T> {
     pub(crate) fn as_ref(&self) -> Option<&T> {
@@ -95,6 +101,11 @@ pub(crate) fn parse<T: DeserializeOwned>(schema: &Value, arguments: &Value) -> R
 #[derive(Debug, Deserialize, JsonSchema, Serialize)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct NoArguments {}
+
+/// The schema of a free-form JSON object: any members, any values.
+pub(crate) fn free_object(_: &mut schemars::SchemaGenerator) -> Schema {
+    schemars::json_schema!({ "type": "object" })
+}
 
 pub(crate) fn default_true() -> bool {
     true

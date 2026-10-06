@@ -1,44 +1,23 @@
+use super::requests::data::{
+    CallRequest, ConfigTableAction as TableAction, ConfigTableRequest, DatatableCopyRequest,
+    DbCleanRequest, DbQueryRequest, DbRunRequest, LogLevelRequest, LogsRequest,
+};
 use super::*;
 
 pub(crate) fn datatable_copy_tool(
     solution: &Solution,
-    arguments: &Value,
+    arguments: DatatableCopyRequest,
 ) -> Result<Value, ToolError> {
-    let dry_run = flag(arguments, "dry_run", true);
-    let name = |key: &str| {
-        text(arguments, key)
-            .filter(|value| !value.is_empty())
-            .map(str::to_string)
-            .ok_or_else(|| ToolError::invalid(format!("`{key}` is required")))
-    };
-    let mut map = std::collections::BTreeMap::new();
-    for (from, to) in arguments
-        .get("map")
-        .and_then(Value::as_object)
-        .into_iter()
-        .flatten()
-    {
-        let to = to
-            .as_str()
-            .ok_or_else(|| ToolError::invalid(format!("map.{from} must be a field name")))?;
-        map.insert(from.clone(), to.to_string());
-    }
-    let max_rows = match arguments.get("max_rows") {
-        None => 100_000,
-        Some(value) => value
-            .as_u64()
-            .filter(|value| *value > 0)
-            .ok_or_else(|| ToolError::invalid("`max_rows` must be a positive whole number"))?,
-    };
+    let dry_run = arguments.dry_run;
     let request = commands::datatable_copy::DataTableCopyRequest {
-        old: name("old")?,
-        new: name("new")?,
-        map,
-        drop_unmapped: flag(arguments, "drop_unmapped", false),
-        append: flag(arguments, "append", false),
-        max_rows,
+        old: nonempty(&arguments.old, "old")?.to_string(),
+        new: nonempty(&arguments.new, "new")?.to_string(),
+        map: arguments.map.as_ref().cloned().unwrap_or_default(),
+        drop_unmapped: arguments.drop_unmapped,
+        append: arguments.append,
+        max_rows: arguments.max_rows,
         mode: if dry_run { Mode::Plan } else { Mode::Apply },
-        profile: text(arguments, "profile").unwrap_or("default").to_string(),
+        profile: arguments.profile,
     };
     let mut notices = commands::Notices::default();
     let outcome =
@@ -54,11 +33,14 @@ pub(crate) fn datatable_copy_tool(
     Ok(result)
 }
 
-pub(crate) fn db_clean_tool(solution: &Solution, arguments: &Value) -> Result<Value, ToolError> {
-    let dry_run = flag(arguments, "dry_run", true);
+pub(crate) fn db_clean_tool(
+    solution: &Solution,
+    arguments: DbCleanRequest,
+) -> Result<Value, ToolError> {
+    let dry_run = arguments.dry_run;
     let request = commands::db::DbRequest::Clean {
         mode: if dry_run { Mode::Plan } else { Mode::Apply },
-        profile: text(arguments, "profile").unwrap_or("default").to_string(),
+        profile: arguments.profile,
     };
     let mut notices = commands::Notices::default();
     let swept = match commands::db::execute(solution, &request, server::Client::new, &mut notices)
@@ -76,12 +58,13 @@ pub(crate) fn db_clean_tool(solution: &Solution, arguments: &Value) -> Result<Va
     Ok(result)
 }
 
-pub(crate) fn db_tool(
+/// The SQL a tool was given, from a file of the solution or inline: exactly one of the two.
+fn sql_source(
     solution: &Solution,
-    arguments: &Value,
-    mode: db::Mode,
-) -> Result<Value, ToolError> {
-    let sql = match (text(arguments, "file"), text(arguments, "sql")) {
+    file: &requests::common::Absent<String>,
+    sql: &requests::common::Absent<String>,
+) -> Result<String, ToolError> {
+    match (file.as_ref(), sql.as_ref()) {
         (Some(file), None) if !file.is_empty() => {
             let candidate = solution.root.join(file);
             let real = std::fs::canonicalize(&candidate)
@@ -93,33 +76,30 @@ pub(crate) fn db_tool(
                 )));
             }
             std::fs::read_to_string(&real)
-                .map_err(|error| ToolError::with(ErrorCode::IoError, format!("{file}: {error}")))?
+                .map_err(|error| ToolError::with(ErrorCode::IoError, format!("{file}: {error}")))
         }
-        (None, Some(sql)) if !sql.is_empty() => sql.to_string(),
-        _ => return Err(ToolError::invalid("give exactly one of `file` or `sql`")),
-    };
-    let positive = |name: &str, default: u64| -> Result<u64, ToolError> {
-        match arguments.get(name) {
-            None => Ok(default),
-            Some(value) => value.as_u64().filter(|value| *value > 0).ok_or_else(|| {
-                ToolError::invalid(format!("`{name}` must be a positive whole number"))
-            }),
-        }
-    };
-    let timeout = positive("timeout", 120)?;
-    let max_rows = positive("max_rows", 500)?;
+        (None, Some(sql)) if !sql.is_empty() => Ok(sql.clone()),
+        _ => Err(ToolError::invalid("give exactly one of `file` or `sql`")),
+    }
+}
+
+pub(crate) fn db_query_tool(
+    solution: &Solution,
+    arguments: DbQueryRequest,
+) -> Result<Value, ToolError> {
+    let sql = sql_source(solution, &arguments.file, &arguments.sql)?;
     let options = db::Options {
-        mode,
-        thing: text(arguments, "thing").map(str::to_string),
-        apply: mode == db::Mode::Query || !flag(arguments, "dry_run", true),
-        no_transaction: flag(arguments, "no_transaction", false),
-        max_rows,
-        timeout: Duration::from_secs(timeout),
+        mode: db::Mode::Query,
+        thing: arguments.thing.as_ref().cloned(),
+        apply: true,
+        no_transaction: false,
+        max_rows: arguments.max_rows,
+        timeout: Duration::from_secs(arguments.timeout),
     };
     let request = commands::db::DbRequest::Execute {
         sql,
         options,
-        profile: text(arguments, "profile").unwrap_or("default").to_string(),
+        profile: arguments.profile,
     };
     let mut notices = commands::Notices::default();
     let report = match commands::db::execute(solution, &request, server::Client::new, &mut notices)
@@ -129,61 +109,40 @@ pub(crate) fn db_tool(
         commands::db::DbOutcome::Cleaned { .. } => unreachable!(),
     };
     let mut value = serde_json::to_value(report).expect("db report serialises");
-    if mode == db::Mode::Query {
-        if let Some(result) = value.get_mut("result").and_then(Value::as_object_mut) {
-            let total = result
-                .get("rows")
-                .and_then(Value::as_array)
-                .map(Vec::len)
-                .unwrap_or(0);
-            let columns: Vec<String> = result
-                .get("dataShape")
-                .and_then(|shape| shape.get("fieldDefinitions"))
-                .and_then(Value::as_object)
-                .map(|fields| fields.keys().cloned().collect())
-                .or_else(|| {
-                    result
-                        .get("rows")
-                        .and_then(Value::as_array)
-                        .and_then(|rows| rows.first())
-                        .and_then(Value::as_object)
-                        .map(|row| row.keys().cloned().collect())
-                })
-                .unwrap_or_default();
-            if !flag(arguments, "detail", false) {
-                if let Some(rows) = result.get_mut("rows").and_then(Value::as_array_mut) {
-                    rows.truncate(20);
-                }
+    if let Some(result) = value.get_mut("result").and_then(Value::as_object_mut) {
+        let total = result
+            .get("rows")
+            .and_then(Value::as_array)
+            .map(Vec::len)
+            .unwrap_or(0);
+        let columns: Vec<String> = result
+            .get("dataShape")
+            .and_then(|shape| shape.get("fieldDefinitions"))
+            .and_then(Value::as_object)
+            .map(|fields| fields.keys().cloned().collect())
+            .or_else(|| {
+                result
+                    .get("rows")
+                    .and_then(Value::as_array)
+                    .and_then(|rows| rows.first())
+                    .and_then(Value::as_object)
+                    .map(|row| row.keys().cloned().collect())
+            })
+            .unwrap_or_default();
+        if !arguments.detail {
+            if let Some(rows) = result.get_mut("rows").and_then(Value::as_array_mut) {
+                rows.truncate(20);
             }
-            result.insert("total_rows".to_string(), json!(total));
-            result.insert("columns".to_string(), json!(columns));
         }
+        result.insert("total_rows".to_string(), json!(total));
+        result.insert("columns".to_string(), json!(columns));
     }
     add_notices(&mut value, &notices);
     Ok(value)
 }
 
-pub(crate) fn db_run_tool(
-    solution: &Solution,
-    request: crate::mcp::requests::data::DbRunRequest,
-) -> Result<Value, ToolError> {
-    let sql = match (request.file.as_ref(), request.sql.as_ref()) {
-        (Some(file), None) if !file.is_empty() => {
-            let candidate = solution.root.join(file);
-            let real = std::fs::canonicalize(&candidate)
-                .map_err(|error| ToolError::with(ErrorCode::IoError, format!("{file}: {error}")))?;
-            let root = std::fs::canonicalize(&solution.root).map_err(ToolError::io)?;
-            if !real.starts_with(&root) {
-                return Err(ToolError::invalid(format!(
-                    "{file} is outside the solution"
-                )));
-            }
-            std::fs::read_to_string(&real)
-                .map_err(|error| ToolError::with(ErrorCode::IoError, format!("{file}: {error}")))?
-        }
-        (None, Some(sql)) if !sql.is_empty() => sql.clone(),
-        _ => return Err(ToolError::invalid("give exactly one of `file` or `sql`")),
-    };
+pub(crate) fn db_run_tool(solution: &Solution, request: DbRunRequest) -> Result<Value, ToolError> {
+    let sql = sql_source(solution, &request.file, &request.sql)?;
     let options = db::Options {
         mode: db::Mode::Run,
         thing: request.thing.as_ref().cloned(),
@@ -211,11 +170,10 @@ pub(crate) fn db_run_tool(
 
 pub(crate) fn config_table_tool(
     solution: &Solution,
-    arguments: &Value,
+    arguments: ConfigTableRequest,
 ) -> Result<Value, ToolError> {
-    let thing_arg = required(arguments, "thing")?;
-    let table = required(arguments, "table")?;
-    let action = text(arguments, "action").unwrap_or("read");
+    let thing_arg = nonempty(&arguments.thing, "thing")?;
+    let table = nonempty(&arguments.table, "table")?;
     // As on the command line: a Thing of the solution may be named by its last segment, one not
     // in the solution is taken as given (diff aside), and anything else is refused.
     let found = workspace::discover(solution).entities;
@@ -234,13 +192,8 @@ pub(crate) fn config_table_tool(
         .as_ref()
         .map(|e| e.info.name.clone())
         .unwrap_or_else(|| thing_arg.to_string());
-    if !matches!(action, "read" | "diff" | "restore") {
-        return Err(ToolError::invalid(format!(
-            "action must be read, diff or restore, not {action:?}"
-        )));
-    }
-    let request = if action == "restore" {
-        let backup = required(arguments, "backup")?;
+    let request = if arguments.action == TableAction::Restore {
+        let backup = required_text(&arguments.backup, "backup")?;
         let backup = {
             let path = PathBuf::from(backup);
             if path.is_absolute() {
@@ -249,7 +202,7 @@ pub(crate) fn config_table_tool(
                 solution.root.join(path)
             }
         };
-        let dry_run = flag(arguments, "dry_run", true);
+        let dry_run = arguments.dry_run;
         commands::config_table::ConfigTableRequest {
             thing: thing.clone(),
             table: table.to_string(),
@@ -257,9 +210,9 @@ pub(crate) fn config_table_tool(
                 path: backup,
                 mode: if dry_run { Mode::Plan } else { Mode::Apply },
             },
-            profile: text(arguments, "profile").unwrap_or("default").to_string(),
+            profile: arguments.profile.clone(),
         }
-    } else if action == "diff" {
+    } else if arguments.action == TableAction::Diff {
         let entity = resolved.as_ref().ok_or_else(|| {
             ToolError::with(
                 ErrorCode::UnknownEntity,
@@ -272,14 +225,14 @@ pub(crate) fn config_table_tool(
             action: commands::config_table::ConfigTableAction::Diff {
                 entity: entity.path.clone(),
             },
-            profile: text(arguments, "profile").unwrap_or("default").to_string(),
+            profile: arguments.profile.clone(),
         }
     } else {
         commands::config_table::ConfigTableRequest {
             thing: thing.clone(),
             table: table.to_string(),
             action: commands::config_table::ConfigTableAction::Read,
-            profile: text(arguments, "profile").unwrap_or("default").to_string(),
+            profile: arguments.profile.clone(),
         }
     };
     let mut notices = commands::Notices::default();
@@ -288,7 +241,7 @@ pub(crate) fn config_table_tool(
             .map_err(ToolError::coded)?;
     let mut result = match outcome {
         commands::config_table::ConfigTableOutcome::Restored { plan, .. } => {
-            let dry_run = flag(arguments, "dry_run", true);
+            let dry_run = arguments.dry_run;
             json!({
                 "thing": thing,
                 "table": table,
@@ -300,7 +253,7 @@ pub(crate) fn config_table_tool(
         }
         commands::config_table::ConfigTableOutcome::Read { table: live, .. } => {
             let key = config_table::primary_key(&live.data_shape);
-            let detail = flag(arguments, "detail", false);
+            let detail = arguments.detail;
             let mut result = json!({
                 "thing": thing,
                 "table": table,
@@ -333,13 +286,13 @@ pub(crate) fn config_table_tool(
 
 /// The server's file repositories, read-only.
 /// One of the server's logs, summary first. Read-only, so it takes no lock.
-pub(crate) fn logs_tool(solution: &Solution, arguments: &Value) -> Result<Value, ToolError> {
-    let log = required(arguments, "log")?;
+pub(crate) fn logs_tool(solution: &Solution, arguments: LogsRequest) -> Result<Value, ToolError> {
+    let log = nonempty(&arguments.log, "log")?;
     let now = logs::now_ms();
     let (from_ms, to_ms) = match (
-        text(arguments, "since"),
-        text(arguments, "from"),
-        text(arguments, "to"),
+        arguments.since.as_deref(),
+        arguments.from.as_deref(),
+        arguments.to.as_deref(),
     ) {
         (Some(_), Some(_), _) | (Some(_), _, Some(_)) => {
             return Err(ToolError::invalid(
@@ -359,7 +312,7 @@ pub(crate) fn logs_tool(solution: &Solution, arguments: &Value) -> Result<Value,
             (from_ms, to_ms)
         }
     };
-    let search = match (text(arguments, "grep"), text(arguments, "regex")) {
+    let search = match (arguments.grep.as_deref(), arguments.regex.as_deref()) {
         (Some(_), Some(_)) => {
             return Err(ToolError::invalid(
                 "grep and regex are two ways to search; give one",
@@ -373,35 +326,33 @@ pub(crate) fn logs_tool(solution: &Solution, arguments: &Value) -> Result<Value,
         log: log.to_string(),
         from_ms,
         to_ms,
-        level: text(arguments, "level")
+        level: arguments
+            .level
+            .map(|level| level.as_str())
             .map(logs::level)
             .transpose()
             .map_err(ToolError::coded)?,
         search,
-        user: text(arguments, "user").map(str::to_string),
-        thread: text(arguments, "thread").map(str::to_string),
-        origin: text(arguments, "origin").map(str::to_string),
-        limit: arguments
-            .get("limit")
-            .and_then(Value::as_u64)
-            .unwrap_or(200),
-        oldest_first: flag(arguments, "oldest_first", false),
+        user: arguments.user.as_ref().cloned(),
+        thread: arguments.thread.as_ref().cloned(),
+        origin: arguments.origin.as_ref().cloned(),
+        limit: arguments.limit,
+        oldest_first: arguments.oldest_first,
     };
-    let client = client(solution, arguments)?;
+    let client = client_for(solution, &arguments.profile)?;
     let outcome = logs::query(&client, &query).map_err(ToolError::coded)?;
-    Ok(logs::summary(
-        log,
-        &outcome,
-        flag(arguments, "detail", false),
-    ))
+    Ok(logs::summary(log, &outcome, arguments.detail))
 }
 
 /// A log's levels, read, or changed as a plan unless dry_run is false. Writes no workspace file.
-pub(crate) fn log_level_tool(solution: &Solution, arguments: &Value) -> Result<Value, ToolError> {
-    let log = required(arguments, "log")?;
-    let sublogger = text(arguments, "sublogger").map(str::to_string);
-    let reset = flag(arguments, "reset", false);
-    let change = match (text(arguments, "level"), reset) {
+pub(crate) fn log_level_tool(
+    solution: &Solution,
+    arguments: LogLevelRequest,
+) -> Result<Value, ToolError> {
+    let log = nonempty(&arguments.log, "log")?;
+    let sublogger = arguments.sublogger.as_ref().cloned();
+    let reset = arguments.reset;
+    let change = match (arguments.level.map(|level| level.as_str()), reset) {
         (Some(_), true) => return Err(ToolError::invalid("give a level or reset, not both")),
         (Some(level), false) => Some(logs::Change::Set {
             level: logs::level(level).map_err(ToolError::coded)?,
@@ -421,12 +372,12 @@ pub(crate) fn log_level_tool(solution: &Solution, arguments: &Value) -> Result<V
             "subloggers": levels.subloggers.iter().map(|(name, level)| json!({ "sublogger": name, "level": level })).collect::<Vec<_>>(),
         })
     };
-    let dry_run = flag(arguments, "dry_run", true);
+    let dry_run = arguments.dry_run;
     let request = commands::logs::LogLevelRequest {
         log: log.to_string(),
         change,
         mode: if dry_run { Mode::Plan } else { Mode::Apply },
-        profile: text(arguments, "profile").unwrap_or("default").to_string(),
+        profile: arguments.profile.clone(),
     };
     let mut notices = commands::Notices::default();
     let outcome = commands::logs::execute(solution, &request, server::Client::new, &mut notices)
@@ -462,31 +413,21 @@ pub(crate) fn log_level_tool(solution: &Solution, arguments: &Value) -> Result<V
 
 pub(crate) fn call_service_tool(
     solution: &Solution,
-    arguments: &Value,
+    arguments: CallRequest,
 ) -> Result<Value, ToolError> {
-    let target_arg = required(arguments, "target")?;
-    let service = required(arguments, "service")?;
-    let parameters = arguments
-        .get("parameters")
-        .cloned()
-        .unwrap_or_else(|| json!({}));
-    if !parameters.is_object() {
-        return Err(ToolError::invalid("`parameters` must be a JSON object"));
-    }
-    let timeout = arguments
-        .get("timeout_seconds")
-        .and_then(Value::as_u64)
-        .filter(|s| *s > 0)
-        .unwrap_or(120);
-    let dry_run = flag(arguments, "dry_run", true);
+    let target_arg = nonempty(&arguments.target, "target")?;
+    let service = nonempty(&arguments.service, "service")?;
+    let parameters = Value::Object(arguments.parameters.clone());
+    let timeout = arguments.timeout_seconds;
+    let dry_run = arguments.dry_run;
     let request = commands::call::CallRequest {
         target: target_arg.to_string(),
         service: service.to_string(),
         parameters: parameters.clone(),
         timeout: Duration::from_secs(timeout),
         mode: if dry_run { Mode::Plan } else { Mode::Apply },
-        profile: text(arguments, "profile").unwrap_or("default").to_string(),
-        with_logs: flag(arguments, "with_logs", false),
+        profile: arguments.profile.clone(),
+        with_logs: arguments.with_logs,
         profile_before_target: false,
     };
     let mut notices = commands::Notices::default();
@@ -516,7 +457,7 @@ pub(crate) fn call_service_tool(
             .collect::<Vec<_>>()),
         Err(error) => json!({ "error": format!("the logs could not be read: {error}") }),
     };
-    let detail = flag(arguments, "detail", false);
+    let detail = arguments.detail;
     let mut result = match reply {
         None => json!({ "dry_run": false, "result": "void" }),
         Some(value) if !detail && value.get("rows").is_some_and(Value::is_array) => {
