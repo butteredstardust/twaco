@@ -112,9 +112,9 @@ when the command is asked to write. A local output named by an option is include
 
 | Tool | Default | Applied | Writes | After a failure | Evidence |
 | --- | --- | --- | --- | --- | --- |
-| `projects` | read-only | read-only | none | Retry freely. | `mcp.rs: projects` |
+| `projects` | read-only | read-only | none | Retry freely. | `mcp/mod.rs: projects` |
 | `types` | best-effort batch | best-effort batch | declarations or platform cache | Every action can regenerate declarations; inspect completed files and retry. | `core/commands/types.rs: execute` |
-| `check` | read-only | read-only | none | Retry freely. | `mcp.rs: check_tool` |
+| `check` | read-only | read-only | none | Retry freely. | `mcp/source.rs: check_tool` |
 | `status` | read-only | single-file atomic | baseline | `record: true` replaces one baseline atomically; retry freely. | `core/commands/status.rs: execute` |
 | `sync` | best-effort batch | best-effort batch | entity XML, declarations | Earlier entities remain synced; retry failed entities. | `core/commands/sync.rs: execute` |
 | `extract` | best-effort batch | best-effort batch | sidecars, declarations | Earlier entities remain extracted; retry failed entities. | `core/commands/extract.rs: execute` |
@@ -128,29 +128,29 @@ when the command is asked to write. A local output named by an option is include
 | `datatable_copy` | read-only | server-partial | target DataTable | Read the target back before retrying. | `core/commands/datatable_copy.rs: execute` |
 | `db_clean` | read-only | server-partial | temporary server Things | List remaining temporary Things before retrying. | `core/commands/db.rs: execute` |
 | `deploy` | read-only | server-partial | server, baseline, backups | Read back imports and baseline; use plan and backups before retrying. | `core/commands/deploy.rs: execute` |
-| `adopt_report` | read-only | read-only | none | Retry freely. | `mcp.rs: adopt_tool` |
+| `adopt_report` | read-only | read-only | none | Retry freely. | `mcp/refactor.rs: adopt_tool` |
 | `adopt_apply` | best-effort batch | best-effort batch | entities, sidecars, declarations | Unlike the CLI form, this tool applies directly; inspect completed writes and retry failures. | `core/commands/adopt.rs: execute` |
 | `rename` | read-only | multi-file atomic | XML, sidecars, ledger, SQL | A crash is finished or undone by the next command that takes the workspace lock; if it refuses, follow its message. Otherwise retry the reviewed plan. | `core/commands/rename.rs: execute` |
 | `move_member` | read-only | multi-file atomic | XML, sidecars | A crash is finished or undone by the next command that takes the workspace lock; if it refuses, follow its message. Otherwise retry. | `core/commands/relocate.rs: execute` |
 | `new_building_block` | read-only | multi-file atomic | project files, config | A crash is finished or undone by the next command that takes the workspace lock; if it refuses, follow its message. Otherwise retry. | `core/commands/newblock.rs: execute` |
 | `retemplate` | read-only | single-file atomic | one entity XML | The entity is old or new; retry freely. | `core/commands/retemplate.rs: execute` |
 | `config_table` | read-only | server-partial | server table | Read the table back before retrying restore. | `core/commands/config_table.rs: execute` |
-| `logs` | read-only | read-only | none | Retry freely. | `mcp.rs: logs_tool` |
+| `logs` | read-only | read-only | none | Retry freely. | `mcp/data.rs: logs_tool` |
 | `log_level` | read-only | server-partial | server log level | Read the current level and use the undo before retrying. | `core/commands/logs.rs: execute` |
-| `repo` | read-only | read-only | none | Retry freely. | `mcp.rs: repo_tool` |
+| `repo` | read-only | read-only | none | Retry freely. | `mcp/content.rs: repo_tool` |
 | `repo_write` | read-only | server-partial | server repository or local pull | Inspect copied paths before retrying. | `core/commands/repo.rs: execute` |
-| `extensions` | read-only | read-only | none | Retry freely. | `mcp.rs: extensions_tool` |
+| `extensions` | read-only | read-only | none | Retry freely. | `mcp/content.rs: extensions_tool` |
 | `extension_write` | read-only | server-partial | server extension | Check installed extensions before retrying. | `core/commands/extensions.rs: execute` |
 | `export` | read-only | server-partial | local export or server repository | Local export is atomic; source-control apply needs a new plan and inspection. | `core/commands/export.rs: execute` |
 | `package` | single-file atomic | single-file atomic | named package file | The output is old or new; retry freely. | `core/commands/package.rs: execute` |
 | `import` | read-only | server-partial | server entities | Compare again with the server before retrying. | `core/commands/imports.rs: execute` |
-| `settings` | read-only | read-only | none | Retry freely. | `mcp.rs: settings_tool` |
-| `catalog` | read-only | read-only | none | Retry freely. | `mcp.rs: catalog_tool` |
-| `impact` | read-only | read-only | none | Retry freely. | `mcp.rs: impact_tool` |
-| `unused` | read-only | read-only | none | Retry freely. | `mcp.rs: unused_tool` |
-| `docs` | read-only | read-only | none | Retry freely. | `mcp.rs: docs_tool` |
-| `guide` | read-only | read-only | none | Retry freely. | `mcp.rs: guide_tool` |
-| `help_search` | single-file atomic | single-file atomic | user cache file | The cache file is old or new; retry freely. | `mcp.rs: help_search_tool` |
-| `help_page` | single-file atomic | single-file atomic | user cache file | The cache file is old or new; retry freely. | `mcp.rs: help_page_tool` |
-| `javadoc` | single-file atomic | single-file atomic | user cache file | The cache file is old or new; retry freely. | `mcp.rs: javadoc_tool` |
+| `settings` | read-only | read-only | none | Retry freely. | `mcp/info.rs: settings_tool` |
+| `catalog` | read-only | read-only | none | Retry freely. | `mcp/info.rs: catalog_tool` |
+| `impact` | read-only | read-only | none | Retry freely. | `mcp/info.rs: impact_tool` |
+| `unused` | read-only | read-only | none | Retry freely. | `mcp/info.rs: unused_tool` |
+| `docs` | read-only | read-only | none | Retry freely. | `mcp/info.rs: docs_tool` |
+| `guide` | read-only | read-only | none | Retry freely. | `mcp/info.rs: guide_tool` |
+| `help_search` | single-file atomic | single-file atomic | user cache file | The cache file is old or new; retry freely. | `mcp/info.rs: help_search_tool` |
+| `help_page` | single-file atomic | single-file atomic | user cache file | The cache file is old or new; retry freely. | `mcp/info.rs: help_page_tool` |
+| `javadoc` | single-file atomic | single-file atomic | user cache file | The cache file is old or new; retry freely. | `mcp/info.rs: javadoc_tool` |
 | `call` | read-only | server-partial | service effects | `dry_run` differs from CLI `call`; inspect service effects before retrying. | `core/commands/call.rs: execute` |
