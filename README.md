@@ -12,6 +12,10 @@
 [![License](https://img.shields.io/badge/license-MIT-blue?style=for-the-badge)](LICENSE)
 [![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20Linux%20%7C%20macOS-lightgrey?style=for-the-badge)](https://github.com/butteredstardust/twaco/releases/latest)
 
+<br>
+
+![twaco guide quirks lists the verified platform quirks](documentation/images/guide-quirks.png)
+
 </div>
 
 ---
@@ -54,9 +58,8 @@ that does not need a server.
 
 These commands work before you connect to a server.
 
-`twaco guide` reads the platform quirks that twaco's authors verified on a live server:
-
-<img src="documentation/images/guide-quirks.png" alt="twaco guide quirks lists the verified platform quirks" width="800">
+`twaco guide` reads the platform quirks that twaco's authors verified on a live server, as the
+screenshot at the top shows.
 
 `twaco help search` searches the ThingWorx help center:
 
