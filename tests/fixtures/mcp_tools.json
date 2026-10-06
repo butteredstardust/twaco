@@ -1480,7 +1480,7 @@
     "name": "settings",
     "description": "Read the server's subsystem settings (Composer: Browse > Subsystems): list the subsystems, show one with every setting, its value and description, or search every setting by name or description. Read-only; PASSWORD values are never shown.",
     "inputSchema": {
-      "type": "object",
+      "additionalProperties": false,
       "properties": {
         "action": {
           "type": "string",
@@ -1492,21 +1492,20 @@
           "default": "list"
         },
         "subsystem": {
-          "type": "string",
-          "description": "show: a subsystem, such as Logging or LoggingSubsystem."
+          "description": "show: a subsystem, such as Logging or LoggingSubsystem.",
+          "type": "string"
         },
         "text": {
-          "type": "string",
-          "description": "search: part of a setting's name or description."
+          "description": "search: part of a setting's name or description.",
+          "type": "string"
         },
         "profile": {
-          "type": "string",
           "description": "Server profile name.",
+          "type": "string",
           "default": "default"
         }
       },
-      "required": [],
-      "additionalProperties": false
+      "type": "object"
     },
     "annotations": {
       "readOnlyHint": true,
@@ -1518,28 +1517,27 @@
     "name": "catalog",
     "description": "The repository's offline service catalog: callable services by entity, their parameters, result, description, origin and whether code exists. Summary returns at most 50 services; detail returns all.",
     "inputSchema": {
-      "type": "object",
+      "additionalProperties": false,
       "properties": {
         "entity": {
-          "type": "string",
-          "description": "One entity, full name or its last dotted segment."
+          "description": "One entity, full name or its last dotted segment.",
+          "type": "string"
         },
         "project": {
-          "type": "string",
-          "description": "Narrow to one project of the solution."
+          "description": "Narrow to one project of the solution.",
+          "type": "string"
         },
         "text": {
-          "type": "string",
-          "description": "Case-insensitive match over service names, parameter names and descriptions; use entity to narrow to one entity."
+          "description": "Case-insensitive match over service names, parameter names and descriptions; use entity to narrow to one entity.",
+          "type": "string"
         },
         "detail": {
-          "type": "boolean",
           "description": "Return everything instead of the summary.",
+          "type": "boolean",
           "default": false
         }
       },
-      "required": [],
-      "additionalProperties": false
+      "type": "object"
     },
     "annotations": {
       "readOnlyHint": true,
@@ -1551,50 +1549,50 @@
     "name": "impact",
     "description": "What changing an entity, or one service, property or field of it, would reach: the Things, templates, shapes, mashups and projects that depend on it, directly or through others, each at the strength of its weakest reference (structural: declared in the XML or twaco.toml; resolved: a static name in a script or a mashup binding; review: a string that looks like the name, for a person to judge). Offline and read-only. It cannot see references built at run time or outside the repository; `complete` says whether every input was read and `unreadable` lists what was not. Summary leaves the chain to each dependent out; detail includes it.",
     "inputSchema": {
+      "required": [
+        "entity"
+      ],
+      "additionalProperties": false,
       "type": "object",
       "properties": {
         "entity": {
-          "type": "string",
-          "description": "Collection/Name, a full name, or its last dotted segment."
+          "description": "Collection/Name, a full name, or its last dotted segment.",
+          "type": "string"
         },
         "member": {
-          "type": "string",
-          "description": "A service, property or field of the entity: ask only about what names it."
+          "description": "A service, property or field of the entity: ask only about what names it.",
+          "type": "string"
         },
         "min_confidence": {
+          "description": "The weakest reference to follow.",
           "type": "string",
           "enum": [
             "structural",
             "resolved",
             "review"
           ],
-          "default": "review",
-          "description": "The weakest reference to follow."
+          "default": "review"
         },
         "depth": {
+          "description": "How many references away to look; omit for no limit.",
           "type": "integer",
-          "minimum": 1,
-          "description": "How many references away to look; omit for no limit."
+          "minimum": 1
         },
         "format": {
+          "description": "dot returns the dependents as a Graphviz graph in `dot`.",
           "type": "string",
           "enum": [
             "json",
             "dot"
           ],
-          "default": "json",
-          "description": "dot returns the dependents as a Graphviz graph in `dot`."
+          "default": "json"
         },
         "detail": {
-          "type": "boolean",
           "description": "Return everything instead of the summary.",
+          "type": "boolean",
           "default": false
         }
-      },
-      "required": [
-        "entity"
-      ],
-      "additionalProperties": false
+      }
     },
     "annotations": {
       "readOnlyHint": true,
@@ -1606,36 +1604,35 @@
     "name": "unused",
     "description": "Entities nothing reaches: Things, templates, shapes and DataShapes with no chain of references from an entry point (what twaco.toml deploys, every mashup, anything that runs on events, and what `[unused] keep` names). Advisory and read-only: it deletes nothing, and an entity used only from outside the repository (a REST client, a connected system) looks unused, so list those under `[unused] keep`. `complete` says whether every input was read; `keep_unmatched` lists keep patterns that match nothing.",
     "inputSchema": {
-      "type": "object",
+      "additionalProperties": false,
       "properties": {
         "min_confidence": {
+          "description": "The weakest reference that counts as use; a stronger minimum reports more entities.",
           "type": "string",
           "enum": [
             "structural",
             "resolved",
             "review"
           ],
-          "default": "review",
-          "description": "The weakest reference that counts as use; a stronger minimum reports more entities."
+          "default": "review"
         },
         "collection": {
+          "description": "Judge one collection only.",
           "type": "string",
           "enum": [
             "Things",
             "ThingTemplates",
             "ThingShapes",
             "DataShapes"
-          ],
-          "description": "Judge one collection only."
+          ]
         },
         "detail": {
-          "type": "boolean",
           "description": "Return everything instead of the summary.",
+          "type": "boolean",
           "default": false
         }
       },
-      "required": [],
-      "additionalProperties": false
+      "type": "object"
     },
     "annotations": {
       "readOnlyHint": true,
@@ -1647,16 +1644,15 @@
     "name": "docs",
     "description": "The solution written down from the repository: the projects and their deploy order, how Things, templates and shapes inherit, every service with its signature, the DataShapes with their fields and where they are used, and the references that only look like a name and need a person's judgement. Offline and read-only; it has no dates, so regenerating it and diffing shows what changed. Permissions are not read yet, and references built at run time are not seen; `complete` says whether every input was read. Returns the document as JSON in `document` and as Markdown in `markdown`. Summary gives service and field counts; detail gives every signature and field.",
     "inputSchema": {
-      "type": "object",
+      "additionalProperties": false,
       "properties": {
         "detail": {
-          "type": "boolean",
           "description": "Return everything instead of the summary.",
+          "type": "boolean",
           "default": false
         }
       },
-      "required": [],
-      "additionalProperties": false
+      "type": "object"
     },
     "annotations": {
       "readOnlyHint": true,
@@ -1668,7 +1664,7 @@
     "name": "guide",
     "description": "Knowledge for working on this solution: twaco's workflow, the ThingWorx platform's verified-live quirks, the service-code reference, and the solution's own AGENTS.md, CLAUDE.md and docs/. Search before a live import, a hand-written mashup binding, a configuration-table change, or a service that introspects metadata or touches JSON. list: the topics; search: the best-matching sections; read: a topic (a long one gives its outline) or one section by heading.",
     "inputSchema": {
-      "type": "object",
+      "additionalProperties": false,
       "properties": {
         "action": {
           "type": "string",
@@ -1680,25 +1676,24 @@
           "default": "search"
         },
         "text": {
-          "type": "string",
-          "description": "search: words, such as \"AddMember group\" or \"configuration table row replaced\"."
+          "description": "search: words, such as \"AddMember group\" or \"configuration table row replaced\".",
+          "type": "string"
         },
         "topic": {
-          "type": "string",
-          "description": "read: a topic id from list or search, such as quirks or docs/DEVELOPER_GUIDE."
+          "description": "read: a topic id from list or search, such as quirks or docs/DEVELOPER_GUIDE.",
+          "type": "string"
         },
         "section": {
-          "type": "string",
-          "description": "read: a section heading, or a part of it that only one heading has."
+          "description": "read: a section heading, or a part of it that only one heading has.",
+          "type": "string"
         },
         "limit": {
           "type": "integer",
-          "minimum": 1,
-          "default": 8
+          "default": 8,
+          "minimum": 1
         }
       },
-      "required": [],
-      "additionalProperties": false
+      "type": "object"
     },
     "annotations": {
       "readOnlyHint": true,
@@ -1710,36 +1705,36 @@
     "name": "help_search",
     "description": "Search the ThingWorx Platform help center for the server's version (or another): pages holding every word, best first, with title, path, summary and address. It explains concepts and how-tos; for one service's parameters, the editor types (`types`) are better.",
     "inputSchema": {
-      "type": "object",
-      "properties": {
-        "query": {
-          "type": "string",
-          "description": "Words, as in the help's own search box. Code such as Resources[\"InfoTableFunctions\"] is split into its words."
-        },
-        "limit": {
-          "type": "integer",
-          "minimum": 1,
-          "default": 10
-        },
-        "version": {
-          "type": "string",
-          "description": "A help release such as 10.1; default: the server's own."
-        },
-        "refresh": {
-          "type": "boolean",
-          "default": false,
-          "description": "Download the index again instead of using the cache."
-        },
-        "profile": {
-          "type": "string",
-          "description": "Server profile name.",
-          "default": "default"
-        }
-      },
       "required": [
         "query"
       ],
-      "additionalProperties": false
+      "additionalProperties": false,
+      "type": "object",
+      "properties": {
+        "query": {
+          "description": "Words, as in the help's own search box. Code such as Resources[\"InfoTableFunctions\"] is split into its words.",
+          "type": "string"
+        },
+        "limit": {
+          "type": "integer",
+          "default": 10,
+          "minimum": 1
+        },
+        "version": {
+          "description": "A help release such as 10.1; default: the server's own.",
+          "type": "string"
+        },
+        "refresh": {
+          "description": "Download the index again instead of using the cache.",
+          "type": "boolean",
+          "default": false
+        },
+        "profile": {
+          "description": "Server profile name.",
+          "type": "string",
+          "default": "default"
+        }
+      }
     },
     "annotations": {
       "readOnlyHint": true,
@@ -1751,39 +1746,39 @@
     "name": "help_page",
     "description": "Read one ThingWorx Platform help page as Markdown, from a path or address that help_search returned. Long pages: ask for one section by heading; the result lists every heading.",
     "inputSchema": {
+      "required": [
+        "page"
+      ],
+      "additionalProperties": false,
       "type": "object",
       "properties": {
         "page": {
-          "type": "string",
-          "description": "A path such as ThingWorx/Help/Composer/Things/ThingServices/QueryParameterforQueryServices.html, or its address."
+          "description": "A path such as ThingWorx/Help/Composer/Things/ThingServices/QueryParameterforQueryServices.html, or its address.",
+          "type": "string"
         },
         "section": {
-          "type": "string",
-          "description": "Only the part under the first heading containing this text."
+          "description": "Only the part under the first heading containing this text.",
+          "type": "string"
         },
         "max_chars": {
           "type": "integer",
-          "minimum": 1000,
-          "default": 20000
+          "default": 20000,
+          "minimum": 1000
         },
         "version": {
-          "type": "string",
-          "description": "A help release such as 10.1; default: the one in the address, else the server's own."
+          "description": "A help release such as 10.1; default: the one in the address, else the server's own.",
+          "type": "string"
         },
         "refresh": {
           "type": "boolean",
           "default": false
         },
         "profile": {
-          "type": "string",
           "description": "Server profile name.",
+          "type": "string",
           "default": "default"
         }
-      },
-      "required": [
-        "page"
-      ],
-      "additionalProperties": false
+      }
     },
     "annotations": {
       "readOnlyHint": true,
@@ -1795,6 +1790,11 @@
     "name": "javadoc",
     "description": "Search or read the ThingWorx Platform API 10.1.0 Javadoc as Markdown. search ranks class and member simple names exact, prefix, then contains. class gives the class description and method summaries; member gives every overload with parameters, returns and throws. Useful for the Java methods of objects scripts call and Resource service parameter descriptions.",
     "inputSchema": {
+      "required": [
+        "action",
+        "name"
+      ],
+      "additionalProperties": false,
       "type": "object",
       "properties": {
         "action": {
@@ -1805,28 +1805,23 @@
           ]
         },
         "name": {
-          "type": "string",
-          "description": "A search name, or a simple/qualified class name."
+          "description": "A search name, or a simple/qualified class name.",
+          "type": "string"
         },
         "member": {
-          "type": "string",
-          "description": "class: return full details for every overload of this member."
+          "description": "class: return full details for every overload of this member.",
+          "type": "string"
         },
         "limit": {
           "type": "integer",
-          "minimum": 1,
-          "default": 10
+          "default": 10,
+          "minimum": 1
         },
         "refresh": {
           "type": "boolean",
           "default": false
         }
-      },
-      "required": [
-        "action",
-        "name"
-      ],
-      "additionalProperties": false
+      }
     },
     "annotations": {
       "readOnlyHint": true,

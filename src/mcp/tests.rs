@@ -327,11 +327,21 @@ fn meaning(schema: &Value) -> Value {
 
 #[test]
 fn generated_schemas_mean_what_the_hand_written_ones_did() {
-    for tool in hand_written_tools() {
+    let generated = registry::definitions(LATEST);
+    let hand_written = hand_written_tools();
+    let names = |tools: &[Value]| {
+        tools
+            .iter()
+            .map(|tool| tool["name"].clone())
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(
+        names(&generated),
+        names(&hand_written),
+        "the same tools, in the same order"
+    );
+    for (generated, tool) in generated.iter().zip(&hand_written) {
         let name = tool["name"].as_str().unwrap();
-        let Some(generated) = registry::definition(name, LATEST) else {
-            continue;
-        };
         assert_eq!(
             meaning(&generated["inputSchema"]),
             meaning(&tool["inputSchema"]),

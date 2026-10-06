@@ -1,9 +1,13 @@
+use super::requests::info as tool;
 use super::*;
 
-pub(crate) fn settings_tool(solution: &Solution, arguments: &Value) -> Result<Value, ToolError> {
-    let client = client(solution, arguments)?;
-    match text(arguments, "action").unwrap_or("list") {
-        "list" => {
+pub(crate) fn settings_tool(
+    solution: &Solution,
+    arguments: tool::SettingsRequest,
+) -> Result<Value, ToolError> {
+    let client = client(solution, &arguments.profile)?;
+    match arguments.action {
+        tool::SettingsAction::List => {
             let all = settings::summaries(&client).map_err(ToolError::coded)?;
             Ok(json!({ "ok": true, "subsystems": all.iter().map(|s| json!({
                 "name": s.name,
@@ -11,17 +15,17 @@ pub(crate) fn settings_tool(solution: &Solution, arguments: &Value) -> Result<Va
                 "tables": s.tables,
             })).collect::<Vec<_>>() }))
         }
-        "show" => {
+        tool::SettingsAction::Show => {
             let names = settings::Remote::subsystems(&client).map_err(ToolError::coded)?;
-            let name = settings::resolve(&names, required(arguments, "subsystem")?)
+            let name = settings::resolve(&names, required_text(&arguments.subsystem, "subsystem")?)
                 .map_err(ToolError::coded)?;
             let read = settings::read(&client, name).map_err(ToolError::coded)?;
             Ok(
                 json!({ "ok": true, "subsystem": read.name, "running": read.running, "tables": read.tables.iter().map(|t| settings::table_json(&read.name, t)).collect::<Vec<_>>() }),
             )
         }
-        "search" => {
-            let wanted = required(arguments, "text")?;
+        tool::SettingsAction::Search => {
+            let wanted = required_text(&arguments.text, "text")?;
             let all = settings::read_all(&client).map_err(ToolError::coded)?;
             let found = settings::search(&all, wanted);
             Ok(json!({ "ok": true, "matches": found.iter().map(|f| json!({
@@ -33,34 +37,36 @@ pub(crate) fn settings_tool(solution: &Solution, arguments: &Value) -> Result<Va
                 "description": f.field.description,
             })).collect::<Vec<_>>() }))
         }
-        other => Err(ToolError::invalid(format!(
-            "action must be list, show or search, not {other:?}"
-        ))),
     }
 }
 
 /// The repository-derived service catalog, offline and read-only.
-pub(crate) fn unused_tool(solution: &Solution, arguments: &Value) -> Result<Value, ToolError> {
-    let min = match text(arguments, "min_confidence") {
-        None => Confidence::Review,
-        Some(word) => Confidence::parse(word).ok_or_else(|| {
-            ToolError::invalid(format!(
-                "`min_confidence` is structural, resolved or review, not {word:?}"
-            ))
-        })?,
+pub(crate) fn unused_tool(
+    solution: &Solution,
+    arguments: tool::UnusedRequest,
+) -> Result<Value, ToolError> {
+    let min = match arguments.min_confidence {
+        tool::UnusedMinConfidence::Structural => Confidence::Structural,
+        tool::UnusedMinConfidence::Resolved => Confidence::Resolved,
+        tool::UnusedMinConfidence::Review => Confidence::Review,
     };
     let report = unused::run(
         solution,
         &unused::Request {
             min,
-            collection: text(arguments, "collection").map(str::to_string),
+            collection: arguments
+                .collection
+                .map(|collection| collection.as_str().to_string()),
         },
     );
-    Ok(report.to_json(flag(arguments, "detail", false)))
+    Ok(report.to_json(arguments.detail))
 }
 
-pub(crate) fn docs_tool(solution: &Solution, arguments: &Value) -> Result<Value, ToolError> {
-    let detail = flag(arguments, "detail", false);
+pub(crate) fn docs_tool(
+    solution: &Solution,
+    arguments: tool::DocsRequest,
+) -> Result<Value, ToolError> {
+    let detail = arguments.detail;
     let document = docs::build(solution);
     Ok(json!({
         "document": document.to_json(detail),
@@ -68,36 +74,31 @@ pub(crate) fn docs_tool(solution: &Solution, arguments: &Value) -> Result<Value,
     }))
 }
 
-pub(crate) fn impact_tool(solution: &Solution, arguments: &Value) -> Result<Value, ToolError> {
-    let min = match text(arguments, "min_confidence") {
-        None => Confidence::Review,
-        Some(word) => Confidence::parse(word).ok_or_else(|| {
-            ToolError::invalid(format!(
-                "`min_confidence` is structural, resolved or review, not {word:?}"
-            ))
-        })?,
+pub(crate) fn impact_tool(
+    solution: &Solution,
+    arguments: tool::ImpactRequest,
+) -> Result<Value, ToolError> {
+    let min = match arguments.min_confidence {
+        tool::ImpactMinConfidence::Structural => Confidence::Structural,
+        tool::ImpactMinConfidence::Resolved => Confidence::Resolved,
+        tool::ImpactMinConfidence::Review => Confidence::Review,
     };
-    let depth = match arguments.get("depth") {
-        None => None,
-        Some(value) => Some(
-            value
-                .as_u64()
-                .filter(|depth| *depth > 0)
-                .and_then(|depth| usize::try_from(depth).ok())
-                .ok_or_else(|| ToolError::invalid("`depth` must be a positive whole number"))?,
-        ),
-    };
+    let depth = arguments
+        .depth
+        .map(usize::try_from)
+        .transpose()
+        .map_err(|_| ToolError::invalid("`depth` must be a positive whole number"))?;
     let report = impact::run(
         solution,
         &impact::Request {
-            entity: required(arguments, "entity")?.to_string(),
-            member: text(arguments, "member").map(str::to_string),
+            entity: nonempty(&arguments.entity, "entity")?.to_string(),
+            member: arguments.member.as_ref().cloned(),
             min,
             depth,
         },
     )
     .map_err(ToolError::coded)?;
-    if text(arguments, "format") == Some("dot") {
+    if arguments.format == tool::ImpactFormat::Dot {
         return Ok(json!({
             "entity": report.entity,
             "dot": impact::render_dot(&report),
@@ -107,26 +108,25 @@ pub(crate) fn impact_tool(solution: &Solution, arguments: &Value) -> Result<Valu
             "limits": report.limits,
         }));
     }
-    Ok(report.to_json(flag(arguments, "detail", false)))
+    Ok(report.to_json(arguments.detail))
 }
 
-pub(crate) fn catalog_tool(solution: &Solution, arguments: &Value) -> Result<Value, ToolError> {
+pub(crate) fn catalog_tool(
+    solution: &Solution,
+    arguments: tool::CatalogRequest,
+) -> Result<Value, ToolError> {
     let catalog = catalog::build(
         solution,
         catalog::Query {
-            entity: text(arguments, "entity"),
-            project: text(arguments, "project"),
-            text: text(arguments, "text"),
+            entity: arguments.entity.as_deref(),
+            project: arguments.project.as_deref(),
+            text: arguments.text.as_deref(),
         },
     )
     .map_err(ToolError::coded)?;
     let service_count = catalog.service_count();
     let entity_count = catalog.entities.len();
-    let limit = if flag(arguments, "detail", false) {
-        usize::MAX
-    } else {
-        50
-    };
+    let limit = if arguments.detail { usize::MAX } else { 50 };
     let mut services = Vec::new();
     for entity in &catalog.entities {
         for service in &entity.services {
@@ -173,7 +173,8 @@ pub(crate) fn catalog_tool(solution: &Solution, arguments: &Value) -> Result<Val
 /// The help version for a call: asked, named in a page address, configured, or the server's.
 fn help_version(
     root: &Path,
-    arguments: &Value,
+    version: Option<&str>,
+    profile: &str,
     named: Option<String>,
 ) -> Result<(String, Vec<String>), ToolError> {
     // No twaco.toml means no solution; a broken one is an error.
@@ -183,45 +184,39 @@ fn help_version(
         Err(error) => return Err(ToolError::coded(error)),
     };
     let mut notes = Vec::new();
-    let version = help::choose_version(
-        text(arguments, "version"),
-        named,
-        solution.as_ref(),
-        text(arguments, "profile").unwrap_or("default"),
-        &mut notes,
-    )
-    // The only failures are a version that does not parse: the caller's own text when one was
-    // given, otherwise the solution's `[help] version`.
-    .map_err(|why| {
-        let code = if text(arguments, "version").is_some() {
-            ErrorCode::InvalidArguments
-        } else {
-            ErrorCode::InvalidData
-        };
-        ToolError::with(code, why)
-    })?;
-    Ok((version, notes))
+    let chosen = help::choose_version(version, named, solution.as_ref(), profile, &mut notes)
+        // The only failures are a version that does not parse: the caller's own text when one was
+        // given, otherwise the solution's `[help] version`.
+        .map_err(|why| {
+            let code = if version.is_some() {
+                ErrorCode::InvalidArguments
+            } else {
+                ErrorCode::InvalidData
+            };
+            ToolError::with(code, why)
+        })?;
+    Ok((chosen, notes))
 }
 
 /// Search the help center. Needs no solution; downloads go to the user's cache.
 /// The knowledge topics, built in and the solution's own; needs no solution.
-pub(crate) fn guide_tool(root: &Path, arguments: &Value) -> Result<Value, ToolError> {
+pub(crate) fn guide_tool(root: &Path, arguments: tool::GuideRequest) -> Result<Value, ToolError> {
     let solution = match Solution::discover(root) {
         Ok(solution) => Some(solution),
         Err(crate::core::config::ConfigError::NotFound { .. }) => None,
         Err(error) => return Err(ToolError::coded(error)),
     };
     let (topics, problems) = guide::topics(solution.as_ref());
-    let mut result = match text(arguments, "action").unwrap_or("search") {
-        "list" => json!({ "ok": true, "topics": topics.iter().map(|t| json!({
+    let mut result = match arguments.action {
+        tool::GuideAction::List => json!({ "ok": true, "topics": topics.iter().map(|t| json!({
             "topic": t.id,
             "title": t.title,
             "origin": if t.file.is_some() { "solution" } else { "built in" },
             "sections": guide::sections(&t.text).len(),
         })).collect::<Vec<_>>() }),
-        "search" => {
-            let query = required(arguments, "text")?;
-            let limit = arguments.get("limit").and_then(Value::as_u64).unwrap_or(8) as usize;
+        tool::GuideAction::Search => {
+            let query = required_text(&arguments.text, "text")?;
+            let limit = arguments.limit as usize;
             let hits = guide::search(&topics, query, limit);
             json!({
                 "ok": true,
@@ -229,10 +224,10 @@ pub(crate) fn guide_tool(root: &Path, arguments: &Value) -> Result<Value, ToolEr
                 "next": "read a section with action read, topic and section",
             })
         }
-        "read" => {
-            let topic =
-                guide::find(&topics, required(arguments, "topic")?).map_err(ToolError::coded)?;
-            match guide::read(topic, text(arguments, "section")).map_err(ToolError::coded)? {
+        tool::GuideAction::Read => {
+            let topic = guide::find(&topics, required_text(&arguments.topic, "topic")?)
+                .map_err(ToolError::coded)?;
+            match guide::read(topic, arguments.section.as_deref()).map_err(ToolError::coded)? {
                 guide::Reading::Text(markdown) => {
                     json!({ "ok": true, "topic": topic.id, "markdown": markdown })
                 }
@@ -245,11 +240,6 @@ pub(crate) fn guide_tool(root: &Path, arguments: &Value) -> Result<Value, ToolEr
                 }),
             }
         }
-        other => {
-            return Err(ToolError::invalid(format!(
-                "action must be list, search or read, not {other:?}"
-            )))
-        }
     };
     if !problems.is_empty() {
         result["problems"] = json!(problems);
@@ -257,20 +247,24 @@ pub(crate) fn guide_tool(root: &Path, arguments: &Value) -> Result<Value, ToolEr
     Ok(result)
 }
 
-pub(crate) fn help_search_tool(root: &Path, arguments: &Value) -> Result<Value, ToolError> {
-    let query = required(arguments, "query")?;
-    let (version, notes) = help_version(root, arguments, None)?;
+pub(crate) fn help_search_tool(
+    root: &Path,
+    arguments: tool::HelpSearchRequest,
+) -> Result<Value, ToolError> {
+    let query = nonempty(&arguments.query, "query")?;
+    let (version, notes) =
+        help_version(root, arguments.version.as_deref(), &arguments.profile, None)?;
     let cache = help::cache_root().map_err(ToolError::coded)?;
     let bytes = help::cached(
         &help::Web::default(),
         &cache,
         &version,
         help::INDEX_FILE,
-        flag(arguments, "refresh", false),
+        arguments.refresh,
     )
     .map_err(ToolError::coded)?;
     let index = help::Index::parse(&String::from_utf8_lossy(&bytes)).map_err(ToolError::coded)?;
-    let limit = arguments.get("limit").and_then(Value::as_u64).unwrap_or(10) as usize;
+    let limit = arguments.limit as usize;
     let found = help::search(&index, &version, query, limit);
     let mut result = json!({
         "ok": true,
@@ -294,25 +288,30 @@ pub(crate) fn help_search_tool(root: &Path, arguments: &Value) -> Result<Value, 
 }
 
 /// Read one help page as Markdown, bounded by max_chars.
-pub(crate) fn help_page_tool(root: &Path, arguments: &Value) -> Result<Value, ToolError> {
-    let page = required(arguments, "page")?;
+pub(crate) fn help_page_tool(
+    root: &Path,
+    arguments: tool::HelpPageRequest,
+) -> Result<Value, ToolError> {
+    let page = nonempty(&arguments.page, "page")?;
     let (named, path) = help::page_path(page).map_err(ToolError::coded)?;
-    let (version, notes) = help_version(root, arguments, named)?;
+    let (version, notes) = help_version(
+        root,
+        arguments.version.as_deref(),
+        &arguments.profile,
+        named,
+    )?;
     let cache = help::cache_root().map_err(ToolError::coded)?;
     let html = help::cached(
         &help::Web::default(),
         &cache,
         &version,
         &path,
-        flag(arguments, "refresh", false),
+        arguments.refresh,
     )
     .map_err(ToolError::coded)?;
-    let read =
-        help::read(&html, &version, &path, text(arguments, "section")).map_err(ToolError::coded)?;
-    let max = arguments
-        .get("max_chars")
-        .and_then(Value::as_u64)
-        .unwrap_or(20_000) as usize;
+    let read = help::read(&html, &version, &path, arguments.section.as_deref())
+        .map_err(ToolError::coded)?;
+    let max = arguments.max_chars as usize;
     let total = read.markdown.chars().count();
     let mut result = json!({
         "ok": true,
@@ -336,17 +335,17 @@ pub(crate) fn help_page_tool(root: &Path, arguments: &Value) -> Result<Value, To
 
 /// Search or read the fixed-version Java API docs. It needs no solution and contacts only the
 /// Javadoc site, never a ThingWorx server.
-pub(crate) fn javadoc_tool(arguments: &Value) -> Result<Value, ToolError> {
-    let action = required(arguments, "action")?;
-    let name = required(arguments, "name")?;
-    let refresh = flag(arguments, "refresh", false);
+pub(crate) fn javadoc_tool(arguments: tool::JavadocRequest) -> Result<Value, ToolError> {
+    let action = arguments.action;
+    let name = nonempty(&arguments.name, "name")?;
+    let refresh = arguments.refresh;
     let cache = javadoc::cache_root().map_err(|why| ToolError::with(ErrorCode::IoError, why))?;
     let web = help::Web::new(javadoc::BASE);
     let fetch = |path: &str| javadoc::cached(&web, &cache, path, refresh);
     let types = fetch(javadoc::TYPE_INDEX)?;
     let result = match action {
-        "search" => {
-            if arguments.get("member").is_some() {
+        tool::JavadocAction::Search => {
+            if arguments.member.is_some() {
                 return Err(ToolError::invalid("`member` is only for action class"));
             }
             let members = fetch(javadoc::MEMBER_INDEX)?;
@@ -355,7 +354,7 @@ pub(crate) fn javadoc_tool(arguments: &Value) -> Result<Value, ToolError> {
                 &String::from_utf8_lossy(&members),
             )
             .map_err(|why| ToolError::with(ErrorCode::InvalidData, why))?;
-            let limit = arguments.get("limit").and_then(Value::as_u64).unwrap_or(10) as usize;
+            let limit = arguments.limit as usize;
             let hits = javadoc::search(&index, name, limit);
             json!({
                 "ok": true,
@@ -368,7 +367,7 @@ pub(crate) fn javadoc_tool(arguments: &Value) -> Result<Value, ToolError> {
                 })).collect::<Vec<_>>(),
             })
         }
-        "class" => {
+        tool::JavadocAction::Class => {
             let index =
                 javadoc::Index::parse(&String::from_utf8_lossy(&types), "memberSearchIndex = []")
                     .map_err(|why| ToolError::with(ErrorCode::InvalidData, why))?;
@@ -378,7 +377,7 @@ pub(crate) fn javadoc_tool(arguments: &Value) -> Result<Value, ToolError> {
             let path = javadoc::class_path(&class)
                 .map_err(|why| ToolError::with(ErrorCode::InvalidData, why))?;
             let html = fetch(&path)?;
-            let read = javadoc::read(&html, &class, text(arguments, "member"))?;
+            let read = javadoc::read(&html, &class, arguments.member.as_deref())?;
             json!({
                 "ok": true,
                 "summary": format!("{} method overload(s) documented for {}", read.methods, read.title),
@@ -388,11 +387,6 @@ pub(crate) fn javadoc_tool(arguments: &Value) -> Result<Value, ToolError> {
                 "url": read.url,
                 "markdown": read.markdown,
             })
-        }
-        other => {
-            return Err(ToolError::invalid(format!(
-                "action must be search or class, not {other:?}"
-            )))
         }
     };
     Ok(result)

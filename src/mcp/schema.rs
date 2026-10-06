@@ -1,5 +1,10 @@
 use super::*;
 
+/// Hold the arguments to the tool's own schema before the tool sees them. A value of the wrong
+/// type read as absent would mean the default, which for `check`, `entity` or `only` is the wider
+/// action: `check: "true"` would write, `only: "X"` would deploy everything. So a name the schema
+/// does not declare, a value of the wrong type or outside its enum, or a missing required argument
+/// is refused first, in words the agent can act on.
 pub(crate) fn validate_arguments(schema: &Value, arguments: &Value) -> Result<(), String> {
     if !arguments.is_object() {
         return Err("`arguments` must be a JSON object".to_string());

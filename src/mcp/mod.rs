@@ -27,7 +27,6 @@ use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 mod content;
 mod data;
-mod definitions;
 mod entity;
 mod info;
 mod refactor;
@@ -39,13 +38,10 @@ mod source;
 #[cfg(test)]
 mod tests;
 
-pub use definitions::tool_definitions;
-
-use info::{
-    catalog_tool, docs_tool, guide_tool, help_page_tool, help_search_tool, impact_tool,
-    javadoc_tool, settings_tool, unused_tool,
-};
-use schema::validate_arguments;
+/// Every tool's `tools/list` entry, as the newest protocol revision shows it.
+pub fn tool_definitions() -> Vec<Value> {
+    registry::definitions(LATEST)
+}
 
 #[cfg(test)]
 pub(crate) fn legacy_schema(schema: &Value, arguments: &Value) -> Result<(), String> {
@@ -164,38 +160,16 @@ fn handle(root: &Path, message: &Value, protocol: &mut String) -> Option<Value> 
             }))
         }
         "ping" => Ok(json!({})),
-        "tools/list" => Ok(json!({ "tools": definitions::tool_definitions_for(protocol) })),
+        "tools/list" => Ok(json!({ "tools": registry::definitions(protocol) })),
         "tools/call" => {
             let name = params.get("name").and_then(Value::as_str).unwrap_or("");
             let arguments = params
                 .get("arguments")
                 .cloned()
                 .unwrap_or_else(|| json!({}));
-            match definitions::tool_definitions_for(protocol)
-                .into_iter()
-                .find(|t| t["name"] == name)
-            {
+            match call_tool(root, name, &arguments) {
+                Some(outcome) => Ok(tool_result(outcome, protocol)),
                 None => Err((-32602, format!("unknown tool {name:?}"))),
-                Some(definition) => {
-                    if registry::definition(name, protocol).is_some() {
-                        match call_tool(root, name, &arguments) {
-                            Some(outcome) => Ok(tool_result(outcome, protocol)),
-                            None => Err((-32602, format!("unknown tool {name:?}"))),
-                        }
-                    } else {
-                        match validate_arguments(&definition["inputSchema"], &arguments) {
-                            // A tool error, not a protocol one, so the agent sees it and can correct it.
-                            Err(why) => Ok(tool_result(
-                                Err(ToolError::invalid(format!("{why}; nothing was done"))),
-                                protocol,
-                            )),
-                            Ok(()) => match call_tool(root, name, &arguments) {
-                                Some(outcome) => Ok(tool_result(outcome, protocol)),
-                                None => Err((-32602, format!("unknown tool {name:?}"))),
-                            },
-                        }
-                    }
-                }
             }
         }
         other => Err((-32601, format!("method not found: {other}"))),
@@ -206,11 +180,6 @@ fn handle(root: &Path, message: &Value, protocol: &mut String) -> Option<Value> 
     })
 }
 
-/// Hold the arguments to the tool's own schema. The tools read an argument of the wrong type as
-/// absent, and absent means the default, which for `check`, `entity` or `only` is the wider
-/// action: `check: "true"` would write, `only: "X"` would deploy everything. So a name the
-/// schema does not declare, a value of the wrong type or outside its enum, or a missing
-/// required argument is refused before the tool runs.
 fn error_response(id: Value, code: i64, message: &str) -> Value {
     json!({ "jsonrpc": "2.0", "id": id, "error": { "code": code, "message": message } })
 }
@@ -286,22 +255,7 @@ pub(crate) fn tool_result(outcome: Result<Value, ToolError>, protocol: &str) -> 
 
 fn call_tool(root: &Path, name: &str, arguments: &Value) -> Option<Result<Value, ToolError>> {
     let started = Instant::now();
-    let outcome = if let Some(outcome) = registry::call(root, name, arguments) {
-        outcome
-    } else {
-        match name {
-            "help_search" => help_search_tool(root, arguments),
-            "guide" => guide_tool(root, arguments),
-            "settings" => with_solution(root, |s| settings_tool(s, arguments)),
-            "catalog" => with_solution(root, |s| catalog_tool(s, arguments)),
-            "impact" => with_solution(root, |s| impact_tool(s, arguments)),
-            "unused" => with_solution(root, |s| unused_tool(s, arguments)),
-            "docs" => with_solution(root, |s| docs_tool(s, arguments)),
-            "help_page" => help_page_tool(root, arguments),
-            "javadoc" => javadoc_tool(arguments),
-            _ => return None,
-        }
-    };
+    let outcome = registry::call(root, name, arguments)?;
     Some(outcome.map(|mut value| {
         if let Some(object) = value.as_object_mut() {
             object.insert(
@@ -311,31 +265,6 @@ fn call_tool(root: &Path, name: &str, arguments: &Value) -> Option<Result<Value,
         }
         value
     }))
-}
-
-fn with_solution(
-    root: &Path,
-    tool: impl FnOnce(&Solution) -> Result<Value, ToolError>,
-) -> Result<Value, ToolError> {
-    let solution = Solution::discover(root).map_err(ToolError::coded)?;
-    tool(&solution)
-}
-
-pub(crate) fn flag(arguments: &Value, name: &str, default: bool) -> bool {
-    arguments
-        .get(name)
-        .and_then(Value::as_bool)
-        .unwrap_or(default)
-}
-
-pub(crate) fn text<'a>(arguments: &'a Value, name: &str) -> Option<&'a str> {
-    arguments.get(name).and_then(Value::as_str)
-}
-
-pub(crate) fn required<'a>(arguments: &'a Value, name: &str) -> Result<&'a str, ToolError> {
-    text(arguments, name)
-        .filter(|v| !v.is_empty())
-        .ok_or_else(|| ToolError::invalid(format!("`{name}` is required")))
 }
 
 /// A text argument that may be left out, but that the tool cannot do without: left out or empty is
@@ -354,12 +283,8 @@ pub(crate) fn nonempty<'a>(value: &'a str, name: &str) -> Result<&'a str, ToolEr
         .ok_or_else(|| ToolError::invalid(format!("`{name}` is required")))
 }
 
-pub(crate) fn client(solution: &Solution, arguments: &Value) -> Result<server::Client, ToolError> {
-    client_for(solution, text(arguments, "profile").unwrap_or("default"))
-}
-
 /// A client for the named server profile.
-pub(crate) fn client_for(solution: &Solution, profile: &str) -> Result<server::Client, ToolError> {
+pub(crate) fn client(solution: &Solution, profile: &str) -> Result<server::Client, ToolError> {
     profile::load(&solution.root, profile)
         .map(server::Client::new)
         .map_err(ToolError::coded)

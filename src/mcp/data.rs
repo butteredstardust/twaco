@@ -339,7 +339,7 @@ pub(crate) fn logs_tool(solution: &Solution, arguments: LogsRequest) -> Result<V
         limit: arguments.limit,
         oldest_first: arguments.oldest_first,
     };
-    let client = client_for(solution, &arguments.profile)?;
+    let client = client(solution, &arguments.profile)?;
     let outcome = logs::query(&client, &query).map_err(ToolError::coded)?;
     Ok(logs::summary(log, &outcome, arguments.detail))
 }
