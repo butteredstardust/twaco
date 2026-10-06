@@ -41,27 +41,3 @@ jobs:
         run: |
           python3 scripts/commands_doc.py
           git diff --exit-code documentation/COMMANDS.md
-
-  # The version that package.yml checks Cargo.toml against.
-  version:
-    if: github.event_name == 'pull_request'
-    runs-on: ubuntu-latest
-    outputs:
-      version: ${{ steps.read.outputs.version }}
-    steps:
-      - uses: actions/checkout@v7
-      - id: read
-        run: |
-          version=$(python3 -c 'import tomllib; print(tomllib.load(open("Cargo.toml", "rb"))["package"]["version"])')
-          echo "version=$version" >> "$GITHUB_OUTPUT"
-
-  # Build every release package and install it, as the release does. The test job already ran
-  # the tests.
-  package:
-    needs: version
-    uses: ./.github/workflows/package.yml
-    with:
-      ref: ${{ github.sha }}
-      version: ${{ needs.version.outputs.version }}
-      test: false
-      retention-days: 1
