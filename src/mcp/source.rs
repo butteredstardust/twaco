@@ -1,26 +1,26 @@
 use super::entity::{refusal_code, tool_target};
+use super::requests::source::{
+    CheckRequest, DeployRequest, ExtractRequest, FmtRequest, SyncRequest, TypesAction, TypesRequest,
+};
 use super::*;
 
-pub(crate) fn types_tool(solution: &Solution, arguments: &Value) -> Result<Value, ToolError> {
-    types_tool_with_compiler(solution, arguments, None)
+pub(crate) fn types_tool(solution: &Solution, request: TypesRequest) -> Result<Value, ToolError> {
+    types_tool_with_compiler(solution, request, None)
 }
 
 pub(crate) fn types_tool_with_compiler(
     solution: &Solution,
-    arguments: &Value,
+    arguments: TypesRequest,
     compiler: Option<&dyn types::CompilerRunner>,
 ) -> Result<Value, ToolError> {
-    let action = match text(arguments, "action").unwrap_or("generate") {
-        "generate" => commands::types::TypesAction::Generate,
-        "check" => commands::types::TypesAction::Check,
-        "platform" => commands::types::TypesAction::Platform,
-        action => commands::types::TypesAction::Invalid(format!(
-            "action must be generate, check or platform, not {action:?}"
-        )),
+    let action = match arguments.action {
+        TypesAction::Generate => commands::types::TypesAction::Generate,
+        TypesAction::Check => commands::types::TypesAction::Check,
+        TypesAction::Platform => commands::types::TypesAction::Platform,
     };
     let request = commands::types::TypesRequest {
         action,
-        profile: text(arguments, "profile").unwrap_or("default").to_string(),
+        profile: arguments.profile.clone(),
         lock_label: "mcp types",
     };
     let mut notices = commands::Notices::default();
@@ -71,7 +71,7 @@ pub(crate) fn types_tool_with_compiler(
                 "seconds": outcome.elapsed.as_secs_f64(),
                 "by_code": by_code,
             });
-            if flag(arguments, "detail", false) {
+            if arguments.detail {
                 result["findings_list"] = Value::Array(findings.collect());
             } else {
                 result["first"] = Value::Array(findings.take(20).collect());
@@ -94,10 +94,10 @@ pub(crate) fn types_tool_with_compiler(
 }
 
 /// Every gate, and the live script parse when `live`: what `check` reports and `deploy` obeys.
-fn run_gates(solution: &Solution, arguments: &Value, live: bool) -> check::CheckReport {
+fn run_gates(solution: &Solution, profile: &str, live: bool) -> check::CheckReport {
     let mut report = check::run(solution);
     if live {
-        let built = client(solution, arguments).map_err(|error| error.message);
+        let built = client_for(solution, profile).map_err(|error| error.message);
         let checker = built
             .as_ref()
             .map(|c| c as &dyn check::ScriptChecker)
@@ -107,13 +107,13 @@ fn run_gates(solution: &Solution, arguments: &Value, live: bool) -> check::Check
     report
 }
 
-pub(crate) fn check_tool(solution: &Solution, arguments: &Value) -> Result<Value, ToolError> {
+pub(crate) fn check_tool(solution: &Solution, request: CheckRequest) -> Result<Value, ToolError> {
     let report = run_gates(
         solution,
-        arguments,
-        flag(arguments, "live", solution.gates.live),
+        &request.profile,
+        request.live.unwrap_or(solution.gates.live),
     );
-    let detail = flag(arguments, "detail", false);
+    let detail = request.detail;
     let gates: Vec<Value> = report
         .gates
         .iter()
@@ -146,20 +146,20 @@ pub(crate) fn check_tool(solution: &Solution, arguments: &Value) -> Result<Value
     Ok(result)
 }
 
-pub(crate) fn sync_tool(solution: &Solution, arguments: &Value) -> Result<Value, ToolError> {
-    let check = flag(arguments, "check", false);
-    let target = tool_target(arguments);
+pub(crate) fn sync_tool(solution: &Solution, arguments: SyncRequest) -> Result<Value, ToolError> {
+    let check = arguments.check;
+    let target = tool_target(&arguments.entity);
     let request = commands::sync::SyncRequest {
         target: commands::sync::SyncTarget {
-            project: text(arguments, "project").map(str::to_string),
+            project: arguments.project.as_ref().cloned(),
             entities: target,
-            all: flag(arguments, "all", false),
+            all: arguments.all,
             reject_entities_with_all: true,
             missing_target: "name an entity, or pass all: true",
         },
         mode: if check { Mode::Plan } else { Mode::Apply },
-        allow_structural: flag(arguments, "allow_add_remove", false),
-        relayout: flag(arguments, "relayout", false),
+        allow_structural: arguments.allow_add_remove,
+        relayout: arguments.relayout,
         lock_label: "mcp sync",
     };
     let mut notices = commands::Notices::default();
@@ -180,13 +180,16 @@ pub(crate) fn sync_tool(solution: &Solution, arguments: &Value) -> Result<Value,
     Ok(result)
 }
 
-pub(crate) fn extract_tool(solution: &Solution, arguments: &Value) -> Result<Value, ToolError> {
-    let target = tool_target(arguments);
+pub(crate) fn extract_tool(
+    solution: &Solution,
+    arguments: ExtractRequest,
+) -> Result<Value, ToolError> {
+    let target = tool_target(&arguments.entity);
     let request = commands::extract::ExtractRequest {
         target: commands::extract::ExtractTarget {
-            project: text(arguments, "project").map(str::to_string),
+            project: arguments.project.as_ref().cloned(),
             entities: target,
-            all: flag(arguments, "all", false),
+            all: arguments.all,
             reject_entities_with_all: true,
             missing_target: "name an entity, or pass all: true",
         },
@@ -218,8 +221,8 @@ pub(crate) fn add_types_refresh(result: &mut Value, refresh: &types::Refresh) {
     }
 }
 
-pub(crate) fn fmt_tool(solution: &Solution, arguments: &Value) -> Result<Value, ToolError> {
-    let check = flag(arguments, "check", false);
+pub(crate) fn fmt_tool(solution: &Solution, arguments: FmtRequest) -> Result<Value, ToolError> {
+    let check = arguments.check;
     let request = commands::fmt::FmtRequest {
         mode: if check { Mode::Plan } else { Mode::Apply },
         lock_label: "mcp fmt",
@@ -240,21 +243,24 @@ pub(crate) fn fmt_tool(solution: &Solution, arguments: &Value) -> Result<Value, 
     Ok(result)
 }
 
-pub(crate) fn deploy_tool(solution: &Solution, arguments: &Value) -> Result<Value, ToolError> {
-    let dry_run = flag(arguments, "dry_run", true);
-    let force = flag(arguments, "force", false);
-    let detail = flag(arguments, "detail", false);
-    let only = strings(arguments, "only");
-    let only_projects = strings(arguments, "only_projects");
+pub(crate) fn deploy_tool(
+    solution: &Solution,
+    arguments: DeployRequest,
+) -> Result<Value, ToolError> {
+    let dry_run = arguments.dry_run;
+    let force = arguments.force;
+    let detail = arguments.detail;
+    let only = arguments.only.items().to_vec();
+    let only_projects = arguments.only_projects.items().to_vec();
     let request = commands::deploy::DeployRequest {
         mode: if dry_run { Mode::Plan } else { Mode::Apply },
         force,
-        backup: flag(arguments, "backup", true),
-        skip_checks: flag(arguments, "skip_checks", false),
+        backup: arguments.backup,
+        skip_checks: arguments.skip_checks,
         only_projects,
         only,
-        backend_only: flag(arguments, "backend_only", false),
-        profile: text(arguments, "profile").unwrap_or("default").to_string(),
+        backend_only: arguments.backend_only,
+        profile: arguments.profile,
         lock_label: "mcp deploy",
     };
     let mut notices = commands::Notices::default();

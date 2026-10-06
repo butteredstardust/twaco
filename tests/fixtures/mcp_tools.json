@@ -16,7 +16,7 @@
     "name": "types",
     "description": "Generate editor declarations, type-check every service, or fetch and cache platform declarations. All actions take the workspace lock.",
     "inputSchema": {
-      "type": "object",
+      "additionalProperties": false,
       "properties": {
         "action": {
           "type": "string",
@@ -28,18 +28,17 @@
           "default": "generate"
         },
         "profile": {
-          "type": "string",
           "description": "Server profile name.",
+          "type": "string",
           "default": "default"
         },
         "detail": {
-          "type": "boolean",
           "description": "Return everything instead of the summary.",
+          "type": "boolean",
           "default": false
         }
       },
-      "required": [],
-      "additionalProperties": false
+      "type": "object"
     },
     "annotations": {
       "readOnlyHint": false,
@@ -51,25 +50,24 @@
     "name": "check",
     "description": "Run every gate of the solution (line endings, sidecars in sync, formatting, script traps, code order, project validation, declared hooks). With live: true, every service script is also parsed by the ThingWorx server, and an unreachable server fails the check. live defaults to the solution's [gates] live.",
     "inputSchema": {
-      "type": "object",
+      "additionalProperties": false,
       "properties": {
         "live": {
-          "type": "boolean",
-          "description": "Default: the solution's [gates] live."
+          "description": "Default: the solution's [gates] live.",
+          "type": "boolean"
         },
         "profile": {
-          "type": "string",
           "description": "Server profile name.",
+          "type": "string",
           "default": "default"
         },
         "detail": {
-          "type": "boolean",
           "description": "Return everything instead of the summary.",
+          "type": "boolean",
           "default": false
         }
       },
-      "required": [],
-      "additionalProperties": false
+      "type": "object"
     },
     "annotations": {
       "readOnlyHint": true,
@@ -124,38 +122,37 @@
     "name": "sync",
     "description": "Write sidecars back into their entity XML: service scripts, DataShape fields, mashup content, DataTable configuration. This is how an edit to a script.js takes effect. check: true reports what would change and writes nothing. Takes the workspace lock while it writes.",
     "inputSchema": {
-      "type": "object",
+      "additionalProperties": false,
       "properties": {
         "entity": {
-          "type": "string",
-          "description": "One entity, full name or its last dotted segment. Name one, or pass all: true."
+          "description": "One entity, full name or its last dotted segment. Name one, or pass all: true.",
+          "type": "string"
         },
         "all": {
+          "description": "Every entity (of the project, if one is named).",
           "type": "boolean",
-          "default": false,
-          "description": "Every entity (of the project, if one is named)."
+          "default": false
         },
         "project": {
-          "type": "string",
-          "description": "Narrow to one project of the solution."
+          "description": "Narrow to one project of the solution.",
+          "type": "string"
         },
         "check": {
           "type": "boolean",
           "default": false
         },
         "allow_add_remove": {
+          "description": "Permit a service or field to appear or disappear.",
           "type": "boolean",
-          "default": false,
-          "description": "Permit a service or field to appear or disappear."
+          "default": false
         },
         "relayout": {
+          "description": "Rewrite every script payload in the configured layout.",
           "type": "boolean",
-          "default": false,
-          "description": "Rewrite every script payload in the configured layout."
+          "default": false
         }
       },
-      "required": [],
-      "additionalProperties": false
+      "type": "object"
     },
     "annotations": {
       "readOnlyHint": false,
@@ -167,23 +164,22 @@
     "name": "extract",
     "description": "Entity XML to sidecars: service scripts, DataShape fields, mashup content, DataTable configuration. Overwrites the sidecars of the entities chosen; takes the workspace lock.",
     "inputSchema": {
-      "type": "object",
+      "additionalProperties": false,
       "properties": {
         "entity": {
-          "type": "string",
-          "description": "One entity, full name or its last dotted segment. Name one, or pass all: true."
+          "description": "One entity, full name or its last dotted segment. Name one, or pass all: true.",
+          "type": "string"
         },
         "all": {
+          "description": "Every entity (of the project, if one is named).",
           "type": "boolean",
-          "default": false,
-          "description": "Every entity (of the project, if one is named)."
+          "default": false
         },
         "project": {
           "type": "string"
         }
       },
-      "required": [],
-      "additionalProperties": false
+      "type": "object"
     },
     "annotations": {
       "readOnlyHint": false,
@@ -195,15 +191,14 @@
     "name": "fmt",
     "description": "Format every service script sidecar with the built-in formatter. check: true reports which would change and writes nothing.",
     "inputSchema": {
-      "type": "object",
+      "additionalProperties": false,
       "properties": {
         "check": {
           "type": "boolean",
           "default": false
         }
       },
-      "required": [],
-      "additionalProperties": false
+      "type": "object"
     },
     "annotations": {
       "readOnlyHint": false,
@@ -561,28 +556,28 @@
     "name": "deploy",
     "description": "Deploy the solution: offline gates, one bundle per project in dependency order, every script parsed by the server (fails closed), a conflict check per entity, then import, read-back, and the project's deploy and post-import services. A dry run (a plan) unless dry_run is false.",
     "inputSchema": {
-      "type": "object",
+      "additionalProperties": false,
       "properties": {
         "dry_run": {
           "type": "boolean",
           "default": true
         },
         "force": {
+          "description": "Overwrite entities the server changed since the last sync.",
           "type": "boolean",
-          "default": false,
-          "description": "Overwrite entities the server changed since the last sync."
+          "default": false
         },
         "backup": {
+          "description": "With force, save the server's copy of each overwritten entity under .twaco/backups first (default true).",
           "type": "boolean",
-          "default": true,
-          "description": "With force, save the server's copy of each overwritten entity under .twaco/backups first (default true)."
+          "default": true
         },
         "only": {
+          "description": "Only these entities; post-import services are skipped.",
           "type": "array",
           "items": {
             "type": "string"
-          },
-          "description": "Only these entities; post-import services are skipped."
+          }
         },
         "only_projects": {
           "type": "array",
@@ -595,23 +590,22 @@
           "default": false
         },
         "skip_checks": {
+          "description": "Skip the offline gates. The server's script parse still runs.",
           "type": "boolean",
-          "default": false,
-          "description": "Skip the offline gates. The server's script parse still runs."
+          "default": false
         },
         "profile": {
-          "type": "string",
           "description": "Server profile name.",
+          "type": "string",
           "default": "default"
         },
         "detail": {
-          "type": "boolean",
           "description": "Return everything instead of the summary.",
+          "type": "boolean",
           "default": false
         }
       },
-      "required": [],
-      "additionalProperties": false
+      "type": "object"
     },
     "annotations": {
       "readOnlyHint": false,

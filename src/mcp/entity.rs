@@ -1,3 +1,4 @@
+use super::requests::common::Absent;
 use super::requests::entity::{
     EntityCarryRequest, EntityDeleteRequest, EntityRestoreRequest, PushRequest, StatusRequest,
 };
@@ -74,11 +75,8 @@ pub(crate) fn status_tool(solution: &Solution, request: StatusRequest) -> Result
 }
 
 /// The optional entity spelling that an executor will validate after taking a write lock.
-pub(crate) fn tool_target(arguments: &Value) -> Vec<String> {
-    text(arguments, "entity")
-        .map(str::to_string)
-        .into_iter()
-        .collect()
+pub(crate) fn tool_target(entity: &Absent<String>) -> Vec<String> {
+    entity.as_ref().cloned().into_iter().collect()
 }
 
 pub(crate) fn refusal_code(refusal: &push::Refusal) -> &'static str {
