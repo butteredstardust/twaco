@@ -1,0 +1,528 @@
+use super::super::*;
+use super::refactor::same_path;
+
+/// Fetch one raw export without ever replacing a file that belongs to the solution.
+pub(crate) fn entity_get(solution: &Solution, args: &Args) -> u8 {
+    if args.names.len() != 1 {
+        eprintln!("twaco: entity get needs exactly one entity name");
+        return FAILED;
+    }
+    let (chosen, unreadable) = match targets(solution, args) {
+        Ok(result) => result,
+        Err(error) => {
+            eprintln!("twaco: {error}");
+            return FAILED;
+        }
+    };
+    if !unreadable.is_empty() {
+        for problem in unreadable {
+            eprintln!("twaco: {problem}");
+        }
+        return FAILED;
+    }
+    let entity = &chosen[0];
+    if let Some(out) = &args.out {
+        let protected = workspace::entities(solution);
+        if protected
+            .iter()
+            .any(|candidate| same_path(out, &candidate.path))
+        {
+            eprintln!(
+                "twaco: --out {} is a project entity file; entity get never overwrites project source",
+                out.display()
+            );
+            return FAILED;
+        }
+    }
+
+    let profile_name = args.profile.as_deref().unwrap_or("default");
+    let profile = match profile::load(&solution.root, profile_name) {
+        Ok(profile) => profile,
+        Err(error) => {
+            eprintln!("twaco: {error}");
+            return FAILED;
+        }
+    };
+    let live = match server::Client::new(profile)
+        .fetch_entity(&entity.info.collection, &entity.info.name)
+    {
+        Ok(bytes) => bytes,
+        Err(error) => {
+            eprintln!("twaco: {error}");
+            return FAILED;
+        }
+    };
+
+    if let Some(out) = &args.out {
+        if let Err(error) = workspace::write_entity(out, &live) {
+            eprintln!("twaco: {error}");
+            return FAILED;
+        }
+        println!("wrote {} raw bytes to {}", live.len(), out.display());
+    } else if let Err(error) = std::io::stdout().write_all(&live) {
+        eprintln!("twaco: stdout: {error}");
+        return FAILED;
+    }
+    OK
+}
+
+/// Compare working, server and tracked ancestor, optionally recording matching hashes once.
+pub(crate) fn entity_status(solution: &Solution, args: &Args) -> u8 {
+    if args.names.len() > 1 {
+        eprintln!("twaco: entity status accepts one entity name, or --all");
+        return FAILED;
+    }
+    let request = commands::status::StatusRequest {
+        target: if args.has("--all") {
+            commands::status::StatusTarget::All
+        } else {
+            commands::status::StatusTarget::Names(args.names.clone())
+        },
+        project: args.project.clone(),
+        record: args.has("--record"),
+        profile: args
+            .profile
+            .clone()
+            .unwrap_or_else(|| "default".to_string()),
+        lock_label: "entity status",
+        refuse_unreadable: true,
+        refuse_record_failures: false,
+    };
+    let mut notices = commands::Notices::default();
+    let outcome =
+        match commands::status::execute(solution, &request, server::Client::new, &mut notices) {
+            Ok(outcome) => outcome,
+            Err(error) => {
+                print_notices(&notices);
+                if let commands::status::StatusCommandError::Unreadable(items) = &error {
+                    for problem in items {
+                        eprintln!("twaco: {problem}");
+                    }
+                } else {
+                    eprintln!("twaco: {error}");
+                }
+                return FAILED;
+            }
+        };
+    print_notices(&notices);
+    if !outcome.failures.is_empty() {
+        for failure in &outcome.failures {
+            eprintln!("twaco: {failure}");
+        }
+        eprintln!(
+            "twaco: {} entity status request(s) failed",
+            outcome.failures.len()
+        );
+        return FAILED;
+    }
+
+    println!("{} entity status(es)", outcome.statuses.len());
+    for (verdict, count) in status::counts(&outcome.statuses) {
+        println!("  {:<19} {count}", verdict.label());
+    }
+    if args.has("--detail") {
+        println!();
+        for status in &outcome.statuses {
+            println!(
+                "{}/{}  {}",
+                status.collection,
+                status.name,
+                status.verdict.label()
+            );
+            println!("  working  {}", status.working);
+            println!("  server   {}", status.server.as_deref().unwrap_or("-"));
+            println!(
+                "  baseline local  {}",
+                status.local_baseline.as_deref().unwrap_or("-")
+            );
+            println!(
+                "  baseline server {}",
+                status.server_baseline.as_deref().unwrap_or("-")
+            );
+        }
+    }
+    if outcome
+        .statuses
+        .iter()
+        .all(|status| !status.verdict.is_drift())
+    {
+        OK
+    } else {
+        DRIFT
+    }
+}
+
+/// Push one entity. A dry run unless `--apply`: the blast radius is a server.
+pub(crate) fn entity_push(solution: &Solution, args: &Args) -> u8 {
+    if args.names.len() != 1 || args.has("--all") {
+        eprintln!("twaco: entity push takes exactly one entity name");
+        return FAILED;
+    }
+    let request = commands::push::PushRequest {
+        entity: args.names[0].clone(),
+        mode: if args.has("--apply") {
+            Mode::Apply
+        } else {
+            Mode::Plan
+        },
+        force: args.has("--force"),
+        backup: !args.has("--no-backup"),
+        profile: args
+            .profile
+            .clone()
+            .unwrap_or_else(|| "default".to_string()),
+    };
+    let mut notices = commands::Notices::default();
+    let result = commands::push::execute(solution, &request, server::Client::new, &mut notices);
+    print_notices(&notices);
+    match result {
+        Ok(commands::push::PushOutcome::Plan {
+            entity, decision, ..
+        }) => {
+            let label = entity.to_string();
+            match decision {
+                push::Decision::AlreadyThere => {
+                    println!("{label}: nothing to push")
+                }
+                push::Decision::Create => println!("{label}: would create it on the server"),
+                push::Decision::Update => {
+                    println!(
+                        "{label}: would update it; the server is unchanged since the last sync"
+                    )
+                }
+                push::Decision::Refuse(refusal) => {
+                    println!("{label}: would refuse: {refusal}");
+                    if !request.force {
+                        return DRIFT;
+                    }
+                    println!("  --force would push anyway");
+                }
+            }
+            println!("dry run: nothing was sent; pass --apply to push");
+            OK
+        }
+        Ok(commands::push::PushOutcome::Applied {
+            entity,
+            result,
+            backup: saved,
+            ..
+        }) => {
+            let label = entity.to_string();
+            if let Some(dir) = saved {
+                println!("{label}: the server's copy was saved to {dir} before it is overwritten");
+            }
+            match result {
+                push::Outcome::AlreadyThere => {
+                    println!("{label}: nothing to push; baseline is current");
+                    OK
+                }
+                push::Outcome::Pushed { created } => {
+                    let verb = if created { "created" } else { "updated" };
+                    println!("{label}: {verb}, read back and matching; baseline recorded");
+                    OK
+                }
+                push::Outcome::Refused(refusal) => {
+                    eprintln!("twaco: {label}: refused: {refusal}");
+                    eprintln!("twaco: nothing was sent; --force pushes anyway");
+                    DRIFT
+                }
+                push::Outcome::WouldDo(_) => unreachable!("an applied outcome cannot be a plan"),
+            }
+        }
+        Err(error) => {
+            if let commands::push::PushCommandError::Unreadable(unreadable) = &error {
+                for problem in unreadable {
+                    eprintln!("twaco: {problem}");
+                }
+            } else if matches!(error, commands::push::PushCommandError::Backup { .. }) {
+                eprintln!("twaco: {error} (--no-backup pushes without one)");
+            } else {
+                if let (Some(label), Some(dir)) = (error.label(), error.backup()) {
+                    println!(
+                        "{label}: the server's copy was saved to {dir} before it is overwritten"
+                    );
+                }
+                eprintln!("twaco: {error}");
+            }
+            FAILED
+        }
+    }
+}
+
+/// Delete server entities in dependency-safe order. Planning is read-only and always succeeds
+/// even when it reports guarded refusals; an apply reports any refusal or failed confirmation as
+/// exit 2 after attempting the rest.
+pub(crate) fn entity_delete_cmd(solution: &Solution, args: &Args) -> u8 {
+    let (acknowledged, force_used) = entity_delete::acknowledged(
+        args.has("--force"),
+        args.has("--allow-repository-defined"),
+        args.has("--allow-outside-dependents"),
+        args.has("--allow-file-repository-data-loss"),
+    );
+    if force_used {
+        eprintln!("twaco: {}", entity_delete_force_deprecation());
+    }
+    let request = commands::delete::EntityDeleteRequest {
+        entities: args.names.clone(),
+        renamed: args.has("--renamed"),
+        mode: if args.has("--apply") {
+            Mode::Apply
+        } else {
+            Mode::Plan
+        },
+        acknowledgements: acknowledged,
+        legacy_force_used: force_used,
+        backup: !args.has("--no-backup"),
+        profile: args
+            .profile
+            .clone()
+            .unwrap_or_else(|| "default".to_string()),
+    };
+    let mut notices = commands::Notices::default();
+    let result = commands::delete::execute(solution, &request, server::Client::new, &mut notices);
+    print_notices(&notices);
+    let outcome = match result {
+        Ok(outcome) => outcome,
+        Err(error) => {
+            eprintln!("twaco: {error}");
+            return FAILED;
+        }
+    };
+    let (report, date, apply) = match outcome {
+        commands::delete::EntityDeleteOutcome::Plan { report, .. } => (report, None, false),
+        commands::delete::EntityDeleteOutcome::Applied { report, date, .. } => {
+            (report, Some(date), true)
+        }
+    };
+    if args.has("--json") {
+        let key = if apply { "applied" } else { "plan" };
+        let value = serde_json::json!({ (key): true, "entities": report.entities, "backup": report.backup });
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&value).expect("delete report serialises")
+        );
+    } else {
+        println!("{}:", if apply { "applied" } else { "plan" });
+        for (at, entity) in report.entities.iter().enumerate() {
+            println!(
+                "  {}. {}/{}  {:?}  {}",
+                at + 1,
+                entity.collection,
+                entity.name,
+                entity.status,
+                entity.method
+            );
+            for (code, refusal) in entity.refusal_pairs() {
+                println!("     refused [{}]: {refusal}", code.as_str());
+            }
+            for dependent in &entity.dependents {
+                println!(
+                    "     dependent: {}/{}",
+                    dependent.collection, dependent.name
+                );
+            }
+            for warning in &entity.warnings {
+                println!("     warning: {warning}");
+            }
+            if let Some(error) = &entity.error {
+                println!("     failed: {error}");
+            }
+        }
+        println!("limit: {}", report.dependency_limit);
+        if let Some(dir) = &report.backup {
+            println!("backup: the server's copies were saved to {dir}; `twaco entity restore` puts them back");
+        }
+        if !apply {
+            println!("dry run: nothing was deleted; pass --apply to delete");
+        } else if report.ledger_changed {
+            println!(
+                "rename ledger marked with {}",
+                date.expect("an applied delete outcome has a date")
+            );
+        }
+    }
+    if apply && report.failed() {
+        FAILED
+    } else {
+        OK
+    }
+}
+
+pub(crate) fn entity_delete_force_deprecation() -> &'static str {
+    entity_delete::FORCE_DEPRECATION
+}
+
+/// List backup sets, or plan (and with --apply perform) importing one back.
+pub(crate) fn entity_restore_cmd(solution: &Solution, args: &Args) -> u8 {
+    let json = args.has("--json");
+    let request = commands::restore::RestoreRequest {
+        set: args.names.first().cloned(),
+        only: args.names.iter().skip(1).cloned().collect(),
+        mode: if args.has("--apply") {
+            Mode::Apply
+        } else {
+            Mode::Plan
+        },
+        profile: args
+            .profile
+            .clone()
+            .unwrap_or_else(|| "default".to_string()),
+    };
+    let mut notices = commands::Notices::default();
+    let outcome =
+        match commands::restore::execute(solution, &request, server::Client::new, &mut notices) {
+            Ok(outcome) => outcome,
+            Err(error) => {
+                print_notices(&notices);
+                eprintln!("twaco: {error}");
+                return FAILED;
+            }
+        };
+    print_notices(&notices);
+    let (set, report, apply) = match outcome {
+        commands::restore::RestoreOutcome::Sets { sets, .. } => {
+            if json {
+                let value = serde_json::json!({ "sets": sets.iter().map(|set| serde_json::json!({
+                "id": set.id, "created": set.manifest.created, "reason": set.manifest.reason, "entities": set.manifest.entities.len(),
+            })).collect::<Vec<_>>() });
+                println!(
+                    "{}",
+                    serde_json::to_string_pretty(&value).expect("sets serialise")
+                );
+            } else if sets.is_empty() {
+                println!("no backup sets under {}", backup::DIR);
+            } else {
+                for set in &sets {
+                    println!(
+                        "{}  {}  {} entit{}",
+                        set.id,
+                        set.manifest.reason,
+                        set.manifest.entities.len(),
+                        if set.manifest.entities.len() == 1 {
+                            "y"
+                        } else {
+                            "ies"
+                        }
+                    );
+                }
+            }
+            return OK;
+        }
+        commands::restore::RestoreOutcome::Plan { set, entities, .. } => (set, entities, false),
+        commands::restore::RestoreOutcome::Applied { set, entities, .. } => (set, entities, true),
+    };
+    if json {
+        let value = serde_json::json!({ (if apply { "applied" } else { "plan" }): true, "set": set.id, "entities": report });
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&value).expect("restore report serialises")
+        );
+    } else {
+        println!("{} of {}:", if apply { "applied" } else { "plan" }, set.id);
+        for entry in &report {
+            println!("  {}/{}  {:?}", entry.collection, entry.name, entry.status);
+            if let Some(error) = &entry.error {
+                println!("     failed: {error}");
+            }
+        }
+        if !apply {
+            println!("dry run: nothing was imported; pass --apply to restore");
+        }
+    }
+    if report
+        .iter()
+        .any(|entry| entry.status == backup::Status::Failed)
+    {
+        FAILED
+    } else {
+        OK
+    }
+}
+
+/// Copy permissions from old entities to the ones that replaced them. A plan only reads; an apply
+/// writes what differs and reports any failure as exit 2 after attempting the rest. Only an apply
+/// that reads the ledger's pending entries writes the workspace, and so takes its lock.
+pub(crate) fn entity_carry_cmd(solution: &Solution, args: &Args) -> u8 {
+    let pairs = match entity_carry::pairs_from_names(&args.names) {
+        Ok(pairs) => pairs,
+        Err(error) => {
+            eprintln!("twaco: {error}");
+            return FAILED;
+        }
+    };
+    let request = commands::carry::CarryRequest {
+        pairs,
+        renamed: args.has("--renamed"),
+        mode: if args.has("--apply") {
+            Mode::Apply
+        } else {
+            Mode::Plan
+        },
+        detail: args.has("--detail"),
+        profile: args
+            .profile
+            .clone()
+            .unwrap_or_else(|| "default".to_string()),
+        lock_label: "entity carry",
+    };
+    let mut notices = commands::Notices::default();
+    let outcome =
+        match commands::carry::execute(solution, &request, server::Client::new, &mut notices) {
+            Ok(outcome) => outcome,
+            Err(error) => {
+                print_notices(&notices);
+                eprintln!("twaco: {error}");
+                return FAILED;
+            }
+        };
+    print_notices(&notices);
+    let (report, apply, date) = match outcome {
+        commands::carry::CarryOutcome::Plan { report, .. } => (report, false, None),
+        commands::carry::CarryOutcome::Applied { report, date, .. } => (report, true, Some(date)),
+    };
+    if args.has("--json") {
+        let key = if apply { "applied" } else { "plan" };
+        let value = serde_json::json!({ (key): true, "entities": report.entities });
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&value).expect("carry report serialises")
+        );
+    } else {
+        println!("{}:", if apply { "applied" } else { "plan" });
+        for entity in &report.entities {
+            let kinds = if entity.kinds.is_empty() {
+                String::new()
+            } else {
+                format!("  [{}]", entity.kinds.join(", "))
+            };
+            println!(
+                "  {}/{} -> {}  {:?}{kinds}",
+                entity.collection, entity.old, entity.new, entity.status
+            );
+            if let Some(count) = entity.differences {
+                println!("     the platform reports {count} difference(s) between them");
+            }
+            if let Some(error) = &entity.error {
+                println!("     failed: {error}");
+            }
+        }
+        if !apply {
+            println!("dry run: nothing was written; pass --apply to carry");
+        } else if report.ledger_changed {
+            println!(
+                "rename ledger marked with {}",
+                date.expect("an applied carry has a date")
+            );
+        }
+    }
+    if report
+        .entities
+        .iter()
+        .any(|entity| entity.status == entity_carry::Status::Failed)
+        && apply
+    {
+        FAILED
+    } else {
+        OK
+    }
+}

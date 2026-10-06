@@ -44,10 +44,10 @@ when the command is asked to write. A local output named by an option is include
 | `bundle` | single-file atomic | single-file atomic | generated bundle | The generated bundle is old or new; retry freely. | `core/commands/bundle.rs: execute` |
 | `deploy` | read-only | server-partial | server, baseline, backups | Read back reported imports and baseline; use the plan and backups before retrying. | `core/commands/deploy.rs: execute` |
 | `call` | server-partial | server-partial | service effects | Inspect the service's effects and logs before retrying. | `core/commands/call.rs: execute` |
-| `logs` | read-only | read-only | none | Retry freely. | `main.rs: logs_cmd` |
+| `logs` | read-only | read-only | none | Retry freely. | `cli/data.rs: logs_cmd` |
 | `logs level` | read-only | server-partial | server log level | Read the current level and use the printed undo before retrying. | `core/commands/logs.rs: execute` |
 | `config-table` | read-only | server-partial | server table, optional backup | Read the table back and use the backup before retrying a restore. | `core/commands/config_table.rs: execute` |
-| `entity get` | read-only | single-file atomic | named local output | The output is old or new; retry freely. | `main.rs: entity_get` |
+| `entity get` | read-only | single-file atomic | named local output | The output is old or new; retry freely. | `cli/entity.rs: entity_get` |
 | `db run` | read-only | server-partial | SQL, temporary server Thing | Inspect SQL effects and run `db clean` if needed before retrying. | `core/commands/db.rs: execute` |
 | `db query` | server-partial | server-partial | temporary server Thing | A cleanup failure can leave the temporary Thing; run `db clean` before retrying. | `core/commands/db.rs: execute` |
 | `datatable copy` | read-only | server-partial | target DataTable | Read the target back; retry only after reconciling copied rows. | `core/commands/datatable_copy.rs: execute` |
@@ -62,35 +62,35 @@ when the command is asked to write. A local output named by an option is include
 | `rename property` | read-only | multi-file atomic | XML, sidecars, ledger | A crash is finished or undone by the next command that takes the workspace lock; if it refuses, follow its message. Otherwise retry. | `core/commands/rename.rs: execute` |
 | `mcp` | read-only | read-only | none | Retry freely. | `main.rs: main` |
 | `doctor` | read-only | read-only | none | Retry freely. | `main.rs: doctor` |
-| `export entity` | single-file atomic | single-file atomic | named export file | The output is old or new; retry freely. | `main.rs: export_cmd` |
-| `export collection` | single-file atomic | single-file atomic | named export file | The output is old or new; retry freely. | `main.rs: export_cmd` |
-| `export project` | single-file atomic | single-file atomic | named export file | The output is old or new; retry freely. | `main.rs: export_cmd` |
+| `export entity` | single-file atomic | single-file atomic | named export file | The output is old or new; retry freely. | `cli/content.rs: export_cmd` |
+| `export collection` | single-file atomic | single-file atomic | named export file | The output is old or new; retry freely. | `cli/content.rs: export_cmd` |
+| `export project` | single-file atomic | single-file atomic | named export file | The output is old or new; retry freely. | `cli/content.rs: export_cmd` |
 | `export source-control` | read-only | server-partial | server repository | Re-plan and inspect the repository before retrying. | `core/export.rs: source_control` |
-| `package bundle` | single-file atomic | single-file atomic | named package file | The output is old or new; retry freely. | `main.rs: package_cmd` |
-| `package source-control` | single-file atomic | single-file atomic | named package file | The output is old or new; retry freely. | `main.rs: package_cmd` |
-| `package extension` | single-file atomic | single-file atomic | named package file | The output is old or new; retry freely. | `main.rs: package_cmd` |
-| `import` | read-only | server-partial | server entities | Compare again with the server before retrying. | `main.rs: import_cmd` |
+| `package bundle` | single-file atomic | single-file atomic | named package file | The output is old or new; retry freely. | `cli/content.rs: package_cmd` |
+| `package source-control` | single-file atomic | single-file atomic | named package file | The output is old or new; retry freely. | `cli/content.rs: package_cmd` |
+| `package extension` | single-file atomic | single-file atomic | named package file | The output is old or new; retry freely. | `cli/content.rs: package_cmd` |
+| `import` | read-only | server-partial | server entities | Compare again with the server before retrying. | `cli/content.rs: import_cmd` |
 | `import source-control` | read-only | server-partial | server entities | Read the post-import diff before retrying. | `core/imports.rs: import_source_control` |
-| `settings` | read-only | read-only | none | Retry freely. | `main.rs: settings_cmd` |
-| `catalog` | read-only | read-only | none | Retry freely. | `main.rs: catalog_cmd` |
+| `settings` | read-only | read-only | none | Retry freely. | `cli/info.rs: settings_cmd` |
+| `catalog` | read-only | read-only | none | Retry freely. | `cli/info.rs: catalog_cmd` |
 | `impact` | read-only | read-only | none | Retry freely. | `core/impact.rs: run` |
 | `unused` | read-only | read-only | none | Retry freely. | `core/unused.rs: run` |
-| `docs` | read-only | single-file atomic | named output file | The output is old or new; retry freely. | `main.rs: docs_cmd` |
-| `ext list` | read-only | read-only | none | Retry freely. | `main.rs: ext_cmd` |
-| `ext show` | read-only | read-only | none | Retry freely. | `main.rs: ext_cmd` |
-| `ext import` | read-only | server-partial | server extension | Check installed extensions before retrying. | `main.rs: ext_cmd` |
-| `ext remove` | read-only | server-partial | server extension | Check installed extensions before retrying. | `main.rs: ext_cmd` |
-| `repo list` | read-only | read-only | none | Retry freely. | `main.rs: repo_cmd` |
-| `repo ls` | read-only | read-only | none | Retry freely. | `main.rs: repo_cmd` |
-| `repo get` | read-only | single-file atomic | optional named local output | The output is old or new; retry freely. | `main.rs: repo_cmd` |
-| `repo status` | read-only | read-only | none | Retry freely. | `main.rs: repo_cmd` |
-| `repo put` | read-only | server-partial | server repository | Read the path back before retrying. | `main.rs: repo_change` |
-| `repo mkdir` | read-only | server-partial | server repository | List the path before retrying. | `main.rs: repo_change` |
-| `repo rm` | read-only | server-partial | server repository | List the path before retrying. | `main.rs: repo_change` |
-| `repo mv` | read-only | server-partial | server repository | List source and destination before retrying. | `main.rs: repo_change` |
+| `docs` | read-only | single-file atomic | named output file | The output is old or new; retry freely. | `cli/info.rs: docs_cmd` |
+| `ext list` | read-only | read-only | none | Retry freely. | `cli/content.rs: ext_cmd` |
+| `ext show` | read-only | read-only | none | Retry freely. | `cli/content.rs: ext_cmd` |
+| `ext import` | read-only | server-partial | server extension | Check installed extensions before retrying. | `cli/content.rs: ext_cmd` |
+| `ext remove` | read-only | server-partial | server extension | Check installed extensions before retrying. | `cli/content.rs: ext_cmd` |
+| `repo list` | read-only | read-only | none | Retry freely. | `cli/content.rs: repo_cmd` |
+| `repo ls` | read-only | read-only | none | Retry freely. | `cli/content.rs: repo_cmd` |
+| `repo get` | read-only | single-file atomic | optional named local output | The output is old or new; retry freely. | `cli/content.rs: repo_cmd` |
+| `repo status` | read-only | read-only | none | Retry freely. | `cli/content.rs: repo_cmd` |
+| `repo put` | read-only | server-partial | server repository | Read the path back before retrying. | `cli/content.rs: repo_change` |
+| `repo mkdir` | read-only | server-partial | server repository | List the path before retrying. | `cli/content.rs: repo_change` |
+| `repo rm` | read-only | server-partial | server repository | List the path before retrying. | `cli/content.rs: repo_change` |
+| `repo mv` | read-only | server-partial | server repository | List source and destination before retrying. | `cli/content.rs: repo_change` |
 | `repo push` | read-only | server-partial | server repository | Inspect copied paths before retrying. | `core/repo.rs: sync` |
 | `repo pull` | read-only | best-effort batch | local repository files | Stops at the first failed file; the files already copied stay and are listed in the error. Retry after fixing the cause; copied files are then unchanged. | `core/commands/repo.rs: execute` |
-| `guide` | read-only | read-only | none | Retry freely. | `main.rs: guide_cmd` |
+| `guide` | read-only | read-only | none | Retry freely. | `cli/info.rs: guide_cmd` |
 | `help search` | single-file atomic | single-file atomic | user cache file | The cache file is old or new; retry freely. | `core/help.rs: cached_file` |
 | `help page` | single-file atomic | single-file atomic | user cache file | The cache file is old or new; retry freely. | `core/help.rs: cached_file` |
 | `javadoc search` | single-file atomic | single-file atomic | user cache file | The cache file is old or new; retry freely. | `core/javadoc.rs: cached` |
