@@ -623,10 +623,7 @@ mod tests {
 
     #[test]
     fn the_solutions_own_markdown_is_a_topic_too() {
-        let nonce = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap()
-            .as_nanos();
+        let nonce = crate::test_nonce();
         let root = std::env::temp_dir().join(format!("twaco-guide-{}-{nonce}", std::process::id()));
         std::fs::create_dir_all(root.join("docs/deep")).unwrap();
         std::fs::write(root.join("twaco.toml"), "[[project]]\nname = \"P\"\n").unwrap();

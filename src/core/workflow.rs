@@ -654,10 +654,7 @@ mod tests {
     use std::path::PathBuf;
 
     fn service_fixture(label: &str) -> (PathBuf, Solution) {
-        let nonce = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap()
-            .as_nanos();
+        let nonce = crate::test_nonce();
         let root = std::env::temp_dir().join(format!(
             "twaco-workflow-{label}-{}-{nonce}",
             std::process::id()
@@ -776,10 +773,7 @@ mod tests {
     fn a_data_table_keeps_its_configuration_when_a_service_syncs_after_it() {
         // Two kinds of sidecar write into the one entity file. The second must start from what
         // the first wrote, not from the file as it was before either.
-        let nonce = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap()
-            .as_nanos();
+        let nonce = crate::test_nonce();
         let root =
             std::env::temp_dir().join(format!("twaco-workflow-dt-{}-{nonce}", std::process::id()));
         std::fs::create_dir_all(root.join("Things")).unwrap();

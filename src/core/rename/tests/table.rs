@@ -1,10 +1,7 @@
 use super::*;
 
 fn table_fixture(tag: &str) -> Fixture {
-    let nonce = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap()
-        .as_nanos();
+    let nonce = crate::test_nonce();
     let root = std::env::temp_dir().join(format!(
         "twaco-rename-table-{tag}-{}-{nonce}",
         std::process::id()
@@ -48,10 +45,7 @@ fn table_spec(scope: &str, old: &str, new: &str) -> Spec {
 fn a_shape_the_scope_implements_has_its_table_calls_rewritten() {
     // The services that read a table often sit on a shape the declaring template implements:
     // an ancestor of the scope, not a descendant. Its `tableName: "..."` calls follow the rename.
-    let nonce = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap()
-        .as_nanos();
+    let nonce = crate::test_nonce();
     let root = std::env::temp_dir().join(format!(
         "twaco-rename-table-family-{}-{nonce}",
         std::process::id()

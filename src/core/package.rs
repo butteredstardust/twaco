@@ -447,10 +447,7 @@ mod tests {
 
     /// Two projects, P.Two depending on P.One, each in its own folder.
     fn two_projects(label: &str) -> (PathBuf, Solution) {
-        let nonce = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap()
-            .as_nanos();
+        let nonce = crate::test_nonce();
         let root = std::env::temp_dir().join(format!(
             "twaco-package-{label}-{}-{nonce}",
             std::process::id()

@@ -164,7 +164,6 @@ mod tests {
     use crate::core::server::ServerError;
     use serde_json::Value;
     use std::sync::{Arc, Mutex};
-    use std::time::{SystemTime, UNIX_EPOCH};
 
     #[derive(Clone)]
     struct Fake {
@@ -189,10 +188,7 @@ mod tests {
     }
 
     fn setup() -> (std::path::PathBuf, Solution) {
-        let nonce = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap()
-            .as_nanos();
+        let nonce = crate::test_nonce();
         let root = std::env::temp_dir().join(format!(
             "twaco-command-export-{}-{nonce}",
             std::process::id()

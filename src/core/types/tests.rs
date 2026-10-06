@@ -63,10 +63,7 @@ fn platform_property(base_type: &str) -> PlatformProperty {
 }
 
 fn temporary_root(label: &str) -> std::path::PathBuf {
-    let nonce = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap()
-        .as_nanos();
+    let nonce = crate::test_nonce();
     std::env::temp_dir().join(format!(
         "twaco-types-{label}-{}-{nonce}",
         std::process::id()
@@ -234,10 +231,7 @@ fn globals_use_the_owning_thing_template_and_shape_interfaces() {
 
 #[test]
 fn gitignore_must_cover_shared_and_per_service_generated_files() {
-    let nonce = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap()
-        .as_nanos();
+    let nonce = crate::test_nonce();
     let root =
         std::env::temp_dir().join(format!("twaco-types-ignore-{}-{nonce}", std::process::id()));
     std::fs::create_dir_all(&root).unwrap();
@@ -844,10 +838,7 @@ fn malformed_cache_is_reported_and_ignored() {
 
 #[test]
 fn writing_the_same_generated_bytes_twice_is_a_fixed_point() {
-    let nonce = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap()
-        .as_nanos();
+    let nonce = crate::test_nonce();
     let directory =
         std::env::temp_dir().join(format!("twaco-types-{}-{nonce}", std::process::id()));
     let path = directory.join("types.d.ts");
@@ -860,10 +851,7 @@ fn writing_the_same_generated_bytes_twice_is_a_fixed_point() {
 
 #[test]
 fn generated_service_projects_do_not_change_check_gate_results() {
-    let nonce = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap()
-        .as_nanos();
+    let nonce = crate::test_nonce();
     let root =
         std::env::temp_dir().join(format!("twaco-types-check-{}-{nonce}", std::process::id()));
     let service_dir = root.join("src/T/services/Run");

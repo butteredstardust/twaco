@@ -94,10 +94,7 @@ mod tests {
     use super::*;
 
     fn folder() -> std::path::PathBuf {
-        let nonce = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap()
-            .as_nanos();
+        let nonce = crate::test_nonce();
         let root =
             std::env::temp_dir().join(format!("twaco-gitignore-{}-{nonce}", std::process::id()));
         std::fs::create_dir_all(&root).unwrap();

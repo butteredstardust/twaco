@@ -316,10 +316,7 @@ mod tests {
     use super::*;
 
     fn repo() -> PathBuf {
-        let nonce = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap()
-            .as_nanos();
+        let nonce = crate::test_nonce();
         std::env::temp_dir().join(format!("twaco-init-{}-{nonce}", std::process::id()))
     }
 
@@ -383,10 +380,7 @@ mod tests {
 
     #[test]
     fn agent_files_are_written_once_and_never_replace_one() {
-        let nonce = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap()
-            .as_nanos();
+        let nonce = crate::test_nonce();
         let root =
             std::env::temp_dir().join(format!("twaco-init-agents-{}-{nonce}", std::process::id()));
         std::fs::create_dir_all(&root).unwrap();

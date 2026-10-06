@@ -194,13 +194,9 @@ pub fn execute(
 mod tests {
     use super::*;
     use crate::core::lock;
-    use std::time::{SystemTime, UNIX_EPOCH};
 
     fn setup() -> (std::path::PathBuf, Solution) {
-        let nonce = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap()
-            .as_nanos();
+        let nonce = crate::test_nonce();
         let root = std::env::temp_dir().join(format!(
             "twaco-command-package-{}-{nonce}",
             std::process::id()
