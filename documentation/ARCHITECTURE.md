@@ -78,7 +78,7 @@ main.rs  mcp/                   front ends: parse arguments, call core, print or
 | `repo`, `extensions`, `export`, `imports` | `repo`, `ext`, `export`, `import` |
 | `package` | `package`: bundles, source-control zips, extension packages |
 | `commands` | One module per state-changing command that holds its policy (lock, profile, plan versus apply, backup) as a request, a typed outcome and an executor; the CLI and MCP adapters only parse and project. See [COMMAND_FACADE.md](COMMAND_FACADE.md). |
-| `mcp/requests` | MCP boundary request objects and generated input schemas. See [MCP schemas](MCP_SCHEMAS.md). |
+| `mcp/requests`, `mcp/registry.rs`, `mcp/outputs.rs` | MCP boundary request objects, the one table that defines every tool, and the shape of the results that publish an `outputSchema`. See [MCP schemas](MCP_SCHEMAS.md). |
 | `transaction` | Local file changes that survive a crash: a journal written before the first change, stages and backups beside each file, and recovery on the next workspace lock that finishes the operation, undoes it, or refuses and names every path when a person has edited something. Used by `new building-block`, `move`, `copy` and `rename`; the other multi-file commands follow. See [TRANSACTIONS.md](TRANSACTIONS.md). |
 | `docs` | `twaco docs`: the solution written down as deterministic Markdown or JSON, from the index, the catalog and the DataShape model; it says what it does not cover (permissions, run-time references). |
 | `catalog` | `catalog`, on the same model `types` builds |
@@ -104,9 +104,9 @@ See [Testing](TESTING.md) for commands.
    fake it.
 2. Add the CLI route: the command table and dispatch in `main.rs`, and its lines in
    `cli/usage.rs`.
-3. Add the MCP tool in `mcp/definitions.rs: tool_definitions`, its route in `mcp/mod.rs: call_tool`, and its name in
-   the `tools/list` test. Writes take `dry_run` defaulting to `true`; results lead with a
-   summary.
+3. Add the MCP tool: a request object in `mcp/requests/`, its adapter in the family file, and one
+   entry in `mcp/registry.rs` (see [MCP schemas](MCP_SCHEMAS.md)). Writes take `dry_run` defaulting
+   to `true`; results lead with a summary.
 4. If it writes the workspace, take the lock (`writes_workspace` in `main.rs`; the MCP route
    does it per tool).
 5. Regenerate [Commands](COMMANDS.md) with `python scripts/commands_doc.py`, and document

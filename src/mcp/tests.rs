@@ -171,19 +171,46 @@ fn contains_forbidden_keyword(schema: &Value) -> bool {
 #[test]
 fn generated_schemas_are_valid_conservative_json_schema() {
     for tool in tool_definitions() {
-        let schema = &tool["inputSchema"];
-        assert_eq!(schema["type"], "object", "{}", tool["name"]);
-        assert!(
-            jsonschema::draft202012::meta::is_valid(schema),
-            "{}: {:?}",
-            tool["name"],
-            jsonschema::draft202012::meta::validate(schema).err()
-        );
-        assert!(
-            !contains_forbidden_keyword(schema),
-            "{} has a generated-only keyword",
-            tool["name"]
-        );
+        for key in ["inputSchema", "outputSchema"] {
+            let Some(schema) = tool.get(key) else {
+                continue;
+            };
+            assert_eq!(schema["type"], "object", "{} {key}", tool["name"]);
+            assert!(
+                jsonschema::draft202012::meta::is_valid(schema),
+                "{} {key}: {:?}",
+                tool["name"],
+                jsonschema::draft202012::meta::validate(schema).err()
+            );
+            assert!(
+                !contains_forbidden_keyword(schema),
+                "{} {key} has a generated-only keyword",
+                tool["name"]
+            );
+        }
+    }
+}
+
+#[test]
+fn the_stable_tools_publish_an_output_schema_only_to_clients_that_know_it() {
+    let with = |protocol: &str| -> Vec<String> {
+        registry::definitions(protocol)
+            .iter()
+            .filter(|tool| tool.get("outputSchema").is_some())
+            .map(|tool| tool["name"].as_str().unwrap().to_string())
+            .collect()
+    };
+    assert!(with("2024-11-05").is_empty());
+    assert!(with("2025-03-26").is_empty());
+    let expected = [
+        "projects", "types", "check", "status", "sync", "extract", "fmt", "push", "deploy",
+    ];
+    for protocol in ["2025-06-18", LATEST] {
+        let mut names = with(protocol);
+        names.sort();
+        let mut want: Vec<String> = expected.iter().map(|name| name.to_string()).collect();
+        want.sort();
+        assert_eq!(names, want, "{protocol}");
     }
 }
 
@@ -1625,4 +1652,130 @@ fn a_service_call_is_a_dry_run_unless_asked_and_needs_no_server_to_be_one() {
     assert_eq!(text["dry_run"], true);
     assert_eq!(text["would_call"]["service"], "Reset");
     let _ = std::fs::remove_dir_all(root);
+}
+
+/// The `outputSchema` a tool publishes to the newest protocol revision.
+fn output_schema_of(name: &str) -> Value {
+    registry::definitions(LATEST)
+        .into_iter()
+        .find(|tool| tool["name"] == name)
+        .and_then(|tool| tool.get("outputSchema").cloned())
+        .unwrap_or_else(|| panic!("{name} publishes no output schema"))
+}
+
+fn call(root: &Path, name: &str, arguments: Value) -> Value {
+    let responses = converse(
+        root,
+        &[
+            json!({"jsonrpc":"2.0","id":0,"method":"initialize","params":{"protocolVersion":"2025-06-18"}}),
+            json!({"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":name,"arguments":arguments}}),
+        ],
+    );
+    responses[1]["result"].clone()
+}
+
+/// A solution whose server profile points at a port nothing listens on: every read fails at once,
+/// and nothing is ever sent.
+fn solution_with_unreachable_server() -> PathBuf {
+    let root = solution_dir();
+    std::fs::create_dir_all(root.join(".twaco/profiles")).unwrap();
+    std::fs::write(
+        root.join(".twaco/profiles/default.toml"),
+        "url = \"http://127.0.0.1:9/Thingworx/\"\nusername = \"u\"\npassword = \"p\"\n",
+    )
+    .unwrap();
+    root
+}
+
+#[test]
+fn what_the_stable_tools_return_fits_the_output_schema_they_publish() {
+    // The registry holds every successful result of a tool that publishes an output schema to it,
+    // so these calls fail the test if a shape drifts. Each also has to be a success.
+    let root = solution_with_unreachable_server();
+    let calls = [
+        ("projects", json!({})),
+        ("check", json!({})),
+        ("check", json!({"detail": true})),
+        ("sync", json!({"all": true, "check": true})),
+        ("extract", json!({"entity": "P.T"})),
+        ("fmt", json!({"check": true})),
+        ("types", json!({})),
+        // The server cannot be reached, so every read fails: a result, not a tool error.
+        ("status", json!({"all": true})),
+        ("status", json!({"all": true, "detail": true})),
+    ];
+    for (name, arguments) in calls {
+        let result = call(&root, name, arguments.clone());
+        assert_ne!(result["isError"], true, "{name} {arguments}: {result}");
+        let content = &result["structuredContent"];
+        assert!(
+            jsonschema::draft202012::is_valid(&output_schema_of(name), content),
+            "{name} {arguments}: {content}"
+        );
+    }
+    let _ = std::fs::remove_dir_all(root);
+}
+
+#[test]
+fn a_deploy_the_offline_gates_stop_answers_in_the_published_shape() {
+    let root = solution_with_unreachable_server();
+    std::fs::write(root.join("Things/Broken.xml"), "<Entities><Things><Thing").unwrap();
+    let result = call(&root, "deploy", json!({}));
+    let content = &result["structuredContent"];
+    assert_eq!(content["stage"], "offline gates", "{result}");
+    assert!(jsonschema::draft202012::is_valid(
+        &output_schema_of("deploy"),
+        content
+    ));
+    let _ = std::fs::remove_dir_all(root);
+}
+
+#[test]
+fn every_push_result_fits_the_output_schema() {
+    use crate::core::commands::push::PushOutcome;
+    let schema = output_schema_of("push");
+    let entity = || crate::core::entity_key::EntityKey::new("Things", "P.T").unwrap();
+    let effects = commands::Effects::new(commands::Access::Read, commands::Access::Read);
+    let refusal = push::Refusal::Conflict {
+        server: "server".to_string(),
+        baseline: "baseline".to_string(),
+    };
+    let plans = [
+        push::Decision::AlreadyThere,
+        push::Decision::Create,
+        push::Decision::Update,
+        push::Decision::Refuse(refusal.clone()),
+    ];
+    let applied = [
+        push::Outcome::AlreadyThere,
+        push::Outcome::Pushed { created: true },
+        push::Outcome::Pushed { created: false },
+        push::Outcome::Refused(refusal),
+    ];
+    let mut results = Vec::new();
+    for decision in plans {
+        let outcome = PushOutcome::Plan {
+            entity: entity(),
+            decision,
+            effects,
+        };
+        results.push(push_outcome_json("Things/P.T", true, false, outcome));
+    }
+    for result in applied {
+        let outcome = PushOutcome::Applied {
+            entity: entity(),
+            result,
+            backup: None,
+            effects,
+        };
+        let mut json = push_outcome_json("Things/P.T", false, true, outcome);
+        json["backup"] = json!(".twaco/backups/x");
+        results.push(json);
+    }
+    for result in results {
+        assert!(
+            jsonschema::draft202012::is_valid(&schema, &result),
+            "{result}"
+        );
+    }
 }

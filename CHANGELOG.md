@@ -8,6 +8,11 @@ All notable changes to twaco are recorded here. The format follows
 
 ### Changed
 
+- MCP tool input schemas are generated from the typed request objects the tools read their
+  arguments through, so a schema can no longer drift from what a tool reads; the arguments a tool
+  accepts and the messages for refused ones are unchanged. Clients that negotiate the `2025-06-18`
+  protocol revision or later also get an `outputSchema` for `projects`, `check`, `status`, `sync`,
+  `extract`, `fmt`, `types`, `push` and `deploy`. See `documentation/MCP_SCHEMAS.md`.
 - MCP tool failures now carry a stable `code` alongside their unchanged message; refused `push`
   results carry the corresponding code as well.
 
