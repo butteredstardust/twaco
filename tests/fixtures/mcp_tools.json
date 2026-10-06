@@ -427,43 +427,42 @@
     "name": "db_query",
     "description": "Run read-only SQLQuery through a throwaway Database Thing. Returns columns and the first 20 rows unless detail is true.",
     "inputSchema": {
-      "type": "object",
+      "additionalProperties": false,
       "properties": {
         "file": {
-          "type": "string",
-          "description": "A UTF-8 SQL file relative to the solution; give file or sql."
+          "description": "A UTF-8 SQL file relative to the solution; give file or sql.",
+          "type": "string"
         },
         "sql": {
-          "type": "string",
-          "description": "Inline SQL; give sql or file."
+          "description": "Inline SQL; give sql or file.",
+          "type": "string"
         },
         "thing": {
-          "type": "string",
-          "description": "Database Thing; otherwise resolve the one in the solution."
+          "description": "Database Thing; otherwise resolve the one in the solution.",
+          "type": "string"
         },
         "max_rows": {
           "type": "integer",
-          "minimum": 1,
-          "default": 500
+          "default": 500,
+          "minimum": 1
         },
         "timeout": {
           "type": "integer",
-          "minimum": 1,
-          "default": 120
+          "default": 120,
+          "minimum": 1
         },
         "profile": {
-          "type": "string",
           "description": "Server profile name.",
+          "type": "string",
           "default": "default"
         },
         "detail": {
-          "type": "boolean",
           "description": "Return everything instead of the summary.",
+          "type": "boolean",
           "default": false
         }
       },
-      "required": [],
-      "additionalProperties": false
+      "type": "object"
     },
     "annotations": {
       "readOnlyHint": true,
@@ -475,22 +474,27 @@
     "name": "datatable_copy",
     "description": "Copy the rows of one DataTable into the DataTable that replaced it, mapping fields by name, by the rename ledger, or by map ({old: new}). Refuses unmapped fields (unless drop_unmapped), type changes, and a non-empty target (unless append). A dry run unless dry_run is false; the target is read back and compared. Each row's source, tags and timestamp are not carried.",
     "inputSchema": {
+      "required": [
+        "old",
+        "new"
+      ],
+      "additionalProperties": false,
       "type": "object",
       "properties": {
         "old": {
-          "type": "string",
-          "description": "The source DataTable's name."
+          "description": "The source DataTable's name.",
+          "type": "string"
         },
         "new": {
-          "type": "string",
-          "description": "The target DataTable's name."
+          "description": "The target DataTable's name.",
+          "type": "string"
         },
         "map": {
+          "description": "Source field to target field.",
           "type": "object",
           "additionalProperties": {
             "type": "string"
-          },
-          "description": "Source field to target field."
+          }
         },
         "drop_unmapped": {
           "type": "boolean",
@@ -502,24 +506,19 @@
         },
         "max_rows": {
           "type": "integer",
-          "minimum": 1,
-          "default": 100000
+          "default": 100000,
+          "minimum": 1
         },
         "dry_run": {
           "type": "boolean",
           "default": true
         },
         "profile": {
-          "type": "string",
           "description": "Server profile name.",
+          "type": "string",
           "default": "default"
         }
-      },
-      "required": [
-        "old",
-        "new"
-      ],
-      "additionalProperties": false
+      }
     },
     "annotations": {
       "readOnlyHint": false,
@@ -531,20 +530,19 @@
     "name": "db_clean",
     "description": "Find, and with dry_run false delete, the temporary ZZ.Twaco.Sql.* Database Things an interrupted db_run or db_query left on the server. Only names twaco generates, on Database Things, are touched.",
     "inputSchema": {
-      "type": "object",
+      "additionalProperties": false,
       "properties": {
         "dry_run": {
           "type": "boolean",
           "default": true
         },
         "profile": {
-          "type": "string",
           "description": "Server profile name.",
+          "type": "string",
           "default": "default"
         }
       },
-      "required": [],
-      "additionalProperties": false
+      "type": "object"
     },
     "annotations": {
       "readOnlyHint": false,
@@ -922,6 +920,11 @@
     "name": "config_table",
     "description": "Read one Thing's configuration table on the server, diff it against the entity XML in the repository, or restore it from a backup file. restore is a dry run unless dry_run is false; it refuses a backup of another Thing or table, and reads the table back.",
     "inputSchema": {
+      "required": [
+        "thing",
+        "table"
+      ],
+      "additionalProperties": false,
       "type": "object",
       "properties": {
         "thing": {
@@ -940,29 +943,24 @@
           "default": "read"
         },
         "backup": {
-          "type": "string",
-          "description": "restore only: the backup file, as `twaco config-table --backup` writes it."
+          "description": "restore only: the backup file, as `twaco config-table --backup` writes it.",
+          "type": "string"
         },
         "dry_run": {
           "type": "boolean",
           "default": true
         },
         "profile": {
-          "type": "string",
           "description": "Server profile name.",
+          "type": "string",
           "default": "default"
         },
         "detail": {
-          "type": "boolean",
           "description": "Return everything instead of the summary.",
+          "type": "boolean",
           "default": false
         }
-      },
-      "required": [
-        "thing",
-        "table"
-      ],
-      "additionalProperties": false
+      }
     },
     "annotations": {
       "readOnlyHint": false,
@@ -974,26 +972,31 @@
     "name": "logs",
     "description": "Read a server log: ApplicationLog, ScriptLog, CommunicationLog, ConfigurationLog or SecurityLog. Newest first. A summary first (counts by level, top origins, repeated messages, the newest entries); detail: true lists every entry. truncated: true means the limit was reached.",
     "inputSchema": {
+      "required": [
+        "log"
+      ],
+      "additionalProperties": false,
       "type": "object",
       "properties": {
         "log": {
-          "type": "string",
-          "description": "ApplicationLog, ScriptLog, CommunicationLog, ConfigurationLog or SecurityLog."
+          "description": "ApplicationLog, ScriptLog, CommunicationLog, ConfigurationLog or SecurityLog.",
+          "type": "string"
         },
         "since": {
+          "description": "How far back, ending now: a number and s, m, h or d. Not with from/to.",
           "type": "string",
-          "default": "1h",
-          "description": "How far back, ending now: a number and s, m, h or d. Not with from/to."
+          "default": "1h"
         },
         "from": {
-          "type": "string",
-          "description": "ISO-8601 with Z or an offset (2026-10-01T06:37:00Z); without one it is in the local time zone of the machine running twaco. Or `now`."
+          "description": "ISO-8601 with Z or an offset (2026-10-01T06:37:00Z); without one it is in the local time zone of the machine running twaco. Or `now`.",
+          "type": "string"
         },
         "to": {
-          "type": "string",
-          "description": "ISO-8601 or `now` (the default)."
+          "description": "ISO-8601 or `now` (the default).",
+          "type": "string"
         },
         "level": {
+          "description": "This level and above.",
           "type": "string",
           "enum": [
             "TRACE",
@@ -1001,16 +1004,15 @@
             "INFO",
             "WARN",
             "ERROR"
-          ],
-          "description": "This level and above."
+          ]
         },
         "grep": {
-          "type": "string",
-          "description": "Entries whose message contains this text."
+          "description": "Entries whose message contains this text.",
+          "type": "string"
         },
         "regex": {
-          "type": "string",
-          "description": "A Java regex that must match the whole message. Not with grep."
+          "description": "A Java regex that must match the whole message. Not with grep.",
+          "type": "string"
         },
         "user": {
           "type": "string"
@@ -1023,28 +1025,24 @@
         },
         "limit": {
           "type": "integer",
-          "minimum": 1,
-          "default": 200
+          "default": 200,
+          "minimum": 1
         },
         "oldest_first": {
           "type": "boolean",
           "default": false
         },
         "profile": {
-          "type": "string",
           "description": "Server profile name.",
+          "type": "string",
           "default": "default"
         },
         "detail": {
-          "type": "boolean",
           "description": "Return everything instead of the summary.",
+          "type": "boolean",
           "default": false
         }
-      },
-      "required": [
-        "log"
-      ],
-      "additionalProperties": false
+      }
     },
     "annotations": {
       "readOnlyHint": true,
@@ -1056,13 +1054,18 @@
     "name": "log_level",
     "description": "Read a server log's level and its subloggers' levels, or change one. ScriptLog at WARN records no logger.info or logger.debug from scripts; lower it while debugging, then put it back. A change is the whole server's and a dry run unless dry_run is false; the result says how to undo it.",
     "inputSchema": {
+      "required": [
+        "log"
+      ],
+      "additionalProperties": false,
       "type": "object",
       "properties": {
         "log": {
-          "type": "string",
-          "description": "ApplicationLog, ScriptLog, CommunicationLog, ConfigurationLog or SecurityLog."
+          "description": "ApplicationLog, ScriptLog, CommunicationLog, ConfigurationLog or SecurityLog.",
+          "type": "string"
         },
         "level": {
+          "description": "Set this level. Omit, with reset false, to only read.",
           "type": "string",
           "enum": [
             "TRACE",
@@ -1070,32 +1073,27 @@
             "INFO",
             "WARN",
             "ERROR"
-          ],
-          "description": "Set this level. Omit, with reset false, to only read."
+          ]
         },
         "sublogger": {
-          "type": "string",
-          "description": "A class or package within the log, such as com.thingworx."
+          "description": "A class or package within the log, such as com.thingworx.",
+          "type": "string"
         },
         "reset": {
+          "description": "Put the sublogger (or, without one, every sublogger) back to the log's level.",
           "type": "boolean",
-          "default": false,
-          "description": "Put the sublogger (or, without one, every sublogger) back to the log's level."
+          "default": false
         },
         "dry_run": {
           "type": "boolean",
           "default": true
         },
         "profile": {
-          "type": "string",
           "description": "Server profile name.",
+          "type": "string",
           "default": "default"
         }
-      },
-      "required": [
-        "log"
-      ],
-      "additionalProperties": false
+      }
     },
     "annotations": {
       "readOnlyHint": false,
@@ -1841,11 +1839,16 @@
     "name": "call",
     "description": "Call a ThingWorx service. A service can write, and twaco cannot tell which do, so this is a dry run unless dry_run is false. A bare target is a Thing; Collection/Name reaches templates, shapes, resources and subsystems.",
     "inputSchema": {
+      "required": [
+        "target",
+        "service"
+      ],
+      "additionalProperties": false,
       "type": "object",
       "properties": {
         "target": {
-          "type": "string",
-          "description": "Collection/Name, or an entity of the solution by full or last-segment name (Manager), or a platform Thing's name."
+          "description": "Collection/Name, or an entity of the solution by full or last-segment name (Manager), or a platform Thing's name.",
+          "type": "string"
         },
         "service": {
           "type": "string"
@@ -1860,30 +1863,25 @@
         },
         "timeout_seconds": {
           "type": "integer",
-          "minimum": 1,
-          "default": 120
+          "default": 120,
+          "minimum": 1
         },
         "with_logs": {
+          "description": "Also return what the call wrote to ScriptLog and ApplicationLog, even when it fails. Waits up to 3 s for late entries. ScriptLog at WARN records no logger.info/debug; see log_level.",
           "type": "boolean",
-          "default": false,
-          "description": "Also return what the call wrote to ScriptLog and ApplicationLog, even when it fails. Waits up to 3 s for late entries. ScriptLog at WARN records no logger.info/debug; see log_level."
+          "default": false
         },
         "profile": {
-          "type": "string",
           "description": "Server profile name.",
+          "type": "string",
           "default": "default"
         },
         "detail": {
-          "type": "boolean",
           "description": "Return everything instead of the summary.",
+          "type": "boolean",
           "default": false
         }
-      },
-      "required": [
-        "target",
-        "service"
-      ],
-      "additionalProperties": false
+      }
     },
     "annotations": {
       "readOnlyHint": false,

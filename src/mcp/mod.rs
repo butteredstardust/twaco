@@ -44,10 +44,6 @@ pub use definitions::tool_definitions;
 use content::{
     export_tool, extension_write_tool, extensions_tool, import_tool, package_tool, repo_write_tool,
 };
-use data::{
-    call_service_tool, config_table_tool, datatable_copy_tool, db_clean_tool, db_tool,
-    log_level_tool, logs_tool,
-};
 use info::{
     catalog_tool, docs_tool, guide_tool, help_page_tool, help_search_tool, impact_tool,
     javadoc_tool, settings_tool, unused_tool,
@@ -297,12 +293,6 @@ fn call_tool(root: &Path, name: &str, arguments: &Value) -> Option<Result<Value,
         outcome
     } else {
         match name {
-            "db_query" => with_solution(root, |s| db_tool(s, arguments, db::Mode::Query)),
-            "db_clean" => with_solution(root, |s| db_clean_tool(s, arguments)),
-            "datatable_copy" => with_solution(root, |s| datatable_copy_tool(s, arguments)),
-            "config_table" => with_solution(root, |s| config_table_tool(s, arguments)),
-            "call" => with_solution(root, |s| call_service_tool(s, arguments)),
-            "logs" => with_solution(root, |s| logs_tool(s, arguments)),
             "help_search" => help_search_tool(root, arguments),
             "guide" => guide_tool(root, arguments),
             "repo_write" => with_solution(root, |s| repo_write_tool(s, arguments)),
@@ -318,7 +308,6 @@ fn call_tool(root: &Path, name: &str, arguments: &Value) -> Option<Result<Value,
             "extension_write" => with_solution(root, |s| extension_write_tool(s, arguments)),
             "help_page" => help_page_tool(root, arguments),
             "javadoc" => javadoc_tool(arguments),
-            "log_level" => with_solution(root, |s| log_level_tool(s, arguments)),
             _ => return None,
         }
     };
@@ -356,6 +345,15 @@ pub(crate) fn required<'a>(arguments: &'a Value, name: &str) -> Result<&'a str, 
     text(arguments, name)
         .filter(|v| !v.is_empty())
         .ok_or_else(|| ToolError::invalid(format!("`{name}` is required")))
+}
+
+/// A text argument that may be left out, but that the tool cannot do without: left out or empty is
+/// the same refusal.
+pub(crate) fn required_text<'a>(
+    value: &'a requests::common::Absent<String>,
+    name: &str,
+) -> Result<&'a str, ToolError> {
+    nonempty(value.as_deref().unwrap_or_default(), name)
 }
 
 /// A text argument the tool cannot do without: an empty one is as missing as an absent one.

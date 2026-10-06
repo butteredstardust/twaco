@@ -234,6 +234,48 @@ static TOOLS: LazyLock<Vec<Tool>> = LazyLock::new(|| {
             false,
             refactor::retemplate_tool,
         ),
+        solution_tool::<data_requests::DbQueryRequest>(
+            "db_query",
+            "Run read-only SQLQuery through a throwaway Database Thing. Returns columns and the first 20 rows unless detail is true.",
+            true,
+            data::db_query_tool,
+        ),
+        solution_tool::<data_requests::DbCleanRequest>(
+            "db_clean",
+            "Find, and with dry_run false delete, the temporary ZZ.Twaco.Sql.* Database Things an interrupted db_run or db_query left on the server. Only names twaco generates, on Database Things, are touched.",
+            false,
+            data::db_clean_tool,
+        ),
+        solution_tool::<data_requests::DatatableCopyRequest>(
+            "datatable_copy",
+            "Copy the rows of one DataTable into the DataTable that replaced it, mapping fields by name, by the rename ledger, or by map ({old: new}). Refuses unmapped fields (unless drop_unmapped), type changes, and a non-empty target (unless append). A dry run unless dry_run is false; the target is read back and compared. Each row's source, tags and timestamp are not carried.",
+            false,
+            data::datatable_copy_tool,
+        ),
+        solution_tool::<data_requests::ConfigTableRequest>(
+            "config_table",
+            "Read one Thing's configuration table on the server, diff it against the entity XML in the repository, or restore it from a backup file. restore is a dry run unless dry_run is false; it refuses a backup of another Thing or table, and reads the table back.",
+            false,
+            data::config_table_tool,
+        ),
+        solution_tool::<data_requests::LogsRequest>(
+            "logs",
+            "Read a server log: ApplicationLog, ScriptLog, CommunicationLog, ConfigurationLog or SecurityLog. Newest first. A summary first (counts by level, top origins, repeated messages, the newest entries); detail: true lists every entry. truncated: true means the limit was reached.",
+            true,
+            data::logs_tool,
+        ),
+        solution_tool::<data_requests::LogLevelRequest>(
+            "log_level",
+            "Read a server log's level and its subloggers' levels, or change one. ScriptLog at WARN records no logger.info or logger.debug from scripts; lower it while debugging, then put it back. A change is the whole server's and a dry run unless dry_run is false; the result says how to undo it.",
+            false,
+            data::log_level_tool,
+        ),
+        solution_tool::<data_requests::CallRequest>(
+            "call",
+            "Call a ThingWorx service. A service can write, and twaco cannot tell which do, so this is a dry run unless dry_run is false. A bare target is a Thing; Collection/Name reaches templates, shapes, resources and subsystems.",
+            false,
+            data::call_service_tool,
+        ),
     ]
 });
 
