@@ -89,7 +89,7 @@ when the command is asked to write. A local output named by an option is include
 | `repo rm` | read-only | server-partial | server repository | List the path before retrying. | `main.rs: repo_change` |
 | `repo mv` | read-only | server-partial | server repository | List source and destination before retrying. | `main.rs: repo_change` |
 | `repo push` | read-only | server-partial | server repository | Inspect copied paths before retrying. | `core/repo.rs: sync` |
-| `repo pull` | read-only | best-effort batch | local repository files | Stops at the first failed file; the files already copied stay and are listed in the error. Retry after fixing the cause; copied files are then unchanged. | `core/repo.rs: sync` |
+| `repo pull` | read-only | best-effort batch | local repository files | Stops at the first failed file; the files already copied stay and are listed in the error. Retry after fixing the cause; copied files are then unchanged. | `core/commands/repo.rs: execute` |
 | `guide` | read-only | read-only | none | Retry freely. | `main.rs: guide_cmd` |
 | `help search` | single-file atomic | single-file atomic | user cache file | The cache file is old or new; retry freely. | `core/help.rs: cached_file` |
 | `help page` | single-file atomic | single-file atomic | user cache file | The cache file is old or new; retry freely. | `core/help.rs: cached_file` |
@@ -138,12 +138,12 @@ when the command is asked to write. A local output named by an option is include
 | `logs` | read-only | read-only | none | Retry freely. | `mcp.rs: logs_tool` |
 | `log_level` | read-only | server-partial | server log level | Read the current level and use the undo before retrying. | `core/commands/logs.rs: execute` |
 | `repo` | read-only | read-only | none | Retry freely. | `mcp.rs: repo_tool` |
-| `repo_write` | read-only | server-partial | server repository or local pull | Inspect copied paths before retrying. | `mcp.rs: repo_write_tool` |
+| `repo_write` | read-only | server-partial | server repository or local pull | Inspect copied paths before retrying. | `core/commands/repo.rs: execute` |
 | `extensions` | read-only | read-only | none | Retry freely. | `mcp.rs: extensions_tool` |
-| `extension_write` | read-only | server-partial | server extension | Check installed extensions before retrying. | `mcp.rs: extension_write_tool` |
-| `export` | read-only | server-partial | local export or server repository | Local export is atomic; source-control apply needs a new plan and inspection. | `mcp.rs: export_tool` |
-| `package` | single-file atomic | single-file atomic | named package file | The output is old or new; retry freely. | `mcp.rs: package_tool` |
-| `import` | read-only | server-partial | server entities | Compare again with the server before retrying. | `mcp.rs: import_tool` |
+| `extension_write` | read-only | server-partial | server extension | Check installed extensions before retrying. | `core/commands/extensions.rs: execute` |
+| `export` | read-only | server-partial | local export or server repository | Local export is atomic; source-control apply needs a new plan and inspection. | `core/commands/export.rs: execute` |
+| `package` | single-file atomic | single-file atomic | named package file | The output is old or new; retry freely. | `core/commands/package.rs: execute` |
+| `import` | read-only | server-partial | server entities | Compare again with the server before retrying. | `core/commands/imports.rs: execute` |
 | `settings` | read-only | read-only | none | Retry freely. | `mcp.rs: settings_tool` |
 | `catalog` | read-only | read-only | none | Retry freely. | `mcp.rs: catalog_tool` |
 | `impact` | read-only | read-only | none | Retry freely. | `mcp.rs: impact_tool` |
