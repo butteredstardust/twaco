@@ -3,6 +3,7 @@ name: Release
 # Every push to main that changes what ships publishes a release:
 #   1. prepare: run the gates, then commit the new version to a temporary release/vX branch.
 #   2. build: build, test and package each platform from that commit. Smoke-run every installer.
+#      package.yml holds this job, and CI runs it on every pull request too.
 #   3. publish: sign the archives, fast-forward main to the version commit, and create the release.
 # main receives the version commit only after every platform builds. To recover from a failed
 # job, use "Re-run failed jobs": each job can run again. A run where a v* tag already points at
@@ -48,7 +49,7 @@ jobs:
       version: ${{ steps.bump.outputs.version }}
       sha: ${{ steps.commit.outputs.sha }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           ref: main
           fetch-depth: 0
@@ -77,7 +78,10 @@ jobs:
       # topic that the binary embeds but the package leaves out fails here, not for a user.
       - name: The package builds from its own files
         if: steps.head.outputs.skip != 'true'
-        run: cargo package --locked
+        # rust-cache cannot clean target/package, so remove it here.
+        run: |
+          cargo package --locked
+          rm -rf target/package
       - if: steps.head.outputs.skip != 'true'
         uses: EmbarkStudios/cargo-deny-action@v2
         with:
@@ -115,160 +119,10 @@ jobs:
   build:
     needs: prepare
     if: needs.prepare.outputs.skip != 'true'
-    name: build (${{ matrix.target }})
-    strategy:
-      fail-fast: true
-      matrix:
-        include:
-          - os: windows-latest
-            target: x86_64-pc-windows-msvc
-            archive: zip
-          - os: ubuntu-latest
-            target: x86_64-unknown-linux-gnu
-            archive: tar.gz
-          - os: macos-latest
-            target: aarch64-apple-darwin
-            archive: tar.gz
-    runs-on: ${{ matrix.os }}
-    env:
-      VERSION: ${{ needs.prepare.outputs.version }}
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          ref: ${{ needs.prepare.outputs.sha }}
-      - uses: dtolnay/rust-toolchain@stable
-        with:
-          targets: ${{ matrix.target }}
-      - uses: Swatinem/rust-cache@v2
-        with:
-          key: ${{ matrix.target }}
-      - name: Cargo.toml has the version being released
-        shell: bash
-        run: |
-          version=$(sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml | head -1)
-          if [ "$version" != "$VERSION" ]; then
-            echo "Cargo.toml says $version, the release is $VERSION" >&2
-            exit 1
-          fi
-      - name: Test
-        run: cargo test --locked --target ${{ matrix.target }}
-      - name: Build
-        run: cargo build --release --locked --target ${{ matrix.target }}
-      - name: Archive
-        shell: bash
-        run: |
-          name="twaco-$VERSION-${{ matrix.target }}"
-          mkdir "$name" dist
-          cp README.md LICENSE CHANGELOG.md "$name/"
-          if [ "${{ matrix.archive }}" = "zip" ]; then
-            cp "target/${{ matrix.target }}/release/twaco.exe" "$name/"
-            7z a "dist/$name.zip" "$name" > /dev/null
-            echo "ASSET=dist/$name.zip" >> "$GITHUB_ENV"
-          else
-            cp "target/${{ matrix.target }}/release/twaco" "$name/"
-            tar -czf "dist/$name.tar.gz" "$name"
-            echo "ASSET=dist/$name.tar.gz" >> "$GITHUB_ENV"
-          fi
-      # Run what a user would download, not the build tree: unpack the archive into a clean
-      # directory, check it reports the released version, and check the knowledge topics compiled
-      # into it are there (they need no solution and no server).
-      - name: Smoke-run the archived binary
-        shell: bash
-        run: |
-          name=$(basename "$ASSET")
-          name="${name%.zip}"
-          name="${name%.tar.gz}"
-          mkdir smoke
-          if [ "${{ matrix.archive }}" = "zip" ]; then
-            7z x "$ASSET" -osmoke > /dev/null
-            exe=twaco.exe
-          else
-            tar -xzf "$ASSET" -C smoke
-            exe=twaco
-          fi
-          got=$("smoke/$name/$exe" --version)
-          case "$got" in
-            "twaco $VERSION ("*")") ;;
-            *) echo "the archived binary says '$got', expected 'twaco $VERSION (<commit> <date>)'" >&2; exit 1 ;;
-          esac
-          topics=$("smoke/$name/$exe" guide)
-          for topic in workflow quirks service-code; do
-            echo "$topics" | grep -q "^$topic " || { echo "guide topic $topic is missing from the archived binary" >&2; exit 1; }
-          done
-
-      # Windows: a per-user NSIS installer that adds twaco to PATH.
-      - name: Installer (Windows)
-        if: runner.os == 'Windows'
-        shell: pwsh
-        run: |
-          if (-not (Get-Command makensis -ErrorAction SilentlyContinue)) {
-            choco install nsis --no-progress -y
-            $env:Path += ";${env:ProgramFiles(x86)}\NSIS"
-          }
-          makensis /V2 "/DVERSION=$env:VERSION" `
-            "/DEXE=$env:GITHUB_WORKSPACE\target\${{ matrix.target }}\release\twaco.exe" `
-            "/DOUTFILE=$env:GITHUB_WORKSPACE\dist\twaco-$env:VERSION-x64-setup.exe" `
-            packaging\windows\twaco.nsi
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-      - name: Install, run and uninstall (Windows)
-        if: runner.os == 'Windows'
-        shell: pwsh
-        run: |
-          $dir = "$env:LOCALAPPDATA\Programs\twaco"
-          Start-Process -Wait -FilePath "dist\twaco-$env:VERSION-x64-setup.exe" -ArgumentList '/S'
-          $got = & "$dir\twaco.exe" --version
-          if ($got -notlike "twaco $env:VERSION (*)") { throw "the installed twaco says '$got'" }
-          $path = (Get-ItemProperty HKCU:\Environment).Path
-          if (($path -split ';') -notcontains $dir) { throw "the installer did not add $dir to PATH: $path" }
-          # _?= runs the uninstaller in place, so Start-Process waits for it.
-          Start-Process -Wait -FilePath "$dir\uninstall.exe" -ArgumentList '/S', "_?=$dir"
-          if (Test-Path "$dir\twaco.exe") { throw "the uninstaller left $dir\twaco.exe" }
-          $path = (Get-ItemProperty HKCU:\Environment).Path
-          if (($path -split ';') -contains $dir) { throw "the uninstaller left $dir in PATH: $path" }
-
-      # macOS: an unsigned .pkg that installs /usr/local/bin/twaco.
-      - name: Installer (macOS)
-        if: runner.os == 'macOS'
-        run: |
-          pkg="dist/twaco-$VERSION-${{ matrix.target }}.pkg"
-          packaging/macos/pkg.sh "$VERSION" "target/${{ matrix.target }}/release/twaco" "$pkg"
-          payload=$(pkgutil --payload-files "$pkg" | sort | tr '\n' ' ')
-          expected=". ./usr ./usr/local ./usr/local/bin ./usr/local/bin/twaco "
-          [ "$payload" = "$expected" ] || { echo "unexpected payload: $payload" >&2; exit 1; }
-          sudo installer -pkg "$pkg" -target /
-          got=$(/usr/local/bin/twaco --version)
-          case "$got" in
-            "twaco $VERSION ("*")") ;;
-            *) echo "the installed twaco says '$got'" >&2; exit 1 ;;
-          esac
-
-      # Linux: a .deb for /usr/bin, and an AppImage.
-      - name: Installers (Linux)
-        if: runner.os == 'Linux'
-        run: |
-          binary="target/${{ matrix.target }}/release/twaco"
-          packaging/linux/deb.sh "$VERSION" "$binary" "dist/twaco_${VERSION}_amd64.deb"
-          packaging/linux/appimage.sh "$binary" "dist/twaco-$VERSION-x86_64.AppImage"
-      - name: Install, run and remove (Linux)
-        if: runner.os == 'Linux'
-        run: |
-          check() {
-            case "$1" in
-              "twaco $VERSION ("*")") ;;
-              *) echo "$2 says '$1'" >&2; exit 1 ;;
-            esac
-          }
-          sudo apt-get install -y "./dist/twaco_${VERSION}_amd64.deb"
-          check "$(/usr/bin/twaco --version)" "the .deb's twaco"
-          sudo apt-get remove -y twaco
-          chmod +x "dist/twaco-$VERSION-x86_64.AppImage"
-          check "$(APPIMAGE_EXTRACT_AND_RUN=1 "dist/twaco-$VERSION-x86_64.AppImage" --version)" "the AppImage"
-
-      - uses: actions/upload-artifact@v4
-        with:
-          name: ${{ matrix.target }}
-          path: dist/*
-          if-no-files-found: error
+    uses: ./.github/workflows/package.yml
+    with:
+      ref: ${{ needs.prepare.outputs.sha }}
+      version: ${{ needs.prepare.outputs.version }}
 
   publish:
     needs: [prepare, build]
@@ -279,11 +133,11 @@ jobs:
       VERSION: ${{ needs.prepare.outputs.version }}
       SHA: ${{ needs.prepare.outputs.sha }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           ref: ${{ needs.prepare.outputs.sha }}
           fetch-depth: 0
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           path: dist
           merge-multiple: true
@@ -375,7 +229,7 @@ jobs:
       # then releases this version with it. A re-run after this step pushes nothing.
       - name: Fast-forward main to the version commit
         run: git push origin "$SHA:refs/heads/main"
-      - uses: softprops/action-gh-release@v2
+      - uses: softprops/action-gh-release@v3
         with:
           tag_name: v${{ env.VERSION }}
           target_commitish: ${{ env.SHA }}

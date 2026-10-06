@@ -80,6 +80,14 @@ pub(crate) fn update_cmd(args: &[String]) -> u8 {
             return FAILED;
         }
     };
+    // A manifest older than one seen before is an old copy: refuse it rather than report that
+    // this twaco is current.
+    if let Some(cache) = update::cache_file() {
+        if let Err(error) = update::accept(&cache, &manifest.version) {
+            eprintln!("twaco: update: {error}");
+            return FAILED;
+        }
+    }
     if !update::is_newer(&manifest.version, current) {
         println!("twaco {current} is the latest release");
         return OK;
