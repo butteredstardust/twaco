@@ -1290,9 +1290,12 @@ fn types_generate_and_check_return_the_mcp_shapes() {
             })
         }
     }
-    let checked =
-        types_tool_with_compiler(&solution, &json!({"action":"check"}), Some(&FakeCompiler))
-            .unwrap();
+    let checked = types_tool_with_compiler(
+        &solution,
+        parse_typed(&json!({"action":"check"})).unwrap(),
+        Some(&FakeCompiler),
+    )
+    .unwrap();
     assert_eq!(checked["ok"], false);
     assert_eq!(checked["findings"], 1);
     assert_eq!(checked["services_with_findings"], 1);
@@ -1302,7 +1305,7 @@ fn types_generate_and_check_return_the_mcp_shapes() {
     assert!(checked.get("findings_list").is_none());
     let detailed = types_tool_with_compiler(
         &solution,
-        &json!({"action":"check", "detail":true}),
+        parse_typed(&json!({"action":"check", "detail":true})).unwrap(),
         Some(&FakeCompiler),
     )
     .unwrap();

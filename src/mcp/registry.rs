@@ -1,8 +1,9 @@
 use super::requests::common::{parse, schema, NoArguments};
 use super::requests::{
     content as content_requests, data as data_requests, entity as entity_requests,
+    source as source_requests,
 };
-use super::{content, data, entity, ToolError};
+use super::{content, data, entity, source, ToolError};
 use crate::core::config::Solution;
 use schemars::JsonSchema;
 use serde::de::DeserializeOwned;
@@ -160,6 +161,42 @@ static TOOLS: LazyLock<Vec<Tool>> = LazyLock::new(|| {
             "Copy run-time, design-time and visibility permissions from renamed (old) entities to the ones that replaced them, mapping principals through the rename ledger. pairs is a flat list [old, new, old, new, ...] of Collection/Name; renamed adds every pending ledger entity. A dry run unless dry_run is false; every write is read back and the ledger marked carried.",
             false,
             entity::entity_carry_tool,
+        ),
+        solution_tool::<source_requests::TypesRequest>(
+            "types",
+            "Generate editor declarations, type-check every service, or fetch and cache platform declarations. All actions take the workspace lock.",
+            false,
+            source::types_tool,
+        ),
+        solution_tool::<source_requests::CheckRequest>(
+            "check",
+            "Run every gate of the solution (line endings, sidecars in sync, formatting, script traps, code order, project validation, declared hooks). With live: true, every service script is also parsed by the ThingWorx server, and an unreachable server fails the check. live defaults to the solution's [gates] live.",
+            true,
+            source::check_tool,
+        ),
+        solution_tool::<source_requests::SyncRequest>(
+            "sync",
+            "Write sidecars back into their entity XML: service scripts, DataShape fields, mashup content, DataTable configuration. This is how an edit to a script.js takes effect. check: true reports what would change and writes nothing. Takes the workspace lock while it writes.",
+            false,
+            source::sync_tool,
+        ),
+        solution_tool::<source_requests::ExtractRequest>(
+            "extract",
+            "Entity XML to sidecars: service scripts, DataShape fields, mashup content, DataTable configuration. Overwrites the sidecars of the entities chosen; takes the workspace lock.",
+            false,
+            source::extract_tool,
+        ),
+        solution_tool::<source_requests::FmtRequest>(
+            "fmt",
+            "Format every service script sidecar with the built-in formatter. check: true reports which would change and writes nothing.",
+            false,
+            source::fmt_tool,
+        ),
+        solution_tool::<source_requests::DeployRequest>(
+            "deploy",
+            "Deploy the solution: offline gates, one bundle per project in dependency order, every script parsed by the server (fails closed), a conflict check per entity, then import, read-back, and the project's deploy and post-import services. A dry run (a plan) unless dry_run is false.",
+            false,
+            source::deploy_tool,
         ),
     ]
 });

@@ -57,7 +57,6 @@ use refactor::{
     retemplate_tool,
 };
 use schema::validate_arguments;
-use source::{check_tool, deploy_tool, extract_tool, fmt_tool, sync_tool, types_tool};
 
 #[cfg(test)]
 pub(crate) fn legacy_schema(schema: &Value, arguments: &Value) -> Result<(), String> {
@@ -302,11 +301,6 @@ fn call_tool(root: &Path, name: &str, arguments: &Value) -> Option<Result<Value,
         outcome
     } else {
         match name {
-            "types" => with_solution(root, |s| types_tool(s, arguments)),
-            "check" => with_solution(root, |s| check_tool(s, arguments)),
-            "sync" => with_solution(root, |s| sync_tool(s, arguments)),
-            "extract" => with_solution(root, |s| extract_tool(s, arguments)),
-            "fmt" => with_solution(root, |s| fmt_tool(s, arguments)),
             "adopt_report" => with_solution(root, |s| adopt_tool(s, arguments)),
             "adopt_apply" => with_solution(root, |s| adopt_apply_tool(s, arguments)),
             "rename" => with_solution(root, |s| rename_tool(s, arguments)),
@@ -316,7 +310,6 @@ fn call_tool(root: &Path, name: &str, arguments: &Value) -> Option<Result<Value,
             "db_query" => with_solution(root, |s| db_tool(s, arguments, db::Mode::Query)),
             "db_clean" => with_solution(root, |s| db_clean_tool(s, arguments)),
             "datatable_copy" => with_solution(root, |s| datatable_copy_tool(s, arguments)),
-            "deploy" => with_solution(root, |s| deploy_tool(s, arguments)),
             "config_table" => with_solution(root, |s| config_table_tool(s, arguments)),
             "call" => with_solution(root, |s| call_service_tool(s, arguments)),
             "logs" => with_solution(root, |s| logs_tool(s, arguments)),
@@ -376,8 +369,12 @@ pub(crate) fn required<'a>(arguments: &'a Value, name: &str) -> Result<&'a str, 
 }
 
 pub(crate) fn client(solution: &Solution, arguments: &Value) -> Result<server::Client, ToolError> {
-    let name = text(arguments, "profile").unwrap_or("default");
-    profile::load(&solution.root, name)
+    client_for(solution, text(arguments, "profile").unwrap_or("default"))
+}
+
+/// A client for the named server profile.
+pub(crate) fn client_for(solution: &Solution, profile: &str) -> Result<server::Client, ToolError> {
+    profile::load(&solution.root, profile)
         .map(server::Client::new)
         .map_err(ToolError::coded)
 }
