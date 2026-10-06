@@ -3,3 +3,4 @@
 .twaco/lock
 .twaco/lock.holder
 twaco.credentials.toml
+__pycache__/

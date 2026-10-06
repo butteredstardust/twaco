@@ -7,7 +7,7 @@ service writes. A server command takes `--profile <name>` (default: `default`); 
 
 ## Set up
 
-Describe a solution, check the environment, serve agents.
+Describe a solution, check the environment, serve agents, update twaco.
 
 ```text
 init [--write]              propose a twaco.toml from the repository's own entities; --write
@@ -17,6 +17,8 @@ init --agents               write only those, where absent
 doctor [--profile <name>]   what resolved, what is reachable, what is missing
 projects                    the solution's projects and their deploy order
 mcp                         serve the tools over MCP on stdio (TWACO_ROOT: the solution)
+update [--apply]            compare with the latest release; --apply verifies its signature
+                            and replaces this binary (TWACO_NO_UPDATE_CHECK=1: no daily notice)
 ```
 
 ## Work on the repository
