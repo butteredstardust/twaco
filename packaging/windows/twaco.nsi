@@ -15,9 +15,10 @@
   !error "Define VERSION, EXE and OUTFILE on the makensis command line"
 !endif
 
-; Use backslashes. On Windows, `File` splits a path only at a backslash, so it cannot find
-; "../../LICENSE". makensis on macOS and Linux converts the backslashes.
-!define ROOT "${__FILEDIR__}\..\.."
+; makensis runs in the directory of this script. Use backslashes: on Windows, `File` splits a
+; path only at a backslash, so it cannot find "../../LICENSE". makensis on macOS and Linux
+; converts the backslashes.
+!define ROOT "..\.."
 !define ADDED_TO_PATH "AddedToPath"
 !define UNINSTALL_KEY "Software\Microsoft\Windows\CurrentVersion\Uninstall\twaco"
 
