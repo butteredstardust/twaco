@@ -1027,10 +1027,7 @@ mod tests {
 
     /// A solution on disk: one Thing with two script services, one of them with its sidecar.
     fn live_solution() -> (PathBuf, Solution) {
-        let nonce = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap()
-            .as_nanos();
+        let nonce = crate::test_nonce();
         let root = std::env::temp_dir().join(format!("twaco-live-{}-{nonce}", std::process::id()));
         std::fs::create_dir_all(root.join("Things")).unwrap();
         std::fs::write(root.join("twaco.toml"), "[[project]]\nname = \"P\"\n").unwrap();

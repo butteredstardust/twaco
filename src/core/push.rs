@@ -250,7 +250,6 @@ fn record(root: &Path, target: &Target, local: String, server: String) -> Result
 mod tests {
     use super::*;
     use std::cell::RefCell;
-    use std::time::{SystemTime, UNIX_EPOCH};
 
     fn entity(script: &str) -> Vec<u8> {
         format!(
@@ -296,10 +295,7 @@ mod tests {
     }
 
     fn temp() -> std::path::PathBuf {
-        let nonce = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap()
-            .as_nanos();
+        let nonce = crate::test_nonce();
         let path = std::env::temp_dir().join(format!("twaco-push-{}-{nonce}", std::process::id()));
         std::fs::create_dir_all(&path).unwrap();
         path

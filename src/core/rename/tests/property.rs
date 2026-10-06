@@ -1,10 +1,7 @@
 use super::*;
 
 fn property_fixture(tag: &str) -> Fixture {
-    let nonce = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap()
-        .as_nanos();
+    let nonce = crate::test_nonce();
     let root = std::env::temp_dir().join(format!(
         "twaco-rename-prop-{tag}-{}-{nonce}",
         std::process::id()

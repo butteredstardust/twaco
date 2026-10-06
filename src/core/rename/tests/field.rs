@@ -1,10 +1,7 @@
 use super::*;
 
 fn field_fixture(tag: &str) -> Fixture {
-    let nonce = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap()
-        .as_nanos();
+    let nonce = crate::test_nonce();
     let root = std::env::temp_dir().join(format!(
         "twaco-rename-field-{tag}-{}-{nonce}",
         std::process::id()
@@ -28,10 +25,7 @@ fn field_fixture(tag: &str) -> Fixture {
 }
 
 fn data_table_fixture(tag: &str) -> Fixture {
-    let nonce = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap()
-        .as_nanos();
+    let nonce = crate::test_nonce();
     let root = std::env::temp_dir().join(format!(
         "twaco-rename-dt-{tag}-{}-{nonce}",
         std::process::id()

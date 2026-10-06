@@ -255,7 +255,6 @@ mod tests {
     use crate::core::server::ServerError;
     use std::cell::RefCell;
     use std::rc::Rc;
-    use std::time::{SystemTime, UNIX_EPOCH};
 
     #[derive(Clone)]
     struct Fake {
@@ -330,10 +329,7 @@ mod tests {
     }
 
     fn root() -> PathBuf {
-        let nonce = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap()
-            .as_nanos();
+        let nonce = crate::test_nonce();
         std::env::temp_dir().join(format!("twaco-command-push-{}-{nonce}", std::process::id()))
     }
 

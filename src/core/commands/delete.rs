@@ -211,7 +211,6 @@ mod tests {
     use std::collections::{BTreeMap, BTreeSet};
     use std::path::PathBuf;
     use std::rc::Rc;
-    use std::time::{SystemTime, UNIX_EPOCH};
 
     #[derive(Clone)]
     struct Fake {
@@ -342,10 +341,7 @@ mod tests {
     }
 
     fn root() -> PathBuf {
-        let nonce = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap()
-            .as_nanos();
+        let nonce = crate::test_nonce();
         std::env::temp_dir().join(format!(
             "twaco-command-delete-{}-{nonce}",
             std::process::id()
