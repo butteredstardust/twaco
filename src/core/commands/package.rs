@@ -30,7 +30,32 @@ pub struct PackageOutcome {
     pub out: PathBuf,
     pub bytes: usize,
     pub summary: String,
+    /// What was built, from the build that was written, for an adapter that reports more than the
+    /// one-line summary.
+    pub detail: PackageDetail,
     pub effects: Effects,
+}
+
+/// What a package holds.
+#[derive(Debug)]
+pub enum PackageDetail {
+    Bundle {
+        entities: usize,
+        files: usize,
+    },
+    SourceControl {
+        entities: usize,
+    },
+    ProjectExtension {
+        editable: bool,
+        version: String,
+        entities: usize,
+    },
+    SolutionExtension {
+        editable: bool,
+        version: String,
+        projects: Vec<(String, usize)>,
+    },
 }
 
 /// A failure before a package could be written.
@@ -77,7 +102,7 @@ pub fn execute(
         return Err(PackageCommandError::Exists(request.out.clone()));
     }
     let project = request.project.as_deref();
-    let (bytes, summary) = match request.action {
+    let (bytes, summary, detail) = match request.action {
         PackageAction::Bundle { part } => {
             let built =
                 package::bundle(solution, project, part).map_err(PackageCommandError::Package)?;
@@ -85,12 +110,20 @@ pub fn execute(
             (
                 built.bytes,
                 format!("{count} entities from {} files", built.files),
+                PackageDetail::Bundle {
+                    entities: count,
+                    files: built.files,
+                },
             )
         }
         PackageAction::SourceControl => {
             let (bytes, count) =
                 package::source_control(solution, project).map_err(PackageCommandError::Package)?;
-            (bytes, format!("{count} entities"))
+            (
+                bytes,
+                format!("{count} entities"),
+                PackageDetail::SourceControl { entities: count },
+            )
         }
         PackageAction::Extension { editable } => {
             let meta = package::Metadata::from_solution(solution);
@@ -102,6 +135,11 @@ pub fn execute(
                     (
                         bytes,
                         format!("{kind} {project} {}, {count} entities", meta.version),
+                        PackageDetail::ProjectExtension {
+                            editable,
+                            version: meta.version.clone(),
+                            entities: count,
+                        },
                     )
                 }
                 None => {
@@ -119,6 +157,14 @@ pub fn execute(
                             meta.version,
                             each.join(", ")
                         ),
+                        PackageDetail::SolutionExtension {
+                            editable,
+                            version: meta.version.clone(),
+                            projects: counts
+                                .iter()
+                                .map(|(project, count)| (project.to_string(), *count))
+                                .collect(),
+                        },
                     )
                 }
             }
@@ -139,6 +185,7 @@ pub fn execute(
         out: request.out.clone(),
         bytes: bytes.len(),
         summary,
+        detail,
         effects: Effects::new(Access::Write, Access::None),
     })
 }
@@ -193,6 +240,65 @@ mod tests {
         assert_eq!(outcome.effects, Effects::new(Access::Write, Access::None));
         assert_ne!(std::fs::read(&out).unwrap(), b"old");
         drop(held);
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn what_is_reported_comes_from_the_one_build_that_was_written() {
+        let (root, solution) = setup();
+        let run = |action: PackageAction, name: &str| {
+            execute(
+                &solution,
+                &PackageRequest {
+                    action,
+                    project: None,
+                    out: root.join(name),
+                    force: true,
+                },
+            )
+            .unwrap()
+        };
+        let bundle = run(
+            PackageAction::Bundle {
+                part: package::Part::All,
+            },
+            "bundle.xml",
+        );
+        let PackageDetail::Bundle { entities, files } = bundle.detail else {
+            panic!("a bundle reports a bundle");
+        };
+        assert_eq!((entities, files), (1, 1));
+        assert_eq!(
+            bundle.summary,
+            format!("{entities} entities from {files} files")
+        );
+        assert_eq!(
+            bundle.bytes,
+            std::fs::read(root.join("bundle.xml")).unwrap().len()
+        );
+
+        let source_control = run(PackageAction::SourceControl, "source.zip");
+        let PackageDetail::SourceControl { entities } = source_control.detail else {
+            panic!("a source-control zip reports its entities");
+        };
+        assert_eq!(entities, 1);
+
+        let extension = run(PackageAction::Extension { editable: true }, "extension.zip");
+        let PackageDetail::SolutionExtension {
+            editable,
+            version,
+            projects,
+        } = extension.detail
+        else {
+            panic!("a solution without a named project reports every project");
+        };
+        assert!(editable);
+        assert_eq!(projects, vec![("P".to_string(), 1)]);
+        assert!(
+            extension.summary.contains(&version),
+            "{}",
+            extension.summary
+        );
         std::fs::remove_dir_all(root).unwrap();
     }
 }

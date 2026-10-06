@@ -93,8 +93,10 @@ impl Coded for EntityDeleteCommandError {
     }
 }
 
-/// Execute one guarded entity deletion. A lock is necessary only when the prepared ledger can be
-/// changed. Once it is held, preparation runs again so an intervening ledger update is observed.
+/// Execute one guarded entity deletion. An applied delete takes the lock when it writes locally: it
+/// saves a backup (the set's folder is named to the second, so two applies would share one) or can
+/// change the rename ledger. Once it is held, preparation runs again so an intervening ledger update
+/// is observed.
 pub fn execute<R, F>(
     solution: &Solution,
     request: &EntityDeleteRequest,
@@ -122,7 +124,8 @@ where
 {
     let mut prepared = entity_delete::prepare(solution, &request.entities, request.renamed)
         .map_err(EntityDeleteCommandError::Delete)?;
-    let _lock = if prepared.ledger_will_be_written(matches!(request.mode, Mode::Apply)) {
+    let apply = matches!(request.mode, Mode::Apply);
+    let _lock = if apply && (request.backup || prepared.ledger_will_be_written(apply)) {
         let lock = lock_workspace(solution, "entity delete", notices)
             .map_err(EntityDeleteCommandError::Lock)?;
         after_lock();
@@ -441,6 +444,48 @@ mod tests {
         })
         .unwrap_err();
         assert!(matches!(error, EntityDeleteCommandError::Lock(_)));
+        drop(held);
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn an_apply_that_saves_a_backup_takes_the_workspace_lock() {
+        let (root, solution) = setup(None);
+        let held = lock::acquire(&root, "test holder", &[]).unwrap();
+        let error = execute(
+            &solution,
+            &request(Mode::Apply, &["Mashups/A"], false, true),
+            |_| Fake::new(&[("Mashups", "A")]),
+        )
+        .unwrap_err();
+        assert!(matches!(error, EntityDeleteCommandError::Lock(_)));
+        drop(held);
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn a_plan_and_an_apply_that_writes_nothing_locally_take_no_lock() {
+        let (root, solution) = setup(None);
+        let held = lock::acquire(&root, "test holder", &[]).unwrap();
+        let plan = execute(
+            &solution,
+            &request(Mode::Plan, &["Mashups/A"], false, true),
+            |_| Fake::new(&[("Mashups", "A")]),
+        );
+        assert!(plan.is_ok(), "a plan holds no lock: {plan:?}");
+        let remote = Fake::new(&[("Mashups", "A")]);
+        let apply = execute(
+            &solution,
+            &request(Mode::Apply, &["Mashups/A"], false, false),
+            {
+                let remote = remote.clone();
+                move |_| remote
+            },
+        );
+        assert!(
+            apply.is_ok(),
+            "no backup and no ledger to mark, so nothing local is written: {apply:?}"
+        );
         drop(held);
         std::fs::remove_dir_all(root).unwrap();
     }

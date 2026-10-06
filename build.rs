@@ -18,8 +18,22 @@ fn main() {
     println!("cargo:rerun-if-changed=.git/HEAD");
     println!("cargo:rerun-if-changed=.git/logs/HEAD");
     println!("cargo:rerun-if-changed=build.rs");
-    // So that `+dirty` follows the working tree, not only the last commit.
-    println!("cargo:rerun-if-changed=src");
+    // So that `+dirty` follows the working tree, not only the last commit: whatever is tracked.
+    for tracked in [
+        "src",
+        "tests",
+        "knowledge",
+        "documentation",
+        "scripts",
+        ".github",
+        "Cargo.toml",
+        "Cargo.lock",
+        "deny.toml",
+        "README.md",
+        "CHANGELOG.md",
+    ] {
+        println!("cargo:rerun-if-changed={tracked}");
+    }
     let Some(commit) = git(&["rev-parse", "--short=9", "HEAD"]) else {
         return;
     };

@@ -389,72 +389,54 @@ pub(crate) fn package_tool(
     solution: &Solution,
     arguments: tool::PackageRequest,
 ) -> Result<Value, ToolError> {
-    use crate::core::commands::package::{self, PackageAction, PackageRequest};
+    use crate::core::commands::package::{self, PackageAction, PackageDetail, PackageRequest};
     let relative = nonempty(&arguments.out, "out")?;
     let out = out_path(solution, relative, arguments.overwrite)?;
-    let project = arguments.project.as_deref();
-    let (action, detail) = match arguments.action {
-        tool::PackageAction::Bundle => {
-            let part = match arguments.part {
+    let action = match arguments.action {
+        tool::PackageAction::Bundle => PackageAction::Bundle {
+            part: match arguments.part {
                 tool::PackagePart::All => crate::core::package::Part::All,
                 tool::PackagePart::Backend => crate::core::package::Part::Backend,
                 tool::PackagePart::Frontend => crate::core::package::Part::Frontend,
-            };
-            let detail = match crate::core::package::bundle(solution, project, part) {
-                Ok(built) => {
-                    json!({ "entities": built.entities.values().sum::<usize>(), "files": built.files })
-                }
-                Err(error) => return Err(ToolError::coded(error)),
-            };
-            (PackageAction::Bundle { part }, detail)
-        }
-        tool::PackageAction::SourceControl => {
-            let count = crate::core::package::source_control(solution, project)
-                .map_err(ToolError::coded)?
-                .1;
-            (PackageAction::SourceControl, json!({ "entities": count }))
-        }
-        tool::PackageAction::Extension => {
-            let editable = arguments.editable;
-            match project {
-                Some(project) => {
-                    let meta = crate::core::package::Metadata::from_solution(solution);
-                    let count = crate::core::package::extension(solution, project, editable, &meta)
-                        .map_err(ToolError::coded)?
-                        .1;
-                    (
-                        PackageAction::Extension { editable },
-                        json!({ "editable": editable, "version": meta.version, "entities": count }),
-                    )
-                }
-                None => {
-                    let meta = crate::core::package::Metadata::from_solution(solution);
-                    let counts =
-                        crate::core::package::solution_extensions(solution, editable, &meta)
-                            .map_err(ToolError::coded)?
-                            .1;
-                    let projects: Vec<Value> = counts
-                        .iter()
-                        .map(|(p, n)| json!({ "project": p, "entities": n }))
-                        .collect();
-                    (
-                        PackageAction::Extension { editable },
-                        json!({ "editable": editable, "version": meta.version, "projects": projects }),
-                    )
-                }
-            }
-        }
+            },
+        },
+        tool::PackageAction::SourceControl => PackageAction::SourceControl,
+        tool::PackageAction::Extension => PackageAction::Extension {
+            editable: arguments.editable,
+        },
     };
     let outcome = package::execute(
         solution,
         &PackageRequest {
             action,
-            project: project.map(str::to_string),
+            project: arguments.project.as_ref().cloned(),
             out,
             force: true,
         },
     )
     .map_err(ToolError::coded)?;
+    let detail = match outcome.detail {
+        PackageDetail::Bundle { entities, files } => {
+            json!({ "entities": entities, "files": files })
+        }
+        PackageDetail::SourceControl { entities } => json!({ "entities": entities }),
+        PackageDetail::ProjectExtension {
+            editable,
+            version,
+            entities,
+        } => json!({ "editable": editable, "version": version, "entities": entities }),
+        PackageDetail::SolutionExtension {
+            editable,
+            version,
+            projects,
+        } => {
+            let projects: Vec<Value> = projects
+                .iter()
+                .map(|(project, entities)| json!({ "project": project, "entities": entities }))
+                .collect();
+            json!({ "editable": editable, "version": version, "projects": projects })
+        }
+    };
     Ok(json!({ "ok": true, "out": relative, "bytes": outcome.bytes, "detail": detail }))
 }
 

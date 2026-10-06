@@ -37,6 +37,8 @@ All notable changes to twaco are recorded here. The format follows
   `.gitignore` when it is in a git repository, backups and the transaction journal included (a backup
   holds a server's copy of an entity, secrets and all); `twaco doctor` warns when any line is missing.
   An existing file is only appended to, in its own line endings.
+- An applied `entity delete` that saves a backup now takes the workspace lock, as one that marks
+  the rename ledger already did: two applies in the same second no longer share one backup folder.
 - `new building-block` writes the project it adds to `twaco.toml` in that file's line endings, so a
   CRLF file no longer fails the line-endings gate; the rest of the file is left exactly as it was.
 - CONFIGURATION.md says that `[[project.deploy.post_import]]` tables belong to the last
