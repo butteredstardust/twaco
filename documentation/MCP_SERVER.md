@@ -2,8 +2,9 @@
 
 `twaco mcp` serves twaco to an AI agent over the [Model Context Protocol](https://modelcontextprotocol.io),
 on standard input and output, as tools covering most of the command line's work: the
-repository, deploys, the server and the knowledge. Setup (`init`, `doctor`), `bundle` and raw
-`entity get` are command-line only.
+repository, deploys, the server and the knowledge. Setup (`init`, `doctor`), `bundle`, raw
+`entity get` and `update` are command-line only. `update` replaces the binary, and an agent
+must not replace the server it talks to.
 
 ## Set up
 

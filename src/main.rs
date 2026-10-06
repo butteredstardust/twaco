@@ -32,7 +32,7 @@ use cli::entity::{
 };
 use cli::info::{
     catalog_cmd, docs_cmd, guide_cmd, help_cmd, impact_cmd, javadoc_cmd, settings_cmd, unused_cmd,
-    write_agent_files,
+    update_cmd, write_agent_files,
 };
 use cli::refactor::{adopt_cmd, new_building_block_cmd, relocate_cmd, rename_cmd, retemplate_cmd};
 use cli::source::{bundle, check, deploy_cmd, extract, fmt, sync_cmd, types_cmd};
@@ -48,6 +48,44 @@ const FAILED: u8 = 2;
 fn main() -> ExitCode {
     quiet_when_the_reader_leaves();
     let args: Vec<String> = std::env::args().skip(1).collect();
+    let code = run_command(&args);
+    update_notice(args.first().map(String::as_str).unwrap_or_default());
+    code
+}
+
+/// After the command, a line on stderr when a newer release exists. The network is asked at
+/// most once a day, with a short timeout, and never for the MCP server, CI or a redirected
+/// stderr. See core::update.
+fn update_notice(command: &str) {
+    use std::io::IsTerminal;
+    use twaco::core::update;
+    let wanted = update::notice_wanted(
+        command,
+        &|name| std::env::var(name).ok(),
+        std::io::stderr().is_terminal(),
+    );
+    if command.is_empty() || !wanted {
+        return;
+    }
+    let Some(cache) = update::cache_file() else {
+        return;
+    };
+    let web = update::Web::new(Duration::from_secs(2));
+    let now = jiff::Timestamp::now().as_second();
+    let current = env!("CARGO_PKG_VERSION");
+    if let Some(line) = update::notice(
+        &web,
+        update::MANIFEST_URL,
+        update::PUBLIC_KEY,
+        &cache,
+        now,
+        current,
+    ) {
+        eprintln!("twaco: {line}");
+    }
+}
+
+fn run_command(args: &[String]) -> ExitCode {
     // Only as the command itself: `--version` is also a flag of `help`, naming a help release.
     if args.first().is_some_and(|a| a == "--version" || a == "-V") {
         println!("twaco {}", twaco::version());
@@ -144,6 +182,11 @@ fn main() -> ExitCode {
         };
     }
 
+    // update replaces the binary, not the solution, so it needs none.
+    if command == "update" {
+        return ExitCode::from(update_cmd(&args[1..]));
+    }
+
     // doctor diagnoses a missing solution rather than failing on it, so it runs before discovery.
     if command == "doctor" {
         let mut profile_name = "default".to_string();
@@ -194,7 +237,7 @@ fn main() -> ExitCode {
         };
     }
 
-    let (route, argument_start, known) = match route(&args) {
+    let (route, argument_start, known) = match route(args) {
         Ok(route) => route,
         Err(why) => {
             eprintln!("twaco: {why}");

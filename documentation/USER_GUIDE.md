@@ -498,6 +498,32 @@ installed; without it they are locked, as a shipped extension's are. Entity file
 for byte except that one attribute. `twaco ext import <zip>` has a server validate a project's
 package before anyone installs it.
 
+## Updating twaco
+
+Once a day, a command run in a terminal checks for a newer twaco release, with a two-second
+timeout. When one exists, a line on stderr says so after the command's own output. These never
+check:
+
+- `twaco mcp`, `twaco update` and `twaco --version`.
+- A run with `CI` set, or with stderr redirected.
+- Any run with `TWACO_NO_UPDATE_CHECK=1`.
+
+The result is cached in twaco's cache directory, so the network is asked at most once a day.
+
+`twaco update` compares this binary with the latest release. `twaco update --apply` does this:
+
+1. It verifies the minisign signature of the release manifest, `updater.json`.
+2. It downloads the release archive for this platform.
+3. It verifies the archive's signature. The signature names the archive, so the archive of
+   another release cannot pass as this one.
+4. It replaces the running binary.
+
+`twaco update --apply` installs a release only when it is newer than the running binary.
+
+When the binary is in a directory you cannot write, such as `/usr/local/bin`, run
+`sudo twaco update --apply`. A `.deb` install and an AppImage are not replaced: install the next
+release's `.deb` or AppImage instead.
+
 ## Working together
 
 - **One writer at a time.** A command that writes twaco's managed files takes a lock in

@@ -90,6 +90,8 @@ usage: twaco <command>
       --text                  refused: a property rename has no text pass
   mcp                         serve the tools over MCP on stdio (TWACO_ROOT: the solution)
   doctor [--profile <name>]   what resolved, what is reachable, what is missing
+  update [--apply]            compare with the latest release; --apply verifies its signature
+                              and replaces this binary (TWACO_NO_UPDATE_CHECK=1: no daily notice)
   export entity <Coll/Name> --out <file>   one entity's XML, from the server's Exporter
   export collection <Coll> [--project P] --out <file>   a collection, or one project's part of it
   export project <P> --out <file>  everything of a project, as one XML
