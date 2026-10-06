@@ -158,8 +158,9 @@ usage: twaco <command>
       --limit <n>; --refresh; --json
   javadoc class <Name|pkg.Name>  read a class as Markdown; --member <name>; --refresh; --json
   init [--write]              propose a twaco.toml from the repository's own entities; --write
-                              also writes AGENTS.md and CLAUDE.md where absent
-  init --agents               write only AGENTS.md and CLAUDE.md, where absent
+                              also writes AGENTS.md and CLAUDE.md where absent, and adds the
+                              lines twaco needs to .gitignore
+  init --agents               write only those, where absent
   adopt <export.xml>          what a designer's Composer export really changes; --apply writes it in
       --entity <name>         only this entity; --detail; --json; --fail-on-revert
   entity push <entity>        import one entity, refusing if the server changed

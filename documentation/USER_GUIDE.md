@@ -389,7 +389,7 @@ A set is the Exporter's XML of each entity, which the server imports as it is: d
 configuration and permissions. It does not hold persisted property values, DataTable rows, stream
 data or a FileRepository's files. A delete backup is therefore not a backup of a FileRepository's
 files, which is why deleting one needs its own explicit acknowledgement. Keep `.twaco/backups/`
-out of git.
+and `.twaco/transactions/` out of git; `twaco init --agents` adds both to `.gitignore`.
 
 ## Carrying permissions to the new entities
 

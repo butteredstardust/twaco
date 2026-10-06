@@ -117,6 +117,11 @@ its JSON input as a TOML table. Each `[[project.deploy.post_import]]` names one 
 `thing`, `service`, optional `parameters`, and `target` when the host is not a Thing
 (`ThingTemplates/<Name>`, for instance).
 
+TOML attaches `[project.deploy]` and `[[project.deploy.post_import]]` to the last `[[project]]`
+written above them, by position. Keep a project's deploy tables directly under that project, and
+add a new `[[project]]` after them, not before: a table written under the wrong project belongs to
+that project.
+
 A string value `"${profile:key}"` anywhere in those parameters is replaced at deploy time by
 `key` from the server profile. A secret, such as a database password, then lives in the
 profile and never in the repository. Plans and errors show the placeholder, never the value.
@@ -229,13 +234,17 @@ uses, does not accept app keys. A profile is only read by a command that talks t
 so offline commands work without one. Profile values are never printed; `twaco doctor`
 shows which file or variables a profile resolved from.
 
-Keep profiles out of git. A solution's `.gitignore` should hold:
+Keep profiles, and the backups a delete or a forced push saves, out of git: a backup holds the server's
+copy of an entity as it is, a database Thing's password included. A solution's `.gitignore` should
+hold the lines below. `twaco init --write` and `twaco init --agents` add the missing ones, and
+`twaco doctor` warns when any is missing.
 
 ```gitignore
 .twaco/profiles/
 .twaco/lock
 .twaco/lock.holder
 .twaco/backups/
+.twaco/transactions/
 .twaco/types/
 .twaco/platform.json
 **/services/*/jsconfig.json

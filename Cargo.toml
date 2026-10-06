@@ -9,7 +9,7 @@ homepage = "https://github.com/butteredstardust/twaco"
 readme = "README.md"
 keywords = ["thingworx", "iot", "mcp", "cli", "devtools"]
 categories = ["command-line-utilities", "development-tools"]
-include = ["src/**", "knowledge/**", "tests/**", "README.md", "LICENSE", "CHANGELOG.md"]
+include = ["src/**", "knowledge/**", "tests/**", "build.rs", "README.md", "LICENSE", "CHANGELOG.md"]
 
 [dependencies]
 dprint-plugin-typescript = "0.96"

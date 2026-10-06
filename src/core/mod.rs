@@ -25,6 +25,7 @@ pub mod entity_key;
 pub mod export;
 pub mod extensions;
 pub mod fmt;
+pub mod gitignore;
 pub mod guide;
 pub mod help;
 pub mod impact;

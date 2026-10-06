@@ -50,7 +50,7 @@ fn main() -> ExitCode {
     let args: Vec<String> = std::env::args().skip(1).collect();
     // Only as the command itself: `--version` is also a flag of `help`, naming a help release.
     if args.first().is_some_and(|a| a == "--version" || a == "-V") {
-        println!("twaco {}", env!("CARGO_PKG_VERSION"));
+        println!("twaco {}", twaco::version());
         return ExitCode::from(OK);
     }
 

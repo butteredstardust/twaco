@@ -13,6 +13,17 @@ use std::collections::BTreeMap;
 use std::fmt;
 use std::path::{Path, PathBuf};
 
+/// The line ending a text mostly uses: CRLF when it has more of those than bare line feeds.
+pub fn line_ending(text: &str) -> &'static str {
+    let crlf = text.matches("\r\n").count();
+    let bare = text.matches('\n').count() - crlf;
+    if crlf > bare {
+        "\r\n"
+    } else {
+        "\n"
+    }
+}
+
 /// ThingWorx collection folder names, used when a project does not list its own.
 ///
 /// A fixed list rather than "every subdirectory": a repository also holds `exported/`, `dist/`
