@@ -734,7 +734,7 @@ mod tests {
     fn an_empty_section_element_can_receive_a_first_field() {
         let src = br#"<Entities><DataShapes><DataShape name="D"><FieldDefinitions/></DataShape></DataShapes></Entities>"#;
         assert!(extract(src).unwrap().is_empty());
-        // The identity case must work, where it used to be an error.
+        // The identity case must work.
         let (same, _) = sync(src, &[], false).unwrap();
         assert_eq!(same, src.to_vec());
 
@@ -770,7 +770,7 @@ mod tests {
 
     #[test]
     fn a_wrongly_typed_value_is_refused_rather_than_defaulted() {
-        // A numeric ordinal used to become "", which for a persisted shape is a dropped column.
+        // A numeric ordinal must not become "": for a persisted shape that is a dropped column.
         let text =
             r#"[{"name":"A","baseType":"STRING","ordinal":3,"description":"","aspects":{}}]"#;
         assert!(from_sidecar(text).is_err());

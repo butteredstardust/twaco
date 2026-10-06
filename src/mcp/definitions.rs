@@ -299,7 +299,7 @@ fn legacy_tool_definitions() -> Vec<Value> {
         ),
         tool(
             "new_building_block",
-            "Create a new building block in the repository, as the PTC Solution Framework's Create New Building Block does on a server: its project, EntryPoint template and Thing, Management shape, Manager template and Thing (not for an abstract block), default and admin groups and organization, as files, plus the project in twaco.toml. The files match what the framework produced on a server. The permission helper and the ui and test types are not created. A dry run unless dry_run is false; an apply takes the workspace lock.",
+            "Create a new building block in the repository, as the building-block framework's Create New Building Block does on a server: its project, EntryPoint template and Thing, Management shape, Manager template and Thing (not for an abstract block), default and admin groups and organization, as files, plus the project in twaco.toml. The files match what the framework produced on a server. The permission helper and the ui and test types are not created. A dry run unless dry_run is false; an apply takes the workspace lock.",
             json!({
                 "name": { "type": "string", "description": "The block's name with its namespace, such as Acme.Orders." },
                 "type": { "type": "string", "enum": ["standard", "abstract", "implementation"], "default": "standard" },
@@ -460,7 +460,7 @@ fn legacy_tool_definitions() -> Vec<Value> {
         ),
         tool(
             "package",
-            "Package the repository for release, offline, into a file inside the solution: a bundle (one importable XML; part all, backend or frontend), a source-control zip (<Project>/<Collection>/<Name>.xml), or a DPM-style extension zip (one project's, or the solution's as a zip of its projects' zips; editable or not; metadata from [package] in twaco.toml).",
+            "Package the repository for release, offline, into a file inside the solution: a bundle (one importable XML; part all, backend or frontend), a source-control zip (<Project>/<Collection>/<Name>.xml), or an extension zip (one project's, or the solution's as a zip of its projects' zips; editable or not; metadata from [package] in twaco.toml).",
             json!({
                 "action": { "type": "string", "enum": ["bundle", "source_control", "extension"] },
                 "project": { "type": "string", "description": "Only this project; the whole solution when omitted." },

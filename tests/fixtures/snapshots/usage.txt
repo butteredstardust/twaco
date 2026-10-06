@@ -98,7 +98,7 @@ usage: twaco <command>
   package bundle [--project P] [--backend-only|--frontend-only] --out <file>
                               the repository as one importable XML, offline
   package source-control [--project P] --out <file.zip>  the <Project>/<Collection>/<Name>.xml layout
-  package extension [--project P] [--editable] --out <file.zip>  a DPM-style extension: one project's,
+  package extension [--project P] [--editable] --out <file.zip>  an extension package: one project's,
                               or the solution's as a zip of its projects' ([package] in twaco.toml)
       --force                 replace the --out file if it exists
   import <file.xml|.zip>      import an export into the server: a plan of what it adds and

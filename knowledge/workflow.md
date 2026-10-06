@@ -91,7 +91,7 @@ does not roll back their unexported changes.
 
 - **`twaco package bundle --out <file>`:** one importable XML, from the repository, offline.
   It takes `--project P`, `--backend-only` or `--frontend-only`.
-- **`twaco package extension --out <file.zip>`:** a DPM-style extension package, per project
+- **`twaco package extension --out <file.zip>`:** an extension package, per project
   or for the solution. `--editable` decides whether the entities stay editable once installed.
 - **`twaco package source-control --out <file.zip>`:** the `<Project>/<Collection>/<Name>.xml`
   layout.

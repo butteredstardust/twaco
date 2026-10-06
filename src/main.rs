@@ -272,7 +272,7 @@ fn main() -> ExitCode {
 /// A command's route, where its arguments start, and the flags it accepts.
 ///
 /// Flags are validated per command before anything is read or written. An unrecognised flag
-/// used to be ignored, which turned `sync --cehck` -- a typo -- into a real write.
+/// is an error: ignoring it would turn `sync --cehck` -- a typo -- into a real write.
 type Route = (&'static str, usize, &'static [&'static str]);
 
 fn route(args: &[String]) -> Result<Route, String> {
