@@ -1779,3 +1779,42 @@ fn every_push_result_fits_the_output_schema() {
         );
     }
 }
+
+#[test]
+fn package_reports_what_it_wrote_from_a_single_build() {
+    let root = solution_dir();
+    let bundle = call(
+        &root,
+        "package",
+        json!({"action":"bundle","out":"out/release.xml"}),
+    );
+    assert_ne!(bundle["isError"], true, "{bundle}");
+    let detail = &bundle["structuredContent"]["detail"];
+    assert_eq!(
+        (detail["entities"].as_u64(), detail["files"].as_u64()),
+        (Some(1), Some(1))
+    );
+    let written = std::fs::read(root.join("out/release.xml")).unwrap();
+    assert_eq!(
+        bundle["structuredContent"]["bytes"].as_u64(),
+        Some(written.len() as u64)
+    );
+    let extension = call(
+        &root,
+        "package",
+        json!({"action":"extension","out":"out/extension.zip","project":"P"}),
+    );
+    let detail = &extension["structuredContent"]["detail"];
+    assert_eq!(detail["entities"], 1, "{extension}");
+    assert!(detail["version"].is_string());
+    let solution = call(
+        &root,
+        "package",
+        json!({"action":"extension","out":"out/all.zip"}),
+    );
+    assert_eq!(
+        solution["structuredContent"]["detail"]["projects"][0]["project"], "P",
+        "{solution}"
+    );
+    let _ = std::fs::remove_dir_all(root);
+}

@@ -38,7 +38,7 @@ fn covered(entry: &str, lines: &[&str]) -> bool {
     let whole_folder = wanted.starts_with(".twaco/");
     lines.iter().any(|line| {
         *line == wanted
-            || (whole_folder && matches!(*line, ".twaco" | ".twaco/**"))
+            || (whole_folder && matches!(*line, ".twaco" | ".twaco/**" | ".twaco/*"))
             || *line == format!("{wanted}/**")
     })
 }
@@ -131,11 +131,16 @@ mod tests {
         assert!(!missing.contains(&".twaco/backups/"));
         assert!(!missing.contains(&".twaco/transactions/"));
         assert!(missing.contains(&".twaco/lock"), "a comment covers nothing");
-        std::fs::write(root.join(".gitignore"), ".twaco/\n").unwrap();
         // The whole folder is not a line twaco wrote, but it covers every `.twaco` entry.
-        assert!(!super::missing(&root)
-            .iter()
-            .any(|entry| entry.starts_with(".twaco/")));
+        for line in [".twaco/", ".twaco", "/.twaco/", ".twaco/*", ".twaco/**"] {
+            std::fs::write(root.join(".gitignore"), format!("{line}\n")).unwrap();
+            assert!(
+                !super::missing(&root)
+                    .iter()
+                    .any(|entry| entry.starts_with(".twaco/")),
+                "{line}"
+            );
+        }
         assert!(super::missing(&root).contains(&"**/services/*/jsconfig.json"));
         let _ = std::fs::remove_dir_all(root);
     }
