@@ -16,3 +16,16 @@ pub fn version() -> String {
 
 /// The Model Context Protocol server, the other adapter beside the CLI.
 pub mod mcp;
+
+/// A name part that no other test in this process gets: the time and a counter. Tests run in
+/// parallel, and the clock alone repeats: on macOS it counts whole microseconds.
+#[cfg(test)]
+pub(crate) fn test_nonce() -> String {
+    static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+    let nanos = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_nanos();
+    let next = NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    format!("{nanos}-{next}")
+}

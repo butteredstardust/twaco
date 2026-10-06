@@ -18,10 +18,7 @@ fn converse(root: &Path, messages: &[Value]) -> Vec<Value> {
 }
 
 fn solution_dir() -> PathBuf {
-    let nonce = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap()
-        .as_nanos();
+    let nonce = crate::test_nonce();
     let root = std::env::temp_dir().join(format!("twaco-mcp-{}-{nonce}", std::process::id()));
     std::fs::create_dir_all(root.join("Things")).unwrap();
     std::fs::write(root.join("twaco.toml"), "[[project]]\nname = \"P\"\n").unwrap();

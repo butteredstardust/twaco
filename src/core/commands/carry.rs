@@ -133,7 +133,6 @@ mod tests {
     use crate::core::server::ServerError;
     use serde_json::Value;
     use std::path::PathBuf;
-    use std::time::{SystemTime, UNIX_EPOCH};
 
     struct Fake;
 
@@ -162,10 +161,7 @@ mod tests {
     }
 
     fn root() -> PathBuf {
-        let nonce = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap()
-            .as_nanos();
+        let nonce = crate::test_nonce();
         std::env::temp_dir().join(format!(
             "twaco-command-carry-{}-{nonce}",
             std::process::id()

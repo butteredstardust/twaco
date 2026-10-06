@@ -13,10 +13,7 @@ impl Drop for Fixture {
 }
 
 fn fixture() -> Fixture {
-    let nonce = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap()
-        .as_nanos();
+    let nonce = crate::test_nonce();
     let root =
         std::env::temp_dir().join(format!("twaco-rename-plan-{}-{nonce}", std::process::id()));
     std::fs::create_dir_all(&root).unwrap();
@@ -68,10 +65,7 @@ fn fixture() -> Fixture {
 }
 
 fn run_fixture() -> Fixture {
-    let nonce = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap()
-        .as_nanos();
+    let nonce = crate::test_nonce();
     let root =
         std::env::temp_dir().join(format!("twaco-rename-run-{}-{nonce}", std::process::id()));
     std::fs::create_dir_all(&root).unwrap();

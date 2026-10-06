@@ -166,13 +166,9 @@ impl std::error::Error for BaselineError {}
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::time::{SystemTime, UNIX_EPOCH};
 
     fn temp() -> PathBuf {
-        let nonce = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap()
-            .as_nanos();
+        let nonce = crate::test_nonce();
         let path =
             std::env::temp_dir().join(format!("twaco-baseline-{}-{nonce}", std::process::id()));
         std::fs::create_dir_all(&path).unwrap();

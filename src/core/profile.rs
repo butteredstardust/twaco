@@ -276,7 +276,6 @@ fn load_from(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::time::{SystemTime, UNIX_EPOCH};
 
     /// A profile's `Debug` is what ends up in a panic message, a log line or an error chain, so it
     /// must show no secret however awkward: quotes, a newline, URL delimiters, non-ASCII.
@@ -321,10 +320,7 @@ mod tests {
     }
 
     fn temp(label: &str) -> PathBuf {
-        let nonce = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap()
-            .as_nanos();
+        let nonce = crate::test_nonce();
         let path = std::env::temp_dir().join(format!(
             "twaco-profile-{label}-{}-{nonce}",
             std::process::id()
