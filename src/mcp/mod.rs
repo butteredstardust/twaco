@@ -29,6 +29,7 @@ mod content;
 mod data;
 mod entity;
 mod info;
+mod outputs;
 mod refactor;
 mod registry;
 mod requests;

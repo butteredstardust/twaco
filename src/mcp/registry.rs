@@ -1,3 +1,4 @@
+use super::outputs;
 use super::requests::common::{parse, schema, NoArguments};
 use super::requests::{
     content as content_requests, data as data_requests, entity as entity_requests,
@@ -50,8 +51,7 @@ impl Tool {
         definition
     }
 
-    /// Publish an output schema for a stable, owned projection of this tool's result.
-    #[cfg(test)]
+    /// Publish an output schema for a stable shape of this tool's result.
     fn with_output<T: JsonSchema>(mut self) -> Self {
         self.output_schema = Some(schema::<T>());
         self
@@ -143,49 +143,57 @@ static TOOLS: LazyLock<Vec<Tool>> = LazyLock::new(|| {
             "The solution's ThingWorx projects, their roots, their deploy order and how many entity documents each holds.",
             true,
             |solution, _| super::projects(solution),
-        ),
+        )
+        .with_output::<outputs::ProjectsResult>(),
         solution_tool::<source_requests::TypesRequest>(
             "types",
             "Generate editor declarations, type-check every service, or fetch and cache platform declarations. All actions take the workspace lock.",
             false,
             source::types_tool,
-        ),
+        )
+        .with_output::<outputs::TypesResult>(),
         solution_tool::<source_requests::CheckRequest>(
             "check",
             "Run every gate of the solution (line endings, sidecars in sync, formatting, script traps, code order, project validation, declared hooks). With live: true, every service script is also parsed by the ThingWorx server, and an unreachable server fails the check. live defaults to the solution's [gates] live.",
             true,
             source::check_tool,
-        ),
+        )
+        .with_output::<outputs::CheckResult>(),
         solution_tool::<entity_requests::StatusRequest>(
             "status",
             "Compare entities with the server and the recorded baseline: in-sync, local-changed, server-changed, both-changed, not-on-server, or no baseline yet. Lists every entity that needs attention.",
             false,
             entity::status_tool,
-        ),
+        )
+        .with_output::<outputs::StatusResult>(),
         solution_tool::<source_requests::SyncRequest>(
             "sync",
             "Write sidecars back into their entity XML: service scripts, DataShape fields, mashup content, DataTable configuration. This is how an edit to a script.js takes effect. check: true reports what would change and writes nothing. Takes the workspace lock while it writes.",
             false,
             source::sync_tool,
-        ),
+        )
+        .with_output::<outputs::SyncResult>(),
         solution_tool::<source_requests::ExtractRequest>(
             "extract",
             "Entity XML to sidecars: service scripts, DataShape fields, mashup content, DataTable configuration. Overwrites the sidecars of the entities chosen; takes the workspace lock.",
             false,
             source::extract_tool,
-        ),
+        )
+        .with_output::<outputs::ExtractResult>(),
         solution_tool::<source_requests::FmtRequest>(
             "fmt",
             "Format every service script sidecar with the built-in formatter. check: true reports which would change and writes nothing.",
             false,
             source::fmt_tool,
-        ),
+        )
+        .with_output::<outputs::FmtResult>(),
         solution_tool::<entity_requests::PushRequest>(
             "push",
             "Import one entity's file to the server. Refuses when the server changed since the last sync, was deleted there, or has no baseline, unless force is true. Reads the entity back and records a baseline only for what the server kept. A dry run unless dry_run is false.",
             false,
             entity::push_tool,
-        ),
+        )
+        .with_output::<outputs::PushResult>(),
         solution_tool::<entity_requests::EntityDeleteRequest>(
             "entity_delete",
             "Delete server entities in dependency-safe order. Accepts Collection/Name or a bare name resolved on the server; renamed adds undeleted entity/prefix entries from .twaco/renames.json. allow_repository_defined accepts a repository definition that deployment would recreate; allow_outside_dependents accepts structural dependents outside the delete set; allow_file_repository_data_loss accepts deleting a FileRepository Thing and all its files. A FileRepository delete needs its own acknowledgement. force is deprecated: it means the first two acknowledgements and never FileRepository data loss. A dry run unless dry_run is false; every applied delete is confirmed absent.",
@@ -233,7 +241,8 @@ static TOOLS: LazyLock<Vec<Tool>> = LazyLock::new(|| {
             "Deploy the solution: offline gates, one bundle per project in dependency order, every script parsed by the server (fails closed), a conflict check per entity, then import, read-back, and the project's deploy and post-import services. A dry run (a plan) unless dry_run is false.",
             false,
             source::deploy_tool,
-        ),
+        )
+        .with_output::<outputs::DeployResult>(),
         solution_tool::<refactor_requests::AdoptReportRequest>(
             "adopt_report",
             "Compare a designer's Composer <Entities> export with the repository: which services it would revert, which entities it adds or changes (node by node with detail), and which it lacks. Writes nothing.",
@@ -401,7 +410,17 @@ pub(crate) fn definitions(protocol: &str) -> Vec<Value> {
 /// Run a registered tool, arguments read and checked first.
 pub(crate) fn call(root: &Path, name: &str, arguments: &Value) -> Option<Result<Value, ToolError>> {
     let tool = TOOLS.iter().find(|tool| tool.name == name)?;
-    Some((tool.call)(root, arguments))
+    let outcome = (tool.call)(root, arguments);
+    // A tool that publishes an output schema owes every successful result to it.
+    #[cfg(test)]
+    if let (Ok(value), Some(schema)) = (&outcome, &tool.output_schema) {
+        assert!(
+            jsonschema::draft202012::is_valid(schema, value),
+            "{}: {value} does not fit its output schema",
+            tool.name
+        );
+    }
+    Some(outcome)
 }
 
 /// Whether the typed tool accepts these arguments, without running it.
