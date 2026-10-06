@@ -2215,22 +2215,42 @@ fn javadoc_cmd(args: &[String]) -> u8 {
 
 /// `twaco export entity | collection | project | source-control`.
 fn export_cmd(solution: &Solution, args: &Args) -> u8 {
+    use twaco::core::commands::export::{self as command, ExportAction, ExportRequest};
     use twaco::core::export;
     let profile_name = args.profile.as_deref().unwrap_or("default");
-    let client = match profile::load(&solution.root, profile_name) {
-        Ok(profile) => server::Client::new(profile),
-        Err(error) => {
-            eprintln!("twaco: {error}");
-            return FAILED;
-        }
-    };
     let value = |flag: &str| args.values.get(flag).cloned();
     let names: Vec<&str> = args.names.iter().map(String::as_str).collect();
     let result: Result<(), String> = (|| {
-        let what = match names.as_slice() {
-            ["entity", entity] => export::What::entity(entity).map_err(|e| e.to_string())?,
-            ["collection", collection] => export::What::Collection { collection: collection.to_string(), project: args.project.clone() },
-            ["project", project] => export::What::Project { project: project.to_string() },
+        let action = match names.as_slice() {
+            ["entity", entity] => ExportAction::Xml {
+                what: export::What::entity(entity).map_err(|e| e.to_string())?,
+                out: args
+                    .out
+                    .clone()
+                    .ok_or("an export needs --out <file>")?,
+                force: args.has("--force"),
+            },
+            ["collection", collection] => ExportAction::Xml {
+                what: export::What::Collection {
+                    collection: collection.to_string(),
+                    project: args.project.clone(),
+                },
+                out: args
+                    .out
+                    .clone()
+                    .ok_or("an export needs --out <file>")?,
+                force: args.has("--force"),
+            },
+            ["project", project] => ExportAction::Xml {
+                what: export::What::Project {
+                    project: project.to_string(),
+                },
+                out: args
+                    .out
+                    .clone()
+                    .ok_or("an export needs --out <file>")?,
+                force: args.has("--force"),
+            },
             ["source-control"] => {
                 let repository = value("--repository").ok_or("source-control needs --repository")?;
                 let path = value("--path").ok_or("source-control needs --path, a folder of the repository")?;
@@ -2242,8 +2262,27 @@ fn export_cmd(solution: &Solution, args: &Args) -> u8 {
                 };
                 let zip = value("--zip");
                 let apply = args.has("--apply");
-                let (plan, link) = export::source_control(&client, &repository, &path, &filters, zip.as_deref(), apply)
+                let request = ExportRequest {
+                    action: ExportAction::SourceControl {
+                        repository,
+                        path,
+                        filters,
+                        zip,
+                        mode: if apply {
+                            commands::Mode::Apply
+                        } else {
+                            commands::Mode::Plan
+                        },
+                    },
+                    profile: profile_name.to_string(),
+                };
+                let mut notices = commands::Notices::default();
+                let outcome = command::execute(solution, &request, server::Client::new, &mut notices)
                     .map_err(|e| e.to_string())?;
+                print_notices(&notices);
+                let command::ExportOutcome::SourceControl { plan, download: link, .. } = outcome else {
+                    unreachable!()
+                };
                 if apply {
                     println!("done: {plan}");
                     if let Some(link) = link {
@@ -2256,18 +2295,17 @@ fn export_cmd(solution: &Solution, args: &Args) -> u8 {
             }
             _ => return Err("export takes: entity <Coll/Name> | collection <Coll> | project <P> | source-control".to_string()),
         };
-        let out = args.out.as_ref().ok_or("an export needs --out <file>")?;
-        if out.exists() && !args.has("--force") {
-            return Err(format!(
-                "{} exists; pass --force to replace it",
-                out.display()
-            ));
-        }
-        let exported = export::export(&client, &what).map_err(|e| e.to_string())?;
-        if let Some(folder) = out.parent().filter(|p| !p.as_os_str().is_empty()) {
-            std::fs::create_dir_all(folder).map_err(|e| format!("{}: {e}", folder.display()))?;
-        }
-        workspace::write_entity(out, &exported.xml).map_err(|e| e.to_string())?;
+        let request = ExportRequest {
+            action,
+            profile: profile_name.to_string(),
+        };
+        let mut notices = commands::Notices::default();
+        let outcome = command::execute(solution, &request, server::Client::new, &mut notices)
+            .map_err(|e| e.to_string())?;
+        print_notices(&notices);
+        let command::ExportOutcome::Xml { out, exported, .. } = outcome else {
+            unreachable!()
+        };
         let counts: Vec<String> = exported
             .counts
             .iter()
@@ -2296,15 +2334,9 @@ fn export_cmd(solution: &Solution, args: &Args) -> u8 {
 
 /// `twaco import <file> | import source-control`: into the server, as plans unless applied.
 fn import_cmd(solution: &Solution, args: &Args) -> u8 {
+    use twaco::core::commands::imports::{self as command, ImportAction, ImportRequest};
     use twaco::core::imports;
     let profile_name = args.profile.as_deref().unwrap_or("default");
-    let client = match profile::load(&solution.root, profile_name) {
-        Ok(profile) => server::Client::new(profile),
-        Err(error) => {
-            eprintln!("twaco: {error}");
-            return FAILED;
-        }
-    };
     let apply = args.has("--apply");
     let (properties, tables) = (
         args.has("--overwrite-properties"),
@@ -2323,10 +2355,30 @@ fn import_cmd(solution: &Solution, args: &Args) -> u8 {
                 .values
                 .get("--path")
                 .ok_or("import source-control needs --path")?;
-            let imported = imports::import_source_control(
-                &client, repository, path, properties, tables, apply,
-            )
-            .map_err(|e| e.to_string())?;
+            let request = ImportRequest {
+                action: ImportAction::SourceControl {
+                    repository: repository.clone(),
+                    path: path.clone(),
+                },
+                mode: if apply {
+                    commands::Mode::Apply
+                } else {
+                    commands::Mode::Plan
+                },
+                overwrite_properties: properties,
+                overwrite_tables: tables,
+                profile: profile_name.to_string(),
+            };
+            let mut notices = commands::Notices::default();
+            let outcome = command::execute(solution, &request, server::Client::new, &mut notices)
+                .map_err(|e| e.to_string())?;
+            print_notices(&notices);
+            let command::ImportOutcome::SourceControl {
+                report: imported, ..
+            } = outcome
+            else {
+                unreachable!()
+            };
             let (total, before, after) = (imported.total, imported.differ, imported.still_differ);
             let shown = if args.has("--detail") { usize::MAX } else { 20 };
             println!(
@@ -2357,8 +2409,24 @@ fn import_cmd(solution: &Solution, args: &Args) -> u8 {
                 .file_name()
                 .map(|n| n.to_string_lossy().into_owned())
                 .unwrap_or_else(|| "import.xml".into());
-            let plan = imports::import_file(&client, &file_name, &bytes, properties, tables, apply)
+            let request = ImportRequest {
+                action: ImportAction::File { file_name, bytes },
+                mode: if apply {
+                    commands::Mode::Apply
+                } else {
+                    commands::Mode::Plan
+                },
+                overwrite_properties: properties,
+                overwrite_tables: tables,
+                profile: profile_name.to_string(),
+            };
+            let mut notices = commands::Notices::default();
+            let outcome = command::execute(solution, &request, server::Client::new, &mut notices)
                 .map_err(|e| e.to_string())?;
+            print_notices(&notices);
+            let command::ImportOutcome::File { plan, .. } = outcome else {
+                unreachable!()
+            };
             let shown = if args.has("--detail") { usize::MAX } else { 20 };
             for (collection, name) in plan.replaced.iter().take(shown) {
                 println!("  replaces {collection}/{name}");
@@ -2399,90 +2467,60 @@ fn import_cmd(solution: &Solution, args: &Args) -> u8 {
 /// `twaco package bundle | source-control | extension`: the repository packaged for release,
 /// offline. Never replaces an existing `--out` file without `--force`.
 fn package_cmd(solution: &Solution, args: &Args) -> u8 {
-    use twaco::core::package;
-    let result: Result<(), String> = (|| {
-        let out = args.out.as_ref().ok_or("package needs --out <file>")?;
-        if out.exists() && !args.has("--force") {
-            return Err(format!(
-                "{} exists; pass --force to replace it",
-                out.display()
-            ));
-        }
-        let project = args.project.as_deref();
-        let (bytes, summary) = match args
-            .names
-            .iter()
-            .map(String::as_str)
-            .collect::<Vec<_>>()
-            .as_slice()
-        {
-            ["bundle"] => {
-                let part = match (args.has("--backend-only"), args.has("--frontend-only")) {
-                    (true, true) => {
-                        return Err(
-                            "--backend-only and --frontend-only say different things".to_string()
-                        )
-                    }
-                    (true, false) => package::Part::Backend,
-                    (false, true) => package::Part::Frontend,
-                    (false, false) => package::Part::All,
-                };
-                let built = package::bundle(solution, project, part).map_err(|e| e.to_string())?;
-                let count: usize = built.entities.values().sum();
-                (
-                    built.bytes,
-                    format!("{count} entities from {} files", built.files),
-                )
-            }
-            ["source-control"] => {
-                let (bytes, count) =
-                    package::source_control(solution, project).map_err(|e| e.to_string())?;
-                (bytes, format!("{count} entities"))
-            }
-            ["extension"] => {
-                let meta = package::Metadata::from_solution(solution);
-                let editable = args.has("--editable");
-                let kind = if editable { "editable" } else { "non-editable" };
-                match project {
-                    Some(project) => {
-                        let (bytes, count) = package::extension(solution, project, editable, &meta)
-                            .map_err(|e| e.to_string())?;
-                        (
-                            bytes,
-                            format!("{kind} {project} {}, {count} entities", meta.version),
-                        )
-                    }
-                    None => {
-                        let (bytes, counts) =
-                            package::solution_extensions(solution, editable, &meta)
-                                .map_err(|e| e.to_string())?;
-                        let each: Vec<String> =
-                            counts.iter().map(|(p, n)| format!("{p} ({n})")).collect();
-                        (
-                            bytes,
-                            format!(
-                                "{kind} {} {}: {}",
-                                solution.solution.name,
-                                meta.version,
-                                each.join(", ")
-                            ),
-                        )
-                    }
+    use twaco::core::commands::package::{self, PackageAction, PackageRequest};
+    let Some(out) = args.out.clone() else {
+        eprintln!("twaco: package: package needs --out <file>");
+        return FAILED;
+    };
+    let action = match args.names.as_slice() {
+        [name] if name == "bundle" => {
+            match (args.has("--backend-only"), args.has("--frontend-only")) {
+                (true, true) => {
+                    eprintln!(
+                        "twaco: package: --backend-only and --frontend-only say different things"
+                    );
+                    return FAILED;
                 }
+                (true, false) => PackageAction::Bundle {
+                    part: twaco::core::package::Part::Backend,
+                },
+                (false, true) => PackageAction::Bundle {
+                    part: twaco::core::package::Part::Frontend,
+                },
+                (false, false) => PackageAction::Bundle {
+                    part: twaco::core::package::Part::All,
+                },
             }
-            _ => return Err("package takes: bundle | source-control | extension".to_string()),
-        };
-        if let Some(folder) = out.parent().filter(|p| !p.as_os_str().is_empty()) {
-            std::fs::create_dir_all(folder).map_err(|e| format!("{}: {e}", folder.display()))?;
         }
-        workspace::write_entity(out, &bytes).map_err(|e| e.to_string())?;
-        println!("{} bytes to {}: {summary}", bytes.len(), out.display());
-        Ok(())
-    })();
-    match result {
-        Ok(()) => OK,
-        Err(why) => {
-            eprintln!("twaco: package: {why}");
+        [name] if name == "source-control" => PackageAction::SourceControl,
+        [name] if name == "extension" => PackageAction::Extension {
+            editable: args.has("--editable"),
+        },
+        _ => {
+            eprintln!("twaco: package: package takes: bundle | source-control | extension");
+            return FAILED;
+        }
+    };
+    match package::execute(
+        solution,
+        &PackageRequest {
+            action,
+            project: args.project.clone(),
+            out,
+            force: args.has("--force"),
+        },
+    ) {
+        Ok(outcome) => {
+            println!(
+                "{} bytes to {}: {}",
+                outcome.bytes,
+                outcome.out.display(),
+                outcome.summary
+            );
+            OK
+        }
+        Err(error) => {
+            eprintln!("twaco: package: {error}");
             FAILED
         }
     }
@@ -2863,19 +2901,22 @@ fn catalog_type(base_type: &str, data_shape: Option<&str>) -> String {
 
 /// `twaco ext list | show | import | remove`: the server's extension packages.
 fn ext_cmd(solution: &Solution, args: &Args) -> u8 {
-    use twaco::core::extensions;
+    use twaco::core::commands::extensions::{self as command, ExtensionAction, ExtensionRequest};
     let profile_name = args.profile.as_deref().unwrap_or("default");
-    let client = match profile::load(&solution.root, profile_name) {
-        Ok(profile) => server::Client::new(profile),
-        Err(error) => {
-            eprintln!("twaco: {error}");
-            return FAILED;
-        }
-    };
     let names: Vec<&str> = args.names.iter().map(String::as_str).collect();
     let result: Result<(), String> = (|| match names.as_slice() {
         ["list"] => {
-            let packages = extensions::list(&client).map_err(|e| e.to_string())?;
+            let request = ExtensionRequest {
+                action: ExtensionAction::List,
+                profile: profile_name.to_string(),
+            };
+            let mut notices = commands::Notices::default();
+            let outcome = command::execute(solution, &request, server::Client::new, &mut notices)
+                .map_err(|e| e.to_string())?;
+            print_notices(&notices);
+            let command::ExtensionOutcome::Listed { packages, .. } = outcome else {
+                unreachable!()
+            };
             for p in &packages {
                 if args.has("--json") {
                     println!(
@@ -2890,7 +2931,19 @@ fn ext_cmd(solution: &Solution, args: &Args) -> u8 {
             Ok(())
         }
         ["show", name] => {
-            let shown = extensions::show(&client, name).map_err(|e| e.to_string())?;
+            let request = ExtensionRequest {
+                action: ExtensionAction::Show {
+                    name: name.to_string(),
+                },
+                profile: profile_name.to_string(),
+            };
+            let mut notices = commands::Notices::default();
+            let outcome = command::execute(solution, &request, server::Client::new, &mut notices)
+                .map_err(|e| e.to_string())?;
+            print_notices(&notices);
+            let command::ExtensionOutcome::Shown { shown, .. } = outcome else {
+                unreachable!()
+            };
             let p = &shown.package;
             println!(
                 "{} {} by {} (needs ThingWorx {})",
@@ -2924,8 +2977,25 @@ fn ext_cmd(solution: &Solution, args: &Args) -> u8 {
                 .file_name()
                 .map(|n| n.to_string_lossy().into_owned())
                 .unwrap_or_else(|| "package.zip".into());
-            let imported = extensions::import(&client, &file_name, &zip, args.has("--apply"))
+            let request = ExtensionRequest {
+                action: ExtensionAction::Import {
+                    file_name,
+                    zip,
+                    mode: if args.has("--apply") {
+                        commands::Mode::Apply
+                    } else {
+                        commands::Mode::Plan
+                    },
+                },
+                profile: profile_name.to_string(),
+            };
+            let mut notices = commands::Notices::default();
+            let outcome = command::execute(solution, &request, server::Client::new, &mut notices)
                 .map_err(|e| e.to_string())?;
+            print_notices(&notices);
+            let command::ExtensionOutcome::Imported { imported, .. } = outcome else {
+                unreachable!()
+            };
             if imported.applied {
                 println!("done: {}; the package list now shows it", imported.plan);
             } else {
@@ -2937,8 +3007,24 @@ fn ext_cmd(solution: &Solution, args: &Args) -> u8 {
             Ok(())
         }
         ["remove", name] => {
-            let plan = extensions::remove(&client, name, args.has("--apply"))
+            let request = ExtensionRequest {
+                action: ExtensionAction::Remove {
+                    name: name.to_string(),
+                    mode: if args.has("--apply") {
+                        commands::Mode::Apply
+                    } else {
+                        commands::Mode::Plan
+                    },
+                },
+                profile: profile_name.to_string(),
+            };
+            let mut notices = commands::Notices::default();
+            let outcome = command::execute(solution, &request, server::Client::new, &mut notices)
                 .map_err(|e| e.to_string())?;
+            print_notices(&notices);
+            let command::ExtensionOutcome::Removed { plan, .. } = outcome else {
+                unreachable!()
+            };
             if args.has("--apply") {
                 println!("done: {plan}; it is gone from the package list");
             } else {
@@ -2959,27 +3045,46 @@ fn ext_cmd(solution: &Solution, args: &Args) -> u8 {
 
 /// `twaco repo list | ls | get | status`: the server's file repositories, read-only.
 fn repo_cmd(solution: &Solution, args: &Args) -> u8 {
+    use twaco::core::commands::repo::{self as command, RepoAction, RepoRequest};
     use twaco::core::repo;
     let profile_name = args.profile.as_deref().unwrap_or("default");
-    let client = match profile::load(&solution.root, profile_name) {
-        Ok(profile) => server::Client::new(profile),
-        Err(error) => {
-            eprintln!("twaco: {error}");
-            return FAILED;
-        }
-    };
     let names: Vec<&str> = args.names.iter().map(String::as_str).collect();
     let result: Result<(), String> = (|| {
         match names.as_slice() {
         ["list"] => {
-            for name in repo::Remote::repositories(&client).map_err(|e| e.to_string())? {
+            let request = RepoRequest {
+                action: RepoAction::List,
+                profile: profile_name.to_string(),
+            };
+            let mut notices = commands::Notices::default();
+            let outcome = command::execute(solution, &request, server::Client::new, &mut notices)
+                .map_err(|e| e.to_string())?;
+            print_notices(&notices);
+            let command::RepoOutcome::Listed { repositories, .. } = outcome else {
+                unreachable!()
+            };
+            for name in repositories {
                 println!("{name}");
             }
             Ok(())
         }
         ["ls", repository, rest @ ..] if rest.len() <= 1 => {
             let folder = rest.first().copied().unwrap_or("/");
-            let listing = repo::list(&client, repository, folder, args.has("--recursive")).map_err(|e| e.to_string())?;
+            let request = RepoRequest {
+                action: RepoAction::Ls {
+                    repository: repository.to_string(),
+                    path: folder.to_string(),
+                    recursive: args.has("--recursive"),
+                },
+                profile: profile_name.to_string(),
+            };
+            let mut notices = commands::Notices::default();
+            let outcome = command::execute(solution, &request, server::Client::new, &mut notices)
+                .map_err(|e| e.to_string())?;
+            print_notices(&notices);
+            let command::RepoOutcome::Ls { listing, .. } = outcome else {
+                unreachable!()
+            };
             if args.has("--json") {
                 for folder in &listing.folders {
                     println!("{}", serde_json::json!({ "path": folder, "type": "folder" }));
@@ -2999,25 +3104,47 @@ fn repo_cmd(solution: &Solution, args: &Args) -> u8 {
             Ok(())
         }
         ["get", repository, path] => {
-            let bytes = repo::get(&client, repository, path).map_err(|e| e.to_string())?;
-            match &args.out {
+            let request = RepoRequest {
+                action: RepoAction::Get {
+                    repository: repository.to_string(),
+                    path: path.to_string(),
+                    out: args.out.clone(),
+                    force: args.has("--force"),
+                },
+                profile: profile_name.to_string(),
+            };
+            let mut notices = commands::Notices::default();
+            let outcome = command::execute(solution, &request, server::Client::new, &mut notices)
+                .map_err(|e| e.to_string())?;
+            print_notices(&notices);
+            let command::RepoOutcome::Got { bytes, out, .. } = outcome else {
+                unreachable!()
+            };
+            match out {
                 None => {
                     use std::io::Write;
                     std::io::stdout().write_all(&bytes).map_err(|e| e.to_string())
                 }
                 Some(out) => {
-                    if out.exists() && !args.has("--force") {
-                        return Err(format!("{} exists; pass --force to replace it", out.display()));
-                    }
-                    workspace::write_entity(out, &bytes).map_err(|e| e.to_string())?;
                     eprintln!("{} bytes to {}", bytes.len(), out.display());
                     Ok(())
                 }
             }
         }
         ["status", repository] => {
-            let root = repo::local_root(&solution.root, solution.repositories.root.as_deref(), repository);
-            let compared = repo::status(&client, repository, &root).map_err(|e| e.to_string())?;
+            let request = RepoRequest {
+                action: RepoAction::Status {
+                    repository: repository.to_string(),
+                },
+                profile: profile_name.to_string(),
+            };
+            let mut notices = commands::Notices::default();
+            let outcome = command::execute(solution, &request, server::Client::new, &mut notices)
+                .map_err(|e| e.to_string())?;
+            print_notices(&notices);
+            let command::RepoOutcome::Status { local: root, compared, .. } = outcome else {
+                unreachable!()
+            };
             let mut counts = std::collections::BTreeMap::new();
             for item in &compared {
                 *counts.entry(item.state.label()).or_insert(0usize) += 1;
@@ -3042,24 +3169,34 @@ fn repo_cmd(solution: &Solution, args: &Args) -> u8 {
         ["put", repository, file, path] => {
             let bytes = std::fs::read(file).map_err(|e| format!("{file}: {e}"))?;
             let path = repo::remote_path(path).map_err(|e| e.to_string())?;
-            repo_change(&client, repository, &repo::Change::Put { path, bytes, overwrite: args.has("--overwrite") }, args)
+            repo_change(solution, repository, repo::Change::Put { path, bytes, overwrite: args.has("--overwrite") }, profile_name, args)
         }
         ["mkdir", repository, path] => {
             let path = repo::remote_path(path).map_err(|e| e.to_string())?;
-            repo_change(&client, repository, &repo::Change::Mkdir { path }, args)
+            repo_change(solution, repository, repo::Change::Mkdir { path }, profile_name, args)
         }
         ["rm", repository, path] => {
             let path = repo::remote_path(path).map_err(|e| e.to_string())?;
             if path == "/" {
                 return Err("the repository root cannot be deleted".to_string());
             }
-            repo_change(&client, repository, &repo::Change::Remove { path, recursive: args.has("--recursive") }, args)
+            repo_change(solution, repository, repo::Change::Remove { path, recursive: args.has("--recursive") }, profile_name, args)
         }
         [direction @ ("push" | "pull"), repository] => {
-            let root = repo::local_root(&solution.root, solution.repositories.root.as_deref(), repository);
             let way = if *direction == "push" { repo::Direction::Push } else { repo::Direction::Pull };
             let apply = args.has("--apply");
-            let synced = repo::sync(&client, repository, &root, way, args.has("--overwrite"), apply).map_err(|e| e.to_string())?;
+            let request = RepoRequest {
+                action: RepoAction::Sync {
+                    repository: (*repository).to_string(), direction: way, overwrite: args.has("--overwrite"),
+                    mode: if apply { commands::Mode::Apply } else { commands::Mode::Plan },
+                },
+                profile: profile_name.to_string(),
+            };
+            let mut notices = commands::Notices::default();
+            let result = command::execute(solution, &request, server::Client::new, &mut notices);
+            print_notices(&notices);
+            let outcome = result.map_err(|e| e.to_string())?;
+            let command::RepoOutcome::Synced { synced, .. } = outcome else { unreachable!() };
             let verb = match (way, apply) {
                 (repo::Direction::Push, true) => "uploaded",
                 (repo::Direction::Push, false) => "would upload",
@@ -3084,7 +3221,7 @@ fn repo_cmd(solution: &Solution, args: &Args) -> u8 {
         ["mv", repository, from, to] => {
             let from = repo::remote_path(from).map_err(|e| e.to_string())?;
             let to = repo::remote_path(to).map_err(|e| e.to_string())?;
-            repo_change(&client, repository, &repo::Change::Move { from, to, overwrite: args.has("--overwrite") }, args)
+            repo_change(solution, repository, repo::Change::Move { from, to, overwrite: args.has("--overwrite") }, profile_name, args)
         }
         _ => Err("repo takes: list | ls <repo> [<path>] | get <repo> <path> | status <repo> | put <repo> <file> <path> | mkdir <repo> <path> | rm <repo> <path> | mv <repo> <from> <to>".to_string()),
     }
@@ -3100,13 +3237,32 @@ fn repo_cmd(solution: &Solution, args: &Args) -> u8 {
 
 /// One repository change: a plan unless --apply, applied and read back with it.
 fn repo_change(
-    client: &server::Client,
+    solution: &Solution,
     repository: &str,
-    change: &twaco::core::repo::Change,
+    change: twaco::core::repo::Change,
+    profile: &str,
     args: &Args,
 ) -> Result<(), String> {
-    let planned = twaco::core::repo::change(client, repository, change, args.has("--apply"))
+    use twaco::core::commands::repo::{self as command, RepoAction, RepoRequest};
+    let request = RepoRequest {
+        action: RepoAction::Change {
+            repository: repository.to_string(),
+            change,
+            mode: if args.has("--apply") {
+                commands::Mode::Apply
+            } else {
+                commands::Mode::Plan
+            },
+        },
+        profile: profile.to_string(),
+    };
+    let mut notices = commands::Notices::default();
+    let outcome = command::execute(solution, &request, server::Client::new, &mut notices)
         .map_err(|e| e.to_string())?;
+    print_notices(&notices);
+    let command::RepoOutcome::Changed { planned, .. } = outcome else {
+        unreachable!()
+    };
     if planned.nothing {
         println!("{}: nothing to do", planned.plan);
     } else if planned.applied {
@@ -3155,13 +3311,12 @@ fn print_info_table_summary(value: &serde_json::Value) {
 /// Those take the workspace lock. Everything else runs alongside them, so `entity status` can
 /// watch a deploy in progress. `config-table` writes only to the server and to a backup file of
 /// the user's choosing, and `entity get --out` writes a file the user named, so neither does.
-fn writes_workspace(route: &str, args: &Args) -> bool {
+fn writes_workspace(route: &str, _args: &Args) -> bool {
     match route {
         // Even with --apply, db run writes only a throwaway server Thing and needs no workspace lock.
         "db run" => false,
-        // A pull writes the repository's tree into the solution; everything else in repo
-        // writes only to the server, or to a file the user named.
-        "repo" => args.names.first().is_some_and(|n| n == "pull") && args.has("--apply"),
+        // `repo pull` takes its own lock before discovering the tree it will write.
+        "repo" => false,
         _ => false,
     }
 }
@@ -5361,7 +5516,7 @@ mod tests {
             ("bundle", vec![], false),
             ("deploy", vec!["--apply"], false),
             ("entity status", vec!["--record"], false),
-            ("repo pull", vec!["pull", "--apply"], true),
+            ("repo pull", vec!["pull", "--apply"], false),
         ] {
             let route_args: Vec<String> = command.split_whitespace().map(str::to_string).collect();
             let (route_name, _, flags) = route(&route_args).unwrap();
