@@ -63,7 +63,9 @@ publishes a new release.
 | Linux x64 (Debian, Ubuntu) | `twaco_<version>_amd64.deb`        | `/usr/bin/twaco`                    |
 | Linux x64 (other)     | `twaco-<version>-x86_64.AppImage`       | wherever you put the file           |
 
-- The Windows installer needs no administrator. Uninstall twaco from Settings > Apps.
+- The Windows installer needs no administrator. Uninstall twaco from Settings > Apps. The
+  uninstaller removes the `PATH` entry only when the installer added it.
+- The Linux binary, `.deb` and AppImage need glibc 2.35 or later, as in Ubuntu 22.04.
 - The macOS package is not signed, so Gatekeeper blocks a double-click. Right-click it and
   choose Open, or run `sudo installer -pkg twaco-<version>-aarch64-apple-darwin.pkg -target /`.
 - Make the AppImage executable (`chmod +x`) and put it on your `PATH`, renamed to `twaco`.

@@ -520,6 +520,16 @@ The result is cached in twaco's cache directory, so the network is asked at most
 
 `twaco update --apply` installs a release only when it is newer than the running binary.
 
+The cache also records the highest version that a signed manifest showed. An old copy of the
+manifest can still have a valid signature, so twaco uses that record:
+
+- The daily notice keeps naming the newer release.
+- `twaco update` refuses a manifest older than the recorded version. Try again later, or
+  download the release by hand.
+
+On Windows, a failed replacement puts the old binary back. When that also fails, the error
+names the copy of the old binary, `.twaco-backup-<number>.exe`. Rename it to `twaco.exe`.
+
 When the binary is in a directory you cannot write, such as `/usr/local/bin`, run
 `sudo twaco update --apply`. A `.deb` install and an AppImage are not replaced: install the next
 release's `.deb` or AppImage instead.
