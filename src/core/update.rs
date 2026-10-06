@@ -368,6 +368,8 @@ fn higher(a: Option<String>, b: Option<String>) -> Option<String> {
 /// copy, replayed or cached on the way.
 pub fn accept(cache: &Path, version: &str) -> Result<(), String> {
     let mut record = read_record(cache);
+    // A record that has no `highest` yet still has the `latest` it saw.
+    record.highest = higher(record.highest, record.latest.clone());
     if let Some(highest) = record.highest.as_deref() {
         if is_newer(highest, version) {
             return Err(format!(
@@ -793,6 +795,9 @@ mod tests {
         std::fs::write(&cache, br#"{"checked":5,"latest":"0.2.0"}"#).unwrap();
         let record = read_record(&cache);
         assert_eq!((record.checked, record.highest), (5, None));
+        // `update` still compares with the `latest` that the record saw.
+        assert!(accept(&cache, "0.1.0").is_err());
+        accept(&cache, "0.2.0").unwrap();
     }
 
     fn backup_dir(name: &str) -> PathBuf {
