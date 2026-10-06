@@ -41,9 +41,6 @@ mod tests;
 
 pub use definitions::tool_definitions;
 
-use content::{
-    export_tool, extension_write_tool, extensions_tool, import_tool, package_tool, repo_write_tool,
-};
 use info::{
     catalog_tool, docs_tool, guide_tool, help_page_tool, help_search_tool, impact_tool,
     javadoc_tool, settings_tool, unused_tool,
@@ -295,17 +292,11 @@ fn call_tool(root: &Path, name: &str, arguments: &Value) -> Option<Result<Value,
         match name {
             "help_search" => help_search_tool(root, arguments),
             "guide" => guide_tool(root, arguments),
-            "repo_write" => with_solution(root, |s| repo_write_tool(s, arguments)),
-            "extensions" => with_solution(root, |s| extensions_tool(s, arguments)),
             "settings" => with_solution(root, |s| settings_tool(s, arguments)),
             "catalog" => with_solution(root, |s| catalog_tool(s, arguments)),
             "impact" => with_solution(root, |s| impact_tool(s, arguments)),
             "unused" => with_solution(root, |s| unused_tool(s, arguments)),
             "docs" => with_solution(root, |s| docs_tool(s, arguments)),
-            "export" => with_solution(root, |s| export_tool(s, arguments)),
-            "package" => with_solution(root, |s| package_tool(s, arguments)),
-            "import" => with_solution(root, |s| import_tool(s, arguments)),
-            "extension_write" => with_solution(root, |s| extension_write_tool(s, arguments)),
             "help_page" => help_page_tool(root, arguments),
             "javadoc" => javadoc_tool(arguments),
             _ => return None,

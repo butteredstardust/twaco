@@ -276,6 +276,42 @@ static TOOLS: LazyLock<Vec<Tool>> = LazyLock::new(|| {
             false,
             data::call_service_tool,
         ),
+        solution_tool::<content_requests::RepoWriteRequest>(
+            "repo_write",
+            "Change a file repository: put (upload text, or a file of the solution), mkdir, rm (a file, or a folder; recursive: true to delete one that holds anything), mv (a file), or push/pull the tree kept in source control. A dry run unless dry_run is false. Nothing existing is replaced without overwrite: true; applied changes are read back.",
+            false,
+            content::repo_write_tool,
+        ),
+        solution_tool::<content_requests::ExtensionsRequest>(
+            "extensions",
+            "The server's extension packages: list them, or show one (its extensions, and which are in use). Read-only.",
+            true,
+            content::extensions_tool,
+        ),
+        solution_tool::<content_requests::ExtensionWriteRequest>(
+            "extension_write",
+            "Import an extension package zip of the solution, or remove an installed package. A dry run unless dry_run is false: an import is then only validated by the server, which installs nothing. A removal is refused while the package is in use.",
+            false,
+            content::extension_write_tool,
+        ),
+        solution_tool::<content_requests::ExportRequest>(
+            "export",
+            "Export from the server as Composer's Import/Export does: an entity (Collection/Name), a collection (optionally one project's part), or a whole project, as one XML file written inside the solution; or the source-control layout of a project, collection or tags into a file repository folder or zip (a dry run unless dry_run is false).",
+            false,
+            content::export_tool,
+        ),
+        solution_tool::<content_requests::PackageRequest>(
+            "package",
+            "Package the repository for release, offline, into a file inside the solution: a bundle (one importable XML; part all, backend or frontend), a source-control zip (<Project>/<Collection>/<Name>.xml), or an extension zip (one project's, or the solution's as a zip of its projects' zips; editable or not; metadata from [package] in twaco.toml).",
+            false,
+            content::package_tool,
+        ),
+        solution_tool::<content_requests::ImportRequest>(
+            "import",
+            "Import into the server as Composer's Import/Export does: an export file of the solution (XML, or a zip of them), or a source-control tree in a file repository. A dry run unless dry_run is false: a file's plan lists what it adds and what it replaces; a source-control plan is the server's own diff. The server's property values and configuration table rows are kept unless the overwrite flags say otherwise.",
+            false,
+            content::import_tool,
+        ),
     ]
 });
 
