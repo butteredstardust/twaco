@@ -183,6 +183,9 @@ Report security issues privately, as [SECURITY.md](SECURITY.md) describes.
 
 [MIT](LICENSE).
 
+The maintainer made the twaco icon in `assets/icon`. The icon has the same MIT license as
+the code.
+
 ThingWorx is a trademark of PTC Inc. twaco is an independent project. It is not affiliated
 with, sponsored or endorsed by PTC. The help center and Javadoc that `twaco help` and
 `twaco javadoc` read are fetched from PTC's public site at run time and cached on your
