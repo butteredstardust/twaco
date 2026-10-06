@@ -1,7 +1,7 @@
 # Architecture
 
 How twaco is built, for anyone changing it. It is one Rust crate: a library (`src/lib.rs`,
-`src/core/`) with two thin front ends, the command line (`src/main.rs`) and the MCP server
+`src/core/`) with two thin front ends, the command line (`src/main.rs`, `src/cli/`) and the MCP server
 (`src/mcp/`). Every behaviour lives in `core`, so the two front ends stay thin and are meant to agree
 wherever they share a feature.
 
@@ -101,8 +101,8 @@ See [Testing](TESTING.md) for commands.
 
 1. Put the behaviour in a `core` module, with its server access behind a trait so tests can
    fake it.
-2. Add the CLI route: the command table and dispatch in `main.rs`, and its lines in the usage
-   text.
+2. Add the CLI route: the command table and dispatch in `main.rs`, and its lines in
+   `cli/usage.rs`.
 3. Add the MCP tool in `mcp/definitions.rs: tool_definitions`, its route in `mcp/mod.rs: call_tool`, and its name in
    the `tools/list` test. Writes take `dry_run` defaulting to `true`; results lead with a
    summary.
