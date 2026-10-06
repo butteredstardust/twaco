@@ -86,16 +86,18 @@ pub(crate) fn refusal_code(refusal: &push::Refusal) -> &'static str {
     }
 }
 
-pub(crate) fn push_tool(solution: &Solution, arguments: &Value) -> Result<Value, ToolError> {
-    let name = required(arguments, "entity")?;
-    let dry_run = flag(arguments, "dry_run", true);
-    let force = flag(arguments, "force", false);
+pub(crate) fn push_tool(
+    solution: &Solution,
+    request: crate::mcp::requests::entity::PushRequest,
+) -> Result<Value, ToolError> {
+    let dry_run = request.dry_run;
+    let force = request.force;
     let request = commands::push::PushRequest {
-        entity: name.to_string(),
+        entity: request.entity,
         mode: if dry_run { Mode::Plan } else { Mode::Apply },
         force,
-        backup: flag(arguments, "backup", true),
-        profile: text(arguments, "profile").unwrap_or("default").to_string(),
+        backup: request.backup,
+        profile: request.profile,
     };
     let mut notices = commands::Notices::default();
     let outcome = commands::push::execute(solution, &request, server::Client::new, &mut notices)

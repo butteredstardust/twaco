@@ -1,12 +1,15 @@
 use super::*;
 
-pub(crate) fn repo_tool(solution: &Solution, arguments: &Value) -> Result<Value, ToolError> {
+pub(crate) fn repo_tool(
+    solution: &Solution,
+    arguments: crate::mcp::requests::content::RepoRequest,
+) -> Result<Value, ToolError> {
     use crate::core::commands::repo::{self as command, RepoAction, RepoRequest};
-    let action = text(arguments, "action").unwrap_or("list");
-    if action == "list" {
+    use crate::mcp::requests::content::RepoAction as RequestAction;
+    if matches!(arguments.action, RequestAction::List) {
         let request = RepoRequest {
             action: RepoAction::List,
-            profile: text(arguments, "profile").unwrap_or("default").to_string(),
+            profile: arguments.profile,
         };
         let mut notices = commands::Notices::default();
         let outcome = command::execute(solution, &request, server::Client::new, &mut notices)
@@ -18,17 +21,21 @@ pub(crate) fn repo_tool(solution: &Solution, arguments: &Value) -> Result<Value,
         add_notices(&mut result, &notices);
         return Ok(result);
     }
-    let repository = required(arguments, "repository")?;
-    match action {
-        "ls" => {
-            let folder = text(arguments, "path").unwrap_or("/");
+    let repository = arguments
+        .repository
+        .as_ref()
+        .filter(|repository| !repository.is_empty())
+        .ok_or_else(|| ToolError::invalid("`repository` is required"))?;
+    match arguments.action {
+        RequestAction::Ls => {
+            let folder = arguments.path.as_ref().map(String::as_str).unwrap_or("/");
             let request = RepoRequest {
                 action: RepoAction::Ls {
                     repository: repository.to_string(),
                     path: folder.to_string(),
-                    recursive: flag(arguments, "recursive", false),
+                    recursive: arguments.recursive,
                 },
-                profile: text(arguments, "profile").unwrap_or("default").to_string(),
+                profile: arguments.profile,
             };
             let mut notices = commands::Notices::default();
             let outcome = command::execute(solution, &request, server::Client::new, &mut notices)
@@ -36,11 +43,7 @@ pub(crate) fn repo_tool(solution: &Solution, arguments: &Value) -> Result<Value,
             let command::RepoOutcome::Ls { listing, .. } = outcome else {
                 unreachable!()
             };
-            let shown = if flag(arguments, "detail", false) {
-                usize::MAX
-            } else {
-                200
-            };
+            let shown = if arguments.detail { usize::MAX } else { 200 };
             let mut result = json!({
                 "ok": true,
                 "repository": repository,
@@ -61,8 +64,12 @@ pub(crate) fn repo_tool(solution: &Solution, arguments: &Value) -> Result<Value,
             add_notices(&mut result, &notices);
             Ok(result)
         }
-        "get" => {
-            let path = required(arguments, "path")?;
+        RequestAction::Get => {
+            let path = arguments
+                .path
+                .as_ref()
+                .filter(|path| !path.is_empty())
+                .ok_or_else(|| ToolError::invalid("`path` is required"))?;
             let request = RepoRequest {
                 action: RepoAction::Get {
                     repository: repository.to_string(),
@@ -70,7 +77,7 @@ pub(crate) fn repo_tool(solution: &Solution, arguments: &Value) -> Result<Value,
                     out: None,
                     force: false,
                 },
-                profile: text(arguments, "profile").unwrap_or("default").to_string(),
+                profile: arguments.profile,
             };
             let mut notices = commands::Notices::default();
             let outcome = command::execute(solution, &request, server::Client::new, &mut notices)
@@ -78,10 +85,7 @@ pub(crate) fn repo_tool(solution: &Solution, arguments: &Value) -> Result<Value,
             let command::RepoOutcome::Got { bytes, .. } = outcome else {
                 unreachable!()
             };
-            let max = arguments
-                .get("max_chars")
-                .and_then(Value::as_u64)
-                .unwrap_or(100_000) as usize;
+            let max = arguments.max_chars as usize;
             let digest = repo::sha256_hex(&bytes);
             match std::str::from_utf8(&bytes) {
                 Ok(text) => {
@@ -118,12 +122,12 @@ pub(crate) fn repo_tool(solution: &Solution, arguments: &Value) -> Result<Value,
                 }
             }
         }
-        "status" => {
+        RequestAction::Status => {
             let request = RepoRequest {
                 action: RepoAction::Status {
                     repository: repository.to_string(),
                 },
-                profile: text(arguments, "profile").unwrap_or("default").to_string(),
+                profile: arguments.profile,
             };
             let mut notices = commands::Notices::default();
             let outcome = command::execute(solution, &request, server::Client::new, &mut notices)
@@ -138,7 +142,7 @@ pub(crate) fn repo_tool(solution: &Solution, arguments: &Value) -> Result<Value,
             for item in &compared {
                 *counts.entry(item.state.label()).or_insert(0usize) += 1;
             }
-            let detail = flag(arguments, "detail", false);
+            let detail = arguments.detail;
             let listed: Vec<Value> = compared
                 .iter()
                 .filter(|item| detail || item.state != repo::State::Same)
@@ -155,9 +159,7 @@ pub(crate) fn repo_tool(solution: &Solution, arguments: &Value) -> Result<Value,
             add_notices(&mut result, &notices);
             Ok(result)
         }
-        other => Err(ToolError::invalid(format!(
-            "action must be list, ls, get or status, not {other:?}"
-        ))),
+        RequestAction::List => unreachable!("list returns before repository is required"),
     }
 }
 
