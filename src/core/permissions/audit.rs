@@ -274,6 +274,9 @@ pub fn audit_loaded(loaded: &Loaded) -> Result<ProjectAudit, AuditError> {
         }
     }
     unused_rules(loaded, &mut findings);
+    if let Some(helper) = helper {
+        findings.extend(super::helper::findings(loaded, helper).map_err(AuditError::Entity)?);
+    }
     findings.sort_by(|a, b| {
         (a.severity, &a.entity, a.code, &a.message)
             .cmp(&(b.severity, &b.entity, b.code, &b.message))

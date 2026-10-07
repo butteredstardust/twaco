@@ -457,7 +457,8 @@ pub(crate) fn permissions_apply_tool(
         }
     }
     let mut result = json!({
-        "ok": true,
+        "ok": outcome.plan.remaining_errors() == 0,
+        "remaining_errors": outcome.plan.remaining_errors(),
         "files": outcome.plan.changes().count(),
         "projects": projects,
         "without_policy": outcome.plan.without_policy,

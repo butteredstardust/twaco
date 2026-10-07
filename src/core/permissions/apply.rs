@@ -23,6 +23,9 @@ pub struct FileChange {
     pub entity: String,
     #[serde(serialize_with = "labels")]
     pub sets: Vec<Kind>,
+    /// In helper mode, whether the helper's tables or a DataShape's columns change too.
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub helper: bool,
     /// Grants the policy adds, and grants it takes away (a flipped deny counts in both).
     pub added: usize,
     pub removed: usize,
@@ -64,6 +67,15 @@ pub struct ApplyPlan {
 }
 
 impl ApplyPlan {
+    /// Errors the audit still finds once the plan is written.
+    pub fn remaining_errors(&self) -> usize {
+        self.projects
+            .iter()
+            .flat_map(|p| p.remaining.iter())
+            .filter(|f| f.severity == Severity::Error)
+            .count()
+    }
+
     pub fn changes(&self) -> impl Iterator<Item = &FileChange> {
         self.projects.iter().flat_map(|p| p.changes.iter())
     }
@@ -128,7 +140,7 @@ pub fn plan(solution: &Solution, project: Option<&str>) -> Result<ApplyPlan, App
         projects: Vec::new(),
         without_policy,
     };
-    for (one, audited) in loaded.iter().zip(&audited) {
+    for one in &loaded {
         let helper = one.helper().map_err(ApplyError::Audit)?;
         let mut changes = Vec::new();
         for entity in &one.entities {
@@ -139,16 +151,44 @@ pub fn plan(solution: &Solution, project: Option<&str>) -> Result<ApplyPlan, App
                 changes.push(change);
             }
         }
-        // What the write settles: drift, missing blocks, and principals `remove` names in the
-        // blocks it owns.
-        let remaining = audited
-            .findings
-            .iter()
-            .filter(|f| f.severity != Severity::Note)
-            .filter(|f| !matches!(f.code, "differs-from-policy" | "missing-block"))
-            .filter(|f| !(f.code == "removed-principal" && f.severity == Severity::Error))
-            .cloned()
-            .collect();
+        if let Some(helper) = helper {
+            let bytes_of = |entity: &ModelEntity| -> Result<Vec<u8>, super::PermissionsError> {
+                Ok(match changes.iter().find(|c| c.path == entity.file.path) {
+                    Some(change) => change.after.clone(),
+                    None => entity.bytes.to_vec(),
+                })
+            };
+            let edits =
+                super::helper::edits(one, helper, &bytes_of).map_err(|e| ApplyError::Write {
+                    entity: helper.key(),
+                    why: e.to_string(),
+                })?;
+            for edit in edits {
+                match changes.iter_mut().find(|c| c.path == edit.entity.file.path) {
+                    Some(change) => {
+                        change.after = edit.after;
+                        change.helper = true;
+                        change.details.extend(edit.details);
+                    }
+                    None => {
+                        let before = edit.entity.bytes.to_vec();
+                        changes.push(FileChange {
+                            entity: edit.entity.key(),
+                            sets: Vec::new(),
+                            helper: true,
+                            added: 0,
+                            removed: 0,
+                            details: edit.details,
+                            path: edit.entity.file.path.clone(),
+                            before,
+                            after: edit.after,
+                        });
+                    }
+                }
+            }
+        }
+        // What is left once the files are written: the audit of the planned bytes.
+        let remaining = remaining_after(one, &changes)?;
         plan.projects.push(ProjectPlan {
             project: one.policy.project.clone(),
             mode: if helper.is_some() { "helper" } else { "plain" },
@@ -215,10 +255,7 @@ fn change_of(policy: &Policy, entity: &ModelEntity) -> Result<Option<FileChange>
     if wanted.is_empty() {
         return Ok(None);
     }
-    let before = std::fs::read(&entity.file.path).map_err(|e| ApplyError::Write {
-        entity: entity.key(),
-        why: e.to_string(),
-    })?;
+    let before = entity.bytes.to_vec();
     let principal = |name: &str| principal_rank(policy, name);
     let resource = |name: &str| usize::from(name != "*");
     let order = Order {
@@ -235,6 +272,7 @@ fn change_of(policy: &Policy, entity: &ModelEntity) -> Result<Option<FileChange>
     Ok(Some(FileChange {
         entity: entity.key(),
         sets: wanted.keys().map(|key| key.kind()).collect(),
+        helper: false,
         added,
         removed,
         details,
@@ -242,4 +280,38 @@ fn change_of(policy: &Policy, entity: &ModelEntity) -> Result<Option<FileChange>
         before,
         after,
     }))
+}
+
+/// The audit's errors and warnings over the project as the plan leaves it.
+fn remaining_after(
+    loaded: &audit::Loaded,
+    changes: &[FileChange],
+) -> Result<Vec<Finding>, ApplyError> {
+    let mut all = (*loaded.all).clone();
+    let mut entities = loaded.entities.clone();
+    for change in changes {
+        let Some(at) = entities.iter().position(|e| e.file.path == change.path) else {
+            continue;
+        };
+        let model = ModelEntity::of(&entities[at].file, change.after.clone()).map_err(|e| {
+            ApplyError::Write {
+                entity: change.entity.clone(),
+                why: e.to_string(),
+            }
+        })?;
+        all.insert(model.name().to_string(), model.clone());
+        entities[at] = model;
+    }
+    let after = audit::Loaded {
+        policy: loaded.policy.clone(),
+        entities,
+        all: std::rc::Rc::new(all),
+        projects: loaded.projects.clone(),
+    };
+    let audited = audit::audit_loaded(&after).map_err(ApplyError::Audit)?;
+    Ok(audited
+        .findings
+        .into_iter()
+        .filter(|f| f.severity != Severity::Note)
+        .collect())
 }

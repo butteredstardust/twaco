@@ -475,9 +475,12 @@ twaco deploy --apply                    # an import adds grants ...
 twaco permissions push --all --apply    # ... and only a push removes them on the server
 ```
 
-A project with a Solution Framework permission helper Thing is audited in helper mode. The
-helper's template ships in `PTCDTS.Base`, so a server with only the common blocks can have one;
-a project without one is audited in plain mode. Nothing needs the Solution Framework itself.
+A project with a Solution Framework permission helper Thing is in helper mode. The helper's
+template ships in `PTCDTS.Base`, so a server with only the common blocks can have one; a project
+without one is in plain mode. Nothing needs the Solution Framework itself. In helper mode the
+audit also compares the helper's three tables and the columns of its two DataShapes with the
+policy, and `apply` writes them, so the helper's mashup shows what the entity XML grants. A
+change made in that mashup shows up in the audit; carry it into `permissions.toml`.
 
 ## Copying DataTable rows
 

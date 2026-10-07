@@ -26,7 +26,10 @@ All notable changes to twaco are recorded here. The format follows
 - `permissions apply` writes the policy into the entity XML: each Thing's run-time block, each
   ThingShape's and ThingTemplate's instance run-time block, and the role principals of each
   visibility block. Only blocks that differ change, in the export's layout; every changed file
-  is written in one transaction. MCP tool `permissions_apply`.
+  is written in one transaction. MCP tool `permissions_apply`. In helper mode it also writes the
+  permission helper's `RoleGroupsAndOrganizations`, `RunTimePermissionsTable` and
+  `VisibilityPermissionsTable` and the columns of their two DataShapes, keeping existing rows and
+  their IDs, so the helper's mashup shows what the XML grants; the audit compares them too.
 
 ### Fixed
 

@@ -281,6 +281,15 @@ The policy owns the run-time block of each Thing in the project, and the instanc
 of each ThingShape and ThingTemplate, unless `unmanaged` names the entity: a grant no rule makes
 is a difference. It owns the role principals of each entity's visibility block. Rules only allow.
 
+**Helper mode.** In helper mode the policy also owns the helper Thing's three tables and the
+columns of the two DataShapes behind them: `RoleGroupsAndOrganizations` (a `<role>Group` and a
+`<role>Org` row per role), `RunTimePermissionsTable` (a row per entity, resource and action, a
+`<role>Group` column per role) and `VisibilityPermissionsTable` (a row per entity, a `<role>Org`
+column per role). A role's `name` is therefore the helper's column name. The run-time rows the
+helper has keep their order and IDs; a row is added for each service of a Thing, ThingShape or
+ThingTemplate that has none, and for each granted resource without one. The helper's mashup then
+shows what the entity XML grants, and applying it there changes nothing.
+
 ## Server profiles
 
 A profile is a TOML file named after it, `<name>.toml`, looked for in this order:

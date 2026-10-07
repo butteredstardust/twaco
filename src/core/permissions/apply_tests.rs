@@ -245,3 +245,223 @@ fn apply_refuses_while_a_strict_service_is_unclassified() {
     );
     let _ = std::fs::remove_dir_all(root);
 }
+
+#[test]
+fn two_missing_blocks_go_in_together() {
+    let (principal, resource) = by_rank();
+    let order = Order {
+        principal: &principal,
+        resource: &resource,
+    };
+    let mut run = Grants::new();
+    run.insert(group("Go", "V"), true);
+    let mut visible = Grants::new();
+    visible.insert(
+        Grant {
+            resource: String::new(),
+            action: "Visibility".to_string(),
+            principal: "O:V".to_string(),
+            principal_type: "OrganizationalUnit".to_string(),
+        },
+        true,
+    );
+    let wanted = BTreeMap::from([
+        (KindKey::of(Kind::RunTime), run.clone()),
+        (KindKey::of(Kind::Visibility), visible.clone()),
+    ]);
+    // No permission block at all: both go before the closing tag.
+    let bare = "<Entities>\n    <Things>\n        <Thing\n         name=\"T\">\n            <ThingShape></ThingShape>\n        </Thing>\n    </Things>\n</Entities>\n";
+    let out = String::from_utf8(rewrite(bare.as_bytes(), &wanted, &order).unwrap()).unwrap();
+    let sets = from_xml(out.as_bytes()).unwrap();
+    assert_eq!(sets[&KindKey::of(Kind::RunTime)], run);
+    assert_eq!(sets[&KindKey::of(Kind::Visibility)], visible);
+    assert!(
+        out.contains("            </RunTimePermissions>\n            <VisibilityPermissions>\n"),
+        "{out}"
+    );
+    assert!(
+        out.contains("            </VisibilityPermissions>\n        </Thing>\n"),
+        "{out}"
+    );
+
+    // A replaced visibility block, with the missing run-time block after it.
+    let with_visibility = "<Entities>\n    <Things>\n        <Thing\n         name=\"T\">\n            <VisibilityPermissions>\n                <Visibility></Visibility>\n            </VisibilityPermissions>\n        </Thing>\n    </Things>\n</Entities>\n";
+    let out =
+        String::from_utf8(rewrite(with_visibility.as_bytes(), &wanted, &order).unwrap()).unwrap();
+    let sets = from_xml(out.as_bytes()).unwrap();
+    assert_eq!(sets[&KindKey::of(Kind::RunTime)], run);
+    assert_eq!(sets[&KindKey::of(Kind::Visibility)], visible);
+    assert!(
+        out.contains("            </VisibilityPermissions>\n            <RunTimePermissions>\n"),
+        "{out}"
+    );
+}
+
+#[test]
+fn a_file_changed_after_the_plan_is_refused_not_overwritten() {
+    let (solution, root) = solution(POLICY);
+    let path = root.join("ThingShapes/Acme.App.Orders_TS.xml");
+    let plan = super::apply::plan(&solution, None).unwrap();
+    let change = plan.changes().next().unwrap();
+    // Someone edits the file after it was read for the plan.
+    let edited = ORDERS.replace("<Visibility></Visibility>", "<Visibility><Principal isPermitted=\"true\" name=\"Keep\" type=\"Organization\"/></Visibility>");
+    std::fs::write(&path, &edited).unwrap();
+    let lock = crate::core::lock::acquire_for(&solution, "test").unwrap();
+    let mut operation = crate::core::transaction::Transaction::new(&solution.root, "test");
+    operation
+        .replace_file(&change.path, &change.before, change.after.clone())
+        .unwrap();
+    assert!(operation.apply(&lock).is_err());
+    assert_eq!(std::fs::read_to_string(&path).unwrap(), edited);
+    drop(lock);
+    let _ = std::fs::remove_dir_all(root);
+}
+
+#[test]
+fn what_the_write_settles_is_not_left_over_and_what_it_cannot_fails_the_run() {
+    // An Organization granted run time on a managed shape: apply removes it, so nothing remains.
+    let bad = ORDERS.replace(
+        "<InstanceRunTimePermissions></InstanceRunTimePermissions>",
+        "<InstanceRunTimePermissions><Permissions resourceName=\"GetOrders\"><ServiceInvoke><Principal isPermitted=\"true\" name=\"Acme.App.Default_OR\" type=\"Organization\"/></ServiceInvoke></Permissions></InstanceRunTimePermissions>",
+    );
+    let (solution, root) = solution(POLICY);
+    write(&root, "ThingShapes/Acme.App.Orders_TS.xml", &bad);
+    let plan = super::apply::plan(&solution, None).unwrap();
+    assert_eq!(
+        plan.remaining_errors(),
+        0,
+        "{:#?}",
+        plan.projects[0].remaining
+    );
+
+    // A group in a visibility block is not the policy's to drop: it remains, as an error.
+    let group = ORDERS.replace(
+        "<Visibility></Visibility>",
+        "<Visibility><Principal isPermitted=\"true\" name=\"Acme.App.Viewer_UG\" type=\"Group\"/></Visibility>",
+    );
+    write(&root, "ThingShapes/Acme.App.Orders_TS.xml", &group);
+    let plan = super::apply::plan(&solution, None).unwrap();
+    assert_eq!(
+        plan.remaining_errors(),
+        1,
+        "{:#?}",
+        plan.projects[0].remaining
+    );
+    let _ = std::fs::remove_dir_all(root);
+}
+
+fn empty_table(name: &str, data_shape: &str) -> String {
+    format!("                <ConfigurationTable\n                 dataShapeName=\"{data_shape}\"\n                 description=\"\"\n                 isMultiRow=\"true\"\n                 name=\"{name}\"\n                 ordinal=\"0\">\n                    <DataShape>\n                        <FieldDefinitions></FieldDefinitions>\n                    </DataShape>\n                    <Rows></Rows>\n                </ConfigurationTable>\n")
+}
+
+fn helper_solution() -> (Solution, PathBuf) {
+    let (solution, root) = solution(POLICY);
+    let tables = [
+        empty_table("RoleGroupsAndOrganizations", ""),
+        empty_table("RunTimePermissionsTable", "Acme.App.RunTimePermissions_DS"),
+        empty_table(
+            "VisibilityPermissionsTable",
+            "Acme.App.VisibilityPermissions_DS",
+        ),
+    ]
+    .concat();
+    write(
+        &root,
+        "Things/Acme.App.ComponentPermissionHelper.xml",
+        &format!("<Entities>\n    <Things>\n        <Thing\n         name=\"Acme.App.ComponentPermissionHelper\"\n         projectName=\"Acme.App\"\n         thingTemplate=\"PTCDTS.Base.ComponentPermissionHelper_TT\">\n            <VisibilityPermissions>\n                <Visibility></Visibility>\n            </VisibilityPermissions>\n            <RunTimePermissions></RunTimePermissions>\n            <ConfigurationTables>\n{tables}            </ConfigurationTables>\n        </Thing>\n    </Things>\n</Entities>\n"),
+    );
+    for shape in ["RunTimePermissions_DS", "VisibilityPermissions_DS"] {
+        write(
+            &root,
+            &format!("DataShapes/Acme.App.{shape}.xml"),
+            &format!("<Entities>\n    <DataShapes>\n        <DataShape\n         name=\"Acme.App.{shape}\"\n         projectName=\"Acme.App\">\n            <VisibilityPermissions>\n                <Visibility></Visibility>\n            </VisibilityPermissions>\n            <FieldDefinitions></FieldDefinitions>\n        </DataShape>\n    </DataShapes>\n</Entities>\n"),
+        );
+    }
+    (solution, root)
+}
+
+#[test]
+fn helper_mode_writes_the_helpers_tables_and_columns_from_the_policy() {
+    let (solution, root) = helper_solution();
+    let audit = super::audit::audit(&solution, None).unwrap();
+    assert_eq!(audit.projects[0].mode, "helper");
+    let codes: Vec<&str> = audit.projects[0].findings.iter().map(|f| f.code).collect();
+    assert!(codes.contains(&"helper-differs-from-policy"), "{codes:?}");
+
+    command::execute_apply(&solution, &request(Mode::Apply), &mut Notices::default()).unwrap();
+    let helper = std::fs::read(root.join("Things/Acme.App.ComponentPermissionHelper.xml")).unwrap();
+    let tables = super::helper::read_tables(&crate::core::normalise::entity_of(&helper).unwrap());
+    let roles: Vec<(&str, &str)> = tables["RoleGroupsAndOrganizations"]
+        .rows
+        .iter()
+        .map(|r| (r["displayName"].as_str(), r["principal"].as_str()))
+        .collect();
+    assert_eq!(
+        roles,
+        [
+            ("adminGroup", "Acme.App.Admin_UG"),
+            ("adminOrg", "Acme.App.Default_OR:Acme.App.Admin_UG"),
+            ("viewerGroup", "Acme.App.Viewer_UG"),
+            ("viewerOrg", "Acme.App.Default_OR:Acme.App.Viewer_UG"),
+        ]
+    );
+    // A row per service, with the role columns of the policy; the admin includes the viewer.
+    let run_time = &tables["RunTimePermissionsTable"];
+    let row = |service: &str| {
+        run_time
+            .rows
+            .iter()
+            .find(|r| r["resource"] == service)
+            .unwrap()
+            .clone()
+    };
+    assert_eq!(row("GetOrders")["viewerGroup"], "true");
+    assert_eq!(row("GetOrders")["adminGroup"], "true");
+    assert_eq!(row("DeleteOrder")["viewerGroup"], "false");
+    assert_eq!(row("DeleteOrder")["ID"], "1.0", "services in name order");
+    let visibility = &tables["VisibilityPermissionsTable"];
+    assert_eq!(visibility.rows.len(), 4, "every entity of the project");
+    assert!(visibility.rows.iter().all(|r| r["viewerOrg"] == "true"));
+    let shape = std::fs::read_to_string(root.join("DataShapes/Acme.App.RunTimePermissions_DS.xml"))
+        .unwrap();
+    assert!(
+        shape.contains("name=\"viewerGroup\"\n                 ordinal=\"6\"></FieldDefinition>"),
+        "{shape}"
+    );
+
+    // Written once, then nothing differs; the audit agrees.
+    let again =
+        command::execute_apply(&solution, &request(Mode::Plan), &mut Notices::default()).unwrap();
+    assert_eq!(again.plan.changes().count(), 0);
+    let audit = super::audit::audit(&solution, None).unwrap();
+    assert_eq!(audit.count(super::audit::Severity::Error), 0, "{audit:#?}");
+
+    // A new role is a new column in both tables and both DataShapes, and keeps the rows' IDs.
+    let policy = std::fs::read_to_string(root.join("permissions.toml")).unwrap()
+        + "\n[[role]]\nname = \"auditor\"\ngroup = \"Auditor_UG\"\n";
+    std::fs::write(root.join("permissions.toml"), policy).unwrap();
+    let plan =
+        command::execute_apply(&solution, &request(Mode::Apply), &mut Notices::default()).unwrap();
+    let changed: Vec<&str> = plan.plan.changes().map(|c| c.entity.as_str()).collect();
+    assert!(
+        changed.contains(&"DataShapes/Acme.App.RunTimePermissions_DS"),
+        "{changed:?}"
+    );
+    assert!(
+        changed.contains(&"Things/Acme.App.ComponentPermissionHelper"),
+        "{changed:?}"
+    );
+    let helper = std::fs::read(root.join("Things/Acme.App.ComponentPermissionHelper.xml")).unwrap();
+    let tables = super::helper::read_tables(&crate::core::normalise::entity_of(&helper).unwrap());
+    let run_time = &tables["RunTimePermissionsTable"];
+    assert!(run_time.rows.iter().all(|r| r["auditorGroup"] == "false"));
+    assert_eq!(
+        run_time
+            .rows
+            .iter()
+            .find(|r| r["resource"] == "DeleteOrder")
+            .unwrap()["ID"],
+        "1.0"
+    );
+    let _ = std::fs::remove_dir_all(root);
+}

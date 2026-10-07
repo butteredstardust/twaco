@@ -772,7 +772,11 @@ pub(crate) fn permissions_apply_cmd(solution: &Solution, args: &Args) -> u8 {
             "{}",
             serde_json::to_string_pretty(&value).expect("apply plan serialises")
         );
-        return OK;
+        return if plan.remaining_errors() > 0 {
+            DRIFT
+        } else {
+            OK
+        };
     }
     for project in &plan.projects {
         let mode = match &project.helper {
@@ -798,7 +802,14 @@ pub(crate) fn permissions_apply_cmd(solution: &Solution, args: &Args) -> u8 {
             );
         }
         for change in &project.changes {
-            let sets: Vec<&str> = change.sets.iter().map(|kind| kind.label()).collect();
+            let mut sets: Vec<&str> = change.sets.iter().map(|kind| kind.label()).collect();
+            if change.helper {
+                sets.push(if change.entity.starts_with("DataShapes/") {
+                    "helper columns"
+                } else {
+                    "helper tables"
+                });
+            }
             println!(
                 "  {}  {}  +{} -{}",
                 change.entity,
@@ -830,5 +841,9 @@ pub(crate) fn permissions_apply_cmd(solution: &Solution, args: &Args) -> u8 {
             println!("dry run: nothing was written; pass --apply to write");
         }
     }
-    OK
+    if plan.remaining_errors() > 0 {
+        DRIFT
+    } else {
+        OK
+    }
 }

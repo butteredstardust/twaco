@@ -24,12 +24,20 @@ pub struct ModelEntity {
     pub sets: Sets,
     /// The organizational units an Organization declares; empty for anything else.
     pub units: BTreeSet<String>,
+    /// The file as it was read. A plan rewrites these bytes and a transaction expects them, so a
+    /// file changed since is refused rather than overwritten.
+    pub bytes: std::rc::Rc<Vec<u8>>,
 }
 
 impl ModelEntity {
     pub fn read(file: &EntityFile) -> Result<ModelEntity, PermissionsError> {
         let bytes = std::fs::read(&file.path)
             .map_err(|e| PermissionsError(format!("{}: {e}", file.path.display())))?;
+        ModelEntity::of(file, bytes)
+    }
+
+    /// The model of an entity file holding `bytes`.
+    pub fn of(file: &EntityFile, bytes: Vec<u8>) -> Result<ModelEntity, PermissionsError> {
         let at = |e: PermissionsError| PermissionsError(format!("{}: {e}", file.path.display()));
         let sets = from_xml(&bytes).map_err(at)?;
         let entity = normalise::entity_of(&bytes)
@@ -43,8 +51,10 @@ impl ModelEntity {
             events: BTreeSet::new(),
             sets,
             units: BTreeSet::new(),
+            bytes: std::rc::Rc::new(Vec::new()),
         };
         collect(&entity, &mut model);
+        model.bytes = std::rc::Rc::new(bytes);
         Ok(model)
     }
 

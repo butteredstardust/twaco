@@ -16,6 +16,7 @@
 
 pub mod apply;
 pub mod audit;
+pub mod helper;
 mod model;
 pub mod policy;
 pub mod write;

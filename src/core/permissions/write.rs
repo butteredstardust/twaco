@@ -196,6 +196,28 @@ fn indent_before(src: &[u8], at: usize) -> String {
     }
 }
 
+/// One edit per place. Two missing blocks can go to the same place (both before the closing
+/// tag, or both after the same block), and one can follow a block that is itself replaced; splice
+/// takes neither two insertions at one offset nor an insertion touching a replacement.
+fn merge(edits: Vec<Edit>) -> Vec<Edit> {
+    let (mut replaced, inserted): (Vec<Edit>, Vec<Edit>) =
+        edits.into_iter().partition(|edit| !edit.span.is_empty());
+    let mut at_offset: Vec<Edit> = Vec::new();
+    for insertion in inserted {
+        let offset = insertion.span.start;
+        if let Some(edit) = replaced.iter_mut().find(|e| e.span.end == offset) {
+            edit.replacement.extend(insertion.replacement);
+        } else if let Some(edit) = at_offset.iter_mut().find(|e| e.span.start == offset) {
+            edit.replacement.extend(insertion.replacement);
+        } else {
+            at_offset.push(insertion);
+        }
+    }
+    replaced.extend(at_offset);
+    replaced.sort_by_key(|edit| (edit.span.start, edit.span.end));
+    replaced
+}
+
 /// Make each named set of the entity exactly `wanted`. Returns the new bytes, the same bytes
 /// when nothing differs. A missing block is added after the entity's last permission block, or
 /// before its closing tag.
@@ -283,7 +305,7 @@ pub fn rewrite(
     if edits.is_empty() {
         return Ok(src.to_vec());
     }
-    edits.sort_by_key(|edit| edit.span.start);
+    let edits = merge(edits);
     let out = splice::splice(src, &edits).map_err(|e| error(e.to_string()))?;
     // What was written must read back as wanted, and nothing but permissions may have changed.
     let back = from_xml(&out)?;
