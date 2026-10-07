@@ -280,11 +280,11 @@ pub fn validate_param_name(name: &str) -> Result<(), String> {
     Ok(())
 }
 
-fn is_name_char(c: char) -> bool {
+pub(crate) fn is_name_char(c: char) -> bool {
     c.is_ascii_alphanumeric() || matches!(c, '_' | '-')
 }
 
-fn before_is_boundary(before: &str) -> bool {
+pub(crate) fn before_is_boundary(before: &str) -> bool {
     let ordinary = match before.chars().next_back() {
         None => true,
         Some(c) => !is_name_char(c) && c != '.',

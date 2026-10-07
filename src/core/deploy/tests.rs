@@ -640,6 +640,147 @@ fn placeholders_are_substituted_only_in_the_request_and_unknown_keys_fail_up_fro
 }
 
 #[test]
+fn placeholders_inside_a_longer_string_are_substituted_and_redacted() {
+    let secret = "s3cr3t-in-a-string";
+    let a = target("A", "a();");
+    let mut project = project("SecretProject", vec![a.clone()], vec![]);
+    project.deploy = Some(call(
+        "Things/A",
+        "Deploy",
+        serde_json::json!({
+            "deploymentConfig": "{\"databasePassword\":\"${profile:database_password}\",\"port\":${profile:port}}",
+            "url": "jdbc:postgresql://${profile:host}/db?password=${profile:database_password}",
+            "port": "${profile:port}",
+            "unclosed": "${profile:database_password",
+        }),
+    ));
+    let remote = Fake {
+        import_values: BTreeMap::from([("SecretProject.xml".into(), vec![a])]),
+        ..Fake::default()
+    };
+    let active = profile(BTreeMap::from([
+        (
+            "database_password".into(),
+            toml::Value::String(secret.into()),
+        ),
+        ("host".into(), toml::Value::String("db.local".into())),
+        ("port".into(), toml::Value::Integer(5432)),
+    ]));
+    let report = run(
+        &remote,
+        &MemoryBaseline::default(),
+        &active,
+        &[project.clone()],
+        true,
+        false,
+        false,
+    )
+    .unwrap();
+    let sent = remote.calls.lock().unwrap()[0].2.clone();
+    assert_eq!(
+        sent["deploymentConfig"],
+        format!("{{\"databasePassword\":\"{secret}\",\"port\":5432}}")
+    );
+    assert_eq!(
+        sent["url"],
+        format!("jdbc:postgresql://db.local/db?password={secret}")
+    );
+    // A whole-string placeholder keeps the profile value's type.
+    assert_eq!(sent["port"], 5432);
+    assert_eq!(sent["unclosed"], "${profile:database_password");
+    let rendered = format!("{report:?}");
+    assert!(rendered.contains("${profile:database_password}"));
+    assert!(!rendered.contains(secret));
+
+    let rejected = Fake {
+        import_values: BTreeMap::from([("SecretProject.xml".into(), vec![target("A", "a();")])]),
+        fail_service: Some("Deploy".into()),
+        ..Fake::default()
+    };
+    let error = run(
+        &rejected,
+        &MemoryBaseline::default(),
+        &active,
+        &[project.clone()],
+        true,
+        false,
+        false,
+    )
+    .unwrap_err();
+    assert!(!error.to_string().contains(secret));
+
+    // An array has no one text form: refused before anything is sent, and never shown.
+    let listed = profile(BTreeMap::from([(
+        "values".into(),
+        toml::Value::Array(vec![
+            toml::Value::String("secret-a".into()),
+            toml::Value::String("secret-b".into()),
+        ]),
+    )]));
+    project.deploy.as_mut().unwrap().parameters = serde_json::json!({"x": "x=${profile:values}"});
+    let unseen = Fake::default();
+    let error = run(
+        &unseen,
+        &MemoryBaseline::default(),
+        &listed,
+        &[project.clone()],
+        true,
+        false,
+        false,
+    )
+    .unwrap_err();
+    assert!(
+        matches!(error, DeployError::PlaceholderNotText { .. }),
+        "{error}"
+    );
+    assert!(!error.to_string().contains("secret-a"));
+    assert!(unseen.imports.lock().unwrap().is_empty());
+
+    // A date embedded in a string is redacted as it was embedded.
+    let dated = profile(BTreeMap::from([(
+        "since".into(),
+        toml::Value::Datetime("2026-10-07T01:02:03Z".parse().unwrap()),
+    )]));
+    project.deploy.as_mut().unwrap().parameters =
+        serde_json::json!({"x": "since ${profile:since}"});
+    let rejected = Fake {
+        import_values: BTreeMap::from([("SecretProject.xml".into(), vec![target("A", "a();")])]),
+        fail_service: Some("Deploy".into()),
+        ..Fake::default()
+    };
+    let error = run(
+        &rejected,
+        &MemoryBaseline::default(),
+        &dated,
+        &[project.clone()],
+        true,
+        false,
+        false,
+    )
+    .unwrap_err();
+    assert!(
+        !error.to_string().contains("2026-10-07T01:02:03Z"),
+        "{error}"
+    );
+
+    project.deploy.as_mut().unwrap().parameters =
+        serde_json::json!({"url": "jdbc:x?password=${profile:missing_key}"});
+    let unseen = Fake::default();
+    let error = run(
+        &unseen,
+        &MemoryBaseline::default(),
+        &active,
+        &[project],
+        true,
+        false,
+        false,
+    )
+    .unwrap_err();
+    assert!(error.to_string().contains("missing_key"));
+    assert!(unseen.imports.lock().unwrap().is_empty());
+}
+
+#[test]
 fn re_read_advances_only_changed_server_sides_and_writes_once() {
     let changed = target("Changed", "before();");
     let same = target("Same", "same();");

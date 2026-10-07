@@ -4,7 +4,7 @@
 //! they are hash input, never an export. Length-prefixing makes element, attribute, text and
 //! CDATA boundaries unambiguous without choosing an escaping style.
 //!
-//! Normalisation version 3 has exactly these non-semantic rules:
+//! Normalisation version 5 has exactly these non-semantic rules:
 //!
 //! - apply XML 1.0 line-end and CDATA-attribute whitespace normalisation to literal XML input
 //!   before unescaping character references or applying payload-specific rules;
@@ -25,6 +25,11 @@
 //! - sort element children by `name` (canonical bytes break ties) only in `FieldDefinitions`,
 //!   `ParameterDefinitions`, `ServiceDefinitions`, `ServiceImplementations`, `ConfigurationTables`,
 //!   and `ConfigurationTableDefinitions`; some live exports reorder these named sections;
+//! - inside `DesignTimePermissions`, `RunTimePermissions` and `VisibilityPermissions`, and the
+//!   `Instance...` forms of the three on a ThingShape or ThingTemplate, treat every list as the
+//!   set it is: drop a permission kind or a `Permissions` resource that grants no principal, and
+//!   sort the rest by canonical bytes. An import reorders principals and resources and fills in
+//!   the kinds a resource left out (observed 2026-10-07; version 4, instance blocks version 5);
 //! - compact the single JSON CDATA payload in `mashupContent`; mashup JSON differed only in layout,
 //!   as did direct-child `content` in observed `StateDefinition` and `StyleTheme` entities;
 //! - remove ASCII whitespace from a single CDATA payload in a `MediaEntity`'s direct-child
@@ -41,7 +46,8 @@ use super::scan::{self, Kind, ScanError, Token};
 use sha2::{Digest, Sha256};
 use std::fmt;
 
-const HASH_VERSION: &str = "v3";
+/// The normalisation version every hash carries; a baseline from another one says nothing.
+pub(crate) const HASH_VERSION: &str = "v5";
 const LIVE_ONLY_ELEMENTS: [&[u8]; 9] = [
     b"effectiveShape",
     b"Owner",
@@ -64,6 +70,14 @@ const NAME_KEYED_CONTAINERS: [&[u8]; 6] = [
     b"ConfigurationTableDefinitions",
 ];
 const JSON_CONTENT_ENTITIES: [&[u8]; 2] = [b"StateDefinition", b"StyleTheme"];
+const PERMISSION_BLOCKS: [&[u8]; 6] = [
+    b"DesignTimePermissions",
+    b"RunTimePermissions",
+    b"VisibilityPermissions",
+    b"InstanceDesignTimePermissions",
+    b"InstanceRunTimePermissions",
+    b"InstanceVisibilityPermissions",
+];
 
 #[derive(Debug)]
 pub enum NormaliseError {
@@ -120,6 +134,23 @@ pub(crate) enum Node {
 
 /// Canonical structural bytes for one live or committed entity export.
 pub fn normalise(src: &[u8]) -> Result<Vec<u8>, NormaliseError> {
+    canonical(src, true)
+}
+
+/// Whether two exports differ only in their permission blocks: equal with every permission block
+/// (instance blocks included) left out, and not
+/// equal with them. An import never removes a grant, so such an entity needs a permissions push
+/// rather than another import.
+pub fn differ_only_in_permissions(left: &[u8], right: &[u8]) -> bool {
+    match (canonical(left, false), canonical(right, false)) {
+        (Ok(left_rest), Ok(right_rest)) => {
+            left_rest == right_rest && normalise(left).ok() != normalise(right).ok()
+        }
+        _ => false,
+    }
+}
+
+fn canonical(src: &[u8], with_permissions: bool) -> Result<Vec<u8>, NormaliseError> {
     let tokens = scan::tokenize(src)?;
     reject_non_utf8_declaration(src, &tokens)?;
     let mut entity = unwrap_entity(parse(src, &tokens)?)?;
@@ -128,7 +159,15 @@ pub fn normalise(src: &[u8]) -> Result<Vec<u8>, NormaliseError> {
     normalise_special_payloads(&mut entity);
     clean_indentation(&mut entity);
     sort_name_keyed_containers(&mut entity);
-    let mut out = b"twaco-entity-normalise-v3\0".to_vec();
+    if with_permissions {
+        normalise_permissions(&mut entity);
+    } else {
+        entity.children.retain(|child| {
+            !matches!(child, Node::Element(element)
+                if PERMISSION_BLOCKS.contains(&element.name.as_slice()))
+        });
+    }
+    let mut out = b"twaco-entity-normalise-v5\0".to_vec();
     write_element(&entity, &mut out);
     Ok(out)
 }
@@ -139,6 +178,12 @@ pub(crate) fn parse_document(src: &[u8]) -> Result<Vec<Node>, NormaliseError> {
     let tokens = scan::tokenize(src)?;
     reject_non_utf8_declaration(src, &tokens)?;
     parse(src, &tokens)
+}
+
+/// The one entity element of an export, unwrapped from Composer's envelope exactly as the hash
+/// unwraps it; a document holding several entities is refused.
+pub(crate) fn entity_of(src: &[u8]) -> Result<Element, NormaliseError> {
+    unwrap_entity(parse_document(src)?)
 }
 
 /// Versioned SHA-256 over [`normalise`]'s canonical bytes.
@@ -472,6 +517,42 @@ fn sort_name_keyed_containers(element: &mut Element) {
     }
 }
 
+fn normalise_permissions(element: &mut Element) {
+    if PERMISSION_BLOCKS.contains(&element.name.as_slice()) {
+        as_set(element);
+        return;
+    }
+    for child in &mut element.children {
+        if let Node::Element(child) = child {
+            normalise_permissions(child);
+        }
+    }
+}
+
+/// A permission block's lists as sets: a kind or resource granting nobody is the same as one left
+/// out, and order carries nothing.
+fn as_set(element: &mut Element) {
+    for child in &mut element.children {
+        if let Node::Element(child) = child {
+            as_set(child);
+        }
+    }
+    element.children.retain(|child| match child {
+        Node::Element(child) => child.name == b"Principal" || !child.children.is_empty(),
+        _ => true,
+    });
+    if element
+        .children
+        .iter()
+        .all(|child| matches!(child, Node::Element(_)))
+    {
+        element.children.sort_by_cached_key(|child| match child {
+            Node::Element(child) => canonical_element_bytes(child),
+            _ => unreachable!("only elements are sorted"),
+        });
+    }
+}
+
 fn name_attribute(element: &Element) -> &[u8] {
     element
         .attributes
@@ -791,11 +872,115 @@ mod tests {
     }
 
     #[test]
-    fn hash_and_framing_are_version_three() {
-        assert!(hash(b"<Thing/>").unwrap().starts_with("v3:"));
+    fn hash_and_framing_are_version_four() {
+        assert!(hash(b"<Thing/>").unwrap().starts_with("v5:"));
         assert!(normalise(b"<Thing/>")
             .unwrap()
-            .starts_with(b"twaco-entity-normalise-v3\0"));
+            .starts_with(b"twaco-entity-normalise-v5\0"));
+    }
+
+    /// What was sent, and what a 10.1 server read back after importing it (2026-10-07).
+    const PERMISSIONS_SENT: &[u8] = br#"<Thing name="T"><DesignTimePermissions><Create/><Read><Principal isPermitted="true" name="Users" type="Group"/><Principal isPermitted="false" name="Administrators" type="Group"/></Read><Update/><Delete/><Metadata/></DesignTimePermissions><RunTimePermissions><Permissions resourceName="*"><PropertyRead><Principal isPermitted="true" name="Users" type="Group"/><Principal isPermitted="true" name="Administrators" type="Group"/></PropertyRead><PropertyWrite/><ServiceInvoke><Principal isPermitted="true" name="Users" type="Group"/></ServiceInvoke><EventInvoke/><EventSubscribe/></Permissions><Permissions resourceName="GetPropertyValues"><ServiceInvoke><Principal isPermitted="false" name="Users" type="Group"/></ServiceInvoke></Permissions></RunTimePermissions><VisibilityPermissions><Visibility><Principal isPermitted="true" name="O:U" type="OrganizationalUnit"/><Principal isPermitted="true" name="O" type="Organization"/></Visibility></VisibilityPermissions></Thing>"#;
+    const PERMISSIONS_READ_BACK: &[u8] = br#"<Thing name="T"><DesignTimePermissions><Create/><Read><Principal isPermitted="false" name="Administrators" type="Group"/><Principal isPermitted="true" name="Users" type="Group"/></Read><Update/><Delete/><Metadata/></DesignTimePermissions><RunTimePermissions><Permissions resourceName="GetPropertyValues"><PropertyRead/><PropertyWrite/><ServiceInvoke><Principal isPermitted="false" name="Users" type="Group"/></ServiceInvoke><EventInvoke/><EventSubscribe/></Permissions><Permissions resourceName="*"><PropertyRead><Principal isPermitted="true" name="Administrators" type="Group"/><Principal isPermitted="true" name="Users" type="Group"/></PropertyRead><PropertyWrite/><ServiceInvoke><Principal isPermitted="true" name="Users" type="Group"/></ServiceInvoke><EventInvoke/><EventSubscribe/></Permissions></RunTimePermissions><VisibilityPermissions><Visibility><Principal isPermitted="true" name="O" type="Organization"/><Principal isPermitted="true" name="O:U" type="OrganizationalUnit"/></Visibility></VisibilityPermissions></Thing>"#;
+
+    #[test]
+    fn an_imported_permission_block_reads_back_equal() {
+        assert_eq!(
+            hash(PERMISSIONS_SENT).unwrap(),
+            hash(PERMISSIONS_READ_BACK).unwrap()
+        );
+    }
+
+    #[test]
+    fn an_instance_permission_block_is_a_set_too() {
+        // A ThingShape as exported (empty kinds, two principals in one order), and as an import
+        // reads it back: kinds filled in, `*` added, principals reordered.
+        let sent = br#"<ThingShape name="S"><InstanceRunTimePermissions><Permissions resourceName="GetX"><ServiceInvoke><Principal isPermitted="true" name="B" type="Group"/><Principal isPermitted="true" name="A" type="Group"/></ServiceInvoke></Permissions></InstanceRunTimePermissions></ThingShape>"#;
+        let back = br#"<ThingShape name="S"><InstanceRunTimePermissions><Permissions resourceName="*"><PropertyRead/><PropertyWrite/><ServiceInvoke/><EventInvoke/><EventSubscribe/></Permissions><Permissions resourceName="GetX"><PropertyRead/><PropertyWrite/><ServiceInvoke><Principal isPermitted="true" name="A" type="Group"/><Principal isPermitted="true" name="B" type="Group"/></ServiceInvoke><EventInvoke/><EventSubscribe/></Permissions></InstanceRunTimePermissions></ThingShape>"#;
+        assert_eq!(hash(sent).unwrap(), hash(back).unwrap());
+        let denied = std::str::from_utf8(sent).unwrap().replacen(
+            r#"isPermitted="true" name="A""#,
+            r#"isPermitted="false" name="A""#,
+            1,
+        );
+        assert_ne!(hash(denied.as_bytes()).unwrap(), hash(sent).unwrap());
+        assert!(differ_only_in_permissions(sent, denied.as_bytes()));
+    }
+
+    #[test]
+    fn a_changed_grant_still_changes_the_hash() {
+        let sent = std::str::from_utf8(PERMISSIONS_SENT).unwrap();
+        for changed in [
+            sent.replacen(
+                r#"isPermitted="false" name="Users""#,
+                r#"isPermitted="true" name="Users""#,
+                1,
+            ),
+            sent.replacen(
+                r#"resourceName="GetPropertyValues""#,
+                r#"resourceName="GetProperties""#,
+                1,
+            ),
+            sent.replacen(
+                r#"name="O" type="Organization""#,
+                r#"name="P" type="Organization""#,
+                1,
+            ),
+            sent.replacen(
+                "<Update/>",
+                r#"<Update><Principal isPermitted="true" name="Users" type="Group"/></Update>"#,
+                1,
+            ),
+        ] {
+            assert_ne!(changed, sent);
+            assert_ne!(
+                hash(changed.as_bytes()).unwrap(),
+                hash(PERMISSIONS_SENT).unwrap(),
+                "{changed}"
+            );
+        }
+        // A grant moved from one kind to another is a different permission.
+        let moved = sent.replacen(
+            r#"<PropertyWrite/><ServiceInvoke><Principal isPermitted="true" name="Users" type="Group"/></ServiceInvoke>"#,
+            r#"<PropertyWrite><Principal isPermitted="true" name="Users" type="Group"/></PropertyWrite><ServiceInvoke/>"#,
+            1,
+        );
+        assert_ne!(moved, sent);
+        assert_ne!(
+            hash(moved.as_bytes()).unwrap(),
+            hash(PERMISSIONS_SENT).unwrap()
+        );
+    }
+
+    #[test]
+    fn a_difference_only_in_permissions_is_told_apart_from_any_other() {
+        let sent = std::str::from_utf8(PERMISSIONS_SENT).unwrap();
+        let extra_grant = sent.replacen(
+            "<Update/>",
+            r#"<Update><Principal isPermitted="true" name="Users" type="Group"/></Update>"#,
+            1,
+        );
+        assert!(differ_only_in_permissions(
+            PERMISSIONS_SENT,
+            extra_grant.as_bytes()
+        ));
+        // Equal is not "differs only in permissions".
+        assert!(!differ_only_in_permissions(
+            PERMISSIONS_SENT,
+            PERMISSIONS_READ_BACK
+        ));
+        let other_change = extra_grant.replacen(r#"name="T""#, r#"name="T" description="x""#, 1);
+        assert!(!differ_only_in_permissions(
+            PERMISSIONS_SENT,
+            other_change.as_bytes()
+        ));
+    }
+
+    #[test]
+    fn order_outside_a_permission_block_still_counts() {
+        let first = br#"<Thing><PropertyBindings><A/><B/></PropertyBindings></Thing>"#;
+        let second = br#"<Thing><PropertyBindings><B/><A/></PropertyBindings></Thing>"#;
+        assert_ne!(hash(first).unwrap(), hash(second).unwrap());
     }
 
     #[test]

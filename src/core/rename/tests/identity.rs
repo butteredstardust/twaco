@@ -18,6 +18,10 @@ fn follow_up_contains_only_applicable_items_in_order() {
     assert!(items[2].starts_with("Memberships are server state"));
     assert!(items[3].starts_with("Another project"));
     assert!(items[4].contains("other file(s) were not changed"));
+    // Given --text, plan or apply, the outside files are part of the rename.
+    assert!(!follow_up(&planned, true)
+        .iter()
+        .any(|item| item.contains("pass --text")));
 
     let review = plan(&fixture.solution, &spec(Kind::Entity, "T", "U")).unwrap();
     let items = follow_up(&review, true);

@@ -149,7 +149,7 @@
         "allow_add_remove": {
           "type": "boolean",
           "default": false,
-          "description": "Permit a service or field to appear or disappear."
+          "description": "Add the services and fields only the sidecars have, and remove those only the entity has."
         },
         "relayout": {
           "type": "boolean",
@@ -381,6 +381,177 @@
       },
       "required": [],
       "additionalProperties": false
+    },
+    "annotations": {
+      "readOnlyHint": false,
+      "destructiveHint": true,
+      "openWorldHint": false
+    }
+  },
+  {
+    "name": "permissions",
+    "description": "Compare entities' run-time, design-time and visibility permissions (and the instance permissions of a ThingShape or ThingTemplate) in the repository with the server's. An import only adds: it never removes a grant the server has, and never changes the server's allow or deny for a principal it already lists. Each difference is server-only, repository-only or flipped (allow/deny differs). A permission set the entity XML does not declare is not compared. Read-only.",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "entities": {
+          "description": "Entity names, full or their last dotted segment. Name some, or pass all: true.",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "all": {
+          "description": "Every entity (of the project, if one is named).",
+          "type": "boolean",
+          "default": false
+        },
+        "project": {
+          "description": "Narrow to one project of the solution.",
+          "type": "string"
+        },
+        "profile": {
+          "description": "Server profile name.",
+          "type": "string",
+          "default": "default"
+        }
+      },
+      "type": "object"
+    },
+    "annotations": {
+      "readOnlyHint": true,
+      "destructiveHint": false,
+      "openWorldHint": false
+    }
+  },
+  {
+    "name": "permissions_init",
+    "description": "Draft a permissions.toml for each project without one, from what the project grants today, so that permissions_apply then changes nothing but what each draft's notes name: each rule names its roles outright; roles come from the permission helper's RoleGroupsAndOrganizations when the project has one, else from the groups its run-time blocks grant. from_helper takes the grants from the helper's tables instead of the entity XML (a matrix edited in the helper's mashup). An entity with a deny or a non-group principal in its run-time block, or a visibility deny of a role's unit, is left unmanaged, with a note. A dry run (the drafts' text) unless dry_run is false; existing files are never overwritten.",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "project": {
+          "description": "Narrow to one project of the solution.",
+          "type": "string"
+        },
+        "from_helper": {
+          "description": "Take the grants from the permission helper's tables, not the entity XML.",
+          "type": "boolean",
+          "default": false
+        },
+        "dry_run": {
+          "type": "boolean",
+          "default": true
+        }
+      },
+      "type": "object"
+    },
+    "annotations": {
+      "readOnlyHint": false,
+      "destructiveHint": true,
+      "openWorldHint": false
+    }
+  },
+  {
+    "name": "permissions_audit",
+    "description": "Check each project's permissions.toml (its root folder) against the entity XML. Errors: run-time or visibility blocks the policy would change (permissions apply writes them), services of a strict entity no rule classifies, a group or user in visibility (the server answers 500), an Organization in run-time permissions. Warnings: principals under a project of the solution that no entity defines, rules or patterns that match nothing. Notes: explicit denies. With server: true (and a profile), also the server against the repository: each entity's permission sets, the permission helper's tables, the policy's platform grants and memberships, and each role's organizational unit. detail lists the grants behind each finding. Read-only.",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "project": {
+          "description": "Narrow to one project of the solution.",
+          "type": "string"
+        },
+        "server": {
+          "description": "Also compare the server (read-only): entity permissions, helper tables, platform grants,\nmemberships and role units.",
+          "type": "boolean",
+          "default": false
+        },
+        "profile": {
+          "description": "Server profile name, with server.",
+          "type": "string",
+          "default": "default"
+        },
+        "detail": {
+          "description": "Every grant behind each finding.",
+          "type": "boolean",
+          "default": false
+        }
+      },
+      "type": "object"
+    },
+    "annotations": {
+      "readOnlyHint": true,
+      "destructiveHint": false,
+      "openWorldHint": false
+    }
+  },
+  {
+    "name": "permissions_apply",
+    "description": "Write each project's permissions.toml into its entity XML: the run-time block of each Thing, the instance run-time block of each ThingShape and ThingTemplate, and the role principals of each visibility block. Only blocks that differ change; the rest of each file is untouched. Refused while a strict entity has a service no rule classifies. remaining lists audit findings the write does not settle. A dry run unless dry_run is false; the files are written in one transaction. Deploy them, then permissions_push, since an import never removes a grant.",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "project": {
+          "description": "Narrow to one project of the solution.",
+          "type": "string"
+        },
+        "dry_run": {
+          "type": "boolean",
+          "default": true
+        },
+        "detail": {
+          "description": "Every grant each file gains or loses.",
+          "type": "boolean",
+          "default": false
+        }
+      },
+      "type": "object"
+    },
+    "annotations": {
+      "readOnlyHint": false,
+      "destructiveHint": true,
+      "openWorldHint": false
+    }
+  },
+  {
+    "name": "permissions_push",
+    "description": "Make the server's permission sets exactly the repository's: every differing run-time, design-time or visibility set is written whole and read back. Removes server-only grants and corrects flipped allow/deny, which an import cannot do. A set the entity XML does not declare is never written. A dry run unless dry_run is false; an applied push records the baseline of each pushed entity that then matches the server. With platform: true (and no entities), instead add the permissions.toml [[platform]] grants and memberships the server lacks (what DeployComponent does on entities the project does not own); nothing is ever removed.",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "entities": {
+          "description": "Entity names, full or their last dotted segment. Name some, or pass all: true.",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "all": {
+          "description": "Every entity (of the project, if one is named).",
+          "type": "boolean",
+          "default": false
+        },
+        "platform": {
+          "description": "Instead of entities, add the policies' [[platform]] grants and memberships the server\nlacks; nothing is removed.",
+          "type": "boolean",
+          "default": false
+        },
+        "project": {
+          "description": "Narrow to one project of the solution.",
+          "type": "string"
+        },
+        "dry_run": {
+          "type": "boolean",
+          "default": true
+        },
+        "profile": {
+          "description": "Server profile name.",
+          "type": "string",
+          "default": "default"
+        }
+      },
+      "type": "object"
     },
     "annotations": {
       "readOnlyHint": false,

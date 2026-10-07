@@ -179,6 +179,64 @@ fn text_pass_uses_file_places_lines_and_line_excerpts() {
 }
 
 #[test]
+fn text_pass_renames_entity_dot_member_and_leaves_longer_entity_names_alone() {
+    let qualified = Qualified {
+        entities: ["Acme", "Acme.App.X", "Acme.App.X.Child"]
+            .map(String::from)
+            .into(),
+        members: ["GetOrder", "Count"].map(String::from).into(),
+    };
+    let src = b"overrides = [\"Acme.App.X.GetOrder\"]\n\
+        read Acme.App.X.Count.value, see Acme.App.X.Child and Acme.App.X.Child.GetOrder\n\
+        Acme.App.X.Mystery here; Acme.App.X. ends a sentence\n";
+    let pass = scan_text_with(
+        src,
+        "Acme.App.X",
+        refs::Mode::Entity,
+        "Acme.New.X",
+        Some(&qualified),
+    )
+    .unwrap();
+    let tiers: Vec<_> = pass
+        .findings
+        .iter()
+        .map(|finding| (finding.line, finding.tier))
+        .collect();
+    assert_eq!(
+        tiers,
+        [
+            (1, refs::Tier::Embedded),
+            (2, refs::Tier::Embedded),
+            // The plain pass's hit, then this pass's, on the same line.
+            (3, refs::Tier::Embedded),
+            (3, refs::Tier::Review),
+        ]
+    );
+    assert_eq!(
+        String::from_utf8(apply(src, &pass)).unwrap(),
+        "overrides = [\"Acme.New.X.GetOrder\"]\n\
+        read Acme.New.X.Count.value, see Acme.App.X.Child and Acme.App.X.Child.GetOrder\n\
+        Acme.App.X.Mystery here; Acme.New.X. ends a sentence\n"
+    );
+    // Without what the rename knows, the qualified forms are not touched.
+    let plain = scan_text(src, "Acme.App.X", refs::Mode::Entity, "Acme.New.X").unwrap();
+    assert_eq!(plain.findings.len(), 1);
+}
+
+#[test]
+fn an_unqualified_name_before_a_member_is_only_reported() {
+    let qualified = Qualified {
+        entities: ["Node"].map(String::from).into(),
+        members: ["Start"].map(String::from).into(),
+    };
+    let src = b"Node.Start() and Node.js\n";
+    let pass = scan_text_with(src, "Node", refs::Mode::Entity, "Vertex", Some(&qualified)).unwrap();
+    assert_eq!(pass.findings.len(), 1);
+    assert_eq!(pass.findings[0].tier, refs::Tier::Review);
+    assert!(pass.edits.is_empty());
+}
+
+#[test]
 fn text_pass_refuses_non_utf8_input() {
     assert!(scan_text(&[0xff], "Acme.App.X", refs::Mode::Entity, "Acme.New.X").is_err());
 }

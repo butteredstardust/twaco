@@ -122,9 +122,15 @@ written above them, by position. Keep a project's deploy tables directly under t
 add a new `[[project]]` after them, not before: a table written under the wrong project belongs to
 that project.
 
-A string value `"${profile:key}"` anywhere in those parameters is replaced at deploy time by
+A `${profile:key}` placeholder anywhere in those parameters is replaced at deploy time by
 `key` from the server profile. A secret, such as a database password, then lives in the
 profile and never in the repository. Plans and errors show the placeholder, never the value.
+A string that is exactly one placeholder takes the profile value with its type, so
+`"${profile:port}"` can send a number. A placeholder inside a longer string, such as a
+connection URL or a JSON document passed as a STRING parameter, is replaced by the value's
+text, as it is: a value holding `"` or `\` inside a JSON string must be written escaped in the
+profile. Only a string, number, boolean or date can sit inside a longer string; an array or a
+table there, like an unknown key, stops the deploy before anything is imported.
 
 ### `[bundle]`
 
@@ -210,6 +216,81 @@ input.
 `twaco types --check --json` speaks this protocol, so
 `command = ["twaco", "types", "--check", "--json"]` adds type checking to `check`.
 
+## `permissions.toml`: who may use a project
+
+A project's permission policy lives in `permissions.toml` in the project's root folder (the
+`root` of its `[[project]]`). It is the source of truth for the project's permissions:
+`twaco permissions audit` checks the entity XML against it, offline, and `twaco permissions apply`
+writes it there. `twaco permissions init` drafts one from what a project grants today. A project
+without the file is left alone.
+
+The policy needs nothing from the Solution Framework. When the project has a permission helper
+Thing (template `PTCDTS.Base.ComponentPermissionHelper_TT`, which ships in `PTCDTS.Base` and so
+exists on a server with only the common blocks), the project is in helper mode.
+
+```toml
+project = "Acme.App"           # optional; must be the project whose folder holds the file
+mode = "auto"                  # auto (helper mode when a helper Thing exists) | helper | plain
+organization = "Default_OR"    # default; a name without a dot is in the project
+strict = ["Orders_TS"]         # every service of these entities must match a [[runtime]] rule
+unmanaged = ["Legacy*"]        # entities whose blocks the policy leaves alone
+
+[[role]]
+name = "viewer"                # the permission helper's column name
+group = "Viewer_UG"            # Acme.App.Viewer_UG
+
+[[role]]
+name = "editor"
+group = "Editor_UG"
+includes = ["viewer"]          # an editor gets every grant a viewer gets
+
+[[role]]
+name = "allUsers"
+group = "Default_UG"
+org = "organization"           # visible through Acme.App.Default_OR itself
+
+[[runtime]]
+entities = ["Orders_TS"]       # full names or the part after the project's prefix; globs
+action = "ServiceInvoke"       # the default; or PropertyRead, PropertyWrite, EventInvoke, EventSubscribe
+resources = ["Get*"]           # `*` is every named resource
+except = ["GetSecret"]
+roles = ["viewer"]
+
+[[runtime]]
+entities = ["Orders_TS"]
+resources = ["GetSecret"]
+roles = []                     # classified, granted to no one
+
+[visibility]
+roles = ["viewer", "editor", "allUsers"]   # the default: every role
+remove = ["PTC.SolutionFramework.*"]       # principals to drop from every managed block
+
+[[visibility.rule]]            # the first rule that names an entity decides
+types = ["Mashup"]
+names = ["*Admin*"]
+roles = ["editor"]
+```
+
+| Key | Meaning |
+| --- | --- |
+| `[[role]]` | `name`, `group`, optional `org` and `includes`. A role's visibility principal is the organizational unit `<organization>:<group>`; `org = "organization"` uses the organization itself, `org = "none"` gives no visibility, and any other value is a full principal (with a `:`, a unit). |
+| `[[runtime]]` | Allows `roles`, and every role that includes them, the `action` on the `resources` of the `entities`. Resources are what the entity defines, what its block lists, and the rule's literal names (a service inherited from a template is named literally). `entity_wide = true` also grants the entity-wide resource, which ThingWorx writes `*`. |
+| `[visibility]` | `roles` see every entity no rule names. Principals the roles do not own are kept, unless `remove` names them. |
+| `[[platform]]` | Grants and memberships outside the project, which an import cannot carry: `grant = { entity = "Resources/EntityServices", action = "ServiceInvoke", resource = "ReadEntityDefinitionAsJSON" }` or `member_of = "<group>"`, with `roles` (and every role that includes them) and an optional `requires = "<project>"`. `permissions audit --server` checks them; `permissions push --platform` adds what is missing and never removes. |
+
+The policy owns the run-time block of each Thing in the project, and the instance run-time block
+of each ThingShape and ThingTemplate, unless `unmanaged` names the entity: a grant no rule makes
+is a difference. It owns the role principals of each entity's visibility block. Rules only allow.
+
+**Helper mode.** In helper mode the policy also owns the helper Thing's three tables and the
+columns of the two DataShapes behind them: `RoleGroupsAndOrganizations` (a `<role>Group` and a
+`<role>Org` row per role), `RunTimePermissionsTable` (a row per entity, resource and action, a
+`<role>Group` column per role) and `VisibilityPermissionsTable` (a row per entity, a `<role>Org`
+column per role). A role's `name` is therefore the helper's column name. The run-time rows the
+helper has keep their order and IDs; a row is added for each service of a Thing, ThingShape or
+ThingTemplate that has none, and for each granted resource without one. The helper's mashup then
+shows what the entity XML grants, and applying it there changes nothing.
+
 ## Server profiles
 
 A profile is a TOML file named after it, `<name>.toml`, looked for in this order:
@@ -254,3 +335,9 @@ hold the lines below. `twaco init --write` and `twaco init --agents` add the mis
 Commit `.twaco/baseline.json`. It records each entity's state at the last deploy or push (and
 what `entity status --record` adopted), so a later deploy can tell a teammate's server-side
 change from yours.
+
+Each recorded hash carries the version of the comparison form it was made with (`v5:...`). When a
+new twaco compares differently, an entry from the old version counts as unrecorded rather than
+as a change on both sides: an entity whose two sides match reads `no-baseline-same` and is
+recorded again by its next deploy, and `twaco doctor` counts the old entries.
+`twaco entity status --all --record` records again, at once, every entity that matches the server.

@@ -31,7 +31,7 @@ pub use service::{
     has_local_service, scan_service_definition, scan_service_entity, scan_service_script,
 };
 pub use table::{scan_configuration_table, scan_table_script, TablePass};
-pub use xml::{scan_text, scan_xml};
+pub use xml::{scan_text, scan_text_with, scan_xml, Qualified};
 
 #[cfg(test)]
 mod tests;

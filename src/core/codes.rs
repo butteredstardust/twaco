@@ -420,9 +420,10 @@ impl Coded for super::deploy::DeployError {
     fn code(&self) -> ErrorCode {
         match self {
             Self::Baseline(error) => error.code(),
-            Self::Working { .. } | Self::Server { .. } | Self::UnknownPlaceholder { .. } => {
-                ErrorCode::InvalidData
-            }
+            Self::Working { .. }
+            | Self::Server { .. }
+            | Self::UnknownPlaceholder { .. }
+            | Self::PlaceholderNotText { .. } => ErrorCode::InvalidData,
             Self::ParseUnavailable { source, .. } | Self::Import { source, .. } => source.code(),
             Self::ParseFailed(_) => ErrorCode::GateFailed,
             Self::Conflicts(_) => ErrorCode::ServerConflict,
@@ -1395,6 +1396,13 @@ mod tests {
         );
         is(
             DeployError::UnknownPlaceholder {
+                project: text(),
+                key: text(),
+            },
+            ErrorCode::InvalidData,
+        );
+        is(
+            DeployError::PlaceholderNotText {
                 project: text(),
                 key: text(),
             },

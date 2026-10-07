@@ -531,10 +531,11 @@ fn a_file_changed_since_the_plan_is_refused_and_a_failed_write_is_undone() {
     let mut edited = original.clone();
     edited.extend_from_slice(b"<!-- later -->\n");
     std::fs::write(&target_path, &edited).unwrap();
-    assert!(matches!(
-        apply(&planned, &locked(&fixture)),
-        Err(RelocateError::Refused(_))
-    ));
+    // Says what came back instead: under a loaded parallel test run this has failed rarely.
+    match apply(&planned, &locked(&fixture)) {
+        Err(RelocateError::Refused(_)) => {}
+        other => panic!("expected the changed file to be refused, got {other:?}"),
+    }
     std::fs::write(&target_path, &original).unwrap();
     // A sidecar write that cannot happen (a file where the folder must go) restores the XML.
     std::fs::create_dir_all(fixture.root.join("src")).unwrap();

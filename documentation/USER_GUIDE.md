@@ -34,7 +34,12 @@ project silently.
 `sidecars` gate fails when they disagree.
 
 A service or a DataShape field appearing or disappearing is a bigger change than an edit, so
-`sync` refuses it unless given `--allow-add-remove`.
+`sync` refuses it unless given `--allow-add-remove`. With it, a new service folder holding a
+`definition.xml` and a `script.js` adds the service, its Script implementation laid out like
+the entity's others, and a deleted folder removes the service together with the entity's run-time
+permissions for it. The folder's name and the `name` in its `definition.xml` must agree. A
+sidecar naming a SQL service, or a service the entity only overrides, is refused: those are not
+added from sidecars.
 
 ## The change loop
 
@@ -168,7 +173,10 @@ it left for a person. `--apply` writes. `--text` also changes the other text fil
 localization tables); without it they are counted and left alone. `--detail` lists every finding.
 
 **What counts as a reference.** A name matches as a whole token: it is not part of a longer
-name (`Acme.App-2`, `Acme.App_TS`, and for an entity not `Acme.App.Manager.Child`). The same name
+name (`Acme.App-2`, `Acme.App_TS`, and for an entity not `Acme.App.Manager.Child`). In
+`twaco.toml` and the other text files, an entity followed by one of its members
+(`Acme.App.Manager.GetOrders`, as `[validate] inherited_overrides` writes it) is a reference and
+is renamed; followed by anything else that is not an entity, it is left for a person. The same name
 is found in an attribute, a text node, a script or a mashup's JSON, a URL
 (`/Thingworx/MediaEntities/Acme.App.Icon_MD`), a localization token (`[[Acme.App.Save]]`), and in
 the ids a mashup derives from an entity (`DynamicThingShapes_Acme.App.Management_TS`). A **short
@@ -410,6 +418,103 @@ writes only the sets that differ, reads each back, and marks the ledger entry ca
 reads back different is reported as a failure, and the rest are still attempted (exit 2).
 `--detail` also shows the platform's own difference count. Entities missing on either side are
 reported and skipped.
+
+## Permissions the import leaves behind
+
+An import only adds permissions. A grant removed from the entity XML stays on the server after the
+next deploy, and a principal the server already lists keeps its own allow or deny whatever the XML
+says, so a deny written in the repository can be silently ignored. Deploy reports such an entity as
+not kept, and says when its permissions are the only difference.
+
+```sh
+twaco permissions diff --all                 # what differs, set by set; exit 1 when anything does
+twaco permissions push Acme.App.Manager      # a plan
+twaco permissions push Acme.App.Manager --apply
+```
+
+`diff` compares each set the entity XML declares with the server's, through the platform's
+`Get...PermissionsAsJSON` services, and names every grant the server alone has, every grant the
+repository alone has, and every allow/deny that differs. Order is not a difference. `push --apply`
+writes each differing set whole through `Set...PermissionsAsJSON`, which replaces the set, reads it
+back, and records the baseline of every pushed entity that then matches the server, so the next
+deploy needs no `--force`. A set the XML has no block for is never compared or written. A
+ThingShape's `InstanceRunTimePermissions`, and a ThingTemplate's three `Instance...Permissions`
+(what its Things get), are sets of their own and are compared and pushed the same way.
+
+## A permission policy
+
+Write who may use what once, in the project's `permissions.toml`
+([Configuration](CONFIGURATION.md#permissionstoml-who-may-use-a-project)), and let twaco check
+the entity XML against it. For a project that already has permissions, start from a draft:
+
+```sh
+twaco permissions init                  # print a draft for each project without a policy
+twaco permissions init --apply          # write them; `permissions apply` then has nothing to do,
+                                        # except what the drafts' notes name
+twaco permissions init --from-helper    # the grants of the helper's tables, not the entity XML
+```
+
+A draft names each rule's roles outright and lists resources one by one; `includes` and
+patterns such as `Get*` make it shorter. Roles come from the permission helper when the project
+has one. An entity whose run-time block holds a deny or a principal that is not a group, or whose
+visibility block denies a role's unit, is left `unmanaged`, with a note. When the helper's
+tables disagree with the entity XML, a note says `apply` will rewrite them. `--from-helper` is how a matrix someone edited in the helper's mashup
+comes back into the repository.
+
+```sh
+twaco permissions audit                 # every project with a policy; exit 1 on any error
+twaco permissions audit --detail        # and every grant behind a finding
+```
+
+Without a server, the audit reports:
+
+- **errors:** run-time and visibility blocks that differ from the policy; services of a `strict`
+  entity that no rule names; a group or user in a visibility block (the server answers HTTP
+  500); an Organization in run-time permissions; a principal `[visibility] remove` names.
+- **warnings:** principals under one of the solution's projects that no entity defines, such as
+  an organizational unit an Organization does not declare; rules and patterns that match nothing.
+- **notes:** explicit denies.
+
+With `--server` (and `--profile`), the audit also reads the server, and writes nothing:
+
+- each entity's permission sets against the repository's, as `permissions diff` compares them;
+- in helper mode, the helper's three tables on the server against the repository's;
+- each `[[platform]]` grant and membership: what the Solution Framework's `DeployComponent` does
+  on entities the project does not own, which an import cannot carry. An entry whose `requires`
+  project is not on the server is skipped, with a note;
+- each role's organizational unit: it must exist and hold the role's group, or the role sees
+  nothing.
+
+```sh
+twaco permissions audit --server --profile production
+twaco permissions push --platform                # what is missing
+twaco permissions push --platform --apply        # add it, read it back; nothing is removed
+```
+
+`push --platform` adds the `[[platform]]` grants and memberships the server lacks, one at a time
+(`AddRunTimePermission`, `AddMember`), as `DeployComponent` does. Those entities are shared by
+every block on the server, so it never removes anything.
+
+`permissions apply` writes the policy into the entity XML: the run-time block of each Thing, the
+instance run-time block of each ThingShape and ThingTemplate, and the role principals of each
+visibility block. Only blocks whose grants differ are rewritten, in the export's layout and the
+file's line ending; what a block keeps stays in its order, and new principals follow in the
+order of the roles. Every changed file is written in one transaction. It is refused while a
+strict entity has a service no rule names.
+
+```sh
+twaco permissions apply                 # the plan: files, grants added and removed
+twaco permissions apply --apply
+twaco deploy --apply                    # an import adds grants ...
+twaco permissions push --all --apply    # ... and only a push removes them on the server
+```
+
+A project with a Solution Framework permission helper Thing is in helper mode. The helper's
+template ships in `PTCDTS.Base`, so a server with only the common blocks can have one; a project
+without one is in plain mode. Nothing needs the Solution Framework itself. In helper mode the
+audit also compares the helper's three tables and the columns of its two DataShapes with the
+policy, and `apply` writes them, so the helper's mashup shows what the entity XML grants. A
+change made in that mashup shows up in the audit; carry it into `permissions.toml`.
 
 ## Copying DataTable rows
 

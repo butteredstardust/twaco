@@ -40,8 +40,10 @@ which of its parts are fragile.
 ## Change a service
 
 1. **Edit the sidecar script.** For a signature change (parameters, result, DataShape), edit the
-   service definition in the entity XML too. `twaco sync --allow-add-remove` is needed when a
-   service appears or disappears.
+   service definition in the entity XML too. To add a service, create
+   `src/<Entity>/services/<Name>/` with a `definition.xml` (a sibling's, renamed) and a
+   `script.js`; `twaco sync <entity> --allow-add-remove` adds it to the entity. Deleting the
+   folder and syncing with the flag removes the service.
 2. `twaco sync <entity> --check` shows what would change; `twaco sync <entity>` writes it.
 3. **Run the gates:** `twaco check`. `twaco types --check` type-checks every service against the
    entities' declarations; `twaco check --live` also has the server parse each script.
@@ -53,6 +55,30 @@ which of its parts are fragile.
 
 The gates passing is not evidence a service works. They check structure, never behaviour; most
 real defects are declarations that drifted from the code. Call the service.
+
+## Permissions
+
+An import only adds permissions: it never removes a grant the server has, and never changes the
+allow or deny of a principal the server already lists. A deploy that reads an entity back as
+"not kept" says when only its permissions differ.
+
+- `twaco permissions audit [--server] [--detail]`: each project's `permissions.toml` (roles,
+  run-time rules, visibility) against the entity XML; exit 1 on any error. `--server` also
+  reads the server: entity permissions, the helper's tables, `[[platform]]` grants and
+  memberships (what DeployComponent does), and each role's organizational unit. A project's
+  permission helper Thing, if any, is found on its own; the Solution Framework is not needed.
+- `twaco permissions init [--from-helper] [--apply]`: drafts a project's `permissions.toml`
+  from what it grants today (the entity XML, or the helper's tables); `apply` then changes nothing
+  but what the draft's notes name.
+- `twaco permissions push --platform [--apply]`: adds the `[[platform]]` grants and memberships
+  the server lacks (what DeployComponent does); never removes anything.
+- `twaco permissions apply [--apply]`: writes the policy into the entity XML (only blocks that
+  differ). Then deploy, and `permissions push`: an import never removes a grant.
+- `twaco permissions diff <entity>|--all`: each run-time, design-time and visibility set in the
+  entity XML (and a shape's or template's instance sets) against the server's; exit 1 when any
+  differs.
+- `twaco permissions push <entity> --apply`: makes the server's sets exactly the repository's and
+  reads them back. Without `--apply` it is the plan.
 
 ## Read what the server says
 

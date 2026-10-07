@@ -33,7 +33,7 @@ GROUPS = [
     ("Work on the repository", "Offline: sidecars, gates, types, the service catalog, what a change reaches, a designer's export, renames.",
      ["extract", "sync", "fmt", "check", "types", "catalog", "impact", "unused", "docs", "adopt", "rename", "move", "copy", "retemplate", "new"]),
     ("Deploy and compare", "Against a server: what differs, what would be imported, and doing it.",
-     ["entity status", "entity get", "entity push", "entity delete", "entity carry", "entity restore", "datatable", "bundle", "deploy", "config-table", "db"]),
+     ["entity status", "entity get", "entity push", "entity delete", "entity carry", "entity restore", "permissions", "datatable", "bundle", "deploy", "config-table", "db"]),
     ("Run and observe", "Call services and read what the server says.",
      ["call", "logs", "settings"]),
     ("Server content", "File repositories, extension packages, Composer-style exports and imports.",

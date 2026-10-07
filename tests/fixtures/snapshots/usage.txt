@@ -15,7 +15,7 @@ usage: twaco <command>
   extract <entity>|--all      entity XML -> sidecars
   sync <entity>|--all         sidecars -> entity XML
       --check                 report what would change, write nothing
-      --allow-add-remove      permit a service to appear or disappear
+      --allow-add-remove      add and remove services and fields as the sidecars do
       --relayout              rewrite scripts in the configured CDATA layout
   fmt [--check]               format service scripts
   check [--detail]            every gate, one exit code
@@ -205,6 +205,40 @@ usage: twaco <command>
       --add-shapes a,b        implement these shapes too
       --remove-shapes a,b     stop implementing these shapes
       --accept-loss           go ahead although stored values or references would lose their definition
+  permissions init [--project <name>] [--from-helper] [--apply] [--json]
+                              draft a permissions.toml for each project without one, from what it
+                              grants today, so that `permissions apply` then changes nothing but
+                              what its notes name; roles from the permission helper when there is
+                              one; prints unless --apply
+      --from-helper           take the grants from the helper's tables, not the entity XML (a
+                              matrix edited in the helper's mashup)
+  permissions audit [--project <name>] [--server] [--detail] [--json]
+                              each project's permissions.toml against its entity XML, offline: blocks
+                              the policy would change, services a strict entity leaves unclassified,
+                              principals the server refuses or no entity defines, rules that match
+                              nothing; exit 1 on any error
+      --server                also the server (read-only): each entity's permissions, the helper's
+                              tables, the policy's platform grants and memberships, each role's unit
+      --detail                every grant behind a finding
+  permissions apply [--project <name>] [--apply] [--detail] [--json]
+                              write each project's permissions.toml into its entity XML: the run-time
+                              block of each Thing, the instance run-time block of each shape and
+                              template, and the role principals of each visibility block; only blocks
+                              that differ change; plan unless --apply; refused while a strict
+                              entity has an unclassified service
+      --detail                every grant each file gains or loses
+  permissions diff <entity>...|--all [--json]
+                              each entity's run-time, design-time and visibility permissions (and a
+                              shape's or template's instance permissions) against the server's:
+                              grants only the server has (an import never removes one), grants only
+                              the repository has, and allow/deny that differs (an import keeps the
+                              server's); exit 1 when any differs
+  permissions push <entity>...|--all|--platform [--apply] [--json]
+                              make the server's permission sets exactly the repository's, set by set,
+                              reading each back; plan unless --apply; records the baseline of pushed
+                              entities that then match the server
+      --platform              instead, add the policies' [[platform]] grants and memberships the
+                              server lacks (what DeployComponent does); never removes anything
   entity restore [<set> [<entity>...]]  list backup sets, or plan importing one back
       --apply                 import the set's entities, confirming each on the server
       --json                  {sets|plan|applied, ...}

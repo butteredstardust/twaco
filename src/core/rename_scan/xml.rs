@@ -122,7 +122,38 @@ pub fn scan_text(
         refs::validate_new_name(new).is_ok(),
         "scan_text requires a validated replacement name"
     );
-    std::str::from_utf8(src)?;
+    scan_text_with(src, name, mode, new, None)
+}
+
+/// What an entity rename knows about the names that continue past the entity's own:
+/// `Old.Child` that is another entity is that entity, and `Old.Member` names a member of the
+/// renamed one.
+#[derive(Debug, Default, Clone)]
+pub struct Qualified {
+    /// Every entity of the solution.
+    pub entities: std::collections::BTreeSet<String>,
+    /// The renamed entity's services, inherited ones included, and its own properties and events.
+    pub members: std::collections::BTreeSet<String>,
+}
+
+/// [`scan_text`], and with `qualified` also `Old.Member`: an entity mode hit that the name
+/// boundary refuses because more of a dotted name follows. That is another entity's name when
+/// one has it, which is left alone. Otherwise a qualified name followed by a member of the
+/// renamed entity, as in `Acme.Orders.Manager.GetOrder`, is a reference and is renamed; any other
+/// continuation is left for a person. An unqualified name is only reported, and only before one
+/// of its members, since `Node.js` is no reference to an entity named `Node`.
+pub fn scan_text_with(
+    src: &[u8],
+    name: &str,
+    mode: refs::Mode,
+    new: &str,
+    qualified: Option<&Qualified>,
+) -> Result<XmlPass, std::str::Utf8Error> {
+    debug_assert!(
+        refs::validate_new_name(new).is_ok(),
+        "scan_text requires a validated replacement name"
+    );
+    let text = std::str::from_utf8(src)?;
     let mut pass = XmlPass::new(src);
     inspect(
         src,
@@ -134,6 +165,60 @@ pub fn scan_text(
         true,
         &mut pass,
     );
+    if let (refs::Mode::Entity, Some(qualified), false) = (mode, qualified, name.is_empty()) {
+        for (start, _) in text.match_indices(name) {
+            let end = start + name.len();
+            if !refs::before_is_boundary(&text[..start]) {
+                continue;
+            }
+            let Some(tail) = text[end..].strip_prefix('.') else {
+                continue;
+            };
+            let length = tail
+                .find(|c: char| !refs::is_name_char(c) && c != '.')
+                .unwrap_or(tail.len());
+            let tail = tail[..length].trim_end_matches('.');
+            if tail.is_empty() || !tail.starts_with(refs::is_name_char) {
+                continue;
+            }
+            let full = format!("{name}.{tail}");
+            // Only an entity whose name extends the renamed one can be what the text names.
+            let another_entity = qualified.entities.iter().any(|entity| {
+                entity
+                    .strip_prefix(name)
+                    .is_some_and(|rest| rest.starts_with('.'))
+                    && (full == *entity
+                        || full
+                            .strip_prefix(entity.as_str())
+                            .is_some_and(|rest| rest.starts_with('.')))
+            });
+            if another_entity {
+                continue;
+            }
+            let member = tail.split('.').next().unwrap_or(tail);
+            let known = qualified.members.contains(member);
+            let tier = match (refs::is_qualified(name), known) {
+                (true, true) => refs::Tier::Embedded,
+                (true, false) | (false, true) => refs::Tier::Review,
+                (false, false) => continue,
+            };
+            let applied = tier == refs::Tier::Embedded;
+            pass.findings.push(Finding {
+                place: Place::File,
+                tier,
+                line: pass.line_of(start),
+                excerpt: excerpt(text, start, true),
+                applied,
+            });
+            if applied {
+                pass.edits.push(splice::Edit::new(
+                    scan::Span::new(start, end),
+                    new.as_bytes().to_vec(),
+                ));
+            }
+        }
+        pass.findings.sort_by_key(|finding| finding.line);
+    }
     Ok(pass)
 }
 

@@ -17,19 +17,39 @@ pub(super) fn resolve_call(
 fn resolve_value(value: &Value, profile: &Profile, project: &str) -> Result<Value, DeployError> {
     match value {
         Value::String(text) => {
-            let key = text
-                .strip_prefix("${profile:")
-                .and_then(|rest| rest.strip_suffix('}'));
-            if let Some(key) = key {
-                let value = profile
+            let lookup = |key: &str| {
+                profile
                     .value(key)
                     .ok_or_else(|| DeployError::UnknownPlaceholder {
                         project: project.to_string(),
                         key: key.to_string(),
-                    })?;
-                Ok(serde_json::to_value(value).expect("TOML values serialize as JSON"))
-            } else {
-                Ok(value.clone())
+                    })
+            };
+            let found = placeholders(text);
+            match found.as_slice() {
+                [] => Ok(value.clone()),
+                // The whole string is one placeholder: the value keeps its type.
+                [(range, key)] if range.start == 0 && range.end == text.len() => {
+                    Ok(serde_json::to_value(lookup(key)?).expect("TOML values serialize as JSON"))
+                }
+                _ => {
+                    let mut resolved = String::with_capacity(text.len());
+                    let mut copied = 0;
+                    for (range, key) in &found {
+                        resolved.push_str(&text[copied..range.start]);
+                        let value = lookup(key)?;
+                        let embedded = embedded_text(&value).ok_or_else(|| {
+                            DeployError::PlaceholderNotText {
+                                project: project.to_string(),
+                                key: key.to_string(),
+                            }
+                        })?;
+                        resolved.push_str(&embedded);
+                        copied = range.end;
+                    }
+                    resolved.push_str(&text[copied..]);
+                    Ok(Value::String(resolved))
+                }
             }
         }
         Value::Array(values) => values
@@ -64,11 +84,13 @@ pub(super) fn redact_placeholder_values(
         let Some(value) = profile.value(&key) else {
             return redacted;
         };
-        let json = serde_json::to_value(value).expect("TOML values serialize as JSON");
+        let json = serde_json::to_value(&value).expect("TOML values serialize as JSON");
         let mut renderings = vec![json.to_string()];
         if let Value::String(text) = &json {
             renderings.push(text.clone());
         }
+        // What a placeholder inside a longer string put there.
+        renderings.extend(embedded_text(&value));
         renderings.sort_by_key(|value| std::cmp::Reverse(value.len()));
         renderings.dedup();
         renderings.into_iter().fold(redacted, |text, rendered| {
@@ -84,12 +106,11 @@ pub(super) fn redact_placeholder_values(
 fn collect_placeholder_keys(value: &Value, keys: &mut Vec<String>) {
     match value {
         Value::String(text) => {
-            if let Some(key) = text
-                .strip_prefix("${profile:")
-                .and_then(|rest| rest.strip_suffix('}'))
-            {
-                keys.push(key.to_string());
-            }
+            keys.extend(
+                placeholders(text)
+                    .into_iter()
+                    .map(|(_, key)| key.to_string()),
+            );
         }
         Value::Array(values) => {
             for value in values {
@@ -103,4 +124,36 @@ fn collect_placeholder_keys(value: &Value, keys: &mut Vec<String>) {
         }
         _ => {}
     }
+}
+
+/// The text a value takes inside a longer string: a string as it is, a number, boolean or date
+/// as written. An array or a table has no one text form, so it cannot be embedded.
+fn embedded_text(value: &toml::Value) -> Option<String> {
+    match value {
+        toml::Value::String(text) => Some(text.clone()),
+        toml::Value::Integer(_)
+        | toml::Value::Float(_)
+        | toml::Value::Boolean(_)
+        | toml::Value::Datetime(_) => Some(value.to_string()),
+        toml::Value::Array(_) | toml::Value::Table(_) => None,
+    }
+}
+
+/// Every `${profile:key}` in `text`, anywhere in it, with its byte range. An opening
+/// `${profile:` with no closing `}` is not a placeholder and stays as it is.
+fn placeholders(text: &str) -> Vec<(std::ops::Range<usize>, &str)> {
+    const OPEN: &str = "${profile:";
+    let mut found = Vec::new();
+    let mut from = 0;
+    while let Some(offset) = text[from..].find(OPEN) {
+        let start = from + offset;
+        let key_start = start + OPEN.len();
+        let Some(length) = text[key_start..].find('}') else {
+            break;
+        };
+        let end = key_start + length + 1;
+        found.push((start..end, &text[key_start..end - 1]));
+        from = end;
+    }
+    found
 }

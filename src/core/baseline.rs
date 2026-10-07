@@ -16,6 +16,17 @@ pub struct Entry {
     pub server: String,
 }
 
+impl Entry {
+    /// Whether both sides were hashed by this normalisation version.
+    pub fn is_current(&self) -> bool {
+        let current = |hash: &str| {
+            hash.split_once(':')
+                .is_some_and(|(version, _)| version == super::normalise::HASH_VERSION)
+        };
+        current(&self.local) && current(&self.server)
+    }
+}
+
 impl<'de> Deserialize<'de> for Entry {
     fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
     where
@@ -45,8 +56,22 @@ pub struct Baseline {
 }
 
 impl Baseline {
+    /// The entry recorded for an entity, if its hashes are of the current normalisation: one
+    /// from another version cannot be compared, so it counts as no baseline at all.
     pub fn get(&self, collection: &str, name: &str) -> Option<&Entry> {
-        self.entities.get(collection)?.get(name)
+        self.entities
+            .get(collection)?
+            .get(name)
+            .filter(|entry| entry.is_current())
+    }
+
+    /// How many entries were recorded under another normalisation version.
+    pub fn outdated(&self) -> usize {
+        self.entities
+            .values()
+            .flat_map(BTreeMap::values)
+            .filter(|entry| !entry.is_current())
+            .count()
     }
 
     pub fn set(&mut self, collection: &str, name: &str, local: String, server: String) {
@@ -182,20 +207,20 @@ mod tests {
         baseline.set(
             "Things",
             "Z",
-            "v1:two-local".to_string(),
-            "v1:two-server".to_string(),
+            "v5:two-local".to_string(),
+            "v5:two-server".to_string(),
         );
         baseline.set(
             "DataShapes",
             "A",
-            "v1:one".to_string(),
-            "v1:one".to_string(),
+            "v5:one".to_string(),
+            "v5:one".to_string(),
         );
         baseline.set(
             "Things",
             "A",
-            "v1:three".to_string(),
-            "v1:three".to_string(),
+            "v5:three".to_string(),
+            "v5:three".to_string(),
         );
         baseline.write(&root).unwrap();
         let first = std::fs::read(root.join(RELATIVE_PATH)).unwrap();
@@ -208,8 +233,8 @@ mod tests {
         assert_eq!(
             Baseline::load(&root).unwrap().get("Things", "Z"),
             Some(&Entry {
-                local: "v1:two-local".into(),
-                server: "v1:two-server".into()
+                local: "v5:two-local".into(),
+                server: "v5:two-server".into()
             })
         );
         assert!(
@@ -223,12 +248,24 @@ mod tests {
     }
 
     #[test]
+    fn an_entry_from_another_hash_version_counts_as_no_baseline() {
+        let baseline: Baseline = serde_json::from_slice(
+            br#"{"entities":{"Things":{"Old":"v4:old","Half":{"local":"v5:a","server":"v4:b"},"New":"v5:new"}}}"#,
+        )
+        .unwrap();
+        assert_eq!(baseline.get("Things", "Old"), None);
+        assert_eq!(baseline.get("Things", "Half"), None);
+        assert!(baseline.get("Things", "New").is_some());
+        assert_eq!(baseline.outdated(), 2);
+    }
+
+    #[test]
     fn old_string_entries_migrate_to_two_equal_sides_when_written() {
         let root = temp();
         std::fs::create_dir_all(root.join(".twaco")).unwrap();
         std::fs::write(
             root.join(RELATIVE_PATH),
-            br#"{"entities":{"Things":{"T":"v3:old"}}}"#,
+            br#"{"entities":{"Things":{"T":"v5:old"}}}"#,
         )
         .unwrap();
 
@@ -236,14 +273,14 @@ mod tests {
         assert_eq!(
             baseline.get("Things", "T"),
             Some(&Entry {
-                local: "v3:old".into(),
-                server: "v3:old".into()
+                local: "v5:old".into(),
+                server: "v5:old".into()
             })
         );
         baseline.write(&root).unwrap();
         assert_eq!(
             std::fs::read_to_string(root.join(RELATIVE_PATH)).unwrap(),
-            "{\n  \"entities\": {\n    \"Things\": {\n      \"T\": {\n        \"local\": \"v3:old\",\n        \"server\": \"v3:old\"\n      }\n    }\n  }\n}\n"
+            "{\n  \"entities\": {\n    \"Things\": {\n      \"T\": {\n        \"local\": \"v5:old\",\n        \"server\": \"v5:old\"\n      }\n    }\n  }\n}\n"
         );
         let _ = std::fs::remove_dir_all(root);
     }
@@ -254,23 +291,23 @@ mod tests {
         std::fs::create_dir_all(root.join(".twaco")).unwrap();
         std::fs::write(
             root.join(RELATIVE_PATH),
-            br#"{"entities":{"Things":{"T":{"local":"v3:local","server":"v3:server"}}}}"#,
+            br#"{"entities":{"Things":{"T":{"local":"v5:local","server":"v5:server"}}}}"#,
         )
         .unwrap();
 
         let mut baseline = Baseline::load(&root).unwrap();
         baseline
-            .set_server("Things", "T", "v3:after-deploy".into())
+            .set_server("Things", "T", "v5:after-deploy".into())
             .unwrap();
         assert_eq!(
             baseline.get("Things", "T"),
             Some(&Entry {
-                local: "v3:local".into(),
-                server: "v3:after-deploy".into()
+                local: "v5:local".into(),
+                server: "v5:after-deploy".into()
             })
         );
         assert!(matches!(
-            baseline.set_server("Things", "Missing", "v3:x".into()),
+            baseline.set_server("Things", "Missing", "v5:x".into()),
             Err(BaselineError::Missing { .. })
         ));
         baseline.write(&root).unwrap();
@@ -284,8 +321,8 @@ mod tests {
     #[test]
     fn remove_reports_presence_and_prunes_an_empty_collection() {
         let mut baseline = Baseline::default();
-        baseline.set("Things", "A", "a".into(), "a".into());
-        baseline.set("Things", "B", "b".into(), "b".into());
+        baseline.set("Things", "A", "v5:a".into(), "v5:a".into());
+        baseline.set("Things", "B", "v5:b".into(), "v5:b".into());
         assert!(baseline.remove("Things", "A"));
         assert!(!baseline.remove("Things", "A"));
         assert!(baseline.get("Things", "B").is_some());

@@ -121,7 +121,7 @@ pub(crate) fn run_with(
     } else {
         (None, None)
     };
-    let mut follow_up = follow_up(&plan, options.apply && options.include_outside);
+    let mut follow_up = follow_up(&plan, options.include_outside);
     follow_up.extend(notes);
     if let Some(script) = &sql {
         follow_up.push(format!(
@@ -432,7 +432,7 @@ pub fn db_effects(solution: &Solution, plan: &Plan, date: &str) -> DbEffects {
 }
 
 /// Warnings for state and references that a repository rename cannot carry.
-pub fn follow_up(plan: &Plan, outside_applied: bool) -> Vec<String> {
+pub fn follow_up(plan: &Plan, outside_included: bool) -> Vec<String> {
     if plan.spec.kind == Kind::Param {
         let review = plan
             .changes
@@ -538,7 +538,7 @@ pub fn follow_up(plan: &Plan, outside_applied: bool) -> Vec<String> {
     if plan.moves.iter().any(|item| item.collection == "Projects") {
         items.push("Another project that `dependsOn` the old one blocks deleting it.".to_string());
     }
-    if !outside_applied && !plan.outside.is_empty() {
+    if !outside_included && !plan.outside.is_empty() {
         let references = plan
             .outside
             .iter()

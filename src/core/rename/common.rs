@@ -111,16 +111,18 @@ pub(super) fn read(path: &Path) -> Result<Vec<u8>, RenameError> {
     })
 }
 
+#[allow(clippy::too_many_arguments)]
 pub(super) fn scan_text_file(
     path: &Path,
     kind: FileKind,
     spec: &Spec,
     mode: refs::Mode,
+    qualified: Option<&rename_scan::Qualified>,
     changes: &mut Vec<FileChange>,
     skipped: &mut Vec<PathBuf>,
 ) -> Result<(), RenameError> {
     let bytes = read(path)?;
-    match rename_scan::scan_text(&bytes, &spec.old, mode, &spec.new) {
+    match rename_scan::scan_text_with(&bytes, &spec.old, mode, &spec.new, qualified) {
         Ok(mut pass) => {
             // A SQL file outside the sources is a migration or a query: a migration documents an old
             // name and a new one (including the one an earlier rename generated), so rewriting it

@@ -6,6 +6,70 @@ All notable changes to twaco are recorded here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- `permissions diff` compares the run-time, design-time and visibility permissions in the entity
+  XML with the server's, and `permissions push` makes the server's exactly the repository's,
+  reading each set back. An import only adds: it never removes a grant, and it keeps the server's
+  allow or deny for a principal the server already lists, so a deny in the repository could be
+  silently ignored (verified on a live server). A ThingShape's or ThingTemplate's instance
+  permissions (what its Things get) are sets of their own. MCP tools `permissions` and
+  `permissions_push`.
+- A deploy whose read-back differs only in permissions says so, and names the commands above.
+- `permissions audit` checks each project's permission policy, `permissions.toml` in the
+  project's root folder, against the entity XML without a server: roles with the groups and
+  organizational units behind them, which roles may use which resources, and who sees which
+  entity. It reports blocks that differ from the policy, unclassified services of a strict
+  entity, principals the server refuses or no entity defines, and rules that match nothing.
+  A project with a Solution Framework permission helper Thing is found to be in helper mode;
+  the Solution Framework itself is not needed. MCP tool `permissions_audit`. With `--server`
+  it also reads the server: each entity's permissions, the helper's tables, the policy's
+  `[[platform]]` grants and memberships (what DeployComponent does, which an import cannot
+  carry), and each role's organizational unit.
+- `permissions init` drafts a project's `permissions.toml` from what it grants today, from the
+  entity XML or with `--from-helper` from the permission helper's tables, so that
+  `permissions apply` then changes nothing; what a policy cannot say (a deny, a principal that is
+  not a group) is left `unmanaged` with a note. `permissions push --platform` adds the policy's
+  `[[platform]]` grants and memberships the server lacks, and never removes anything. MCP tool
+  `permissions_init`, and `platform` on `permissions_push`.
+- `permissions apply` writes the policy into the entity XML: each Thing's run-time block, each
+  ThingShape's and ThingTemplate's instance run-time block, and the role principals of each
+  visibility block. Only blocks that differ change, in the export's layout; every changed file
+  is written in one transaction. MCP tool `permissions_apply`. In helper mode it also writes the
+  permission helper's `RoleGroupsAndOrganizations`, `RunTimePermissionsTable` and
+  `VisibilityPermissionsTable` and the columns of their two DataShapes, keeping existing rows and
+  their IDs, so the helper's mashup shows what the XML grants; the audit compares them too.
+
+### Fixed
+
+- `deploy` replaces a `${profile:key}` placeholder anywhere inside a string parameter, such as a
+  connection URL or a JSON configuration passed as a string. Before, only a string that was
+  exactly one placeholder was replaced, and a longer string reached the server with the
+  placeholder text in it, while the redacted plan looked right. An array or a table cannot be
+  embedded in a string and is refused.
+- `sync --allow-add-remove` adds a service from a new sidecar folder and removes one whose
+  folder is gone, with the entity's run-time permissions for it. Before, the flag only silenced
+  the refusal: a new service was reported "already in sync" and never written, although
+  DataShape fields were added and removed. A folder whose `definition.xml` names another service
+  is refused.
+- `rename entity` finds the entity followed by one of its members, such as
+  `Acme.App.Manager.GetOrders` in `[validate] inherited_overrides`, in `twaco.toml` and the other
+  text files, and renames it. Followed by anything else that is not another entity, it is left for
+  review. Before, such a name was neither changed nor counted, and the plan said "0 review".
+- A rename planned with `--text` no longer says the other files "were not changed; pass --text".
+- An entity with permissions no longer reads back as "not kept" after a deploy. ThingWorx
+  reorders principals and resources on import and fills in the permission kinds a resource left
+  out; the comparison now treats each permission list as a set. Without a matching read-back no
+  baseline was recorded, so every later deploy of the entity needed `--force`.
+
+### Changed
+
+- Entity hashes are version 5 (`v5:`). The instance permission blocks of a ThingShape or
+  ThingTemplate are compared as sets too, as the entity's own blocks are. A baseline entry recorded by an earlier twaco counts as
+  unrecorded, not as changed: an entity that matches the server reads `no-baseline-same` and its
+  next deploy records it again. `twaco doctor` counts such entries, and
+  `twaco entity status --all --record` records them again at once.
+
 ## [0.1.1] - 2026-10-06
 
 ### Added

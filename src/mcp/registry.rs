@@ -212,6 +212,36 @@ static TOOLS: LazyLock<Vec<Tool>> = LazyLock::new(|| {
             false,
             entity::entity_carry_tool,
         ),
+        solution_tool::<entity_requests::PermissionsRequest>(
+            "permissions",
+            "Compare entities' run-time, design-time and visibility permissions (and the instance permissions of a ThingShape or ThingTemplate) in the repository with the server's. An import only adds: it never removes a grant the server has, and never changes the server's allow or deny for a principal it already lists. Each difference is server-only, repository-only or flipped (allow/deny differs). A permission set the entity XML does not declare is not compared. Read-only.",
+            true,
+            entity::permissions_tool,
+        ),
+        solution_tool::<entity_requests::PermissionsInitRequest>(
+            "permissions_init",
+            "Draft a permissions.toml for each project without one, from what the project grants today, so that permissions_apply then changes nothing but what each draft's notes name: each rule names its roles outright; roles come from the permission helper's RoleGroupsAndOrganizations when the project has one, else from the groups its run-time blocks grant. from_helper takes the grants from the helper's tables instead of the entity XML (a matrix edited in the helper's mashup). An entity with a deny or a non-group principal in its run-time block, or a visibility deny of a role's unit, is left unmanaged, with a note. A dry run (the drafts' text) unless dry_run is false; existing files are never overwritten.",
+            false,
+            entity::permissions_init_tool,
+        ),
+        solution_tool::<entity_requests::PermissionsAuditRequest>(
+            "permissions_audit",
+            "Check each project's permissions.toml (its root folder) against the entity XML. Errors: run-time or visibility blocks the policy would change (permissions apply writes them), services of a strict entity no rule classifies, a group or user in visibility (the server answers 500), an Organization in run-time permissions. Warnings: principals under a project of the solution that no entity defines, rules or patterns that match nothing. Notes: explicit denies. With server: true (and a profile), also the server against the repository: each entity's permission sets, the permission helper's tables, the policy's platform grants and memberships, and each role's organizational unit. detail lists the grants behind each finding. Read-only.",
+            true,
+            entity::permissions_audit_tool,
+        ),
+        solution_tool::<entity_requests::PermissionsApplyRequest>(
+            "permissions_apply",
+            "Write each project's permissions.toml into its entity XML: the run-time block of each Thing, the instance run-time block of each ThingShape and ThingTemplate, and the role principals of each visibility block. Only blocks that differ change; the rest of each file is untouched. Refused while a strict entity has a service no rule classifies. remaining lists audit findings the write does not settle. A dry run unless dry_run is false; the files are written in one transaction. Deploy them, then permissions_push, since an import never removes a grant.",
+            false,
+            entity::permissions_apply_tool,
+        ),
+        solution_tool::<entity_requests::PermissionsPushRequest>(
+            "permissions_push",
+            "Make the server's permission sets exactly the repository's: every differing run-time, design-time or visibility set is written whole and read back. Removes server-only grants and corrects flipped allow/deny, which an import cannot do. A set the entity XML does not declare is never written. A dry run unless dry_run is false; an applied push records the baseline of each pushed entity that then matches the server. With platform: true (and no entities), instead add the permissions.toml [[platform]] grants and memberships the server lacks (what DeployComponent does on entities the project does not own); nothing is ever removed.",
+            false,
+            entity::permissions_push_tool,
+        ),
         solution_tool::<data_requests::DbRunRequest>(
             "db_run",
             "Run one SQL script as an atomic SQLCommand through a throwaway Database Thing. Plans by default and shows the SQL and sanitized connection target; pass dry_run: false to execute.",

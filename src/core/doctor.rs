@@ -147,11 +147,25 @@ pub fn diagnose(root: &Path, profile_name: &str) -> Vec<Item> {
                 .iter()
                 .filter(|e| baseline.get(&e.info.collection, &e.info.name).is_some())
                 .count();
-            item(
-                Health::Ok,
-                "baseline",
-                format!("{recorded} of {} entities recorded", found.entities.len()),
-            )
+            let outdated = baseline.outdated();
+            if outdated == 0 {
+                item(
+                    Health::Ok,
+                    "baseline",
+                    format!("{recorded} of {} entities recorded", found.entities.len()),
+                )
+            } else {
+                item(
+                    Health::Warn,
+                    "baseline",
+                    format!(
+                        "{recorded} of {} entities recorded; {outdated} older entries count as \
+                         unrecorded (an earlier twaco hashed them): `twaco entity status --all \
+                         --record` records again those that match the server",
+                        found.entities.len()
+                    ),
+                )
+            }
         }
         Err(error) => item(Health::Fail, "baseline", error.to_string()),
     });

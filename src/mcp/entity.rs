@@ -1,6 +1,8 @@
 use super::requests::common::Absent;
 use super::requests::entity::{
-    EntityCarryRequest, EntityDeleteRequest, EntityRestoreRequest, PushRequest, StatusRequest,
+    EntityCarryRequest, EntityDeleteRequest, EntityRestoreRequest, PermissionsApplyRequest,
+    PermissionsAuditRequest, PermissionsInitRequest, PermissionsPushRequest, PermissionsRequest,
+    PushRequest, StatusRequest,
 };
 use super::*;
 
@@ -310,6 +312,233 @@ pub(crate) fn entity_carry_tool(
     if report.ledger_changed {
         result["ledger_marked"] = json!(date.expect("an applied carry has a date"));
     }
+    add_notices(&mut result, &notices);
+    Ok(result)
+}
+
+fn permissions_target(
+    entities: &Absent<Vec<String>>,
+    all: bool,
+) -> Result<commands::status::StatusTarget, ToolError> {
+    match (entities.items(), all) {
+        ([], true) => Ok(commands::status::StatusTarget::All),
+        ([], false) => Err(ToolError::invalid("name entities, or pass all: true")),
+        (_, true) => Err(ToolError::invalid(
+            "name entities or pass all: true, not both",
+        )),
+        (names, false) => Ok(commands::status::StatusTarget::Names(names.to_vec())),
+    }
+}
+
+fn permissions_result(
+    solution: &Solution,
+    request: commands::permissions::PermissionsRequest,
+    diff: bool,
+) -> Result<Value, ToolError> {
+    let mut notices = commands::Notices::default();
+    let outcome =
+        commands::permissions::execute(solution, &request, server::Client::new, &mut notices)
+            .map_err(ToolError::coded)?;
+    let report = &outcome.report;
+    use crate::core::permissions::Status;
+    // As the command line: drift in a diff and a target missing from the server in an applied
+    // push are not success.
+    let push = matches!(request.mode, Mode::Apply);
+    let mut result = json!({
+        "ok": report.count(Status::Failed) == 0
+            && !(push && report.count(Status::NotOnServer) > 0)
+            && !(diff && report.count(Status::Differs) > 0),
+        "applied": report.applied,
+        "differs": report.count(crate::core::permissions::Status::Differs),
+        "entities": report.entities,
+    });
+    if let Some(recorded) = outcome.recorded {
+        result["recorded"] = json!(recorded);
+    }
+    add_notices(&mut result, &notices);
+    Ok(result)
+}
+
+pub(crate) fn permissions_tool(
+    solution: &Solution,
+    request: PermissionsRequest,
+) -> Result<Value, ToolError> {
+    let target = permissions_target(&request.entities, request.all)?;
+    permissions_result(
+        solution,
+        commands::permissions::PermissionsRequest {
+            target,
+            project: request.project.as_ref().cloned(),
+            mode: Mode::Plan,
+            profile: request.profile,
+            lock_label: "mcp permissions",
+        },
+        true,
+    )
+}
+
+pub(crate) fn permissions_push_tool(
+    solution: &Solution,
+    request: PermissionsPushRequest,
+) -> Result<Value, ToolError> {
+    if request.platform {
+        if request.all || !request.entities.items().is_empty() {
+            return Err(ToolError::invalid(
+                "platform pushes the policy's platform entries; push entities separately",
+            ));
+        }
+        use crate::core::permissions::platform::State;
+        let report = commands::permissions::execute_platform(
+            solution,
+            &commands::permissions::PlatformRequest {
+                project: request.project.as_ref().cloned(),
+                mode: if request.dry_run {
+                    Mode::Plan
+                } else {
+                    Mode::Apply
+                },
+                profile: request.profile,
+            },
+            server::Client::new,
+        )
+        .map_err(ToolError::coded)?;
+        return Ok(json!({
+            "ok": report.count(State::Failed) == 0,
+            "applied": report.applied,
+            "missing": report.count(State::Missing),
+            "items": report.items,
+        }));
+    }
+    let target = permissions_target(&request.entities, request.all)?;
+    permissions_result(
+        solution,
+        commands::permissions::PermissionsRequest {
+            target,
+            project: request.project.as_ref().cloned(),
+            mode: if request.dry_run {
+                Mode::Plan
+            } else {
+                Mode::Apply
+            },
+            profile: request.profile,
+            lock_label: "mcp permissions_push",
+        },
+        false,
+    )
+}
+
+pub(crate) fn permissions_audit_tool(
+    solution: &Solution,
+    request: PermissionsAuditRequest,
+) -> Result<Value, ToolError> {
+    use crate::core::permissions::audit::Severity;
+    let report = commands::permissions::execute_audit(
+        solution,
+        &commands::permissions::AuditRequest {
+            project: request.project.as_ref().cloned(),
+            server: request.server.then(|| request.profile.clone()),
+        },
+        server::Client::new,
+    )
+    .map_err(ToolError::coded)?;
+    let mut projects = serde_json::to_value(&report.projects).expect("audit report serialises");
+    if !request.detail {
+        for project in projects.as_array_mut().into_iter().flatten() {
+            for finding in project["findings"].as_array_mut().into_iter().flatten() {
+                if let Some(object) = finding.as_object_mut() {
+                    object.remove("details");
+                }
+            }
+        }
+    }
+    Ok(json!({
+        "ok": report.count(Severity::Error) == 0,
+        "server": report.server,
+        "errors": report.count(Severity::Error),
+        "warnings": report.count(Severity::Warning),
+        "projects": projects,
+        "without_policy": report.without_policy,
+    }))
+}
+
+pub(crate) fn permissions_apply_tool(
+    solution: &Solution,
+    request: PermissionsApplyRequest,
+) -> Result<Value, ToolError> {
+    let mut notices = commands::Notices::default();
+    let outcome = commands::permissions::execute_apply(
+        solution,
+        &commands::permissions::ApplyRequest {
+            project: request.project.as_ref().cloned(),
+            mode: if request.dry_run {
+                Mode::Plan
+            } else {
+                Mode::Apply
+            },
+            lock_label: "mcp permissions_apply",
+        },
+        &mut notices,
+    )
+    .map_err(ToolError::coded)?;
+    let mut projects = serde_json::to_value(&outcome.plan.projects).expect("apply plan serialises");
+    if !request.detail {
+        for project in projects.as_array_mut().into_iter().flatten() {
+            for list in ["changes", "remaining"] {
+                for item in project[list].as_array_mut().into_iter().flatten() {
+                    if let Some(object) = item.as_object_mut() {
+                        object.remove("details");
+                    }
+                }
+            }
+        }
+    }
+    let mut result = json!({
+        "ok": outcome.plan.remaining_errors() == 0,
+        "remaining_errors": outcome.plan.remaining_errors(),
+        "files": outcome.plan.changes().count(),
+        "projects": projects,
+        "without_policy": outcome.plan.without_policy,
+    });
+    result[if outcome.applied { "applied" } else { "plan" }] = json!(true);
+    add_notices(&mut result, &notices);
+    Ok(result)
+}
+
+pub(crate) fn permissions_init_tool(
+    solution: &Solution,
+    request: PermissionsInitRequest,
+) -> Result<Value, ToolError> {
+    let mut notices = commands::Notices::default();
+    let outcome = commands::permissions::execute_init(
+        solution,
+        &commands::permissions::InitRequest {
+            project: request.project.as_ref().cloned(),
+            from_helper: request.from_helper,
+            mode: if request.dry_run {
+                Mode::Plan
+            } else {
+                Mode::Apply
+            },
+            lock_label: "mcp permissions_init",
+        },
+        &mut notices,
+    )
+    .map_err(ToolError::coded)?;
+    let drafts: Vec<Value> = outcome
+        .drafts
+        .iter()
+        .map(|draft| {
+            json!({
+                "project": draft.project,
+                "path": draft.path.display().to_string(),
+                "source": draft.source,
+                "text": draft.text,
+                "notes": draft.notes,
+            })
+        })
+        .collect();
+    let mut result = json!({ "ok": true, "drafts": drafts });
+    result[if outcome.written { "applied" } else { "plan" }] = json!(true);
     add_notices(&mut result, &notices);
     Ok(result)
 }
