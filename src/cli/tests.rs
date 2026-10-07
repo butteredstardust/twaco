@@ -1,32 +1,12 @@
 use super::super::*;
 use super::entity::entity_delete_force_deprecation;
-use super::info::{GUIDE_FLAGS, HELP_FLAGS, JAVADOC_FLAGS, UPDATE_FLAGS};
-use super::usage::USAGE;
+use super::spec::{self, COMMANDS};
 
-/// The usage text of one command: every block whose first line names it, with the lines
-/// indented under it. `scripts/commands_doc.py` groups the text the same way.
+/// What `twaco` with no arguments lists for one command.
 fn usage_of(command: &str) -> String {
-    let mut text = String::new();
-    let mut current = false;
-    for line in USAGE.lines().skip(2) {
-        if line.starts_with("  ") && !line.starts_with("    ") {
-            let words: Vec<&str> = line.split_whitespace().collect();
-            let key = if matches!(
-                words[0],
-                "entity" | "rename" | "db" | "datatable" | "move" | "copy" | "new" | "permissions"
-            ) {
-                format!("{} {}", words[0], words[1])
-            } else {
-                words[0].to_string()
-            };
-            current = key == command;
-        }
-        if current {
-            text.push_str(line);
-            text.push('\n');
-        }
-    }
-    text
+    spec::command(command)
+        .map(|command| command.text.to_string())
+        .unwrap_or_default()
 }
 
 #[derive(Debug)]
@@ -85,9 +65,18 @@ fn usage_paths() -> std::collections::BTreeSet<String> {
         "permissions",
     ];
     let mut paths = std::collections::BTreeSet::new();
-    for line in USAGE
+    let blocks: String = COMMANDS
+        .iter()
+        .map(|c| {
+            format!(
+                "{}
+",
+                c.text
+            )
+        })
+        .collect();
+    for line in blocks
         .lines()
-        .skip(2)
         .filter(|line| line.starts_with("  ") && !line.starts_with("    "))
     {
         let words: Vec<&str> = line.split_whitespace().collect();
@@ -162,7 +151,7 @@ fn mutation_classes_name_every_cli_command_and_known_class() {
         let path = row.name.split(" --").next().unwrap();
         assert!(
             paths.contains(path),
-            "{} is not a command path in USAGE",
+            "{} is not a command path in the listing",
             row.name
         );
     }
@@ -310,7 +299,7 @@ fn missing(command: &str, known: &[&str]) -> Vec<String> {
         .iter()
         .filter(|flag| {
             let shared = matches!(**flag, "--profile" | "--project");
-            !names(&own, flag) && !(shared && names(USAGE, flag))
+            !names(&own, flag) && !(shared && names(&spec::listing(), flag))
         })
         .map(|flag| format!("{command} {flag}"))
         .collect()
@@ -318,80 +307,113 @@ fn missing(command: &str, known: &[&str]) -> Vec<String> {
 
 #[test]
 fn usage_names_every_flag_each_command_accepts() {
-    let commands = [
-        "projects",
-        "types",
-        "extract",
-        "sync",
-        "fmt",
-        "check",
-        "bundle",
-        "deploy",
-        "call",
-        "ext",
-        "settings",
-        "catalog",
-        "impact",
-        "unused",
-        "docs",
-        "package",
-        "import",
-        "export",
-        "repo",
-        "logs",
-        "adopt",
-        "rename entity",
-        "rename prefix",
-        "rename field",
-        "rename service",
-        "rename param",
-        "rename table",
-        "rename property",
-        "move service",
-        "move property",
-        "copy service",
-        "copy property",
-        "retemplate",
-        "new building-block",
-        "config-table",
-        "entity get",
-        "entity push",
-        "entity delete",
-        "entity carry",
-        "entity restore",
-        "entity status",
-        "permissions init",
-        "permissions audit",
-        "permissions apply",
-        "permissions diff",
-        "permissions push",
-        "db run",
-        "db query",
-        "db clean",
-        "datatable copy",
-    ];
     let mut absent = Vec::new();
-    for command in commands {
-        let args: Vec<String> = command.split(' ').map(str::to_string).collect();
-        let (_, _, known) = route(&args).unwrap_or_else(|why| panic!("{command}: {why}"));
+    for command in COMMANDS {
         assert!(
-            !usage_of(command).is_empty(),
-            "{command} has no usage block"
+            !command.text.is_empty(),
+            "{} has no usage block",
+            command.path
         );
-        absent.extend(missing(command, known));
-    }
-    for (command, known) in [
-        ("help", HELP_FLAGS),
-        ("guide", GUIDE_FLAGS),
-        ("javadoc", JAVADOC_FLAGS),
-        ("update", UPDATE_FLAGS),
-    ] {
-        absent.extend(missing(command, known));
+        absent.extend(missing(command.path, command.flags));
     }
     assert!(
         absent.is_empty(),
         "flags accepted but not in the command's usage: {absent:?}"
     );
+}
+
+#[test]
+fn every_command_has_a_handler_or_a_route_of_its_own() {
+    // clap knows a command only from COMMANDS; a parse of each finds it again.
+    for command in COMMANDS {
+        let mut words = vec!["twaco".to_string()];
+        words.extend(command.path.split(' ').map(str::to_string));
+        let matches = spec::tree()
+            .try_get_matches_from(&words)
+            .unwrap_or_else(|e| panic!("{}: {e}", command.path));
+        let (found, matched) = spec::matched(&matches);
+        assert_eq!(found.path, command.path);
+        spec::args_of(found, matched).unwrap();
+    }
+    spec::tree().debug_assert();
+}
+
+#[test]
+fn every_flag_a_command_lists_is_declared_once() {
+    let mut seen = std::collections::BTreeSet::new();
+    for flag in spec::FLAGS {
+        assert!(seen.insert(flag.name), "{} is declared twice", flag.name);
+    }
+    for command in COMMANDS {
+        let mut own = std::collections::BTreeSet::new();
+        for name in command.flags {
+            assert!(
+                seen.contains(name),
+                "{}: {name} is not declared",
+                command.path
+            );
+            assert!(own.insert(name), "{}: {name} is listed twice", command.path);
+        }
+    }
+}
+
+#[test]
+fn a_flag_typo_is_refused_with_a_suggestion_and_exit_2() {
+    let error = spec::tree()
+        .try_get_matches_from(["twaco", "sync", "--cehck"])
+        .unwrap_err();
+    assert_eq!(error.exit_code(), 2);
+    assert!(error.to_string().contains("--check"), "{error}");
+    let error = spec::tree()
+        .try_get_matches_from(["twaco", "fmt", "stray"])
+        .unwrap_err();
+    assert_eq!(
+        error.exit_code(),
+        2,
+        "a command without operands refuses one"
+    );
+}
+
+#[test]
+fn values_reach_the_fields_the_commands_read() {
+    let parse = |words: &[&str]| {
+        let mut all = vec!["twaco"];
+        all.extend(words);
+        let matches = spec::tree().try_get_matches_from(all).unwrap();
+        let (command, matched) = spec::matched(&matches);
+        spec::args_of(command, matched)
+    };
+    let deploy = parse(&[
+        "deploy",
+        "--only",
+        "A",
+        "--only",
+        "B",
+        "--only-projects",
+        "P, Q",
+        "--profile",
+        "x",
+    ])
+    .unwrap();
+    assert_eq!(deploy.only, ["A", "B"]);
+    assert_eq!(deploy.only_projects, ["P", "Q"]);
+    assert_eq!(deploy.profile.as_deref(), Some("x"));
+    let logs = parse(&["logs", "ScriptLog", "--since", "10m", "--json"]).unwrap();
+    assert_eq!(logs.names, ["ScriptLog"]);
+    assert_eq!(logs.values.get("--since").map(String::as_str), Some("10m"));
+    assert!(logs.has("--json"));
+    let query = parse(&["db", "query", "-q", "select 1", "--timeout", "30"]).unwrap();
+    assert_eq!(query.values.get("-q").map(String::as_str), Some("select 1"));
+    assert_eq!(query.timeout, Some(Duration::from_secs(30)));
+    assert!(parse(&["call", "T", "S", "--timeout", "0"]).is_err());
+    assert!(parse(&["deploy", "--only-projects", " , "]).is_err());
+    assert!(parse(&["sync", "--all", "Acme.T"]).is_err());
+    // A value may begin with a dash, as a log filter can.
+    let grep = parse(&["logs", "ScriptLog", "--grep", "-x"]).unwrap();
+    assert_eq!(grep.values.get("--grep").map(String::as_str), Some("-x"));
+    // `--flag=value` works too.
+    let profile = parse(&["doctor", "--profile=prod"]).unwrap();
+    assert_eq!(profile.profile.as_deref(), Some("prod"));
 }
 
 #[test]
@@ -560,4 +582,23 @@ fn db_run_apply_takes_no_workspace_lock() {
     )
     .unwrap();
     assert!(!writes_workspace("db run", &args));
+}
+
+/// `documentation/COMMANDS.md` is the command table written out. `TWACO_BLESS=1` rewrites it.
+#[test]
+fn commands_md_is_the_command_table() {
+    let path = concat!(env!("CARGO_MANIFEST_DIR"), "/documentation/COMMANDS.md");
+    let generated = spec::commands_md();
+    if std::env::var_os("TWACO_BLESS").is_some() {
+        std::fs::write(path, &generated).unwrap();
+        return;
+    }
+    let Ok(written) = std::fs::read_to_string(path) else {
+        eprintln!("skipping: {path} is not packaged");
+        return;
+    };
+    assert!(
+        written.replace("\r\n", "\n") == generated,
+        "documentation/COMMANDS.md is not the command table; run TWACO_BLESS=1 cargo test --bin twaco commands_md"
+    );
 }

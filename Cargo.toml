@@ -36,6 +36,7 @@ schemars = { version = "=1.2.2", default-features = false, features = ["derive",
 minisign-verify = "0.3.0"
 flate2 = "1"
 tar = { version = "0.4.46", default-features = false }
+clap = { version = "4.6.7", default-features = false, features = ["std", "help", "usage", "error-context", "suggestions"] }
 
 # Windows cannot rename over a running executable; this moves the old one aside first.
 [target.'cfg(windows)'.dependencies]

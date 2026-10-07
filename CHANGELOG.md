@@ -6,6 +6,15 @@ All notable changes to twaco are recorded here. The format follows
 
 ## [Unreleased]
 
+### Changed
+
+- The command line is parsed by clap, from one table of commands (`src/cli/spec.rs`). Every
+  command answers `--help`; a mistyped flag is refused with the flag it most likely meant
+  (`--cehck`: did you mean `--check`); `--flag=value` works; and a command that takes no
+  operands refuses one instead of ignoring it (`twaco fmt stray`). Errors still start
+  `twaco:` and exit 2. An unknown command says so in one line and points to `--help` instead
+  of printing every command. `documentation/COMMANDS.md` is generated from the same table.
+
 ## [0.1.2] - 2026-10-07
 
 ### Added

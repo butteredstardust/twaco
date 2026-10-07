@@ -42,31 +42,10 @@ pub(crate) fn write_agent_files(solution: &Solution) -> u8 {
     }
 }
 
-/// `twaco guide [<topic> [--section <heading>]] [--search <words>]`: the knowledge an agent needs
-/// besides the CLI, built in and the solution's own. Works outside a solution too.
-pub(crate) const GUIDE_FLAGS: &[&str] = &["--section", "--search", "--limit", "--json"];
-pub(crate) const HELP_FLAGS: &[&str] = &[
-    "--version",
-    "--limit",
-    "--section",
-    "--refresh",
-    "--json",
-    "--profile",
-];
-pub(crate) const JAVADOC_FLAGS: &[&str] = &["--member", "--limit", "--refresh", "--json"];
-pub(crate) const UPDATE_FLAGS: &[&str] = &["--apply"];
-
 /// `twaco update [--apply]`: compare with the latest release, and with `--apply` replace this
 /// binary with it. No MCP tool: an agent must not replace the server it is talking to.
-pub(crate) fn update_cmd(args: &[String]) -> u8 {
+pub(crate) fn update_cmd(parsed: &Args) -> u8 {
     use twaco::core::update;
-    let parsed = match Args::parse(args, UPDATE_FLAGS) {
-        Ok(parsed) => parsed,
-        Err(why) => {
-            eprintln!("twaco: update: {why}");
-            return FAILED;
-        }
-    };
     if !parsed.names.is_empty() {
         eprintln!("twaco: update takes only --apply");
         return FAILED;
@@ -138,15 +117,10 @@ pub(crate) fn update_cmd(args: &[String]) -> u8 {
     }
 }
 
-pub(crate) fn guide_cmd(args: &[String]) -> u8 {
+/// `twaco guide [<topic> [--section <heading>]] [--search <words>]`: the knowledge an agent needs
+/// besides the CLI, built in and the solution's own. Works outside a solution too.
+pub(crate) fn guide_cmd(parsed: &Args) -> u8 {
     use twaco::core::guide;
-    let parsed = match Args::parse(args, GUIDE_FLAGS) {
-        Ok(parsed) => parsed,
-        Err(why) => {
-            eprintln!("twaco: guide: {why}");
-            return FAILED;
-        }
-    };
     let here = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
     let solution = match Solution::discover(&here) {
         Ok(solution) => Some(solution),
@@ -251,15 +225,8 @@ pub(crate) fn guide_cmd(args: &[String]) -> u8 {
     }
 }
 
-pub(crate) fn help_cmd(args: &[String]) -> u8 {
+pub(crate) fn help_cmd(parsed: &Args) -> u8 {
     use twaco::core::help;
-    let parsed = match Args::parse(args, HELP_FLAGS) {
-        Ok(parsed) => parsed,
-        Err(why) => {
-            eprintln!("twaco: help: {why}");
-            return FAILED;
-        }
-    };
     let (Some(action), rest) = (
         parsed.names.first().map(String::as_str),
         parsed.names.get(1..).unwrap_or_default(),
@@ -401,15 +368,8 @@ pub(crate) fn help_cmd(args: &[String]) -> u8 {
 
 /// `twaco javadoc search <name> | class <Name>`: the public ThingWorx Java API docs.
 /// Read-only and usable outside a solution; downloads go to the user's cache.
-pub(crate) fn javadoc_cmd(args: &[String]) -> u8 {
+pub(crate) fn javadoc_cmd(parsed: &Args) -> u8 {
     use twaco::core::{help, javadoc};
-    let parsed = match Args::parse(args, JAVADOC_FLAGS) {
-        Ok(parsed) => parsed,
-        Err(why) => {
-            eprintln!("twaco: javadoc: {why}");
-            return FAILED;
-        }
-    };
     let (Some(action), rest) = (
         parsed.names.first().map(String::as_str),
         parsed.names.get(1..).unwrap_or_default(),

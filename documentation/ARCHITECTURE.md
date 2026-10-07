@@ -102,14 +102,16 @@ See [Testing](TESTING.md) for commands.
 
 1. Put the behaviour in a `core` module, with its server access behind a trait so tests can
    fake it.
-2. Add the CLI route: the command table and dispatch in `main.rs`, and its lines in
-   `cli/usage.rs`.
+2. Add the CLI command: one entry in `COMMANDS` in `cli/spec.rs` (its path, group, the flags it
+   takes, whether it takes operands, and the lines `twaco` lists for it; a new flag also gets
+   one line in `FLAGS`), and its arm in the dispatch in `main.rs`. clap parses from that table,
+   so an unknown flag or operand is refused with a suggestion, and `--help` works.
 3. Add the MCP tool: a request object in `mcp/requests/`, its adapter in the family file, and one
    entry in `mcp/registry.rs` (see [MCP schemas](MCP_SCHEMAS.md)). Writes take `dry_run` defaulting
    to `true`; results lead with a summary.
 4. If it writes the workspace, take the lock (`writes_workspace` in `main.rs`; the MCP route
    does it per tool).
-5. Regenerate [Commands](COMMANDS.md) with `python scripts/commands_doc.py`, and document
+5. Regenerate [Commands](COMMANDS.md) with `TWACO_BLESS=1 cargo test --bin twaco commands_md`, and document
    the command wherever it belongs in the user guide.
 6. Classify the command in [Mutation classes](MUTATION_CLASSES.md); its coverage test fails
    until the CLI command and MCP tool each have a row.

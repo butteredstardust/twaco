@@ -37,8 +37,3 @@ jobs:
       - name: Formatting
         if: matrix.os == 'ubuntu-latest'
         run: cargo fmt --all --check
-      - name: Usage text and COMMANDS.md agree
-        if: matrix.os == 'ubuntu-latest'
-        run: |
-          python3 scripts/commands_doc.py
-          git diff --exit-code documentation/COMMANDS.md

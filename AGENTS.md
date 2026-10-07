@@ -46,9 +46,9 @@ On Windows, build with the MSVC toolchain (`rustup default stable-msvc`).
 
 ## When you add a command
 
-Follow "Adding a command" in ARCHITECTURE.md: core module, CLI route and usage line, MCP tool
+Follow "Adding a command" in ARCHITECTURE.md: core module, one entry in `cli/spec.rs`, MCP tool
 and the `tools/list` test, the workspace lock if it writes, and documentation. When the usage text
-changes, regenerate `documentation/COMMANDS.md` with `python scripts/commands_doc.py`.
+changes, regenerate `documentation/COMMANDS.md` with `TWACO_BLESS=1 cargo test --bin twaco commands_md`.
 
 ## Releases
 
