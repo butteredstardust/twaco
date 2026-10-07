@@ -216,6 +216,71 @@ input.
 `twaco types --check --json` speaks this protocol, so
 `command = ["twaco", "types", "--check", "--json"]` adds type checking to `check`.
 
+## `permissions.toml`: who may use a project
+
+A project's permission policy lives in `permissions.toml` in the project's root folder (the
+`root` of its `[[project]]`). It is the source of truth for the project's permissions:
+`twaco permissions audit` checks the entity XML against it, offline. A project without the file
+is left alone.
+
+The policy needs nothing from the Solution Framework. When the project has a permission helper
+Thing (template `PTCDTS.Base.ComponentPermissionHelper_TT`, which ships in `PTCDTS.Base` and so
+exists on a server with only the common blocks), the project is in helper mode.
+
+```toml
+project = "Acme.App"           # optional; must be the project whose folder holds the file
+mode = "auto"                  # auto (helper mode when a helper Thing exists) | helper | plain
+organization = "Default_OR"    # default; a name without a dot is in the project
+strict = ["Orders_TS"]         # every service of these entities must match a [[runtime]] rule
+unmanaged = ["Legacy*"]        # entities whose blocks the policy leaves alone
+
+[[role]]
+name = "viewer"                # the permission helper's column name
+group = "Viewer_UG"            # Acme.App.Viewer_UG
+
+[[role]]
+name = "editor"
+group = "Editor_UG"
+includes = ["viewer"]          # an editor gets every grant a viewer gets
+
+[[role]]
+name = "allUsers"
+group = "Default_UG"
+org = "organization"           # visible through Acme.App.Default_OR itself
+
+[[runtime]]
+entities = ["Orders_TS"]       # full names or the part after the project's prefix; globs
+action = "ServiceInvoke"       # the default; or PropertyRead, PropertyWrite, EventInvoke, EventSubscribe
+resources = ["Get*"]           # `*` is every named resource
+except = ["GetSecret"]
+roles = ["viewer"]
+
+[[runtime]]
+entities = ["Orders_TS"]
+resources = ["GetSecret"]
+roles = []                     # classified, granted to no one
+
+[visibility]
+roles = ["viewer", "editor", "allUsers"]   # the default: every role
+remove = ["PTC.SolutionFramework.*"]       # principals to drop from every managed block
+
+[[visibility.rule]]            # the first rule that names an entity decides
+types = ["Mashup"]
+names = ["*Admin*"]
+roles = ["editor"]
+```
+
+| Key | Meaning |
+| --- | --- |
+| `[[role]]` | `name`, `group`, optional `org` and `includes`. A role's visibility principal is the organizational unit `<organization>:<group>`; `org = "organization"` uses the organization itself, `org = "none"` gives no visibility, and any other value is a full principal (with a `:`, a unit). |
+| `[[runtime]]` | Allows `roles`, and every role that includes them, the `action` on the `resources` of the `entities`. Resources are what the entity defines, what its block lists, and the rule's literal names (a service inherited from a template is named literally). `entity_wide = true` also grants the entity-wide resource, which ThingWorx writes `*`. |
+| `[visibility]` | `roles` see every entity no rule names. Principals the roles do not own are kept, unless `remove` names them. |
+| `[[platform]]` | Grants and memberships outside the project, which an import cannot carry: `grant = { entity = "Resources/EntityServices", action = "ServiceInvoke", resource = "ReadEntityDefinitionAsJSON" }` or `member_of = "<group>"`, with `roles` and an optional `requires = "<project>"`. Read now, used by the server commands to come. |
+
+The policy owns the run-time block of each Thing in the project, and the instance run-time block
+of each ThingShape and ThingTemplate, unless `unmanaged` names the entity: a grant no rule makes
+is a difference. It owns the role principals of each entity's visibility block. Rules only allow.
+
 ## Server profiles
 
 A profile is a TOML file named after it, `<name>.toml`, looked for in this order:

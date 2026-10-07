@@ -62,6 +62,9 @@ An import only adds permissions: it never removes a grant the server has, and ne
 allow or deny of a principal the server already lists. A deploy that reads an entity back as
 "not kept" says when only its permissions differ.
 
+- `twaco permissions audit [--detail]`: each project's `permissions.toml` (roles, run-time
+  rules, visibility) against the entity XML, offline; exit 1 on any error. A project's
+  permission helper Thing, if any, is found on its own; the Solution Framework is not needed.
 - `twaco permissions diff <entity>|--all`: each run-time, design-time and visibility set in the
   entity XML (and a shape's or template's instance sets) against the server's; exit 1 when any
   differs.

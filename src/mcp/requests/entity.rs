@@ -121,6 +121,17 @@ pub(crate) struct PermissionsRequest {
 
 #[derive(Debug, Deserialize, JsonSchema, Serialize)]
 #[serde(deny_unknown_fields)]
+pub(crate) struct PermissionsAuditRequest {
+    /// Narrow to one project of the solution.
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) project: Absent<String>,
+    /// Every grant behind each finding.
+    #[serde(default)]
+    pub(crate) detail: bool,
+}
+
+#[derive(Debug, Deserialize, JsonSchema, Serialize)]
+#[serde(deny_unknown_fields)]
 pub(crate) struct PermissionsPushRequest {
     /// Entity names, full or their last dotted segment. Name some, or pass all: true.
     #[serde(default, skip_serializing_if = "Absent::is_absent")]

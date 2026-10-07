@@ -441,6 +441,30 @@ deploy needs no `--force`. A set the XML has no block for is never compared or w
 ThingShape's `InstanceRunTimePermissions`, and a ThingTemplate's three `Instance...Permissions`
 (what its Things get), are sets of their own and are compared and pushed the same way.
 
+## A permission policy
+
+Write who may use what once, in the project's `permissions.toml`
+([Configuration](CONFIGURATION.md#permissionstoml-who-may-use-a-project)), and let twaco check
+the entity XML against it:
+
+```sh
+twaco permissions audit                 # every project with a policy; exit 1 on any error
+twaco permissions audit --detail        # and every grant behind a finding
+```
+
+Without a server, the audit reports:
+
+- **errors:** run-time and visibility blocks that differ from the policy; services of a `strict`
+  entity that no rule names; a group or user in a visibility block (the server answers HTTP
+  500); an Organization in run-time permissions; a principal `[visibility] remove` names.
+- **warnings:** principals under one of the solution's projects that no entity defines, such as
+  an organizational unit an Organization does not declare; rules and patterns that match nothing.
+- **notes:** explicit denies.
+
+A project with a Solution Framework permission helper Thing is audited in helper mode. The
+helper's template ships in `PTCDTS.Base`, so a server with only the common blocks can have one;
+a project without one is audited in plain mode. Nothing needs the Solution Framework itself.
+
 ## Copying DataTable rows
 
 Renaming a DataTable creates a new, empty one: its rows live on the server, not in the XML.

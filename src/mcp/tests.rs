@@ -798,6 +798,7 @@ fn every_tool_is_listed_with_a_schema_and_honest_annotations() {
             "entity_restore",
             "entity_carry",
             "permissions",
+            "permissions_audit",
             "permissions_push",
             "db_run",
             "db_query",

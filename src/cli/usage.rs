@@ -205,6 +205,12 @@ pub(crate) const USAGE: &str = r#"usage: twaco <command>
       --add-shapes a,b        implement these shapes too
       --remove-shapes a,b     stop implementing these shapes
       --accept-loss           go ahead although stored values or references would lose their definition
+  permissions audit [--project <name>] [--detail] [--json]
+                              each project's permissions.toml against its entity XML, offline: blocks
+                              the policy would change, services a strict entity leaves unclassified,
+                              principals the server refuses or no entity defines, rules that match
+                              nothing; exit 1 on any error
+      --detail                every grant behind a finding
   permissions diff <entity>...|--all [--json]
                               each entity's run-time, design-time and visibility permissions (and a
                               shape's or template's instance permissions) against the server's:

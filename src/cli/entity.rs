@@ -641,3 +641,88 @@ pub(crate) fn permissions_cmd(solution: &Solution, route: &str, args: &Args) -> 
         OK
     }
 }
+
+/// Audit each project's permission policy against its entity XML (`permissions audit`). Exits 1
+/// when any finding is an error, like a check.
+pub(crate) fn permissions_audit_cmd(solution: &Solution, args: &Args) -> u8 {
+    use twaco::core::permissions::audit::{self, Severity};
+    let report = match audit::audit(solution, args.project.as_deref()) {
+        Ok(report) => report,
+        Err(error) => {
+            eprintln!("twaco: {error}");
+            return FAILED;
+        }
+    };
+    let detail = args.has("--detail");
+    if args.has("--json") {
+        let mut value = serde_json::to_value(&report).expect("audit report serialises");
+        if !detail {
+            for project in value["projects"].as_array_mut().into_iter().flatten() {
+                for finding in project["findings"].as_array_mut().into_iter().flatten() {
+                    if let Some(object) = finding.as_object_mut() {
+                        object.remove("details");
+                    }
+                }
+            }
+        }
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&value).expect("audit report serialises")
+        );
+    } else {
+        for project in &report.projects {
+            let mut counts = Vec::new();
+            for severity in [Severity::Error, Severity::Warning, Severity::Note] {
+                let count = project.count(severity);
+                if count > 0 {
+                    counts.push(format!(
+                        "{count} {}{}",
+                        severity.label(),
+                        if count == 1 { "" } else { "s" }
+                    ));
+                }
+            }
+            let mode = match &project.helper {
+                Some(helper) => format!("helper mode, {helper}"),
+                None => "plain mode".to_string(),
+            };
+            println!(
+                "{} ({mode}): {} entities, {}",
+                project.project,
+                project.entities,
+                if counts.is_empty() {
+                    "as the policy says".to_string()
+                } else {
+                    counts.join(", ")
+                }
+            );
+            for finding in &project.findings {
+                println!("  {finding}");
+                if detail {
+                    for line in &finding.details {
+                        println!("      {line}");
+                    }
+                }
+            }
+        }
+        if !report.without_policy.is_empty() {
+            println!(
+                "without a permissions.toml: {}",
+                report.without_policy.join(", ")
+            );
+        }
+        if !detail
+            && report
+                .projects
+                .iter()
+                .any(|p| p.findings.iter().any(|f| !f.details.is_empty()))
+        {
+            println!("--detail lists every grant behind a finding");
+        }
+    }
+    if report.count(Severity::Error) > 0 {
+        DRIFT
+    } else {
+        OK
+    }
+}

@@ -16,6 +16,13 @@ All notable changes to twaco are recorded here. The format follows
   permissions (what its Things get) are sets of their own. MCP tools `permissions` and
   `permissions_push`.
 - A deploy whose read-back differs only in permissions says so, and names the commands above.
+- `permissions audit` checks each project's permission policy, `permissions.toml` in the
+  project's root folder, against the entity XML without a server: roles with the groups and
+  organizational units behind them, which roles may use which resources, and who sees which
+  entity. It reports blocks that differ from the policy, unclassified services of a strict
+  entity, principals the server refuses or no entity defines, and rules that match nothing.
+  A project with a Solution Framework permission helper Thing is found to be in helper mode;
+  the Solution Framework itself is not needed. MCP tool `permissions_audit`.
 
 ### Fixed
 

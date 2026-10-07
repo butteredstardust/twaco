@@ -218,6 +218,12 @@ static TOOLS: LazyLock<Vec<Tool>> = LazyLock::new(|| {
             true,
             entity::permissions_tool,
         ),
+        solution_tool::<entity_requests::PermissionsAuditRequest>(
+            "permissions_audit",
+            "Check each project's permissions.toml (its root folder) against the entity XML, without a server. Errors: run-time or visibility blocks the policy would change (permissions apply writes them), services of a strict entity no rule classifies, a group or user in visibility (the server answers 500), an Organization in run-time permissions. Warnings: principals under a project of the solution that no entity defines, rules or patterns that match nothing. Notes: explicit denies. detail lists the grants behind each finding. Read-only.",
+            true,
+            entity::permissions_audit_tool,
+        ),
         solution_tool::<entity_requests::PermissionsPushRequest>(
             "permissions_push",
             "Make the server's permission sets exactly the repository's: every differing run-time, design-time or visibility set is written whole and read back. Removes server-only grants and corrects flipped allow/deny, which an import cannot do. A set the entity XML does not declare is never written. A dry run unless dry_run is false; an applied push records the baseline of each pushed entity that then matches the server.",

@@ -1,7 +1,7 @@
 use super::requests::common::Absent;
 use super::requests::entity::{
-    EntityCarryRequest, EntityDeleteRequest, EntityRestoreRequest, PermissionsPushRequest,
-    PermissionsRequest, PushRequest, StatusRequest,
+    EntityCarryRequest, EntityDeleteRequest, EntityRestoreRequest, PermissionsAuditRequest,
+    PermissionsPushRequest, PermissionsRequest, PushRequest, StatusRequest,
 };
 use super::*;
 
@@ -396,4 +396,30 @@ pub(crate) fn permissions_push_tool(
         },
         false,
     )
+}
+
+pub(crate) fn permissions_audit_tool(
+    solution: &Solution,
+    request: PermissionsAuditRequest,
+) -> Result<Value, ToolError> {
+    use crate::core::permissions::audit::{self, Severity};
+    let report = audit::audit(solution, request.project.as_ref().map(String::as_str))
+        .map_err(ToolError::coded)?;
+    let mut projects = serde_json::to_value(&report.projects).expect("audit report serialises");
+    if !request.detail {
+        for project in projects.as_array_mut().into_iter().flatten() {
+            for finding in project["findings"].as_array_mut().into_iter().flatten() {
+                if let Some(object) = finding.as_object_mut() {
+                    object.remove("details");
+                }
+            }
+        }
+    }
+    Ok(json!({
+        "ok": report.count(Severity::Error) == 0,
+        "errors": report.count(Severity::Error),
+        "warnings": report.count(Severity::Warning),
+        "projects": projects,
+        "without_policy": report.without_policy,
+    }))
 }
