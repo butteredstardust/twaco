@@ -57,7 +57,7 @@ pub(crate) struct SyncRequest {
     pub(crate) project: Absent<String>,
     #[serde(default)]
     pub(crate) check: bool,
-    /// Permit a service or field to appear or disappear.
+    /// Add the services and fields only the sidecars have, and remove those only the entity has.
     #[serde(default)]
     pub(crate) allow_add_remove: bool,
     /// Rewrite every script payload in the configured layout.

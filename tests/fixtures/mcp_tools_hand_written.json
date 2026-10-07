@@ -149,7 +149,7 @@
         "allow_add_remove": {
           "type": "boolean",
           "default": false,
-          "description": "Permit a service or field to appear or disappear."
+          "description": "Add the services and fields only the sidecars have, and remove those only the entity has."
         },
         "relayout": {
           "type": "boolean",

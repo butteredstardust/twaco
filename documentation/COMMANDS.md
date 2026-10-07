@@ -29,7 +29,7 @@ Offline: sidecars, gates, types, the service catalog, what a change reaches, a d
 extract <entity>|--all      entity XML -> sidecars
 sync <entity>|--all         sidecars -> entity XML
     --check                 report what would change, write nothing
-    --allow-add-remove      permit a service to appear or disappear
+    --allow-add-remove      add and remove services and fields as the sidecars do
     --relayout              rewrite scripts in the configured CDATA layout
 fmt [--check]               format service scripts
 check [--detail]            every gate, one exit code

@@ -74,6 +74,11 @@ pub enum SidecarError {
         added: Vec<String>,
         removed: Vec<String>,
     },
+    /// A sidecar names a service the entity cannot take as a new script service.
+    CannotAdd {
+        name: String,
+        why: String,
+    },
     Splice(super::splice::SpliceError),
 }
 
@@ -97,6 +102,9 @@ impl fmt::Display for SidecarError {
                 f,
                 "this would add {added:?} and remove {removed:?}; say --allow-add-remove to mean it"
             ),
+            SidecarError::CannotAdd { name, why } => {
+                write!(f, "cannot add service {name}: {why}")
+            }
             SidecarError::Splice(e) => write!(f, "{e}"),
         }
     }

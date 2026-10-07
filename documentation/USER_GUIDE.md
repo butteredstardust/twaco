@@ -34,7 +34,10 @@ project silently.
 `sidecars` gate fails when they disagree.
 
 A service or a DataShape field appearing or disappearing is a bigger change than an edit, so
-`sync` refuses it unless given `--allow-add-remove`.
+`sync` refuses it unless given `--allow-add-remove`. With it, a new service folder holding a
+`definition.xml` and a `script.js` adds the service, its Script implementation laid out like
+the entity's others, and a deleted folder removes the service. A sidecar naming a SQL service,
+or a service the entity only overrides, is refused: those are not added from sidecars.
 
 ## The change loop
 

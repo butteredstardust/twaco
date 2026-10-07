@@ -40,8 +40,10 @@ which of its parts are fragile.
 ## Change a service
 
 1. **Edit the sidecar script.** For a signature change (parameters, result, DataShape), edit the
-   service definition in the entity XML too. `twaco sync --allow-add-remove` is needed when a
-   service appears or disappears.
+   service definition in the entity XML too. To add a service, create
+   `src/<Entity>/services/<Name>/` with a `definition.xml` (a sibling's, renamed) and a
+   `script.js`; `twaco sync <entity> --allow-add-remove` adds it to the entity. Deleting the
+   folder and syncing with the flag removes the service.
 2. `twaco sync <entity> --check` shows what would change; `twaco sync <entity>` writes it.
 3. **Run the gates:** `twaco check`. `twaco types --check` type-checks every service against the
    entities' declarations; `twaco check --live` also has the server parse each script.

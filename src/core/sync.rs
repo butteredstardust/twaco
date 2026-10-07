@@ -8,6 +8,7 @@
 //! equals the sidecar. An edited script is written in the configured layout; `--relayout` makes
 //! that rewrite explicit without a content edit. Either kind of write settles after one pass.
 
+use super::relocate;
 use super::scan::{self, Kind, Token};
 use super::sidecar::{self, ServiceSidecar, SidecarError};
 use super::splice::{self, Edit};
@@ -35,9 +36,12 @@ impl SyncReport {
 
 /// Write sidecars back into an entity document.
 ///
-/// `allow_structural_change` only suppresses the refusal; nothing here creates or deletes a
-/// service. A sidecar that has quietly disappeared should not silently delete one, and a stray
-/// sidecar should not be silently ignored.
+/// A sidecar with no service, or a script service with no sidecar, is refused unless
+/// `allow_structural_change` says the add or remove is meant: a sidecar that has quietly
+/// disappeared should not silently delete a service, and a stray one should not silently add
+/// one. When it is meant, the service is added (its definition from the sidecar, its Script
+/// implementation shaped like one already in the entity) or removed, definition and
+/// implementation both.
 ///
 /// `indent_cdata_payload` governs edited scripts. `relayout` applies it to unchanged scripts too.
 pub fn sync(
@@ -147,15 +151,323 @@ pub fn sync(
         }
     }
 
-    if report.has_structural_change() && !allow_structural_change {
-        return Err(SidecarError::StructuralChange {
-            added: report.only_in_sidecars.clone(),
-            removed: report.only_in_entity.clone(),
-        });
+    if report.has_structural_change() {
+        if !allow_structural_change {
+            return Err(SidecarError::StructuralChange {
+                added: report.only_in_sidecars.clone(),
+                removed: report.only_in_entity.clone(),
+            });
+        }
+        edits.extend(structural_edits(
+            &tokens,
+            src,
+            host,
+            &definitions,
+            &implementations,
+            sidecars,
+            &report,
+            indent_cdata_payload,
+        )?);
     }
 
     let out = splice::splice(src, &edits).map_err(SidecarError::Splice)?;
     Ok((out, report))
+}
+
+/// The edits that add the services only the sidecars have and remove the script services only
+/// the entity has. Every added service goes into each section as one insertion, since two
+/// insertions at one point would be ambiguous.
+#[allow(clippy::too_many_arguments)]
+fn structural_edits(
+    tokens: &[Token],
+    src: &[u8],
+    host: usize,
+    definitions: &BTreeMap<String, usize>,
+    implementations: &BTreeMap<String, usize>,
+    sidecars: &BTreeMap<String, ServiceSidecar>,
+    report: &SyncReport,
+    indent_cdata_payload: bool,
+) -> Result<Vec<Edit>, SidecarError> {
+    let mut edits = Vec::new();
+    let definitions_at = scan::child_tags(tokens, src, "ServiceDefinitions", host)
+        .first()
+        .copied();
+    let implementations_at = scan::child_tags(tokens, src, "ServiceImplementations", host)
+        .first()
+        .copied();
+
+    for name in &report.only_in_entity {
+        for (section, element) in [
+            (definitions_at, definitions[name]),
+            (implementations_at, implementations[name]),
+        ] {
+            let section = section.ok_or(SidecarError::Scan(scan::ScanError::Malformed {
+                what: "service section",
+                at: tokens[element].span.start,
+            }))?;
+            let block = relocate::block_of(tokens, src, section, element)?;
+            edits.push(Edit::new(block.span, Vec::new()));
+        }
+    }
+
+    if report.only_in_sidecars.is_empty() {
+        return Ok(edits);
+    }
+    for name in &report.only_in_sidecars {
+        let why = if implementations.contains_key(name) && !definitions.contains_key(name) {
+            Some("the entity implements it already, overriding an inherited service")
+        } else if implementations.contains_key(name) {
+            Some("the entity has it already, and it is not a script service")
+        } else if definitions.contains_key(name) {
+            Some("the entity defines it already, with no implementation of its own")
+        } else if name.contains(['"', '<', '>', '&']) || name.trim().is_empty() {
+            Some("the name is not a service name")
+        } else {
+            None
+        };
+        if let Some(why) = why {
+            return Err(SidecarError::CannotAdd {
+                name: name.clone(),
+                why: why.to_string(),
+            });
+        }
+    }
+    let cannot_add = |why: String| SidecarError::CannotAdd {
+        name: report.only_in_sidecars.join(", "),
+        why,
+    };
+
+    // The template every new implementation copies: a script service of this entity, so the
+    // new one is laid out as the document already is.
+    let template = implementations.values().copied().find(|&implementation| {
+        matches!(
+            sidecar::handler_of(tokens, src, implementation).as_deref(),
+            Ok("Script")
+        ) && script_region(tokens, src, implementation).is_some()
+    });
+    let template = match (template, implementations_at) {
+        (Some(element), Some(section)) => {
+            Some((element, relocate::block_of(tokens, src, section, element)?))
+        }
+        _ => None,
+    };
+    let own_lines = template.as_ref().map_or_else(
+        || {
+            definitions_at
+                .or(implementations_at)
+                .is_none_or(|at| relocate::starts_line(src, tokens[at].span.start))
+        },
+        |(_, block)| block.own_lines,
+    );
+    let newline = newline_of(&String::from_utf8_lossy(src));
+    // The nesting unit: how far a section sits inside the element that holds it.
+    let section_indent = definitions_at.or(implementations_at).map_or(0, |at| {
+        relocate::indent_at(src, tokens[at].span.start).len()
+    });
+    let host_indent = relocate::indent_at(src, tokens[host].span.start).len();
+    let unit = section_indent.saturating_sub(host_indent).max(1);
+
+    // Definitions: each sidecar's block, starting where the entity's own definitions start.
+    let definition_indent = definitions
+        .values()
+        .next()
+        .map(|&at| relocate::indent_at(src, tokens[at].span.start).len())
+        .unwrap_or(section_indent + unit);
+    let mut definition_bytes = Vec::new();
+    for name in &report.only_in_sidecars {
+        let text = sidecars[name]
+            .definition
+            .trim_end_matches(['\n', '\r'])
+            .replace("\r\n", "\n")
+            .replace('\n', newline);
+        if own_lines {
+            definition_bytes.extend(std::iter::repeat_n(b' ', definition_indent));
+        }
+        definition_bytes.extend_from_slice(text.as_bytes());
+        if own_lines {
+            definition_bytes.extend_from_slice(newline.as_bytes());
+        }
+    }
+    let definition_block = relocate::Block {
+        span: scan::Span::new(0, definition_bytes.len()),
+        own_lines,
+        indent: definition_indent,
+        section_indent: definition_indent.saturating_sub(unit),
+        cdata: Vec::new(),
+    };
+    edits.push(
+        relocate::insert_edit(
+            tokens,
+            src,
+            host,
+            "ServiceDefinitions",
+            &definition_block,
+            &definition_bytes,
+        )
+        .map_err(cannot_add)?,
+    );
+
+    // Implementations: the template renamed and holding the sidecar's script.
+    let (indent, implementation_section_indent) = match &template {
+        Some((_, block)) => (block.indent, block.section_indent),
+        None => (section_indent + unit, section_indent),
+    };
+    let mut implementation_bytes = Vec::new();
+    let mut cdata = Vec::new();
+    for name in &report.only_in_sidecars {
+        let script = &sidecars[name].script;
+        let (bytes, payload) = match &template {
+            Some((element, block)) => templated_implementation(
+                tokens,
+                src,
+                *element,
+                block,
+                name,
+                script,
+                indent_cdata_payload,
+            )?,
+            None => composed_implementation(
+                name,
+                script,
+                own_lines,
+                indent,
+                unit,
+                newline,
+                indent_cdata_payload,
+            ),
+        };
+        let offset = implementation_bytes.len();
+        cdata.push(scan::Span::new(
+            offset + payload.start,
+            offset + payload.end,
+        ));
+        implementation_bytes.extend_from_slice(&bytes);
+    }
+    let implementation_block = relocate::Block {
+        span: scan::Span::new(0, implementation_bytes.len()),
+        own_lines,
+        indent,
+        section_indent: implementation_section_indent,
+        cdata,
+    };
+    edits.push(
+        relocate::insert_edit(
+            tokens,
+            src,
+            host,
+            "ServiceImplementations",
+            &implementation_block,
+            &implementation_bytes,
+        )
+        .map_err(cannot_add)?,
+    );
+    Ok(edits)
+}
+
+/// An existing script implementation's block, renamed and holding `script`, with where its
+/// CDATA now sits within it.
+fn templated_implementation(
+    tokens: &[Token],
+    src: &[u8],
+    element: usize,
+    block: &relocate::Block,
+    name: &str,
+    script: &str,
+    indent_cdata_payload: bool,
+) -> Result<(Vec<u8>, scan::Span), SidecarError> {
+    let (region, existing) =
+        script_region(tokens, src, element).ok_or_else(|| SidecarError::NoScript {
+            name: name.to_string(),
+        })?;
+    let payload = render_payload(
+        &existing,
+        script,
+        newline_of(&existing),
+        indent_cdata_payload,
+    );
+    let replacement = scan::render_cdata(payload.as_bytes());
+    let start = region.start - block.span.start;
+    let end = region.end - block.span.start;
+    // The script comes after the name attribute, so it is replaced first and the name's
+    // position stays valid.
+    let original = block.span.of(src);
+    let mut bytes = original[..start].to_vec();
+    bytes.extend_from_slice(&replacement);
+    bytes.extend_from_slice(&original[end..]);
+    let renamed =
+        relocate::with_name(tokens, src, element, block, &bytes, name).map_err(|why| {
+            SidecarError::CannotAdd {
+                name: name.to_string(),
+                why,
+            }
+        })?;
+    // The name came before the script, so the script moved by the change in the name's length.
+    let shifted = start + renamed.len() - bytes.len();
+    Ok((
+        renamed,
+        scan::Span::new(shifted, shifted + replacement.len()),
+    ))
+}
+
+/// A Script implementation written out the way Composer writes one, for an entity that has no
+/// script service to copy the layout from.
+fn composed_implementation(
+    name: &str,
+    script: &str,
+    own_lines: bool,
+    indent: usize,
+    unit: usize,
+    newline: &str,
+    indent_cdata_payload: bool,
+) -> (Vec<u8>, scan::Span) {
+    let cdata =
+        scan::render_cdata(render_payload("", script, newline, indent_cdata_payload).as_bytes());
+    let open =
+        format!("<ServiceImplementation description=\"\" handlerName=\"Script\" name=\"{name}\">");
+    let lines: [(usize, &str); 16] = [
+        (0, &open),
+        (1, "<ConfigurationTables>"),
+        (
+            2,
+            "<ConfigurationTable dataShapeName=\"\" description=\"\" isMultiRow=\"false\" name=\"Script\" ordinal=\"0\">",
+        ),
+        (3, "<DataShape>"),
+        (4, "<FieldDefinitions>"),
+        (
+            5,
+            "<FieldDefinition baseType=\"STRING\" description=\"code\" name=\"code\" ordinal=\"0\"></FieldDefinition>",
+        ),
+        (4, "</FieldDefinitions>"),
+        (3, "</DataShape>"),
+        (3, "<Rows>"),
+        (4, "<Row>"),
+        (5, "<code>\u{0}</code>"),
+        (4, "</Row>"),
+        (3, "</Rows>"),
+        (2, "</ConfigurationTable>"),
+        (1, "</ConfigurationTables>"),
+        (0, "</ServiceImplementation>"),
+    ];
+    let mut bytes = Vec::new();
+    let mut payload = scan::Span::new(0, 0);
+    for (depth, line) in lines {
+        if own_lines {
+            bytes.extend(std::iter::repeat_n(b' ', indent + depth * unit));
+        }
+        match line.split_once('\u{0}') {
+            Some((before, after)) => {
+                bytes.extend_from_slice(before.as_bytes());
+                payload = scan::Span::new(bytes.len(), bytes.len() + cdata.len());
+                bytes.extend_from_slice(&cdata);
+                bytes.extend_from_slice(after.as_bytes());
+            }
+            None => bytes.extend_from_slice(line.as_bytes()),
+        }
+        if own_lines {
+            bytes.extend_from_slice(newline.as_bytes());
+        }
+    }
+    (bytes, payload)
 }
 
 /// The byte range a service's script occupies, and the text currently in it.
@@ -432,8 +744,128 @@ mod tests {
             Err(SidecarError::StructuralChange { removed, .. }) => assert_eq!(removed, vec!["S"]),
             other => panic!("expected a refusal, got {other:?}"),
         }
-        let (_, report) = sync(&src, &empty, true, true, false).unwrap();
+        let (out, report) = sync(&src, &empty, true, true, false).unwrap();
         assert_eq!(report.only_in_entity, vec!["S"]);
+        assert!(sidecar::extract(&out).unwrap().services.is_empty());
+        let text = String::from_utf8(out).unwrap();
+        assert!(!text.contains("name=\"S\""), "{text}");
+    }
+
+    fn new_service(name: &str, script: &str) -> ServiceSidecar {
+        ServiceSidecar {
+            name: name.to_string(),
+            definition: format!(
+                "<ServiceDefinition name=\"{name}\" description=\"new\"></ServiceDefinition>"
+            ),
+            script: script.to_string(),
+        }
+    }
+
+    /// What extraction reads back, by name, as (definition, script).
+    fn read_back(src: &[u8]) -> BTreeMap<String, (String, String)> {
+        sidecars_of(src)
+            .into_iter()
+            .map(|(name, s)| (name, (s.definition.trim_end().to_string(), s.script)))
+            .collect()
+    }
+
+    #[test]
+    fn an_allowed_new_sidecar_adds_the_service_and_the_next_sync_is_a_no_op() {
+        let src = entity("            var a = 1;");
+        let mut sidecars = sidecars_of(&src);
+        sidecars.insert("N".into(), new_service("N", "var n = 2;\nresult = n;"));
+        sidecars.insert("M".into(), new_service("M", "a(); ]]> b();"));
+        assert!(matches!(
+            sync(&src, &sidecars, false, true, false),
+            Err(SidecarError::StructuralChange { .. })
+        ));
+
+        let (out, report) = sync(&src, &sidecars, true, true, false).unwrap();
+        assert_eq!(report.only_in_sidecars, vec!["M", "N"]);
+        let back = read_back(&out);
+        assert_eq!(back.keys().collect::<Vec<_>>(), ["M", "N", "S"]);
+        assert_eq!(back["N"].1, "var n = 2;\nresult = n;");
+        assert_eq!(back["M"].1, "a(); ]]> b();");
+        assert_eq!(back["N"].0, sidecars["N"].definition);
+        assert_eq!(back["S"].1, "var a = 1;");
+        let (again, report) = sync(&out, &sidecars_of(&out), false, true, false).unwrap();
+        assert_eq!(again, out);
+        assert!(report.changed.is_empty());
+
+        // Taking the sidecars away again restores the original document exactly.
+        let (restored, report) = sync(&out, &sidecars_of(&src), true, true, false).unwrap();
+        assert_eq!(report.only_in_entity, vec!["M", "N"]);
+        assert_eq!(restored, src);
+    }
+
+    #[test]
+    fn one_service_can_be_added_while_another_is_removed() {
+        let src = entity("            var a = 1;");
+        let sidecars = BTreeMap::from([("N".to_string(), new_service("N", "n();"))]);
+        let (out, report) = sync(&src, &sidecars, true, false, false).unwrap();
+        assert_eq!(report.only_in_sidecars, vec!["N"]);
+        assert_eq!(report.only_in_entity, vec!["S"]);
+        let back = read_back(&out);
+        assert_eq!(back.keys().collect::<Vec<_>>(), ["N"]);
+        assert_eq!(back["N"].1, "n();");
+    }
+
+    #[test]
+    fn a_service_is_added_in_the_documents_own_layout() {
+        let src = b"<Entities>\n    <Things>\n        <Thing name=\"T\">\n            <ThingShape>\n                <ServiceDefinitions>\n                    <ServiceDefinition name=\"S\"></ServiceDefinition>\n                </ServiceDefinitions>\n                <ServiceImplementations>\n                    <ServiceImplementation name=\"S\" handlerName=\"Script\">\n                        <ConfigurationTables>\n                            <ConfigurationTable name=\"Script\">\n                                <Rows>\n                                    <Row>\n                                        <code><![CDATA[\ns();\n]]></code>\n                                    </Row>\n                                </Rows>\n                            </ConfigurationTable>\n                        </ConfigurationTables>\n                    </ServiceImplementation>\n                </ServiceImplementations>\n            </ThingShape>\n        </Thing>\n    </Things>\n</Entities>\n";
+        let mut sidecars = sidecars_of(src);
+        sidecars.insert("N".into(), new_service("N", "n();"));
+        let (out, _) = sync(src, &sidecars, true, false, false).unwrap();
+        let text = String::from_utf8(out.clone()).unwrap();
+        assert!(
+            text.contains("                    <ServiceDefinition name=\"N\" description=\"new\"></ServiceDefinition>\n                </ServiceDefinitions>"),
+            "{text}"
+        );
+        assert!(
+            text.contains("                    <ServiceImplementation name=\"N\" handlerName=\"Script\">\n                        <ConfigurationTables>"),
+            "{text}"
+        );
+        assert_eq!(read_back(&out)["N"].1, "n();");
+    }
+
+    #[test]
+    fn an_entity_with_no_script_service_gets_one_written_as_composer_writes_it() {
+        let src = b"<Entities>\n  <Things>\n    <Thing name=\"T\">\n      <ThingShape>\n        <ServiceDefinitions></ServiceDefinitions>\n        <ServiceImplementations/>\n      </ThingShape>\n    </Thing>\n  </Things>\n</Entities>\n";
+        let sidecars = BTreeMap::from([("N".to_string(), new_service("N", "n();\nm();"))]);
+        let (out, report) = sync(src, &sidecars, true, false, false).unwrap();
+        assert_eq!(report.only_in_sidecars, vec!["N"]);
+        let text = String::from_utf8(out.clone()).unwrap();
+        assert!(
+            text.contains("        <ServiceDefinitions>\n          <ServiceDefinition name=\"N\" description=\"new\"></ServiceDefinition>\n        </ServiceDefinitions>"),
+            "{text}"
+        );
+        assert!(
+            text.contains("          <ServiceImplementation description=\"\" handlerName=\"Script\" name=\"N\">\n            <ConfigurationTables>"),
+            "{text}"
+        );
+        assert_eq!(read_back(&out)["N"].1, "n();\nm();");
+        let (again, _) = sync(&out, &sidecars_of(&out), false, false, false).unwrap();
+        assert_eq!(again, out);
+    }
+
+    #[test]
+    fn a_sidecar_that_cannot_become_a_new_script_service_is_refused_even_when_allowed() {
+        let src = br#"<Entities><Things><Thing name="T"><ThingShape>
+            <ServiceDefinitions><ServiceDefinition name="Abstract"></ServiceDefinition></ServiceDefinitions>
+            <ServiceImplementations><ServiceImplementation name="Sql" handlerName="SQLCommand">
+            <ConfigurationTables><ConfigurationTable name="SQL"><Rows><Row><sql>x</sql></Row></Rows>
+            </ConfigurationTable></ConfigurationTables></ServiceImplementation>
+            <ServiceImplementation name="Inherited" handlerName="Script">
+            <ConfigurationTables><ConfigurationTable name="Script"><Rows><Row><code><![CDATA[i();]]></code></Row></Rows>
+            </ConfigurationTable></ConfigurationTables></ServiceImplementation></ServiceImplementations>
+            </ThingShape></Thing></Things></Entities>"#;
+        for name in ["Sql", "Abstract", "Inherited"] {
+            let sidecars = BTreeMap::from([(name.to_string(), new_service(name, "x();"))]);
+            match sync(src, &sidecars, true, true, false) {
+                Err(SidecarError::CannotAdd { name: refused, .. }) => assert_eq!(refused, name),
+                other => panic!("expected {name} to be refused, got {other:?}"),
+            }
+        }
     }
 
     #[test]

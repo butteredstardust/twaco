@@ -214,13 +214,24 @@ pub(crate) fn sync_services(
             if out == src {
                 return Ok(Some(false));
             }
-            log.change(format!(
-                "{}: {} service(s) {}: {}",
-                entity.info.name,
-                report.changed.len(),
-                if check { "would change" } else { "changed" },
-                report.changed.join(", ")
-            ));
+            // A plain edit keeps the one-part message; an add or remove is named as such.
+            let structural = report.has_structural_change();
+            let mut parts = Vec::new();
+            for (names, would, did) in [
+                (&report.changed, "would change", "changed"),
+                (&report.only_in_sidecars, "would add", "added"),
+                (&report.only_in_entity, "would remove", "removed"),
+            ] {
+                if !names.is_empty() || (!structural && std::ptr::eq(names, &report.changed)) {
+                    parts.push(format!(
+                        "{} service(s) {}: {}",
+                        names.len(),
+                        if check { would } else { did },
+                        names.join(", ")
+                    ));
+                }
+            }
+            log.change(format!("{}: {}", entity.info.name, parts.join("; ")));
             if !check {
                 if let Err(e) = super::workspace::write_entity(&entity.path, &out) {
                     log.error(format!("{e}"));

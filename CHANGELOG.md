@@ -12,6 +12,9 @@ All notable changes to twaco are recorded here. The format follows
   connection URL or a JSON configuration passed as a string. Before, only a string that was
   exactly one placeholder was replaced, and a longer string reached the server with the
   placeholder text in it, while the redacted plan looked right.
+- `sync --allow-add-remove` adds a service from a new sidecar folder and removes one whose
+  folder is gone. Before, the flag only silenced the refusal: a new service was reported
+  "already in sync" and never written, although DataShape fields were added and removed.
 
 ## [0.1.1] - 2026-10-06
 

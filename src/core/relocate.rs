@@ -336,17 +336,19 @@ fn reindent(block: &[u8], block_start: usize, cdata: &[Span], from: usize, to: u
 }
 
 /// One member block as found in a document.
-struct Block {
+pub(crate) struct Block {
     /// The element, whole lines when it is alone on them.
-    span: Span,
-    own_lines: bool,
-    indent: usize,
+    pub(crate) span: Span,
+    pub(crate) own_lines: bool,
+    pub(crate) indent: usize,
     /// The section's own indentation, to learn the nesting unit from.
-    section_indent: usize,
-    cdata: Vec<Span>,
+    pub(crate) section_indent: usize,
+    /// CDATA payloads inside the block, which reindenting leaves alone; positions are counted
+    /// from the same origin as `span`.
+    pub(crate) cdata: Vec<Span>,
 }
 
-fn block_of(
+pub(crate) fn block_of(
     tokens: &[Token],
     src: &[u8],
     section: usize,
@@ -376,7 +378,7 @@ fn block_of(
 }
 
 /// A planned insertion of `block` (from `from_src`) into a target section.
-fn insert_edit(
+pub(crate) fn insert_edit(
     tokens: &[Token],
     src: &[u8],
     host: usize,
@@ -549,7 +551,7 @@ fn insert_edit(
 }
 
 /// The member's name attribute rewritten inside a block's bytes (the first tag only).
-fn with_name(
+pub(crate) fn with_name(
     tokens: &[Token],
     src: &[u8],
     element: usize,
