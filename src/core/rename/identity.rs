@@ -136,12 +136,16 @@ pub(super) fn plan_identity(solution: &Solution, spec: &Spec) -> Result<Plan, Re
     let config_path = solution.root.join(CONFIG_FILE);
     let mut covered = entity_paths.clone();
     covered.insert(config_path.clone());
+    let qualified =
+        (mode == refs::Mode::Entity).then(|| qualified_names(solution, &discovery, spec));
+    let qualified = qualified.as_ref();
     let mut skipped = Vec::new();
     scan_text_file(
         &config_path,
         FileKind::Config,
         spec,
         mode,
+        qualified,
         &mut changes,
         &mut skipped,
     )?;
@@ -187,6 +191,7 @@ pub(super) fn plan_identity(solution: &Solution, spec: &Spec) -> Result<Plan, Re
                 FileKind::Sidecar,
                 spec,
                 mode,
+                qualified,
                 &mut changes,
                 &mut skipped,
             )?;
@@ -196,6 +201,7 @@ pub(super) fn plan_identity(solution: &Solution, spec: &Spec) -> Result<Plan, Re
                 FileKind::Outside,
                 spec,
                 mode,
+                qualified,
                 &mut outside,
                 &mut skipped,
             )?;
@@ -245,4 +251,64 @@ pub(super) fn plan_identity(solution: &Solution, spec: &Spec) -> Result<Plan, Re
         field_tables: 0,
         service_mashups: 0,
     })
+}
+
+/// The entity names and the renamed entity's members that tell `Old.Member` from `Old.Child`
+/// in text. A catalog that cannot be built leaves only the entity's own members, so fewer
+/// references are renamed and more are left for review, never the other way round.
+fn qualified_names(
+    solution: &Solution,
+    discovery: &workspace::Discovery,
+    spec: &Spec,
+) -> rename_scan::Qualified {
+    let mut qualified = rename_scan::Qualified {
+        entities: discovery
+            .entities
+            .iter()
+            .map(|entity| entity.info.name.clone())
+            .collect(),
+        ..Default::default()
+    };
+    if let Ok(catalog) = catalog::build(
+        solution,
+        catalog::Query {
+            entity: Some(&spec.old),
+            ..Default::default()
+        },
+    ) {
+        qualified.members.extend(
+            catalog
+                .entities
+                .iter()
+                .filter(|entity| entity.name == spec.old)
+                .flat_map(|entity| entity.services.iter().map(|service| service.name.clone())),
+        );
+    }
+    for entity in discovery
+        .entities
+        .iter()
+        .filter(|entity| entity.info.name == spec.old)
+    {
+        let Ok(bytes) = std::fs::read(&entity.path) else {
+            continue;
+        };
+        let Ok(tokens) = crate::core::scan::tokenize(&bytes) else {
+            continue;
+        };
+        let Some(host) = crate::core::sidecar::member_host_of(&tokens, &bytes) else {
+            continue;
+        };
+        for (section, member) in [
+            ("ServiceDefinitions", "ServiceDefinition"),
+            ("PropertyDefinitions", "PropertyDefinition"),
+            ("EventDefinitions", "EventDefinition"),
+        ] {
+            if let Ok(names) =
+                crate::core::sidecar::named_children_of(&tokens, &bytes, host, section, member)
+            {
+                qualified.members.extend(names.into_keys());
+            }
+        }
+    }
+    qualified
 }

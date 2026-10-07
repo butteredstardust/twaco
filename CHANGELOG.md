@@ -15,6 +15,11 @@ All notable changes to twaco are recorded here. The format follows
 - `sync --allow-add-remove` adds a service from a new sidecar folder and removes one whose
   folder is gone. Before, the flag only silenced the refusal: a new service was reported
   "already in sync" and never written, although DataShape fields were added and removed.
+- `rename entity` finds the entity followed by one of its members, such as
+  `Acme.App.Manager.GetOrders` in `[validate] inherited_overrides`, in `twaco.toml` and the other
+  text files, and renames it. Followed by anything else that is not another entity, it is left for
+  review. Before, such a name was neither changed nor counted, and the plan said "0 review".
+- A rename planned with `--text` no longer says the other files "were not changed; pass --text".
 
 ## [0.1.1] - 2026-10-06
 

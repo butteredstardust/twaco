@@ -171,7 +171,10 @@ it left for a person. `--apply` writes. `--text` also changes the other text fil
 localization tables); without it they are counted and left alone. `--detail` lists every finding.
 
 **What counts as a reference.** A name matches as a whole token: it is not part of a longer
-name (`Acme.App-2`, `Acme.App_TS`, and for an entity not `Acme.App.Manager.Child`). The same name
+name (`Acme.App-2`, `Acme.App_TS`, and for an entity not `Acme.App.Manager.Child`). In
+`twaco.toml` and the other text files, an entity followed by one of its members
+(`Acme.App.Manager.GetOrders`, as `[validate] inherited_overrides` writes it) is a reference and
+is renamed; followed by anything else that is not an entity, it is left for a person. The same name
 is found in an attribute, a text node, a script or a mashup's JSON, a URL
 (`/Thingworx/MediaEntities/Acme.App.Icon_MD`), a localization token (`[[Acme.App.Save]]`), and in
 the ids a mashup derives from an entity (`DynamicThingShapes_Acme.App.Management_TS`). A **short
