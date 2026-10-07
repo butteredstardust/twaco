@@ -130,6 +130,23 @@ pub(crate) enum Node {
 
 /// Canonical structural bytes for one live or committed entity export.
 pub fn normalise(src: &[u8]) -> Result<Vec<u8>, NormaliseError> {
+    canonical(src, true)
+}
+
+/// Whether two exports differ only in their permission blocks: equal with every
+/// `DesignTimePermissions`, `RunTimePermissions` and `VisibilityPermissions` left out, and not
+/// equal with them. An import never removes a grant, so such an entity needs a permissions push
+/// rather than another import.
+pub fn differ_only_in_permissions(left: &[u8], right: &[u8]) -> bool {
+    match (canonical(left, false), canonical(right, false)) {
+        (Ok(left_rest), Ok(right_rest)) => {
+            left_rest == right_rest && normalise(left).ok() != normalise(right).ok()
+        }
+        _ => false,
+    }
+}
+
+fn canonical(src: &[u8], with_permissions: bool) -> Result<Vec<u8>, NormaliseError> {
     let tokens = scan::tokenize(src)?;
     reject_non_utf8_declaration(src, &tokens)?;
     let mut entity = unwrap_entity(parse(src, &tokens)?)?;
@@ -138,7 +155,14 @@ pub fn normalise(src: &[u8]) -> Result<Vec<u8>, NormaliseError> {
     normalise_special_payloads(&mut entity);
     clean_indentation(&mut entity);
     sort_name_keyed_containers(&mut entity);
-    normalise_permissions(&mut entity);
+    if with_permissions {
+        normalise_permissions(&mut entity);
+    } else {
+        entity.children.retain(|child| {
+            !matches!(child, Node::Element(element)
+                if PERMISSION_BLOCKS.contains(&element.name.as_slice()))
+        });
+    }
     let mut out = b"twaco-entity-normalise-v4\0".to_vec();
     write_element(&entity, &mut out);
     Ok(out)
@@ -900,6 +924,30 @@ mod tests {
             hash(moved.as_bytes()).unwrap(),
             hash(PERMISSIONS_SENT).unwrap()
         );
+    }
+
+    #[test]
+    fn a_difference_only_in_permissions_is_told_apart_from_any_other() {
+        let sent = std::str::from_utf8(PERMISSIONS_SENT).unwrap();
+        let extra_grant = sent.replacen(
+            "<Update/>",
+            r#"<Update><Principal isPermitted="true" name="Users" type="Group"/></Update>"#,
+            1,
+        );
+        assert!(differ_only_in_permissions(
+            PERMISSIONS_SENT,
+            extra_grant.as_bytes()
+        ));
+        // Equal is not "differs only in permissions".
+        assert!(!differ_only_in_permissions(
+            PERMISSIONS_SENT,
+            PERMISSIONS_READ_BACK
+        ));
+        let other_change = extra_grant.replacen(r#"name="T""#, r#"name="T" description="x""#, 1);
+        assert!(!differ_only_in_permissions(
+            PERMISSIONS_SENT,
+            other_change.as_bytes()
+        ));
     }
 
     #[test]

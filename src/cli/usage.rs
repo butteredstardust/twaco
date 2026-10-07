@@ -205,6 +205,15 @@ pub(crate) const USAGE: &str = r#"usage: twaco <command>
       --add-shapes a,b        implement these shapes too
       --remove-shapes a,b     stop implementing these shapes
       --accept-loss           go ahead although stored values or references would lose their definition
+  permissions diff <entity>...|--all [--json]
+                              each entity's run-time, design-time and visibility permissions against
+                              the server's: grants only the server has (an import never removes one),
+                              grants only the repository has, and allow/deny that differs (an import
+                              keeps the server's); exit 1 when any differs
+  permissions push <entity>...|--all [--apply] [--json]
+                              make the server's permission sets exactly the repository's, set by set,
+                              reading each back; plan unless --apply; records the baseline of pushed
+                              entities that then match the server
   entity restore [<set> [<entity>...]]  list backup sets, or plan importing one back
       --apply                 import the set's entities, confirming each on the server
       --json                  {sets|plan|applied, ...}

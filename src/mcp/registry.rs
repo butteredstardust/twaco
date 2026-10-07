@@ -212,6 +212,18 @@ static TOOLS: LazyLock<Vec<Tool>> = LazyLock::new(|| {
             false,
             entity::entity_carry_tool,
         ),
+        solution_tool::<entity_requests::PermissionsRequest>(
+            "permissions",
+            "Compare entities' run-time, design-time and visibility permissions in the repository with the server's. An import only adds: it never removes a grant the server has, and never changes the server's allow or deny for a principal it already lists. Each difference is server-only, repository-only or flipped (allow/deny differs). A permission set the entity XML does not declare is not compared. Read-only.",
+            true,
+            entity::permissions_tool,
+        ),
+        solution_tool::<entity_requests::PermissionsPushRequest>(
+            "permissions_push",
+            "Make the server's permission sets exactly the repository's: every differing run-time, design-time or visibility set is written whole and read back. Removes server-only grants and corrects flipped allow/deny, which an import cannot do. A set the entity XML does not declare is never written. A dry run unless dry_run is false; an applied push records the baseline of each pushed entity that then matches the server.",
+            false,
+            entity::permissions_push_tool,
+        ),
         solution_tool::<data_requests::DbRunRequest>(
             "db_run",
             "Run one SQL script as an atomic SQLCommand through a throwaway Database Thing. Plans by default and shows the SQL and sanitized connection target; pass dry_run: false to execute.",

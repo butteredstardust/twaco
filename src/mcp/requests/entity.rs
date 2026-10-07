@@ -101,3 +101,39 @@ pub(crate) struct EntityCarryRequest {
     #[serde(default = "default_profile")]
     pub(crate) profile: String,
 }
+
+#[derive(Debug, Deserialize, JsonSchema, Serialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct PermissionsRequest {
+    /// Entity names, full or their last dotted segment. Name some, or pass all: true.
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) entities: Absent<Vec<String>>,
+    /// Every entity (of the project, if one is named).
+    #[serde(default)]
+    pub(crate) all: bool,
+    /// Narrow to one project of the solution.
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) project: Absent<String>,
+    /// Server profile name.
+    #[serde(default = "default_profile")]
+    pub(crate) profile: String,
+}
+
+#[derive(Debug, Deserialize, JsonSchema, Serialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct PermissionsPushRequest {
+    /// Entity names, full or their last dotted segment. Name some, or pass all: true.
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) entities: Absent<Vec<String>>,
+    /// Every entity (of the project, if one is named).
+    #[serde(default)]
+    pub(crate) all: bool,
+    /// Narrow to one project of the solution.
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) project: Absent<String>,
+    #[serde(default = "default_true")]
+    pub(crate) dry_run: bool,
+    /// Server profile name.
+    #[serde(default = "default_profile")]
+    pub(crate) profile: String,
+}

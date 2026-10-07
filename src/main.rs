@@ -28,7 +28,8 @@ use cli::args::Args;
 use cli::content::{export_cmd, ext_cmd, import_cmd, package_cmd, repo_cmd};
 use cli::data::{call, config_table, datatable_copy_cmd, db_clean_cmd, db_cmd, logs_cmd};
 use cli::entity::{
-    entity_carry_cmd, entity_delete_cmd, entity_get, entity_push, entity_restore_cmd, entity_status,
+    entity_carry_cmd, entity_delete_cmd, entity_get, entity_push, entity_restore_cmd,
+    entity_status, permissions_cmd,
 };
 use cli::info::{
     catalog_cmd, docs_cmd, guide_cmd, help_cmd, impact_cmd, javadoc_cmd, settings_cmd, unused_cmd,
@@ -302,6 +303,7 @@ fn run_command(args: &[String]) -> ExitCode {
             "entity push" => entity_push(solution, &parsed),
             "entity delete" => entity_delete_cmd(solution, &parsed),
             "entity carry" => entity_carry_cmd(solution, &parsed),
+            "permissions diff" | "permissions push" => permissions_cmd(solution, route, &parsed),
             "entity restore" => entity_restore_cmd(solution, &parsed),
             "db run" | "db query" => db_cmd(solution, route, &parsed),
             "db clean" => db_clean_cmd(solution, &parsed),
@@ -425,6 +427,12 @@ fn route(args: &[String]) -> Result<Route, String> {
             }
             Some(other) => return Err(format!("unknown entity command `{other}`")),
             None => return Err("entity needs `get`, `status`, `push`, `delete`, `carry` or `restore`".to_string()),
+        },
+        "permissions" => match args.get(1).map(String::as_str) {
+            Some("diff") => ("permissions diff", 2, &["--all", "--project", "--profile", "--json"]),
+            Some("push") => ("permissions push", 2, &["--all", "--project", "--apply", "--profile", "--json"]),
+            Some(other) => return Err(format!("unknown permissions command `{other}`")),
+            None => return Err("permissions needs `diff` or `push`".to_string()),
         },
         "datatable" => match args.get(1).map(String::as_str) {
             Some("copy") => ("datatable copy", 2, &["--map", "--drop-unmapped", "--append", "--max-rows", "--apply", "--profile", "--json"]),

@@ -526,3 +526,116 @@ pub(crate) fn entity_carry_cmd(solution: &Solution, args: &Args) -> u8 {
         OK
     }
 }
+
+/// Compare entity permissions with the server's (`permissions diff`), or make them the
+/// repository's (`permissions push`). A diff exits 1 when any entity differs, like a check; a push
+/// is a plan without `--apply`, and an applied push that fails anywhere exits 2.
+pub(crate) fn permissions_cmd(solution: &Solution, route: &str, args: &Args) -> u8 {
+    let push = route == "permissions push";
+    let request = commands::permissions::PermissionsRequest {
+        target: if args.has("--all") {
+            commands::status::StatusTarget::All
+        } else {
+            commands::status::StatusTarget::Names(args.names.clone())
+        },
+        project: args.project.clone(),
+        mode: if push && args.has("--apply") {
+            Mode::Apply
+        } else {
+            Mode::Plan
+        },
+        profile: args
+            .profile
+            .clone()
+            .unwrap_or_else(|| "default".to_string()),
+        lock_label: "permissions push",
+    };
+    let mut notices = commands::Notices::default();
+    let outcome =
+        match commands::permissions::execute(solution, &request, server::Client::new, &mut notices)
+        {
+            Ok(outcome) => outcome,
+            Err(error) => {
+                print_notices(&notices);
+                eprintln!("twaco: {error}");
+                return FAILED;
+            }
+        };
+    print_notices(&notices);
+    let report = &outcome.report;
+    if args.has("--json") {
+        let value = serde_json::json!({
+            "applied": report.applied,
+            "entities": report.entities,
+            "recorded": outcome.recorded,
+        });
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&value).expect("permissions report serialises")
+        );
+    } else {
+        let mut counts = Vec::new();
+        for status in [
+            twaco::core::permissions::Status::Same,
+            twaco::core::permissions::Status::Differs,
+            twaco::core::permissions::Status::Pushed,
+            twaco::core::permissions::Status::NotOnServer,
+            twaco::core::permissions::Status::Unmanaged,
+            twaco::core::permissions::Status::Failed,
+        ] {
+            let count = report.count(status);
+            if count > 0 {
+                counts.push(format!("{count} {}", status.label()));
+            }
+        }
+        println!(
+            "{} entit{}: {}",
+            report.entities.len(),
+            if report.entities.len() == 1 {
+                "y"
+            } else {
+                "ies"
+            },
+            counts.join(", ")
+        );
+        for entity in &report.entities {
+            if entity.differences.is_empty() && entity.error.is_none() {
+                continue;
+            }
+            println!(
+                "{}/{}  {}",
+                entity.collection,
+                entity.name,
+                entity.status.label()
+            );
+            for difference in &entity.differences {
+                println!("  {difference}");
+            }
+            if let Some(error) = &entity.error {
+                println!("  failed: {error}");
+            }
+        }
+        if let Some(recorded) = outcome.recorded {
+            println!(
+                "baseline recorded for {recorded} pushed entit{} now matching the server",
+                if recorded == 1 { "y" } else { "ies" }
+            );
+        }
+        let differs = report.count(twaco::core::permissions::Status::Differs);
+        if !push && differs > 0 {
+            println!(
+                "an import never removes a grant or changes the server's allow/deny; \
+                 `twaco permissions push` makes these the repository's"
+            );
+        } else if push && !report.applied && differs > 0 {
+            println!("dry run: nothing was written; pass --apply to push");
+        }
+    }
+    if report.count(twaco::core::permissions::Status::Failed) > 0 {
+        FAILED
+    } else if !push && report.count(twaco::core::permissions::Status::Differs) > 0 {
+        DRIFT
+    } else {
+        OK
+    }
+}

@@ -43,6 +43,7 @@ pub mod normalise;
 pub mod order;
 pub mod package;
 pub mod parallel;
+pub mod permissions;
 pub mod profile;
 pub mod push;
 pub mod refs;

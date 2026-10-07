@@ -145,19 +145,26 @@ pub fn run(
             why: error.to_string(),
         })?;
         let fetched = remote.fetch(&entity.collection, &entity.name);
+        let mut only_permissions = false;
         let (read_back, error) = match fetched {
             Ok(Some(bytes)) => match normalise::hash(&bytes) {
-                Ok(hash) => (Some(hash), None),
+                Ok(hash) => {
+                    if hash != sent {
+                        only_permissions =
+                            normalise::differ_only_in_permissions(&entity.bytes, &bytes);
+                    }
+                    (Some(hash), None)
+                }
                 Err(why) => (None, Some(why.to_string())),
             },
             Ok(None) => (None, None),
             Err(why) => (None, Some(why.to_string())),
         };
-        Ok((entity, sent, read_back, error))
+        Ok((entity, sent, read_back, error, only_permissions))
     });
     let mut first_read_back = BTreeMap::<(String, String), String>::new();
     for result in read_backs {
-        let (entity, sent, read_back, error) = result?;
+        let (entity, sent, read_back, error, only_permissions) = result?;
         if read_back.as_deref() == Some(sent.as_str()) {
             let read_back = read_back.expect("matching read-back is present");
             baseline.set(
@@ -177,6 +184,7 @@ pub fn run(
                 sent,
                 read_back,
                 error,
+                only_permissions,
             });
         }
     }

@@ -6,6 +6,15 @@ All notable changes to twaco are recorded here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- `permissions diff` compares the run-time, design-time and visibility permissions in the entity
+  XML with the server's, and `permissions push` makes the server's exactly the repository's,
+  reading each set back. An import only adds: it never removes a grant, and it keeps the server's
+  allow or deny for a principal the server already lists, so a deny in the repository could be
+  silently ignored (verified on a live server). MCP tools `permissions` and `permissions_push`.
+- A deploy whose read-back differs only in permissions says so, and names the commands above.
+
 ### Fixed
 
 - `deploy` replaces a `${profile:key}` placeholder anywhere inside a string parameter, such as a

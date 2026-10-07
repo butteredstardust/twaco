@@ -533,6 +533,12 @@ pub(crate) fn deploy_cmd(solution: &Solution, args: &Args) -> u8 {
                                         .map(|why| format!("; {why}"))
                                         .unwrap_or_default()
                                 );
+                                if item.only_permissions {
+                                    eprintln!(
+                                        "twaco: {}/{}: only its permissions differ, and an import never removes a grant or changes the server's allow/deny; `twaco permissions diff {}` shows them, `twaco permissions push {} --apply` makes them the repository's",
+                                        item.collection, item.name, item.name, item.name
+                                    );
+                                }
                             }
                             FAILED
                         }

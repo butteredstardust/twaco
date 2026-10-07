@@ -419,6 +419,26 @@ reads back different is reported as a failure, and the rest are still attempted 
 `--detail` also shows the platform's own difference count. Entities missing on either side are
 reported and skipped.
 
+## Permissions the import leaves behind
+
+An import only adds permissions. A grant removed from the entity XML stays on the server after the
+next deploy, and a principal the server already lists keeps its own allow or deny whatever the XML
+says, so a deny written in the repository can be silently ignored. Deploy reports such an entity as
+not kept, and says when its permissions are the only difference.
+
+```sh
+twaco permissions diff --all                 # what differs, set by set; exit 1 when anything does
+twaco permissions push Acme.App.Manager      # a plan
+twaco permissions push Acme.App.Manager --apply
+```
+
+`diff` compares each set the entity XML declares with the server's, through the platform's
+`Get...PermissionsAsJSON` services, and names every grant the server alone has, every grant the
+repository alone has, and every allow/deny that differs. Order is not a difference. `push --apply`
+writes each differing set whole through `Set...PermissionsAsJSON`, which replaces the set, reads it
+back, and records the baseline of every pushed entity that then matches the server, so the next
+deploy needs no `--force`. A set the XML has no block for is never compared or written.
+
 ## Copying DataTable rows
 
 Renaming a DataTable creates a new, empty one: its rows live on the server, not in the XML.

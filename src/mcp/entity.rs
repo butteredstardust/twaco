@@ -1,6 +1,7 @@
 use super::requests::common::Absent;
 use super::requests::entity::{
-    EntityCarryRequest, EntityDeleteRequest, EntityRestoreRequest, PushRequest, StatusRequest,
+    EntityCarryRequest, EntityDeleteRequest, EntityRestoreRequest, PermissionsPushRequest,
+    PermissionsRequest, PushRequest, StatusRequest,
 };
 use super::*;
 
@@ -312,4 +313,78 @@ pub(crate) fn entity_carry_tool(
     }
     add_notices(&mut result, &notices);
     Ok(result)
+}
+
+fn permissions_target(
+    entities: &Absent<Vec<String>>,
+    all: bool,
+) -> Result<commands::status::StatusTarget, ToolError> {
+    match (entities.items(), all) {
+        ([], true) => Ok(commands::status::StatusTarget::All),
+        ([], false) => Err(ToolError::invalid("name entities, or pass all: true")),
+        (_, true) => Err(ToolError::invalid(
+            "name entities or pass all: true, not both",
+        )),
+        (names, false) => Ok(commands::status::StatusTarget::Names(names.to_vec())),
+    }
+}
+
+fn permissions_result(
+    solution: &Solution,
+    request: commands::permissions::PermissionsRequest,
+) -> Result<Value, ToolError> {
+    let mut notices = commands::Notices::default();
+    let outcome =
+        commands::permissions::execute(solution, &request, server::Client::new, &mut notices)
+            .map_err(ToolError::coded)?;
+    let report = &outcome.report;
+    let mut result = json!({
+        "ok": report.count(crate::core::permissions::Status::Failed) == 0,
+        "applied": report.applied,
+        "differs": report.count(crate::core::permissions::Status::Differs),
+        "entities": report.entities,
+    });
+    if let Some(recorded) = outcome.recorded {
+        result["recorded"] = json!(recorded);
+    }
+    add_notices(&mut result, &notices);
+    Ok(result)
+}
+
+pub(crate) fn permissions_tool(
+    solution: &Solution,
+    request: PermissionsRequest,
+) -> Result<Value, ToolError> {
+    let target = permissions_target(&request.entities, request.all)?;
+    permissions_result(
+        solution,
+        commands::permissions::PermissionsRequest {
+            target,
+            project: request.project.as_ref().cloned(),
+            mode: Mode::Plan,
+            profile: request.profile,
+            lock_label: "mcp permissions",
+        },
+    )
+}
+
+pub(crate) fn permissions_push_tool(
+    solution: &Solution,
+    request: PermissionsPushRequest,
+) -> Result<Value, ToolError> {
+    let target = permissions_target(&request.entities, request.all)?;
+    permissions_result(
+        solution,
+        commands::permissions::PermissionsRequest {
+            target,
+            project: request.project.as_ref().cloned(),
+            mode: if request.dry_run {
+                Mode::Plan
+            } else {
+                Mode::Apply
+            },
+            profile: request.profile,
+            lock_label: "mcp permissions_push",
+        },
+    )
 }

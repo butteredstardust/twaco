@@ -59,6 +59,9 @@ pub struct NotKept {
     pub sent: String,
     pub read_back: Option<String>,
     pub error: Option<String>,
+    /// The read-back differs from what was sent only in its permissions, which an import
+    /// cannot take away; `permissions push` can.
+    pub only_permissions: bool,
 }
 
 #[derive(Clone, Debug, Default)]

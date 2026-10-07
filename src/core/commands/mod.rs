@@ -17,6 +17,7 @@ pub mod imports;
 pub mod logs;
 pub mod newblock;
 pub mod package;
+pub mod permissions;
 pub mod push;
 pub mod relocate;
 pub mod rename;

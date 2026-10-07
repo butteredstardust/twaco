@@ -383,7 +383,7 @@ pub(crate) fn deploy_tool(
             "not_kept": report
                 .not_kept
                 .iter()
-                .map(|n| json!({ "entity": format!("{}/{}", n.collection, n.name), "sent": n.sent, "read_back": n.read_back, "error": n.error }))
+                .map(|n| json!({ "entity": format!("{}/{}", n.collection, n.name), "sent": n.sent, "read_back": n.read_back, "error": n.error, "only_permissions": n.only_permissions }))
                 .collect::<Vec<_>>(),
         }),
         Err(error) => return Err(ToolError::coded(error)),
