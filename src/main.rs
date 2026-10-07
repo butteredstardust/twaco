@@ -433,7 +433,7 @@ fn route(args: &[String]) -> Result<Route, String> {
         "permissions" => match args.get(1).map(String::as_str) {
             Some("diff") => ("permissions diff", 2, &["--all", "--project", "--profile", "--json"]),
             Some("push") => ("permissions push", 2, &["--all", "--project", "--apply", "--profile", "--json"]),
-            Some("audit") => ("permissions audit", 2, &["--project", "--detail", "--json"]),
+            Some("audit") => ("permissions audit", 2, &["--project", "--server", "--profile", "--detail", "--json"]),
             Some("apply") => ("permissions apply", 2, &["--project", "--apply", "--detail", "--json"]),
             Some(other) => return Err(format!("unknown permissions command `{other}`")),
             None => return Err("permissions needs `audit`, `apply`, `diff` or `push`".to_string()),

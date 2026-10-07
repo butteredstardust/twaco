@@ -82,6 +82,8 @@ impl ProjectAudit {
 
 #[derive(Clone, Debug, Default, Serialize)]
 pub struct AuditReport {
+    /// Whether the server was compared too.
+    pub server: bool,
     pub projects: Vec<ProjectAudit>,
     /// Projects without a `permissions.toml`.
     pub without_policy: Vec<String>,
@@ -236,13 +238,34 @@ pub fn run_time_kind(entity: &ModelEntity) -> Option<Kind> {
 
 /// Audit every project with a policy, or the one named.
 pub fn audit(solution: &Solution, project: Option<&str>) -> Result<AuditReport, AuditError> {
+    audit_with(solution, project, None)
+}
+
+/// As [`audit`], and with a server also what the server holds against the repository.
+pub fn audit_with(
+    solution: &Solution,
+    project: Option<&str>,
+    server: Option<&dyn super::server_audit::Remote>,
+) -> Result<AuditReport, AuditError> {
     let (loaded, without_policy) = load(solution, project)?;
     let mut report = AuditReport {
+        server: server.is_some(),
         projects: Vec::new(),
         without_policy,
     };
     for one in &loaded {
-        report.projects.push(audit_loaded(one)?);
+        let mut audited = audit_loaded(one)?;
+        if let Some(remote) = server {
+            let helper = one.helper()?;
+            audited
+                .findings
+                .extend(super::server_audit::audit(remote, one, helper));
+            audited.findings.sort_by(|a, b| {
+                (a.severity, &a.entity, a.code, &a.message)
+                    .cmp(&(b.severity, &b.entity, b.code, &b.message))
+            });
+        }
+        report.projects.push(audited);
     }
     Ok(report)
 }
@@ -274,6 +297,7 @@ pub fn audit_loaded(loaded: &Loaded) -> Result<ProjectAudit, AuditError> {
         }
     }
     unused_rules(loaded, &mut findings);
+    role_units(loaded, &mut findings);
     if let Some(helper) = helper {
         findings.extend(super::helper::findings(loaded, helper).map_err(AuditError::Entity)?);
     }
@@ -489,7 +513,7 @@ fn exists(loaded: &Loaded, name: &str, principal_type: &str) -> bool {
         return false;
     }
     match unit {
-        Some(unit) => entity.units.contains(unit),
+        Some(unit) => entity.units.contains_key(unit),
         None => true,
     }
 }
@@ -574,6 +598,46 @@ fn unused_rules(loaded: &Loaded, findings: &mut Vec<Finding>) {
                 ),
                 details: Vec::new(),
             });
+        }
+    }
+}
+
+/// Each role's organizational unit, where the repository holds its Organization: the unit must
+/// exist and have the role's group as a member, or the role sees nothing.
+fn role_units(loaded: &Loaded, findings: &mut Vec<Finding>) {
+    for role in &loaded.policy.roles {
+        let Some(org) = &role.org else { continue };
+        if org.principal_type != "OrganizationalUnit" {
+            continue;
+        }
+        let Some((organization, unit)) = org.name.split_once(':') else {
+            continue;
+        };
+        let Some(entity) = loaded.all.get(organization) else {
+            continue;
+        };
+        match entity.units.get(unit) {
+            None => findings.push(Finding {
+                severity: Severity::Error,
+                code: "role-unit-missing",
+                entity: Some(entity.key()),
+                message: format!(
+                    "role {} is seen through unit {unit}, which the Organization does not declare",
+                    role.name
+                ),
+                details: Vec::new(),
+            }),
+            Some(members) if !members.contains(&role.group) => findings.push(Finding {
+                severity: Severity::Warning,
+                code: "role-unit-without-group",
+                entity: Some(entity.key()),
+                message: format!(
+                    "unit {unit} of role {} does not have {} as a member, so the role's members see nothing through it",
+                    role.name, role.group
+                ),
+                details: Vec::new(),
+            }),
+            Some(_) => {}
         }
     }
 }

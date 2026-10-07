@@ -255,13 +255,8 @@ pub fn wanted_tables(
     let project = &policy.project;
     let by_name: BTreeMap<&str, &ModelEntity> =
         loaded.entities.iter().map(|e| (e.name(), e)).collect();
-    let data_shape = |table: &str, default: &str| {
-        current
-            .get(table)
-            .map(|t| t.data_shape.clone())
-            .filter(|name| !name.is_empty())
-            .unwrap_or_else(|| format!("{project}.{default}"))
-    };
+    // The helper's own naming (CreateVisilibilityandRuntimeDataShapes); another name is a slip.
+    let data_shape = |suffix: &str| format!("{project}.{suffix}");
     let mut out = BTreeMap::new();
 
     let mut roles: Vec<Row> = Vec::new();
@@ -392,7 +387,7 @@ pub fn wanted_tables(
     out.insert(
         RUN_TIME_TABLE.to_string(),
         Table {
-            data_shape: data_shape(RUN_TIME_TABLE, "RunTimePermissions_DS"),
+            data_shape: data_shape("RunTimePermissions_DS"),
             fields: run_time_fields(policy),
             rows,
         },
@@ -428,7 +423,7 @@ pub fn wanted_tables(
     out.insert(
         VISIBILITY_TABLE.to_string(),
         Table {
-            data_shape: data_shape(VISIBILITY_TABLE, "VisibilityPermissions_DS"),
+            data_shape: data_shape("VisibilityPermissions_DS"),
             fields: visibility_fields(policy),
             rows: visibility,
         },
@@ -563,9 +558,7 @@ pub fn rewrite_tables(
     };
     let mut edits = Vec::new();
     for (name, table) in wanted {
-        if current.get(name) == Some(table) {
-            continue;
-        }
+        // Counted first: with two, the map read above holds only the last one.
         let found: Vec<usize> = scan::child_tags(tokens, src, "ConfigurationTable", tables)
             .into_iter()
             .filter(|&at| {
@@ -581,6 +574,9 @@ pub fn rewrite_tables(
                 found.len()
             )));
         };
+        if current.get(name) == Some(table) {
+            continue;
+        }
         let span = scan::element_span(tokens, *at)
             .ok_or_else(|| error(format!("{name} is not closed")))?;
         let indent = indent_before(src, span.start);
@@ -736,7 +732,9 @@ pub fn edits<'a>(
             .iter()
             .find(|e| e.entity_type == "DataShape" && e.name() == shape)
         else {
-            continue;
+            return Err(error(format!(
+                "the project has no DataShape {shape} for the helper's {table}"
+            )));
         };
         let before = bytes_of(entity)?;
         let after = rewrite_fields(&before, &fields).map_err(|e| at(entity, e))?;

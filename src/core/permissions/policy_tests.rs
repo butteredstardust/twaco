@@ -173,7 +173,7 @@ fn solution(shape_grants: &str, mashup_visibility: &str, policy: &str) -> (Solut
         &root,
         "Organizations/Acme.App.Default_OR.xml",
         &format!(
-            r#"<Entities><Organizations><Organization name="Acme.App.Default_OR" projectName="Acme.App"><VisibilityPermissions><Visibility>{visible}</Visibility></VisibilityPermissions><OrganizationalUnits><OrganizationalUnit name="Acme.App.Viewer_UG"/><OrganizationalUnit name="Acme.App.Editor_UG"/><OrganizationalUnit name="Acme.App.Admin_UG"/></OrganizationalUnits></Organization></Organizations></Entities>"#
+            r#"<Entities><Organizations><Organization name="Acme.App.Default_OR" projectName="Acme.App"><VisibilityPermissions><Visibility>{visible}</Visibility></VisibilityPermissions><OrganizationalUnits><OrganizationalUnit name="Acme.App.Viewer_UG"><Members><Members><Member name="Acme.App.Viewer_UG" type="Group"/></Members></Members></OrganizationalUnit><OrganizationalUnit name="Acme.App.Editor_UG"><Members><Members><Member name="Acme.App.Editor_UG" type="Group"/></Members></Members></OrganizationalUnit><OrganizationalUnit name="Acme.App.Admin_UG"><Members><Members><Member name="Acme.App.Admin_UG" type="Group"/></Members></Members></OrganizationalUnit></OrganizationalUnits></Organization></Organizations></Entities>"#
         ),
     );
     (Solution::load(&root.join("twaco.toml")).unwrap(), root)

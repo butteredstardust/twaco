@@ -19,6 +19,7 @@ pub mod audit;
 pub mod helper;
 mod model;
 pub mod policy;
+pub mod server_audit;
 pub mod write;
 
 use super::entity_carry::{Kind, Remote};
@@ -591,5 +592,7 @@ fn one(remote: &(dyn Remote + Sync), entity: &EntityFile, apply: bool) -> Entity
 mod apply_tests;
 #[cfg(test)]
 mod policy_tests;
+#[cfg(test)]
+mod server_audit_tests;
 #[cfg(test)]
 mod tests;

@@ -143,11 +143,13 @@ entity carry <old> <new>... copy run-time, design-time and visibility permission
 entity restore [<set> [<entity>...]]  list backup sets, or plan importing one back
     --apply                 import the set's entities, confirming each on the server
     --json                  {sets|plan|applied, ...}
-permissions audit [--project <name>] [--detail] [--json]
+permissions audit [--project <name>] [--server] [--detail] [--json]
                             each project's permissions.toml against its entity XML, offline: blocks
                             the policy would change, services a strict entity leaves unclassified,
                             principals the server refuses or no entity defines, rules that match
                             nothing; exit 1 on any error
+    --server                also the server (read-only): each entity's permissions, the helper's
+                            tables, the policy's platform grants and memberships, each role's unit
     --detail                every grant behind a finding
 permissions apply [--project <name>] [--apply] [--detail] [--json]
                             write each project's permissions.toml into its entity XML: the run-time

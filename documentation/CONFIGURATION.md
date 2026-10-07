@@ -275,7 +275,7 @@ roles = ["editor"]
 | `[[role]]` | `name`, `group`, optional `org` and `includes`. A role's visibility principal is the organizational unit `<organization>:<group>`; `org = "organization"` uses the organization itself, `org = "none"` gives no visibility, and any other value is a full principal (with a `:`, a unit). |
 | `[[runtime]]` | Allows `roles`, and every role that includes them, the `action` on the `resources` of the `entities`. Resources are what the entity defines, what its block lists, and the rule's literal names (a service inherited from a template is named literally). `entity_wide = true` also grants the entity-wide resource, which ThingWorx writes `*`. |
 | `[visibility]` | `roles` see every entity no rule names. Principals the roles do not own are kept, unless `remove` names them. |
-| `[[platform]]` | Grants and memberships outside the project, which an import cannot carry: `grant = { entity = "Resources/EntityServices", action = "ServiceInvoke", resource = "ReadEntityDefinitionAsJSON" }` or `member_of = "<group>"`, with `roles` and an optional `requires = "<project>"`. Read now, used by the server commands to come. |
+| `[[platform]]` | Grants and memberships outside the project, which an import cannot carry: `grant = { entity = "Resources/EntityServices", action = "ServiceInvoke", resource = "ReadEntityDefinitionAsJSON" }` or `member_of = "<group>"`, with `roles` (and every role that includes them) and an optional `requires = "<project>"`. `permissions audit --server` checks them. |
 
 The policy owns the run-time block of each Thing in the project, and the instance run-time block
 of each ThingShape and ThingTemplate, unless `unmanaged` names the entity: a grant no rule makes

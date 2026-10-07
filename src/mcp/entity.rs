@@ -403,9 +403,16 @@ pub(crate) fn permissions_audit_tool(
     solution: &Solution,
     request: PermissionsAuditRequest,
 ) -> Result<Value, ToolError> {
-    use crate::core::permissions::audit::{self, Severity};
-    let report = audit::audit(solution, request.project.as_ref().map(String::as_str))
-        .map_err(ToolError::coded)?;
+    use crate::core::permissions::audit::Severity;
+    let report = commands::permissions::execute_audit(
+        solution,
+        &commands::permissions::AuditRequest {
+            project: request.project.as_ref().cloned(),
+            server: request.server.then(|| request.profile.clone()),
+        },
+        server::Client::new,
+    )
+    .map_err(ToolError::coded)?;
     let mut projects = serde_json::to_value(&report.projects).expect("audit report serialises");
     if !request.detail {
         for project in projects.as_array_mut().into_iter().flatten() {
@@ -418,6 +425,7 @@ pub(crate) fn permissions_audit_tool(
     }
     Ok(json!({
         "ok": report.count(Severity::Error) == 0,
+        "server": report.server,
         "errors": report.count(Severity::Error),
         "warnings": report.count(Severity::Warning),
         "projects": projects,

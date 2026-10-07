@@ -645,8 +645,17 @@ pub(crate) fn permissions_cmd(solution: &Solution, route: &str, args: &Args) -> 
 /// Audit each project's permission policy against its entity XML (`permissions audit`). Exits 1
 /// when any finding is an error, like a check.
 pub(crate) fn permissions_audit_cmd(solution: &Solution, args: &Args) -> u8 {
-    use twaco::core::permissions::audit::{self, Severity};
-    let report = match audit::audit(solution, args.project.as_deref()) {
+    use twaco::core::permissions::audit::Severity;
+    let request = commands::permissions::AuditRequest {
+        project: args.project.clone(),
+        server: args.has("--server").then(|| {
+            args.profile
+                .clone()
+                .unwrap_or_else(|| "default".to_string())
+        }),
+    };
+    let report = match commands::permissions::execute_audit(solution, &request, server::Client::new)
+    {
         Ok(report) => report,
         Err(error) => {
             eprintln!("twaco: {error}");

@@ -461,6 +461,20 @@ Without a server, the audit reports:
   an organizational unit an Organization does not declare; rules and patterns that match nothing.
 - **notes:** explicit denies.
 
+With `--server` (and `--profile`), the audit also reads the server, and writes nothing:
+
+- each entity's permission sets against the repository's, as `permissions diff` compares them;
+- in helper mode, the helper's three tables on the server against the repository's;
+- each `[[platform]]` grant and membership: what the Solution Framework's `DeployComponent` does
+  on entities the project does not own, which an import cannot carry. An entry whose `requires`
+  project is not on the server is skipped, with a note;
+- each role's organizational unit: it must exist and hold the role's group, or the role sees
+  nothing.
+
+```sh
+twaco permissions audit --server --profile production
+```
+
 `permissions apply` writes the policy into the entity XML: the run-time block of each Thing, the
 instance run-time block of each ThingShape and ThingTemplate, and the role principals of each
 visibility block. Only blocks whose grants differ are rewritten, in the export's layout and the

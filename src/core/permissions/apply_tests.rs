@@ -465,3 +465,53 @@ fn helper_mode_writes_the_helpers_tables_and_columns_from_the_policy() {
     );
     let _ = std::fs::remove_dir_all(root);
 }
+
+#[test]
+fn a_helper_that_cannot_mean_one_thing_is_an_error_not_a_guess() {
+    // Two run-time tables, the last one correct: the first must not hide behind it.
+    let (solution, root) = helper_solution();
+    command::execute_apply(&solution, &request(Mode::Apply), &mut Notices::default()).unwrap();
+    let path = root.join("Things/Acme.App.ComponentPermissionHelper.xml");
+    let written = std::fs::read_to_string(&path).unwrap();
+    let doubled = written.replacen(
+        "            <ConfigurationTables>\n",
+        &format!(
+            "            <ConfigurationTables>\n{}",
+            empty_table("RunTimePermissionsTable", "Acme.App.RunTimePermissions_DS")
+        ),
+        1,
+    );
+    std::fs::write(&path, &doubled).unwrap();
+    let audit = super::audit::audit(&solution, None).unwrap();
+    let codes: Vec<&str> = audit.projects[0].findings.iter().map(|f| f.code).collect();
+    assert!(codes.contains(&"helper-unwritable"), "{codes:?}");
+    assert!(
+        command::execute_apply(&solution, &request(Mode::Plan), &mut Notices::default()).is_err()
+    );
+    std::fs::write(&path, &written).unwrap();
+
+    // A table pointing at another DataShape is pointed back at the project's.
+    let foreign = written.replace(
+        "dataShapeName=\"Acme.App.RunTimePermissions_DS\"",
+        "dataShapeName=\"Other.RunTimePermissions_DS\"",
+    );
+    std::fs::write(&path, &foreign).unwrap();
+    command::execute_apply(&solution, &request(Mode::Apply), &mut Notices::default()).unwrap();
+    assert_eq!(std::fs::read_to_string(&path).unwrap(), written);
+
+    // Without the project's DataShape, the helper cannot be kept: an error.
+    std::fs::remove_file(root.join("DataShapes/Acme.App.VisibilityPermissions_DS.xml")).unwrap();
+    let audit = super::audit::audit(&solution, None).unwrap();
+    let finding = audit.projects[0]
+        .findings
+        .iter()
+        .find(|f| f.code == "helper-unwritable")
+        .unwrap();
+    assert!(
+        finding
+            .message
+            .contains("Acme.App.VisibilityPermissions_DS"),
+        "{finding:?}"
+    );
+    let _ = std::fs::remove_dir_all(root);
+}

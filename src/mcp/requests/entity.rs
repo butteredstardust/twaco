@@ -125,6 +125,13 @@ pub(crate) struct PermissionsAuditRequest {
     /// Narrow to one project of the solution.
     #[serde(default, skip_serializing_if = "Absent::is_absent")]
     pub(crate) project: Absent<String>,
+    /// Also compare the server (read-only): entity permissions, helper tables, platform grants,
+    /// memberships and role units.
+    #[serde(default)]
+    pub(crate) server: bool,
+    /// Server profile name, with server.
+    #[serde(default = "default_profile")]
+    pub(crate) profile: String,
     /// Every grant behind each finding.
     #[serde(default)]
     pub(crate) detail: bool,

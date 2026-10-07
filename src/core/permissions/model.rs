@@ -3,7 +3,7 @@
 use super::{elements, from_xml, PermissionsError, Sets};
 use crate::core::normalise::{self, Element};
 use crate::core::workspace::EntityFile;
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 
 /// The template every Solution Framework permission helper Thing derives from. It ships in the
 /// `PTCDTS.Base` project, which depends only on `PTC.Base`, so a server without the Solution
@@ -22,8 +22,9 @@ pub struct ModelEntity {
     pub properties: BTreeSet<String>,
     pub events: BTreeSet<String>,
     pub sets: Sets,
-    /// The organizational units an Organization declares; empty for anything else.
-    pub units: BTreeSet<String>,
+    /// The organizational units an Organization declares, with the names of their members; empty
+    /// for anything else.
+    pub units: BTreeMap<String, BTreeSet<String>>,
     /// The file as it was read. A plan rewrites these bytes and a transaction expects them, so a
     /// file changed since is refused rather than overwritten.
     pub bytes: std::rc::Rc<Vec<u8>>,
@@ -50,7 +51,7 @@ impl ModelEntity {
             properties: BTreeSet::new(),
             events: BTreeSet::new(),
             sets,
-            units: BTreeSet::new(),
+            units: BTreeMap::new(),
             bytes: std::rc::Rc::new(Vec::new()),
         };
         collect(&entity, &mut model);
@@ -110,14 +111,38 @@ fn collect(element: &Element, model: &mut ModelEntity) {
                         continue;
                     }
                     match slot {
-                        0 => model.services.insert(value),
-                        1 => model.properties.insert(value),
-                        2 => model.events.insert(value),
-                        _ => model.units.insert(value),
-                    };
+                        0 => {
+                            model.services.insert(value);
+                        }
+                        1 => {
+                            model.properties.insert(value);
+                        }
+                        2 => {
+                            model.events.insert(value);
+                        }
+                        _ => {
+                            model.units.insert(value, members(definition));
+                        }
+                    }
                 }
             }
             None => collect(child, model),
         }
     }
+}
+
+/// The member names anywhere under an organizational unit (`Members/Members/Member`).
+fn members(unit: &Element) -> BTreeSet<String> {
+    let mut out = BTreeSet::new();
+    for child in elements(unit) {
+        if child.name == b"Member" {
+            let name = attribute(child, "name");
+            if !name.is_empty() {
+                out.insert(name.to_string());
+            }
+        } else {
+            out.extend(members(child));
+        }
+    }
+    out
 }

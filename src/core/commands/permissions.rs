@@ -169,6 +169,63 @@ where
     })
 }
 
+/// The arguments of `permissions audit`.
+#[derive(Clone, Debug)]
+pub struct AuditRequest {
+    pub project: Option<String>,
+    /// The profile of the server to compare too; offline when absent.
+    pub server: Option<String>,
+}
+
+#[derive(Debug)]
+pub enum AuditCommandError {
+    Audit(permissions::audit::AuditError),
+    Profile(profile::ProfileError),
+}
+
+impl fmt::Display for AuditCommandError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Audit(error) => error.fmt(f),
+            Self::Profile(error) => error.fmt(f),
+        }
+    }
+}
+
+impl std::error::Error for AuditCommandError {}
+
+impl Coded for AuditCommandError {
+    fn code(&self) -> ErrorCode {
+        match self {
+            Self::Audit(error) => error.code(),
+            Self::Profile(error) => error.code(),
+        }
+    }
+}
+
+/// Audit the policies offline, and with a profile against that server too. Read-only.
+pub fn execute_audit<R, F>(
+    solution: &Solution,
+    request: &AuditRequest,
+    open: F,
+) -> Result<permissions::audit::AuditReport, AuditCommandError>
+where
+    R: permissions::server_audit::Remote,
+    F: FnOnce(profile::Profile) -> R,
+{
+    match &request.server {
+        None => permissions::audit::audit(solution, request.project.as_deref())
+            .map_err(AuditCommandError::Audit),
+        Some(name) => {
+            let profile =
+                profile::load(&solution.root, name).map_err(AuditCommandError::Profile)?;
+            let remote = open(profile);
+            permissions::audit::audit_with(solution, request.project.as_deref(), Some(&remote))
+                .map_err(AuditCommandError::Audit)
+        }
+    }
+}
+
 /// The arguments of `permissions apply`.
 #[derive(Clone, Debug)]
 pub struct ApplyRequest {
