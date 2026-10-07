@@ -68,7 +68,8 @@ allow or deny of a principal the server already lists. A deploy that reads an en
   memberships (what DeployComponent does), and each role's organizational unit. A project's
   permission helper Thing, if any, is found on its own; the Solution Framework is not needed.
 - `twaco permissions init [--from-helper] [--apply]`: drafts a project's `permissions.toml`
-  from what it grants today (the entity XML, or the helper's tables); `apply` then changes nothing.
+  from what it grants today (the entity XML, or the helper's tables); `apply` then changes nothing
+  but what the draft's notes name.
 - `twaco permissions push --platform [--apply]`: adds the `[[platform]]` grants and memberships
   the server lacks (what DeployComponent does); never removes anything.
 - `twaco permissions apply [--apply]`: writes the policy into the entity XML (only blocks that

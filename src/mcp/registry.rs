@@ -220,7 +220,7 @@ static TOOLS: LazyLock<Vec<Tool>> = LazyLock::new(|| {
         ),
         solution_tool::<entity_requests::PermissionsInitRequest>(
             "permissions_init",
-            "Draft a permissions.toml for each project without one, from what the project grants today, so that permissions_apply then changes nothing: each rule names its roles outright; roles come from the permission helper's RoleGroupsAndOrganizations when the project has one, else from the groups its run-time blocks grant. from_helper takes the grants from the helper's tables instead of the entity XML (a matrix edited in the helper's mashup). An entity with a deny or a non-group principal in its run-time block is left unmanaged, with a note. A dry run (the drafts' text) unless dry_run is false; existing files are never overwritten.",
+            "Draft a permissions.toml for each project without one, from what the project grants today, so that permissions_apply then changes nothing but what each draft's notes name: each rule names its roles outright; roles come from the permission helper's RoleGroupsAndOrganizations when the project has one, else from the groups its run-time blocks grant. from_helper takes the grants from the helper's tables instead of the entity XML (a matrix edited in the helper's mashup). An entity with a deny or a non-group principal in its run-time block, or a visibility deny of a role's unit, is left unmanaged, with a note. A dry run (the drafts' text) unless dry_run is false; existing files are never overwritten.",
             false,
             entity::permissions_init_tool,
         ),

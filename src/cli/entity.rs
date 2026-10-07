@@ -1002,7 +1002,7 @@ pub(crate) fn permissions_init_cmd(solution: &Solution, args: &Args) -> u8 {
     }
     if outcome.written {
         println!(
-            "`twaco permissions audit` checks it; `permissions apply` should have nothing to do"
+            "`twaco permissions audit` checks it; `permissions apply` changes nothing but what the notes name"
         );
     } else if !outcome.drafts.is_empty() {
         println!("dry run: nothing was written; pass --apply to write the drafts");

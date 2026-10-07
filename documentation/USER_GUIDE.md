@@ -449,14 +449,16 @@ the entity XML against it. For a project that already has permissions, start fro
 
 ```sh
 twaco permissions init                  # print a draft for each project without a policy
-twaco permissions init --apply          # write them; `permissions apply` then has nothing to do
+twaco permissions init --apply          # write them; `permissions apply` then has nothing to do,
+                                        # except what the drafts' notes name
 twaco permissions init --from-helper    # the grants of the helper's tables, not the entity XML
 ```
 
 A draft names each rule's roles outright and lists resources one by one; `includes` and
 patterns such as `Get*` make it shorter. Roles come from the permission helper when the project
-has one. An entity whose run-time block holds a deny or a principal that is not a group is left
-`unmanaged`, with a note. `--from-helper` is how a matrix someone edited in the helper's mashup
+has one. An entity whose run-time block holds a deny or a principal that is not a group, or whose
+visibility block denies a role's unit, is left `unmanaged`, with a note. When the helper's
+tables disagree with the entity XML, a note says `apply` will rewrite them. `--from-helper` is how a matrix someone edited in the helper's mashup
 comes back into the repository.
 
 ```sh

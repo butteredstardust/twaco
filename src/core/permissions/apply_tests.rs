@@ -739,3 +739,49 @@ fn a_short_name_that_would_name_two_entities_is_written_whole() {
     assert_eq!(plan.plan.changes().count(), 0, "{}", drafted.drafts[0].text);
     let _ = std::fs::remove_dir_all(root);
 }
+
+#[test]
+fn a_visibility_deny_of_a_roles_unit_is_left_alone_by_the_draft() {
+    let (solution, root) = solution(POLICY);
+    command::execute_apply(&solution, &request(Mode::Apply), &mut Notices::default()).unwrap();
+    let path = root.join("ThingShapes/Acme.App.Orders_TS.xml");
+    let written = std::fs::read_to_string(&path).unwrap();
+    // The viewer's unit is denied, not allowed.
+    let marker = "name=\"Acme.App.Default_OR:Acme.App.Viewer_UG\"";
+    let at = written.find(marker).unwrap();
+    let permitted = written[..at].rfind("isPermitted=\"true\"").unwrap();
+    let denied = format!(
+        "{}isPermitted=\"false\"{}",
+        &written[..permitted],
+        &written[permitted + "isPermitted=\"true\"".len()..]
+    );
+    std::fs::write(&path, &denied).unwrap();
+    // The roles' units exist, so a drafted role owns its unit.
+    write(
+        &root,
+        "Organizations/Acme.App.Default_OR.xml",
+        "<Entities><Organizations><Organization name=\"Acme.App.Default_OR\" projectName=\"Acme.App\"><OrganizationalUnits><OrganizationalUnit name=\"Acme.App.Viewer_UG\"/><OrganizationalUnit name=\"Acme.App.Admin_UG\"/></OrganizationalUnits></Organization></Organizations></Entities>",
+    );
+    std::fs::remove_file(root.join("permissions.toml")).unwrap();
+    let drafted = command::execute_init(
+        &solution,
+        &crate::core::commands::permissions::InitRequest {
+            project: None,
+            from_helper: false,
+            mode: Mode::Apply,
+            lock_label: "permissions init",
+        },
+        &mut Notices::default(),
+    )
+    .unwrap();
+    assert!(
+        drafted.drafts[0].notes.iter().any(|n| n.contains("denies")),
+        "{:?}",
+        drafted.drafts[0].notes
+    );
+    let plan =
+        command::execute_apply(&solution, &request(Mode::Plan), &mut Notices::default()).unwrap();
+    assert_eq!(plan.plan.changes().count(), 0, "{}", drafted.drafts[0].text);
+    assert_eq!(std::fs::read_to_string(&path).unwrap(), denied);
+    let _ = std::fs::remove_dir_all(root);
+}

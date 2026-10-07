@@ -1,7 +1,8 @@
 //! `permissions init`: draft a project's `permissions.toml` from what the project grants today.
 //!
 //! The draft is exact, not tidy: each rule names its roles outright (no `includes`), so applying
-//! it straight after changes nothing. Roles come from the permission helper's
+//! it straight after changes nothing, except what its notes name (helper tables that disagree
+//! with the entity XML). Roles come from the permission helper's
 //! `RoleGroupsAndOrganizations` when the project has a helper (so its columns survive), and from
 //! the groups the run-time blocks grant otherwise. Grants come from the entity XML, or with
 //! `from_helper` from the helper's tables, which is how a matrix edited in the helper's mashup
@@ -389,6 +390,37 @@ fn draft_project(
             Some(other) => Some((other.to_string(), "Organization".to_string())),
         }
     };
+
+    // A visibility deny of a principal the draft's roles own cannot be said either: the policy
+    // would own that principal and drop the deny.
+    let owned: Vec<(String, String)> = roles.iter().filter_map(org_principal).collect();
+    for entity in entities {
+        if unmanaged.contains(entity.name()) {
+            continue;
+        }
+        let denied: Vec<String> = entity
+            .sets
+            .get(&KindKey::of(Kind::Visibility))
+            .into_iter()
+            .flatten()
+            .filter(|(g, allowed)| {
+                !**allowed
+                    && owned
+                        .iter()
+                        .any(|(name, kind)| *name == g.principal && *kind == g.principal_type)
+            })
+            .map(|(g, _)| g.principal.clone())
+            .collect();
+        if !denied.is_empty() {
+            notes.push(format!(
+                "{} is left unmanaged: a policy only allows, and its visibility block denies {}",
+                entity.key(),
+                denied.join(", ")
+            ));
+            unmanaged.insert(entity.name().to_string());
+            run_time.remove(entity.name());
+        }
+    }
 
     // Run-time rules: entities granting the same resources of one action to the same roles share one.
     let role_rank = |name: &str| {
