@@ -37,10 +37,14 @@ fn resolve_value(value: &Value, profile: &Profile, project: &str) -> Result<Valu
                     let mut copied = 0;
                     for (range, key) in &found {
                         resolved.push_str(&text[copied..range.start]);
-                        match lookup(key)? {
-                            toml::Value::String(inner) => resolved.push_str(&inner),
-                            other => resolved.push_str(&other.to_string()),
-                        }
+                        let value = lookup(key)?;
+                        let embedded = embedded_text(&value).ok_or_else(|| {
+                            DeployError::PlaceholderNotText {
+                                project: project.to_string(),
+                                key: key.to_string(),
+                            }
+                        })?;
+                        resolved.push_str(&embedded);
                         copied = range.end;
                     }
                     resolved.push_str(&text[copied..]);
@@ -80,11 +84,13 @@ pub(super) fn redact_placeholder_values(
         let Some(value) = profile.value(&key) else {
             return redacted;
         };
-        let json = serde_json::to_value(value).expect("TOML values serialize as JSON");
+        let json = serde_json::to_value(&value).expect("TOML values serialize as JSON");
         let mut renderings = vec![json.to_string()];
         if let Value::String(text) = &json {
             renderings.push(text.clone());
         }
+        // What a placeholder inside a longer string put there.
+        renderings.extend(embedded_text(&value));
         renderings.sort_by_key(|value| std::cmp::Reverse(value.len()));
         renderings.dedup();
         renderings.into_iter().fold(redacted, |text, rendered| {
@@ -117,6 +123,19 @@ fn collect_placeholder_keys(value: &Value, keys: &mut Vec<String>) {
             }
         }
         _ => {}
+    }
+}
+
+/// The text a value takes inside a longer string: a string as it is, a number, boolean or date
+/// as written. An array or a table has no one text form, so it cannot be embedded.
+fn embedded_text(value: &toml::Value) -> Option<String> {
+    match value {
+        toml::Value::String(text) => Some(text.clone()),
+        toml::Value::Integer(_)
+        | toml::Value::Float(_)
+        | toml::Value::Boolean(_)
+        | toml::Value::Datetime(_) => Some(value.to_string()),
+        toml::Value::Array(_) | toml::Value::Table(_) => None,
     }
 }
 

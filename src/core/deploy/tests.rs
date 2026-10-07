@@ -709,6 +709,60 @@ fn placeholders_inside_a_longer_string_are_substituted_and_redacted() {
     .unwrap_err();
     assert!(!error.to_string().contains(secret));
 
+    // An array has no one text form: refused before anything is sent, and never shown.
+    let listed = profile(BTreeMap::from([(
+        "values".into(),
+        toml::Value::Array(vec![
+            toml::Value::String("secret-a".into()),
+            toml::Value::String("secret-b".into()),
+        ]),
+    )]));
+    project.deploy.as_mut().unwrap().parameters = serde_json::json!({"x": "x=${profile:values}"});
+    let unseen = Fake::default();
+    let error = run(
+        &unseen,
+        &MemoryBaseline::default(),
+        &listed,
+        &[project.clone()],
+        true,
+        false,
+        false,
+    )
+    .unwrap_err();
+    assert!(
+        matches!(error, DeployError::PlaceholderNotText { .. }),
+        "{error}"
+    );
+    assert!(!error.to_string().contains("secret-a"));
+    assert!(unseen.imports.lock().unwrap().is_empty());
+
+    // A date embedded in a string is redacted as it was embedded.
+    let dated = profile(BTreeMap::from([(
+        "since".into(),
+        toml::Value::Datetime("2026-10-07T01:02:03Z".parse().unwrap()),
+    )]));
+    project.deploy.as_mut().unwrap().parameters =
+        serde_json::json!({"x": "since ${profile:since}"});
+    let rejected = Fake {
+        import_values: BTreeMap::from([("SecretProject.xml".into(), vec![target("A", "a();")])]),
+        fail_service: Some("Deploy".into()),
+        ..Fake::default()
+    };
+    let error = run(
+        &rejected,
+        &MemoryBaseline::default(),
+        &dated,
+        &[project.clone()],
+        true,
+        false,
+        false,
+    )
+    .unwrap_err();
+    assert!(
+        !error.to_string().contains("2026-10-07T01:02:03Z"),
+        "{error}"
+    );
+
     project.deploy.as_mut().unwrap().parameters =
         serde_json::json!({"url": "jdbc:x?password=${profile:missing_key}"});
     let unseen = Fake::default();

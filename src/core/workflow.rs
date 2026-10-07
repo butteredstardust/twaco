@@ -231,6 +231,13 @@ pub(crate) fn sync_services(
                     ));
                 }
             }
+            if !report.dropped_permissions.is_empty() {
+                parts.push(format!(
+                    "run-time permissions of the removed service(s) {}: {}",
+                    if check { "would go too" } else { "went too" },
+                    report.dropped_permissions.join(", ")
+                ));
+            }
             log.change(format!("{}: {}", entity.info.name, parts.join("; ")));
             if !check {
                 if let Err(e) = super::workspace::write_entity(&entity.path, &out) {

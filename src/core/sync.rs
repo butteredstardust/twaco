@@ -25,6 +25,8 @@ pub struct SyncReport {
     pub only_in_entity: Vec<String>,
     /// A sidecar the entity has no writable service for. Adding one needs saying so.
     pub only_in_sidecars: Vec<String>,
+    /// Run-time permission resources removed with the services they named.
+    pub dropped_permissions: Vec<String>,
 }
 
 impl SyncReport {
@@ -158,7 +160,7 @@ pub fn sync(
                 removed: report.only_in_entity.clone(),
             });
         }
-        edits.extend(structural_edits(
+        let (structural, dropped) = structural_edits(
             &tokens,
             src,
             host,
@@ -167,7 +169,9 @@ pub fn sync(
             sidecars,
             &report,
             indent_cdata_payload,
-        )?);
+        )?;
+        edits.extend(structural);
+        report.dropped_permissions = dropped;
     }
 
     let out = splice::splice(src, &edits).map_err(SidecarError::Splice)?;
@@ -187,7 +191,7 @@ fn structural_edits(
     sidecars: &BTreeMap<String, ServiceSidecar>,
     report: &SyncReport,
     indent_cdata_payload: bool,
-) -> Result<Vec<Edit>, SidecarError> {
+) -> Result<(Vec<Edit>, Vec<String>), SidecarError> {
     let mut edits = Vec::new();
     let definitions_at = scan::child_tags(tokens, src, "ServiceDefinitions", host)
         .first()
@@ -209,26 +213,64 @@ fn structural_edits(
             edits.push(Edit::new(block.span, Vec::new()));
         }
     }
+    // A run-time permission for a removed service grants on nothing; it goes with the service,
+    // unless a property or event of the same name is what it names.
+    let mut dropped = Vec::new();
+    if !report.only_in_entity.is_empty() {
+        let mut other_members = BTreeSet::new();
+        for (section, member) in [
+            ("PropertyDefinitions", "PropertyDefinition"),
+            ("EventDefinitions", "EventDefinition"),
+        ] {
+            other_members.extend(
+                sidecar::named_children_of(tokens, src, host, section, member)?.into_keys(),
+            );
+        }
+        let run_time = tokens.iter().position(|token| {
+            matches!(token.kind, Kind::Start) && token.name.of(src) == b"RunTimePermissions"
+        });
+        if let Some(run_time) = run_time {
+            for permissions in scan::child_tags(tokens, src, "Permissions", run_time) {
+                let resource = scan::attribute(src, &tokens[permissions], "resourceName")?
+                    .map(|span| scan::decode_entities(&String::from_utf8_lossy(span.of(src))));
+                let Some(resource) = resource else { continue };
+                if report.only_in_entity.contains(&resource) && !other_members.contains(&resource) {
+                    let block = relocate::block_of(tokens, src, run_time, permissions)?;
+                    edits.push(Edit::new(block.span, Vec::new()));
+                    dropped.push(resource);
+                }
+            }
+        }
+    }
 
     if report.only_in_sidecars.is_empty() {
-        return Ok(edits);
+        return Ok((edits, dropped));
     }
     for name in &report.only_in_sidecars {
         let why = if implementations.contains_key(name) && !definitions.contains_key(name) {
-            Some("the entity implements it already, overriding an inherited service")
+            Some("the entity implements it already, overriding an inherited service".to_string())
         } else if implementations.contains_key(name) {
-            Some("the entity has it already, and it is not a script service")
+            Some("the entity has it already, and it is not a script service".to_string())
         } else if definitions.contains_key(name) {
-            Some("the entity defines it already, with no implementation of its own")
+            Some("the entity defines it already, with no implementation of its own".to_string())
         } else if name.contains(['"', '<', '>', '&']) || name.trim().is_empty() {
-            Some("the name is not a service name")
+            Some("the name is not a service name".to_string())
         } else {
-            None
+            match defined_name(&sidecars[name].definition) {
+                Some(defined) if defined == *name => None,
+                Some(defined) => Some(format!(
+                    "its definition.xml names the service {defined:?}; the folder and the \
+                     definition's name must agree"
+                )),
+                None => Some(
+                    "its definition.xml is not one <ServiceDefinition> with a name".to_string(),
+                ),
+            }
         };
         if let Some(why) = why {
             return Err(SidecarError::CannotAdd {
                 name: name.clone(),
-                why: why.to_string(),
+                why,
             });
         }
     }
@@ -295,17 +337,15 @@ fn structural_edits(
         section_indent: definition_indent.saturating_sub(unit),
         cdata: Vec::new(),
     };
-    edits.push(
-        relocate::insert_edit(
-            tokens,
-            src,
-            host,
-            "ServiceDefinitions",
-            &definition_block,
-            &definition_bytes,
-        )
-        .map_err(cannot_add)?,
-    );
+    let definition_edit = relocate::insert_edit(
+        tokens,
+        src,
+        host,
+        "ServiceDefinitions",
+        &definition_block,
+        &definition_bytes,
+    )
+    .map_err(cannot_add)?;
 
     // Implementations: the template renamed and holding the sidecar's script.
     let (indent, implementation_section_indent) = match &template {
@@ -350,18 +390,42 @@ fn structural_edits(
         section_indent: implementation_section_indent,
         cdata,
     };
-    edits.push(
-        relocate::insert_edit(
-            tokens,
-            src,
-            host,
-            "ServiceImplementations",
-            &implementation_block,
-            &implementation_bytes,
-        )
-        .map_err(cannot_add)?,
-    );
-    Ok(edits)
+    let implementation_edit = relocate::insert_edit(
+        tokens,
+        src,
+        host,
+        "ServiceImplementations",
+        &implementation_block,
+        &implementation_bytes,
+    )
+    .map_err(cannot_add)?;
+    // Both sections missing put both new sections at one point: write them as one insertion,
+    // definitions first, as Composer orders them.
+    if definition_edit.span.is_empty() && definition_edit.span == implementation_edit.span {
+        let mut both = definition_edit.replacement;
+        both.extend_from_slice(&implementation_edit.replacement);
+        edits.push(Edit::new(definition_edit.span, both));
+    } else {
+        edits.push(definition_edit);
+        edits.push(implementation_edit);
+    }
+    Ok((edits, dropped))
+}
+
+/// The `name` of the one `ServiceDefinition` a definition sidecar holds.
+fn defined_name(definition: &str) -> Option<String> {
+    let tokens = scan::tokenize(definition.as_bytes()).ok()?;
+    let mut elements = tokens
+        .iter()
+        .filter(|token| matches!(token.kind, Kind::Start | Kind::Empty));
+    let first = elements.next()?;
+    if first.name.of(definition.as_bytes()) != b"ServiceDefinition" {
+        return None;
+    }
+    scan::attribute(definition.as_bytes(), first, "name")
+        .ok()
+        .flatten()
+        .map(|span| scan::decode_entities(&String::from_utf8_lossy(span.of(definition.as_bytes()))))
 }
 
 /// An existing script implementation's block, renamed and holding `script`, with where its
@@ -846,6 +910,64 @@ mod tests {
         assert_eq!(read_back(&out)["N"].1, "n();\nm();");
         let (again, _) = sync(&out, &sidecars_of(&out), false, false, false).unwrap();
         assert_eq!(again, out);
+    }
+
+    #[test]
+    fn an_entity_with_neither_service_section_gets_both_in_one_insertion() {
+        for newline in ["\n", "\r\n"] {
+            let src = "<Entities>\n  <Things>\n    <Thing name=\"T\">\n      <ThingShape>\n        <PropertyDefinitions/>\n      </ThingShape>\n    </Thing>\n  </Things>\n</Entities>\n"
+                .replace('\n', newline);
+            let sidecars = BTreeMap::from([("N".to_string(), new_service("N", "n();"))]);
+            let (out, report) = sync(src.as_bytes(), &sidecars, true, false, false).unwrap();
+            assert_eq!(report.only_in_sidecars, vec!["N"]);
+            let text = String::from_utf8(out.clone()).unwrap();
+            assert!(
+                text.find("<ServiceDefinitions>").unwrap()
+                    < text.find("<ServiceImplementations>").unwrap()
+            );
+            assert_eq!(read_back(&out)["N"].1, "n();");
+            let (again, _) = sync(&out, &sidecars_of(&out), false, false, false).unwrap();
+            assert_eq!(again, out);
+        }
+    }
+
+    #[test]
+    fn a_definition_naming_another_service_than_its_folder_is_refused() {
+        let src = entity("            var a = 1;");
+        let mut sidecars = sidecars_of(&src);
+        let mut stray = new_service("M", "m();");
+        stray.name = "N".to_string();
+        sidecars.insert("N".into(), stray);
+        match sync(&src, &sidecars, true, true, false) {
+            Err(SidecarError::CannotAdd { name, why }) => {
+                assert_eq!(name, "N");
+                assert!(why.contains("\"M\""), "{why}");
+            }
+            other => panic!("expected a refusal, got {other:?}"),
+        }
+        let mut broken = new_service("N", "n();");
+        broken.definition = "<Nonsense/>".to_string();
+        sidecars.insert("N".into(), broken);
+        assert!(matches!(
+            sync(&src, &sidecars, true, true, false),
+            Err(SidecarError::CannotAdd { .. })
+        ));
+    }
+
+    #[test]
+    fn a_removed_services_run_time_permissions_go_with_it_but_a_propertys_stay() {
+        let src = b"<Entities><Things><Thing name=\"T\">\n<RunTimePermissions>\n<Permissions resourceName=\"*\"><ServiceInvoke/></Permissions>\n<Permissions resourceName=\"S\"><ServiceInvoke><Principal isPermitted=\"true\" name=\"Users\" type=\"Group\"/></ServiceInvoke></Permissions>\n<Permissions resourceName=\"P\"><PropertyRead/></Permissions>\n</RunTimePermissions>\n<ThingShape><PropertyDefinitions><PropertyDefinition name=\"P\"/></PropertyDefinitions>\
+             <ServiceDefinitions><ServiceDefinition name=\"S\"></ServiceDefinition><ServiceDefinition name=\"P\"></ServiceDefinition></ServiceDefinitions>\
+             <ServiceImplementations><ServiceImplementation name=\"S\" handlerName=\"Script\"><ConfigurationTables><ConfigurationTable name=\"Script\"><Rows><Row><code><![CDATA[s();]]></code></Row></Rows></ConfigurationTable></ConfigurationTables></ServiceImplementation>\
+             <ServiceImplementation name=\"P\" handlerName=\"Script\"><ConfigurationTables><ConfigurationTable name=\"Script\"><Rows><Row><code><![CDATA[p();]]></code></Row></Rows></ConfigurationTable></ConfigurationTables></ServiceImplementation></ServiceImplementations>\
+             </ThingShape></Thing></Things></Entities>";
+        let (out, report) = sync(src, &BTreeMap::new(), true, true, false).unwrap();
+        assert_eq!(report.only_in_entity, vec!["P", "S"]);
+        assert_eq!(report.dropped_permissions, vec!["S"]);
+        let text = String::from_utf8(out).unwrap();
+        assert!(!text.contains("resourceName=\"S\""), "{text}");
+        assert!(text.contains("resourceName=\"P\""), "{text}");
+        assert!(text.contains("resourceName=\"*\""), "{text}");
     }
 
     #[test]

@@ -129,7 +129,8 @@ A string that is exactly one placeholder takes the profile value with its type, 
 `"${profile:port}"` can send a number. A placeholder inside a longer string, such as a
 connection URL or a JSON document passed as a STRING parameter, is replaced by the value's
 text, as it is: a value holding `"` or `\` inside a JSON string must be written escaped in the
-profile. An unknown key stops the deploy before anything is imported.
+profile. Only a string, number, boolean or date can sit inside a longer string; an array or a
+table there, like an unknown key, stops the deploy before anything is imported.
 
 ### `[bundle]`
 

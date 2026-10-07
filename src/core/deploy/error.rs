@@ -33,6 +33,11 @@ pub enum DeployError {
         project: String,
         key: String,
     },
+    /// A placeholder inside a longer string names an array or a table.
+    PlaceholderNotText {
+        project: String,
+        key: String,
+    },
     /// Every project had imported, and the baseline records them, when a call failed.
     Call {
         project: String,
@@ -84,6 +89,11 @@ impl fmt::Display for DeployError {
             DeployError::UnknownPlaceholder { project, key } => write!(
                 f,
                 "project {project} uses unknown profile key {key:?} in ${{profile:{key}}}"
+            ),
+            DeployError::PlaceholderNotText { project, key } => write!(
+                f,
+                "project {project} puts ${{profile:{key}}} inside a longer string, but {key:?} is \
+                 an array or a table; only a string, number, boolean or date can be embedded"
             ),
             DeployError::Call { project, target, service, why, imported } => {
                 write!(f, "project {project} call {target}.{service} failed: {why}")?;

@@ -11,10 +11,13 @@ All notable changes to twaco are recorded here. The format follows
 - `deploy` replaces a `${profile:key}` placeholder anywhere inside a string parameter, such as a
   connection URL or a JSON configuration passed as a string. Before, only a string that was
   exactly one placeholder was replaced, and a longer string reached the server with the
-  placeholder text in it, while the redacted plan looked right.
+  placeholder text in it, while the redacted plan looked right. An array or a table cannot be
+  embedded in a string and is refused.
 - `sync --allow-add-remove` adds a service from a new sidecar folder and removes one whose
-  folder is gone. Before, the flag only silenced the refusal: a new service was reported
-  "already in sync" and never written, although DataShape fields were added and removed.
+  folder is gone, with the entity's run-time permissions for it. Before, the flag only silenced
+  the refusal: a new service was reported "already in sync" and never written, although
+  DataShape fields were added and removed. A folder whose `definition.xml` names another service
+  is refused.
 - `rename entity` finds the entity followed by one of its members, such as
   `Acme.App.Manager.GetOrders` in `[validate] inherited_overrides`, in `twaco.toml` and the other
   text files, and renames it. Followed by anything else that is not another entity, it is left for
