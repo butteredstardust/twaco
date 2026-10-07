@@ -17,19 +17,35 @@ pub(super) fn resolve_call(
 fn resolve_value(value: &Value, profile: &Profile, project: &str) -> Result<Value, DeployError> {
     match value {
         Value::String(text) => {
-            let key = text
-                .strip_prefix("${profile:")
-                .and_then(|rest| rest.strip_suffix('}'));
-            if let Some(key) = key {
-                let value = profile
+            let lookup = |key: &str| {
+                profile
                     .value(key)
                     .ok_or_else(|| DeployError::UnknownPlaceholder {
                         project: project.to_string(),
                         key: key.to_string(),
-                    })?;
-                Ok(serde_json::to_value(value).expect("TOML values serialize as JSON"))
-            } else {
-                Ok(value.clone())
+                    })
+            };
+            let found = placeholders(text);
+            match found.as_slice() {
+                [] => Ok(value.clone()),
+                // The whole string is one placeholder: the value keeps its type.
+                [(range, key)] if range.start == 0 && range.end == text.len() => {
+                    Ok(serde_json::to_value(lookup(key)?).expect("TOML values serialize as JSON"))
+                }
+                _ => {
+                    let mut resolved = String::with_capacity(text.len());
+                    let mut copied = 0;
+                    for (range, key) in &found {
+                        resolved.push_str(&text[copied..range.start]);
+                        match lookup(key)? {
+                            toml::Value::String(inner) => resolved.push_str(&inner),
+                            other => resolved.push_str(&other.to_string()),
+                        }
+                        copied = range.end;
+                    }
+                    resolved.push_str(&text[copied..]);
+                    Ok(Value::String(resolved))
+                }
             }
         }
         Value::Array(values) => values
@@ -84,12 +100,11 @@ pub(super) fn redact_placeholder_values(
 fn collect_placeholder_keys(value: &Value, keys: &mut Vec<String>) {
     match value {
         Value::String(text) => {
-            if let Some(key) = text
-                .strip_prefix("${profile:")
-                .and_then(|rest| rest.strip_suffix('}'))
-            {
-                keys.push(key.to_string());
-            }
+            keys.extend(
+                placeholders(text)
+                    .into_iter()
+                    .map(|(_, key)| key.to_string()),
+            );
         }
         Value::Array(values) => {
             for value in values {
@@ -103,4 +118,23 @@ fn collect_placeholder_keys(value: &Value, keys: &mut Vec<String>) {
         }
         _ => {}
     }
+}
+
+/// Every `${profile:key}` in `text`, anywhere in it, with its byte range. An opening
+/// `${profile:` with no closing `}` is not a placeholder and stays as it is.
+fn placeholders(text: &str) -> Vec<(std::ops::Range<usize>, &str)> {
+    const OPEN: &str = "${profile:";
+    let mut found = Vec::new();
+    let mut from = 0;
+    while let Some(offset) = text[from..].find(OPEN) {
+        let start = from + offset;
+        let key_start = start + OPEN.len();
+        let Some(length) = text[key_start..].find('}') else {
+            break;
+        };
+        let end = key_start + length + 1;
+        found.push((start..end, &text[key_start..end - 1]));
+        from = end;
+    }
+    found
 }

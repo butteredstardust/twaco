@@ -6,6 +6,13 @@ All notable changes to twaco are recorded here. The format follows
 
 ## [Unreleased]
 
+### Fixed
+
+- `deploy` replaces a `${profile:key}` placeholder anywhere inside a string parameter, such as a
+  connection URL or a JSON configuration passed as a string. Before, only a string that was
+  exactly one placeholder was replaced, and a longer string reached the server with the
+  placeholder text in it, while the redacted plan looked right.
+
 ## [0.1.1] - 2026-10-06
 
 ### Added

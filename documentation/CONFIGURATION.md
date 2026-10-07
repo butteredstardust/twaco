@@ -122,9 +122,14 @@ written above them, by position. Keep a project's deploy tables directly under t
 add a new `[[project]]` after them, not before: a table written under the wrong project belongs to
 that project.
 
-A string value `"${profile:key}"` anywhere in those parameters is replaced at deploy time by
+A `${profile:key}` placeholder anywhere in those parameters is replaced at deploy time by
 `key` from the server profile. A secret, such as a database password, then lives in the
 profile and never in the repository. Plans and errors show the placeholder, never the value.
+A string that is exactly one placeholder takes the profile value with its type, so
+`"${profile:port}"` can send a number. A placeholder inside a longer string, such as a
+connection URL or a JSON document passed as a STRING parameter, is replaced by the value's
+text, as it is: a value holding `"` or `\` inside a JSON string must be written escaped in the
+profile. An unknown key stops the deploy before anything is imported.
 
 ### `[bundle]`
 
