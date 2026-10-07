@@ -207,20 +207,20 @@ mod tests {
         baseline.set(
             "Things",
             "Z",
-            "v4:two-local".to_string(),
-            "v4:two-server".to_string(),
+            "v5:two-local".to_string(),
+            "v5:two-server".to_string(),
         );
         baseline.set(
             "DataShapes",
             "A",
-            "v4:one".to_string(),
-            "v4:one".to_string(),
+            "v5:one".to_string(),
+            "v5:one".to_string(),
         );
         baseline.set(
             "Things",
             "A",
-            "v4:three".to_string(),
-            "v4:three".to_string(),
+            "v5:three".to_string(),
+            "v5:three".to_string(),
         );
         baseline.write(&root).unwrap();
         let first = std::fs::read(root.join(RELATIVE_PATH)).unwrap();
@@ -233,8 +233,8 @@ mod tests {
         assert_eq!(
             Baseline::load(&root).unwrap().get("Things", "Z"),
             Some(&Entry {
-                local: "v4:two-local".into(),
-                server: "v4:two-server".into()
+                local: "v5:two-local".into(),
+                server: "v5:two-server".into()
             })
         );
         assert!(
@@ -250,7 +250,7 @@ mod tests {
     #[test]
     fn an_entry_from_another_hash_version_counts_as_no_baseline() {
         let baseline: Baseline = serde_json::from_slice(
-            br#"{"entities":{"Things":{"Old":"v3:old","Half":{"local":"v4:a","server":"v3:b"},"New":"v4:new"}}}"#,
+            br#"{"entities":{"Things":{"Old":"v4:old","Half":{"local":"v5:a","server":"v4:b"},"New":"v5:new"}}}"#,
         )
         .unwrap();
         assert_eq!(baseline.get("Things", "Old"), None);
@@ -265,7 +265,7 @@ mod tests {
         std::fs::create_dir_all(root.join(".twaco")).unwrap();
         std::fs::write(
             root.join(RELATIVE_PATH),
-            br#"{"entities":{"Things":{"T":"v4:old"}}}"#,
+            br#"{"entities":{"Things":{"T":"v5:old"}}}"#,
         )
         .unwrap();
 
@@ -273,14 +273,14 @@ mod tests {
         assert_eq!(
             baseline.get("Things", "T"),
             Some(&Entry {
-                local: "v4:old".into(),
-                server: "v4:old".into()
+                local: "v5:old".into(),
+                server: "v5:old".into()
             })
         );
         baseline.write(&root).unwrap();
         assert_eq!(
             std::fs::read_to_string(root.join(RELATIVE_PATH)).unwrap(),
-            "{\n  \"entities\": {\n    \"Things\": {\n      \"T\": {\n        \"local\": \"v4:old\",\n        \"server\": \"v4:old\"\n      }\n    }\n  }\n}\n"
+            "{\n  \"entities\": {\n    \"Things\": {\n      \"T\": {\n        \"local\": \"v5:old\",\n        \"server\": \"v5:old\"\n      }\n    }\n  }\n}\n"
         );
         let _ = std::fs::remove_dir_all(root);
     }
@@ -291,23 +291,23 @@ mod tests {
         std::fs::create_dir_all(root.join(".twaco")).unwrap();
         std::fs::write(
             root.join(RELATIVE_PATH),
-            br#"{"entities":{"Things":{"T":{"local":"v4:local","server":"v4:server"}}}}"#,
+            br#"{"entities":{"Things":{"T":{"local":"v5:local","server":"v5:server"}}}}"#,
         )
         .unwrap();
 
         let mut baseline = Baseline::load(&root).unwrap();
         baseline
-            .set_server("Things", "T", "v4:after-deploy".into())
+            .set_server("Things", "T", "v5:after-deploy".into())
             .unwrap();
         assert_eq!(
             baseline.get("Things", "T"),
             Some(&Entry {
-                local: "v4:local".into(),
-                server: "v4:after-deploy".into()
+                local: "v5:local".into(),
+                server: "v5:after-deploy".into()
             })
         );
         assert!(matches!(
-            baseline.set_server("Things", "Missing", "v4:x".into()),
+            baseline.set_server("Things", "Missing", "v5:x".into()),
             Err(BaselineError::Missing { .. })
         ));
         baseline.write(&root).unwrap();
@@ -321,8 +321,8 @@ mod tests {
     #[test]
     fn remove_reports_presence_and_prunes_an_empty_collection() {
         let mut baseline = Baseline::default();
-        baseline.set("Things", "A", "v4:a".into(), "v4:a".into());
-        baseline.set("Things", "B", "v4:b".into(), "v4:b".into());
+        baseline.set("Things", "A", "v5:a".into(), "v5:a".into());
+        baseline.set("Things", "B", "v5:b".into(), "v5:b".into());
         assert!(baseline.remove("Things", "A"));
         assert!(!baseline.remove("Things", "A"));
         assert!(baseline.get("Things", "B").is_some());

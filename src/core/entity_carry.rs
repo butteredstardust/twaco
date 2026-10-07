@@ -22,15 +22,22 @@ use serde_json::{json, Value};
 use std::fmt;
 use std::time::Duration;
 
-/// The three permission sets of an entity.
+/// The permission sets of an entity. Every entity has the first three. A ThingShape also has
+/// the run-time permissions its implementing Things get, and a ThingTemplate the run-time,
+/// design-time and visibility permissions of its instances (live 10.0, 2026-10-07: a ThingShape
+/// has no instance design-time or visibility services).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 pub enum Kind {
     RunTime,
     DesignTime,
     Visibility,
+    InstanceRunTime,
+    InstanceDesignTime,
+    InstanceVisibility,
 }
 
 impl Kind {
+    /// The sets every entity has; carrying a rename copies these.
     pub const ALL: [Kind; 3] = [Kind::RunTime, Kind::DesignTime, Kind::Visibility];
 
     pub fn label(self) -> &'static str {
@@ -38,23 +45,53 @@ impl Kind {
             Kind::RunTime => "run-time",
             Kind::DesignTime => "design-time",
             Kind::Visibility => "visibility",
+            Kind::InstanceRunTime => "instance run-time",
+            Kind::InstanceDesignTime => "instance design-time",
+            Kind::InstanceVisibility => "instance visibility",
         }
     }
 
-    fn get_service(self) -> &'static str {
+    /// The element that holds this set in entity XML.
+    pub fn element(self) -> &'static str {
         match self {
-            Kind::RunTime => "GetRunTimePermissionsAsJSON",
-            Kind::DesignTime => "GetDesignTimePermissionsAsJSON",
-            Kind::Visibility => "GetVisibilityPermissionsAsJSON",
+            Kind::RunTime => "RunTimePermissions",
+            Kind::DesignTime => "DesignTimePermissions",
+            Kind::Visibility => "VisibilityPermissions",
+            Kind::InstanceRunTime => "InstanceRunTimePermissions",
+            Kind::InstanceDesignTime => "InstanceDesignTimePermissions",
+            Kind::InstanceVisibility => "InstanceVisibilityPermissions",
         }
     }
 
-    fn set_service(self) -> &'static str {
-        match self {
-            Kind::RunTime => "SetRunTimePermissionsAsJSON",
-            Kind::DesignTime => "SetDesignTimePermissionsAsJSON",
-            Kind::Visibility => "SetVisibilityPermissionsAsJSON",
-        }
+    /// The set an entity XML element holds, if it is one.
+    pub fn of_element(name: &[u8]) -> Option<Kind> {
+        [
+            Kind::RunTime,
+            Kind::DesignTime,
+            Kind::Visibility,
+            Kind::InstanceRunTime,
+            Kind::InstanceDesignTime,
+            Kind::InstanceVisibility,
+        ]
+        .into_iter()
+        .find(|kind| kind.element().as_bytes() == name)
+    }
+
+    /// Run-time sets list grants per resource.
+    pub fn is_run_time(self) -> bool {
+        matches!(self, Kind::RunTime | Kind::InstanceRunTime)
+    }
+
+    pub fn is_design_time(self) -> bool {
+        matches!(self, Kind::DesignTime | Kind::InstanceDesignTime)
+    }
+
+    fn get_service(self) -> String {
+        format!("Get{}AsJSON", self.element())
+    }
+
+    fn set_service(self) -> String {
+        format!("Set{}AsJSON", self.element())
     }
 }
 
@@ -82,7 +119,7 @@ impl Remote for Client {
         let target = ServiceTarget::entity(collection, name)?;
         self.call_service(
             &target,
-            kind.get_service(),
+            &kind.get_service(),
             &json!({}),
             Duration::from_secs(60),
         )?
@@ -104,7 +141,7 @@ impl Remote for Client {
         let parameters = json!({ "permissions": value.to_string() });
         self.call_service(
             &target,
-            kind.set_service(),
+            &kind.set_service(),
             &parameters,
             Duration::from_secs(60),
         )?;
@@ -533,6 +570,7 @@ mod tests {
             Kind::RunTime => "run",
             Kind::DesignTime => "design",
             Kind::Visibility => "vis",
+            _ => unreachable!("carry copies only the sets every entity has"),
         }
     }
 

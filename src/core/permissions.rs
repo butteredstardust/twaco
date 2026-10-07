@@ -9,8 +9,8 @@
 //! (verified the same day), and reads each set back.
 //!
 //! The repository's sets come from the entity XML (`RunTimePermissions`,
-//! `DesignTimePermissions`, `VisibilityPermissions`), the server's from the matching
-//! `Get...AsJSON` services. Both are reduced to the same grants: a set, a resource (run time
+//! `DesignTimePermissions`, `VisibilityPermissions`, and a ThingShape's or ThingTemplate's
+//! `Instance...Permissions`), the server's from the matching `Get...AsJSON` services. Both are reduced to the same grants: a set, a resource (run time
 //! only, `*` for the whole entity), an action, a principal and its type, allowed or denied. A
 //! permission set missing from the entity XML is not managed and is never written.
 
@@ -74,6 +74,9 @@ impl KindKey {
             Kind::RunTime => 0,
             Kind::DesignTime => 1,
             Kind::Visibility => 2,
+            Kind::InstanceRunTime => 3,
+            Kind::InstanceDesignTime => 4,
+            Kind::InstanceVisibility => 5,
         })
     }
 
@@ -81,7 +84,10 @@ impl KindKey {
         match self.0 {
             0 => Kind::RunTime,
             1 => Kind::DesignTime,
-            _ => Kind::Visibility,
+            2 => Kind::Visibility,
+            3 => Kind::InstanceRunTime,
+            4 => Kind::InstanceDesignTime,
+            _ => Kind::InstanceVisibility,
         }
     }
 }
@@ -106,11 +112,8 @@ pub fn from_xml(src: &[u8]) -> Result<Sets, PermissionsError> {
     let entity = normalise::entity_of(src).map_err(|e| error(e.to_string()))?;
     let mut sets = Sets::new();
     for child in elements(&entity) {
-        let kind = match child.name.as_slice() {
-            b"RunTimePermissions" => Kind::RunTime,
-            b"DesignTimePermissions" => Kind::DesignTime,
-            b"VisibilityPermissions" => Kind::Visibility,
-            _ => continue,
+        let Some(kind) = Kind::of_element(&child.name) else {
+            continue;
         };
         if sets.contains_key(&KindKey::of(kind)) {
             return Err(error(format!(
@@ -118,33 +121,20 @@ pub fn from_xml(src: &[u8]) -> Result<Sets, PermissionsError> {
                 kind.label()
             )));
         }
-        match child.name.as_slice() {
-            b"RunTimePermissions" => {
-                let mut grants = Grants::new();
-                for permissions in elements(child).filter(|e| e.name == b"Permissions") {
-                    let resource = attribute(permissions, "resourceName").unwrap_or("*");
-                    for action in elements(permissions) {
-                        add_principals(&mut grants, resource, action)?;
-                    }
+        let mut grants = Grants::new();
+        if kind.is_run_time() {
+            for permissions in elements(child).filter(|e| e.name == b"Permissions") {
+                let resource = attribute(permissions, "resourceName").unwrap_or("*");
+                for action in elements(permissions) {
+                    add_principals(&mut grants, resource, action)?;
                 }
-                sets.insert(KindKey::of(Kind::RunTime), grants);
             }
-            b"DesignTimePermissions" => {
-                let mut grants = Grants::new();
-                for action in elements(child) {
-                    add_principals(&mut grants, "", action)?;
-                }
-                sets.insert(KindKey::of(Kind::DesignTime), grants);
+        } else {
+            for action in elements(child) {
+                add_principals(&mut grants, "", action)?;
             }
-            b"VisibilityPermissions" => {
-                let mut grants = Grants::new();
-                for action in elements(child) {
-                    add_principals(&mut grants, "", action)?;
-                }
-                sets.insert(KindKey::of(Kind::Visibility), grants);
-            }
-            _ => {}
         }
+        sets.insert(KindKey::of(kind), grants);
     }
     Ok(sets)
 }
@@ -225,32 +215,29 @@ pub fn from_json(kind: Kind, value: &Value) -> Result<Grants, PermissionsError> 
         }
         Ok::<_, PermissionsError>(())
     };
-    match kind {
-        Kind::RunTime => {
-            let resources = value
-                .get("permissions")
-                .and_then(Value::as_array)
-                .ok_or_else(|| error("run-time permissions have no `permissions` list"))?;
-            for resource in resources {
-                let name = resource
-                    .get("resourceName")
-                    .and_then(Value::as_str)
-                    .unwrap_or("*");
-                for (action, list) in resource.as_object().into_iter().flatten() {
-                    if list.is_array() {
-                        add(&mut grants, name, action, list)?;
-                    }
+    if kind.is_run_time() {
+        let resources = value
+            .get("permissions")
+            .and_then(Value::as_array)
+            .ok_or_else(|| error("run-time permissions have no `permissions` list"))?;
+        for resource in resources {
+            let name = resource
+                .get("resourceName")
+                .and_then(Value::as_str)
+                .unwrap_or("*");
+            for (action, list) in resource.as_object().into_iter().flatten() {
+                if list.is_array() {
+                    add(&mut grants, name, action, list)?;
                 }
             }
         }
-        Kind::DesignTime | Kind::Visibility => {
-            let object = value
-                .as_object()
-                .ok_or_else(|| error(format!("{} permissions are not an object", kind.label())))?;
-            for (action, list) in object {
-                if list.is_array() {
-                    add(&mut grants, "", action, list)?;
-                }
+    } else {
+        let object = value
+            .as_object()
+            .ok_or_else(|| error(format!("{} permissions are not an object", kind.label())))?;
+        for (action, list) in object {
+            if list.is_array() {
+                add(&mut grants, "", action, list)?;
             }
         }
     }
@@ -266,51 +253,48 @@ pub fn to_json(kind: Kind, grants: &Grants) -> Value {
             "type": grant.principal_type,
         })
     };
-    match kind {
-        Kind::RunTime => {
-            let mut resources: BTreeMap<&str, Map<String, Value>> = BTreeMap::new();
-            for (grant, permitted) in grants {
-                let resource = resources.entry(grant.resource.as_str()).or_insert_with(|| {
-                    let mut actions = Map::new();
-                    for action in RUN_TIME_ACTIONS {
-                        actions.insert(action.to_string(), json!([]));
-                    }
-                    actions
-                });
-                if let Some(Value::Array(list)) = resource.get_mut(&grant.action) {
-                    list.push(principal(grant, *permitted));
-                } else {
-                    resource.insert(grant.action.clone(), json!([principal(grant, *permitted)]));
-                }
-            }
-            let list: Vec<Value> = resources
-                .into_iter()
-                .map(|(name, mut actions)| {
-                    actions.insert("resourceName".to_string(), json!(name));
-                    Value::Object(actions)
-                })
-                .collect();
-            json!({ "permissions": list })
-        }
-        Kind::DesignTime | Kind::Visibility => {
-            let mut actions = Map::new();
-            if matches!(kind, Kind::DesignTime) {
-                for action in DESIGN_TIME_ACTIONS {
+    if kind.is_run_time() {
+        let mut resources: BTreeMap<&str, Map<String, Value>> = BTreeMap::new();
+        for (grant, permitted) in grants {
+            let resource = resources.entry(grant.resource.as_str()).or_insert_with(|| {
+                let mut actions = Map::new();
+                for action in RUN_TIME_ACTIONS {
                     actions.insert(action.to_string(), json!([]));
                 }
+                actions
+            });
+            if let Some(Value::Array(list)) = resource.get_mut(&grant.action) {
+                list.push(principal(grant, *permitted));
             } else {
-                actions.insert("Visibility".to_string(), json!([]));
+                resource.insert(grant.action.clone(), json!([principal(grant, *permitted)]));
             }
-            for (grant, permitted) in grants {
-                match actions.get_mut(&grant.action) {
-                    Some(Value::Array(list)) => list.push(principal(grant, *permitted)),
-                    _ => {
-                        actions.insert(grant.action.clone(), json!([principal(grant, *permitted)]));
-                    }
+        }
+        let list: Vec<Value> = resources
+            .into_iter()
+            .map(|(name, mut actions)| {
+                actions.insert("resourceName".to_string(), json!(name));
+                Value::Object(actions)
+            })
+            .collect();
+        json!({ "permissions": list })
+    } else {
+        let mut actions = Map::new();
+        if kind.is_design_time() {
+            for action in DESIGN_TIME_ACTIONS {
+                actions.insert(action.to_string(), json!([]));
+            }
+        } else {
+            actions.insert("Visibility".to_string(), json!([]));
+        }
+        for (grant, permitted) in grants {
+            match actions.get_mut(&grant.action) {
+                Some(Value::Array(list)) => list.push(principal(grant, *permitted)),
+                _ => {
+                    actions.insert(grant.action.clone(), json!([principal(grant, *permitted)]));
                 }
             }
-            Value::Object(actions)
         }
+        Value::Object(actions)
     }
 }
 
@@ -366,7 +350,7 @@ impl fmt::Display for Difference {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(
             f,
-            "{:<11} {:<18} {}",
+            "{:<20} {:<18} {}",
             self.set.label(),
             self.change.label(),
             self.grant

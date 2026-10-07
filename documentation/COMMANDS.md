@@ -140,16 +140,18 @@ entity carry <old> <new>... copy run-time, design-time and visibility permission
     --apply                 write the differing permissions, read each back, mark the ledger
     --detail                also ask the platform for its own difference count
     --json                  {plan|applied, entities:[collection, old, new, status, kinds, error]}
-permissions diff <entity>...|--all [--project <name>] [--json]
-                            the repository's run-time, design-time and visibility permissions
-                            against the server's: server-only, repository-only, allow/deny flipped;
-                            exit 1 when any entity differs
-permissions push <entity>...|--all [--project <name>] [--apply] [--json]
-                            make each differing set exactly the repository's, read it back, and
-                            record the baseline of pushed entities that then match; plan unless --apply
 entity restore [<set> [<entity>...]]  list backup sets, or plan importing one back
     --apply                 import the set's entities, confirming each on the server
     --json                  {sets|plan|applied, ...}
+permissions diff <entity>...|--all [--json]
+                            each entity's run-time, design-time and visibility permissions (and a
+                            shape's or template's instance permissions) against the server's: grants only the server has (an import never removes one),
+                            grants only the repository has, and allow/deny that differs (an import
+                            keeps the server's); exit 1 when any differs
+permissions push <entity>...|--all [--apply] [--json]
+                            make the server's permission sets exactly the repository's, set by set,
+                            reading each back; plan unless --apply; records the baseline of pushed
+                            entities that then match the server
 datatable copy <old> <new> [--map a=b,c=d] [--drop-unmapped] [--append] [--max-rows <n>] [--apply] [--json]
                             copy a DataTable's rows into the one that replaced it; plan unless --apply
     --map a=b,...           source field -> target field (same names and the rename ledger match otherwise)

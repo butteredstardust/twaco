@@ -25,10 +25,11 @@
 //! - sort element children by `name` (canonical bytes break ties) only in `FieldDefinitions`,
 //!   `ParameterDefinitions`, `ServiceDefinitions`, `ServiceImplementations`, `ConfigurationTables`,
 //!   and `ConfigurationTableDefinitions`; some live exports reorder these named sections;
-//! - inside `DesignTimePermissions`, `RunTimePermissions` and `VisibilityPermissions`, treat
-//!   every list as the set it is: drop a permission kind or a `Permissions` resource that grants
-//!   no principal, and sort the rest by canonical bytes. An import reorders principals and
-//!   resources and fills in the kinds a resource left out (observed 2026-10-07; version 4);
+//! - inside `DesignTimePermissions`, `RunTimePermissions` and `VisibilityPermissions`, and the
+//!   `Instance...` forms of the three on a ThingShape or ThingTemplate, treat every list as the
+//!   set it is: drop a permission kind or a `Permissions` resource that grants no principal, and
+//!   sort the rest by canonical bytes. An import reorders principals and resources and fills in
+//!   the kinds a resource left out (observed 2026-10-07; version 4, instance blocks version 5);
 //! - compact the single JSON CDATA payload in `mashupContent`; mashup JSON differed only in layout,
 //!   as did direct-child `content` in observed `StateDefinition` and `StyleTheme` entities;
 //! - remove ASCII whitespace from a single CDATA payload in a `MediaEntity`'s direct-child
@@ -46,7 +47,7 @@ use sha2::{Digest, Sha256};
 use std::fmt;
 
 /// The normalisation version every hash carries; a baseline from another one says nothing.
-pub(crate) const HASH_VERSION: &str = "v4";
+pub(crate) const HASH_VERSION: &str = "v5";
 const LIVE_ONLY_ELEMENTS: [&[u8]; 9] = [
     b"effectiveShape",
     b"Owner",
@@ -69,10 +70,13 @@ const NAME_KEYED_CONTAINERS: [&[u8]; 6] = [
     b"ConfigurationTableDefinitions",
 ];
 const JSON_CONTENT_ENTITIES: [&[u8]; 2] = [b"StateDefinition", b"StyleTheme"];
-const PERMISSION_BLOCKS: [&[u8]; 3] = [
+const PERMISSION_BLOCKS: [&[u8]; 6] = [
     b"DesignTimePermissions",
     b"RunTimePermissions",
     b"VisibilityPermissions",
+    b"InstanceDesignTimePermissions",
+    b"InstanceRunTimePermissions",
+    b"InstanceVisibilityPermissions",
 ];
 
 #[derive(Debug)]
@@ -133,8 +137,8 @@ pub fn normalise(src: &[u8]) -> Result<Vec<u8>, NormaliseError> {
     canonical(src, true)
 }
 
-/// Whether two exports differ only in their permission blocks: equal with every
-/// `DesignTimePermissions`, `RunTimePermissions` and `VisibilityPermissions` left out, and not
+/// Whether two exports differ only in their permission blocks: equal with every permission block
+/// (instance blocks included) left out, and not
 /// equal with them. An import never removes a grant, so such an entity needs a permissions push
 /// rather than another import.
 pub fn differ_only_in_permissions(left: &[u8], right: &[u8]) -> bool {
@@ -163,7 +167,7 @@ fn canonical(src: &[u8], with_permissions: bool) -> Result<Vec<u8>, NormaliseErr
                 if PERMISSION_BLOCKS.contains(&element.name.as_slice()))
         });
     }
-    let mut out = b"twaco-entity-normalise-v4\0".to_vec();
+    let mut out = b"twaco-entity-normalise-v5\0".to_vec();
     write_element(&entity, &mut out);
     Ok(out)
 }
@@ -869,10 +873,10 @@ mod tests {
 
     #[test]
     fn hash_and_framing_are_version_four() {
-        assert!(hash(b"<Thing/>").unwrap().starts_with("v4:"));
+        assert!(hash(b"<Thing/>").unwrap().starts_with("v5:"));
         assert!(normalise(b"<Thing/>")
             .unwrap()
-            .starts_with(b"twaco-entity-normalise-v4\0"));
+            .starts_with(b"twaco-entity-normalise-v5\0"));
     }
 
     /// What was sent, and what a 10.1 server read back after importing it (2026-10-07).
@@ -885,6 +889,22 @@ mod tests {
             hash(PERMISSIONS_SENT).unwrap(),
             hash(PERMISSIONS_READ_BACK).unwrap()
         );
+    }
+
+    #[test]
+    fn an_instance_permission_block_is_a_set_too() {
+        // A ThingShape as exported (empty kinds, two principals in one order), and as an import
+        // reads it back: kinds filled in, `*` added, principals reordered.
+        let sent = br#"<ThingShape name="S"><InstanceRunTimePermissions><Permissions resourceName="GetX"><ServiceInvoke><Principal isPermitted="true" name="B" type="Group"/><Principal isPermitted="true" name="A" type="Group"/></ServiceInvoke></Permissions></InstanceRunTimePermissions></ThingShape>"#;
+        let back = br#"<ThingShape name="S"><InstanceRunTimePermissions><Permissions resourceName="*"><PropertyRead/><PropertyWrite/><ServiceInvoke/><EventInvoke/><EventSubscribe/></Permissions><Permissions resourceName="GetX"><PropertyRead/><PropertyWrite/><ServiceInvoke><Principal isPermitted="true" name="A" type="Group"/><Principal isPermitted="true" name="B" type="Group"/></ServiceInvoke><EventInvoke/><EventSubscribe/></Permissions></InstanceRunTimePermissions></ThingShape>"#;
+        assert_eq!(hash(sent).unwrap(), hash(back).unwrap());
+        let denied = std::str::from_utf8(sent).unwrap().replacen(
+            r#"isPermitted="true" name="A""#,
+            r#"isPermitted="false" name="A""#,
+            1,
+        );
+        assert_ne!(hash(denied.as_bytes()).unwrap(), hash(sent).unwrap());
+        assert!(differ_only_in_permissions(sent, denied.as_bytes()));
     }
 
     #[test]

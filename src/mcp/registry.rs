@@ -214,7 +214,7 @@ static TOOLS: LazyLock<Vec<Tool>> = LazyLock::new(|| {
         ),
         solution_tool::<entity_requests::PermissionsRequest>(
             "permissions",
-            "Compare entities' run-time, design-time and visibility permissions in the repository with the server's. An import only adds: it never removes a grant the server has, and never changes the server's allow or deny for a principal it already lists. Each difference is server-only, repository-only or flipped (allow/deny differs). A permission set the entity XML does not declare is not compared. Read-only.",
+            "Compare entities' run-time, design-time and visibility permissions (and the instance permissions of a ThingShape or ThingTemplate) in the repository with the server's. An import only adds: it never removes a grant the server has, and never changes the server's allow or deny for a principal it already lists. Each difference is server-only, repository-only or flipped (allow/deny differs). A permission set the entity XML does not declare is not compared. Read-only.",
             true,
             entity::permissions_tool,
         ),

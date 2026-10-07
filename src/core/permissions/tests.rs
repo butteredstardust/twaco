@@ -127,6 +127,67 @@ fn a_set_the_xml_does_not_declare_is_not_managed() {
     assert!(sets[&KindKey::of(Kind::Visibility)].is_empty());
 }
 
+/// A ThingTemplate with every set, as an export writes it: instance blocks beside the entity's own.
+const TEMPLATE: &str = r#"<ThingTemplate name="T_TT"><RunTimePermissions/><InstanceRunTimePermissions><Permissions resourceName="GetX"><ServiceInvoke><Principal isPermitted="true" name="Viewers" type="Group"/></ServiceInvoke></Permissions></InstanceRunTimePermissions><InstanceDesignTimePermissions><Create/><Read><Principal isPermitted="true" name="Editors" type="Group"/></Read><Update/><Delete/><Metadata/></InstanceDesignTimePermissions><InstanceVisibilityPermissions><Visibility><Principal isPermitted="true" name="O:U" type="OrganizationalUnit"/></Visibility></InstanceVisibilityPermissions></ThingTemplate>"#;
+
+#[test]
+fn instance_blocks_are_sets_of_their_own() {
+    let sets = from_xml(TEMPLATE.as_bytes()).unwrap();
+    assert_eq!(
+        sets.keys().map(|k| k.kind().label()).collect::<Vec<_>>(),
+        [
+            "run-time",
+            "instance run-time",
+            "instance design-time",
+            "instance visibility"
+        ]
+    );
+    assert!(sets[&KindKey::of(Kind::RunTime)].is_empty());
+    assert!(sets[&KindKey::of(Kind::InstanceRunTime)][&grant("GetX", "ServiceInvoke", "Viewers")]);
+    for key in sets.keys() {
+        let kind = key.kind();
+        let round = from_json(kind, &to_json(kind, &sets[key])).unwrap();
+        assert_eq!(round, sets[key], "{}", kind.label());
+    }
+    // Instance design time is written with all five actions, as design time is.
+    let design = to_json(
+        Kind::InstanceDesignTime,
+        &sets[&KindKey::of(Kind::InstanceDesignTime)],
+    );
+    assert_eq!(design.as_object().unwrap().len(), 5);
+}
+
+#[test]
+fn a_push_writes_a_differing_instance_set_through_its_own_service() {
+    let (entity, dir) = entity_file(TEMPLATE);
+    let empty_run = json!({"permissions": [{"resourceName": "*", "PropertyRead": [], "PropertyWrite": [],
+        "ServiceInvoke": [], "EventInvoke": [], "EventSubscribe": []}]});
+    let remote = Fake {
+        exists: true,
+        sets: Mutex::new(BTreeMap::from([
+            ("run-time", empty_run.clone()),
+            ("instance run-time", empty_run),
+            (
+                "instance design-time",
+                json!({"Create": [], "Update": [], "Delete": [], "Metadata": [],
+                       "Read": [{"isPermitted": true, "name": "Editors", "type": "Group"}]}),
+            ),
+            (
+                "instance visibility",
+                json!({"Visibility": [{"isPermitted": true, "name": "O:U", "type": "OrganizationalUnit"}]}),
+            ),
+        ])),
+        ..Fake::default()
+    };
+    let report = run(&remote, std::slice::from_ref(&entity), true);
+    let one = &report.entities[0];
+    assert_eq!(one.status, Status::Pushed, "{:?}", one.error);
+    assert_eq!(*remote.writes.lock().unwrap(), ["instance run-time"]);
+    assert_eq!(one.differences.len(), 1);
+    assert_eq!(one.differences[0].change, Change::RepositoryOnly);
+    std::fs::remove_dir_all(dir).unwrap();
+}
+
 #[test]
 fn diff_names_stale_added_and_flipped_grants_and_writes_nothing() {
     let (entity, dir) = entity_file(ENTITY);

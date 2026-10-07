@@ -63,7 +63,8 @@ allow or deny of a principal the server already lists. A deploy that reads an en
 "not kept" says when only its permissions differ.
 
 - `twaco permissions diff <entity>|--all`: each run-time, design-time and visibility set in the
-  entity XML against the server's; exit 1 when any differs.
+  entity XML (and a shape's or template's instance sets) against the server's; exit 1 when any
+  differs.
 - `twaco permissions push <entity> --apply`: makes the server's sets exactly the repository's and
   reads them back. Without `--apply` it is the plan.
 

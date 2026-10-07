@@ -437,7 +437,9 @@ twaco permissions push Acme.App.Manager --apply
 repository alone has, and every allow/deny that differs. Order is not a difference. `push --apply`
 writes each differing set whole through `Set...PermissionsAsJSON`, which replaces the set, reads it
 back, and records the baseline of every pushed entity that then matches the server, so the next
-deploy needs no `--force`. A set the XML has no block for is never compared or written.
+deploy needs no `--force`. A set the XML has no block for is never compared or written. A
+ThingShape's `InstanceRunTimePermissions`, and a ThingTemplate's three `Instance...Permissions`
+(what its Things get), are sets of their own and are compared and pushed the same way.
 
 ## Copying DataTable rows
 

@@ -12,7 +12,9 @@ All notable changes to twaco are recorded here. The format follows
   XML with the server's, and `permissions push` makes the server's exactly the repository's,
   reading each set back. An import only adds: it never removes a grant, and it keeps the server's
   allow or deny for a principal the server already lists, so a deny in the repository could be
-  silently ignored (verified on a live server). MCP tools `permissions` and `permissions_push`.
+  silently ignored (verified on a live server). A ThingShape's or ThingTemplate's instance
+  permissions (what its Things get) are sets of their own. MCP tools `permissions` and
+  `permissions_push`.
 - A deploy whose read-back differs only in permissions says so, and names the commands above.
 
 ### Fixed
@@ -39,7 +41,8 @@ All notable changes to twaco are recorded here. The format follows
 
 ### Changed
 
-- Entity hashes are version 4 (`v4:`). A baseline entry recorded by an earlier twaco counts as
+- Entity hashes are version 5 (`v5:`). The instance permission blocks of a ThingShape or
+  ThingTemplate are compared as sets too, as the entity's own blocks are. A baseline entry recorded by an earlier twaco counts as
   unrecorded, not as changed: an entity that matches the server reads `no-baseline-same` and its
   next deploy records it again. `twaco doctor` counts such entries, and
   `twaco entity status --all --record` records them again at once.
