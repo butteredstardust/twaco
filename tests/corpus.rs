@@ -1833,3 +1833,256 @@ fn the_unused_report_is_consistent_over_the_corpus() {
     assert!(judged > 0, "no repository with a twaco.toml was found");
     println!("unused: {unused} of {judged} judged entities unreached from {roots} entry points");
 }
+
+/// One node as a reader of the document sees it: an element, or the text between elements, a
+/// CDATA section's payload merged into the text around it as an XML parser reports it.
+#[derive(Debug, PartialEq)]
+enum XmlNode {
+    Element {
+        name: String,
+        attributes: Vec<(String, String)>,
+        children: Vec<XmlNode>,
+    },
+    Text(String),
+}
+
+/// XML 1.0 2.11: a parser hands on every line end as one line feed.
+fn line_ends(text: &str) -> String {
+    text.replace("\r\n", "\n").replace('\r', "\n")
+}
+
+/// The local part of a name; a strict parser reports namespaced names without their prefix.
+fn local(name: &str) -> String {
+    name.rsplit(':').next().unwrap_or(name).to_string()
+}
+
+fn push_text(children: &mut Vec<XmlNode>, text: String) {
+    if let Some(XmlNode::Text(previous)) = children.last_mut() {
+        previous.push_str(&text);
+    } else {
+        children.push(XmlNode::Text(text));
+    }
+}
+
+/// An element being read: its name, attributes and children so far.
+type Open = (String, Vec<(String, String)>, Vec<XmlNode>);
+
+/// The root element as twaco's scanner reads the document.
+fn twaco_reading(src: &[u8]) -> Result<XmlNode, String> {
+    let scanned = scan::scan(src).map_err(|e| e.to_string())?;
+    let text = std::str::from_utf8(src).map_err(|e| e.to_string())?;
+    let mut stack: Vec<Open> = Vec::new();
+    let mut root = None;
+    let attributes_of = |token: &scan::Token| -> Result<Vec<(String, String)>, String> {
+        let mut out = Vec::new();
+        for attribute in scan::attributes(src, token).map_err(|e| e.to_string())? {
+            let name = &text[attribute.name.start..attribute.name.end];
+            if name == "xmlns" || name.starts_with("xmlns:") {
+                continue;
+            }
+            // XML 1.0 3.3.3: literal white space in a value reads as a space, before references.
+            let raw = line_ends(&text[attribute.value.start..attribute.value.end])
+                .replace(['\t', '\n'], " ");
+            out.push((local(name), scan::decode_entities(&raw)));
+        }
+        Ok(out)
+    };
+    for (at, token) in scanned.tokens.iter().enumerate() {
+        if at == 0 && scanned.has_bom {
+            continue;
+        }
+        let name = || local(&text[token.name.start..token.name.end]);
+        match token.kind {
+            Kind::Start => stack.push((name(), attributes_of(token)?, Vec::new())),
+            Kind::Empty | Kind::End => {
+                let element = if token.kind == Kind::Empty {
+                    XmlNode::Element {
+                        name: name(),
+                        attributes: attributes_of(token)?,
+                        children: Vec::new(),
+                    }
+                } else {
+                    let (open, attributes, children) =
+                        stack.pop().ok_or("a closing tag with nothing open")?;
+                    if open != name() {
+                        return Err(format!("<{open}> closed by </{}>", name()));
+                    }
+                    XmlNode::Element {
+                        name: open,
+                        attributes,
+                        children,
+                    }
+                };
+                match stack.last_mut() {
+                    Some((_, _, children)) => children.push(element),
+                    None if root.is_none() => root = Some(element),
+                    None => return Err("a second root element".to_string()),
+                }
+            }
+            Kind::Text | Kind::Cdata => {
+                if let Some((_, _, children)) = stack.last_mut() {
+                    let piece = if token.kind == Kind::Cdata {
+                        line_ends(&text[token.inner.start..token.inner.end])
+                    } else {
+                        scan::decode_entities(&line_ends(&text[token.span.start..token.span.end]))
+                    };
+                    push_text(children, piece);
+                }
+            }
+            Kind::Pi | Kind::Comment | Kind::DocType => {}
+        }
+    }
+    if !stack.is_empty() {
+        return Err("an element is never closed".to_string());
+    }
+    root.ok_or_else(|| "no root element".to_string())
+}
+
+/// A DOCTYPE is allowed: a strict parser refuses one by default, and XML permits it.
+fn oracle_options<'a>() -> roxmltree::ParsingOptions<'a> {
+    roxmltree::ParsingOptions {
+        allow_dtd: true,
+        ..roxmltree::ParsingOptions::default()
+    }
+}
+
+/// The root element as a strict, independent parser reads the document.
+fn oracle_reading(node: roxmltree::Node) -> XmlNode {
+    let mut children = Vec::new();
+    for child in node.children() {
+        if child.is_element() {
+            children.push(oracle_reading(child));
+        } else if child.is_text() {
+            push_text(&mut children, child.text().unwrap_or_default().to_string());
+        }
+    }
+    XmlNode::Element {
+        name: node.tag_name().name().to_string(),
+        attributes: node
+            .attributes()
+            .map(|a| (a.name().to_string(), a.value().to_string()))
+            .collect(),
+        children,
+    }
+}
+
+/// The first place two readings part, as a path of element names.
+fn first_difference(left: &XmlNode, right: &XmlNode, path: &str) -> String {
+    match (left, right) {
+        (
+            XmlNode::Element {
+                name: a,
+                attributes: aa,
+                children: ac,
+            },
+            XmlNode::Element {
+                name: b,
+                attributes: ba,
+                children: bc,
+            },
+        ) => {
+            let here = format!("{path}/{a}");
+            if a != b {
+                return format!("{path}: element {a} against {b}");
+            }
+            if aa != ba {
+                return format!("{here}: attributes {aa:?} against {ba:?}");
+            }
+            if ac.len() != bc.len() {
+                return format!("{here}: {} children against {}", ac.len(), bc.len());
+            }
+            for (x, y) in ac.iter().zip(bc) {
+                if x != y {
+                    return first_difference(x, y, &here);
+                }
+            }
+            here
+        }
+        (XmlNode::Text(a), XmlNode::Text(b)) => format!(
+            "{path}: text {:?} against {:?}",
+            a.chars().take(60).collect::<String>(),
+            b.chars().take(60).collect::<String>()
+        ),
+        _ => format!("{path}: an element against text"),
+    }
+}
+
+/// twaco reads entity XML with its own scanner, and every writer is checked by reading back with
+/// that same scanner. Here a strict parser that shares no code with it reads every XML file of
+/// the corpus: twaco must accept exactly the documents it accepts, and see the same elements,
+/// decoded attributes and text.
+#[test]
+fn twaco_reads_every_document_as_a_strict_xml_parser_does() {
+    let mut compared = 0usize;
+    let mut lenient = 0usize;
+    let mut failures = Vec::new();
+    for root in corpus_roots() {
+        for path in xml_files(&root) {
+            let Ok(bytes) = std::fs::read(&path) else {
+                continue;
+            };
+            compared += 1;
+            let theirs = std::str::from_utf8(&bytes)
+                .map_err(|e| e.to_string())
+                .and_then(|text| {
+                    roxmltree::Document::parse_with_options(text, oracle_options())
+                        .map_err(|e| e.to_string())
+                });
+            let ours = twaco_reading(&bytes);
+            match (ours, theirs) {
+                (Ok(reading), Ok(document)) => {
+                    let oracle = oracle_reading(document.root_element());
+                    if reading != oracle {
+                        failures.push(format!(
+                            "{}: read differently at {}",
+                            path.display(),
+                            first_difference(&reading, &oracle, "")
+                        ));
+                    }
+                }
+                // The scanner is lenient by design (it finds things; an `&` it cannot decode stays
+                // as written). What must refuse malformed XML is the entity reader every gate,
+                // status and deploy goes through.
+                (Ok(_), Err(why)) => {
+                    if twaco::core::normalise::normalise(&bytes).is_ok() {
+                        failures.push(format!(
+                            "{}: twaco hashes it, a strict parser refuses it: {why}",
+                            path.display()
+                        ));
+                    } else {
+                        lenient += 1;
+                    }
+                }
+                (Err(why), Ok(_)) => failures.push(format!(
+                    "{}: twaco's scanner refuses it ({why}), a strict parser reads it",
+                    path.display()
+                )),
+                (Err(_), Err(why)) => {
+                    // The entity reader may refuse more (it wants one entity), never accept more.
+                    if twaco::core::normalise::normalise(&bytes).is_ok() {
+                        failures.push(format!(
+                            "{}: twaco hashes it, a strict parser refuses it: {why}",
+                            path.display()
+                        ));
+                    }
+                }
+            }
+        }
+    }
+    assert!(compared > 0, "no XML file in the corpus");
+    assert!(
+        failures.is_empty(),
+        "{} of {compared} documents:\n{}",
+        failures.len(),
+        failures
+            .iter()
+            .take(15)
+            .cloned()
+            .collect::<Vec<_>>()
+            .join("\n")
+    );
+    println!(
+        "{compared} documents read alike by twaco and a strict parser; {lenient} malformed \
+         one(s) only the scanner reads, refused by the entity reader"
+    );
+}

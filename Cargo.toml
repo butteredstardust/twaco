@@ -54,6 +54,7 @@ winresource = "0.1.31"
 [dev-dependencies]
 proptest = "1.11.0"
 jsonschema = { version = "=0.30.0", default-features = false }
+roxmltree = "0.21.1"
 
 [profile.release]
 strip = true
