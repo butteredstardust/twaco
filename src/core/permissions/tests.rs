@@ -231,3 +231,29 @@ fn an_entity_missing_from_the_server_or_without_permissions_is_said_so() {
     assert_eq!(report.entities[0].status, Status::Unmanaged);
     std::fs::remove_dir_all(dir).unwrap();
 }
+
+#[test]
+fn only_the_one_entity_is_read_and_a_document_of_several_is_refused() {
+    let two = r#"<Entities><Things><Thing name="A"/><Thing name="B"><RunTimePermissions/></Thing></Things></Entities>"#;
+    assert!(from_xml(two.as_bytes()).is_err());
+    // A block nested below the entity is not the entity's.
+    let nested = r#"<Entities><Things><Thing name="A"><ThingShape><RunTimePermissions/></ThingShape></Thing></Things></Entities>"#;
+    assert!(from_xml(nested.as_bytes()).unwrap().is_empty());
+}
+
+#[test]
+fn a_grant_or_a_block_listed_twice_is_refused() {
+    let twice = r#"<Thing name="T"><DesignTimePermissions><Read><Principal isPermitted="true" name="Users" type="Group"/><Principal isPermitted="false" name="Users" type="Group"/></Read></DesignTimePermissions></Thing>"#;
+    let message = from_xml(twice.as_bytes()).unwrap_err().to_string();
+    assert!(
+        message.contains("Read: Group Users is listed twice"),
+        "{message}"
+    );
+    let blocks = r#"<Thing name="T"><VisibilityPermissions/><VisibilityPermissions/></Thing>"#;
+    assert!(from_xml(blocks.as_bytes()).is_err());
+    let json = json!({"Read": [
+        {"isPermitted": true, "name": "Users", "type": "Group"},
+        {"isPermitted": false, "name": "Users", "type": "Group"}
+    ]});
+    assert!(from_json(Kind::DesignTime, &json).is_err());
+}

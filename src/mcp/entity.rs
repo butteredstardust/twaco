@@ -332,14 +332,21 @@ fn permissions_target(
 fn permissions_result(
     solution: &Solution,
     request: commands::permissions::PermissionsRequest,
+    diff: bool,
 ) -> Result<Value, ToolError> {
     let mut notices = commands::Notices::default();
     let outcome =
         commands::permissions::execute(solution, &request, server::Client::new, &mut notices)
             .map_err(ToolError::coded)?;
     let report = &outcome.report;
+    use crate::core::permissions::Status;
+    // As the command line: drift in a diff and a target missing from the server in an applied
+    // push are not success.
+    let push = matches!(request.mode, Mode::Apply);
     let mut result = json!({
-        "ok": report.count(crate::core::permissions::Status::Failed) == 0,
+        "ok": report.count(Status::Failed) == 0
+            && !(push && report.count(Status::NotOnServer) > 0)
+            && !(diff && report.count(Status::Differs) > 0),
         "applied": report.applied,
         "differs": report.count(crate::core::permissions::Status::Differs),
         "entities": report.entities,
@@ -365,6 +372,7 @@ pub(crate) fn permissions_tool(
             profile: request.profile,
             lock_label: "mcp permissions",
         },
+        true,
     )
 }
 
@@ -386,5 +394,6 @@ pub(crate) fn permissions_push_tool(
             profile: request.profile,
             lock_label: "mcp permissions_push",
         },
+        false,
     )
 }

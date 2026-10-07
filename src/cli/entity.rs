@@ -631,7 +631,9 @@ pub(crate) fn permissions_cmd(solution: &Solution, route: &str, args: &Args) -> 
             println!("dry run: nothing was written; pass --apply to push");
         }
     }
-    if report.count(twaco::core::permissions::Status::Failed) > 0 {
+    if report.count(twaco::core::permissions::Status::Failed) > 0
+        || (report.applied && report.count(twaco::core::permissions::Status::NotOnServer) > 0)
+    {
         FAILED
     } else if !push && report.count(twaco::core::permissions::Status::Differs) > 0 {
         DRIFT

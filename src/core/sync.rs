@@ -226,10 +226,18 @@ fn structural_edits(
                 sidecar::named_children_of(tokens, src, host, section, member)?.into_keys(),
             );
         }
-        let run_time = tokens.iter().position(|token| {
-            matches!(token.kind, Kind::Start) && token.name.of(src) == b"RunTimePermissions"
+        // The entity's own block, a direct child of the entity element, never one nested deeper.
+        let entity = sidecar::entity_element(tokens, src).or_else(|| {
+            tokens
+                .iter()
+                .position(|token| matches!(token.kind, Kind::Start))
         });
-        if let Some(run_time) = run_time {
+        let run_time = entity.into_iter().flat_map(|entity| {
+            scan::child_tags(tokens, src, "RunTimePermissions", entity)
+                .into_iter()
+                .filter(|&at| matches!(tokens[at].kind, Kind::Start))
+        });
+        for run_time in run_time {
             for permissions in scan::child_tags(tokens, src, "Permissions", run_time) {
                 let resource = scan::attribute(src, &tokens[permissions], "resourceName")?
                     .map(|span| scan::decode_entities(&String::from_utf8_lossy(span.of(src))));
@@ -420,6 +428,22 @@ fn defined_name(definition: &str) -> Option<String> {
         .filter(|token| matches!(token.kind, Kind::Start | Kind::Empty));
     let first = elements.next()?;
     if first.name.of(definition.as_bytes()) != b"ServiceDefinition" {
+        return None;
+    }
+    // Nothing but this one element: a second one would be inserted beside it unimplemented.
+    let start = tokens
+        .iter()
+        .position(|token| std::ptr::eq(token, first))
+        .expect("the token came from this list");
+    let end = if matches!(first.kind, Kind::Empty) {
+        start
+    } else {
+        scan::element_end(&tokens, start)?
+    };
+    if tokens[end + 1..]
+        .iter()
+        .any(|token| matches!(token.kind, Kind::Start | Kind::Empty))
+    {
         return None;
     }
     scan::attribute(definition.as_bytes(), first, "name")
@@ -968,6 +992,43 @@ mod tests {
         assert!(!text.contains("resourceName=\"S\""), "{text}");
         assert!(text.contains("resourceName=\"P\""), "{text}");
         assert!(text.contains("resourceName=\"*\""), "{text}");
+    }
+
+    #[test]
+    fn only_the_entitys_own_run_time_permissions_lose_a_removed_service() {
+        let src = b"<Entities><Things><Thing name=\"T\">
+<ThingShape><Nested><RunTimePermissions>
+<Permissions resourceName=\"S\"><ServiceInvoke/></Permissions>
+</RunTimePermissions></Nested>             <ServiceDefinitions><ServiceDefinition name=\"S\"></ServiceDefinition></ServiceDefinitions>             <ServiceImplementations><ServiceImplementation name=\"S\" handlerName=\"Script\"><ConfigurationTables><ConfigurationTable name=\"Script\"><Rows><Row><code><![CDATA[s();]]></code></Row></Rows></ConfigurationTable></ConfigurationTables></ServiceImplementation></ServiceImplementations>             </ThingShape>
+<RunTimePermissions>
+<Permissions resourceName=\"S\"><ServiceInvoke/></Permissions>
+</RunTimePermissions>
+</Thing></Things></Entities>";
+        let (out, report) = sync(src, &BTreeMap::new(), true, true, false).unwrap();
+        assert_eq!(report.dropped_permissions, vec!["S"]);
+        let text = String::from_utf8(out).unwrap();
+        assert_eq!(text.matches("resourceName=\"S\"").count(), 1, "{text}");
+        assert!(
+            text.contains(
+                "<Nested><RunTimePermissions>
+<Permissions resourceName=\"S\">"
+            ),
+            "{text}"
+        );
+    }
+
+    #[test]
+    fn a_definition_sidecar_holding_two_definitions_is_refused() {
+        let src = entity("            var a = 1;");
+        let mut sidecars = sidecars_of(&src);
+        let mut two = new_service("N", "n();");
+        two.definition
+            .push_str("<ServiceDefinition name=\"Unexpected\"></ServiceDefinition>");
+        sidecars.insert("N".into(), two);
+        assert!(matches!(
+            sync(&src, &sidecars, true, true, false),
+            Err(SidecarError::CannotAdd { .. })
+        ));
     }
 
     #[test]

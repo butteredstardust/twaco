@@ -103,12 +103,21 @@ fn error(message: impl Into<String>) -> PermissionsError {
 
 /// The permission sets of one entity document.
 pub fn from_xml(src: &[u8]) -> Result<Sets, PermissionsError> {
-    let roots = normalise::parse_document(src).map_err(|e| error(e.to_string()))?;
+    let entity = normalise::entity_of(src).map_err(|e| error(e.to_string()))?;
     let mut sets = Sets::new();
-    let Some(entity) = find_entity(&roots) else {
-        return Ok(sets);
-    };
-    for child in elements(entity) {
+    for child in elements(&entity) {
+        let kind = match child.name.as_slice() {
+            b"RunTimePermissions" => Kind::RunTime,
+            b"DesignTimePermissions" => Kind::DesignTime,
+            b"VisibilityPermissions" => Kind::Visibility,
+            _ => continue,
+        };
+        if sets.contains_key(&KindKey::of(kind)) {
+            return Err(error(format!(
+                "the entity has two {} permission blocks",
+                kind.label()
+            )));
+        }
         match child.name.as_slice() {
             b"RunTimePermissions" => {
                 let mut grants = Grants::new();
@@ -140,28 +149,6 @@ pub fn from_xml(src: &[u8]) -> Result<Sets, PermissionsError> {
     Ok(sets)
 }
 
-/// The entity element: the first element holding a permission block, at any depth of the
-/// `<Entities><Collection>` envelope.
-fn find_entity(nodes: &[Node]) -> Option<&Element> {
-    for node in nodes {
-        if let Node::Element(element) = node {
-            let holds = elements(element).any(|child| {
-                matches!(
-                    child.name.as_slice(),
-                    b"RunTimePermissions" | b"DesignTimePermissions" | b"VisibilityPermissions"
-                )
-            });
-            if holds {
-                return Some(element);
-            }
-            if let Some(found) = find_entity(&element.children) {
-                return Some(found);
-            }
-        }
-    }
-    None
-}
-
 fn elements(element: &Element) -> impl Iterator<Item = &Element> {
     element.children.iter().filter_map(|child| match child {
         Node::Element(element) => Some(element),
@@ -188,7 +175,8 @@ fn add_principals(
             .ok_or_else(|| error(format!("a {action_name} principal has no name")))?;
         let principal_type = attribute(principal, "type").unwrap_or_default();
         let permitted = attribute(principal, "isPermitted") != Some("false");
-        grants.insert(
+        insert(
+            grants,
             Grant {
                 resource: resource.to_string(),
                 action: action_name.clone(),
@@ -196,8 +184,18 @@ fn add_principals(
                 principal_type: principal_type.to_string(),
             },
             permitted,
-        );
+        )?;
     }
+    Ok(())
+}
+
+/// Add one grant. A grant listed twice is refused, never resolved by whichever came last: a push
+/// replaces whole sets, so guessing could write the wrong allow or deny.
+fn insert(grants: &mut Grants, grant: Grant, permitted: bool) -> Result<(), PermissionsError> {
+    if grants.contains_key(&grant) {
+        return Err(error(format!("{grant} is listed twice")));
+    }
+    grants.insert(grant, permitted);
     Ok(())
 }
 
@@ -210,7 +208,8 @@ pub fn from_json(kind: Kind, value: &Value) -> Result<Grants, PermissionsError> 
                 .get("name")
                 .and_then(Value::as_str)
                 .ok_or_else(|| error(format!("a {action} principal has no name")))?;
-            grants.insert(
+            insert(
+                grants,
                 Grant {
                     resource: resource.to_string(),
                     action: action.to_string(),
@@ -222,7 +221,7 @@ pub fn from_json(kind: Kind, value: &Value) -> Result<Grants, PermissionsError> 
                         .to_string(),
                 },
                 principal.get("isPermitted").and_then(Value::as_bool) != Some(false),
-            );
+            )?;
         }
         Ok::<_, PermissionsError>(())
     };

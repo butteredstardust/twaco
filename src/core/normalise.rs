@@ -176,6 +176,12 @@ pub(crate) fn parse_document(src: &[u8]) -> Result<Vec<Node>, NormaliseError> {
     parse(src, &tokens)
 }
 
+/// The one entity element of an export, unwrapped from Composer's envelope exactly as the hash
+/// unwraps it; a document holding several entities is refused.
+pub(crate) fn entity_of(src: &[u8]) -> Result<Element, NormaliseError> {
+    unwrap_entity(parse_document(src)?)
+}
+
 /// Versioned SHA-256 over [`normalise`]'s canonical bytes.
 pub fn hash(src: &[u8]) -> Result<String, NormaliseError> {
     let canonical = normalise(src)?;
