@@ -515,3 +515,136 @@ fn a_helper_that_cannot_mean_one_thing_is_an_error_not_a_guess() {
     );
     let _ = std::fs::remove_dir_all(root);
 }
+
+#[test]
+fn the_servers_helper_tables_are_compared_as_sets_of_rows() {
+    use super::server_audit_tests::Fake;
+    let (solution, root) = helper_solution();
+    command::execute_apply(&solution, &request(Mode::Apply), &mut Notices::default()).unwrap();
+    let helper = std::fs::read(root.join("Things/Acme.App.ComponentPermissionHelper.xml")).unwrap();
+    let tables = super::helper::read_tables(&crate::core::normalise::entity_of(&helper).unwrap());
+    // As the server returns them: in another order, with JSON booleans and numbers.
+    let infotable = |name: &str| {
+        let table = &tables[name];
+        let mut rows: Vec<serde_json::Value> = table
+            .rows
+            .iter()
+            .map(|row| {
+                let mut object = serde_json::Map::new();
+                for (field, value) in row {
+                    let json = match value.as_str() {
+                        "true" => serde_json::json!(true),
+                        "false" => serde_json::json!(false),
+                        number if field == "ID" => {
+                            serde_json::json!(number.parse::<f64>().unwrap())
+                        }
+                        text => serde_json::json!(text),
+                    };
+                    object.insert(field.clone(), json);
+                }
+                serde_json::Value::Object(object)
+            })
+            .collect();
+        rows.reverse();
+        let fields: serde_json::Map<String, serde_json::Value> = table
+            .fields
+            .iter()
+            .map(|f| (f.name.clone(), serde_json::json!({"name": f.name})))
+            .collect();
+        serde_json::json!({"dataShape": {"fieldDefinitions": fields}, "rows": rows})
+    };
+    let mut fake = Fake::default();
+    for name in [
+        "RoleGroupsAndOrganizations",
+        "RunTimePermissionsTable",
+        "VisibilityPermissionsTable",
+    ] {
+        fake.tables.insert(name.to_string(), infotable(name));
+    }
+    let report = super::audit::audit_with(&solution, None, Some(&fake)).unwrap();
+    let helper_findings: Vec<_> = report.projects[0]
+        .findings
+        .iter()
+        .filter(|f| f.code.starts_with("server-helper") || f.code == "server-unreadable")
+        .collect();
+    assert!(helper_findings.is_empty(), "{helper_findings:#?}");
+
+    // One cell differs on the server.
+    let mut changed = infotable("RunTimePermissionsTable");
+    changed["rows"][0]["viewerGroup"] = serde_json::json!(true);
+    changed["rows"][0]["adminGroup"] = serde_json::json!(false);
+    fake.tables
+        .insert("RunTimePermissionsTable".to_string(), changed);
+    let report = super::audit::audit_with(&solution, None, Some(&fake)).unwrap();
+    assert!(report.projects[0]
+        .findings
+        .iter()
+        .any(|f| f.code == "server-helper-differs"));
+
+    // A helper the server does not have yet is the entity audit's to report, once.
+    fake.missing
+        .push("Acme.App.ComponentPermissionHelper".to_string());
+    let report = super::audit::audit_with(&solution, None, Some(&fake)).unwrap();
+    let codes: Vec<&str> = report.projects[0].findings.iter().map(|f| f.code).collect();
+    assert!(!codes.contains(&"server-helper-differs"), "{codes:?}");
+    assert!(!codes.contains(&"server-unreadable"), "{codes:?}");
+    let _ = std::fs::remove_dir_all(root);
+}
+
+#[test]
+fn a_drafted_policy_changes_nothing_and_leaves_what_it_cannot_say_alone() {
+    use crate::core::commands::permissions::InitRequest;
+    let init = |from_helper: bool| InitRequest {
+        project: None,
+        from_helper,
+        mode: Mode::Apply,
+        lock_label: "permissions init",
+    };
+    // A project as the policy left it, drafted from its XML and from its helper.
+    for from_helper in [false, true] {
+        let (solution, root) = helper_solution();
+        command::execute_apply(&solution, &request(Mode::Apply), &mut Notices::default()).unwrap();
+        std::fs::remove_file(root.join("permissions.toml")).unwrap();
+        let drafted =
+            command::execute_init(&solution, &init(from_helper), &mut Notices::default()).unwrap();
+        assert!(drafted.written);
+        assert!(
+            drafted.drafts[0].notes.is_empty(),
+            "{:?}",
+            drafted.drafts[0].notes
+        );
+        let plan = command::execute_apply(&solution, &request(Mode::Plan), &mut Notices::default())
+            .unwrap();
+        assert_eq!(plan.plan.changes().count(), 0, "{}", drafted.drafts[0].text);
+        // An existing policy is never overwritten.
+        assert!(
+            command::execute_init(&solution, &init(from_helper), &mut Notices::default()).is_err()
+        );
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    // A deny cannot be said: the entity is left unmanaged, with a note.
+    let (solution, root) = solution(POLICY);
+    write(
+        &root,
+        "ThingShapes/Acme.App.Orders_TS.xml",
+        &ORDERS.replace(
+            "<InstanceRunTimePermissions></InstanceRunTimePermissions>",
+            "<InstanceRunTimePermissions><Permissions resourceName=\"GetOrders\"><ServiceInvoke><Principal isPermitted=\"false\" name=\"Acme.App.Viewer_UG\" type=\"Group\"/></ServiceInvoke></Permissions></InstanceRunTimePermissions>",
+        ),
+    );
+    std::fs::remove_file(root.join("permissions.toml")).unwrap();
+    let drafted = command::execute_init(&solution, &init(false), &mut Notices::default()).unwrap();
+    assert!(
+        drafted.drafts[0].notes[0].contains("unmanaged"),
+        "{:?}",
+        drafted.drafts[0].notes
+    );
+    assert!(drafted.drafts[0]
+        .text
+        .contains("unmanaged = [\"Orders_TS\"]"));
+    let plan =
+        command::execute_apply(&solution, &request(Mode::Plan), &mut Notices::default()).unwrap();
+    assert_eq!(plan.plan.changes().count(), 0);
+    let _ = std::fs::remove_dir_all(root);
+}

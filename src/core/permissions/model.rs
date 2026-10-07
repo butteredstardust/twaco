@@ -131,13 +131,14 @@ fn collect(element: &Element, model: &mut ModelEntity) {
     }
 }
 
-/// The member names anywhere under an organizational unit (`Members/Members/Member`).
+/// The groups anywhere under an organizational unit (`Members/Members/Member`). A user member
+/// that happens to share a group's name is not that group.
 fn members(unit: &Element) -> BTreeSet<String> {
     let mut out = BTreeSet::new();
     for child in elements(unit) {
         if child.name == b"Member" {
             let name = attribute(child, "name");
-            if !name.is_empty() {
+            if !name.is_empty() && attribute(child, "type") == "Group" {
                 out.insert(name.to_string());
             }
         } else {

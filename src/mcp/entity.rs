@@ -1,8 +1,8 @@
 use super::requests::common::Absent;
 use super::requests::entity::{
     EntityCarryRequest, EntityDeleteRequest, EntityRestoreRequest, PermissionsApplyRequest,
-    PermissionsAuditRequest, PermissionsPushRequest, PermissionsRequest, PushRequest,
-    StatusRequest,
+    PermissionsAuditRequest, PermissionsInitRequest, PermissionsPushRequest, PermissionsRequest,
+    PushRequest, StatusRequest,
 };
 use super::*;
 
@@ -381,6 +381,34 @@ pub(crate) fn permissions_push_tool(
     solution: &Solution,
     request: PermissionsPushRequest,
 ) -> Result<Value, ToolError> {
+    if request.platform {
+        if request.all || !request.entities.items().is_empty() {
+            return Err(ToolError::invalid(
+                "platform pushes the policy's platform entries; push entities separately",
+            ));
+        }
+        use crate::core::permissions::platform::State;
+        let report = commands::permissions::execute_platform(
+            solution,
+            &commands::permissions::PlatformRequest {
+                project: request.project.as_ref().cloned(),
+                mode: if request.dry_run {
+                    Mode::Plan
+                } else {
+                    Mode::Apply
+                },
+                profile: request.profile,
+            },
+            server::Client::new,
+        )
+        .map_err(ToolError::coded)?;
+        return Ok(json!({
+            "ok": report.count(State::Failed) == 0,
+            "applied": report.applied,
+            "missing": report.count(State::Missing),
+            "items": report.items,
+        }));
+    }
     let target = permissions_target(&request.entities, request.all)?;
     permissions_result(
         solution,
@@ -472,6 +500,45 @@ pub(crate) fn permissions_apply_tool(
         "without_policy": outcome.plan.without_policy,
     });
     result[if outcome.applied { "applied" } else { "plan" }] = json!(true);
+    add_notices(&mut result, &notices);
+    Ok(result)
+}
+
+pub(crate) fn permissions_init_tool(
+    solution: &Solution,
+    request: PermissionsInitRequest,
+) -> Result<Value, ToolError> {
+    let mut notices = commands::Notices::default();
+    let outcome = commands::permissions::execute_init(
+        solution,
+        &commands::permissions::InitRequest {
+            project: request.project.as_ref().cloned(),
+            from_helper: request.from_helper,
+            mode: if request.dry_run {
+                Mode::Plan
+            } else {
+                Mode::Apply
+            },
+            lock_label: "mcp permissions_init",
+        },
+        &mut notices,
+    )
+    .map_err(ToolError::coded)?;
+    let drafts: Vec<Value> = outcome
+        .drafts
+        .iter()
+        .map(|draft| {
+            json!({
+                "project": draft.project,
+                "path": draft.path.display().to_string(),
+                "source": draft.source,
+                "text": draft.text,
+                "notes": draft.notes,
+            })
+        })
+        .collect();
+    let mut result = json!({ "ok": true, "drafts": drafts });
+    result[if outcome.written { "applied" } else { "plan" }] = json!(true);
     add_notices(&mut result, &notices);
     Ok(result)
 }

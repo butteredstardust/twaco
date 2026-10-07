@@ -218,6 +218,12 @@ static TOOLS: LazyLock<Vec<Tool>> = LazyLock::new(|| {
             true,
             entity::permissions_tool,
         ),
+        solution_tool::<entity_requests::PermissionsInitRequest>(
+            "permissions_init",
+            "Draft a permissions.toml for each project without one, from what the project grants today, so that permissions_apply then changes nothing: each rule names its roles outright; roles come from the permission helper's RoleGroupsAndOrganizations when the project has one, else from the groups its run-time blocks grant. from_helper takes the grants from the helper's tables instead of the entity XML (a matrix edited in the helper's mashup). An entity with a deny or a non-group principal in its run-time block is left unmanaged, with a note. A dry run (the drafts' text) unless dry_run is false; existing files are never overwritten.",
+            false,
+            entity::permissions_init_tool,
+        ),
         solution_tool::<entity_requests::PermissionsAuditRequest>(
             "permissions_audit",
             "Check each project's permissions.toml (its root folder) against the entity XML. Errors: run-time or visibility blocks the policy would change (permissions apply writes them), services of a strict entity no rule classifies, a group or user in visibility (the server answers 500), an Organization in run-time permissions. Warnings: principals under a project of the solution that no entity defines, rules or patterns that match nothing. Notes: explicit denies. With server: true (and a profile), also the server against the repository: each entity's permission sets, the permission helper's tables, the policy's platform grants and memberships, and each role's organizational unit. detail lists the grants behind each finding. Read-only.",
@@ -232,7 +238,7 @@ static TOOLS: LazyLock<Vec<Tool>> = LazyLock::new(|| {
         ),
         solution_tool::<entity_requests::PermissionsPushRequest>(
             "permissions_push",
-            "Make the server's permission sets exactly the repository's: every differing run-time, design-time or visibility set is written whole and read back. Removes server-only grants and corrects flipped allow/deny, which an import cannot do. A set the entity XML does not declare is never written. A dry run unless dry_run is false; an applied push records the baseline of each pushed entity that then matches the server.",
+            "Make the server's permission sets exactly the repository's: every differing run-time, design-time or visibility set is written whole and read back. Removes server-only grants and corrects flipped allow/deny, which an import cannot do. A set the entity XML does not declare is never written. A dry run unless dry_run is false; an applied push records the baseline of each pushed entity that then matches the server. With platform: true (and no entities), instead add the permissions.toml [[platform]] grants and memberships the server lacks (what DeployComponent does on entities the project does not own); nothing is ever removed.",
             false,
             entity::permissions_push_tool,
         ),

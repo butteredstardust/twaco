@@ -532,6 +532,15 @@ pub(crate) fn entity_carry_cmd(solution: &Solution, args: &Args) -> u8 {
 /// is a plan without `--apply`, and an applied push that fails anywhere exits 2.
 pub(crate) fn permissions_cmd(solution: &Solution, route: &str, args: &Args) -> u8 {
     let push = route == "permissions push";
+    if push && args.has("--platform") {
+        if args.has("--all") || !args.names.is_empty() {
+            eprintln!(
+                "twaco: --platform pushes the policy's platform entries; push entities separately"
+            );
+            return FAILED;
+        }
+        return permissions_platform_cmd(solution, args);
+    }
     let request = commands::permissions::PermissionsRequest {
         target: if args.has("--all") {
             commands::status::StatusTarget::All
@@ -855,4 +864,148 @@ pub(crate) fn permissions_apply_cmd(solution: &Solution, args: &Args) -> u8 {
     } else {
         OK
     }
+}
+
+/// Add the policies' platform grants and memberships the server lacks (`permissions push
+/// --platform`); a plan unless `--apply`. Exits 2 when anything failed.
+fn permissions_platform_cmd(solution: &Solution, args: &Args) -> u8 {
+    use twaco::core::permissions::platform::State;
+    let request = commands::permissions::PlatformRequest {
+        project: args.project.clone(),
+        mode: if args.has("--apply") {
+            Mode::Apply
+        } else {
+            Mode::Plan
+        },
+        profile: args
+            .profile
+            .clone()
+            .unwrap_or_else(|| "default".to_string()),
+    };
+    let report =
+        match commands::permissions::execute_platform(solution, &request, server::Client::new) {
+            Ok(report) => report,
+            Err(error) => {
+                eprintln!("twaco: {error}");
+                return FAILED;
+            }
+        };
+    if args.has("--json") {
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&report).expect("platform report serialises")
+        );
+    } else {
+        let counts: Vec<String> = [
+            State::Present,
+            State::Missing,
+            State::Added,
+            State::Skipped,
+            State::Failed,
+        ]
+        .into_iter()
+        .filter(|state| report.count(*state) > 0)
+        .map(|state| format!("{} {}", report.count(state), state.label()))
+        .collect();
+        println!(
+            "{} platform grant(s) and membership(s): {}",
+            report.items.len(),
+            if counts.is_empty() {
+                "none in any policy".to_string()
+            } else {
+                counts.join(", ")
+            }
+        );
+        for item in &report.items {
+            if item.state == State::Present {
+                continue;
+            }
+            print!(
+                "  {:<8} {} {}: {}",
+                item.state.label(),
+                item.entity,
+                item.what,
+                item.group
+            );
+            match &item.error {
+                Some(error) => println!(" ({error})"),
+                None => println!(),
+            }
+        }
+        if !report.applied && report.count(State::Missing) > 0 {
+            println!("dry run: nothing was written; pass --apply to add what is missing (nothing is ever removed)");
+        }
+    }
+    if report.count(State::Failed) > 0 {
+        FAILED
+    } else {
+        OK
+    }
+}
+
+/// Draft a permissions.toml for each project without one (`permissions init`); prints the drafts
+/// unless `--apply` writes them.
+pub(crate) fn permissions_init_cmd(solution: &Solution, args: &Args) -> u8 {
+    let request = commands::permissions::InitRequest {
+        project: args.project.clone(),
+        from_helper: args.has("--from-helper"),
+        mode: if args.has("--apply") {
+            Mode::Apply
+        } else {
+            Mode::Plan
+        },
+        lock_label: "permissions init",
+    };
+    let mut notices = commands::Notices::default();
+    let outcome = match commands::permissions::execute_init(solution, &request, &mut notices) {
+        Ok(outcome) => outcome,
+        Err(error) => {
+            print_notices(&notices);
+            eprintln!("twaco: {error}");
+            return FAILED;
+        }
+    };
+    print_notices(&notices);
+    if args.has("--json") {
+        let drafts: Vec<serde_json::Value> = outcome
+            .drafts
+            .iter()
+            .map(|draft| {
+                serde_json::json!({
+                    "project": draft.project,
+                    "path": draft.path.display().to_string(),
+                    "source": draft.source,
+                    "text": draft.text,
+                    "notes": draft.notes,
+                })
+            })
+            .collect();
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&serde_json::json!({
+                "written": outcome.written,
+                "drafts": drafts,
+            }))
+            .expect("drafts serialise")
+        );
+        return OK;
+    }
+    for draft in &outcome.drafts {
+        if outcome.written {
+            println!("wrote {} (from {})", draft.path.display(), draft.source);
+        } else {
+            println!("# {} would be:\n{}", draft.path.display(), draft.text);
+        }
+        for note in &draft.notes {
+            println!("  note: {note}");
+        }
+    }
+    if outcome.written {
+        println!(
+            "`twaco permissions audit` checks it; `permissions apply` should have nothing to do"
+        );
+    } else if !outcome.drafts.is_empty() {
+        println!("dry run: nothing was written; pass --apply to write the drafts");
+    }
+    OK
 }

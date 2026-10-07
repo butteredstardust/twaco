@@ -221,7 +221,8 @@ input.
 A project's permission policy lives in `permissions.toml` in the project's root folder (the
 `root` of its `[[project]]`). It is the source of truth for the project's permissions:
 `twaco permissions audit` checks the entity XML against it, offline, and `twaco permissions apply`
-writes it there. A project without the file is left alone.
+writes it there. `twaco permissions init` drafts one from what a project grants today. A project
+without the file is left alone.
 
 The policy needs nothing from the Solution Framework. When the project has a permission helper
 Thing (template `PTCDTS.Base.ComponentPermissionHelper_TT`, which ships in `PTCDTS.Base` and so
@@ -275,7 +276,7 @@ roles = ["editor"]
 | `[[role]]` | `name`, `group`, optional `org` and `includes`. A role's visibility principal is the organizational unit `<organization>:<group>`; `org = "organization"` uses the organization itself, `org = "none"` gives no visibility, and any other value is a full principal (with a `:`, a unit). |
 | `[[runtime]]` | Allows `roles`, and every role that includes them, the `action` on the `resources` of the `entities`. Resources are what the entity defines, what its block lists, and the rule's literal names (a service inherited from a template is named literally). `entity_wide = true` also grants the entity-wide resource, which ThingWorx writes `*`. |
 | `[visibility]` | `roles` see every entity no rule names. Principals the roles do not own are kept, unless `remove` names them. |
-| `[[platform]]` | Grants and memberships outside the project, which an import cannot carry: `grant = { entity = "Resources/EntityServices", action = "ServiceInvoke", resource = "ReadEntityDefinitionAsJSON" }` or `member_of = "<group>"`, with `roles` (and every role that includes them) and an optional `requires = "<project>"`. `permissions audit --server` checks them. |
+| `[[platform]]` | Grants and memberships outside the project, which an import cannot carry: `grant = { entity = "Resources/EntityServices", action = "ServiceInvoke", resource = "ReadEntityDefinitionAsJSON" }` or `member_of = "<group>"`, with `roles` (and every role that includes them) and an optional `requires = "<project>"`. `permissions audit --server` checks them; `permissions push --platform` adds what is missing and never removes. |
 
 The policy owns the run-time block of each Thing in the project, and the instance run-time block
 of each ThingShape and ThingTemplate, unless `unmanaged` names the entity: a grant no rule makes

@@ -26,6 +26,12 @@ All notable changes to twaco are recorded here. The format follows
   it also reads the server: each entity's permissions, the helper's tables, the policy's
   `[[platform]]` grants and memberships (what DeployComponent does, which an import cannot
   carry), and each role's organizational unit.
+- `permissions init` drafts a project's `permissions.toml` from what it grants today, from the
+  entity XML or with `--from-helper` from the permission helper's tables, so that
+  `permissions apply` then changes nothing; what a policy cannot say (a deny, a principal that is
+  not a group) is left `unmanaged` with a note. `permissions push --platform` adds the policy's
+  `[[platform]]` grants and memberships the server lacks, and never removes anything. MCP tool
+  `permissions_init`, and `platform` on `permissions_push`.
 - `permissions apply` writes the policy into the entity XML: each Thing's run-time block, each
   ThingShape's and ThingTemplate's instance run-time block, and the role principals of each
   visibility block. Only blocks that differ change, in the export's layout; every changed file

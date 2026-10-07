@@ -360,6 +360,7 @@ fn usage_names_every_flag_each_command_accepts() {
         "entity carry",
         "entity restore",
         "entity status",
+        "permissions init",
         "permissions audit",
         "permissions apply",
         "permissions diff",

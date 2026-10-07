@@ -108,6 +108,7 @@ when the command is asked to write. A local output named by an option is include
 | `retemplate` | read-only | single-file atomic | one entity XML | The entity is old or new; retry freely. | `core/commands/retemplate.rs: execute` |
 | `entity restore` | read-only | server-partial | server entities | Read restored entities back before retrying. | `core/commands/restore.rs: execute` |
 | `entity carry` | read-only | server-partial | server permissions, ledger | Read permissions and ledger before retrying. | `core/commands/carry.rs: execute` |
+| `permissions init` | read-only | multi-file atomic | new permissions.toml files | One transaction of new files; an existing policy is never touched. | `core/commands/permissions.rs: execute_init` |
 | `permissions audit` | read-only | read-only | none | Retry freely. | `core/permissions/audit.rs: audit` |
 | `permissions apply` | read-only | multi-file atomic | entity XML | One transaction; run `permissions audit` before retrying. | `core/commands/permissions.rs: execute_apply` |
 | `permissions diff` | read-only | read-only | none | Retry freely. | `core/commands/permissions.rs: execute` |
@@ -128,6 +129,7 @@ when the command is asked to write. A local output named by an option is include
 | `entity_delete` | read-only | server-partial | server entities, ledger, backups | Inspect confirmed deletions and ledger entries before retrying. | `core/commands/delete.rs: execute` |
 | `entity_restore` | read-only | server-partial | server entities | Read restored entities back before retrying. | `core/commands/restore.rs: execute` |
 | `entity_carry` | read-only | server-partial | server permissions, ledger | Read permissions and ledger before retrying. | `core/commands/carry.rs: execute` |
+| `permissions_init` | read-only | multi-file atomic | new permissions.toml files | One transaction of new files; an existing policy is never touched. | `core/commands/permissions.rs: execute_init` |
 | `permissions_audit` | read-only | read-only | none | Retry freely. | `core/permissions/audit.rs: audit` |
 | `permissions_apply` | read-only | multi-file atomic | entity XML | One transaction; run `permissions_audit` before retrying. | `core/commands/permissions.rs: execute_apply` |
 | `permissions` | read-only | read-only | none | Retry freely. | `core/commands/permissions.rs: execute` |

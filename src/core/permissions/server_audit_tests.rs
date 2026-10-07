@@ -13,8 +13,14 @@ use std::sync::Mutex;
 
 /// What the fake server holds: permission sets by entity and set, group members, exports.
 #[derive(Default)]
-struct Fake {
-    sets: BTreeMap<(String, &'static str), Value>,
+pub(super) struct Fake {
+    pub(super) sets: BTreeMap<(String, &'static str), Value>,
+    /// Configuration tables by name, as GetConfigurationTable answers.
+    pub(super) tables: BTreeMap<String, Value>,
+    /// Entities the server does not have.
+    pub(super) missing: Vec<String>,
+    /// What AddMember and AddRunTimePermission added: (entity, parameters).
+    added: Mutex<Vec<(String, Value)>>,
     members: BTreeMap<String, Vec<String>>,
     exports: BTreeMap<String, String>,
     projects: Vec<String>,
@@ -33,14 +39,27 @@ fn empty(kind: Kind) -> Value {
 
 impl entity_carry::Remote for Fake {
     fn exists(&self, collection: &str, name: &str) -> Result<bool, ServerError> {
+        if self.missing.iter().any(|m| m == name) {
+            return Ok(false);
+        }
         Ok(collection != "Projects" || self.projects.iter().any(|p| p == name))
     }
     fn get(&self, _: &str, name: &str, kind: Kind) -> Result<Value, ServerError> {
-        Ok(self
+        let mut value = self
             .sets
             .get(&(name.to_string(), kind.label()))
             .cloned()
-            .unwrap_or_else(|| empty(kind)))
+            .unwrap_or_else(|| empty(kind));
+        for (entity, added) in self.added.lock().unwrap().iter() {
+            if entity == name && added.get("resource").is_some() {
+                value["permissions"].as_array_mut().unwrap().push(json!({
+                    "resourceName": added["resource"],
+                    added["type"].as_str().unwrap(): [
+                        {"isPermitted": true, "name": added["principal"], "type": "Group"}]
+                }));
+            }
+        }
+        Ok(value)
     }
     fn set(&self, _: &str, _: &str, _: Kind, _: &Value) -> Result<(), ServerError> {
         self.calls.lock().unwrap().push("set".to_string());
@@ -56,16 +75,31 @@ impl config_table::Remote for Fake {
         &self,
         target: &ServiceTarget,
         service: &str,
-        _: &Value,
+        parameters: &Value,
     ) -> Result<Option<Value>, ServerError> {
         self.calls.lock().unwrap().push(service.to_string());
         let name = target.to_string();
-        let group = name.rsplit('/').next().unwrap_or_default().to_string();
+        let group = match parameters.get("tableName").and_then(Value::as_str) {
+            Some(table) => table.to_string(),
+            None => name.rsplit('/').next().unwrap_or_default().to_string(),
+        };
         match service {
-            "GetGroupMembers" => Ok(Some(json!({
-                "rows": self.members.get(&group).cloned().unwrap_or_default()
-                    .iter().map(|m| json!({"name": m, "type": "Group"})).collect::<Vec<_>>()
-            }))),
+            "GetConfigurationTable" => Ok(self.tables.get(&group).cloned()),
+            "GetGroupMembers" => {
+                let mut members = self.members.get(&group).cloned().unwrap_or_default();
+                for (entity, added) in self.added.lock().unwrap().iter() {
+                    if *entity == group {
+                        members.push(added["member"].as_str().unwrap().to_string());
+                    }
+                }
+                Ok(Some(json!({
+                    "rows": members.iter().map(|m| json!({"name": m, "type": "Group"})).collect::<Vec<_>>()
+                })))
+            }
+            "AddMember" | "AddRunTimePermission" => {
+                self.added.lock().unwrap().push((group, parameters.clone()));
+                Ok(None)
+            }
             _ => Ok(None),
         }
     }
@@ -138,7 +172,11 @@ fn visible_to_both() -> Value {
 fn organization(units: &[(&str, &str)]) -> String {
     let units: String = units
         .iter()
-        .map(|(unit, member)| format!(r#"<OrganizationalUnit name="{unit}"><Members><Members><Member name="{member}" type="Group"/></Members></Members></OrganizationalUnit>"#))
+        .map(|(unit, member)| {
+            // `User:name` makes a user member.
+            let (kind, member) = member.split_once(':').unwrap_or(("Group", member));
+            format!(r#"<OrganizationalUnit name="{unit}"><Members><Members><Member name="{member}" type="{kind}"/></Members></Members></OrganizationalUnit>"#)
+        })
         .collect();
     format!(
         r#"<Entities><Organizations><Organization name="Acme.App.Default_OR"><OrganizationalUnits>{units}</OrganizationalUnits></Organization></Organizations></Entities>"#
@@ -220,7 +258,11 @@ fn what_an_import_cannot_carry_is_reported_missing() {
     );
     fake.exports.insert(
         "Acme.App.Default_OR".to_string(),
-        organization(&[("Acme.App.Viewer_UG", "Acme.App.Editor_UG")]),
+        organization(&[
+            ("Acme.App.Viewer_UG", "Acme.App.Editor_UG"),
+            // A user named like the group is not the group.
+            ("Acme.App.Admin_UG", "User:Acme.App.Admin_UG"),
+        ]),
     );
     let report = audit::audit_with(&solution, None, Some(&fake)).unwrap();
     let found = codes(&report);
@@ -228,7 +270,6 @@ fn what_an_import_cannot_carry_is_reported_missing() {
         (Severity::Error, "server-differs"),
         (Severity::Error, "platform-grant-missing"),
         (Severity::Error, "membership-missing"),
-        (Severity::Error, "server-unit-missing"),
         (Severity::Error, "server-unit-without-group"),
     ] {
         assert!(found.contains(&expected), "{expected:?} in {found:?}");
@@ -239,6 +280,14 @@ fn what_an_import_cannot_carry_is_reported_missing() {
         .filter(|(_, code)| *code == "membership-missing")
         .count();
     assert_eq!(missing, 2);
+    let without_group = found
+        .iter()
+        .filter(|(_, code)| *code == "server-unit-without-group")
+        .count();
+    assert_eq!(
+        without_group, 2,
+        "the editor in one unit, a user in the other"
+    );
 
     // Without the project the membership requires, the entry is skipped, and said so.
     fake.projects.clear();
@@ -251,6 +300,68 @@ fn what_an_import_cannot_carry_is_reported_missing() {
     assert!(
         !found.contains(&(Severity::Error, "membership-missing")),
         "{found:?}"
+    );
+    let _ = std::fs::remove_dir_all(root);
+}
+
+#[test]
+fn a_missing_organization_or_unit_is_reported_and_read_once() {
+    let (solution, root) = solution();
+    let fake = Fake::default();
+    let report = audit::audit_with(&solution, None, Some(&fake)).unwrap();
+    let missing: Vec<&String> = report.projects[0]
+        .findings
+        .iter()
+        .filter(|f| f.code == "server-unit-missing")
+        .map(|f| &f.message)
+        .collect();
+    assert_eq!(missing.len(), 2, "{missing:#?}");
+    assert!(missing[0].contains("no Organization Acme.App.Default_OR"));
+    let _ = std::fs::remove_dir_all(root);
+}
+
+#[test]
+fn a_platform_push_adds_only_what_is_missing_and_reads_it_back() {
+    use super::platform::{self, State};
+    let (solution, root) = solution();
+    let mut fake = Fake {
+        projects: vec!["PTCDTS.Base.Permissions".to_string()],
+        ..Fake::default()
+    };
+    // The viewer is already a member; nothing else is there.
+    fake.members.insert(
+        "PTCDTS.Base.Permissions.Default_UG".to_string(),
+        vec!["Acme.App.Viewer_UG".to_string()],
+    );
+    let (loaded, _) = audit::load(&solution, None).unwrap();
+    let plan = platform::run(&fake, &loaded, false);
+    assert_eq!(plan.count(State::Present), 1);
+    assert_eq!(plan.count(State::Missing), 2, "{plan:#?}");
+    assert!(
+        fake.added.lock().unwrap().is_empty(),
+        "a plan writes nothing"
+    );
+
+    let applied = platform::run(&fake, &loaded, true);
+    assert_eq!(applied.count(State::Added), 2, "{applied:#?}");
+    assert_eq!(applied.count(State::Failed), 0);
+    let added = fake.added.lock().unwrap().clone();
+    assert_eq!(added.len(), 2);
+    assert!(added
+        .iter()
+        .any(|(entity, p)| entity == "PTCDTS.Base.Permissions.Default_UG"
+            && p["member"] == "Acme.App.Admin_UG"));
+    assert!(added.iter().any(|(entity, p)| entity == "EntityServices"
+        && p["resource"] == "ReadEntityDefinitionAsJSON"
+        && p["allow"] == true
+        && p["principal"] == "Acme.App.Admin_UG"));
+
+    let again = platform::run(&fake, &loaded, true);
+    assert_eq!(again.count(State::Present), 3);
+    assert_eq!(
+        fake.added.lock().unwrap().len(),
+        2,
+        "nothing is added twice"
     );
     let _ = std::fs::remove_dir_all(root);
 }

@@ -445,7 +445,19 @@ ThingShape's `InstanceRunTimePermissions`, and a ThingTemplate's three `Instance
 
 Write who may use what once, in the project's `permissions.toml`
 ([Configuration](CONFIGURATION.md#permissionstoml-who-may-use-a-project)), and let twaco check
-the entity XML against it:
+the entity XML against it. For a project that already has permissions, start from a draft:
+
+```sh
+twaco permissions init                  # print a draft for each project without a policy
+twaco permissions init --apply          # write them; `permissions apply` then has nothing to do
+twaco permissions init --from-helper    # the grants of the helper's tables, not the entity XML
+```
+
+A draft names each rule's roles outright and lists resources one by one; `includes` and
+patterns such as `Get*` make it shorter. Roles come from the permission helper when the project
+has one. An entity whose run-time block holds a deny or a principal that is not a group is left
+`unmanaged`, with a note. `--from-helper` is how a matrix someone edited in the helper's mashup
+comes back into the repository.
 
 ```sh
 twaco permissions audit                 # every project with a policy; exit 1 on any error
@@ -473,7 +485,13 @@ With `--server` (and `--profile`), the audit also reads the server, and writes n
 
 ```sh
 twaco permissions audit --server --profile production
+twaco permissions push --platform                # what is missing
+twaco permissions push --platform --apply        # add it, read it back; nothing is removed
 ```
+
+`push --platform` adds the `[[platform]]` grants and memberships the server lacks, one at a time
+(`AddRunTimePermission`, `AddMember`), as `DeployComponent` does. Those entities are shared by
+every block on the server, so it never removes anything.
 
 `permissions apply` writes the policy into the entity XML: the run-time block of each Thing, the
 instance run-time block of each ThingShape and ThingTemplate, and the role principals of each

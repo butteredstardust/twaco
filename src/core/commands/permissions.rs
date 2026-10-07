@@ -226,6 +226,117 @@ where
     }
 }
 
+/// The arguments of `permissions push --platform`.
+#[derive(Clone, Debug)]
+pub struct PlatformRequest {
+    pub project: Option<String>,
+    pub mode: Mode,
+    pub profile: String,
+}
+
+/// Compare the policies' platform grants and memberships with the server, and with `Apply` add
+/// what is missing. Nothing local is written, so no lock is taken.
+pub fn execute_platform<R, F>(
+    solution: &Solution,
+    request: &PlatformRequest,
+    open: F,
+) -> Result<permissions::platform::PlatformReport, AuditCommandError>
+where
+    R: permissions::server_audit::Remote,
+    F: FnOnce(profile::Profile) -> R,
+{
+    let (loaded, _) = permissions::audit::load(solution, request.project.as_deref())
+        .map_err(AuditCommandError::Audit)?;
+    let profile =
+        profile::load(&solution.root, &request.profile).map_err(AuditCommandError::Profile)?;
+    let remote = open(profile);
+    Ok(permissions::platform::run(
+        &remote,
+        &loaded,
+        matches!(request.mode, Mode::Apply),
+    ))
+}
+
+/// The arguments of `permissions init`.
+#[derive(Clone, Debug)]
+pub struct InitRequest {
+    pub project: Option<String>,
+    pub from_helper: bool,
+    pub mode: Mode,
+    pub lock_label: &'static str,
+}
+
+#[derive(Debug)]
+pub struct InitOutcome {
+    pub drafts: Vec<permissions::init::Draft>,
+    pub written: bool,
+}
+
+#[derive(Debug)]
+pub enum InitCommandError {
+    Lock(lock::LockError),
+    Init(permissions::init::InitError),
+    Write(transaction::TransactionError),
+}
+
+impl fmt::Display for InitCommandError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Lock(error) => error.fmt(f),
+            Self::Init(error) => error.fmt(f),
+            Self::Write(error) => error.fmt(f),
+        }
+    }
+}
+
+impl std::error::Error for InitCommandError {}
+
+impl Coded for InitCommandError {
+    fn code(&self) -> ErrorCode {
+        match self {
+            Self::Lock(error) => error.code(),
+            Self::Init(error) => error.code(),
+            Self::Write(error) => error.code(),
+        }
+    }
+}
+
+/// Draft a permissions.toml for each project without one, and with `Apply` write the drafts:
+/// new files only, in one transaction.
+pub fn execute_init(
+    solution: &Solution,
+    request: &InitRequest,
+    notices: &mut Notices,
+) -> Result<InitOutcome, InitCommandError> {
+    let lock = match request.mode {
+        Mode::Apply => Some(
+            lock_workspace(solution, request.lock_label, notices)
+                .map_err(InitCommandError::Lock)?,
+        ),
+        Mode::Plan => None,
+    };
+    let drafts =
+        permissions::init::draft(solution, request.project.as_deref(), request.from_helper)
+            .map_err(InitCommandError::Init)?;
+    let Some(lock) = lock else {
+        return Ok(InitOutcome {
+            drafts,
+            written: false,
+        });
+    };
+    let mut operation = transaction::Transaction::new(&solution.root, request.lock_label);
+    for draft in &drafts {
+        operation
+            .create_file(&draft.path, draft.text.clone().into_bytes())
+            .map_err(InitCommandError::Write)?;
+    }
+    operation.apply(&lock).map_err(InitCommandError::Write)?;
+    Ok(InitOutcome {
+        drafts,
+        written: true,
+    })
+}
+
 /// The arguments of `permissions apply`.
 #[derive(Clone, Debug)]
 pub struct ApplyRequest {

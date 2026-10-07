@@ -17,7 +17,9 @@
 pub mod apply;
 pub mod audit;
 pub mod helper;
+pub mod init;
 mod model;
+pub mod platform;
 pub mod policy;
 pub mod server_audit;
 pub mod write;

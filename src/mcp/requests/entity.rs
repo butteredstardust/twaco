@@ -139,6 +139,19 @@ pub(crate) struct PermissionsAuditRequest {
 
 #[derive(Debug, Deserialize, JsonSchema, Serialize)]
 #[serde(deny_unknown_fields)]
+pub(crate) struct PermissionsInitRequest {
+    /// Narrow to one project of the solution.
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) project: Absent<String>,
+    /// Take the grants from the permission helper's tables, not the entity XML.
+    #[serde(default)]
+    pub(crate) from_helper: bool,
+    #[serde(default = "default_true")]
+    pub(crate) dry_run: bool,
+}
+
+#[derive(Debug, Deserialize, JsonSchema, Serialize)]
+#[serde(deny_unknown_fields)]
 pub(crate) struct PermissionsApplyRequest {
     /// Narrow to one project of the solution.
     #[serde(default, skip_serializing_if = "Absent::is_absent")]
@@ -159,6 +172,10 @@ pub(crate) struct PermissionsPushRequest {
     /// Every entity (of the project, if one is named).
     #[serde(default)]
     pub(crate) all: bool,
+    /// Instead of entities, add the policies' [[platform]] grants and memberships the server
+    /// lacks; nothing is removed.
+    #[serde(default)]
+    pub(crate) platform: bool,
     /// Narrow to one project of the solution.
     #[serde(default, skip_serializing_if = "Absent::is_absent")]
     pub(crate) project: Absent<String>,

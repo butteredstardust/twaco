@@ -143,6 +143,12 @@ entity carry <old> <new>... copy run-time, design-time and visibility permission
 entity restore [<set> [<entity>...]]  list backup sets, or plan importing one back
     --apply                 import the set's entities, confirming each on the server
     --json                  {sets|plan|applied, ...}
+permissions init [--project <name>] [--from-helper] [--apply] [--json]
+                            draft a permissions.toml for each project without one, from what it
+                            grants today, so that `permissions apply` then changes nothing; roles
+                            from the permission helper when there is one; prints unless --apply
+    --from-helper           take the grants from the helper's tables, not the entity XML (a
+                            matrix edited in the helper's mashup)
 permissions audit [--project <name>] [--server] [--detail] [--json]
                             each project's permissions.toml against its entity XML, offline: blocks
                             the policy would change, services a strict entity leaves unclassified,
@@ -164,10 +170,12 @@ permissions diff <entity>...|--all [--json]
                             grants only the server has (an import never removes one), grants only
                             the repository has, and allow/deny that differs (an import keeps the
                             server's); exit 1 when any differs
-permissions push <entity>...|--all [--apply] [--json]
+permissions push <entity>...|--all|--platform [--apply] [--json]
                             make the server's permission sets exactly the repository's, set by set,
                             reading each back; plan unless --apply; records the baseline of pushed
                             entities that then match the server
+    --platform              instead, add the policies' [[platform]] grants and memberships the
+                            server lacks (what DeployComponent does); never removes anything
 datatable copy <old> <new> [--map a=b,c=d] [--drop-unmapped] [--append] [--max-rows <n>] [--apply] [--json]
                             copy a DataTable's rows into the one that replaced it; plan unless --apply
     --map a=b,...           source field -> target field (same names and the rename ledger match otherwise)

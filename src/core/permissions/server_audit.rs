@@ -149,6 +149,20 @@ fn helper_tables(remote: &dyn Remote, helper_thing: &ModelEntity, out: &mut Vec<
         }
     };
     let repository = helper::read_tables(&entity);
+    match remote.exists("Things", helper_thing.name()) {
+        Ok(true) => {}
+        // The entity audit says so already.
+        Ok(false) => return,
+        Err(e) => {
+            out.push(finding(
+                Severity::Error,
+                "server-unreadable",
+                Some(helper_thing.key()),
+                e.to_string(),
+            ));
+            return;
+        }
+    }
     for name in [
         helper::ROLES_TABLE,
         helper::RUN_TIME_TABLE,
@@ -176,7 +190,7 @@ fn helper_tables(remote: &dyn Remote, helper_thing: &ModelEntity, out: &mut Vec<
             .collect();
         let sorted = |rows: &[Row]| {
             let mut rows = rows.to_vec();
-            rows.sort_by_key(row_key);
+            rows.sort_by(|a, b| row_key(a).cmp(&row_key(b)).then_with(|| a.cmp(b)));
             rows
         };
         let server_fields: BTreeSet<String> = theirs
@@ -295,7 +309,13 @@ fn platform(remote: &dyn Remote, loaded: &Loaded, out: &mut Vec<Finding>) {
                 let (collection, name) = entity.split_once('/').unwrap_or((entity, ""));
                 let grants = remote
                     .get(collection, name, Kind::RunTime)
-                    .map_err(|e| e.to_string())
+                    .map_err(|e| {
+                        if e.is_not_found() {
+                            format!("the server has no {entity}")
+                        } else {
+                            e.to_string()
+                        }
+                    })
                     .and_then(|value| from_json(Kind::RunTime, &value).map_err(|e| e.to_string()));
                 let grants = match grants {
                     Ok(grants) => grants,
@@ -364,13 +384,20 @@ pub fn group_members(remote: &dyn Remote, group: &str) -> Result<BTreeSet<String
         .map_err(|e| e.to_string())?;
     let reply = remote
         .call(&target, "GetGroupMembers", &json!({}))
-        .map_err(|e| e.to_string())?
-        .unwrap_or_else(|| json!({ "rows": [] }));
-    Ok(reply
+        .map_err(|e| {
+            if e.is_not_found() {
+                format!("the server has no group {group}")
+            } else {
+                e.to_string()
+            }
+        })?
+        .ok_or_else(|| format!("GetGroupMembers of {group} returned nothing"))?;
+    let rows = reply
         .get("rows")
         .and_then(Value::as_array)
-        .into_iter()
-        .flatten()
+        .ok_or_else(|| format!("GetGroupMembers of {group} returned no rows"))?;
+    Ok(rows
+        .iter()
         .filter_map(|row| row.get("name").and_then(Value::as_str))
         .map(str::to_string)
         .collect())
@@ -378,7 +405,7 @@ pub fn group_members(remote: &dyn Remote, group: &str) -> Result<BTreeSet<String
 
 /// Each role's organizational unit on the server: it must exist and hold the role's group.
 fn units(remote: &dyn Remote, loaded: &Loaded, out: &mut Vec<Finding>) {
-    let mut organizations: BTreeMap<String, Option<ModelEntity>> = BTreeMap::new();
+    let mut organizations: BTreeMap<String, Result<Option<ModelEntity>, String>> = BTreeMap::new();
     for role in &loaded.policy.roles {
         let Some(org) = &role.org else { continue };
         if org.principal_type != "OrganizationalUnit" {
@@ -387,6 +414,7 @@ fn units(remote: &dyn Remote, loaded: &Loaded, out: &mut Vec<Finding>) {
         let Some((organization, unit)) = org.name.split_once(':') else {
             continue;
         };
+        let key = Some(format!("Organizations/{organization}"));
         if !organizations.contains_key(organization) {
             let model = match remote.fetch("Organizations", organization) {
                 Ok(Some(bytes)) => {
@@ -399,30 +427,32 @@ fn units(remote: &dyn Remote, loaded: &Loaded, out: &mut Vec<Finding>) {
                         },
                         found_under: String::new(),
                     };
-                    ModelEntity::of(&file, bytes).ok()
+                    ModelEntity::of(&file, bytes)
+                        .map(Some)
+                        .map_err(|e| format!("the server's export does not read: {e}"))
                 }
-                Ok(None) => None,
-                Err(e) => {
-                    out.push(finding(
-                        Severity::Error,
-                        "server-unreadable",
-                        Some(format!("Organizations/{organization}")),
-                        e.to_string(),
-                    ));
-                    continue;
-                }
+                Ok(None) => Ok(None),
+                Err(e) => Err(e.to_string()),
             };
+            if let Err(why) = &model {
+                out.push(finding(
+                    Severity::Error,
+                    "server-unreadable",
+                    key.clone(),
+                    why.clone(),
+                ));
+            }
             organizations.insert(organization.to_string(), model);
         }
-        let key = Some(format!("Organizations/{organization}"));
         match &organizations[organization] {
-            None => out.push(finding(
+            Err(_) => {}
+            Ok(None) => out.push(finding(
                 Severity::Error,
                 "server-unit-missing",
                 key,
                 format!("the server has no Organization {organization}, so role {} sees nothing", role.name),
             )),
-            Some(model) => match model.units.get(unit) {
+            Ok(Some(model)) => match model.units.get(unit) {
                 None => out.push(finding(
                     Severity::Error,
                     "server-unit-missing",
