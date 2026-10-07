@@ -207,8 +207,9 @@ pub(crate) const USAGE: &str = r#"usage: twaco <command>
       --accept-loss           go ahead although stored values or references would lose their definition
   permissions init [--project <name>] [--from-helper] [--apply] [--json]
                               draft a permissions.toml for each project without one, from what it
-                              grants today, so that `permissions apply` then changes nothing but what its notes name; roles
-                              from the permission helper when there is one; prints unless --apply
+                              grants today, so that `permissions apply` then changes nothing but
+                              what its notes name; roles from the permission helper when there is
+                              one; prints unless --apply
       --from-helper           take the grants from the helper's tables, not the entity XML (a
                               matrix edited in the helper's mashup)
   permissions audit [--project <name>] [--server] [--detail] [--json]
