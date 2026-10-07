@@ -85,7 +85,10 @@ pub(crate) fn arguments(flags: &[&str], operands: bool) -> Vec<clap::Arg> {
             None => arg.short(name.chars().nth(1).expect("a short flag has a letter")),
         };
         arg = match declared.takes {
-            Takes::Switch => arg.action(clap::ArgAction::SetTrue),
+            // Saying a switch twice says it once, as it always did.
+            Takes::Switch => arg
+                .action(clap::ArgAction::SetTrue)
+                .overrides_with(id(name)),
             Takes::Value(value) => arg
                 .value_name(value)
                 .action(clap::ArgAction::Set)
@@ -99,9 +102,13 @@ pub(crate) fn arguments(flags: &[&str], operands: bool) -> Vec<clap::Arg> {
     }
     if operands {
         built.push(
+            // A negative number is an operand (a JSON value for `call`); any other word that
+            // starts with a dash is a flag, so a mistyped one is refused, not taken as a name.
+            // A file whose name starts with a dash goes after `--`.
             clap::Arg::new("operands")
                 .num_args(0..)
                 .action(clap::ArgAction::Append)
+                .allow_negative_numbers(true)
                 .value_name("operand"),
         );
     }

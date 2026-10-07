@@ -379,7 +379,9 @@ fn values_reach_the_fields_the_commands_read() {
     let parse = |words: &[&str]| {
         let mut all = vec!["twaco"];
         all.extend(words);
-        let matches = spec::tree().try_get_matches_from(all).unwrap();
+        let matches = spec::tree()
+            .try_get_matches_from(all)
+            .map_err(|e| e.to_string())?;
         let (command, matched) = spec::matched(&matches);
         spec::args_of(command, matched)
     };
@@ -411,6 +413,18 @@ fn values_reach_the_fields_the_commands_read() {
     // A value may begin with a dash, as a log filter can.
     let grep = parse(&["logs", "ScriptLog", "--grep", "-x"]).unwrap();
     assert_eq!(grep.values.get("--grep").map(String::as_str), Some("-x"));
+    // A negative number is an operand; a mistyped flag after operands is still refused.
+    let call = parse(&["call", "T", "S", "-5"]).unwrap();
+    assert_eq!(call.names, ["T", "S", "-5"]);
+    assert!(parse(&["sync", "Acme.T", "--cehck"]).is_err());
+    // A file named with a leading dash goes after `--`.
+    let file = parse(&["db", "run", "--", "-migration.sql"]).unwrap();
+    assert_eq!(file.names, ["-migration.sql"]);
+    // A switch said twice is said once; a value given twice is refused, as before.
+    assert!(parse(&["deploy", "--force", "--force"])
+        .unwrap()
+        .has("--force"));
+    assert!(parse(&["deploy", "--profile", "a", "--profile", "b"]).is_err());
     // `--flag=value` works too.
     let profile = parse(&["doctor", "--profile=prod"]).unwrap();
     assert_eq!(profile.profile.as_deref(), Some("prod"));
