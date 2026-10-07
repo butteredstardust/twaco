@@ -261,6 +261,8 @@ fn drift_unclassified_services_and_refused_principals_are_errors() {
         principal("Acme.App.Viewer_UG", "Group", true),
         principal("Acme.App.Default_OR", "Organization", true),
         principal("PTC.SolutionFramework.Default_OR", "Organization", true),
+        // Not a principal type visibility takes, although the entity exists.
+        principal("Acme.App.Orders_TS", "ThingShape", true),
     ]
     .concat();
     let (solution, root) = solution(
@@ -274,7 +276,16 @@ fn drift_unclassified_services_and_refused_principals_are_errors() {
         found.contains(&(Severity::Error, "unclassified-service")),
         "{found:?}"
     );
-    assert!(found.contains(&(Severity::Error, "visibility-not-an-organization")));
+    let refused: Vec<&String> = report.projects[0]
+        .findings
+        .iter()
+        .filter(|f| f.code == "visibility-not-an-organization")
+        .map(|f| &f.message)
+        .collect();
+    assert_eq!(refused.len(), 2, "{refused:#?}");
+    assert!(refused
+        .iter()
+        .any(|m| m.contains("ThingShape Acme.App.Orders_TS")));
     assert!(found.contains(&(Severity::Error, "removed-principal")));
     let drift: Vec<_> = report.projects[0]
         .findings

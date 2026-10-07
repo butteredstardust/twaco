@@ -224,6 +224,12 @@ static TOOLS: LazyLock<Vec<Tool>> = LazyLock::new(|| {
             true,
             entity::permissions_audit_tool,
         ),
+        solution_tool::<entity_requests::PermissionsApplyRequest>(
+            "permissions_apply",
+            "Write each project's permissions.toml into its entity XML: the run-time block of each Thing, the instance run-time block of each ThingShape and ThingTemplate, and the role principals of each visibility block. Only blocks that differ change; the rest of each file is untouched. Refused while a strict entity has a service no rule classifies. remaining lists audit findings the write does not settle. A dry run unless dry_run is false; the files are written in one transaction. Deploy them, then permissions_push, since an import never removes a grant.",
+            false,
+            entity::permissions_apply_tool,
+        ),
         solution_tool::<entity_requests::PermissionsPushRequest>(
             "permissions_push",
             "Make the server's permission sets exactly the repository's: every differing run-time, design-time or visibility set is written whole and read back. Removes server-only grants and corrects flipped allow/deny, which an import cannot do. A set the entity XML does not declare is never written. A dry run unless dry_run is false; an applied push records the baseline of each pushed entity that then matches the server.",

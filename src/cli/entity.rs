@@ -726,3 +726,109 @@ pub(crate) fn permissions_audit_cmd(solution: &Solution, args: &Args) -> u8 {
         OK
     }
 }
+
+/// Write each project's permission policy into its entity XML (`permissions apply`); a plan
+/// unless `--apply`.
+pub(crate) fn permissions_apply_cmd(solution: &Solution, args: &Args) -> u8 {
+    let request = commands::permissions::ApplyRequest {
+        project: args.project.clone(),
+        mode: if args.has("--apply") {
+            Mode::Apply
+        } else {
+            Mode::Plan
+        },
+        lock_label: "permissions apply",
+    };
+    let mut notices = commands::Notices::default();
+    let outcome = match commands::permissions::execute_apply(solution, &request, &mut notices) {
+        Ok(outcome) => outcome,
+        Err(error) => {
+            print_notices(&notices);
+            eprintln!("twaco: {error}");
+            return FAILED;
+        }
+    };
+    print_notices(&notices);
+    let detail = args.has("--detail");
+    let plan = &outcome.plan;
+    if args.has("--json") {
+        let mut value = serde_json::to_value(plan).expect("apply plan serialises");
+        if !detail {
+            for project in value["projects"].as_array_mut().into_iter().flatten() {
+                for change in project["changes"].as_array_mut().into_iter().flatten() {
+                    if let Some(object) = change.as_object_mut() {
+                        object.remove("details");
+                    }
+                }
+                for finding in project["remaining"].as_array_mut().into_iter().flatten() {
+                    if let Some(object) = finding.as_object_mut() {
+                        object.remove("details");
+                    }
+                }
+            }
+        }
+        value["applied"] = serde_json::json!(outcome.applied);
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&value).expect("apply plan serialises")
+        );
+        return OK;
+    }
+    for project in &plan.projects {
+        let mode = match &project.helper {
+            Some(helper) => format!("helper mode, {helper}"),
+            None => "plain mode".to_string(),
+        };
+        let (added, removed) = project
+            .changes
+            .iter()
+            .fold((0, 0), |(a, r), c| (a + c.added, r + c.removed));
+        if project.changes.is_empty() {
+            println!(
+                "{} ({mode}): the entity XML is as the policy says",
+                project.project
+            );
+        } else {
+            println!(
+                "{} ({mode}): {} file{}, {added} grant{} added, {removed} removed",
+                project.project,
+                project.changes.len(),
+                if project.changes.len() == 1 { "" } else { "s" },
+                if added == 1 { "" } else { "s" },
+            );
+        }
+        for change in &project.changes {
+            let sets: Vec<&str> = change.sets.iter().map(|kind| kind.label()).collect();
+            println!(
+                "  {}  {}  +{} -{}",
+                change.entity,
+                sets.join(", "),
+                change.added,
+                change.removed
+            );
+            if detail {
+                for line in &change.details {
+                    println!("      {line}");
+                }
+            }
+        }
+        if !project.remaining.is_empty() {
+            println!("  left for you (`permissions audit` explains):");
+            for finding in &project.remaining {
+                println!("    {finding}");
+            }
+        }
+    }
+    let changed = plan.changes().count();
+    if changed > 0 {
+        if outcome.applied {
+            println!(
+                "wrote {changed} file{}; deploy them, then `twaco permissions push` removes on the server what an import cannot",
+                if changed == 1 { "" } else { "s" }
+            );
+        } else {
+            println!("dry run: nothing was written; pass --apply to write");
+        }
+    }
+    OK
+}

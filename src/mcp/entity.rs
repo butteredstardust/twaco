@@ -1,7 +1,8 @@
 use super::requests::common::Absent;
 use super::requests::entity::{
-    EntityCarryRequest, EntityDeleteRequest, EntityRestoreRequest, PermissionsAuditRequest,
-    PermissionsPushRequest, PermissionsRequest, PushRequest, StatusRequest,
+    EntityCarryRequest, EntityDeleteRequest, EntityRestoreRequest, PermissionsApplyRequest,
+    PermissionsAuditRequest, PermissionsPushRequest, PermissionsRequest, PushRequest,
+    StatusRequest,
 };
 use super::*;
 
@@ -422,4 +423,46 @@ pub(crate) fn permissions_audit_tool(
         "projects": projects,
         "without_policy": report.without_policy,
     }))
+}
+
+pub(crate) fn permissions_apply_tool(
+    solution: &Solution,
+    request: PermissionsApplyRequest,
+) -> Result<Value, ToolError> {
+    let mut notices = commands::Notices::default();
+    let outcome = commands::permissions::execute_apply(
+        solution,
+        &commands::permissions::ApplyRequest {
+            project: request.project.as_ref().cloned(),
+            mode: if request.dry_run {
+                Mode::Plan
+            } else {
+                Mode::Apply
+            },
+            lock_label: "mcp permissions_apply",
+        },
+        &mut notices,
+    )
+    .map_err(ToolError::coded)?;
+    let mut projects = serde_json::to_value(&outcome.plan.projects).expect("apply plan serialises");
+    if !request.detail {
+        for project in projects.as_array_mut().into_iter().flatten() {
+            for list in ["changes", "remaining"] {
+                for item in project[list].as_array_mut().into_iter().flatten() {
+                    if let Some(object) = item.as_object_mut() {
+                        object.remove("details");
+                    }
+                }
+            }
+        }
+    }
+    let mut result = json!({
+        "ok": true,
+        "files": outcome.plan.changes().count(),
+        "projects": projects,
+        "without_policy": outcome.plan.without_policy,
+    });
+    result[if outcome.applied { "applied" } else { "plan" }] = json!(true);
+    add_notices(&mut result, &notices);
+    Ok(result)
 }

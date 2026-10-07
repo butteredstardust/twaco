@@ -242,12 +242,13 @@ pub fn audit(solution: &Solution, project: Option<&str>) -> Result<AuditReport, 
         without_policy,
     };
     for one in &loaded {
-        report.projects.push(audit_project(one)?);
+        report.projects.push(audit_loaded(one)?);
     }
     Ok(report)
 }
 
-fn audit_project(loaded: &Loaded) -> Result<ProjectAudit, AuditError> {
+/// Audit one loaded project.
+pub fn audit_loaded(loaded: &Loaded) -> Result<ProjectAudit, AuditError> {
     let policy = &loaded.policy;
     let helper = loaded.helper()?;
     let mut findings = Vec::new();
@@ -378,15 +379,24 @@ fn hygiene(loaded: &Loaded, entity: &ModelEntity, findings: &mut Vec<Finding>) {
         let visibility = matches!(kind, Kind::Visibility | Kind::InstanceVisibility);
         for (grant, allowed) in grants {
             let principal = &grant.principal;
-            if visibility && matches!(grant.principal_type.as_str(), "Group" | "User") {
+            if visibility
+                && !matches!(
+                    grant.principal_type.as_str(),
+                    "Organization" | "OrganizationalUnit"
+                )
+            {
                 findings.push(Finding {
                     severity: Severity::Error,
                     code: "visibility-not-an-organization",
                     entity: Some(entity.key()),
                     message: format!(
-                        "{} names {} {principal}; visibility takes an organization or unit, and the server answers HTTP 500",
+                        "{} names {} {principal}; visibility takes only an Organization or an OrganizationalUnit (a group is refused with HTTP 500)",
                         kind.label(),
-                        grant.principal_type
+                        if grant.principal_type.is_empty() {
+                            "a principal without a type,"
+                        } else {
+                            grant.principal_type.as_str()
+                        }
                     ),
                     details: Vec::new(),
                 });

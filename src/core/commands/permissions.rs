@@ -5,7 +5,7 @@ use super::{lock_workspace, Access, Effects, Mode, Notices};
 use crate::core::baseline::{self, Baseline};
 use crate::core::codes::{Coded, ErrorCode};
 use crate::core::config::Solution;
-use crate::core::{entity_carry, lock, permissions, profile, push, status, workspace};
+use crate::core::{entity_carry, lock, permissions, profile, push, status, transaction, workspace};
 use std::fmt;
 
 /// The arguments that affect a permissions diff or push.
@@ -166,6 +166,98 @@ where
             },
         ),
         recorded,
+    })
+}
+
+/// The arguments of `permissions apply`.
+#[derive(Clone, Debug)]
+pub struct ApplyRequest {
+    pub project: Option<String>,
+    pub mode: Mode,
+    pub lock_label: &'static str,
+}
+
+#[derive(Debug)]
+pub struct ApplyOutcome {
+    pub plan: permissions::apply::ApplyPlan,
+    /// Whether the files were written.
+    pub applied: bool,
+    effects: Effects,
+}
+
+impl ApplyOutcome {
+    pub const fn effects(&self) -> Effects {
+        self.effects
+    }
+}
+
+#[derive(Debug)]
+pub enum ApplyCommandError {
+    Lock(lock::LockError),
+    Plan(permissions::apply::ApplyError),
+    Write(transaction::TransactionError),
+}
+
+impl fmt::Display for ApplyCommandError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Lock(error) => error.fmt(f),
+            Self::Plan(error) => error.fmt(f),
+            Self::Write(error) => error.fmt(f),
+        }
+    }
+}
+
+impl std::error::Error for ApplyCommandError {}
+
+impl Coded for ApplyCommandError {
+    fn code(&self) -> ErrorCode {
+        match self {
+            Self::Lock(error) => error.code(),
+            Self::Plan(error) => error.code(),
+            Self::Write(error) => error.code(),
+        }
+    }
+}
+
+/// Plan writing each project's permission policy into its entity XML, and with `Apply` write it:
+/// every changed file in one transaction, under the workspace lock taken before planning.
+pub fn execute_apply(
+    solution: &Solution,
+    request: &ApplyRequest,
+    notices: &mut Notices,
+) -> Result<ApplyOutcome, ApplyCommandError> {
+    let lock = match request.mode {
+        Mode::Apply => Some(
+            lock_workspace(solution, request.lock_label, notices)
+                .map_err(ApplyCommandError::Lock)?,
+        ),
+        Mode::Plan => None,
+    };
+    let plan = permissions::apply::plan(solution, request.project.as_deref())
+        .map_err(ApplyCommandError::Plan)?;
+    let Some(lock) = lock else {
+        return Ok(ApplyOutcome {
+            plan,
+            applied: false,
+            effects: Effects::new(Access::Read, Access::None),
+        });
+    };
+    let mut operation = transaction::Transaction::new(&solution.root, request.lock_label);
+    for change in plan.changes() {
+        operation
+            .replace_file(&change.path, &change.before, change.after.clone())
+            .map_err(ApplyCommandError::Write)?;
+    }
+    let wrote = !operation.is_empty();
+    operation.apply(&lock).map_err(ApplyCommandError::Write)?;
+    Ok(ApplyOutcome {
+        plan,
+        applied: true,
+        effects: Effects::new(
+            if wrote { Access::Write } else { Access::Read },
+            Access::None,
+        ),
     })
 }
 

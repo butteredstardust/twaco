@@ -109,6 +109,7 @@ when the command is asked to write. A local output named by an option is include
 | `entity restore` | read-only | server-partial | server entities | Read restored entities back before retrying. | `core/commands/restore.rs: execute` |
 | `entity carry` | read-only | server-partial | server permissions, ledger | Read permissions and ledger before retrying. | `core/commands/carry.rs: execute` |
 | `permissions audit` | read-only | read-only | none | Retry freely. | `core/permissions/audit.rs: audit` |
+| `permissions apply` | read-only | multi-file atomic | entity XML | One transaction; run `permissions audit` before retrying. | `core/commands/permissions.rs: execute_apply` |
 | `permissions diff` | read-only | read-only | none | Retry freely. | `core/commands/permissions.rs: execute` |
 | `permissions push` | read-only | server-partial | server permissions, baseline | Each set is written whole and read back; run `permissions diff` before retrying. | `core/commands/permissions.rs: execute` |
 
@@ -128,6 +129,7 @@ when the command is asked to write. A local output named by an option is include
 | `entity_restore` | read-only | server-partial | server entities | Read restored entities back before retrying. | `core/commands/restore.rs: execute` |
 | `entity_carry` | read-only | server-partial | server permissions, ledger | Read permissions and ledger before retrying. | `core/commands/carry.rs: execute` |
 | `permissions_audit` | read-only | read-only | none | Retry freely. | `core/permissions/audit.rs: audit` |
+| `permissions_apply` | read-only | multi-file atomic | entity XML | One transaction; run `permissions_audit` before retrying. | `core/commands/permissions.rs: execute_apply` |
 | `permissions` | read-only | read-only | none | Retry freely. | `core/commands/permissions.rs: execute` |
 | `permissions_push` | read-only | server-partial | server permissions, baseline | Each set is written whole and read back; run `permissions` before retrying. | `core/commands/permissions.rs: execute` |
 | `db_run` | read-only | server-partial | SQL, temporary server Thing | Inspect SQL effects and clean temporary Things before retrying. | `core/commands/db.rs: execute` |

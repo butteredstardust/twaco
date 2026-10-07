@@ -220,8 +220,8 @@ input.
 
 A project's permission policy lives in `permissions.toml` in the project's root folder (the
 `root` of its `[[project]]`). It is the source of truth for the project's permissions:
-`twaco permissions audit` checks the entity XML against it, offline. A project without the file
-is left alone.
+`twaco permissions audit` checks the entity XML against it, offline, and `twaco permissions apply`
+writes it there. A project without the file is left alone.
 
 The policy needs nothing from the Solution Framework. When the project has a permission helper
 Thing (template `PTCDTS.Base.ComponentPermissionHelper_TT`, which ships in `PTCDTS.Base` and so

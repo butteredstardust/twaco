@@ -14,9 +14,11 @@
 //! only, `*` for the whole entity), an action, a principal and its type, allowed or denied. A
 //! permission set missing from the entity XML is not managed and is never written.
 
+pub mod apply;
 pub mod audit;
 mod model;
 pub mod policy;
+pub mod write;
 
 use super::entity_carry::{Kind, Remote};
 use super::normalise::{self, Element, Node};
@@ -584,6 +586,8 @@ fn one(remote: &(dyn Remote + Sync), entity: &EntityFile, apply: bool) -> Entity
     report
 }
 
+#[cfg(test)]
+mod apply_tests;
 #[cfg(test)]
 mod policy_tests;
 #[cfg(test)]

@@ -29,7 +29,7 @@ use cli::content::{export_cmd, ext_cmd, import_cmd, package_cmd, repo_cmd};
 use cli::data::{call, config_table, datatable_copy_cmd, db_clean_cmd, db_cmd, logs_cmd};
 use cli::entity::{
     entity_carry_cmd, entity_delete_cmd, entity_get, entity_push, entity_restore_cmd,
-    entity_status, permissions_audit_cmd, permissions_cmd,
+    entity_status, permissions_apply_cmd, permissions_audit_cmd, permissions_cmd,
 };
 use cli::info::{
     catalog_cmd, docs_cmd, guide_cmd, help_cmd, impact_cmd, javadoc_cmd, settings_cmd, unused_cmd,
@@ -305,6 +305,7 @@ fn run_command(args: &[String]) -> ExitCode {
             "entity carry" => entity_carry_cmd(solution, &parsed),
             "permissions diff" | "permissions push" => permissions_cmd(solution, route, &parsed),
             "permissions audit" => permissions_audit_cmd(solution, &parsed),
+            "permissions apply" => permissions_apply_cmd(solution, &parsed),
             "entity restore" => entity_restore_cmd(solution, &parsed),
             "db run" | "db query" => db_cmd(solution, route, &parsed),
             "db clean" => db_clean_cmd(solution, &parsed),
@@ -433,8 +434,9 @@ fn route(args: &[String]) -> Result<Route, String> {
             Some("diff") => ("permissions diff", 2, &["--all", "--project", "--profile", "--json"]),
             Some("push") => ("permissions push", 2, &["--all", "--project", "--apply", "--profile", "--json"]),
             Some("audit") => ("permissions audit", 2, &["--project", "--detail", "--json"]),
+            Some("apply") => ("permissions apply", 2, &["--project", "--apply", "--detail", "--json"]),
             Some(other) => return Err(format!("unknown permissions command `{other}`")),
-            None => return Err("permissions needs `audit`, `diff` or `push`".to_string()),
+            None => return Err("permissions needs `audit`, `apply`, `diff` or `push`".to_string()),
         },
         "datatable" => match args.get(1).map(String::as_str) {
             Some("copy") => ("datatable copy", 2, &["--map", "--drop-unmapped", "--append", "--max-rows", "--apply", "--profile", "--json"]),

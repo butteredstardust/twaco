@@ -461,6 +461,20 @@ Without a server, the audit reports:
   an organizational unit an Organization does not declare; rules and patterns that match nothing.
 - **notes:** explicit denies.
 
+`permissions apply` writes the policy into the entity XML: the run-time block of each Thing, the
+instance run-time block of each ThingShape and ThingTemplate, and the role principals of each
+visibility block. Only blocks whose grants differ are rewritten, in the export's layout and the
+file's line ending; what a block keeps stays in its order, and new principals follow in the
+order of the roles. Every changed file is written in one transaction. It is refused while a
+strict entity has a service no rule names.
+
+```sh
+twaco permissions apply                 # the plan: files, grants added and removed
+twaco permissions apply --apply
+twaco deploy --apply                    # an import adds grants ...
+twaco permissions push --all --apply    # ... and only a push removes them on the server
+```
+
 A project with a Solution Framework permission helper Thing is audited in helper mode. The
 helper's template ships in `PTCDTS.Base`, so a server with only the common blocks can have one;
 a project without one is audited in plain mode. Nothing needs the Solution Framework itself.

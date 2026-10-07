@@ -211,6 +211,13 @@ pub(crate) const USAGE: &str = r#"usage: twaco <command>
                               principals the server refuses or no entity defines, rules that match
                               nothing; exit 1 on any error
       --detail                every grant behind a finding
+  permissions apply [--project <name>] [--apply] [--detail] [--json]
+                              write each project's permissions.toml into its entity XML: the run-time
+                              block of each Thing, the instance run-time block of each shape and
+                              template, and the role principals of each visibility block; only blocks
+                              that differ change; plan unless --apply; refused while a strict
+                              entity has an unclassified service
+      --detail                every grant each file gains or loses
   permissions diff <entity>...|--all [--json]
                               each entity's run-time, design-time and visibility permissions (and a
                               shape's or template's instance permissions) against the server's:
