@@ -56,6 +56,17 @@ which of its parts are fragile.
 The gates passing is not evidence a service works. They check structure, never behaviour; most
 real defects are declarations that drifted from the code. Call the service.
 
+## Permissions
+
+An import only adds permissions: it never removes a grant the server has, and never changes the
+allow or deny of a principal the server already lists. A deploy that reads an entity back as
+"not kept" says when only its permissions differ.
+
+- `twaco permissions diff <entity>|--all`: each run-time, design-time and visibility set in the
+  entity XML against the server's; exit 1 when any differs.
+- `twaco permissions push <entity> --apply`: makes the server's sets exactly the repository's and
+  reads them back. Without `--apply` it is the plan.
+
 ## Read what the server says
 
 - `twaco logs ScriptLog --since 10m --level WARN`: newest first, local times.
