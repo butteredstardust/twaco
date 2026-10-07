@@ -259,3 +259,9 @@ hold the lines below. `twaco init --write` and `twaco init --agents` add the mis
 Commit `.twaco/baseline.json`. It records each entity's state at the last deploy or push (and
 what `entity status --record` adopted), so a later deploy can tell a teammate's server-side
 change from yours.
+
+Each recorded hash carries the version of the comparison form it was made with (`v4:...`). When a
+new twaco compares differently, an entry from the old version counts as unrecorded rather than
+as a change on both sides: an entity whose two sides match reads `no-baseline-same` and is
+recorded again by its next deploy, and `twaco doctor` counts the old entries.
+`twaco entity status --all --record` records again, at once, every entity that matches the server.

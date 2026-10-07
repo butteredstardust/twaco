@@ -166,9 +166,9 @@ fn options(include_outside: bool) -> ApplyOptions {
 fn seed_baseline(fixture: &Fixture, planned: &Plan) {
     let mut baseline = Baseline::default();
     for (collection, name) in &planned.baseline_keys {
-        baseline.set(collection, name, "local".into(), "server".into());
+        baseline.set(collection, name, "v4:local".into(), "v4:server".into());
     }
-    baseline.set("Things", "Unchanged", "keep".into(), "keep".into());
+    baseline.set("Things", "Unchanged", "v4:keep".into(), "v4:keep".into());
     baseline.write(&fixture.root).unwrap();
 }
 

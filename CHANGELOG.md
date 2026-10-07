@@ -20,6 +20,17 @@ All notable changes to twaco are recorded here. The format follows
   text files, and renames it. Followed by anything else that is not another entity, it is left for
   review. Before, such a name was neither changed nor counted, and the plan said "0 review".
 - A rename planned with `--text` no longer says the other files "were not changed; pass --text".
+- An entity with permissions no longer reads back as "not kept" after a deploy. ThingWorx
+  reorders principals and resources on import and fills in the permission kinds a resource left
+  out; the comparison now treats each permission list as a set. Without a matching read-back no
+  baseline was recorded, so every later deploy of the entity needed `--force`.
+
+### Changed
+
+- Entity hashes are version 4 (`v4:`). A baseline entry recorded by an earlier twaco counts as
+  unrecorded, not as changed: an entity that matches the server reads `no-baseline-same` and its
+  next deploy records it again. `twaco doctor` counts such entries, and
+  `twaco entity status --all --record` records them again at once.
 
 ## [0.1.1] - 2026-10-06
 
