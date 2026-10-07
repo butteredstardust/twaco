@@ -211,7 +211,10 @@ fn principal_rank(policy: &Policy, principal: &str) -> usize {
         .unwrap_or(usize::MAX)
 }
 
-fn change_of(policy: &Policy, entity: &ModelEntity) -> Result<Option<FileChange>, ApplyError> {
+pub(super) fn change_of(
+    policy: &Policy,
+    entity: &ModelEntity,
+) -> Result<Option<FileChange>, ApplyError> {
     let mut kinds = Vec::new();
     if let Some(kind) = audit::run_time_kind(entity) {
         kinds.push(kind);

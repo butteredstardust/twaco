@@ -113,6 +113,7 @@ when the command is asked to write. A local output named by an option is include
 | `permissions apply` | read-only | multi-file atomic | entity XML | One transaction; run `permissions audit` before retrying. | `core/commands/permissions.rs: execute_apply` |
 | `permissions diff` | read-only | read-only | none | Retry freely. | `core/commands/permissions.rs: execute` |
 | `permissions push` | read-only | server-partial | server permissions, baseline | Each set is written whole and read back; run `permissions diff` before retrying. | `core/commands/permissions.rs: execute` |
+| `permissions push --platform` | read-only | server-partial | grants and memberships on shared server entities | Adds one item at a time and reads it back, never removes; run `permissions audit --server` before retrying. | `core/commands/permissions.rs: execute_platform` |
 
 ## MCP tools
 
@@ -133,7 +134,7 @@ when the command is asked to write. A local output named by an option is include
 | `permissions_audit` | read-only | read-only | none | Retry freely. | `core/permissions/audit.rs: audit` |
 | `permissions_apply` | read-only | multi-file atomic | entity XML | One transaction; run `permissions_audit` before retrying. | `core/commands/permissions.rs: execute_apply` |
 | `permissions` | read-only | read-only | none | Retry freely. | `core/commands/permissions.rs: execute` |
-| `permissions_push` | read-only | server-partial | server permissions, baseline | Each set is written whole and read back; run `permissions` before retrying. | `core/commands/permissions.rs: execute` |
+| `permissions_push` | read-only | server-partial | server permissions, baseline; with `platform`, grants and memberships on shared entities | Each set is written whole and read back; `platform` adds one item at a time and never removes. Run `permissions` or `permissions_audit` with `server` before retrying. | `core/commands/permissions.rs: execute` |
 | `db_run` | read-only | server-partial | SQL, temporary server Thing | Inspect SQL effects and clean temporary Things before retrying. | `core/commands/db.rs: execute` |
 | `db_query` | server-partial | server-partial | temporary server Thing | Run `db_clean` if temporary cleanup failed. | `core/commands/db.rs: execute` |
 | `datatable_copy` | read-only | server-partial | target DataTable | Read the target back before retrying. | `core/commands/datatable_copy.rs: execute` |

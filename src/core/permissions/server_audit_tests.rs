@@ -93,7 +93,10 @@ impl config_table::Remote for Fake {
                     }
                 }
                 Ok(Some(json!({
-                    "rows": members.iter().map(|m| json!({"name": m, "type": "Group"})).collect::<Vec<_>>()
+                    "rows": members.iter().map(|m| {
+                        let (kind, name) = m.split_once(':').unwrap_or(("Group", m));
+                        json!({"name": name, "type": kind})
+                    }).collect::<Vec<_>>()
                 })))
             }
             "AddMember" | "AddRunTimePermission" => {
@@ -328,10 +331,14 @@ fn a_platform_push_adds_only_what_is_missing_and_reads_it_back() {
         projects: vec!["PTCDTS.Base.Permissions".to_string()],
         ..Fake::default()
     };
-    // The viewer is already a member; nothing else is there.
+    // The viewer is already a member; nothing else is there. A user named like the admin's
+    // group is not that group.
     fake.members.insert(
         "PTCDTS.Base.Permissions.Default_UG".to_string(),
-        vec!["Acme.App.Viewer_UG".to_string()],
+        vec![
+            "Acme.App.Viewer_UG".to_string(),
+            "User:Acme.App.Admin_UG".to_string(),
+        ],
     );
     let (loaded, _) = audit::load(&solution, None).unwrap();
     let plan = platform::run(&fake, &loaded, false);

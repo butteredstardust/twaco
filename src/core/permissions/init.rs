@@ -43,6 +43,8 @@ pub enum InitError {
     NoHelper(String),
     /// Every project asked for already has a policy.
     Nothing(Vec<String>),
+    /// The helper's tables cannot be drafted from as they are.
+    Helper(String),
 }
 
 impl fmt::Display for InitError {
@@ -50,6 +52,7 @@ impl fmt::Display for InitError {
         match self {
             InitError::Project(name) => write!(f, "this solution has no project named {name}"),
             InitError::Unreadable(items) => f.write_str(&items.join("\n")),
+            InitError::Helper(why) => f.write_str(why),
             InitError::Entity(error) => error.fmt(f),
             InitError::NoHelper(project) => write!(
                 f,
@@ -74,7 +77,9 @@ impl crate::core::codes::Coded for InitError {
             InitError::Project(_) | InitError::NoHelper(_) | InitError::Nothing(_) => {
                 ErrorCode::InvalidArguments
             }
-            InitError::Unreadable(_) | InitError::Entity(_) => ErrorCode::InvalidData,
+            InitError::Unreadable(_) | InitError::Entity(_) | InitError::Helper(_) => {
+                ErrorCode::InvalidData
+            }
         }
     }
 }
@@ -156,6 +161,20 @@ fn role_name(project: &str, group: &str) -> String {
     match chars.next() {
         Some(first) => first.to_lowercase().chain(chars).collect(),
         None => "role".to_string(),
+    }
+}
+
+/// The name a draft writes for an entity: the part after the project's prefix, unless that
+/// would also name another entity of the project (one called `X` beside `Acme.App.X`).
+fn written_name(project: &str, name: &str, entities: &[ModelEntity]) -> String {
+    let candidate = short(project, name);
+    let clash = entities.iter().any(|other| {
+        other.name() != name && policy::names_entity(project, candidate, other.name())
+    });
+    if clash {
+        name.to_string()
+    } else {
+        candidate.to_string()
     }
 }
 
@@ -253,6 +272,13 @@ fn draft_project(
             else {
                 continue;
             };
+            if !group.contains('.') {
+                return Err(InitError::Helper(format!(
+                    "role {name} of the permission helper maps to group {group}; a policy reads a \
+                     name without a dot as the project's, so rename the group or map the role to a \
+                     dotted one first"
+                )));
+            }
             let org = match lookup(&format!("{name}Org")) {
                 None => Some("none".to_string()),
                 Some(row) => {
@@ -406,7 +432,7 @@ fn draft_project(
             rules
                 .entry(key)
                 .or_default()
-                .push(short(project, entity.name()).to_string());
+                .push(written_name(project, entity.name(), entities));
         }
     }
 
@@ -483,7 +509,7 @@ fn draft_project(
             exceptions
                 .entry(key)
                 .or_default()
-                .push(short(project, entity.name()).to_string());
+                .push(written_name(project, entity.name(), entities));
         }
     }
 
@@ -554,9 +580,60 @@ fn draft_project(
             list(who)
         ));
     }
-    // The draft must read as a policy, and say what the project has.
-    Policy::parse(project, &path, &text)
+    // The draft must read as a policy, and say what the project has: apply it in memory.
+    let parsed = Policy::parse(project, &path, &text)
         .map_err(|e| InitError::Entity(PermissionsError(e.to_string())))?;
+    let mut blocks = Vec::new();
+    for entity in entities {
+        if parsed.is_unmanaged(entity.name()) {
+            continue;
+        }
+        if let Some(change) = super::apply::change_of(&parsed, entity)
+            .map_err(|e| InitError::Entity(PermissionsError(e.to_string())))?
+        {
+            blocks.push(change.entity);
+        }
+    }
+    if !blocks.is_empty() {
+        notes.push(if from_helper {
+            format!(
+                "`permissions apply` will write the helper's matrix into {}",
+                blocks.join(", ")
+            )
+        } else {
+            format!(
+                "`permissions apply` would still change {}",
+                blocks.join(", ")
+            )
+        });
+    }
+    if let [helper] = helpers.as_slice() {
+        let loaded = super::audit::Loaded {
+            policy: parsed,
+            entities: entities.to_vec(),
+            all: Default::default(),
+            projects: Default::default(),
+        };
+        let read = |entity: &ModelEntity| Ok(entity.bytes.to_vec());
+        let edits = super::helper::edits(&loaded, helper, &read)
+            .map_err(|e| InitError::Helper(format!("{}: {e}", helper.key())))?;
+        let details: Vec<String> = edits.into_iter().flat_map(|edit| edit.details).collect();
+        if !details.is_empty() {
+            if from_helper {
+                return Err(InitError::Helper(format!(
+                    "the permission helper's tables do not say everything a policy needs, so a \
+                     draft from them would not keep them; `permissions init` from the entity XML \
+                     rewrites them instead:\n  {}",
+                    details.join("\n  ")
+                )));
+            }
+            notes.push(format!(
+                "`permissions apply` will rewrite the permission helper's tables to agree with the \
+                 entity XML: {}",
+                details.join("; ")
+            ));
+        }
+    }
     Ok(Draft {
         project: project.to_string(),
         path,

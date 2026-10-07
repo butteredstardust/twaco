@@ -398,6 +398,8 @@ pub fn group_members(remote: &dyn Remote, group: &str) -> Result<BTreeSet<String
         .ok_or_else(|| format!("GetGroupMembers of {group} returned no rows"))?;
     Ok(rows
         .iter()
+        // A user named like the group is not the group.
+        .filter(|row| row.get("type").and_then(Value::as_str).unwrap_or("Group") == "Group")
         .filter_map(|row| row.get("name").and_then(Value::as_str))
         .map(str::to_string)
         .collect())

@@ -648,3 +648,94 @@ fn a_drafted_policy_changes_nothing_and_leaves_what_it_cannot_say_alone() {
     assert_eq!(plan.plan.changes().count(), 0);
     let _ = std::fs::remove_dir_all(root);
 }
+
+#[test]
+fn a_helper_that_cannot_be_kept_by_its_own_draft_is_refused() {
+    use crate::core::commands::permissions::InitRequest;
+    let init = |from_helper: bool| InitRequest {
+        project: None,
+        from_helper,
+        mode: Mode::Plan,
+        lock_label: "permissions init",
+    };
+    let (solution, root) = helper_solution();
+    command::execute_apply(&solution, &request(Mode::Apply), &mut Notices::default()).unwrap();
+    std::fs::remove_file(root.join("permissions.toml")).unwrap();
+    let path = root.join("Things/Acme.App.ComponentPermissionHelper.xml");
+    let written = std::fs::read_to_string(&path).unwrap();
+
+    // The visibility table lost the shape's row.
+    let start = written.rfind("Acme.App.Orders_TS\n").unwrap();
+    let row_start = written[..start].rfind("<Row>").unwrap();
+    let row_end = written[start..].find("</Row>").unwrap() + start + "</Row>".len();
+    let visibility = written.find("name=\"VisibilityPermissionsTable\"").unwrap();
+    assert!(
+        row_start > visibility,
+        "the last Orders_TS row is the visibility one"
+    );
+    std::fs::write(
+        &path,
+        format!("{}{}", &written[..row_start], &written[row_end..]),
+    )
+    .unwrap();
+    let error = command::execute_init(&solution, &init(true), &mut Notices::default())
+        .unwrap_err()
+        .to_string();
+    assert!(
+        error.contains("VisibilityPermissionsTable: add row"),
+        "{error}"
+    );
+    // From the entity XML it drafts, and says the helper's tables will be rewritten.
+    let drafted = command::execute_init(&solution, &init(false), &mut Notices::default()).unwrap();
+    assert!(drafted.drafts[0]
+        .notes
+        .iter()
+        .any(|n| n.contains("rewrite the permission helper")));
+
+    // A role mapped to a group without a dot cannot be said in a policy.
+    let dotless = written.replacen(
+        "                            Acme.App.Viewer_UG\n",
+        "                            Shared_UG\n",
+        1,
+    );
+    assert_ne!(dotless, written);
+    std::fs::write(&path, dotless).unwrap();
+    let error = command::execute_init(&solution, &init(false), &mut Notices::default())
+        .unwrap_err()
+        .to_string();
+    assert!(error.contains("Shared_UG"), "{error}");
+    let _ = std::fs::remove_dir_all(root);
+}
+
+#[test]
+fn a_short_name_that_would_name_two_entities_is_written_whole() {
+    let (solution, root) = solution(POLICY);
+    command::execute_apply(&solution, &request(Mode::Apply), &mut Notices::default()).unwrap();
+    // An entity literally called `Orders_TS`, beside `Acme.App.Orders_TS`, granting nothing.
+    write(
+        &root,
+        "ThingShapes/Orders_TS.xml",
+        "<Entities><ThingShapes><ThingShape name=\"Orders_TS\" projectName=\"Acme.App\"><InstanceRunTimePermissions></InstanceRunTimePermissions></ThingShape></ThingShapes></Entities>",
+    );
+    std::fs::remove_file(root.join("permissions.toml")).unwrap();
+    let drafted = command::execute_init(
+        &solution,
+        &crate::core::commands::permissions::InitRequest {
+            project: None,
+            from_helper: false,
+            mode: Mode::Apply,
+            lock_label: "permissions init",
+        },
+        &mut Notices::default(),
+    )
+    .unwrap();
+    assert!(
+        drafted.drafts[0].text.contains("\"Acme.App.Orders_TS\""),
+        "{}",
+        drafted.drafts[0].text
+    );
+    let plan =
+        command::execute_apply(&solution, &request(Mode::Plan), &mut Notices::default()).unwrap();
+    assert_eq!(plan.plan.changes().count(), 0, "{}", drafted.drafts[0].text);
+    let _ = std::fs::remove_dir_all(root);
+}
