@@ -17,7 +17,9 @@
 //! CDATA included and comments invisible.
 
 use super::config::Solution;
+use super::lock::WorkspaceLock;
 use super::normalise::{self, Element, Node};
+use super::transaction::Transaction;
 use super::workspace;
 use serde_json::Value;
 use std::collections::{BTreeMap, BTreeSet};
@@ -113,8 +115,16 @@ impl Report {
 
 #[derive(Debug)]
 pub enum AdoptError {
-    Export { path: PathBuf, why: String },
-    Repository { path: PathBuf, why: String },
+    Export {
+        path: PathBuf,
+        why: String,
+    },
+    Repository {
+        path: PathBuf,
+        why: String,
+    },
+    /// The writes, made as one transaction, did not happen.
+    Write(super::transaction::TransactionError),
 }
 
 impl fmt::Display for AdoptError {
@@ -126,6 +136,7 @@ impl fmt::Display for AdoptError {
             AdoptError::Repository { path, why } => {
                 write!(f, "cannot read {}: {why}", path.display())
             }
+            AdoptError::Write(error) => write!(f, "nothing was adopted: {error}"),
         }
     }
 }
@@ -703,11 +714,13 @@ pub struct ApplyOutcome {
 /// the sidecars into the entity XML. Returns one line per step and any declaration refresh.
 ///
 /// Every write is worked out before the first is made, so an export that cannot be adopted
-/// (a payload that is not JSON, a name that is not a file name) changes nothing.
+/// (a payload that is not JSON, a name that is not a file name) changes nothing. The writes are
+/// then made as one transaction under `lock`: all of them or, after a failure or a crash, none.
 pub fn apply(
     solution: &Solution,
     export: &Path,
     report: &Report,
+    lock: &WorkspaceLock,
 ) -> Result<ApplyOutcome, AdoptError> {
     let exported = export_entities(export)?;
     let here = repository_entities(solution)?;
@@ -792,21 +805,31 @@ pub fn apply(
             _ => {}
         }
     }
+    let mut transaction = Transaction::new(&solution.root, "adopt");
     let mut lines = Vec::new();
-    let mut wrote = false;
     for (write, line) in steps {
         match write {
-            Some(Write::Entity(path, text)) => {
-                workspace::write_entity(&path, text.as_bytes()).map_err(|e| io_error(&path, e))?;
-                wrote = true;
-            }
+            Some(Write::Entity(path, text)) => transaction
+                .write_file(&path, text.into_bytes())
+                .map_err(AdoptError::Write)?,
             Some(Write::Sidecars(dir, assets)) => {
-                workspace::write_mashup(&dir, &assets).map_err(|e| io_error(&dir, e))?;
-                wrote = true;
+                // As extract writes them: LF line endings.
+                for (file, text) in [
+                    ("content.json", &assets.content),
+                    ("custom.css", &assets.css),
+                ] {
+                    transaction
+                        .write_file(&dir.join(file), text.replace("\r\n", "\n").into_bytes())
+                        .map_err(AdoptError::Write)?;
+                }
             }
             None => {}
         }
         lines.push(line);
+    }
+    let wrote = !transaction.is_empty();
+    if wrote {
+        transaction.apply(lock).map_err(AdoptError::Write)?;
     }
     Ok(ApplyOutcome {
         lines,
@@ -1153,6 +1176,10 @@ mod tests {
         );
     }
 
+    fn locked(solution: &Solution) -> WorkspaceLock {
+        crate::core::lock::acquire(&solution.root, "test", &[]).unwrap()
+    }
+
     /// A one-project solution with one mashup to take the shape from, and an export of `mashups`
     /// (name, mashupContent) next to it.
     fn adopt_case(mashups: &[(&str, &str)]) -> (PathBuf, Solution, PathBuf) {
@@ -1208,11 +1235,43 @@ mod tests {
     }
 
     #[test]
+    fn a_write_that_cannot_happen_leaves_none_of_the_others_behind() {
+        let (root, solution, export) = adopt_case(&[("P.B", "{\"UI\":{\"x\":1}}")]);
+        // A file where the new mashup's sidecar folder must go: its entity file is written
+        // first, and used to stay when the sidecars then failed.
+        std::fs::create_dir_all(root.join("src")).unwrap();
+        std::fs::write(root.join("src/P.B"), "in the way").unwrap();
+        let report = compare(&solution, &export, &[]).unwrap();
+        let outside_twaco = |root: &Path| -> Vec<(PathBuf, Vec<u8>)> {
+            files_under(root)
+                .into_iter()
+                .filter(|path| !path.starts_with(root.join(".twaco")))
+                .map(|path| {
+                    let bytes = std::fs::read(&path).unwrap();
+                    (path, bytes)
+                })
+                .collect()
+        };
+        let before = outside_twaco(&root);
+        let error = apply(&solution, &export, &report, &locked(&solution))
+            .err()
+            .expect("the sidecar folder cannot be made");
+        assert!(matches!(error, AdoptError::Write(_)), "{error}");
+        assert!(
+            error.to_string().starts_with("nothing was adopted"),
+            "{error}"
+        );
+        assert_eq!(outside_twaco(&root), before, "every change was undone");
+        assert!(!root.join("Mashups/P.B.xml").exists());
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[test]
     fn a_new_mashup_is_created_under_its_own_name_escaped_and_only_there() {
         let (root, solution, export) = adopt_case(&[("P.B&C", "{\"UI\":{\"x\":1}}")]);
         std::fs::create_dir_all(root.join(".twaco/types")).unwrap();
         let report = compare(&solution, &export, &[]).unwrap();
-        let outcome = apply(&solution, &export, &report).unwrap();
+        let outcome = apply(&solution, &export, &report, &locked(&solution)).unwrap();
         assert!(outcome.types.files_written.is_some());
         let lines: Vec<String> = outcome
             .lines
@@ -1234,9 +1293,13 @@ mod tests {
             ("CON", "{\"UI\":{}}"),
         ] {
             let (root, solution, export) = adopt_case(&[("P.B", "{\"UI\":{\"x\":1}}"), bad]);
+            let lock = locked(&solution);
             let before = files_under(&root);
             let report = compare(&solution, &export, &[]).unwrap();
-            assert!(apply(&solution, &export, &report).is_err(), "{bad:?}");
+            assert!(
+                apply(&solution, &export, &report, &lock).is_err(),
+                "{bad:?}"
+            );
             assert_eq!(files_under(&root), before, "{bad:?} wrote something");
             assert!(!root.parent().unwrap().join("escape").exists());
             let _ = std::fs::remove_dir_all(root);
@@ -1247,7 +1310,7 @@ mod tests {
     fn a_new_mashup_without_content_is_skipped_not_given_another_ones() {
         let (root, solution, export) = adopt_case(&[("P.D", "  ")]);
         let report = compare(&solution, &export, &[]).unwrap();
-        let lines: Vec<String> = apply(&solution, &export, &report)
+        let lines: Vec<String> = apply(&solution, &export, &report, &locked(&solution))
             .unwrap()
             .lines
             .into_iter()
@@ -1266,7 +1329,7 @@ mod tests {
     fn lines_come_in_the_reports_order() {
         let (root, solution, export) = adopt_case(&[("P.B", "{\"UI\":{\"x\":1}}"), ("P.C", " ")]);
         let report = compare(&solution, &export, &[]).unwrap();
-        let lines: Vec<String> = apply(&solution, &export, &report)
+        let lines: Vec<String> = apply(&solution, &export, &report, &locked(&solution))
             .unwrap()
             .lines
             .into_iter()

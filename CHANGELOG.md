@@ -14,6 +14,14 @@ All notable changes to twaco are recorded here. The format follows
 
 ### Changed
 
+- `adopt` makes its writes as one transaction: an export it cannot adopt in full, or a run that is
+  killed partway, leaves the repository as it was. Before, a write that failed left the earlier
+  ones in place.
+- `extract` writes each entity's sidecars as one transaction, so a crash never leaves a service's
+  new definition beside its old script, and it leaves a sidecar that already holds what it should
+  alone, so an editor watching it sees no change. The count of entities it reports counts each
+  entity once, not once per kind of sidecar.
+- `sync` writes each entity file once, with every kind of sidecar in it, instead of once per kind.
 - Every server address for an entity is built from a checked collection and name. An import file,
   a backup set's `backup.json` or a repository entity whose name is empty, `.`, `..` or holds a
   `/` is refused with the name, instead of asking the server about the collection itself or

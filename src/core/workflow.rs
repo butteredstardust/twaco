@@ -5,6 +5,8 @@
 //! unchanged, printing turned into log lines.
 
 use super::config::Solution;
+use super::lock::WorkspaceLock;
+use super::transaction::Transaction;
 use super::workspace::EntityFile;
 use std::collections::BTreeMap;
 
@@ -405,11 +407,18 @@ pub struct ExtractOutcome {
 
 /// Entity XML to sidecars, every kind, for the entities chosen. `named` means they were asked
 /// for by name, so one with nothing to extract is worth a line.
+///
+/// Each entity's sidecars are written as one transaction under `lock`: after a failure or a
+/// crash they are all as they were or all as the entity has them, never one service's new
+/// definition beside its old script. A kind that cannot be read from the entity is reported and
+/// the others are still written, as are the other entities. A file that already holds what it
+/// should is not written.
 pub fn extract(
     solution: &Solution,
     chosen: &[EntityFile],
     unreadable: &[String],
     named: bool,
+    lock: &WorkspaceLock,
 ) -> ExtractOutcome {
     let mut outcome = ExtractOutcome::default();
     let mut written = 0usize;
@@ -429,21 +438,25 @@ pub fn extract(
                 continue;
             }
         };
+        let mut transaction = Transaction::new(&solution.root, "extract");
+        // Said, and counted, once the entity's sidecars are written.
+        let mut lines: Vec<String> = Vec::new();
+        let mut parts = 0usize;
+        // A file of it that cannot be planned: then none of its sidecars are written, rather
+        // than some of one service's.
+        let mut unplanned = false;
 
         // A DataShape's fields are a sidecar of their own. Not `continue`: a DataShape may
         // also declare services, and returning early here would silently skip them.
-        let mut did_something = false;
         if entity.info.collection == "DataShapes" {
             match super::datashape::extract(&src) {
                 Ok(fields) => {
                     let path = super::workspace::fields_path(solution, entity);
                     let text = super::datashape::to_sidecar(&fields);
-                    match super::workspace::write_fields(&path, &text) {
+                    match plan_lf(&mut transaction, &path, &text) {
                         Ok(()) => {
-                            entities += 1;
-                            written += fields.len();
-                            did_something = true;
-                            log.change(format!(
+                            parts += fields.len();
+                            lines.push(format!(
                                 "{}: {} field(s) -> {}",
                                 entity.info.name,
                                 fields.len(),
@@ -452,7 +465,7 @@ pub fn extract(
                         }
                         Err(e) => {
                             log.error(format!("{e}"));
-                            failed += 1;
+                            unplanned = true;
                         }
                     }
                 }
@@ -468,12 +481,13 @@ pub fn extract(
             match super::mashup::extract(&src) {
                 Ok(assets) => {
                     let dir = super::workspace::mashup_dir(solution, entity);
-                    match super::workspace::write_mashup(&dir, &assets) {
+                    match plan_lf(&mut transaction, &dir.join("content.json"), &assets.content)
+                        .and_then(|()| {
+                            plan_lf(&mut transaction, &dir.join("custom.css"), &assets.css)
+                        }) {
                         Ok(()) => {
-                            entities += 1;
-                            written += 2;
-                            did_something = true;
-                            log.change(format!(
+                            parts += 2;
+                            lines.push(format!(
                                 "{}: content and stylesheet -> {}",
                                 entity.info.name,
                                 dir.display()
@@ -481,7 +495,7 @@ pub fn extract(
                         }
                         Err(e) => {
                             log.error(format!("{e}"));
-                            failed += 1;
+                            unplanned = true;
                         }
                     }
                 }
@@ -499,12 +513,10 @@ pub fn extract(
             {
                 Ok((configuration, text)) => {
                     let path = super::workspace::datatable_path(solution, entity);
-                    match super::workspace::write_datatable(&path, &text) {
+                    match plan_lf(&mut transaction, &path, &text) {
                         Ok(()) => {
-                            entities += 1;
-                            written += 1;
-                            did_something = true;
-                            log.change(format!(
+                            parts += 1;
+                            lines.push(format!(
                                 "{}: {} index(es) and a shape -> {}",
                                 entity.info.name,
                                 configuration.indexes.len(),
@@ -513,7 +525,7 @@ pub fn extract(
                         }
                         Err(e) => {
                             log.error(format!("{e}"));
-                            failed += 1;
+                            unplanned = true;
                         }
                     }
                 }
@@ -525,38 +537,48 @@ pub fn extract(
         }
 
         match super::sidecar::extract(&src) {
-            Ok(extraction) => {
-                if extraction.services.is_empty() {
-                    // Naming an entity with nothing to extract is worth saying; sweeping past
-                    // it under --all is not, and neither is one whose fields or mashup came out.
-                    if named && !did_something {
-                        log.change(format!("{}: no script services", entity.info.name));
-                        report_skipped(log, &extraction);
-                    }
-                    continue;
+            Ok(extraction) if extraction.services.is_empty() => {
+                // Naming an entity with nothing to extract is worth saying; sweeping past it
+                // under --all is not, and neither is one whose fields or mashup came out.
+                if named && lines.is_empty() {
+                    lines.push(format!("{}: no script services", entity.info.name));
+                    skipped_lines(&mut lines, &extraction);
                 }
+            }
+            Ok(extraction) => {
                 let dir = super::workspace::services_dir(solution, entity);
-                match super::workspace::write_sidecars(&dir, &extraction.services) {
-                    Ok(stale) => {
-                        entities += 1;
-                        written += extraction.services.len();
-                        log.change(format!(
+                let planned = extraction.services.iter().try_for_each(|service| {
+                    let service_dir = dir.join(&service.name);
+                    plan_lf(
+                        &mut transaction,
+                        &service_dir.join("definition.xml"),
+                        &service.definition,
+                    )?;
+                    plan_lf(
+                        &mut transaction,
+                        &service_dir.join("script.js"),
+                        &service.script,
+                    )
+                });
+                match planned {
+                    Ok(()) => {
+                        parts += extraction.services.len();
+                        lines.push(format!(
                             "{}: {} service(s) -> {}",
                             entity.info.name,
                             extraction.services.len(),
                             dir.display()
                         ));
-                        report_skipped(log, &extraction);
+                        skipped_lines(&mut lines, &extraction);
+                        let stale = super::workspace::stale_sidecars(&dir, &extraction.services);
                         if !stale.is_empty() {
-                            log.change(format!(
-                                "    no longer in the entity: {}",
-                                stale.join(", ")
-                            ));
+                            lines
+                                .push(format!("    no longer in the entity: {}", stale.join(", ")));
                         }
                     }
                     Err(e) => {
                         log.error(format!("{e}"));
-                        failed += 1;
+                        unplanned = true;
                     }
                 }
             }
@@ -564,6 +586,29 @@ pub fn extract(
                 log.error(format!("{}: {e}", entity.path.display()));
                 failed += 1;
             }
+        }
+
+        if unplanned {
+            log.error(format!(
+                "{}: none of its sidecars were written",
+                entity.info.name
+            ));
+            failed += 1;
+            continue;
+        }
+        if !transaction.is_empty() {
+            if let Err(e) = transaction.apply(lock) {
+                log.error(format!("{}: {e}", entity.info.name));
+                failed += 1;
+                continue;
+            }
+        }
+        for line in lines {
+            log.change(line);
+        }
+        if parts > 0 {
+            entities += 1;
+            written += parts;
         }
     }
     outcome.written = written;
@@ -573,22 +618,31 @@ pub fn extract(
     outcome
 }
 
+/// Plan one sidecar file, which twaco writes with LF line endings.
+fn plan_lf(
+    transaction: &mut Transaction,
+    path: &std::path::Path,
+    text: &str,
+) -> Result<(), super::transaction::TransactionError> {
+    transaction.write_file(path, text.replace("\r\n", "\n").into_bytes())
+}
+
 /// Say what an entity held that did not become a sidecar, so it is never a silent omission.
-fn report_skipped(log: &mut Log, extraction: &super::sidecar::Extraction) {
+fn skipped_lines(lines: &mut Vec<String>, extraction: &super::sidecar::Extraction) {
     if !extraction.non_script.is_empty() {
-        log.change(format!(
+        lines.push(format!(
             "    not scripts: {}",
             extraction.non_script.join(", ")
         ));
     }
     if !extraction.inherited.is_empty() {
-        log.change(format!(
+        lines.push(format!(
             "    defined elsewhere: {}",
             extraction.inherited.join(", ")
         ));
     }
     if !extraction.without_script.is_empty() {
-        log.change(format!(
+        lines.push(format!(
             "    no implementation: {}",
             extraction.without_script.join(", ")
         ));
@@ -735,6 +789,74 @@ mod tests {
         let _ = std::fs::remove_dir_all(root);
     }
 
+    fn two_services(name: &str, a: &str) -> String {
+        let service = |service: &str, script: &str| {
+            (
+                format!("<ServiceDefinition name=\"{service}\"><ParameterDefinitions></ParameterDefinitions><ResultType baseType=\"NOTHING\"/></ServiceDefinition>"),
+                format!("<ServiceImplementation name=\"{service}\" handlerName=\"Script\"><ConfigurationTables><ConfigurationTable name=\"Script\"><Rows><Row><code><![CDATA[{script}]]></code></Row></Rows></ConfigurationTable></ConfigurationTables></ServiceImplementation>"),
+            )
+        };
+        let (a_definition, a_implementation) = service("A", a);
+        let (b_definition, b_implementation) = service("B", "b();");
+        format!(
+            "<Entities><Things><Thing name=\"{name}\" projectName=\"P\"><ThingShape>\
+             <ServiceDefinitions>{a_definition}{b_definition}</ServiceDefinitions>\
+             <ServiceImplementations>{a_implementation}{b_implementation}</ServiceImplementations>\
+             </ThingShape></Thing></Things></Entities>"
+        )
+    }
+
+    #[test]
+    fn an_entitys_sidecars_are_written_together_or_not_at_all() {
+        let nonce = crate::test_nonce();
+        let root = std::env::temp_dir().join(format!(
+            "twaco-workflow-together-{}-{nonce}",
+            std::process::id()
+        ));
+        std::fs::create_dir_all(root.join("Things")).unwrap();
+        std::fs::write(root.join("twaco.toml"), "[[project]]\nname = \"P\"\n").unwrap();
+        std::fs::write(root.join("Things/T.xml"), two_services("T", "old();")).unwrap();
+        std::fs::write(root.join("Things/U.xml"), two_services("U", "old();")).unwrap();
+        let solution = Solution::load(&root.join("twaco.toml")).unwrap();
+        let lock = crate::core::lock::acquire(&solution.root, "test", &[]).unwrap();
+        let first = extract(&solution, &entities(&solution), &[], false, &lock);
+        assert_eq!((first.entities, first.failed), (2, 0), "{:?}", first.log);
+
+        // Nothing changed, so nothing is written again.
+        let script = root.join("src/T/services/A/script.js");
+        let stamp = || std::fs::metadata(&script).unwrap().modified().unwrap();
+        let before = stamp();
+        let again = extract(&solution, &entities(&solution), &[], false, &lock);
+        assert_eq!((again.entities, again.failed), (2, 0), "{:?}", again.log);
+        assert_eq!(stamp(), before);
+
+        // A's script changed in both entities, but in T a file sits where B's folder must go.
+        std::fs::write(root.join("Things/T.xml"), two_services("T", "new();")).unwrap();
+        std::fs::write(root.join("Things/U.xml"), two_services("U", "new();")).unwrap();
+        std::fs::remove_dir_all(root.join("src/T/services/B")).unwrap();
+        std::fs::write(root.join("src/T/services/B"), "in the way").unwrap();
+        let outcome = extract(&solution, &entities(&solution), &[], false, &lock);
+        assert_eq!(
+            (outcome.entities, outcome.failed),
+            (1, 1),
+            "{:?}",
+            outcome.log
+        );
+        assert_eq!(
+            std::fs::read_to_string(&script).unwrap(),
+            "old();",
+            "T is as it was"
+        );
+        assert_eq!(
+            std::fs::read_to_string(root.join("src/U/services/A/script.js")).unwrap(),
+            "new();",
+            "U is extracted all the same"
+        );
+        assert_eq!(outcome.log.changes().count(), 1, "{:?}", outcome.log);
+        drop(lock);
+        let _ = std::fs::remove_dir_all(root);
+    }
+
     #[test]
     fn every_kind_of_sidecar_an_entity_has_lands_in_its_one_write() {
         let nonce = crate::test_nonce();
@@ -761,7 +883,13 @@ mod tests {
         )
         .unwrap();
         let solution = Solution::load(&root.join("twaco.toml")).unwrap();
-        let extracted = extract(&solution, &entities(&solution), &[], false);
+        let extracted = extract(
+            &solution,
+            &entities(&solution),
+            &[],
+            false,
+            &crate::core::lock::acquire(&solution.root, "test", &[]).unwrap(),
+        );
         assert_eq!(extracted.failed, 0, "{:?}", extracted.log);
         let fields = root.join("src/D/fields.json");
         let text = std::fs::read_to_string(&fields).unwrap();
@@ -790,7 +918,13 @@ mod tests {
         let (root, solution) = service_fixture("extract-types");
         std::fs::remove_dir_all(root.join("src")).unwrap();
         std::fs::create_dir_all(root.join(".twaco/types")).unwrap();
-        let outcome = extract(&solution, &entities(&solution), &[], false);
+        let outcome = extract(
+            &solution,
+            &entities(&solution),
+            &[],
+            false,
+            &crate::core::lock::acquire(&solution.root, "test", &[]).unwrap(),
+        );
         assert!(outcome.written > 0);
         assert!(root.join("src/T/services/Run/jsconfig.json").is_file());
         assert!(outcome.types.warning.is_none());
@@ -798,7 +932,13 @@ mod tests {
 
         let (root, solution) = service_fixture("extract-no-types");
         std::fs::remove_dir_all(root.join("src")).unwrap();
-        let outcome = extract(&solution, &entities(&solution), &[], false);
+        let outcome = extract(
+            &solution,
+            &entities(&solution),
+            &[],
+            false,
+            &crate::core::lock::acquire(&solution.root, "test", &[]).unwrap(),
+        );
         assert!(outcome.written > 0);
         assert!(outcome.types.files_written.is_none());
         assert!(!root.join(".twaco/types").exists());
@@ -847,7 +987,13 @@ mod tests {
         )
         .unwrap();
         let solution = Solution::load(&root.join("twaco.toml")).unwrap();
-        let extracted = extract(&solution, &entities(&solution), &[], false);
+        let extracted = extract(
+            &solution,
+            &entities(&solution),
+            &[],
+            false,
+            &crate::core::lock::acquire(&solution.root, "test", &[]).unwrap(),
+        );
         assert_eq!(extracted.failed, 0);
 
         let table = root.join("src/T/datatable.json");

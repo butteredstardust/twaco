@@ -11,7 +11,8 @@ classes are ordered from weakest to strongest: `server-partial`, `best-effort ba
 - **multi-file atomic** writes several local files and undoes files already written if a later
   write fails. That rollback is in-process only: a killed process or power loss between writes
   cannot run it. A crash-recoverable journal now exists (see [TRANSACTIONS.md](TRANSACTIONS.md)) and
-  `new building-block`, `move`, `copy` and every `rename` use it: the next command to take the
+  `new building-block`, `move`, `copy`, `adopt` and every `rename` use it (and `extract`, for each
+  entity's sidecars): the next command to take the
   workspace lock finishes or undoes an interrupted run. The other multi-file commands still have
   the in-process rollback only, so inspect the workspace after such an interruption before
   retrying.
@@ -35,10 +36,10 @@ when the command is asked to write. A local output named by an option is include
 | `types` | best-effort batch | best-effort batch | generated declarations | Inspect files already regenerated; retry failed generation. | `core/commands/types.rs: execute` |
 | `types --check` | best-effort batch | best-effort batch | generated declarations, check project | Inspect generated files and retry the compiler after fixing its failure. | `core/commands/types.rs: execute` |
 | `types --platform` | best-effort batch | best-effort batch | platform cache, declarations | Inspect generated files and retry after the reported failure. | `core/commands/types.rs: execute` |
-| `extract` | best-effort batch | best-effort batch | sidecars, declarations | Earlier sidecars can exist; retry the reported entity. | `core/commands/extract.rs: execute` |
-| `extract --all` | best-effort batch | best-effort batch | sidecars, declarations | Earlier entities remain extracted; retry failed entities. | `core/commands/extract.rs: execute` |
-| `sync` | best-effort batch | best-effort batch | entity XML, declarations | Inspect the entity and generated declarations, then retry the reported item. | `core/commands/sync.rs: execute` |
-| `sync --all` | best-effort batch | best-effort batch | entity XML, declarations | Earlier entities remain synced; retry failed entities. | `core/commands/sync.rs: execute` |
+| `extract` | best-effort batch | best-effort batch | sidecars, declarations | Each entity's sidecars are written together or not at all, and the next command that takes the workspace lock finishes or undoes one a crash interrupted; earlier entities remain extracted. Retry failed entities. | `core/commands/extract.rs: execute` |
+| `extract --all` | best-effort batch | best-effort batch | sidecars, declarations | Each entity's sidecars are written together or not at all, and the next command that takes the workspace lock finishes or undoes one a crash interrupted; earlier entities remain extracted. Retry failed entities. | `core/commands/extract.rs: execute` |
+| `sync` | best-effort batch | best-effort batch | entity XML, declarations | Each entity file is written once, atomically, with every kind of sidecar in it; earlier entities remain synced. Retry failed entities. | `core/commands/sync.rs: execute` |
+| `sync --all` | best-effort batch | best-effort batch | entity XML, declarations | Each entity file is written once, atomically, with every kind of sidecar in it; earlier entities remain synced. Retry failed entities. | `core/commands/sync.rs: execute` |
 | `fmt` | best-effort batch | best-effort batch | script sidecars | Earlier scripts remain formatted; retry reported scripts. | `core/commands/fmt.rs: execute` |
 | `check` | read-only | read-only | none | Retry freely. | `core/check.rs: run` |
 | `bundle` | single-file atomic | single-file atomic | generated bundle | The generated bundle is old or new; retry freely. | `core/commands/bundle.rs: execute` |
@@ -97,7 +98,7 @@ when the command is asked to write. A local output named by an option is include
 | `javadoc search` | single-file atomic | single-file atomic | user cache file | The cache file is old or new; retry freely. | `core/javadoc.rs: cached` |
 | `javadoc class` | single-file atomic | single-file atomic | user cache file | The cache file is old or new; retry freely. | `core/javadoc.rs: cached` |
 | `init` | read-only | best-effort batch | config and optional guide files | Inspect files already created; retry only missing work. | `main.rs: main; core/init.rs: write_agent_files` |
-| `adopt` | read-only | best-effort batch | entities, sidecars, declarations | Earlier writes remain; retry the reported export after inspection. | `core/commands/adopt.rs: execute` |
+| `adopt` | read-only | multi-file atomic | entities, sidecars, declarations | Every entity and sidecar write happened or none did; a crash is finished or undone by the next command that takes the workspace lock. Declarations are regenerated afterwards, and a failure there is a warning. Retry. | `core/commands/adopt.rs: execute` |
 | `entity push` | read-only | server-partial | server entity, baseline, backup | Read the entity back and check the baseline before retrying. | `core/commands/push.rs: execute` |
 | `entity delete` | read-only | server-partial | server entities, ledger, backups | Inspect confirmed deletions and ledger entries before retrying. | `core/commands/delete.rs: execute` |
 | `move service` | read-only | multi-file atomic | XML, sidecars | A crash is finished or undone by the next command that takes the workspace lock; if it refuses, follow its message. Otherwise retry. | `core/commands/relocate.rs: execute` |
@@ -123,8 +124,8 @@ when the command is asked to write. A local output named by an option is include
 | `types` | best-effort batch | best-effort batch | declarations or platform cache | Every action can regenerate declarations; inspect completed files and retry. | `core/commands/types.rs: execute` |
 | `check` | read-only | read-only | none | Retry freely. | `mcp/source.rs: check_tool` |
 | `status` | read-only | single-file atomic | baseline | `record: true` replaces one baseline atomically; retry freely. | `core/commands/status.rs: execute` |
-| `sync` | best-effort batch | best-effort batch | entity XML, declarations | Earlier entities remain synced; retry failed entities. | `core/commands/sync.rs: execute` |
-| `extract` | best-effort batch | best-effort batch | sidecars, declarations | Earlier entities remain extracted; retry failed entities. | `core/commands/extract.rs: execute` |
+| `sync` | best-effort batch | best-effort batch | entity XML, declarations | Each entity file is written once, atomically, with every kind of sidecar in it; earlier entities remain synced. Retry failed entities. | `core/commands/sync.rs: execute` |
+| `extract` | best-effort batch | best-effort batch | sidecars, declarations | Each entity's sidecars are written together or not at all, and the next command that takes the workspace lock finishes or undoes one a crash interrupted; earlier entities remain extracted. Retry failed entities. | `core/commands/extract.rs: execute` |
 | `fmt` | best-effort batch | best-effort batch | script sidecars | Earlier scripts remain formatted; retry reported scripts. | `core/commands/fmt.rs: execute` |
 | `push` | read-only | server-partial | server entity, baseline, backup | Read the entity and baseline before retrying. | `core/commands/push.rs: execute` |
 | `entity_delete` | read-only | server-partial | server entities, ledger, backups | Inspect confirmed deletions and ledger entries before retrying. | `core/commands/delete.rs: execute` |
@@ -141,7 +142,7 @@ when the command is asked to write. A local output named by an option is include
 | `db_clean` | read-only | server-partial | temporary server Things | List remaining temporary Things before retrying. | `core/commands/db.rs: execute` |
 | `deploy` | read-only | server-partial | server, baseline, backups | Read back imports and baseline; use plan and backups before retrying. | `core/commands/deploy.rs: execute` |
 | `adopt_report` | read-only | read-only | none | Retry freely. | `mcp/refactor.rs: adopt_tool` |
-| `adopt_apply` | best-effort batch | best-effort batch | entities, sidecars, declarations | Unlike the CLI form, this tool applies directly; inspect completed writes and retry failures. | `core/commands/adopt.rs: execute` |
+| `adopt_apply` | multi-file atomic | multi-file atomic | entities, sidecars, declarations | Unlike the CLI form, this tool applies directly. Every entity and sidecar write happened or none did; a crash is finished or undone by the next command that takes the workspace lock. Retry. | `core/commands/adopt.rs: execute` |
 | `rename` | read-only | multi-file atomic | XML, sidecars, ledger, SQL | A crash is finished or undone by the next command that takes the workspace lock; if it refuses, follow its message. Otherwise retry the reviewed plan. | `core/commands/rename.rs: execute` |
 | `move_member` | read-only | multi-file atomic | XML, sidecars | A crash is finished or undone by the next command that takes the workspace lock; if it refuses, follow its message. Otherwise retry. | `core/commands/relocate.rs: execute` |
 | `new_building_block` | read-only | multi-file atomic | project files, config | A crash is finished or undone by the next command that takes the workspace lock; if it refuses, follow its message. Otherwise retry. | `core/commands/newblock.rs: execute` |

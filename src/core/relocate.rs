@@ -1193,7 +1193,7 @@ fn remove_empty_folders(folder: &Path) {
 }
 
 /// A service's sidecar files as the transaction's steps: created when absent, replaced when they
-/// differ. Always LF, as `workspace::write_sidecars` writes them.
+/// differ. Always LF, as extract writes them.
 fn put_sidecar(
     transaction: &mut Transaction<'_>,
     folder: &Path,

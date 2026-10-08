@@ -446,6 +446,7 @@ impl Coded for super::adopt::AdoptError {
     fn code(&self) -> ErrorCode {
         match self {
             Self::Export { .. } | Self::Repository { .. } => ErrorCode::IoError,
+            Self::Write(error) => error.code(),
         }
     }
 }
@@ -1358,6 +1359,10 @@ mod tests {
                 why: text(),
             },
             ErrorCode::IoError,
+        );
+        is(
+            AdoptError::Write(crate::core::transaction::TransactionError::Stale(text())),
+            ErrorCode::StalePlan,
         );
     }
 

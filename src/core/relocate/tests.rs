@@ -129,7 +129,13 @@ fn fixture() -> Fixture {
     );
     let solution = Solution::load(&root.join("twaco.toml")).unwrap();
     let discovered = workspace::discover(&solution);
-    let extracted = workflow::extract(&solution, &discovered.entities, &[], false);
+    let extracted = workflow::extract(
+        &solution,
+        &discovered.entities,
+        &[],
+        false,
+        &crate::core::lock::acquire(&solution.root, "test", &[]).unwrap(),
+    );
     assert_eq!(extracted.failed, 0, "{:?}", extracted.log);
     Fixture { root, solution }
 }
