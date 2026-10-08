@@ -153,7 +153,6 @@ pub fn list_with_progress(
         if !visited.insert(folder.clone()) {
             continue;
         }
-        progress.message(&folder);
         let body = json!({ "path": folder });
         // A path the server lists is where a pull writes, so it is checked like one typed in:
         // no climbing, and under the folder it was listed in.
@@ -576,7 +575,6 @@ pub fn status_with_progress(
     let verdicts =
         super::parallel::map_progress(&to_hash, progress, |&at| -> Result<bool, RepoError> {
             let path = &out[at].path;
-            progress.message(path);
             let file = &local[path];
             let mine = std::fs::read(file).map_err(|e| RepoError::Local {
                 path: file.clone(),
@@ -695,7 +693,6 @@ pub fn sync_with_progress(
     let mut done: Vec<String> = Vec::new();
     let _phase = progress::phase(progress, "copying files", Some(synced.copied.len() as u64));
     for path in &synced.copied {
-        progress.message(path);
         let result = copy_one(
             remote,
             repository,
@@ -1429,9 +1426,11 @@ mod tests {
         );
         // Two folders are listed, then two files are compared.
         assert_eq!(recorder.advanced(), 4);
-        assert!(recorder
+        // A repository path is not an entity name, so it never enters a progress message.
+        assert!(!recorder
             .events()
-            .contains(&Event::Message("/A/edit.bin".to_string())));
+            .iter()
+            .any(|event| matches!(event, Event::Message(_))));
     }
 
     #[test]
@@ -1453,6 +1452,10 @@ mod tests {
             .filter(|event| matches!(event, crate::core::progress::Event::Advance(_)))
             .count();
         assert_eq!(copying, 2);
+        assert!(!recorder
+            .events()
+            .iter()
+            .any(|event| matches!(event, crate::core::progress::Event::Message(_))));
     }
 
     #[test]

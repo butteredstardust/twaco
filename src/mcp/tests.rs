@@ -2034,6 +2034,7 @@ fn a_number_token_is_echoed_as_a_number() {
         .all(|line| line["params"]["progressToken"] == 42));
 }
 
+// The default is a dry run, so the phase says that it plans.
 #[test]
 fn a_push_with_a_progress_token_reports_its_entity() {
     let (_guard, root) = status_workspace();
@@ -2056,7 +2057,7 @@ fn a_push_with_a_progress_token_reports_its_entity() {
     assert!(
         notifications.iter().any(|line| line["params"]["message"]
             .as_str()
-            .is_some_and(|text| text.contains("pushing entity"))),
+            .is_some_and(|text| text.contains("planning push"))),
         "{notifications:?}"
     );
 }

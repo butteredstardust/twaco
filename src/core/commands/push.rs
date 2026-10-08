@@ -213,7 +213,12 @@ where
         None
     };
     let result = {
-        let _phase = progress::phase(progress, "pushing entity", Some(1));
+        // A plan sends nothing, so its phase must not say that it pushes.
+        let phase = match request.mode {
+            Mode::Plan => "planning push",
+            Mode::Apply => "pushing entity",
+        };
+        let _phase = progress::phase(progress, phase, Some(1));
         progress.message(&label);
         let result = push::push(
             &remote,
@@ -413,6 +418,22 @@ mod tests {
             .events()
             .contains(&Event::Message("Things/P.T".to_string())));
         assert_eq!(recorder.events().last(), Some(&Event::Finish));
+    }
+
+    #[test]
+    fn a_push_plan_does_not_report_that_it_pushes() {
+        use crate::core::progress::Recorder;
+        let (_guard, _root, solution, fake) = setup(None, None);
+        let recorder = Recorder::default();
+        execute_with_progress(
+            &solution,
+            &request(Mode::Plan, false, false),
+            |_| fake.clone(),
+            &mut Notices::default(),
+            &recorder,
+        )
+        .unwrap();
+        assert_eq!(recorder.phases(), [("planning push".to_string(), Some(1))]);
     }
 
     #[test]

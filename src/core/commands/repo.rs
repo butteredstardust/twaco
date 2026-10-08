@@ -192,7 +192,6 @@ where
             }
             let bytes = {
                 let _phase = progress::phase(progress, "downloading file", Some(1));
-                progress.message(path);
                 let bytes = repo::get(&remote, repository, path).map_err(RepoCommandError::Repo)?;
                 progress.advance(1);
                 bytes
@@ -239,7 +238,12 @@ where
             mode,
         } => {
             let planned = {
-                let _phase = progress::phase(progress, "changing file", Some(1));
+                // A plan changes nothing, so its phase must not say that it changes a file.
+                let phase = match mode {
+                    Mode::Plan => "planning file change",
+                    Mode::Apply => "changing file",
+                };
+                let _phase = progress::phase(progress, phase, Some(1));
                 let planned =
                     repo::change(&remote, repository, change, matches!(mode, Mode::Apply))
                         .map_err(RepoCommandError::Repo)?;
@@ -422,5 +426,90 @@ mod tests {
         .unwrap();
         assert_eq!(outcome.effects(), Effects::new(Access::Write, Access::Read));
         assert_eq!(std::fs::read(&out).unwrap(), b"new");
+    }
+
+    /// Has no files, so every path is absent and every change succeeds.
+    struct Empty;
+
+    impl repo::Remote for Empty {
+        fn service(&self, _: &str, service: &str, _: &Value) -> Result<Option<Value>, ServerError> {
+            if service == "GetFileInfo" {
+                return Err(ServerError::Http {
+                    method: crate::core::server::Method::Post,
+                    status: 404,
+                    url: String::new(),
+                    body: String::new(),
+                });
+            }
+            Ok(None)
+        }
+
+        fn download(&self, _: &str, _: &str) -> Result<Vec<u8>, ServerError> {
+            Ok(b"new".to_vec())
+        }
+
+        fn repositories(&self) -> Result<Vec<String>, ServerError> {
+            unreachable!()
+        }
+    }
+
+    #[test]
+    fn repository_progress_names_no_path_and_a_plan_does_not_report_a_change() {
+        use crate::core::progress::{Event, Recorder};
+        let root_guard = tempfile::Builder::new()
+            .prefix("twaco-command-repo-progress-")
+            .tempdir()
+            .unwrap();
+        let root = root_guard.path().to_path_buf();
+        std::fs::create_dir_all(root.join(".twaco/profiles")).unwrap();
+        std::fs::write(root.join("twaco.toml"), "[[project]]\nname = \"P\"\n").unwrap();
+        std::fs::write(
+            root.join(".twaco/profiles/default.toml"),
+            "url = \"http://example.invalid/Thingworx/\"\nusername = \"u\"\npassword = \"p\"\n",
+        )
+        .unwrap();
+        let solution = Solution::load(&root.join("twaco.toml")).unwrap();
+        let run = |action| {
+            let recorder = Recorder::default();
+            // The fake does not keep a created folder, so an applied change fails its own
+            // check afterwards. The phase is already recorded by then.
+            let _ = execute_with_progress(
+                &solution,
+                &RepoRequest {
+                    action,
+                    profile: "default".to_string(),
+                },
+                |_| Empty,
+                &mut Notices::default(),
+                &recorder,
+            );
+            recorder
+        };
+        let got = run(RepoAction::Get {
+            repository: "R".to_string(),
+            path: "/secret-path".to_string(),
+            out: None,
+            force: false,
+        });
+        assert_eq!(got.phases(), [("downloading file".to_string(), Some(1))]);
+        assert!(!got
+            .events()
+            .iter()
+            .any(|event| matches!(event, Event::Message(_))));
+        let change = |mode| RepoAction::Change {
+            repository: "R".to_string(),
+            change: repo::Change::Mkdir {
+                path: "/new".to_string(),
+            },
+            mode,
+        };
+        assert_eq!(
+            run(change(Mode::Plan)).phases(),
+            [("planning file change".to_string(), Some(1))]
+        );
+        assert_eq!(
+            run(change(Mode::Apply)).phases(),
+            [("changing file".to_string(), Some(1))]
+        );
     }
 }
