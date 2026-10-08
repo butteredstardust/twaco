@@ -615,16 +615,11 @@ pub fn sync(
     // write both there and keep whichever came last, and a checkout of the solution would fail
     // the same way on such a machine. Refuse rather than lose one.
     if direction == Direction::Pull {
-        let mut seen: std::collections::BTreeMap<String, &str> = std::collections::BTreeMap::new();
-        let mut clashes = Vec::new();
-        for item in compared.iter().filter(|c| c.state != State::LocalOnly) {
-            if let Some(other) = seen.insert(item.path.to_lowercase(), item.path.as_str()) {
-                clashes.push(format!("{other} and {}", item.path));
-            }
-        }
+        let clashes = case_clashes(&compared);
         if !clashes.is_empty() {
             return Err(RepoError::Invalid(format!(
-                "the repository holds paths that differ only in case ({}), which are one file on                  Windows and macOS; rename one on the server; nothing was copied",
+                "paths that differ only in case ({}) are one file or folder on Windows and macOS; \
+                 rename one on the server or locally; nothing was copied",
                 clashes.join("; ")
             )));
         }
@@ -686,6 +681,35 @@ pub fn sync(
     }
     synced.applied = true;
     Ok(synced)
+}
+
+/// Pairs a pull would write to one place on a case-insensitive filesystem: a server path and any
+/// other path, the server's or a local one, equal apart from case, or one naming a folder of the
+/// other apart from case (`/A` and `/a/x`). Unicode normalisation (a macOS volume storing `é`
+/// decomposed) is not compared.
+fn case_clashes(compared: &[Compared]) -> Vec<String> {
+    let lowered: Vec<(String, &Compared)> = compared
+        .iter()
+        .map(|item| (item.path.to_lowercase(), item))
+        .collect();
+    let mut clashes = Vec::new();
+    for (index, (lower, item)) in lowered.iter().enumerate() {
+        for (other_lower, other) in &lowered[index + 1..] {
+            // Only what the pull writes can clash; two local files are the local disk's business.
+            if item.state == State::LocalOnly && other.state == State::LocalOnly {
+                continue;
+            }
+            let same = lower == other_lower;
+            let nested = other_lower.starts_with(&format!("{lower}/"))
+                && !other.path.starts_with(&format!("{}/", item.path))
+                || lower.starts_with(&format!("{other_lower}/"))
+                    && !item.path.starts_with(&format!("{}/", other.path));
+            if same || nested {
+                clashes.push(format!("{} and {}", item.path, other.path));
+            }
+        }
+    }
+    clashes
 }
 
 /// One file of a sync. A push replaces a server file only when the plan found it differing:
@@ -1143,6 +1167,27 @@ mod tests {
             assert!(error.to_string().contains("differ only in case"), "{error}");
         }
         assert!(!dir.join("A.txt").exists() && !dir.join("a.txt").exists());
+        let _ = std::fs::remove_dir_all(dir);
+
+        // A server file and a local-only one, or a file and a folder, equal apart from case.
+        let dir = tree(&[("/notes.txt", b"mine")]);
+        let live = Live::with(&[("/Notes.txt", b"theirs")], &[]);
+        let error = sync(&live, "R", &dir, Direction::Pull, false, false).unwrap_err();
+        assert!(
+            error.to_string().contains("/Notes.txt and /notes.txt"),
+            "{error}"
+        );
+        let _ = std::fs::remove_dir_all(dir);
+        let dir = tree(&[]);
+        let live = Live::with(&[("/A", b"file"), ("/a/x.txt", b"in a folder")], &["/a"]);
+        let error = sync(&live, "R", &dir, Direction::Pull, false, false).unwrap_err();
+        assert!(error.to_string().contains("differ only in case"), "{error}");
+        let _ = std::fs::remove_dir_all(dir);
+
+        // A folder and the files in it are no clash.
+        let dir = tree(&[]);
+        let live = Live::with(&[("/a/x.txt", b"x"), ("/a/y.txt", b"y")], &["/a"]);
+        assert!(sync(&live, "R", &dir, Direction::Pull, false, false).is_ok());
         let _ = std::fs::remove_dir_all(dir);
     }
 

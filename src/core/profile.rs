@@ -149,7 +149,13 @@ pub fn hide_url_credentials(text: &str) -> String {
             }
             None => out.push_str(authority),
         }
-        rest = tail;
+        // The rest of this address (path, query) is copied as it is: a `://` inside it is not
+        // another address.
+        let url_end = tail
+            .find(|c: char| matches!(c, '"' | '\'' | '<' | '>') || c.is_whitespace())
+            .unwrap_or(tail.len());
+        out.push_str(&tail[..url_end]);
+        rest = &tail[url_end..];
     }
     out.push_str(rest);
     out
@@ -342,6 +348,11 @@ mod tests {
                 "GET https://u:s3cret@host/Thingworx/Things/T failed; see http://a@b/x and ftp://plain/"
             ),
             "GET https://***@host/Thingworx/Things/T failed; see http://***@b/x and ftp://plain/"
+        );
+        assert_eq!(
+            hide_url_credentials("see https://host/a://b@c and http://u:p@h/"),
+            "see https://host/a://b@c and http://***@h/",
+            "a :// in a path is not another address"
         );
         assert_eq!(url_credentials("https://u:s3cret@host/x"), Some("u:s3cret"));
         assert_eq!(url_credentials("https://host/x?a=b@c"), None);

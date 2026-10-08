@@ -98,6 +98,10 @@ impl std::error::Error for BackupError {}
 pub struct Item {
     pub collection: String,
     pub name: String,
+    /// The file holding it, relative to the set. Absent in sets saved before 0.1.5, which
+    /// named files by the low byte of each character.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub file: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -139,7 +143,7 @@ fn file_stem(name: &str) -> String {
 }
 
 /// How sets saved before 0.1.5 named a file: the low byte of each character, so `é` (U+00E9)
-/// and `ǩ` (U+01E9) collided. Read only, to restore such a set.
+/// and `ǩ` (U+01E9) collided. Read only, to restore such a set, whose manifest records no files.
 fn legacy_file_stem(name: &str) -> String {
     name.chars()
         .map(|c| {
@@ -152,24 +156,53 @@ fn legacy_file_stem(name: &str) -> String {
         .collect()
 }
 
-fn entity_path(dir: &Path, collection: &str, name: &str) -> PathBuf {
-    dir.join(file_stem(collection))
-        .join(format!("{}.xml", file_stem(name)))
+/// The most a file name of a set holds before its `.xml`, well inside every filesystem's limit
+/// once the collection folder and the set's own path are added.
+const MAX_STEM: usize = 120;
+
+/// Where each entity of a set goes, relative to the set: `<Collection>/<Name>.xml`, the name
+/// cut to [`MAX_STEM`] and, where it would share a file with another (two names differing only
+/// in case are one file on Windows and macOS, and a cut can make two the same), given `~2`,
+/// `~3`... The manifest records the result, so a restore never has to work it out again.
+fn file_names<'a>(keys: impl IntoIterator<Item = &'a EntityKey>) -> Vec<String> {
+    let mut used = std::collections::BTreeSet::new();
+    keys.into_iter()
+        .map(|key| {
+            let folder = file_stem(key.collection());
+            let mut stem = file_stem(key.name());
+            stem.truncate(MAX_STEM);
+            let mut file = format!("{folder}/{stem}.xml");
+            let mut n = 1;
+            while !used.insert(file.to_lowercase()) {
+                n += 1;
+                file = format!("{folder}/{stem}~{n}.xml");
+            }
+            file
+        })
+        .collect()
 }
 
-/// Where a set holds an entity: as this version names it, or as an older one did.
-fn saved_path(dir: &Path, collection: &str, name: &str) -> PathBuf {
-    let path = entity_path(dir, collection, name);
-    if path.exists() {
-        return path;
-    }
-    let legacy = dir
-        .join(legacy_file_stem(collection))
-        .join(format!("{}.xml", legacy_file_stem(name)));
-    if legacy.exists() {
-        legacy
-    } else {
-        path
+/// The file of a set that holds an entity: as the manifest records it, or for a set saved
+/// before manifests recorded files, as that version named it.
+fn saved_path(set: &Set, item: &Item) -> Result<PathBuf, BackupError> {
+    match &item.file {
+        Some(file) => {
+            // The manifest is a file anyone can edit: only plain names inside the set.
+            let plain = Path::new(file)
+                .components()
+                .all(|part| matches!(part, std::path::Component::Normal(_)));
+            if !plain {
+                return Err(BackupError::Invalid {
+                    path: set.dir.join(MANIFEST),
+                    why: format!("{file:?} is not a file inside the set"),
+                });
+            }
+            Ok(set.dir.join(file))
+        }
+        None => Ok(set
+            .dir
+            .join(legacy_file_stem(&item.collection))
+            .join(format!("{}.xml", legacy_file_stem(&item.name)))),
     }
 }
 
@@ -208,8 +241,9 @@ pub fn save(
         path: path.to_path_buf(),
         why: error.to_string(),
     };
-    for (key, bytes) in &fetched {
-        let path = entity_path(&dir, key.collection(), key.name());
+    let files = file_names(fetched.iter().map(|(key, _)| *key));
+    for ((_, bytes), file) in fetched.iter().zip(&files) {
+        let path = dir.join(file);
         std::fs::create_dir_all(path.parent().expect("a backup file has a parent"))
             .map_err(|error| io(&dir, error))?;
         workspace::atomic_replace(&path, bytes).map_err(|error| io(&path, error))?;
@@ -219,9 +253,11 @@ pub fn save(
         reason: reason.to_string(),
         entities: fetched
             .iter()
-            .map(|(key, _)| Item {
+            .zip(files)
+            .map(|((key, _), file)| Item {
                 collection: key.collection().to_string(),
                 name: key.name().to_string(),
+                file: Some(file),
             })
             .collect(),
     };
@@ -339,7 +375,7 @@ pub fn restore(
                 why: format!("{label} cannot address an entity ({why})"),
             }
         })?;
-        let path = saved_path(&set.dir, &item.collection, &item.name);
+        let path = saved_path(set, item)?;
         let bytes = std::fs::read(&path).map_err(|error| BackupError::Io {
             path: path.clone(),
             why: error.to_string(),
@@ -552,7 +588,8 @@ mod tests {
             set.manifest.entities,
             [Item {
                 collection: "Things".into(),
-                name: "A".into()
+                name: "A".into(),
+                file: Some("Things/A.xml".into()),
             }]
         );
         assert_eq!(
@@ -628,27 +665,61 @@ mod tests {
     }
 
     #[test]
-    fn names_with_the_same_low_byte_keep_their_own_files_and_an_old_set_still_restores() {
+    fn every_entity_of_a_set_has_its_own_file_and_an_old_set_still_restores() {
         let (root, solution) = solution();
-        let first = XML.replace("\"A\"", "\"Café\"");
-        let second = XML.replace("\"A\"", "\"Cafǩ\"");
-        let fake = Fake::default()
-            .with("Things", "Café", &first)
-            .with("Things", "Cafǩ", &second);
-        let set = save(&fake, &solution, "r", &pairs(&["Café", "Cafǩ"]), "s")
+        let long = format!("Acme.{}", "x".repeat(300));
+        // Same low byte (é U+00E9, ǩ U+01E9); one file on Windows and macOS (Abc, ABC).
+        let names = ["Café", "Cafǩ", "Abc", "ABC", long.as_str()];
+        let mut fake = Fake::default();
+        for name in names {
+            fake = fake.with(
+                "Things",
+                name,
+                &XML.replace("\"A\"", &format!("\"{name}\"")),
+            );
+        }
+        let set = save(&fake, &solution, "r", &pairs(&names), "s")
             .unwrap()
             .unwrap();
-        for (name, xml) in [("Café", &first), ("Cafǩ", &second)] {
-            let saved = std::fs::read_to_string(entity_path(&set.dir, "Things", name)).unwrap();
-            assert_eq!(&saved, xml, "{name}");
+        let files: Vec<String> = set
+            .manifest
+            .entities
+            .iter()
+            .map(|item| item.file.clone().unwrap())
+            .collect();
+        let distinct: std::collections::BTreeSet<String> =
+            files.iter().map(|file| file.to_lowercase()).collect();
+        assert_eq!(distinct.len(), names.len(), "{files:?}");
+        assert!(
+            files.iter().all(|file| file.len() < MAX_STEM + 20),
+            "{files:?}"
+        );
+        for (item, name) in set.manifest.entities.iter().zip(names) {
+            let saved = std::fs::read_to_string(set.dir.join(item.file.as_ref().unwrap())).unwrap();
+            assert!(saved.contains(&format!("\"{name}\"")), "{name}: {saved}");
         }
-        // A set an older twaco saved names the file by the low byte only.
-        let legacy = set.dir.join("Things").join("Caf%E9.xml");
-        std::fs::rename(entity_path(&set.dir, "Things", "Café"), &legacy).unwrap();
-        let only = ["Things/Café".to_string()];
-        let planned = restore(&fake, &set, &only, false).unwrap();
-        assert_eq!(planned.len(), 1);
+
+        // A set an older twaco saved records no files and named them by the low byte only.
+        let mut old = set.clone();
+        for item in &mut old.manifest.entities {
+            item.file = None;
+        }
+        std::fs::rename(
+            set.dir.join(&files[0]),
+            set.dir.join("Things").join("Caf%E9.xml"),
+        )
+        .unwrap();
+        let planned = restore(&fake, &old, &["Things/Café".to_string()], false).unwrap();
         assert_eq!(planned[0].status, Status::WouldReplace);
+
+        // A recorded file is a plain name inside the set, whoever edited the manifest.
+        let mut edited = set.clone();
+        edited.manifest.entities[1].file = Some("../../outside.xml".into());
+        let error = restore(&fake, &edited, &["Things/Cafǩ".to_string()], false).unwrap_err();
+        assert!(
+            error.to_string().contains("not a file inside the set"),
+            "{error}"
+        );
         let _ = std::fs::remove_dir_all(root);
     }
 
@@ -739,8 +810,6 @@ mod tests {
         assert_eq!(forced_overwrites(decisions), pairs(&["Unknown", "Changed"]));
         assert_eq!(file_stem("A.b_c-1"), "A.b_c-1");
         assert_eq!(file_stem("../x"), "..%2Fx");
-        // Different characters with the same low byte used to share a file.
-        assert_ne!(file_stem("Café"), file_stem("Cafǩ"));
         assert_eq!(file_stem("Café"), "Caf%C3%A9");
     }
 }

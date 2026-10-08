@@ -449,7 +449,14 @@ impl fmt::Display for Method {
     }
 }
 
-#[derive(Debug)]
+/// Debug says what Display says: the fields hold addresses as written, credentials and all, and
+/// a panic or a `{:?}` must not print them.
+impl fmt::Debug for ServerError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "ServerError({self})")
+    }
+}
+
 pub enum ServerError {
     InvalidUrl(String),
     Transport {
@@ -882,6 +889,8 @@ mod tests {
                 "{text}"
             );
             assert!(text.contains("https://***@twx.example/Thingworx"), "{text}");
+            let debug = format!("{error:?}");
+            assert!(!debug.contains("s3cretToken"), "{debug}");
         }
         let profile = Profile {
             url: "https://alice:s3cretToken@twx.example/Thingworx/".to_string(),

@@ -956,7 +956,7 @@ fn new_mashup_file(
     let text = format!(
         "{}{}{}",
         &skeleton[..start],
-        escape_attribute(name),
+        super::scan::escape_attribute(name),
         &skeleton[end..]
     );
 
@@ -978,14 +978,6 @@ fn new_mashup_file(
     Ok(Some((target, text)))
 }
 
-fn escape_attribute(value: &str) -> String {
-    value
-        .replace('&', "&amp;")
-        .replace('"', "&quot;")
-        .replace('<', "&lt;")
-        .replace('>', "&gt;")
-}
-
 /// An export's `ParameterDefinitions` in the repository's attribute-per-line style.
 fn render_parameter_definitions(element: &Element) -> String {
     let fields: Vec<&Element> = child_elements(element)
@@ -1001,7 +993,7 @@ fn render_parameter_definitions(element: &Element) -> String {
         // Attributes arrive sorted by name, which is the order the repository writes them in.
         let count = field.attributes.len();
         for (index, (key, value)) in field.attributes.iter().enumerate() {
-            let escaped = escape_attribute(&text_of(value));
+            let escaped = super::scan::escape_attribute(&text_of(value));
             let tail = if index + 1 == count {
                 "></FieldDefinition>"
             } else {

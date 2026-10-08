@@ -852,7 +852,15 @@ fn run_hook(solution: &Solution, hook: &super::config::Check) -> GateResult {
     for line in stdout.lines() {
         result.examined += 1;
         match parse_finding(&hook.name, line) {
-            Some(finding) => result.findings.push(finding),
+            // Scrubbed again once decoded: JSON can spell a secret with escapes (`e` for
+            // `e`) that the raw line does not show.
+            Some(finding) => result.findings.push(Finding {
+                gate: hide(&finding.gate),
+                file: hide(&finding.file),
+                rule: hide(&finding.rule),
+                message: hide(&finding.message),
+                ..finding
+            }),
             None if !line.trim().is_empty() => prose.push(sanitise(line)),
             None => {}
         }
@@ -1089,6 +1097,44 @@ mod tests {
 
     /// A declared check is third-party code run from the repository, so what it can read from the
     /// environment is a boundary: credentials reach it only if it says it needs them.
+    #[test]
+    fn a_secret_spelled_with_json_escapes_is_hidden_once_decoded() {
+        let (root, solution) = live_solution();
+        std::env::set_var("TWACO_ESCAPE_PROBE_PASSWORD", "probe-escape-91c2");
+        // `e` is `e`: the raw line does not hold the secret, the decoded message does.
+        std::fs::write(
+            root.join("finding.json"),
+            "{\"message\":\"leaked probe-\\u0065scape-91c2\",\"rule\":\"probe-\\u0065scape-91c2\"}\n",
+        )
+        .unwrap();
+        let printer: Vec<String> = if cfg!(windows) {
+            vec![
+                "cmd".into(),
+                "/C".into(),
+                "type".into(),
+                "finding.json".into(),
+            ]
+        } else {
+            vec!["cat".into(), "finding.json".into()]
+        };
+        let result = run_hook(
+            &solution,
+            &super::super::config::Check {
+                name: "escapes".to_string(),
+                command: printer,
+                gate: false,
+                needs_credentials: true,
+                timeout_seconds: 30,
+            },
+        );
+        std::env::remove_var("TWACO_ESCAPE_PROBE_PASSWORD");
+        let _ = std::fs::remove_dir_all(root);
+        assert_eq!(result.findings.len(), 1, "{result:?}");
+        let finding = &result.findings[0];
+        assert_eq!(finding.message, "leaked <redacted>");
+        assert_eq!(finding.rule, "<redacted>");
+    }
+
     #[test]
     fn a_hook_sees_no_credentials_unless_it_says_it_needs_them() {
         let (root, solution) = live_solution();

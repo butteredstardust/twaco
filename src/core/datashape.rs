@@ -493,7 +493,7 @@ fn render_section(fields: &[Field], indent: &str, newline: &str) -> String {
             };
             lines.push(format!(
                 "{attribute}{key}=\"{}\"{suffix}",
-                escape_attribute(value)
+                super::scan::escape_attribute(value)
             ));
         }
     }
@@ -517,14 +517,6 @@ fn summarise(current: &[Field], desired: &[Field]) -> Vec<String> {
         }
     }
     out
-}
-
-fn escape_attribute(value: &str) -> String {
-    value
-        .replace('&', "&amp;")
-        .replace('<', "&lt;")
-        .replace('>', "&gt;")
-        .replace('"', "&quot;")
 }
 
 /// A JSON string literal, escaped as `json.dumps(ensure_ascii=False)` would.
