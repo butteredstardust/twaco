@@ -84,7 +84,17 @@ impl Fetch for Web {
         }
         let mut current = url.to_string();
         for _ in 0..=MOST_REDIRECTS {
-            let mut response = self.agent.get(&current).call().map_err(|e| e.to_string())?;
+            let started = std::time::Instant::now();
+            let mut response = self.agent.get(&current).call().map_err(|e| {
+                tracing::debug!(url = %current, why = %e, "help request failed");
+                e.to_string()
+            })?;
+            tracing::debug!(
+                url = %current,
+                status = response.status().as_u16(),
+                elapsed_ms = u64::try_from(started.elapsed().as_millis()).unwrap_or(u64::MAX),
+                "help request"
+            );
             if response.status().is_redirection() {
                 let location = response
                     .headers()

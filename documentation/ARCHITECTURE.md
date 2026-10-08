@@ -56,7 +56,8 @@ main.rs  mcp/                   front ends: parse arguments, call core, print or
 | `codes` | Stable error categories shared by front-end adapters. |
 | `server` | The HTTP client (ureq): REST entity reads, services, Importer, Exporter, file repositories, extension uploads. Credentials are redacted from every `Debug` and error. |
 | `lock` | One writer per workspace, with stale-lock detection; sweeps every hidden temporary a crashed write left. |
-| `parallel` | Bounded parallel map, for server calls. |
+| `parallel` | Bounded parallel map, for server calls. Workers enter the caller's tracing span. |
+| `diagnostics` | Installs the `tracing` subscriber when `--log`, `--log-file`, `TWACO_LOG` or `TWACO_LOG_FILE` asks. Writes to stderr or a file, never stdout. Log fields hold no credential: scrub a server URL with the client's secrets first. |
 
 ### Features
 

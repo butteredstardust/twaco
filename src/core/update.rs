@@ -76,15 +76,39 @@ impl Web {
 
 impl Fetch for Web {
     fn get(&self, url: &str) -> Result<Vec<u8>, String> {
-        self.agent
+        let started = std::time::Instant::now();
+        let result = self
+            .agent
             .get(url)
             .call()
-            .map_err(|e| e.to_string())?
-            .body_mut()
-            .with_config()
-            .limit(MOST_BYTES)
-            .read_to_vec()
             .map_err(|e| e.to_string())
+            .and_then(|mut response| {
+                let status = response.status().as_u16();
+                let bytes = response
+                    .body_mut()
+                    .with_config()
+                    .limit(MOST_BYTES)
+                    .read_to_vec()
+                    .map_err(|e| e.to_string())?;
+                Ok((status, bytes))
+            });
+        let elapsed_ms = u64::try_from(started.elapsed().as_millis()).unwrap_or(u64::MAX);
+        match result {
+            Ok((status, bytes)) => {
+                tracing::debug!(
+                    url,
+                    status,
+                    response_bytes = bytes.len(),
+                    elapsed_ms,
+                    "update request"
+                );
+                Ok(bytes)
+            }
+            Err(why) => {
+                tracing::debug!(url, why = %why, elapsed_ms, "update request failed");
+                Err(why)
+            }
+        }
     }
 }
 

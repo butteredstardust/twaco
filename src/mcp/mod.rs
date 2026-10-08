@@ -142,6 +142,18 @@ fn handle(root: &Path, message: &Value, protocol: &mut String) -> Option<Value> 
     if !(params.is_null() || params.is_object()) {
         return Some(error_response(id, -32602, "params must be an object"));
     }
+    // Fields never include `arguments`: a tool's parameters can hold anything, secrets included.
+    let tool = params
+        .get("name")
+        .and_then(Value::as_str)
+        .unwrap_or_default();
+    let dry_run = params
+        .get("arguments")
+        .and_then(|arguments| arguments.get("dry_run"))
+        .and_then(Value::as_bool);
+    let span = tracing::info_span!("mcp", method, id = %id, tool, dry_run);
+    let _entered = span.enter();
+    tracing::info!("message received");
     let result = match method {
         "initialize" => {
             let asked = params
@@ -169,7 +181,12 @@ fn handle(root: &Path, message: &Value, protocol: &mut String) -> Option<Value> 
                 .cloned()
                 .unwrap_or_else(|| json!({}));
             match call_tool(root, name, &arguments) {
-                Some(outcome) => Ok(tool_result(outcome, protocol)),
+                Some(outcome) => {
+                    if let Err(error) = &outcome {
+                        tracing::info!(code = error.code.as_str(), "tool failed");
+                    }
+                    Ok(tool_result(outcome, protocol))
+                }
                 None => Err((-32602, format!("unknown tool {name:?}"))),
             }
         }
@@ -182,6 +199,7 @@ fn handle(root: &Path, message: &Value, protocol: &mut String) -> Option<Value> 
 }
 
 fn error_response(id: Value, code: i64, message: &str) -> Value {
+    tracing::info!(code, "error response");
     json!({ "jsonrpc": "2.0", "id": id, "error": { "code": code, "message": message } })
 }
 

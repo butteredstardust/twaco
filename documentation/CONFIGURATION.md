@@ -291,6 +291,34 @@ helper has keep their order and IDs; a row is added for each service of a Thing,
 ThingTemplate that has none, and for each granted resource without one. The helper's mashup then
 shows what the entity XML grants, and applying it there changes nothing.
 
+## Diagnostic logs
+
+Logs are off by default. They show what twaco did when a command or an MCP tool misbehaves.
+They never hold a credential, a header, a request body, a response body or an MCP tool's
+`arguments`.
+
+| Flag | Variable | Effect |
+| --- | --- | --- |
+| `--log <filter>` | `TWACO_LOG` | Turn logs on. Write them to stderr. |
+| `--log-file <path>` | `TWACO_LOG_FILE` | Append logs to a file instead of stderr. |
+
+- Every command takes both flags, including `twaco mcp`.
+- A flag overrides its variable.
+- `--log-file` alone means `debug`.
+- A filter is a level (`error`, `warn`, `info`, `debug`, `trace`) or a directive list such as
+  `twaco::core::server=trace`. A bare level applies to twaco only, so dependencies stay quiet.
+- Levels: `warn` for an abnormal state twaco recovers from, `info` for one line per command,
+  MCP message and deploy phase, `debug` for each server request, lock action, transaction
+  stage and subprocess.
+- An invalid filter or an unopenable file prints one `twaco:` warning on stderr. The command
+  then runs without logs.
+- Twaco never writes a log to stdout.
+
+```sh
+twaco deploy --log debug
+twaco entity status --all --log-file twaco.log
+```
+
 ## Server profiles
 
 A profile is a TOML file named after it, `<name>.toml`, looked for in this order:

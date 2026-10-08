@@ -19,6 +19,9 @@ before changing code; it names the principles and where everything lives.
   runs read-only SQL through a temporary Thing it deletes again.
 - **Credentials are never printed, logged, or written,** and `[[check]]` hooks do not receive
   them unless they declare `needs_credentials`.
+- **Logs go to stderr or a file, never stdout.** MCP speaks JSON-RPC on stdout. A log field never
+  holds a header, a request or response body, a profile field, an environment variable, MCP tool
+  `arguments` or an unscrubbed server URL.
 - **Behaviour lives in `src/core/`.** `src/main.rs` with `src/cli/`, and `src/mcp/`, parse, call and print. A
   feature exists in both, or there is a reason it does not.
 - **Every behaviour has a test that fails without it.** Servers are fakes behind a `Remote`

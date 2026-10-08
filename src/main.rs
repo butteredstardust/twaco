@@ -120,27 +120,44 @@ fn run_command(args: &[String]) -> ExitCode {
         }
     };
     let route = command.path;
+    let (log, log_file) = cli::spec::log_options(matched);
+    if let Some(warning) = twaco::core::diagnostics::init(log.as_deref(), log_file.as_deref()) {
+        eprintln!("twaco: {warning}");
+    }
+    let span = tracing::info_span!("command", command = route);
+    let _entered = span.enter();
+    let started = std::time::Instant::now();
+    let code = dispatch(route, &parsed);
+    tracing::info!(
+        exit = code,
+        elapsed_ms = u64::try_from(started.elapsed().as_millis()).unwrap_or(u64::MAX),
+        "command finished"
+    );
+    ExitCode::from(code)
+}
 
+/// Run one parsed command and return its exit code.
+fn dispatch(route: &str, parsed: &Args) -> u8 {
     match route {
         // The help center needs no solution, so it runs before discovery and uses one if found.
-        "help" => return ExitCode::from(help_cmd(&parsed)),
+        "help" => return help_cmd(parsed),
         // The public Java API documentation also needs no solution.
-        "javadoc" => return ExitCode::from(javadoc_cmd(&parsed)),
+        "javadoc" => return javadoc_cmd(parsed),
         // So does the guide: its built-in topics are the same everywhere.
-        "guide" => return ExitCode::from(guide_cmd(&parsed)),
+        "guide" => return guide_cmd(parsed),
         // update replaces the binary, not the solution, so it needs none.
-        "update" => return ExitCode::from(update_cmd(&parsed)),
+        "update" => return update_cmd(parsed),
         // init makes the config discovery would look for, so it runs before discovery too.
-        "init" => return ExitCode::from(init_cmd(&parsed)),
+        "init" => return init_cmd(parsed),
         // doctor diagnoses a missing solution rather than failing on it.
-        "doctor" => return ExitCode::from(doctor_cmd(&parsed)),
-        "mcp" => return ExitCode::from(mcp_cmd()),
+        "doctor" => return doctor_cmd(parsed),
+        "mcp" => return mcp_cmd(),
         _ => {}
     }
 
-    let code = run(|solution| {
+    run(|solution| {
         // Held until this closure returns, so for the whole command. See core::lock.
-        let _lock = if writes_workspace(route, &parsed) {
+        let _lock = if writes_workspace(route, parsed) {
             match take_lock(solution, route) {
                 Ok(lock) => Some(lock),
                 Err(code) => return code,
@@ -150,54 +167,53 @@ fn run_command(args: &[String]) -> ExitCode {
         };
         match route {
             "projects" => projects(solution),
-            "types" => types_cmd(solution, &parsed),
-            "extract" => extract(solution, &parsed),
-            "sync" => sync_cmd(solution, &parsed),
-            "fmt" => fmt(solution, &parsed),
-            "check" => check(solution, &parsed),
-            "bundle" => bundle(solution, &parsed),
-            "deploy" => deploy_cmd(solution, &parsed),
-            "call" => call(solution, &parsed),
-            "repo" => repo_cmd(solution, &parsed),
-            "ext" => ext_cmd(solution, &parsed),
-            "settings" => settings_cmd(solution, &parsed),
-            "catalog" => catalog_cmd(solution, &parsed),
-            "impact" => impact_cmd(solution, &parsed),
-            "unused" => unused_cmd(solution, &parsed),
-            "docs" => docs_cmd(solution, &parsed),
-            "package" => package_cmd(solution, &parsed),
-            "search" => search_cmd(solution, &parsed),
-            "export" => export_cmd(solution, &parsed),
-            "import" => import_cmd(solution, &parsed),
-            "logs" => logs_cmd(solution, &parsed),
-            "adopt" => adopt_cmd(solution, &parsed),
+            "types" => types_cmd(solution, parsed),
+            "extract" => extract(solution, parsed),
+            "sync" => sync_cmd(solution, parsed),
+            "fmt" => fmt(solution, parsed),
+            "check" => check(solution, parsed),
+            "bundle" => bundle(solution, parsed),
+            "deploy" => deploy_cmd(solution, parsed),
+            "call" => call(solution, parsed),
+            "repo" => repo_cmd(solution, parsed),
+            "ext" => ext_cmd(solution, parsed),
+            "settings" => settings_cmd(solution, parsed),
+            "catalog" => catalog_cmd(solution, parsed),
+            "impact" => impact_cmd(solution, parsed),
+            "unused" => unused_cmd(solution, parsed),
+            "docs" => docs_cmd(solution, parsed),
+            "package" => package_cmd(solution, parsed),
+            "search" => search_cmd(solution, parsed),
+            "export" => export_cmd(solution, parsed),
+            "import" => import_cmd(solution, parsed),
+            "logs" => logs_cmd(solution, parsed),
+            "adopt" => adopt_cmd(solution, parsed),
             "rename entity" | "rename prefix" | "rename field" | "rename service"
             | "rename param" | "rename table" | "rename property" => {
-                rename_cmd(solution, route, &parsed)
+                rename_cmd(solution, route, parsed)
             }
             "move service" | "move property" | "copy service" | "copy property" => {
-                relocate_cmd(solution, route, &parsed)
+                relocate_cmd(solution, route, parsed)
             }
-            "retemplate" => retemplate_cmd(solution, &parsed),
-            "new building-block" => new_building_block_cmd(solution, &parsed),
-            "config-table" => config_table(solution, &parsed),
-            "entity get" => entity_get(solution, &parsed),
-            "entity status" => entity_status(solution, &parsed),
-            "entity push" => entity_push(solution, &parsed),
-            "entity delete" => entity_delete_cmd(solution, &parsed),
-            "entity carry" => entity_carry_cmd(solution, &parsed),
-            "permissions diff" | "permissions push" => permissions_cmd(solution, route, &parsed),
-            "permissions audit" => permissions_audit_cmd(solution, &parsed),
-            "permissions apply" => permissions_apply_cmd(solution, &parsed),
-            "permissions init" => permissions_init_cmd(solution, &parsed),
-            "entity restore" => entity_restore_cmd(solution, &parsed),
-            "db run" | "db query" => db_cmd(solution, route, &parsed),
-            "db clean" => db_clean_cmd(solution, &parsed),
-            "datatable copy" => datatable_copy_cmd(solution, &parsed),
+            "retemplate" => retemplate_cmd(solution, parsed),
+            "new building-block" => new_building_block_cmd(solution, parsed),
+            "config-table" => config_table(solution, parsed),
+            "entity get" => entity_get(solution, parsed),
+            "entity status" => entity_status(solution, parsed),
+            "entity push" => entity_push(solution, parsed),
+            "entity delete" => entity_delete_cmd(solution, parsed),
+            "entity carry" => entity_carry_cmd(solution, parsed),
+            "permissions diff" | "permissions push" => permissions_cmd(solution, route, parsed),
+            "permissions audit" => permissions_audit_cmd(solution, parsed),
+            "permissions apply" => permissions_apply_cmd(solution, parsed),
+            "permissions init" => permissions_init_cmd(solution, parsed),
+            "entity restore" => entity_restore_cmd(solution, parsed),
+            "db run" | "db query" => db_cmd(solution, route, parsed),
+            "db clean" => db_clean_cmd(solution, parsed),
+            "datatable copy" => datatable_copy_cmd(solution, parsed),
             other => unreachable!("{other} is in COMMANDS but has no handler"),
         }
-    });
-    ExitCode::from(code)
+    })
 }
 
 /// `twaco init [--write|--agents]`: propose a twaco.toml from the repository's own entities.

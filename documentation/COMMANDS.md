@@ -307,6 +307,9 @@ Flags described once for the commands that list them, and exit codes.
 ```text
 --project <name>            narrow to one project of the solution
 --profile <name>            the server profile (default: default)
+--log <filter>              diagnostic logs on stderr, for any command (or TWACO_LOG);
+                            a level such as debug, or a directive such as twaco::core::server=trace
+--log-file <path>           append diagnostic logs to a file instead (or TWACO_LOG_FILE)
 --version                   twaco's version and the commit it was built from
 <command> --help            one command, and its flags
 

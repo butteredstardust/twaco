@@ -58,6 +58,15 @@ fn id(name: &str) -> &str {
     name.trim_start_matches('-')
 }
 
+/// Flags every command accepts without listing them: diagnostic logs. See `core::diagnostics`.
+pub(crate) const GLOBAL_FLAGS: &[&str] = &["--log", "--log-file"];
+
+/// The diagnostic options a parse matched: `--log` and `--log-file`.
+pub(crate) fn log_options(matches: &clap::ArgMatches) -> (Option<String>, Option<String>) {
+    let get = |name: &str| matches.get_one::<String>(id(name)).cloned();
+    (get("--log"), get("--log-file"))
+}
+
 /// The first synopsis of a command, as clap shows it in an error.
 fn synopsis(command: &Command) -> String {
     let first = command.text.lines().next().unwrap_or_default().trim();
@@ -71,6 +80,7 @@ fn leaf(word: &'static str, command: &'static Command) -> clap::Command {
         .override_help(help_of(command))
         .disable_version_flag(true)
         .args(arguments(command.flags, command.operands))
+        .args(arguments(GLOBAL_FLAGS, false))
 }
 
 /// The clap arguments of a command that takes these flags, and operands or not.
@@ -256,6 +266,9 @@ pub(crate) fn args_from(
 /// Flags every command describes once, at the end of the listing.
 const SHARED: &str = "  --project <name>            narrow to one project of the solution\n  --profile <name>            the server profile (default: default)";
 
+/// The diagnostic flags: any command takes them, so every command's help ends with them.
+const LOGGING: &str = "  --log <filter>              write diagnostic logs to stderr (or TWACO_LOG)\n  --log-file <path>           append diagnostic logs to a file (or TWACO_LOG_FILE)";
+
 /// `twaco <command> --help`: its block, then the shared flags it takes.
 fn help_of(command: &Command) -> String {
     let shared: Vec<&str> = SHARED
@@ -265,11 +278,12 @@ fn help_of(command: &Command) -> String {
             command.flags.contains(&name)
         })
         .collect();
-    if shared.is_empty() {
-        format!("{}\n", command.text)
+    let shared = if shared.is_empty() {
+        LOGGING.to_string()
     } else {
-        format!("{}\n\n{}\n", command.text, shared.join("\n"))
-    }
+        format!("{}\n{LOGGING}", shared.join("\n"))
+    };
+    format!("{}\n\n{shared}\n", command.text)
 }
 
 /// `twaco` with no arguments: every command, in its group's order, then the shared flags.
@@ -299,6 +313,8 @@ fn family_listing(family: &str) -> String {
     }
     out.push('\n');
     out.push_str(SHARED);
+    out.push('\n');
+    out.push_str(LOGGING);
     out.push('\n');
     out
 }
@@ -471,6 +487,14 @@ pub(crate) const FLAGS: &[Flag] = &[
     Flag {
         name: "--limit",
         takes: Takes::Value("n"),
+    },
+    Flag {
+        name: "--log",
+        takes: Takes::Value("filter"),
+    },
+    Flag {
+        name: "--log-file",
+        takes: Takes::Value("path"),
     },
     Flag {
         name: "--live",
@@ -1490,6 +1514,9 @@ pub(crate) const GROUPS: &[(&str, &str)] = &[
 /// The end of the listing: the flags described once, and the exit codes.
 pub(crate) const FOOTER: &str = r#"  --project <name>            narrow to one project of the solution
   --profile <name>            the server profile (default: default)
+  --log <filter>              diagnostic logs on stderr, for any command (or TWACO_LOG);
+                              a level such as debug, or a directive such as twaco::core::server=trace
+  --log-file <path>           append diagnostic logs to a file instead (or TWACO_LOG_FILE)
   --version                   twaco's version and the commit it was built from
   <command> --help            one command, and its flags
 

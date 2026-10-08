@@ -6,6 +6,12 @@ All notable changes to twaco are recorded here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- Diagnostic logs for every command, including `twaco mcp`. `--log <filter>` or `TWACO_LOG`
+  writes them to stderr. `--log-file <path>` or `TWACO_LOG_FILE` appends them to a file.
+  Logs are off by default. They never hold credentials, headers or bodies.
+
 ## [0.1.5] - 2026-10-08
 
 ### Added

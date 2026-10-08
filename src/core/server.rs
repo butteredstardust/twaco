@@ -76,7 +76,14 @@ impl Client {
             ("X-XSRF-TOKEN", XSRF_VALUE),
             ("X-Requested-With", "XMLHttpRequest"),
         ];
-        let response = transport(&self.agent, Method::Get, &url, &headers, None)?;
+        let response = transport(
+            &self.secrets,
+            &self.agent,
+            Method::Get,
+            &url,
+            &headers,
+            None,
+        )?;
         checked(&self.secrets, Method::Get, url, response)
     }
 
@@ -92,7 +99,14 @@ impl Client {
             ("X-XSRF-TOKEN", XSRF_VALUE),
             ("X-Requested-With", "XMLHttpRequest"),
         ];
-        let response = transport(&self.agent, Method::Get, &url, &headers, None)?;
+        let response = transport(
+            &self.secrets,
+            &self.agent,
+            Method::Get,
+            &url,
+            &headers,
+            None,
+        )?;
         let bytes = checked(&self.secrets, Method::Get, url.clone(), response)?;
         serde_json::from_slice(&bytes).map_err(|error| ServerError::InvalidResponse {
             url,
@@ -109,7 +123,14 @@ impl Client {
             ("Authorization", authorization.as_str()),
             ("X-XSRF-TOKEN", XSRF_VALUE),
         ];
-        let response = transport(&self.agent, Method::Get, &url, &headers, None)?;
+        let response = transport(
+            &self.secrets,
+            &self.agent,
+            Method::Get,
+            &url,
+            &headers,
+            None,
+        )?;
         let bytes = checked(&self.secrets, Method::Get, url.clone(), response)?;
         let value: serde_json::Value =
             serde_json::from_slice(&bytes).map_err(|error| ServerError::InvalidResponse {
@@ -141,7 +162,14 @@ impl Client {
             ("Authorization", authorization.as_str()),
             ("X-XSRF-TOKEN", XSRF_VALUE),
         ];
-        let response = transport(&self.agent, Method::Get, &url, &headers, None)?;
+        let response = transport(
+            &self.secrets,
+            &self.agent,
+            Method::Get,
+            &url,
+            &headers,
+            None,
+        )?;
         match checked_bytes(&self.secrets, Method::Get, url, response) {
             Ok(_) => Ok(true),
             Err(error) if error.is_not_found() => Ok(false),
@@ -164,7 +192,14 @@ impl Client {
             ("Content-Type", "application/json"),
             ("X-Requested-With", "XMLHttpRequest"),
         ];
-        let response = transport(&self.agent, Method::Delete, &url, &headers, None)?;
+        let response = transport(
+            &self.secrets,
+            &self.agent,
+            Method::Delete,
+            &url,
+            &headers,
+            None,
+        )?;
         checked(&self.secrets, Method::Delete, url, response).map(|_| ())
     }
 
@@ -187,7 +222,14 @@ impl Client {
             ("Authorization", authorization.as_str()),
             ("X-XSRF-TOKEN", XSRF_VALUE),
         ];
-        let response = transport(&self.agent, Method::Get, &url, &headers, None)?;
+        let response = transport(
+            &self.secrets,
+            &self.agent,
+            Method::Get,
+            &url,
+            &headers,
+            None,
+        )?;
         checked_bytes(&self.secrets, Method::Get, url, response)
     }
 
@@ -233,7 +275,14 @@ impl Client {
             ("X-XSRF-TOKEN", XSRF_VALUE),
             ("X-Requested-With", "XMLHttpRequest"),
         ];
-        let response = transport(&self.agent, Method::Post, &url, &headers, Some(&body))?;
+        let response = transport(
+            &self.secrets,
+            &self.agent,
+            Method::Post,
+            &url,
+            &headers,
+            Some(&body),
+        )?;
         let reply = checked(&self.secrets, Method::Post, url.clone(), response)?;
         let reply = String::from_utf8(reply).expect("checked validated UTF-8");
         if reply.trim().eq_ignore_ascii_case("success") {
@@ -276,6 +325,7 @@ impl Client {
             ("X-Requested-With", "XMLHttpRequest"),
         ];
         let response = transport_with_timeout(
+            &self.secrets,
             &self.agent,
             Method::Get,
             &url,
@@ -311,6 +361,7 @@ impl Client {
             ("X-Requested-With", "XMLHttpRequest"),
         ];
         let response = transport_with_timeout(
+            &self.secrets,
             &self.agent,
             Method::Post,
             &url,
@@ -342,7 +393,14 @@ impl Client {
             ("X-XSRF-TOKEN", XSRF_VALUE),
             ("X-Requested-With", "XMLHttpRequest"),
         ];
-        let response = transport(&self.agent, Method::Post, &url, &headers, Some(&body))?;
+        let response = transport(
+            &self.secrets,
+            &self.agent,
+            Method::Post,
+            &url,
+            &headers,
+            Some(&body),
+        )?;
         let reply = checked(&self.secrets, Method::Post, url.clone(), response)?;
         let parsed: ScriptCheckResponse =
             serde_json::from_slice(&reply).map_err(|error| ServerError::InvalidResponse {
@@ -386,6 +444,7 @@ impl Client {
             ("X-Requested-With", "XMLHttpRequest"),
         ];
         let response = transport_with_timeout(
+            &self.secrets,
             &self.agent,
             Method::Post,
             &url,
@@ -781,16 +840,55 @@ fn base64(bytes: &[u8]) -> String {
 }
 
 fn transport(
+    secrets: &[String],
     agent: &ureq::Agent,
     method: Method,
     url: &str,
     headers: &[(&str, &str)],
     body: Option<&[u8]>,
 ) -> Result<Response, ServerError> {
-    transport_with_timeout(agent, method, url, headers, body, None)
+    transport_with_timeout(secrets, agent, method, url, headers, body, None)
 }
 
+/// Send one request and read the whole answer.
+///
+/// Logs one `debug` event per request: method, scrubbed URL, status, byte counts and duration.
+/// Never log `headers` or a body. `secrets` scrubs the URL and the failure text first.
 fn transport_with_timeout(
+    secrets: &[String],
+    agent: &ureq::Agent,
+    method: Method,
+    url: &str,
+    headers: &[(&str, &str)],
+    body: Option<&[u8]>,
+    timeout: Option<Duration>,
+) -> Result<Response, ServerError> {
+    let started = std::time::Instant::now();
+    let logged_url = || scrub(secrets, &super::profile::hide_url_credentials(url));
+    let result = send(agent, method, url, headers, body, timeout);
+    let elapsed_ms = u64::try_from(started.elapsed().as_millis()).unwrap_or(u64::MAX);
+    match &result {
+        Ok(response) => tracing::debug!(
+            %method,
+            url = %logged_url(),
+            status = response.status,
+            request_bytes = body.map_or(0, <[u8]>::len),
+            response_bytes = response.body.len(),
+            elapsed_ms,
+            "server request"
+        ),
+        Err(error) => tracing::debug!(
+            %method,
+            url = %logged_url(),
+            why = %scrub(secrets, &error.to_string()),
+            elapsed_ms,
+            "server request failed"
+        ),
+    }
+    result
+}
+
+fn send(
     agent: &ureq::Agent,
     method: Method,
     url: &str,

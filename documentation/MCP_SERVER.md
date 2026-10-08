@@ -30,6 +30,23 @@ env = { TWACO_ROOT = "/path/to/solution" }
 things: the command `twaco`, the argument `mcp`, and `TWACO_ROOT` when the client does not
 start it in the solution's folder.
 
+**Logs.** An MCP client often hides the server's stderr, so send logs to a file. Add
+`--log-file` to the server arguments, or set `TWACO_LOG_FILE` in its environment:
+
+```sh
+claude mcp add twaco -- twaco mcp --log-file /tmp/twaco-mcp.log
+```
+
+```toml
+[mcp_servers.twaco]
+command = "twaco"
+args = ["mcp", "--log-file", "/tmp/twaco-mcp.log"]
+```
+
+Without these options the server writes no log. Stdout carries only JSON-RPC. The log has one
+line per message and one per server request. It never holds a tool's `arguments`. See
+[Diagnostic logs](CONFIGURATION.md#diagnostic-logs).
+
 Server tools use the same [profiles](CONFIGURATION.md#server-profiles) as the command line;
 pass `profile` to choose one.
 
