@@ -802,12 +802,12 @@ fn run_hook(solution: &Solution, hook: &super::config::Check) -> GateResult {
         }
     }
 
-    // The environment is never logged: a hook with `needs_credentials` receives secrets there.
+    // Argument values and the environment are never logged: a hook with `needs_credentials` receives secrets there.
     let started = std::time::Instant::now();
     tracing::debug!(
         hook = %hook.name,
         program,
-        arguments = ?arguments,
+        argument_count = arguments.len(),
         needs_credentials = hook.needs_credentials,
         "hook started"
     );
@@ -1184,6 +1184,39 @@ mod tests {
         assert!(mine("hook finished"), "{logs}");
         assert!(logs.contains("exit=0"), "{logs}");
         assert!(!logs.contains("probe-log-5d1e"), "{logs}");
+    }
+
+    #[test]
+    fn a_hook_log_never_holds_an_argument_value() {
+        let (_dir, _, solution) = live_solution();
+        let printer: Vec<String> = if cfg!(windows) {
+            vec![
+                "cmd".into(),
+                "/C".into(),
+                "echo".into(),
+                "Bearer arg-secret-8c2f".into(),
+            ]
+        } else {
+            vec!["echo".into(), "Bearer arg-secret-8c2f".into()]
+        };
+        let (_, logs) = crate::core::diagnostics::captured(|| {
+            run_hook(
+                &solution,
+                &super::super::config::Check {
+                    name: "arg-probe".to_string(),
+                    command: printer,
+                    gate: false,
+                    needs_credentials: false,
+                    timeout_seconds: 30,
+                },
+            )
+        });
+        assert!(
+            logs.lines()
+                .any(|l| l.contains("hook started") && l.contains("hook=arg-probe")),
+            "{logs}"
+        );
+        assert!(!logs.contains("arg-secret-8c2f"), "{logs}");
     }
 
     #[test]

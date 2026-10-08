@@ -267,3 +267,116 @@ fn no_form_of_any_secret_reaches_a_log() {
         assert!(!logs.contains(&form), "{form:?} reached the log:\n{logs}");
     }
 }
+
+#[test]
+fn a_string_message_id_never_reaches_a_log() {
+    let (_dir, root) = temp("mcp-id");
+    let mut child = command(&root, &["mcp"])
+        .env("TWACO_LOG", "trace")
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap();
+    let mut stdin = child.stdin.take().unwrap();
+    writeln!(
+        stdin,
+        r#"{{"jsonrpc":"2.0","id":"id-secret-4e7a","method":"tools/list"}}"#
+    )
+    .unwrap();
+    writeln!(stdin, r#"{{"jsonrpc":"2.0","id":7,"method":"tools/list"}}"#).unwrap();
+    drop(stdin);
+    let output = child.wait_with_output().unwrap();
+    assert!(output.status.success());
+    let logs = text(&output.stderr);
+    assert!(!logs.contains("id-secret-4e7a"), "{logs}");
+    assert!(logs.contains("id=<string>"), "{logs}");
+    assert!(logs.contains("id=7"), "{logs}");
+}
+
+#[cfg(unix)]
+#[test]
+fn a_log_file_that_is_standard_output_is_refused() {
+    let (_dir, root) = temp("stdout");
+    let mut child = command(&root, &["mcp", "--log-file", "/dev/stdout"])
+        .env("TWACO_LOG", "trace")
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap();
+    let mut stdin = child.stdin.take().unwrap();
+    writeln!(
+        stdin,
+        r#"{{"jsonrpc":"2.0","id":1,"method":"initialize","params":{{}}}}"#
+    )
+    .unwrap();
+    drop(stdin);
+    let output = child.wait_with_output().unwrap();
+    assert!(output.status.success());
+    let stdout = text(&output.stdout);
+    assert_eq!(stdout.lines().count(), 1, "{stdout}");
+    for line in stdout.lines() {
+        serde_json::from_str::<serde_json::Value>(line)
+            .unwrap_or_else(|error| panic!("stdout line is not JSON ({error}): {line}"));
+    }
+    let said = text(&output.stderr);
+    assert_eq!(said.lines().count(), 1, "{said}");
+    assert!(
+        said.starts_with("twaco: ignoring the log file /dev/stdout"),
+        "{said}"
+    );
+}
+
+#[test]
+fn a_failed_connection_logs_no_form_of_any_secret() {
+    const PASSWORD: &str = "Zq9!x&y z/7\"q";
+    const APP_KEY: &str = "AppKey-9f8e7d6c";
+    const TOKEN: &str = "tok-3c4b5a29";
+    // Nothing listens on this port once the listener is gone.
+    let address = {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        listener.local_addr().unwrap()
+    };
+    let (_dir, root) = temp("transport");
+    std::fs::write(
+        root.join(".twaco/profiles/default.toml"),
+        format!(
+            "url = \"http://{address}/Thingworx/\"\nusername = \"alice\"\n\
+             password = '{PASSWORD}'\napp_key = \"{APP_KEY}\"\napi_token = \"{TOKEN}\"\n"
+        ),
+    )
+    .unwrap();
+    let thing = format!("T-{PASSWORD}-{APP_KEY}-{TOKEN}");
+    let output = command(&root, &["call", &thing, "Do"])
+        .env("TWACO_LOG", "trace")
+        .env("TWACO_LOG_FILE", "run.log")
+        .output()
+        .unwrap();
+    assert!(!output.status.success());
+
+    let logs = std::fs::read_to_string(root.join("run.log")).unwrap();
+    assert!(logs.contains("server request failed"), "{logs}");
+    let encode = |text: &str| -> String {
+        text.bytes()
+            .map(|b| match b {
+                b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' => {
+                    (b as char).to_string()
+                }
+                other => format!("%{other:02X}"),
+            })
+            .collect()
+    };
+    let json = serde_json::to_string(PASSWORD).unwrap();
+    let forms = [
+        PASSWORD.to_string(),
+        json.trim_matches('"').to_string(),
+        encode(PASSWORD),
+        APP_KEY.to_string(),
+        encode(APP_KEY),
+        TOKEN.to_string(),
+    ];
+    for form in forms {
+        assert!(!logs.contains(&form), "{form:?} reached the log:\n{logs}");
+    }
+}

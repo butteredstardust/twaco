@@ -295,7 +295,8 @@ shows what the entity XML grants, and applying it there changes nothing.
 
 Logs are off by default. They show what twaco did when a command or an MCP tool misbehaves.
 They never hold a credential, a header, a request body, a response body or an MCP tool's
-`arguments`.
+`arguments`. A subprocess log holds the program and the number of arguments, never the
+argument values. An MCP message log holds a numeric `id`, and `<string>` for a string `id`.
 
 | Flag | Variable | Effect |
 | --- | --- | --- |
@@ -312,7 +313,8 @@ They never hold a credential, a header, a request body, a response body or an MC
   stage and subprocess.
 - An invalid filter or an unopenable file prints one `twaco:` warning on stderr. The command
   then runs without logs.
-- Twaco never writes a log to stdout.
+- Twaco never writes a log to stdout. A log file that is standard output (`/dev/stdout`) gets
+  the same warning and is ignored. This check runs on Unix only.
 
 ```sh
 twaco deploy --log debug

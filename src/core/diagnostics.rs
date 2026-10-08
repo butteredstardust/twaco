@@ -86,6 +86,12 @@ fn install(plan: &Plan) -> Result<(), String> {
         Some(path) => {
             let file = open(path)
                 .map_err(|why| format!("ignoring the log file {}: {why}", path.display()))?;
+            if is_stdout(&file) {
+                return Err(format!(
+                    "ignoring the log file {}: it is standard output",
+                    path.display()
+                ));
+            }
             tracing::subscriber::set_global_default(builder.with_writer(Mutex::new(file)).finish())
         }
         None => {
@@ -93,6 +99,26 @@ fn install(plan: &Plan) -> Result<(), String> {
         }
     };
     set.map_err(|why| format!("logs are already set up: {why}"))
+}
+
+/// Tell whether `file` is the same file as standard output. Logs on stdout break MCP messages.
+#[cfg(unix)]
+fn is_stdout(file: &std::fs::File) -> bool {
+    use std::os::fd::AsFd;
+    use std::os::unix::fs::MetadataExt;
+    let Ok(stdout) = std::io::stdout().as_fd().try_clone_to_owned() else {
+        return false;
+    };
+    let (Ok(mine), Ok(theirs)) = (file.metadata(), std::fs::File::from(stdout).metadata()) else {
+        return false;
+    };
+    mine.dev() == theirs.dev() && mine.ino() == theirs.ino()
+}
+
+/// Windows has no check: the stdout comparison needs Unix device and inode numbers.
+#[cfg(not(unix))]
+fn is_stdout(_file: &std::fs::File) -> bool {
+    false
 }
 
 fn open(path: &Path) -> std::io::Result<std::fs::File> {

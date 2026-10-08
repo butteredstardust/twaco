@@ -456,6 +456,8 @@ fn an_applied_deploy_logs_one_info_event_per_phase() {
         ..Fake::default()
     };
     let (result, logs) = crate::core::diagnostics::captured(|| {
+        let span = tracing::info_span!("capture", mine = "deploy-logs-phases");
+        let _entered = span.enter();
         run_test(&remote, &MemoryBaseline::default(), &projects, true, false)
     });
     result.unwrap();
@@ -466,8 +468,9 @@ fn an_applied_deploy_logs_one_info_event_per_phase() {
         "deploy: baseline written",
     ] {
         assert!(
-            logs.lines()
-                .any(|l| l.contains(phase) && l.contains("INFO")),
+            logs.lines().any(|l| l.contains(phase)
+                && l.contains("INFO")
+                && l.contains("deploy-logs-phases")),
             "{phase} is missing:\n{logs}"
         );
     }

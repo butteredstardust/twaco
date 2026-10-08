@@ -355,6 +355,8 @@ mod tests {
         std::fs::create_dir_all(root.join(".twaco")).unwrap();
         std::fs::write(root.join(".twaco/.old.json.7.twaco-tmp"), b"x").unwrap();
         let (_, logs) = crate::core::diagnostics::captured(|| {
+            let span = tracing::info_span!("capture", mine = "lock-logs-steps");
+            let _entered = span.enter();
             let lock = acquire(&root, "sync", &[]).unwrap();
             assert!(matches!(
                 acquire(&root, "fmt", &[]),
@@ -362,7 +364,10 @@ mod tests {
             ));
             drop(lock);
         });
-        let line = |needle: &str| logs.lines().find(|line| line.contains(needle));
+        let line = |needle: &str| {
+            logs.lines()
+                .find(|line| line.contains(needle) && line.contains("lock-logs-steps"))
+        };
         assert!(
             line("workspace lock taken").unwrap().contains("DEBUG"),
             "{logs}"

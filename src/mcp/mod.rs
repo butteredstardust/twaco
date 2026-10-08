@@ -151,7 +151,12 @@ fn handle(root: &Path, message: &Value, protocol: &mut String) -> Option<Value> 
         .get("arguments")
         .and_then(|arguments| arguments.get("dry_run"))
         .and_then(Value::as_bool);
-    let span = tracing::info_span!("mcp", method, id = %id, tool, dry_run);
+    // A string id comes from the caller and can hold anything. Log numbers only.
+    let logged_id = match &id {
+        Value::Number(number) => number.to_string(),
+        _ => "<string>".to_string(),
+    };
+    let span = tracing::info_span!("mcp", method, id = %logged_id, tool, dry_run);
     let _entered = span.enter();
     tracing::info!("message received");
     let result = match method {

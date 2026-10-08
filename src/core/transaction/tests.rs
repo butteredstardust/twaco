@@ -745,8 +745,17 @@ fn a_name_windows_would_read_as_another_is_refused() {
 fn a_transaction_logs_its_stages_and_a_recovery_warns_with_its_decision() {
     let (_dir, root) = workspace("logs");
     let lock = lock::acquire(&root, "test", &[]).unwrap();
-    let (_, logs) = crate::core::diagnostics::captured(|| plan(&root).apply(&lock).unwrap());
+    let (_, logs) = crate::core::diagnostics::captured(|| {
+        let span = tracing::info_span!("capture", mine = "transaction-logs-stages");
+        let _entered = span.enter();
+        plan(&root).apply(&lock).unwrap()
+    });
     drop(lock);
+    let logs: String = logs
+        .lines()
+        .filter(|line| line.contains("transaction-logs-stages"))
+        .collect::<Vec<_>>()
+        .join("\n");
     for stage in [
         "transaction journal written",
         "transaction staged",

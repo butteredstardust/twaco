@@ -109,7 +109,7 @@ pub fn tracked_secrets(root: &Path) -> Result<Vec<String>, String> {
         .map_err(|error| format!("could not run git: {error}"))?;
     tracing::debug!(
         program = "git",
-        arguments = "ls-files -z",
+        argument_count = 5 + SECRET_FOLDERS.len(),
         exit = output.status.code(),
         elapsed_ms = u64::try_from(started.elapsed().as_millis()).unwrap_or(u64::MAX),
         "git finished"

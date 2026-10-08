@@ -49,7 +49,7 @@ impl CompilerRunner for ProcessCompiler {
             })?;
         tracing::debug!(
             program = ?program,
-            arguments = ?arguments,
+            argument_count = arguments.len(),
             exit = output.status.code(),
             elapsed_ms = u64::try_from(started.elapsed().as_millis()).unwrap_or(u64::MAX),
             "compiler finished"
