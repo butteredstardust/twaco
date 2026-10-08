@@ -1,5 +1,5 @@
 use super::super::baseline::{Baseline, BaselineError};
-use super::super::entity_key::ServiceTarget;
+use super::super::entity_key::{EntityKey, ServiceTarget};
 use super::super::normalise;
 use super::super::profile::Profile;
 use super::super::push;
@@ -113,7 +113,8 @@ struct Fake {
 }
 
 impl push::Remote for Fake {
-    fn fetch(&self, collection: &str, name: &str) -> Result<Option<Vec<u8>>, ServerError> {
+    fn fetch(&self, key: &EntityKey) -> Result<Option<Vec<u8>>, ServerError> {
+        let (collection, name) = (key.collection(), key.name());
         self.events
             .lock()
             .unwrap()

@@ -76,11 +76,11 @@ pub fn execute(
     request: &ExtractRequest,
     notices: &mut Notices,
 ) -> Result<ExtractOutcome, ExtractCommandError> {
-    let _lock =
+    let lock =
         lock_workspace(solution, request.lock_label, notices).map_err(ExtractCommandError::Lock)?;
     let (chosen, unreadable, named) = select(solution, &request.target)?;
     Ok(ExtractOutcome {
-        report: workflow::extract(solution, &chosen, &unreadable, named),
+        report: workflow::extract(solution, &chosen, &unreadable, named, &lock),
     })
 }
 

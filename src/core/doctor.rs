@@ -129,6 +129,7 @@ pub fn diagnose(root: &Path, profile_name: &str) -> Vec<Item> {
                 ),
             )
         });
+        items.push(committed_secrets(&solution.root));
     }
     items.push(item(
         Health::Ok,
@@ -213,9 +214,105 @@ pub fn diagnose(root: &Path, profile_name: &str) -> Vec<Item> {
     items
 }
 
+/// Profiles, backups or journal backups that git tracks. A committed profile is a leaked
+/// credential: untracking it is not enough, because history keeps it.
+fn committed_secrets(root: &Path) -> Item {
+    let tracked = match gitignore::tracked_secrets(root) {
+        Ok(tracked) => tracked,
+        Err(error) => return item(Health::Warn, "secrets in git", error),
+    };
+    if tracked.is_empty() {
+        return item(
+            Health::Ok,
+            "secrets in git",
+            "git tracks no profile, backup or journal",
+        );
+    }
+    let profiles = tracked
+        .iter()
+        .any(|path| path.starts_with(".twaco/profiles/"));
+    let shown = tracked
+        .iter()
+        .take(5)
+        .map(String::as_str)
+        .collect::<Vec<_>>()
+        .join(", ");
+    let more = if tracked.len() > 5 {
+        format!(" and {} more", tracked.len() - 5)
+    } else {
+        String::new()
+    };
+    let mut detail = format!(
+        "git tracks {} file(s) that can hold a secret: {shown}{more}. `git rm --cached` them",
+        tracked.len()
+    );
+    if profiles {
+        detail.push_str(
+            "; history keeps a committed profile, so change the password and app key it holds",
+        );
+    }
+    item(
+        if profiles { Health::Fail } else { Health::Warn },
+        "secrets in git",
+        detail,
+    )
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn git(root: &Path, args: &[&str]) {
+        let status = std::process::Command::new("git")
+            .arg("-C")
+            .arg(root)
+            .args(args)
+            .stdout(std::process::Stdio::null())
+            .status()
+            .expect("git is on PATH");
+        assert!(status.success(), "git {args:?}");
+    }
+
+    #[test]
+    fn a_committed_profile_fails_and_a_committed_backup_warns() {
+        let root = std::env::temp_dir().join(format!(
+            "twaco-doctor-secrets-{}-{}",
+            std::process::id(),
+            crate::test_nonce()
+        ));
+        std::fs::create_dir_all(root.join(".twaco/backups")).unwrap();
+        git(&root, &["init", "-q"]);
+        assert_eq!(committed_secrets(&root).health, Health::Ok);
+
+        std::fs::write(root.join(".twaco/backups/A.T.xml"), "x").unwrap();
+        git(&root, &["add", "-A"]);
+        let backup = committed_secrets(&root);
+        assert_eq!(backup.health, Health::Warn, "{backup:?}");
+        assert!(
+            backup.detail.contains(".twaco/backups/A.T.xml"),
+            "{backup:?}"
+        );
+        assert!(!backup.detail.contains("password"), "{backup:?}");
+
+        std::fs::create_dir_all(root.join(".twaco/profiles")).unwrap();
+        std::fs::write(
+            root.join(".twaco/profiles/default.toml"),
+            "password = \"s3cret\"",
+        )
+        .unwrap();
+        git(&root, &["add", "-A"]);
+        let profile = committed_secrets(&root);
+        assert_eq!(profile.health, Health::Fail, "{profile:?}");
+        assert!(
+            profile.detail.contains("change the password"),
+            "{profile:?}"
+        );
+        assert!(
+            !profile.detail.contains("s3cret"),
+            "names files, never contents"
+        );
+        let _ = std::fs::remove_dir_all(root);
+    }
 
     #[test]
     fn no_solution_is_a_failure_that_says_what_to_do() {

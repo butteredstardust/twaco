@@ -581,6 +581,12 @@ confirms each is gone.
   sides needs `--overwrite`.
 - **Extensions:** `twaco ext list`, `show`, `import` and `remove`. `import` without `--apply`
   only has the server validate the package; nothing is installed.
+- **Finding entities:** `twaco search <text>` asks the server what Composer's Spotlight box
+  asks it, for text anywhere in a name or a description (`*` makes it a pattern: `*_DS`).
+  `--type` narrows to entity types, given either way (`Mashup` or `Mashups`), and `--project`
+  to one project. Each result is `Collection/Name`, which `twaco entity get` prints and
+  `twaco export entity` writes to a file, whether or not the entity is in the repository.
+  The list stops at `--limit` (100) and says when more match.
 - **Exports and imports:** `twaco export` and `twaco import` do what Composer's Import/Export
   dialog does, for an entity, a collection, a project or a source-control tree. An import
   without `--apply` lists what it would add and what it would replace.

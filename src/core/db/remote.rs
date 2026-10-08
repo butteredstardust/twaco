@@ -1,4 +1,4 @@
-use super::super::entity_key::ServiceTarget;
+use super::super::entity_key::{EntityKey, ServiceTarget};
 use super::super::server::Client;
 use serde_json::{json, Value};
 use std::time::Duration;
@@ -21,7 +21,8 @@ pub trait Remote {
 
 impl Remote for Client {
     fn thing(&self, name: &str) -> Result<Value, String> {
-        self.fetch_entity_json("Things", name)
+        EntityKey::address("Things", name)
+            .and_then(|key| self.fetch_entity_json(&key))
             .map_err(|error| error.to_string())
     }
 
@@ -53,7 +54,8 @@ impl Remote for Client {
     }
 
     fn thing_exists(&self, name: &str) -> Result<bool, String> {
-        self.entity_exists("Things", name)
+        EntityKey::address("Things", name)
+            .and_then(|key| self.entity_exists(&key))
             .map_err(|error| error.to_string())
     }
 }

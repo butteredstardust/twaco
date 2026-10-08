@@ -351,6 +351,18 @@ static TOOLS: LazyLock<Vec<Tool>> = LazyLock::new(|| {
             false,
             content::extension_write_tool,
         ),
+        solution_tool::<content_requests::SearchRequest>(
+            "search",
+            "Search the server's entities, as Composer's Spotlight box does: by text found in a name or description (any case; a * makes it a pattern), entity types and project. Read-only. Each result is Collection/Name with type, project and description, ready for entity_get or export. more says the limit cut the list; note says when a project does not exist. An unknown type is refused, because the server would otherwise search everything.",
+            true,
+            content::search_tool,
+        ),
+        solution_tool::<content_requests::EntityGetRequest>(
+            "entity_get",
+            "One entity's XML as the server has it: Collection/Name reaches any entity on the server, a bare name one in the repository. Read-only; nothing is written. A long entity is cut at max_chars (truncated says so); export with action entity writes it whole to a file.",
+            true,
+            content::entity_get_tool,
+        ),
         solution_tool::<content_requests::ExportRequest>(
             "export",
             "Export from the server as Composer's Import/Export does: an entity (Collection/Name), a collection (optionally one project's part), or a whole project, as one XML file written inside the solution; or the source-control layout of a project, collection or tags into a file repository folder or zip (a dry run unless dry_run is false).",

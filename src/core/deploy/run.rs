@@ -1,4 +1,4 @@
-use super::super::entity_key::ServiceTarget;
+use super::super::entity_key::{EntityKey, ServiceTarget};
 use super::super::normalise;
 use super::super::parallel;
 use super::super::profile::Profile;
@@ -144,7 +144,8 @@ pub fn run(
             name: entity.name.clone(),
             why: error.to_string(),
         })?;
-        let fetched = remote.fetch(&entity.collection, &entity.name);
+        let fetched =
+            EntityKey::address(&entity.collection, &entity.name).and_then(|key| remote.fetch(&key));
         let mut only_permissions = false;
         let (read_back, error) = match fetched {
             Ok(Some(bytes)) => match normalise::hash(&bytes) {
@@ -243,8 +244,8 @@ pub fn run(
     if call_failure.is_none() {
         let re_reads = parallel::map(&imported_entities, |entity| {
             let entity = *entity;
-            let bytes = remote
-                .fetch(&entity.collection, &entity.name)
+            let bytes = EntityKey::address(&entity.collection, &entity.name)
+                .and_then(|key| remote.fetch(&key))
                 .map_err(|why| DeployError::Server {
                     collection: entity.collection.clone(),
                     name: entity.name.clone(),

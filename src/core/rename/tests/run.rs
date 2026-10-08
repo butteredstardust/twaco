@@ -63,8 +63,13 @@ fn in_step_fixture() -> Fixture {
         );
     // Sidecars as `twaco extract` writes them, so the fixture is genuinely in step.
     let discovered = workspace::discover(&fixture.solution);
-    let extracted =
-        crate::core::workflow::extract(&fixture.solution, &discovered.entities, &[], true);
+    let extracted = crate::core::workflow::extract(
+        &fixture.solution,
+        &discovered.entities,
+        &[],
+        true,
+        &crate::core::lock::acquire(&fixture.solution.root, "test", &[]).unwrap(),
+    );
     assert_eq!(discovered.entities.len(), 1, "{:?}", discovered.unreadable);
     assert_eq!(extracted.failed, 0, "{:?}", extracted.log);
     assert!(

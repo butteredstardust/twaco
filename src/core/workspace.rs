@@ -306,30 +306,9 @@ pub fn fields_path(solution: &Solution, entity: &EntityFile) -> PathBuf {
         .join("fields.json")
 }
 
-/// Write one DataShape's field sidecar.
-pub fn write_fields(path: &Path, text: &str) -> Result<(), WorkspaceError> {
-    if let Some(parent) = path.parent() {
-        std::fs::create_dir_all(parent).map_err(|e| WorkspaceError::Io {
-            path: parent.to_path_buf(),
-            why: e.to_string(),
-        })?;
-    }
-    write_lf(path, text)
-}
-
 /// Where one mashup's content and stylesheet live.
 pub fn mashup_dir(solution: &Solution, entity: &EntityFile) -> PathBuf {
     solution.src_root().join(&entity.info.name).join("mashup")
-}
-
-/// Write one mashup's two sidecars.
-pub fn write_mashup(dir: &Path, assets: &super::mashup::Assets) -> Result<(), WorkspaceError> {
-    std::fs::create_dir_all(dir).map_err(|e| WorkspaceError::Io {
-        path: dir.to_path_buf(),
-        why: e.to_string(),
-    })?;
-    write_lf(&dir.join("content.json"), &assets.content)?;
-    write_lf(&dir.join("custom.css"), &assets.css)
 }
 
 /// Read one mashup's two sidecars.
@@ -385,17 +364,6 @@ pub fn datatable_path(solution: &Solution, entity: &EntityFile) -> PathBuf {
         .join("datatable.json")
 }
 
-/// Write one DataTable's configuration sidecar.
-pub fn write_datatable(path: &Path, text: &str) -> Result<(), WorkspaceError> {
-    if let Some(parent) = path.parent() {
-        std::fs::create_dir_all(parent).map_err(|e| WorkspaceError::Io {
-            path: parent.to_path_buf(),
-            why: e.to_string(),
-        })?;
-    }
-    write_lf(path, text)
-}
-
 /// Read the committed sidecars for one entity.
 ///
 /// Sidecars are normalised to LF in memory. They are written LF, but a checkout can convert
@@ -430,28 +398,13 @@ pub fn read_sidecars(dir: &Path) -> BTreeMap<String, ServiceSidecar> {
     out
 }
 
-/// Write one entity's sidecars, and report any that no longer correspond to a service.
+/// The sidecar folders under `dir` that no longer correspond to one of `services`.
 ///
 /// Stale directories are named rather than deleted. Removing files is not something an extract
 /// should decide on its own, and a sidecar left behind by a renamed service is worth a person's
-/// attention.
-///
-/// Always LF, whatever the entity XML around them uses: these are source files an editor and a
-/// formatter work on, not fragments of the document.
-pub fn write_sidecars(
-    dir: &Path,
-    services: &[ServiceSidecar],
-) -> Result<Vec<String>, WorkspaceError> {
-    for service in services {
-        let service_dir = dir.join(&service.name);
-        std::fs::create_dir_all(&service_dir).map_err(|e| WorkspaceError::Io {
-            path: service_dir.clone(),
-            why: e.to_string(),
-        })?;
-        write_lf(&service_dir.join("definition.xml"), &service.definition)?;
-        write_lf(&service_dir.join("script.js"), &service.script)?;
-    }
-
+/// attention. (Sidecars are written LF, whatever the entity XML around them uses: they are source
+/// files an editor and a formatter work on, not fragments of the document.)
+pub fn stale_sidecars(dir: &Path, services: &[ServiceSidecar]) -> Vec<String> {
     let wanted: std::collections::BTreeSet<&str> =
         services.iter().map(|s| s.name.as_str()).collect();
     let mut stale = Vec::new();
@@ -466,7 +419,7 @@ pub fn write_sidecars(
         }
     }
     stale.sort();
-    Ok(stale)
+    stale
 }
 
 /// Replace a file's contents in one step, so an interrupted write cannot truncate it.

@@ -318,7 +318,10 @@ shows which file or variables a profile resolved from.
 Keep profiles, and the backups a delete or a forced push saves, out of git: a backup holds the server's
 copy of an entity as it is, a database Thing's password included. A solution's `.gitignore` should
 hold the lines below. `twaco init --write` and `twaco init --agents` add the missing ones, and
-`twaco doctor` warns when any is missing.
+`twaco doctor` warns when any is missing. An ignore line does not untrack a file committed before it, so
+`twaco doctor` also asks git whether it tracks anything under `.twaco/profiles`, `.twaco/backups` or
+`.twaco/transactions`: a tracked backup is a warning, a tracked profile a failure (history keeps it,
+so change the password it holds).
 
 ```gitignore
 .twaco/profiles/

@@ -174,6 +174,21 @@ impl<'a> Transaction<'a> {
         self.plan(Kind::Create, path, None, Some(after))
     }
 
+    /// Make a file hold `after`: a replacement of what it holds now (read here, and checked again
+    /// when the transaction is applied), or a new file when there is none.
+    pub fn write_file(&mut self, path: &Path, after: Vec<u8>) -> Result<(), TransactionError> {
+        match std::fs::read(path) {
+            Ok(before) => self.replace_file(path, &before, after),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+                self.create_file(path, after)
+            }
+            Err(error) => Err(TransactionError::Io {
+                path: path.to_path_buf(),
+                why: error.to_string(),
+            }),
+        }
+    }
+
     /// Remove a file that holds `expected_before`.
     pub fn delete_file(
         &mut self,

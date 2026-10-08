@@ -3,7 +3,7 @@
 use super::audit::{self, Severity};
 use crate::core::config::Solution;
 use crate::core::entity_carry::{self, Kind};
-use crate::core::entity_key::ServiceTarget;
+use crate::core::entity_key::{EntityKey, ServiceTarget};
 use crate::core::server::ServerError;
 use crate::core::{config_table, push};
 use serde_json::{json, Value};
@@ -109,7 +109,8 @@ impl config_table::Remote for Fake {
 }
 
 impl push::Remote for Fake {
-    fn fetch(&self, _: &str, name: &str) -> Result<Option<Vec<u8>>, ServerError> {
+    fn fetch(&self, key: &EntityKey) -> Result<Option<Vec<u8>>, ServerError> {
+        let name = key.name();
         Ok(self.exports.get(name).map(|xml| xml.clone().into_bytes()))
     }
     fn import(&self, _: &str, _: &[u8]) -> Result<(), ServerError> {

@@ -86,13 +86,13 @@ pub fn decide(working: &str, server: Option<&str>, baseline: Option<(&str, &str)
 /// The two server operations a push needs. A trait so the orchestration can be tested without
 /// a server; [`Client`] is the real one.
 pub trait Remote {
-    fn fetch(&self, collection: &str, name: &str) -> Result<Option<Vec<u8>>, ServerError>;
+    fn fetch(&self, key: &EntityKey) -> Result<Option<Vec<u8>>, ServerError>;
     fn import(&self, file_name: &str, xml: &[u8]) -> Result<(), ServerError>;
 }
 
 impl Remote for Client {
-    fn fetch(&self, collection: &str, name: &str) -> Result<Option<Vec<u8>>, ServerError> {
-        match self.fetch_entity(collection, name) {
+    fn fetch(&self, key: &EntityKey) -> Result<Option<Vec<u8>>, ServerError> {
+        match self.fetch_entity(key) {
             Ok(bytes) => Ok(Some(bytes)),
             Err(error) if error.is_not_found() => Ok(None),
             Err(error) => Err(error),
@@ -190,7 +190,7 @@ pub fn push(
 ) -> Result<Outcome, PushError> {
     let working = normalise::hash(target.document.bytes).map_err(PushError::Working)?;
     let server = remote
-        .fetch(target.key.collection(), target.key.name())
+        .fetch(&target.key)
         .map_err(PushError::Remote)?
         .map(|bytes| normalise::hash(&bytes))
         .transpose()
@@ -225,7 +225,7 @@ pub fn push(
     // From here on the server has changed, so a failure must say so rather than read like the
     // fetch before the import did.
     let read_back = remote
-        .fetch(target.key.collection(), target.key.name())
+        .fetch(&target.key)
         .map_err(PushError::Unverified)?
         .map(|bytes| normalise::hash(&bytes))
         .transpose()
@@ -278,7 +278,7 @@ mod tests {
     }
 
     impl Remote for Fake {
-        fn fetch(&self, _: &str, _: &str) -> Result<Option<Vec<u8>>, ServerError> {
+        fn fetch(&self, _: &EntityKey) -> Result<Option<Vec<u8>>, ServerError> {
             Ok(self.held.borrow().clone())
         }
         fn import(&self, _: &str, xml: &[u8]) -> Result<(), ServerError> {
@@ -468,7 +468,7 @@ mod tests {
     }
 
     impl Remote for FailsAfterImport {
-        fn fetch(&self, _: &str, _: &str) -> Result<Option<Vec<u8>>, ServerError> {
+        fn fetch(&self, _: &EntityKey) -> Result<Option<Vec<u8>>, ServerError> {
             if *self.imported.borrow() {
                 Err(ServerError::Transport {
                     method: crate::core::server::Method::Get,

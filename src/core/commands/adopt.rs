@@ -69,7 +69,7 @@ pub fn execute(
     request: &AdoptRequest,
     notices: &mut Notices,
 ) -> Result<AdoptOutcome, AdoptCommandError> {
-    let _lock = match request.mode {
+    let lock = match request.mode {
         Mode::Plan => None,
         Mode::Apply => Some(
             lock_workspace(solution, request.lock_label, notices)
@@ -84,7 +84,8 @@ pub fn execute(
             effects: Effects::new(Access::Read, Access::None),
         }),
         Mode::Apply => {
-            let outcome = adopt::apply(solution, &request.export, &report)
+            let lock = lock.as_ref().expect("an apply holds the lock");
+            let outcome = adopt::apply(solution, &request.export, &report, lock)
                 .map_err(AdoptCommandError::Adopt)?;
             Ok(AdoptOutcome::Applied {
                 report,

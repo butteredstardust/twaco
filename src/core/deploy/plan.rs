@@ -1,4 +1,5 @@
 use super::super::baseline::Baseline;
+use super::super::entity_key::EntityKey;
 use super::super::normalise;
 use super::super::parallel;
 use super::super::push;
@@ -23,8 +24,8 @@ pub fn decide_all(
             name: entity.name.clone(),
             why: error.to_string(),
         })?;
-        let server = remote
-            .fetch(&entity.collection, &entity.name)
+        let server = EntityKey::address(&entity.collection, &entity.name)
+            .and_then(|key| remote.fetch(&key))
             .map_err(|error| DeployError::Server {
                 collection: entity.collection.clone(),
                 name: entity.name.clone(),

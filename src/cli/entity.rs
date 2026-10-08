@@ -7,20 +7,14 @@ pub(crate) fn entity_get(solution: &Solution, args: &Args) -> u8 {
         eprintln!("twaco: entity get needs exactly one entity name");
         return FAILED;
     }
-    let (chosen, unreadable) = match targets(solution, args) {
-        Ok(result) => result,
+    use twaco::core::entity_get;
+    let key = match entity_get::target(solution, &args.names[0]) {
+        Ok(key) => key,
         Err(error) => {
             eprintln!("twaco: {error}");
             return FAILED;
         }
     };
-    if !unreadable.is_empty() {
-        for problem in unreadable {
-            eprintln!("twaco: {problem}");
-        }
-        return FAILED;
-    }
-    let entity = &chosen[0];
     if let Some(out) = &args.out {
         let protected = workspace::entities(solution);
         if protected
@@ -43,9 +37,7 @@ pub(crate) fn entity_get(solution: &Solution, args: &Args) -> u8 {
             return FAILED;
         }
     };
-    let live = match server::Client::new(profile)
-        .fetch_entity(&entity.info.collection, &entity.info.name)
-    {
+    let live = match entity_get::fetch(&server::Client::new(profile), &key) {
         Ok(bytes) => bytes,
         Err(error) => {
             eprintln!("twaco: {error}");

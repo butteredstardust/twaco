@@ -1,6 +1,96 @@
 use super::super::*;
 
 /// `twaco export entity | collection | project | source-control`.
+/// Search the server's entities, as Composer's Spotlight box does.
+pub(crate) fn search_cmd(solution: &Solution, args: &Args) -> u8 {
+    use twaco::core::search;
+    let limit = match args.values.get("--limit").map(|text| text.parse::<usize>()) {
+        None => search::DEFAULT_LIMIT,
+        Some(Ok(limit)) => limit,
+        Some(Err(_)) => {
+            eprintln!("twaco: --limit takes a number");
+            return FAILED;
+        }
+    };
+    let text = args.names.join(" ");
+    let types: Vec<String> = args.values.get("--type").cloned().into_iter().collect();
+    let query = search::Query {
+        text: Some(text.as_str()),
+        types: &types,
+        project: args.project.as_deref(),
+        limit,
+    };
+    let profile_name = args.profile.as_deref().unwrap_or("default");
+    let profile = match profile::load(&solution.root, profile_name) {
+        Ok(profile) => profile,
+        Err(error) => {
+            eprintln!("twaco: {error}");
+            return FAILED;
+        }
+    };
+    let outcome = match search::search(&server::Client::new(profile), &query) {
+        Ok(outcome) => outcome,
+        Err(error) => {
+            eprintln!("twaco: search: {error}");
+            return FAILED;
+        }
+    };
+    if args.has("--json") {
+        let mut value = serde_json::json!({
+            "ok": true,
+            "count": outcome.entities.len(),
+            "more": outcome.more,
+            "entities": outcome.entities,
+        });
+        if let Some(expression) = &outcome.expression {
+            value["expression"] = serde_json::json!(expression);
+        }
+        if let Some(note) = &outcome.note {
+            value["note"] = serde_json::json!(note);
+        }
+        println!("{value}");
+        return OK;
+    }
+    let width = outcome
+        .entities
+        .iter()
+        .map(|found| found.entity.len())
+        .max()
+        .unwrap_or(0);
+    for found in &outcome.entities {
+        let mut line = format!("  {:width$}", found.entity);
+        if !found.project.is_empty() {
+            line.push_str(&format!("  [{}]", found.project));
+        }
+        if !found.description.is_empty() {
+            line.push_str(&format!("  {}", found.description.replace('\n', " ")));
+        }
+        println!("{}", line.trim_end());
+    }
+    println!(
+        "{} {}{}",
+        outcome.entities.len(),
+        if outcome.entities.len() == 1 {
+            "entity"
+        } else {
+            "entities"
+        },
+        match &outcome.expression {
+            Some(expression) => format!(" matching {expression}"),
+            None => String::new(),
+        }
+    );
+    if outcome.more {
+        println!(
+            "more match; --limit raises the {limit} shown, or narrow with --type or --project"
+        );
+    }
+    if let Some(note) = &outcome.note {
+        println!("note: {note}");
+    }
+    OK
+}
+
 pub(crate) fn export_cmd(solution: &Solution, args: &Args) -> u8 {
     use twaco::core::commands::export::{self as command, ExportAction, ExportRequest};
     use twaco::core::export;
@@ -215,11 +305,11 @@ pub(crate) fn import_cmd(solution: &Solution, args: &Args) -> u8 {
                 unreachable!()
             };
             let shown = if args.has("--detail") { usize::MAX } else { 20 };
-            for (collection, name) in plan.replaced.iter().take(shown) {
-                println!("  replaces {collection}/{name}");
+            for key in plan.replaced.iter().take(shown) {
+                println!("  replaces {key}");
             }
-            for (collection, name) in plan.new.iter().take(shown) {
-                println!("  adds     {collection}/{name}");
+            for key in plan.new.iter().take(shown) {
+                println!("  adds     {key}");
             }
             println!(
                 "{} {} new and {} replaced entities{}",

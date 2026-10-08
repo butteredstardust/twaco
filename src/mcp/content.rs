@@ -213,10 +213,8 @@ pub(crate) fn import_tool(
             let command::ImportOutcome::File { plan, .. } = outcome else {
                 unreachable!()
             };
-            let names = |list: &[(String, String)]| {
-                list.iter()
-                    .map(|(c, n)| format!("{c}/{n}"))
-                    .collect::<Vec<_>>()
+            let names = |list: &[crate::core::entity_key::EntityKey]| {
+                list.iter().map(ToString::to_string).collect::<Vec<_>>()
             };
             let mut result = json!({
                 "ok": true,
@@ -259,6 +257,69 @@ pub(crate) fn import_tool(
 }
 
 /// An export from the server, to a file inside the solution or into a repository.
+/// The server's entity search, as Composer's Spotlight box does it. Read-only.
+pub(crate) fn search_tool(
+    solution: &Solution,
+    arguments: tool::SearchRequest,
+) -> Result<Value, ToolError> {
+    use crate::core::search;
+    let types = arguments.types.as_ref().cloned().unwrap_or_default();
+    let query = search::Query {
+        text: arguments.text.as_deref(),
+        types: &types,
+        project: arguments.project.as_deref(),
+        limit: usize::try_from(arguments.limit).unwrap_or(usize::MAX),
+    };
+    let client = client(solution, &arguments.profile)?;
+    let outcome = search::search(&client, &query).map_err(ToolError::coded)?;
+    let mut result = json!({
+        "ok": true,
+        "count": outcome.entities.len(),
+        "more": outcome.more,
+        "entities": outcome.entities,
+    });
+    if let Some(expression) = &outcome.expression {
+        result["expression"] = json!(expression);
+    }
+    if outcome.more {
+        result["note"] = json!("more entities match: raise limit, or narrow with types or project");
+    }
+    if let Some(note) = &outcome.note {
+        result["note"] = json!(note);
+    }
+    Ok(result)
+}
+
+/// One entity's XML as the server has it. Read-only.
+pub(crate) fn entity_get_tool(
+    solution: &Solution,
+    arguments: tool::EntityGetRequest,
+) -> Result<Value, ToolError> {
+    use crate::core::entity_get;
+    let entity = nonempty(&arguments.entity, "entity")?;
+    let key = entity_get::target(solution, entity).map_err(ToolError::coded)?;
+    let client = client(solution, &arguments.profile)?;
+    let bytes = entity_get::fetch(&client, &key).map_err(ToolError::coded)?;
+    let text = String::from_utf8_lossy(&bytes);
+    let max = usize::try_from(arguments.max_chars).unwrap_or(usize::MAX);
+    let total = text.chars().count();
+    let mut result = json!({
+        "ok": true,
+        "entity": key.to_string(),
+        "bytes": bytes.len(),
+    });
+    if total > max {
+        result["xml"] = json!(text.chars().take(max).collect::<String>());
+        result["truncated"] = json!(true);
+        result["note"] = json!(format!(
+            "cut at {max} of {total} characters; export with action entity writes it whole to a file"
+        ));
+    } else {
+        result["xml"] = json!(text);
+    }
+    Ok(result)
+}
+
 pub(crate) fn export_tool(
     solution: &Solution,
     arguments: tool::ExportRequest,

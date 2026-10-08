@@ -1484,6 +1484,79 @@
     }
   },
   {
+    "name": "search",
+    "description": "Search the server's entities, as Composer's Spotlight box does: by text found in a name or description (any case; a * makes it a pattern), entity types and project. Read-only. Each result is Collection/Name with type, project and description, ready for entity_get or export. more says the limit cut the list; note says when a project does not exist. An unknown type is refused, because the server would otherwise search everything.",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "text": {
+          "description": "Text found anywhere in an entity's name or description, in any case; with a * it is a pattern instead (*_DS). Absent: every entity.",
+          "type": "string"
+        },
+        "types": {
+          "description": "Entity types, singular or as collections (Thing, ThingTemplates, Mashup, ...). An unknown one is refused.",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "project": {
+          "description": "Only this project's entities.",
+          "type": "string"
+        },
+        "limit": {
+          "type": "integer",
+          "default": 100,
+          "minimum": 1
+        },
+        "profile": {
+          "description": "Server profile name.",
+          "type": "string",
+          "default": "default"
+        }
+      },
+      "type": "object"
+    },
+    "annotations": {
+      "readOnlyHint": true,
+      "destructiveHint": false,
+      "openWorldHint": false
+    }
+  },
+  {
+    "name": "entity_get",
+    "description": "One entity's XML as the server has it: Collection/Name reaches any entity on the server, a bare name one in the repository. Read-only; nothing is written. A long entity is cut at max_chars (truncated says so); export with action entity writes it whole to a file.",
+    "inputSchema": {
+      "required": [
+        "entity"
+      ],
+      "additionalProperties": false,
+      "type": "object",
+      "properties": {
+        "entity": {
+          "description": "Collection/Name for any entity on the server (Things/My.Thing, Resources/EntityServices), or a bare name for one in the repository.",
+          "type": "string"
+        },
+        "max_chars": {
+          "description": "The most XML characters returned; a longer entity is cut, and export writes it whole to a file.",
+          "type": "integer",
+          "default": 200000,
+          "minimum": 1
+        },
+        "profile": {
+          "description": "Server profile name.",
+          "type": "string",
+          "default": "default"
+        }
+      }
+    },
+    "annotations": {
+      "readOnlyHint": true,
+      "destructiveHint": false,
+      "openWorldHint": false
+    }
+  },
+  {
     "name": "export",
     "description": "Export from the server as Composer's Import/Export does: an entity (Collection/Name), a collection (optionally one project's part), or a whole project, as one XML file written inside the solution; or the source-control layout of a project, collection or tags into a file repository folder or zip (a dry run unless dry_run is false).",
     "inputSchema": {
