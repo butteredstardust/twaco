@@ -143,10 +143,16 @@ fn handle(root: &Path, message: &Value, protocol: &mut String) -> Option<Value> 
         return Some(error_response(id, -32602, "params must be an object"));
     }
     // Fields never include `arguments`: a tool's parameters can hold anything, secrets included.
-    let tool = params
-        .get("name")
-        .and_then(Value::as_str)
-        .unwrap_or_default();
+    // The method and the tool name come from the caller too, so only names this server knows
+    // reach a log.
+    let logged_method = match method {
+        "initialize" | "ping" | "tools/list" | "tools/call" => method,
+        _ => "<unknown>",
+    };
+    let tool = match params.get("name").and_then(Value::as_str) {
+        None => "",
+        Some(name) => registry::registered_name(name).unwrap_or("<unknown>"),
+    };
     let dry_run = params
         .get("arguments")
         .and_then(|arguments| arguments.get("dry_run"))
@@ -156,7 +162,7 @@ fn handle(root: &Path, message: &Value, protocol: &mut String) -> Option<Value> 
         Value::Number(number) => number.to_string(),
         _ => "<string>".to_string(),
     };
-    let span = tracing::info_span!("mcp", method, id = %logged_id, tool, dry_run);
+    let span = tracing::info_span!("mcp", method = logged_method, id = %logged_id, tool, dry_run);
     let _entered = span.enter();
     tracing::info!("message received");
     let result = match method {

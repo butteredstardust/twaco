@@ -566,7 +566,11 @@ impl ServerError {
                 url: clean(url),
                 why: clean(why),
             },
-            other @ (ServerError::UnsupportedCharset(_) | ServerError::InvalidUtf8 { .. }) => other,
+            // The charset text comes from the server's Content-Type header.
+            ServerError::UnsupportedCharset(charset) => {
+                ServerError::UnsupportedCharset(clean(charset))
+            }
+            ServerError::InvalidUtf8 { at } => ServerError::InvalidUtf8 { at },
         }
     }
 
@@ -642,7 +646,8 @@ fn checked(
     url: String,
     response: Response,
 ) -> Result<Vec<u8>, ServerError> {
-    validate_charset(response.content_type.as_deref(), &response.body)?;
+    validate_charset(response.content_type.as_deref(), &response.body)
+        .map_err(|error| error.scrubbed(secrets))?;
     if !(200..300).contains(&response.status) {
         let detail = std::str::from_utf8(&response.body).expect("validate_charset checked UTF-8");
         return Err(ServerError::Http {
@@ -1042,6 +1047,24 @@ mod tests {
             "{error}"
         );
         assert_clean(error);
+    }
+
+    /// The charset name comes from the server's header, so a server can echo a secret there.
+    #[test]
+    fn a_secret_in_a_response_charset_never_reaches_an_error_message() {
+        let secrets = vec!["pw-7f3a9c1e5b".to_string()];
+        let response = Response {
+            status: 200,
+            content_type: Some("text/xml; charset=pw-7f3a9c1e5b".to_string()),
+            body: b"<x/>".to_vec(),
+        };
+        let error = checked(&secrets, Method::Get, "http://h/T".to_string(), response).unwrap_err();
+        assert!(
+            matches!(error, ServerError::UnsupportedCharset(_)),
+            "{error}"
+        );
+        let text = format!("{error} {error:?}");
+        assert!(!text.contains("pw-7f3a9c1e5b"), "{text}");
     }
 
     #[test]

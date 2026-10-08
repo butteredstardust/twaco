@@ -461,6 +461,15 @@ pub(crate) fn definitions(protocol: &str) -> Vec<Value> {
     TOOLS.iter().map(|tool| tool.definition(protocol)).collect()
 }
 
+/// The registered name equal to `name`, or `None`. The result is safe to log, because it comes
+/// from the registry and not from the caller.
+pub(crate) fn registered_name(name: &str) -> Option<&'static str> {
+    TOOLS
+        .iter()
+        .find(|tool| tool.name == name)
+        .map(|tool| tool.name)
+}
+
 /// Run a registered tool, arguments read and checked first.
 pub(crate) fn call(root: &Path, name: &str, arguments: &Value) -> Option<Result<Value, ToolError>> {
     let tool = TOOLS.iter().find(|tool| tool.name == name)?;

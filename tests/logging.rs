@@ -294,6 +294,43 @@ fn a_string_message_id_never_reaches_a_log() {
     assert!(logs.contains("id=7"), "{logs}");
 }
 
+#[test]
+fn an_unknown_method_or_tool_name_never_reaches_a_log() {
+    let (_dir, root) = temp("mcp-names");
+    let mut child = command(&root, &["mcp"])
+        .env("TWACO_LOG", "trace")
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap();
+    let mut stdin = child.stdin.take().unwrap();
+    writeln!(
+        stdin,
+        r#"{{"jsonrpc":"2.0","id":1,"method":"method-secret-91bc"}}"#
+    )
+    .unwrap();
+    writeln!(
+        stdin,
+        r#"{{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{{"name":"tool-secret-5d2f","arguments":{{}}}}}}"#
+    )
+    .unwrap();
+    writeln!(
+        stdin,
+        r#"{{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{{"name":"guide","arguments":{{}}}}}}"#
+    )
+    .unwrap();
+    drop(stdin);
+    let output = child.wait_with_output().unwrap();
+    assert!(output.status.success());
+    let logs = text(&output.stderr);
+    assert!(!logs.contains("method-secret-91bc"), "{logs}");
+    assert!(!logs.contains("tool-secret-5d2f"), "{logs}");
+    assert!(logs.contains("method=\"<unknown>\""), "{logs}");
+    assert!(logs.contains("tool=\"<unknown>\""), "{logs}");
+    assert!(logs.contains("tool=\"guide\""), "{logs}");
+}
+
 #[cfg(unix)]
 #[test]
 fn a_log_file_that_is_standard_output_is_refused() {
