@@ -1256,11 +1256,17 @@ mod tests {
         let error = apply(&solution, &export, &report, &locked(&solution))
             .err()
             .expect("the sidecar folder cannot be made");
-        assert!(matches!(error, AdoptError::Write(_)), "{error}");
-        assert!(
-            error.to_string().starts_with("nothing was adopted"),
-            "{error}"
-        );
+        // Where it fails depends on the platform: Windows reads `src/P.B/mashup/content.json` as
+        // missing, so the write is planned and the transaction undoes it; Unix says a file is in
+        // the way (ENOTDIR) while planning. Either way nothing may be left behind.
+        match &error {
+            AdoptError::Write(_) => assert!(
+                error.to_string().starts_with("nothing was adopted"),
+                "{error}"
+            ),
+            AdoptError::Repository { .. } => {}
+            other => panic!("unexpected {other}"),
+        }
         assert_eq!(outside_twaco(&root), before, "every change was undone");
         assert!(!root.join("Mashups/P.B.xml").exists());
         let _ = std::fs::remove_dir_all(root);
