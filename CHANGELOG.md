@@ -30,6 +30,21 @@ All notable changes to twaco are recorded here. The format follows
   bundles, so a reference to an entity the backend bundle leaves out went unreported.
 - An MCP `config_table` restore read a backup from any path on the machine; like every file a
   tool reads, it must now be inside the solution.
+- A server error quoted the request's address as written, so credentials put into a profile's
+  `url` (`https://user:token@host/`) could be printed; every server error now shows `***` there,
+  and a reply echoing them is scrubbed.
+- Backup files were named by the low byte of each character, so `Café` and `Cafǩ` shared one file
+  and a restore lost one of them. Every byte is now encoded; sets saved before still restore.
+- `repo pull` wrote two server files whose paths differ only in case (`A.txt`, `a.txt`) to one
+  file on Windows and macOS, keeping whichever came last. Such a pull is now refused.
+- An import zip or an extension package whose entries expand without end was read into memory
+  until it ran out; an entry past 512 MiB (1 MiB for `metadata.xml`) is now refused.
+- What a `[[check]]` hook with `needs_credentials` printed of those credentials was shown by
+  `twaco check`; it is now `<redacted>`.
+- `retemplate --to` and `--add-shapes` wrote a name holding a quote into the XML as given, so
+  `'P.New" x="1'` added an attribute; such a name is refused.
+- `sync` rewrote a script, a mashup's content or a DataTable value spread over several CDATA
+  sections as one, dropping a comment between them; it now refuses and names the element.
 
 ## [0.1.4] - 2026-10-08
 

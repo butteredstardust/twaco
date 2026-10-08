@@ -125,15 +125,41 @@ pub fn load(solution_root: &Path, name: &str) -> Result<Profile, ProfileError> {
 /// A server address fit to show: credentials written into it (`https://user:token@host/`) are
 /// replaced by `***`, whatever the profile's own fields hold.
 pub fn shown_url(url: &str) -> String {
-    let Some((scheme, rest)) = url.split_once("://") else {
-        return url.to_string();
-    };
-    let authority_end = rest.find(['/', '?', '#']).unwrap_or(rest.len());
-    let (authority, tail) = rest.split_at(authority_end);
-    match authority.rfind('@') {
-        Some(at) => format!("{scheme}://***@{}{tail}", &authority[at + 1..]),
-        None => url.to_string(),
+    hide_url_credentials(url)
+}
+
+/// `text` with the credentials of every address in it (`scheme://user:secret@host`) replaced by
+/// `***`: for messages that quote a URL, such as a server error, wherever it came from.
+pub fn hide_url_credentials(text: &str) -> String {
+    let mut out = String::with_capacity(text.len());
+    let mut rest = text;
+    while let Some(at) = rest.find("://") {
+        let (before, after) = rest.split_at(at + 3);
+        out.push_str(before);
+        let end = after
+            .find(|c: char| {
+                matches!(c, '/' | '?' | '#' | '"' | '\'' | '<' | '>') || c.is_whitespace()
+            })
+            .unwrap_or(after.len());
+        let (authority, tail) = after.split_at(end);
+        match authority.rfind('@') {
+            Some(at) => {
+                out.push_str("***@");
+                out.push_str(&authority[at + 1..]);
+            }
+            None => out.push_str(authority),
+        }
+        rest = tail;
     }
+    out.push_str(rest);
+    out
+}
+
+/// The `user:secret` written into an address, if any.
+pub fn url_credentials(url: &str) -> Option<&str> {
+    let (_, rest) = url.split_once("://")?;
+    let authority = &rest[..rest.find(['/', '?', '#']).unwrap_or(rest.len())];
+    authority.rfind('@').map(|at| &authority[..at])
 }
 
 /// Where `name` would be read from, for `doctor`: the first profile file that exists (the
@@ -311,6 +337,14 @@ mod tests {
         ] {
             assert_eq!(shown_url(url), shown, "{url}");
         }
+        assert_eq!(
+            hide_url_credentials(
+                "GET https://u:s3cret@host/Thingworx/Things/T failed; see http://a@b/x and ftp://plain/"
+            ),
+            "GET https://***@host/Thingworx/Things/T failed; see http://***@b/x and ftp://plain/"
+        );
+        assert_eq!(url_credentials("https://u:s3cret@host/x"), Some("u:s3cret"));
+        assert_eq!(url_credentials("https://host/x?a=b@c"), None);
     }
 
     /// A profile's `Debug` is what ends up in a panic message, a log line or an error chain, so it

@@ -611,6 +611,24 @@ pub fn sync(
         Direction::Push => (State::LocalOnly, State::RemoteOnly),
         Direction::Pull => (State::RemoteOnly, State::LocalOnly),
     };
+    // Two server paths that differ only in case are one file on Windows and macOS: a pull would
+    // write both there and keep whichever came last, and a checkout of the solution would fail
+    // the same way on such a machine. Refuse rather than lose one.
+    if direction == Direction::Pull {
+        let mut seen: std::collections::BTreeMap<String, &str> = std::collections::BTreeMap::new();
+        let mut clashes = Vec::new();
+        for item in compared.iter().filter(|c| c.state != State::LocalOnly) {
+            if let Some(other) = seen.insert(item.path.to_lowercase(), item.path.as_str()) {
+                clashes.push(format!("{other} and {}", item.path));
+            }
+        }
+        if !clashes.is_empty() {
+            return Err(RepoError::Invalid(format!(
+                "the repository holds paths that differ only in case ({}), which are one file on                  Windows and macOS; rename one on the server; nothing was copied",
+                clashes.join("; ")
+            )));
+        }
+    }
     let conflicts: Vec<&str> = compared
         .iter()
         .filter(|c| c.state == State::Differs)
@@ -1113,6 +1131,18 @@ mod tests {
         sync(&live, "R", &dir, Direction::Pull, false, true).unwrap();
         assert_eq!(std::fs::read(dir.join("B/deep/r.bin")).unwrap(), b"remote");
         assert!(dir.join("local-only.bin").exists(), "never deleted");
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn a_pull_of_paths_that_differ_only_in_case_is_refused_before_anything_is_written() {
+        let dir = tree(&[]);
+        let live = Live::with(&[("/A.txt", b"upper"), ("/a.txt", b"lower")], &[]);
+        for apply in [false, true] {
+            let error = sync(&live, "R", &dir, Direction::Pull, false, apply).unwrap_err();
+            assert!(error.to_string().contains("differ only in case"), "{error}");
+        }
+        assert!(!dir.join("A.txt").exists() && !dir.join("a.txt").exists());
         let _ = std::fs::remove_dir_all(dir);
     }
 

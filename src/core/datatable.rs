@@ -255,6 +255,7 @@ pub fn sync(src: &[u8], wanted: &Configuration) -> Result<(Vec<u8>, Vec<String>)
         let span = value_region(&tokens, src, row, "dataShape").ok_or_else(|| {
             DataTableError::Malformed("no <dataShape> to write the shape name into".into())
         })?;
+        writable(&tokens, src, span, "dataShape")?;
         let existing = String::from_utf8_lossy(span.of(src));
         let newline = super::sync::newline_of(&existing);
         edits.push(super::splice::Edit::new(
@@ -268,6 +269,7 @@ pub fn sync(src: &[u8], wanted: &Configuration) -> Result<(Vec<u8>, Vec<String>)
         let span = value_region(&tokens, src, row, "accumulatedDataShape").ok_or_else(|| {
             DataTableError::Malformed("no <accumulatedDataShape> to write the shape into".into())
         })?;
+        writable(&tokens, src, span, "accumulatedDataShape")?;
         let existing = String::from_utf8_lossy(span.of(src));
         let newline = super::sync::newline_of(&existing);
         edits.push(super::splice::Edit::new(
@@ -346,6 +348,7 @@ fn index_edits(
             let span = value_region(tokens, src, *row, name).ok_or_else(|| {
                 DataTableError::Malformed(format!("index {position} has no <{name}> to write into"))
             })?;
+            writable(tokens, src, span, name)?;
             let existing = String::from_utf8_lossy(span.of(src));
             let local = super::sync::newline_of(&existing);
             edits.push(super::splice::Edit::new(
@@ -423,6 +426,24 @@ fn same_json(a: &str, b: &str) -> bool {
     ) {
         (Ok(a), Ok(b)) => a == b,
         _ => a.trim() == b.trim(),
+    }
+}
+
+/// Refuse to rewrite a value whose element holds markup between its CDATA sections: the write
+/// covers them all and would drop it.
+fn writable(
+    tokens: &[Token],
+    src: &[u8],
+    span: scan::Span,
+    what: &str,
+) -> Result<(), DataTableError> {
+    let in_cdata = span.of(src).starts_with(b"<![CDATA[");
+    if scan::only_cdata_and_text(tokens, src, span, in_cdata) {
+        Ok(())
+    } else {
+        Err(DataTableError::Malformed(format!(
+            "<{what}> holds markup between its CDATA sections, which a sync would drop; take it out of the entity file"
+        )))
     }
 }
 
@@ -640,6 +661,24 @@ mod tests {
         let (out, changes) = sync(TABLE, &configuration).unwrap();
         assert!(changes.is_empty(), "got {changes:?}");
         assert_eq!(out, TABLE);
+    }
+
+    #[test]
+    fn markup_between_value_sections_is_refused_rather_than_dropped() {
+        let text = String::from_utf8(TABLE.to_vec()).unwrap().replace(
+            "<dataShape><![CDATA[My_DS]]></dataShape>",
+            "<dataShape><![CDATA[My_]]><!-- note --><![CDATA[DS]]></dataShape>",
+        );
+        let mut configuration = extract(text.as_bytes()).unwrap();
+        assert_eq!(configuration.data_shape, "My_DS");
+        configuration.data_shape = "Other_DS".to_string();
+        let error = sync(text.as_bytes(), &configuration)
+            .unwrap_err()
+            .to_string();
+        assert!(
+            error.contains("markup between its CDATA sections"),
+            "{error}"
+        );
     }
 
     #[test]

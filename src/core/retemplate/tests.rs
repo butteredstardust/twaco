@@ -472,3 +472,32 @@ fn a_file_changed_since_the_plan_is_refused() {
     std::fs::write(&path, bytes).unwrap();
     assert!(apply(&planned).is_err());
 }
+
+#[test]
+fn a_name_that_would_break_out_of_its_attribute_is_refused_before_anything_is_read() {
+    let fixture = fixture();
+    for bad in ["P.New\" injected=\"1", "P.<x>", "P.a&b", ""] {
+        let as_template = plan(
+            &fixture.solution,
+            &Request {
+                template: Some(bad.to_string()),
+                ..request("P.T")
+            },
+        );
+        let as_shape = plan(
+            &fixture.solution,
+            &Request {
+                add_shapes: vec![bad.to_string()],
+                ..request("P.T")
+            },
+        );
+        for result in [as_template, as_shape] {
+            match result {
+                Err(RetemplateError::Invalid(why)) => {
+                    assert!(why.contains("is not an entity name"), "{bad:?}: {why}")
+                }
+                other => panic!("{bad:?}: {other:?}"),
+            }
+        }
+    }
+}

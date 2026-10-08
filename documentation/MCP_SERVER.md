@@ -37,7 +37,9 @@ pass `profile` to choose one.
 
 - **Dry runs by default.** Every tool that changes a server takes `dry_run`, which defaults to
   `true`: the result is the plan. The agent passes `dry_run: false` to act. That includes
-  `call`, because twaco cannot know whether a service writes.
+  `call`, because twaco cannot know whether a service writes. `db_query` has none: it runs
+  read-only SQL through a temporary Thing it deletes again, and `db_clean` removes one a crash
+  left behind.
 - **Summaries first.** A result is a compact summary: counts, the first few items, what to ask
   for next. `detail: true` returns everything. A check over a large solution costs a few
   hundred tokens, not tens of thousands.

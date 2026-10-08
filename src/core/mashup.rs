@@ -147,6 +147,14 @@ pub fn sync(src: &[u8], assets: &Assets) -> Result<(Vec<u8>, Vec<String>), Mashu
         return Ok((src.to_vec(), changes));
     }
 
+    // The write replaces every CDATA section of the payload as one; markup between them would go.
+    let tokens = super::scan::tokenize(src).map_err(MashupError::Scan)?;
+    if !super::scan::only_cdata_and_text(&tokens, src, span, true) {
+        return Err(MashupError::Malformed(
+            "<mashupContent> holds markup between its CDATA sections, which a sync would drop; take it out of the entity file".to_string(),
+        ));
+    }
+
     // Re-indented to sit inside its `<code>`-style element the way the document already does,
     // and written as one CDATA section, split if the content contains the terminator.
     let existing = String::from_utf8_lossy(span.of(src));
@@ -285,6 +293,21 @@ mod tests {
         let zebra = content.find("zebra").unwrap();
         let apple = content.find("apple").unwrap();
         assert!(zebra < apple, "keys were reordered:\n{content}");
+    }
+
+    #[test]
+    fn markup_between_content_sections_is_refused_rather_than_dropped() {
+        let src = b"<Entities><Mashups><Mashup name=\"M\" projectName=\"P\"><mashupContent>                    <![CDATA[{\"UI\": ]]><!-- note --><![CDATA[{}}]]></mashupContent>                    </Mashup></Mashups></Entities>"
+            .to_vec();
+        let mut assets = extract(&src).unwrap();
+        assets.css = ".a { color: red; }
+"
+        .to_string();
+        let error = sync(&src, &assets).unwrap_err().to_string();
+        assert!(
+            error.contains("markup between its CDATA sections"),
+            "{error}"
+        );
     }
 
     #[test]

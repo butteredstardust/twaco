@@ -830,9 +830,24 @@ fn run_hook(solution: &Solution, hook: &super::config::Check) -> GateResult {
         return result;
     }
 
+    // A hook given credentials may print them; twaco prints what a hook says, so they are taken
+    // out first, whatever form the hook printed.
+    let secrets = if hook.needs_credentials {
+        credential_values()
+    } else {
+        Vec::new()
+    };
+    let hide = |text: &str| {
+        let mut out = text.to_string();
+        for secret in &secrets {
+            out = out.replace(secret.as_str(), "<redacted>");
+        }
+        out
+    };
+
     // Findings protocol: JSON Lines that parse become findings; anything else is kept as text
     // and attributed to the hook, so a check that prints its own summary is still readable.
-    let stdout = String::from_utf8_lossy(&finished.stdout);
+    let stdout = hide(&String::from_utf8_lossy(&finished.stdout));
     let mut prose = Vec::new();
     for line in stdout.lines() {
         result.examined += 1;
@@ -847,7 +862,7 @@ fn run_hook(solution: &Solution, hook: &super::config::Check) -> GateResult {
     let succeeded = finished.status.map(|s| s.success()).unwrap_or(false);
     if !succeeded && result.findings.is_empty() {
         let detail = if prose.is_empty() {
-            sanitise(String::from_utf8_lossy(&finished.stderr).trim())
+            sanitise(hide(&String::from_utf8_lossy(&finished.stderr)).trim())
         } else {
             prose.join("; ")
         };
@@ -959,6 +974,25 @@ fn spawn_reader<R: std::io::Read + Send + 'static>(
         }
         (kept, truncated)
     })
+}
+
+/// The secret values a hook with `needs_credentials` inherits: the password, app key, token or
+/// secret variables twaco and its `TWX_` spellings read, as set in this process.
+fn credential_values() -> Vec<String> {
+    let mut values: Vec<String> = std::env::vars()
+        .filter(|(key, value)| {
+            let key = key.to_ascii_uppercase();
+            (key.starts_with("TWACO_") || key.starts_with("TWX_"))
+                && ["PASSWORD", "KEY", "SECRET", "TOKEN"]
+                    .iter()
+                    .any(|word| key.contains(word))
+                && value.len() >= 4
+        })
+        .map(|(_, value)| value)
+        .collect();
+    // Longest first, so a secret that contains another is replaced whole.
+    values.sort_by_key(|value| std::cmp::Reverse(value.len()));
+    values
 }
 
 /// Strip the control characters a hook could use to forge output.
@@ -1096,15 +1130,23 @@ mod tests {
             "a hook that did not ask for credentials saw one: {:?}",
             without.prose
         );
+        // It got them (the variables are set), and twaco does not print what it printed of them.
         assert!(
             with.prose
                 .iter()
-                .any(|line| line.contains("TWACO_HOOK_PROBE_SECRET=probe-value-7f3a"))
+                .any(|line| line.contains("TWACO_HOOK_PROBE_SECRET=<redacted>"))
                 && with
                     .prose
                     .iter()
-                    .any(|line| line.contains("TWX_HOOK_PROBE_SECRET=probe-value-7f3a")),
+                    .any(|line| line.contains("TWX_HOOK_PROBE_SECRET=<redacted>")),
             "a hook that declared needs_credentials gets them: {:?}",
+            with.prose
+        );
+        assert!(
+            with.prose
+                .iter()
+                .all(|line| !line.contains("probe-value-7f3a")),
+            "what a hook prints of its credentials is not printed: {:?}",
             with.prose
         );
     }

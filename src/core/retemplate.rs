@@ -251,6 +251,24 @@ pub fn plan(solution: &Solution, request: &Request) -> Result<Plan, RetemplateEr
             "nothing to change: give --to <template>, --add-shapes or --remove-shapes".to_string(),
         ));
     }
+    // These go into XML attributes as written: a quote or an angle bracket would end the
+    // attribute and write markup nobody asked for, and no entity name holds one.
+    for name in request
+        .template
+        .iter()
+        .chain(&request.add_shapes)
+        .chain(&request.remove_shapes)
+    {
+        if name.is_empty()
+            || name
+                .chars()
+                .any(|c| matches!(c, '"' | '\'' | '<' | '>' | '&') || c.is_control())
+        {
+            return Err(RetemplateError::Invalid(format!(
+                "{name:?} is not an entity name: a name holds no quote, <, > or & and is not empty"
+            )));
+        }
+    }
     let mut discovery = workspace::discover(solution);
     if !discovery.unreadable.is_empty() {
         return Err(RetemplateError::Unreadable {

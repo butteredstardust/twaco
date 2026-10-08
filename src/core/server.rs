@@ -485,7 +485,19 @@ impl ServerError {
 }
 
 impl fmt::Display for ServerError {
+    /// Every message passes through here on its way out, so credentials written into the
+    /// profile's address are hidden wherever the address appears, a transport error's own text
+    /// included.
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let mut text = String::new();
+        self.describe(&mut text)?;
+        f.write_str(&super::profile::hide_url_credentials(&text))
+    }
+}
+
+impl ServerError {
+    fn describe(&self, f: &mut String) -> fmt::Result {
+        use std::fmt::Write;
         match self {
             ServerError::InvalidUrl(why) => write!(f, "invalid server URL: {why}"),
             ServerError::Transport { method, url, why } => {
@@ -577,6 +589,11 @@ fn checked_bytes(
 /// form is replaced before a shorter one it contains.
 fn secrets_of(profile: &Profile) -> Vec<String> {
     let mut raw: Vec<&str> = vec![profile.password.as_str()];
+    // An address may carry its own `user:secret`; the server can echo it in a reply.
+    if let Some(credentials) = super::profile::url_credentials(&profile.url) {
+        raw.push(credentials);
+        raw.extend(credentials.split_once(':').map(|(_, secret)| secret));
+    }
     raw.extend(profile.app_key.as_deref());
     for (key, value) in &profile.extra {
         let key = key.to_ascii_lowercase();
@@ -842,6 +859,41 @@ fn transport_with_timeout(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn credentials_written_into_the_address_never_reach_an_error_message() {
+        let url = "https://alice:s3cretToken@twx.example/Thingworx/Things/T".to_string();
+        for error in [
+            ServerError::Http {
+                method: Method::Get,
+                status: 500,
+                url: url.clone(),
+                body: "failed for https://alice:s3cretToken@twx.example/".to_string(),
+            },
+            ServerError::Transport {
+                method: Method::Get,
+                url: url.clone(),
+                why: format!("connection to {url} timed out"),
+            },
+        ] {
+            let text = error.to_string();
+            assert!(
+                !text.contains("s3cretToken") && !text.contains("alice"),
+                "{text}"
+            );
+            assert!(text.contains("https://***@twx.example/Thingworx"), "{text}");
+        }
+        let profile = Profile {
+            url: "https://alice:s3cretToken@twx.example/Thingworx/".to_string(),
+            username: "u".to_string(),
+            password: "p".to_string(),
+            app_key: None,
+            extra: Default::default(),
+        };
+        assert!(secrets_of(&profile)
+            .iter()
+            .any(|secret| secret == "s3cretToken"));
+    }
 
     #[test]
     fn entity_and_service_names_are_encoded_as_whole_segments() {

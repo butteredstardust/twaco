@@ -121,8 +121,19 @@ pub fn entities_in_xml(xml: &[u8]) -> Result<Vec<EntityKey>, ImportError> {
     Ok(found)
 }
 
+/// The most one XML entry of an import zip may expand to: far beyond any real export.
+pub const MAX_ENTRY_BYTES: u64 = 512 << 20;
+
 /// The entities of an import file: one export XML, or a zip of them (the `.xml` entries).
 pub fn entities_in_file(file_name: &str, bytes: &[u8]) -> Result<Vec<EntityKey>, ImportError> {
+    entities_within(file_name, bytes, MAX_ENTRY_BYTES)
+}
+
+fn entities_within(
+    file_name: &str,
+    bytes: &[u8],
+    limit: u64,
+) -> Result<Vec<EntityKey>, ImportError> {
     if !bytes.starts_with(b"PK") {
         return entities_in_xml(bytes)
             .map_err(|e| ImportError::Invalid(format!("{file_name}: {e}")));
@@ -139,9 +150,17 @@ pub fn entities_in_file(file_name: &str, bytes: &[u8]) -> Result<Vec<EntityKey>,
         }
         let name = entry.name().to_string();
         let mut xml = Vec::new();
-        entry
+        // A zip says how big an entry is, but a crafted one can lie and expand without end:
+        // read at most one byte past the limit, and refuse what reaches it.
+        (&mut entry)
+            .take(limit + 1)
             .read_to_end(&mut xml)
             .map_err(|e| ImportError::Invalid(format!("{file_name}/{name}: {e}")))?;
+        if xml.len() as u64 > limit {
+            return Err(ImportError::Invalid(format!(
+                "{file_name}/{name} expands to more than {limit} bytes; nothing was imported",
+            )));
+        }
         found.extend(
             entities_in_xml(&xml)
                 .map_err(|e| ImportError::Invalid(format!("{file_name}/{name}: {e}")))?,
@@ -426,6 +445,26 @@ mod tests {
                 .len(),
             3
         );
+    }
+
+    #[test]
+    fn a_zip_entry_that_expands_past_the_limit_is_refused_before_it_is_all_read() {
+        let mut buffer = std::io::Cursor::new(Vec::new());
+        {
+            use std::io::Write;
+            let mut zip = zip::ZipWriter::new(&mut buffer);
+            zip.start_file("big.xml", zip::write::SimpleFileOptions::default())
+                .unwrap();
+            zip.write_all(XML).unwrap();
+            zip.write_all(&vec![b' '; 4096]).unwrap();
+            zip.finish().unwrap();
+        }
+        let bytes = buffer.into_inner();
+        assert!(entities_within("e.zip", &bytes, 1 << 20).is_ok());
+        let error = entities_within("e.zip", &bytes, 1024)
+            .unwrap_err()
+            .to_string();
+        assert!(error.contains("expands to more than 1024 bytes"), "{error}");
     }
 
     #[test]

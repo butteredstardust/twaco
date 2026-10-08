@@ -125,7 +125,22 @@ fn root(solution: &Solution) -> PathBuf {
 }
 
 /// A file name for an entity: names are plain, but nothing is trusted to be a path segment.
+/// Every byte of anything else is written `%XX`, so two names never share a file.
 fn file_stem(name: &str) -> String {
+    let mut out = String::with_capacity(name.len());
+    for byte in name.bytes() {
+        if byte.is_ascii_alphanumeric() || matches!(byte, b'_' | b'.' | b'-') {
+            out.push(byte as char);
+        } else {
+            out.push_str(&format!("%{byte:02X}"));
+        }
+    }
+    out
+}
+
+/// How sets saved before 0.1.5 named a file: the low byte of each character, so `é` (U+00E9)
+/// and `ǩ` (U+01E9) collided. Read only, to restore such a set.
+fn legacy_file_stem(name: &str) -> String {
     name.chars()
         .map(|c| {
             if c.is_ascii_alphanumeric() || matches!(c, '_' | '.' | '-') {
@@ -140,6 +155,22 @@ fn file_stem(name: &str) -> String {
 fn entity_path(dir: &Path, collection: &str, name: &str) -> PathBuf {
     dir.join(file_stem(collection))
         .join(format!("{}.xml", file_stem(name)))
+}
+
+/// Where a set holds an entity: as this version names it, or as an older one did.
+fn saved_path(dir: &Path, collection: &str, name: &str) -> PathBuf {
+    let path = entity_path(dir, collection, name);
+    if path.exists() {
+        return path;
+    }
+    let legacy = dir
+        .join(legacy_file_stem(collection))
+        .join(format!("{}.xml", legacy_file_stem(name)));
+    if legacy.exists() {
+        legacy
+    } else {
+        path
+    }
 }
 
 /// Save the server's current version of each entity that exists. Entities the server does not
@@ -308,7 +339,7 @@ pub fn restore(
                 why: format!("{label} cannot address an entity ({why})"),
             }
         })?;
-        let path = entity_path(&set.dir, &item.collection, &item.name);
+        let path = saved_path(&set.dir, &item.collection, &item.name);
         let bytes = std::fs::read(&path).map_err(|error| BackupError::Io {
             path: path.clone(),
             why: error.to_string(),
@@ -597,6 +628,31 @@ mod tests {
     }
 
     #[test]
+    fn names_with_the_same_low_byte_keep_their_own_files_and_an_old_set_still_restores() {
+        let (root, solution) = solution();
+        let first = XML.replace("\"A\"", "\"Café\"");
+        let second = XML.replace("\"A\"", "\"Cafǩ\"");
+        let fake = Fake::default()
+            .with("Things", "Café", &first)
+            .with("Things", "Cafǩ", &second);
+        let set = save(&fake, &solution, "r", &pairs(&["Café", "Cafǩ"]), "s")
+            .unwrap()
+            .unwrap();
+        for (name, xml) in [("Café", &first), ("Cafǩ", &second)] {
+            let saved = std::fs::read_to_string(entity_path(&set.dir, "Things", name)).unwrap();
+            assert_eq!(&saved, xml, "{name}");
+        }
+        // A set an older twaco saved names the file by the low byte only.
+        let legacy = set.dir.join("Things").join("Caf%E9.xml");
+        std::fs::rename(entity_path(&set.dir, "Things", "Café"), &legacy).unwrap();
+        let only = ["Things/Café".to_string()];
+        let planned = restore(&fake, &set, &only, false).unwrap();
+        assert_eq!(planned.len(), 1);
+        assert_eq!(planned[0].status, Status::WouldReplace);
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[test]
     fn restore_plans_by_default_imports_on_apply_and_confirms_each_entity() {
         let (root, solution) = solution();
         let fake = Fake::default()
@@ -683,5 +739,8 @@ mod tests {
         assert_eq!(forced_overwrites(decisions), pairs(&["Unknown", "Changed"]));
         assert_eq!(file_stem("A.b_c-1"), "A.b_c-1");
         assert_eq!(file_stem("../x"), "..%2Fx");
+        // Different characters with the same low byte used to share a file.
+        assert_ne!(file_stem("Café"), file_stem("Cafǩ"));
+        assert_eq!(file_stem("Café"), "Caf%C3%A9");
     }
 }
