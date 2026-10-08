@@ -4,4 +4,8 @@ exit: 2
 --- stdout
 
 --- stderr
-twaco: docs takes no entity name
+twaco: unexpected argument 'Audit' found
+
+Usage: twaco docs [--out <file>] [--force]
+
+For more information, try '--help'.

@@ -5,6 +5,6 @@ pub(crate) mod entity;
 pub(crate) mod info;
 pub(crate) mod refactor;
 pub(crate) mod source;
+pub(crate) mod spec;
 #[cfg(test)]
 mod tests;
-pub(crate) mod usage;

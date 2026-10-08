@@ -3,7 +3,7 @@
 Every twaco command and flag, from `twaco` run with no arguments. Commands that change a server
 print a plan unless given `--apply`; `call` is the exception, because twaco cannot tell whether a
 service writes. A server command takes `--profile <name>` (default: `default`); see
-[Configuration](CONFIGURATION.md#server-profiles).
+[Configuration](CONFIGURATION.md#server-profiles). `twaco <command> --help` shows one command.
 
 ## Set up
 
@@ -302,6 +302,9 @@ Flags described once for the commands that list them, and exit codes.
 
 ```text
 --project <name>            narrow to one project of the solution
---version
+--profile <name>            the server profile (default: default)
+--version                   twaco's version and the commit it was built from
+<command> --help            one command, and its flags
+
 exit: 0 done, 1 a --check found work, 2 failed
 ```

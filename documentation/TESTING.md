@@ -46,6 +46,25 @@ entity, and an entity whose name no rename may take.
 Run them after any change to `scan`, `splice`, `sidecar`, `datashape`, `datatable` or
 `mashup`.
 
+## A strict XML parser as a second opinion
+
+twaco reads and writes XML with its own scanner and byte splices, and a writer's output is read
+back by that same scanner, so a blind spot in it would pass its own checks. roxmltree, a strict
+parser that shares no code with twaco, is a test-only dependency used in three places:
+
+- **Every write in a unit test.** `src/xml_oracle.rs`: whenever `workspace::atomic_replace` or a
+  transaction writes a `.xml` file during `cargo test --lib`, roxmltree must accept it, or the test
+  panics. Release builds do not contain this check.
+- **The corpus.** `twaco_reads_every_document_as_a_strict_xml_parser_does` reads every XML file
+  of the corpus with both. Where roxmltree accepts a document, twaco's scanner must read the same
+  elements, decoded attributes and text (CDATA merged, line ends and attribute white space
+  normalised as XML 1.0 says). A document only the lenient scanner reads must be refused by the
+  entity reader that gates, statuses and deploys go through. Over 11,962 files of eight real
+  repositories (2026-10-07), one malformed file outside ThingWorx is the only difference, and the
+  entity reader refuses it.
+- **The generated documents.** The property tests check that their generator really produces
+  well-formed documents, and that rewriting CDATA payloads keeps them well-formed.
+
 ## The command-line snapshots
 
 `tests/snapshots.rs` runs 41 offline scenarios (usage, refusals, plans, JSON lines) and compares the

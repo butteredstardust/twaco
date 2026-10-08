@@ -98,7 +98,10 @@ fn node() -> impl Strategy<Value = Node> {
     let leaf = prop_oneof![
         "[a-zA-Z0-9 \n\t.,é日-]{0,12}".prop_map(Node::Text),
         "[a-zA-Z0-9 >&é日]{0,10}".prop_map(Node::Comment),
-        "[a-z]{1,4} [a-z0-9 =\"]{0,8}".prop_map(Node::Pi),
+        // XML 1.0 [17]: `xml`, in any case, is not a processing instruction's target.
+        "[a-z]{1,4} [a-z0-9 =\"]{0,8}"
+            .prop_filter("xml is reserved", |pi| !pi.starts_with("xml "))
+            .prop_map(Node::Pi),
         cdata_payload().prop_map(Node::Cdata),
         (name(), attributes(), any::<bool>()).prop_map(|(name, attributes, short)| Node::Element {
             name,
@@ -164,36 +167,41 @@ fn xml_doc() -> impl Strategy<Value = Doc> {
         attributes(),
         prop::collection::vec(node(), 0..5),
     )
-        .prop_map(|(bom, declaration, doctype, root, attributes, children)| {
-            let mut text = String::new();
-            if declaration {
-                text.push_str("<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n");
-            }
-            if doctype {
-                text.push_str("<!DOCTYPE Entities>\n");
-            }
-            let mut log = Vec::new();
-            render(
-                &Node::Element {
-                    name: root,
-                    attributes,
-                    children,
-                    short: false,
-                },
-                &mut text,
-                &mut log,
-            );
-            text.push('\n');
-            let mut bytes = Vec::new();
-            if bom {
-                bytes.extend_from_slice(scan::UTF8_BOM);
-            }
-            bytes.extend_from_slice(text.as_bytes());
-            Doc {
-                bytes,
-                attributes: log,
-            }
-        })
+        .prop_map(
+            |(bom, declaration, doctype, root, mut attributes, children)| {
+                // `ns:tag` keeps a prefixed name in play; declaring the prefix makes the document
+                // well-formed with namespaces too, as a strict parser reads it.
+                attributes.push(("xmlns:ns".to_string(), '"', "urn:twaco:test".to_string()));
+                let mut text = String::new();
+                if declaration {
+                    text.push_str("<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n");
+                }
+                if doctype {
+                    text.push_str("<!DOCTYPE Entities>\n");
+                }
+                let mut log = Vec::new();
+                render(
+                    &Node::Element {
+                        name: root,
+                        attributes,
+                        children,
+                        short: false,
+                    },
+                    &mut text,
+                    &mut log,
+                );
+                text.push('\n');
+                let mut bytes = Vec::new();
+                if bom {
+                    bytes.extend_from_slice(scan::UTF8_BOM);
+                }
+                bytes.extend_from_slice(text.as_bytes());
+                Doc {
+                    bytes,
+                    attributes: log,
+                }
+            },
+        )
 }
 
 fn arbitrary_bytes() -> impl Strategy<Value = Vec<u8>> {
@@ -555,5 +563,27 @@ proptest! {
         let after = scan::tokenize(&out).expect("new text inside CDATA cannot break the markup");
         let kinds = |tokens: &[Token]| tokens.iter().map(|t| t.kind).collect::<Vec<_>>();
         prop_assert_eq!(kinds(&after), kinds(&tokens));
+        prop_assert!(strict_parse(&out).is_ok(), "{}", String::from_utf8_lossy(&out));
     }
+
+    /// Every property above leans on the generator making well-formed documents; a strict parser
+    /// that shares no code with twaco checks that it does.
+    #[test]
+    fn the_generated_documents_are_well_formed(doc in xml_doc()) {
+        let parsed = strict_parse(&doc.bytes);
+        prop_assert!(parsed.is_ok(), "{:?}\n{}", parsed.err(), String::from_utf8_lossy(&doc.bytes));
+    }
+}
+
+/// roxmltree's reading of a document, DOCTYPE allowed. A BOM is not part of the text it takes.
+fn strict_parse(bytes: &[u8]) -> Result<(), String> {
+    let bytes = bytes.strip_prefix(scan::UTF8_BOM).unwrap_or(bytes);
+    let text = std::str::from_utf8(bytes).map_err(|e| e.to_string())?;
+    let options = roxmltree::ParsingOptions {
+        allow_dtd: true,
+        ..roxmltree::ParsingOptions::default()
+    };
+    roxmltree::Document::parse_with_options(text, options)
+        .map(|_| ())
+        .map_err(|e| e.to_string())
 }

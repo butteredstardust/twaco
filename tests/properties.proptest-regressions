@@ -1,0 +1,8 @@
+# Seeds for failure cases proptest has generated in the past. It is
+# automatically read and these particular cases re-run before any
+# novel cases are generated.
+#
+# It is recommended to check this file in to source control so that
+# everyone who runs the test benefits from these saved cases.
+cc 598d91dabf160e8e7457646e402cdcd3bd686b2e63f9ea09c0f8ca611e47d7d9 # shrinks to doc = Doc { bytes: [60, 97, 62, 60, 110, 115, 58, 116, 97, 103, 62, 60, 47, 110, 115, 58, 116, 97, 103, 62, 60, 47, 97, 62, 10], attributes: [[], []] }
+cc fdf0193e48b9e0c0e6f59fa1df455202f9535e63d52a7e22d19a5a9184144aca # shrinks to doc = Doc { bytes: [60, 97, 62, 60, 97, 62, 60, 110, 115, 58, 116, 97, 103, 62, 60, 47, 110, 115, 58, 116, 97, 103, 62, 60, 47, 97, 62, 60, 47, 97, 62, 10], attributes: [[], [], []] }, replacement = ""

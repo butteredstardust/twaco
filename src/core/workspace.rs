@@ -517,6 +517,8 @@ pub fn write_entity(path: &Path, bytes: &[u8]) -> Result<(), WorkspaceError> {
 /// mode of the file it replaces (an executable bit, read-only), and is renamed over it; whatever
 /// fails, it is removed. A crash leaves a hidden `*.twaco-tmp` that the workspace lock sweeps.
 pub fn atomic_replace(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
+    #[cfg(test)]
+    crate::xml_oracle::check_write(path, bytes);
     static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
     let parent = path
         .parent()

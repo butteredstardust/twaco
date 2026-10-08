@@ -209,6 +209,10 @@ impl<'a> Transaction<'a> {
         before: Option<Vec<u8>>,
         after: Option<Vec<u8>>,
     ) -> Result<(), TransactionError> {
+        #[cfg(test)]
+        if let Some(after) = &after {
+            crate::xml_oracle::check_write(path, after);
+        }
         let relative = paths::relative(self.root, path).map_err(TransactionError::Invalid)?;
         paths::reject_links(self.root, &relative).map_err(TransactionError::Invalid)?;
         // A file may be rewritten and also renamed (with the folder it is in); nothing else is
