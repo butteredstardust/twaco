@@ -22,6 +22,15 @@ All notable changes to twaco are recorded here. The format follows
 - `documentation/MCP_SERVER.md` says why `init` and `update` have no tool, and what differs
   between the tools and the commands on purpose.
 
+### Fixed
+
+- `doctor` showed a profile's `url` as written, credentials in it included; it now shows `***`
+  in their place.
+- `bundle --backend-only` worked out its notes over every collection instead of the ones it
+  bundles, so a reference to an entity the backend bundle leaves out went unreported.
+- An MCP `config_table` restore read a backup from any path on the machine; like every file a
+  tool reads, it must now be inside the solution.
+
 ## [0.1.4] - 2026-10-08
 
 ### Added

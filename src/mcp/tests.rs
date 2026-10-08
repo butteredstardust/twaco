@@ -1888,6 +1888,25 @@ fn the_tools_do_what_the_command_line_does() {
         assert_eq!(body["code"], code, "{backup}: {body}");
     }
 
+    // A restore reads its backup only from inside the solution, before the server is asked.
+    let outside = std::env::temp_dir().join(format!("twaco-outside-{}.json", crate::test_nonce()));
+    std::fs::write(&outside, "{}").unwrap();
+    let (failed, body) = call_tool(
+        &root,
+        "config_table",
+        json!({"thing": "P.T", "table": "Settings", "action": "restore", "backup": outside.to_string_lossy()}),
+    );
+    assert!(failed, "{body}");
+    assert_eq!(body["code"], "invalid_arguments", "{body}");
+    assert!(
+        body["error"]
+            .as_str()
+            .unwrap()
+            .contains("outside the solution"),
+        "{body}"
+    );
+    let _ = std::fs::remove_file(&outside);
+
     // doctor works without a profile, and says the server commands need one.
     let (failed, body) = call_tool(&root, "doctor", json!({"profile": "no-such-profile"}));
     assert!(!failed && body["ok"] == true, "{body}");
