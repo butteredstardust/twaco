@@ -390,3 +390,30 @@ fn a_server_audit_reports_the_entities_audited_and_then_the_entities_read() {
     assert_eq!(names[1], "comparing permissions");
     assert!(recorder.advanced() > 0);
 }
+
+#[test]
+fn a_platform_push_reports_one_step_per_entry_and_names_only_entities() {
+    use super::platform;
+    use crate::core::progress::{Event, Recorder};
+    let (_dir, solution, _) = solution();
+    let fake = Fake::default();
+    let (loaded, _) = audit::load(&solution, None).unwrap();
+    let entries: u64 = loaded
+        .iter()
+        .map(|one| one.policy.platform.len() as u64)
+        .sum();
+    assert!(entries > 0);
+    for apply in [false, true] {
+        let recorder = Recorder::default();
+        platform::run_with_progress(&fake, &loaded, apply, &recorder);
+        assert_eq!(
+            recorder.phases(),
+            [("checking platform entries".to_string(), Some(entries))]
+        );
+        assert_eq!(recorder.advanced(), entries);
+        assert_eq!(recorder.events().last(), Some(&Event::Finish));
+        assert!(recorder.events().iter().any(
+            |event| matches!(event, Event::Message(text) if text == "Resources/EntityServices")
+        ));
+    }
+}

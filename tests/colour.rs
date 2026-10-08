@@ -70,3 +70,12 @@ fn the_error_prefix_is_painted_on_stderr_only_when_asked() {
     let plain = twaco(&["no-such-command"], &[]);
     assert!(text(&plain.stderr).starts_with("twaco: "));
 }
+
+#[test]
+fn no_color_wins_over_force_color_on_both_streams() {
+    let vars = [("NO_COLOR", "1"), ("FORCE_COLOR", "1")];
+    let check = twaco(&["check"], &vars);
+    assert!(!text(&check.stdout).contains('\x1b'));
+    let error = twaco(&["no-such-command"], &vars);
+    assert!(text(&error.stderr).starts_with("twaco: "));
+}

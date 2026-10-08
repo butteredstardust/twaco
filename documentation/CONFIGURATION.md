@@ -326,10 +326,11 @@ twaco entity status --all --log-file twaco.log
 Some commands send many requests or wait a long time for the server. These commands show
 progress on stderr:
 
-- `deploy`
+- `deploy`, including the live parse gate, one step per service script
 - `entity status` and `entity push`
 - `check --live`, one step per service script
-- `permissions` (compare and push), `permissions audit` and `permissions apply`
+- `permissions` (compare and push), `permissions push --platform` (one step per platform
+  entry), `permissions audit` and `permissions apply`
 - `repo` (list, status, get, change and sync)
 - `types --platform`, and the type check of `types --check`
 - `import` and `export`
@@ -350,7 +351,7 @@ Twaco colours status words in terminal output. Each stream is decided on its own
 - Stdout carries `ok`, `FAIL`, `BROKEN`, `warn` and the status verdicts.
 - Stderr carries the `twaco:` prefix of an error.
 - Colour is off when the stream is not a terminal. Piped output has no escape codes.
-- `NO_COLOR` set to any non-empty value turns colour off.
+- `NO_COLOR` set to any non-empty value turns colour off. It wins over every other setting.
 - `FORCE_COLOR` set to `1` turns colour on, also for a pipe. `NO_COLOR` wins over `FORCE_COLOR`.
 - A CI run (`CI` set) turns colour off unless `FORCE_COLOR` is set.
 

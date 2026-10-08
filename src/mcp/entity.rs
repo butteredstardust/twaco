@@ -423,7 +423,7 @@ pub(crate) fn permissions_push_tool(
             ));
         }
         use crate::core::permissions::platform::State;
-        let report = commands::permissions::execute_platform(
+        let report = commands::permissions::execute_platform_with_progress(
             solution,
             &commands::permissions::PlatformRequest {
                 project: request.project.as_ref().cloned(),
@@ -435,6 +435,7 @@ pub(crate) fn permissions_push_tool(
                 profile: request.profile,
             },
             server::Client::new,
+            progress,
         )
         .map_err(ToolError::coded)?;
         return Ok(json!({

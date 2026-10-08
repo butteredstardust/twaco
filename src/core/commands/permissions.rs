@@ -277,15 +277,30 @@ where
     R: permissions::server_audit::Remote,
     F: FnOnce(profile::Profile) -> R,
 {
+    execute_platform_with_progress(solution, request, open, &progress::NONE)
+}
+
+/// Like [`execute_platform`], and report one step per platform entry.
+pub fn execute_platform_with_progress<R, F>(
+    solution: &Solution,
+    request: &PlatformRequest,
+    open: F,
+    progress: &dyn Progress,
+) -> Result<permissions::platform::PlatformReport, AuditCommandError>
+where
+    R: permissions::server_audit::Remote,
+    F: FnOnce(profile::Profile) -> R,
+{
     let (loaded, _) = permissions::audit::load(solution, request.project.as_deref())
         .map_err(AuditCommandError::Audit)?;
     let profile =
         profile::load(&solution.root, &request.profile).map_err(AuditCommandError::Profile)?;
     let remote = open(profile);
-    Ok(permissions::platform::run(
+    Ok(permissions::platform::run_with_progress(
         &remote,
         &loaded,
         matches!(request.mode, Mode::Apply),
+        progress,
     ))
 }
 

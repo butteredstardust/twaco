@@ -930,14 +930,18 @@ fn permissions_platform_cmd(solution: &Solution, args: &Args) -> u8 {
             .clone()
             .unwrap_or_else(|| "default".to_string()),
     };
-    let report =
-        match commands::permissions::execute_platform(solution, &request, server::Client::new) {
-            Ok(report) => report,
-            Err(error) => {
-                eprintln!("{} {error}", style::prefix());
-                return FAILED;
-            }
-        };
+    let report = match commands::permissions::execute_platform_with_progress(
+        solution,
+        &request,
+        server::Client::new,
+        &super::progress::reporter(),
+    ) {
+        Ok(report) => report,
+        Err(error) => {
+            eprintln!("{} {error}", style::prefix());
+            return FAILED;
+        }
+    };
     if args.has("--json") {
         println!(
             "{}",

@@ -15,9 +15,22 @@ pub(crate) struct Bars {
     bar: Mutex<Option<ProgressBar>>,
 }
 
-/// The reporter for this process: drawing when stderr is a terminal and logs are not on stderr.
+/// Decide whether bars draw. They draw only on a terminal, and only when logs stay off stderr.
+fn draws(stderr_is_terminal: bool, logs_on_stderr: bool) -> bool {
+    stderr_is_terminal && !logs_on_stderr
+}
+
+/// The reporter for the given conditions: indicatif bars when they draw, otherwise silent.
+fn reporter_for(stderr_is_terminal: bool, logs_on_stderr: bool) -> Bars {
+    Bars::new(draws(stderr_is_terminal, logs_on_stderr))
+}
+
+/// The reporter for this process.
 pub(crate) fn reporter() -> Bars {
-    Bars::new(std::io::stderr().is_terminal() && !twaco::core::diagnostics::writes_to_stderr())
+    reporter_for(
+        std::io::stderr().is_terminal(),
+        twaco::core::diagnostics::writes_to_stderr(),
+    )
 }
 
 impl Bars {
@@ -26,6 +39,12 @@ impl Bars {
             enabled,
             bar: Mutex::new(None),
         }
+    }
+
+    /// True when this reporter builds indicatif bars.
+    #[cfg(test)]
+    fn is_drawing(&self) -> bool {
+        self.enabled
     }
 
     fn slot(&self) -> std::sync::MutexGuard<'_, Option<ProgressBar>> {
@@ -88,6 +107,28 @@ impl Drop for Bars {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn bars_draw_only_on_a_terminal_without_logs_on_stderr() {
+        assert!(draws(true, false));
+        assert!(!draws(true, true));
+        assert!(!draws(false, false));
+        assert!(!draws(false, true));
+    }
+
+    #[test]
+    fn the_reporter_for_a_terminal_without_logs_builds_indicatif_bars() {
+        let bars = reporter_for(true, false);
+        assert!(bars.is_drawing());
+        bars.start("phase", Some(2));
+        assert!(bars.slot().is_some());
+        for (terminal, logs) in [(true, true), (false, false), (false, true)] {
+            let quiet = reporter_for(terminal, logs);
+            assert!(!quiet.is_drawing());
+            quiet.start("phase", Some(2));
+            assert!(quiet.slot().is_none());
+        }
+    }
 
     #[test]
     fn a_disabled_reporter_makes_no_bar() {
