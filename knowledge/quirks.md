@@ -1006,6 +1006,23 @@ filter. Return an empty list on failure rather than matching the whole server.
 `aspects: { isSystemObject: false }` is also worth a deliberate decision rather than a copy-paste:
 it can remove `GenericThing`, which is a legitimate template for a configured filter to name.
 
+## `SpotlightSearchV2` text is a whole-name match, and the list stops at 500 without saying so
+
+Verified live on 10.0: `searchExpression` is not "contains". `"Card"` finds only an entity named
+exactly `Card` (in any case), and `"Acme.Ord"` finds nothing. Wildcards make it a pattern:
+`"*Card*"` finds every entity with `Card` anywhere in its name **or its description** (an entity
+whose description mentions "cards" matches), `"*_DS"` every name ending `_DS`. So wrap a person's
+text in `*...*` unless it already holds a `*`.
+
+With no `maxItems`, the search returns **at most 500 rows** and nothing says the list was cut;
+`maxItems` raises it (5000 returned all 604 DataShapes). Ask for one more row than you mean to
+show, and say so when it comes back. `maxSearchItems` is a different limit, on how many entities
+are scanned, and cuts results unpredictably; leave it alone.
+
+A `projectName` that does not exist matches nothing, exactly like a project with no entities.
+When a project search comes back empty, check `Projects/<name>` exists before reporting "none".
+`twaco search` does all of this.
+
 ## Importing a localization table merges its tokens; it does not replace the table
 
 A `LocalizationTable` export such as `Default` or `fr` is the platform's own entity, and an

@@ -8,6 +8,13 @@ All notable changes to twaco are recorded here. The format follows
 
 ### Added
 
+- `twaco search` and the MCP `search` tool find server entities as Composer's Spotlight does:
+  text anywhere in a name or a description, entity types (singular or plural, an unknown one
+  refused instead of searching everything), a project, and a limit that says when it cut the
+  list. Results are `Collection/Name`, ready for `entity get` or `export`.
+- The MCP `entity_get` tool returns one entity's XML as the server has it, cut at `max_chars`.
+  `entity get` on the command line, and the tool, take `Collection/Name` for any entity on the
+  server, in the repository or not.
 - `twaco doctor` reports profiles, backups and journal backups that git already tracks, which an
   ignore line added later does not untrack. A tracked profile fails (change the credentials it
   holds: history keeps them); a tracked backup warns. Only file names are shown.

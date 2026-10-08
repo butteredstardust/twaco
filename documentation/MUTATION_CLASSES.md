@@ -64,6 +64,7 @@ when the command is asked to write. A local output named by an option is include
 | `mcp` | read-only | read-only | none | Retry freely. | `main.rs: main` |
 | `doctor` | read-only | read-only | none | Retry freely. | `main.rs: doctor` |
 | `update` | read-only | single-file atomic | the twaco executable | The executable is old or new; retry freely. | `core/update.rs: install` |
+| `search` | read-only | read-only | none | Retry freely. | `cli/content.rs: search_cmd` |
 | `export entity` | single-file atomic | single-file atomic | named export file | The output is old or new; retry freely. | `cli/content.rs: export_cmd` |
 | `export collection` | single-file atomic | single-file atomic | named export file | The output is old or new; retry freely. | `cli/content.rs: export_cmd` |
 | `export project` | single-file atomic | single-file atomic | named export file | The output is old or new; retry freely. | `cli/content.rs: export_cmd` |
@@ -154,6 +155,8 @@ when the command is asked to write. A local output named by an option is include
 | `repo_write` | read-only | server-partial | server repository or local pull | Inspect copied paths before retrying. | `core/commands/repo.rs: execute` |
 | `extensions` | read-only | read-only | none | Retry freely. | `mcp/content.rs: extensions_tool` |
 | `extension_write` | read-only | server-partial | server extension | Check installed extensions before retrying. | `core/commands/extensions.rs: execute` |
+| `search` | read-only | read-only | none | Retry freely. | `mcp/content.rs: search_tool` |
+| `entity_get` | read-only | read-only | none | Retry freely. | `mcp/content.rs: entity_get_tool` |
 | `export` | read-only | server-partial | local export or server repository | Local export is atomic; source-control apply needs a new plan and inspection. | `core/commands/export.rs: execute` |
 | `package` | single-file atomic | single-file atomic | named package file | The output is old or new; retry freely. | `core/commands/package.rs: execute` |
 | `import` | read-only | server-partial | server entities | Compare again with the server before retrying. | `core/commands/imports.rs: execute` |

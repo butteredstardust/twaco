@@ -1040,6 +1040,7 @@ pub(crate) const COMMANDS: &[Command] = &[
         operands: true,
         flags: &["--out", "--profile"],
         text: r#"  entity get <entity>         fetch raw server XML to stdout or --out <path>
+                              Collection/Name: any server entity; a bare name: the repository's
       [--profile <name>]      server profile (default: default)"#,
     },
     Command {
@@ -1363,6 +1364,15 @@ pub(crate) const COMMANDS: &[Command] = &[
   ext show <package>          one package: its extensions, and which are in use
   ext import <zip>            validate a package on the server; --apply installs it
   ext remove <package>        plan removing a package (refused while in use); --apply removes it"#,
+    },
+    Command {
+        path: "search",
+        group: 4,
+        operands: true,
+        flags: &["--type", "--project", "--limit", "--json", "--profile"],
+        text: r#"  search [<text>] [--type <T>[,<T>]] [--project P] [--limit <n>] [--json]
+                              the server's entity search (Composer's Spotlight): text
+                              in a name or description, or a pattern with *"#,
     },
     Command {
         path: "export",

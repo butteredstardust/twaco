@@ -25,7 +25,7 @@ use twaco::core::{
 mod cli;
 
 use cli::args::Args;
-use cli::content::{export_cmd, ext_cmd, import_cmd, package_cmd, repo_cmd};
+use cli::content::{export_cmd, ext_cmd, import_cmd, package_cmd, repo_cmd, search_cmd};
 use cli::data::{call, config_table, datatable_copy_cmd, db_clean_cmd, db_cmd, logs_cmd};
 use cli::entity::{
     entity_carry_cmd, entity_delete_cmd, entity_get, entity_push, entity_restore_cmd,
@@ -166,6 +166,7 @@ fn run_command(args: &[String]) -> ExitCode {
             "unused" => unused_cmd(solution, &parsed),
             "docs" => docs_cmd(solution, &parsed),
             "package" => package_cmd(solution, &parsed),
+            "search" => search_cmd(solution, &parsed),
             "export" => export_cmd(solution, &parsed),
             "import" => import_cmd(solution, &parsed),
             "logs" => logs_cmd(solution, &parsed),
@@ -465,36 +466,4 @@ fn projects(solution: &Solution) -> u8 {
         return FAILED;
     }
     OK
-}
-
-/// The entity files a command should act on, narrowed by `--project` and then by name.
-fn targets(
-    solution: &Solution,
-    args: &Args,
-) -> Result<(Vec<workspace::EntityFile>, Vec<String>), String> {
-    let found = workspace::discover(solution);
-    let mut pool = found.entities;
-
-    if let Some(wanted) = &args.project {
-        if solution.project(wanted).is_none() {
-            return Err(format!("this solution has no project named {wanted}"));
-        }
-        pool.retain(|e| &e.found_under == wanted);
-    }
-
-    if args.has("--all") {
-        return Ok((pool, found.unreadable));
-    }
-    if args.names.is_empty() {
-        return Err("name an entity, or pass --all".to_string());
-    }
-    let mut chosen = Vec::new();
-    for name in &args.names {
-        chosen.push(
-            workspace::resolve(&pool, name)
-                .map_err(|e| e.to_string())?
-                .clone(),
-        );
-    }
-    Ok((chosen, found.unreadable))
 }

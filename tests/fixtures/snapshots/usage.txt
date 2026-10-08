@@ -102,6 +102,7 @@ usage: twaco <command>
   entity status [<entity>|--all] [--detail] [--record]
       --record                 record matching working/server hashes as baseline
   entity get <entity>         fetch raw server XML to stdout or --out <path>
+                              Collection/Name: any server entity; a bare name: the repository's
       [--profile <name>]      server profile (default: default)
   entity push <entity>        import one entity, refusing if the server changed
       --apply                 actually push (without it, report what would happen)
@@ -218,6 +219,9 @@ usage: twaco <command>
   ext show <package>          one package: its extensions, and which are in use
   ext import <zip>            validate a package on the server; --apply installs it
   ext remove <package>        plan removing a package (refused while in use); --apply removes it
+  search [<text>] [--type <T>[,<T>]] [--project P] [--limit <n>] [--json]
+                              the server's entity search (Composer's Spotlight): text
+                              in a name or description, or a pattern with *
   export entity <Coll/Name> --out <file>   one entity's XML, from the server's Exporter
   export collection <Coll> [--project P] --out <file>   a collection, or one project's part of it
   export project <P> --out <file>  everything of a project, as one XML

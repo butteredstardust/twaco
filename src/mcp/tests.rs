@@ -820,6 +820,8 @@ fn every_tool_is_listed_with_a_schema_and_honest_annotations() {
             "repo_write",
             "extensions",
             "extension_write",
+            "search",
+            "entity_get",
             "export",
             "package",
             "import",

@@ -442,6 +442,27 @@ impl Coded for super::imports::ImportError {
         }
     }
 }
+impl Coded for super::search::SearchError {
+    fn code(&self) -> ErrorCode {
+        match self {
+            Self::Invalid(_) => ErrorCode::InvalidArguments,
+            Self::Remote(error) => error.code(),
+            Self::Reply(_) => ErrorCode::InvalidData,
+        }
+    }
+}
+
+impl Coded for super::entity_get::GetError {
+    fn code(&self) -> ErrorCode {
+        match self {
+            Self::Invalid(_) => ErrorCode::InvalidArguments,
+            Self::Resolve(error) => error.code(),
+            Self::NotOnServer(_) => ErrorCode::UnknownEntity,
+            Self::Remote(error) => error.code(),
+        }
+    }
+}
+
 impl Coded for super::adopt::AdoptError {
     fn code(&self) -> ErrorCode {
         match self {
@@ -1341,6 +1362,19 @@ mod tests {
     fn guide_error() {
         use crate::core::guide::GuideError;
         is(GuideError::Invalid(text()), ErrorCode::InvalidArguments);
+    }
+
+    #[test]
+    fn search_and_entity_get_errors() {
+        use crate::core::entity_get::GetError;
+        use crate::core::search::SearchError;
+        is(SearchError::Invalid(text()), ErrorCode::InvalidArguments);
+        is(SearchError::Reply(text()), ErrorCode::InvalidData);
+        is(GetError::Invalid(text()), ErrorCode::InvalidArguments);
+        is(
+            GetError::NotOnServer(crate::core::entity_key::EntityKey::new("Things", "T").unwrap()),
+            ErrorCode::UnknownEntity,
+        );
     }
 
     #[test]

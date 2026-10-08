@@ -2,8 +2,8 @@
 
 `twaco mcp` serves twaco to an AI agent over the [Model Context Protocol](https://modelcontextprotocol.io),
 on standard input and output, as tools covering most of the command line's work: the
-repository, deploys, the server and the knowledge. Setup (`init`, `doctor`), `bundle`, raw
-`entity get` and `update` are command-line only. `update` replaces the binary, and an agent
+repository, deploys, the server and the knowledge. Setup (`init`, `doctor`), `bundle` and
+`update` are command-line only. `update` replaces the binary, and an agent
 must not replace the server it talks to.
 
 ## Set up
@@ -108,6 +108,8 @@ text and structured content. The code identifies the next action.
 | `repo_write` | server; workspace for pull | Put, mkdir, rm, mv, push and pull for file repositories |
 | `extensions` | no | The server's extension packages |
 | `extension_write` | server | Validate, install or remove an extension package |
+| `search` | no | Find server entities by text in a name or description, type and project |
+| `entity_get` | no | One entity's XML as the server has it, returned rather than written |
 | `export` | workspace* | Export from the server into a file of the solution |
 | `import` | server | Import a file of the solution, or a source-control tree |
 | `package` | workspace | Bundles, a source-control zip or extension packages, offline |

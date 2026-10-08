@@ -156,6 +156,48 @@ pub(crate) enum ExportAction {
 
 #[derive(Debug, Deserialize, JsonSchema, Serialize)]
 #[serde(deny_unknown_fields)]
+pub(crate) struct SearchRequest {
+    /// Text found anywhere in an entity's name or description, in any case; with a * it is a pattern instead (*_DS). Absent: every entity.
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) text: Absent<String>,
+    /// Entity types, singular or as collections (Thing, ThingTemplates, Mashup, ...). An unknown one is refused.
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) types: Absent<Vec<String>>,
+    /// Only this project's entities.
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) project: Absent<String>,
+    #[serde(default = "default_search_limit")]
+    #[schemars(range(min = 1))]
+    pub(crate) limit: u64,
+    /// Server profile name.
+    #[serde(default = "default_profile")]
+    pub(crate) profile: String,
+}
+
+fn default_search_limit() -> u64 {
+    100
+}
+
+#[derive(Debug, Deserialize, JsonSchema, Serialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct EntityGetRequest {
+    /// Collection/Name for any entity on the server (Things/My.Thing, Resources/EntityServices), or a bare name for one in the repository.
+    pub(crate) entity: String,
+    /// The most XML characters returned; a longer entity is cut, and export writes it whole to a file.
+    #[serde(default = "default_entity_get_max_chars")]
+    #[schemars(range(min = 1))]
+    pub(crate) max_chars: u64,
+    /// Server profile name.
+    #[serde(default = "default_profile")]
+    pub(crate) profile: String,
+}
+
+fn default_entity_get_max_chars() -> u64 {
+    200_000
+}
+
+#[derive(Debug, Deserialize, JsonSchema, Serialize)]
+#[serde(deny_unknown_fields)]
 pub(crate) struct ExportRequest {
     pub(crate) action: ExportAction,
     /// entity: Collection/Name, such as Things/My.Thing.
