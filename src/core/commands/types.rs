@@ -122,8 +122,11 @@ mod tests {
 
     #[test]
     fn generation_locks_before_it_can_read_the_workspace() {
-        let root = std::env::temp_dir().join(format!("twaco-command-types-{}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&root);
+        let root_guard = tempfile::Builder::new()
+            .prefix("twaco-command-types-")
+            .tempdir()
+            .unwrap();
+        let root = root_guard.path().to_path_buf();
         std::fs::create_dir_all(&root).unwrap();
         std::fs::write(root.join("twaco.toml"), "[[project]]\nname = \"P\"\n").unwrap();
         let solution = Solution::load(&root.join("twaco.toml")).unwrap();
@@ -143,7 +146,6 @@ mod tests {
         .unwrap_err();
         assert!(matches!(error, TypesCommandError::Lock(_)));
         drop(held);
-        std::fs::remove_dir_all(root).unwrap();
     }
 
     #[test]

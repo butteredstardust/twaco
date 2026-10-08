@@ -125,9 +125,11 @@ mod tests {
 
     #[test]
     fn extraction_locks_before_it_discovers_the_target() {
-        let root =
-            std::env::temp_dir().join(format!("twaco-command-extract-{}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&root);
+        let root_guard = tempfile::Builder::new()
+            .prefix("twaco-command-extract-")
+            .tempdir()
+            .unwrap();
+        let root = root_guard.path().to_path_buf();
         std::fs::create_dir_all(&root).unwrap();
         std::fs::write(root.join("twaco.toml"), "[[project]]\nname = \"P\"\n").unwrap();
         let solution = Solution::load(&root.join("twaco.toml")).unwrap();
@@ -145,7 +147,6 @@ mod tests {
         let error = execute(&solution, &request, &mut Notices::default()).unwrap_err();
         assert!(matches!(error, ExtractCommandError::Lock(_)));
         drop(held);
-        std::fs::remove_dir_all(root).unwrap();
     }
 
     #[test]

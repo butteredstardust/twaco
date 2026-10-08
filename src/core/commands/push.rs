@@ -328,16 +328,15 @@ mod tests {
         .into_bytes()
     }
 
-    fn root() -> PathBuf {
-        let nonce = crate::test_nonce();
-        std::env::temp_dir().join(format!("twaco-command-push-{}-{nonce}", std::process::id()))
-    }
-
     fn setup(
         server: Option<Vec<u8>>,
         baseline: Option<(&[u8], &[u8])>,
-    ) -> (PathBuf, Solution, Fake) {
-        let root = root();
+    ) -> (tempfile::TempDir, PathBuf, Solution, Fake) {
+        let root_guard = tempfile::Builder::new()
+            .prefix("twaco-command-push-")
+            .tempdir()
+            .unwrap();
+        let root = root_guard.path().to_path_buf();
         std::fs::create_dir_all(root.join("Things")).unwrap();
         std::fs::create_dir_all(root.join(".twaco/profiles")).unwrap();
         std::fs::write(root.join("twaco.toml"), "[[project]]\nname = \"P\"\n").unwrap();
@@ -359,7 +358,7 @@ mod tests {
             stored.write(&root).unwrap();
         }
         let solution = Solution::load(&root.join("twaco.toml")).unwrap();
-        (root, solution, Fake::new(server))
+        (root_guard, root, solution, Fake::new(server))
     }
 
     fn request(mode: Mode, force: bool, backup: bool) -> PushRequest {
@@ -446,7 +445,7 @@ mod tests {
             for mode in [Mode::Plan, Mode::Apply] {
                 for force in [false, true] {
                     for backup in [false, true] {
-                        let (root, solution, remote) = setup(server.clone(), baseline);
+                        let (_dir, _, solution, remote) = setup(server.clone(), baseline);
                         let outcome = execute(&solution, &request(mode, force, backup), {
                             let remote = remote.clone();
                             move |_| remote
@@ -499,7 +498,6 @@ mod tests {
                                 assert_eq!(saved.is_some(), saved_backup, "{name}");
                             }
                         }
-                        std::fs::remove_dir_all(root).unwrap();
                     }
                 }
             }
@@ -510,7 +508,7 @@ mod tests {
     fn a_forced_backup_failure_pushes_nothing_and_no_backup_skips_it() {
         let old = document("old();");
         let changed = document("changed();");
-        let (root, solution, remote) = setup(
+        let (_dir, _, solution, remote) = setup(
             Some(changed.clone()),
             Some((old.as_slice(), old.as_slice())),
         );
@@ -523,9 +521,9 @@ mod tests {
         assert!(matches!(error, PushCommandError::Backup { .. }));
         assert_eq!(remote.imports(), 0);
         assert_eq!(remote.exports(), 1);
-        std::fs::remove_dir_all(&root).unwrap();
 
-        let (root, solution, remote) = setup(Some(changed), Some((old.as_slice(), old.as_slice())));
+        let (_dir, _, solution, remote) =
+            setup(Some(changed), Some((old.as_slice(), old.as_slice())));
         execute(&solution, &request(Mode::Apply, true, false), {
             let remote = remote.clone();
             move |_| remote
@@ -533,12 +531,11 @@ mod tests {
         .unwrap();
         assert_eq!(remote.imports(), 1);
         assert_eq!(remote.exports(), 0);
-        std::fs::remove_dir_all(root).unwrap();
     }
 
     #[test]
     fn applying_locks_before_discovery_and_planning_does_not_lock() {
-        let (root, solution, remote) = setup(None, None);
+        let (_dir, root, solution, remote) = setup(None, None);
         let held = lock::acquire(&root, "test holder", &[]).unwrap();
         let plan = execute(&solution, &request(Mode::Plan, false, true), {
             let remote = remote.clone();
@@ -550,7 +547,6 @@ mod tests {
         });
         assert!(matches!(applied, Err(PushCommandError::Lock(_))));
         drop(held);
-        std::fs::remove_dir_all(root).unwrap();
     }
 
     #[test]

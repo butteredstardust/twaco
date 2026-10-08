@@ -3,15 +3,14 @@
 use sha2::{Digest, Sha256};
 use std::path::{Path, PathBuf};
 use std::process::Command;
-use std::time::{SystemTime, UNIX_EPOCH};
 
 #[test]
 fn offline_projects_needs_no_profile_or_environment() {
-    let nonce = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap()
-        .as_nanos();
-    let root = std::env::temp_dir().join(format!("twaco-offline-{}-{nonce}", std::process::id()));
+    let root_guard = tempfile::Builder::new()
+        .prefix("twaco-offline-")
+        .tempdir()
+        .unwrap();
+    let root = root_guard.path().to_path_buf();
     std::fs::create_dir_all(&root).unwrap();
     std::fs::write(root.join("twaco.toml"), "[[project]]\nname = \"Offline\"\n").unwrap();
 
@@ -28,19 +27,15 @@ fn offline_projects_needs_no_profile_or_environment() {
         String::from_utf8_lossy(&output.stderr)
     );
     assert!(!root.join(".twaco/profiles/default.toml").exists());
-    let _ = std::fs::remove_dir_all(root);
 }
 
 #[test]
 fn types_command_writes_shared_declarations_and_second_run_is_clean() {
-    let nonce = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap()
-        .as_nanos();
-    let root = std::env::temp_dir().join(format!(
-        "twaco-types-command-{}-{nonce}",
-        std::process::id()
-    ));
+    let root_guard = tempfile::Builder::new()
+        .prefix("twaco-types-command-")
+        .tempdir()
+        .unwrap();
+    let root = root_guard.path().to_path_buf();
     std::fs::create_dir_all(root.join("Things")).unwrap();
     std::fs::create_dir_all(root.join("DataShapes")).unwrap();
     std::fs::create_dir_all(root.join("src/T/services/Run")).unwrap();
@@ -139,16 +134,15 @@ fn types_command_writes_shared_declarations_and_second_run_is_clean() {
     .map(|name| std::fs::read(directory.join(name)).unwrap())
     .collect();
     assert_eq!(after, before);
-    let _ = std::fs::remove_dir_all(root);
 }
 
 #[test]
 fn sync_check_relayout_reports_without_writing_then_the_migration_settles() {
-    let nonce = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap()
-        .as_nanos();
-    let root = std::env::temp_dir().join(format!("twaco-relayout-{}-{nonce}", std::process::id()));
+    let root_guard = tempfile::Builder::new()
+        .prefix("twaco-relayout-")
+        .tempdir()
+        .unwrap();
+    let root = root_guard.path().to_path_buf();
     let entity_dir = root.join("Things");
     let service_dir = root.join("src/T/services/S");
     std::fs::create_dir_all(&entity_dir).unwrap();
@@ -215,16 +209,15 @@ fn sync_check_relayout_reports_without_writing_then_the_migration_settles() {
         settled.status.success(),
         "a second relayout check must be clean"
     );
-    let _ = std::fs::remove_dir_all(root);
 }
 
 #[test]
 fn a_writing_command_is_refused_while_another_holds_the_workspace() {
-    let nonce = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap()
-        .as_nanos();
-    let root = std::env::temp_dir().join(format!("twaco-locked-{}-{nonce}", std::process::id()));
+    let root_guard = tempfile::Builder::new()
+        .prefix("twaco-locked-")
+        .tempdir()
+        .unwrap();
+    let root = root_guard.path().to_path_buf();
     std::fs::create_dir_all(root.join("Things")).unwrap();
     std::fs::write(root.join("twaco.toml"), "[[project]]\nname = \"P\"\n").unwrap();
     std::fs::write(
@@ -270,17 +263,15 @@ fn a_writing_command_is_refused_while_another_holds_the_workspace() {
     drop(held);
     let free = twaco(&["sync", "--all"]);
     assert!(!String::from_utf8_lossy(&free.stderr).contains("another twaco command"));
-    let _ = std::fs::remove_dir_all(root);
 }
 
 #[test]
 fn a_service_sidecar_missing_its_script_fails_the_sidecars_gate() {
-    let nonce = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap()
-        .as_nanos();
-    let root =
-        std::env::temp_dir().join(format!("twaco-incomplete-{}-{nonce}", std::process::id()));
+    let root_guard = tempfile::Builder::new()
+        .prefix("twaco-incomplete-")
+        .tempdir()
+        .unwrap();
+    let root = root_guard.path().to_path_buf();
     let service_dir = root.join("src/T/services/S");
     std::fs::create_dir_all(root.join("Things")).unwrap();
     std::fs::create_dir_all(&service_dir).unwrap();
@@ -319,17 +310,16 @@ fn a_service_sidecar_missing_its_script_fails_the_sidecars_gate() {
         stdout.contains("incomplete") && stdout.contains("script.js"),
         "stdout={stdout}"
     );
-    let _ = std::fs::remove_dir_all(root);
 }
 
 #[test]
 fn the_line_endings_gate_skips_what_git_ignores() {
-    let nonce = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap()
-        .as_nanos();
     // The solution sits in a folder whose own .gitignore would hide notes.md: it must not count.
-    let outer = std::env::temp_dir().join(format!("twaco-ignored-{}-{nonce}", std::process::id()));
+    let outer_guard = tempfile::Builder::new()
+        .prefix("twaco-ignored-")
+        .tempdir()
+        .unwrap();
+    let outer = outer_guard.path().to_path_buf();
     std::fs::create_dir_all(&outer).unwrap();
     std::fs::write(outer.join(".gitignore"), "notes.md\n").unwrap();
     let root = outer.join("solution");
@@ -364,17 +354,15 @@ fn the_line_endings_gate_skips_what_git_ignores() {
         "an ignored file is not: {stdout}"
     );
     assert!(!stdout.contains("E.xml"), ".ignore is honoured: {stdout}");
-    let _ = std::fs::remove_dir_all(outer);
 }
 
 #[test]
 fn bundle_carries_10_2_ai_entities_and_refuses_an_unknown_collection() {
-    let nonce = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap()
-        .as_nanos();
-    let root =
-        std::env::temp_dir().join(format!("twaco-collections-{}-{nonce}", std::process::id()));
+    let root_guard = tempfile::Builder::new()
+        .prefix("twaco-collections-")
+        .tempdir()
+        .unwrap();
+    let root = root_guard.path().to_path_buf();
     for dir in ["Things", "AIAgents", "MCPNamespaces"] {
         std::fs::create_dir_all(root.join(dir)).unwrap();
     }
@@ -453,16 +441,15 @@ fn bundle_carries_10_2_ai_entities_and_refuses_an_unknown_collection() {
         !refused.status.success() && said.contains("<Gizmos>"),
         "an unknown collection must not vanish: {said}"
     );
-    let _ = std::fs::remove_dir_all(root);
 }
 
 #[test]
 fn an_advisory_gate_reports_without_failing_the_run() {
-    let nonce = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap()
-        .as_nanos();
-    let root = std::env::temp_dir().join(format!("twaco-advisory-{}-{nonce}", std::process::id()));
+    let root_guard = tempfile::Builder::new()
+        .prefix("twaco-advisory-")
+        .tempdir()
+        .unwrap();
+    let root = root_guard.path().to_path_buf();
     let service_dir = root.join("src/T/services/S");
     std::fs::create_dir_all(root.join("Things")).unwrap();
     std::fs::create_dir_all(&service_dir).unwrap();
@@ -545,7 +532,6 @@ fn an_advisory_gate_reports_without_failing_the_run() {
         !typo.status.success() && said.contains("not a gate"),
         "a misspelt gate is refused: {said}"
     );
-    let _ = std::fs::remove_dir_all(root);
 }
 
 #[test]
@@ -572,22 +558,16 @@ fn a_reader_that_stops_early_is_not_a_crash() {
 }
 
 struct RenameFixture {
+    _dir: tempfile::TempDir,
     root: PathBuf,
 }
 
-impl Drop for RenameFixture {
-    fn drop(&mut self) {
-        let _ = std::fs::remove_dir_all(&self.root);
-    }
-}
-
 fn rename_fixture(tag: &str) -> RenameFixture {
-    let nonce = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap()
-        .as_nanos();
-    let root =
-        std::env::temp_dir().join(format!("twaco-rename-{tag}-{}-{nonce}", std::process::id()));
+    let root_guard = tempfile::Builder::new()
+        .prefix(&format!("twaco-rename-{tag}-"))
+        .tempdir()
+        .unwrap();
+    let root = root_guard.path().to_path_buf();
     for directory in ["Things", "Projects", "src/A.Manager", "docs"] {
         std::fs::create_dir_all(root.join(directory)).unwrap();
     }
@@ -623,18 +603,18 @@ fn rename_fixture(tag: &str) -> RenameFixture {
         "Use A.Manager from project A.\n",
     )
     .unwrap();
-    RenameFixture { root }
+    RenameFixture {
+        _dir: root_guard,
+        root,
+    }
 }
 
 fn field_rename_fixture(tag: &str) -> RenameFixture {
-    let nonce = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap()
-        .as_nanos();
-    let root = std::env::temp_dir().join(format!(
-        "twaco-field-rename-{tag}-{}-{nonce}",
-        std::process::id()
-    ));
+    let root_guard = tempfile::Builder::new()
+        .prefix(&format!("twaco-field-rename-{tag}-"))
+        .tempdir()
+        .unwrap();
+    let root = root_guard.path().to_path_buf();
     for directory in ["DataShapes", "Things", "src/P.D"] {
         std::fs::create_dir_all(root.join(directory)).unwrap();
     }
@@ -652,18 +632,18 @@ fn field_rename_fixture(tag: &str) -> RenameFixture {
     )
     .unwrap();
     std::fs::write(root.join("Things/P.T.xml"), "<Entities><Things><Thing name=\"P.T\" projectName=\"P\"><ConfigurationTables><ConfigurationTable dataShapeName=\"P.D\" name=\"T\"><DataShape><FieldDefinitions><FieldDefinition name=\"Period\"/></FieldDefinitions></DataShape><Rows><Row><Period><![CDATA[value]]></Period></Row><Row><Period/></Row></Rows></ConfigurationTable></ConfigurationTables></Thing></Things></Entities>\n").unwrap();
-    RenameFixture { root }
+    RenameFixture {
+        _dir: root_guard,
+        root,
+    }
 }
 
 fn service_rename_fixture(tag: &str) -> RenameFixture {
-    let nonce = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap()
-        .as_nanos();
-    let root = std::env::temp_dir().join(format!(
-        "twaco-service-rename-{tag}-{}-{nonce}",
-        std::process::id()
-    ));
+    let root_guard = tempfile::Builder::new()
+        .prefix(&format!("twaco-service-rename-{tag}-"))
+        .tempdir()
+        .unwrap();
+    let root = root_guard.path().to_path_buf();
     for directory in ["ThingShapes", "src/P.Shape/services/Run"] {
         std::fs::create_dir_all(root.join(directory)).unwrap();
     }
@@ -679,18 +659,18 @@ fn service_rename_fixture(tag: &str) -> RenameFixture {
     )
     .unwrap();
     std::fs::write(root.join("src/P.Shape/services/Run/script.js"), "me.Run();").unwrap();
-    RenameFixture { root }
+    RenameFixture {
+        _dir: root_guard,
+        root,
+    }
 }
 
 fn table_rename_fixture(tag: &str) -> RenameFixture {
-    let nonce = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap()
-        .as_nanos();
-    let root = std::env::temp_dir().join(format!(
-        "twaco-table-rename-{tag}-{}-{nonce}",
-        std::process::id()
-    ));
+    let root_guard = tempfile::Builder::new()
+        .prefix(&format!("twaco-table-rename-{tag}-"))
+        .tempdir()
+        .unwrap();
+    let root = root_guard.path().to_path_buf();
     std::fs::create_dir_all(root.join("Things")).unwrap();
     std::fs::write(
         root.join("twaco.toml"),
@@ -698,7 +678,10 @@ fn table_rename_fixture(tag: &str) -> RenameFixture {
     )
     .unwrap();
     std::fs::write(root.join("Things/P.T.xml"), "<Entities><Things><Thing name=\"P.T\" projectName=\"P\" thingTemplate=\"GenericThing\"><ConfigurationTableDefinitions><ConfigurationTableDefinition dataShapeName=\"P.Limits_CT\" name=\"Limits_CT\"/></ConfigurationTableDefinitions><ConfigurationTables><ConfigurationTable dataShapeName=\"P.Limits_CT\" name=\"Limits_CT\"><DataShape><FieldDefinitions><FieldDefinition name=\"Value\"/></FieldDefinitions></DataShape><Rows><Row><Value>kept</Value></Row></Rows></ConfigurationTable></ConfigurationTables></Thing></Things></Entities>\n").unwrap();
-    RenameFixture { root }
+    RenameFixture {
+        _dir: root_guard,
+        root,
+    }
 }
 
 fn rename_twaco(root: &Path, args: &[&str]) -> std::process::Output {
@@ -1058,12 +1041,11 @@ fn rename_service_plans_applies_checks_json_and_refuses_text() {
 
 #[test]
 fn rename_param_plans_applies_checks_round_trips_and_refuses_text() {
-    let nonce = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap()
-        .as_nanos();
-    let root =
-        std::env::temp_dir().join(format!("twaco-param-rename-{}-{nonce}", std::process::id()));
+    let root_guard = tempfile::Builder::new()
+        .prefix("twaco-param-rename-")
+        .tempdir()
+        .unwrap();
+    let root = root_guard.path().to_path_buf();
     std::fs::create_dir_all(root.join("ThingShapes")).unwrap();
     std::fs::create_dir_all(root.join("src/P.Shape/services/Run")).unwrap();
     std::fs::write(
@@ -1084,7 +1066,10 @@ fn rename_param_plans_applies_checks_round_trips_and_refuses_text() {
     )
     .unwrap();
     std::fs::write(root.join("src/P.Shape/services/Run/script.js"), script).unwrap();
-    let fixture = RenameFixture { root };
+    let fixture = RenameFixture {
+        _dir: root_guard,
+        root,
+    };
 
     let before = tree_hash(&fixture.root, true);
     let plan = rename_twaco(

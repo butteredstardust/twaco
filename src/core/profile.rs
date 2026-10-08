@@ -400,14 +400,14 @@ mod tests {
         }
     }
 
-    fn temp(label: &str) -> PathBuf {
-        let nonce = crate::test_nonce();
-        let path = std::env::temp_dir().join(format!(
-            "twaco-profile-{label}-{}-{nonce}",
-            std::process::id()
-        ));
+    fn temp(label: &str) -> (tempfile::TempDir, PathBuf) {
+        let path_guard = tempfile::Builder::new()
+            .prefix(&format!("twaco-profile-{label}-"))
+            .tempdir()
+            .unwrap();
+        let path = path_guard.path().to_path_buf();
         std::fs::create_dir_all(&path).unwrap();
-        path
+        (path_guard, path)
     }
 
     fn write(path: &Path, url: &str, user: &str, password: &str) {
@@ -421,7 +421,7 @@ mod tests {
 
     #[test]
     fn local_shadows_global_and_environment_overrides_the_selected_file() {
-        let root = temp("precedence");
+        let (_dir, root) = temp("precedence");
         let home = root.join("home");
         let local = root.join("repo/.twaco/profiles/default.toml");
         let global = home.join(".twaco/profiles/default.toml");
@@ -440,12 +440,11 @@ mod tests {
         let profile =
             load_from(&root.join("repo"), Some(&home), "default", &BTreeMap::new()).unwrap();
         assert_eq!(profile.url, "https://global/");
-        let _ = std::fs::remove_dir_all(root);
     }
 
     #[test]
     fn free_form_values_are_flattened_and_twaco_environment_wins() {
-        let root = temp("extra");
+        let (_dir, root) = temp("extra");
         let local = root.join("repo/.twaco/profiles/default.toml");
         std::fs::create_dir_all(local.parent().unwrap()).unwrap();
         std::fs::write(
@@ -463,12 +462,11 @@ mod tests {
         );
         assert_eq!(profile.value("count").and_then(|v| v.as_integer()), Some(2));
         assert!(!format!("{profile:?}").contains("environment"));
-        let _ = std::fs::remove_dir_all(root);
     }
 
     #[test]
     fn environment_alone_can_form_a_profile() {
-        let root = temp("environment");
+        let (_dir, root) = temp("environment");
         let env = BTreeMap::from([
             (
                 "TWX_URL".to_string(),
@@ -481,7 +479,6 @@ mod tests {
             load_from(&root, None, "default", &env).unwrap().username,
             "user"
         );
-        let _ = std::fs::remove_dir_all(root);
     }
 
     #[test]

@@ -68,16 +68,17 @@ impl Remote for Fake {
     }
 }
 
-fn entity_file(xml: &str) -> (EntityFile, std::path::PathBuf) {
-    let dir = std::env::temp_dir().join(format!(
-        "twaco-permissions-{}-{:?}",
-        std::process::id(),
-        std::thread::current().id()
-    ));
+fn entity_file(xml: &str) -> (tempfile::TempDir, EntityFile, std::path::PathBuf) {
+    let dir_guard = tempfile::Builder::new()
+        .prefix("twaco-permissions-")
+        .tempdir()
+        .unwrap();
+    let dir = dir_guard.path().to_path_buf();
     std::fs::create_dir_all(&dir).unwrap();
     let path = dir.join("ZZ.Perm.xml");
     std::fs::write(&path, xml).unwrap();
     (
+        dir_guard,
         EntityFile {
             path: path.clone(),
             info: EntityInfo {
@@ -159,7 +160,7 @@ fn instance_blocks_are_sets_of_their_own() {
 
 #[test]
 fn a_push_writes_a_differing_instance_set_through_its_own_service() {
-    let (entity, dir) = entity_file(TEMPLATE);
+    let (_dir, entity, _) = entity_file(TEMPLATE);
     let empty_run = json!({"permissions": [{"resourceName": "*", "PropertyRead": [], "PropertyWrite": [],
         "ServiceInvoke": [], "EventInvoke": [], "EventSubscribe": []}]});
     let remote = Fake {
@@ -185,12 +186,11 @@ fn a_push_writes_a_differing_instance_set_through_its_own_service() {
     assert_eq!(*remote.writes.lock().unwrap(), ["instance run-time"]);
     assert_eq!(one.differences.len(), 1);
     assert_eq!(one.differences[0].change, Change::RepositoryOnly);
-    std::fs::remove_dir_all(dir).unwrap();
 }
 
 #[test]
 fn diff_names_stale_added_and_flipped_grants_and_writes_nothing() {
-    let (entity, dir) = entity_file(ENTITY);
+    let (_dir, entity, _) = entity_file(ENTITY);
     let remote = Fake {
         exists: true,
         sets: Mutex::new(server_sets()),
@@ -229,12 +229,11 @@ fn diff_names_stale_added_and_flipped_grants_and_writes_nothing() {
         ["run-time", "design-time"]
     );
     assert!(remote.writes.lock().unwrap().is_empty());
-    std::fs::remove_dir_all(dir).unwrap();
 }
 
 #[test]
 fn push_writes_only_the_differing_sets_and_reads_them_back() {
-    let (entity, dir) = entity_file(ENTITY);
+    let (_dir, entity, _) = entity_file(ENTITY);
     let remote = Fake {
         exists: true,
         sets: Mutex::new(server_sets()),
@@ -250,12 +249,11 @@ fn push_writes_only_the_differing_sets_and_reads_them_back() {
     assert_eq!(*remote.writes.lock().unwrap(), ["run-time", "design-time"]);
     let again = run(&remote, std::slice::from_ref(&entity), false);
     assert_eq!(again.entities[0].status, Status::Same);
-    std::fs::remove_dir_all(dir).unwrap();
 }
 
 #[test]
 fn a_set_that_does_not_read_back_as_written_fails_the_entity() {
-    let (entity, dir) = entity_file(ENTITY);
+    let (_dir, entity, _) = entity_file(ENTITY);
     let remote = Fake {
         exists: true,
         sets: Mutex::new(server_sets()),
@@ -273,24 +271,22 @@ fn a_set_that_does_not_read_back_as_written_fails_the_entity() {
         "{:?}",
         one.error
     );
-    std::fs::remove_dir_all(dir).unwrap();
 }
 
 #[test]
 fn an_entity_missing_from_the_server_or_without_permissions_is_said_so() {
-    let (entity, dir) = entity_file(ENTITY);
+    let (_dir, entity, _) = entity_file(ENTITY);
     let absent = Fake::default();
     assert_eq!(
         run(&absent, std::slice::from_ref(&entity), true).entities[0].status,
         Status::NotOnServer
     );
     assert!(absent.writes.lock().unwrap().is_empty());
-    std::fs::remove_dir_all(dir).unwrap();
 
-    let (entity, dir) = entity_file(r#"<Things><Thing name="ZZ.Perm"><Owner/></Thing></Things>"#);
+    let (_dir, entity, _) =
+        entity_file(r#"<Things><Thing name="ZZ.Perm"><Owner/></Thing></Things>"#);
     let report = run(&absent, std::slice::from_ref(&entity), true);
     assert_eq!(report.entities[0].status, Status::Unmanaged);
-    std::fs::remove_dir_all(dir).unwrap();
 }
 
 #[test]

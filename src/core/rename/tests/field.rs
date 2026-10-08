@@ -1,11 +1,11 @@
 use super::*;
 
 fn field_fixture(tag: &str) -> Fixture {
-    let nonce = crate::test_nonce();
-    let root = std::env::temp_dir().join(format!(
-        "twaco-rename-field-{tag}-{}-{nonce}",
-        std::process::id()
-    ));
+    let root_guard = tempfile::Builder::new()
+        .prefix(&format!("twaco-rename-field-{tag}-"))
+        .tempdir()
+        .unwrap();
+    let root = root_guard.path().to_path_buf();
     std::fs::create_dir_all(&root).unwrap();
     write(&root, "twaco.toml", "[[project]]\nname = \"P\"\ncollections = [\"DataShapes\", \"Things\", \"ThingTemplates\"]\n");
     let shape = "<Entities><DataShapes><DataShape name=\"P.D\" projectName=\"P\"><FieldDefinitions><FieldDefinition name=\"Name\" baseType=\"STRING\" ordinal=\"1\" description=\"\"/><FieldDefinition name=\"Period\" baseType=\"STRING\" ordinal=\"2\" description=\"\"/><FieldDefinition name=\"PeriodDisplayName\" baseType=\"STRING\" ordinal=\"3\" description=\"\"/><FieldDefinition name=\"UID\" baseType=\"STRING\" ordinal=\"4\" description=\"\"/></FieldDefinitions></DataShape></DataShapes></Entities>\n";
@@ -21,15 +21,19 @@ fn field_fixture(tag: &str) -> Fixture {
     write(&root, "Things/P.T.xml", thing);
     write(&root, "ThingTemplates/P.Base.xml", "<Entities><ThingTemplates><ThingTemplate name=\"P.Base\" projectName=\"P\"><ConfigurationTables><ConfigurationTable dataShapeName=\"P.D\" name=\"T\"><DataShape><FieldDefinitions><FieldDefinition name=\"Period\"/></FieldDefinitions></DataShape><Rows><Row><Period>template</Period></Row></Rows></ConfigurationTable></ConfigurationTables></ThingTemplate></ThingTemplates></Entities>\n");
     let solution = Solution::load(&root.join(CONFIG_FILE)).unwrap();
-    Fixture { root, solution }
+    Fixture {
+        _dir: root_guard,
+        root,
+        solution,
+    }
 }
 
 fn data_table_fixture(tag: &str) -> Fixture {
-    let nonce = crate::test_nonce();
-    let root = std::env::temp_dir().join(format!(
-        "twaco-rename-dt-{tag}-{}-{nonce}",
-        std::process::id()
-    ));
+    let root_guard = tempfile::Builder::new()
+        .prefix(&format!("twaco-rename-dt-{tag}-"))
+        .tempdir()
+        .unwrap();
+    let root = root_guard.path().to_path_buf();
     std::fs::create_dir_all(&root).unwrap();
     write(&root, "twaco.toml", "[[project]]\nname = \"P\"\ncollections = [\"DataShapes\", \"Things\", \"ThingTemplates\"]\n");
     let shape = r#"<Entities><DataShapes><DataShape name="P.D" projectName="P"><FieldDefinitions><FieldDefinition name="Name" baseType="STRING" ordinal="1" description=""/><FieldDefinition name="Period" baseType="STRING" ordinal="2" description=""/></FieldDefinitions></DataShape></DataShapes></Entities>
@@ -68,7 +72,11 @@ fn data_table_fixture(tag: &str) -> Fixture {
         "const first = rows.row.Period;\nconst label = 'Period';\nreturn first;\n",
     );
     let solution = Solution::load(&root.join(CONFIG_FILE)).unwrap();
-    Fixture { root, solution }
+    Fixture {
+        _dir: root_guard,
+        root,
+        solution,
+    }
 }
 
 #[test]

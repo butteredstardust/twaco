@@ -574,11 +574,11 @@ mod tests {
 
     #[test]
     fn a_backend_bundle_names_what_it_leaves_out_and_a_whole_one_does_not() {
-        let root = std::env::temp_dir().join(format!(
-            "twaco-bundle-notes-{}-{}",
-            std::process::id(),
-            crate::test_nonce()
-        ));
+        let root_guard = tempfile::Builder::new()
+            .prefix("twaco-bundle-notes-")
+            .tempdir()
+            .unwrap();
+        let root = root_guard.path().to_path_buf();
         std::fs::create_dir_all(root.join("Things")).unwrap();
         std::fs::create_dir_all(root.join("ThingTemplates")).unwrap();
         std::fs::write(
@@ -607,7 +607,6 @@ ui_collections = [\"ThingTemplates\"]
             dangling_in_selection(&solution, true),
             ["P.T names P.TT as its thingTemplate"]
         );
-        let _ = std::fs::remove_dir_all(root);
     }
 
     #[test]

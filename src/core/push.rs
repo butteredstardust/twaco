@@ -294,11 +294,14 @@ mod tests {
         }
     }
 
-    fn temp() -> std::path::PathBuf {
-        let nonce = crate::test_nonce();
-        let path = std::env::temp_dir().join(format!("twaco-push-{}-{nonce}", std::process::id()));
+    fn temp() -> (tempfile::TempDir, std::path::PathBuf) {
+        let path_guard = tempfile::Builder::new()
+            .prefix("twaco-push-")
+            .tempdir()
+            .unwrap();
+        let path = path_guard.path().to_path_buf();
         std::fs::create_dir_all(&path).unwrap();
-        path
+        (path_guard, path)
     }
 
     fn target(bytes: &[u8]) -> Target<'_> {
@@ -319,14 +322,13 @@ mod tests {
         assert_eq!(target.document.file_name, "T.xml");
         assert_eq!(target.document.bytes, bytes);
 
-        let root = temp();
+        let (_dir, root) = temp();
         let fake = Fake::holding(None);
         push(&fake, &root, &target, true, false).unwrap();
         let baseline = Baseline::load(&root).unwrap();
         assert!(baseline
             .get(target.key.collection(), target.key.name())
             .is_some());
-        let _ = std::fs::remove_dir_all(root);
     }
 
     #[test]
@@ -361,19 +363,18 @@ mod tests {
 
     #[test]
     fn a_dry_run_imports_nothing_and_writes_no_baseline() {
-        let root = temp();
+        let (_dir, root) = temp();
         let fake = Fake::holding(None);
         let bytes = entity("a();");
         let outcome = push(&fake, &root, &target(&bytes), false, false).unwrap();
         assert_eq!(outcome, Outcome::WouldDo(Decision::Create));
         assert_eq!(*fake.imports.borrow(), 0);
         assert!(!root.join(".twaco/baseline.json").exists());
-        let _ = std::fs::remove_dir_all(root);
     }
 
     #[test]
     fn create_then_update_then_nothing_to_do() {
-        let root = temp();
+        let (_dir, root) = temp();
         let fake = Fake::holding(None);
         let first = entity("a();");
         assert_eq!(
@@ -390,12 +391,11 @@ mod tests {
             Outcome::AlreadyThere
         );
         assert_eq!(*fake.imports.borrow(), 2);
-        let _ = std::fs::remove_dir_all(root);
     }
 
     #[test]
     fn differing_sides_at_their_own_baselines_need_no_import_or_recording() {
-        let root = temp();
+        let (_dir, root) = temp();
         let working = entity("local();");
         let server = entity("server();");
         let mut baseline = Baseline::default();
@@ -418,12 +418,11 @@ mod tests {
             std::fs::read(root.join(super::super::baseline::RELATIVE_PATH)).unwrap(),
             before
         );
-        let _ = std::fs::remove_dir_all(root);
     }
 
     #[test]
     fn a_server_side_change_is_refused_unless_forced() {
-        let root = temp();
+        let (_dir, root) = temp();
         let fake = Fake::holding(None);
         let mine = entity("mine();");
         push(&fake, &root, &target(&mine), true, false).unwrap();
@@ -440,12 +439,11 @@ mod tests {
 
         let forced = push(&fake, &root, &target(&edited), true, true).unwrap();
         assert_eq!(forced, Outcome::Pushed { created: false });
-        let _ = std::fs::remove_dir_all(root);
     }
 
     #[test]
     fn a_read_back_mismatch_leaves_the_baseline_untouched() {
-        let root = temp();
+        let (_dir, root) = temp();
         let mut fake = Fake::holding(None);
         let first = entity("a();");
         push(&fake, &root, &target(&first), true, false).unwrap();
@@ -459,7 +457,6 @@ mod tests {
             std::fs::read(root.join(".twaco/baseline.json")).unwrap(),
             before
         );
-        let _ = std::fs::remove_dir_all(root);
     }
 
     /// A server whose read-back after an import fails, as a dropped connection would.
@@ -487,7 +484,7 @@ mod tests {
 
     #[test]
     fn a_failed_read_back_says_the_server_changed_and_records_nothing() {
-        let root = temp();
+        let (_dir, root) = temp();
         let remote = FailsAfterImport {
             imported: RefCell::new(false),
         };
@@ -496,7 +493,6 @@ mod tests {
         assert!(matches!(error, PushError::Unverified(_)), "{error}");
         assert!(error.to_string().contains("the import succeeded"));
         assert!(!root.join(".twaco/baseline.json").exists());
-        let _ = std::fs::remove_dir_all(root);
     }
 
     /// Every decision, with and without `--apply` and `--force`: what is imported, and whether
@@ -557,7 +553,7 @@ mod tests {
         ];
         for (label, server, ancestor, pushes, forced, records_without_import) in rows {
             for (apply, force) in [(false, false), (false, true), (true, false), (true, true)] {
-                let root = temp();
+                let (_dir, root) = temp();
                 if let Some((local, server)) = ancestor {
                     let mut baseline = Baseline::default();
                     baseline.set("Things", "T", hash_of(local), hash_of(server));
@@ -589,19 +585,17 @@ mod tests {
                         "{label} apply={apply} force={force}: baseline must not move"
                     );
                 }
-                let _ = std::fs::remove_dir_all(root);
             }
         }
     }
 
     #[test]
     fn a_file_holding_two_entities_is_not_pushed() {
-        let root = temp();
+        let (_dir, root) = temp();
         let fake = Fake::holding(None);
         let two = b"<Entities><Things><Thing name=\"A\"></Thing><Thing name=\"B\"></Thing></Things></Entities>";
         let error = push(&fake, &root, &target(two), true, false).unwrap_err();
         assert!(matches!(error, PushError::Working(_)), "{error}");
         assert_eq!(*fake.imports.borrow(), 0);
-        let _ = std::fs::remove_dir_all(root);
     }
 }

@@ -340,16 +340,12 @@ mod tests {
         }
     }
 
-    fn root() -> PathBuf {
-        let nonce = crate::test_nonce();
-        std::env::temp_dir().join(format!(
-            "twaco-command-delete-{}-{nonce}",
-            std::process::id()
-        ))
-    }
-
-    fn setup(ledger: Option<serde_json::Value>) -> (PathBuf, Solution) {
-        let root = root();
+    fn setup(ledger: Option<serde_json::Value>) -> (tempfile::TempDir, PathBuf, Solution) {
+        let root_guard = tempfile::Builder::new()
+            .prefix("twaco-command-delete-")
+            .tempdir()
+            .unwrap();
+        let root = root_guard.path().to_path_buf();
         std::fs::create_dir_all(root.join(".twaco/profiles")).unwrap();
         std::fs::write(
             root.join("twaco.toml"),
@@ -369,7 +365,7 @@ mod tests {
             .unwrap();
         }
         let solution = Solution::load(&root.join("twaco.toml")).unwrap();
-        (root, solution)
+        (root_guard, root, solution)
     }
 
     fn pending_ledger(deleted: Option<&str>) -> serde_json::Value {
@@ -403,7 +399,7 @@ mod tests {
 
     #[test]
     fn plans_and_server_only_applies_do_not_take_the_workspace_lock() {
-        let (root, solution) = setup(None);
+        let (_dir, root, solution) = setup(None);
         let held = lock::acquire(&root, "test holder", &[]).unwrap();
         let plan_remote = Fake::new(&[("Mashups", "M")]);
         let plan = execute(
@@ -428,12 +424,11 @@ mod tests {
         .unwrap();
         assert_eq!(applied.effects(), Effects::new(Access::Read, Access::Write));
         drop(held);
-        std::fs::remove_dir_all(root).unwrap();
     }
 
     #[test]
     fn an_apply_that_can_mark_the_ledger_takes_the_workspace_lock() {
-        let (root, solution) = setup(Some(pending_ledger(None)));
+        let (_dir, root, solution) = setup(Some(pending_ledger(None)));
         let held = lock::acquire(&root, "test holder", &[]).unwrap();
         let error = execute(&solution, &request(Mode::Apply, &[], true, false), |_| {
             Fake::new(&[("Things", "Old")])
@@ -441,12 +436,11 @@ mod tests {
         .unwrap_err();
         assert!(matches!(error, EntityDeleteCommandError::Lock(_)));
         drop(held);
-        std::fs::remove_dir_all(root).unwrap();
     }
 
     #[test]
     fn an_apply_that_saves_a_backup_takes_the_workspace_lock() {
-        let (root, solution) = setup(None);
+        let (_dir, root, solution) = setup(None);
         let held = lock::acquire(&root, "test holder", &[]).unwrap();
         let error = execute(
             &solution,
@@ -456,12 +450,11 @@ mod tests {
         .unwrap_err();
         assert!(matches!(error, EntityDeleteCommandError::Lock(_)));
         drop(held);
-        std::fs::remove_dir_all(root).unwrap();
     }
 
     #[test]
     fn a_plan_and_an_apply_that_writes_nothing_locally_take_no_lock() {
-        let (root, solution) = setup(None);
+        let (_dir, root, solution) = setup(None);
         let held = lock::acquire(&root, "test holder", &[]).unwrap();
         let plan = execute(
             &solution,
@@ -483,12 +476,11 @@ mod tests {
             "no backup and no ledger to mark, so nothing local is written: {apply:?}"
         );
         drop(held);
-        std::fs::remove_dir_all(root).unwrap();
     }
 
     #[test]
     fn preparing_again_after_the_lock_uses_the_current_ledger() {
-        let (root, solution) = setup(Some(pending_ledger(None)));
+        let (_dir, root, solution) = setup(Some(pending_ledger(None)));
         let remote = Fake::new(&[("Things", "Old")]);
         let ledger_path = root.join(".twaco/renames.json");
         let outcome = execute_after_lock(
@@ -514,12 +506,11 @@ mod tests {
         assert!(report.entities.is_empty());
         assert!(!report.ledger_changed);
         assert!(remote.events().is_empty());
-        std::fs::remove_dir_all(root).unwrap();
     }
 
     #[test]
     fn backups_finish_before_the_first_delete_and_a_failed_backup_deletes_nothing() {
-        let (root, solution) = setup(None);
+        let (_dir, _, solution) = setup(None);
         let remote = Fake::new(&[("Mashups", "A"), ("Mashups", "B")]);
         execute(
             &solution,
@@ -538,9 +529,8 @@ mod tests {
             .iter()
             .skip(1)
             .all(|event| event.starts_with("DELETE ")));
-        std::fs::remove_dir_all(&root).unwrap();
 
-        let (root, solution) = setup(None);
+        let (_dir, _, solution) = setup(None);
         let remote = Fake::new(&[("Mashups", "A")]);
         remote.state.borrow_mut().fail_backup = true;
         let error = execute(
@@ -560,12 +550,11 @@ mod tests {
             .events()
             .iter()
             .all(|event| event.starts_with("BACKUP ")));
-        std::fs::remove_dir_all(root).unwrap();
     }
 
     #[test]
     fn partial_applies_keep_the_report_and_every_refusal_code() {
-        let (root, solution) = setup(None);
+        let (_dir, root, solution) = setup(None);
         std::fs::create_dir_all(root.join("Things")).unwrap();
         std::fs::write(
             root.join("Things/T.xml"),
@@ -633,7 +622,6 @@ mod tests {
         for code in codes {
             assert!(wire.to_string().contains(code.as_str()));
         }
-        std::fs::remove_dir_all(root).unwrap();
     }
 
     #[test]

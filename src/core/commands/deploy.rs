@@ -244,9 +244,11 @@ mod tests {
 
     #[test]
     fn a_deploy_plan_needs_no_lock_but_an_apply_locks_before_gates() {
-        let root =
-            std::env::temp_dir().join(format!("twaco-command-deploy-{}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&root);
+        let root_guard = tempfile::Builder::new()
+            .prefix("twaco-command-deploy-")
+            .tempdir()
+            .unwrap();
+        let root = root_guard.path().to_path_buf();
         std::fs::create_dir_all(&root).unwrap();
         std::fs::write(root.join("twaco.toml"), "[[project]]\nname = \"P\"\n").unwrap();
         let solution = Solution::load(&root.join("twaco.toml")).unwrap();
@@ -285,6 +287,5 @@ mod tests {
             Err(DeployCommandError::Lock(_))
         ));
         drop(held);
-        std::fs::remove_dir_all(root).unwrap();
     }
 }

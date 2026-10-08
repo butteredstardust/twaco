@@ -623,8 +623,11 @@ mod tests {
 
     #[test]
     fn the_solutions_own_markdown_is_a_topic_too() {
-        let nonce = crate::test_nonce();
-        let root = std::env::temp_dir().join(format!("twaco-guide-{}-{nonce}", std::process::id()));
+        let root_guard = tempfile::Builder::new()
+            .prefix("twaco-guide-")
+            .tempdir()
+            .unwrap();
+        let root = root_guard.path().to_path_buf();
         std::fs::create_dir_all(root.join("docs/deep")).unwrap();
         std::fs::write(root.join("twaco.toml"), "[[project]]\nname = \"P\"\n").unwrap();
         std::fs::write(
@@ -659,6 +662,5 @@ mod tests {
         let (topics, problems) = super::topics(Some(&solution));
         assert_eq!(topics.len(), 3);
         assert_eq!(problems.len(), 2, "{problems:?}");
-        let _ = std::fs::remove_dir_all(root);
     }
 }

@@ -98,12 +98,12 @@ mod tests {
         }
     }
 
-    fn solution() -> (std::path::PathBuf, Solution) {
-        let root = std::env::temp_dir().join(format!(
-            "twaco-entity-get-{}-{}",
-            std::process::id(),
-            crate::test_nonce()
-        ));
+    fn solution() -> (tempfile::TempDir, std::path::PathBuf, Solution) {
+        let root_guard = tempfile::Builder::new()
+            .prefix("twaco-entity-get-")
+            .tempdir()
+            .unwrap();
+        let root = root_guard.path().to_path_buf();
         std::fs::create_dir_all(root.join("Things")).unwrap();
         std::fs::write(root.join("twaco.toml"), "[[project]]\nname = \"P\"\n").unwrap();
         std::fs::write(
@@ -112,12 +112,12 @@ mod tests {
         )
         .unwrap();
         let solution = Solution::load(&root.join("twaco.toml")).unwrap();
-        (root, solution)
+        (root_guard, root, solution)
     }
 
     #[test]
     fn collection_and_name_reach_any_entity_and_a_bare_name_the_repositorys() {
-        let (root, solution) = solution();
+        let (_dir, _, solution) = solution();
         let (key, bytes) = get(&Fake, &solution, "Resources/EntityServices").unwrap();
         assert_eq!(key.to_string(), "Resources/EntityServices");
         assert_eq!(bytes, b"<Entities>Resources/EntityServices</Entities>");
@@ -135,6 +135,5 @@ mod tests {
         let missing = get(&Fake, &solution, "Things/Acme.Missing").unwrap_err();
         assert!(matches!(missing, GetError::NotOnServer(_)));
         assert!(missing.to_string().contains("twaco search"), "{missing}");
-        let _ = std::fs::remove_dir_all(root);
     }
 }

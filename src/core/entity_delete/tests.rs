@@ -103,15 +103,12 @@ impl Remote for Fake {
     }
 }
 
-fn solution() -> (PathBuf, Solution) {
-    let root = std::env::temp_dir().join(format!(
-        "twaco-delete-{}-{}",
-        std::process::id(),
-        std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap()
-            .as_nanos()
-    ));
+fn solution() -> (tempfile::TempDir, PathBuf, Solution) {
+    let root_guard = tempfile::Builder::new()
+        .prefix("twaco-delete-")
+        .tempdir()
+        .unwrap();
+    let root = root_guard.path().to_path_buf();
     std::fs::create_dir_all(&root).unwrap();
     std::fs::write(
         root.join("twaco.toml"),
@@ -119,7 +116,7 @@ fn solution() -> (PathBuf, Solution) {
     )
     .unwrap();
     let solution = Solution::load(&root.join("twaco.toml")).unwrap();
-    (root, solution)
+    (root_guard, root, solution)
 }
 
 fn execute(fake: &Fake, solution: &Solution, names: &[&str], apply: bool, force: bool) -> Report {
@@ -149,7 +146,7 @@ fn execute_ack(
 
 #[test]
 fn a_plan_sends_only_reads_and_reports_absent_entities() {
-    let (root, solution) = solution();
+    let (_dir, _, solution) = solution();
     let fake = Fake::new(&[("Things", "T")]);
     let report = execute(
         &fake,
@@ -171,12 +168,11 @@ fn a_plan_sends_only_reads_and_reports_absent_entities() {
         .borrow()
         .iter()
         .any(|call| call.starts_with("DELETE") || call.starts_with("SERVICE")));
-    let _ = std::fs::remove_dir_all(root);
 }
 
 #[test]
 fn reverse_collection_order_deletes_dependents_first_and_uses_both_methods() {
-    let (root, solution) = solution();
+    let (_dir, _, solution) = solution();
     let fake = Fake::new(&[("DataShapes", "D"), ("ThingShapes", "S"), ("Things", "T")]);
     let report = execute(
         &fake,
@@ -201,12 +197,11 @@ fn reverse_collection_order_deletes_dependents_first_and_uses_both_methods() {
             "DELETE DataShapes/D"
         ]
     );
-    let _ = std::fs::remove_dir_all(root);
 }
 
 #[test]
 fn outside_dependents_and_repository_definitions_refuse_unless_forced() {
-    let (root, solution) = solution();
+    let (_dir, root, solution) = solution();
     std::fs::create_dir_all(root.join("Things")).unwrap();
     std::fs::write(
         root.join("Things/T.xml"),
@@ -226,12 +221,11 @@ fn outside_dependents_and_repository_definitions_refuse_unless_forced() {
     assert_eq!(refused.entities[0].refusals().count(), 2);
     let forced = execute(&fake, &solution, &["Things/T"], true, true);
     assert_eq!(forced.entities[0].status, Status::Deleted);
-    let _ = std::fs::remove_dir_all(root);
 }
 
 #[test]
 fn acknowledgements_independently_guard_repository_dependents_and_file_data() {
-    let (root, solution) = solution();
+    let (_dir, root, solution) = solution();
     std::fs::create_dir_all(root.join("Things")).unwrap();
     std::fs::write(
         root.join("Things/Repo.xml"),
@@ -286,7 +280,6 @@ fn acknowledgements_independently_guard_repository_dependents_and_file_data() {
             }
         }
     }
-    let _ = std::fs::remove_dir_all(root);
 }
 
 #[test]
@@ -343,7 +336,7 @@ fn legacy_force_acknowledges_only_its_two_original_guards() {
 
 #[test]
 fn refusals_serialize_as_parallel_messages_and_codes() {
-    let (root, solution) = solution();
+    let (_dir, _, solution) = solution();
     let fake = Fake::new(&[("Unknowns", "T")]);
     let prepared = prepare(&solution, &["Unknowns/T".into()], false).unwrap();
     let refused = run(
@@ -393,12 +386,11 @@ fn refusals_serialize_as_parallel_messages_and_codes() {
     let value = serde_json::to_value(&absent.entities[0]).unwrap();
     assert!(value.get("refusals").is_none());
     assert!(value.get("refusal_codes").is_none());
-    let _ = std::fs::remove_dir_all(root);
 }
 
 #[test]
 fn invalid_qualified_names_keep_the_target_error() {
-    let (root, solution) = solution();
+    let (_dir, _, solution) = solution();
     let fake = Fake::new(&[]);
     for requested in ["Things/..", "Things/A/B", "/X"] {
         let prepared = prepare(&solution, &[requested.to_string()], false).unwrap();
@@ -418,12 +410,11 @@ fn invalid_qualified_names_keep_the_target_error() {
         );
     }
     assert!(fake.calls.borrow().is_empty());
-    let _ = std::fs::remove_dir_all(root);
 }
 
 #[test]
 fn an_invalid_ledger_entity_key_is_reported_without_a_request() {
-    let (root, solution) = solution();
+    let (_dir, root, solution) = solution();
     std::fs::create_dir_all(root.join(".twaco")).unwrap();
     std::fs::write(
             root.join(".twaco/renames.json"),
@@ -450,12 +441,11 @@ fn an_invalid_ledger_entity_key_is_reported_without_a_request() {
         )
     );
     assert!(fake.calls.borrow().is_empty());
-    let _ = std::fs::remove_dir_all(root);
 }
 
 #[test]
 fn an_invalid_dependent_key_is_outside_the_delete_set() {
-    let (root, solution) = solution();
+    let (_dir, _, solution) = solution();
     let mut fake = Fake::new(&[("Things", "T")]);
     fake.dependencies.insert(
         ("Things".into(), "T".into()),
@@ -475,12 +465,11 @@ fn an_invalid_dependent_key_is_outside_the_delete_set() {
             entity.refusals().collect::<Vec<_>>(),
             ["incoming dependents outside this delete set: Mashups/.. (pass --allow-outside-dependents)"]
         );
-    let _ = std::fs::remove_dir_all(root);
 }
 
 #[test]
 fn refused_and_deleted_entity_results_keep_their_json_shape() {
-    let (root, solution) = solution();
+    let (_dir, _, solution) = solution();
     let fake = Fake::new(&[("Unknowns", "T"), ("Mashups", "M")]);
     let refused = execute(&fake, &solution, &["Unknowns/T"], false, false);
     assert_eq!(
@@ -508,12 +497,11 @@ fn refused_and_deleted_entity_results_keep_their_json_shape() {
             "warnings": []
         })
     );
-    let _ = std::fs::remove_dir_all(root);
 }
 
 #[test]
 fn a_dependent_inside_the_set_is_allowed_and_repository_files_are_warned() {
-    let (root, solution) = solution();
+    let (_dir, _, solution) = solution();
     let mut fake = Fake::new(&[("ThingTemplates", "Base"), ("Things", "Repo")]);
     fake.dependencies.insert(
         ("ThingTemplates".into(), "Base".into()),
@@ -544,12 +532,11 @@ fn a_dependent_inside_the_set_is_allowed_and_repository_files_are_warned() {
         .unwrap()
         .warnings[0]
         .contains("deletes all"));
-    let _ = std::fs::remove_dir_all(root);
 }
 
 #[test]
 fn a_success_response_that_did_not_delete_is_a_per_entity_failure_and_the_run_continues() {
-    let (root, solution) = solution();
+    let (_dir, _, solution) = solution();
     let mut fake = Fake::new(&[("Mashups", "A"), ("Mashups", "B")]);
     fake.keep_after_delete
         .insert(("Mashups".into(), "A".into()));
@@ -573,12 +560,11 @@ fn a_success_response_that_did_not_delete_is_a_per_entity_failure_and_the_run_co
             .status,
         Status::Deleted
     );
-    let _ = std::fs::remove_dir_all(root);
 }
 
 #[test]
 fn renamed_marks_deleted_and_absent_entries_and_skips_already_marked_and_member_records() {
-    let (root, solution) = solution();
+    let (_dir, root, solution) = solution();
     std::fs::create_dir_all(root.join(".twaco")).unwrap();
     let ledger = serde_json::json!([
         {"date":"2026-10-01","kind":"entity","old":"Old","new":"New","entities":[
@@ -612,12 +598,11 @@ fn renamed_marks_deleted_and_absent_entries_and_skips_already_marked_and_member_
     assert_eq!(updated[0]["entities"][0]["deleted"], "2026-10-02");
     assert_eq!(updated[0]["entities"][1]["deleted"], "2026-10-01");
     assert!(updated[1]["entities"][0].get("deleted").is_none());
-    let _ = std::fs::remove_dir_all(root);
 }
 
 #[test]
 fn the_delete_set_is_backed_up_before_the_first_delete_and_a_failed_backup_deletes_nothing() {
-    let (root, solution) = solution();
+    let (_dir, _, solution) = solution();
     let fake = Fake::new(&[("Things", "A"), ("Things", "B")]);
     let names = vec![
         "Things/A".to_string(),
@@ -699,12 +684,11 @@ fn the_delete_set_is_backed_up_before_the_first_delete_and_a_failed_backup_delet
         .borrow()
         .iter()
         .all(|call| !call.starts_with("SERVICE") && !call.starts_with("DELETE")));
-    let _ = std::fs::remove_dir_all(root);
 }
 
 #[test]
 fn an_entity_is_deleted_after_the_entities_of_the_set_that_depend_on_it() {
-    let (root, solution) = solution();
+    let (_dir, _, solution) = solution();
     let mut fake = Fake::new(&[
         ("ThingTemplates", "A_TT"),
         ("ThingTemplates", "B_TT"),
@@ -748,12 +732,11 @@ fn an_entity_is_deleted_after_the_entities_of_the_set_that_depend_on_it() {
             .map(|e| (&e.name, &e.status))
             .collect::<Vec<_>>()
     );
-    let _ = std::fs::remove_dir_all(root);
 }
 
 #[test]
 fn corrupt_ledger_and_unknown_collection_refuse_before_any_request() {
-    let (root, solution) = solution();
+    let (_dir, root, solution) = solution();
     std::fs::create_dir_all(root.join(".twaco")).unwrap();
     std::fs::write(root.join(".twaco/renames.json"), "not json").unwrap();
     let fake = Fake::new(&[]);
@@ -773,12 +756,11 @@ fn corrupt_ledger_and_unknown_collection_refuse_before_any_request() {
     assert_eq!(report.entities[0].status, Status::Refused);
     assert_eq!(report.entities[0].method, Method::Composer);
     assert!(fake.calls.borrow().is_empty());
-    let _ = std::fs::remove_dir_all(root);
 }
 
 #[test]
 fn a_collection_without_a_delete_method_is_refused_whatever_is_acknowledged() {
-    let (root, solution) = solution();
+    let (_dir, _, solution) = solution();
     let fake = Fake::new(&[]);
     let everything = Acknowledged {
         repository_defined: true,
@@ -796,12 +778,11 @@ fn a_collection_without_a_delete_method_is_refused_whatever_is_acknowledged() {
         fake.calls.borrow().is_empty(),
         "nothing is asked of the server for it"
     );
-    let _ = std::fs::remove_dir_all(root);
 }
 
 #[test]
 fn a_bare_name_resolves_on_the_server_and_ambiguity_lists_its_collections() {
-    let (root, solution) = solution();
+    let (_dir, _, solution) = solution();
     let one = Fake::new(&[("Mashups", "Shared")]);
     let report = execute(&one, &solution, &["Shared"], false, false);
     assert_eq!(
@@ -833,5 +814,4 @@ fn a_bare_name_resolves_on_the_server_and_ambiguity_lists_its_collections() {
         .borrow()
         .iter()
         .any(|call| call.starts_with("DELETE") || call.starts_with("SERVICE")));
-    let _ = std::fs::remove_dir_all(root);
 }

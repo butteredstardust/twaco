@@ -994,14 +994,11 @@ mod tests {
 
     #[test]
     fn a_file_is_fetched_once_and_then_read_from_the_cache() {
-        let cache = std::env::temp_dir().join(format!(
-            "twaco-help-{}-{}",
-            std::process::id(),
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .unwrap()
-                .as_nanos()
-        ));
+        let cache_guard = tempfile::Builder::new()
+            .prefix("twaco-help-")
+            .tempdir()
+            .unwrap();
+        let cache = cache_guard.path().to_path_buf();
         let web = Counting {
             calls: RefCell::new(Vec::new()),
         };
@@ -1017,6 +1014,5 @@ mod tests {
         );
         cached(&web, &cache, "r10.1", "ThingWorx/Welcome.html", true).unwrap();
         assert_eq!(web.calls.borrow().len(), 2, "refresh fetches again");
-        let _ = std::fs::remove_dir_all(cache);
     }
 }

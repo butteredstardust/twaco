@@ -136,14 +136,14 @@ fn a_nested_block_is_never_taken_for_the_entitys_own() {
     assert!(out.contains(r#"name="Q""#), "{out}");
 }
 
-fn temp() -> PathBuf {
-    let nonce = crate::test_nonce();
-    let path = std::env::temp_dir().join(format!(
-        "twaco-permissions-apply-{}-{nonce}",
-        std::process::id()
-    ));
+fn temp() -> (tempfile::TempDir, PathBuf) {
+    let path_guard = tempfile::Builder::new()
+        .prefix("twaco-permissions-apply-")
+        .tempdir()
+        .unwrap();
+    let path = path_guard.path().to_path_buf();
     std::fs::create_dir_all(&path).unwrap();
-    path
+    (path_guard, path)
 }
 
 fn write(root: &Path, relative: &str, text: &str) {
@@ -177,12 +177,16 @@ roles = ["admin"]
 
 const ORDERS: &str = "<Entities>\n    <ThingShapes>\n        <ThingShape\n         name=\"Acme.App.Orders_TS\"\n         projectName=\"Acme.App\">\n            <ServiceDefinitions>\n                <ServiceDefinition\n                 name=\"GetOrders\"></ServiceDefinition>\n                <ServiceDefinition\n                 name=\"DeleteOrder\"></ServiceDefinition>\n            </ServiceDefinitions>\n            <VisibilityPermissions>\n                <Visibility></Visibility>\n            </VisibilityPermissions>\n            <InstanceRunTimePermissions></InstanceRunTimePermissions>\n        </ThingShape>\n    </ThingShapes>\n</Entities>\n";
 
-fn solution(policy: &str) -> (Solution, PathBuf) {
-    let root = temp();
+fn solution(policy: &str) -> (tempfile::TempDir, Solution, PathBuf) {
+    let (_dir, root) = temp();
     write(&root, "twaco.toml", "[[project]]\nname = \"Acme.App\"\n");
     write(&root, "permissions.toml", policy);
     write(&root, "ThingShapes/Acme.App.Orders_TS.xml", ORDERS);
-    (Solution::load(&root.join("twaco.toml")).unwrap(), root)
+    (
+        _dir,
+        Solution::load(&root.join("twaco.toml")).unwrap(),
+        root,
+    )
 }
 
 fn request(mode: Mode) -> command::ApplyRequest {
@@ -195,7 +199,7 @@ fn request(mode: Mode) -> command::ApplyRequest {
 
 #[test]
 fn apply_plans_writes_once_and_then_has_nothing_to_do() {
-    let (solution, root) = solution(POLICY);
+    let (_dir, solution, root) = solution(POLICY);
     let path = root.join("ThingShapes/Acme.App.Orders_TS.xml");
     let plan =
         command::execute_apply(&solution, &request(Mode::Plan), &mut Notices::default()).unwrap();
@@ -228,13 +232,12 @@ fn apply_plans_writes_once_and_then_has_nothing_to_do() {
     assert_eq!(again.plan.changes().count(), 0);
     let audit = super::audit::audit(&solution, None).unwrap();
     assert_eq!(audit.count(super::audit::Severity::Error), 0, "{audit:#?}");
-    let _ = std::fs::remove_dir_all(root);
 }
 
 #[test]
 fn apply_refuses_while_a_strict_service_is_unclassified() {
     let policy = POLICY.replace("resources = [\"DeleteOrder\"]", "resources = [\"Remove*\"]");
-    let (solution, root) = solution(&policy);
+    let (_dir, solution, root) = solution(&policy);
     let error = command::execute_apply(&solution, &request(Mode::Apply), &mut Notices::default())
         .unwrap_err()
         .to_string();
@@ -243,7 +246,6 @@ fn apply_refuses_while_a_strict_service_is_unclassified() {
         std::fs::read_to_string(root.join("ThingShapes/Acme.App.Orders_TS.xml")).unwrap(),
         ORDERS
     );
-    let _ = std::fs::remove_dir_all(root);
 }
 
 #[test]
@@ -299,7 +301,7 @@ fn two_missing_blocks_go_in_together() {
 
 #[test]
 fn a_file_changed_after_the_plan_is_refused_not_overwritten() {
-    let (solution, root) = solution(POLICY);
+    let (_dir, solution, root) = solution(POLICY);
     let path = root.join("ThingShapes/Acme.App.Orders_TS.xml");
     let plan = super::apply::plan(&solution, None).unwrap();
     let change = plan.changes().next().unwrap();
@@ -314,7 +316,6 @@ fn a_file_changed_after_the_plan_is_refused_not_overwritten() {
     assert!(operation.apply(&lock).is_err());
     assert_eq!(std::fs::read_to_string(&path).unwrap(), edited);
     drop(lock);
-    let _ = std::fs::remove_dir_all(root);
 }
 
 #[test]
@@ -324,7 +325,7 @@ fn what_the_write_settles_is_not_left_over_and_what_it_cannot_fails_the_run() {
         "<InstanceRunTimePermissions></InstanceRunTimePermissions>",
         "<InstanceRunTimePermissions><Permissions resourceName=\"GetOrders\"><ServiceInvoke><Principal isPermitted=\"true\" name=\"Acme.App.Default_OR\" type=\"Organization\"/></ServiceInvoke></Permissions></InstanceRunTimePermissions>",
     );
-    let (solution, root) = solution(POLICY);
+    let (_dir, solution, root) = solution(POLICY);
     write(&root, "ThingShapes/Acme.App.Orders_TS.xml", &bad);
     let plan = super::apply::plan(&solution, None).unwrap();
     assert_eq!(
@@ -347,15 +348,14 @@ fn what_the_write_settles_is_not_left_over_and_what_it_cannot_fails_the_run() {
         "{:#?}",
         plan.projects[0].remaining
     );
-    let _ = std::fs::remove_dir_all(root);
 }
 
 fn empty_table(name: &str, data_shape: &str) -> String {
     format!("                <ConfigurationTable\n                 dataShapeName=\"{data_shape}\"\n                 description=\"\"\n                 isMultiRow=\"true\"\n                 name=\"{name}\"\n                 ordinal=\"0\">\n                    <DataShape>\n                        <FieldDefinitions></FieldDefinitions>\n                    </DataShape>\n                    <Rows></Rows>\n                </ConfigurationTable>\n")
 }
 
-fn helper_solution() -> (Solution, PathBuf) {
-    let (solution, root) = solution(POLICY);
+fn helper_solution() -> (tempfile::TempDir, Solution, PathBuf) {
+    let (_dir, solution, root) = solution(POLICY);
     let tables = [
         empty_table("RoleGroupsAndOrganizations", ""),
         empty_table("RunTimePermissionsTable", "Acme.App.RunTimePermissions_DS"),
@@ -377,12 +377,12 @@ fn helper_solution() -> (Solution, PathBuf) {
             &format!("<Entities>\n    <DataShapes>\n        <DataShape\n         name=\"Acme.App.{shape}\"\n         projectName=\"Acme.App\">\n            <VisibilityPermissions>\n                <Visibility></Visibility>\n            </VisibilityPermissions>\n            <FieldDefinitions></FieldDefinitions>\n        </DataShape>\n    </DataShapes>\n</Entities>\n"),
         );
     }
-    (solution, root)
+    (_dir, solution, root)
 }
 
 #[test]
 fn helper_mode_writes_the_helpers_tables_and_columns_from_the_policy() {
-    let (solution, root) = helper_solution();
+    let (_dir, solution, root) = helper_solution();
     let audit = super::audit::audit(&solution, None).unwrap();
     assert_eq!(audit.projects[0].mode, "helper");
     let codes: Vec<&str> = audit.projects[0].findings.iter().map(|f| f.code).collect();
@@ -463,13 +463,12 @@ fn helper_mode_writes_the_helpers_tables_and_columns_from_the_policy() {
             .unwrap()["ID"],
         "1.0"
     );
-    let _ = std::fs::remove_dir_all(root);
 }
 
 #[test]
 fn a_helper_that_cannot_mean_one_thing_is_an_error_not_a_guess() {
     // Two run-time tables, the last one correct: the first must not hide behind it.
-    let (solution, root) = helper_solution();
+    let (_dir, solution, root) = helper_solution();
     command::execute_apply(&solution, &request(Mode::Apply), &mut Notices::default()).unwrap();
     let path = root.join("Things/Acme.App.ComponentPermissionHelper.xml");
     let written = std::fs::read_to_string(&path).unwrap();
@@ -513,13 +512,12 @@ fn a_helper_that_cannot_mean_one_thing_is_an_error_not_a_guess() {
             .contains("Acme.App.VisibilityPermissions_DS"),
         "{finding:?}"
     );
-    let _ = std::fs::remove_dir_all(root);
 }
 
 #[test]
 fn the_servers_helper_tables_are_compared_as_sets_of_rows() {
     use super::server_audit_tests::Fake;
-    let (solution, root) = helper_solution();
+    let (_dir, solution, root) = helper_solution();
     command::execute_apply(&solution, &request(Mode::Apply), &mut Notices::default()).unwrap();
     let helper = std::fs::read(root.join("Things/Acme.App.ComponentPermissionHelper.xml")).unwrap();
     let tables = super::helper::read_tables(&crate::core::normalise::entity_of(&helper).unwrap());
@@ -588,7 +586,6 @@ fn the_servers_helper_tables_are_compared_as_sets_of_rows() {
     let codes: Vec<&str> = report.projects[0].findings.iter().map(|f| f.code).collect();
     assert!(!codes.contains(&"server-helper-differs"), "{codes:?}");
     assert!(!codes.contains(&"server-unreadable"), "{codes:?}");
-    let _ = std::fs::remove_dir_all(root);
 }
 
 #[test]
@@ -602,7 +599,7 @@ fn a_drafted_policy_changes_nothing_and_leaves_what_it_cannot_say_alone() {
     };
     // A project as the policy left it, drafted from its XML and from its helper.
     for from_helper in [false, true] {
-        let (solution, root) = helper_solution();
+        let (_dir, solution, root) = helper_solution();
         command::execute_apply(&solution, &request(Mode::Apply), &mut Notices::default()).unwrap();
         std::fs::remove_file(root.join("permissions.toml")).unwrap();
         let drafted =
@@ -620,11 +617,10 @@ fn a_drafted_policy_changes_nothing_and_leaves_what_it_cannot_say_alone() {
         assert!(
             command::execute_init(&solution, &init(from_helper), &mut Notices::default()).is_err()
         );
-        let _ = std::fs::remove_dir_all(root);
     }
 
     // A deny cannot be said: the entity is left unmanaged, with a note.
-    let (solution, root) = solution(POLICY);
+    let (_dir, solution, root) = solution(POLICY);
     write(
         &root,
         "ThingShapes/Acme.App.Orders_TS.xml",
@@ -646,7 +642,6 @@ fn a_drafted_policy_changes_nothing_and_leaves_what_it_cannot_say_alone() {
     let plan =
         command::execute_apply(&solution, &request(Mode::Plan), &mut Notices::default()).unwrap();
     assert_eq!(plan.plan.changes().count(), 0);
-    let _ = std::fs::remove_dir_all(root);
 }
 
 #[test]
@@ -658,7 +653,7 @@ fn a_helper_that_cannot_be_kept_by_its_own_draft_is_refused() {
         mode: Mode::Plan,
         lock_label: "permissions init",
     };
-    let (solution, root) = helper_solution();
+    let (_dir, solution, root) = helper_solution();
     command::execute_apply(&solution, &request(Mode::Apply), &mut Notices::default()).unwrap();
     std::fs::remove_file(root.join("permissions.toml")).unwrap();
     let path = root.join("Things/Acme.App.ComponentPermissionHelper.xml");
@@ -704,12 +699,11 @@ fn a_helper_that_cannot_be_kept_by_its_own_draft_is_refused() {
         .unwrap_err()
         .to_string();
     assert!(error.contains("Shared_UG"), "{error}");
-    let _ = std::fs::remove_dir_all(root);
 }
 
 #[test]
 fn a_short_name_that_would_name_two_entities_is_written_whole() {
-    let (solution, root) = solution(POLICY);
+    let (_dir, solution, root) = solution(POLICY);
     command::execute_apply(&solution, &request(Mode::Apply), &mut Notices::default()).unwrap();
     // An entity literally called `Orders_TS`, beside `Acme.App.Orders_TS`, granting nothing.
     write(
@@ -737,12 +731,11 @@ fn a_short_name_that_would_name_two_entities_is_written_whole() {
     let plan =
         command::execute_apply(&solution, &request(Mode::Plan), &mut Notices::default()).unwrap();
     assert_eq!(plan.plan.changes().count(), 0, "{}", drafted.drafts[0].text);
-    let _ = std::fs::remove_dir_all(root);
 }
 
 #[test]
 fn a_visibility_deny_of_a_roles_unit_is_left_alone_by_the_draft() {
-    let (solution, root) = solution(POLICY);
+    let (_dir, solution, root) = solution(POLICY);
     command::execute_apply(&solution, &request(Mode::Apply), &mut Notices::default()).unwrap();
     let path = root.join("ThingShapes/Acme.App.Orders_TS.xml");
     let written = std::fs::read_to_string(&path).unwrap();
@@ -783,5 +776,4 @@ fn a_visibility_deny_of_a_roles_unit_is_left_alone_by_the_draft() {
         command::execute_apply(&solution, &request(Mode::Plan), &mut Notices::default()).unwrap();
     assert_eq!(plan.plan.changes().count(), 0, "{}", drafted.drafts[0].text);
     assert_eq!(std::fs::read_to_string(&path).unwrap(), denied);
-    let _ = std::fs::remove_dir_all(root);
 }

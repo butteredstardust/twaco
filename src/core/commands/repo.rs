@@ -318,9 +318,11 @@ mod tests {
 
     #[test]
     fn a_pull_plan_does_not_lock_and_an_apply_locks_before_loading_its_profile() {
-        let nonce = crate::test_nonce();
-        let root =
-            std::env::temp_dir().join(format!("twaco-command-repo-{}-{nonce}", std::process::id()));
+        let root_guard = tempfile::Builder::new()
+            .prefix("twaco-command-repo-")
+            .tempdir()
+            .unwrap();
+        let root = root_guard.path().to_path_buf();
         std::fs::create_dir_all(&root).unwrap();
         std::fs::write(
             root.join("twaco.toml"),
@@ -355,16 +357,15 @@ mod tests {
         .unwrap_err();
         assert!(matches!(apply, RepoCommandError::Lock(_)));
         drop(held);
-        std::fs::remove_dir_all(root).unwrap();
     }
 
     #[test]
     fn get_output_refuses_an_existing_file_unless_forced() {
-        let nonce = crate::test_nonce();
-        let root = std::env::temp_dir().join(format!(
-            "twaco-command-repo-get-{}-{nonce}",
-            std::process::id()
-        ));
+        let root_guard = tempfile::Builder::new()
+            .prefix("twaco-command-repo-get-")
+            .tempdir()
+            .unwrap();
+        let root = root_guard.path().to_path_buf();
         std::fs::create_dir_all(root.join(".twaco/profiles")).unwrap();
         std::fs::write(root.join("twaco.toml"), "[[project]]\nname = \"P\"\n").unwrap();
         std::fs::write(
@@ -401,6 +402,5 @@ mod tests {
         .unwrap();
         assert_eq!(outcome.effects(), Effects::new(Access::Write, Access::Read));
         assert_eq!(std::fs::read(&out).unwrap(), b"new");
-        std::fs::remove_dir_all(root).unwrap();
     }
 }

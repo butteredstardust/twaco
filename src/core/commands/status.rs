@@ -183,9 +183,11 @@ mod tests {
 
     #[test]
     fn a_read_only_status_needs_no_lock_but_recording_takes_one_before_discovery() {
-        let root =
-            std::env::temp_dir().join(format!("twaco-command-status-{}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&root);
+        let root_guard = tempfile::Builder::new()
+            .prefix("twaco-command-status-")
+            .tempdir()
+            .unwrap();
+        let root = root_guard.path().to_path_buf();
         std::fs::create_dir_all(&root).unwrap();
         std::fs::write(root.join("twaco.toml"), "[[project]]\nname = \"P\"\n").unwrap();
         let solution = Solution::load(&root.join("twaco.toml")).unwrap();
@@ -220,6 +222,5 @@ mod tests {
             Err(StatusCommandError::Lock(_))
         ));
         drop(held);
-        std::fs::remove_dir_all(root).unwrap();
     }
 }

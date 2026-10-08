@@ -2,20 +2,17 @@ use super::*;
 use std::collections::BTreeMap;
 
 struct Fixture {
+    _dir: tempfile::TempDir,
     root: PathBuf,
     solution: Solution,
 }
 
-impl Drop for Fixture {
-    fn drop(&mut self) {
-        let _ = std::fs::remove_dir_all(&self.root);
-    }
-}
-
 fn fixture() -> Fixture {
-    let nonce = crate::test_nonce();
-    let root =
-        std::env::temp_dir().join(format!("twaco-rename-plan-{}-{nonce}", std::process::id()));
+    let root_guard = tempfile::Builder::new()
+        .prefix("twaco-rename-plan-")
+        .tempdir()
+        .unwrap();
+    let root = root_guard.path().to_path_buf();
     std::fs::create_dir_all(&root).unwrap();
     write(&root, ".gitignore", "ignored.txt\n");
     write(
@@ -61,13 +58,19 @@ fn fixture() -> Fixture {
     );
     write(&root, "ignored.txt", "Acme.App.Manager Acme.App\n");
     let solution = Solution::load(&root.join(CONFIG_FILE)).unwrap();
-    Fixture { root, solution }
+    Fixture {
+        _dir: root_guard,
+        root,
+        solution,
+    }
 }
 
 fn run_fixture() -> Fixture {
-    let nonce = crate::test_nonce();
-    let root =
-        std::env::temp_dir().join(format!("twaco-rename-run-{}-{nonce}", std::process::id()));
+    let root_guard = tempfile::Builder::new()
+        .prefix("twaco-rename-run-")
+        .tempdir()
+        .unwrap();
+    let root = root_guard.path().to_path_buf();
     std::fs::create_dir_all(&root).unwrap();
     write(
         &root,
@@ -80,7 +83,11 @@ fn run_fixture() -> Fixture {
             "<Entities><Things><Thing name=\"P.Manager\" projectName=\"P\"></Thing></Things></Entities>\n",
         );
     let solution = Solution::load(&root.join(CONFIG_FILE)).unwrap();
-    Fixture { root, solution }
+    Fixture {
+        _dir: root_guard,
+        root,
+        solution,
+    }
 }
 
 fn write(root: &Path, relative: &str, content: &str) {

@@ -1,11 +1,11 @@
 use super::*;
 
 fn table_fixture(tag: &str) -> Fixture {
-    let nonce = crate::test_nonce();
-    let root = std::env::temp_dir().join(format!(
-        "twaco-rename-table-{tag}-{}-{nonce}",
-        std::process::id()
-    ));
+    let root_guard = tempfile::Builder::new()
+        .prefix(&format!("twaco-rename-table-{tag}-"))
+        .tempdir()
+        .unwrap();
+    let root = root_guard.path().to_path_buf();
     std::fs::create_dir_all(&root).unwrap();
     write(&root, "twaco.toml", "[[project]]\nname = \"P\"\ncollections = [\"ThingShapes\", \"ThingTemplates\", \"Things\"]\n");
     let definition = "<ConfigurationTableDefinitions><ConfigurationTableDefinition dataShapeName=\"P.Limits_CT\" name=\"Limits_CT\"/></ConfigurationTableDefinitions>";
@@ -28,7 +28,11 @@ fn table_fixture(tag: &str) -> Fixture {
         "const a = { tableName: \"Limits_CT\" }; const TABLE = 'Limits_CT'; x.Limits_CT;\n",
     );
     let solution = Solution::load(&root.join(CONFIG_FILE)).unwrap();
-    Fixture { root, solution }
+    Fixture {
+        _dir: root_guard,
+        root,
+        solution,
+    }
 }
 
 fn table_spec(scope: &str, old: &str, new: &str) -> Spec {
@@ -45,11 +49,11 @@ fn table_spec(scope: &str, old: &str, new: &str) -> Spec {
 fn a_shape_the_scope_implements_has_its_table_calls_rewritten() {
     // The services that read a table often sit on a shape the declaring template implements:
     // an ancestor of the scope, not a descendant. Its `tableName: "..."` calls follow the rename.
-    let nonce = crate::test_nonce();
-    let root = std::env::temp_dir().join(format!(
-        "twaco-rename-table-family-{}-{nonce}",
-        std::process::id()
-    ));
+    let root_guard = tempfile::Builder::new()
+        .prefix("twaco-rename-table-family-")
+        .tempdir()
+        .unwrap();
+    let root = root_guard.path().to_path_buf();
     std::fs::create_dir_all(&root).unwrap();
     write(
         &root,

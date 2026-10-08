@@ -275,11 +275,11 @@ mod tests {
 
     #[test]
     fn a_committed_profile_fails_and_a_committed_backup_warns() {
-        let root = std::env::temp_dir().join(format!(
-            "twaco-doctor-secrets-{}-{}",
-            std::process::id(),
-            crate::test_nonce()
-        ));
+        let root_guard = tempfile::Builder::new()
+            .prefix("twaco-doctor-secrets-")
+            .tempdir()
+            .unwrap();
+        let root = root_guard.path().to_path_buf();
         std::fs::create_dir_all(root.join(".twaco/backups")).unwrap();
         git(&root, &["init", "-q"]);
         assert_eq!(committed_secrets(&root).health, Health::Ok);
@@ -311,12 +311,15 @@ mod tests {
             !profile.detail.contains("s3cret"),
             "names files, never contents"
         );
-        let _ = std::fs::remove_dir_all(root);
     }
 
     #[test]
     fn no_solution_is_a_failure_that_says_what_to_do() {
-        let dir = std::env::temp_dir().join(format!("twaco-doctor-empty-{}", std::process::id()));
+        let dir_guard = tempfile::Builder::new()
+            .prefix("twaco-doctor-empty-")
+            .tempdir()
+            .unwrap();
+        let dir = dir_guard.path().to_path_buf();
         std::fs::create_dir_all(&dir).unwrap();
         let items = diagnose(&dir, "default");
         let solution = items.iter().find(|i| i.subject == "solution").unwrap();
@@ -324,19 +327,15 @@ mod tests {
         if solution.health == Health::Fail {
             assert!(solution.detail.contains("twaco init"));
         }
-        let _ = std::fs::remove_dir_all(dir);
     }
 
     #[test]
     fn an_offline_solution_is_healthy_without_a_profile() {
-        let dir = std::env::temp_dir().join(format!(
-            "twaco-doctor-{}-{}",
-            std::process::id(),
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .unwrap()
-                .as_nanos()
-        ));
+        let dir_guard = tempfile::Builder::new()
+            .prefix("twaco-doctor-")
+            .tempdir()
+            .unwrap();
+        let dir = dir_guard.path().to_path_buf();
         std::fs::create_dir_all(dir.join("Things")).unwrap();
         std::fs::write(dir.join("twaco.toml"), "[[project]]\nname = \"P\"\n").unwrap();
         std::fs::write(
@@ -354,6 +353,5 @@ mod tests {
             items.iter().all(|i| i.subject != "server"),
             "no server check without a profile"
         );
-        let _ = std::fs::remove_dir_all(dir);
     }
 }

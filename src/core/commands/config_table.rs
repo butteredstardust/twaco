@@ -208,15 +208,12 @@ mod tests {
         }
     }
 
-    fn workspace() -> (std::path::PathBuf, Solution) {
-        let root = std::env::temp_dir().join(format!(
-            "twaco-command-config-table-{}-{}",
-            std::process::id(),
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .unwrap()
-                .as_nanos()
-        ));
+    fn workspace() -> (tempfile::TempDir, std::path::PathBuf, Solution) {
+        let root_guard = tempfile::Builder::new()
+            .prefix("twaco-command-config-table-")
+            .tempdir()
+            .unwrap();
+        let root = root_guard.path().to_path_buf();
         std::fs::create_dir_all(root.join(".twaco/profiles")).unwrap();
         std::fs::write(root.join("twaco.toml"), "[[project]]\nname = \"P\"\n").unwrap();
         std::fs::write(
@@ -225,7 +222,7 @@ mod tests {
         )
         .unwrap();
         let solution = Solution::load(&root.join("twaco.toml")).unwrap();
-        (root, solution)
+        (root_guard, root, solution)
     }
 
     fn request(action: ConfigTableAction) -> ConfigTableRequest {
@@ -253,7 +250,7 @@ mod tests {
 
     #[test]
     fn reading_and_backing_up_report_their_effects_and_only_a_backup_writes_a_file() {
-        let (root, solution) = workspace();
+        let (_dir, root, solution) = workspace();
         let remote = Recorder {
             rows: Rc::new(RefCell::new(vec![json!({ "Key": "a", "Value": "1" })])),
             calls: Rc::default(),
@@ -275,12 +272,11 @@ mod tests {
             .borrow()
             .iter()
             .all(|call| call == "GetConfigurationTable"));
-        let _ = std::fs::remove_dir_all(root);
     }
 
     #[test]
     fn a_restore_plan_changes_nothing_on_the_server_and_an_apply_does() {
-        let (root, solution) = workspace();
+        let (_dir, root, solution) = workspace();
         let remote = Recorder {
             rows: Rc::new(RefCell::new(vec![json!({ "Key": "a", "Value": "1" })])),
             calls: Rc::default(),
@@ -342,12 +338,11 @@ mod tests {
             "{:?}",
             remote.calls.borrow()
         );
-        let _ = std::fs::remove_dir_all(root);
     }
 
     #[test]
     fn a_missing_profile_is_refused_before_any_call_with_its_own_code() {
-        let (root, solution) = workspace();
+        let (_dir, _, solution) = workspace();
         let remote = Recorder {
             rows: Rc::default(),
             calls: Rc::default(),
@@ -368,6 +363,5 @@ mod tests {
         );
         assert!(remote.calls.borrow().is_empty());
         let _ = error.code();
-        let _ = std::fs::remove_dir_all(root);
     }
 }

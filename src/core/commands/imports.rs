@@ -144,12 +144,12 @@ mod tests {
         }
     }
 
-    fn setup() -> (std::path::PathBuf, Solution) {
-        let nonce = crate::test_nonce();
-        let root = std::env::temp_dir().join(format!(
-            "twaco-command-imports-{}-{nonce}",
-            std::process::id()
-        ));
+    fn setup() -> (tempfile::TempDir, std::path::PathBuf, Solution) {
+        let root_guard = tempfile::Builder::new()
+            .prefix("twaco-command-imports-")
+            .tempdir()
+            .unwrap();
+        let root = root_guard.path().to_path_buf();
         std::fs::create_dir_all(root.join(".twaco/profiles")).unwrap();
         std::fs::write(root.join("twaco.toml"), "[[project]]\nname = \"P\"\n").unwrap();
         std::fs::write(
@@ -158,12 +158,12 @@ mod tests {
         )
         .unwrap();
         let solution = Solution::load(&root.join("twaco.toml")).unwrap();
-        (root, solution)
+        (root_guard, root, solution)
     }
 
     #[test]
     fn source_control_plan_and_apply_use_the_same_policy() {
-        let (root, solution) = setup();
+        let (_dir, _, solution) = setup();
         let request = |mode| ImportRequest {
             action: ImportAction::SourceControl {
                 repository: "R".to_string(),
@@ -212,12 +212,11 @@ mod tests {
                 "DiffSourceControlledEntities"
             ]
         );
-        std::fs::remove_dir_all(root).unwrap();
     }
 
     #[test]
     fn file_refusal_keeps_the_import_error_code() {
-        let (root, solution) = setup();
+        let (_dir, _, solution) = setup();
         let request = ImportRequest {
             action: ImportAction::File {
                 file_name: "bad.xml".to_string(),
@@ -238,6 +237,5 @@ mod tests {
         )
         .unwrap_err();
         assert_eq!(error.code(), ErrorCode::InvalidData);
-        std::fs::remove_dir_all(root).unwrap();
     }
 }
