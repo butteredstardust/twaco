@@ -99,19 +99,48 @@ jobs:
       - name: The lockfile still resolves
         if: steps.head.outputs.skip != 'true'
         run: cargo metadata --locked --format-version 1 > /dev/null
-      # A push with GITHUB_TOKEN starts no workflow, so this branch does not release itself.
+      # GitHub makes the version commit through the API, so GitHub signs it and the release tag
+      # shows "Verified". A commit from `git commit` here has no signature.
+      # A change with GITHUB_TOKEN starts no workflow, so this branch does not release itself.
       - name: Commit to release/v${{ steps.bump.outputs.version }}
         id: commit
         if: steps.head.outputs.skip != 'true'
         env:
           VERSION: ${{ steps.bump.outputs.version }}
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
         run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add Cargo.toml Cargo.lock CHANGELOG.md
-          git commit -m "Release v$VERSION [skip ci]"
-          git push --force origin "HEAD:refs/heads/release/v$VERSION"
-          echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+          base=$(git rev-parse HEAD)
+          branch="release/v$VERSION"
+          # Start the branch at main. A re-run resets the branch that an earlier attempt left.
+          if ! gh api "repos/$REPOSITORY/git/refs" -f "ref=refs/heads/$branch" -f "sha=$base" > /dev/null; then
+            gh api -X PATCH "repos/$REPOSITORY/git/refs/heads/$branch" -f "sha=$base" -F force=true > /dev/null
+          fi
+          # Send the request as a file: as base64, Cargo.lock can exceed the size limit of one argument.
+          python3 - "$base" "$branch" > request.json <<'EOF'
+          import base64, json, os, sys
+          base, branch = sys.argv[1], sys.argv[2]
+          files = ["Cargo.toml", "Cargo.lock", "CHANGELOG.md"]
+          query = """mutation($input: CreateCommitOnBranchInput!) {
+            createCommitOnBranch(input: $input) { commit { oid } }
+          }"""
+          json.dump({"query": query, "variables": {"input": {
+              "branch": {"repositoryNameWithOwner": os.environ["REPOSITORY"], "branchName": branch},
+              "message": {"headline": f"Release v{os.environ['VERSION']} [skip ci]"},
+              "expectedHeadOid": base,
+              "fileChanges": {"additions": [
+                  {"path": path, "contents": base64.b64encode(open(path, "rb").read()).decode()}
+                  for path in files
+              ]},
+          }}}, sys.stdout)
+          EOF
+          sha=$(gh api graphql --input request.json -q .data.createCommitOnBranch.commit.oid)
+          rm request.json
+          test -n "$sha"
+          # The commit must hold exactly the files this job wrote and checked.
+          git fetch --quiet origin "$sha"
+          git diff --exit-code "$sha"
+          echo "sha=$sha" >> "$GITHUB_OUTPUT"
 
   build:
     needs: prepare
