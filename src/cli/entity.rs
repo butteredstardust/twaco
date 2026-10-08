@@ -43,8 +43,11 @@ pub(crate) fn entity_get(solution: &Solution, args: &Args) -> u8 {
             return FAILED;
         }
     };
-    let live = match server::Client::new(profile)
-        .fetch_entity(&entity.info.collection, &entity.info.name)
+    let live = match twaco::core::entity_key::EntityKey::address(
+        &entity.info.collection,
+        &entity.info.name,
+    )
+    .and_then(|key| server::Client::new(profile).fetch_entity(&key))
     {
         Ok(bytes) => bytes,
         Err(error) => {

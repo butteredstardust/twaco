@@ -10,7 +10,7 @@
 //! refused unless `append`, and the result is read back and compared.
 
 use super::config::Solution;
-use super::entity_key::ServiceTarget;
+use super::entity_key::{EntityKey, ServiceTarget};
 use super::server::{Client, ServerError};
 use serde::Serialize;
 use serde_json::{json, Map, Value};
@@ -41,7 +41,7 @@ pub trait Remote {
 
 impl Remote for Client {
     fn exists(&self, table: &str) -> Result<bool, ServerError> {
-        self.entity_exists("Things", table)
+        self.entity_exists(&EntityKey::address("Things", table)?)
     }
 
     fn count(&self, table: &str) -> Result<u64, ServerError> {

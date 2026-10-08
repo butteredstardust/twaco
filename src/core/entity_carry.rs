@@ -112,7 +112,7 @@ pub trait Remote {
 
 impl Remote for Client {
     fn exists(&self, collection: &str, name: &str) -> Result<bool, ServerError> {
-        self.entity_exists(collection, name)
+        self.entity_exists(&EntityKey::address(collection, name)?)
     }
 
     fn get(&self, collection: &str, name: &str, kind: Kind) -> Result<Value, ServerError> {

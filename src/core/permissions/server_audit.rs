@@ -11,6 +11,7 @@ use super::policy::Platform;
 use super::{from_json, Grant, Status};
 use crate::core::config_table;
 use crate::core::entity_carry::{self, Kind};
+use crate::core::entity_key::EntityKey;
 use crate::core::push;
 use crate::core::server::ServerError;
 use crate::core::workspace::EntityFile;
@@ -418,7 +419,9 @@ fn units(remote: &dyn Remote, loaded: &Loaded, out: &mut Vec<Finding>) {
         };
         let key = Some(format!("Organizations/{organization}"));
         if !organizations.contains_key(organization) {
-            let model = match remote.fetch("Organizations", organization) {
+            let model = match EntityKey::address("Organizations", organization)
+                .and_then(|key| remote.fetch(&key))
+            {
                 Ok(Some(bytes)) => {
                     let file = EntityFile {
                         path: std::path::PathBuf::from(format!("{organization}.xml")),

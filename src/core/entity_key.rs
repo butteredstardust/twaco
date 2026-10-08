@@ -67,6 +67,18 @@ impl EntityKey {
         Ok(Self { collection, name })
     }
 
+    /// A key for a name read from a file, a reply or the repository, at the point it is about to
+    /// address the server: a malformed one is refused as an invalid URL rather than resolved as
+    /// another route.
+    pub fn address(collection: &str, name: &str) -> Result<Self, ServerError> {
+        Self::new(collection, name).map_err(|error| {
+            ServerError::InvalidUrl(format!(
+                "{collection}/{name} is not an entity address: {}",
+                error.why
+            ))
+        })
+    }
+
     pub fn parse(text: &str) -> Result<Self, KeyError> {
         let Some((collection, name)) = text.split_once('/') else {
             return Err(KeyError::new(text, "an entity key needs Collection/Name"));
@@ -176,6 +188,27 @@ impl fmt::Display for ServiceTarget {
 mod tests {
     use super::{EntityKey, ServiceTarget};
     use crate::core::server::ServerError;
+
+    #[test]
+    fn an_address_from_a_file_or_reply_is_refused_as_an_invalid_url() {
+        assert_eq!(
+            EntityKey::address("Things", "A B").unwrap().url_path(),
+            "Things/A%20B"
+        );
+        for (collection, name) in [
+            ("Things", ""),
+            ("Things", ".."),
+            ("Things", "A/B"),
+            ("", "A"),
+        ] {
+            let error = EntityKey::address(collection, name).unwrap_err();
+            assert!(matches!(error, ServerError::InvalidUrl(_)), "{error:?}");
+            assert!(
+                error.to_string().contains("is not an entity address"),
+                "{error}"
+            );
+        }
+    }
 
     #[test]
     fn entity_key_parses_displays_and_refuses_invalid_addresses() {

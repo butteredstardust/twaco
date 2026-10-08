@@ -12,6 +12,13 @@ All notable changes to twaco are recorded here. The format follows
   ignore line added later does not untrack. A tracked profile fails (change the credentials it
   holds: history keeps them); a tracked backup warns. Only file names are shown.
 
+### Changed
+
+- Every server address for an entity is built from a checked collection and name. An import file,
+  a backup set's `backup.json` or a repository entity whose name is empty, `.`, `..` or holds a
+  `/` is refused with the name, instead of asking the server about the collection itself or
+  another entity.
+
 ## [0.1.3] - 2026-10-08
 
 ### Changed

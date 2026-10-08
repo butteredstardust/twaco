@@ -14,6 +14,7 @@
 use super::config::Solution;
 use super::deploy;
 use super::entity;
+use super::entity_key::EntityKey;
 use super::push::{self, Decision, Refusal};
 use super::server::{Client, ServerError};
 use super::workspace;
@@ -29,18 +30,18 @@ pub const KEEP: usize = 20;
 /// Reading an entity's export, and importing one back.
 pub trait Remote {
     /// The entity's Exporter XML, or `None` when the server does not have it.
-    fn export(&self, collection: &str, name: &str) -> Result<Option<Vec<u8>>, ServerError>;
+    fn export(&self, key: &EntityKey) -> Result<Option<Vec<u8>>, ServerError>;
     fn import(&self, file_name: &str, xml: &[u8]) -> Result<(), ServerError>;
-    fn exists(&self, collection: &str, name: &str) -> Result<bool, ServerError>;
+    fn exists(&self, key: &EntityKey) -> Result<bool, ServerError>;
 }
 
 impl Remote for Client {
-    fn export(&self, collection: &str, name: &str) -> Result<Option<Vec<u8>>, ServerError> {
-        let bytes = self.export_xml(Some(collection), Some(name), None)?;
+    fn export(&self, key: &EntityKey) -> Result<Option<Vec<u8>>, ServerError> {
+        let bytes = self.export_xml(Some(key.collection()), Some(key.name()), None)?;
         // The Exporter answers 200 with an empty export for an entity it does not have.
         Ok(entity::parse(&bytes)
             .ok()
-            .filter(|info| info.name == name)
+            .filter(|info| info.name == key.name())
             .map(|_| bytes))
     }
 
@@ -48,8 +49,8 @@ impl Remote for Client {
         self.import_entity(file_name, xml)
     }
 
-    fn exists(&self, collection: &str, name: &str) -> Result<bool, ServerError> {
-        self.entity_exists(collection, name)
+    fn exists(&self, key: &EntityKey) -> Result<bool, ServerError> {
+        self.entity_exists(key)
     }
 }
 
@@ -147,27 +148,21 @@ pub fn save(
     remote: &dyn Remote,
     solution: &Solution,
     reason: &str,
-    entities: &[(String, String)],
+    entities: &[EntityKey],
     stamp: &str,
 ) -> Result<Option<Set>, BackupError> {
     let mut fetched = Vec::new();
-    for (collection, name) in entities {
-        let label = format!("{collection}/{name}");
-        if let Some(bytes) = remote
-            .export(collection, name)
-            .map_err(|why| BackupError::Remote {
-                entity: label.clone(),
-                why,
-            })?
-        {
-            fetched.push((collection.clone(), name.clone(), bytes));
-        } else if remote
-            .exists(collection, name)
-            .map_err(|why| BackupError::Remote {
-                entity: label.clone(),
-                why,
-            })?
-        {
+    for key in entities {
+        let label = key.to_string();
+        if let Some(bytes) = remote.export(key).map_err(|why| BackupError::Remote {
+            entity: label.clone(),
+            why,
+        })? {
+            fetched.push((key, bytes));
+        } else if remote.exists(key).map_err(|why| BackupError::Remote {
+            entity: label.clone(),
+            why,
+        })? {
             // It is there, but the export came back empty: refuse rather than delete or replace
             // something that was not saved.
             return Err(BackupError::Unreadable { entity: label });
@@ -182,8 +177,8 @@ pub fn save(
         path: path.to_path_buf(),
         why: error.to_string(),
     };
-    for (collection, name, bytes) in &fetched {
-        let path = entity_path(&dir, collection, name);
+    for (key, bytes) in &fetched {
+        let path = entity_path(&dir, key.collection(), key.name());
         std::fs::create_dir_all(path.parent().expect("a backup file has a parent"))
             .map_err(|error| io(&dir, error))?;
         workspace::atomic_replace(&path, bytes).map_err(|error| io(&path, error))?;
@@ -193,9 +188,9 @@ pub fn save(
         reason: reason.to_string(),
         entities: fetched
             .iter()
-            .map(|(collection, name, _)| Item {
-                collection: collection.clone(),
-                name: name.clone(),
+            .map(|(key, _)| Item {
+                collection: key.collection().to_string(),
+                name: key.name().to_string(),
             })
             .collect(),
     };
@@ -307,18 +302,21 @@ pub fn restore(
         {
             continue;
         }
+        let key = EntityKey::new(item.collection.as_str(), item.name.as_str()).map_err(|why| {
+            BackupError::Invalid {
+                path: set.dir.join(MANIFEST),
+                why: format!("{label} cannot address an entity ({why})"),
+            }
+        })?;
         let path = entity_path(&set.dir, &item.collection, &item.name);
         let bytes = std::fs::read(&path).map_err(|error| BackupError::Io {
             path: path.clone(),
             why: error.to_string(),
         })?;
-        let present =
-            remote
-                .exists(&item.collection, &item.name)
-                .map_err(|why| BackupError::Remote {
-                    entity: label.clone(),
-                    why,
-                })?;
+        let present = remote.exists(&key).map_err(|why| BackupError::Remote {
+            entity: label.clone(),
+            why,
+        })?;
         let mut entry = Restored {
             collection: item.collection.clone(),
             name: item.name.clone(),
@@ -333,7 +331,7 @@ pub fn restore(
             let outcome = remote
                 .import(&format!("{}.xml", item.name), &bytes)
                 .map_err(|error| error.to_string())
-                .and_then(|()| match remote.exists(&item.collection, &item.name) {
+                .and_then(|()| match remote.exists(&key) {
                     Ok(true) => Ok(()),
                     Ok(false) => Err(
                         "the import was accepted, but the server does not have the entity"
@@ -357,29 +355,18 @@ pub fn restore(
 /// The entities a forced push or deploy would overwrite although the server holds changes the
 /// repository has not seen: the ones worth saving first.
 pub fn forced_overwrites(
-    decisions: impl IntoIterator<Item = (String, String, Decision)>,
-) -> Vec<(String, String)> {
+    decisions: impl IntoIterator<Item = (EntityKey, Decision)>,
+) -> Vec<EntityKey> {
     decisions
         .into_iter()
-        .filter(|(_, _, decision)| {
+        .filter(|(_, decision)| {
             matches!(
                 decision,
                 Decision::Refuse(Refusal::UnknownAncestor { .. } | Refusal::Conflict { .. })
             )
         })
-        .map(|(collection, name, _)| (collection, name))
+        .map(|(key, _)| key)
         .collect()
-}
-
-/// The same, from a deploy plan.
-pub fn forced_deploy_overwrites(report: &deploy::Report) -> Vec<(String, String)> {
-    forced_overwrites(report.plans.iter().map(|plan| {
-        (
-            plan.collection.clone(),
-            plan.name.clone(),
-            plan.decision.clone(),
-        )
-    }))
 }
 
 /// Before `entity push --force --apply`: save the server's copy if it holds changes the repository
@@ -395,11 +382,7 @@ pub fn before_forced_push<R: push::Remote + Remote>(
     let push::Outcome::WouldDo(decision) = outcome else {
         return Ok(None);
     };
-    let overwritten = forced_overwrites([(
-        target.key.collection().to_string(),
-        target.key.name().to_string(),
-        decision,
-    )]);
+    let overwritten = forced_overwrites([(target.key.clone(), decision)]);
     save_overwritten(client, solution, "entity push --force", &overwritten, stamp)
 }
 
@@ -415,11 +398,15 @@ pub fn before_forced_deploy<R: deploy::Remote + Remote>(
         .map_err(|error| BackupError::Plan(error.to_string()))?;
     let plans = deploy::decide_all(client, &baseline, projects)
         .map_err(|error| BackupError::Plan(error.to_string()))?;
-    let overwritten = forced_overwrites(
-        plans
-            .into_iter()
-            .map(|plan| (plan.collection, plan.name, plan.decision)),
-    );
+    let decisions = plans
+        .into_iter()
+        .map(|plan| {
+            EntityKey::address(&plan.collection, &plan.name)
+                .map(|key| (key, plan.decision))
+                .map_err(|error| BackupError::Plan(error.to_string()))
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+    let overwritten = forced_overwrites(decisions);
     save_overwritten(client, solution, "deploy --force", &overwritten, stamp)
 }
 
@@ -427,7 +414,7 @@ fn save_overwritten<R: Remote>(
     client: &R,
     solution: &Solution,
     reason: &str,
-    entities: &[(String, String)],
+    entities: &[EntityKey],
     stamp: &str,
 ) -> Result<Option<String>, BackupError> {
     if entities.is_empty() {
@@ -470,11 +457,11 @@ mod tests {
     }
 
     impl Remote for Fake {
-        fn export(&self, collection: &str, name: &str) -> Result<Option<Vec<u8>>, ServerError> {
+        fn export(&self, key: &EntityKey) -> Result<Option<Vec<u8>>, ServerError> {
             Ok(self
                 .entities
                 .borrow()
-                .get(&(collection.to_string(), name.to_string()))
+                .get(&(key.collection().to_string(), key.name().to_string()))
                 .filter(|bytes| !bytes.is_empty())
                 .cloned())
         }
@@ -488,11 +475,11 @@ mod tests {
             }
             Ok(())
         }
-        fn exists(&self, collection: &str, name: &str) -> Result<bool, ServerError> {
+        fn exists(&self, key: &EntityKey) -> Result<bool, ServerError> {
             Ok(self
                 .entities
                 .borrow()
-                .contains_key(&(collection.to_string(), name.to_string())))
+                .contains_key(&(key.collection().to_string(), key.name().to_string())))
         }
     }
 
@@ -506,10 +493,10 @@ mod tests {
         (root, solution)
     }
 
-    fn pairs(names: &[&str]) -> Vec<(String, String)> {
+    fn pairs(names: &[&str]) -> Vec<EntityKey> {
         names
             .iter()
-            .map(|name| ("Things".to_string(), name.to_string()))
+            .map(|name| EntityKey::new("Things", *name).unwrap())
             .collect()
     }
 
@@ -595,6 +582,21 @@ mod tests {
     }
 
     #[test]
+    fn a_manifest_name_that_cannot_address_an_entity_is_refused_before_the_server_is_asked() {
+        let (root, solution) = solution();
+        let fake = Fake::default().with("Things", "A", XML);
+        let mut set = save(&fake, &solution, "r", &pairs(&["A"]), "s")
+            .unwrap()
+            .unwrap();
+        // backup.json is a file anyone can edit; `../x` would ask about another route.
+        set.manifest.entities[0].name = "../x".to_string();
+        let error = restore(&fake, &set, &[], true).unwrap_err().to_string();
+        assert!(error.contains("cannot address an entity"), "{error}");
+        assert!(fake.imported.borrow().is_empty());
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[test]
     fn restore_plans_by_default_imports_on_apply_and_confirms_each_entity() {
         let (root, solution) = solution();
         let fake = Fake::default()
@@ -650,26 +652,28 @@ mod tests {
     #[test]
     fn only_overwrites_of_changes_the_repository_never_saw_are_saved_before_a_force() {
         let decisions = vec![
-            ("Things".to_string(), "Create".to_string(), Decision::Create),
             (
-                "Things".to_string(),
-                "Same".to_string(),
+                EntityKey::new("Things", "Create").unwrap(),
+                Decision::Create,
+            ),
+            (
+                EntityKey::new("Things", "Same").unwrap(),
                 Decision::AlreadyThere,
             ),
-            ("Things".to_string(), "Update".to_string(), Decision::Update),
             (
-                "Things".to_string(),
-                "Gone".to_string(),
+                EntityKey::new("Things", "Update").unwrap(),
+                Decision::Update,
+            ),
+            (
+                EntityKey::new("Things", "Gone").unwrap(),
                 Decision::Refuse(Refusal::DeletedOnServer),
             ),
             (
-                "Things".to_string(),
-                "Unknown".to_string(),
+                EntityKey::new("Things", "Unknown").unwrap(),
                 Decision::Refuse(Refusal::UnknownAncestor { server: "s".into() }),
             ),
             (
-                "Things".to_string(),
-                "Changed".to_string(),
+                EntityKey::new("Things", "Changed").unwrap(),
                 Decision::Refuse(Refusal::Conflict {
                     server: "s".into(),
                     baseline: "b".into(),

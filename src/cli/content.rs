@@ -215,11 +215,11 @@ pub(crate) fn import_cmd(solution: &Solution, args: &Args) -> u8 {
                 unreachable!()
             };
             let shown = if args.has("--detail") { usize::MAX } else { 20 };
-            for (collection, name) in plan.replaced.iter().take(shown) {
-                println!("  replaces {collection}/{name}");
+            for key in plan.replaced.iter().take(shown) {
+                println!("  replaces {key}");
             }
-            for (collection, name) in plan.new.iter().take(shown) {
-                println!("  adds     {collection}/{name}");
+            for key in plan.new.iter().take(shown) {
+                println!("  adds     {key}");
             }
             println!(
                 "{} {} new and {} replaced entities{}",

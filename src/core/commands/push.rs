@@ -290,7 +290,7 @@ mod tests {
     }
 
     impl push::Remote for Fake {
-        fn fetch(&self, _: &str, _: &str) -> Result<Option<Vec<u8>>, ServerError> {
+        fn fetch(&self, _: &EntityKey) -> Result<Option<Vec<u8>>, ServerError> {
             Ok(self.state.borrow().held.clone())
         }
 
@@ -303,7 +303,7 @@ mod tests {
     }
 
     impl backup::Remote for Fake {
-        fn export(&self, _: &str, _: &str) -> Result<Option<Vec<u8>>, ServerError> {
+        fn export(&self, _: &EntityKey) -> Result<Option<Vec<u8>>, ServerError> {
             let mut state = self.state.borrow_mut();
             state.exports += 1;
             if state.fail_export {
@@ -316,7 +316,7 @@ mod tests {
             push::Remote::import(self, "", xml)
         }
 
-        fn exists(&self, _: &str, _: &str) -> Result<bool, ServerError> {
+        fn exists(&self, _: &EntityKey) -> Result<bool, ServerError> {
             Ok(self.state.borrow().held.is_some())
         }
     }

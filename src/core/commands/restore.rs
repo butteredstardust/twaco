@@ -123,6 +123,7 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::core::entity_key::EntityKey;
     use crate::core::server::ServerError;
     use std::cell::RefCell;
     use std::collections::BTreeMap;
@@ -150,11 +151,11 @@ mod tests {
     }
 
     impl backup::Remote for Fake {
-        fn export(&self, collection: &str, name: &str) -> Result<Option<Vec<u8>>, ServerError> {
+        fn export(&self, key: &EntityKey) -> Result<Option<Vec<u8>>, ServerError> {
             Ok(self
                 .entities
                 .borrow()
-                .get(&(collection.to_string(), name.to_string()))
+                .get(&(key.collection().to_string(), key.name().to_string()))
                 .cloned())
         }
 
@@ -163,11 +164,11 @@ mod tests {
             Ok(())
         }
 
-        fn exists(&self, collection: &str, name: &str) -> Result<bool, ServerError> {
+        fn exists(&self, key: &EntityKey) -> Result<bool, ServerError> {
             Ok(self
                 .entities
                 .borrow()
-                .contains_key(&(collection.to_string(), name.to_string())))
+                .contains_key(&(key.collection().to_string(), key.name().to_string())))
         }
     }
 
@@ -190,7 +191,7 @@ mod tests {
             &fake,
             &solution,
             "test",
-            &[("Things".to_string(), "A".to_string())],
+            &[EntityKey::new("Things", "A").unwrap()],
             "20261005-120000",
         )
         .unwrap()

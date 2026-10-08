@@ -6,7 +6,7 @@
 //! system trust store through ureq's platform verifier, and redirects are refused so basic-auth
 //! credentials are never carried to a host the server names.
 
-use super::entity_key::ServiceTarget;
+use super::entity_key::{EntityKey, ServiceTarget};
 use super::profile::Profile;
 use serde::Deserialize;
 use std::fmt;
@@ -56,21 +56,16 @@ impl Client {
     }
 
     /// Fetch `GET <base>/<Collection>/<Name>` as raw, validated UTF-8 XML bytes.
-    pub fn fetch_entity(&self, collection: &str, name: &str) -> Result<Vec<u8>, ServerError> {
+    pub fn fetch_entity(&self, key: &EntityKey) -> Result<Vec<u8>, ServerError> {
         // MediaEntities' ordinary REST resource is the media bytes, even with `Accept: text/xml`.
         // ThingWorx's read-only Exporter route returns the entity XML when the entity
         // representation (rather than its REST view) is required.
-        let collection_path = if collection == "MediaEntities" {
-            format!("Exporter/{}", encode_path_segment(collection))
+        let exporter = if key.collection() == "MediaEntities" {
+            "Exporter/"
         } else {
-            encode_path_segment(collection)
+            ""
         };
-        let url = format!(
-            "{}/{}/{}",
-            self.base(),
-            collection_path,
-            encode_path_segment(name)
-        );
+        let url = format!("{}/{exporter}{}", self.base(), key.url_path());
         let authorization = self.authorization();
         let headers = [
             ("Accept", "text/xml"),
@@ -87,17 +82,8 @@ impl Client {
 
     /// Fetch the ordinary REST representation of an entity as JSON. This is distinct from
     /// `fetch_entity`, whose export XML deliberately excludes live configuration values.
-    pub fn fetch_entity_json(
-        &self,
-        collection: &str,
-        name: &str,
-    ) -> Result<serde_json::Value, ServerError> {
-        let url = format!(
-            "{}/{}/{}",
-            self.base(),
-            encode_path_segment(collection),
-            encode_path_segment(name)
-        );
+    pub fn fetch_entity_json(&self, key: &EntityKey) -> Result<serde_json::Value, ServerError> {
+        let url = format!("{}/{}", self.base(), key.url_path());
         let authorization = self.authorization();
         let headers = [
             ("Accept", "application/json"),
@@ -147,13 +133,8 @@ impl Client {
     /// Whether the server has an entity: its REST address answers 404 when it does not. The
     /// Exporter cannot say (it answers 200 with an empty export), and for MediaEntities
     /// `fetch_entity` goes through the Exporter, so this asks the plain address for JSON.
-    pub fn entity_exists(&self, collection: &str, name: &str) -> Result<bool, ServerError> {
-        let url = format!(
-            "{}/{}/{}",
-            self.base(),
-            encode_path_segment(collection),
-            encode_path_segment(name)
-        );
+    pub fn entity_exists(&self, key: &EntityKey) -> Result<bool, ServerError> {
+        let url = format!("{}/{}", self.base(), key.url_path());
         let authorization = self.authorization();
         let headers = [
             ("Accept", "application/json"),
@@ -170,12 +151,11 @@ impl Client {
 
     /// Delete through Composer's REST route. The repeated content-negotiation query parameters
     /// and XMLHttpRequest header are required: without them DataShapes and Mashups answer 500.
-    pub fn delete_entity_rest(&self, collection: &str, name: &str) -> Result<(), ServerError> {
+    pub fn delete_entity_rest(&self, key: &EntityKey) -> Result<(), ServerError> {
         let url = format!(
-            "{}/{}/{}?Accept=application%2Fjson&Content-Type=application%2Fjson",
+            "{}/{}?Accept=application%2Fjson&Content-Type=application%2Fjson",
             self.base(),
-            encode_path_segment(collection),
-            encode_path_segment(name)
+            key.url_path()
         );
         let authorization = self.authorization();
         let headers = [
@@ -908,7 +888,7 @@ mod tests {
             }
             let request = String::from_utf8(request).unwrap();
             let headers = request.to_ascii_lowercase();
-            assert!(request.starts_with("GET /Thingworx/Things/A%2FB%20Thing HTTP/1.1"));
+            assert!(request.starts_with("GET /Thingworx/Things/A%20B%20Thing HTTP/1.1"));
             assert!(headers.contains("accept: text/xml"));
             assert!(headers.contains("content-type: application/json"));
             assert!(headers.contains("x-xsrf-token: twx-xsrf-token-value"));
@@ -930,7 +910,7 @@ mod tests {
             extra: Default::default(),
         });
         let error = client
-            .fetch_entity("Things", "A/B Thing")
+            .fetch_entity(&EntityKey::new("Things", "A B Thing").unwrap())
             .unwrap_err()
             .to_string();
         assert!(error.contains("HTTP 418"));
@@ -965,7 +945,10 @@ mod tests {
             app_key: None,
             extra: Default::default(),
         });
-        let error = client.fetch_entity("Things", "T").unwrap_err().to_string();
+        let error = client
+            .fetch_entity(&EntityKey::new("Things", "T").unwrap())
+            .unwrap_err()
+            .to_string();
         assert!(error.contains("HTTP 500"));
         assert!(!error.contains('é'));
         server.join().unwrap();
@@ -1069,7 +1052,9 @@ mod tests {
             url,
             ..profile_with("pass", None)
         });
-        let body = client.fetch_entity("Things", "T").unwrap();
+        let body = client
+            .fetch_entity(&EntityKey::new("Things", "T").unwrap())
+            .unwrap();
         server.join().unwrap();
         assert_eq!(
             body,
@@ -1102,7 +1087,9 @@ mod tests {
             app_key: Some(app_key.to_string()),
             extra: Default::default(),
         });
-        let error = client.fetch_entity("Things", "T").unwrap_err();
+        let error = client
+            .fetch_entity(&EntityKey::new("Things", "T").unwrap())
+            .unwrap_err();
         server.join().unwrap();
         let shown = format!("{error} | {error:?}");
         for (what, secret) in [
@@ -1197,7 +1184,7 @@ mod tests {
     fn rest_delete_matches_composers_exact_request_shape() {
         let (url, server) = serve_once("200 OK", "");
         client_for(url)
-            .delete_entity_rest("DataShapes", "A/B shape")
+            .delete_entity_rest(&EntityKey::new("DataShapes", "A B shape").unwrap())
             .unwrap();
         let request = server.join().unwrap();
         let end = request
@@ -1207,7 +1194,7 @@ mod tests {
             + 4;
         let head = String::from_utf8_lossy(&request[..end]);
         assert!(head.starts_with(
-            "DELETE /Thingworx/DataShapes/A%2FB%20shape?Accept=application%2Fjson&Content-Type=application%2Fjson HTTP/1.1\r\n"
+            "DELETE /Thingworx/DataShapes/A%20B%20shape?Accept=application%2Fjson&Content-Type=application%2Fjson HTTP/1.1\r\n"
         ));
         let lower = head.to_ascii_lowercase();
         assert!(lower.contains("authorization: basic dxnlcjpwyxnz\r\n"));

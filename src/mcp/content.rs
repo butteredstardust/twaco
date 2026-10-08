@@ -213,10 +213,8 @@ pub(crate) fn import_tool(
             let command::ImportOutcome::File { plan, .. } = outcome else {
                 unreachable!()
             };
-            let names = |list: &[(String, String)]| {
-                list.iter()
-                    .map(|(c, n)| format!("{c}/{n}"))
-                    .collect::<Vec<_>>()
+            let names = |list: &[crate::core::entity_key::EntityKey]| {
+                list.iter().map(ToString::to_string).collect::<Vec<_>>()
             };
             let mut result = json!({
                 "ok": true,

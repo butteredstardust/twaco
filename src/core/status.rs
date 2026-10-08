@@ -4,6 +4,7 @@
 //! what "in sync" means.
 
 use super::baseline::Baseline;
+use super::entity_key::EntityKey;
 use super::normalise;
 use super::parallel;
 use super::push::Remote;
@@ -92,7 +93,9 @@ pub fn compute(
             .map_err(|error| error.to_string())
             .and_then(|bytes| normalise::hash(&bytes).map_err(|error| error.to_string()))
             .map_err(|error| format!("{}: {error}", entity.path.display()))?;
-        let server = match remote.fetch(&entity.info.collection, &entity.info.name) {
+        let server = match EntityKey::address(&entity.info.collection, &entity.info.name)
+            .and_then(|key| remote.fetch(&key))
+        {
             Ok(Some(bytes)) => Some(
                 normalise::hash(&bytes)
                     .map_err(|error| format!("server export for {}: {error}", entity.info.name))?,

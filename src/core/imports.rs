@@ -7,7 +7,7 @@
 //! `DiffSourceControlledEntities`, which names every entity of the tree whose server copy
 //! differs. Both are plans unless applied.
 
-use super::entity_key::ServiceTarget;
+use super::entity_key::{EntityKey, ServiceTarget};
 use super::server::{Client, ServerError};
 use serde_json::{json, Value};
 use std::fmt;
@@ -17,7 +17,7 @@ use std::time::Duration;
 /// What this module asks of a server, as a trait so it is tested offline.
 pub trait Remote: Sync {
     /// Whether the server has an entity.
-    fn exists(&self, collection: &str, name: &str) -> Result<bool, ServerError>;
+    fn exists(&self, key: &EntityKey) -> Result<bool, ServerError>;
     fn import_file(
         &self,
         file_name: &str,
@@ -29,10 +29,10 @@ pub trait Remote: Sync {
 }
 
 impl Remote for Client {
-    fn exists(&self, collection: &str, name: &str) -> Result<bool, ServerError> {
+    fn exists(&self, key: &EntityKey) -> Result<bool, ServerError> {
         // The entity's own REST address, which answers 404 for a missing one, for every
         // collection; the Exporter answers 200 with an empty export instead.
-        self.entity_exists(collection, name)
+        self.entity_exists(key)
     }
 
     fn import_file(
@@ -78,9 +78,10 @@ impl fmt::Display for ImportError {
 
 impl std::error::Error for ImportError {}
 
-/// `(collection, name)` of every entity an export document holds: the named children of each
-/// collection element under `<Entities>`.
-pub fn entities_in_xml(xml: &[u8]) -> Result<Vec<(String, String)>, ImportError> {
+/// Every entity an export document holds: the named children of each collection element under
+/// `<Entities>`. A name that cannot address an entity (empty, `.`, `..`, or holding a `/`) is
+/// refused here, before it reaches a server URL.
+pub fn entities_in_xml(xml: &[u8]) -> Result<Vec<EntityKey>, ImportError> {
     use super::scan::Kind;
     let tokens =
         super::scan::tokenize(xml).map_err(|e| ImportError::Invalid(format!("not XML: {e}")))?;
@@ -94,10 +95,14 @@ pub fn entities_in_xml(xml: &[u8]) -> Result<Vec<(String, String)>, ImportError>
                     collection = String::from_utf8_lossy(token.name.of(xml)).into_owned();
                 } else if depth == 2 {
                     if let Ok(Some(name)) = super::scan::attribute(xml, token, "name") {
-                        found.push((
-                            collection.clone(),
-                            super::scan::decode_entities(&String::from_utf8_lossy(name.of(xml))),
-                        ));
+                        let name =
+                            super::scan::decode_entities(&String::from_utf8_lossy(name.of(xml)));
+                        let key = EntityKey::new(collection.clone(), name.clone()).map_err(|e| {
+                            ImportError::Invalid(format!(
+                                "<{collection}> holds an entity named {name:?}, which cannot be addressed ({e})"
+                            ))
+                        })?;
+                        found.push(key);
                     }
                 }
                 if token.kind == Kind::Start {
@@ -117,10 +122,7 @@ pub fn entities_in_xml(xml: &[u8]) -> Result<Vec<(String, String)>, ImportError>
 }
 
 /// The entities of an import file: one export XML, or a zip of them (the `.xml` entries).
-pub fn entities_in_file(
-    file_name: &str,
-    bytes: &[u8],
-) -> Result<Vec<(String, String)>, ImportError> {
+pub fn entities_in_file(file_name: &str, bytes: &[u8]) -> Result<Vec<EntityKey>, ImportError> {
     if !bytes.starts_with(b"PK") {
         return entities_in_xml(bytes)
             .map_err(|e| ImportError::Invalid(format!("{file_name}: {e}")));
@@ -155,9 +157,9 @@ pub fn entities_in_file(
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct FilePlan {
-    pub new: Vec<(String, String)>,
+    pub new: Vec<EntityKey>,
     /// Entities the server has, which the import replaces.
-    pub replaced: Vec<(String, String)>,
+    pub replaced: Vec<EntityKey>,
     pub applied: bool,
 }
 
@@ -172,9 +174,7 @@ pub fn import_file(
     apply: bool,
 ) -> Result<FilePlan, ImportError> {
     let entities = entities_in_file(file_name, bytes)?;
-    let present = super::parallel::map(&entities, |(collection, name)| {
-        remote.exists(collection, name)
-    });
+    let present = super::parallel::map(&entities, |key| remote.exists(key));
     let mut plan = FilePlan {
         new: Vec::new(),
         replaced: Vec::new(),
@@ -193,14 +193,12 @@ pub fn import_file(
     remote
         .import_file(file_name, bytes, overwrite_properties, overwrite_tables)
         .map_err(ImportError::Remote)?;
-    let after = super::parallel::map(&entities, |(collection, name)| {
-        remote.exists(collection, name)
-    });
+    let after = super::parallel::map(&entities, |key| remote.exists(key));
     let missing: Vec<String> = entities
         .iter()
         .zip(after)
         .filter(|(_, present)| !matches!(present, Ok(true)))
-        .map(|((collection, name), _)| format!("{collection}/{name}"))
+        .map(|(key, _)| key.to_string())
         .collect();
     if !missing.is_empty() {
         return Err(ImportError::Invalid(format!(
@@ -339,6 +337,10 @@ mod tests {
     use super::*;
     use std::sync::Mutex;
 
+    fn key(collection: &str, name: &str) -> EntityKey {
+        EntityKey::new(collection, name).unwrap()
+    }
+
     struct Fake {
         present: Mutex<Vec<String>>,
         imported: Mutex<usize>,
@@ -358,12 +360,8 @@ mod tests {
     }
 
     impl Remote for Fake {
-        fn exists(&self, collection: &str, name: &str) -> Result<bool, ServerError> {
-            Ok(self
-                .present
-                .lock()
-                .unwrap()
-                .contains(&format!("{collection}/{name}")))
+        fn exists(&self, key: &EntityKey) -> Result<bool, ServerError> {
+            Ok(self.present.lock().unwrap().contains(&key.to_string()))
         }
 
         fn import_file(
@@ -375,8 +373,8 @@ mod tests {
         ) -> Result<(), ServerError> {
             *self.imported.lock().unwrap() += 1;
             if !self.swallow {
-                for (c, n) in entities_in_file(file_name, bytes).unwrap() {
-                    self.present.lock().unwrap().push(format!("{c}/{n}"));
+                for key in entities_in_file(file_name, bytes).unwrap() {
+                    self.present.lock().unwrap().push(key.to_string());
                 }
             }
             Ok(())
@@ -404,9 +402,9 @@ mod tests {
         assert_eq!(
             entities_in_xml(XML).unwrap(),
             [
-                ("Things".into(), "T1".into()),
-                ("Things".into(), "T2".into()),
-                ("DataShapes".into(), "D".into())
+                key("Things", "T1"),
+                key("Things", "T2"),
+                key("DataShapes", "D")
             ]
         );
         assert!(entities_in_xml(b"<Entities/>").is_err());
@@ -431,10 +429,25 @@ mod tests {
     }
 
     #[test]
+    fn a_name_that_cannot_address_an_entity_is_refused_before_the_server_is_asked() {
+        // An empty name would ask `/Things/` (the collection) whether it exists; a slash would
+        // ask about another entity.
+        for name in ["", "..", "A/B"] {
+            let xml = format!(r#"<Entities><Things><Thing name="{name}"/></Things></Entities>"#);
+            let fake = Fake::with(&[]);
+            let error = import_file(&fake, "e.xml", xml.as_bytes(), false, false, true)
+                .unwrap_err()
+                .to_string();
+            assert!(error.contains("cannot be addressed"), "{name:?}: {error}");
+            assert_eq!(*fake.imported.lock().unwrap(), 0, "{name:?}");
+        }
+    }
+
+    #[test]
     fn an_import_says_what_it_adds_and_replaces_and_sends_nothing_unless_applied() {
         let fake = Fake::with(&["Things/T1"]);
         let plan = import_file(&fake, "e.xml", XML, false, false, false).unwrap();
-        assert_eq!(plan.replaced, [("Things".to_string(), "T1".to_string())]);
+        assert_eq!(plan.replaced, [key("Things", "T1")]);
         assert_eq!(plan.new.len(), 2);
         assert_eq!(*fake.imported.lock().unwrap(), 0);
         assert!(

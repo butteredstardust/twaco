@@ -24,7 +24,7 @@ pub trait Remote {
 
 impl Remote for Client {
     fn exists(&self, key: &EntityKey) -> Result<bool, ServerError> {
-        self.entity_exists(key.collection(), key.name())
+        self.entity_exists(key)
     }
 
     fn incoming(&self, key: &EntityKey) -> Result<Vec<Dependent>, ServerError> {
@@ -66,7 +66,7 @@ impl Remote for Client {
     }
 
     fn fetch(&self, key: &EntityKey) -> Result<Vec<u8>, ServerError> {
-        self.fetch_entity(key.collection(), key.name())
+        self.fetch_entity(key)
     }
 
     fn delete_service(&self, service: &str, name: &str) -> Result<(), ServerError> {
@@ -80,7 +80,7 @@ impl Remote for Client {
     }
 
     fn delete_rest(&self, key: &EntityKey) -> Result<(), ServerError> {
-        self.delete_entity_rest(key.collection(), key.name())
+        self.delete_entity_rest(key)
     }
 
     fn backup(
@@ -89,11 +89,7 @@ impl Remote for Client {
         entities: &[EntityKey],
         stamp: &str,
     ) -> Result<Option<String>, backup::BackupError> {
-        let entities = entities
-            .iter()
-            .map(|key| (key.collection().to_string(), key.name().to_string()))
-            .collect::<Vec<_>>();
-        let set = backup::save(self, solution, "entity delete", &entities, stamp)?;
+        let set = backup::save(self, solution, "entity delete", entities, stamp)?;
         Ok(set.map(|set| backup::relative(solution, &set.dir)))
     }
 }
