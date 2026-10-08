@@ -121,44 +121,46 @@ pub fn sync(
             }
         };
         let mut tally = Tally::default();
+        // Each kind changes the bytes in memory, in turn, and the file is written once at the
+        // end: a crash leaves it as it was or as it should be, never with only some kinds in.
+        let mut current = src.clone();
 
         if entity.info.collection == "DataShapes" {
             tally.record(sync_fields(
                 log,
                 solution,
                 entity,
+                &mut current,
                 options.check,
                 options.allow_structural,
             ));
         }
         if entity.info.collection == "Mashups" {
-            tally.record(sync_mashup(log, solution, entity, options.check));
+            tally.record(sync_mashup(
+                log,
+                solution,
+                entity,
+                &mut current,
+                options.check,
+            ));
         }
         if super::datatable::is_data_table(&src) {
-            tally.record(sync_datatable(log, solution, entity, options.check));
+            tally.record(sync_datatable(
+                log,
+                solution,
+                entity,
+                &mut current,
+                options.check,
+            ));
         }
 
         let dir = super::workspace::services_dir(solution, entity);
         let sidecars = super::workspace::read_sidecars(&dir);
-        // The steps above read and write the file themselves. Services splice into `src`, so
-        // after a write it must be read again, or the splice would put back what was replaced.
-        let src = if tally.changed && !options.check {
-            match std::fs::read(&entity.path) {
-                Ok(s) => s,
-                Err(e) => {
-                    log.error(format!("{}: {e}", entity.path.display()));
-                    failed += 1;
-                    continue;
-                }
-            }
-        } else {
-            src
-        };
         if !sidecars.is_empty() {
             tally.record(sync_services(
                 log,
                 entity,
-                &src,
+                &mut current,
                 &sidecars,
                 options.check,
                 options.allow_structural,
@@ -176,6 +178,15 @@ pub fn sync(
             ));
             failed += 1;
         }
+        // What the kinds that succeeded changed is written, as when each wrote its own; a
+        // write that fails leaves the file as it was, so nothing counts as changed.
+        if !options.check && current != src {
+            if let Err(e) = super::workspace::write_entity(&entity.path, &current) {
+                log.error(format!("{e}"));
+                tally.changed = false;
+                tally.failed += 1;
+            }
+        }
 
         if tally.examined {
             outcome.checked += 1;
@@ -191,12 +202,12 @@ pub fn sync(
     outcome
 }
 
-/// Write one entity's service sidecars back. Returns whether anything changed.
+/// Fold one entity's service sidecars into `current`. Returns whether anything changed.
 #[allow(clippy::too_many_arguments)]
-pub(crate) fn sync_services(
+fn sync_services(
     log: &mut Log,
     entity: &super::workspace::EntityFile,
-    src: &[u8],
+    current: &mut Vec<u8>,
     sidecars: &BTreeMap<String, super::sidecar::ServiceSidecar>,
     check: bool,
     allow_structural: bool,
@@ -204,14 +215,14 @@ pub(crate) fn sync_services(
     relayout: bool,
 ) -> Result<Option<bool>, ()> {
     match super::sync::sync(
-        src,
+        current,
         sidecars,
         allow_structural,
         indent_cdata_payload,
         relayout,
     ) {
         Ok((out, report)) => {
-            if out == src {
+            if out == *current {
                 return Ok(Some(false));
             }
             // A plain edit keeps the one-part message; an add or remove is named as such.
@@ -239,12 +250,7 @@ pub(crate) fn sync_services(
                 ));
             }
             log.change(format!("{}: {}", entity.info.name, parts.join("; ")));
-            if !check {
-                if let Err(e) = super::workspace::write_entity(&entity.path, &out) {
-                    log.error(format!("{e}"));
-                    return Err(());
-                }
-            }
+            *current = out;
             Ok(Some(true))
         }
         Err(e) => {
@@ -254,11 +260,12 @@ pub(crate) fn sync_services(
     }
 }
 
-/// Write one DataShape's field sidecar back into its entity. Returns whether anything changed.
+/// Fold one DataShape's field sidecar into `current`. Returns whether anything changed.
 fn sync_fields(
     log: &mut Log,
     solution: &Solution,
     entity: &super::workspace::EntityFile,
+    current: &mut Vec<u8>,
     check: bool,
     allow_structural: bool,
 ) -> Result<Option<bool>, ()> {
@@ -267,10 +274,6 @@ fn sync_fields(
         // No sidecar at all. `None` rather than "nothing changed", so the caller can tell an
         // unmanaged DataShape from one that is already in sync.
         return Ok(None);
-    };
-    let Ok(src) = std::fs::read(&entity.path) else {
-        log.error(format!("{} cannot be read", entity.path.display()));
-        return Err(());
     };
     // CRLF to LF. This once read `replace("<LF>", "<LF>")`, a no-op left by a shell
     // heredoc that ate the escapes: harmless only because JSON treats CR as whitespace.
@@ -281,9 +284,9 @@ fn sync_fields(
             return Err(());
         }
     };
-    match super::datashape::sync(&src, &desired, allow_structural) {
+    match super::datashape::sync(current, &desired, allow_structural) {
         Ok((out, changes)) => {
-            if out == src {
+            if out == *current {
                 return Ok(Some(false));
             }
             log.change(format!(
@@ -293,12 +296,7 @@ fn sync_fields(
                 if check { "would apply" } else { "applied" },
                 changes.join(", ")
             ));
-            if !check {
-                if let Err(e) = super::workspace::write_entity(&entity.path, &out) {
-                    log.error(format!("{e}"));
-                    return Err(());
-                }
-            }
+            *current = out;
             Ok(Some(true))
         }
         Err(e) => {
@@ -308,11 +306,12 @@ fn sync_fields(
     }
 }
 
-/// Write one mashup's sidecars back into its entity. Returns whether anything changed.
+/// Fold one mashup's sidecars into `current`. Returns whether anything changed.
 fn sync_mashup(
     log: &mut Log,
     solution: &Solution,
     entity: &super::workspace::EntityFile,
+    current: &mut Vec<u8>,
     check: bool,
 ) -> Result<Option<bool>, ()> {
     let dir = super::workspace::mashup_dir(solution, entity);
@@ -325,13 +324,9 @@ fn sync_mashup(
             return Err(());
         }
     };
-    let Ok(src) = std::fs::read(&entity.path) else {
-        log.error(format!("{} cannot be read", entity.path.display()));
-        return Err(());
-    };
-    match super::mashup::sync(&src, &assets) {
+    match super::mashup::sync(current, &assets) {
         Ok((out, changes)) => {
-            if out == src {
+            if out == *current {
                 return Ok(Some(false));
             }
             log.change(format!(
@@ -341,12 +336,7 @@ fn sync_mashup(
                 if check { "would change" } else { "changed" },
                 changes.join(", ")
             ));
-            if !check {
-                if let Err(e) = super::workspace::write_entity(&entity.path, &out) {
-                    log.error(format!("{e}"));
-                    return Err(());
-                }
-            }
+            *current = out;
             Ok(Some(true))
         }
         Err(e) => {
@@ -356,11 +346,12 @@ fn sync_mashup(
     }
 }
 
-/// Write one DataTable's configuration sidecar back into its entity.
+/// Fold one DataTable's configuration sidecar into `current`.
 fn sync_datatable(
     log: &mut Log,
     solution: &Solution,
     entity: &super::workspace::EntityFile,
+    current: &mut Vec<u8>,
     check: bool,
 ) -> Result<Option<bool>, ()> {
     let path = super::workspace::datatable_path(solution, entity);
@@ -372,10 +363,6 @@ fn sync_datatable(
             return Err(());
         }
     };
-    let Ok(src) = std::fs::read(&entity.path) else {
-        log.error(format!("{} cannot be read", entity.path.display()));
-        return Err(());
-    };
     let desired = match super::datatable::from_sidecar(&text) {
         Ok(d) => d,
         Err(e) => {
@@ -383,9 +370,9 @@ fn sync_datatable(
             return Err(());
         }
     };
-    match super::datatable::sync(&src, &desired) {
+    match super::datatable::sync(current, &desired) {
         Ok((out, changes)) => {
-            if out == src {
+            if out == *current {
                 return Ok(Some(false));
             }
             log.change(format!(
@@ -395,12 +382,7 @@ fn sync_datatable(
                 if check { "would apply" } else { "applied" },
                 changes.join(", ")
             ));
-            if !check {
-                if let Err(e) = super::workspace::write_entity(&entity.path, &out) {
-                    log.error(format!("{e}"));
-                    return Err(());
-                }
-            }
+            *current = out;
             Ok(Some(true))
         }
         Err(e) => {
@@ -750,6 +732,56 @@ mod tests {
         let outcome = sync(&solution, &entities(&solution), &[], SyncOptions::default());
         assert_eq!(outcome.changed, 1);
         assert!(!root.join(".twaco/types").exists());
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn every_kind_of_sidecar_an_entity_has_lands_in_its_one_write() {
+        let nonce = crate::test_nonce();
+        let root = std::env::temp_dir().join(format!(
+            "twaco-workflow-kinds-{}-{nonce}",
+            std::process::id()
+        ));
+        std::fs::create_dir_all(root.join("DataShapes")).unwrap();
+        std::fs::write(root.join("twaco.toml"), "[[project]]\nname = \"P\"\n").unwrap();
+        std::fs::write(
+            root.join("DataShapes/D.xml"),
+            concat!(
+                "<Entities><DataShapes><DataShape name=\"D\" projectName=\"P\">",
+                "<FieldDefinitions><FieldDefinition baseType=\"STRING\" description=\"before\" name=\"A\" ordinal=\"1\"></FieldDefinition></FieldDefinitions>",
+                "<ServiceDefinitions><ServiceDefinition name=\"Run\"><ParameterDefinitions></ParameterDefinitions>",
+                "<ResultType baseType=\"NOTHING\"/></ServiceDefinition></ServiceDefinitions>",
+                "<ServiceImplementations><ServiceImplementation name=\"Run\" handlerName=\"Script\">",
+                "<ConfigurationTables><ConfigurationTable name=\"Script\"><Rows><Row>",
+                "<code><![CDATA[old();]]></code>",
+                "</Row></Rows></ConfigurationTable></ConfigurationTables>",
+                "</ServiceImplementation></ServiceImplementations>",
+                "</DataShape></DataShapes></Entities>"
+            ),
+        )
+        .unwrap();
+        let solution = Solution::load(&root.join("twaco.toml")).unwrap();
+        let extracted = extract(&solution, &entities(&solution), &[], false);
+        assert_eq!(extracted.failed, 0, "{:?}", extracted.log);
+        let fields = root.join("src/D/fields.json");
+        let text = std::fs::read_to_string(&fields).unwrap();
+        std::fs::write(&fields, text.replace("before", "after")).unwrap();
+        std::fs::write(root.join("src/D/services/Run/script.js"), "changed();").unwrap();
+
+        let outcome = sync(&solution, &entities(&solution), &[], SyncOptions::default());
+        assert_eq!(
+            (outcome.changed, outcome.failed),
+            (1, 0),
+            "{:?}",
+            outcome.log
+        );
+        assert_eq!(outcome.log.changes().count(), 2, "{:?}", outcome.log);
+        // Each kind starts from what the one before it made, so neither undoes the other.
+        let written = std::fs::read_to_string(root.join("DataShapes/D.xml")).unwrap();
+        assert!(written.contains("description=\"after\""), "{written}");
+        assert!(written.contains("changed();"), "{written}");
+        let again = sync(&solution, &entities(&solution), &[], SyncOptions::default());
+        assert_eq!(again.changed, 0, "{:?}", again.log);
         let _ = std::fs::remove_dir_all(root);
     }
 
