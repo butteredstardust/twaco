@@ -1824,7 +1824,7 @@
   },
   {
     "name": "config_table",
-    "description": "Read one Thing's configuration table on the server, diff it against the entity XML in the repository, back it up to a file in the solution (refused if the file exists, unless overwrite), or restore it from such a backup. restore is a dry run unless dry_run is false; it refuses a backup of another Thing or table, and reads the table back.",
+    "description": "Read one Thing's configuration table on the server, diff it against the entity XML in the repository, back it up to a new file in the solution (a backup is never overwritten), or restore it from such a backup. restore is a dry run unless dry_run is false; it refuses a backup of another Thing or table, and reads the table back.",
     "inputSchema": {
       "required": [
         "thing",
@@ -1850,13 +1850,8 @@
           "default": "read"
         },
         "backup": {
-          "description": "backup: the file to write, relative to the solution (under .twaco/backups/ git ignores it; a table can hold secrets). restore: the file a backup wrote.",
+          "description": "backup: a new file to write, relative to the solution (under .twaco/backups/ git ignores it; a table can hold secrets); an existing one is never replaced. restore: the file a backup wrote, inside the solution.",
           "type": "string"
-        },
-        "overwrite": {
-          "description": "backup: replace the file if it exists.",
-          "type": "boolean",
-          "default": false
         },
         "dry_run": {
           "type": "boolean",

@@ -124,12 +124,9 @@ pub(crate) struct ConfigTableRequest {
     pub(crate) table: String,
     #[serde(default = "default_config_table_action")]
     pub(crate) action: ConfigTableAction,
-    /// backup: the file to write, relative to the solution (under .twaco/backups/ git ignores it; a table can hold secrets). restore: the file a backup wrote.
+    /// backup: a new file to write, relative to the solution (under .twaco/backups/ git ignores it; a table can hold secrets); an existing one is never replaced. restore: the file a backup wrote, inside the solution.
     #[serde(default, skip_serializing_if = "Absent::is_absent")]
     pub(crate) backup: Absent<String>,
-    /// backup: replace the file if it exists.
-    #[serde(default)]
-    pub(crate) overwrite: bool,
     #[serde(default = "default_true")]
     pub(crate) dry_run: bool,
     /// Server profile name.

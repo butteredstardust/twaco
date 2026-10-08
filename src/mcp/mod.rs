@@ -324,6 +324,20 @@ pub(crate) fn out_path(
     Ok(out)
 }
 
+/// A file to read, given relative to the solution: it must exist and really be inside it, links
+/// resolved, so an absolute path or `..` cannot reach a file elsewhere on the machine.
+pub(crate) fn in_path(solution: &Solution, relative: &str) -> Result<PathBuf, ToolError> {
+    let real = std::fs::canonicalize(solution.root.join(relative))
+        .map_err(|e| ToolError::with(ErrorCode::IoError, format!("{relative}: {e}")))?;
+    let root = std::fs::canonicalize(&solution.root).map_err(ToolError::io)?;
+    if !real.starts_with(&root) {
+        return Err(ToolError::invalid(format!(
+            "{relative} is outside the solution"
+        )));
+    }
+    Ok(real)
+}
+
 /// A client for the named server profile.
 pub(crate) fn client(solution: &Solution, profile: &str) -> Result<server::Client, ToolError> {
     profile::load(&solution.root, profile)

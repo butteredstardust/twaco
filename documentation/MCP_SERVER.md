@@ -147,8 +147,9 @@ These differ on purpose:
 - **A rename applies only with the plan's `plan_digest`**, so an agent cannot apply a plan the
   repository has moved on from.
 - **Files stay in the solution.** A file a tool writes (`export`, `package`, a `config_table`
-  backup) or reads (`db_run`, `import`) is a plain path inside the solution, and an existing
-  file is replaced only with `overwrite`. The command line takes any path.
+  backup) or reads (`db_run`, `db_query`, `import`, a `config_table` restore) is a path inside
+  the solution, links resolved. An export or package replaces an existing file only with
+  `overwrite`; a backup is never replaced. The command line takes any path.
 - **Results are bounded.** `entity_get` cuts the XML at `max_chars` (export writes it whole);
   `repo` returns a text file's content up to a limit and no bytes for a binary one
   (`repo_write` with `pull` brings files into the solution); `logs` returns 100 entries unless

@@ -122,6 +122,20 @@ pub fn load(solution_root: &Path, name: &str) -> Result<Profile, ProfileError> {
     load_from(solution_root, home.as_deref(), name, &environment)
 }
 
+/// A server address fit to show: credentials written into it (`https://user:token@host/`) are
+/// replaced by `***`, whatever the profile's own fields hold.
+pub fn shown_url(url: &str) -> String {
+    let Some((scheme, rest)) = url.split_once("://") else {
+        return url.to_string();
+    };
+    let authority_end = rest.find(['/', '?', '#']).unwrap_or(rest.len());
+    let (authority, tail) = rest.split_at(authority_end);
+    match authority.rfind('@') {
+        Some(at) => format!("{scheme}://***@{}{tail}", &authority[at + 1..]),
+        None => url.to_string(),
+    }
+}
+
 /// Where `name` would be read from, for `doctor`: the first profile file that exists (the
 /// workspace's, then the user's), else the environment, and whether environment variables
 /// override any of its fields. Mirrors [`load`]'s selection; it never reads a secret.
@@ -276,6 +290,28 @@ fn load_from(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_shown_url_never_holds_the_credentials_written_into_it() {
+        for (url, shown) in [
+            (
+                "http://localhost:8080/Thingworx/",
+                "http://localhost:8080/Thingworx/",
+            ),
+            (
+                "https://user:t0k3n@host/Thingworx/",
+                "https://***@host/Thingworx/",
+            ),
+            ("https://a@b:pw@host:443", "https://***@host:443"),
+            (
+                "https://host/Thingworx/?u=a@b",
+                "https://host/Thingworx/?u=a@b",
+            ),
+            ("not a url", "not a url"),
+        ] {
+            assert_eq!(shown_url(url), shown, "{url}");
+        }
+    }
 
     /// A profile's `Debug` is what ends up in a panic message, a log line or an error chain, so it
     /// must show no secret however awkward: quotes, a newline, URL delimiters, non-ASCII.

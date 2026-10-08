@@ -186,14 +186,7 @@ pub(crate) fn import_tool(
     match arguments.action {
         tool::ImportAction::File => {
             let relative = required_text(&arguments.file, "file")?;
-            let real = std::fs::canonicalize(solution.root.join(relative))
-                .map_err(|e| ToolError::with(ErrorCode::IoError, format!("{relative}: {e}")))?;
-            let root = std::fs::canonicalize(&solution.root).map_err(ToolError::io)?;
-            if !real.starts_with(&root) {
-                return Err(ToolError::invalid(format!(
-                    "{relative} is outside the solution"
-                )));
-            }
+            let real = in_path(solution, relative)?;
             let bytes = std::fs::read(&real)
                 .map_err(|e| ToolError::with(ErrorCode::IoError, format!("{relative}: {e}")))?;
             let file_name = real
@@ -296,8 +289,7 @@ pub(crate) fn bundle_tool(
     if matches!(state, "out_of_date" | "missing") {
         result["next"] = json!("rebuild it with dry_run: false");
     }
-    let files = crate::core::bundle::source_files(solution);
-    let notes = crate::core::bundle::dangling_references(&files, &files);
+    let notes = crate::core::bundle::dangling_in_selection(solution, arguments.backend_only);
     if !notes.is_empty() {
         result["notes"] = json!(notes);
     }

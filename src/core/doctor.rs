@@ -193,7 +193,7 @@ pub fn diagnose(root: &Path, profile_name: &str) -> Vec<Item> {
         "profile",
         format!(
             "{profile_name}: {} as {}, from {}",
-            profile.url,
+            profile::shown_url(&profile.url),
             profile.username,
             profile::source(&solution.root, profile_name)
         ),

@@ -311,7 +311,7 @@ static TOOLS: LazyLock<Vec<Tool>> = LazyLock::new(|| {
         ),
         solution_tool::<data_requests::ConfigTableRequest>(
             "config_table",
-            "Read one Thing's configuration table on the server, diff it against the entity XML in the repository, back it up to a file in the solution (refused if the file exists, unless overwrite), or restore it from such a backup. restore is a dry run unless dry_run is false; it refuses a backup of another Thing or table, and reads the table back.",
+            "Read one Thing's configuration table on the server, diff it against the entity XML in the repository, back it up to a new file in the solution (a backup is never overwritten), or restore it from such a backup. restore is a dry run unless dry_run is false; it refuses a backup of another Thing or table, and reads the table back.",
             false,
             data::config_table_tool,
         ),

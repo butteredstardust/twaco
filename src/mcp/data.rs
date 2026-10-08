@@ -66,15 +66,7 @@ fn sql_source(
 ) -> Result<String, ToolError> {
     match (file.as_ref(), sql.as_ref()) {
         (Some(file), None) if !file.is_empty() => {
-            let candidate = solution.root.join(file);
-            let real = std::fs::canonicalize(&candidate)
-                .map_err(|error| ToolError::with(ErrorCode::IoError, format!("{file}: {error}")))?;
-            let root = std::fs::canonicalize(&solution.root).map_err(ToolError::io)?;
-            if !real.starts_with(&root) {
-                return Err(ToolError::invalid(format!(
-                    "{file} is outside the solution"
-                )));
-            }
+            let real = in_path(solution, file)?;
             std::fs::read_to_string(&real)
                 .map_err(|error| ToolError::with(ErrorCode::IoError, format!("{file}: {error}")))
         }
@@ -193,15 +185,7 @@ pub(crate) fn config_table_tool(
         .map(|e| e.info.name.clone())
         .unwrap_or_else(|| thing_arg.to_string());
     let request = if arguments.action == TableAction::Restore {
-        let backup = required_text(&arguments.backup, "backup")?;
-        let backup = {
-            let path = PathBuf::from(backup);
-            if path.is_absolute() {
-                path
-            } else {
-                solution.root.join(path)
-            }
-        };
+        let backup = in_path(solution, required_text(&arguments.backup, "backup")?)?;
         let dry_run = arguments.dry_run;
         commands::config_table::ConfigTableRequest {
             thing: thing.clone(),
@@ -213,11 +197,8 @@ pub(crate) fn config_table_tool(
             profile: arguments.profile.clone(),
         }
     } else if arguments.action == TableAction::Backup {
-        let path = out_path(
-            solution,
-            required_text(&arguments.backup, "backup")?,
-            arguments.overwrite,
-        )?;
+        // Never true: core refuses to replace a backup, which is the point of one.
+        let path = out_path(solution, required_text(&arguments.backup, "backup")?, false)?;
         commands::config_table::ConfigTableRequest {
             thing: thing.clone(),
             table: table.to_string(),
