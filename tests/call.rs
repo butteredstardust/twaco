@@ -2,18 +2,17 @@ use std::io::{Read, Write};
 use std::net::TcpListener;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
-use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
+use std::time::{Duration, Instant};
 
-fn temp(label: &str) -> PathBuf {
-    let nonce = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap()
-        .as_nanos();
-    let root =
-        std::env::temp_dir().join(format!("twaco-call-{label}-{}-{nonce}", std::process::id()));
+fn temp(label: &str) -> (tempfile::TempDir, PathBuf) {
+    let root_guard = tempfile::Builder::new()
+        .prefix(&format!("twaco-call-{label}-"))
+        .tempdir()
+        .unwrap();
+    let root = root_guard.path().to_path_buf();
     std::fs::create_dir_all(root.join(".twaco/profiles")).unwrap();
     std::fs::write(root.join("twaco.toml"), "[[project]]\nname = \"Test\"\n").unwrap();
-    root
+    (root_guard, root)
 }
 
 fn profile(root: &Path, address: std::net::SocketAddr) {
@@ -77,7 +76,7 @@ fn answer(stream: &mut std::net::TcpStream, status: &str, content_type: &str, bo
 #[test]
 fn entity_get_never_creates_or_changes_the_baseline() {
     let listener = TcpListener::bind("127.0.0.1:0").unwrap();
-    let root = temp("get-baseline");
+    let (_dir, root) = temp("get-baseline");
     profile(&root, listener.local_addr().unwrap());
     std::fs::create_dir_all(root.join("Things")).unwrap();
     let xml =
@@ -107,13 +106,12 @@ fn entity_get_never_creates_or_changes_the_baseline() {
         xml
     );
     server.join().unwrap();
-    let _ = std::fs::remove_dir_all(root);
 }
 
 #[test]
 fn bare_and_qualified_targets_encode_segments_and_send_the_required_request() {
     let listener = TcpListener::bind("127.0.0.1:0").unwrap();
-    let root = temp("wire");
+    let (_dir, root) = temp("wire");
     profile(&root, listener.local_addr().unwrap());
     let server = std::thread::spawn(move || {
         let mut requests = Vec::new();
@@ -156,13 +154,12 @@ fn bare_and_qualified_targets_encode_segments_and_send_the_required_request() {
     }
     assert!(first.ends_with("{}"));
     assert!(second.ends_with(r#"{"type":"Project"}"#));
-    let _ = std::fs::remove_dir_all(root);
 }
 
 #[test]
 fn a_short_name_is_resolved_against_the_solution_and_said_aloud() {
     let listener = TcpListener::bind("127.0.0.1:0").unwrap();
-    let root = temp("resolve");
+    let (_dir, root) = temp("resolve");
     profile(&root, listener.local_addr().unwrap());
     std::fs::create_dir_all(root.join("Things")).unwrap();
     std::fs::write(
@@ -204,7 +201,6 @@ fn a_short_name_is_resolved_against_the_solution_and_said_aloud() {
         !said.contains("twaco: calling"),
         "an explicit target needs no announcement: {said}"
     );
-    let _ = std::fs::remove_dir_all(root);
 }
 
 #[test]
@@ -225,7 +221,7 @@ fn void_summary_detail_invalid_json_and_http_error_have_distinct_results() {
         ("500 Error", "text/plain", "No service handler defined"),
     ];
     let listener = TcpListener::bind("127.0.0.1:0").unwrap();
-    let root = temp("results");
+    let (_dir, root) = temp("results");
     profile(&root, listener.local_addr().unwrap());
     let server = std::thread::spawn(move || {
         for (status, content_type, body) in replies {
@@ -264,14 +260,13 @@ fn void_summary_detail_invalid_json_and_http_error_have_distinct_results() {
     assert!(http_error.contains("No service handler defined"));
     assert!(!http_error.contains("pass"));
     server.join().unwrap();
-    let _ = std::fs::remove_dir_all(root);
 }
 
 #[test]
 fn non_object_parameters_are_refused_without_a_request() {
     let listener = TcpListener::bind("127.0.0.1:0").unwrap();
     listener.set_nonblocking(true).unwrap();
-    let root = temp("object");
+    let (_dir, root) = temp("object");
     profile(&root, listener.local_addr().unwrap());
     for value in ["[1]", r#""x""#] {
         let output = run(&root, &["call", "T", "S", value]);
@@ -283,13 +278,12 @@ fn non_object_parameters_are_refused_without_a_request() {
     assert!(
         matches!(listener.accept(), Err(error) if error.kind() == std::io::ErrorKind::WouldBlock)
     );
-    let _ = std::fs::remove_dir_all(root);
 }
 
 #[test]
 fn request_timeout_overrides_the_agent_default() {
     let listener = TcpListener::bind("127.0.0.1:0").unwrap();
-    let root = temp("timeout");
+    let (_dir, root) = temp("timeout");
     profile(&root, listener.local_addr().unwrap());
     // The server stalls far longer than the 1 s timeout, so a pass cannot be the response
     // arriving late. The margin absorbs process start-up under a loaded test run; the thread
@@ -310,5 +304,4 @@ fn request_timeout_overrides_the_agent_default() {
         "timeout took {elapsed:?}: {}",
         String::from_utf8_lossy(&output.stderr)
     );
-    let _ = std::fs::remove_dir_all(root);
 }

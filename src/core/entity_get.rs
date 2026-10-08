@@ -8,7 +8,6 @@ use super::config::Solution;
 use super::entity_key::EntityKey;
 use super::server::{Client, ServerError};
 use super::workspace::{self, WorkspaceError};
-use std::fmt;
 
 /// What `entity get` asks of the server, as a trait so it is tested offline.
 pub trait Remote {
@@ -21,30 +20,18 @@ impl Remote for Client {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, thiserror::Error)]
 pub enum GetError {
+    #[error("{0}")]
     Invalid(String),
+    #[error("{0}")]
     Resolve(WorkspaceError),
     /// The server answered that it has no such entity.
+    #[error("the server has no {0}; `twaco search` finds an entity by part of its name")]
     NotOnServer(EntityKey),
+    #[error("{0}")]
     Remote(ServerError),
 }
-
-impl fmt::Display for GetError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            GetError::Invalid(why) => f.write_str(why),
-            GetError::Resolve(error) => write!(f, "{error}"),
-            GetError::NotOnServer(key) => write!(
-                f,
-                "the server has no {key}; `twaco search` finds an entity by part of its name"
-            ),
-            GetError::Remote(error) => write!(f, "{error}"),
-        }
-    }
-}
-
-impl std::error::Error for GetError {}
 
 /// The entity `text` names: `Collection/Name` as given, or a bare name found in the repository.
 pub fn target(solution: &Solution, text: &str) -> Result<EntityKey, GetError> {
@@ -98,12 +85,12 @@ mod tests {
         }
     }
 
-    fn solution() -> (std::path::PathBuf, Solution) {
-        let root = std::env::temp_dir().join(format!(
-            "twaco-entity-get-{}-{}",
-            std::process::id(),
-            crate::test_nonce()
-        ));
+    fn solution() -> (tempfile::TempDir, std::path::PathBuf, Solution) {
+        let root_guard = tempfile::Builder::new()
+            .prefix("twaco-entity-get-")
+            .tempdir()
+            .unwrap();
+        let root = root_guard.path().to_path_buf();
         std::fs::create_dir_all(root.join("Things")).unwrap();
         std::fs::write(root.join("twaco.toml"), "[[project]]\nname = \"P\"\n").unwrap();
         std::fs::write(
@@ -112,12 +99,12 @@ mod tests {
         )
         .unwrap();
         let solution = Solution::load(&root.join("twaco.toml")).unwrap();
-        (root, solution)
+        (root_guard, root, solution)
     }
 
     #[test]
     fn collection_and_name_reach_any_entity_and_a_bare_name_the_repositorys() {
-        let (root, solution) = solution();
+        let (_dir, _, solution) = solution();
         let (key, bytes) = get(&Fake, &solution, "Resources/EntityServices").unwrap();
         assert_eq!(key.to_string(), "Resources/EntityServices");
         assert_eq!(bytes, b"<Entities>Resources/EntityServices</Entities>");
@@ -135,6 +122,5 @@ mod tests {
         let missing = get(&Fake, &solution, "Things/Acme.Missing").unwrap_err();
         assert!(matches!(missing, GetError::NotOnServer(_)));
         assert!(missing.to_string().contains("twaco search"), "{missing}");
-        let _ = std::fs::remove_dir_all(root);
     }
 }

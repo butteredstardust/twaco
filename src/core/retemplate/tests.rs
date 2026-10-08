@@ -3,14 +3,9 @@ use crate::core::workflow;
 use std::collections::BTreeMap;
 
 struct Fixture {
+    _dir: tempfile::TempDir,
     root: PathBuf,
     solution: Solution,
-}
-
-impl Drop for Fixture {
-    fn drop(&mut self) {
-        let _ = std::fs::remove_dir_all(&self.root);
-    }
 }
 
 fn write(root: &Path, relative: &str, text: &str) {
@@ -102,17 +97,11 @@ fn shape(name: &str) -> String {
 }
 
 fn fixture() -> Fixture {
-    static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
-    let nonce = format!(
-        "{}-{}",
-        std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap()
-            .as_nanos(),
-        NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
-    );
-    let root =
-        std::env::temp_dir().join(format!("twaco-retemplate-{}-{nonce}", std::process::id()));
+    let root_guard = tempfile::Builder::new()
+        .prefix("twaco-retemplate-")
+        .tempdir()
+        .unwrap();
+    let root = root_guard.path().to_path_buf();
     std::fs::create_dir_all(&root).unwrap();
     write(&root, "twaco.toml", "[[project]]\nname = \"P\"\ncollections = [\"Things\", \"ThingShapes\", \"ThingTemplates\"]\n");
     write(
@@ -171,7 +160,11 @@ fn fixture() -> Fixture {
         &crate::core::lock::acquire(&solution.root, "test", &[]).unwrap(),
     );
     assert_eq!(extracted.failed, 0, "{:?}", extracted.log);
-    Fixture { root, solution }
+    Fixture {
+        _dir: root_guard,
+        root,
+        solution,
+    }
 }
 
 fn request(entity: &str) -> Request {

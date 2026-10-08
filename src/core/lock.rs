@@ -18,7 +18,6 @@
 //! write interrupted between creating its temporary and renaming it into place, are safe to
 //! remove. That is the stale-temp recovery half of 8.8.
 
-use std::fmt;
 use std::fs::{File, OpenOptions, TryLockError};
 use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -37,6 +36,13 @@ pub struct WorkspaceLock {
     /// Interrupted operations finished or undone when the lock was taken, one line each.
     pub recovery: Vec<String>,
     root: PathBuf,
+    command: String,
+}
+
+impl Drop for WorkspaceLock {
+    fn drop(&mut self) {
+        tracing::debug!(command = %self.command, "workspace lock released");
+    }
 }
 
 impl WorkspaceLock {
@@ -52,38 +58,21 @@ impl WorkspaceLock {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, thiserror::Error)]
 pub enum LockError {
     /// Another process holds it. `holder` is what that process wrote, when it could be read.
-    Held {
-        holder: String,
-    },
-    Io {
-        path: PathBuf,
-        why: String,
-    },
+    #[error(
+        "another twaco command is changing this workspace ({holder}); run this one when \
+                 it finishes"
+    )]
+    Held { holder: String },
+    #[error("{}: {why}", .path.display())]
+    Io { path: PathBuf, why: String },
     /// An interrupted operation could not be finished or undone safely. The text says why and
     /// what a person must do.
-    Recovery {
-        message: String,
-    },
+    #[error("{message}")]
+    Recovery { message: String },
 }
-
-impl fmt::Display for LockError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            LockError::Held { holder } => write!(
-                f,
-                "another twaco command is changing this workspace ({holder}); run this one when \
-                 it finishes"
-            ),
-            LockError::Io { path, why } => write!(f, "{}: {why}", path.display()),
-            LockError::Recovery { message } => f.write_str(message),
-        }
-    }
-}
-
-impl std::error::Error for LockError {}
 
 /// Take the workspace lock for `command`, then sweep `sweep` for stale temporaries.
 ///
@@ -129,6 +118,7 @@ fn acquire_then_sweep(
             Err(TryLockError::WouldBlock) => {
                 let holder = std::fs::read_to_string(&holder_path).unwrap_or_default();
                 let holder = holder.trim();
+                tracing::debug!(command, holder, "workspace lock refused");
                 return Err(LockError::Held {
                     holder: if holder.is_empty() {
                         "holder unknown".to_string()
@@ -140,6 +130,7 @@ fn acquire_then_sweep(
             Err(TryLockError::Error(error)) => return Err(io(error)),
         }
     }
+    tracing::debug!(command, attempts = attempt, "workspace lock taken");
     let started = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .map(|d| d.as_secs())
@@ -170,7 +161,7 @@ fn acquire_then_sweep(
         .map_err(|refusal| LockError::Recovery { message: refusal.0 })?
         .iter()
         .map(super::transaction::Recovered::describe)
-        .collect();
+        .collect::<Vec<String>>();
 
     // Only folders inside the workspace are swept. A configured folder that is a link to
     // somewhere else is left alone: what lies there is not this lock's to recover.
@@ -187,6 +178,7 @@ fn acquire_then_sweep(
         recovered,
         recovery,
         root: root.to_path_buf(),
+        command: command.to_string(),
     })
 }
 
@@ -265,6 +257,7 @@ fn remove_temporaries(directory: &Path, recovered: &mut Vec<PathBuf>) {
                 .is_some_and(|name| is_temporary(&name.to_string_lossy()))
             && std::fs::remove_file(&path).is_ok()
         {
+            tracing::warn!(path = %path.display(), "removed a stale temporary left by an interrupted write");
             recovered.push(path);
         }
     }
@@ -274,16 +267,19 @@ fn remove_temporaries(directory: &Path, recovered: &mut Vec<PathBuf>) {
 mod tests {
     use super::*;
 
-    fn temp() -> PathBuf {
-        let nonce = crate::test_nonce();
-        let root = std::env::temp_dir().join(format!("twaco-lock-{}-{nonce}", std::process::id()));
+    fn temp() -> (tempfile::TempDir, PathBuf) {
+        let root_guard = tempfile::Builder::new()
+            .prefix("twaco-lock-")
+            .tempdir()
+            .unwrap();
+        let root = root_guard.path().to_path_buf();
         std::fs::create_dir_all(&root).unwrap();
-        root
+        (root_guard, root)
     }
 
     #[test]
     fn a_second_writer_is_refused_and_told_who_holds_it() {
-        let root = temp();
+        let (_dir, root) = temp();
         let first = acquire(&root, "sync", &[]).unwrap();
         let error = acquire(&root, "deploy", &[]).unwrap_err();
         match error {
@@ -297,12 +293,11 @@ mod tests {
             other => panic!("expected Held, got {other}"),
         }
         drop(first);
-        let _ = std::fs::remove_dir_all(root);
     }
 
     #[test]
     fn the_lock_is_free_again_once_its_holder_is_dropped() {
-        let root = temp();
+        let (_dir, root) = temp();
         drop(acquire(&root, "sync", &[]).unwrap());
         let again = acquire(&root, "fmt", &[]).unwrap();
         let text = std::fs::read_to_string(root.join(HOLDER_PATH)).unwrap();
@@ -311,7 +306,6 @@ mod tests {
             "the new holder replaces the old record: {text}"
         );
         drop(again);
-        let _ = std::fs::remove_dir_all(root);
     }
 
     #[test]
@@ -323,7 +317,7 @@ mod tests {
 
     #[test]
     fn stale_temporaries_are_removed_and_nothing_else() {
-        let root = temp();
+        let (_dir, root) = temp();
         let things = root.join("Things");
         let nested = root.join("src/T/services/S");
         std::fs::create_dir_all(&things).unwrap();
@@ -337,7 +331,7 @@ mod tests {
             root.join(".twaco/.renames.json.42.twaco-delete-tmp"),
         ];
         // Outside the workspace, nothing is twaco's to recover, even with twaco's own name.
-        let outside = temp();
+        let (_dir, outside) = temp();
         let kept = [
             things.join("T.xml"),
             nested.join("script.js"),
@@ -353,13 +347,50 @@ mod tests {
         assert!(stale.iter().all(|path| !path.exists()));
         assert!(kept.iter().all(|path| path.exists()));
         drop(lock);
-        let _ = std::fs::remove_dir_all(root);
-        let _ = std::fs::remove_dir_all(outside);
+    }
+
+    #[test]
+    fn the_lock_logs_each_step_and_warns_about_a_stale_temporary() {
+        let (_dir, root) = temp();
+        std::fs::create_dir_all(root.join(".twaco")).unwrap();
+        std::fs::write(root.join(".twaco/.old.json.7.twaco-tmp"), b"x").unwrap();
+        let (_, logs) = crate::core::diagnostics::captured(|| {
+            let span = tracing::info_span!("capture", mine = "lock-logs-steps");
+            let _entered = span.enter();
+            let lock = acquire(&root, "sync", &[]).unwrap();
+            assert!(matches!(
+                acquire(&root, "fmt", &[]),
+                Err(LockError::Held { .. })
+            ));
+            drop(lock);
+        });
+        let line = |needle: &str| {
+            logs.lines()
+                .find(|line| line.contains(needle) && line.contains("lock-logs-steps"))
+        };
+        assert!(
+            line("workspace lock taken").unwrap().contains("DEBUG"),
+            "{logs}"
+        );
+        let mine = root.display().to_string();
+        let warning = logs
+            .lines()
+            .find(|line| line.contains("removed a stale temporary") && line.contains(&mine))
+            .unwrap_or_else(|| panic!("no warning for {mine}:\n{logs}"));
+        assert!(
+            warning.contains("WARN") && warning.contains(".old.json.7.twaco-tmp"),
+            "{logs}"
+        );
+        assert!(
+            line("workspace lock refused").unwrap().contains("pid"),
+            "{logs}"
+        );
+        assert!(line("workspace lock released").is_some(), "{logs}");
     }
 
     #[test]
     fn the_record_names_the_current_holder_while_someone_reads_it() {
-        let root = temp();
+        let (_dir, root) = temp();
         drop(acquire(&root, "sync", &[]).unwrap());
         // A reader that shares reading and writing only, as most programs open a file. On
         // Windows that refuses the rename, so the fallback must still replace the record.
@@ -379,13 +410,12 @@ mod tests {
         );
         assert!(!root.join(".twaco/.lock.holder.twaco-tmp").exists());
         drop((reader, lock));
-        let _ = std::fs::remove_dir_all(root);
     }
 
     #[test]
     fn a_lock_held_for_an_instant_is_waited_out() {
         // As `doctor` holds it while asking whether it is free.
-        let root = temp();
+        let (_dir, root) = temp();
         drop(acquire(&root, "sync", &[]).unwrap());
         let glance = OpenOptions::new()
             .write(true)
@@ -399,12 +429,11 @@ mod tests {
         let lock = acquire(&root, "deploy", &[]).expect("the glance ends before the retries do");
         release.join().unwrap();
         drop(lock);
-        let _ = std::fs::remove_dir_all(root);
     }
 
     #[test]
     fn the_holder_can_be_asked_without_taking_the_lock() {
-        let root = temp();
+        let (_dir, root) = temp();
         assert_eq!(holder(&root).unwrap(), None, "no lock file yet");
         let held = acquire(&root, "deploy", &[]).unwrap();
         assert!(holder(&root).unwrap().unwrap().contains("twaco deploy"));
@@ -412,12 +441,11 @@ mod tests {
         assert_eq!(holder(&root).unwrap(), None);
         // Asking did not take it: a writer can still acquire.
         drop(acquire(&root, "sync", &[]).unwrap());
-        let _ = std::fs::remove_dir_all(root);
     }
 
     #[test]
     fn a_held_lock_does_not_sweep() {
-        let root = temp();
+        let (_dir, root) = temp();
         let things = root.join("Things");
         std::fs::create_dir_all(&things).unwrap();
         let first = acquire(&root, "deploy", &[]).unwrap();
@@ -427,6 +455,5 @@ mod tests {
         assert!(acquire(&root, "sync", &[things]).is_err());
         assert!(in_flight.exists());
         drop(first);
-        let _ = std::fs::remove_dir_all(root);
     }
 }

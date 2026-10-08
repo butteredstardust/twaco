@@ -27,6 +27,7 @@ pub mod write;
 use super::entity_carry::{Kind, Remote};
 use super::normalise::{self, Element, Node};
 use super::parallel;
+use super::progress::{self, Progress};
 use super::workspace::EntityFile;
 use serde::Serialize;
 use serde_json::{json, Map, Value};
@@ -102,16 +103,9 @@ impl KindKey {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+#[error("{0}")]
 pub struct PermissionsError(String);
-
-impl fmt::Display for PermissionsError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_str(&self.0)
-    }
-}
-
-impl std::error::Error for PermissionsError {}
 
 fn error(message: impl Into<String>) -> PermissionsError {
     PermissionsError(message.into())
@@ -490,7 +484,29 @@ impl Report {
 /// set the repository's and read it back. Entities run in parallel; one failing never stops the
 /// rest.
 pub fn run(remote: &(dyn Remote + Sync), entities: &[EntityFile], apply: bool) -> Report {
-    let entities = parallel::map(entities, |entity| one(remote, entity, apply));
+    run_with_progress(remote, entities, apply, &progress::NONE)
+}
+
+/// Like [`run`], and report one step per entity. Messages hold entity names only.
+pub fn run_with_progress(
+    remote: &(dyn Remote + Sync),
+    entities: &[EntityFile],
+    apply: bool,
+    progress: &dyn Progress,
+) -> Report {
+    let _phase = progress::phase(
+        progress,
+        if apply {
+            "pushing permissions"
+        } else {
+            "comparing permissions"
+        },
+        Some(entities.len() as u64),
+    );
+    let entities = parallel::map_progress(entities, progress, |entity| {
+        progress.message(&entity.info.name);
+        one(remote, entity, apply)
+    });
     Report {
         applied: apply,
         entities,

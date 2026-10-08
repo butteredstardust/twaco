@@ -36,13 +36,24 @@ impl CompilerRunner for ProcessCompiler {
         arguments: &[OsString],
         current_dir: &Path,
     ) -> std::io::Result<CompilerOutput> {
+        let started = std::time::Instant::now();
         let output = Command::new(program)
             .args(arguments)
             .current_dir(current_dir)
             .stdin(Stdio::null())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
-            .output()?;
+            .output()
+            .inspect_err(|why| {
+                tracing::debug!(program = ?program, why = %why, "compiler could not start");
+            })?;
+        tracing::debug!(
+            program = ?program,
+            argument_count = arguments.len(),
+            exit = output.status.code(),
+            elapsed_ms = u64::try_from(started.elapsed().as_millis()).unwrap_or(u64::MAX),
+            "compiler finished"
+        );
         Ok(CompilerOutput {
             success: output.status.success(),
             stdout: output.stdout,

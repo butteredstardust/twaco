@@ -16,7 +16,6 @@
 
 use super::scan;
 use std::collections::{BTreeMap, BTreeSet};
-use std::fmt;
 use swc_common::comments::SingleThreadedComments;
 use swc_common::{BytePos, Spanned};
 use swc_ecma_ast::{
@@ -29,24 +28,15 @@ use swc_ecma_parser::{lexer::Lexer, EsSyntax, Parser, StringInput, Syntax};
 use swc_ecma_visit::{Visit, VisitWith};
 
 /// Why a script yielded no facts.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 pub enum ParseError {
     /// The bytes are not UTF-8.
+    #[error("the script is not UTF-8")]
     NotUtf8,
     /// The parser refused the script, at this byte offset.
+    #[error("{message} (at byte {at})")]
     Syntax { at: usize, message: String },
 }
-
-impl fmt::Display for ParseError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            ParseError::NotUtf8 => write!(f, "the script is not UTF-8"),
-            ParseError::Syntax { at, message } => write!(f, "{message} (at byte {at})"),
-        }
-    }
-}
-
-impl std::error::Error for ParseError {}
 
 /// How an identifier occurs.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

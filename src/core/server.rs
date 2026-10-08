@@ -76,7 +76,14 @@ impl Client {
             ("X-XSRF-TOKEN", XSRF_VALUE),
             ("X-Requested-With", "XMLHttpRequest"),
         ];
-        let response = transport(&self.agent, Method::Get, &url, &headers, None)?;
+        let response = transport(
+            &self.secrets,
+            &self.agent,
+            Method::Get,
+            &url,
+            &headers,
+            None,
+        )?;
         checked(&self.secrets, Method::Get, url, response)
     }
 
@@ -92,12 +99,17 @@ impl Client {
             ("X-XSRF-TOKEN", XSRF_VALUE),
             ("X-Requested-With", "XMLHttpRequest"),
         ];
-        let response = transport(&self.agent, Method::Get, &url, &headers, None)?;
+        let response = transport(
+            &self.secrets,
+            &self.agent,
+            Method::Get,
+            &url,
+            &headers,
+            None,
+        )?;
         let bytes = checked(&self.secrets, Method::Get, url.clone(), response)?;
-        serde_json::from_slice(&bytes).map_err(|error| ServerError::InvalidResponse {
-            url,
-            why: error.to_string(),
-        })
+        serde_json::from_slice(&bytes)
+            .map_err(|error| self.invalid_response(&url, error.to_string()))
     }
 
     /// The names of every entity of a collection, from its REST listing.
@@ -109,20 +121,21 @@ impl Client {
             ("Authorization", authorization.as_str()),
             ("X-XSRF-TOKEN", XSRF_VALUE),
         ];
-        let response = transport(&self.agent, Method::Get, &url, &headers, None)?;
+        let response = transport(
+            &self.secrets,
+            &self.agent,
+            Method::Get,
+            &url,
+            &headers,
+            None,
+        )?;
         let bytes = checked(&self.secrets, Method::Get, url.clone(), response)?;
-        let value: serde_json::Value =
-            serde_json::from_slice(&bytes).map_err(|error| ServerError::InvalidResponse {
-                url: url.clone(),
-                why: error.to_string(),
-            })?;
+        let value: serde_json::Value = serde_json::from_slice(&bytes)
+            .map_err(|error| self.invalid_response(&url, error.to_string()))?;
         let rows = value
             .get("rows")
             .and_then(serde_json::Value::as_array)
-            .ok_or_else(|| ServerError::InvalidResponse {
-                url,
-                why: "the listing has no rows".to_string(),
-            })?;
+            .ok_or_else(|| self.invalid_response(&url, "the listing has no rows".to_string()))?;
         Ok(rows
             .iter()
             .filter_map(|row| row.get("name").and_then(serde_json::Value::as_str))
@@ -141,7 +154,14 @@ impl Client {
             ("Authorization", authorization.as_str()),
             ("X-XSRF-TOKEN", XSRF_VALUE),
         ];
-        let response = transport(&self.agent, Method::Get, &url, &headers, None)?;
+        let response = transport(
+            &self.secrets,
+            &self.agent,
+            Method::Get,
+            &url,
+            &headers,
+            None,
+        )?;
         match checked_bytes(&self.secrets, Method::Get, url, response) {
             Ok(_) => Ok(true),
             Err(error) if error.is_not_found() => Ok(false),
@@ -164,7 +184,14 @@ impl Client {
             ("Content-Type", "application/json"),
             ("X-Requested-With", "XMLHttpRequest"),
         ];
-        let response = transport(&self.agent, Method::Delete, &url, &headers, None)?;
+        let response = transport(
+            &self.secrets,
+            &self.agent,
+            Method::Delete,
+            &url,
+            &headers,
+            None,
+        )?;
         checked(&self.secrets, Method::Delete, url, response).map(|_| ())
     }
 
@@ -187,7 +214,14 @@ impl Client {
             ("Authorization", authorization.as_str()),
             ("X-XSRF-TOKEN", XSRF_VALUE),
         ];
-        let response = transport(&self.agent, Method::Get, &url, &headers, None)?;
+        let response = transport(
+            &self.secrets,
+            &self.agent,
+            Method::Get,
+            &url,
+            &headers,
+            None,
+        )?;
         checked_bytes(&self.secrets, Method::Get, url, response)
     }
 
@@ -233,15 +267,22 @@ impl Client {
             ("X-XSRF-TOKEN", XSRF_VALUE),
             ("X-Requested-With", "XMLHttpRequest"),
         ];
-        let response = transport(&self.agent, Method::Post, &url, &headers, Some(&body))?;
+        let response = transport(
+            &self.secrets,
+            &self.agent,
+            Method::Post,
+            &url,
+            &headers,
+            Some(&body),
+        )?;
         let reply = checked(&self.secrets, Method::Post, url.clone(), response)?;
         let reply = String::from_utf8(reply).expect("checked validated UTF-8");
         if reply.trim().eq_ignore_ascii_case("success") {
             Ok(())
         } else {
             Err(ServerError::Rejected {
-                url,
-                body: scrub(&self.secrets, &excerpt(&reply)),
+                url: scrub(&self.secrets, &url),
+                body: excerpt(&scrub(&self.secrets, &reply)),
             })
         }
     }
@@ -276,6 +317,7 @@ impl Client {
             ("X-Requested-With", "XMLHttpRequest"),
         ];
         let response = transport_with_timeout(
+            &self.secrets,
             &self.agent,
             Method::Get,
             &url,
@@ -311,6 +353,7 @@ impl Client {
             ("X-Requested-With", "XMLHttpRequest"),
         ];
         let response = transport_with_timeout(
+            &self.secrets,
             &self.agent,
             Method::Post,
             &url,
@@ -319,10 +362,8 @@ impl Client {
             Some(Duration::from_secs(600)),
         )?;
         let reply = checked(&self.secrets, Method::Post, url.clone(), response)?;
-        serde_json::from_slice(&reply).map_err(|error| ServerError::InvalidResponse {
-            url,
-            why: error.to_string(),
-        })
+        serde_json::from_slice(&reply)
+            .map_err(|error| self.invalid_response(&url, error.to_string()))
     }
 
     /// Ask ThingWorx's Rhino parser to validate one service body.
@@ -342,18 +383,21 @@ impl Client {
             ("X-XSRF-TOKEN", XSRF_VALUE),
             ("X-Requested-With", "XMLHttpRequest"),
         ];
-        let response = transport(&self.agent, Method::Post, &url, &headers, Some(&body))?;
+        let response = transport(
+            &self.secrets,
+            &self.agent,
+            Method::Post,
+            &url,
+            &headers,
+            Some(&body),
+        )?;
         let reply = checked(&self.secrets, Method::Post, url.clone(), response)?;
-        let parsed: ScriptCheckResponse =
-            serde_json::from_slice(&reply).map_err(|error| ServerError::InvalidResponse {
-                url: url.clone(),
-                why: error.to_string(),
-            })?;
+        let parsed: ScriptCheckResponse = serde_json::from_slice(&reply)
+            .map_err(|error| self.invalid_response(&url, error.to_string()))?;
         if parsed.rows.len() != 1 {
-            return Err(ServerError::InvalidResponse {
-                url,
-                why: format!("expected one row, got {}", parsed.rows.len()),
-            });
+            return Err(
+                self.invalid_response(&url, format!("expected one row, got {}", parsed.rows.len()))
+            );
         }
         Ok(parsed.rows.into_iter().next().expect("length checked"))
     }
@@ -386,6 +430,7 @@ impl Client {
             ("X-Requested-With", "XMLHttpRequest"),
         ];
         let response = transport_with_timeout(
+            &self.secrets,
             &self.agent,
             Method::Post,
             &url,
@@ -399,10 +444,15 @@ impl Client {
         }
         serde_json::from_slice(&reply)
             .map(Some)
-            .map_err(|error| ServerError::InvalidResponse {
-                url,
-                why: error.to_string(),
-            })
+            .map_err(|error| self.invalid_response(&url, error.to_string()))
+    }
+
+    /// An `InvalidResponse` with every secret removed from the address and the reason.
+    fn invalid_response(&self, url: &str, why: impl fmt::Display) -> ServerError {
+        ServerError::InvalidResponse {
+            url: scrub(&self.secrets, url),
+            why: scrub(&self.secrets, &why.to_string()),
+        }
     }
 
     fn base(&self) -> &str {
@@ -486,6 +536,44 @@ pub enum ServerError {
 }
 
 impl ServerError {
+    /// The same error with every secret removed from its text fields. An entity name or a
+    /// service parameter can hold a secret, and the request URL then carries it.
+    fn scrubbed(self, secrets: &[String]) -> Self {
+        let clean = |text: String| scrub(secrets, &text);
+        match self {
+            ServerError::InvalidUrl(why) => ServerError::InvalidUrl(clean(why)),
+            ServerError::Transport { method, url, why } => ServerError::Transport {
+                method,
+                url: clean(url),
+                why: clean(why),
+            },
+            ServerError::Http {
+                method,
+                status,
+                url,
+                body,
+            } => ServerError::Http {
+                method,
+                status,
+                url: clean(url),
+                body: clean(body),
+            },
+            ServerError::Rejected { url, body } => ServerError::Rejected {
+                url: clean(url),
+                body: clean(body),
+            },
+            ServerError::InvalidResponse { url, why } => ServerError::InvalidResponse {
+                url: clean(url),
+                why: clean(why),
+            },
+            // The charset text comes from the server's Content-Type header.
+            ServerError::UnsupportedCharset(charset) => {
+                ServerError::UnsupportedCharset(clean(charset))
+            }
+            ServerError::InvalidUtf8 { at } => ServerError::InvalidUtf8 { at },
+        }
+    }
+
     pub fn is_not_found(&self) -> bool {
         matches!(self, ServerError::Http { status: 404, .. })
     }
@@ -558,14 +646,15 @@ fn checked(
     url: String,
     response: Response,
 ) -> Result<Vec<u8>, ServerError> {
-    validate_charset(response.content_type.as_deref(), &response.body)?;
+    validate_charset(response.content_type.as_deref(), &response.body)
+        .map_err(|error| error.scrubbed(secrets))?;
     if !(200..300).contains(&response.status) {
         let detail = std::str::from_utf8(&response.body).expect("validate_charset checked UTF-8");
         return Err(ServerError::Http {
             method,
             status: response.status,
-            url,
-            body: scrub(secrets, &excerpt(detail)),
+            url: scrub(secrets, &url),
+            body: excerpt(&scrub(secrets, detail)),
         });
     }
     Ok(response.body)
@@ -583,8 +672,8 @@ fn checked_bytes(
         return Err(ServerError::Http {
             method,
             status: response.status,
-            url,
-            body: scrub(secrets, &excerpt(&String::from_utf8_lossy(&response.body))),
+            url: scrub(secrets, &url),
+            body: excerpt(&scrub(secrets, &String::from_utf8_lossy(&response.body))),
         });
     }
     Ok(response.body)
@@ -659,6 +748,9 @@ fn scrub(secrets: &[String], text: &str) -> String {
     out
 }
 
+/// WARNING: Remove secrets before the cut. A cut through a secret leaves a prefix that the
+/// scrubber no longer recognises.
+///
 /// At most 4096 bytes of a server message, cut on a character boundary: slicing a multi-byte
 /// character in half panics.
 fn excerpt(text: &str) -> String {
@@ -781,16 +873,56 @@ fn base64(bytes: &[u8]) -> String {
 }
 
 fn transport(
+    secrets: &[String],
     agent: &ureq::Agent,
     method: Method,
     url: &str,
     headers: &[(&str, &str)],
     body: Option<&[u8]>,
 ) -> Result<Response, ServerError> {
-    transport_with_timeout(agent, method, url, headers, body, None)
+    transport_with_timeout(secrets, agent, method, url, headers, body, None)
 }
 
+/// Send one request and read the whole answer.
+///
+/// Logs one `debug` event per request: method, scrubbed URL, status, byte counts and duration.
+/// Never log `headers` or a body. `secrets` scrubs the URL and the failure text first.
 fn transport_with_timeout(
+    secrets: &[String],
+    agent: &ureq::Agent,
+    method: Method,
+    url: &str,
+    headers: &[(&str, &str)],
+    body: Option<&[u8]>,
+    timeout: Option<Duration>,
+) -> Result<Response, ServerError> {
+    let started = std::time::Instant::now();
+    let logged_url = || scrub(secrets, &super::profile::hide_url_credentials(url));
+    let result =
+        send(agent, method, url, headers, body, timeout).map_err(|error| error.scrubbed(secrets));
+    let elapsed_ms = u64::try_from(started.elapsed().as_millis()).unwrap_or(u64::MAX);
+    match &result {
+        Ok(response) => tracing::debug!(
+            %method,
+            url = %logged_url(),
+            status = response.status,
+            request_bytes = body.map_or(0, <[u8]>::len),
+            response_bytes = response.body.len(),
+            elapsed_ms,
+            "server request"
+        ),
+        Err(error) => tracing::debug!(
+            %method,
+            url = %logged_url(),
+            why = %error,
+            elapsed_ms,
+            "server request failed"
+        ),
+    }
+    result
+}
+
+fn send(
     agent: &ureq::Agent,
     method: Method,
     url: &str,
@@ -866,6 +998,93 @@ fn transport_with_timeout(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A request URL carries an entity name, and a person can type a secret into one. Each error
+    /// kind the client builds around such a URL must hide every form of every secret.
+    #[test]
+    fn a_secret_in_the_request_url_never_reaches_an_error_message() {
+        let password = "pw-7f3a9c1e5b";
+        let app_key = "appkey-4d8e2b6f0a";
+        let profile_for = |url: String| Profile {
+            url,
+            username: "user".to_string(),
+            password: password.to_string(),
+            app_key: Some(app_key.to_string()),
+            extra: Default::default(),
+        };
+        let secrets = secrets_of(&profile_for(String::new()));
+        let key = EntityKey::new("Things", format!("Acme.{app_key}.{password}")).unwrap();
+        let assert_clean = |error: ServerError| {
+            let text = format!("{error} {error:?}");
+            for secret in &secrets {
+                assert!(!text.contains(secret.as_str()), "{secret} in {text}");
+            }
+        };
+
+        // Transport: nothing listens on the port.
+        let closed = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let address = closed.local_addr().unwrap();
+        drop(closed);
+        let client = Client::new(profile_for(format!("http://{address}/Thingworx/")));
+        let error = client.fetch_entity(&key).unwrap_err();
+        assert!(matches!(error, ServerError::Transport { .. }), "{error}");
+        assert_clean(error);
+
+        // Http: the server answers an error status.
+        let (url, server) = serve_once("500 Internal Server Error", "no");
+        let error = Client::new(profile_for(url))
+            .fetch_entity(&key)
+            .unwrap_err();
+        server.join().unwrap();
+        assert!(matches!(error, ServerError::Http { .. }), "{error}");
+        assert_clean(error);
+
+        // InvalidResponse: a success status with a body that is not JSON.
+        let (url, server) = serve_once("200 OK", "not json");
+        let error = Client::new(profile_for(url))
+            .fetch_entity_json(&key)
+            .unwrap_err();
+        server.join().unwrap();
+        assert!(
+            matches!(error, ServerError::InvalidResponse { .. }),
+            "{error}"
+        );
+        assert_clean(error);
+    }
+
+    /// The charset name comes from the server's header, so a server can echo a secret there.
+    #[test]
+    fn a_secret_in_a_response_charset_never_reaches_an_error_message() {
+        let secrets = vec!["pw-7f3a9c1e5b".to_string()];
+        let response = Response {
+            status: 200,
+            content_type: Some("text/xml; charset=pw-7f3a9c1e5b".to_string()),
+            body: b"<x/>".to_vec(),
+        };
+        let error = checked(&secrets, Method::Get, "http://h/T".to_string(), response).unwrap_err();
+        assert!(
+            matches!(error, ServerError::UnsupportedCharset(_)),
+            "{error}"
+        );
+        let text = format!("{error} {error:?}");
+        assert!(!text.contains("pw-7f3a9c1e5b"), "{text}");
+    }
+
+    /// An error body is cut to 4096 bytes. A secret across the cut must not leave a prefix.
+    #[test]
+    fn a_secret_across_the_body_cut_never_reaches_an_error_message() {
+        let secret = "pw-7f3a9c1e5b";
+        let secrets = vec![secret.to_string()];
+        let body = format!("{}{secret}", "x".repeat(4096 - 6));
+        let response = Response {
+            status: 500,
+            content_type: Some("text/plain".to_string()),
+            body: body.into_bytes(),
+        };
+        let error = checked(&secrets, Method::Get, "http://h/T".to_string(), response).unwrap_err();
+        let text = format!("{error} {error:?}");
+        assert!(!text.contains(&secret[..6]), "{}", &text[text.len() - 80..]);
+    }
 
     #[test]
     fn credentials_written_into_the_address_never_reach_an_error_message() {

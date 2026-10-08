@@ -12,7 +12,6 @@
 
 use super::scan::{self, Kind, ScanError, Token};
 use std::collections::BTreeMap;
-use std::fmt;
 
 /// One service, as two files.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -47,80 +46,44 @@ pub struct Extraction {
     pub inherited: Vec<String>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, thiserror::Error)]
 pub enum SidecarError {
+    #[error("{0}")]
     Scan(ScanError),
     /// The document is not an entity export, so it has no entity element to look inside.
+    #[error("not a ThingWorx entity export")]
     NotAnEntity,
-    Unnamed {
-        what: &'static str,
-        at: usize,
-    },
-    Duplicate {
-        what: &'static str,
-        name: String,
-    },
+    #[error("{what} at byte {at} has no name attribute")]
+    Unnamed { what: &'static str, at: usize },
+    #[error("two {what} blocks named {name}")]
+    Duplicate { what: &'static str, name: String },
     /// A `Script` implementation whose script cannot be located.
-    NoScript {
-        name: String,
-    },
+    #[error("script service {name} has no <code> element under its Script table")]
+    NoScript { name: String },
     /// Markup between a script's CDATA sections (a comment, say), which rewriting the script
     /// would drop.
-    MarkupInScript {
-        name: String,
-    },
+    #[error(
+        "{name}: its <code> holds markup between its CDATA sections, which a sync would drop; \
+                 take it out of the entity file, then sync"
+    )]
+    MarkupInScript { name: String },
     /// Several CDATA nodes in one `<code>`: writing one of them would truncate the script.
-    ManyPayloads {
-        name: String,
-        count: usize,
-    },
+    #[error(
+        "service {name} has {count} CDATA payloads in one <code>; writing one would truncate it"
+    )]
+    ManyPayloads { name: String, count: usize },
     /// A sync would add or remove a service without having been told it may.
+    #[error("this would add {added:?} and remove {removed:?}; say --allow-add-remove to mean it")]
     StructuralChange {
         added: Vec<String>,
         removed: Vec<String>,
     },
     /// A sidecar names a service the entity cannot take as a new script service.
-    CannotAdd {
-        name: String,
-        why: String,
-    },
+    #[error("cannot add service {name}: {why}")]
+    CannotAdd { name: String, why: String },
+    #[error("{0}")]
     Splice(super::splice::SpliceError),
 }
-
-impl fmt::Display for SidecarError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            SidecarError::Scan(e) => write!(f, "{e}"),
-            SidecarError::NotAnEntity => write!(f, "not a ThingWorx entity export"),
-            SidecarError::Unnamed { what, at } => {
-                write!(f, "{what} at byte {at} has no name attribute")
-            }
-            SidecarError::Duplicate { what, name } => write!(f, "two {what} blocks named {name}"),
-            SidecarError::NoScript { name } => {
-                write!(f, "script service {name} has no <code> element under its Script table")
-            }
-            SidecarError::MarkupInScript { name } => write!(
-                f,
-                "{name}: its <code> holds markup between its CDATA sections, which a sync would drop; \
-                 take it out of the entity file, then sync"
-            ),
-            SidecarError::ManyPayloads { name, count } => write!(
-                f,
-                "service {name} has {count} CDATA payloads in one <code>; writing one would truncate it"
-            ),
-            SidecarError::StructuralChange { added, removed } => write!(
-                f,
-                "this would add {added:?} and remove {removed:?}; say --allow-add-remove to mean it"
-            ),
-            SidecarError::CannotAdd { name, why } => {
-                write!(f, "cannot add service {name}: {why}")
-            }
-            SidecarError::Splice(e) => write!(f, "{e}"),
-        }
-    }
-}
-
-impl std::error::Error for SidecarError {}
 
 impl From<ScanError> for SidecarError {
     fn from(e: ScanError) -> Self {

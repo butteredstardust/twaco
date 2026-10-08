@@ -12,7 +12,6 @@ use super::index::{Confidence, Dependent, DependentOptions, Index, Unreadable};
 use super::workspace::WorkspaceError;
 use serde::Serialize;
 use std::collections::BTreeSet;
-use std::fmt;
 
 /// What the index cannot see, said wherever its answer is shown.
 pub const LIMITS: &str =
@@ -32,20 +31,11 @@ pub struct Request {
     pub depth: Option<usize>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, thiserror::Error)]
 pub enum ImpactError {
+    #[error("{0}")]
     Entity(WorkspaceError),
 }
-
-impl fmt::Display for ImpactError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            ImpactError::Entity(error) => write!(f, "{error}"),
-        }
-    }
-}
-
-impl std::error::Error for ImpactError {}
 
 impl From<WorkspaceError> for ImpactError {
     fn from(error: WorkspaceError) -> Self {
@@ -604,8 +594,11 @@ mod tests {
                 }
             }
         }
-        let root = std::env::temp_dir().join(format!("twaco-impact-dot-{}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&root);
+        let root_guard = tempfile::Builder::new()
+            .prefix("twaco-impact-dot-")
+            .tempdir()
+            .unwrap();
+        let root = root_guard.path().to_path_buf();
         let source =
             Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/corpus/acme-orders");
         copy(&source, &root);
@@ -623,7 +616,6 @@ mod tests {
             },
         )
         .unwrap();
-        let _ = std::fs::remove_dir_all(&root);
         let dot = render_dot(&report);
         assert!(dot.contains("label=\"partial: 1 input(s)"), "{dot}");
         assert!(dot.contains("// unreadable: "), "{dot}");

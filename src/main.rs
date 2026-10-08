@@ -82,7 +82,7 @@ fn update_notice(command: &str) {
         now,
         current,
     ) {
-        eprintln!("twaco: {line}");
+        eprintln!("{} {line}", cli::style::prefix());
     }
 }
 
@@ -106,7 +106,11 @@ fn run_command(args: &[String]) -> ExitCode {
                 let _ = error.print();
             } else {
                 let text = error.render().to_string();
-                eprint!("twaco: {}", text.strip_prefix("error: ").unwrap_or(&text));
+                eprint!(
+                    "{} {}",
+                    cli::style::prefix(),
+                    text.strip_prefix("error: ").unwrap_or(&text)
+                );
             }
             return ExitCode::from(u8::try_from(error.exit_code()).unwrap_or(FAILED));
         }
@@ -115,32 +119,49 @@ fn run_command(args: &[String]) -> ExitCode {
     let parsed = match cli::spec::args_of(command, matched) {
         Ok(parsed) => parsed,
         Err(why) => {
-            eprintln!("twaco: {why}");
+            eprintln!("{} {why}", cli::style::prefix());
             return ExitCode::from(FAILED);
         }
     };
     let route = command.path;
+    let (log, log_file) = cli::spec::log_options(matched);
+    if let Some(warning) = twaco::core::diagnostics::init(log.as_deref(), log_file.as_deref()) {
+        eprintln!("{} {warning}", cli::style::prefix());
+    }
+    let span = tracing::info_span!("command", command = route);
+    let _entered = span.enter();
+    let started = std::time::Instant::now();
+    let code = dispatch(route, &parsed);
+    tracing::info!(
+        exit = code,
+        elapsed_ms = u64::try_from(started.elapsed().as_millis()).unwrap_or(u64::MAX),
+        "command finished"
+    );
+    ExitCode::from(code)
+}
 
+/// Run one parsed command and return its exit code.
+fn dispatch(route: &str, parsed: &Args) -> u8 {
     match route {
         // The help center needs no solution, so it runs before discovery and uses one if found.
-        "help" => return ExitCode::from(help_cmd(&parsed)),
+        "help" => return help_cmd(parsed),
         // The public Java API documentation also needs no solution.
-        "javadoc" => return ExitCode::from(javadoc_cmd(&parsed)),
+        "javadoc" => return javadoc_cmd(parsed),
         // So does the guide: its built-in topics are the same everywhere.
-        "guide" => return ExitCode::from(guide_cmd(&parsed)),
+        "guide" => return guide_cmd(parsed),
         // update replaces the binary, not the solution, so it needs none.
-        "update" => return ExitCode::from(update_cmd(&parsed)),
+        "update" => return update_cmd(parsed),
         // init makes the config discovery would look for, so it runs before discovery too.
-        "init" => return ExitCode::from(init_cmd(&parsed)),
+        "init" => return init_cmd(parsed),
         // doctor diagnoses a missing solution rather than failing on it.
-        "doctor" => return ExitCode::from(doctor_cmd(&parsed)),
-        "mcp" => return ExitCode::from(mcp_cmd()),
+        "doctor" => return doctor_cmd(parsed),
+        "mcp" => return mcp_cmd(),
         _ => {}
     }
 
-    let code = run(|solution| {
+    run(|solution| {
         // Held until this closure returns, so for the whole command. See core::lock.
-        let _lock = if writes_workspace(route, &parsed) {
+        let _lock = if writes_workspace(route, parsed) {
             match take_lock(solution, route) {
                 Ok(lock) => Some(lock),
                 Err(code) => return code,
@@ -150,54 +171,53 @@ fn run_command(args: &[String]) -> ExitCode {
         };
         match route {
             "projects" => projects(solution),
-            "types" => types_cmd(solution, &parsed),
-            "extract" => extract(solution, &parsed),
-            "sync" => sync_cmd(solution, &parsed),
-            "fmt" => fmt(solution, &parsed),
-            "check" => check(solution, &parsed),
-            "bundle" => bundle(solution, &parsed),
-            "deploy" => deploy_cmd(solution, &parsed),
-            "call" => call(solution, &parsed),
-            "repo" => repo_cmd(solution, &parsed),
-            "ext" => ext_cmd(solution, &parsed),
-            "settings" => settings_cmd(solution, &parsed),
-            "catalog" => catalog_cmd(solution, &parsed),
-            "impact" => impact_cmd(solution, &parsed),
-            "unused" => unused_cmd(solution, &parsed),
-            "docs" => docs_cmd(solution, &parsed),
-            "package" => package_cmd(solution, &parsed),
-            "search" => search_cmd(solution, &parsed),
-            "export" => export_cmd(solution, &parsed),
-            "import" => import_cmd(solution, &parsed),
-            "logs" => logs_cmd(solution, &parsed),
-            "adopt" => adopt_cmd(solution, &parsed),
+            "types" => types_cmd(solution, parsed),
+            "extract" => extract(solution, parsed),
+            "sync" => sync_cmd(solution, parsed),
+            "fmt" => fmt(solution, parsed),
+            "check" => check(solution, parsed),
+            "bundle" => bundle(solution, parsed),
+            "deploy" => deploy_cmd(solution, parsed),
+            "call" => call(solution, parsed),
+            "repo" => repo_cmd(solution, parsed),
+            "ext" => ext_cmd(solution, parsed),
+            "settings" => settings_cmd(solution, parsed),
+            "catalog" => catalog_cmd(solution, parsed),
+            "impact" => impact_cmd(solution, parsed),
+            "unused" => unused_cmd(solution, parsed),
+            "docs" => docs_cmd(solution, parsed),
+            "package" => package_cmd(solution, parsed),
+            "search" => search_cmd(solution, parsed),
+            "export" => export_cmd(solution, parsed),
+            "import" => import_cmd(solution, parsed),
+            "logs" => logs_cmd(solution, parsed),
+            "adopt" => adopt_cmd(solution, parsed),
             "rename entity" | "rename prefix" | "rename field" | "rename service"
             | "rename param" | "rename table" | "rename property" => {
-                rename_cmd(solution, route, &parsed)
+                rename_cmd(solution, route, parsed)
             }
             "move service" | "move property" | "copy service" | "copy property" => {
-                relocate_cmd(solution, route, &parsed)
+                relocate_cmd(solution, route, parsed)
             }
-            "retemplate" => retemplate_cmd(solution, &parsed),
-            "new building-block" => new_building_block_cmd(solution, &parsed),
-            "config-table" => config_table(solution, &parsed),
-            "entity get" => entity_get(solution, &parsed),
-            "entity status" => entity_status(solution, &parsed),
-            "entity push" => entity_push(solution, &parsed),
-            "entity delete" => entity_delete_cmd(solution, &parsed),
-            "entity carry" => entity_carry_cmd(solution, &parsed),
-            "permissions diff" | "permissions push" => permissions_cmd(solution, route, &parsed),
-            "permissions audit" => permissions_audit_cmd(solution, &parsed),
-            "permissions apply" => permissions_apply_cmd(solution, &parsed),
-            "permissions init" => permissions_init_cmd(solution, &parsed),
-            "entity restore" => entity_restore_cmd(solution, &parsed),
-            "db run" | "db query" => db_cmd(solution, route, &parsed),
-            "db clean" => db_clean_cmd(solution, &parsed),
-            "datatable copy" => datatable_copy_cmd(solution, &parsed),
+            "retemplate" => retemplate_cmd(solution, parsed),
+            "new building-block" => new_building_block_cmd(solution, parsed),
+            "config-table" => config_table(solution, parsed),
+            "entity get" => entity_get(solution, parsed),
+            "entity status" => entity_status(solution, parsed),
+            "entity push" => entity_push(solution, parsed),
+            "entity delete" => entity_delete_cmd(solution, parsed),
+            "entity carry" => entity_carry_cmd(solution, parsed),
+            "permissions diff" | "permissions push" => permissions_cmd(solution, route, parsed),
+            "permissions audit" => permissions_audit_cmd(solution, parsed),
+            "permissions apply" => permissions_apply_cmd(solution, parsed),
+            "permissions init" => permissions_init_cmd(solution, parsed),
+            "entity restore" => entity_restore_cmd(solution, parsed),
+            "db run" | "db query" => db_cmd(solution, route, parsed),
+            "db clean" => db_clean_cmd(solution, parsed),
+            "datatable copy" => datatable_copy_cmd(solution, parsed),
             other => unreachable!("{other} is in COMMANDS but has no handler"),
         }
-    });
-    ExitCode::from(code)
+    })
 }
 
 /// `twaco init [--write|--agents]`: propose a twaco.toml from the repository's own entities.
@@ -211,19 +231,22 @@ fn init_cmd(parsed: &Args) -> u8 {
             return match Solution::discover(&here) {
                 Ok(solution) => write_agent_files(&solution),
                 Err(error) => {
-                    eprintln!("twaco: {error}");
+                    eprintln!("{} {error}", cli::style::prefix());
                     FAILED
                 }
             };
         }
         (true, true) => {
-            eprintln!("twaco: init takes --write or --agents, not both");
+            eprintln!(
+                "{} init takes --write or --agents, not both",
+                cli::style::prefix()
+            );
             return FAILED;
         }
     };
     let proposal = twaco::core::init::propose(&here);
     for note in &proposal.notes {
-        eprintln!("twaco: {note}");
+        eprintln!("{} {note}", cli::style::prefix());
     }
     if proposal.projects == 0 {
         return FAILED;
@@ -231,7 +254,7 @@ fn init_cmd(parsed: &Args) -> u8 {
     let target = here.join(twaco::core::config::CONFIG_FILE);
     if !write {
         print!("{}", proposal.toml);
-        eprintln!("twaco: nothing written; `twaco init --write` creates {}, and AGENTS.md and CLAUDE.md where absent", target.display());
+        eprintln!("{} nothing written; `twaco init --write` creates {}, and AGENTS.md and CLAUDE.md where absent", cli::style::prefix(), target.display());
         return OK;
     }
     // Created new, never renamed over: whatever is at the name, a file or a link, stays.
@@ -244,13 +267,14 @@ fn init_cmd(parsed: &Args) -> u8 {
         Ok(()) => {}
         Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => {
             eprintln!(
-                "twaco: {} exists and is never overwritten; remove it first to start again",
+                "{} {} exists and is never overwritten; remove it first to start again",
+                cli::style::prefix(),
                 target.display()
             );
             return FAILED;
         }
         Err(error) => {
-            eprintln!("twaco: {}: {error}", target.display());
+            eprintln!("{} {}: {error}", cli::style::prefix(), target.display());
             return FAILED;
         }
     }
@@ -265,7 +289,10 @@ fn init_cmd(parsed: &Args) -> u8 {
             write_agent_files(&solution)
         }
         Err(error) => {
-            eprintln!("twaco: the written config does not load: {error}");
+            eprintln!(
+                "{} the written config does not load: {error}",
+                cli::style::prefix()
+            );
             FAILED
         }
     }
@@ -305,10 +332,10 @@ fn mcp_cmd() -> u8 {
         .or_else(|| std::env::current_dir().ok())
         .unwrap_or_else(|| PathBuf::from("."));
     let stdin = std::io::stdin();
-    match twaco::mcp::serve(&root, stdin.lock(), std::io::stdout().lock()) {
+    match twaco::mcp::serve(&root, stdin.lock(), std::io::stdout()) {
         Ok(()) => OK,
         Err(error) => {
-            eprintln!("twaco: mcp: {error}");
+            eprintln!("{} mcp: {error}", cli::style::prefix());
             FAILED
         }
     }
@@ -378,17 +405,18 @@ fn take_lock(solution: &Solution, route: &str) -> Result<lock::WorkspaceLock, u8
         Ok(lock) => {
             for path in &lock.recovered {
                 eprintln!(
-                    "twaco: removed {}, left by an interrupted write",
+                    "{} removed {}, left by an interrupted write",
+                    cli::style::prefix(),
                     path.display()
                 );
             }
             for line in &lock.recovery {
-                eprintln!("twaco: {line}");
+                eprintln!("{} {line}", cli::style::prefix());
             }
             Ok(lock)
         }
         Err(error) => {
-            eprintln!("twaco: {error}");
+            eprintln!("{} {error}", cli::style::prefix());
             Err(FAILED)
         }
     }
@@ -397,7 +425,7 @@ fn take_lock(solution: &Solution, route: &str) -> Result<lock::WorkspaceLock, u8
 /// What an executor reported about taking the workspace lock, as the lines `take_lock` prints.
 fn print_notices(notices: &commands::Notices) {
     for line in notices.lines() {
-        eprintln!("twaco: {line}");
+        eprintln!("{} {line}", cli::style::prefix());
     }
 }
 
@@ -406,7 +434,7 @@ fn run(command: impl FnOnce(&Solution) -> u8) -> u8 {
     match Solution::discover(&here) {
         Ok(solution) => command(&solution),
         Err(e) => {
-            eprintln!("twaco: {e}");
+            eprintln!("{} {e}", cli::style::prefix());
             FAILED
         }
     }
@@ -416,7 +444,7 @@ fn projects(solution: &Solution) -> u8 {
     let order = match solution.deploy_order() {
         Ok(o) => o,
         Err(e) => {
-            eprintln!("twaco: {e}");
+            eprintln!("{} {e}", cli::style::prefix());
             return FAILED;
         }
     };

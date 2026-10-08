@@ -5,7 +5,6 @@ use crate::core::backup;
 use crate::core::codes::{Coded, ErrorCode};
 use crate::core::config::Solution;
 use crate::core::profile;
-use std::fmt;
 
 /// The arguments that affect an entity restore.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -52,22 +51,13 @@ pub trait Remote: backup::Remote {}
 impl<T: backup::Remote + ?Sized> Remote for T {}
 
 /// A failure before a typed restore outcome could be produced.
-#[derive(Debug)]
+#[derive(Debug, thiserror::Error)]
 pub enum RestoreCommandError {
+    #[error("{0}")]
     Profile(profile::ProfileError),
+    #[error("{0}")]
     Restore(backup::BackupError),
 }
-
-impl fmt::Display for RestoreCommandError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Self::Profile(error) => error.fmt(f),
-            Self::Restore(error) => error.fmt(f),
-        }
-    }
-}
-
-impl std::error::Error for RestoreCommandError {}
 
 impl Coded for RestoreCommandError {
     fn code(&self) -> ErrorCode {
@@ -172,12 +162,12 @@ mod tests {
         }
     }
 
-    fn setup() -> (PathBuf, Solution, backup::Set, Fake) {
-        let nonce = crate::test_nonce();
-        let root = std::env::temp_dir().join(format!(
-            "twaco-command-restore-{}-{nonce}",
-            std::process::id()
-        ));
+    fn setup() -> (tempfile::TempDir, PathBuf, Solution, backup::Set, Fake) {
+        let root_guard = tempfile::Builder::new()
+            .prefix("twaco-command-restore-")
+            .tempdir()
+            .unwrap();
+        let root = root_guard.path().to_path_buf();
         std::fs::create_dir_all(root.join(".twaco/profiles")).unwrap();
         std::fs::write(root.join("twaco.toml"), "[[project]]\nname = \"P\"\n").unwrap();
         std::fs::write(
@@ -196,12 +186,12 @@ mod tests {
         )
         .unwrap()
         .unwrap();
-        (root, solution, set, fake)
+        (root_guard, root, solution, set, fake)
     }
 
     #[test]
     fn plans_and_applies_restore_through_the_executor_without_a_workspace_lock() {
-        let (root, solution, set, fake) = setup();
+        let (_dir, _, solution, set, fake) = setup();
         let held = crate::core::lock::acquire_for(&solution, "holder").unwrap();
         let plan = RestoreRequest {
             set: Some(set.id.clone()),
@@ -238,6 +228,5 @@ mod tests {
         assert_eq!(outcome.effects(), Effects::new(Access::Read, Access::Write));
         assert_eq!(*fake.imports.borrow(), ["A.xml"]);
         drop(held);
-        std::fs::remove_dir_all(root).unwrap();
     }
 }

@@ -2,6 +2,7 @@ use super::super::baseline::Baseline;
 use super::super::entity_key::EntityKey;
 use super::super::normalise;
 use super::super::parallel;
+use super::super::progress::{Progress, NONE};
 use super::super::push;
 use super::{
     DeployError, Entity, EntityPlan, PlanOptions, ProjectBundle, Remote, Script, ServiceCall,
@@ -14,11 +15,22 @@ pub fn decide_all(
     baseline: &Baseline,
     projects: &[ProjectBundle],
 ) -> Result<Vec<EntityPlan>, DeployError> {
+    decide_all_with_progress(remote, baseline, projects, &NONE)
+}
+
+/// Like [`decide_all`], and report one step per entity. The caller starts the phase.
+pub fn decide_all_with_progress(
+    remote: &dyn Remote,
+    baseline: &Baseline,
+    projects: &[ProjectBundle],
+    progress: &dyn Progress,
+) -> Result<Vec<EntityPlan>, DeployError> {
     let entities: Vec<(&ProjectBundle, &Entity)> = projects
         .iter()
         .flat_map(|project| project.entities.iter().map(move |entity| (project, entity)))
         .collect();
-    let plans = parallel::map(&entities, |(project, entity)| {
+    let plans = parallel::map_progress(&entities, progress, |(project, entity)| {
+        progress.message(&entity.name);
         let working = normalise::hash(&entity.bytes).map_err(|error| DeployError::Working {
             collection: entity.collection.clone(),
             name: entity.name.clone(),

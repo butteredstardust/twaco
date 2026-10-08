@@ -2,11 +2,11 @@ use super::field::field_spec;
 use super::*;
 
 fn db_fixture(tag: &str) -> Fixture {
-    let nonce = crate::test_nonce();
-    let root = std::env::temp_dir().join(format!(
-        "twaco-rename-db-{tag}-{}-{nonce}",
-        std::process::id()
-    ));
+    let root_guard = tempfile::Builder::new()
+        .prefix(&format!("twaco-rename-db-{tag}-"))
+        .tempdir()
+        .unwrap();
+    let root = root_guard.path().to_path_buf();
     std::fs::create_dir_all(&root).unwrap();
     write(
         &root,
@@ -43,7 +43,11 @@ fn db_fixture(tag: &str) -> Fixture {
 "#;
     write(&root, "ThingTemplates/P.Manager_TT.xml", &format!("<Entities><ThingTemplates><ThingTemplate name=\"P.Manager_TT\" projectName=\"P\" baseThingTemplate=\"GenericThing\"><ThingShape><ServiceImplementations><ServiceImplementation name=\"GetDBInfo\" handlerName=\"Script\"><ConfigurationTables><ConfigurationTable name=\"Script\"><Rows><Row><code><![CDATA[{script}]]></code></Row></Rows></ConfigurationTable></ConfigurationTables></ServiceImplementation></ServiceImplementations></ThingShape></ThingTemplate></ThingTemplates></Entities>\n"));
     let solution = Solution::load(&root.join(CONFIG_FILE)).unwrap();
-    Fixture { root, solution }
+    Fixture {
+        _dir: root_guard,
+        root,
+        solution,
+    }
 }
 
 fn db_options(root: &Path, sql: SqlChoice) -> RunOptions {

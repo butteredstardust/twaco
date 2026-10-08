@@ -3,8 +3,8 @@
 use super::{Access, Effects, Mode, Notices};
 use crate::core::codes::{Coded, ErrorCode};
 use crate::core::config::Solution;
+use crate::core::progress::{self, Progress};
 use crate::core::{export, profile, workspace};
-use std::fmt;
 use std::path::PathBuf;
 
 /// An export destination and its requested selection.
@@ -56,30 +56,19 @@ impl ExportOutcome {
 }
 
 /// A failure before a typed export outcome could be produced.
-#[derive(Debug)]
+#[derive(Debug, thiserror::Error)]
 pub enum ExportCommandError {
+    #[error("{0}")]
     Profile(profile::ProfileError),
+    #[error("{} exists; pass --force to replace it", .0.display())]
     Exists(PathBuf),
+    #[error("{0}")]
     Export(export::ExportError),
+    #[error("{}: {why}", .path.display())]
     Create { path: PathBuf, why: std::io::Error },
+    #[error("{0}")]
     Write(workspace::WorkspaceError),
 }
-
-impl fmt::Display for ExportCommandError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Self::Profile(why) => why.fmt(f),
-            Self::Exists(path) => {
-                write!(f, "{} exists; pass --force to replace it", path.display())
-            }
-            Self::Export(why) => why.fmt(f),
-            Self::Create { path, why } => write!(f, "{}: {why}", path.display()),
-            Self::Write(why) => why.fmt(f),
-        }
-    }
-}
-
-impl std::error::Error for ExportCommandError {}
 
 impl Coded for ExportCommandError {
     fn code(&self) -> ErrorCode {
@@ -99,6 +88,7 @@ pub fn execute<R, F>(
     request: &ExportRequest,
     open: F,
     _: &mut Notices,
+    progress: &dyn Progress,
 ) -> Result<ExportOutcome, ExportCommandError>
 where
     R: export::Remote,
@@ -112,7 +102,12 @@ where
             if out.exists() && !force {
                 return Err(ExportCommandError::Exists(out.clone()));
             }
-            let exported = export::export(&remote, what).map_err(ExportCommandError::Export)?;
+            let exported = {
+                let _phase = progress::phase(progress, "exporting", Some(1));
+                let exported = export::export(&remote, what).map_err(ExportCommandError::Export)?;
+                progress.advance(1);
+                exported
+            };
             if let Some(folder) = out.parent().filter(|path| !path.as_os_str().is_empty()) {
                 std::fs::create_dir_all(folder).map_err(|why| ExportCommandError::Create {
                     path: folder.to_path_buf(),
@@ -133,15 +128,20 @@ where
             zip,
             mode,
         } => {
-            let (plan, download) = export::source_control(
-                &remote,
-                repository,
-                path,
-                filters,
-                zip.as_deref(),
-                matches!(mode, Mode::Apply),
-            )
-            .map_err(ExportCommandError::Export)?;
+            let (plan, download) = {
+                let _phase = progress::phase(progress, "exporting source control", Some(1));
+                let done = export::source_control(
+                    &remote,
+                    repository,
+                    path,
+                    filters,
+                    zip.as_deref(),
+                    matches!(mode, Mode::Apply),
+                )
+                .map_err(ExportCommandError::Export)?;
+                progress.advance(1);
+                done
+            };
             let server = if matches!(mode, Mode::Apply) {
                 Access::Write
             } else {
@@ -187,12 +187,12 @@ mod tests {
         }
     }
 
-    fn setup() -> (std::path::PathBuf, Solution) {
-        let nonce = crate::test_nonce();
-        let root = std::env::temp_dir().join(format!(
-            "twaco-command-export-{}-{nonce}",
-            std::process::id()
-        ));
+    fn setup() -> (tempfile::TempDir, std::path::PathBuf, Solution) {
+        let root_guard = tempfile::Builder::new()
+            .prefix("twaco-command-export-")
+            .tempdir()
+            .unwrap();
+        let root = root_guard.path().to_path_buf();
         std::fs::create_dir_all(root.join(".twaco/profiles")).unwrap();
         std::fs::write(root.join("twaco.toml"), "[[project]]\nname = \"P\"\n").unwrap();
         std::fs::write(
@@ -201,12 +201,12 @@ mod tests {
         )
         .unwrap();
         let solution = Solution::load(&root.join("twaco.toml")).unwrap();
-        (root, solution)
+        (root_guard, root, solution)
     }
 
     #[test]
     fn source_control_plans_without_writing_and_applies_through_the_same_executor() {
-        let (root, solution) = setup();
+        let (_dir, _, solution) = setup();
         let request = |mode| ExportRequest {
             action: ExportAction::SourceControl {
                 repository: "R".to_string(),
@@ -232,6 +232,7 @@ mod tests {
                 move |_| remote
             },
             &mut Notices::default(),
+            &crate::core::progress::NONE,
         )
         .unwrap();
         assert_eq!(plan.effects(), Effects::new(Access::None, Access::Read));
@@ -249,6 +250,7 @@ mod tests {
                 move |_| remote
             },
             &mut Notices::default(),
+            &crate::core::progress::NONE,
         )
         .unwrap();
         assert_eq!(apply.effects(), Effects::new(Access::None, Access::Write));
@@ -256,12 +258,11 @@ mod tests {
             *fake.calls.lock().unwrap(),
             ["ExportSourceControlledEntities"]
         );
-        std::fs::remove_dir_all(root).unwrap();
     }
 
     #[test]
     fn xml_force_and_refusal_keep_their_effects_and_code() {
-        let (root, solution) = setup();
+        let (_dir, root, solution) = setup();
         let out = root.join("out.xml");
         std::fs::write(&out, b"old").unwrap();
         let request = |force| ExportRequest {
@@ -281,6 +282,7 @@ mod tests {
                 calls: Arc::new(Mutex::new(Vec::new())),
             },
             &mut Notices::default(),
+            &crate::core::progress::NONE,
         )
         .unwrap_err();
         assert_eq!(refusal.code(), ErrorCode::AlreadyExists);
@@ -291,9 +293,9 @@ mod tests {
                 calls: Arc::new(Mutex::new(Vec::new())),
             },
             &mut Notices::default(),
+            &crate::core::progress::NONE,
         )
         .unwrap();
         assert_eq!(outcome.effects(), Effects::new(Access::Write, Access::Read));
-        std::fs::remove_dir_all(root).unwrap();
     }
 }

@@ -113,35 +113,16 @@ impl Report {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, thiserror::Error)]
 pub enum AdoptError {
-    Export {
-        path: PathBuf,
-        why: String,
-    },
-    Repository {
-        path: PathBuf,
-        why: String,
-    },
+    #[error("cannot read export {}: {why}", .path.display())]
+    Export { path: PathBuf, why: String },
+    #[error("cannot read {}: {why}", .path.display())]
+    Repository { path: PathBuf, why: String },
     /// The writes, made as one transaction, did not happen.
+    #[error("nothing was adopted: {0}")]
     Write(super::transaction::TransactionError),
 }
-
-impl fmt::Display for AdoptError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            AdoptError::Export { path, why } => {
-                write!(f, "cannot read export {}: {why}", path.display())
-            }
-            AdoptError::Repository { path, why } => {
-                write!(f, "cannot read {}: {why}", path.display())
-            }
-            AdoptError::Write(error) => write!(f, "nothing was adopted: {error}"),
-        }
-    }
-}
-
-impl std::error::Error for AdoptError {}
 
 /// Compare an export with the solution. `only` narrows the entity comparison, not the service
 /// check, to names containing any of its fragments, preserving the established filter semantics.
@@ -828,9 +809,11 @@ pub fn apply(
         lines.push(line);
     }
     let wrote = !transaction.is_empty();
+    tracing::info!(writes = transaction.len(), "adopt: writing");
     if wrote {
         transaction.apply(lock).map_err(AdoptError::Write)?;
     }
+    tracing::info!(wrote, "adopt: done");
     Ok(ApplyOutcome {
         lines,
         types: super::types::refresh_after_write(solution, wrote),
@@ -1174,17 +1157,12 @@ mod tests {
 
     /// A one-project solution with one mashup to take the shape from, and an export of `mashups`
     /// (name, mashupContent) next to it.
-    fn adopt_case(mashups: &[(&str, &str)]) -> (PathBuf, Solution, PathBuf) {
-        static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
-        let nonce = format!(
-            "{}-{}",
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .unwrap()
-                .as_nanos(),
-            NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
-        );
-        let root = std::env::temp_dir().join(format!("twaco-adopt-{}-{nonce}", std::process::id()));
+    fn adopt_case(mashups: &[(&str, &str)]) -> (tempfile::TempDir, PathBuf, Solution, PathBuf) {
+        let root_guard = tempfile::Builder::new()
+            .prefix("twaco-adopt-")
+            .tempdir()
+            .unwrap();
+        let root = root_guard.path().to_path_buf();
         std::fs::create_dir_all(root.join("Mashups")).unwrap();
         std::fs::write(root.join("twaco.toml"), "[[project]]\nname = \"P\"\n").unwrap();
         std::fs::write(
@@ -1207,7 +1185,7 @@ mod tests {
         let export_path = root.join("export.xml");
         std::fs::write(&export_path, export).unwrap();
         let solution = Solution::load(&root.join("twaco.toml")).unwrap();
-        (root, solution, export_path)
+        (root_guard, root, solution, export_path)
     }
 
     fn files_under(root: &Path) -> Vec<PathBuf> {
@@ -1228,7 +1206,7 @@ mod tests {
 
     #[test]
     fn a_write_that_cannot_happen_leaves_none_of_the_others_behind() {
-        let (root, solution, export) = adopt_case(&[("P.B", "{\"UI\":{\"x\":1}}")]);
+        let (_dir, root, solution, export) = adopt_case(&[("P.B", "{\"UI\":{\"x\":1}}")]);
         // A file where the new mashup's sidecar folder must go: its entity file is written
         // first, and used to stay when the sidecars then failed.
         std::fs::create_dir_all(root.join("src")).unwrap();
@@ -1261,12 +1239,11 @@ mod tests {
         }
         assert_eq!(outside_twaco(&root), before, "every change was undone");
         assert!(!root.join("Mashups/P.B.xml").exists());
-        let _ = std::fs::remove_dir_all(root);
     }
 
     #[test]
     fn a_new_mashup_is_created_under_its_own_name_escaped_and_only_there() {
-        let (root, solution, export) = adopt_case(&[("P.B&C", "{\"UI\":{\"x\":1}}")]);
+        let (_dir, root, solution, export) = adopt_case(&[("P.B&C", "{\"UI\":{\"x\":1}}")]);
         std::fs::create_dir_all(root.join(".twaco/types")).unwrap();
         let report = compare(&solution, &export, &[]).unwrap();
         let outcome = apply(&solution, &export, &report, &locked(&solution)).unwrap();
@@ -1280,7 +1257,6 @@ mod tests {
         let text = std::fs::read_to_string(root.join("Mashups/P.B&C.xml")).unwrap();
         assert!(text.contains("\n         name=\"P.B&amp;C\"\n"), "{text}");
         assert!(root.join("src/P.B&C/mashup/content.json").is_file());
-        let _ = std::fs::remove_dir_all(root);
     }
 
     #[test]
@@ -1290,7 +1266,7 @@ mod tests {
             ("../escape", "{\"UI\":{}}"),
             ("CON", "{\"UI\":{}}"),
         ] {
-            let (root, solution, export) = adopt_case(&[("P.B", "{\"UI\":{\"x\":1}}"), bad]);
+            let (_dir, root, solution, export) = adopt_case(&[("P.B", "{\"UI\":{\"x\":1}}"), bad]);
             let lock = locked(&solution);
             let before = files_under(&root);
             let report = compare(&solution, &export, &[]).unwrap();
@@ -1300,13 +1276,12 @@ mod tests {
             );
             assert_eq!(files_under(&root), before, "{bad:?} wrote something");
             assert!(!root.parent().unwrap().join("escape").exists());
-            let _ = std::fs::remove_dir_all(root);
         }
     }
 
     #[test]
     fn a_new_mashup_without_content_is_skipped_not_given_another_ones() {
-        let (root, solution, export) = adopt_case(&[("P.D", "  ")]);
+        let (_dir, root, solution, export) = adopt_case(&[("P.D", "  ")]);
         let report = compare(&solution, &export, &[]).unwrap();
         let lines: Vec<String> = apply(&solution, &export, &report, &locked(&solution))
             .unwrap()
@@ -1320,12 +1295,12 @@ mod tests {
             "{lines:?}"
         );
         assert!(!root.join("Mashups/P.D.xml").exists());
-        let _ = std::fs::remove_dir_all(root);
     }
 
     #[test]
     fn lines_come_in_the_reports_order() {
-        let (root, solution, export) = adopt_case(&[("P.B", "{\"UI\":{\"x\":1}}"), ("P.C", " ")]);
+        let (_dir, _, solution, export) =
+            adopt_case(&[("P.B", "{\"UI\":{\"x\":1}}"), ("P.C", " ")]);
         let report = compare(&solution, &export, &[]).unwrap();
         let lines: Vec<String> = apply(&solution, &export, &report, &locked(&solution))
             .unwrap()
@@ -1338,7 +1313,6 @@ mod tests {
             .map(|l| l.split_whitespace().next().unwrap())
             .collect();
         assert_eq!(kinds, ["created", "sidecar", "skipped"], "{lines:?}");
-        let _ = std::fs::remove_dir_all(root);
     }
 
     #[test]
@@ -1357,14 +1331,11 @@ mod tests {
 
     #[test]
     fn media_content_is_rewrapped_and_an_unchanged_file_is_not_written() {
-        let dir = std::env::temp_dir().join(format!(
-            "twaco-media-{}-{}",
-            std::process::id(),
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .unwrap()
-                .as_nanos()
-        ));
+        let dir_guard = tempfile::Builder::new()
+            .prefix("twaco-media-")
+            .tempdir()
+            .unwrap();
+        let dir = dir_guard.path().to_path_buf();
         std::fs::create_dir_all(&dir).unwrap();
         let path = dir.join("M.xml");
         std::fs::write(&path, "<a>\n        <content>\n            <![CDATA[\n            old\n            ]]>\n        </content>\n</a>").unwrap();
@@ -1385,7 +1356,6 @@ mod tests {
             None,
             "the same content is not rewritten"
         );
-        let _ = std::fs::remove_dir_all(dir);
     }
 
     #[test]

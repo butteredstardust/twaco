@@ -1,5 +1,6 @@
 use super::super::*;
 use super::source::print_types_refresh;
+use super::style;
 
 /// Compare a designer's export with the solution: what it would revert, and what it would change.
 ///
@@ -7,7 +8,10 @@ use super::source::print_types_refresh;
 /// `--json` gives the same summary as JSON.
 pub(crate) fn adopt_cmd(solution: &Solution, args: &Args) -> u8 {
     if args.names.len() != 1 {
-        eprintln!("twaco: adopt needs the path of one <Entities> export");
+        eprintln!(
+            "{} adopt needs the path of one <Entities> export",
+            style::prefix()
+        );
         return FAILED;
     }
     let request = commands::adopt::AdoptRequest {
@@ -25,7 +29,7 @@ pub(crate) fn adopt_cmd(solution: &Solution, args: &Args) -> u8 {
         Ok(outcome) => outcome,
         Err(error) => {
             print_notices(&notices);
-            eprintln!("twaco: {error}");
+            eprintln!("{} {error}", style::prefix());
             return FAILED;
         }
     };
@@ -88,7 +92,7 @@ pub(crate) fn rename_cmd(solution: &Solution, route: &str, args: &Args) -> u8 {
     let mut request = match rename::Request::from_names(kind, &args.names) {
         Ok(request) => request,
         Err(error) => {
-            eprintln!("twaco: {error}");
+            eprintln!("{} {error}", style::prefix());
             return FAILED;
         }
     };
@@ -115,7 +119,7 @@ pub(crate) fn rename_cmd(solution: &Solution, route: &str, args: &Args) -> u8 {
         Ok(outcome) => outcome,
         Err(error) => {
             print_notices(&notices);
-            eprintln!("twaco: {error}");
+            eprintln!("{} {error}", style::prefix());
             return FAILED;
         }
     };
@@ -130,7 +134,7 @@ pub(crate) fn rename_cmd(solution: &Solution, route: &str, args: &Args) -> u8 {
         !verification.sync_problems.is_empty() || !verification.blocking_gates.is_empty()
     });
     if verification_failed {
-        eprintln!("twaco: the rename is applied, but verification found problems; fix the sync entities and blocking gates listed above");
+        eprintln!("{} the rename is applied, but verification found problems; fix the sync entities and blocking gates listed above", style::prefix());
         FAILED
     } else {
         OK
@@ -402,7 +406,10 @@ fn print_adopt_report(solution: &Solution, report: &adopt::Report, detail: bool)
 /// Create a building block as files and register its project. Plans unless --apply.
 pub(crate) fn new_building_block_cmd(solution: &Solution, args: &Args) -> u8 {
     let [name] = args.names.as_slice() else {
-        eprintln!("twaco: new building-block needs one <name>, such as Acme.Orders");
+        eprintln!(
+            "{} new building-block needs one <name>, such as Acme.Orders",
+            style::prefix()
+        );
         return FAILED;
     };
     let kind = match args.values.get("--type") {
@@ -410,7 +417,7 @@ pub(crate) fn new_building_block_cmd(solution: &Solution, args: &Args) -> u8 {
         Some(word) => match newblock::BlockType::from_word(word) {
             Some(kind) => kind,
             None => {
-                eprintln!("twaco: --type is standard, abstract or implementation, not {word:?} (ui and test blocks are not created here yet)");
+                eprintln!("{} --type is standard, abstract or implementation, not {word:?} (ui and test blocks are not created here yet)", style::prefix());
                 return FAILED;
             }
         },
@@ -443,7 +450,7 @@ pub(crate) fn new_building_block_cmd(solution: &Solution, args: &Args) -> u8 {
         Ok(outcome) => outcome,
         Err(error) => {
             print_notices(&notices);
-            eprintln!("twaco: {error}");
+            eprintln!("{} {error}", style::prefix());
             return FAILED;
         }
     };
@@ -503,7 +510,7 @@ pub(crate) fn new_building_block_cmd(solution: &Solution, args: &Args) -> u8 {
 /// still referenced is refused unless --accept-loss.
 pub(crate) fn retemplate_cmd(solution: &Solution, args: &Args) -> u8 {
     let [entity] = args.names.as_slice() else {
-        eprintln!("twaco: retemplate needs one <entity>");
+        eprintln!("{} retemplate needs one <entity>", style::prefix());
         return FAILED;
     };
     let list = |flag: &str| -> Vec<String> {
@@ -536,7 +543,7 @@ pub(crate) fn retemplate_cmd(solution: &Solution, args: &Args) -> u8 {
         Ok(outcome) => outcome,
         Err(error) => {
             print_notices(&notices);
-            eprintln!("twaco: {error}");
+            eprintln!("{} {error}", style::prefix());
             return FAILED;
         }
     };
@@ -654,7 +661,7 @@ pub(crate) fn relocate_cmd(solution: &Solution, route: &str, args: &Args) -> u8 
         .expect("the route has a verb and a member");
     let member = relocate::Member::from_word(word).expect("the route names a member");
     let [from, to, name] = args.names.as_slice() else {
-        eprintln!("twaco: {route} needs <from> <to> <name>");
+        eprintln!("{} {route} needs <from> <to> <name>", style::prefix());
         return FAILED;
     };
     let request = relocate::Request {
@@ -677,7 +684,7 @@ pub(crate) fn relocate_cmd(solution: &Solution, route: &str, args: &Args) -> u8 
         Ok(outcome) => outcome,
         Err(error) => {
             print_notices(&notices);
-            eprintln!("twaco: {error}");
+            eprintln!("{} {error}", style::prefix());
             return FAILED;
         }
     };

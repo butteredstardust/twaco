@@ -5,6 +5,9 @@ How twaco is built, for anyone changing it. It is one Rust crate: a library (`sr
 (`src/mcp/`). Every behaviour lives in `core`, so the two front ends stay thin and are meant to agree
 wherever they share a feature.
 
+Colour belongs to the command line only. All styling lives in `src/cli/style.rs`. Core and MCP code
+never style text.
+
 ## Principles
 
 These decide most design questions. A change that breaks one needs a very good reason.
@@ -56,7 +59,9 @@ main.rs  mcp/                   front ends: parse arguments, call core, print or
 | `codes` | Stable error categories shared by front-end adapters. |
 | `server` | The HTTP client (ureq): REST entity reads, services, Importer, Exporter, file repositories, extension uploads. Credentials are redacted from every `Debug` and error. |
 | `lock` | One writer per workspace, with stale-lock detection; sweeps every hidden temporary a crashed write left. |
-| `parallel` | Bounded parallel map, for server calls. |
+| `parallel` | Bounded parallel map, for server calls. Workers enter the caller's tracing span. |
+| `progress` | The `Progress` trait for long operations: `start`, `advance`, `message`, `finish`, and a no-op default. `parallel::map_progress` reports from its workers. The CLI draws bars on stderr, and MCP sends `notifications/progress`. A message holds entity and phase names only. |
+| `diagnostics` | Installs the `tracing` subscriber when `--log`, `--log-file`, `TWACO_LOG` or `TWACO_LOG_FILE` asks. Writes to stderr or a file, never stdout. Log fields hold no credential: scrub a server URL with the client's secrets first. |
 
 ### Features
 

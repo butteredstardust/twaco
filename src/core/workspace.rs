@@ -544,8 +544,11 @@ mod tests {
 
     #[test]
     fn atomic_replace_creates_replaces_keeps_no_temporary_and_cleans_up_a_failed_rename() {
-        let nonce = crate::test_nonce();
-        let dir = std::env::temp_dir().join(format!("twaco-atomic-{}-{nonce}", std::process::id()));
+        let dir_guard = tempfile::Builder::new()
+            .prefix("twaco-atomic-")
+            .tempdir()
+            .unwrap();
+        let dir = dir_guard.path().to_path_buf();
         std::fs::create_dir_all(&dir).unwrap();
         let target = dir.join("a.txt");
         atomic_replace(&target, b"one").unwrap();
@@ -568,7 +571,6 @@ mod tests {
                 0o750
             );
         }
-        let _ = std::fs::remove_dir_all(dir);
     }
 
     fn file(name: &str, project: &str, path: &str) -> EntityFile {

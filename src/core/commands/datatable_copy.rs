@@ -5,7 +5,6 @@ use crate::core::codes::{Coded, ErrorCode};
 use crate::core::config::Solution;
 use crate::core::{datatable_copy, profile};
 use std::collections::BTreeMap;
-use std::fmt;
 
 /// The arguments that affect a DataTable copy.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -48,22 +47,13 @@ pub trait Remote: datatable_copy::Remote {}
 impl<T: datatable_copy::Remote + ?Sized> Remote for T {}
 
 /// A failure before a typed DataTable copy outcome could be produced.
-#[derive(Debug)]
+#[derive(Debug, thiserror::Error)]
 pub enum DataTableCopyCommandError {
+    #[error("{0}")]
     Profile(profile::ProfileError),
+    #[error("{0}")]
     Copy(datatable_copy::CopyError),
 }
-
-impl fmt::Display for DataTableCopyCommandError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Self::Profile(error) => error.fmt(f),
-            Self::Copy(error) => error.fmt(f),
-        }
-    }
-}
-
-impl std::error::Error for DataTableCopyCommandError {}
 
 impl Coded for DataTableCopyCommandError {
     fn code(&self) -> ErrorCode {

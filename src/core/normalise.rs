@@ -44,7 +44,6 @@
 
 use super::scan::{self, Kind, ScanError, Token};
 use sha2::{Digest, Sha256};
-use std::fmt;
 
 /// The normalisation version every hash carries; a baseline from another one says nothing.
 pub(crate) const HASH_VERSION: &str = "v5";
@@ -79,33 +78,17 @@ const PERMISSION_BLOCKS: [&[u8]; 6] = [
     b"InstanceVisibilityPermissions",
 ];
 
-#[derive(Debug)]
+#[derive(Debug, thiserror::Error)]
 pub enum NormaliseError {
+    #[error("{0}")]
     Xml(ScanError),
+    #[error("{0} encoding is not supported; entity XML must be UTF-8")]
     DeclaredEncoding(String),
+    #[error("malformed entity XML: {0}")]
     Malformed(String),
+    #[error("unsupported XML entity reference &{0};")]
     EntityReference(String),
 }
-
-impl fmt::Display for NormaliseError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            NormaliseError::Xml(error) => write!(f, "{error}"),
-            NormaliseError::DeclaredEncoding(name) => {
-                write!(
-                    f,
-                    "{name} encoding is not supported; entity XML must be UTF-8"
-                )
-            }
-            NormaliseError::Malformed(why) => write!(f, "malformed entity XML: {why}"),
-            NormaliseError::EntityReference(reference) => {
-                write!(f, "unsupported XML entity reference &{reference};")
-            }
-        }
-    }
-}
-
-impl std::error::Error for NormaliseError {}
 
 impl From<ScanError> for NormaliseError {
     fn from(value: ScanError) -> Self {

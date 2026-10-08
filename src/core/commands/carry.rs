@@ -4,7 +4,6 @@ use super::{lock_workspace, Access, Effects, Mode, Notices};
 use crate::core::codes::{Coded, ErrorCode};
 use crate::core::config::Solution;
 use crate::core::{entity_carry, lock, profile};
-use std::fmt;
 
 /// The arguments that affect an entity carry.
 #[derive(Clone, Debug)]
@@ -46,24 +45,15 @@ pub trait Remote: entity_carry::Remote {}
 impl<T: entity_carry::Remote + ?Sized> Remote for T {}
 
 /// A failure before a typed carry outcome could be produced.
-#[derive(Debug)]
+#[derive(Debug, thiserror::Error)]
 pub enum CarryCommandError {
+    #[error("{0}")]
     Lock(lock::LockError),
+    #[error("{0}")]
     Profile(profile::ProfileError),
+    #[error("{0}")]
     Carry(entity_carry::CarryError),
 }
-
-impl fmt::Display for CarryCommandError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Self::Lock(error) => error.fmt(f),
-            Self::Profile(error) => error.fmt(f),
-            Self::Carry(error) => error.fmt(f),
-        }
-    }
-}
-
-impl std::error::Error for CarryCommandError {}
 
 impl Coded for CarryCommandError {
     fn code(&self) -> ErrorCode {
@@ -160,16 +150,12 @@ mod tests {
         }
     }
 
-    fn root() -> PathBuf {
-        let nonce = crate::test_nonce();
-        std::env::temp_dir().join(format!(
-            "twaco-command-carry-{}-{nonce}",
-            std::process::id()
-        ))
-    }
-
-    fn setup(profile: bool) -> (PathBuf, Solution) {
-        let root = root();
+    fn setup(profile: bool) -> (tempfile::TempDir, PathBuf, Solution) {
+        let root_guard = tempfile::Builder::new()
+            .prefix("twaco-command-carry-")
+            .tempdir()
+            .unwrap();
+        let root = root_guard.path().to_path_buf();
         std::fs::create_dir_all(root.join(".twaco/profiles")).unwrap();
         std::fs::write(
             root.join("twaco.toml"),
@@ -184,7 +170,7 @@ mod tests {
             .unwrap();
         }
         let solution = Solution::load(&root.join("twaco.toml")).unwrap();
-        (root, solution)
+        (root_guard, root, solution)
     }
 
     fn request(mode: Mode, renamed: bool) -> CarryRequest {
@@ -204,7 +190,7 @@ mod tests {
 
     #[test]
     fn plans_do_not_lock_and_an_apply_locks_before_loading_its_profile() {
-        let (root, solution) = setup(true);
+        let (_dir, _, solution) = setup(true);
         let held = lock::acquire_for(&solution, "holder").unwrap();
         let outcome = execute(
             &solution,
@@ -215,9 +201,8 @@ mod tests {
         .unwrap();
         assert_eq!(outcome.effects(), Effects::new(Access::Read, Access::Read));
         drop(held);
-        std::fs::remove_dir_all(root).unwrap();
 
-        let (root, solution) = setup(false);
+        let (_dir, _, solution) = setup(false);
         let held = lock::acquire_for(&solution, "holder").unwrap();
         let error = execute(
             &solution,
@@ -228,12 +213,11 @@ mod tests {
         .unwrap_err();
         assert!(matches!(error, CarryCommandError::Lock(_)), "{error}");
         drop(held);
-        std::fs::remove_dir_all(root).unwrap();
     }
 
     #[test]
     fn applies_report_lock_recovery_notices_and_keep_error_codes() {
-        let (root, solution) = setup(true);
+        let (_dir, root, solution) = setup(true);
         std::fs::write(root.join(".twaco/.baseline.json.1.twaco-tmp"), b"half").unwrap();
         let mut notices = Notices::default();
         let outcome = execute(
@@ -250,6 +234,5 @@ mod tests {
             why: "bad arguments".to_string(),
         });
         assert_eq!(error.code(), ErrorCode::InvalidArguments);
-        std::fs::remove_dir_all(root).unwrap();
     }
 }

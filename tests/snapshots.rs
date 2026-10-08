@@ -228,17 +228,14 @@ fn copy_tree(from: &Path, to: &Path) {
     }
 }
 
-fn fresh_copy(name: &str) -> PathBuf {
-    let nonce = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap()
-        .as_nanos();
-    let root = std::env::temp_dir().join(format!(
-        "twaco-snapshot-{name}-{}-{nonce}",
-        std::process::id()
-    ));
+fn fresh_copy(name: &str) -> (tempfile::TempDir, PathBuf) {
+    let root_guard = tempfile::Builder::new()
+        .prefix(&format!("twaco-snapshot-{name}-"))
+        .tempdir()
+        .unwrap();
+    let root = root_guard.path().to_path_buf();
     copy_tree(&bundled_repository(), &root);
-    root
+    (root_guard, root)
 }
 
 /// The text with the temporary directory written `<ROOT>` and path separators made `/`, in the
@@ -335,7 +332,7 @@ fn mask_digests(text: &str) -> String {
 }
 
 fn run(name: &str, args: &[&str]) -> String {
-    let root = fresh_copy(name);
+    let (_dir, root) = fresh_copy(name);
     let output = Command::new(env!("CARGO_BIN_EXE_twaco"))
         .args(args)
         .current_dir(&root)
@@ -352,7 +349,6 @@ fn run(name: &str, args: &[&str]) -> String {
         normalise(&String::from_utf8_lossy(&output.stdout), &root),
         normalise(&String::from_utf8_lossy(&output.stderr), &root),
     );
-    let _ = std::fs::remove_dir_all(root);
     text
 }
 

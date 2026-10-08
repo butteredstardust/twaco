@@ -10,6 +10,7 @@ use super::{differences, Change, Grants, KindKey, PermissionsError};
 use crate::core::adopt::glob_matches;
 use crate::core::config::Solution;
 use crate::core::entity_carry::Kind;
+use crate::core::progress::{self, Progress};
 use crate::core::workspace;
 use serde::Serialize;
 use std::collections::{BTreeMap, BTreeSet};
@@ -247,35 +248,64 @@ pub fn audit_with(
     project: Option<&str>,
     server: Option<&dyn super::server_audit::Remote>,
 ) -> Result<AuditReport, AuditError> {
+    audit_with_progress(solution, project, server, &progress::NONE)
+}
+
+/// Like [`audit_with`], and report one step per entity audited. With a server, one more phase
+/// per project reports one step per entity read from the server. Messages hold entity names only.
+pub fn audit_with_progress(
+    solution: &Solution,
+    project: Option<&str>,
+    server: Option<&dyn super::server_audit::Remote>,
+    progress: &dyn Progress,
+) -> Result<AuditReport, AuditError> {
     let (loaded, without_policy) = load(solution, project)?;
     let mut report = AuditReport {
         server: server.is_some(),
         projects: Vec::new(),
         without_policy,
     };
-    for one in &loaded {
-        let mut audited = audit_loaded(one)?;
-        if let Some(remote) = server {
+    {
+        let total = loaded.iter().map(|one| one.entities.len() as u64).sum();
+        let _phase = progress::phase(progress, "auditing entities", Some(total));
+        for one in &loaded {
+            report
+                .projects
+                .push(audit_loaded_with_progress(one, progress)?);
+        }
+    }
+    if let Some(remote) = server {
+        for (one, audited) in loaded.iter().zip(&mut report.projects) {
             let helper = one.helper()?;
             audited
                 .findings
-                .extend(super::server_audit::audit(remote, one, helper));
+                .extend(super::server_audit::audit_with_progress(
+                    remote, one, helper, progress,
+                ));
             audited.findings.sort_by(|a, b| {
                 (a.severity, &a.entity, a.code, &a.message)
                     .cmp(&(b.severity, &b.entity, b.code, &b.message))
             });
         }
-        report.projects.push(audited);
     }
     Ok(report)
 }
 
 /// Audit one loaded project.
 pub fn audit_loaded(loaded: &Loaded) -> Result<ProjectAudit, AuditError> {
+    audit_loaded_with_progress(loaded, &progress::NONE)
+}
+
+/// Like [`audit_loaded`], and report one step per entity.
+pub fn audit_loaded_with_progress(
+    loaded: &Loaded,
+    progress: &dyn Progress,
+) -> Result<ProjectAudit, AuditError> {
     let policy = &loaded.policy;
     let helper = loaded.helper()?;
     let mut findings = Vec::new();
     for entity in &loaded.entities {
+        progress.message(entity.name());
         if !policy.is_unmanaged(entity.name()) {
             managed_blocks(policy, entity, &mut findings);
         }
@@ -295,6 +325,7 @@ pub fn audit_loaded(loaded: &Loaded) -> Result<ProjectAudit, AuditError> {
                 }
             }
         }
+        progress.advance(1);
     }
     unused_rules(loaded, &mut findings);
     role_units(loaded, &mut findings);

@@ -19,7 +19,6 @@ use super::refs;
 use super::server::{Client, ServerError};
 use serde::Serialize;
 use serde_json::{json, Value};
-use std::fmt;
 use std::time::Duration;
 
 /// The permission sets of an entity. Every entity has the first three. A ThingShape also has
@@ -172,23 +171,12 @@ pub struct Pair {
     new: EntityKey,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+#[error("{} and {} are in different collections", .old, .new)]
 pub struct PairError {
     old: EntityKey,
     new: EntityKey,
 }
-
-impl fmt::Display for PairError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(
-            f,
-            "{} and {} are in different collections",
-            self.old, self.new
-        )
-    }
-}
-
-impl std::error::Error for PairError {}
 
 impl Pair {
     pub fn new(old: EntityKey, new: EntityKey) -> Result<Self, PairError> {
@@ -211,22 +199,13 @@ impl Pair {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, thiserror::Error)]
 pub enum CarryError {
+    #[error("{why}; fix or remove .twaco/renames.json")]
     Ledger { why: String },
+    #[error("{why}")]
     Arguments { why: String },
 }
-
-impl fmt::Display for CarryError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            CarryError::Ledger { why } => write!(f, "{why}; fix or remove .twaco/renames.json"),
-            CarryError::Arguments { why } => f.write_str(why),
-        }
-    }
-}
-
-impl std::error::Error for CarryError {}
 
 /// Every old name that a rename in the ledger replaced, to map a permission's principals.
 #[derive(Debug, Default, Clone)]
@@ -610,17 +589,22 @@ mod tests {
         json!({ "permissions": [{ "resourceName": "*", "ServiceInvoke": groups.iter().map(|g| principal(g, "Group")).collect::<Vec<_>>() }] })
     }
 
-    fn solution(tag: &str, ledger: Option<&str>) -> (std::path::PathBuf, Solution) {
-        let nonce = crate::test_nonce();
-        let root =
-            std::env::temp_dir().join(format!("twaco-carry-{tag}-{}-{nonce}", std::process::id()));
+    fn solution(
+        tag: &str,
+        ledger: Option<&str>,
+    ) -> (tempfile::TempDir, std::path::PathBuf, Solution) {
+        let root_guard = tempfile::Builder::new()
+            .prefix(&format!("twaco-carry-{tag}-"))
+            .tempdir()
+            .unwrap();
+        let root = root_guard.path().to_path_buf();
         std::fs::create_dir_all(root.join(".twaco")).unwrap();
         std::fs::write(root.join("twaco.toml"), "[[project]]\nname = \"P\"\n").unwrap();
         if let Some(ledger) = ledger {
             std::fs::write(root.join(".twaco/renames.json"), ledger).unwrap();
         }
         let solution = Solution::load(&root.join("twaco.toml")).unwrap();
-        (root, solution)
+        (root_guard, root, solution)
     }
 
     const LEDGER: &str = r#"[
@@ -701,7 +685,7 @@ mod tests {
   { "date": "2026-10-01", "kind": "entity", "old": "Old", "new": "New",
     "entities": [ { "collection": "Things", "old": "A/B", "new": "C" } ] }
 ]"#;
-        let (root, solution) = solution("invalid-ledger-entity", Some(ledger));
+        let (_dir, _, solution) = solution("invalid-ledger-entity", Some(ledger));
         let fake = Fake::default();
         let error = run(
             &fake,
@@ -718,12 +702,11 @@ mod tests {
             "Things/A/B is not a valid entity key; fix or remove .twaco/renames.json"
         );
         assert!(fake.calls.borrow().is_empty());
-        let _ = std::fs::remove_dir_all(root);
     }
 
     #[test]
     fn a_plan_only_reads_and_an_apply_writes_exactly_what_differs_and_reads_it_back() {
-        let (root, solution) = solution("apply", Some(LEDGER));
+        let (_dir, _, solution) = solution("apply", Some(LEDGER));
         let fake = Fake::default()
             .with(
                 "Acme.Old.Manager",
@@ -798,12 +781,11 @@ mod tests {
         )
         .unwrap();
         assert_eq!(again.entities[0].status, Status::Equal);
-        let _ = std::fs::remove_dir_all(root);
     }
 
     #[test]
     fn a_set_that_changes_nothing_is_a_failure_and_the_run_continues() {
-        let (root, solution) = solution("silent", Some(LEDGER));
+        let (_dir, _, solution) = solution("silent", Some(LEDGER));
         let fake = Fake {
             ignore_sets: true,
             ..Default::default()
@@ -842,12 +824,11 @@ mod tests {
             Status::Equal,
             "the next pair was still handled"
         );
-        let _ = std::fs::remove_dir_all(root);
     }
 
     #[test]
     fn renamed_takes_the_pending_ledger_entries_marks_them_and_skips_carried_and_absent_ones() {
-        let (root, solution) = solution("ledger", Some(LEDGER));
+        let (_dir, root, solution) = solution("ledger", Some(LEDGER));
         let fake = Fake::default()
             .with(
                 "Acme.Old.Manager",
@@ -888,7 +869,6 @@ mod tests {
         // Carried entries are not taken again.
         let second = run(&fake, &solution, &request, "2026-10-03").unwrap();
         assert_eq!(second.entities.len(), 1);
-        let _ = std::fs::remove_dir_all(root);
     }
 
     #[test]
@@ -896,7 +876,7 @@ mod tests {
         assert!(pairs_from_names(&["Things/A".into()]).is_err());
         assert!(pairs_from_names(&["A".into(), "B".into()]).is_err());
         assert!(pairs_from_names(&["Things/A".into(), "Groups/B".into()]).is_err());
-        let (root, solution) = solution("corrupt", Some("not json"));
+        let (_dir, _, solution) = solution("corrupt", Some("not json"));
         let fake = Fake::default();
         assert!(matches!(
             run(
@@ -911,16 +891,14 @@ mod tests {
             Err(CarryError::Ledger { .. })
         ));
         assert!(fake.calls.borrow().is_empty());
-        let (empty_root, empty) = solution_without_pairs();
+        let (_empty_dir, _, empty) = solution_without_pairs();
         assert!(matches!(
             run(&fake, &empty, &Request::default(), "d"),
             Err(CarryError::Arguments { .. })
         ));
-        let _ = std::fs::remove_dir_all(root);
-        let _ = std::fs::remove_dir_all(empty_root);
     }
 
-    fn solution_without_pairs() -> (std::path::PathBuf, Solution) {
+    fn solution_without_pairs() -> (tempfile::TempDir, std::path::PathBuf, Solution) {
         solution("none", None)
     }
 }

@@ -1,11 +1,11 @@
 use super::*;
 
 fn property_fixture(tag: &str) -> Fixture {
-    let nonce = crate::test_nonce();
-    let root = std::env::temp_dir().join(format!(
-        "twaco-rename-prop-{tag}-{}-{nonce}",
-        std::process::id()
-    ));
+    let root_guard = tempfile::Builder::new()
+        .prefix(&format!("twaco-rename-prop-{tag}-"))
+        .tempdir()
+        .unwrap();
+    let root = root_guard.path().to_path_buf();
     std::fs::create_dir_all(&root).unwrap();
     write(&root, "twaco.toml", "[[project]]\nname = \"P\"\ncollections = [\"ThingShapes\", \"ThingTemplates\", \"Things\"]\n");
     write(&root, "ThingShapes/P.Shape.xml", "<Entities><ThingShapes><ThingShape name=\"P.Shape\" projectName=\"P\"><PropertyDefinitions><PropertyDefinition name=\"Level\" baseType=\"NUMBER\"/></PropertyDefinitions><ServiceImplementations><ServiceImplementation name=\"Read\"><ConfigurationTables><ConfigurationTable name=\"Script\"><Rows><Row><code><![CDATA[return me.Level;]]></code></Row></Rows></ConfigurationTable></ConfigurationTables></ServiceImplementation></ServiceImplementations></ThingShape></ThingShapes></Entities>\n");
@@ -23,7 +23,11 @@ fn property_fixture(tag: &str) -> Fixture {
         "const a = Things[\"P.One\"].Level; const b = Things[\"P.Other\"].Level; me.Level = 1;",
     );
     let solution = Solution::load(&root.join(CONFIG_FILE)).unwrap();
-    Fixture { root, solution }
+    Fixture {
+        _dir: root_guard,
+        root,
+        solution,
+    }
 }
 
 fn property_spec(scope: &str, old: &str, new: &str) -> Spec {

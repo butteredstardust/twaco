@@ -4,6 +4,7 @@ use super::{lock_workspace, Access, Effects, Notices};
 use crate::core::baseline::{self, Baseline};
 use crate::core::codes::{Coded, ErrorCode};
 use crate::core::config::Solution;
+use crate::core::progress::Progress;
 use crate::core::{lock, profile, push, status, workspace};
 use std::fmt;
 
@@ -100,6 +101,7 @@ pub fn execute<R, F>(
     request: &StatusRequest,
     open: F,
     notices: &mut Notices,
+    progress: &dyn Progress,
 ) -> Result<StatusOutcome, StatusCommandError>
 where
     R: push::Remote + Sync,
@@ -140,7 +142,8 @@ where
     let profile =
         profile::load(&solution.root, &request.profile).map_err(StatusCommandError::Profile)?;
     let mut baseline = Baseline::load(&solution.root).map_err(StatusCommandError::Baseline)?;
-    let (statuses, failures) = status::compute(&open(profile), &baseline, &chosen);
+    let (statuses, failures) =
+        status::compute_with_progress(&open(profile), &baseline, &chosen, progress);
     if request.record && !failures.is_empty() {
         if request.refuse_record_failures {
             return Err(StatusCommandError::RecordFailures(failures));
@@ -183,9 +186,11 @@ mod tests {
 
     #[test]
     fn a_read_only_status_needs_no_lock_but_recording_takes_one_before_discovery() {
-        let root =
-            std::env::temp_dir().join(format!("twaco-command-status-{}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&root);
+        let root_guard = tempfile::Builder::new()
+            .prefix("twaco-command-status-")
+            .tempdir()
+            .unwrap();
+        let root = root_guard.path().to_path_buf();
         std::fs::create_dir_all(&root).unwrap();
         std::fs::write(root.join("twaco.toml"), "[[project]]\nname = \"P\"\n").unwrap();
         let solution = Solution::load(&root.join("twaco.toml")).unwrap();
@@ -204,7 +209,8 @@ mod tests {
                 &solution,
                 &request,
                 crate::core::server::Client::new,
-                &mut Notices::default()
+                &mut Notices::default(),
+                &crate::core::progress::NONE
             ),
             Err(StatusCommandError::Profile(_))
         ));
@@ -215,11 +221,11 @@ mod tests {
                 &solution,
                 &recording,
                 crate::core::server::Client::new,
-                &mut Notices::default()
+                &mut Notices::default(),
+                &crate::core::progress::NONE
             ),
             Err(StatusCommandError::Lock(_))
         ));
         drop(held);
-        std::fs::remove_dir_all(root).unwrap();
     }
 }

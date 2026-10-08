@@ -4,7 +4,6 @@ use super::{lock_workspace, Access, Effects, Mode, Notices};
 use crate::core::codes::{Coded, ErrorCode};
 use crate::core::config::Solution;
 use crate::core::{lock, retemplate};
-use std::fmt;
 
 #[derive(Clone, Debug)]
 pub struct RetemplateRequest {
@@ -39,21 +38,14 @@ impl RetemplateOutcome {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, thiserror::Error)]
 pub enum RetemplateCommandError {
+    #[error("{0}")]
     Lock(lock::LockError),
+    #[error("{0}")]
     Retemplate(retemplate::RetemplateError),
 }
 
-impl fmt::Display for RetemplateCommandError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Self::Lock(error) => error.fmt(f),
-            Self::Retemplate(error) => error.fmt(f),
-        }
-    }
-}
-impl std::error::Error for RetemplateCommandError {}
 impl Coded for RetemplateCommandError {
     fn code(&self) -> ErrorCode {
         match self {
@@ -99,9 +91,11 @@ mod tests {
 
     #[test]
     fn planning_does_not_take_the_lock_and_applying_takes_it_before_discovery() {
-        let root =
-            std::env::temp_dir().join(format!("twaco-command-retemplate-{}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&root);
+        let root_guard = tempfile::Builder::new()
+            .prefix("twaco-command-retemplate-")
+            .tempdir()
+            .unwrap();
+        let root = root_guard.path().to_path_buf();
         std::fs::create_dir_all(&root).unwrap();
         std::fs::write(root.join("twaco.toml"), "[[project]]\nname = \"P\"\n").unwrap();
         let solution = Solution::load(&root.join("twaco.toml")).unwrap();
@@ -123,6 +117,5 @@ mod tests {
             Err(RetemplateCommandError::Lock(_))
         ));
         drop(held);
-        std::fs::remove_dir_all(root).unwrap();
     }
 }

@@ -315,11 +315,6 @@ pub fn write_agent_files(
 mod tests {
     use super::*;
 
-    fn repo() -> PathBuf {
-        let nonce = crate::test_nonce();
-        std::env::temp_dir().join(format!("twaco-init-{}-{nonce}", std::process::id()))
-    }
-
     fn write(path: PathBuf, text: &str) {
         std::fs::create_dir_all(path.parent().unwrap()).unwrap();
         std::fs::write(path, text).unwrap();
@@ -336,7 +331,11 @@ mod tests {
 
     #[test]
     fn projects_roots_sidecars_and_layout_come_from_the_repository() {
-        let root = repo();
+        let root_guard = tempfile::Builder::new()
+            .prefix("twaco-init-")
+            .tempdir()
+            .unwrap();
+        let root = root_guard.path().to_path_buf();
         write(
             root.join("backend/Things/B.T.xml"),
             &thing("B.T", "Backend", "\nflush();\n"),
@@ -375,14 +374,15 @@ mod tests {
             proposal.toml.contains("depends_on"),
             "a multi-project solution is told about deploy order"
         );
-        let _ = std::fs::remove_dir_all(root);
     }
 
     #[test]
     fn agent_files_are_written_once_and_never_replace_one() {
-        let nonce = crate::test_nonce();
-        let root =
-            std::env::temp_dir().join(format!("twaco-init-agents-{}-{nonce}", std::process::id()));
+        let root_guard = tempfile::Builder::new()
+            .prefix("twaco-init-agents-")
+            .tempdir()
+            .unwrap();
+        let root = root_guard.path().to_path_buf();
         std::fs::create_dir_all(&root).unwrap();
         std::fs::write(root.join("CLAUDE.md"), "mine").unwrap();
         let (wrote, kept) =
@@ -404,12 +404,15 @@ mod tests {
         );
         let (wrote, _) = write_agent_files(&root, "S", &[]).unwrap();
         assert!(wrote.is_empty(), "a second run writes nothing");
-        let _ = std::fs::remove_dir_all(root);
     }
 
     #[test]
     fn indented_payloads_propose_the_compatibility_layout() {
-        let root = repo();
+        let root_guard = tempfile::Builder::new()
+            .prefix("twaco-init-")
+            .tempdir()
+            .unwrap();
+        let root = root_guard.path().to_path_buf();
         write(
             root.join("Things/P.A.xml"),
             &thing("P.A", "P", "\n            a();\n            "),
@@ -421,17 +424,19 @@ mod tests {
         let proposal = propose(&root);
         assert!(proposal.toml.contains("root = \".\""));
         assert!(proposal.toml.contains("indent_cdata_payload = true"));
-        let _ = std::fs::remove_dir_all(root);
     }
 
     #[test]
     fn a_repository_without_entities_proposes_nothing_and_says_why() {
-        let root = repo();
+        let root_guard = tempfile::Builder::new()
+            .prefix("twaco-init-")
+            .tempdir()
+            .unwrap();
+        let root = root_guard.path().to_path_buf();
         std::fs::create_dir_all(&root).unwrap();
         let proposal = propose(&root);
         assert_eq!(proposal.projects, 0);
         assert!(proposal.toml.is_empty());
         assert!(proposal.notes[0].contains("no entity files"));
-        let _ = std::fs::remove_dir_all(root);
     }
 }

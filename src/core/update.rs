@@ -76,15 +76,39 @@ impl Web {
 
 impl Fetch for Web {
     fn get(&self, url: &str) -> Result<Vec<u8>, String> {
-        self.agent
+        let started = std::time::Instant::now();
+        let result = self
+            .agent
             .get(url)
             .call()
-            .map_err(|e| e.to_string())?
-            .body_mut()
-            .with_config()
-            .limit(MOST_BYTES)
-            .read_to_vec()
             .map_err(|e| e.to_string())
+            .and_then(|mut response| {
+                let status = response.status().as_u16();
+                let bytes = response
+                    .body_mut()
+                    .with_config()
+                    .limit(MOST_BYTES)
+                    .read_to_vec()
+                    .map_err(|e| e.to_string())?;
+                Ok((status, bytes))
+            });
+        let elapsed_ms = u64::try_from(started.elapsed().as_millis()).unwrap_or(u64::MAX);
+        match result {
+            Ok((status, bytes)) => {
+                tracing::debug!(
+                    url,
+                    status,
+                    response_bytes = bytes.len(),
+                    elapsed_ms,
+                    "update request"
+                );
+                Ok(bytes)
+            }
+            Err(why) => {
+                tracing::debug!(url, why = %why, elapsed_ms, "update request failed");
+                Err(why)
+            }
+        }
     }
 }
 
@@ -629,7 +653,11 @@ mod tests {
     #[test]
     fn install_replaces_the_file_and_leaves_nothing_beside_it() {
         use std::os::unix::fs::PermissionsExt;
-        let dir = std::env::temp_dir().join(format!("twaco-update-{}", std::process::id()));
+        let dir_guard = tempfile::Builder::new()
+            .prefix("twaco-update-")
+            .tempdir()
+            .unwrap();
+        let dir = dir_guard.path().to_path_buf();
         std::fs::create_dir_all(&dir).unwrap();
         let exe = dir.join("twaco");
         std::fs::write(&exe, b"old").unwrap();
@@ -638,14 +666,16 @@ mod tests {
         let mode = std::fs::metadata(&exe).unwrap().permissions().mode();
         assert_eq!(mode & 0o777, 0o755);
         assert_eq!(std::fs::read_dir(&dir).unwrap().count(), 1);
-        std::fs::remove_dir_all(&dir).unwrap();
     }
 
     #[cfg(unix)]
     #[test]
     fn install_does_not_write_through_a_link_at_the_staging_name() {
-        let dir = std::env::temp_dir().join(format!("twaco-link-{}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&dir);
+        let dir_guard = tempfile::Builder::new()
+            .prefix("twaco-link-")
+            .tempdir()
+            .unwrap();
+        let dir = dir_guard.path().to_path_buf();
         std::fs::create_dir_all(&dir).unwrap();
         let exe = dir.join("twaco");
         let victim = dir.join("victim");
@@ -657,7 +687,6 @@ mod tests {
         assert!(error.contains("cannot write"), "{error}");
         assert_eq!(std::fs::read(&victim).unwrap(), b"keep");
         assert_eq!(std::fs::read(&exe).unwrap(), b"old");
-        std::fs::remove_dir_all(&dir).unwrap();
     }
 
     #[test]
@@ -675,15 +704,19 @@ mod tests {
         assert!(notice_wanted("check", &zero, true));
     }
 
-    fn cache_path(name: &str) -> PathBuf {
-        let dir = std::env::temp_dir().join(format!("twaco-notice-{}-{name}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&dir);
-        dir.join("nested").join("update-check.json")
+    fn cache_path(name: &str) -> (tempfile::TempDir, PathBuf) {
+        let dir_guard = tempfile::Builder::new()
+            .prefix(&format!("twaco-notice-{name}-"))
+            .tempdir()
+            .unwrap();
+        let dir = dir_guard.path().to_path_buf();
+        let cache = dir.join("nested").join("update-check.json");
+        (dir_guard, cache)
     }
 
     #[test]
     fn a_stale_check_asks_once_and_a_fresh_one_does_not_ask() {
-        let cache = cache_path("stale");
+        let (_dir, cache) = cache_path("stale");
         let fake = signed_manifest("0.2.0");
         let line = notice(&fake, "m", &test_key(), &cache, 1_000_000, "0.1.0").unwrap();
         assert!(
@@ -710,11 +743,11 @@ mod tests {
 
     #[test]
     fn no_notice_when_current_or_offline_and_offline_still_waits_a_day() {
-        let cache = cache_path("offline");
+        let (_dir, cache) = cache_path("offline");
         let current = signed_manifest("0.1.0");
         assert!(notice(&current, "m", &test_key(), &cache, 5_000_000, "0.1.0").is_none());
 
-        let cache = cache_path("offline2");
+        let (_dir, cache) = cache_path("offline2");
         let offline = Fake {
             files: HashMap::new(),
             calls: Cell::new(0),
@@ -726,7 +759,7 @@ mod tests {
 
     #[test]
     fn a_clock_moved_back_asks_again() {
-        let cache = cache_path("clock");
+        let (_dir, cache) = cache_path("clock");
         let fake = signed_manifest("0.2.0");
         notice(&fake, "m", &test_key(), &cache, 9_000_000, "0.1.0");
         notice(&fake, "m", &test_key(), &cache, 8_000_000, "0.1.0");
@@ -735,7 +768,7 @@ mod tests {
 
     #[test]
     fn an_older_manifest_does_not_hide_a_newer_release_seen_before() {
-        let cache = cache_path("replay");
+        let (_dir, cache) = cache_path("replay");
         notice(
             &signed_manifest("0.2.0"),
             "m",
@@ -773,7 +806,7 @@ mod tests {
 
     #[test]
     fn update_refuses_a_manifest_older_than_one_seen_before() {
-        let cache = cache_path("accept");
+        let (_dir, cache) = cache_path("accept");
         accept(&cache, "0.2.0").unwrap();
         accept(&cache, "0.2.0").unwrap();
         let error = accept(&cache, "0.1.9").unwrap_err();
@@ -790,7 +823,7 @@ mod tests {
 
     #[test]
     fn a_record_without_highest_still_reads() {
-        let cache = cache_path("old-record");
+        let (_dir, cache) = cache_path("old-record");
         std::fs::create_dir_all(cache.parent().unwrap()).unwrap();
         std::fs::write(&cache, br#"{"checked":5,"latest":"0.2.0"}"#).unwrap();
         let record = read_record(&cache);
@@ -800,12 +833,14 @@ mod tests {
         accept(&cache, "0.2.0").unwrap();
     }
 
-    fn backup_dir(name: &str) -> PathBuf {
-        let dir =
-            std::env::temp_dir().join(format!("twaco-backup-test-{}-{name}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&dir);
+    fn backup_dir(name: &str) -> (tempfile::TempDir, PathBuf) {
+        let dir_guard = tempfile::Builder::new()
+            .prefix(&format!("twaco-backup-test-{name}-"))
+            .tempdir()
+            .unwrap();
+        let dir = dir_guard.path().to_path_buf();
         std::fs::create_dir_all(&dir).unwrap();
-        dir
+        (dir_guard, dir)
     }
 
     fn entries(dir: &Path) -> Vec<String> {
@@ -819,7 +854,7 @@ mod tests {
 
     #[test]
     fn a_failed_swap_puts_the_old_binary_back() {
-        let dir = backup_dir("restore");
+        let (_dir, dir) = backup_dir("restore");
         let exe = dir.join("twaco.exe");
         std::fs::write(&exe, b"old").unwrap();
         let result = with_backup(&exe, || {
@@ -833,7 +868,7 @@ mod tests {
 
     #[test]
     fn a_successful_swap_leaves_no_backup() {
-        let dir = backup_dir("success");
+        let (_dir, dir) = backup_dir("success");
         let exe = dir.join("twaco.exe");
         std::fs::write(&exe, b"old").unwrap();
         with_backup(&exe, || std::fs::write(&exe, b"new")).unwrap();
@@ -843,7 +878,7 @@ mod tests {
 
     #[test]
     fn a_failed_restore_names_the_backup() {
-        let dir = backup_dir("keep");
+        let (_dir, dir) = backup_dir("keep");
         let exe = dir.join("twaco.exe");
         std::fs::write(&exe, b"old").unwrap();
         let backup = dir.join(format!(".twaco-backup-{}.exe", std::process::id()));

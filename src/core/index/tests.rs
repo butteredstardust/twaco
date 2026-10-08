@@ -7,14 +7,14 @@ fn key(collection: &str, name: &str) -> EntityKey {
     EntityKey::new(collection, name).unwrap()
 }
 
-fn scratch(label: &str) -> PathBuf {
-    let nonce = crate::test_nonce();
-    let root = std::env::temp_dir().join(format!(
-        "twaco-index-{label}-{}-{nonce}",
-        std::process::id()
-    ));
+fn scratch(label: &str) -> (tempfile::TempDir, PathBuf) {
+    let root_guard = tempfile::Builder::new()
+        .prefix(&format!("twaco-index-{label}-"))
+        .tempdir()
+        .unwrap();
+    let root = root_guard.path().to_path_buf();
     std::fs::create_dir_all(&root).unwrap();
-    root
+    (root_guard, root)
 }
 
 fn write(root: &Path, relative: &str, text: &str) {
@@ -78,8 +78,8 @@ fn data_shape(name: &str, base: &str, fields: &[(&str, Option<&str>)]) -> String
 
 /// One project `P` with a template chain, a shape, DataShapes that type services and a base, and
 /// a template cycle.
-fn structure() -> (PathBuf, Solution) {
-    let root = scratch("structure");
+fn structure() -> (tempfile::TempDir, PathBuf, Solution) {
+    let (_dir, root) = scratch("structure");
     write(&root, "twaco.toml", "[[project]]\nname = \"P\"\n");
     write(
         &root,
@@ -184,7 +184,7 @@ fn structure() -> (PathBuf, Solution) {
         ),
     );
     let solution = Solution::load(&root.join("twaco.toml")).unwrap();
-    (root, solution)
+    (_dir, root, solution)
 }
 
 fn bundled() -> (PathBuf, Solution) {
@@ -204,7 +204,7 @@ fn kinds(index: &Index, from: &str, to: &str) -> Vec<EdgeKind> {
 
 #[test]
 fn templates_shapes_and_typed_members_are_edges_and_platform_names_are_not() {
-    let (root, solution) = structure();
+    let (_dir, _, solution) = structure();
     let index = Index::build(&solution);
     assert!(index.is_complete(), "{:?}", index.unreadable());
     assert_eq!(
@@ -250,12 +250,11 @@ fn templates_shapes_and_typed_members_are_edges_and_platform_names_are_not() {
         .edges()
         .iter()
         .all(|(a, b, _)| !(a == "Things/P.Platform") && !b.contains("GenericThing")));
-    let _ = std::fs::remove_dir_all(root);
 }
 
 #[test]
 fn every_edge_has_the_confidence_of_its_kind() {
-    let (root, solution) = structure();
+    let (_dir, _, solution) = structure();
     let index = Index::build(&solution);
     assert!(index
         .edges()
@@ -268,12 +267,11 @@ fn every_edge_has_the_confidence_of_its_kind() {
     assert_eq!(EdgeKind::ScriptMention.confidence(), Confidence::Review);
     assert_eq!(Confidence::parse("resolved"), Some(Confidence::Resolved));
     assert_eq!(Confidence::parse("sure"), None);
-    let _ = std::fs::remove_dir_all(root);
 }
 
 #[test]
 fn inheritance_is_walked_nearest_first_and_shapes_are_implemented_through_templates() {
-    let (root, solution) = structure();
+    let (_dir, _, solution) = structure();
     let index = Index::build(&solution);
     assert_eq!(
         index.inheritance_names(&key("Things", "P.A")),
@@ -289,7 +287,6 @@ fn inheritance_is_walked_nearest_first_and_shapes_are_implemented_through_templa
     assert!(index
         .implementers(&key("ThingShapes", "P.Shape"), Some("Elsewhere"))
         .is_empty());
-    let _ = std::fs::remove_dir_all(root);
 }
 
 #[test]
@@ -297,7 +294,8 @@ fn the_index_agrees_with_the_model_walk_the_refactors_still_use_for_every_entity
     // `catalog::inheritance_names` and `implementers` walk model entities (the retemplate and
     // field-rename code holds those); the index walks its own nodes. Both call one function, so
     // this holds the two representations to the same facts about every entity.
-    for (root, solution) in [structure(), bundled()] {
+    let (_dir, structure_root, structure_solution) = structure();
+    for (root, solution) in [(structure_root, structure_solution), bundled()] {
         let index = Index::build(&solution);
         let (model, skipped) = crate::core::types::load_model(&solution);
         assert!(
@@ -322,15 +320,13 @@ fn the_index_agrees_with_the_model_walk_the_refactors_still_use_for_every_entity
         }
         let (catalogued, _) = catalog::inheritance(&solution);
         assert_eq!(catalogued.len(), model.entities.len());
-        if !root.ends_with("acme-orders") {
-            let _ = std::fs::remove_dir_all(root);
-        }
+        if !root.ends_with("acme-orders") {}
     }
 }
 
 #[test]
 fn a_circle_of_inheritance_is_reported_and_a_tree_is_not() {
-    let (root, solution) = structure();
+    let (_dir, _, solution) = structure();
     let index = Index::build(&solution);
     assert_eq!(
         index.inheritance_cycles(),
@@ -344,12 +340,11 @@ fn a_circle_of_inheritance_is_reported_and_a_tree_is_not() {
         index.inheritance_names(&key("ThingTemplates", "P.C1")),
         ["P.C2", "P.C1"]
     );
-    let _ = std::fs::remove_dir_all(root);
 }
 
 #[test]
 fn dependents_are_found_through_inheritance_with_the_members_involved() {
-    let (root, solution) = structure();
+    let (_dir, _, solution) = structure();
     let index = Index::build(&solution);
     let who = index.dependents(&key("ThingTemplates", "P.T1"), &DependentOptions::default());
     let labels: Vec<&str> = who.iter().map(|d| d.label.as_str()).collect();
@@ -406,12 +401,11 @@ fn dependents_are_found_through_inheritance_with_the_members_involved() {
     assert!(index
         .dependents(&key("Things", "P.Nope"), &DependentOptions::default())
         .is_empty());
-    let _ = std::fs::remove_dir_all(root);
 }
 
 #[test]
 fn references_from_an_entity_come_strongest_first() {
-    let (root, solution) = structure();
+    let (_dir, _, solution) = structure();
     let index = Index::build(&solution);
     let from: Vec<(String, EdgeKind)> = index
         .references_from(&key("ThingTemplates", "P.T2"))
@@ -426,12 +420,11 @@ fn references_from_an_entity_come_strongest_first() {
     let reach = index.reachable_from(&[key("Things", "P.A")], Confidence::Review);
     assert!(reach.contains(&key("DataShapes", "P.Leaf")), "{reach:?}");
     assert!(!reach.contains(&key("Things", "P.Platform")));
-    let _ = std::fs::remove_dir_all(root);
 }
 
 #[test]
 fn projects_are_nodes_with_their_dependencies_and_a_deploy_order() {
-    let root = scratch("projects");
+    let (_dir, root) = scratch("projects");
     write(
         &root,
         "twaco.toml",
@@ -468,12 +461,11 @@ fn projects_are_nodes_with_their_dependencies_and_a_deploy_order() {
     let affected = index.projects_of(&["Things/App.A".to_string(), "project Base".to_string()]);
     assert_eq!(affected, [(0, "Base".to_string()), (1, "App".to_string())]);
     assert_eq!(index.node(&key("Things", "App.A")).unwrap().project, "App");
-    let _ = std::fs::remove_dir_all(root);
 }
 
 #[test]
 fn a_document_that_cannot_be_read_is_listed_and_does_not_stop_the_build() {
-    let (root, solution) = structure();
+    let (_dir, root, solution) = structure();
     write(
         &root,
         "Things/P.Broken.xml",
@@ -491,12 +483,11 @@ fn a_document_that_cannot_be_read_is_listed_and_does_not_stop_the_build() {
     );
     // Everything else is still there.
     assert!(index.contains(&key("Things", "P.A")));
-    let _ = std::fs::remove_dir_all(root);
 }
 
 #[test]
 fn an_entity_defined_twice_keeps_the_first_and_says_so() {
-    let (root, solution) = structure();
+    let (_dir, root, solution) = structure();
     // The same Thing filed in a second place under the same project.
     write(
         &root,
@@ -512,7 +503,6 @@ fn an_entity_defined_twice_keeps_the_first_and_says_so() {
         "{:?}",
         index.unreadable()
     );
-    let _ = std::fs::remove_dir_all(root);
 }
 
 #[test]
@@ -594,8 +584,8 @@ fn thing_with(name: &str, scripts: &[(&str, &str)]) -> String {
 }
 
 /// Things that call each other, a script the parser refuses, a mashup, and a deploy configuration.
-fn wiring() -> (PathBuf, Solution) {
-    let root = scratch("wiring");
+fn wiring() -> (tempfile::TempDir, PathBuf, Solution) {
+    let (_dir, root) = scratch("wiring");
     write(
         &root,
         "twaco.toml",
@@ -662,12 +652,12 @@ fn wiring() -> (PathBuf, Solution) {
         r#"<Entities><Mashups><Mashup name="P.Broken" projectName="P"><mashupContent><![CDATA[{not json]]></mashupContent></Mashup></Mashups></Entities>"#,
     );
     let solution = Solution::load(&root.join("twaco.toml")).unwrap();
-    (root, solution)
+    (_dir, root, solution)
 }
 
 #[test]
 fn a_static_call_between_things_is_a_resolved_edge_naming_the_service() {
-    let (root, solution) = wiring();
+    let (_dir, _, solution) = wiring();
     let index = Index::build(&solution);
     let direct = edge(
         &index,
@@ -691,12 +681,11 @@ fn a_static_call_between_things_is_a_resolved_edge_naming_the_service() {
     assert!(direct
         .iter()
         .all(|e| e.confidence() == Confidence::Resolved));
-    let _ = std::fs::remove_dir_all(root);
 }
 
 #[test]
 fn a_thing_that_is_only_held_is_an_entity_level_reference_and_an_unknown_thing_is_nothing() {
-    let (root, solution) = wiring();
+    let (_dir, _, solution) = wiring();
     let index = Index::build(&solution);
     let bare = edge(
         &index,
@@ -723,12 +712,11 @@ fn a_thing_that_is_only_held_is_an_entity_level_reference_and_an_unknown_thing_i
     )
     .iter()
     .all(|e| e.to_member.is_some()));
-    let _ = std::fs::remove_dir_all(root);
 }
 
 #[test]
 fn a_string_that_equals_a_qualified_name_is_a_review_mention_and_a_short_one_is_not() {
-    let (root, solution) = wiring();
+    let (_dir, _, solution) = wiring();
     let index = Index::build(&solution);
     let mention = edge(
         &index,
@@ -754,12 +742,11 @@ fn a_string_that_equals_a_qualified_name_is_a_review_mention_and_a_short_one_is_
         EdgeKind::ScriptMention
     )
     .is_empty());
-    let _ = std::fs::remove_dir_all(root);
 }
 
 #[test]
 fn a_script_the_parser_refuses_is_listed_and_searched_for_names() {
-    let (root, solution) = wiring();
+    let (_dir, _, solution) = wiring();
     let index = Index::build(&solution);
     assert_eq!(index.unparsed_scripts(), ["Things/P.Legacy/Old"]);
     let found = edge(
@@ -778,12 +765,11 @@ fn a_script_the_parser_refuses_is_listed_and_searched_for_names() {
         EdgeKind::ScriptReference
     )
     .is_empty());
-    let _ = std::fs::remove_dir_all(root);
 }
 
 #[test]
 fn a_mashup_binding_names_the_service_and_other_names_in_it_are_mentions() {
-    let (root, solution) = wiring();
+    let (_dir, _, solution) = wiring();
     let index = Index::build(&solution);
     let binding = edge(
         &index,
@@ -819,12 +805,11 @@ fn a_mashup_binding_names_the_service_and_other_names_in_it_are_mentions() {
         "{:?}",
         index.unreadable()
     );
-    let _ = std::fs::remove_dir_all(root);
 }
 
 #[test]
 fn the_deploy_configuration_points_a_project_at_the_things_it_runs() {
-    let (root, solution) = wiring();
+    let (_dir, _, solution) = wiring();
     let index = Index::build(&solution);
     let entry = edge(&index, "project P", "Things/P.Entry", EdgeKind::Deploy);
     assert_eq!(
@@ -841,12 +826,11 @@ fn the_deploy_configuration_points_a_project_at_the_things_it_runs() {
         index.is_deployed(&key("Things", "P.Entry"))
             && !index.is_deployed(&key("Things", "P.Target"))
     );
-    let _ = std::fs::remove_dir_all(root);
 }
 
 #[test]
 fn dependents_follow_calls_with_the_weakest_link_as_confidence() {
-    let (root, solution) = wiring();
+    let (_dir, _, solution) = wiring();
     let index = Index::build(&solution);
     // Who is affected if P.Target.Run changes: the service that calls it, and the mashup that
     // binds it, each at its own depth.
@@ -900,12 +884,11 @@ fn dependents_follow_calls_with_the_weakest_link_as_confidence() {
         who.iter().all(|d| d.label != "Things/P.Legacy"),
         "resolved and stronger leaves review out"
     );
-    let _ = std::fs::remove_dir_all(root);
 }
 
 #[test]
 fn a_deploy_call_is_a_dependent_of_the_thing_it_runs() {
-    let (root, solution) = wiring();
+    let (_dir, _, solution) = wiring();
     let index = Index::build(&solution);
     let who = index.dependents(
         &key("Things", "P.Data"),
@@ -922,7 +905,6 @@ fn a_deploy_call_is_a_dependent_of_the_thing_it_runs() {
         index.projects_of(&who.iter().map(|d| d.label.clone()).collect::<Vec<_>>()),
         [(0, "P".to_string())]
     );
-    let _ = std::fs::remove_dir_all(root);
 }
 
 #[test]
@@ -996,7 +978,7 @@ fn the_bundled_repository_wires_its_things_together() {
 
 #[test]
 fn a_thing_that_subscribes_runs_on_events_and_so_does_what_inherits_it() {
-    let root = scratch("subscribes");
+    let (_dir, root) = scratch("subscribes");
     write(
         &root,
         "twaco.toml",
@@ -1094,12 +1076,11 @@ name = \"P\"
     );
     assert!(!runs("Things", "P.Idle"));
     assert!(!runs("Things", "P.Nope"));
-    let _ = std::fs::remove_dir_all(root);
 }
 
 #[test]
 fn a_thing_passed_along_beside_a_call_on_it_still_concerns_every_member() {
-    let root = scratch("occurrence");
+    let (_dir, root) = scratch("occurrence");
     write(&root, "twaco.toml", "[[project]]\nname = \"P\"\n");
     write(
         &root,
@@ -1140,12 +1121,11 @@ fn a_thing_passed_along_beside_a_call_on_it_still_concerns_every_member() {
         ["Things/P.Both"],
         "the passed Thing may use Other; the caller of Run alone may not"
     );
-    let _ = std::fs::remove_dir_all(root);
 }
 
 #[test]
 fn a_template_that_inherits_itself_is_a_cycle() {
-    let root = scratch("self-cycle");
+    let (_dir, root) = scratch("self-cycle");
     write(&root, "twaco.toml", "[[project]]\nname = \"P\"\n");
     write(
         &root,
@@ -1173,5 +1153,4 @@ fn a_template_that_inherits_itself_is_a_cycle() {
             vec!["ThingTemplates/P.Self".to_string()]
         ]
     );
-    let _ = std::fs::remove_dir_all(root);
 }

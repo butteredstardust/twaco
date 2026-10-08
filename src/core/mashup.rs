@@ -10,7 +10,6 @@
 //! project, with nothing to show for it.
 
 use super::sync;
-use std::fmt;
 
 /// A mashup's two sidecar files.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -21,27 +20,18 @@ pub struct Assets {
     pub css: String,
 }
 
-#[derive(Debug)]
+#[derive(Debug, thiserror::Error)]
 pub enum MashupError {
+    #[error("{0}")]
     Scan(super::scan::ScanError),
+    #[error("no <mashupContent> section")]
     NoContent,
     /// The payload is not JSON. The runtime shows an empty page rather than an error.
+    #[error("mashupContent will not parse: {0}")]
     NotJson(String),
+    #[error("{0}")]
     Malformed(String),
 }
-
-impl fmt::Display for MashupError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            MashupError::Scan(e) => write!(f, "{e}"),
-            MashupError::NoContent => write!(f, "no <mashupContent> section"),
-            MashupError::NotJson(why) => write!(f, "mashupContent will not parse: {why}"),
-            MashupError::Malformed(why) => write!(f, "{why}"),
-        }
-    }
-}
-
-impl std::error::Error for MashupError {}
 
 /// The content payload of a mashup document, dedented as extraction sees it.
 fn payload(src: &[u8]) -> Result<(String, super::scan::Span), MashupError> {

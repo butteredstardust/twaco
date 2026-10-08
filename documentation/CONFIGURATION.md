@@ -291,6 +291,73 @@ helper has keep their order and IDs; a row is added for each service of a Thing,
 ThingTemplate that has none, and for each granted resource without one. The helper's mashup then
 shows what the entity XML grants, and applying it there changes nothing.
 
+## Diagnostic logs
+
+Logs are off by default. They show what twaco did when a command or an MCP tool misbehaves.
+They never hold a credential, a header, a request body, a response body or an MCP tool's
+`arguments`. A subprocess log holds the program and the number of arguments, never the
+argument values. An MCP message log holds a numeric `id`, and `<string>` for a string `id`.
+
+| Flag | Variable | Effect |
+| --- | --- | --- |
+| `--log <filter>` | `TWACO_LOG` | Turn logs on. Write them to stderr. |
+| `--log-file <path>` | `TWACO_LOG_FILE` | Append logs to a file instead of stderr. |
+
+- Every command takes both flags, including `twaco mcp`.
+- A flag overrides its variable.
+- `--log-file` alone means `debug`.
+- A filter is a level (`error`, `warn`, `info`, `debug`, `trace`) or a directive list such as
+  `twaco::core::server=trace`. A bare level applies to twaco only, so dependencies stay quiet.
+- Levels: `warn` for an abnormal state twaco recovers from, `info` for one line per command,
+  MCP message and deploy phase, `debug` for each server request, lock action, transaction
+  stage and subprocess.
+- An invalid filter or an unopenable file prints one `twaco:` warning on stderr. The command
+  then runs without logs.
+- Twaco never writes a log to stdout. A log file that is standard output (`/dev/stdout`) gets
+  the same warning and is ignored. This check runs on Unix only.
+
+```sh
+twaco deploy --log debug
+twaco entity status --all --log-file twaco.log
+```
+
+## Progress
+
+Some commands send many requests or wait a long time for the server. These commands show
+progress on stderr:
+
+- `deploy`, including the live parse gate, one step per service script
+- `entity status` and `entity push`
+- `check --live`, one step per service script
+- `permissions` (compare and push), `permissions push --platform` (one step per platform
+  entry), `permissions audit` and `permissions apply`
+- `repo` (list, status, get, change and sync)
+- `types --platform`, and the type check of `types --check`
+- `import` and `export`
+- `ext import`
+
+Progress follows these rules:
+
+- A bar shows when stderr is a terminal. With a pipe, a file or a CI run, twaco draws nothing.
+- Logs on stderr (`--log` without `--log-file`) switch the bars off. Use `--log-file` to keep
+  both.
+- Twaco never draws on stdout. Stdout is the same with or without a bar.
+- A bar shows phase names and entity names. It never shows a URL, a parameter or a credential.
+
+## Colour
+
+Twaco colours status words in terminal output. Each stream is decided on its own.
+
+- Stdout carries `ok`, `FAIL`, `BROKEN`, `warn` and the status verdicts.
+- Stderr carries the `twaco:` prefix of an error.
+- Colour is off when the stream is not a terminal. Piped output has no escape codes.
+- `NO_COLOR` set to any non-empty value turns colour off. It wins over every other setting.
+- `FORCE_COLOR` set to `1` turns colour on, also for a pipe. `NO_COLOR` wins over `FORCE_COLOR`.
+- A CI run (`CI` set) turns colour off unless `FORCE_COLOR` is set.
+
+The text is the same with and without colour. Only the escape codes differ.
+MCP output never has colour.
+
 ## Server profiles
 
 A profile is a TOML file named after it, `<name>.toml`, looked for in this order:

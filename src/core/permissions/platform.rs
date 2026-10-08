@@ -14,6 +14,7 @@ use super::server_audit::{group_members, Remote};
 use super::Grant;
 use crate::core::entity_carry::Kind;
 use crate::core::entity_key::ServiceTarget;
+use crate::core::progress::{self, Progress};
 use serde::Serialize;
 use serde_json::json;
 use std::collections::BTreeSet;
@@ -73,13 +74,38 @@ impl PlatformReport {
 /// Compare every project's platform entries with the server and, with `apply`, add what is
 /// missing.
 pub fn run(remote: &dyn Remote, loaded: &[Loaded], apply: bool) -> PlatformReport {
+    run_with_progress(remote, loaded, apply, &progress::NONE)
+}
+
+/// Ends one step when dropped, so every exit from the loop body counts the step.
+struct Step<'a>(&'a dyn Progress);
+
+impl Drop for Step<'_> {
+    fn drop(&mut self) {
+        self.0.advance(1);
+    }
+}
+
+/// Like [`run`], and report one step per platform entry. Messages hold entity names only.
+pub fn run_with_progress(
+    remote: &dyn Remote,
+    loaded: &[Loaded],
+    apply: bool,
+    progress: &dyn Progress,
+) -> PlatformReport {
     let mut report = PlatformReport {
         applied: apply,
         items: Vec::new(),
     };
+    let total = loaded
+        .iter()
+        .map(|one| one.policy.platform.len() as u64)
+        .sum();
+    let _phase = progress::phase(progress, "checking platform entries", Some(total));
     for one in loaded {
         let policy = &one.policy;
         for entry in &policy.platform {
+            let _step = Step(progress);
             let (requires, roles) = match entry {
                 Platform::Grant {
                     requires, roles, ..
@@ -102,6 +128,7 @@ pub fn run(remote: &dyn Remote, loaded: &[Loaded], apply: bool) -> PlatformRepor
                 } => (entity.clone(), format!("{action} {resource}")),
                 Platform::Member { group, .. } => (format!("Groups/{group}"), "member".to_string()),
             };
+            progress.message(&entity);
             let item = |group: &str, state: State, error: Option<String>| Item {
                 project: policy.project.clone(),
                 entity: entity.clone(),

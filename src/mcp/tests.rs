@@ -17,9 +17,12 @@ fn converse(root: &Path, messages: &[Value]) -> Vec<Value> {
         .collect()
 }
 
-fn solution_dir() -> PathBuf {
-    let nonce = crate::test_nonce();
-    let root = std::env::temp_dir().join(format!("twaco-mcp-{}-{nonce}", std::process::id()));
+fn solution_dir() -> (tempfile::TempDir, PathBuf) {
+    let root_guard = tempfile::Builder::new()
+        .prefix("twaco-mcp-")
+        .tempdir()
+        .unwrap();
+    let root = root_guard.path().to_path_buf();
     std::fs::create_dir_all(root.join("Things")).unwrap();
     std::fs::write(root.join("twaco.toml"), "[[project]]\nname = \"P\"\n").unwrap();
     std::fs::write(
@@ -27,7 +30,7 @@ fn solution_dir() -> PathBuf {
         "<Entities><Things><Thing name=\"P.T\" projectName=\"P\"></Thing></Things></Entities>",
     )
     .unwrap();
-    root
+    (root_guard, root)
 }
 
 fn default_matches_type(schema: &Value, value: &Value) -> bool {
@@ -491,7 +494,7 @@ fn validator_follows_nested_schemas() {
 
 #[test]
 fn tool_errors_include_stable_codes() {
-    let root = solution_dir();
+    let (_dir, root) = solution_dir();
     let reply = converse(
         &root,
         &[
@@ -517,7 +520,7 @@ fn tool_errors_include_stable_codes() {
 
 #[test]
 fn typed_and_argument_failures_keep_their_codes() {
-    let root = solution_dir();
+    let (_dir, root) = solution_dir();
     let cases = [
         (
             "rename",
@@ -588,7 +591,7 @@ fn typed_and_argument_failures_keep_their_codes() {
 
 #[test]
 fn every_empty_tool_failure_has_a_classified_code() {
-    let root = solution_dir();
+    let (_dir, root) = solution_dir();
     let definitions = tool_definitions();
     let messages: Vec<Value> = definitions
         .iter()
@@ -622,7 +625,6 @@ fn every_empty_tool_failure_has_a_classified_code() {
         "empty calls with missing or unclassified codes: {}",
         unclassified.join("; ")
     );
-    let _ = std::fs::remove_dir_all(root);
 }
 
 #[test]
@@ -648,7 +650,7 @@ fn refused_push_result_has_a_server_conflict_code() {
 
 #[test]
 fn nested_tool_arguments_are_validated_without_closing_parameters() {
-    let root = solution_dir();
+    let (_dir, root) = solution_dir();
     let map = converse(
         &root,
         &[
@@ -685,12 +687,11 @@ fn nested_tool_arguments_are_validated_without_closing_parameters() {
         .as_str()
         .unwrap()
         .contains("this tool takes no argument `x` (it takes: )"));
-    let _ = std::fs::remove_dir_all(root);
 }
 
 #[test]
 fn the_handshake_negotiates_a_version_and_notifications_get_no_reply() {
-    let root = solution_dir();
+    let (_dir, root) = solution_dir();
     let responses = converse(
         &root,
         &[
@@ -708,12 +709,11 @@ fn the_handshake_negotiates_a_version_and_notifications_get_no_reply() {
         responses[2]["result"]["protocolVersion"], LATEST,
         "an unknown version gets ours"
     );
-    let _ = std::fs::remove_dir_all(root);
 }
 
 #[test]
 fn errors_are_protocol_errors_or_tool_errors_as_the_spec_says() {
-    let root = solution_dir();
+    let (_dir, root) = solution_dir();
     let responses = converse(
         &root,
         &[
@@ -734,12 +734,11 @@ fn errors_are_protocol_errors_or_tool_errors_as_the_spec_says() {
     serve(&root, "not json\n".as_bytes(), &mut output).unwrap();
     let parsed: Value = serde_json::from_slice(&output).unwrap();
     assert_eq!(parsed["error"]["code"], -32700);
-    let _ = std::fs::remove_dir_all(root);
 }
 
 #[test]
 fn logs_arguments_are_refused_before_the_server_is_asked() {
-    let root = solution_dir();
+    let (_dir, root) = solution_dir();
     for (arguments, why) in [
         (json!({}), "`log` is required"),
         (
@@ -771,12 +770,11 @@ fn logs_arguments_are_refused_before_the_server_is_asked() {
         assert_eq!(result["isError"], true, "{arguments}: {text}");
         assert!(text.contains(why), "{arguments}: {text}");
     }
-    let _ = std::fs::remove_dir_all(root);
 }
 
 #[test]
 fn every_tool_is_listed_with_a_schema_and_honest_annotations() {
-    let root = solution_dir();
+    let (_dir, root) = solution_dir();
     let responses = converse(
         &root,
         &[json!({"jsonrpc":"2.0","id":1,"method":"tools/list"})],
@@ -923,12 +921,11 @@ fn every_tool_is_listed_with_a_schema_and_honest_annotations() {
         rename["inputSchema"]["properties"]["skip_checks"]["default"],
         false
     );
-    let _ = std::fs::remove_dir_all(root);
 }
 
 #[test]
 fn rename_plans_then_applies_and_refuses_bad_requests() {
-    let root = solution_dir();
+    let (_dir, root) = solution_dir();
     let original = std::fs::read(root.join("Things/P.T.xml")).unwrap();
     let call = |arguments: Value| {
         converse(
@@ -964,12 +961,11 @@ fn rename_plans_then_applies_and_refuses_bad_requests() {
         let refused = call(arguments);
         assert_eq!(refused[0]["result"]["isError"], true);
     }
-    let _ = std::fs::remove_dir_all(root);
 }
 
 #[test]
 fn field_rename_requires_scope_and_is_a_dry_run_by_default() {
-    let root = solution_dir();
+    let (_dir, root) = solution_dir();
     std::fs::create_dir_all(root.join("DataShapes")).unwrap();
     std::fs::create_dir_all(root.join("src/P.D")).unwrap();
     let shape = "<Entities><DataShapes><DataShape name=\"P.D\" projectName=\"P\"><FieldDefinitions><FieldDefinition name=\"Period\" baseType=\"STRING\" ordinal=\"1\" description=\"\"/></FieldDefinitions></DataShape></DataShapes></Entities>";
@@ -1015,12 +1011,11 @@ fn field_rename_requires_scope_and_is_a_dry_run_by_default() {
     );
     let refused = call(json!({"kind":"entity","scope":"P.D","old":"P.T","new":"P.U"}));
     assert_eq!(refused[0]["result"]["isError"], true);
-    let _ = std::fs::remove_dir_all(root);
 }
 
 #[test]
 fn service_rename_requires_scope_and_is_a_dry_run_by_default() {
-    let root = solution_dir();
+    let (_dir, root) = solution_dir();
     std::fs::create_dir_all(root.join("ThingShapes")).unwrap();
     std::fs::create_dir_all(root.join("src/P.Shape/services/Run")).unwrap();
     std::fs::write(
@@ -1063,12 +1058,11 @@ fn service_rename_requires_scope_and_is_a_dry_run_by_default() {
         std::fs::read(root.join("ThingShapes/P.Shape.xml")).unwrap(),
         original
     );
-    let _ = std::fs::remove_dir_all(root);
 }
 
 #[test]
 fn table_rename_requires_scope_and_is_a_dry_run_by_default() {
-    let root = solution_dir();
+    let (_dir, root) = solution_dir();
     let entity = "<Entities><Things><Thing name=\"P.T\" projectName=\"P\" thingTemplate=\"GenericThing\"><ConfigurationTableDefinitions><ConfigurationTableDefinition dataShapeName=\"P.Limits_CT\" name=\"Limits_CT\"/></ConfigurationTableDefinitions><ConfigurationTables><ConfigurationTable dataShapeName=\"P.Limits_CT\" name=\"Limits_CT\"><DataShape/><Rows/></ConfigurationTable></ConfigurationTables></Thing></Things></Entities>";
     std::fs::write(root.join("Things/P.T.xml"), entity).unwrap();
     let original = std::fs::read(root.join("Things/P.T.xml")).unwrap();
@@ -1103,12 +1097,11 @@ fn table_rename_requires_scope_and_is_a_dry_run_by_default() {
         std::fs::read(root.join("Things/P.T.xml")).unwrap(),
         original
     );
-    let _ = std::fs::remove_dir_all(root);
 }
 
 #[test]
 fn projects_and_check_answer_offline_with_structured_content() {
-    let root = solution_dir();
+    let (_dir, root) = solution_dir();
     let responses = converse(
         &root,
         &[
@@ -1126,12 +1119,11 @@ fn projects_and_check_answer_offline_with_structured_content() {
         check.get("failures").is_none(),
         "findings are detail, not summary"
     );
-    let _ = std::fs::remove_dir_all(root);
 }
 
 #[test]
 fn catalog_answers_offline_with_counts_and_services() {
-    let root = solution_dir();
+    let (_dir, root) = solution_dir();
     std::fs::write(
             root.join("Things/P.T.xml"),
             "<Entities><Things><Thing name=\"P.T\" projectName=\"P\"><ThingShape><ServiceDefinitions><ServiceDefinition name=\"Run\" description=\"Does work\"><ResultType baseType=\"STRING\"/></ServiceDefinition></ServiceDefinitions></ThingShape></Thing></Things></Entities>",
@@ -1148,7 +1140,6 @@ fn catalog_answers_offline_with_counts_and_services() {
     assert_eq!(catalog["entity_count"], 1);
     assert_eq!(catalog["services"][0]["entity"], "P.T");
     assert_eq!(catalog["services"][0]["name"], "Run");
-    let _ = std::fs::remove_dir_all(root);
 }
 
 #[test]
@@ -1297,7 +1288,7 @@ fn unused_reports_what_no_entry_point_reaches_and_deletes_nothing() {
 
 #[test]
 fn types_generate_and_check_return_the_mcp_shapes() {
-    let root = solution_dir();
+    let (_dir, root) = solution_dir();
     let generated = converse(
         &root,
         &[
@@ -1340,6 +1331,7 @@ fn types_generate_and_check_return_the_mcp_shapes() {
         &solution,
         parse_typed(&json!({"action":"check"})).unwrap(),
         Some(&FakeCompiler),
+        &crate::core::progress::NONE,
     )
     .unwrap();
     assert_eq!(checked["ok"], false);
@@ -1353,16 +1345,16 @@ fn types_generate_and_check_return_the_mcp_shapes() {
         &solution,
         parse_typed(&json!({"action":"check", "detail":true})).unwrap(),
         Some(&FakeCompiler),
+        &crate::core::progress::NONE,
     )
     .unwrap();
     assert_eq!(detailed["findings_list"].as_array().unwrap().len(), 1);
     assert!(detailed.get("first").is_none());
-    let _ = std::fs::remove_dir_all(root);
 }
 
 #[test]
 fn sync_writes_a_sidecar_edit_and_refuses_while_the_workspace_is_locked() {
-    let root = solution_dir();
+    let (_dir, root) = solution_dir();
     let entity = "<Entities><Things><Thing name=\"P.T\" projectName=\"P\"><ThingShape>\
 <ServiceDefinitions><ServiceDefinition name=\"S\"></ServiceDefinition></ServiceDefinitions>\
 <ServiceImplementations><ServiceImplementation name=\"S\" handlerName=\"Script\">\
@@ -1418,12 +1410,11 @@ fn sync_writes_a_sidecar_edit_and_refuses_while_the_workspace_is_locked() {
     assert!(std::fs::read_to_string(root.join("Things/P.T.xml"))
         .unwrap()
         .contains("new();"));
-    let _ = std::fs::remove_dir_all(root);
 }
 
 #[test]
 fn every_bad_message_gets_its_error_and_the_server_reads_on() {
-    let root = solution_dir();
+    let (_dir, root) = solution_dir();
     let mut input = Vec::new();
     for line in [
         &b"42"[..],
@@ -1464,12 +1455,11 @@ fn every_bad_message_gets_its_error_and_the_server_reads_on() {
         ],
         "a client's response gets no answer, and the ping after the bad line does"
     );
-    let _ = std::fs::remove_dir_all(root);
 }
 
 #[test]
 fn arguments_of_the_wrong_shape_are_refused_before_the_tool_runs() {
-    let root = solution_dir();
+    let (_dir, root) = solution_dir();
     std::fs::create_dir_all(root.join("DataShapes")).unwrap();
     std::fs::write(
             root.join("DataShapes/P.D.xml"),
@@ -1541,12 +1531,11 @@ fn arguments_of_the_wrong_shape_are_refused_before_the_tool_runs() {
     }
     assert_eq!(std::fs::read(root.join("Things/P.T.xml")).unwrap(), before);
     assert!(!root.join(".twaco/baseline.json").exists());
-    let _ = std::fs::remove_dir_all(root);
 }
 
 #[test]
 fn a_status_with_an_unreadable_entity_file_records_nothing() {
-    let root = solution_dir();
+    let (_dir, root) = solution_dir();
     std::fs::write(root.join("Things/Broken.xml"), "<Entities><Things><Thing").unwrap();
     let responses = converse(
         &root,
@@ -1559,12 +1548,11 @@ fn a_status_with_an_unreadable_entity_file_records_nothing() {
     assert_eq!(result["isError"], true, "{text}");
     assert!(text.contains("could not be read"), "{text}");
     assert!(!root.join(".twaco/baseline.json").exists());
-    let _ = std::fs::remove_dir_all(root);
 }
 
 #[test]
 fn a_status_whose_reads_failed_records_nothing() {
-    let root = solution_dir();
+    let (_dir, root) = solution_dir();
     std::fs::create_dir_all(root.join(".twaco/profiles")).unwrap();
     // Port 9 (discard) is closed on a development machine: every read fails at once.
     std::fs::write(
@@ -1583,14 +1571,13 @@ fn a_status_whose_reads_failed_records_nothing() {
     assert_eq!(result["isError"], true, "{text}");
     assert!(text.contains("nothing was recorded"), "{text}");
     assert!(!root.join(".twaco/baseline.json").exists());
-    let _ = std::fs::remove_dir_all(root);
 }
 
 #[test]
 fn writing_tools_take_the_lock_before_they_read_anything() {
     // Each call would fail on what it reads (an unknown entity, no profile), so being
     // refused for the lock instead proves the lock came first.
-    let root = solution_dir();
+    let (_dir, root) = solution_dir();
     let held = lock::acquire(&root, "sync", &[]).unwrap();
     for (tool, arguments) in [
         (
@@ -1619,12 +1606,11 @@ fn writing_tools_take_the_lock_before_they_read_anything() {
         assert!(text.contains("another twaco command"), "{tool}: {text}");
     }
     drop(held);
-    let _ = std::fs::remove_dir_all(root);
 }
 
 #[test]
 fn a_held_workspace_lock_has_its_stable_code() {
-    let root = solution_dir();
+    let (_dir, root) = solution_dir();
     let solution = Solution::load(&root.join("twaco.toml")).unwrap();
     let held = lock::acquire_for(&solution, "test holder").unwrap();
     let replies = converse(
@@ -1647,12 +1633,11 @@ fn a_held_workspace_lock_has_its_stable_code() {
         "{body}"
     );
     drop(held);
-    let _ = std::fs::remove_dir_all(root);
 }
 
 #[test]
 fn a_service_call_is_a_dry_run_unless_asked_and_needs_no_server_to_be_one() {
-    let root = solution_dir();
+    let (_dir, root) = solution_dir();
     let responses = converse(
         &root,
         &[
@@ -1664,7 +1649,6 @@ fn a_service_call_is_a_dry_run_unless_asked_and_needs_no_server_to_be_one() {
     let text: Value = serde_json::from_str(result["content"][0]["text"].as_str().unwrap()).unwrap();
     assert_eq!(text["dry_run"], true);
     assert_eq!(text["would_call"]["service"], "Reset");
-    let _ = std::fs::remove_dir_all(root);
 }
 
 /// The `outputSchema` a tool publishes to the newest protocol revision.
@@ -1689,22 +1673,22 @@ fn call(root: &Path, name: &str, arguments: Value) -> Value {
 
 /// A solution whose server profile points at a port nothing listens on: every read fails at once,
 /// and nothing is ever sent.
-fn solution_with_unreachable_server() -> PathBuf {
-    let root = solution_dir();
+fn solution_with_unreachable_server() -> (tempfile::TempDir, PathBuf) {
+    let (_dir, root) = solution_dir();
     std::fs::create_dir_all(root.join(".twaco/profiles")).unwrap();
     std::fs::write(
         root.join(".twaco/profiles/default.toml"),
         "url = \"http://127.0.0.1:9/Thingworx/\"\nusername = \"u\"\npassword = \"p\"\n",
     )
     .unwrap();
-    root
+    (_dir, root)
 }
 
 #[test]
 fn what_the_stable_tools_return_fits_the_output_schema_they_publish() {
     // The registry holds every successful result of a tool that publishes an output schema to it,
     // so these calls fail the test if a shape drifts. Each also has to be a success.
-    let root = solution_with_unreachable_server();
+    let (_dir, root) = solution_with_unreachable_server();
     let calls = [
         ("projects", json!({})),
         ("check", json!({})),
@@ -1726,12 +1710,11 @@ fn what_the_stable_tools_return_fits_the_output_schema_they_publish() {
             "{name} {arguments}: {content}"
         );
     }
-    let _ = std::fs::remove_dir_all(root);
 }
 
 #[test]
 fn a_deploy_the_offline_gates_stop_answers_in_the_published_shape() {
-    let root = solution_with_unreachable_server();
+    let (_dir, root) = solution_with_unreachable_server();
     std::fs::write(root.join("Things/Broken.xml"), "<Entities><Things><Thing").unwrap();
     let result = call(&root, "deploy", json!({}));
     let content = &result["structuredContent"];
@@ -1740,7 +1723,6 @@ fn a_deploy_the_offline_gates_stop_answers_in_the_published_shape() {
         &output_schema_of("deploy"),
         content
     ));
-    let _ = std::fs::remove_dir_all(root);
 }
 
 #[test]
@@ -1795,7 +1777,7 @@ fn every_push_result_fits_the_output_schema() {
 
 #[test]
 fn package_reports_what_it_wrote_from_a_single_build() {
-    let root = solution_dir();
+    let (_dir, root) = solution_dir();
     let bundle = call(
         &root,
         "package",
@@ -1829,7 +1811,6 @@ fn package_reports_what_it_wrote_from_a_single_build() {
         solution["structuredContent"]["detail"]["projects"][0]["project"], "P",
         "{solution}"
     );
-    let _ = std::fs::remove_dir_all(root);
 }
 
 fn call_tool(root: &Path, tool: &str, arguments: Value) -> (bool, Value) {
@@ -1846,7 +1827,7 @@ fn call_tool(root: &Path, tool: &str, arguments: Value) -> (bool, Value) {
 
 #[test]
 fn the_tools_do_what_the_command_line_does() {
-    let root = solution_dir();
+    let (_dir, root) = solution_dir();
 
     // `twaco guide` with nothing lists the topics; with words it searches.
     let (failed, listed) = call_tool(&root, "guide", json!({}));
@@ -1889,7 +1870,11 @@ fn the_tools_do_what_the_command_line_does() {
     }
 
     // A restore reads its backup only from inside the solution, before the server is asked.
-    let outside = std::env::temp_dir().join(format!("twaco-outside-{}.json", crate::test_nonce()));
+    let outside_dir = tempfile::Builder::new()
+        .prefix("twaco-outside-")
+        .tempdir()
+        .unwrap();
+    let outside = outside_dir.path().join("outside.json");
     std::fs::write(&outside, "{}").unwrap();
     let (failed, body) = call_tool(
         &root,
@@ -1905,7 +1890,6 @@ fn the_tools_do_what_the_command_line_does() {
             .contains("outside the solution"),
         "{body}"
     );
-    let _ = std::fs::remove_file(&outside);
 
     // doctor works without a profile, and says the server commands need one.
     let (failed, body) = call_tool(&root, "doctor", json!({"profile": "no-such-profile"}));
@@ -1933,5 +1917,147 @@ fn the_tools_do_what_the_command_line_does() {
     assert!(target.is_file());
     let (_, body) = call_tool(&root, "bundle", json!({}));
     assert_eq!(body["state"], "current", "{body}");
-    let _ = std::fs::remove_dir_all(root);
+}
+
+/// A server that answers every entity read with the same XML, so a status read has work to do.
+fn entity_server() -> std::net::SocketAddr {
+    use std::io::{Read, Write};
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let address = listener.local_addr().unwrap();
+    std::thread::spawn(move || {
+        for stream in listener.incoming() {
+            let Ok(mut stream) = stream else { return };
+            let mut buffer = [0u8; 8192];
+            let read = stream.read(&mut buffer).unwrap_or(0);
+            let request = String::from_utf8_lossy(&buffer[..read]).into_owned();
+            let path = request.split_whitespace().nth(1).unwrap_or("");
+            let name = path.rsplit('/').next().unwrap_or("");
+            let body = format!(
+                "<Entities><Things><Thing name=\"{name}\" projectName=\"Test\"></Thing></Things></Entities>"
+            );
+            let _ = write!(
+                stream,
+                "HTTP/1.1 200 OK\r\nContent-Type: text/xml\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+                body.len()
+            );
+        }
+    });
+    address
+}
+
+fn status_workspace() -> (tempfile::TempDir, PathBuf) {
+    let (guard, root) = solution_dir();
+    for n in 0..6 {
+        std::fs::write(
+            root.join(format!("Things/P.T{n}.xml")),
+            format!("<Entities><Things><Thing name=\"P.T{n}\" projectName=\"P\"></Thing></Things></Entities>"),
+        )
+        .unwrap();
+    }
+    std::fs::create_dir_all(root.join(".twaco/profiles")).unwrap();
+    std::fs::write(
+        root.join(".twaco/profiles/default.toml"),
+        format!(
+            "url = \"http://{}/Thingworx/\"\nusername = \"user\"\npassword = \"pass\"\n",
+            entity_server()
+        ),
+    )
+    .unwrap();
+    (guard, root)
+}
+
+fn status_call(id: u64, meta: Option<Value>) -> Value {
+    let mut params = json!({ "name": "status", "arguments": { "all": true } });
+    if let Some(meta) = meta {
+        params["_meta"] = meta;
+    }
+    json!({ "jsonrpc": "2.0", "id": id, "method": "tools/call", "params": params })
+}
+
+fn progress_lines(lines: &[Value]) -> Vec<&Value> {
+    lines
+        .iter()
+        .filter(|line| line["method"] == "notifications/progress")
+        .collect()
+}
+
+#[test]
+fn a_call_with_a_progress_token_gets_rising_notifications_before_its_response() {
+    let (_guard, root) = status_workspace();
+    let lines = converse(
+        &root,
+        &[status_call(1, Some(json!({ "progressToken": "tok-1" })))],
+    );
+    let notifications = progress_lines(&lines);
+    assert!(notifications.len() >= 2, "{lines:?}");
+    let values: Vec<u64> = notifications
+        .iter()
+        .map(|line| line["params"]["progress"].as_u64().unwrap())
+        .collect();
+    assert!(
+        values.windows(2).all(|pair| pair[0] < pair[1]),
+        "{values:?}"
+    );
+    assert_eq!(*values.last().unwrap(), 7, "all 7 entities counted");
+    assert!(notifications
+        .iter()
+        .all(|line| line["params"]["progressToken"] == "tok-1" && line["jsonrpc"] == "2.0"));
+    // The response is the last line, and it answers the request.
+    let response = lines.last().unwrap();
+    assert_eq!(response["id"], 1);
+    assert!(response.get("result").is_some(), "{response}");
+    assert_eq!(lines.len(), notifications.len() + 1);
+}
+
+#[test]
+fn a_call_without_a_progress_token_gets_no_notifications() {
+    let (_guard, root) = status_workspace();
+    let lines = converse(
+        &root,
+        &[status_call(1, None), status_call(2, Some(json!({})))],
+    );
+    assert!(progress_lines(&lines).is_empty(), "{lines:?}");
+    assert_eq!(lines.len(), 2);
+}
+
+#[test]
+fn a_number_token_is_echoed_as_a_number() {
+    let (_guard, root) = status_workspace();
+    let lines = converse(
+        &root,
+        &[status_call(5, Some(json!({ "progressToken": 42 })))],
+    );
+    let notifications = progress_lines(&lines);
+    assert!(!notifications.is_empty());
+    assert!(notifications
+        .iter()
+        .all(|line| line["params"]["progressToken"] == 42));
+}
+
+// The default is a dry run, so the phase says that it plans.
+#[test]
+fn a_push_with_a_progress_token_reports_its_entity() {
+    let (_guard, root) = status_workspace();
+    let lines = converse(
+        &root,
+        &[json!({
+            "jsonrpc": "2.0", "id": 1, "method": "tools/call",
+            "params": {
+                "name": "push",
+                "arguments": { "entity": "P.T0" },
+                "_meta": { "progressToken": "push-1" }
+            }
+        })],
+    );
+    let notifications = progress_lines(&lines);
+    assert!(!notifications.is_empty(), "{lines:?}");
+    assert!(notifications
+        .iter()
+        .all(|line| line["params"]["progressToken"] == "push-1"));
+    assert!(
+        notifications.iter().any(|line| line["params"]["message"]
+            .as_str()
+            .is_some_and(|text| text.contains("planning push"))),
+        "{notifications:?}"
+    );
 }

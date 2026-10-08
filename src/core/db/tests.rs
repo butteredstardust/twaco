@@ -10,13 +10,15 @@ use std::collections::BTreeMap;
 use std::path::PathBuf;
 use std::time::Duration;
 
-fn temp(label: &str) -> PathBuf {
-    let nonce = crate::test_nonce();
-    let root =
-        std::env::temp_dir().join(format!("twaco-db-{label}-{}-{nonce}", std::process::id()));
+fn temp(label: &str) -> (tempfile::TempDir, PathBuf) {
+    let root_guard = tempfile::Builder::new()
+        .prefix(&format!("twaco-db-{label}-"))
+        .tempdir()
+        .unwrap();
+    let root = root_guard.path().to_path_buf();
     std::fs::create_dir_all(&root).unwrap();
     std::fs::write(root.join("twaco.toml"), "[[project]]\nname='P'\nroot='.'\n").unwrap();
-    root
+    (root_guard, root)
 }
 
 fn solution(root: &std::path::Path) -> Solution {
@@ -316,7 +318,7 @@ fn jdbc_password_parameter_is_removed() {
 
 #[test]
 fn plan_reads_only_and_printable_fields_hide_both_passwords() {
-    let root = temp("plan");
+    let (_dir, root) = temp("plan");
     let fake = Fake::default();
     let options = Options {
         mode: Mode::Run,
@@ -347,12 +349,11 @@ fn plan_reads_only_and_printable_fields_hide_both_passwords() {
     assert!(output.contains("UPDATE x SET y=1"));
     assert!(!output.contains("DISTINCT-db-password"));
     assert!(!output.contains("url-secret"));
-    let _ = std::fs::remove_dir_all(root);
 }
 
 #[test]
 fn apply_uses_the_verified_order_and_bodies_then_deletes_and_confirms() {
-    let root = temp("apply");
+    let (_dir, root) = temp("apply");
     let fake = Fake::default();
     let options = Options {
         mode: Mode::Run,
@@ -404,13 +405,12 @@ fn apply_uses_the_verified_order_and_bodies_then_deletes_and_confirms() {
     assert!(xml.contains("<![CDATA[COMMIT; a ]]]]><![CDATA[> b]]>"));
     assert!(!xml.contains("DISTINCT-db-password"));
     assert!(!xml.contains("url-secret"));
-    let _ = std::fs::remove_dir_all(root);
 }
 
 #[test]
 fn middle_and_run_failures_still_delete_and_errors_hide_the_password() {
     for service in ["SetConfigurationTable", "Run"] {
-        let root = temp(service);
+        let (_dir, root) = temp(service);
         let fake = Fake::default();
         fake.fail.replace(Some(service.into()));
         let options = Options {
@@ -438,13 +438,12 @@ fn middle_and_run_failures_still_delete_and_errors_hide_the_password() {
             .iter()
             .any(|call| call.0.starts_with("DELETE ZZ.Twaco.Sql.")));
         assert!(!fake.exists.get());
-        let _ = std::fs::remove_dir_all(root);
     }
 }
 
 #[test]
 fn failed_delete_is_loud_names_the_thing_and_hides_the_password() {
-    let root = temp("delete-fail");
+    let (_dir, root) = temp("delete-fail");
     let fake = Fake::default();
     fake.delete_fails.set(true);
     let options = Options {
@@ -467,12 +466,11 @@ fn failed_delete_is_loud_names_the_thing_and_hides_the_password() {
     assert!(error.contains("FAILED TO DELETE temporary Thing ZZ.Twaco.Sql."));
     assert!(error.contains("remove it manually"));
     assert!(!error.contains("DISTINCT-db-password"));
-    let _ = std::fs::remove_dir_all(root);
 }
 
 #[test]
 fn a_missing_database_password_refuses_before_any_server_read() {
-    let root = temp("password");
+    let (_dir, root) = temp("password");
     let fake = Fake::default();
     let options = Options {
         mode: Mode::Run,
@@ -493,12 +491,11 @@ fn a_missing_database_password_refuses_before_any_server_read() {
     .to_string();
     assert!(error.contains("database_password"));
     assert!(fake.calls.borrow().is_empty());
-    let _ = std::fs::remove_dir_all(root);
 }
 
 #[test]
 fn candidate_resolution_follows_template_inheritance_and_explicit_wins() {
-    let root = temp("candidates");
+    let (_dir, root) = temp("candidates");
     std::fs::create_dir_all(root.join("ThingTemplates")).unwrap();
     std::fs::create_dir_all(root.join("Things")).unwrap();
     std::fs::write(root.join("ThingTemplates/P.DbBase.xml"), r#"<Entities><ThingTemplates><ThingTemplate name="P.DbBase" projectName="P" baseThingTemplate="Database"/></ThingTemplates></Entities>"#).unwrap();
@@ -519,5 +516,4 @@ fn candidate_resolution_follows_template_inheritance_and_explicit_wins() {
         .unwrap_err()
         .to_string()
         .contains("no database Thing"));
-    let _ = std::fs::remove_dir_all(root);
 }

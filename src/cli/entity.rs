@@ -1,17 +1,21 @@
 use super::super::*;
 use super::refactor::same_path;
+use super::style;
 
 /// Fetch one raw export without ever replacing a file that belongs to the solution.
 pub(crate) fn entity_get(solution: &Solution, args: &Args) -> u8 {
     if args.names.len() != 1 {
-        eprintln!("twaco: entity get needs exactly one entity name");
+        eprintln!(
+            "{} entity get needs exactly one entity name",
+            style::prefix()
+        );
         return FAILED;
     }
     use twaco::core::entity_get;
     let key = match entity_get::target(solution, &args.names[0]) {
         Ok(key) => key,
         Err(error) => {
-            eprintln!("twaco: {error}");
+            eprintln!("{} {error}", style::prefix());
             return FAILED;
         }
     };
@@ -22,7 +26,8 @@ pub(crate) fn entity_get(solution: &Solution, args: &Args) -> u8 {
             .any(|candidate| same_path(out, &candidate.path))
         {
             eprintln!(
-                "twaco: --out {} is a project entity file; entity get never overwrites project source",
+                "{} --out {} is a project entity file; entity get never overwrites project source",
+                style::prefix(),
                 out.display()
             );
             return FAILED;
@@ -33,26 +38,26 @@ pub(crate) fn entity_get(solution: &Solution, args: &Args) -> u8 {
     let profile = match profile::load(&solution.root, profile_name) {
         Ok(profile) => profile,
         Err(error) => {
-            eprintln!("twaco: {error}");
+            eprintln!("{} {error}", style::prefix());
             return FAILED;
         }
     };
     let live = match entity_get::fetch(&server::Client::new(profile), &key) {
         Ok(bytes) => bytes,
         Err(error) => {
-            eprintln!("twaco: {error}");
+            eprintln!("{} {error}", style::prefix());
             return FAILED;
         }
     };
 
     if let Some(out) = &args.out {
         if let Err(error) = workspace::write_entity(out, &live) {
-            eprintln!("twaco: {error}");
+            eprintln!("{} {error}", style::prefix());
             return FAILED;
         }
         println!("wrote {} raw bytes to {}", live.len(), out.display());
     } else if let Err(error) = std::io::stdout().write_all(&live) {
-        eprintln!("twaco: stdout: {error}");
+        eprintln!("{} stdout: {error}", style::prefix());
         return FAILED;
     }
     OK
@@ -61,7 +66,10 @@ pub(crate) fn entity_get(solution: &Solution, args: &Args) -> u8 {
 /// Compare working, server and tracked ancestor, optionally recording matching hashes once.
 pub(crate) fn entity_status(solution: &Solution, args: &Args) -> u8 {
     if args.names.len() > 1 {
-        eprintln!("twaco: entity status accepts one entity name, or --all");
+        eprintln!(
+            "{} entity status accepts one entity name, or --all",
+            style::prefix()
+        );
         return FAILED;
     }
     let request = commands::status::StatusRequest {
@@ -81,36 +89,54 @@ pub(crate) fn entity_status(solution: &Solution, args: &Args) -> u8 {
         refuse_record_failures: false,
     };
     let mut notices = commands::Notices::default();
-    let outcome =
-        match commands::status::execute(solution, &request, server::Client::new, &mut notices) {
-            Ok(outcome) => outcome,
-            Err(error) => {
-                print_notices(&notices);
-                if let commands::status::StatusCommandError::Unreadable(items) = &error {
-                    for problem in items {
-                        eprintln!("twaco: {problem}");
-                    }
-                } else {
-                    eprintln!("twaco: {error}");
+    let progress = super::progress::reporter();
+    let outcome = match commands::status::execute(
+        solution,
+        &request,
+        server::Client::new,
+        &mut notices,
+        &progress,
+    ) {
+        Ok(outcome) => outcome,
+        Err(error) => {
+            print_notices(&notices);
+            if let commands::status::StatusCommandError::Unreadable(items) = &error {
+                for problem in items {
+                    eprintln!("{} {problem}", style::prefix());
                 }
-                return FAILED;
+            } else {
+                eprintln!("{} {error}", style::prefix());
             }
-        };
+            return FAILED;
+        }
+    };
     print_notices(&notices);
     if !outcome.failures.is_empty() {
         for failure in &outcome.failures {
-            eprintln!("twaco: {failure}");
+            eprintln!("{} {failure}", style::prefix());
         }
         eprintln!(
-            "twaco: {} entity status request(s) failed",
+            "{} {} entity status request(s) failed",
+            style::prefix(),
             outcome.failures.len()
         );
         return FAILED;
     }
 
-    println!("{} entity status(es)", outcome.statuses.len());
+    println!(
+        "{}",
+        style::heading(&format!("{} entity status(es)", outcome.statuses.len()))
+    );
     for (verdict, count) in status::counts(&outcome.statuses) {
-        println!("  {:<19} {count}", verdict.label());
+        let label = format!("{:<19}", verdict.label());
+        let label = if count == 0 {
+            style::dim(&label)
+        } else if verdict.is_drift() {
+            style::warn(&label)
+        } else {
+            style::ok(&label)
+        };
+        println!("  {label} {count}");
     }
     if args.has("--detail") {
         println!();
@@ -147,7 +173,10 @@ pub(crate) fn entity_status(solution: &Solution, args: &Args) -> u8 {
 /// Push one entity. A dry run unless `--apply`: the blast radius is a server.
 pub(crate) fn entity_push(solution: &Solution, args: &Args) -> u8 {
     if args.names.len() != 1 || args.has("--all") {
-        eprintln!("twaco: entity push takes exactly one entity name");
+        eprintln!(
+            "{} entity push takes exactly one entity name",
+            style::prefix()
+        );
         return FAILED;
     }
     let request = commands::push::PushRequest {
@@ -165,7 +194,14 @@ pub(crate) fn entity_push(solution: &Solution, args: &Args) -> u8 {
             .unwrap_or_else(|| "default".to_string()),
     };
     let mut notices = commands::Notices::default();
-    let result = commands::push::execute(solution, &request, server::Client::new, &mut notices);
+    let progress = super::progress::reporter();
+    let result = commands::push::execute_with_progress(
+        solution,
+        &request,
+        server::Client::new,
+        &mut notices,
+        &progress,
+    );
     print_notices(&notices);
     match result {
         Ok(commands::push::PushOutcome::Plan {
@@ -183,7 +219,7 @@ pub(crate) fn entity_push(solution: &Solution, args: &Args) -> u8 {
                     )
                 }
                 push::Decision::Refuse(refusal) => {
-                    println!("{label}: would refuse: {refusal}");
+                    println!("{label}: {}: {refusal}", style::warn("would refuse"));
                     if !request.force {
                         return DRIFT;
                     }
@@ -214,8 +250,11 @@ pub(crate) fn entity_push(solution: &Solution, args: &Args) -> u8 {
                     OK
                 }
                 push::Outcome::Refused(refusal) => {
-                    eprintln!("twaco: {label}: refused: {refusal}");
-                    eprintln!("twaco: nothing was sent; --force pushes anyway");
+                    eprintln!("{} {label}: refused: {refusal}", style::prefix());
+                    eprintln!(
+                        "{} nothing was sent; --force pushes anyway",
+                        style::prefix()
+                    );
                     DRIFT
                 }
                 push::Outcome::WouldDo(_) => unreachable!("an applied outcome cannot be a plan"),
@@ -224,17 +263,20 @@ pub(crate) fn entity_push(solution: &Solution, args: &Args) -> u8 {
         Err(error) => {
             if let commands::push::PushCommandError::Unreadable(unreadable) = &error {
                 for problem in unreadable {
-                    eprintln!("twaco: {problem}");
+                    eprintln!("{} {problem}", style::prefix());
                 }
             } else if matches!(error, commands::push::PushCommandError::Backup { .. }) {
-                eprintln!("twaco: {error} (--no-backup pushes without one)");
+                eprintln!(
+                    "{} {error} (--no-backup pushes without one)",
+                    style::prefix()
+                );
             } else {
                 if let (Some(label), Some(dir)) = (error.label(), error.backup()) {
                     println!(
                         "{label}: the server's copy was saved to {dir} before it is overwritten"
                     );
                 }
-                eprintln!("twaco: {error}");
+                eprintln!("{} {error}", style::prefix());
             }
             FAILED
         }
@@ -252,7 +294,7 @@ pub(crate) fn entity_delete_cmd(solution: &Solution, args: &Args) -> u8 {
         args.has("--allow-file-repository-data-loss"),
     );
     if force_used {
-        eprintln!("twaco: {}", entity_delete_force_deprecation());
+        eprintln!("{} {}", style::prefix(), entity_delete_force_deprecation());
     }
     let request = commands::delete::EntityDeleteRequest {
         entities: args.names.clone(),
@@ -276,7 +318,7 @@ pub(crate) fn entity_delete_cmd(solution: &Solution, args: &Args) -> u8 {
     let outcome = match result {
         Ok(outcome) => outcome,
         Err(error) => {
-            eprintln!("twaco: {error}");
+            eprintln!("{} {error}", style::prefix());
             return FAILED;
         }
     };
@@ -366,7 +408,7 @@ pub(crate) fn entity_restore_cmd(solution: &Solution, args: &Args) -> u8 {
             Ok(outcome) => outcome,
             Err(error) => {
                 print_notices(&notices);
-                eprintln!("twaco: {error}");
+                eprintln!("{} {error}", style::prefix());
                 return FAILED;
             }
         };
@@ -438,7 +480,7 @@ pub(crate) fn entity_carry_cmd(solution: &Solution, args: &Args) -> u8 {
     let pairs = match entity_carry::pairs_from_names(&args.names) {
         Ok(pairs) => pairs,
         Err(error) => {
-            eprintln!("twaco: {error}");
+            eprintln!("{} {error}", style::prefix());
             return FAILED;
         }
     };
@@ -463,7 +505,7 @@ pub(crate) fn entity_carry_cmd(solution: &Solution, args: &Args) -> u8 {
             Ok(outcome) => outcome,
             Err(error) => {
                 print_notices(&notices);
-                eprintln!("twaco: {error}");
+                eprintln!("{} {error}", style::prefix());
                 return FAILED;
             }
         };
@@ -527,7 +569,8 @@ pub(crate) fn permissions_cmd(solution: &Solution, route: &str, args: &Args) -> 
     if push && args.has("--platform") {
         if args.has("--all") || !args.names.is_empty() {
             eprintln!(
-                "twaco: --platform pushes the policy's platform entries; push entities separately"
+                "{} --platform pushes the policy's platform entries; push entities separately",
+                style::prefix()
             );
             return FAILED;
         }
@@ -552,16 +595,20 @@ pub(crate) fn permissions_cmd(solution: &Solution, route: &str, args: &Args) -> 
         lock_label: "permissions push",
     };
     let mut notices = commands::Notices::default();
-    let outcome =
-        match commands::permissions::execute(solution, &request, server::Client::new, &mut notices)
-        {
-            Ok(outcome) => outcome,
-            Err(error) => {
-                print_notices(&notices);
-                eprintln!("twaco: {error}");
-                return FAILED;
-            }
-        };
+    let outcome = match commands::permissions::execute_with_progress(
+        solution,
+        &request,
+        server::Client::new,
+        &mut notices,
+        &super::progress::reporter(),
+    ) {
+        Ok(outcome) => outcome,
+        Err(error) => {
+            print_notices(&notices);
+            eprintln!("{} {error}", style::prefix());
+            return FAILED;
+        }
+    };
     print_notices(&notices);
     let report = &outcome.report;
     if args.has("--json") {
@@ -655,11 +702,15 @@ pub(crate) fn permissions_audit_cmd(solution: &Solution, args: &Args) -> u8 {
                 .unwrap_or_else(|| "default".to_string())
         }),
     };
-    let report = match commands::permissions::execute_audit(solution, &request, server::Client::new)
-    {
+    let report = match commands::permissions::execute_audit_with_progress(
+        solution,
+        &request,
+        server::Client::new,
+        &super::progress::reporter(),
+    ) {
         Ok(report) => report,
         Err(error) => {
-            eprintln!("twaco: {error}");
+            eprintln!("{} {error}", style::prefix());
             return FAILED;
         }
     };
@@ -750,11 +801,16 @@ pub(crate) fn permissions_apply_cmd(solution: &Solution, args: &Args) -> u8 {
         lock_label: "permissions apply",
     };
     let mut notices = commands::Notices::default();
-    let outcome = match commands::permissions::execute_apply(solution, &request, &mut notices) {
+    let outcome = match commands::permissions::execute_apply_with_progress(
+        solution,
+        &request,
+        &mut notices,
+        &super::progress::reporter(),
+    ) {
         Ok(outcome) => outcome,
         Err(error) => {
             print_notices(&notices);
-            eprintln!("twaco: {error}");
+            eprintln!("{} {error}", style::prefix());
             return FAILED;
         }
     };
@@ -874,14 +930,18 @@ fn permissions_platform_cmd(solution: &Solution, args: &Args) -> u8 {
             .clone()
             .unwrap_or_else(|| "default".to_string()),
     };
-    let report =
-        match commands::permissions::execute_platform(solution, &request, server::Client::new) {
-            Ok(report) => report,
-            Err(error) => {
-                eprintln!("twaco: {error}");
-                return FAILED;
-            }
-        };
+    let report = match commands::permissions::execute_platform_with_progress(
+        solution,
+        &request,
+        server::Client::new,
+        &super::progress::reporter(),
+    ) {
+        Ok(report) => report,
+        Err(error) => {
+            eprintln!("{} {error}", style::prefix());
+            return FAILED;
+        }
+    };
     if args.has("--json") {
         println!(
             "{}",
@@ -953,7 +1013,7 @@ pub(crate) fn permissions_init_cmd(solution: &Solution, args: &Args) -> u8 {
         Ok(outcome) => outcome,
         Err(error) => {
             print_notices(&notices);
-            eprintln!("twaco: {error}");
+            eprintln!("{} {error}", style::prefix());
             return FAILED;
         }
     };

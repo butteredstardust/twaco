@@ -4,7 +4,6 @@ use super::{Access, Effects, Mode, Notices};
 use crate::core::codes::{Coded, ErrorCode};
 use crate::core::config::Solution;
 use crate::core::{logs, profile};
-use std::fmt;
 
 /// The requested log-level operation.
 #[derive(Clone, Debug)]
@@ -49,22 +48,13 @@ pub trait Remote: logs::Remote {}
 impl<T: logs::Remote + ?Sized> Remote for T {}
 
 /// A failure before a typed log-level outcome could be produced.
-#[derive(Debug)]
+#[derive(Debug, thiserror::Error)]
 pub enum LogLevelCommandError {
+    #[error("{0}")]
     Profile(profile::ProfileError),
+    #[error("{0}")]
     Logs(logs::LogsError),
 }
-
-impl fmt::Display for LogLevelCommandError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Self::Profile(error) => error.fmt(f),
-            Self::Logs(error) => error.fmt(f),
-        }
-    }
-}
-
-impl std::error::Error for LogLevelCommandError {}
 
 impl Coded for LogLevelCommandError {
     fn code(&self) -> ErrorCode {

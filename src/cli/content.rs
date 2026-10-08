@@ -1,4 +1,5 @@
 use super::super::*;
+use super::style;
 
 /// `twaco export entity | collection | project | source-control`.
 /// Search the server's entities, as Composer's Spotlight box does.
@@ -8,7 +9,7 @@ pub(crate) fn search_cmd(solution: &Solution, args: &Args) -> u8 {
         None => search::DEFAULT_LIMIT,
         Some(Ok(limit)) => limit,
         Some(Err(_)) => {
-            eprintln!("twaco: --limit takes a number");
+            eprintln!("{} --limit takes a number", style::prefix());
             return FAILED;
         }
     };
@@ -24,14 +25,14 @@ pub(crate) fn search_cmd(solution: &Solution, args: &Args) -> u8 {
     let profile = match profile::load(&solution.root, profile_name) {
         Ok(profile) => profile,
         Err(error) => {
-            eprintln!("twaco: {error}");
+            eprintln!("{} {error}", style::prefix());
             return FAILED;
         }
     };
     let outcome = match search::search(&server::Client::new(profile), &query) {
         Ok(outcome) => outcome,
         Err(error) => {
-            eprintln!("twaco: search: {error}");
+            eprintln!("{} search: {error}", style::prefix());
             return FAILED;
         }
     };
@@ -93,6 +94,7 @@ pub(crate) fn search_cmd(solution: &Solution, args: &Args) -> u8 {
 
 pub(crate) fn export_cmd(solution: &Solution, args: &Args) -> u8 {
     use twaco::core::commands::export::{self as command, ExportAction, ExportRequest};
+    let progress = super::progress::reporter();
     use twaco::core::export;
     let profile_name = args.profile.as_deref().unwrap_or("default");
     let value = |flag: &str| args.values.get(flag).cloned();
@@ -154,7 +156,7 @@ pub(crate) fn export_cmd(solution: &Solution, args: &Args) -> u8 {
                     profile: profile_name.to_string(),
                 };
                 let mut notices = commands::Notices::default();
-                let outcome = command::execute(solution, &request, server::Client::new, &mut notices)
+                let outcome = command::execute(solution, &request, server::Client::new, &mut notices, &progress)
                     .map_err(|e| e.to_string())?;
                 print_notices(&notices);
                 let command::ExportOutcome::SourceControl { plan, download: link, .. } = outcome else {
@@ -177,8 +179,14 @@ pub(crate) fn export_cmd(solution: &Solution, args: &Args) -> u8 {
             profile: profile_name.to_string(),
         };
         let mut notices = commands::Notices::default();
-        let outcome = command::execute(solution, &request, server::Client::new, &mut notices)
-            .map_err(|e| e.to_string())?;
+        let outcome = command::execute(
+            solution,
+            &request,
+            server::Client::new,
+            &mut notices,
+            &progress,
+        )
+        .map_err(|e| e.to_string())?;
         print_notices(&notices);
         let command::ExportOutcome::Xml { out, exported, .. } = outcome else {
             unreachable!()
@@ -203,7 +211,7 @@ pub(crate) fn export_cmd(solution: &Solution, args: &Args) -> u8 {
     match result {
         Ok(()) => OK,
         Err(why) => {
-            eprintln!("twaco: export: {why}");
+            eprintln!("{} export: {why}", style::prefix());
             FAILED
         }
     }
@@ -212,6 +220,7 @@ pub(crate) fn export_cmd(solution: &Solution, args: &Args) -> u8 {
 /// `twaco import <file> | import source-control`: into the server, as plans unless applied.
 pub(crate) fn import_cmd(solution: &Solution, args: &Args) -> u8 {
     use twaco::core::commands::imports::{self as command, ImportAction, ImportRequest};
+    let progress = super::progress::reporter();
     use twaco::core::imports;
     let profile_name = args.profile.as_deref().unwrap_or("default");
     let apply = args.has("--apply");
@@ -247,8 +256,14 @@ pub(crate) fn import_cmd(solution: &Solution, args: &Args) -> u8 {
                 profile: profile_name.to_string(),
             };
             let mut notices = commands::Notices::default();
-            let outcome = command::execute(solution, &request, server::Client::new, &mut notices)
-                .map_err(|e| e.to_string())?;
+            let outcome = command::execute(
+                solution,
+                &request,
+                server::Client::new,
+                &mut notices,
+                &progress,
+            )
+            .map_err(|e| e.to_string())?;
             print_notices(&notices);
             let command::ImportOutcome::SourceControl {
                 report: imported, ..
@@ -298,8 +313,14 @@ pub(crate) fn import_cmd(solution: &Solution, args: &Args) -> u8 {
                 profile: profile_name.to_string(),
             };
             let mut notices = commands::Notices::default();
-            let outcome = command::execute(solution, &request, server::Client::new, &mut notices)
-                .map_err(|e| e.to_string())?;
+            let outcome = command::execute(
+                solution,
+                &request,
+                server::Client::new,
+                &mut notices,
+                &progress,
+            )
+            .map_err(|e| e.to_string())?;
             print_notices(&notices);
             let command::ImportOutcome::File { plan, .. } = outcome else {
                 unreachable!()
@@ -335,7 +356,7 @@ pub(crate) fn import_cmd(solution: &Solution, args: &Args) -> u8 {
     match result {
         Ok(()) => OK,
         Err(why) => {
-            eprintln!("twaco: import: {why}");
+            eprintln!("{} import: {why}", style::prefix());
             FAILED
         }
     }
@@ -346,7 +367,7 @@ pub(crate) fn import_cmd(solution: &Solution, args: &Args) -> u8 {
 pub(crate) fn package_cmd(solution: &Solution, args: &Args) -> u8 {
     use twaco::core::commands::package::{self, PackageAction, PackageRequest};
     let Some(out) = args.out.clone() else {
-        eprintln!("twaco: package: package needs --out <file>");
+        eprintln!("{} package: package needs --out <file>", style::prefix());
         return FAILED;
     };
     let action = match args.names.as_slice() {
@@ -354,7 +375,8 @@ pub(crate) fn package_cmd(solution: &Solution, args: &Args) -> u8 {
             match (args.has("--backend-only"), args.has("--frontend-only")) {
                 (true, true) => {
                     eprintln!(
-                        "twaco: package: --backend-only and --frontend-only say different things"
+                        "{} package: --backend-only and --frontend-only say different things",
+                        style::prefix()
                     );
                     return FAILED;
                 }
@@ -374,7 +396,10 @@ pub(crate) fn package_cmd(solution: &Solution, args: &Args) -> u8 {
             editable: args.has("--editable"),
         },
         _ => {
-            eprintln!("twaco: package: package takes: bundle | source-control | extension");
+            eprintln!(
+                "{} package: package takes: bundle | source-control | extension",
+                style::prefix()
+            );
             return FAILED;
         }
     };
@@ -397,7 +422,7 @@ pub(crate) fn package_cmd(solution: &Solution, args: &Args) -> u8 {
             OK
         }
         Err(error) => {
-            eprintln!("twaco: package: {error}");
+            eprintln!("{} package: {error}", style::prefix());
             FAILED
         }
     }
@@ -406,6 +431,7 @@ pub(crate) fn package_cmd(solution: &Solution, args: &Args) -> u8 {
 /// `twaco ext list | show | import | remove`: the server's extension packages.
 pub(crate) fn ext_cmd(solution: &Solution, args: &Args) -> u8 {
     use twaco::core::commands::extensions::{self as command, ExtensionAction, ExtensionRequest};
+    let progress = super::progress::reporter();
     let profile_name = args.profile.as_deref().unwrap_or("default");
     let names: Vec<&str> = args.names.iter().map(String::as_str).collect();
     let result: Result<(), String> = (|| match names.as_slice() {
@@ -415,8 +441,14 @@ pub(crate) fn ext_cmd(solution: &Solution, args: &Args) -> u8 {
                 profile: profile_name.to_string(),
             };
             let mut notices = commands::Notices::default();
-            let outcome = command::execute(solution, &request, server::Client::new, &mut notices)
-                .map_err(|e| e.to_string())?;
+            let outcome = command::execute(
+                solution,
+                &request,
+                server::Client::new,
+                &mut notices,
+                &progress,
+            )
+            .map_err(|e| e.to_string())?;
             print_notices(&notices);
             let command::ExtensionOutcome::Listed { packages, .. } = outcome else {
                 unreachable!()
@@ -442,8 +474,14 @@ pub(crate) fn ext_cmd(solution: &Solution, args: &Args) -> u8 {
                 profile: profile_name.to_string(),
             };
             let mut notices = commands::Notices::default();
-            let outcome = command::execute(solution, &request, server::Client::new, &mut notices)
-                .map_err(|e| e.to_string())?;
+            let outcome = command::execute(
+                solution,
+                &request,
+                server::Client::new,
+                &mut notices,
+                &progress,
+            )
+            .map_err(|e| e.to_string())?;
             print_notices(&notices);
             let command::ExtensionOutcome::Shown { shown, .. } = outcome else {
                 unreachable!()
@@ -494,8 +532,14 @@ pub(crate) fn ext_cmd(solution: &Solution, args: &Args) -> u8 {
                 profile: profile_name.to_string(),
             };
             let mut notices = commands::Notices::default();
-            let outcome = command::execute(solution, &request, server::Client::new, &mut notices)
-                .map_err(|e| e.to_string())?;
+            let outcome = command::execute(
+                solution,
+                &request,
+                server::Client::new,
+                &mut notices,
+                &progress,
+            )
+            .map_err(|e| e.to_string())?;
             print_notices(&notices);
             let command::ExtensionOutcome::Imported { imported, .. } = outcome else {
                 unreachable!()
@@ -523,8 +567,14 @@ pub(crate) fn ext_cmd(solution: &Solution, args: &Args) -> u8 {
                 profile: profile_name.to_string(),
             };
             let mut notices = commands::Notices::default();
-            let outcome = command::execute(solution, &request, server::Client::new, &mut notices)
-                .map_err(|e| e.to_string())?;
+            let outcome = command::execute(
+                solution,
+                &request,
+                server::Client::new,
+                &mut notices,
+                &progress,
+            )
+            .map_err(|e| e.to_string())?;
             print_notices(&notices);
             let command::ExtensionOutcome::Removed { plan, .. } = outcome else {
                 unreachable!()
@@ -541,7 +591,7 @@ pub(crate) fn ext_cmd(solution: &Solution, args: &Args) -> u8 {
     match result {
         Ok(()) => OK,
         Err(why) => {
-            eprintln!("twaco: ext: {why}");
+            eprintln!("{} ext: {why}", style::prefix());
             FAILED
         }
     }
@@ -549,6 +599,7 @@ pub(crate) fn ext_cmd(solution: &Solution, args: &Args) -> u8 {
 
 /// `twaco repo list | ls | get | status`: the server's file repositories, read-only.
 pub(crate) fn repo_cmd(solution: &Solution, args: &Args) -> u8 {
+    let progress = super::progress::reporter();
     use twaco::core::commands::repo::{self as command, RepoAction, RepoRequest};
     use twaco::core::repo;
     let profile_name = args.profile.as_deref().unwrap_or("default");
@@ -561,7 +612,13 @@ pub(crate) fn repo_cmd(solution: &Solution, args: &Args) -> u8 {
                 profile: profile_name.to_string(),
             };
             let mut notices = commands::Notices::default();
-            let outcome = command::execute(solution, &request, server::Client::new, &mut notices)
+            let outcome = command::execute_with_progress(
+                solution,
+                &request,
+                server::Client::new,
+                &mut notices,
+                &progress,
+            )
                 .map_err(|e| e.to_string())?;
             print_notices(&notices);
             let command::RepoOutcome::Listed { repositories, .. } = outcome else {
@@ -583,7 +640,13 @@ pub(crate) fn repo_cmd(solution: &Solution, args: &Args) -> u8 {
                 profile: profile_name.to_string(),
             };
             let mut notices = commands::Notices::default();
-            let outcome = command::execute(solution, &request, server::Client::new, &mut notices)
+            let outcome = command::execute_with_progress(
+                solution,
+                &request,
+                server::Client::new,
+                &mut notices,
+                &progress,
+            )
                 .map_err(|e| e.to_string())?;
             print_notices(&notices);
             let command::RepoOutcome::Ls { listing, .. } = outcome else {
@@ -618,7 +681,13 @@ pub(crate) fn repo_cmd(solution: &Solution, args: &Args) -> u8 {
                 profile: profile_name.to_string(),
             };
             let mut notices = commands::Notices::default();
-            let outcome = command::execute(solution, &request, server::Client::new, &mut notices)
+            let outcome = command::execute_with_progress(
+                solution,
+                &request,
+                server::Client::new,
+                &mut notices,
+                &progress,
+            )
                 .map_err(|e| e.to_string())?;
             print_notices(&notices);
             let command::RepoOutcome::Got { bytes, out, .. } = outcome else {
@@ -643,7 +712,13 @@ pub(crate) fn repo_cmd(solution: &Solution, args: &Args) -> u8 {
                 profile: profile_name.to_string(),
             };
             let mut notices = commands::Notices::default();
-            let outcome = command::execute(solution, &request, server::Client::new, &mut notices)
+            let outcome = command::execute_with_progress(
+                solution,
+                &request,
+                server::Client::new,
+                &mut notices,
+                &progress,
+            )
                 .map_err(|e| e.to_string())?;
             print_notices(&notices);
             let command::RepoOutcome::Status { local: root, compared, .. } = outcome else {
@@ -697,7 +772,13 @@ pub(crate) fn repo_cmd(solution: &Solution, args: &Args) -> u8 {
                 profile: profile_name.to_string(),
             };
             let mut notices = commands::Notices::default();
-            let result = command::execute(solution, &request, server::Client::new, &mut notices);
+            let result = command::execute_with_progress(
+                solution,
+                &request,
+                server::Client::new,
+                &mut notices,
+                &progress,
+            );
             print_notices(&notices);
             let outcome = result.map_err(|e| e.to_string())?;
             let command::RepoOutcome::Synced { synced, .. } = outcome else { unreachable!() };
@@ -733,7 +814,7 @@ pub(crate) fn repo_cmd(solution: &Solution, args: &Args) -> u8 {
     match result {
         Ok(()) => OK,
         Err(why) => {
-            eprintln!("twaco: repo: {why}");
+            eprintln!("{} repo: {why}", style::prefix());
             FAILED
         }
     }
@@ -748,6 +829,7 @@ fn repo_change(
     args: &Args,
 ) -> Result<(), String> {
     use twaco::core::commands::repo::{self as command, RepoAction, RepoRequest};
+    let progress = super::progress::reporter();
     let request = RepoRequest {
         action: RepoAction::Change {
             repository: repository.to_string(),
@@ -761,8 +843,14 @@ fn repo_change(
         profile: profile.to_string(),
     };
     let mut notices = commands::Notices::default();
-    let outcome = command::execute(solution, &request, server::Client::new, &mut notices)
-        .map_err(|e| e.to_string())?;
+    let outcome = command::execute_with_progress(
+        solution,
+        &request,
+        server::Client::new,
+        &mut notices,
+        &progress,
+    )
+    .map_err(|e| e.to_string())?;
     print_notices(&notices);
     let command::RepoOutcome::Changed { planned, .. } = outcome else {
         unreachable!()

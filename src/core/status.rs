@@ -7,6 +7,7 @@ use super::baseline::Baseline;
 use super::entity_key::EntityKey;
 use super::normalise;
 use super::parallel;
+use super::progress::{self, Progress, NONE};
 use super::push::Remote;
 use super::workspace::EntityFile;
 
@@ -88,7 +89,19 @@ pub fn compute(
     baseline: &Baseline,
     entities: &[EntityFile],
 ) -> (Vec<EntityStatus>, Vec<String>) {
-    let results = parallel::map(entities, |entity| {
+    compute_with_progress(remote, baseline, entities, &NONE)
+}
+
+/// Like [`compute`], and report one step per entity. Messages hold entity names only.
+pub fn compute_with_progress(
+    remote: &(dyn Remote + Sync),
+    baseline: &Baseline,
+    entities: &[EntityFile],
+    progress: &dyn Progress,
+) -> (Vec<EntityStatus>, Vec<String>) {
+    let _phase = progress::phase(progress, "comparing entities", Some(entities.len() as u64));
+    let results = parallel::map_progress(entities, progress, |entity| {
+        progress.message(&entity.info.name);
         let working = std::fs::read(&entity.path)
             .map_err(|error| error.to_string())
             .and_then(|bytes| normalise::hash(&bytes).map_err(|error| error.to_string()))

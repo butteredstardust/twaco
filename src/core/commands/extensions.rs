@@ -3,8 +3,8 @@
 use super::{Access, Effects, Mode, Notices};
 use crate::core::codes::{Coded, ErrorCode};
 use crate::core::config::Solution;
+use crate::core::progress::Progress;
 use crate::core::{extensions, profile};
-use std::fmt;
 
 /// An extension package operation requested by either adapter.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -66,21 +66,13 @@ impl ExtensionOutcome {
 }
 
 /// A failure before a typed extension outcome could be produced.
-#[derive(Debug)]
+#[derive(Debug, thiserror::Error)]
 pub enum ExtensionCommandError {
+    #[error("{0}")]
     Profile(profile::ProfileError),
+    #[error("{0}")]
     Extension(extensions::ExtensionError),
 }
-impl fmt::Display for ExtensionCommandError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Self::Profile(why) => why.fmt(f),
-            Self::Extension(why) => why.fmt(f),
-        }
-    }
-}
-
-impl std::error::Error for ExtensionCommandError {}
 impl Coded for ExtensionCommandError {
     fn code(&self) -> ErrorCode {
         match self {
@@ -97,6 +89,7 @@ pub fn execute<R, F>(
     request: &ExtensionRequest,
     open: F,
     _: &mut Notices,
+    progress: &dyn Progress,
 ) -> Result<ExtensionOutcome, ExtensionCommandError>
 where
     R: extensions::Remote,
@@ -119,8 +112,14 @@ where
             zip,
             mode,
         } => Ok(ExtensionOutcome::Imported {
-            imported: extensions::import(&remote, file_name, zip, matches!(mode, Mode::Apply))
-                .map_err(ExtensionCommandError::Extension)?,
+            imported: extensions::import_with_progress(
+                &remote,
+                file_name,
+                zip,
+                matches!(mode, Mode::Apply),
+                progress,
+            )
+            .map_err(ExtensionCommandError::Extension)?,
             mode: *mode,
             effects: Effects::new(
                 Access::None,
@@ -192,12 +191,12 @@ mod tests {
         }
     }
 
-    fn setup() -> (std::path::PathBuf, Solution) {
-        let nonce = crate::test_nonce();
-        let root = std::env::temp_dir().join(format!(
-            "twaco-command-extensions-{}-{nonce}",
-            std::process::id()
-        ));
+    fn setup() -> (tempfile::TempDir, std::path::PathBuf, Solution) {
+        let root_guard = tempfile::Builder::new()
+            .prefix("twaco-command-extensions-")
+            .tempdir()
+            .unwrap();
+        let root = root_guard.path().to_path_buf();
         std::fs::create_dir_all(root.join(".twaco/profiles")).unwrap();
         std::fs::write(root.join("twaco.toml"), "[[project]]\nname = \"P\"\n").unwrap();
         std::fs::write(
@@ -206,7 +205,7 @@ mod tests {
         )
         .unwrap();
         let solution = Solution::load(&root.join("twaco.toml")).unwrap();
-        (root, solution)
+        (root_guard, root, solution)
     }
 
     fn zip() -> Vec<u8> {
@@ -222,7 +221,7 @@ mod tests {
 
     #[test]
     fn extension_import_plan_and_apply_keep_their_effects() {
-        let (root, solution) = setup();
+        let (_dir, _, solution) = setup();
         let request = |mode| ExtensionRequest {
             action: ExtensionAction::Import {
                 file_name: "P.zip".to_string(),
@@ -243,6 +242,7 @@ mod tests {
                 move |_| remote
             },
             &mut Notices::default(),
+            &crate::core::progress::NONE,
         )
         .unwrap();
         assert_eq!(plan.effects(), Effects::new(Access::None, Access::Read));
@@ -259,16 +259,16 @@ mod tests {
                 move |_| remote
             },
             &mut Notices::default(),
+            &crate::core::progress::NONE,
         )
         .unwrap();
         assert_eq!(apply.effects(), Effects::new(Access::None, Access::Write));
         assert!(*fake.installed.lock().unwrap());
-        std::fs::remove_dir_all(root).unwrap();
     }
 
     #[test]
     fn profile_refusal_keeps_its_code() {
-        let (root, solution) = setup();
+        let (_dir, _, solution) = setup();
         let error = execute(
             &solution,
             &ExtensionRequest {
@@ -280,9 +280,9 @@ mod tests {
                 installed: Arc::new(Mutex::new(false)),
             },
             &mut Notices::default(),
+            &crate::core::progress::NONE,
         )
         .unwrap_err();
         assert_eq!(error.code(), ErrorCode::InvalidData);
-        std::fs::remove_dir_all(root).unwrap();
     }
 }

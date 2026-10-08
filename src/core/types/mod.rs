@@ -16,31 +16,21 @@ pub use outcome::{
     check_summary, finding_json, refresh_after_write, CheckError, CheckOutcome, Outcome,
     PlatformOutcome, Refresh, TypeFinding,
 };
-pub use platform::{fetch_platform, Remote};
+pub use platform::{fetch_platform, fetch_platform_with_progress, Remote};
 pub use write::write;
 
 use super::server::ServerError;
 use super::workspace;
-use std::fmt;
 
-#[derive(Debug)]
+#[derive(Debug, thiserror::Error)]
 pub enum TypesError {
+    #[error("{0}")]
     Workspace(workspace::WorkspaceError),
+    #[error("{0}")]
     Remote(ServerError),
+    #[error("{0}")]
     Platform(String),
 }
-
-impl fmt::Display for TypesError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            TypesError::Workspace(error) => write!(f, "{error}"),
-            TypesError::Remote(error) => write!(f, "{error}"),
-            TypesError::Platform(error) => f.write_str(error),
-        }
-    }
-}
-
-impl std::error::Error for TypesError {}
 
 impl From<workspace::WorkspaceError> for TypesError {
     fn from(value: workspace::WorkspaceError) -> Self {

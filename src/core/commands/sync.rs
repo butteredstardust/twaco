@@ -4,7 +4,6 @@ use super::{lock_workspace, Access, Effects, Mode, Notices};
 use crate::core::codes::{Coded, ErrorCode};
 use crate::core::config::Solution;
 use crate::core::{lock, workflow, workspace};
-use std::fmt;
 
 /// The entities a sync request selects before it changes any files.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -42,26 +41,17 @@ impl SyncOutcome {
 }
 
 /// A failure before a sync outcome could be produced.
-#[derive(Debug)]
+#[derive(Debug, thiserror::Error)]
 pub enum SyncCommandError {
+    #[error("{0}")]
     Lock(lock::LockError),
+    #[error("this solution has no project named {0}")]
     Project(String),
+    #[error("{0}")]
     Target(String),
+    #[error("{0}")]
     Resolve(workspace::WorkspaceError),
 }
-
-impl fmt::Display for SyncCommandError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Self::Lock(why) => why.fmt(f),
-            Self::Resolve(why) => why.fmt(f),
-            Self::Project(name) => write!(f, "this solution has no project named {name}"),
-            Self::Target(why) => f.write_str(why),
-        }
-    }
-}
-
-impl std::error::Error for SyncCommandError {}
 
 impl Coded for SyncCommandError {
     fn code(&self) -> ErrorCode {
@@ -147,11 +137,12 @@ mod tests {
     use crate::core::lock;
     use std::path::PathBuf;
 
-    fn setup() -> (PathBuf, Solution) {
-        let nonce = crate::test_nonce();
-        let root = std::env::temp_dir()
-            .join(format!("twaco-command-sync-{}-{nonce}", std::process::id(),));
-        let _ = std::fs::remove_dir_all(&root);
+    fn setup() -> (tempfile::TempDir, PathBuf, Solution) {
+        let root_guard = tempfile::Builder::new()
+            .prefix("twaco-command-sync-")
+            .tempdir()
+            .unwrap();
+        let root = root_guard.path().to_path_buf();
         std::fs::create_dir_all(root.join("Things")).unwrap();
         std::fs::write(root.join("twaco.toml"), "[[project]]\nname = \"P\"\n").unwrap();
         std::fs::write(
@@ -160,7 +151,7 @@ mod tests {
         )
         .unwrap();
         let solution = Solution::load(&root.join("twaco.toml")).unwrap();
-        (root, solution)
+        (root_guard, root, solution)
     }
 
     fn request(mode: Mode) -> SyncRequest {
@@ -181,25 +172,23 @@ mod tests {
 
     #[test]
     fn a_plan_runs_without_the_workspace_lock_but_an_apply_takes_it_first() {
-        let (root, solution) = setup();
+        let (_dir, root, solution) = setup();
         let held = lock::acquire(&root, "holder", &[]).unwrap();
         let planned = execute(&solution, &request(Mode::Plan), &mut Notices::default()).unwrap();
         assert_eq!(planned.effects(), Effects::new(Access::Read, Access::None));
         let error = execute(&solution, &request(Mode::Apply), &mut Notices::default()).unwrap_err();
         assert!(matches!(error, SyncCommandError::Lock(_)));
         drop(held);
-        std::fs::remove_dir_all(root).unwrap();
     }
 
     #[test]
     fn an_apply_reports_what_taking_its_lock_recovered() {
-        let (root, solution) = setup();
+        let (_dir, root, solution) = setup();
         std::fs::create_dir_all(root.join(".twaco")).unwrap();
         std::fs::write(root.join(".twaco/.baseline.json.1.twaco-tmp"), b"half").unwrap();
         let mut notices = Notices::default();
         execute(&solution, &request(Mode::Apply), &mut notices).unwrap();
         assert_eq!(notices.lines().len(), 1, "{:?}", notices.lines());
         assert!(notices.lines()[0].contains("left by an interrupted write"));
-        std::fs::remove_dir_all(root).unwrap();
     }
 }

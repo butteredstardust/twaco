@@ -8,7 +8,6 @@
 use super::entity_key::{EntityKey, ServiceTarget};
 use super::server::{Client, ServerError};
 use serde_json::{json, Value};
-use std::fmt;
 use std::time::Duration;
 
 /// What this module asks of a server, as a trait so it is tested offline.
@@ -42,22 +41,13 @@ impl Remote for Client {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, thiserror::Error)]
 pub enum ExportError {
+    #[error("{0}")]
     Remote(ServerError),
+    #[error("{0}")]
     Invalid(String),
 }
-
-impl fmt::Display for ExportError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            ExportError::Remote(error) => write!(f, "{error}"),
-            ExportError::Invalid(why) => write!(f, "{why}"),
-        }
-    }
-}
-
-impl std::error::Error for ExportError {}
 
 /// What to export through the Exporter.
 #[derive(Debug, Clone, PartialEq, Eq)]

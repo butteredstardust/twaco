@@ -6,7 +6,11 @@ use super::requests::entity::{
 };
 use super::*;
 
-pub(crate) fn status_tool(solution: &Solution, request: StatusRequest) -> Result<Value, ToolError> {
+pub(crate) fn status_tool(
+    solution: &Solution,
+    request: StatusRequest,
+    progress: &dyn Progress,
+) -> Result<Value, ToolError> {
     let record = request.record;
     let target = match (request.entity.as_deref(), request.all) {
         (Some(_), true) => {
@@ -28,21 +32,26 @@ pub(crate) fn status_tool(solution: &Solution, request: StatusRequest) -> Result
         refuse_record_failures: record,
     };
     let mut notices = commands::Notices::default();
-    let outcome =
-        match commands::status::execute(solution, &command, server::Client::new, &mut notices) {
-            Ok(outcome) => outcome,
-            Err(commands::status::StatusCommandError::Unreadable(items)) if record => {
-                return Err(ToolError::with(
-                    ErrorCode::InvalidData,
-                    format!(
-                        "nothing was recorded: {} entity file(s) could not be read: {}",
-                        items.len(),
-                        items.join("; ")
-                    ),
-                ));
-            }
-            Err(error) => return Err(ToolError::coded(error)),
-        };
+    let outcome = match commands::status::execute(
+        solution,
+        &command,
+        server::Client::new,
+        &mut notices,
+        progress,
+    ) {
+        Ok(outcome) => outcome,
+        Err(commands::status::StatusCommandError::Unreadable(items)) if record => {
+            return Err(ToolError::with(
+                ErrorCode::InvalidData,
+                format!(
+                    "nothing was recorded: {} entity file(s) could not be read: {}",
+                    items.len(),
+                    items.join("; ")
+                ),
+            ));
+        }
+        Err(error) => return Err(ToolError::coded(error)),
+    };
     let counts: Map<String, Value> = status::counts(&outcome.statuses)
         .into_iter()
         .map(|(v, n)| (v.label().to_string(), json!(n)))
@@ -96,7 +105,11 @@ pub(crate) fn refusal_code(refusal: &push::Refusal) -> &'static str {
     }
 }
 
-pub(crate) fn push_tool(solution: &Solution, request: PushRequest) -> Result<Value, ToolError> {
+pub(crate) fn push_tool(
+    solution: &Solution,
+    request: PushRequest,
+    progress: &dyn Progress,
+) -> Result<Value, ToolError> {
     let dry_run = request.dry_run;
     let force = request.force;
     let request = commands::push::PushRequest {
@@ -107,16 +120,22 @@ pub(crate) fn push_tool(solution: &Solution, request: PushRequest) -> Result<Val
         profile: request.profile,
     };
     let mut notices = commands::Notices::default();
-    let outcome = commands::push::execute(solution, &request, server::Client::new, &mut notices)
-        .map_err(|error| ToolError {
-            code: error.code(),
-            message: match error.backup() {
-                Some(dir) => {
-                    format!("{error}; the server's copy was saved to {dir} before the push")
-                }
-                None => error.to_string(),
-            },
-        })?;
+    let outcome = commands::push::execute_with_progress(
+        solution,
+        &request,
+        server::Client::new,
+        &mut notices,
+        progress,
+    )
+    .map_err(|error| ToolError {
+        code: error.code(),
+        message: match error.backup() {
+            Some(dir) => {
+                format!("{error}; the server's copy was saved to {dir} before the push")
+            }
+            None => error.to_string(),
+        },
+    })?;
     let label = match &outcome {
         commands::push::PushOutcome::Plan { entity, .. }
         | commands::push::PushOutcome::Applied { entity, .. } => entity.to_string(),
@@ -341,11 +360,17 @@ fn permissions_result(
     solution: &Solution,
     request: commands::permissions::PermissionsRequest,
     diff: bool,
+    progress: &dyn Progress,
 ) -> Result<Value, ToolError> {
     let mut notices = commands::Notices::default();
-    let outcome =
-        commands::permissions::execute(solution, &request, server::Client::new, &mut notices)
-            .map_err(ToolError::coded)?;
+    let outcome = commands::permissions::execute_with_progress(
+        solution,
+        &request,
+        server::Client::new,
+        &mut notices,
+        progress,
+    )
+    .map_err(ToolError::coded)?;
     let report = &outcome.report;
     use crate::core::permissions::Status;
     // As the command line: drift in a diff and a target missing from the server in an applied
@@ -369,6 +394,7 @@ fn permissions_result(
 pub(crate) fn permissions_tool(
     solution: &Solution,
     request: PermissionsRequest,
+    progress: &dyn Progress,
 ) -> Result<Value, ToolError> {
     let target = permissions_target(&request.entities, request.all)?;
     permissions_result(
@@ -381,12 +407,14 @@ pub(crate) fn permissions_tool(
             lock_label: "mcp permissions",
         },
         true,
+        progress,
     )
 }
 
 pub(crate) fn permissions_push_tool(
     solution: &Solution,
     request: PermissionsPushRequest,
+    progress: &dyn Progress,
 ) -> Result<Value, ToolError> {
     if request.platform {
         if request.all || !request.entities.items().is_empty() {
@@ -395,7 +423,7 @@ pub(crate) fn permissions_push_tool(
             ));
         }
         use crate::core::permissions::platform::State;
-        let report = commands::permissions::execute_platform(
+        let report = commands::permissions::execute_platform_with_progress(
             solution,
             &commands::permissions::PlatformRequest {
                 project: request.project.as_ref().cloned(),
@@ -407,6 +435,7 @@ pub(crate) fn permissions_push_tool(
                 profile: request.profile,
             },
             server::Client::new,
+            progress,
         )
         .map_err(ToolError::coded)?;
         return Ok(json!({
@@ -431,21 +460,24 @@ pub(crate) fn permissions_push_tool(
             lock_label: "mcp permissions_push",
         },
         false,
+        progress,
     )
 }
 
 pub(crate) fn permissions_audit_tool(
     solution: &Solution,
     request: PermissionsAuditRequest,
+    progress: &dyn Progress,
 ) -> Result<Value, ToolError> {
     use crate::core::permissions::audit::Severity;
-    let report = commands::permissions::execute_audit(
+    let report = commands::permissions::execute_audit_with_progress(
         solution,
         &commands::permissions::AuditRequest {
             project: request.project.as_ref().cloned(),
             server: request.server.then(|| request.profile.clone()),
         },
         server::Client::new,
+        progress,
     )
     .map_err(ToolError::coded)?;
     let mut projects = serde_json::to_value(&report.projects).expect("audit report serialises");
@@ -471,9 +503,10 @@ pub(crate) fn permissions_audit_tool(
 pub(crate) fn permissions_apply_tool(
     solution: &Solution,
     request: PermissionsApplyRequest,
+    progress: &dyn Progress,
 ) -> Result<Value, ToolError> {
     let mut notices = commands::Notices::default();
-    let outcome = commands::permissions::execute_apply(
+    let outcome = commands::permissions::execute_apply_with_progress(
         solution,
         &commands::permissions::ApplyRequest {
             project: request.project.as_ref().cloned(),
@@ -485,6 +518,7 @@ pub(crate) fn permissions_apply_tool(
             lock_label: "mcp permissions_apply",
         },
         &mut notices,
+        progress,
     )
     .map_err(ToolError::coded)?;
     let mut projects = serde_json::to_value(&outcome.plan.projects).expect("apply plan serialises");

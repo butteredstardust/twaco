@@ -198,25 +198,21 @@ mod tests {
     use super::*;
     use std::path::PathBuf;
 
-    fn solution() -> (PathBuf, Solution) {
-        let root = std::env::temp_dir().join(format!(
-            "twaco-command-call-{}-{}",
-            std::process::id(),
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .unwrap()
-                .as_nanos()
-        ));
-        let _ = std::fs::remove_dir_all(&root);
+    fn solution() -> (tempfile::TempDir, PathBuf, Solution) {
+        let root_guard = tempfile::Builder::new()
+            .prefix("twaco-command-call-")
+            .tempdir()
+            .unwrap();
+        let root = root_guard.path().to_path_buf();
         std::fs::create_dir_all(&root).unwrap();
         std::fs::write(root.join("twaco.toml"), "[[project]]\nname = \"P\"\n").unwrap();
         let solution = Solution::load(&root.join("twaco.toml")).unwrap();
-        (root, solution)
+        (root_guard, root, solution)
     }
 
     #[test]
     fn a_plan_resolves_the_target_without_loading_a_profile_or_calling() {
-        let (root, solution) = solution();
+        let (_dir, _, solution) = solution();
         let request = CallRequest {
             target: "Things/Outside".to_string(),
             service: "Read".to_string(),
@@ -236,12 +232,11 @@ mod tests {
         .unwrap();
         assert_eq!(outcome.effects(), Effects::new(Access::Read, Access::None));
         assert_eq!(outcome.target().to_string(), "Things/Outside");
-        std::fs::remove_dir_all(root).unwrap();
     }
 
     #[test]
     fn a_command_line_call_still_loads_its_profile_before_target_resolution() {
-        let (root, solution) = solution();
+        let (_dir, _, solution) = solution();
         let request = CallRequest {
             target: "not a target".to_string(),
             service: "Read".to_string(),
@@ -261,6 +256,5 @@ mod tests {
         .unwrap_err();
         assert!(matches!(error, CallCommandError::Profile(_)));
         assert_eq!(error.code(), ErrorCode::InvalidData);
-        std::fs::remove_dir_all(root).unwrap();
     }
 }

@@ -30,6 +30,23 @@ env = { TWACO_ROOT = "/path/to/solution" }
 things: the command `twaco`, the argument `mcp`, and `TWACO_ROOT` when the client does not
 start it in the solution's folder.
 
+**Logs.** An MCP client often hides the server's stderr, so send logs to a file. Add
+`--log-file` to the server arguments, or set `TWACO_LOG_FILE` in its environment:
+
+```sh
+claude mcp add twaco -- twaco mcp --log-file /tmp/twaco-mcp.log
+```
+
+```toml
+[mcp_servers.twaco]
+command = "twaco"
+args = ["mcp", "--log-file", "/tmp/twaco-mcp.log"]
+```
+
+Without these options the server writes no log. Stdout carries only JSON-RPC. The log has one
+line per message and one per server request. It never holds a tool's `arguments`. See
+[Diagnostic logs](CONFIGURATION.md#diagnostic-logs).
+
 Server tools use the same [profiles](CONFIGURATION.md#server-profiles) as the command line;
 pass `profile` to choose one.
 
@@ -50,6 +67,13 @@ pass `profile` to choose one.
   person cannot interleave them. Files an agent names for `export` and `package` are written
   without it.
 - **A failure is an error** (`isError`), with what went wrong in the message.
+- **Progress for long calls.** Add `_meta.progressToken` to a `tools/call` request. Twaco then
+  sends `notifications/progress` lines before the response. This works for `deploy`, `status`,
+  `types`, `import`, `export`, `extension_write`, `check` (with `live`), `push`, `permissions`,
+  `permissions_audit`, `permissions_apply`, `permissions_push`, `repo` and `repo_write`. Each notification has `progress` (steps
+  done, always rising), `total` (when known) and `message` (a phase name or an entity name).
+  Twaco sends at most about ten per second, and one at the end of each phase. Without a token,
+  twaco sends none.
 
 ## Errors and codes
 

@@ -1,4 +1,5 @@
 use super::super::*;
+use super::style;
 
 /// Execute exactly the named opaque service. There is no dry run because twaco cannot infer
 /// whether an arbitrary ThingWorx service writes. The MCP surface must decide separately
@@ -9,7 +10,7 @@ use super::super::*;
 /// refuses a backup made from another Thing or table, and reads the table back afterwards.
 pub(crate) fn config_table(solution: &Solution, args: &Args) -> u8 {
     if args.names.len() != 2 {
-        eprintln!("twaco: config-table needs <thing> <table>");
+        eprintln!("{} config-table needs <thing> <table>", style::prefix());
         return FAILED;
     }
     let modes = [
@@ -18,11 +19,17 @@ pub(crate) fn config_table(solution: &Solution, args: &Args) -> u8 {
         args.has("--diff"),
     ];
     if modes.iter().filter(|m| **m).count() > 1 {
-        eprintln!("twaco: --backup, --restore and --diff are separate actions; pass one");
+        eprintln!(
+            "{} --backup, --restore and --diff are separate actions; pass one",
+            style::prefix()
+        );
         return FAILED;
     }
     if args.has("--apply") && args.restore.is_none() {
-        eprintln!("twaco: --apply only means something with --restore");
+        eprintln!(
+            "{} --apply only means something with --restore",
+            style::prefix()
+        );
         return FAILED;
     }
     // A Thing in the solution may be named by its last segment, as elsewhere. One that is not in
@@ -34,8 +41,10 @@ pub(crate) fn config_table(solution: &Solution, args: &Args) -> u8 {
         }
         Ok(entity) => {
             eprintln!(
-                "twaco: {} is a {}, and only a Thing has configuration tables here",
-                entity.info.name, entity.info.collection
+                "{} {} is a {}, and only a Thing has configuration tables here",
+                style::prefix(),
+                entity.info.name,
+                entity.info.collection
             );
             return FAILED;
         }
@@ -43,7 +52,7 @@ pub(crate) fn config_table(solution: &Solution, args: &Args) -> u8 {
             (args.names[0].clone(), None)
         }
         Err(error) => {
-            eprintln!("twaco: {error}");
+            eprintln!("{} {error}", style::prefix());
             return FAILED;
         }
     };
@@ -87,9 +96,9 @@ pub(crate) fn config_table(solution: &Solution, args: &Args) -> u8 {
                 error,
                 commands::config_table::ConfigTableCommandError::Backup(_)
             ) {
-                eprintln!("twaco: {error}");
+                eprintln!("{} {error}", style::prefix());
             } else {
-                eprintln!("twaco: {label}: {error}");
+                eprintln!("{} {label}: {error}", style::prefix());
             }
             return FAILED;
         }
@@ -187,18 +196,24 @@ pub(crate) fn config_table(solution: &Solution, args: &Args) -> u8 {
 
 pub(crate) fn call(solution: &Solution, args: &Args) -> u8 {
     if !(2..=3).contains(&args.names.len()) {
-        eprintln!("twaco: call needs <target> <service> and an optional JSON object");
+        eprintln!(
+            "{} call needs <target> <service> and an optional JSON object",
+            style::prefix()
+        );
         return FAILED;
     }
     let parameters = match args.names.get(2) {
         Some(text) => match serde_json::from_str::<serde_json::Value>(text) {
             Ok(value) if value.is_object() => value,
             Ok(_) => {
-                eprintln!("twaco: call parameters must be a JSON object");
+                eprintln!("{} call parameters must be a JSON object", style::prefix());
                 return FAILED;
             }
             Err(error) => {
-                eprintln!("twaco: call parameters are not valid JSON: {error}");
+                eprintln!(
+                    "{} call parameters are not valid JSON: {error}",
+                    style::prefix()
+                );
                 return FAILED;
             }
         },
@@ -228,7 +243,7 @@ pub(crate) fn call(solution: &Solution, args: &Args) -> u8 {
                 {
                     if let Some(logged) = &**logs {
                         if target.to_string() != args.names[0] {
-                            eprintln!("twaco: calling {target}");
+                            eprintln!("{} calling {target}", style::prefix());
                         }
                         use twaco::core::logs;
                         match logged {
@@ -244,14 +259,17 @@ pub(crate) fn call(solution: &Solution, args: &Args) -> u8 {
                                 println!("---");
                             }
                             Err(log_error) => {
-                                eprintln!("twaco: the call's logs could not be read: {log_error}")
+                                eprintln!(
+                                    "{} the call's logs could not be read: {log_error}",
+                                    style::prefix()
+                                )
                             }
                         }
-                        eprintln!("twaco: {call_error}");
+                        eprintln!("{} {call_error}", style::prefix());
                         return FAILED;
                     }
                 }
-                eprintln!("twaco: {error}");
+                eprintln!("{} {error}", style::prefix());
                 return FAILED;
             }
         };
@@ -266,7 +284,7 @@ pub(crate) fn call(solution: &Solution, args: &Args) -> u8 {
         unreachable!("the command line always calls")
     };
     if target.to_string() != args.names[0] {
-        eprintln!("twaco: calling {target}");
+        eprintln!("{} calling {target}", style::prefix());
     }
     if let Some(logged) = logs {
         use twaco::core::logs;
@@ -282,7 +300,10 @@ pub(crate) fn call(solution: &Solution, args: &Args) -> u8 {
                 }
                 println!("---");
             }
-            Err(error) => eprintln!("twaco: the call's logs could not be read: {error}"),
+            Err(error) => eprintln!(
+                "{} the call's logs could not be read: {error}",
+                style::prefix()
+            ),
         }
     }
     match reply {
@@ -307,7 +328,10 @@ pub(crate) fn logs_cmd(solution: &Solution, args: &Args) -> u8 {
     let value = |flag: &str| args.values.get(flag).map(String::as_str);
     for only_for_levels in ["--sublogger", "--reset", "--apply"] {
         if args.has(only_for_levels) || args.values.contains_key(only_for_levels) {
-            eprintln!("twaco: logs: {only_for_levels} belongs to `twaco logs level`");
+            eprintln!(
+                "{} logs: {only_for_levels} belongs to `twaco logs level`",
+                style::prefix()
+            );
             return FAILED;
         }
     }
@@ -373,7 +397,7 @@ pub(crate) fn logs_cmd(solution: &Solution, args: &Args) -> u8 {
     let query = match built {
         Ok(query) => query,
         Err(why) => {
-            eprintln!("twaco: logs: {why}");
+            eprintln!("{} logs: {why}", style::prefix());
             return FAILED;
         }
     };
@@ -381,14 +405,14 @@ pub(crate) fn logs_cmd(solution: &Solution, args: &Args) -> u8 {
     let client = match profile::load(&solution.root, profile_name) {
         Ok(profile) => server::Client::new(profile),
         Err(error) => {
-            eprintln!("twaco: {error}");
+            eprintln!("{} {error}", style::prefix());
             return FAILED;
         }
     };
     let outcome = match logs::query(&client, &query) {
         Ok(outcome) => outcome,
         Err(error) => {
-            eprintln!("twaco: logs: {error}");
+            eprintln!("{} logs: {error}", style::prefix());
             return FAILED;
         }
     };
@@ -453,7 +477,7 @@ fn log_level_cmd(solution: &Solution, args: &Args) -> u8 {
     let (log, change) = match request {
         Ok(request) => request,
         Err(why) => {
-            eprintln!("twaco: logs level: {why}");
+            eprintln!("{} logs level: {why}", style::prefix());
             return FAILED;
         }
     };
@@ -473,7 +497,7 @@ fn log_level_cmd(solution: &Solution, args: &Args) -> u8 {
             Ok(outcome) => outcome,
             Err(error) => {
                 print_notices(&notices);
-                eprintln!("twaco: logs level: {error}");
+                eprintln!("{} logs level: {error}", style::prefix());
                 return FAILED;
             }
         };
@@ -509,7 +533,10 @@ fn log_level_cmd(solution: &Solution, args: &Args) -> u8 {
 /// reads the target back and compares.
 pub(crate) fn datatable_copy_cmd(solution: &Solution, args: &Args) -> u8 {
     let [old, new] = args.names.as_slice() else {
-        eprintln!("twaco: datatable copy needs <old> <new> DataTable names");
+        eprintln!(
+            "{} datatable copy needs <old> <new> DataTable names",
+            style::prefix()
+        );
         return FAILED;
     };
     let map = match args
@@ -520,7 +547,7 @@ pub(crate) fn datatable_copy_cmd(solution: &Solution, args: &Args) -> u8 {
     {
         Ok(map) => map.unwrap_or_default(),
         Err(error) => {
-            eprintln!("twaco: {error}");
+            eprintln!("{} {error}", style::prefix());
             return FAILED;
         }
     };
@@ -532,7 +559,10 @@ pub(crate) fn datatable_copy_cmd(solution: &Solution, args: &Args) -> u8 {
         None => 100_000,
         Some(Ok(value)) if value > 0 => value,
         Some(_) => {
-            eprintln!("twaco: --max-rows needs a positive whole number");
+            eprintln!(
+                "{} --max-rows needs a positive whole number",
+                style::prefix()
+            );
             return FAILED;
         }
     };
@@ -563,7 +593,7 @@ pub(crate) fn datatable_copy_cmd(solution: &Solution, args: &Args) -> u8 {
         Ok(outcome) => outcome,
         Err(error) => {
             print_notices(&notices);
-            eprintln!("twaco: {error}");
+            eprintln!("{} {error}", style::prefix());
             return FAILED;
         }
     };
@@ -625,7 +655,7 @@ pub(crate) fn db_clean_cmd(solution: &Solution, args: &Args) -> u8 {
         Ok(commands::db::DbOutcome::Executed { .. }) => unreachable!(),
         Err(error) => {
             print_notices(&notices);
-            eprintln!("twaco: {error}");
+            eprintln!("{} {error}", style::prefix());
             return FAILED;
         }
     };
@@ -675,22 +705,28 @@ pub(crate) fn db_cmd(solution: &Solution, route: &str, args: &Args) -> u8 {
             match std::fs::read_to_string(file) {
                 Ok(sql) => sql,
                 Err(error) => {
-                    eprintln!("twaco: cannot read SQL file {file}: {error}");
+                    eprintln!("{} cannot read SQL file {file}: {error}", style::prefix());
                     return FAILED;
                 }
             }
         }
         (db::Mode::Query, [], Some(sql)) => sql.clone(),
         (db::Mode::Run, _, Some(_)) => {
-            eprintln!("twaco: db run needs one <file.sql>; -q belongs to db query");
+            eprintln!(
+                "{} db run needs one <file.sql>; -q belongs to db query",
+                style::prefix()
+            );
             return FAILED;
         }
         (db::Mode::Query, _, _) => {
-            eprintln!("twaco: db query needs one <file.sql>, or -q <sql>, but not both");
+            eprintln!(
+                "{} db query needs one <file.sql>, or -q <sql>, but not both",
+                style::prefix()
+            );
             return FAILED;
         }
         _ => {
-            eprintln!("twaco: db run needs one <file.sql>");
+            eprintln!("{} db run needs one <file.sql>", style::prefix());
             return FAILED;
         }
     };
@@ -698,7 +734,10 @@ pub(crate) fn db_cmd(solution: &Solution, route: &str, args: &Args) -> u8 {
         Some(value) => match value.parse::<u64>() {
             Ok(value) if value > 0 => value,
             _ => {
-                eprintln!("twaco: --max-rows needs a positive whole number");
+                eprintln!(
+                    "{} --max-rows needs a positive whole number",
+                    style::prefix()
+                );
                 return FAILED;
             }
         },
@@ -724,7 +763,7 @@ pub(crate) fn db_cmd(solution: &Solution, route: &str, args: &Args) -> u8 {
         Ok(commands::db::DbOutcome::Cleaned { .. }) => unreachable!(),
         Err(error) => {
             print_notices(&notices);
-            eprintln!("twaco: {error}");
+            eprintln!("{} {error}", style::prefix());
             return FAILED;
         }
     };

@@ -11,7 +11,6 @@
 
 use serde_json::Value;
 use std::collections::HashMap;
-use std::fmt;
 use std::path::PathBuf;
 use std::time::Duration;
 
@@ -24,28 +23,17 @@ pub const INDEX_FILE: &str = "ThingWorx_sx.js";
 /// 30 times) above the page titled Data Shapes.
 const TITLE_WEIGHT: f64 = 5.0;
 
-#[derive(Debug)]
+#[derive(Debug, thiserror::Error)]
 pub enum HelpError {
+    #[error("{url}: {why}")]
     Fetch { url: String, why: String },
+    #[error("{}: {why}", .path.display())]
     Cache { path: PathBuf, why: String },
+    #[error("the help center's search index cannot be read: {0}")]
     Index(String),
+    #[error("{0}")]
     Invalid(String),
 }
-
-impl fmt::Display for HelpError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            HelpError::Fetch { url, why } => write!(f, "{url}: {why}"),
-            HelpError::Cache { path, why } => write!(f, "{}: {why}", path.display()),
-            HelpError::Index(why) => {
-                write!(f, "the help center's search index cannot be read: {why}")
-            }
-            HelpError::Invalid(why) => write!(f, "{why}"),
-        }
-    }
-}
-
-impl std::error::Error for HelpError {}
 
 /// Fetching a file of the help center, as a trait so this module is tested offline.
 pub trait Fetch {
@@ -96,7 +84,17 @@ impl Fetch for Web {
         }
         let mut current = url.to_string();
         for _ in 0..=MOST_REDIRECTS {
-            let mut response = self.agent.get(&current).call().map_err(|e| e.to_string())?;
+            let started = std::time::Instant::now();
+            let mut response = self.agent.get(&current).call().map_err(|e| {
+                tracing::debug!(url = %current, why = %e, "help request failed");
+                e.to_string()
+            })?;
+            tracing::debug!(
+                url = %current,
+                status = response.status().as_u16(),
+                elapsed_ms = u64::try_from(started.elapsed().as_millis()).unwrap_or(u64::MAX),
+                "help request"
+            );
             if response.status().is_redirection() {
                 let location = response
                     .headers()
@@ -994,14 +992,11 @@ mod tests {
 
     #[test]
     fn a_file_is_fetched_once_and_then_read_from_the_cache() {
-        let cache = std::env::temp_dir().join(format!(
-            "twaco-help-{}-{}",
-            std::process::id(),
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .unwrap()
-                .as_nanos()
-        ));
+        let cache_guard = tempfile::Builder::new()
+            .prefix("twaco-help-")
+            .tempdir()
+            .unwrap();
+        let cache = cache_guard.path().to_path_buf();
         let web = Counting {
             calls: RefCell::new(Vec::new()),
         };
@@ -1017,6 +1012,5 @@ mod tests {
         );
         cached(&web, &cache, "r10.1", "ThingWorx/Welcome.html", true).unwrap();
         assert_eq!(web.calls.borrow().len(), 2, "refresh fetches again");
-        let _ = std::fs::remove_dir_all(cache);
     }
 }

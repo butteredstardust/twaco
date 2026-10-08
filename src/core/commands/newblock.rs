@@ -4,7 +4,6 @@ use super::{lock_workspace, Access, Effects, Mode, Notices};
 use crate::core::codes::{Coded, ErrorCode};
 use crate::core::config::{self, Solution};
 use crate::core::{lock, newblock};
-use std::fmt;
 
 #[derive(Clone, Debug)]
 pub struct NewBlockRequest {
@@ -37,22 +36,15 @@ impl NewBlockOutcome {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, thiserror::Error)]
 pub enum NewBlockCommandError {
+    #[error("{0}")]
     Lock(lock::LockError),
+    #[error("{0}")]
     Config(config::ConfigError),
+    #[error("{0}")]
     NewBlock(newblock::NewBlockError),
 }
-impl fmt::Display for NewBlockCommandError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Self::Lock(error) => error.fmt(f),
-            Self::Config(error) => error.fmt(f),
-            Self::NewBlock(error) => error.fmt(f),
-        }
-    }
-}
-impl std::error::Error for NewBlockCommandError {}
 impl Coded for NewBlockCommandError {
     fn code(&self) -> ErrorCode {
         match self {
@@ -101,9 +93,11 @@ mod tests {
 
     #[test]
     fn planning_does_not_take_the_lock_and_applying_takes_it_before_reloading_configuration() {
-        let root =
-            std::env::temp_dir().join(format!("twaco-command-newblock-{}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&root);
+        let root_guard = tempfile::Builder::new()
+            .prefix("twaco-command-newblock-")
+            .tempdir()
+            .unwrap();
+        let root = root_guard.path().to_path_buf();
         std::fs::create_dir_all(&root).unwrap();
         std::fs::write(root.join("twaco.toml"), "[[project]]\nname = \"P\"\n").unwrap();
         let solution = Solution::load(&root.join("twaco.toml")).unwrap();
@@ -132,6 +126,5 @@ mod tests {
             Err(NewBlockCommandError::Lock(_))
         ));
         drop(held);
-        std::fs::remove_dir_all(root).unwrap();
     }
 }

@@ -119,14 +119,14 @@ impl push::Remote for Fake {
     }
 }
 
-fn temp() -> PathBuf {
-    let nonce = crate::test_nonce();
-    let path = std::env::temp_dir().join(format!(
-        "twaco-permissions-server-{}-{nonce}",
-        std::process::id()
-    ));
+fn temp() -> (tempfile::TempDir, PathBuf) {
+    let path_guard = tempfile::Builder::new()
+        .prefix("twaco-permissions-server-")
+        .tempdir()
+        .unwrap();
+    let path = path_guard.path().to_path_buf();
     std::fs::create_dir_all(&path).unwrap();
-    path
+    (path_guard, path)
 }
 
 fn write(root: &Path, relative: &str, text: &str) {
@@ -158,12 +158,16 @@ roles = ["admin"]
 /// One Thing visible to both roles, as the repository has it.
 const THING: &str = r#"<Entities><Things><Thing name="Acme.App.Manager" projectName="Acme.App"><VisibilityPermissions><Visibility><Principal isPermitted="true" name="Acme.App.Default_OR:Acme.App.Viewer_UG" type="OrganizationalUnit"/><Principal isPermitted="true" name="Acme.App.Default_OR:Acme.App.Admin_UG" type="OrganizationalUnit"/></Visibility></VisibilityPermissions><RunTimePermissions></RunTimePermissions></Thing></Things></Entities>"#;
 
-fn solution() -> (Solution, PathBuf) {
-    let root = temp();
+fn solution() -> (tempfile::TempDir, Solution, PathBuf) {
+    let (_dir, root) = temp();
     write(&root, "twaco.toml", "[[project]]\nname = \"Acme.App\"\n");
     write(&root, "permissions.toml", POLICY);
     write(&root, "Things/Acme.App.Manager.xml", THING);
-    (Solution::load(&root.join("twaco.toml")).unwrap(), root)
+    (
+        _dir,
+        Solution::load(&root.join("twaco.toml")).unwrap(),
+        root,
+    )
 }
 
 fn visible_to_both() -> Value {
@@ -200,7 +204,7 @@ fn codes(report: &audit::AuditReport) -> Vec<(Severity, &'static str)> {
 
 #[test]
 fn a_server_as_the_policy_says_audits_clean_and_nothing_is_written() {
-    let (solution, root) = solution();
+    let (_dir, solution, _) = solution();
     let mut fake = Fake {
         projects: vec!["PTCDTS.Base.Permissions".to_string()],
         ..Fake::default()
@@ -236,12 +240,11 @@ fn a_server_as_the_policy_says_audits_clean_and_nothing_is_written() {
         !calls.iter().any(|c| c == "set" || c == "import"),
         "{calls:?}"
     );
-    let _ = std::fs::remove_dir_all(root);
 }
 
 #[test]
 fn what_an_import_cannot_carry_is_reported_missing() {
-    let (solution, root) = solution();
+    let (_dir, solution, _) = solution();
     // The project the membership needs is there, but nobody is a member, the grant reaches the
     // viewer only, the server's Manager has an extra grant, and the admin's unit is gone.
     let mut fake = Fake {
@@ -305,12 +308,11 @@ fn what_an_import_cannot_carry_is_reported_missing() {
         !found.contains(&(Severity::Error, "membership-missing")),
         "{found:?}"
     );
-    let _ = std::fs::remove_dir_all(root);
 }
 
 #[test]
 fn a_missing_organization_or_unit_is_reported_and_read_once() {
-    let (solution, root) = solution();
+    let (_dir, solution, _) = solution();
     let fake = Fake::default();
     let report = audit::audit_with(&solution, None, Some(&fake)).unwrap();
     let missing: Vec<&String> = report.projects[0]
@@ -321,13 +323,12 @@ fn a_missing_organization_or_unit_is_reported_and_read_once() {
         .collect();
     assert_eq!(missing.len(), 2, "{missing:#?}");
     assert!(missing[0].contains("no Organization Acme.App.Default_OR"));
-    let _ = std::fs::remove_dir_all(root);
 }
 
 #[test]
 fn a_platform_push_adds_only_what_is_missing_and_reads_it_back() {
     use super::platform::{self, State};
-    let (solution, root) = solution();
+    let (_dir, solution, _) = solution();
     let mut fake = Fake {
         projects: vec!["PTCDTS.Base.Permissions".to_string()],
         ..Fake::default()
@@ -371,5 +372,48 @@ fn a_platform_push_adds_only_what_is_missing_and_reads_it_back() {
         2,
         "nothing is added twice"
     );
-    let _ = std::fs::remove_dir_all(root);
+}
+
+#[test]
+fn a_server_audit_reports_the_entities_audited_and_then_the_entities_read() {
+    use crate::core::progress::Recorder;
+    let (_dir, solution, _) = solution();
+    let fake = Fake::default();
+    let recorder = Recorder::default();
+    audit::audit_with_progress(&solution, None, Some(&fake), &recorder).unwrap();
+    let names: Vec<String> = recorder
+        .phases()
+        .into_iter()
+        .map(|(name, _)| name)
+        .collect();
+    assert_eq!(names[0], "auditing entities");
+    assert_eq!(names[1], "comparing permissions");
+    assert!(recorder.advanced() > 0);
+}
+
+#[test]
+fn a_platform_push_reports_one_step_per_entry_and_names_only_entities() {
+    use super::platform;
+    use crate::core::progress::{Event, Recorder};
+    let (_dir, solution, _) = solution();
+    let fake = Fake::default();
+    let (loaded, _) = audit::load(&solution, None).unwrap();
+    let entries: u64 = loaded
+        .iter()
+        .map(|one| one.policy.platform.len() as u64)
+        .sum();
+    assert!(entries > 0);
+    for apply in [false, true] {
+        let recorder = Recorder::default();
+        platform::run_with_progress(&fake, &loaded, apply, &recorder);
+        assert_eq!(
+            recorder.phases(),
+            [("checking platform entries".to_string(), Some(entries))]
+        );
+        assert_eq!(recorder.advanced(), entries);
+        assert_eq!(recorder.events().last(), Some(&Event::Finish));
+        assert!(recorder.events().iter().any(
+            |event| matches!(event, Event::Message(text) if text == "Resources/EntityServices")
+        ));
+    }
 }

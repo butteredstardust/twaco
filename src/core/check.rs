@@ -5,6 +5,7 @@
 //! file. Structured findings keep large check results compact and machine-readable.
 
 use super::config::Solution;
+use super::progress::{self, Progress, NONE};
 use super::{fmt as format_js, sync, workspace};
 use std::collections::BTreeSet;
 use std::fmt;
@@ -180,10 +181,24 @@ impl ScriptChecker for super::server::Client {
 /// script exactly as extraction reads it, which is what was sent, so the server's line number
 /// is that file's line number.
 pub fn live_parse(solution: &Solution, checker: Result<&dyn ScriptChecker, String>) -> GateResult {
-    as_configured(solution, live_parse_gate(solution, checker))
+    live_parse_with_progress(solution, checker, &NONE)
 }
 
-fn live_parse_gate(solution: &Solution, checker: Result<&dyn ScriptChecker, String>) -> GateResult {
+/// Like [`live_parse`], and report one step per service script checked. Messages hold the
+/// entity and service names only.
+pub fn live_parse_with_progress(
+    solution: &Solution,
+    checker: Result<&dyn ScriptChecker, String>,
+    progress: &dyn Progress,
+) -> GateResult {
+    as_configured(solution, live_parse_gate(solution, checker, progress))
+}
+
+fn live_parse_gate(
+    solution: &Solution,
+    checker: Result<&dyn ScriptChecker, String>,
+    progress: &dyn Progress,
+) -> GateResult {
     const GATE: &str = "live parse";
     let mut result = GateResult::passed(GATE, 0);
     let checker = match checker {
@@ -195,6 +210,7 @@ fn live_parse_gate(solution: &Solution, checker: Result<&dyn ScriptChecker, Stri
     };
 
     struct Script {
+        entity: String,
         entity_file: PathBuf,
         sidecar: PathBuf,
         service: String,
@@ -212,6 +228,7 @@ fn live_parse_gate(solution: &Solution, checker: Result<&dyn ScriptChecker, Stri
         let services_dir = workspace::services_dir(solution, &entity);
         for service in services {
             scripts.push(Script {
+                entity: entity.info.name.clone(),
                 entity_file: entity.path.clone(),
                 sidecar: services_dir.join(&service.name).join("script.js"),
                 service: service.name,
@@ -220,7 +237,11 @@ fn live_parse_gate(solution: &Solution, checker: Result<&dyn ScriptChecker, Stri
         }
     }
 
-    let answers = super::parallel::map(&scripts, |script| checker.check_script(&script.source));
+    let _phase = progress::phase(progress, "checking scripts", Some(scripts.len() as u64));
+    let answers = super::parallel::map_progress(&scripts, progress, |script| {
+        progress.message(&format!("{}.{}", script.entity, script.service));
+        checker.check_script(&script.source)
+    });
     for (script, answer) in scripts.iter().zip(answers) {
         let checked = match answer {
             Ok(checked) => checked,
@@ -802,9 +823,19 @@ fn run_hook(solution: &Solution, hook: &super::config::Check) -> GateResult {
         }
     }
 
+    // Argument values and the environment are never logged: a hook with `needs_credentials` receives secrets there.
+    let started = std::time::Instant::now();
+    tracing::debug!(
+        hook = %hook.name,
+        program,
+        argument_count = arguments.len(),
+        needs_credentials = hook.needs_credentials,
+        "hook started"
+    );
     let child = match command.spawn() {
         Ok(c) => c,
         Err(e) => {
+            tracing::debug!(hook = %hook.name, why = %e, "hook could not start");
             result.broken = Some(format!("cannot run {program}: {e}"));
             return result;
         }
@@ -817,6 +848,13 @@ fn run_hook(solution: &Solution, hook: &super::config::Check) -> GateResult {
             return result;
         }
     };
+    tracing::debug!(
+        hook = %hook.name,
+        exit = finished.status.and_then(|status| status.code()),
+        timed_out = finished.timed_out,
+        elapsed_ms = u64::try_from(started.elapsed().as_millis()).unwrap_or(u64::MAX),
+        "hook finished"
+    );
 
     if finished.timed_out {
         result.broken = Some(format!(
@@ -1068,9 +1106,12 @@ mod tests {
     use std::sync::Mutex;
 
     /// A solution on disk: one Thing with two script services, one of them with its sidecar.
-    fn live_solution() -> (PathBuf, Solution) {
-        let nonce = crate::test_nonce();
-        let root = std::env::temp_dir().join(format!("twaco-live-{}-{nonce}", std::process::id()));
+    fn live_solution() -> (tempfile::TempDir, PathBuf, Solution) {
+        let root_guard = tempfile::Builder::new()
+            .prefix("twaco-live-")
+            .tempdir()
+            .unwrap();
+        let root = root_guard.path().to_path_buf();
         std::fs::create_dir_all(root.join("Things")).unwrap();
         std::fs::write(root.join("twaco.toml"), "[[project]]\nname = \"P\"\n").unwrap();
         let service = |name: &str, code: &str| {
@@ -1092,14 +1133,14 @@ mod tests {
         std::fs::create_dir_all(&bad).unwrap();
         std::fs::write(bad.join("script.js"), "var a = 1;\nvar b = ;").unwrap();
         let solution = Solution::load(&root.join("twaco.toml")).unwrap();
-        (root, solution)
+        (root_guard, root, solution)
     }
 
     /// A declared check is third-party code run from the repository, so what it can read from the
     /// environment is a boundary: credentials reach it only if it says it needs them.
     #[test]
     fn a_secret_spelled_with_json_escapes_is_hidden_once_decoded() {
-        let (root, solution) = live_solution();
+        let (_dir, root, solution) = live_solution();
         std::env::set_var("TWACO_ESCAPE_PROBE_PASSWORD", "probe-escape-91c2");
         // `e` is `e`: the raw line does not hold the secret, the decoded message does.
         std::fs::write(
@@ -1128,7 +1169,6 @@ mod tests {
             },
         );
         std::env::remove_var("TWACO_ESCAPE_PROBE_PASSWORD");
-        let _ = std::fs::remove_dir_all(root);
         assert_eq!(result.findings.len(), 1, "{result:?}");
         let finding = &result.findings[0];
         assert_eq!(finding.message, "leaked <redacted>");
@@ -1136,8 +1176,73 @@ mod tests {
     }
 
     #[test]
+    fn a_hook_logs_its_program_and_exit_but_never_its_environment() {
+        let (_dir, _, solution) = live_solution();
+        std::env::set_var("TWACO_LOG_PROBE_PASSWORD", "probe-log-5d1e");
+        let printer: Vec<String> = if cfg!(windows) {
+            vec!["cmd".into(), "/C".into(), "echo".into(), "hi".into()]
+        } else {
+            vec!["echo".into(), "hi".into()]
+        };
+        let (_, logs) = crate::core::diagnostics::captured(|| {
+            run_hook(
+                &solution,
+                &super::super::config::Check {
+                    name: "log-probe".to_string(),
+                    command: printer,
+                    gate: false,
+                    needs_credentials: true,
+                    timeout_seconds: 30,
+                },
+            )
+        });
+        std::env::remove_var("TWACO_LOG_PROBE_PASSWORD");
+        let mine = |message: &str| {
+            logs.lines()
+                .any(|line| line.contains(message) && line.contains("hook=log-probe"))
+        };
+        assert!(mine("hook started"), "{logs}");
+        assert!(mine("hook finished"), "{logs}");
+        assert!(logs.contains("exit=0"), "{logs}");
+        assert!(!logs.contains("probe-log-5d1e"), "{logs}");
+    }
+
+    #[test]
+    fn a_hook_log_never_holds_an_argument_value() {
+        let (_dir, _, solution) = live_solution();
+        let printer: Vec<String> = if cfg!(windows) {
+            vec![
+                "cmd".into(),
+                "/C".into(),
+                "echo".into(),
+                "Bearer arg-secret-8c2f".into(),
+            ]
+        } else {
+            vec!["echo".into(), "Bearer arg-secret-8c2f".into()]
+        };
+        let (_, logs) = crate::core::diagnostics::captured(|| {
+            run_hook(
+                &solution,
+                &super::super::config::Check {
+                    name: "arg-probe".to_string(),
+                    command: printer,
+                    gate: false,
+                    needs_credentials: false,
+                    timeout_seconds: 30,
+                },
+            )
+        });
+        assert!(
+            logs.lines()
+                .any(|l| l.contains("hook started") && l.contains("hook=arg-probe")),
+            "{logs}"
+        );
+        assert!(!logs.contains("arg-secret-8c2f"), "{logs}");
+    }
+
+    #[test]
     fn a_hook_sees_no_credentials_unless_it_says_it_needs_them() {
-        let (root, solution) = live_solution();
+        let (_dir, _, solution) = live_solution();
         std::env::set_var("TWACO_HOOK_PROBE_SECRET", "probe-value-7f3a");
         std::env::set_var("TWX_HOOK_PROBE_SECRET", "probe-value-7f3a");
         let printer: Vec<String> = if cfg!(windows) {
@@ -1161,7 +1266,6 @@ mod tests {
         let with = run(true);
         std::env::remove_var("TWACO_HOOK_PROBE_SECRET");
         std::env::remove_var("TWX_HOOK_PROBE_SECRET");
-        let _ = std::fs::remove_dir_all(root);
 
         assert!(without.broken.is_none(), "{:?}", without.broken);
         assert!(
@@ -1233,7 +1337,7 @@ mod tests {
 
     #[test]
     fn a_rejected_script_is_a_finding_on_its_sidecar_line() {
-        let (root, solution) = live_solution();
+        let (_dir, _, solution) = live_solution();
         let parser = Parser {
             unreachable: false,
             seen: Mutex::new(Vec::new()),
@@ -1250,12 +1354,39 @@ mod tests {
             "column 9: syntax error source: [var b = ;]"
         );
         assert!(result.blocks());
-        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn live_parse_reports_one_step_per_script() {
+        use crate::core::progress::{Event, Recorder};
+        let (_dir, _, solution) = live_solution();
+        let parser = Parser {
+            unreachable: false,
+            seen: Mutex::new(Vec::new()),
+        };
+        let recorder = Recorder::default();
+        let result = live_parse_with_progress(&solution, Ok(&parser), &recorder);
+        assert_eq!(
+            recorder.phases(),
+            [("checking scripts".to_string(), Some(2))]
+        );
+        assert_eq!(recorder.advanced(), 2);
+        assert_eq!(recorder.events().last(), Some(&Event::Finish));
+        // The messages name entities and services, never script text.
+        assert!(recorder
+            .events()
+            .iter()
+            .any(|event| matches!(event, Event::Message(text) if text.ends_with(".Bad"))));
+        assert!(!recorder
+            .events()
+            .iter()
+            .any(|event| matches!(event, Event::Message(text) if text.contains("var b"))));
+        assert_eq!(result.examined, 2);
     }
 
     #[test]
     fn an_unreachable_server_breaks_the_gate_rather_than_passing_it() {
-        let (root, solution) = live_solution();
+        let (_dir, _, solution) = live_solution();
         let parser = Parser {
             unreachable: true,
             seen: Mutex::new(Vec::new()),
@@ -1264,19 +1395,17 @@ mod tests {
         assert!(result.broken.is_some());
         assert!(result.findings.is_empty());
         assert!(result.blocks(), "fail closed");
-        let _ = std::fs::remove_dir_all(root);
     }
 
     #[test]
     fn no_profile_breaks_the_gate_too() {
-        let (root, solution) = live_solution();
+        let (_dir, _, solution) = live_solution();
         let result = live_parse(
             &solution,
             Err("profile \"default\" was not found".to_string()),
         );
         assert!(result.blocks());
         assert!(result.broken.unwrap().contains("not found"));
-        let _ = std::fs::remove_dir_all(root);
     }
 
     #[test]

@@ -1008,14 +1008,11 @@ mod tests {
 
     #[test]
     fn a_backup_of_another_table_is_refused_and_one_is_never_overwritten() {
-        let dir = std::env::temp_dir().join(format!(
-            "twaco-ct-{}-{}",
-            std::process::id(),
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .unwrap()
-                .as_nanos()
-        ));
+        let dir_guard = tempfile::Builder::new()
+            .prefix("twaco-ct-")
+            .tempdir()
+            .unwrap();
+        let dir = dir_guard.path().to_path_buf();
         std::fs::create_dir_all(&dir).unwrap();
         let path = dir.join("backup.json");
         let table = Table {
@@ -1043,7 +1040,6 @@ mod tests {
             read_backup(&path, "U", "CT"),
             Err(TableError::WrongBackup { .. })
         ));
-        let _ = std::fs::remove_dir_all(dir);
     }
 
     #[test]

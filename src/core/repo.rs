@@ -7,11 +7,11 @@
 //! question is how that tree and the server's differ.
 
 use super::entity_key::ServiceTarget;
+use super::progress::{self, Progress, NONE};
 use super::server::{Client, ServerError};
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
 use std::collections::BTreeMap;
-use std::fmt;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
@@ -67,26 +67,17 @@ impl Remote for Client {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, thiserror::Error)]
 pub enum RepoError {
+    #[error("{0}")]
     Remote(ServerError),
+    #[error("unexpected repository response: {0}")]
     Shape(String),
+    #[error("{0}")]
     Invalid(String),
+    #[error("{}: {why}", .path.display())]
     Local { path: PathBuf, why: String },
 }
-
-impl fmt::Display for RepoError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            RepoError::Remote(error) => write!(f, "{error}"),
-            RepoError::Shape(why) => write!(f, "unexpected repository response: {why}"),
-            RepoError::Invalid(why) => write!(f, "{why}"),
-            RepoError::Local { path, why } => write!(f, "{}: {why}", path.display()),
-        }
-    }
-}
-
-impl std::error::Error for RepoError {}
 
 /// A repository path as the server takes it: `/`-rooted, slash-separated, with no empty, `.`
 /// or `..` segment. The server refuses a climbing path itself; refusing it here says so plainly.
@@ -141,7 +132,20 @@ pub fn list(
     folder: &str,
     recursive: bool,
 ) -> Result<Listing, RepoError> {
+    list_with_progress(remote, repository, folder, recursive, &NONE)
+}
+
+/// Like [`list`], and report one step per folder listed. The total is unknown, because a
+/// recursive listing finds folders as it goes. Messages hold folder paths only.
+pub fn list_with_progress(
+    remote: &dyn Remote,
+    repository: &str,
+    folder: &str,
+    recursive: bool,
+    progress: &dyn Progress,
+) -> Result<Listing, RepoError> {
     let folder = remote_path(folder)?;
+    let _phase = progress::phase(progress, "listing folders", None);
     let mut listing = Listing::default();
     let mut visited = std::collections::BTreeSet::new();
     let mut pending = vec![folder];
@@ -199,6 +203,7 @@ pub fn list(
                     .unwrap_or(0.0) as i64,
             });
         }
+        progress.advance(1);
     }
     listing.folders.sort();
     listing.files.sort_by(|a, b| a.path.cmp(&b.path));
@@ -507,16 +512,28 @@ pub fn status(
     repository: &str,
     local_root: &Path,
 ) -> Result<Vec<Compared>, RepoError> {
+    status_with_progress(remote, repository, local_root, &NONE)
+}
+
+/// Like [`status`], and report the listing, then one step per file downloaded to settle equal
+/// sizes. Messages hold paths only.
+pub fn status_with_progress(
+    remote: &dyn Remote,
+    repository: &str,
+    local_root: &Path,
+    progress: &dyn Progress,
+) -> Result<Vec<Compared>, RepoError> {
     let local = if local_root.is_dir() {
         local_files(local_root)?
     } else {
         BTreeMap::new()
     };
-    let remote_files: BTreeMap<String, u64> = list(remote, repository, "/", true)?
-        .files
-        .into_iter()
-        .map(|file| (file.path, file.size))
-        .collect();
+    let remote_files: BTreeMap<String, u64> =
+        list_with_progress(remote, repository, "/", true, progress)?
+            .files
+            .into_iter()
+            .map(|file| (file.path, file.size))
+            .collect();
     let mut paths: Vec<&String> = local.keys().chain(remote_files.keys()).collect();
     paths.sort();
     paths.dedup();
@@ -554,18 +571,20 @@ pub fn status(
             remote_size,
         });
     }
-    let verdicts = super::parallel::map(&to_hash, |&at| -> Result<bool, RepoError> {
-        let path = &out[at].path;
-        let file = &local[path];
-        let mine = std::fs::read(file).map_err(|e| RepoError::Local {
-            path: file.clone(),
-            why: e.to_string(),
-        })?;
-        let theirs = remote
-            .download(repository, path)
-            .map_err(RepoError::Remote)?;
-        Ok(Sha256::digest(&mine) == Sha256::digest(&theirs))
-    });
+    let _phase = progress::phase(progress, "comparing files", Some(to_hash.len() as u64));
+    let verdicts =
+        super::parallel::map_progress(&to_hash, progress, |&at| -> Result<bool, RepoError> {
+            let path = &out[at].path;
+            let file = &local[path];
+            let mine = std::fs::read(file).map_err(|e| RepoError::Local {
+                path: file.clone(),
+                why: e.to_string(),
+            })?;
+            let theirs = remote
+                .download(repository, path)
+                .map_err(RepoError::Remote)?;
+            Ok(Sha256::digest(&mine) == Sha256::digest(&theirs))
+        });
     for (at, verdict) in to_hash.into_iter().zip(verdicts) {
         if !verdict? {
             out[at].state = State::Differs;
@@ -606,7 +625,23 @@ pub fn sync(
     overwrite: bool,
     apply: bool,
 ) -> Result<Synced, RepoError> {
-    let compared = status(remote, repository, local_root)?;
+    sync_with_progress(
+        remote, repository, local_root, direction, overwrite, apply, &NONE,
+    )
+}
+
+/// Like [`sync`], and report the status steps, then one step per file copied.
+#[allow(clippy::too_many_arguments)]
+pub fn sync_with_progress(
+    remote: &dyn Remote,
+    repository: &str,
+    local_root: &Path,
+    direction: Direction,
+    overwrite: bool,
+    apply: bool,
+    progress: &dyn Progress,
+) -> Result<Synced, RepoError> {
+    let compared = status_with_progress(remote, repository, local_root, progress)?;
     let (source_only, target_only) = match direction {
         Direction::Push => (State::LocalOnly, State::RemoteOnly),
         Direction::Pull => (State::RemoteOnly, State::LocalOnly),
@@ -656,6 +691,7 @@ pub fn sync(
         return Ok(synced);
     }
     let mut done: Vec<String> = Vec::new();
+    let _phase = progress::phase(progress, "copying files", Some(synced.copied.len() as u64));
     for path in &synced.copied {
         let result = copy_one(
             remote,
@@ -678,6 +714,7 @@ pub fn sync(
             )));
         }
         done.push(path.clone());
+        progress.advance(1);
     }
     synced.applied = true;
     Ok(synced)
@@ -1106,27 +1143,24 @@ mod tests {
         assert_eq!(*live.writes.lock().unwrap(), ["DeleteFile"]);
     }
 
-    fn tree(files: &[(&str, &[u8])]) -> PathBuf {
-        let dir = std::env::temp_dir().join(format!(
-            "twaco-sync-{}-{}",
-            std::process::id(),
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .unwrap()
-                .as_nanos()
-        ));
+    fn tree(files: &[(&str, &[u8])]) -> (tempfile::TempDir, PathBuf) {
+        let dir_guard = tempfile::Builder::new()
+            .prefix("twaco-sync-")
+            .tempdir()
+            .unwrap();
+        let dir = dir_guard.path().to_path_buf();
         for (path, bytes) in files {
             let file = dir.join(path.trim_start_matches('/'));
             std::fs::create_dir_all(file.parent().unwrap()).unwrap();
             std::fs::write(file, bytes).unwrap();
         }
         std::fs::create_dir_all(&dir).unwrap();
-        dir
+        (dir_guard, dir)
     }
 
     #[test]
     fn push_copies_what_is_new_and_never_deletes() {
-        let dir = tree(&[("/same.bin", b"s"), ("/A/new.bin", b"n")]);
+        let (_dir, dir) = tree(&[("/same.bin", b"s"), ("/A/new.bin", b"n")]);
         let live = Live::with(&[("/same.bin", b"s"), ("/server-only.bin", b"r")], &[]);
         let plan = sync(&live, "R", &dir, Direction::Push, false, false).unwrap();
         assert_eq!(
@@ -1145,55 +1179,49 @@ mod tests {
         let files = live.files.lock().unwrap();
         assert_eq!(files["/A/new.bin"], b"n");
         assert!(files.contains_key("/server-only.bin"), "never deleted");
-        let _ = std::fs::remove_dir_all(dir);
     }
 
     #[test]
     fn pull_writes_what_is_new_locally_and_never_deletes() {
-        let dir = tree(&[("/local-only.bin", b"l")]);
+        let (_dir, dir) = tree(&[("/local-only.bin", b"l")]);
         let live = Live::with(&[("/B/deep/r.bin", b"remote")], &["/B", "/B/deep"]);
         sync(&live, "R", &dir, Direction::Pull, false, true).unwrap();
         assert_eq!(std::fs::read(dir.join("B/deep/r.bin")).unwrap(), b"remote");
         assert!(dir.join("local-only.bin").exists(), "never deleted");
-        let _ = std::fs::remove_dir_all(dir);
     }
 
     #[test]
     fn a_pull_of_paths_that_differ_only_in_case_is_refused_before_anything_is_written() {
-        let dir = tree(&[]);
+        let (_dir, dir) = tree(&[]);
         let live = Live::with(&[("/A.txt", b"upper"), ("/a.txt", b"lower")], &[]);
         for apply in [false, true] {
             let error = sync(&live, "R", &dir, Direction::Pull, false, apply).unwrap_err();
             assert!(error.to_string().contains("differ only in case"), "{error}");
         }
         assert!(!dir.join("A.txt").exists() && !dir.join("a.txt").exists());
-        let _ = std::fs::remove_dir_all(dir);
 
         // A server file and a local-only one, or a file and a folder, equal apart from case.
-        let dir = tree(&[("/notes.txt", b"mine")]);
+        let (_dir, dir) = tree(&[("/notes.txt", b"mine")]);
         let live = Live::with(&[("/Notes.txt", b"theirs")], &[]);
         let error = sync(&live, "R", &dir, Direction::Pull, false, false).unwrap_err();
         assert!(
             error.to_string().contains("/Notes.txt and /notes.txt"),
             "{error}"
         );
-        let _ = std::fs::remove_dir_all(dir);
-        let dir = tree(&[]);
+        let (_dir, dir) = tree(&[]);
         let live = Live::with(&[("/A", b"file"), ("/a/x.txt", b"in a folder")], &["/a"]);
         let error = sync(&live, "R", &dir, Direction::Pull, false, false).unwrap_err();
         assert!(error.to_string().contains("differ only in case"), "{error}");
-        let _ = std::fs::remove_dir_all(dir);
 
         // A folder and the files in it are no clash.
-        let dir = tree(&[]);
+        let (_dir, dir) = tree(&[]);
         let live = Live::with(&[("/a/x.txt", b"x"), ("/a/y.txt", b"y")], &["/a"]);
         assert!(sync(&live, "R", &dir, Direction::Pull, false, false).is_ok());
-        let _ = std::fs::remove_dir_all(dir);
     }
 
     #[test]
     fn a_file_that_differs_refuses_the_whole_sync_unless_overwriting() {
-        let dir = tree(&[("/both.bin", b"mine"), ("/new.bin", b"n")]);
+        let (_dir, dir) = tree(&[("/both.bin", b"mine"), ("/new.bin", b"n")]);
         let live = Live::with(&[("/both.bin", b"them")], &[]);
         let error = sync(&live, "R", &dir, Direction::Push, false, true).unwrap_err();
         assert!(error.to_string().contains("/both.bin"), "{error}");
@@ -1203,7 +1231,6 @@ mod tests {
         );
         sync(&live, "R", &dir, Direction::Pull, true, true).unwrap();
         assert_eq!(std::fs::read(dir.join("both.bin")).unwrap(), b"them");
-        let _ = std::fs::remove_dir_all(dir);
     }
 
     /// A server whose listing names a path outside the folder it lists.
@@ -1226,7 +1253,7 @@ mod tests {
 
     #[test]
     fn a_listed_path_that_leaves_the_repository_is_refused_before_anything_is_written() {
-        let dir = tree(&[]);
+        let (_dir, dir) = tree(&[]);
         let error = sync(
             &Escaping,
             "R",
@@ -1241,7 +1268,6 @@ mod tests {
             "{error}"
         );
         assert!(!dir.join("outside.bin").exists());
-        let _ = std::fs::remove_dir_all(dir);
     }
 
     #[test]
@@ -1275,7 +1301,7 @@ mod tests {
                 Ok(Vec::new())
             }
         }
-        let dir = tree(&[("/new.bin", b"mine")]);
+        let (_dir, dir) = tree(&[("/new.bin", b"mine")]);
         let remote = Appearing(Live::with(&[], &[]));
         let error = sync(&remote, "R", &dir, Direction::Push, false, true).unwrap_err();
         assert!(
@@ -1287,7 +1313,6 @@ mod tests {
             b"theirs",
             "not overwritten"
         );
-        let _ = std::fs::remove_dir_all(dir);
     }
 
     #[test]
@@ -1346,14 +1371,11 @@ mod tests {
 
     #[test]
     fn status_compares_by_size_then_by_hash_and_names_one_sided_files() {
-        let dir = std::env::temp_dir().join(format!(
-            "twaco-repo-{}-{}",
-            std::process::id(),
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .unwrap()
-                .as_nanos()
-        ));
+        let dir_guard = tempfile::Builder::new()
+            .prefix("twaco-repo-")
+            .tempdir()
+            .unwrap();
+        let dir = dir_guard.path().to_path_buf();
         std::fs::create_dir_all(dir.join("A")).unwrap();
         std::fs::write(dir.join("A/same.bin"), b"same").unwrap();
         std::fs::write(dir.join("A/edit.bin"), b"mine").unwrap(); // same size as the server's
@@ -1386,7 +1408,54 @@ mod tests {
             2,
             "only equal sizes are downloaded to compare"
         );
-        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn status_reports_each_folder_listed_and_each_file_compared() {
+        use crate::core::progress::{Event, Recorder};
+        let (_dir, dir) = tree(&[("/A/same.bin", b"same"), ("/A/edit.bin", b"mine")]);
+        let fake = Fake::with(&[("/A/same.bin", b"same"), ("/A/edit.bin", b"them")]);
+        let recorder = Recorder::default();
+        status_with_progress(&fake, "R", &dir, &recorder).unwrap();
+        assert_eq!(
+            recorder.phases(),
+            [
+                ("listing folders".to_string(), None),
+                ("comparing files".to_string(), Some(2))
+            ]
+        );
+        // Two folders are listed, then two files are compared.
+        assert_eq!(recorder.advanced(), 4);
+        // A repository path is not an entity name, so it never enters a progress message.
+        assert!(!recorder
+            .events()
+            .iter()
+            .any(|event| matches!(event, Event::Message(_))));
+    }
+
+    #[test]
+    fn an_applied_sync_reports_one_step_per_file_copied() {
+        use crate::core::progress::Recorder;
+        let (_dir, dir) = tree(&[("/one.bin", b"1"), ("/two.bin", b"2")]);
+        let live = Live::with(&[], &[]);
+        let recorder = Recorder::default();
+        let synced =
+            sync_with_progress(&live, "R", &dir, Direction::Push, false, true, &recorder).unwrap();
+        assert_eq!(synced.copied.len(), 2);
+        assert!(recorder
+            .phases()
+            .contains(&("copying files".to_string(), Some(2))));
+        let copying = recorder
+            .events()
+            .into_iter()
+            .skip_while(|event| !matches!(event, crate::core::progress::Event::Start(name, _) if name == "copying files"))
+            .filter(|event| matches!(event, crate::core::progress::Event::Advance(_)))
+            .count();
+        assert_eq!(copying, 2);
+        assert!(!recorder
+            .events()
+            .iter()
+            .any(|event| matches!(event, crate::core::progress::Event::Message(_))));
     }
 
     #[test]

@@ -11,6 +11,7 @@ use super::write::{self, Order};
 use super::{differences, Change, Grants, KindKey};
 use crate::core::config::Solution;
 use crate::core::entity_carry::Kind;
+use crate::core::progress::{self, Progress};
 use serde::Serialize;
 use std::collections::BTreeMap;
 use std::fmt;
@@ -121,6 +122,15 @@ impl crate::core::codes::Coded for ApplyError {
 
 /// What writing every policy (or the named project's) would change.
 pub fn plan(solution: &Solution, project: Option<&str>) -> Result<ApplyPlan, ApplyError> {
+    plan_with_progress(solution, project, &progress::NONE)
+}
+
+/// Like [`plan`], and report one step per entity planned. Messages hold entity names only.
+pub fn plan_with_progress(
+    solution: &Solution,
+    project: Option<&str>,
+    progress: &dyn Progress,
+) -> Result<ApplyPlan, ApplyError> {
     let (loaded, without_policy) = audit::load(solution, project).map_err(ApplyError::Audit)?;
     let audited = loaded
         .iter()
@@ -140,16 +150,19 @@ pub fn plan(solution: &Solution, project: Option<&str>) -> Result<ApplyPlan, App
         projects: Vec::new(),
         without_policy,
     };
+    let total = loaded.iter().map(|one| one.entities.len() as u64).sum();
+    let _phase = progress::phase(progress, "planning permissions", Some(total));
     for one in &loaded {
         let helper = one.helper().map_err(ApplyError::Audit)?;
         let mut changes = Vec::new();
         for entity in &one.entities {
-            if one.policy.is_unmanaged(entity.name()) {
-                continue;
+            progress.message(entity.name());
+            if !one.policy.is_unmanaged(entity.name()) {
+                if let Some(change) = change_of(&one.policy, entity)? {
+                    changes.push(change);
+                }
             }
-            if let Some(change) = change_of(&one.policy, entity)? {
-                changes.push(change);
-            }
+            progress.advance(1);
         }
         if let Some(helper) = helper {
             let bytes_of = |entity: &ModelEntity| -> Result<Vec<u8>, super::PermissionsError> {

@@ -16,7 +16,6 @@ use jiff::civil::DateTime;
 use jiff::tz::TimeZone;
 use jiff::Timestamp;
 use serde_json::{json, Map, Value};
-use std::fmt;
 use std::time::Duration;
 
 /// Log queries answer in well under a second; a stalled one must not hold `--with-logs` for
@@ -53,24 +52,15 @@ impl Remote for Client {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, thiserror::Error)]
 pub enum LogsError {
+    #[error("{0}")]
     Remote(ServerError),
+    #[error("unexpected log query response: {0}")]
     Shape(String),
+    #[error("{0}")]
     Invalid(String),
 }
-
-impl fmt::Display for LogsError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            LogsError::Remote(error) => write!(f, "{error}"),
-            LogsError::Shape(why) => write!(f, "unexpected log query response: {why}"),
-            LogsError::Invalid(why) => write!(f, "{why}"),
-        }
-    }
-}
-
-impl std::error::Error for LogsError {}
 
 /// The levels, lowest first.
 pub const LEVELS: [&str; 5] = ["TRACE", "DEBUG", "INFO", "WARN", "ERROR"];

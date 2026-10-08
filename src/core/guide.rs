@@ -9,7 +9,6 @@
 
 use super::config::Solution;
 use std::collections::HashMap;
-use std::fmt;
 use std::path::{Path, PathBuf};
 
 const BUILTIN: [(&str, &str); 3] = [
@@ -33,20 +32,11 @@ const MAX_FILE: u64 = 2 * 1024 * 1024;
 /// A topic read whole up to this size; a longer one gives its outline unless a section is named.
 pub const WHOLE: usize = 24_000;
 
-#[derive(Debug)]
+#[derive(Debug, thiserror::Error)]
 pub enum GuideError {
+    #[error("{0}")]
     Invalid(String),
 }
-
-impl fmt::Display for GuideError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            GuideError::Invalid(why) => write!(f, "{why}"),
-        }
-    }
-}
-
-impl std::error::Error for GuideError {}
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Topic {
@@ -623,8 +613,11 @@ mod tests {
 
     #[test]
     fn the_solutions_own_markdown_is_a_topic_too() {
-        let nonce = crate::test_nonce();
-        let root = std::env::temp_dir().join(format!("twaco-guide-{}-{nonce}", std::process::id()));
+        let root_guard = tempfile::Builder::new()
+            .prefix("twaco-guide-")
+            .tempdir()
+            .unwrap();
+        let root = root_guard.path().to_path_buf();
         std::fs::create_dir_all(root.join("docs/deep")).unwrap();
         std::fs::write(root.join("twaco.toml"), "[[project]]\nname = \"P\"\n").unwrap();
         std::fs::write(
@@ -659,6 +652,5 @@ mod tests {
         let (topics, problems) = super::topics(Some(&solution));
         assert_eq!(topics.len(), 3);
         assert_eq!(problems.len(), 2, "{problems:?}");
-        let _ = std::fs::remove_dir_all(root);
     }
 }

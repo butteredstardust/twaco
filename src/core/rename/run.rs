@@ -35,6 +35,12 @@ pub(crate) fn run_with(
         }
     }
     let plan = plan(solution, spec)?;
+    tracing::info!(
+        moves = plan.moves.len(),
+        changes = plan.changes.len(),
+        apply = options.apply,
+        "rename: planned"
+    );
     if let Some(expected) = &options.expect_digest {
         let actual = plan.digest();
         if &actual != expected {
@@ -81,6 +87,7 @@ pub(crate) fn run_with(
             path: solution.root.clone(),
             why: "applying needs the workspace lock".to_string(),
         })?;
+        tracing::info!("rename: verified, writing");
         let applied = apply(
             solution,
             &plan,
@@ -94,6 +101,7 @@ pub(crate) fn run_with(
             },
             lock,
         )?;
+        tracing::info!("rename: written, verifying");
         // A prefix rename may change project declarations in twaco.toml. Verification must use
         // those new declarations rather than the in-memory solution used to make the plan.
         let verified_solution =

@@ -7,7 +7,6 @@
 //! it.
 
 use super::scan::{self, Kind, ScanError};
-use std::fmt;
 use std::path::{Path, PathBuf};
 
 /// What one entity document declares about itself.
@@ -20,37 +19,16 @@ pub struct EntityInfo {
     pub project: String,
 }
 
-#[derive(Debug)]
+#[derive(Debug, thiserror::Error)]
 pub enum EntityError {
-    Unreadable {
-        path: PathBuf,
-        why: String,
-    },
-    Scan {
-        path: PathBuf,
-        why: ScanError,
-    },
+    #[error("cannot read {}: {why}", .path.display())]
+    Unreadable { path: PathBuf, why: String },
+    #[error("{}: {why}", .path.display())]
+    Scan { path: PathBuf, why: ScanError },
     /// The file parsed but is not an entity export: no `<Entities>` wrapper with a collection.
-    NotAnEntityDocument {
-        path: PathBuf,
-    },
+    #[error("{} is not a ThingWorx entity export", .path.display())]
+    NotAnEntityDocument { path: PathBuf },
 }
-
-impl fmt::Display for EntityError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            EntityError::Unreadable { path, why } => {
-                write!(f, "cannot read {}: {why}", path.display())
-            }
-            EntityError::Scan { path, why } => write!(f, "{}: {why}", path.display()),
-            EntityError::NotAnEntityDocument { path } => {
-                write!(f, "{} is not a ThingWorx entity export", path.display())
-            }
-        }
-    }
-}
-
-impl std::error::Error for EntityError {}
 
 /// The document element every ThingWorx export is wrapped in.
 const WRAPPER: &str = "Entities";

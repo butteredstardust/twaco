@@ -4,6 +4,7 @@ use super::*;
 pub(crate) fn repo_tool(
     solution: &Solution,
     arguments: tool::RepoRequest,
+    progress: &dyn Progress,
 ) -> Result<Value, ToolError> {
     use crate::core::commands::repo::{self as command, RepoAction, RepoRequest};
     use tool::RepoAction as RequestAction;
@@ -13,8 +14,14 @@ pub(crate) fn repo_tool(
             profile: arguments.profile,
         };
         let mut notices = commands::Notices::default();
-        let outcome = command::execute(solution, &request, server::Client::new, &mut notices)
-            .map_err(ToolError::coded)?;
+        let outcome = command::execute_with_progress(
+            solution,
+            &request,
+            server::Client::new,
+            &mut notices,
+            progress,
+        )
+        .map_err(ToolError::coded)?;
         let command::RepoOutcome::Listed { repositories, .. } = outcome else {
             unreachable!()
         };
@@ -39,8 +46,14 @@ pub(crate) fn repo_tool(
                 profile: arguments.profile,
             };
             let mut notices = commands::Notices::default();
-            let outcome = command::execute(solution, &request, server::Client::new, &mut notices)
-                .map_err(ToolError::coded)?;
+            let outcome = command::execute_with_progress(
+                solution,
+                &request,
+                server::Client::new,
+                &mut notices,
+                progress,
+            )
+            .map_err(ToolError::coded)?;
             let command::RepoOutcome::Ls { listing, .. } = outcome else {
                 unreachable!()
             };
@@ -81,8 +94,14 @@ pub(crate) fn repo_tool(
                 profile: arguments.profile,
             };
             let mut notices = commands::Notices::default();
-            let outcome = command::execute(solution, &request, server::Client::new, &mut notices)
-                .map_err(ToolError::coded)?;
+            let outcome = command::execute_with_progress(
+                solution,
+                &request,
+                server::Client::new,
+                &mut notices,
+                progress,
+            )
+            .map_err(ToolError::coded)?;
             let command::RepoOutcome::Got { bytes, .. } = outcome else {
                 unreachable!()
             };
@@ -131,8 +150,14 @@ pub(crate) fn repo_tool(
                 profile: arguments.profile,
             };
             let mut notices = commands::Notices::default();
-            let outcome = command::execute(solution, &request, server::Client::new, &mut notices)
-                .map_err(ToolError::coded)?;
+            let outcome = command::execute_with_progress(
+                solution,
+                &request,
+                server::Client::new,
+                &mut notices,
+                progress,
+            )
+            .map_err(ToolError::coded)?;
             let command::RepoOutcome::Status {
                 local, compared, ..
             } = outcome
@@ -168,6 +193,7 @@ pub(crate) fn repo_tool(
 pub(crate) fn import_tool(
     solution: &Solution,
     arguments: tool::ImportRequest,
+    progress: &dyn Progress,
 ) -> Result<Value, ToolError> {
     use crate::core::commands::imports::{self as command, ImportAction, ImportRequest};
     let dry_run = arguments.dry_run;
@@ -201,8 +227,14 @@ pub(crate) fn import_tool(
                 profile,
             };
             let mut notices = commands::Notices::default();
-            let outcome = command::execute(solution, &request, server::Client::new, &mut notices)
-                .map_err(ToolError::coded)?;
+            let outcome = command::execute(
+                solution,
+                &request,
+                server::Client::new,
+                &mut notices,
+                progress,
+            )
+            .map_err(ToolError::coded)?;
             let command::ImportOutcome::File { plan, .. } = outcome else {
                 unreachable!()
             };
@@ -231,8 +263,14 @@ pub(crate) fn import_tool(
                 profile,
             };
             let mut notices = commands::Notices::default();
-            let outcome = command::execute(solution, &request, server::Client::new, &mut notices)
-                .map_err(ToolError::coded)?;
+            let outcome = command::execute(
+                solution,
+                &request,
+                server::Client::new,
+                &mut notices,
+                progress,
+            )
+            .map_err(ToolError::coded)?;
             let command::ImportOutcome::SourceControl {
                 report: imported, ..
             } = outcome
@@ -363,6 +401,7 @@ pub(crate) fn entity_get_tool(
 pub(crate) fn export_tool(
     solution: &Solution,
     arguments: tool::ExportRequest,
+    progress: &dyn Progress,
 ) -> Result<Value, ToolError> {
     use crate::core::commands::export::{self as command, ExportAction, ExportRequest};
     let action = arguments.action;
@@ -390,8 +429,14 @@ pub(crate) fn export_tool(
             profile,
         };
         let mut notices = commands::Notices::default();
-        let outcome = command::execute(solution, &request, server::Client::new, &mut notices)
-            .map_err(ToolError::coded)?;
+        let outcome = command::execute(
+            solution,
+            &request,
+            server::Client::new,
+            &mut notices,
+            progress,
+        )
+        .map_err(ToolError::coded)?;
         let command::ExportOutcome::SourceControl {
             plan,
             download: link,
@@ -430,8 +475,14 @@ pub(crate) fn export_tool(
         profile,
     };
     let mut notices = commands::Notices::default();
-    let outcome = command::execute(solution, &request, server::Client::new, &mut notices)
-        .map_err(ToolError::coded)?;
+    let outcome = command::execute(
+        solution,
+        &request,
+        server::Client::new,
+        &mut notices,
+        progress,
+    )
+    .map_err(ToolError::coded)?;
     let command::ExportOutcome::Xml { exported, .. } = outcome else {
         unreachable!()
     };
@@ -515,8 +566,14 @@ pub(crate) fn extensions_tool(
                 profile: arguments.profile.clone(),
             };
             let mut notices = commands::Notices::default();
-            let outcome = command::execute(solution, &request, server::Client::new, &mut notices)
-                .map_err(ToolError::coded)?;
+            let outcome = command::execute(
+                solution,
+                &request,
+                server::Client::new,
+                &mut notices,
+                &core_progress::NONE,
+            )
+            .map_err(ToolError::coded)?;
             let command::ExtensionOutcome::Listed { packages, .. } = outcome else {
                 unreachable!()
             };
@@ -532,8 +589,14 @@ pub(crate) fn extensions_tool(
                 profile: arguments.profile.clone(),
             };
             let mut notices = commands::Notices::default();
-            let outcome = command::execute(solution, &request, server::Client::new, &mut notices)
-                .map_err(ToolError::coded)?;
+            let outcome = command::execute(
+                solution,
+                &request,
+                server::Client::new,
+                &mut notices,
+                &core_progress::NONE,
+            )
+            .map_err(ToolError::coded)?;
             let command::ExtensionOutcome::Shown { shown, .. } = outcome else {
                 unreachable!()
             };
@@ -548,6 +611,7 @@ pub(crate) fn extensions_tool(
 pub(crate) fn extension_write_tool(
     solution: &Solution,
     arguments: tool::ExtensionWriteRequest,
+    progress: &dyn Progress,
 ) -> Result<Value, ToolError> {
     use crate::core::commands::extensions::{self as command, ExtensionAction, ExtensionRequest};
     let dry_run = arguments.dry_run;
@@ -584,8 +648,14 @@ pub(crate) fn extension_write_tool(
                 profile,
             };
             let mut notices = commands::Notices::default();
-            let outcome = command::execute(solution, &request, server::Client::new, &mut notices)
-                .map_err(ToolError::coded)?;
+            let outcome = command::execute(
+                solution,
+                &request,
+                server::Client::new,
+                &mut notices,
+                progress,
+            )
+            .map_err(ToolError::coded)?;
             let command::ExtensionOutcome::Imported { imported, .. } = outcome else {
                 unreachable!()
             };
@@ -608,8 +678,14 @@ pub(crate) fn extension_write_tool(
                 profile,
             };
             let mut notices = commands::Notices::default();
-            let outcome = command::execute(solution, &request, server::Client::new, &mut notices)
-                .map_err(ToolError::coded)?;
+            let outcome = command::execute(
+                solution,
+                &request,
+                server::Client::new,
+                &mut notices,
+                progress,
+            )
+            .map_err(ToolError::coded)?;
             let command::ExtensionOutcome::Removed { plan, .. } = outcome else {
                 unreachable!()
             };
@@ -625,6 +701,7 @@ pub(crate) fn extension_write_tool(
 pub(crate) fn repo_write_tool(
     solution: &Solution,
     arguments: tool::RepoWriteRequest,
+    progress: &dyn Progress,
 ) -> Result<Value, ToolError> {
     let repository = nonempty(&arguments.repository, "repository")?;
     let dry_run = arguments.dry_run;
@@ -648,8 +725,14 @@ pub(crate) fn repo_write_tool(
             profile: arguments.profile.clone(),
         };
         let mut notices = commands::Notices::default();
-        let outcome = command::execute(solution, &request, server::Client::new, &mut notices)
-            .map_err(ToolError::coded)?;
+        let outcome = command::execute_with_progress(
+            solution,
+            &request,
+            server::Client::new,
+            &mut notices,
+            progress,
+        )
+        .map_err(ToolError::coded)?;
         let command::RepoOutcome::Synced { local, synced, .. } = outcome else {
             unreachable!()
         };
@@ -736,8 +819,14 @@ pub(crate) fn repo_write_tool(
         profile: arguments.profile.clone(),
     };
     let mut notices = commands::Notices::default();
-    let outcome = command::execute(solution, &request, server::Client::new, &mut notices)
-        .map_err(ToolError::coded)?;
+    let outcome = command::execute_with_progress(
+        solution,
+        &request,
+        server::Client::new,
+        &mut notices,
+        progress,
+    )
+    .map_err(ToolError::coded)?;
     let command::RepoOutcome::Changed { planned, .. } = outcome else {
         unreachable!()
     };

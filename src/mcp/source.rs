@@ -4,14 +4,19 @@ use super::requests::source::{
 };
 use super::*;
 
-pub(crate) fn types_tool(solution: &Solution, request: TypesRequest) -> Result<Value, ToolError> {
-    types_tool_with_compiler(solution, request, None)
+pub(crate) fn types_tool(
+    solution: &Solution,
+    request: TypesRequest,
+    progress: &dyn Progress,
+) -> Result<Value, ToolError> {
+    types_tool_with_compiler(solution, request, None, progress)
 }
 
 pub(crate) fn types_tool_with_compiler(
     solution: &Solution,
     arguments: TypesRequest,
     compiler: Option<&dyn types::CompilerRunner>,
+    progress: &dyn Progress,
 ) -> Result<Value, ToolError> {
     let action = match arguments.action {
         TypesAction::Generate => commands::types::TypesAction::Generate,
@@ -30,6 +35,7 @@ pub(crate) fn types_tool_with_compiler(
         server::Client::new,
         compiler,
         &mut notices,
+        progress,
     );
     match result.map_err(ToolError::coded)? {
         commands::types::TypesOutcome::Generated(outcome) => {
@@ -94,7 +100,12 @@ pub(crate) fn types_tool_with_compiler(
 }
 
 /// Every gate, and the live script parse when `live`: what `check` reports and `deploy` obeys.
-fn run_gates(solution: &Solution, profile: &str, live: bool) -> check::CheckReport {
+fn run_gates(
+    solution: &Solution,
+    profile: &str,
+    live: bool,
+    progress: &dyn Progress,
+) -> check::CheckReport {
     let mut report = check::run(solution);
     if live {
         let built = client(solution, profile).map_err(|error| error.message);
@@ -102,16 +113,23 @@ fn run_gates(solution: &Solution, profile: &str, live: bool) -> check::CheckRepo
             .as_ref()
             .map(|c| c as &dyn check::ScriptChecker)
             .map_err(Clone::clone);
-        report.gates.push(check::live_parse(solution, checker));
+        report
+            .gates
+            .push(check::live_parse_with_progress(solution, checker, progress));
     }
     report
 }
 
-pub(crate) fn check_tool(solution: &Solution, request: CheckRequest) -> Result<Value, ToolError> {
+pub(crate) fn check_tool(
+    solution: &Solution,
+    request: CheckRequest,
+    progress: &dyn Progress,
+) -> Result<Value, ToolError> {
     let report = run_gates(
         solution,
         &request.profile,
         request.live.unwrap_or(solution.gates.live),
+        progress,
     );
     let detail = request.detail;
     let gates: Vec<Value> = report
@@ -246,6 +264,7 @@ pub(crate) fn fmt_tool(solution: &Solution, arguments: FmtRequest) -> Result<Val
 pub(crate) fn deploy_tool(
     solution: &Solution,
     arguments: DeployRequest,
+    progress: &dyn Progress,
 ) -> Result<Value, ToolError> {
     let dry_run = arguments.dry_run;
     let force = arguments.force;
@@ -269,6 +288,7 @@ pub(crate) fn deploy_tool(
         &request,
         server::Client::new,
         &mut notices,
+        progress,
     ) {
         Ok(commands::deploy::DeployOutcome::GatesBlocked { report, .. }) => {
             let failing: Vec<Value> = report.gates.iter().filter(|gate| gate.blocks()).map(

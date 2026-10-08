@@ -8,7 +8,6 @@
 use super::workspace;
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
-use std::fmt;
 use std::path::{Path, PathBuf};
 
 pub const RELATIVE_PATH: &str = ".twaco/renames.json";
@@ -86,31 +85,14 @@ pub struct Record {
 #[serde(transparent)]
 pub struct Ledger(pub Vec<Record>);
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 pub enum LedgerError {
     /// The file could not be read or is not a ledger.
-    Invalid {
-        path: PathBuf,
-        why: String,
-    },
-    Write {
-        path: PathBuf,
-        why: String,
-    },
+    #[error("cannot read rename ledger {}: {why}", .path.display())]
+    Invalid { path: PathBuf, why: String },
+    #[error("cannot write {}: {why}", .path.display())]
+    Write { path: PathBuf, why: String },
 }
-
-impl fmt::Display for LedgerError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            LedgerError::Invalid { path, why } => {
-                write!(f, "cannot read rename ledger {}: {why}", path.display())
-            }
-            LedgerError::Write { path, why } => write!(f, "cannot write {}: {why}", path.display()),
-        }
-    }
-}
-
-impl std::error::Error for LedgerError {}
 
 impl Ledger {
     /// The ledger at `path`; a missing file is an empty ledger.
@@ -199,12 +181,14 @@ impl Ledger {
 mod tests {
     use super::*;
 
-    fn dir(tag: &str) -> PathBuf {
-        let nonce = crate::test_nonce();
-        let dir =
-            std::env::temp_dir().join(format!("twaco-ledger-{tag}-{}-{nonce}", std::process::id()));
+    fn dir(tag: &str) -> (tempfile::TempDir, PathBuf) {
+        let dir_guard = tempfile::Builder::new()
+            .prefix(&format!("twaco-ledger-{tag}-"))
+            .tempdir()
+            .unwrap();
+        let dir = dir_guard.path().to_path_buf();
         std::fs::create_dir_all(&dir).unwrap();
-        dir
+        (dir_guard, dir)
     }
 
     const TEXT: &str = r#"[
@@ -237,7 +221,7 @@ mod tests {
 
     #[test]
     fn a_ledger_reads_and_writes_back_byte_for_byte_keeping_unknown_fields() {
-        let root = dir("round");
+        let (_dir, root) = dir("round");
         let path = root.join(".twaco/renames.json");
         std::fs::create_dir_all(path.parent().unwrap()).unwrap();
         std::fs::write(&path, TEXT).unwrap();
@@ -247,12 +231,11 @@ mod tests {
         assert_eq!(ledger.0[1].scope.as_deref(), Some("A.New.T"));
         ledger.write(&path).unwrap();
         assert_eq!(std::fs::read_to_string(&path).unwrap(), TEXT);
-        let _ = std::fs::remove_dir_all(root);
     }
 
     #[test]
     fn marks_are_written_after_the_names_and_selection_skips_what_is_done() {
-        let root = dir("marks");
+        let (_dir, root) = dir("marks");
         let path = root.join(".twaco/renames.json");
         std::fs::create_dir_all(path.parent().unwrap()).unwrap();
         std::fs::write(&path, TEXT).unwrap();
@@ -273,12 +256,11 @@ mod tests {
             text.contains("\"new\": \"A.New.U\",\n        \"carried\": \"2026-10-03\""),
             "{text}"
         );
-        let _ = std::fs::remove_dir_all(root);
     }
 
     #[test]
     fn a_missing_file_is_empty_and_anything_that_is_not_a_record_is_refused() {
-        let root = dir("bad");
+        let (_dir, root) = dir("bad");
         let path = root.join("renames.json");
         assert_eq!(Ledger::read(&path).unwrap(), Ledger::default());
         for bad in [
@@ -296,6 +278,5 @@ mod tests {
                 "{bad}"
             );
         }
-        let _ = std::fs::remove_dir_all(root);
     }
 }

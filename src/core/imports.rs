@@ -8,9 +8,9 @@
 //! differs. Both are plans unless applied.
 
 use super::entity_key::{EntityKey, ServiceTarget};
+use super::progress::{self, Progress, NONE};
 use super::server::{Client, ServerError};
 use serde_json::{json, Value};
-use std::fmt;
 use std::io::Read;
 use std::time::Duration;
 
@@ -61,22 +61,13 @@ impl Remote for Client {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, thiserror::Error)]
 pub enum ImportError {
+    #[error("{0}")]
     Remote(ServerError),
+    #[error("{0}")]
     Invalid(String),
 }
-
-impl fmt::Display for ImportError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            ImportError::Remote(error) => write!(f, "{error}"),
-            ImportError::Invalid(why) => write!(f, "{why}"),
-        }
-    }
-}
-
-impl std::error::Error for ImportError {}
 
 /// Every entity an export document holds: the named children of each collection element under
 /// `<Entities>`. A name that cannot address an entity (empty, `.`, `..`, or holding a `/`) is
@@ -192,8 +183,35 @@ pub fn import_file(
     overwrite_tables: bool,
     apply: bool,
 ) -> Result<FilePlan, ImportError> {
+    import_file_with_progress(
+        remote,
+        file_name,
+        bytes,
+        overwrite_properties,
+        overwrite_tables,
+        apply,
+        &NONE,
+    )
+}
+
+/// Like [`import_file`], and report progress: one step per entity looked up, one for the send.
+pub fn import_file_with_progress(
+    remote: &dyn Remote,
+    file_name: &str,
+    bytes: &[u8],
+    overwrite_properties: bool,
+    overwrite_tables: bool,
+    apply: bool,
+    progress: &dyn Progress,
+) -> Result<FilePlan, ImportError> {
     let entities = entities_in_file(file_name, bytes)?;
-    let present = super::parallel::map(&entities, |key| remote.exists(key));
+    let present = {
+        let _phase = progress::phase(progress, "looking up entities", Some(entities.len() as u64));
+        super::parallel::map_progress(&entities, progress, |key| {
+            progress.message(&key.to_string());
+            remote.exists(key)
+        })
+    };
     let mut plan = FilePlan {
         new: Vec::new(),
         replaced: Vec::new(),
@@ -209,10 +227,20 @@ pub fn import_file(
     if !apply {
         return Ok(plan);
     }
-    remote
-        .import_file(file_name, bytes, overwrite_properties, overwrite_tables)
-        .map_err(ImportError::Remote)?;
-    let after = super::parallel::map(&entities, |key| remote.exists(key));
+    {
+        let _phase = progress::phase(progress, "importing", Some(1));
+        remote
+            .import_file(file_name, bytes, overwrite_properties, overwrite_tables)
+            .map_err(ImportError::Remote)?;
+        progress.advance(1);
+    }
+    let after = {
+        let _phase = progress::phase(progress, "confirming entities", Some(entities.len() as u64));
+        super::parallel::map_progress(&entities, progress, |key| {
+            progress.message(&key.to_string());
+            remote.exists(key)
+        })
+    };
     let missing: Vec<String> = entities
         .iter()
         .zip(after)

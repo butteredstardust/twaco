@@ -6,7 +6,6 @@ use super::method::Method;
 use super::remote::Dependent;
 use super::targets::LedgerLocation;
 use serde::Serialize;
-use std::fmt;
 use std::path::PathBuf;
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
@@ -88,43 +87,20 @@ impl Serialize for EntityResult {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, thiserror::Error)]
 pub enum DeleteError {
-    Ledger {
-        path: PathBuf,
-        why: String,
-    },
+    #[error("{}: invalid rename ledger: {why}", .path.display())]
+    Ledger { path: PathBuf, why: String },
+    #[error("{0}")]
     Target(String),
-    Remote {
-        entity: String,
-        why: ServerError,
-    },
-    Write {
-        path: PathBuf,
-        why: String,
-    },
+    #[error("{entity}: {why}")]
+    Remote { entity: String, why: ServerError },
+    #[error("cannot write {}: {why}", .path.display())]
+    Write { path: PathBuf, why: String },
     /// A backup could not be taken, so nothing was deleted.
+    #[error("nothing was deleted, because the backup could not be taken: {0} (--no-backup deletes without one)")]
     Backup(String),
 }
-
-impl fmt::Display for DeleteError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            DeleteError::Ledger { path, why } => {
-                write!(f, "{}: invalid rename ledger: {why}", path.display())
-            }
-            DeleteError::Target(why) => f.write_str(why),
-            DeleteError::Remote { entity, why } => write!(f, "{entity}: {why}"),
-            DeleteError::Write { path, why } => write!(f, "cannot write {}: {why}", path.display()),
-            DeleteError::Backup(why) => write!(
-                f,
-                "nothing was deleted, because the backup could not be taken: {why} (--no-backup deletes without one)"
-            ),
-        }
-    }
-}
-
-impl std::error::Error for DeleteError {}
 
 impl From<LedgerError> for DeleteError {
     fn from(error: LedgerError) -> Self {

@@ -2,7 +2,6 @@ use super::super::config::Solution;
 use super::write::write;
 use super::TypesError;
 use serde_json::json;
-use std::fmt;
 use std::time::Duration;
 
 #[derive(Debug, Default)]
@@ -89,16 +88,9 @@ pub fn check_summary(outcome: &CheckOutcome) -> String {
     )
 }
 
-#[derive(Debug)]
+#[derive(Debug, thiserror::Error)]
+#[error("{0}")]
 pub struct CheckError(pub(crate) String);
-
-impl fmt::Display for CheckError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_str(&self.0)
-    }
-}
-
-impl std::error::Error for CheckError {}
 
 impl From<TypesError> for CheckError {
     fn from(value: TypesError) -> Self {

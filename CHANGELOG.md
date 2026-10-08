@@ -6,6 +6,36 @@ All notable changes to twaco are recorded here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- Progress for long commands. `deploy` (also its live parse gate), `entity status`, `entity push`, `check --live`, `permissions`
+  (also `permissions push --platform`), `repo`, `types`, `import`, `export` and `ext import`
+  draw a progress bar on stderr when stderr is a terminal. With a pipe, a file or a CI run, twaco
+  draws nothing, and stdout does not change. Logs on stderr switch the bars off.
+- Colour in terminal output. `check`, `entity status`, deploy results and the `twaco:` error prefix
+  use colour. A non-empty `NO_COLOR` turns it off and wins over `FORCE_COLOR`. `FORCE_COLOR` turns it on. Piped output stays plain and
+  byte-identical.
+- MCP progress notifications. A `tools/call` request with `_meta.progressToken` gets
+  `notifications/progress` lines before its response, for `deploy`, `status`, `types`, `import`,
+  `export`, `extension_write`, `check`, `push`, `permissions`, `permissions_audit`,
+  `permissions_apply`, `permissions_push`, `repo` and `repo_write`. Twaco sends at most about ten per second.
+- Diagnostic logs for every command, including `twaco mcp`. `--log <filter>` or `TWACO_LOG`
+  writes them to stderr. `--log-file <path>` or `TWACO_LOG_FILE` appends them to a file.
+  Logs are off by default. They never hold credentials, headers, bodies, subprocess argument
+  values or string MCP message IDs. A log file that is standard output is ignored with a warning.
+- Logs show workspace lock actions, transaction stages, recovery decisions, subprocesses
+  (`[[check]]` hooks, the TypeScript compiler, `git`) and each phase of a deploy, rename or adopt.
+  A stale temporary that twaco removes and an interrupted operation that twaco recovers log a warning.
+
+### Fixed
+
+- A server error message no longer shows a credential that appears in the request URL. This
+  happens when an entity name holds a secret. Every client error now hides the password, the app
+  key and secret profile values in its URL, reason and body.
+- A server error body no longer shows part of a secret that crosses the 4096-byte cut. Secrets
+  are now removed before the cut.
+- Progress bars stay off when `--log-file` names stderr, for example `/dev/stderr`.
+
 ## [0.1.5] - 2026-10-08
 
 ### Added

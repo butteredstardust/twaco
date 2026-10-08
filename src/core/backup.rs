@@ -19,7 +19,6 @@ use super::push::{self, Decision, Refusal};
 use super::server::{Client, ServerError};
 use super::workspace;
 use serde::{Deserialize, Serialize};
-use std::fmt;
 use std::path::{Path, PathBuf};
 
 pub const DIR: &str = ".twaco/backups";
@@ -54,45 +53,25 @@ impl Remote for Client {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, thiserror::Error)]
 pub enum BackupError {
-    Remote {
-        entity: String,
-        why: ServerError,
-    },
-    Io {
-        path: PathBuf,
-        why: String,
-    },
+    #[error("{entity}: {why}")]
+    Remote { entity: String, why: ServerError },
+    #[error("{}: {why}", .path.display())]
+    Io { path: PathBuf, why: String },
     /// The entity is on the server but its export holds nothing twaco can save.
-    Unreadable {
-        entity: String,
-    },
-    NoSuchSet {
-        id: String,
-    },
+    #[error("{entity}: the server's export of it is empty or not an entity")]
+    Unreadable { entity: String },
+    #[error("no backup set {id} under {DIR}; `twaco entity restore` lists them")]
+    NoSuchSet { id: String },
     /// What a forced push or deploy would overwrite could not be worked out.
+    #[error(
+        "could not work out what the forced write would overwrite, so nothing was changed: {0}"
+    )]
     Plan(String),
-    Invalid {
-        path: PathBuf,
-        why: String,
-    },
+    #[error("{}: not a backup set: {why}", .path.display())]
+    Invalid { path: PathBuf, why: String },
 }
-
-impl fmt::Display for BackupError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            BackupError::Remote { entity, why } => write!(f, "{entity}: {why}"),
-            BackupError::Io { path, why } => write!(f, "{}: {why}", path.display()),
-            BackupError::Unreadable { entity } => write!(f, "{entity}: the server's export of it is empty or not an entity"),
-            BackupError::Plan(why) => write!(f, "could not work out what the forced write would overwrite, so nothing was changed: {why}"),
-            BackupError::NoSuchSet { id } => write!(f, "no backup set {id} under {DIR}; `twaco entity restore` lists them"),
-            BackupError::Invalid { path, why } => write!(f, "{}: not a backup set: {why}", path.display()),
-        }
-    }
-}
-
-impl std::error::Error for BackupError {}
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Item {
@@ -550,14 +529,16 @@ mod tests {
         }
     }
 
-    fn solution() -> (PathBuf, Solution) {
-        let nonce = crate::test_nonce();
-        let root =
-            std::env::temp_dir().join(format!("twaco-backup-{}-{nonce}", std::process::id()));
+    fn solution() -> (tempfile::TempDir, PathBuf, Solution) {
+        let root_guard = tempfile::Builder::new()
+            .prefix("twaco-backup-")
+            .tempdir()
+            .unwrap();
+        let root = root_guard.path().to_path_buf();
         std::fs::create_dir_all(&root).unwrap();
         std::fs::write(root.join("twaco.toml"), "[[project]]\nname = \"P\"\n").unwrap();
         let solution = Solution::load(&root.join("twaco.toml")).unwrap();
-        (root, solution)
+        (root_guard, root, solution)
     }
 
     fn pairs(names: &[&str]) -> Vec<EntityKey> {
@@ -572,7 +553,7 @@ mod tests {
 
     #[test]
     fn a_set_holds_the_servers_export_of_each_entity_that_exists_and_says_why() {
-        let (root, solution) = solution();
+        let (_dir, _, solution) = solution();
         let fake = Fake::default().with("Things", "A", XML);
         let set = save(
             &fake,
@@ -614,22 +595,20 @@ mod tests {
             .unwrap()
             .unwrap();
         assert_eq!(again.id, "20261002-120000-2");
-        let _ = std::fs::remove_dir_all(root);
     }
 
     #[test]
     fn an_entity_that_exists_but_exports_nothing_refuses_the_backup() {
-        let (root, solution) = solution();
+        let (_dir, _, solution) = solution();
         let fake = Fake::default().with("Things", "Odd", "");
         let error = save(&fake, &solution, "entity delete", &pairs(&["Odd"]), "s").unwrap_err();
         assert!(matches!(error, BackupError::Unreadable { .. }), "{error}");
         assert!(list(&solution).is_empty(), "nothing is half-saved");
-        let _ = std::fs::remove_dir_all(root);
     }
 
     #[test]
     fn only_the_newest_sets_are_kept_and_a_foreign_folder_is_never_removed() {
-        let (root, solution) = solution();
+        let (_dir, root, solution) = solution();
         let fake = Fake::default().with("Things", "A", XML);
         std::fs::create_dir_all(root.join(DIR).join("not-a-set")).unwrap();
         for at in 0..(KEEP + 3) {
@@ -646,12 +625,11 @@ mod tests {
         assert_eq!(sets.len(), KEEP);
         assert_eq!(sets[0].id, "2026-0003", "the oldest were removed");
         assert!(root.join(DIR).join("not-a-set").is_dir());
-        let _ = std::fs::remove_dir_all(root);
     }
 
     #[test]
     fn a_manifest_name_that_cannot_address_an_entity_is_refused_before_the_server_is_asked() {
-        let (root, solution) = solution();
+        let (_dir, _, solution) = solution();
         let fake = Fake::default().with("Things", "A", XML);
         let mut set = save(&fake, &solution, "r", &pairs(&["A"]), "s")
             .unwrap()
@@ -661,12 +639,11 @@ mod tests {
         let error = restore(&fake, &set, &[], true).unwrap_err().to_string();
         assert!(error.contains("cannot address an entity"), "{error}");
         assert!(fake.imported.borrow().is_empty());
-        let _ = std::fs::remove_dir_all(root);
     }
 
     #[test]
     fn every_entity_of_a_set_has_its_own_file_and_an_old_set_still_restores() {
-        let (root, solution) = solution();
+        let (_dir, _, solution) = solution();
         let long = format!("Acme.{}", "x".repeat(300));
         // Same low byte (é U+00E9, ǩ U+01E9); one file on Windows and macOS (Abc, ABC).
         let names = ["Café", "Cafǩ", "Abc", "ABC", long.as_str()];
@@ -720,12 +697,11 @@ mod tests {
             error.to_string().contains("not a file inside the set"),
             "{error}"
         );
-        let _ = std::fs::remove_dir_all(root);
     }
 
     #[test]
     fn restore_plans_by_default_imports_on_apply_and_confirms_each_entity() {
-        let (root, solution) = solution();
+        let (_dir, _, solution) = solution();
         let fake = Fake::default()
             .with("Things", "A", XML)
             .with("Things", "B", XML);
@@ -751,12 +727,11 @@ mod tests {
         assert_eq!(applied[0].status, Status::Restored);
         assert_eq!(*fake.imported.borrow(), ["A.xml"]);
         assert!(restore(&fake, &set, &["Nope".to_string()], true).is_err());
-        let _ = std::fs::remove_dir_all(root);
     }
 
     #[test]
     fn an_import_the_server_accepts_but_ignores_is_a_failure() {
-        let (root, solution) = solution();
+        let (_dir, _, solution) = solution();
         let fake = Fake {
             swallow_imports: true,
             ..Default::default()
@@ -773,7 +748,6 @@ mod tests {
             .as_deref()
             .unwrap()
             .contains("does not have the entity"));
-        let _ = std::fs::remove_dir_all(root);
     }
 
     #[test]

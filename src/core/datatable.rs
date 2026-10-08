@@ -9,7 +9,6 @@
 //! not a byte comparison against a previously generated sidecar.
 
 use super::scan::{self, Kind, ScanError, Token};
-use std::fmt;
 
 /// What a DataTable declares about its storage.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -28,28 +27,17 @@ pub struct Index {
     pub field_names: String,
 }
 
-#[derive(Debug)]
+#[derive(Debug, thiserror::Error)]
 pub enum DataTableError {
+    #[error("{0}")]
     Scan(ScanError),
+    #[error("not a DataTable Thing")]
     NotADataTable,
+    #[error("no <ConfigurationTable name=\"{0}\">")]
     MissingTable(&'static str),
+    #[error("{0}")]
     Malformed(String),
 }
-
-impl fmt::Display for DataTableError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            DataTableError::Scan(e) => write!(f, "{e}"),
-            DataTableError::NotADataTable => write!(f, "not a DataTable Thing"),
-            DataTableError::MissingTable(name) => {
-                write!(f, "no <ConfigurationTable name=\"{name}\">")
-            }
-            DataTableError::Malformed(why) => write!(f, "{why}"),
-        }
-    }
-}
-
-impl std::error::Error for DataTableError {}
 
 /// The `Thing` element that is a DataTable, as the range of tokens inside it.
 ///

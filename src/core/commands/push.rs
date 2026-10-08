@@ -5,6 +5,7 @@ use crate::core::backup;
 use crate::core::codes::{Coded, ErrorCode};
 use crate::core::config::Solution;
 use crate::core::entity_key::{EntityKey, KeyError};
+use crate::core::progress::{self, Progress};
 use crate::core::{lock, profile, push, workspace};
 use std::fmt;
 use std::path::PathBuf;
@@ -147,6 +148,22 @@ where
     R: Remote,
     F: FnOnce(profile::Profile) -> R,
 {
+    execute_with_progress(solution, request, open, notices, &progress::NONE)
+}
+
+/// Like [`execute`], and report the one entity pushed as one step. The message is the entity's
+/// collection and name.
+pub fn execute_with_progress<R, F>(
+    solution: &Solution,
+    request: &PushRequest,
+    open: F,
+    notices: &mut Notices,
+    progress: &dyn Progress,
+) -> Result<PushOutcome, PushCommandError>
+where
+    R: Remote,
+    F: FnOnce(profile::Profile) -> R,
+{
     let _lock = match request.mode {
         Mode::Plan => None,
         Mode::Apply => {
@@ -195,18 +212,29 @@ where
     } else {
         None
     };
-    let result = push::push(
-        &remote,
-        &solution.root,
-        &target,
-        matches!(request.mode, Mode::Apply),
-        request.force,
-    )
-    .map_err(|why| PushCommandError::Push {
-        label,
-        why,
-        backup: backup.clone(),
-    })?;
+    let result = {
+        // A plan sends nothing, so its phase must not say that it pushes.
+        let phase = match request.mode {
+            Mode::Plan => "planning push",
+            Mode::Apply => "pushing entity",
+        };
+        let _phase = progress::phase(progress, phase, Some(1));
+        progress.message(&label);
+        let result = push::push(
+            &remote,
+            &solution.root,
+            &target,
+            matches!(request.mode, Mode::Apply),
+            request.force,
+        )
+        .map_err(|why| PushCommandError::Push {
+            label,
+            why,
+            backup: backup.clone(),
+        })?;
+        progress.advance(1);
+        result
+    };
     match result {
         push::Outcome::WouldDo(decision) => Ok(PushOutcome::Plan {
             entity: key,
@@ -328,16 +356,15 @@ mod tests {
         .into_bytes()
     }
 
-    fn root() -> PathBuf {
-        let nonce = crate::test_nonce();
-        std::env::temp_dir().join(format!("twaco-command-push-{}-{nonce}", std::process::id()))
-    }
-
     fn setup(
         server: Option<Vec<u8>>,
         baseline: Option<(&[u8], &[u8])>,
-    ) -> (PathBuf, Solution, Fake) {
-        let root = root();
+    ) -> (tempfile::TempDir, PathBuf, Solution, Fake) {
+        let root_guard = tempfile::Builder::new()
+            .prefix("twaco-command-push-")
+            .tempdir()
+            .unwrap();
+        let root = root_guard.path().to_path_buf();
         std::fs::create_dir_all(root.join("Things")).unwrap();
         std::fs::create_dir_all(root.join(".twaco/profiles")).unwrap();
         std::fs::write(root.join("twaco.toml"), "[[project]]\nname = \"P\"\n").unwrap();
@@ -359,7 +386,7 @@ mod tests {
             stored.write(&root).unwrap();
         }
         let solution = Solution::load(&root.join("twaco.toml")).unwrap();
-        (root, solution, Fake::new(server))
+        (root_guard, root, solution, Fake::new(server))
     }
 
     fn request(mode: Mode, force: bool, backup: bool) -> PushRequest {
@@ -370,6 +397,43 @@ mod tests {
             backup,
             profile: "default".to_string(),
         }
+    }
+
+    #[test]
+    fn a_push_reports_one_step_for_its_entity() {
+        use crate::core::progress::{Event, Recorder};
+        let (_guard, _root, solution, fake) = setup(None, None);
+        let recorder = Recorder::default();
+        execute_with_progress(
+            &solution,
+            &request(Mode::Apply, false, false),
+            |_| fake.clone(),
+            &mut Notices::default(),
+            &recorder,
+        )
+        .unwrap();
+        assert_eq!(recorder.phases(), [("pushing entity".to_string(), Some(1))]);
+        assert_eq!(recorder.advanced(), 1);
+        assert!(recorder
+            .events()
+            .contains(&Event::Message("Things/P.T".to_string())));
+        assert_eq!(recorder.events().last(), Some(&Event::Finish));
+    }
+
+    #[test]
+    fn a_push_plan_does_not_report_that_it_pushes() {
+        use crate::core::progress::Recorder;
+        let (_guard, _root, solution, fake) = setup(None, None);
+        let recorder = Recorder::default();
+        execute_with_progress(
+            &solution,
+            &request(Mode::Plan, false, false),
+            |_| fake.clone(),
+            &mut Notices::default(),
+            &recorder,
+        )
+        .unwrap();
+        assert_eq!(recorder.phases(), [("planning push".to_string(), Some(1))]);
     }
 
     #[test]
@@ -446,7 +510,7 @@ mod tests {
             for mode in [Mode::Plan, Mode::Apply] {
                 for force in [false, true] {
                     for backup in [false, true] {
-                        let (root, solution, remote) = setup(server.clone(), baseline);
+                        let (_dir, _, solution, remote) = setup(server.clone(), baseline);
                         let outcome = execute(&solution, &request(mode, force, backup), {
                             let remote = remote.clone();
                             move |_| remote
@@ -499,7 +563,6 @@ mod tests {
                                 assert_eq!(saved.is_some(), saved_backup, "{name}");
                             }
                         }
-                        std::fs::remove_dir_all(root).unwrap();
                     }
                 }
             }
@@ -510,7 +573,7 @@ mod tests {
     fn a_forced_backup_failure_pushes_nothing_and_no_backup_skips_it() {
         let old = document("old();");
         let changed = document("changed();");
-        let (root, solution, remote) = setup(
+        let (_dir, _, solution, remote) = setup(
             Some(changed.clone()),
             Some((old.as_slice(), old.as_slice())),
         );
@@ -523,9 +586,9 @@ mod tests {
         assert!(matches!(error, PushCommandError::Backup { .. }));
         assert_eq!(remote.imports(), 0);
         assert_eq!(remote.exports(), 1);
-        std::fs::remove_dir_all(&root).unwrap();
 
-        let (root, solution, remote) = setup(Some(changed), Some((old.as_slice(), old.as_slice())));
+        let (_dir, _, solution, remote) =
+            setup(Some(changed), Some((old.as_slice(), old.as_slice())));
         execute(&solution, &request(Mode::Apply, true, false), {
             let remote = remote.clone();
             move |_| remote
@@ -533,12 +596,11 @@ mod tests {
         .unwrap();
         assert_eq!(remote.imports(), 1);
         assert_eq!(remote.exports(), 0);
-        std::fs::remove_dir_all(root).unwrap();
     }
 
     #[test]
     fn applying_locks_before_discovery_and_planning_does_not_lock() {
-        let (root, solution, remote) = setup(None, None);
+        let (_dir, root, solution, remote) = setup(None, None);
         let held = lock::acquire(&root, "test holder", &[]).unwrap();
         let plan = execute(&solution, &request(Mode::Plan, false, true), {
             let remote = remote.clone();
@@ -550,7 +612,6 @@ mod tests {
         });
         assert!(matches!(applied, Err(PushCommandError::Lock(_))));
         drop(held);
-        std::fs::remove_dir_all(root).unwrap();
     }
 
     #[test]

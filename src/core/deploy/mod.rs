@@ -18,9 +18,9 @@ pub use model::{
     Entity, EntityPlan, NotKept, ParseFailure, PlanOptions, PlannedCall, ProjectBundle, Report,
     Script, ServiceCall,
 };
-pub use plan::{decide_all, plan_bundles, toml_parameters};
+pub use plan::{decide_all, decide_all_with_progress, plan_bundles, toml_parameters};
 pub use remote::{BaselineStore, DiskBaseline, Remote};
-pub use run::run;
+pub use run::{run, run_with_progress, RunOptions};
 
 #[cfg(test)]
 mod tests;

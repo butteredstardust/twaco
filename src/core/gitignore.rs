@@ -98,6 +98,7 @@ pub const SECRET_FOLDERS: &[&str] = &[".twaco/profiles", ".twaco/backups", ".twa
 /// Asks `git ls-files`, which reads the index and nothing else; an error says why git could not
 /// be asked.
 pub fn tracked_secrets(root: &Path) -> Result<Vec<String>, String> {
+    let started = std::time::Instant::now();
     let output = std::process::Command::new("git")
         .arg("-C")
         .arg(root)
@@ -106,6 +107,13 @@ pub fn tracked_secrets(root: &Path) -> Result<Vec<String>, String> {
         .stdin(std::process::Stdio::null())
         .output()
         .map_err(|error| format!("could not run git: {error}"))?;
+    tracing::debug!(
+        program = "git",
+        argument_count = 5 + SECRET_FOLDERS.len(),
+        exit = output.status.code(),
+        elapsed_ms = u64::try_from(started.elapsed().as_millis()).unwrap_or(u64::MAX),
+        "git finished"
+    );
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);
         return Err(format!("git ls-files failed: {}", stderr.trim()));
@@ -121,17 +129,19 @@ pub fn tracked_secrets(root: &Path) -> Result<Vec<String>, String> {
 mod tests {
     use super::*;
 
-    fn folder() -> std::path::PathBuf {
-        let nonce = crate::test_nonce();
-        let root =
-            std::env::temp_dir().join(format!("twaco-gitignore-{}-{nonce}", std::process::id()));
+    fn folder() -> (tempfile::TempDir, std::path::PathBuf) {
+        let root_guard = tempfile::Builder::new()
+            .prefix("twaco-gitignore-")
+            .tempdir()
+            .unwrap();
+        let root = root_guard.path().to_path_buf();
         std::fs::create_dir_all(&root).unwrap();
-        root
+        (root_guard, root)
     }
 
     #[test]
     fn without_a_file_everything_is_missing_and_adding_creates_it() {
-        let root = folder();
+        let (_dir, root) = folder();
         assert_eq!(missing(&root), ENTRIES);
         assert_eq!(add_missing(&root).unwrap(), ENTRIES);
         let text = std::fs::read_to_string(root.join(".gitignore")).unwrap();
@@ -141,12 +151,11 @@ mod tests {
         }
         assert!(missing(&root).is_empty());
         assert!(add_missing(&root).unwrap().is_empty());
-        let _ = std::fs::remove_dir_all(root);
     }
 
     #[test]
     fn a_line_its_folder_or_all_of_the_twaco_folder_covers_an_entry() {
-        let root = folder();
+        let (_dir, root) = folder();
         std::fs::write(
             root.join(".gitignore"),
             "/.twaco/backups\n.twaco/transactions/**\n# .twaco/lock\n",
@@ -167,12 +176,11 @@ mod tests {
             );
         }
         assert!(super::missing(&root).contains(&"**/services/*/jsconfig.json"));
-        let _ = std::fs::remove_dir_all(root);
     }
 
     #[test]
     fn an_existing_file_is_appended_to_in_its_own_line_endings() {
-        let root = folder();
+        let (_dir, root) = folder();
         std::fs::write(root.join(".gitignore"), "target/\r\n.twaco/profiles/").unwrap();
         let added = add_missing(&root).unwrap();
         assert!(!added.contains(&".twaco/profiles/"));
@@ -187,17 +195,15 @@ mod tests {
             text.matches("\r\n").count(),
             "no bare line feed was added: {text:?}"
         );
-        let _ = std::fs::remove_dir_all(root);
     }
 
     #[test]
     fn a_work_tree_is_found_from_a_folder_below_the_git_folder() {
-        let root = folder();
+        let (_dir, root) = folder();
         let below = root.join("a/b");
         std::fs::create_dir_all(&below).unwrap();
         std::fs::create_dir_all(root.join(".git")).unwrap();
         assert!(in_git_work_tree(&below));
-        let _ = std::fs::remove_dir_all(root);
     }
 
     fn git(root: &Path, args: &[&str]) {
@@ -213,7 +219,7 @@ mod tests {
 
     #[test]
     fn a_tracked_profile_or_backup_is_found_even_when_ignored_since() {
-        let root = folder();
+        let (_dir, root) = folder();
         git(&root, &["init", "-q"]);
         for path in [
             ".twaco/profiles/default.toml",
@@ -236,17 +242,15 @@ mod tests {
             ],
             "the ignore lines added afterwards do not untrack them"
         );
-        let _ = std::fs::remove_dir_all(root);
     }
 
     #[test]
     fn outside_a_repository_git_says_why() {
-        let root = folder();
+        let (_dir, root) = folder();
         // A temp folder inside a repository would answer; a test machine's should not be.
         if !in_git_work_tree(&root) {
             let error = tracked_secrets(&root).unwrap_err();
             assert!(error.starts_with("git ls-files failed"), "{error}");
         }
-        let _ = std::fs::remove_dir_all(root);
     }
 }

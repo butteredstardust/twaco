@@ -3,8 +3,8 @@
 use super::{Access, Effects, Mode, Notices};
 use crate::core::codes::{Coded, ErrorCode};
 use crate::core::config::Solution;
+use crate::core::progress::{self, Progress};
 use crate::core::{imports, profile};
-use std::fmt;
 
 /// An import source supplied by either adapter.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -45,21 +45,13 @@ impl ImportOutcome {
 }
 
 /// A failure before a typed import outcome could be produced.
-#[derive(Debug)]
+#[derive(Debug, thiserror::Error)]
 pub enum ImportCommandError {
+    #[error("{0}")]
     Profile(profile::ProfileError),
+    #[error("{0}")]
     Import(imports::ImportError),
 }
-impl fmt::Display for ImportCommandError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Self::Profile(why) => why.fmt(f),
-            Self::Import(why) => why.fmt(f),
-        }
-    }
-}
-
-impl std::error::Error for ImportCommandError {}
 impl Coded for ImportCommandError {
     fn code(&self) -> ErrorCode {
         match self {
@@ -76,6 +68,7 @@ pub fn execute<R, F>(
     request: &ImportRequest,
     open: F,
     _: &mut Notices,
+    progress: &dyn Progress,
 ) -> Result<ImportOutcome, ImportCommandError>
 where
     R: imports::Remote,
@@ -88,27 +81,33 @@ where
     let server = if apply { Access::Write } else { Access::Read };
     match &request.action {
         ImportAction::File { file_name, bytes } => Ok(ImportOutcome::File {
-            plan: imports::import_file(
+            plan: imports::import_file_with_progress(
                 &remote,
                 file_name,
                 bytes,
                 request.overwrite_properties,
                 request.overwrite_tables,
                 apply,
+                progress,
             )
             .map_err(ImportCommandError::Import)?,
             effects: Effects::new(Access::None, server),
         }),
         ImportAction::SourceControl { repository, path } => Ok(ImportOutcome::SourceControl {
-            report: imports::import_source_control(
-                &remote,
-                repository,
-                path,
-                request.overwrite_properties,
-                request.overwrite_tables,
-                apply,
-            )
-            .map_err(ImportCommandError::Import)?,
+            report: {
+                let _phase = progress::phase(progress, "importing source control", Some(1));
+                let report = imports::import_source_control(
+                    &remote,
+                    repository,
+                    path,
+                    request.overwrite_properties,
+                    request.overwrite_tables,
+                    apply,
+                )
+                .map_err(ImportCommandError::Import)?;
+                progress.advance(1);
+                report
+            },
             effects: Effects::new(Access::None, server),
         }),
     }
@@ -144,12 +143,12 @@ mod tests {
         }
     }
 
-    fn setup() -> (std::path::PathBuf, Solution) {
-        let nonce = crate::test_nonce();
-        let root = std::env::temp_dir().join(format!(
-            "twaco-command-imports-{}-{nonce}",
-            std::process::id()
-        ));
+    fn setup() -> (tempfile::TempDir, std::path::PathBuf, Solution) {
+        let root_guard = tempfile::Builder::new()
+            .prefix("twaco-command-imports-")
+            .tempdir()
+            .unwrap();
+        let root = root_guard.path().to_path_buf();
         std::fs::create_dir_all(root.join(".twaco/profiles")).unwrap();
         std::fs::write(root.join("twaco.toml"), "[[project]]\nname = \"P\"\n").unwrap();
         std::fs::write(
@@ -158,12 +157,12 @@ mod tests {
         )
         .unwrap();
         let solution = Solution::load(&root.join("twaco.toml")).unwrap();
-        (root, solution)
+        (root_guard, root, solution)
     }
 
     #[test]
     fn source_control_plan_and_apply_use_the_same_policy() {
-        let (root, solution) = setup();
+        let (_dir, _, solution) = setup();
         let request = |mode| ImportRequest {
             action: ImportAction::SourceControl {
                 repository: "R".to_string(),
@@ -185,6 +184,7 @@ mod tests {
                 move |_| remote
             },
             &mut Notices::default(),
+            &crate::core::progress::NONE,
         )
         .unwrap();
         assert_eq!(plan.effects(), Effects::new(Access::None, Access::Read));
@@ -201,6 +201,7 @@ mod tests {
                 move |_| remote
             },
             &mut Notices::default(),
+            &crate::core::progress::NONE,
         )
         .unwrap();
         assert_eq!(apply.effects(), Effects::new(Access::None, Access::Write));
@@ -212,12 +213,11 @@ mod tests {
                 "DiffSourceControlledEntities"
             ]
         );
-        std::fs::remove_dir_all(root).unwrap();
     }
 
     #[test]
     fn file_refusal_keeps_the_import_error_code() {
-        let (root, solution) = setup();
+        let (_dir, _, solution) = setup();
         let request = ImportRequest {
             action: ImportAction::File {
                 file_name: "bad.xml".to_string(),
@@ -235,9 +235,9 @@ mod tests {
                 calls: Arc::new(Mutex::new(Vec::new())),
             },
             &mut Notices::default(),
+            &crate::core::progress::NONE,
         )
         .unwrap_err();
         assert_eq!(error.code(), ErrorCode::InvalidData);
-        std::fs::remove_dir_all(root).unwrap();
     }
 }

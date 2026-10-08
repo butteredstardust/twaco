@@ -5,8 +5,8 @@ use crate::core::backup;
 use crate::core::check;
 use crate::core::codes::{Coded, ErrorCode};
 use crate::core::config::Solution;
+use crate::core::progress::Progress;
 use crate::core::{deploy, lock, profile};
-use std::fmt;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct DeployRequest {
@@ -49,21 +49,26 @@ pub trait Remote: deploy::Remote + backup::Remote {}
 
 impl<T: deploy::Remote + backup::Remote + ?Sized> Remote for T {}
 
-#[derive(Debug)]
+#[derive(Debug, thiserror::Error)]
 pub enum DeployCommandError {
+    #[error("{0}")]
     Lock(lock::LockError),
+    #[error("{why}")]
     Profile {
         why: profile::ProfileError,
         gates: Option<check::CheckReport>,
     },
+    #[error("{why}")]
     Plan {
         why: String,
         gates: Option<check::CheckReport>,
     },
+    #[error("{why}")]
     Backup {
         why: backup::BackupError,
         gates: Option<check::CheckReport>,
     },
+    #[error("{why}")]
     Deploy {
         why: Box<deploy::DeployError>,
         backup: Option<String>,
@@ -89,20 +94,6 @@ impl DeployCommandError {
         }
     }
 }
-
-impl fmt::Display for DeployCommandError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Self::Lock(error) => error.fmt(f),
-            Self::Profile { why, .. } => why.fmt(f),
-            Self::Plan { why, .. } => why.fmt(f),
-            Self::Backup { why, .. } => why.fmt(f),
-            Self::Deploy { why, .. } => why.fmt(f),
-        }
-    }
-}
-
-impl std::error::Error for DeployCommandError {}
 
 impl Coded for DeployCommandError {
     fn code(&self) -> ErrorCode {
@@ -134,6 +125,7 @@ pub fn execute<R, F>(
     request: &DeployRequest,
     open: F,
     notices: &mut Notices,
+    progress: &dyn Progress,
 ) -> Result<DeployOutcome, DeployCommandError>
 where
     R: Remote,
@@ -152,13 +144,17 @@ where
             match profile::load(&solution.root, &request.profile) {
                 Ok(profile) => {
                     let remote = open(profile);
-                    report
-                        .gates
-                        .push(check::live_parse(solution, Ok(&DeployChecker(&remote))));
+                    report.gates.push(check::live_parse_with_progress(
+                        solution,
+                        Ok(&DeployChecker(&remote)),
+                        progress,
+                    ));
                 }
-                Err(error) => report
-                    .gates
-                    .push(check::live_parse(solution, Err(error.to_string()))),
+                Err(error) => report.gates.push(check::live_parse_with_progress(
+                    solution,
+                    Err(error.to_string()),
+                    progress,
+                )),
             }
         }
         if report.blocks() {
@@ -200,14 +196,17 @@ where
     } else {
         None
     };
-    let report = match deploy::run(
+    let report = match deploy::run_with_progress(
         &remote,
         &deploy::DiskBaseline::new(&solution.root),
         &profile,
         &projects,
-        matches!(request.mode, Mode::Apply),
-        request.force,
-        !request.only.is_empty(),
+        deploy::RunOptions {
+            apply: matches!(request.mode, Mode::Apply),
+            force: request.force,
+            only: !request.only.is_empty(),
+        },
+        progress,
     ) {
         Ok(report) => report,
         Err(why) => {
@@ -244,9 +243,11 @@ mod tests {
 
     #[test]
     fn a_deploy_plan_needs_no_lock_but_an_apply_locks_before_gates() {
-        let root =
-            std::env::temp_dir().join(format!("twaco-command-deploy-{}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&root);
+        let root_guard = tempfile::Builder::new()
+            .prefix("twaco-command-deploy-")
+            .tempdir()
+            .unwrap();
+        let root = root_guard.path().to_path_buf();
         std::fs::create_dir_all(&root).unwrap();
         std::fs::write(root.join("twaco.toml"), "[[project]]\nname = \"P\"\n").unwrap();
         let solution = Solution::load(&root.join("twaco.toml")).unwrap();
@@ -267,7 +268,8 @@ mod tests {
                 &solution,
                 &request,
                 crate::core::server::Client::new,
-                &mut Notices::default()
+                &mut Notices::default(),
+                &crate::core::progress::NONE
             ),
             Err(DeployCommandError::Plan { .. })
         ));
@@ -280,11 +282,141 @@ mod tests {
                 &solution,
                 &apply,
                 crate::core::server::Client::new,
-                &mut Notices::default()
+                &mut Notices::default(),
+                &crate::core::progress::NONE
             ),
             Err(DeployCommandError::Lock(_))
         ));
         drop(held);
-        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    /// A remote that rejects every script, so the live gate blocks the deploy.
+    struct Rejecting;
+
+    impl crate::core::push::Remote for Rejecting {
+        fn fetch(
+            &self,
+            _: &crate::core::entity_key::EntityKey,
+        ) -> Result<Option<Vec<u8>>, crate::core::server::ServerError> {
+            Ok(None)
+        }
+
+        fn import(&self, _: &str, _: &[u8]) -> Result<(), crate::core::server::ServerError> {
+            Ok(())
+        }
+    }
+
+    impl backup::Remote for Rejecting {
+        fn export(
+            &self,
+            _: &crate::core::entity_key::EntityKey,
+        ) -> Result<Option<Vec<u8>>, crate::core::server::ServerError> {
+            Ok(None)
+        }
+
+        fn import(&self, _: &str, _: &[u8]) -> Result<(), crate::core::server::ServerError> {
+            Ok(())
+        }
+
+        fn exists(
+            &self,
+            _: &crate::core::entity_key::EntityKey,
+        ) -> Result<bool, crate::core::server::ServerError> {
+            Ok(false)
+        }
+    }
+
+    impl deploy::Remote for Rejecting {
+        fn check_script(
+            &self,
+            _: &str,
+        ) -> Result<crate::core::server::ScriptCheck, crate::core::server::ServerError> {
+            Ok(crate::core::server::ScriptCheck {
+                status: false,
+                line_number: 1,
+                column_number: 1,
+                message: "syntax error".to_string(),
+            })
+        }
+
+        fn call_service(
+            &self,
+            _: &crate::core::entity_key::ServiceTarget,
+            _: &str,
+            _: &serde_json::Value,
+            _: std::time::Duration,
+        ) -> Result<Option<serde_json::Value>, crate::core::server::ServerError> {
+            Ok(None)
+        }
+    }
+
+    #[test]
+    fn the_live_gate_of_a_deploy_reports_one_step_per_script() {
+        use crate::core::progress::{Event, Recorder};
+        let root_guard = tempfile::Builder::new()
+            .prefix("twaco-deploy-gate-")
+            .tempdir()
+            .unwrap();
+        let root = root_guard.path();
+        std::fs::create_dir_all(root.join("Things")).unwrap();
+        std::fs::create_dir_all(root.join(".twaco/profiles")).unwrap();
+        std::fs::write(
+            root.join(".twaco/profiles/default.toml"),
+            "url = \"http://127.0.0.1:1\"\nusername = \"u\"\npassword = \"p\"\n",
+        )
+        .unwrap();
+        std::fs::write(
+            root.join("twaco.toml"),
+            "[gates]\nlive = true\n\n[[project]]\nname = \"P\"\n",
+        )
+        .unwrap();
+        let service = |name: &str| {
+            format!(
+                "<ServiceImplementation name=\"{name}\" handlerName=\"Script\"><ConfigurationTables>\
+                 <ConfigurationTable name=\"Script\"><Rows><Row><code><![CDATA[result = 1;]]></code></Row>\
+                 </Rows></ConfigurationTable></ConfigurationTables></ServiceImplementation>"
+            )
+        };
+        let xml = format!(
+            "<Entities><Things><Thing name=\"P.T\" projectName=\"P\"><ThingShape><ServiceDefinitions>\
+             <ServiceDefinition name=\"A\"/><ServiceDefinition name=\"B\"/></ServiceDefinitions>\
+             <ServiceImplementations>{}{}</ServiceImplementations></ThingShape></Thing></Things></Entities>",
+            service("A"),
+            service("B")
+        );
+        std::fs::write(root.join("Things/P.T.xml"), xml).unwrap();
+        for name in ["A", "B"] {
+            let dir = root.join(format!("src/P.T/services/{name}"));
+            std::fs::create_dir_all(&dir).unwrap();
+            std::fs::write(dir.join("script.js"), "result = 1;").unwrap();
+        }
+        let solution = Solution::load(&root.join("twaco.toml")).unwrap();
+        let request = DeployRequest {
+            mode: Mode::Plan,
+            force: false,
+            backup: false,
+            skip_checks: false,
+            only_projects: Vec::new(),
+            only: Vec::new(),
+            backend_only: false,
+            profile: "default".to_string(),
+            lock_label: "deploy",
+        };
+        let recorder = Recorder::default();
+        let outcome = execute(
+            &solution,
+            &request,
+            |_| Rejecting,
+            &mut Notices::default(),
+            &recorder,
+        )
+        .unwrap();
+        assert!(matches!(outcome, DeployOutcome::GatesBlocked { .. }));
+        assert_eq!(
+            recorder.phases(),
+            [("checking scripts".to_string(), Some(2))]
+        );
+        assert_eq!(recorder.advanced(), 2);
+        assert_eq!(recorder.events().last(), Some(&Event::Finish));
     }
 }
