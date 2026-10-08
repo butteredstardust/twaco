@@ -162,8 +162,12 @@ pub fn search(remote: &dyn Remote, query: &Query) -> Result<Outcome, SearchError
     }
     let mut types = Vec::new();
     for given in query.types.iter().flat_map(|types| types.split(',')) {
+        // A filter that was given but says nothing must not quietly become no filter.
         if given.trim().is_empty() {
-            continue;
+            return Err(SearchError::Invalid(
+                "a type is empty; name one, or leave the types out to search every type"
+                    .to_string(),
+            ));
         }
         let singular = entity_type(given)?;
         if !types.contains(&singular) {
@@ -181,10 +185,12 @@ pub fn search(remote: &dyn Remote, query: &Query) -> Result<Outcome, SearchError
                 format!("*{text}*")
             }
         });
-    let project = query
-        .project
-        .map(str::trim)
-        .filter(|project| !project.is_empty());
+    let project = query.project.map(str::trim);
+    if project == Some("") {
+        return Err(SearchError::Invalid(
+            "the project is empty; name one, or leave it out to search every project".to_string(),
+        ));
+    }
 
     let mut parameters = json!({
         "maxItems": query.limit + 1,
@@ -345,10 +351,25 @@ mod tests {
             let error = search(&fake, &query(None, &[bad.to_string()])).unwrap_err();
             assert!(error.to_string().contains("not an entity type"), "{error}");
         }
+        // Given but blank is refused too: dropped, it would be no filter at all.
+        for blank in ["", "  ", ",", "Thing,"] {
+            let error = search(&fake, &query(None, &[blank.to_string()])).unwrap_err();
+            assert!(
+                error.to_string().contains("a type is empty"),
+                "{blank:?}: {error}"
+            );
+        }
+        let mut wanted = query(None, &[]);
+        wanted.project = Some("   ");
+        let error = search(&fake, &wanted).unwrap_err();
+        assert!(
+            error.to_string().contains("the project is empty"),
+            "{error}"
+        );
         assert_eq!(
             fake.sent.borrow().len(),
             1,
-            "nothing was sent for a bad type"
+            "nothing was sent for a bad filter"
         );
     }
 
