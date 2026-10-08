@@ -178,17 +178,19 @@ pub enum BaselineError {
 mod tests {
     use super::*;
 
-    fn temp() -> PathBuf {
-        let nonce = crate::test_nonce();
-        let path =
-            std::env::temp_dir().join(format!("twaco-baseline-{}-{nonce}", std::process::id()));
+    fn temp() -> (tempfile::TempDir, PathBuf) {
+        let path_guard = tempfile::Builder::new()
+            .prefix("twaco-baseline-")
+            .tempdir()
+            .unwrap();
+        let path = path_guard.path().to_path_buf();
         std::fs::create_dir_all(&path).unwrap();
-        path
+        (path_guard, path)
     }
 
     #[test]
     fn write_is_atomic_deterministic_and_sorted() {
-        let root = temp();
+        let (_dir, root) = temp();
         let mut baseline = Baseline::default();
         baseline.set(
             "Things",
@@ -230,7 +232,6 @@ mod tests {
                 .all(|entry| !entry.file_name().to_string_lossy().ends_with("twaco-tmp")),
             "the same-directory temporary must be gone after rename"
         );
-        let _ = std::fs::remove_dir_all(root);
     }
 
     #[test]
@@ -247,7 +248,7 @@ mod tests {
 
     #[test]
     fn old_string_entries_migrate_to_two_equal_sides_when_written() {
-        let root = temp();
+        let (_dir, root) = temp();
         std::fs::create_dir_all(root.join(".twaco")).unwrap();
         std::fs::write(
             root.join(RELATIVE_PATH),
@@ -268,12 +269,11 @@ mod tests {
             std::fs::read_to_string(root.join(RELATIVE_PATH)).unwrap(),
             "{\n  \"entities\": {\n    \"Things\": {\n      \"T\": {\n        \"local\": \"v5:old\",\n        \"server\": \"v5:old\"\n      }\n    }\n  }\n}\n"
         );
-        let _ = std::fs::remove_dir_all(root);
     }
 
     #[test]
     fn new_two_sided_entries_round_trip_and_server_updates_preserve_local() {
-        let root = temp();
+        let (_dir, root) = temp();
         std::fs::create_dir_all(root.join(".twaco")).unwrap();
         std::fs::write(
             root.join(RELATIVE_PATH),
@@ -301,7 +301,6 @@ mod tests {
             Baseline::load(&root).unwrap().get("Things", "T"),
             baseline.get("Things", "T")
         );
-        let _ = std::fs::remove_dir_all(root);
     }
 
     #[test]

@@ -101,14 +101,14 @@ fn a_policy_that_cannot_mean_one_thing_is_refused() {
     }
 }
 
-fn temp() -> PathBuf {
-    let nonce = crate::test_nonce();
-    let path = std::env::temp_dir().join(format!(
-        "twaco-permissions-policy-{}-{nonce}",
-        std::process::id()
-    ));
+fn temp() -> (tempfile::TempDir, PathBuf) {
+    let path_guard = tempfile::Builder::new()
+        .prefix("twaco-permissions-policy-")
+        .tempdir()
+        .unwrap();
+    let path = path_guard.path().to_path_buf();
     std::fs::create_dir_all(&path).unwrap();
-    path
+    (path_guard, path)
 }
 
 fn write(root: &Path, relative: &str, text: &str) {
@@ -122,8 +122,12 @@ fn principal(name: &str, kind: &str, allowed: bool) -> String {
 }
 
 /// A solution with a ThingShape of three services, a mashup, the groups and the organization.
-fn solution(shape_grants: &str, mashup_visibility: &str, policy: &str) -> (Solution, PathBuf) {
-    let root = temp();
+fn solution(
+    shape_grants: &str,
+    mashup_visibility: &str,
+    policy: &str,
+) -> (tempfile::TempDir, Solution, PathBuf) {
+    let (_dir, root) = temp();
     write(&root, "twaco.toml", "[[project]]\nname = \"Acme.App\"\n");
     // The policy's top-level keys must come before the first table.
     write(&root, "permissions.toml", &format!("{policy}\n{ROLES}"));
@@ -176,7 +180,11 @@ fn solution(shape_grants: &str, mashup_visibility: &str, policy: &str) -> (Solut
             r#"<Entities><Organizations><Organization name="Acme.App.Default_OR" projectName="Acme.App"><VisibilityPermissions><Visibility>{visible}</Visibility></VisibilityPermissions><OrganizationalUnits><OrganizationalUnit name="Acme.App.Viewer_UG"><Members><Members><Member name="Acme.App.Viewer_UG" type="Group"/></Members></Members></OrganizationalUnit><OrganizationalUnit name="Acme.App.Editor_UG"><Members><Members><Member name="Acme.App.Editor_UG" type="Group"/></Members></Members></OrganizationalUnit><OrganizationalUnit name="Acme.App.Admin_UG"><Members><Members><Member name="Acme.App.Admin_UG" type="Group"/></Members></Members></OrganizationalUnit></OrganizationalUnits></Organization></Organizations></Entities>"#
         ),
     );
-    (Solution::load(&root.join("twaco.toml")).unwrap(), root)
+    (
+        _dir,
+        Solution::load(&root.join("twaco.toml")).unwrap(),
+        root,
+    )
 }
 
 const RULES: &str = r#"
@@ -235,7 +243,7 @@ fn codes(report: &audit::AuditReport) -> Vec<(Severity, &'static str)> {
 
 #[test]
 fn entity_xml_written_as_the_policy_says_audits_clean() {
-    let (solution, root) = solution(
+    let (_dir, solution, _) = solution(
         &as_policy_says(),
         &admin_only(),
         &format!("{RULES}\n[[runtime]]\nentities = [\"Orders_TS\"]\nresources = [\"GetSecret\"]\nroles = []\n"),
@@ -243,7 +251,6 @@ fn entity_xml_written_as_the_policy_says_audits_clean() {
     let report = audit::audit(&solution, None).unwrap();
     assert_eq!(codes(&report), [], "{:#?}", report.projects[0].findings);
     assert_eq!(report.projects[0].mode, "plain");
-    let _ = std::fs::remove_dir_all(root);
 }
 
 #[test]
@@ -265,7 +272,7 @@ fn drift_unclassified_services_and_refused_principals_are_errors() {
         principal("Acme.App.Orders_TS", "ThingShape", true),
     ]
     .concat();
-    let (solution, root) = solution(
+    let (_dir, solution, _) = solution(
         &grants,
         &mashup,
         &format!("{RULES}\n[visibility]\nremove = [\"PTC.SolutionFramework.*\"]\n"),
@@ -305,13 +312,12 @@ fn drift_unclassified_services_and_refused_principals_are_errors() {
         .find(|f| f.entity.as_deref() == Some("Mashups/Acme.App.Admin_MU"))
         .unwrap();
     assert_eq!(mashup.details.len(), 2, "{:#?}", mashup.details);
-    let _ = std::fs::remove_dir_all(root);
 }
 
 #[test]
 fn slips_are_warnings_and_denies_are_notes() {
     let grants = [as_policy_says().as_str(), r#"<Permissions resourceName="GetSecret"><ServiceInvoke><Principal isPermitted="false" name="Acme.App.Viewr_UG" type="Group"/></ServiceInvoke></Permissions>"#].concat();
-    let (solution, root) = solution(
+    let (_dir, solution, _) = solution(
         &grants,
         &admin_only(),
         &format!("{RULES}\n[[runtime]]\nentities = [\"Ordrs_TS\"]\nresources = [\"GetSecret\"]\nroles = []\n[[runtime]]\nentities = [\"Orders_TS\"]\nresources = [\"Find*\"]\nroles = []\n"),
@@ -326,12 +332,11 @@ fn slips_are_warnings_and_denies_are_notes() {
     ] {
         assert!(found.contains(&expected), "{expected:?} in {found:?}");
     }
-    let _ = std::fs::remove_dir_all(root);
 }
 
 #[test]
 fn helper_mode_needs_a_helper_and_auto_finds_one() {
-    let (solution, root) = solution(&as_policy_says(), &admin_only(), "mode = \"helper\"\n");
+    let (_dir, solution, root) = solution(&as_policy_says(), &admin_only(), "mode = \"helper\"\n");
     let error = audit::audit(&solution, None).unwrap_err().to_string();
     assert!(
         error.contains("PTCDTS.Base.ComponentPermissionHelper_TT"),
@@ -348,15 +353,13 @@ fn helper_mode_needs_a_helper_and_auto_finds_one() {
         report.projects[0].helper.as_deref(),
         Some("Acme.App.ComponentPermissionHelper")
     );
-    let _ = std::fs::remove_dir_all(root);
 }
 
 #[test]
 fn a_solution_without_any_policy_says_where_to_write_one() {
-    let (solution, root) = solution("", "", "");
+    let (_dir, solution, root) = solution("", "", "");
     std::fs::remove_file(root.join("permissions.toml")).unwrap();
     let error = audit::audit(&solution, None).unwrap_err().to_string();
     assert!(error.contains("no permissions.toml"), "{error}");
     assert!(audit::audit(&solution, Some("Nope")).is_err());
-    let _ = std::fs::remove_dir_all(root);
 }

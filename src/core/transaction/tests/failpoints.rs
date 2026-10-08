@@ -72,16 +72,15 @@ fn every_point_of_the_protocol_recovers_to_wholly_before_or_wholly_after() {
     }
     points.push(("after-commit".to_string(), true));
     for (point, expect_after) in points {
-        let root = workspace("failpoint");
+        let (_dir, root) = workspace("failpoint");
         die_at(&root, &point);
         assert_whole(&root, &point, expect_after);
-        let _ = std::fs::remove_dir_all(root);
     }
 }
 
 #[test]
 fn a_person_s_edit_after_the_crash_stops_recovery_and_is_left_untouched() {
-    let root = workspace("failpoint-edit");
+    let (_dir, root) = workspace("failpoint-edit");
     die_at(&root, "after-step-1-visible");
     put(
         &root,
@@ -100,7 +99,6 @@ fn a_person_s_edit_after_the_crash_stops_recovery_and_is_left_untouched() {
     );
     assert_eq!(read(&root, "b.txt").as_deref(), Some("b before"));
     assert_eq!(read(&root, "new/dir/c.txt"), None);
-    let _ = std::fs::remove_dir_all(root);
 }
 
 /// Runs in the child. Does nothing when the test binary runs it as an ordinary test.
@@ -127,7 +125,7 @@ fn a_folder_move_with_edits_inside_it_recovers_whenever_the_process_dies() {
     }
     points.push(("after-commit".to_string(), true));
     for (point, expect_after) in points {
-        let root = folder_workspace("failpoint-folder");
+        let (_dir, root) = folder_workspace("failpoint-folder");
         let status = Command::new(std::env::current_exe().unwrap())
             .args([
                 "--exact",
@@ -149,6 +147,5 @@ fn a_folder_move_with_edits_inside_it_recovers_whenever_the_process_dies() {
             assert_folder_before(&root);
         }
         assert_eq!(leftovers(&root), Vec::<String>::new(), "{point}");
-        let _ = std::fs::remove_dir_all(root);
     }
 }

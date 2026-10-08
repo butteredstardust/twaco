@@ -99,8 +99,11 @@ mod tests {
 
     #[test]
     fn taking_the_lock_records_what_it_swept_and_what_it_recovered() {
-        let root = std::env::temp_dir().join(format!("twaco-commands-{}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&root);
+        let root_guard = tempfile::Builder::new()
+            .prefix("twaco-commands-")
+            .tempdir()
+            .unwrap();
+        let root = root_guard.path().to_path_buf();
         std::fs::create_dir_all(root.join(".twaco")).unwrap();
         std::fs::write(root.join("twaco.toml"), "[[project]]\nname = \"P\"\n").unwrap();
         std::fs::write(root.join(".twaco/.baseline.json.1.twaco-tmp"), b"half").unwrap();
@@ -117,6 +120,5 @@ mod tests {
         let mut quiet = Notices::default();
         drop(lock_workspace(&solution, "test", &mut quiet).unwrap());
         assert!(quiet.is_empty());
-        let _ = std::fs::remove_dir_all(root);
     }
 }

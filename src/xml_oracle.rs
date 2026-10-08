@@ -35,15 +35,22 @@ mod tests {
     #[test]
     #[should_panic(expected = "a strict parser refuses")]
     fn a_malformed_entity_file_cannot_be_written_in_a_test() {
-        let path = std::env::temp_dir().join(format!("twaco-oracle-{}.xml", crate::test_nonce()));
+        let dir = tempfile::Builder::new()
+            .prefix("twaco-oracle-")
+            .tempdir()
+            .unwrap();
+        let path = dir.path().join("entity.xml");
         // An unescaped ampersand: twaco's lenient reading would take it as text.
         let _ = crate::core::workspace::atomic_replace(&path, b"<Thing name=\"A&B\"/>");
     }
 
     #[test]
     fn only_xml_files_are_checked() {
-        let path = std::env::temp_dir().join(format!("twaco-oracle-{}.js", crate::test_nonce()));
+        let dir = tempfile::Builder::new()
+            .prefix("twaco-oracle-")
+            .tempdir()
+            .unwrap();
+        let path = dir.path().join("entity.js");
         crate::core::workspace::atomic_replace(&path, b"<not xml").unwrap();
-        let _ = std::fs::remove_file(path);
     }
 }

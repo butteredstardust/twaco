@@ -72,8 +72,11 @@ mod tests {
 
     #[test]
     fn a_format_plan_needs_no_lock_but_an_apply_does() {
-        let root = std::env::temp_dir().join(format!("twaco-command-fmt-{}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&root);
+        let root_guard = tempfile::Builder::new()
+            .prefix("twaco-command-fmt-")
+            .tempdir()
+            .unwrap();
+        let root = root_guard.path().to_path_buf();
         std::fs::create_dir_all(&root).unwrap();
         std::fs::write(root.join("twaco.toml"), "[[project]]\nname = \"P\"\n").unwrap();
         let solution = Solution::load(&root.join("twaco.toml")).unwrap();
@@ -99,6 +102,5 @@ mod tests {
         .unwrap_err();
         assert!(matches!(error, FmtCommandError::Lock(_)));
         drop(held);
-        std::fs::remove_dir_all(root).unwrap();
     }
 }

@@ -594,8 +594,11 @@ mod tests {
                 }
             }
         }
-        let root = std::env::temp_dir().join(format!("twaco-impact-dot-{}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&root);
+        let root_guard = tempfile::Builder::new()
+            .prefix("twaco-impact-dot-")
+            .tempdir()
+            .unwrap();
+        let root = root_guard.path().to_path_buf();
         let source =
             Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/corpus/acme-orders");
         copy(&source, &root);
@@ -613,7 +616,6 @@ mod tests {
             },
         )
         .unwrap();
-        let _ = std::fs::remove_dir_all(&root);
         let dot = render_dot(&report);
         assert!(dot.contains("label=\"partial: 1 input(s)"), "{dot}");
         assert!(dot.contains("// unreadable: "), "{dot}");

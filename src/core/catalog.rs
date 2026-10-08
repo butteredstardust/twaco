@@ -403,10 +403,12 @@ mod tests {
     use super::*;
     use std::path::PathBuf;
 
-    fn fixture() -> (PathBuf, Solution) {
-        let nonce = crate::test_nonce();
-        let root =
-            std::env::temp_dir().join(format!("twaco-catalog-{}-{nonce}", std::process::id()));
+    fn fixture() -> (tempfile::TempDir, PathBuf, Solution) {
+        let root_guard = tempfile::Builder::new()
+            .prefix("twaco-catalog-")
+            .tempdir()
+            .unwrap();
+        let root = root_guard.path().to_path_buf();
         for collection in ["ThingShapes", "ThingTemplates", "Things"] {
             std::fs::create_dir_all(root.join(collection)).unwrap();
         }
@@ -415,7 +417,7 @@ mod tests {
         std::fs::write(root.join("ThingTemplates/P.Template.xml"), entity("ThingTemplates", "ThingTemplate", "P.Template", " baseThingTemplate=\"GenericThing\"", "<ImplementedShapes><ImplementedShape name=\"P.Shape\"/></ImplementedShapes><ThingShape><ServiceDefinitions><ServiceDefinition name=\"TemplateService\"><ResultType baseType=\"STRING\"/></ServiceDefinition></ServiceDefinitions></ThingShape>" )).unwrap();
         std::fs::write(root.join("Things/P.Thing.xml"), entity("Things", "Thing", "P.Thing", " thingTemplate=\"P.Template\"", "<ThingShape><ServiceDefinitions><ServiceDefinition name=\"OwnService\" description=\"dashboard work\"><ResultType baseType=\"NUMBER\"/></ServiceDefinition></ServiceDefinitions><ServiceImplementations><ServiceImplementation name=\"OwnService\"><HandlerDefinition name=\"Script\"/><ConfigurationTables><ConfigurationTable><DataShape><FieldDefinitions/></DataShape><Rows><Row><code>return 1;</code></Row></Rows></ConfigurationTable></ConfigurationTables></ServiceImplementation></ServiceImplementations></ThingShape>" )).unwrap();
         let solution = Solution::load(&root.join("twaco.toml")).unwrap();
-        (root, solution)
+        (root_guard, root, solution)
     }
 
     fn entity(collection: &str, tag: &str, name: &str, attributes: &str, body: &str) -> String {
@@ -424,7 +426,7 @@ mod tests {
 
     #[test]
     fn inheritance_implementers_filters_and_unknown_names() {
-        let (root, solution) = fixture();
+        let (_dir, _, solution) = fixture();
         let thing = build(
             &solution,
             Query {
@@ -491,6 +493,5 @@ mod tests {
         .unwrap_err()
         .to_string()
         .contains("no entity named Missing"));
-        let _ = std::fs::remove_dir_all(root);
     }
 }

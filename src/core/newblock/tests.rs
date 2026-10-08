@@ -9,14 +9,9 @@ const GOLDEN: [(&str, &str); 3] = [
 ];
 
 struct Fixture {
+    _dir: tempfile::TempDir,
     root: PathBuf,
     solution: Solution,
-}
-
-impl Drop for Fixture {
-    fn drop(&mut self) {
-        let _ = std::fs::remove_dir_all(&self.root);
-    }
 }
 
 /// A solution with one project that depends on a `PTC.Base` extension, as a real one does.
@@ -25,16 +20,11 @@ fn locked(fixture: &Fixture) -> crate::core::lock::WorkspaceLock {
 }
 
 fn fixture() -> Fixture {
-    static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
-    let nonce = format!(
-        "{}-{}",
-        std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap()
-            .as_nanos(),
-        NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
-    );
-    let root = std::env::temp_dir().join(format!("twaco-newblock-{}-{nonce}", std::process::id()));
+    let root_guard = tempfile::Builder::new()
+        .prefix("twaco-newblock-")
+        .tempdir()
+        .unwrap();
+    let root = root_guard.path().to_path_buf();
     std::fs::create_dir_all(root.join("Projects")).unwrap();
     std::fs::write(
         root.join("twaco.toml"),
@@ -47,7 +37,11 @@ fn fixture() -> Fixture {
     )
     .unwrap();
     let solution = Solution::load(&root.join("twaco.toml")).unwrap();
-    Fixture { root, solution }
+    Fixture {
+        _dir: root_guard,
+        root,
+        solution,
+    }
 }
 
 #[cfg(unix)]

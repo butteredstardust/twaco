@@ -1068,9 +1068,12 @@ mod tests {
     use std::sync::Mutex;
 
     /// A solution on disk: one Thing with two script services, one of them with its sidecar.
-    fn live_solution() -> (PathBuf, Solution) {
-        let nonce = crate::test_nonce();
-        let root = std::env::temp_dir().join(format!("twaco-live-{}-{nonce}", std::process::id()));
+    fn live_solution() -> (tempfile::TempDir, PathBuf, Solution) {
+        let root_guard = tempfile::Builder::new()
+            .prefix("twaco-live-")
+            .tempdir()
+            .unwrap();
+        let root = root_guard.path().to_path_buf();
         std::fs::create_dir_all(root.join("Things")).unwrap();
         std::fs::write(root.join("twaco.toml"), "[[project]]\nname = \"P\"\n").unwrap();
         let service = |name: &str, code: &str| {
@@ -1092,14 +1095,14 @@ mod tests {
         std::fs::create_dir_all(&bad).unwrap();
         std::fs::write(bad.join("script.js"), "var a = 1;\nvar b = ;").unwrap();
         let solution = Solution::load(&root.join("twaco.toml")).unwrap();
-        (root, solution)
+        (root_guard, root, solution)
     }
 
     /// A declared check is third-party code run from the repository, so what it can read from the
     /// environment is a boundary: credentials reach it only if it says it needs them.
     #[test]
     fn a_secret_spelled_with_json_escapes_is_hidden_once_decoded() {
-        let (root, solution) = live_solution();
+        let (_dir, root, solution) = live_solution();
         std::env::set_var("TWACO_ESCAPE_PROBE_PASSWORD", "probe-escape-91c2");
         // `e` is `e`: the raw line does not hold the secret, the decoded message does.
         std::fs::write(
@@ -1128,7 +1131,6 @@ mod tests {
             },
         );
         std::env::remove_var("TWACO_ESCAPE_PROBE_PASSWORD");
-        let _ = std::fs::remove_dir_all(root);
         assert_eq!(result.findings.len(), 1, "{result:?}");
         let finding = &result.findings[0];
         assert_eq!(finding.message, "leaked <redacted>");
@@ -1137,7 +1139,7 @@ mod tests {
 
     #[test]
     fn a_hook_sees_no_credentials_unless_it_says_it_needs_them() {
-        let (root, solution) = live_solution();
+        let (_dir, _, solution) = live_solution();
         std::env::set_var("TWACO_HOOK_PROBE_SECRET", "probe-value-7f3a");
         std::env::set_var("TWX_HOOK_PROBE_SECRET", "probe-value-7f3a");
         let printer: Vec<String> = if cfg!(windows) {
@@ -1161,7 +1163,6 @@ mod tests {
         let with = run(true);
         std::env::remove_var("TWACO_HOOK_PROBE_SECRET");
         std::env::remove_var("TWX_HOOK_PROBE_SECRET");
-        let _ = std::fs::remove_dir_all(root);
 
         assert!(without.broken.is_none(), "{:?}", without.broken);
         assert!(
@@ -1233,7 +1234,7 @@ mod tests {
 
     #[test]
     fn a_rejected_script_is_a_finding_on_its_sidecar_line() {
-        let (root, solution) = live_solution();
+        let (_dir, _, solution) = live_solution();
         let parser = Parser {
             unreachable: false,
             seen: Mutex::new(Vec::new()),
@@ -1250,12 +1251,11 @@ mod tests {
             "column 9: syntax error source: [var b = ;]"
         );
         assert!(result.blocks());
-        let _ = std::fs::remove_dir_all(root);
     }
 
     #[test]
     fn an_unreachable_server_breaks_the_gate_rather_than_passing_it() {
-        let (root, solution) = live_solution();
+        let (_dir, _, solution) = live_solution();
         let parser = Parser {
             unreachable: true,
             seen: Mutex::new(Vec::new()),
@@ -1264,19 +1264,17 @@ mod tests {
         assert!(result.broken.is_some());
         assert!(result.findings.is_empty());
         assert!(result.blocks(), "fail closed");
-        let _ = std::fs::remove_dir_all(root);
     }
 
     #[test]
     fn no_profile_breaks_the_gate_too() {
-        let (root, solution) = live_solution();
+        let (_dir, _, solution) = live_solution();
         let result = live_parse(
             &solution,
             Err("profile \"default\" was not found".to_string()),
         );
         assert!(result.blocks());
         assert!(result.broken.unwrap().contains("not found"));
-        let _ = std::fs::remove_dir_all(root);
     }
 
     #[test]

@@ -97,9 +97,11 @@ mod tests {
 
     #[test]
     fn planning_does_not_take_the_lock_and_applying_takes_it_before_discovery() {
-        let root =
-            std::env::temp_dir().join(format!("twaco-command-relocate-{}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&root);
+        let root_guard = tempfile::Builder::new()
+            .prefix("twaco-command-relocate-")
+            .tempdir()
+            .unwrap();
+        let root = root_guard.path().to_path_buf();
         std::fs::create_dir_all(&root).unwrap();
         std::fs::write(root.join("twaco.toml"), "[[project]]\nname = \"P\"\n").unwrap();
         let solution = Solution::load(&root.join("twaco.toml")).unwrap();
@@ -126,6 +128,5 @@ mod tests {
             Err(RelocateCommandError::Lock(_))
         ));
         drop(held);
-        std::fs::remove_dir_all(root).unwrap();
     }
 }

@@ -436,12 +436,12 @@ mod tests {
     }
 
     /// Two projects, P.Two depending on P.One, each in its own folder.
-    fn two_projects(label: &str) -> (PathBuf, Solution) {
-        let nonce = crate::test_nonce();
-        let root = std::env::temp_dir().join(format!(
-            "twaco-package-{label}-{}-{nonce}",
-            std::process::id()
-        ));
+    fn two_projects(label: &str) -> (tempfile::TempDir, PathBuf, Solution) {
+        let root_guard = tempfile::Builder::new()
+            .prefix(&format!("twaco-package-{label}-"))
+            .tempdir()
+            .unwrap();
+        let root = root_guard.path().to_path_buf();
         for folder in ["one/Things", "two/Things", "two/Mashups"] {
             std::fs::create_dir_all(root.join(folder)).unwrap();
         }
@@ -467,7 +467,7 @@ mod tests {
         )
         .unwrap();
         let solution = Solution::load(&root.join("twaco.toml")).unwrap();
-        (root, solution)
+        (root_guard, root, solution)
     }
 
     fn unzip(bytes: &[u8]) -> std::collections::BTreeMap<String, Vec<u8>> {
@@ -484,7 +484,7 @@ mod tests {
 
     #[test]
     fn a_project_extension_holds_its_metadata_and_only_its_own_entities() {
-        let (root, solution) = two_projects("ext");
+        let (_dir, root, solution) = two_projects("ext");
         let meta = Metadata::from_solution(&solution);
         assert_eq!(
             (
@@ -534,12 +534,11 @@ mod tests {
             extension(&solution, "P.Nope", true, &meta).is_err(),
             "an unknown project"
         );
-        let _ = std::fs::remove_dir_all(root);
     }
 
     #[test]
     fn source_control_and_bundles_follow_the_project_filter() {
-        let (root, solution) = two_projects("sc");
+        let (_dir, _, solution) = two_projects("sc");
         let (bytes, count) = source_control(&solution, None).unwrap();
         assert_eq!(count, 3);
         assert_eq!(
@@ -563,13 +562,12 @@ mod tests {
             bundle(&solution, None, Part::Frontend).is_err(),
             "no ui_collections declared"
         );
-        let _ = std::fs::remove_dir_all(root);
     }
 
     #[test]
     fn what_cannot_be_packaged_faithfully_is_refused() {
         // The same entity in two files.
-        let (root, solution) = two_projects("twice");
+        let (_dir, root, solution) = two_projects("twice");
         std::fs::create_dir_all(root.join("one/Things/old")).unwrap();
         std::fs::write(
             root.join("one/Things/old/copy.xml"),
@@ -594,10 +592,9 @@ mod tests {
             .unwrap()
             .to_string();
         assert!(why.contains("declared 2 times"), "{why}");
-        let _ = std::fs::remove_dir_all(root);
 
         // A name that would leave the archive's folder.
-        let (root, solution) = two_projects("name");
+        let (_dir, root, solution) = two_projects("name");
         std::fs::write(
             root.join("one/Things/evil.xml"),
             entity("Things", "Thing", "../../evil", "P.One"),
@@ -607,26 +604,23 @@ mod tests {
             .unwrap_err()
             .to_string()
             .contains("cannot be a file name"));
-        let _ = std::fs::remove_dir_all(root);
 
         // A file holding two entities.
-        let (root, solution) = two_projects("two");
+        let (_dir, root, solution) = two_projects("two");
         let both = "<Entities><Things><Thing name=\"P.One.A\" projectName=\"P.One\"/><Thing name=\"P.One.B\" projectName=\"P.One\"/></Things></Entities>";
         std::fs::write(root.join("one/Things/both.xml"), both).unwrap();
         assert!(source_control(&solution, None)
             .unwrap_err()
             .to_string()
             .contains("holds 2 entities"));
-        let _ = std::fs::remove_dir_all(root);
 
         // An export whose first collection is empty still holds an entity: never skipped.
-        let (root, solution) = two_projects("empty");
+        let (_dir, root, solution) = two_projects("empty");
         let hidden = "<Entities><Things/><Mashups><Mashup name=\"P.One.Hidden\" projectName=\"P.One\"/></Mashups></Entities>";
         std::fs::write(root.join("one/Things/hidden.xml"), hidden).unwrap();
         assert!(source_control(&solution, None)
             .unwrap_err()
             .to_string()
             .contains("first collection holds no entity"));
-        let _ = std::fs::remove_dir_all(root);
     }
 }

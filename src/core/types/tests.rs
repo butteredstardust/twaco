@@ -62,19 +62,15 @@ fn platform_property(base_type: &str) -> PlatformProperty {
     }
 }
 
-fn temporary_root(label: &str) -> std::path::PathBuf {
-    let nonce = crate::test_nonce();
-    std::env::temp_dir().join(format!(
-        "twaco-types-{label}-{}-{nonce}",
-        std::process::id()
-    ))
-}
-
 fn fixture_solution(
     label: &str,
     entities: &[(&str, &str, &str)],
-) -> (std::path::PathBuf, Solution) {
-    let root = temporary_root(label);
+) -> (tempfile::TempDir, std::path::PathBuf, Solution) {
+    let root_guard = tempfile::Builder::new()
+        .prefix(&format!("twaco-types-{label}-"))
+        .tempdir()
+        .unwrap();
+    let root = root_guard.path().to_path_buf();
     std::fs::create_dir_all(&root).unwrap();
     std::fs::write(root.join("twaco.toml"), "[[project]]\nname = \"P\"\ncollections = [\"Things\", \"ThingTemplates\", \"ThingShapes\"]\n").unwrap();
     for (collection, name, xml) in entities {
@@ -82,7 +78,7 @@ fn fixture_solution(
         std::fs::write(root.join(collection).join(format!("{name}.xml")), xml).unwrap();
     }
     let solution = Solution::discover(&root).unwrap();
-    (root, solution)
+    (root_guard, root, solution)
 }
 
 type FakeReplies = BTreeMap<(String, String), Result<Option<Value>, ServerError>>;
@@ -231,9 +227,11 @@ fn globals_use_the_owning_thing_template_and_shape_interfaces() {
 
 #[test]
 fn gitignore_must_cover_shared_and_per_service_generated_files() {
-    let nonce = crate::test_nonce();
-    let root =
-        std::env::temp_dir().join(format!("twaco-types-ignore-{}-{nonce}", std::process::id()));
+    let root_guard = tempfile::Builder::new()
+        .prefix("twaco-types-ignore-")
+        .tempdir()
+        .unwrap();
+    let root = root_guard.path().to_path_buf();
     std::fs::create_dir_all(&root).unwrap();
     std::fs::write(root.join(".gitignore"), ".twaco/types/\n").unwrap();
     assert!(!gitignore_covers_types(&root));
@@ -243,7 +241,6 @@ fn gitignore_must_cover_shared_and_per_service_generated_files() {
     )
     .unwrap();
     assert!(gitignore_covers_types(&root));
-    let _ = std::fs::remove_dir_all(root);
 }
 
 #[test]
@@ -673,7 +670,7 @@ fn trimming_omits_empty_optional_fields_and_is_deterministic() {
 
 #[test]
 fn fetches_solution_platform_dependencies_and_all_resources() {
-    let (root, solution) = fixture_solution(
+    let (_dir, root, solution) = fixture_solution(
         "fetch",
         &[
             (
@@ -733,12 +730,11 @@ fn fetches_solution_platform_dependencies_and_all_resources() {
     let cache = std::fs::read_to_string(root.join(".twaco/platform.json")).unwrap();
     assert!(cache.ends_with('\n'));
     assert!(cache.find("\"Alpha\"").unwrap() < cache.find("\"Zed\"").unwrap());
-    let _ = std::fs::remove_dir_all(root);
 }
 
 #[test]
 fn a_not_found_entity_is_skipped_but_an_auth_failure_writes_nothing() {
-    let (root, solution) = fixture_solution(
+    let (_dir, root, solution) = fixture_solution(
         "failures",
         &[(
             "Things",
@@ -811,12 +807,11 @@ fn a_not_found_entity_is_skipped_but_an_auth_failure_writes_nothing() {
         std::fs::read(root.join(".twaco/platform.json")).unwrap(),
         old_cache
     );
-    let _ = std::fs::remove_dir_all(root);
 }
 
 #[test]
 fn malformed_cache_is_reported_and_ignored() {
-    let (root, solution) = fixture_solution(
+    let (_dir, root, solution) = fixture_solution(
         "malformed",
         &[(
             "Things",
@@ -833,27 +828,29 @@ fn malformed_cache_is_reported_and_ignored() {
         .any(|message| message.contains("malformed and was ignored")));
     let entities = std::fs::read_to_string(root.join(".twaco/types/entities.d.ts")).unwrap();
     assert!(entities.contains("[member: string]: any"));
-    let _ = std::fs::remove_dir_all(root);
 }
 
 #[test]
 fn writing_the_same_generated_bytes_twice_is_a_fixed_point() {
-    let nonce = crate::test_nonce();
-    let directory =
-        std::env::temp_dir().join(format!("twaco-types-{}-{nonce}", std::process::id()));
+    let directory_guard = tempfile::Builder::new()
+        .prefix("twaco-types-")
+        .tempdir()
+        .unwrap();
+    let directory = directory_guard.path().to_path_buf();
     let path = directory.join("types.d.ts");
     assert!(workspace::write_lf_if_changed(&path, "one\r\ntwo\r\n").unwrap());
     let first = std::fs::read(&path).unwrap();
     assert!(!workspace::write_lf_if_changed(&path, "one\ntwo\n").unwrap());
     assert_eq!(std::fs::read(&path).unwrap(), first);
-    let _ = std::fs::remove_dir_all(directory);
 }
 
 #[test]
 fn generated_service_projects_do_not_change_check_gate_results() {
-    let nonce = crate::test_nonce();
-    let root =
-        std::env::temp_dir().join(format!("twaco-types-check-{}-{nonce}", std::process::id()));
+    let root_guard = tempfile::Builder::new()
+        .prefix("twaco-types-check-")
+        .tempdir()
+        .unwrap();
+    let root = root_guard.path().to_path_buf();
     let service_dir = root.join("src/T/services/Run");
     std::fs::create_dir_all(root.join("Things")).unwrap();
     std::fs::create_dir_all(&service_dir).unwrap();
@@ -897,10 +894,9 @@ fn generated_service_projects_do_not_change_check_gate_results() {
         assert_eq!(before.broken, after.broken, "{}", before.name);
         assert_eq!(before.gates_the_run, after.gates_the_run, "{}", before.name);
     }
-    let _ = std::fs::remove_dir_all(root);
 }
 
-fn check_fixture(label: &str, script: &str) -> (PathBuf, Solution) {
+fn check_fixture(label: &str, script: &str) -> (tempfile::TempDir, PathBuf, Solution) {
     let xml = concat!(
         "<Entities><Things><Thing name=\"T\" projectName=\"P\"><ThingShape>",
         "<ServiceDefinitions><ServiceDefinition name=\"Run\"><ParameterDefinitions>",
@@ -908,17 +904,17 @@ fn check_fixture(label: &str, script: &str) -> (PathBuf, Solution) {
         "</ParameterDefinitions><ResultType baseType=\"NUMBER\"/></ServiceDefinition>",
         "</ServiceDefinitions></ThingShape></Thing></Things></Entities>"
     );
-    let (root, solution) = fixture_solution(label, &[("Things", "T", xml)]);
+    let (_dir, root, solution) = fixture_solution(label, &[("Things", "T", xml)]);
     let directory = root.join("src/T/services/Run");
     std::fs::create_dir_all(&directory).unwrap();
     std::fs::write(directory.join("script.js"), script.as_bytes()).unwrap();
-    (root, solution)
+    (_dir, root, solution)
 }
 
 #[test]
 fn check_file_has_typed_header_and_verbatim_script_but_no_skipped_global() {
     let script = "let input = 'local';\r\nresult = input.length;\r\n";
-    let (root, solution) = check_fixture("check-project", script);
+    let (_dir, root, solution) = check_fixture("check-project", script);
     let (model, _) = load_model(&solution);
     let projects = write_check_project(&solution, &model).unwrap();
     assert_eq!(projects.len(), 1);
@@ -933,7 +929,6 @@ fn check_file_has_typed_header_and_verbatim_script_but_no_skipped_global() {
     assert!(generated.starts_with(header.as_bytes()));
     assert_eq!(&generated[header.len()..], script.as_bytes());
     assert!(!String::from_utf8_lossy(&generated).contains("var input;"));
-    let _ = std::fs::remove_dir_all(root);
 }
 
 #[test]
@@ -1002,7 +997,7 @@ fn maps_script_header_and_non_service_findings() {
 
 #[test]
 fn compiler_discovery_prefers_configuration_then_local_then_path() {
-    let (root, mut solution) = fixture_solution("compiler-order", &[]);
+    let (_dir, root, mut solution) = fixture_solution("compiler-order", &[]);
     assert_eq!(
         compiler_command(&solution)[0],
         OsString::from(if cfg!(windows) { "tsc.cmd" } else { "tsc" })
@@ -1021,7 +1016,6 @@ fn compiler_discovery_prefers_configuration_then_local_then_path() {
         compiler_command(&solution),
         vec![OsString::from("custom-tsc"), OsString::from("--flag")]
     );
-    let _ = std::fs::remove_dir_all(root);
 }
 
 struct FakeCompiler {
@@ -1053,7 +1047,7 @@ impl CompilerRunner for FakeCompiler {
 
 #[test]
 fn compiler_errors_without_a_parsable_finding_are_a_broken_run() {
-    let (root, solution) = fixture_solution("empty-compiler-error", &[]);
+    let (_dir, root, solution) = fixture_solution("empty-compiler-error", &[]);
     let compiler = FakeCompiler {
         success: false,
         stdout: Vec::new(),
@@ -1072,7 +1066,6 @@ fn compiler_errors_without_a_parsable_finding_are_a_broken_run() {
     assert_eq!(calls.len(), 1);
     assert!(calls[0].1.iter().any(|argument| argument == "--pretty"));
     assert_eq!(calls[0].2, root);
-    let _ = std::fs::remove_dir_all(&calls[0].2);
 }
 
 #[test]

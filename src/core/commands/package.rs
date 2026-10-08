@@ -183,12 +183,12 @@ mod tests {
     use super::*;
     use crate::core::lock;
 
-    fn setup() -> (std::path::PathBuf, Solution) {
-        let nonce = crate::test_nonce();
-        let root = std::env::temp_dir().join(format!(
-            "twaco-command-package-{}-{nonce}",
-            std::process::id()
-        ));
+    fn setup() -> (tempfile::TempDir, std::path::PathBuf, Solution) {
+        let root_guard = tempfile::Builder::new()
+            .prefix("twaco-command-package-")
+            .tempdir()
+            .unwrap();
+        let root = root_guard.path().to_path_buf();
         std::fs::create_dir_all(root.join("Things")).unwrap();
         std::fs::write(
             root.join("twaco.toml"),
@@ -201,12 +201,12 @@ mod tests {
         )
         .unwrap();
         let solution = Solution::load(&root.join("twaco.toml")).unwrap();
-        (root, solution)
+        (root_guard, root, solution)
     }
 
     #[test]
     fn named_package_output_does_not_take_the_workspace_lock_and_force_replaces_it() {
-        let (root, solution) = setup();
+        let (_dir, root, solution) = setup();
         let out = root.join("release.zip");
         std::fs::write(&out, b"old").unwrap();
         let request = |force| PackageRequest {
@@ -224,12 +224,11 @@ mod tests {
         assert_eq!(outcome.effects, Effects::new(Access::Write, Access::None));
         assert_ne!(std::fs::read(&out).unwrap(), b"old");
         drop(held);
-        std::fs::remove_dir_all(root).unwrap();
     }
 
     #[test]
     fn what_is_reported_comes_from_the_one_build_that_was_written() {
-        let (root, solution) = setup();
+        let (_dir, root, solution) = setup();
         let run = |action: PackageAction, name: &str| {
             execute(
                 &solution,
@@ -283,6 +282,5 @@ mod tests {
             "{}",
             extension.summary
         );
-        std::fs::remove_dir_all(root).unwrap();
     }
 }

@@ -740,8 +740,11 @@ mod tests {
 
     #[test]
     fn what_could_not_be_read_makes_the_document_say_it_is_partial() {
-        let root = std::env::temp_dir().join(format!("twaco-docs-partial-{}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&root);
+        let root_guard = tempfile::Builder::new()
+            .prefix("twaco-docs-partial-")
+            .tempdir()
+            .unwrap();
+        let root = root_guard.path().to_path_buf();
         let source =
             Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/corpus/acme-orders");
         copy(&source, &root);
@@ -749,7 +752,6 @@ mod tests {
         let solution = Solution::load(&root.join("twaco.toml")).unwrap();
         let document = build(&solution);
         let text = render_markdown(&document, false);
-        let _ = std::fs::remove_dir_all(&root);
         assert!(!document.complete);
         assert!(text.contains("**partial**"), "{text}");
         assert!(text.contains("Acme.Orders.Broken"), "{text}");
@@ -757,8 +759,11 @@ mod tests {
 
     #[test]
     fn writing_refuses_an_existing_file_unless_forced() {
-        let dir = std::env::temp_dir().join(format!("twaco-docs-write-{}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&dir);
+        let dir_guard = tempfile::Builder::new()
+            .prefix("twaco-docs-write-")
+            .tempdir()
+            .unwrap();
+        let dir = dir_guard.path().to_path_buf();
         let target = dir.join("nested/SOLUTION.md");
         write(&target, "one", false).unwrap();
         assert_eq!(std::fs::read_to_string(&target).unwrap(), "one");
@@ -768,6 +773,5 @@ mod tests {
         write(&target, "two", true).unwrap();
         assert_eq!(std::fs::read_to_string(&target).unwrap(), "two");
         assert!(write(&dir, "x", true).unwrap_err().contains("directory"));
-        let _ = std::fs::remove_dir_all(&dir);
     }
 }

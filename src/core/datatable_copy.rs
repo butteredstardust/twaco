@@ -526,17 +526,19 @@ mod tests {
         )
     }
 
-    fn solution(ledger: Option<&str>) -> (std::path::PathBuf, Solution) {
-        let nonce = crate::test_nonce();
-        let root =
-            std::env::temp_dir().join(format!("twaco-dtcopy-{}-{nonce}", std::process::id()));
+    fn solution(ledger: Option<&str>) -> (tempfile::TempDir, std::path::PathBuf, Solution) {
+        let root_guard = tempfile::Builder::new()
+            .prefix("twaco-dtcopy-")
+            .tempdir()
+            .unwrap();
+        let root = root_guard.path().to_path_buf();
         std::fs::create_dir_all(root.join(".twaco")).unwrap();
         std::fs::write(root.join("twaco.toml"), "[[project]]\nname = \"P\"\n").unwrap();
         if let Some(ledger) = ledger {
             std::fs::write(root.join(".twaco/renames.json"), ledger).unwrap();
         }
         let solution = Solution::load(&root.join("twaco.toml")).unwrap();
-        (root, solution)
+        (root_guard, root, solution)
     }
 
     fn request(apply: bool) -> Request {
@@ -561,7 +563,7 @@ mod tests {
 
     #[test]
     fn a_plan_reads_the_shapes_maps_fields_by_name_and_the_ledger_and_writes_nothing() {
-        let (root, solution) = solution(Some(LEDGER));
+        let (_dir, _, solution) = solution(Some(LEDGER));
         let fake = Fake::default().table("Old_DT", &OLD, rows()).table(
             "New_DT",
             &[
@@ -589,12 +591,11 @@ mod tests {
         assert_eq!(report.unfilled, ["extra"]);
         assert_eq!((report.source_rows, report.applied), (2, false));
         assert_eq!(*fake.adds.borrow(), 0);
-        let _ = std::fs::remove_dir_all(root);
     }
 
     #[test]
     fn an_apply_copies_renamed_rows_and_confirms_them_read_back() {
-        let (root, solution) = solution(Some(LEDGER));
+        let (_dir, _, solution) = solution(Some(LEDGER));
         let fake = Fake::default().table("Old_DT", &OLD, rows()).table(
             "New_DT",
             &[("id", "STRING"), ("title", "STRING"), ("amount", "NUMBER")],
@@ -616,12 +617,11 @@ mod tests {
             again.to_string().contains("already has 2 row(s)"),
             "{again}"
         );
-        let _ = std::fs::remove_dir_all(root);
     }
 
     #[test]
     fn unmapped_fields_type_mismatches_and_collisions_are_refused_before_any_write() {
-        let (root, solution) = solution(None);
+        let (_dir, _, solution) = solution(None);
         let renamed = Fake::default().table("Old_DT", &OLD, rows()).table(
             "New_DT",
             &[("id", "STRING"), ("title", "STRING"), ("amount", "NUMBER")],
@@ -657,12 +657,11 @@ mod tests {
         collide.map = parse_map("label=id").unwrap();
         assert!(run(&renamed, &solution, &collide).is_err());
         assert_eq!(*renamed.adds.borrow() + *retyped.adds.borrow(), 0);
-        let _ = std::fs::remove_dir_all(root);
     }
 
     #[test]
     fn a_write_the_server_loses_is_a_failure_not_a_success() {
-        let (root, solution) = solution(None);
+        let (_dir, _, solution) = solution(None);
         let fake = Fake {
             lose_writes: true,
             ..Default::default()
@@ -674,12 +673,11 @@ mod tests {
             error.to_string().contains("has 0 row(s) after copying 2"),
             "{error}"
         );
-        let _ = std::fs::remove_dir_all(root);
     }
 
     #[test]
     fn missing_tables_sizes_and_arguments_are_refused() {
-        let (root, solution) = solution(None);
+        let (_dir, _, solution) = solution(None);
         let fake = Fake::default().table("Old_DT", &OLD, rows());
         assert!(run(&fake, &solution, &request(false))
             .unwrap_err()
@@ -708,6 +706,5 @@ mod tests {
             .unwrap_err()
             .to_string()
             .contains("no field nope"));
-        let _ = std::fs::remove_dir_all(root);
     }
 }

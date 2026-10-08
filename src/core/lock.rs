@@ -256,16 +256,19 @@ fn remove_temporaries(directory: &Path, recovered: &mut Vec<PathBuf>) {
 mod tests {
     use super::*;
 
-    fn temp() -> PathBuf {
-        let nonce = crate::test_nonce();
-        let root = std::env::temp_dir().join(format!("twaco-lock-{}-{nonce}", std::process::id()));
+    fn temp() -> (tempfile::TempDir, PathBuf) {
+        let root_guard = tempfile::Builder::new()
+            .prefix("twaco-lock-")
+            .tempdir()
+            .unwrap();
+        let root = root_guard.path().to_path_buf();
         std::fs::create_dir_all(&root).unwrap();
-        root
+        (root_guard, root)
     }
 
     #[test]
     fn a_second_writer_is_refused_and_told_who_holds_it() {
-        let root = temp();
+        let (_dir, root) = temp();
         let first = acquire(&root, "sync", &[]).unwrap();
         let error = acquire(&root, "deploy", &[]).unwrap_err();
         match error {
@@ -279,12 +282,11 @@ mod tests {
             other => panic!("expected Held, got {other}"),
         }
         drop(first);
-        let _ = std::fs::remove_dir_all(root);
     }
 
     #[test]
     fn the_lock_is_free_again_once_its_holder_is_dropped() {
-        let root = temp();
+        let (_dir, root) = temp();
         drop(acquire(&root, "sync", &[]).unwrap());
         let again = acquire(&root, "fmt", &[]).unwrap();
         let text = std::fs::read_to_string(root.join(HOLDER_PATH)).unwrap();
@@ -293,7 +295,6 @@ mod tests {
             "the new holder replaces the old record: {text}"
         );
         drop(again);
-        let _ = std::fs::remove_dir_all(root);
     }
 
     #[test]
@@ -305,7 +306,7 @@ mod tests {
 
     #[test]
     fn stale_temporaries_are_removed_and_nothing_else() {
-        let root = temp();
+        let (_dir, root) = temp();
         let things = root.join("Things");
         let nested = root.join("src/T/services/S");
         std::fs::create_dir_all(&things).unwrap();
@@ -319,7 +320,7 @@ mod tests {
             root.join(".twaco/.renames.json.42.twaco-delete-tmp"),
         ];
         // Outside the workspace, nothing is twaco's to recover, even with twaco's own name.
-        let outside = temp();
+        let (_dir, outside) = temp();
         let kept = [
             things.join("T.xml"),
             nested.join("script.js"),
@@ -335,13 +336,11 @@ mod tests {
         assert!(stale.iter().all(|path| !path.exists()));
         assert!(kept.iter().all(|path| path.exists()));
         drop(lock);
-        let _ = std::fs::remove_dir_all(root);
-        let _ = std::fs::remove_dir_all(outside);
     }
 
     #[test]
     fn the_record_names_the_current_holder_while_someone_reads_it() {
-        let root = temp();
+        let (_dir, root) = temp();
         drop(acquire(&root, "sync", &[]).unwrap());
         // A reader that shares reading and writing only, as most programs open a file. On
         // Windows that refuses the rename, so the fallback must still replace the record.
@@ -361,13 +360,12 @@ mod tests {
         );
         assert!(!root.join(".twaco/.lock.holder.twaco-tmp").exists());
         drop((reader, lock));
-        let _ = std::fs::remove_dir_all(root);
     }
 
     #[test]
     fn a_lock_held_for_an_instant_is_waited_out() {
         // As `doctor` holds it while asking whether it is free.
-        let root = temp();
+        let (_dir, root) = temp();
         drop(acquire(&root, "sync", &[]).unwrap());
         let glance = OpenOptions::new()
             .write(true)
@@ -381,12 +379,11 @@ mod tests {
         let lock = acquire(&root, "deploy", &[]).expect("the glance ends before the retries do");
         release.join().unwrap();
         drop(lock);
-        let _ = std::fs::remove_dir_all(root);
     }
 
     #[test]
     fn the_holder_can_be_asked_without_taking_the_lock() {
-        let root = temp();
+        let (_dir, root) = temp();
         assert_eq!(holder(&root).unwrap(), None, "no lock file yet");
         let held = acquire(&root, "deploy", &[]).unwrap();
         assert!(holder(&root).unwrap().unwrap().contains("twaco deploy"));
@@ -394,12 +391,11 @@ mod tests {
         assert_eq!(holder(&root).unwrap(), None);
         // Asking did not take it: a writer can still acquire.
         drop(acquire(&root, "sync", &[]).unwrap());
-        let _ = std::fs::remove_dir_all(root);
     }
 
     #[test]
     fn a_held_lock_does_not_sweep() {
-        let root = temp();
+        let (_dir, root) = temp();
         let things = root.join("Things");
         std::fs::create_dir_all(&things).unwrap();
         let first = acquire(&root, "deploy", &[]).unwrap();
@@ -409,6 +405,5 @@ mod tests {
         assert!(acquire(&root, "sync", &[things]).is_err());
         assert!(in_flight.exists());
         drop(first);
-        let _ = std::fs::remove_dir_all(root);
     }
 }

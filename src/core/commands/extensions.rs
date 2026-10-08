@@ -183,12 +183,12 @@ mod tests {
         }
     }
 
-    fn setup() -> (std::path::PathBuf, Solution) {
-        let nonce = crate::test_nonce();
-        let root = std::env::temp_dir().join(format!(
-            "twaco-command-extensions-{}-{nonce}",
-            std::process::id()
-        ));
+    fn setup() -> (tempfile::TempDir, std::path::PathBuf, Solution) {
+        let root_guard = tempfile::Builder::new()
+            .prefix("twaco-command-extensions-")
+            .tempdir()
+            .unwrap();
+        let root = root_guard.path().to_path_buf();
         std::fs::create_dir_all(root.join(".twaco/profiles")).unwrap();
         std::fs::write(root.join("twaco.toml"), "[[project]]\nname = \"P\"\n").unwrap();
         std::fs::write(
@@ -197,7 +197,7 @@ mod tests {
         )
         .unwrap();
         let solution = Solution::load(&root.join("twaco.toml")).unwrap();
-        (root, solution)
+        (root_guard, root, solution)
     }
 
     fn zip() -> Vec<u8> {
@@ -213,7 +213,7 @@ mod tests {
 
     #[test]
     fn extension_import_plan_and_apply_keep_their_effects() {
-        let (root, solution) = setup();
+        let (_dir, _, solution) = setup();
         let request = |mode| ExtensionRequest {
             action: ExtensionAction::Import {
                 file_name: "P.zip".to_string(),
@@ -254,12 +254,11 @@ mod tests {
         .unwrap();
         assert_eq!(apply.effects(), Effects::new(Access::None, Access::Write));
         assert!(*fake.installed.lock().unwrap());
-        std::fs::remove_dir_all(root).unwrap();
     }
 
     #[test]
     fn profile_refusal_keeps_its_code() {
-        let (root, solution) = setup();
+        let (_dir, _, solution) = setup();
         let error = execute(
             &solution,
             &ExtensionRequest {
@@ -274,6 +273,5 @@ mod tests {
         )
         .unwrap_err();
         assert_eq!(error.code(), ErrorCode::InvalidData);
-        std::fs::remove_dir_all(root).unwrap();
     }
 }

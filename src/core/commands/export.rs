@@ -175,12 +175,12 @@ mod tests {
         }
     }
 
-    fn setup() -> (std::path::PathBuf, Solution) {
-        let nonce = crate::test_nonce();
-        let root = std::env::temp_dir().join(format!(
-            "twaco-command-export-{}-{nonce}",
-            std::process::id()
-        ));
+    fn setup() -> (tempfile::TempDir, std::path::PathBuf, Solution) {
+        let root_guard = tempfile::Builder::new()
+            .prefix("twaco-command-export-")
+            .tempdir()
+            .unwrap();
+        let root = root_guard.path().to_path_buf();
         std::fs::create_dir_all(root.join(".twaco/profiles")).unwrap();
         std::fs::write(root.join("twaco.toml"), "[[project]]\nname = \"P\"\n").unwrap();
         std::fs::write(
@@ -189,12 +189,12 @@ mod tests {
         )
         .unwrap();
         let solution = Solution::load(&root.join("twaco.toml")).unwrap();
-        (root, solution)
+        (root_guard, root, solution)
     }
 
     #[test]
     fn source_control_plans_without_writing_and_applies_through_the_same_executor() {
-        let (root, solution) = setup();
+        let (_dir, _, solution) = setup();
         let request = |mode| ExportRequest {
             action: ExportAction::SourceControl {
                 repository: "R".to_string(),
@@ -244,12 +244,11 @@ mod tests {
             *fake.calls.lock().unwrap(),
             ["ExportSourceControlledEntities"]
         );
-        std::fs::remove_dir_all(root).unwrap();
     }
 
     #[test]
     fn xml_force_and_refusal_keep_their_effects_and_code() {
-        let (root, solution) = setup();
+        let (_dir, root, solution) = setup();
         let out = root.join("out.xml");
         std::fs::write(&out, b"old").unwrap();
         let request = |force| ExportRequest {
@@ -282,6 +281,5 @@ mod tests {
         )
         .unwrap();
         assert_eq!(outcome.effects(), Effects::new(Access::Write, Access::Read));
-        std::fs::remove_dir_all(root).unwrap();
     }
 }

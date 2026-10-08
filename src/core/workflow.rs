@@ -707,12 +707,12 @@ mod tests {
     use crate::core::{config::Solution, types, workspace};
     use std::path::PathBuf;
 
-    fn service_fixture(label: &str) -> (PathBuf, Solution) {
-        let nonce = crate::test_nonce();
-        let root = std::env::temp_dir().join(format!(
-            "twaco-workflow-{label}-{}-{nonce}",
-            std::process::id()
-        ));
+    fn service_fixture(label: &str) -> (tempfile::TempDir, PathBuf, Solution) {
+        let root_guard = tempfile::Builder::new()
+            .prefix(&format!("twaco-workflow-{label}-"))
+            .tempdir()
+            .unwrap();
+        let root = root_guard.path().to_path_buf();
         std::fs::create_dir_all(root.join("Things")).unwrap();
         std::fs::create_dir_all(root.join("src/T/services/Run")).unwrap();
         std::fs::write(root.join("twaco.toml"), "[[project]]\nname = \"P\"\n").unwrap();
@@ -736,7 +736,7 @@ mod tests {
             "<ServiceDefinition name=\"Run\"><ParameterDefinitions></ParameterDefinitions><ResultType baseType=\"NOTHING\"/></ServiceDefinition>\n",
         ).unwrap();
         let solution = Solution::load(&root.join("twaco.toml")).unwrap();
-        (root, solution)
+        (root_guard, root, solution)
     }
 
     fn entities(solution: &Solution) -> Vec<EntityFile> {
@@ -745,7 +745,7 @@ mod tests {
 
     #[test]
     fn sync_refreshes_only_after_a_real_write_and_only_when_opted_in() {
-        let (root, solution) = service_fixture("sync-types");
+        let (_dir, root, solution) = service_fixture("sync-types");
         types::write(&solution).unwrap();
         let globals = root.join("src/T/services/Run/twaco-globals.d.ts");
         std::fs::write(
@@ -779,14 +779,12 @@ mod tests {
         assert_eq!(unchanged.changed, 0);
         assert!(unchanged.types.files_written.is_none());
         assert!(!globals.exists());
-        let _ = std::fs::remove_dir_all(root);
 
-        let (root, solution) = service_fixture("sync-no-types");
+        let (_dir, root, solution) = service_fixture("sync-no-types");
         std::fs::write(root.join("src/T/services/Run/script.js"), "changed();").unwrap();
         let outcome = sync(&solution, &entities(&solution), &[], SyncOptions::default());
         assert_eq!(outcome.changed, 1);
         assert!(!root.join(".twaco/types").exists());
-        let _ = std::fs::remove_dir_all(root);
     }
 
     fn two_services(name: &str, a: &str) -> String {
@@ -808,11 +806,11 @@ mod tests {
 
     #[test]
     fn an_entitys_sidecars_are_written_together_or_not_at_all() {
-        let nonce = crate::test_nonce();
-        let root = std::env::temp_dir().join(format!(
-            "twaco-workflow-together-{}-{nonce}",
-            std::process::id()
-        ));
+        let root_guard = tempfile::Builder::new()
+            .prefix("twaco-workflow-together-")
+            .tempdir()
+            .unwrap();
+        let root = root_guard.path().to_path_buf();
         std::fs::create_dir_all(root.join("Things")).unwrap();
         std::fs::write(root.join("twaco.toml"), "[[project]]\nname = \"P\"\n").unwrap();
         std::fs::write(root.join("Things/T.xml"), two_services("T", "old();")).unwrap();
@@ -854,16 +852,15 @@ mod tests {
         );
         assert_eq!(outcome.log.changes().count(), 1, "{:?}", outcome.log);
         drop(lock);
-        let _ = std::fs::remove_dir_all(root);
     }
 
     #[test]
     fn every_kind_of_sidecar_an_entity_has_lands_in_its_one_write() {
-        let nonce = crate::test_nonce();
-        let root = std::env::temp_dir().join(format!(
-            "twaco-workflow-kinds-{}-{nonce}",
-            std::process::id()
-        ));
+        let root_guard = tempfile::Builder::new()
+            .prefix("twaco-workflow-kinds-")
+            .tempdir()
+            .unwrap();
+        let root = root_guard.path().to_path_buf();
         std::fs::create_dir_all(root.join("DataShapes")).unwrap();
         std::fs::write(root.join("twaco.toml"), "[[project]]\nname = \"P\"\n").unwrap();
         std::fs::write(
@@ -910,12 +907,11 @@ mod tests {
         assert!(written.contains("changed();"), "{written}");
         let again = sync(&solution, &entities(&solution), &[], SyncOptions::default());
         assert_eq!(again.changed, 0, "{:?}", again.log);
-        let _ = std::fs::remove_dir_all(root);
     }
 
     #[test]
     fn extract_adds_the_service_type_project_and_refresh_failure_is_advisory() {
-        let (root, solution) = service_fixture("extract-types");
+        let (_dir, root, solution) = service_fixture("extract-types");
         std::fs::remove_dir_all(root.join("src")).unwrap();
         std::fs::create_dir_all(root.join(".twaco/types")).unwrap();
         let outcome = extract(
@@ -928,9 +924,8 @@ mod tests {
         assert!(outcome.written > 0);
         assert!(root.join("src/T/services/Run/jsconfig.json").is_file());
         assert!(outcome.types.warning.is_none());
-        let _ = std::fs::remove_dir_all(root);
 
-        let (root, solution) = service_fixture("extract-no-types");
+        let (_dir, root, solution) = service_fixture("extract-no-types");
         std::fs::remove_dir_all(root.join("src")).unwrap();
         let outcome = extract(
             &solution,
@@ -943,9 +938,8 @@ mod tests {
         assert!(outcome.types.files_written.is_none());
         assert!(!root.join(".twaco/types").exists());
         assert!(!root.join("src/T/services/Run/jsconfig.json").exists());
-        let _ = std::fs::remove_dir_all(root);
 
-        let (root, solution) = service_fixture("refresh-warning");
+        let (_dir, root, solution) = service_fixture("refresh-warning");
         std::fs::create_dir_all(root.join(".twaco")).unwrap();
         std::fs::write(root.join(".twaco/types"), "not a directory").unwrap();
         std::fs::write(root.join("src/T/services/Run/script.js"), "changed();").unwrap();
@@ -956,16 +950,17 @@ mod tests {
         assert!(std::fs::read_to_string(root.join("Things/T.xml"))
             .unwrap()
             .contains("changed();"));
-        let _ = std::fs::remove_dir_all(root);
     }
 
     #[test]
     fn a_data_table_keeps_its_configuration_when_a_service_syncs_after_it() {
         // Two kinds of sidecar write into the one entity file. The second must start from what
         // the first wrote, not from the file as it was before either.
-        let nonce = crate::test_nonce();
-        let root =
-            std::env::temp_dir().join(format!("twaco-workflow-dt-{}-{nonce}", std::process::id()));
+        let root_guard = tempfile::Builder::new()
+            .prefix("twaco-workflow-dt-")
+            .tempdir()
+            .unwrap();
+        let root = root_guard.path().to_path_buf();
         std::fs::create_dir_all(root.join("Things")).unwrap();
         std::fs::write(root.join("twaco.toml"), "[[project]]\nname = \"P\"\n").unwrap();
         std::fs::write(
@@ -1011,6 +1006,5 @@ mod tests {
             xml.contains("New_DS"),
             "the configuration survived the script's sync: {xml}"
         );
-        let _ = std::fs::remove_dir_all(root);
     }
 }

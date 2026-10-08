@@ -1,11 +1,11 @@
 use super::*;
 
 fn service_fixture(tag: &str) -> Fixture {
-    let nonce = crate::test_nonce();
-    let root = std::env::temp_dir().join(format!(
-        "twaco-rename-service-{tag}-{}-{nonce}",
-        std::process::id()
-    ));
+    let root_guard = tempfile::Builder::new()
+        .prefix(&format!("twaco-rename-service-{tag}-"))
+        .tempdir()
+        .unwrap();
+    let root = root_guard.path().to_path_buf();
     std::fs::create_dir_all(&root).unwrap();
     write(
         &root,
@@ -47,7 +47,11 @@ service = "Run"
     write(&root, "Mashups/P.View.xml", &format!("<Entities><Mashups><Mashup name=\"P.View\" projectName=\"P\"><mashupContent><![CDATA[{content}]]></mashupContent></Mashup></Mashups></Entities>\n"));
     write(&root, "src/P.View/mashup/content.json", content);
     let solution = Solution::load(&root.join(CONFIG_FILE)).unwrap();
-    Fixture { root, solution }
+    Fixture {
+        _dir: root_guard,
+        root,
+        solution,
+    }
 }
 
 fn service_spec(scope: &str, old: &str, new: &str) -> Spec {

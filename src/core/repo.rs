@@ -1096,27 +1096,24 @@ mod tests {
         assert_eq!(*live.writes.lock().unwrap(), ["DeleteFile"]);
     }
 
-    fn tree(files: &[(&str, &[u8])]) -> PathBuf {
-        let dir = std::env::temp_dir().join(format!(
-            "twaco-sync-{}-{}",
-            std::process::id(),
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .unwrap()
-                .as_nanos()
-        ));
+    fn tree(files: &[(&str, &[u8])]) -> (tempfile::TempDir, PathBuf) {
+        let dir_guard = tempfile::Builder::new()
+            .prefix("twaco-sync-")
+            .tempdir()
+            .unwrap();
+        let dir = dir_guard.path().to_path_buf();
         for (path, bytes) in files {
             let file = dir.join(path.trim_start_matches('/'));
             std::fs::create_dir_all(file.parent().unwrap()).unwrap();
             std::fs::write(file, bytes).unwrap();
         }
         std::fs::create_dir_all(&dir).unwrap();
-        dir
+        (dir_guard, dir)
     }
 
     #[test]
     fn push_copies_what_is_new_and_never_deletes() {
-        let dir = tree(&[("/same.bin", b"s"), ("/A/new.bin", b"n")]);
+        let (_dir, dir) = tree(&[("/same.bin", b"s"), ("/A/new.bin", b"n")]);
         let live = Live::with(&[("/same.bin", b"s"), ("/server-only.bin", b"r")], &[]);
         let plan = sync(&live, "R", &dir, Direction::Push, false, false).unwrap();
         assert_eq!(
@@ -1135,55 +1132,49 @@ mod tests {
         let files = live.files.lock().unwrap();
         assert_eq!(files["/A/new.bin"], b"n");
         assert!(files.contains_key("/server-only.bin"), "never deleted");
-        let _ = std::fs::remove_dir_all(dir);
     }
 
     #[test]
     fn pull_writes_what_is_new_locally_and_never_deletes() {
-        let dir = tree(&[("/local-only.bin", b"l")]);
+        let (_dir, dir) = tree(&[("/local-only.bin", b"l")]);
         let live = Live::with(&[("/B/deep/r.bin", b"remote")], &["/B", "/B/deep"]);
         sync(&live, "R", &dir, Direction::Pull, false, true).unwrap();
         assert_eq!(std::fs::read(dir.join("B/deep/r.bin")).unwrap(), b"remote");
         assert!(dir.join("local-only.bin").exists(), "never deleted");
-        let _ = std::fs::remove_dir_all(dir);
     }
 
     #[test]
     fn a_pull_of_paths_that_differ_only_in_case_is_refused_before_anything_is_written() {
-        let dir = tree(&[]);
+        let (_dir, dir) = tree(&[]);
         let live = Live::with(&[("/A.txt", b"upper"), ("/a.txt", b"lower")], &[]);
         for apply in [false, true] {
             let error = sync(&live, "R", &dir, Direction::Pull, false, apply).unwrap_err();
             assert!(error.to_string().contains("differ only in case"), "{error}");
         }
         assert!(!dir.join("A.txt").exists() && !dir.join("a.txt").exists());
-        let _ = std::fs::remove_dir_all(dir);
 
         // A server file and a local-only one, or a file and a folder, equal apart from case.
-        let dir = tree(&[("/notes.txt", b"mine")]);
+        let (_dir, dir) = tree(&[("/notes.txt", b"mine")]);
         let live = Live::with(&[("/Notes.txt", b"theirs")], &[]);
         let error = sync(&live, "R", &dir, Direction::Pull, false, false).unwrap_err();
         assert!(
             error.to_string().contains("/Notes.txt and /notes.txt"),
             "{error}"
         );
-        let _ = std::fs::remove_dir_all(dir);
-        let dir = tree(&[]);
+        let (_dir, dir) = tree(&[]);
         let live = Live::with(&[("/A", b"file"), ("/a/x.txt", b"in a folder")], &["/a"]);
         let error = sync(&live, "R", &dir, Direction::Pull, false, false).unwrap_err();
         assert!(error.to_string().contains("differ only in case"), "{error}");
-        let _ = std::fs::remove_dir_all(dir);
 
         // A folder and the files in it are no clash.
-        let dir = tree(&[]);
+        let (_dir, dir) = tree(&[]);
         let live = Live::with(&[("/a/x.txt", b"x"), ("/a/y.txt", b"y")], &["/a"]);
         assert!(sync(&live, "R", &dir, Direction::Pull, false, false).is_ok());
-        let _ = std::fs::remove_dir_all(dir);
     }
 
     #[test]
     fn a_file_that_differs_refuses_the_whole_sync_unless_overwriting() {
-        let dir = tree(&[("/both.bin", b"mine"), ("/new.bin", b"n")]);
+        let (_dir, dir) = tree(&[("/both.bin", b"mine"), ("/new.bin", b"n")]);
         let live = Live::with(&[("/both.bin", b"them")], &[]);
         let error = sync(&live, "R", &dir, Direction::Push, false, true).unwrap_err();
         assert!(error.to_string().contains("/both.bin"), "{error}");
@@ -1193,7 +1184,6 @@ mod tests {
         );
         sync(&live, "R", &dir, Direction::Pull, true, true).unwrap();
         assert_eq!(std::fs::read(dir.join("both.bin")).unwrap(), b"them");
-        let _ = std::fs::remove_dir_all(dir);
     }
 
     /// A server whose listing names a path outside the folder it lists.
@@ -1216,7 +1206,7 @@ mod tests {
 
     #[test]
     fn a_listed_path_that_leaves_the_repository_is_refused_before_anything_is_written() {
-        let dir = tree(&[]);
+        let (_dir, dir) = tree(&[]);
         let error = sync(
             &Escaping,
             "R",
@@ -1231,7 +1221,6 @@ mod tests {
             "{error}"
         );
         assert!(!dir.join("outside.bin").exists());
-        let _ = std::fs::remove_dir_all(dir);
     }
 
     #[test]
@@ -1265,7 +1254,7 @@ mod tests {
                 Ok(Vec::new())
             }
         }
-        let dir = tree(&[("/new.bin", b"mine")]);
+        let (_dir, dir) = tree(&[("/new.bin", b"mine")]);
         let remote = Appearing(Live::with(&[], &[]));
         let error = sync(&remote, "R", &dir, Direction::Push, false, true).unwrap_err();
         assert!(
@@ -1277,7 +1266,6 @@ mod tests {
             b"theirs",
             "not overwritten"
         );
-        let _ = std::fs::remove_dir_all(dir);
     }
 
     #[test]
@@ -1336,14 +1324,11 @@ mod tests {
 
     #[test]
     fn status_compares_by_size_then_by_hash_and_names_one_sided_files() {
-        let dir = std::env::temp_dir().join(format!(
-            "twaco-repo-{}-{}",
-            std::process::id(),
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .unwrap()
-                .as_nanos()
-        ));
+        let dir_guard = tempfile::Builder::new()
+            .prefix("twaco-repo-")
+            .tempdir()
+            .unwrap();
+        let dir = dir_guard.path().to_path_buf();
         std::fs::create_dir_all(dir.join("A")).unwrap();
         std::fs::write(dir.join("A/same.bin"), b"same").unwrap();
         std::fs::write(dir.join("A/edit.bin"), b"mine").unwrap(); // same size as the server's
@@ -1376,7 +1361,6 @@ mod tests {
             2,
             "only equal sizes are downloaded to compare"
         );
-        let _ = std::fs::remove_dir_all(dir);
     }
 
     #[test]
