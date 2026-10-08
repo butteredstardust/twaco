@@ -1,6 +1,6 @@
 [package]
 name = "twaco"
-version = "0.1.2"
+version = "0.1.3"
 edition = "2021"
 description = "Keep a ThingWorx solution in source control: service scripts as files, gates, safe deploys, and an MCP server for AI agents"
 license = "MIT"

@@ -6,6 +6,8 @@ All notable changes to twaco are recorded here. The format follows
 
 ## [Unreleased]
 
+## [0.1.3] - 2026-10-08
+
 ### Changed
 
 - The command line is parsed by clap, from one table of commands (`src/cli/spec.rs`). Every
@@ -281,6 +283,7 @@ The first public release.
 - `mcp` serves 39 tools over stdio to MCP clients, with compact summaries, validated arguments
   and dry runs by default for tools that can write to a server.
 
+[0.1.3]: https://github.com/butteredstardust/twaco/releases/tag/v0.1.3
 [0.1.2]: https://github.com/butteredstardust/twaco/releases/tag/v0.1.2
 [0.1.1]: https://github.com/butteredstardust/twaco/releases/tag/v0.1.1
 [0.1.0]: https://github.com/butteredstardust/twaco/releases/tag/v0.1.0
