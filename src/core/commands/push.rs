@@ -5,6 +5,7 @@ use crate::core::backup;
 use crate::core::codes::{Coded, ErrorCode};
 use crate::core::config::Solution;
 use crate::core::entity_key::{EntityKey, KeyError};
+use crate::core::progress::{self, Progress};
 use crate::core::{lock, profile, push, workspace};
 use std::fmt;
 use std::path::PathBuf;
@@ -147,6 +148,22 @@ where
     R: Remote,
     F: FnOnce(profile::Profile) -> R,
 {
+    execute_with_progress(solution, request, open, notices, &progress::NONE)
+}
+
+/// Like [`execute`], and report the one entity pushed as one step. The message is the entity's
+/// collection and name.
+pub fn execute_with_progress<R, F>(
+    solution: &Solution,
+    request: &PushRequest,
+    open: F,
+    notices: &mut Notices,
+    progress: &dyn Progress,
+) -> Result<PushOutcome, PushCommandError>
+where
+    R: Remote,
+    F: FnOnce(profile::Profile) -> R,
+{
     let _lock = match request.mode {
         Mode::Plan => None,
         Mode::Apply => {
@@ -195,18 +212,24 @@ where
     } else {
         None
     };
-    let result = push::push(
-        &remote,
-        &solution.root,
-        &target,
-        matches!(request.mode, Mode::Apply),
-        request.force,
-    )
-    .map_err(|why| PushCommandError::Push {
-        label,
-        why,
-        backup: backup.clone(),
-    })?;
+    let result = {
+        let _phase = progress::phase(progress, "pushing entity", Some(1));
+        progress.message(&label);
+        let result = push::push(
+            &remote,
+            &solution.root,
+            &target,
+            matches!(request.mode, Mode::Apply),
+            request.force,
+        )
+        .map_err(|why| PushCommandError::Push {
+            label,
+            why,
+            backup: backup.clone(),
+        })?;
+        progress.advance(1);
+        result
+    };
     match result {
         push::Outcome::WouldDo(decision) => Ok(PushOutcome::Plan {
             entity: key,
@@ -369,6 +392,27 @@ mod tests {
             backup,
             profile: "default".to_string(),
         }
+    }
+
+    #[test]
+    fn a_push_reports_one_step_for_its_entity() {
+        use crate::core::progress::{Event, Recorder};
+        let (_guard, _root, solution, fake) = setup(None, None);
+        let recorder = Recorder::default();
+        execute_with_progress(
+            &solution,
+            &request(Mode::Apply, false, false),
+            |_| fake.clone(),
+            &mut Notices::default(),
+            &recorder,
+        )
+        .unwrap();
+        assert_eq!(recorder.phases(), [("pushing entity".to_string(), Some(1))]);
+        assert_eq!(recorder.advanced(), 1);
+        assert!(recorder
+            .events()
+            .contains(&Event::Message("Things/P.T".to_string())));
+        assert_eq!(recorder.events().last(), Some(&Event::Finish));
     }
 
     #[test]

@@ -185,7 +185,7 @@ static TOOLS: LazyLock<Vec<Tool>> = LazyLock::new(|| {
             source::types_tool,
         )
         .with_output::<outputs::TypesResult>(),
-        solution_tool::<source_requests::CheckRequest>(
+        solution_progress_tool::<source_requests::CheckRequest>(
             "check",
             "Run every gate of the solution (line endings, sidecars in sync, formatting, script traps, code order, project validation, declared hooks). With live: true, every service script is also parsed by the ThingWorx server, and an unreachable server fails the check. live defaults to the solution's [gates] live.",
             true,
@@ -220,7 +220,7 @@ static TOOLS: LazyLock<Vec<Tool>> = LazyLock::new(|| {
             source::fmt_tool,
         )
         .with_output::<outputs::FmtResult>(),
-        solution_tool::<entity_requests::PushRequest>(
+        solution_progress_tool::<entity_requests::PushRequest>(
             "push",
             "Import one entity's file to the server. Refuses when the server changed since the last sync, was deleted there, or has no baseline, unless force is true. Reads the entity back and records a baseline only for what the server kept. A dry run unless dry_run is false.",
             false,
@@ -245,7 +245,7 @@ static TOOLS: LazyLock<Vec<Tool>> = LazyLock::new(|| {
             false,
             entity::entity_carry_tool,
         ),
-        solution_tool::<entity_requests::PermissionsRequest>(
+        solution_progress_tool::<entity_requests::PermissionsRequest>(
             "permissions",
             "Compare entities' run-time, design-time and visibility permissions (and the instance permissions of a ThingShape or ThingTemplate) in the repository with the server's. An import only adds: it never removes a grant the server has, and never changes the server's allow or deny for a principal it already lists. Each difference is server-only, repository-only or flipped (allow/deny differs). A permission set the entity XML does not declare is not compared. Read-only.",
             true,
@@ -257,19 +257,19 @@ static TOOLS: LazyLock<Vec<Tool>> = LazyLock::new(|| {
             false,
             entity::permissions_init_tool,
         ),
-        solution_tool::<entity_requests::PermissionsAuditRequest>(
+        solution_progress_tool::<entity_requests::PermissionsAuditRequest>(
             "permissions_audit",
             "Check each project's permissions.toml (its root folder) against the entity XML. Errors: run-time or visibility blocks the policy would change (permissions apply writes them), services of a strict entity no rule classifies, a group or user in visibility (the server answers 500), an Organization in run-time permissions. Warnings: principals under a project of the solution that no entity defines, rules or patterns that match nothing. Notes: explicit denies. With server: true (and a profile), also the server against the repository: each entity's permission sets, the permission helper's tables, the policy's platform grants and memberships, and each role's organizational unit. detail lists the grants behind each finding. Read-only.",
             true,
             entity::permissions_audit_tool,
         ),
-        solution_tool::<entity_requests::PermissionsApplyRequest>(
+        solution_progress_tool::<entity_requests::PermissionsApplyRequest>(
             "permissions_apply",
             "Write each project's permissions.toml into its entity XML: the run-time block of each Thing, the instance run-time block of each ThingShape and ThingTemplate, and the role principals of each visibility block. Only blocks that differ change; the rest of each file is untouched. Refused while a strict entity has a service no rule classifies. remaining lists audit findings the write does not settle. A dry run unless dry_run is false; the files are written in one transaction. Deploy them, then permissions_push, since an import never removes a grant.",
             false,
             entity::permissions_apply_tool,
         ),
-        solution_tool::<entity_requests::PermissionsPushRequest>(
+        solution_progress_tool::<entity_requests::PermissionsPushRequest>(
             "permissions_push",
             "Make the server's permission sets exactly the repository's: every differing run-time, design-time or visibility set is written whole and read back. Removes server-only grants and corrects flipped allow/deny, which an import cannot do. A set the entity XML does not declare is never written. A dry run unless dry_run is false; an applied push records the baseline of each pushed entity that then matches the server. With platform: true (and no entities), instead add the permissions.toml [[platform]] grants and memberships the server lacks (what DeployComponent does on entities the project does not own); nothing is ever removed.",
             false,
@@ -360,13 +360,13 @@ static TOOLS: LazyLock<Vec<Tool>> = LazyLock::new(|| {
             false,
             data::log_level_tool,
         ),
-        solution_tool::<content_requests::RepoRequest>(
+        solution_progress_tool::<content_requests::RepoRequest>(
             "repo",
             "Read the server's file repositories: list them, list a folder (recursive: true for everything below), get a text file's content, or compare the tree kept in source control (filerepository/<repo>/) with the server's (same, differs, local-only, remote-only; equal sizes are compared by SHA-256). Read-only.",
             true,
             content::repo_tool,
         ),
-        solution_tool::<content_requests::RepoWriteRequest>(
+        solution_progress_tool::<content_requests::RepoWriteRequest>(
             "repo_write",
             "Change a file repository: put (upload text, or a file of the solution), mkdir, rm (a file, or a folder; recursive: true to delete one that holds anything), mv (a file), or push/pull the tree kept in source control. A dry run unless dry_run is false. Nothing existing is replaced without overwrite: true; applied changes are read back.",
             false,

@@ -305,7 +305,11 @@ pub(crate) fn check(solution: &Solution, args: &Args) -> u8 {
             .map_err(Clone::clone);
         report
             .gates
-            .push(twaco::core::check::live_parse(solution, checker));
+            .push(twaco::core::check::live_parse_with_progress(
+                solution,
+                checker,
+                &super::progress::reporter(),
+            ));
     }
     // Summary by default, detail on request.
     let detail = args.has("--detail");

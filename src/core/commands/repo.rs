@@ -3,6 +3,7 @@
 use super::{lock_workspace, Access, Effects, Mode, Notices};
 use crate::core::codes::{Coded, ErrorCode};
 use crate::core::config::Solution;
+use crate::core::progress::{self, Progress};
 use crate::core::{lock, profile, repo, workspace};
 use std::path::PathBuf;
 
@@ -131,6 +132,22 @@ where
     R: repo::Remote,
     F: FnOnce(profile::Profile) -> R,
 {
+    execute_with_progress(solution, request, open, notices, &progress::NONE)
+}
+
+/// Like [`execute`], and report one step per folder listed, file compared, file copied or file
+/// moved. Messages hold repository paths only.
+pub fn execute_with_progress<R, F>(
+    solution: &Solution,
+    request: &RepoRequest,
+    open: F,
+    notices: &mut Notices,
+    progress: &dyn Progress,
+) -> Result<RepoOutcome, RepoCommandError>
+where
+    R: repo::Remote,
+    F: FnOnce(profile::Profile) -> R,
+{
     let pull = matches!(
         &request.action,
         RepoAction::Sync {
@@ -158,7 +175,7 @@ where
             path,
             recursive,
         } => Ok(RepoOutcome::Ls {
-            listing: repo::list(&remote, repository, path, *recursive)
+            listing: repo::list_with_progress(&remote, repository, path, *recursive, progress)
                 .map_err(RepoCommandError::Repo)?,
             effects: Effects::new(Access::None, Access::Read),
         }),
@@ -173,7 +190,13 @@ where
                     return Err(RepoCommandError::Exists(out.clone()));
                 }
             }
-            let bytes = repo::get(&remote, repository, path).map_err(RepoCommandError::Repo)?;
+            let bytes = {
+                let _phase = progress::phase(progress, "downloading file", Some(1));
+                progress.message(path);
+                let bytes = repo::get(&remote, repository, path).map_err(RepoCommandError::Repo)?;
+                progress.advance(1);
+                bytes
+            };
             if let Some(out) = out {
                 if let Some(folder) = out.parent().filter(|path| !path.as_os_str().is_empty()) {
                     std::fs::create_dir_all(folder).map_err(|why| RepoCommandError::Create {
@@ -202,8 +225,8 @@ where
                 solution.repositories.root.as_deref(),
                 repository,
             );
-            let compared =
-                repo::status(&remote, repository, &local).map_err(RepoCommandError::Repo)?;
+            let compared = repo::status_with_progress(&remote, repository, &local, progress)
+                .map_err(RepoCommandError::Repo)?;
             Ok(RepoOutcome::Status {
                 local,
                 compared,
@@ -215,8 +238,14 @@ where
             change,
             mode,
         } => {
-            let planned = repo::change(&remote, repository, change, matches!(mode, Mode::Apply))
-                .map_err(RepoCommandError::Repo)?;
+            let planned = {
+                let _phase = progress::phase(progress, "changing file", Some(1));
+                let planned =
+                    repo::change(&remote, repository, change, matches!(mode, Mode::Apply))
+                        .map_err(RepoCommandError::Repo)?;
+                progress.advance(1);
+                planned
+            };
             let server = if planned.applied {
                 Access::Write
             } else {
@@ -238,13 +267,14 @@ where
                 solution.repositories.root.as_deref(),
                 repository,
             );
-            let synced = repo::sync(
+            let synced = repo::sync_with_progress(
                 &remote,
                 repository,
                 &local,
                 *direction,
                 *overwrite,
                 matches!(mode, Mode::Apply),
+                progress,
             )
             .map_err(RepoCommandError::Repo)?;
             let workspace = if *direction == repo::Direction::Pull && matches!(mode, Mode::Apply) {

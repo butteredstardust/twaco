@@ -69,7 +69,8 @@ pass `profile` to choose one.
 - **A failure is an error** (`isError`), with what went wrong in the message.
 - **Progress for long calls.** Add `_meta.progressToken` to a `tools/call` request. Twaco then
   sends `notifications/progress` lines before the response. This works for `deploy`, `status`,
-  `types`, `import`, `export` and `extension_write`. Each notification has `progress` (steps
+  `types`, `import`, `export`, `extension_write`, `check` (with `live`), `push`, `permissions`,
+  `permissions_audit`, `permissions_apply`, `permissions_push`, `repo` and `repo_write`. Each notification has `progress` (steps
   done, always rising), `total` (when known) and `message` (a phase name or an entity name).
   Twaco sends at most about ten per second, and one at the end of each phase. Without a token,
   twaco sends none.

@@ -777,3 +777,37 @@ fn a_visibility_deny_of_a_roles_unit_is_left_alone_by_the_draft() {
     assert_eq!(plan.plan.changes().count(), 0, "{}", drafted.drafts[0].text);
     assert_eq!(std::fs::read_to_string(&path).unwrap(), denied);
 }
+
+#[test]
+fn apply_reports_one_step_per_planned_entity() {
+    use crate::core::progress::Recorder;
+    let (_dir, solution, _) = solution(POLICY);
+    let recorder = Recorder::default();
+    command::execute_apply_with_progress(
+        &solution,
+        &request(Mode::Plan),
+        &mut Notices::default(),
+        &recorder,
+    )
+    .unwrap();
+    let phases = recorder.phases();
+    assert_eq!(phases.len(), 1);
+    assert_eq!(phases[0].0, "planning permissions");
+    let total = phases[0].1.unwrap();
+    assert!(total > 0);
+    assert_eq!(recorder.advanced(), total);
+}
+
+#[test]
+fn an_audit_reports_one_step_per_entity() {
+    use crate::core::progress::Recorder;
+    let (_dir, solution, _) = solution(POLICY);
+    let recorder = Recorder::default();
+    super::audit::audit_with_progress(&solution, None, None, &recorder).unwrap();
+    let phases = recorder.phases();
+    assert_eq!(phases.len(), 1);
+    assert_eq!(phases[0].0, "auditing entities");
+    let total = phases[0].1.unwrap();
+    assert!(total > 0);
+    assert_eq!(recorder.advanced(), total);
+}

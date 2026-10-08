@@ -2033,3 +2033,30 @@ fn a_number_token_is_echoed_as_a_number() {
         .iter()
         .all(|line| line["params"]["progressToken"] == 42));
 }
+
+#[test]
+fn a_push_with_a_progress_token_reports_its_entity() {
+    let (_guard, root) = status_workspace();
+    let lines = converse(
+        &root,
+        &[json!({
+            "jsonrpc": "2.0", "id": 1, "method": "tools/call",
+            "params": {
+                "name": "push",
+                "arguments": { "entity": "P.T0" },
+                "_meta": { "progressToken": "push-1" }
+            }
+        })],
+    );
+    let notifications = progress_lines(&lines);
+    assert!(!notifications.is_empty(), "{lines:?}");
+    assert!(notifications
+        .iter()
+        .all(|line| line["params"]["progressToken"] == "push-1"));
+    assert!(
+        notifications.iter().any(|line| line["params"]["message"]
+            .as_str()
+            .is_some_and(|text| text.contains("pushing entity"))),
+        "{notifications:?}"
+    );
+}

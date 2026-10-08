@@ -5,6 +5,7 @@ use super::{lock_workspace, Access, Effects, Mode, Notices};
 use crate::core::baseline::{self, Baseline};
 use crate::core::codes::{Coded, ErrorCode};
 use crate::core::config::Solution;
+use crate::core::progress::{self, Progress};
 use crate::core::{entity_carry, lock, permissions, profile, push, status, transaction, workspace};
 use std::fmt;
 
@@ -90,6 +91,21 @@ where
     R: Remote,
     F: FnOnce(profile::Profile) -> R,
 {
+    execute_with_progress(solution, request, open, notices, &progress::NONE)
+}
+
+/// Like [`execute`], and report one step per entity compared or pushed.
+pub fn execute_with_progress<R, F>(
+    solution: &Solution,
+    request: &PermissionsRequest,
+    open: F,
+    notices: &mut Notices,
+    progress: &dyn Progress,
+) -> Result<PermissionsOutcome, PermissionsCommandError>
+where
+    R: Remote,
+    F: FnOnce(profile::Profile) -> R,
+{
     let apply = matches!(request.mode, Mode::Apply);
     let _lock = if apply {
         Some(
@@ -126,7 +142,7 @@ where
     let profile = profile::load(&solution.root, &request.profile)
         .map_err(PermissionsCommandError::Profile)?;
     let remote = open(profile);
-    let report = permissions::run(&remote, &chosen, apply);
+    let report = permissions::run_with_progress(&remote, &chosen, apply, progress);
     let pushed: Vec<_> = chosen
         .iter()
         .zip(&report.entities)
@@ -136,7 +152,7 @@ where
     let recorded = if apply && !pushed.is_empty() {
         let mut baseline =
             Baseline::load(&solution.root).map_err(PermissionsCommandError::Baseline)?;
-        let (statuses, _) = status::compute(&remote, &baseline, &pushed);
+        let (statuses, _) = status::compute_with_progress(&remote, &baseline, &pushed, progress);
         let recorded = status::record_matching(&mut baseline, &statuses);
         if recorded > 0 {
             baseline
@@ -204,15 +220,40 @@ where
     R: permissions::server_audit::Remote,
     F: FnOnce(profile::Profile) -> R,
 {
+    execute_audit_with_progress(solution, request, open, &progress::NONE)
+}
+
+/// Like [`execute_audit`], and report one step per entity audited, then one per entity read
+/// from the server.
+pub fn execute_audit_with_progress<R, F>(
+    solution: &Solution,
+    request: &AuditRequest,
+    open: F,
+    progress: &dyn Progress,
+) -> Result<permissions::audit::AuditReport, AuditCommandError>
+where
+    R: permissions::server_audit::Remote,
+    F: FnOnce(profile::Profile) -> R,
+{
     match &request.server {
-        None => permissions::audit::audit(solution, request.project.as_deref())
-            .map_err(AuditCommandError::Audit),
+        None => permissions::audit::audit_with_progress(
+            solution,
+            request.project.as_deref(),
+            None,
+            progress,
+        )
+        .map_err(AuditCommandError::Audit),
         Some(name) => {
             let profile =
                 profile::load(&solution.root, name).map_err(AuditCommandError::Profile)?;
             let remote = open(profile);
-            permissions::audit::audit_with(solution, request.project.as_deref(), Some(&remote))
-                .map_err(AuditCommandError::Audit)
+            permissions::audit::audit_with_progress(
+                solution,
+                request.project.as_deref(),
+                Some(&remote),
+                progress,
+            )
+            .map_err(AuditCommandError::Audit)
         }
     }
 }
@@ -368,6 +409,16 @@ pub fn execute_apply(
     request: &ApplyRequest,
     notices: &mut Notices,
 ) -> Result<ApplyOutcome, ApplyCommandError> {
+    execute_apply_with_progress(solution, request, notices, &progress::NONE)
+}
+
+/// Like [`execute_apply`], and report one step per entity planned.
+pub fn execute_apply_with_progress(
+    solution: &Solution,
+    request: &ApplyRequest,
+    notices: &mut Notices,
+    progress: &dyn Progress,
+) -> Result<ApplyOutcome, ApplyCommandError> {
     let lock = match request.mode {
         Mode::Apply => Some(
             lock_workspace(solution, request.lock_label, notices)
@@ -375,8 +426,9 @@ pub fn execute_apply(
         ),
         Mode::Plan => None,
     };
-    let plan = permissions::apply::plan(solution, request.project.as_deref())
-        .map_err(ApplyCommandError::Plan)?;
+    let plan =
+        permissions::apply::plan_with_progress(solution, request.project.as_deref(), progress)
+            .map_err(ApplyCommandError::Plan)?;
     let Some(lock) = lock else {
         return Ok(ApplyOutcome {
             plan,

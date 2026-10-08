@@ -599,6 +599,7 @@ pub(crate) fn ext_cmd(solution: &Solution, args: &Args) -> u8 {
 
 /// `twaco repo list | ls | get | status`: the server's file repositories, read-only.
 pub(crate) fn repo_cmd(solution: &Solution, args: &Args) -> u8 {
+    let progress = super::progress::reporter();
     use twaco::core::commands::repo::{self as command, RepoAction, RepoRequest};
     use twaco::core::repo;
     let profile_name = args.profile.as_deref().unwrap_or("default");
@@ -611,7 +612,13 @@ pub(crate) fn repo_cmd(solution: &Solution, args: &Args) -> u8 {
                 profile: profile_name.to_string(),
             };
             let mut notices = commands::Notices::default();
-            let outcome = command::execute(solution, &request, server::Client::new, &mut notices)
+            let outcome = command::execute_with_progress(
+                solution,
+                &request,
+                server::Client::new,
+                &mut notices,
+                &progress,
+            )
                 .map_err(|e| e.to_string())?;
             print_notices(&notices);
             let command::RepoOutcome::Listed { repositories, .. } = outcome else {
@@ -633,7 +640,13 @@ pub(crate) fn repo_cmd(solution: &Solution, args: &Args) -> u8 {
                 profile: profile_name.to_string(),
             };
             let mut notices = commands::Notices::default();
-            let outcome = command::execute(solution, &request, server::Client::new, &mut notices)
+            let outcome = command::execute_with_progress(
+                solution,
+                &request,
+                server::Client::new,
+                &mut notices,
+                &progress,
+            )
                 .map_err(|e| e.to_string())?;
             print_notices(&notices);
             let command::RepoOutcome::Ls { listing, .. } = outcome else {
@@ -668,7 +681,13 @@ pub(crate) fn repo_cmd(solution: &Solution, args: &Args) -> u8 {
                 profile: profile_name.to_string(),
             };
             let mut notices = commands::Notices::default();
-            let outcome = command::execute(solution, &request, server::Client::new, &mut notices)
+            let outcome = command::execute_with_progress(
+                solution,
+                &request,
+                server::Client::new,
+                &mut notices,
+                &progress,
+            )
                 .map_err(|e| e.to_string())?;
             print_notices(&notices);
             let command::RepoOutcome::Got { bytes, out, .. } = outcome else {
@@ -693,7 +712,13 @@ pub(crate) fn repo_cmd(solution: &Solution, args: &Args) -> u8 {
                 profile: profile_name.to_string(),
             };
             let mut notices = commands::Notices::default();
-            let outcome = command::execute(solution, &request, server::Client::new, &mut notices)
+            let outcome = command::execute_with_progress(
+                solution,
+                &request,
+                server::Client::new,
+                &mut notices,
+                &progress,
+            )
                 .map_err(|e| e.to_string())?;
             print_notices(&notices);
             let command::RepoOutcome::Status { local: root, compared, .. } = outcome else {
@@ -747,7 +772,13 @@ pub(crate) fn repo_cmd(solution: &Solution, args: &Args) -> u8 {
                 profile: profile_name.to_string(),
             };
             let mut notices = commands::Notices::default();
-            let result = command::execute(solution, &request, server::Client::new, &mut notices);
+            let result = command::execute_with_progress(
+                solution,
+                &request,
+                server::Client::new,
+                &mut notices,
+                &progress,
+            );
             print_notices(&notices);
             let outcome = result.map_err(|e| e.to_string())?;
             let command::RepoOutcome::Synced { synced, .. } = outcome else { unreachable!() };
@@ -798,6 +829,7 @@ fn repo_change(
     args: &Args,
 ) -> Result<(), String> {
     use twaco::core::commands::repo::{self as command, RepoAction, RepoRequest};
+    let progress = super::progress::reporter();
     let request = RepoRequest {
         action: RepoAction::Change {
             repository: repository.to_string(),
@@ -811,8 +843,14 @@ fn repo_change(
         profile: profile.to_string(),
     };
     let mut notices = commands::Notices::default();
-    let outcome = command::execute(solution, &request, server::Client::new, &mut notices)
-        .map_err(|e| e.to_string())?;
+    let outcome = command::execute_with_progress(
+        solution,
+        &request,
+        server::Client::new,
+        &mut notices,
+        &progress,
+    )
+    .map_err(|e| e.to_string())?;
     print_notices(&notices);
     let command::RepoOutcome::Changed { planned, .. } = outcome else {
         unreachable!()

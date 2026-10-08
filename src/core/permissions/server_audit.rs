@@ -12,6 +12,7 @@ use super::{from_json, Grant, Status};
 use crate::core::config_table;
 use crate::core::entity_carry::{self, Kind};
 use crate::core::entity_key::EntityKey;
+use crate::core::progress::{self, Progress};
 use crate::core::push;
 use crate::core::server::ServerError;
 use crate::core::workspace::EntityFile;
@@ -44,8 +45,18 @@ pub fn audit(
     loaded: &Loaded,
     helper_thing: Option<&ModelEntity>,
 ) -> Vec<Finding> {
+    audit_with_progress(remote, loaded, helper_thing, &progress::NONE)
+}
+
+/// Like [`audit`], and report one step per entity read.
+pub fn audit_with_progress(
+    remote: &dyn Remote,
+    loaded: &Loaded,
+    helper_thing: Option<&ModelEntity>,
+    progress: &dyn Progress,
+) -> Vec<Finding> {
     let mut out = Vec::new();
-    entities(remote, loaded, &mut out);
+    entities(remote, loaded, &mut out, progress);
     if let Some(helper_thing) = helper_thing {
         helper_tables(remote, helper_thing, &mut out);
     }
@@ -55,9 +66,9 @@ pub fn audit(
 }
 
 /// Each entity's permission sets, as `permissions diff` compares them.
-fn entities(remote: &dyn Remote, loaded: &Loaded, out: &mut Vec<Finding>) {
+fn entities(remote: &dyn Remote, loaded: &Loaded, out: &mut Vec<Finding>, progress: &dyn Progress) {
     let files: Vec<EntityFile> = loaded.entities.iter().map(|e| e.file.clone()).collect();
-    let report = super::run(&RemoteRef(remote), &files, false);
+    let report = super::run_with_progress(&RemoteRef(remote), &files, false, progress);
     for entity in report.entities {
         let key = format!("{}/{}", entity.collection, entity.name);
         match entity.status {

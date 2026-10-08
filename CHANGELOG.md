@@ -8,7 +8,8 @@ All notable changes to twaco are recorded here. The format follows
 
 ### Added
 
-- Progress for long commands. `deploy`, `entity status`, `types`, `import`, `export` and `ext import`
+- Progress for long commands. `deploy`, `entity status`, `entity push`, `check --live`, `permissions`,
+  `repo`, `types`, `import`, `export` and `ext import`
   draw a progress bar on stderr when stderr is a terminal. With a pipe, a file or a CI run, twaco
   draws nothing, and stdout does not change. Logs on stderr switch the bars off.
 - Colour in terminal output. `check`, `entity status`, deploy results and the `twaco:` error prefix
@@ -16,7 +17,8 @@ All notable changes to twaco are recorded here. The format follows
   byte-identical.
 - MCP progress notifications. A `tools/call` request with `_meta.progressToken` gets
   `notifications/progress` lines before its response, for `deploy`, `status`, `types`, `import`,
-  `export` and `extension_write`. Twaco sends at most about ten per second.
+  `export`, `extension_write`, `check`, `push`, `permissions`, `permissions_audit`,
+  `permissions_apply`, `permissions_push`, `repo` and `repo_write`. Twaco sends at most about ten per second.
 - Diagnostic logs for every command, including `twaco mcp`. `--log <filter>` or `TWACO_LOG`
   writes them to stderr. `--log-file <path>` or `TWACO_LOG_FILE` appends them to a file.
   Logs are off by default. They never hold credentials, headers, bodies, subprocess argument

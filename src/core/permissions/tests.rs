@@ -314,3 +314,24 @@ fn a_grant_or_a_block_listed_twice_is_refused() {
     ]});
     assert!(from_json(Kind::DesignTime, &json).is_err());
 }
+
+#[test]
+fn a_comparison_reports_one_step_per_entity() {
+    use crate::core::progress::{Event, Recorder};
+    let (_dir, entity, _) = entity_file(ENTITY);
+    let remote = Fake {
+        exists: true,
+        sets: Mutex::new(server_sets()),
+        ..Fake::default()
+    };
+    let recorder = Recorder::default();
+    run_with_progress(&remote, std::slice::from_ref(&entity), false, &recorder);
+    assert_eq!(
+        recorder.phases(),
+        [("comparing permissions".to_string(), Some(1))]
+    );
+    assert_eq!(recorder.advanced(), 1);
+    assert!(recorder
+        .events()
+        .contains(&Event::Message("ZZ.Perm".to_string())));
+}

@@ -7,6 +7,7 @@
 //! question is how that tree and the server's differ.
 
 use super::entity_key::ServiceTarget;
+use super::progress::{self, Progress, NONE};
 use super::server::{Client, ServerError};
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
@@ -131,7 +132,20 @@ pub fn list(
     folder: &str,
     recursive: bool,
 ) -> Result<Listing, RepoError> {
+    list_with_progress(remote, repository, folder, recursive, &NONE)
+}
+
+/// Like [`list`], and report one step per folder listed. The total is unknown, because a
+/// recursive listing finds folders as it goes. Messages hold folder paths only.
+pub fn list_with_progress(
+    remote: &dyn Remote,
+    repository: &str,
+    folder: &str,
+    recursive: bool,
+    progress: &dyn Progress,
+) -> Result<Listing, RepoError> {
     let folder = remote_path(folder)?;
+    let _phase = progress::phase(progress, "listing folders", None);
     let mut listing = Listing::default();
     let mut visited = std::collections::BTreeSet::new();
     let mut pending = vec![folder];
@@ -139,6 +153,7 @@ pub fn list(
         if !visited.insert(folder.clone()) {
             continue;
         }
+        progress.message(&folder);
         let body = json!({ "path": folder });
         // A path the server lists is where a pull writes, so it is checked like one typed in:
         // no climbing, and under the folder it was listed in.
@@ -189,6 +204,7 @@ pub fn list(
                     .unwrap_or(0.0) as i64,
             });
         }
+        progress.advance(1);
     }
     listing.folders.sort();
     listing.files.sort_by(|a, b| a.path.cmp(&b.path));
@@ -497,16 +513,28 @@ pub fn status(
     repository: &str,
     local_root: &Path,
 ) -> Result<Vec<Compared>, RepoError> {
+    status_with_progress(remote, repository, local_root, &NONE)
+}
+
+/// Like [`status`], and report the listing, then one step per file downloaded to settle equal
+/// sizes. Messages hold paths only.
+pub fn status_with_progress(
+    remote: &dyn Remote,
+    repository: &str,
+    local_root: &Path,
+    progress: &dyn Progress,
+) -> Result<Vec<Compared>, RepoError> {
     let local = if local_root.is_dir() {
         local_files(local_root)?
     } else {
         BTreeMap::new()
     };
-    let remote_files: BTreeMap<String, u64> = list(remote, repository, "/", true)?
-        .files
-        .into_iter()
-        .map(|file| (file.path, file.size))
-        .collect();
+    let remote_files: BTreeMap<String, u64> =
+        list_with_progress(remote, repository, "/", true, progress)?
+            .files
+            .into_iter()
+            .map(|file| (file.path, file.size))
+            .collect();
     let mut paths: Vec<&String> = local.keys().chain(remote_files.keys()).collect();
     paths.sort();
     paths.dedup();
@@ -544,18 +572,21 @@ pub fn status(
             remote_size,
         });
     }
-    let verdicts = super::parallel::map(&to_hash, |&at| -> Result<bool, RepoError> {
-        let path = &out[at].path;
-        let file = &local[path];
-        let mine = std::fs::read(file).map_err(|e| RepoError::Local {
-            path: file.clone(),
-            why: e.to_string(),
-        })?;
-        let theirs = remote
-            .download(repository, path)
-            .map_err(RepoError::Remote)?;
-        Ok(Sha256::digest(&mine) == Sha256::digest(&theirs))
-    });
+    let _phase = progress::phase(progress, "comparing files", Some(to_hash.len() as u64));
+    let verdicts =
+        super::parallel::map_progress(&to_hash, progress, |&at| -> Result<bool, RepoError> {
+            let path = &out[at].path;
+            progress.message(path);
+            let file = &local[path];
+            let mine = std::fs::read(file).map_err(|e| RepoError::Local {
+                path: file.clone(),
+                why: e.to_string(),
+            })?;
+            let theirs = remote
+                .download(repository, path)
+                .map_err(RepoError::Remote)?;
+            Ok(Sha256::digest(&mine) == Sha256::digest(&theirs))
+        });
     for (at, verdict) in to_hash.into_iter().zip(verdicts) {
         if !verdict? {
             out[at].state = State::Differs;
@@ -596,7 +627,23 @@ pub fn sync(
     overwrite: bool,
     apply: bool,
 ) -> Result<Synced, RepoError> {
-    let compared = status(remote, repository, local_root)?;
+    sync_with_progress(
+        remote, repository, local_root, direction, overwrite, apply, &NONE,
+    )
+}
+
+/// Like [`sync`], and report the status steps, then one step per file copied.
+#[allow(clippy::too_many_arguments)]
+pub fn sync_with_progress(
+    remote: &dyn Remote,
+    repository: &str,
+    local_root: &Path,
+    direction: Direction,
+    overwrite: bool,
+    apply: bool,
+    progress: &dyn Progress,
+) -> Result<Synced, RepoError> {
+    let compared = status_with_progress(remote, repository, local_root, progress)?;
     let (source_only, target_only) = match direction {
         Direction::Push => (State::LocalOnly, State::RemoteOnly),
         Direction::Pull => (State::RemoteOnly, State::LocalOnly),
@@ -646,7 +693,9 @@ pub fn sync(
         return Ok(synced);
     }
     let mut done: Vec<String> = Vec::new();
+    let _phase = progress::phase(progress, "copying files", Some(synced.copied.len() as u64));
     for path in &synced.copied {
+        progress.message(path);
         let result = copy_one(
             remote,
             repository,
@@ -668,6 +717,7 @@ pub fn sync(
             )));
         }
         done.push(path.clone());
+        progress.advance(1);
     }
     synced.applied = true;
     Ok(synced)
@@ -1361,6 +1411,48 @@ mod tests {
             2,
             "only equal sizes are downloaded to compare"
         );
+    }
+
+    #[test]
+    fn status_reports_each_folder_listed_and_each_file_compared() {
+        use crate::core::progress::{Event, Recorder};
+        let (_dir, dir) = tree(&[("/A/same.bin", b"same"), ("/A/edit.bin", b"mine")]);
+        let fake = Fake::with(&[("/A/same.bin", b"same"), ("/A/edit.bin", b"them")]);
+        let recorder = Recorder::default();
+        status_with_progress(&fake, "R", &dir, &recorder).unwrap();
+        assert_eq!(
+            recorder.phases(),
+            [
+                ("listing folders".to_string(), None),
+                ("comparing files".to_string(), Some(2))
+            ]
+        );
+        // Two folders are listed, then two files are compared.
+        assert_eq!(recorder.advanced(), 4);
+        assert!(recorder
+            .events()
+            .contains(&Event::Message("/A/edit.bin".to_string())));
+    }
+
+    #[test]
+    fn an_applied_sync_reports_one_step_per_file_copied() {
+        use crate::core::progress::Recorder;
+        let (_dir, dir) = tree(&[("/one.bin", b"1"), ("/two.bin", b"2")]);
+        let live = Live::with(&[], &[]);
+        let recorder = Recorder::default();
+        let synced =
+            sync_with_progress(&live, "R", &dir, Direction::Push, false, true, &recorder).unwrap();
+        assert_eq!(synced.copied.len(), 2);
+        assert!(recorder
+            .phases()
+            .contains(&("copying files".to_string(), Some(2))));
+        let copying = recorder
+            .events()
+            .into_iter()
+            .skip_while(|event| !matches!(event, crate::core::progress::Event::Start(name, _) if name == "copying files"))
+            .filter(|event| matches!(event, crate::core::progress::Event::Advance(_)))
+            .count();
+        assert_eq!(copying, 2);
     }
 
     #[test]

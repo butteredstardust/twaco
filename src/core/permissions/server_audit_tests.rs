@@ -373,3 +373,20 @@ fn a_platform_push_adds_only_what_is_missing_and_reads_it_back() {
         "nothing is added twice"
     );
 }
+
+#[test]
+fn a_server_audit_reports_the_entities_audited_and_then_the_entities_read() {
+    use crate::core::progress::Recorder;
+    let (_dir, solution, _) = solution();
+    let fake = Fake::default();
+    let recorder = Recorder::default();
+    audit::audit_with_progress(&solution, None, Some(&fake), &recorder).unwrap();
+    let names: Vec<String> = recorder
+        .phases()
+        .into_iter()
+        .map(|(name, _)| name)
+        .collect();
+    assert_eq!(names[0], "auditing entities");
+    assert_eq!(names[1], "comparing permissions");
+    assert!(recorder.advanced() > 0);
+}

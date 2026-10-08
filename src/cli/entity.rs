@@ -194,7 +194,14 @@ pub(crate) fn entity_push(solution: &Solution, args: &Args) -> u8 {
             .unwrap_or_else(|| "default".to_string()),
     };
     let mut notices = commands::Notices::default();
-    let result = commands::push::execute(solution, &request, server::Client::new, &mut notices);
+    let progress = super::progress::reporter();
+    let result = commands::push::execute_with_progress(
+        solution,
+        &request,
+        server::Client::new,
+        &mut notices,
+        &progress,
+    );
     print_notices(&notices);
     match result {
         Ok(commands::push::PushOutcome::Plan {
@@ -588,16 +595,20 @@ pub(crate) fn permissions_cmd(solution: &Solution, route: &str, args: &Args) -> 
         lock_label: "permissions push",
     };
     let mut notices = commands::Notices::default();
-    let outcome =
-        match commands::permissions::execute(solution, &request, server::Client::new, &mut notices)
-        {
-            Ok(outcome) => outcome,
-            Err(error) => {
-                print_notices(&notices);
-                eprintln!("{} {error}", style::prefix());
-                return FAILED;
-            }
-        };
+    let outcome = match commands::permissions::execute_with_progress(
+        solution,
+        &request,
+        server::Client::new,
+        &mut notices,
+        &super::progress::reporter(),
+    ) {
+        Ok(outcome) => outcome,
+        Err(error) => {
+            print_notices(&notices);
+            eprintln!("{} {error}", style::prefix());
+            return FAILED;
+        }
+    };
     print_notices(&notices);
     let report = &outcome.report;
     if args.has("--json") {
@@ -691,8 +702,12 @@ pub(crate) fn permissions_audit_cmd(solution: &Solution, args: &Args) -> u8 {
                 .unwrap_or_else(|| "default".to_string())
         }),
     };
-    let report = match commands::permissions::execute_audit(solution, &request, server::Client::new)
-    {
+    let report = match commands::permissions::execute_audit_with_progress(
+        solution,
+        &request,
+        server::Client::new,
+        &super::progress::reporter(),
+    ) {
         Ok(report) => report,
         Err(error) => {
             eprintln!("{} {error}", style::prefix());
@@ -786,7 +801,12 @@ pub(crate) fn permissions_apply_cmd(solution: &Solution, args: &Args) -> u8 {
         lock_label: "permissions apply",
     };
     let mut notices = commands::Notices::default();
-    let outcome = match commands::permissions::execute_apply(solution, &request, &mut notices) {
+    let outcome = match commands::permissions::execute_apply_with_progress(
+        solution,
+        &request,
+        &mut notices,
+        &super::progress::reporter(),
+    ) {
         Ok(outcome) => outcome,
         Err(error) => {
             print_notices(&notices);

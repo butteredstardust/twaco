@@ -327,7 +327,10 @@ Some commands send many requests or wait a long time for the server. These comma
 progress on stderr:
 
 - `deploy`
-- `entity status`
+- `entity status` and `entity push`
+- `check --live`, one step per service script
+- `permissions` (compare and push), `permissions audit` and `permissions apply`
+- `repo` (list, status, get, change and sync)
 - `types --platform`, and the type check of `types --check`
 - `import` and `export`
 - `ext import`

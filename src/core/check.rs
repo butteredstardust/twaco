@@ -5,6 +5,7 @@
 //! file. Structured findings keep large check results compact and machine-readable.
 
 use super::config::Solution;
+use super::progress::{self, Progress, NONE};
 use super::{fmt as format_js, sync, workspace};
 use std::collections::BTreeSet;
 use std::fmt;
@@ -180,10 +181,24 @@ impl ScriptChecker for super::server::Client {
 /// script exactly as extraction reads it, which is what was sent, so the server's line number
 /// is that file's line number.
 pub fn live_parse(solution: &Solution, checker: Result<&dyn ScriptChecker, String>) -> GateResult {
-    as_configured(solution, live_parse_gate(solution, checker))
+    live_parse_with_progress(solution, checker, &NONE)
 }
 
-fn live_parse_gate(solution: &Solution, checker: Result<&dyn ScriptChecker, String>) -> GateResult {
+/// Like [`live_parse`], and report one step per service script checked. Messages hold the
+/// entity and service names only.
+pub fn live_parse_with_progress(
+    solution: &Solution,
+    checker: Result<&dyn ScriptChecker, String>,
+    progress: &dyn Progress,
+) -> GateResult {
+    as_configured(solution, live_parse_gate(solution, checker, progress))
+}
+
+fn live_parse_gate(
+    solution: &Solution,
+    checker: Result<&dyn ScriptChecker, String>,
+    progress: &dyn Progress,
+) -> GateResult {
     const GATE: &str = "live parse";
     let mut result = GateResult::passed(GATE, 0);
     let checker = match checker {
@@ -195,6 +210,7 @@ fn live_parse_gate(solution: &Solution, checker: Result<&dyn ScriptChecker, Stri
     };
 
     struct Script {
+        entity: String,
         entity_file: PathBuf,
         sidecar: PathBuf,
         service: String,
@@ -212,6 +228,7 @@ fn live_parse_gate(solution: &Solution, checker: Result<&dyn ScriptChecker, Stri
         let services_dir = workspace::services_dir(solution, &entity);
         for service in services {
             scripts.push(Script {
+                entity: entity.info.name.clone(),
                 entity_file: entity.path.clone(),
                 sidecar: services_dir.join(&service.name).join("script.js"),
                 service: service.name,
@@ -220,7 +237,11 @@ fn live_parse_gate(solution: &Solution, checker: Result<&dyn ScriptChecker, Stri
         }
     }
 
-    let answers = super::parallel::map(&scripts, |script| checker.check_script(&script.source));
+    let _phase = progress::phase(progress, "checking scripts", Some(scripts.len() as u64));
+    let answers = super::parallel::map_progress(&scripts, progress, |script| {
+        progress.message(&format!("{}.{}", script.entity, script.service));
+        checker.check_script(&script.source)
+    });
     for (script, answer) in scripts.iter().zip(answers) {
         let checked = match answer {
             Ok(checked) => checked,
@@ -1333,6 +1354,34 @@ mod tests {
             "column 9: syntax error source: [var b = ;]"
         );
         assert!(result.blocks());
+    }
+
+    #[test]
+    fn live_parse_reports_one_step_per_script() {
+        use crate::core::progress::{Event, Recorder};
+        let (_dir, _, solution) = live_solution();
+        let parser = Parser {
+            unreachable: false,
+            seen: Mutex::new(Vec::new()),
+        };
+        let recorder = Recorder::default();
+        let result = live_parse_with_progress(&solution, Ok(&parser), &recorder);
+        assert_eq!(
+            recorder.phases(),
+            [("checking scripts".to_string(), Some(2))]
+        );
+        assert_eq!(recorder.advanced(), 2);
+        assert_eq!(recorder.events().last(), Some(&Event::Finish));
+        // The messages name entities and services, never script text.
+        assert!(recorder
+            .events()
+            .iter()
+            .any(|event| matches!(event, Event::Message(text) if text.ends_with(".Bad"))));
+        assert!(!recorder
+            .events()
+            .iter()
+            .any(|event| matches!(event, Event::Message(text) if text.contains("var b"))));
+        assert_eq!(result.examined, 2);
     }
 
     #[test]
