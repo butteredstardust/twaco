@@ -5,7 +5,6 @@ use crate::core::bundle;
 use crate::core::codes::{Coded, ErrorCode};
 use crate::core::config::Solution;
 use crate::core::{lock, workspace};
-use std::fmt;
 use std::path::PathBuf;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -47,28 +46,19 @@ impl BundleOutcome {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, thiserror::Error)]
 pub enum BundleCommandError {
+    #[error("{0}")]
     Lock(lock::LockError),
+    #[error("no entity XML found under {}", .root.display())]
     Empty { root: PathBuf },
+    #[error("{0}")]
     Build(bundle::BundleError),
+    #[error("{}: {why}", .path.display())]
     Create { path: PathBuf, why: std::io::Error },
+    #[error("{0}")]
     Write(workspace::WorkspaceError),
 }
-
-impl fmt::Display for BundleCommandError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Self::Lock(error) => error.fmt(f),
-            Self::Empty { root } => write!(f, "no entity XML found under {}", root.display()),
-            Self::Build(error) => error.fmt(f),
-            Self::Create { path, why } => write!(f, "{}: {why}", path.display()),
-            Self::Write(error) => error.fmt(f),
-        }
-    }
-}
-
-impl std::error::Error for BundleCommandError {}
 
 impl Coded for BundleCommandError {
     fn code(&self) -> ErrorCode {

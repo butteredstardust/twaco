@@ -4,7 +4,6 @@ use super::{Access, Effects};
 use crate::core::codes::{Coded, ErrorCode};
 use crate::core::config::Solution;
 use crate::core::{package, workspace};
-use std::fmt;
 use std::path::PathBuf;
 
 /// The kind of offline package to build.
@@ -59,28 +58,17 @@ pub enum PackageDetail {
 }
 
 /// A failure before a package could be written.
-#[derive(Debug)]
+#[derive(Debug, thiserror::Error)]
 pub enum PackageCommandError {
+    #[error("{} exists; pass --force to replace it", .0.display())]
     Exists(PathBuf),
+    #[error("{0}")]
     Package(package::PackageError),
+    #[error("{}: {why}", .path.display())]
     Create { path: PathBuf, why: std::io::Error },
+    #[error("{0}")]
     Write(workspace::WorkspaceError),
 }
-
-impl fmt::Display for PackageCommandError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Self::Exists(path) => {
-                write!(f, "{} exists; pass --force to replace it", path.display())
-            }
-            Self::Package(why) => why.fmt(f),
-            Self::Create { path, why } => write!(f, "{}: {why}", path.display()),
-            Self::Write(why) => why.fmt(f),
-        }
-    }
-}
-
-impl std::error::Error for PackageCommandError {}
 
 impl Coded for PackageCommandError {
     fn code(&self) -> ErrorCode {

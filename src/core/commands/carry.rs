@@ -4,7 +4,6 @@ use super::{lock_workspace, Access, Effects, Mode, Notices};
 use crate::core::codes::{Coded, ErrorCode};
 use crate::core::config::Solution;
 use crate::core::{entity_carry, lock, profile};
-use std::fmt;
 
 /// The arguments that affect an entity carry.
 #[derive(Clone, Debug)]
@@ -46,24 +45,15 @@ pub trait Remote: entity_carry::Remote {}
 impl<T: entity_carry::Remote + ?Sized> Remote for T {}
 
 /// A failure before a typed carry outcome could be produced.
-#[derive(Debug)]
+#[derive(Debug, thiserror::Error)]
 pub enum CarryCommandError {
+    #[error("{0}")]
     Lock(lock::LockError),
+    #[error("{0}")]
     Profile(profile::ProfileError),
+    #[error("{0}")]
     Carry(entity_carry::CarryError),
 }
-
-impl fmt::Display for CarryCommandError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Self::Lock(error) => error.fmt(f),
-            Self::Profile(error) => error.fmt(f),
-            Self::Carry(error) => error.fmt(f),
-        }
-    }
-}
-
-impl std::error::Error for CarryCommandError {}
 
 impl Coded for CarryCommandError {
     fn code(&self) -> ErrorCode {

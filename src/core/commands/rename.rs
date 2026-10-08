@@ -4,7 +4,6 @@ use super::{lock_workspace, Access, Effects, Mode, Notices};
 use crate::core::codes::{Coded, ErrorCode};
 use crate::core::config::Solution;
 use crate::core::{lock, rename};
-use std::fmt;
 
 #[derive(Clone, Debug)]
 pub struct RenameRequest {
@@ -38,22 +37,15 @@ impl RenameOutcome {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, thiserror::Error)]
 pub enum RenameCommandError {
+    #[error("{0}")]
     Lock(lock::LockError),
+    #[error("{0}")]
     Invalid(String),
+    #[error("{0}")]
     Rename(rename::RenameError),
 }
-impl fmt::Display for RenameCommandError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Self::Lock(error) => error.fmt(f),
-            Self::Invalid(error) => f.write_str(error),
-            Self::Rename(error) => error.fmt(f),
-        }
-    }
-}
-impl std::error::Error for RenameCommandError {}
 impl Coded for RenameCommandError {
     fn code(&self) -> ErrorCode {
         match self {

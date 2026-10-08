@@ -4,7 +4,6 @@ use super::{Access, Effects, Mode, Notices};
 use crate::core::codes::{Coded, ErrorCode};
 use crate::core::config::Solution;
 use crate::core::{db, profile};
-use std::fmt;
 
 /// The database operation requested by an adapter.
 #[derive(Clone, Debug)]
@@ -48,22 +47,13 @@ pub trait Remote: db::Remote + db::Sweeper {}
 impl<T: db::Remote + db::Sweeper + ?Sized> Remote for T {}
 
 /// A failure before a typed database outcome could be produced.
-#[derive(Debug)]
+#[derive(Debug, thiserror::Error)]
 pub enum DbCommandError {
+    #[error("{0}")]
     Profile(profile::ProfileError),
+    #[error("{0}")]
     Database(db::DbError),
 }
-
-impl fmt::Display for DbCommandError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Self::Profile(error) => error.fmt(f),
-            Self::Database(error) => error.fmt(f),
-        }
-    }
-}
-
-impl std::error::Error for DbCommandError {}
 
 impl Coded for DbCommandError {
     fn code(&self) -> ErrorCode {

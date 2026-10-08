@@ -12,7 +12,6 @@ use super::index::{Confidence, Dependent, DependentOptions, Index, Unreadable};
 use super::workspace::WorkspaceError;
 use serde::Serialize;
 use std::collections::BTreeSet;
-use std::fmt;
 
 /// What the index cannot see, said wherever its answer is shown.
 pub const LIMITS: &str =
@@ -32,20 +31,11 @@ pub struct Request {
     pub depth: Option<usize>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, thiserror::Error)]
 pub enum ImpactError {
+    #[error("{0}")]
     Entity(WorkspaceError),
 }
-
-impl fmt::Display for ImpactError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            ImpactError::Entity(error) => write!(f, "{error}"),
-        }
-    }
-}
-
-impl std::error::Error for ImpactError {}
 
 impl From<WorkspaceError> for ImpactError {
     fn from(error: WorkspaceError) -> Self {

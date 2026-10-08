@@ -4,7 +4,6 @@ use super::{lock_workspace, Access, Effects, Mode, Notices};
 use crate::core::codes::{Coded, ErrorCode};
 use crate::core::config::Solution;
 use crate::core::{entity_delete, lock, profile};
-use std::fmt;
 
 /// The arguments that affect guarded entity deletion.
 #[derive(Clone, Debug)]
@@ -64,24 +63,15 @@ pub trait Remote: entity_delete::Remote {}
 impl<T: entity_delete::Remote + ?Sized> Remote for T {}
 
 /// A failure before a typed delete outcome could be produced.
-#[derive(Debug)]
+#[derive(Debug, thiserror::Error)]
 pub enum EntityDeleteCommandError {
+    #[error("{0}")]
     Lock(lock::LockError),
+    #[error("{0}")]
     Profile(profile::ProfileError),
+    #[error("{0}")]
     Delete(entity_delete::DeleteError),
 }
-
-impl fmt::Display for EntityDeleteCommandError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Self::Lock(why) => why.fmt(f),
-            Self::Profile(why) => why.fmt(f),
-            Self::Delete(why) => why.fmt(f),
-        }
-    }
-}
-
-impl std::error::Error for EntityDeleteCommandError {}
 
 impl Coded for EntityDeleteCommandError {
     fn code(&self) -> ErrorCode {

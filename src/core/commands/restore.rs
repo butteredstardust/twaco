@@ -5,7 +5,6 @@ use crate::core::backup;
 use crate::core::codes::{Coded, ErrorCode};
 use crate::core::config::Solution;
 use crate::core::profile;
-use std::fmt;
 
 /// The arguments that affect an entity restore.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -52,22 +51,13 @@ pub trait Remote: backup::Remote {}
 impl<T: backup::Remote + ?Sized> Remote for T {}
 
 /// A failure before a typed restore outcome could be produced.
-#[derive(Debug)]
+#[derive(Debug, thiserror::Error)]
 pub enum RestoreCommandError {
+    #[error("{0}")]
     Profile(profile::ProfileError),
+    #[error("{0}")]
     Restore(backup::BackupError),
 }
-
-impl fmt::Display for RestoreCommandError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Self::Profile(error) => error.fmt(f),
-            Self::Restore(error) => error.fmt(f),
-        }
-    }
-}
-
-impl std::error::Error for RestoreCommandError {}
 
 impl Coded for RestoreCommandError {
     fn code(&self) -> ErrorCode {

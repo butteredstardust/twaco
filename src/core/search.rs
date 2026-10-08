@@ -20,7 +20,6 @@ use super::entity_key::{EntityKey, ServiceTarget};
 use super::server::{Client, ServerError};
 use serde::Serialize;
 use serde_json::{json, Value};
-use std::fmt;
 use std::time::Duration;
 
 /// Every entity collection the search knows, with the singular type name it takes. Each was
@@ -79,25 +78,16 @@ impl Remote for Client {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, thiserror::Error)]
 pub enum SearchError {
+    #[error("{0}")]
     Invalid(String),
+    #[error("{0}")]
     Remote(ServerError),
     /// The reply is not what the search returns, or it ignored the type filter.
+    #[error("the search's reply: {0}")]
     Reply(String),
 }
-
-impl fmt::Display for SearchError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            SearchError::Invalid(why) => f.write_str(why),
-            SearchError::Remote(error) => write!(f, "{error}"),
-            SearchError::Reply(why) => write!(f, "the search's reply: {why}"),
-        }
-    }
-}
-
-impl std::error::Error for SearchError {}
 
 /// The singular type the search takes for a type or collection name, in any case.
 pub fn entity_type(given: &str) -> Result<&'static str, SearchError> {

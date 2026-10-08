@@ -6,7 +6,6 @@ use crate::core::check;
 use crate::core::codes::{Coded, ErrorCode};
 use crate::core::config::Solution;
 use crate::core::{deploy, lock, profile};
-use std::fmt;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct DeployRequest {
@@ -49,21 +48,26 @@ pub trait Remote: deploy::Remote + backup::Remote {}
 
 impl<T: deploy::Remote + backup::Remote + ?Sized> Remote for T {}
 
-#[derive(Debug)]
+#[derive(Debug, thiserror::Error)]
 pub enum DeployCommandError {
+    #[error("{0}")]
     Lock(lock::LockError),
+    #[error("{why}")]
     Profile {
         why: profile::ProfileError,
         gates: Option<check::CheckReport>,
     },
+    #[error("{why}")]
     Plan {
         why: String,
         gates: Option<check::CheckReport>,
     },
+    #[error("{why}")]
     Backup {
         why: backup::BackupError,
         gates: Option<check::CheckReport>,
     },
+    #[error("{why}")]
     Deploy {
         why: Box<deploy::DeployError>,
         backup: Option<String>,
@@ -89,20 +93,6 @@ impl DeployCommandError {
         }
     }
 }
-
-impl fmt::Display for DeployCommandError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Self::Lock(error) => error.fmt(f),
-            Self::Profile { why, .. } => why.fmt(f),
-            Self::Plan { why, .. } => why.fmt(f),
-            Self::Backup { why, .. } => why.fmt(f),
-            Self::Deploy { why, .. } => why.fmt(f),
-        }
-    }
-}
-
-impl std::error::Error for DeployCommandError {}
 
 impl Coded for DeployCommandError {
     fn code(&self) -> ErrorCode {

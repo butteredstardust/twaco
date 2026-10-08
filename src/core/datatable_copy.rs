@@ -15,7 +15,6 @@ use super::server::{Client, ServerError};
 use serde::Serialize;
 use serde_json::{json, Map, Value};
 use std::collections::{BTreeMap, BTreeSet};
-use std::fmt;
 use std::time::Duration;
 
 /// Columns the platform adds to every DataTable row; they are not part of the shape.
@@ -91,25 +90,17 @@ impl Remote for Client {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, thiserror::Error)]
 pub enum CopyError {
+    #[error("{0}")]
     Arguments(String),
+    #[error("{0}; fix or remove .twaco/renames.json")]
     Ledger(String),
+    #[error("{0}")]
     Refused(String),
+    #[error("{0}")]
     Server(ServerError),
 }
-
-impl fmt::Display for CopyError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            CopyError::Arguments(why) | CopyError::Refused(why) => f.write_str(why),
-            CopyError::Ledger(why) => write!(f, "{why}; fix or remove .twaco/renames.json"),
-            CopyError::Server(error) => write!(f, "{error}"),
-        }
-    }
-}
-
-impl std::error::Error for CopyError {}
 
 impl From<ServerError> for CopyError {
     fn from(error: ServerError) -> Self {

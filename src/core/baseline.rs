@@ -5,7 +5,6 @@
 
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
-use std::fmt;
 use std::path::{Path, PathBuf};
 
 pub const RELATIVE_PATH: &str = ".twaco/baseline.json";
@@ -165,28 +164,15 @@ impl Baseline {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, thiserror::Error)]
 pub enum BaselineError {
+    #[error("{}: {why}", .path.display())]
     Io { path: PathBuf, why: String },
+    #[error("invalid baseline {}: {why}", .path.display())]
     Invalid { path: PathBuf, why: String },
+    #[error("no baseline entry for {collection}/{name}")]
     Missing { collection: String, name: String },
 }
-
-impl fmt::Display for BaselineError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            BaselineError::Io { path, why } => write!(f, "{}: {why}", path.display()),
-            BaselineError::Invalid { path, why } => {
-                write!(f, "invalid baseline {}: {why}", path.display())
-            }
-            BaselineError::Missing { collection, name } => {
-                write!(f, "no baseline entry for {collection}/{name}")
-            }
-        }
-    }
-}
-
-impl std::error::Error for BaselineError {}
 
 #[cfg(test)]
 mod tests {

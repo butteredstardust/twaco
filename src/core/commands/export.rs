@@ -4,7 +4,6 @@ use super::{Access, Effects, Mode, Notices};
 use crate::core::codes::{Coded, ErrorCode};
 use crate::core::config::Solution;
 use crate::core::{export, profile, workspace};
-use std::fmt;
 use std::path::PathBuf;
 
 /// An export destination and its requested selection.
@@ -56,30 +55,19 @@ impl ExportOutcome {
 }
 
 /// A failure before a typed export outcome could be produced.
-#[derive(Debug)]
+#[derive(Debug, thiserror::Error)]
 pub enum ExportCommandError {
+    #[error("{0}")]
     Profile(profile::ProfileError),
+    #[error("{} exists; pass --force to replace it", .0.display())]
     Exists(PathBuf),
+    #[error("{0}")]
     Export(export::ExportError),
+    #[error("{}: {why}", .path.display())]
     Create { path: PathBuf, why: std::io::Error },
+    #[error("{0}")]
     Write(workspace::WorkspaceError),
 }
-
-impl fmt::Display for ExportCommandError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Self::Profile(why) => why.fmt(f),
-            Self::Exists(path) => {
-                write!(f, "{} exists; pass --force to replace it", path.display())
-            }
-            Self::Export(why) => why.fmt(f),
-            Self::Create { path, why } => write!(f, "{}: {why}", path.display()),
-            Self::Write(why) => why.fmt(f),
-        }
-    }
-}
-
-impl std::error::Error for ExportCommandError {}
 
 impl Coded for ExportCommandError {
     fn code(&self) -> ErrorCode {

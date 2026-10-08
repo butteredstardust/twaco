@@ -4,7 +4,6 @@ use super::{lock_workspace, Access, Effects, Mode, Notices};
 use crate::core::codes::{Coded, ErrorCode};
 use crate::core::config::Solution;
 use crate::core::{lock, workflow, workspace};
-use std::fmt;
 
 /// The entities a sync request selects before it changes any files.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -42,26 +41,17 @@ impl SyncOutcome {
 }
 
 /// A failure before a sync outcome could be produced.
-#[derive(Debug)]
+#[derive(Debug, thiserror::Error)]
 pub enum SyncCommandError {
+    #[error("{0}")]
     Lock(lock::LockError),
+    #[error("this solution has no project named {0}")]
     Project(String),
+    #[error("{0}")]
     Target(String),
+    #[error("{0}")]
     Resolve(workspace::WorkspaceError),
 }
-
-impl fmt::Display for SyncCommandError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Self::Lock(why) => why.fmt(f),
-            Self::Resolve(why) => why.fmt(f),
-            Self::Project(name) => write!(f, "this solution has no project named {name}"),
-            Self::Target(why) => f.write_str(why),
-        }
-    }
-}
-
-impl std::error::Error for SyncCommandError {}
 
 impl Coded for SyncCommandError {
     fn code(&self) -> ErrorCode {

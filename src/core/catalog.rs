@@ -6,7 +6,6 @@ use super::index::Index;
 use super::types::{self, Entity, Member, Service};
 use serde::Serialize;
 use std::collections::{BTreeMap, BTreeSet};
-use std::fmt;
 
 #[derive(Debug, Default)]
 pub struct Query<'a> {
@@ -118,24 +117,15 @@ pub fn inheritance(solution: &Solution) -> (Vec<CatalogEntity>, Vec<String>) {
     (entities, skipped)
 }
 
-#[derive(Debug)]
+#[derive(Debug, thiserror::Error)]
 pub enum CatalogError {
+    #[error("{0}")]
     Invalid(String),
+    #[error("{0}")]
     UnknownEntity(String),
+    #[error("{0}")]
     Ambiguous(String),
 }
-
-impl fmt::Display for CatalogError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Self::Invalid(message) | Self::UnknownEntity(message) | Self::Ambiguous(message) => {
-                f.write_str(message)
-            }
-        }
-    }
-}
-
-impl std::error::Error for CatalogError {}
 
 /// Build the service catalog without consulting the ThingWorx server.
 pub fn build(solution: &Solution, query: Query<'_>) -> Result<Catalog, CatalogError> {

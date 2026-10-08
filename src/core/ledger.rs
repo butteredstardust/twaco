@@ -8,7 +8,6 @@
 use super::workspace;
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
-use std::fmt;
 use std::path::{Path, PathBuf};
 
 pub const RELATIVE_PATH: &str = ".twaco/renames.json";
@@ -86,31 +85,14 @@ pub struct Record {
 #[serde(transparent)]
 pub struct Ledger(pub Vec<Record>);
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 pub enum LedgerError {
     /// The file could not be read or is not a ledger.
-    Invalid {
-        path: PathBuf,
-        why: String,
-    },
-    Write {
-        path: PathBuf,
-        why: String,
-    },
+    #[error("cannot read rename ledger {}: {why}", .path.display())]
+    Invalid { path: PathBuf, why: String },
+    #[error("cannot write {}: {why}", .path.display())]
+    Write { path: PathBuf, why: String },
 }
-
-impl fmt::Display for LedgerError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            LedgerError::Invalid { path, why } => {
-                write!(f, "cannot read rename ledger {}: {why}", path.display())
-            }
-            LedgerError::Write { path, why } => write!(f, "cannot write {}: {why}", path.display()),
-        }
-    }
-}
-
-impl std::error::Error for LedgerError {}
 
 impl Ledger {
     /// The ledger at `path`; a missing file is an empty ledger.

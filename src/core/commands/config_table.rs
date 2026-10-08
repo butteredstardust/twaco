@@ -4,7 +4,6 @@ use super::{Access, Effects, Mode, Notices};
 use crate::core::codes::{Coded, ErrorCode};
 use crate::core::config::Solution;
 use crate::core::{config_table, profile};
-use std::fmt;
 use std::path::PathBuf;
 
 /// The requested configuration-table operation.
@@ -65,26 +64,17 @@ pub trait Remote: config_table::Remote {}
 impl<T: config_table::Remote + ?Sized> Remote for T {}
 
 /// A failure before a typed configuration-table outcome could be produced.
-#[derive(Debug)]
+#[derive(Debug, thiserror::Error)]
 pub enum ConfigTableCommandError {
+    #[error("{0}")]
     Profile(profile::ProfileError),
+    #[error("{0}")]
     Backup(config_table::TableError),
+    #[error("{0}")]
     Table(config_table::TableError),
+    #[error("{}: {why}", .path.display())]
     Read { path: PathBuf, why: std::io::Error },
 }
-
-impl fmt::Display for ConfigTableCommandError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Self::Profile(error) => error.fmt(f),
-            Self::Backup(error) => error.fmt(f),
-            Self::Table(error) => error.fmt(f),
-            Self::Read { path, why } => write!(f, "{}: {why}", path.display()),
-        }
-    }
-}
-
-impl std::error::Error for ConfigTableCommandError {}
 
 impl Coded for ConfigTableCommandError {
     fn code(&self) -> ErrorCode {

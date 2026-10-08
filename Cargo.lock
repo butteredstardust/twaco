@@ -2894,6 +2894,7 @@ dependencies = [
  "swc_ecma_parser",
  "swc_ecma_visit",
  "tar",
+ "thiserror",
  "toml 0.9.12+spec-1.1.0",
  "ureq",
  "url",

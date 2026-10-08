@@ -11,7 +11,6 @@
 
 use serde_json::Value;
 use std::collections::HashMap;
-use std::fmt;
 use std::path::PathBuf;
 use std::time::Duration;
 
@@ -24,28 +23,17 @@ pub const INDEX_FILE: &str = "ThingWorx_sx.js";
 /// 30 times) above the page titled Data Shapes.
 const TITLE_WEIGHT: f64 = 5.0;
 
-#[derive(Debug)]
+#[derive(Debug, thiserror::Error)]
 pub enum HelpError {
+    #[error("{url}: {why}")]
     Fetch { url: String, why: String },
+    #[error("{}: {why}", .path.display())]
     Cache { path: PathBuf, why: String },
+    #[error("the help center's search index cannot be read: {0}")]
     Index(String),
+    #[error("{0}")]
     Invalid(String),
 }
-
-impl fmt::Display for HelpError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            HelpError::Fetch { url, why } => write!(f, "{url}: {why}"),
-            HelpError::Cache { path, why } => write!(f, "{}: {why}", path.display()),
-            HelpError::Index(why) => {
-                write!(f, "the help center's search index cannot be read: {why}")
-            }
-            HelpError::Invalid(why) => write!(f, "{why}"),
-        }
-    }
-}
-
-impl std::error::Error for HelpError {}
 
 /// Fetching a file of the help center, as a trait so this module is tested offline.
 pub trait Fetch {

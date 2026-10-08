@@ -4,7 +4,6 @@ use super::{lock_workspace, Access, Effects, Notices};
 use crate::core::codes::{Coded, ErrorCode};
 use crate::core::config::Solution;
 use crate::core::{lock, workflow, workspace};
-use std::fmt;
 
 /// The entities an extract request selects before it changes any files.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -38,26 +37,17 @@ impl ExtractOutcome {
 }
 
 /// A failure before an extraction outcome could be produced.
-#[derive(Debug)]
+#[derive(Debug, thiserror::Error)]
 pub enum ExtractCommandError {
+    #[error("{0}")]
     Lock(lock::LockError),
+    #[error("this solution has no project named {0}")]
     Project(String),
+    #[error("{0}")]
     Target(String),
+    #[error("{0}")]
     Resolve(workspace::WorkspaceError),
 }
-
-impl fmt::Display for ExtractCommandError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Self::Lock(why) => why.fmt(f),
-            Self::Resolve(why) => why.fmt(f),
-            Self::Project(name) => write!(f, "this solution has no project named {name}"),
-            Self::Target(why) => f.write_str(why),
-        }
-    }
-}
-
-impl std::error::Error for ExtractCommandError {}
 
 impl Coded for ExtractCommandError {
     fn code(&self) -> ErrorCode {

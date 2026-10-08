@@ -14,7 +14,6 @@ use super::{Grant, Grants};
 use crate::core::adopt::glob_matches;
 use serde::Deserialize;
 use std::collections::{BTreeMap, BTreeSet};
-use std::fmt;
 use std::path::{Path, PathBuf};
 
 /// The file name, in a project's root folder.
@@ -196,19 +195,12 @@ pub struct Policy {
     pub platform: Vec<Platform>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+#[error("{}: {}", .path.display(), .why)]
 pub struct PolicyError {
     pub path: PathBuf,
     pub why: String,
 }
-
-impl fmt::Display for PolicyError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{}: {}", self.path.display(), self.why)
-    }
-}
-
-impl std::error::Error for PolicyError {}
 
 /// A name in the project unless it is already qualified: `Viewer_UG` in project `Acme.App` is
 /// `Acme.App.Viewer_UG`, and `PTC.Base.Default_UG` stays as written.

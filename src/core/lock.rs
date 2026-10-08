@@ -18,7 +18,6 @@
 //! write interrupted between creating its temporary and renaming it into place, are safe to
 //! remove. That is the stale-temp recovery half of 8.8.
 
-use std::fmt;
 use std::fs::{File, OpenOptions, TryLockError};
 use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -52,38 +51,21 @@ impl WorkspaceLock {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, thiserror::Error)]
 pub enum LockError {
     /// Another process holds it. `holder` is what that process wrote, when it could be read.
-    Held {
-        holder: String,
-    },
-    Io {
-        path: PathBuf,
-        why: String,
-    },
+    #[error(
+        "another twaco command is changing this workspace ({holder}); run this one when \
+                 it finishes"
+    )]
+    Held { holder: String },
+    #[error("{}: {why}", .path.display())]
+    Io { path: PathBuf, why: String },
     /// An interrupted operation could not be finished or undone safely. The text says why and
     /// what a person must do.
-    Recovery {
-        message: String,
-    },
+    #[error("{message}")]
+    Recovery { message: String },
 }
-
-impl fmt::Display for LockError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            LockError::Held { holder } => write!(
-                f,
-                "another twaco command is changing this workspace ({holder}); run this one when \
-                 it finishes"
-            ),
-            LockError::Io { path, why } => write!(f, "{}: {why}", path.display()),
-            LockError::Recovery { message } => f.write_str(message),
-        }
-    }
-}
-
-impl std::error::Error for LockError {}
 
 /// Take the workspace lock for `command`, then sweep `sweep` for stale temporaries.
 ///

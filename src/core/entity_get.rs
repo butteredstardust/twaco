@@ -8,7 +8,6 @@ use super::config::Solution;
 use super::entity_key::EntityKey;
 use super::server::{Client, ServerError};
 use super::workspace::{self, WorkspaceError};
-use std::fmt;
 
 /// What `entity get` asks of the server, as a trait so it is tested offline.
 pub trait Remote {
@@ -21,30 +20,18 @@ impl Remote for Client {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, thiserror::Error)]
 pub enum GetError {
+    #[error("{0}")]
     Invalid(String),
+    #[error("{0}")]
     Resolve(WorkspaceError),
     /// The server answered that it has no such entity.
+    #[error("the server has no {0}; `twaco search` finds an entity by part of its name")]
     NotOnServer(EntityKey),
+    #[error("{0}")]
     Remote(ServerError),
 }
-
-impl fmt::Display for GetError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            GetError::Invalid(why) => f.write_str(why),
-            GetError::Resolve(error) => write!(f, "{error}"),
-            GetError::NotOnServer(key) => write!(
-                f,
-                "the server has no {key}; `twaco search` finds an entity by part of its name"
-            ),
-            GetError::Remote(error) => write!(f, "{error}"),
-        }
-    }
-}
-
-impl std::error::Error for GetError {}
 
 /// The entity `text` names: `Collection/Name` as given, or a bare name found in the repository.
 pub fn target(solution: &Solution, text: &str) -> Result<EntityKey, GetError> {

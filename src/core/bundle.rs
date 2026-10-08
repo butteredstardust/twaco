@@ -13,7 +13,6 @@ use super::config::Solution;
 use super::entity;
 use super::scan::{self, Kind};
 use std::collections::{BTreeMap, BTreeSet};
-use std::fmt;
 use std::path::{Path, PathBuf};
 
 /// The document element every ThingWorx export and every bundle is wrapped in.
@@ -78,56 +77,27 @@ pub const COLLECTION_ORDER: &[&str] = &[
 /// Collections a server before 10.2 does not know, written only when a bundle has some.
 const SINCE_10_2: &[&str] = &["MCPNamespaces", "AIAgents"];
 
-#[derive(Debug)]
+#[derive(Debug, thiserror::Error)]
 pub enum BundleError {
-    Unreadable {
-        path: PathBuf,
-        why: String,
-    },
-    NotWellFormed {
-        path: PathBuf,
-        why: String,
-    },
-    NoCollection {
-        path: PathBuf,
-    },
-    UnknownCollection {
-        path: PathBuf,
-        tag: String,
-    },
+    #[error("cannot read {}: {why}", .path.display())]
+    Unreadable { path: PathBuf, why: String },
+    #[error("{}: not well-formed XML: {why}", .path.display())]
+    NotWellFormed { path: PathBuf, why: String },
+    #[error("{}: no top-level entity collection", .path.display())]
+    NoCollection { path: PathBuf },
+    #[error("{}: <{tag}> is not a collection in the known ThingWorx order", .path.display())]
+    UnknownCollection { path: PathBuf, tag: String },
+    #[error("no entity XML to bundle")]
     Empty,
     /// The assembled document does not contain what the sources did.
+    #[error(
+        "the bundle does not match its sources: missing {missing:?}, unexpected {unexpected:?}"
+    )]
     Verification {
         missing: Vec<String>,
         unexpected: Vec<String>,
     },
 }
-
-impl fmt::Display for BundleError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            BundleError::Unreadable { path, why } => write!(f, "cannot read {}: {why}", path.display()),
-            BundleError::NotWellFormed { path, why } => {
-                write!(f, "{}: not well-formed XML: {why}", path.display())
-            }
-            BundleError::NoCollection { path } => {
-                write!(f, "{}: no top-level entity collection", path.display())
-            }
-            BundleError::UnknownCollection { path, tag } => write!(
-                f,
-                "{}: <{tag}> is not a collection in the known ThingWorx order",
-                path.display()
-            ),
-            BundleError::Empty => write!(f, "no entity XML to bundle"),
-            BundleError::Verification { missing, unexpected } => write!(
-                f,
-                "the bundle does not match its sources: missing {missing:?}, unexpected {unexpected:?}"
-            ),
-        }
-    }
-}
-
-impl std::error::Error for BundleError {}
 
 /// One assembled document and what went into it.
 pub struct Bundle {

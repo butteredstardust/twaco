@@ -4,7 +4,6 @@ use super::{lock_workspace, Access, Effects, Notices};
 use crate::core::codes::{Coded, ErrorCode};
 use crate::core::config::Solution;
 use crate::core::{lock, profile, types};
-use std::fmt;
 
 /// The operation a types request performs.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -43,28 +42,19 @@ impl TypesOutcome {
 }
 
 /// A failure before a types outcome could be produced.
-#[derive(Debug)]
+#[derive(Debug, thiserror::Error)]
 pub enum TypesCommandError {
+    #[error("{0}")]
     Lock(lock::LockError),
+    #[error("{0}")]
     Arguments(String),
+    #[error("{0}")]
     Profile(profile::ProfileError),
+    #[error("{0}")]
     Types(types::TypesError),
+    #[error("{0}")]
     Check(types::CheckError),
 }
-
-impl fmt::Display for TypesCommandError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Self::Lock(why) => why.fmt(f),
-            Self::Arguments(why) => f.write_str(why),
-            Self::Profile(why) => why.fmt(f),
-            Self::Types(why) => why.fmt(f),
-            Self::Check(why) => why.fmt(f),
-        }
-    }
-}
-
-impl std::error::Error for TypesCommandError {}
 
 impl Coded for TypesCommandError {
     fn code(&self) -> ErrorCode {

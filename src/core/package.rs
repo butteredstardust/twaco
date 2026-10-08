@@ -8,28 +8,18 @@
 
 use super::config::Solution;
 use super::workspace::EntityFile;
-use std::fmt;
 use std::io::Write;
 use std::path::PathBuf;
 
 const EDITABLE: &str = "aspect.isEditableExtensionObject";
 
-#[derive(Debug)]
+#[derive(Debug, thiserror::Error)]
 pub enum PackageError {
+    #[error("{0}")]
     Invalid(String),
+    #[error("{}: {why}", .path.display())]
     Io { path: PathBuf, why: String },
 }
-
-impl fmt::Display for PackageError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            PackageError::Invalid(why) => write!(f, "{why}"),
-            PackageError::Io { path, why } => write!(f, "{}: {why}", path.display()),
-        }
-    }
-}
-
-impl std::error::Error for PackageError {}
 
 /// The project an entity file belongs to: its own `projectName`, else where it was filed.
 fn owner(entity: &EntityFile) -> &str {

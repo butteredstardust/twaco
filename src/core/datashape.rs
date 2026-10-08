@@ -9,7 +9,6 @@
 
 use super::scan::{self, Kind, ScanError, Token};
 use std::collections::BTreeMap;
-use std::fmt;
 
 /// One field of a DataShape.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -56,33 +55,18 @@ impl Aspect {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, thiserror::Error)]
 pub enum FieldError {
+    #[error("{0}")]
     Scan(ScanError),
+    #[error("not a DataShape export")]
     NotADataShape,
     /// More than one `FieldDefinitions` section, so there is no single place to write.
-    Ambiguous {
-        count: usize,
-    },
-    Malformed {
-        why: String,
-    },
+    #[error("expected one <FieldDefinitions> section, found {count}")]
+    Ambiguous { count: usize },
+    #[error("{why}")]
+    Malformed { why: String },
 }
-
-impl fmt::Display for FieldError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            FieldError::Scan(e) => write!(f, "{e}"),
-            FieldError::NotADataShape => write!(f, "not a DataShape export"),
-            FieldError::Ambiguous { count } => {
-                write!(f, "expected one <FieldDefinitions> section, found {count}")
-            }
-            FieldError::Malformed { why } => write!(f, "{why}"),
-        }
-    }
-}
-
-impl std::error::Error for FieldError {}
 
 impl From<ScanError> for FieldError {
     fn from(e: ScanError) -> Self {

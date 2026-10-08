@@ -4,7 +4,6 @@ use super::{lock_workspace, Access, Effects, Mode, Notices};
 use crate::core::codes::{Coded, ErrorCode};
 use crate::core::config::Solution;
 use crate::core::{lock, retemplate};
-use std::fmt;
 
 #[derive(Clone, Debug)]
 pub struct RetemplateRequest {
@@ -39,21 +38,14 @@ impl RetemplateOutcome {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, thiserror::Error)]
 pub enum RetemplateCommandError {
+    #[error("{0}")]
     Lock(lock::LockError),
+    #[error("{0}")]
     Retemplate(retemplate::RetemplateError),
 }
 
-impl fmt::Display for RetemplateCommandError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Self::Lock(error) => error.fmt(f),
-            Self::Retemplate(error) => error.fmt(f),
-        }
-    }
-}
-impl std::error::Error for RetemplateCommandError {}
 impl Coded for RetemplateCommandError {
     fn code(&self) -> ErrorCode {
         match self {

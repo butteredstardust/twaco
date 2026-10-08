@@ -5,7 +5,6 @@ use crate::core::adopt;
 use crate::core::codes::{Coded, ErrorCode};
 use crate::core::config::Solution;
 use crate::core::lock;
-use std::fmt;
 use std::path::PathBuf;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -36,22 +35,13 @@ impl AdoptOutcome {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, thiserror::Error)]
 pub enum AdoptCommandError {
+    #[error("{0}")]
     Lock(lock::LockError),
+    #[error("{0}")]
     Adopt(adopt::AdoptError),
 }
-
-impl fmt::Display for AdoptCommandError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Self::Lock(error) => error.fmt(f),
-            Self::Adopt(error) => error.fmt(f),
-        }
-    }
-}
-
-impl std::error::Error for AdoptCommandError {}
 
 impl Coded for AdoptCommandError {
     fn code(&self) -> ErrorCode {

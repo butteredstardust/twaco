@@ -5,7 +5,8 @@ use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use std::fmt;
 
 /// Why text cannot identify one URL path segment.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, thiserror::Error)]
+#[error("{}: {}", .text, .why)]
 pub struct KeyError {
     text: String,
     why: &'static str,
@@ -19,14 +20,6 @@ impl KeyError {
         }
     }
 }
-
-impl fmt::Display for KeyError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{}: {}", self.text, self.why)
-    }
-}
-
-impl std::error::Error for KeyError {}
 
 impl From<KeyError> for ServerError {
     fn from(error: KeyError) -> Self {

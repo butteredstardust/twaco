@@ -4,7 +4,6 @@ use super::{lock_workspace, Access, Effects, Mode, Notices};
 use crate::core::codes::{Coded, ErrorCode};
 use crate::core::config::{self, Solution};
 use crate::core::{lock, newblock};
-use std::fmt;
 
 #[derive(Clone, Debug)]
 pub struct NewBlockRequest {
@@ -37,22 +36,15 @@ impl NewBlockOutcome {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, thiserror::Error)]
 pub enum NewBlockCommandError {
+    #[error("{0}")]
     Lock(lock::LockError),
+    #[error("{0}")]
     Config(config::ConfigError),
+    #[error("{0}")]
     NewBlock(newblock::NewBlockError),
 }
-impl fmt::Display for NewBlockCommandError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Self::Lock(error) => error.fmt(f),
-            Self::Config(error) => error.fmt(f),
-            Self::NewBlock(error) => error.fmt(f),
-        }
-    }
-}
-impl std::error::Error for NewBlockCommandError {}
 impl Coded for NewBlockCommandError {
     fn code(&self) -> ErrorCode {
         match self {

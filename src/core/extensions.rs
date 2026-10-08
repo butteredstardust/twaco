@@ -9,7 +9,6 @@
 use super::entity_key::ServiceTarget;
 use super::server::{Client, ServerError};
 use serde_json::{json, Value};
-use std::fmt;
 use std::io::Read;
 use std::time::Duration;
 
@@ -36,24 +35,15 @@ impl Remote for Client {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, thiserror::Error)]
 pub enum ExtensionError {
+    #[error("{0}")]
     Remote(ServerError),
+    #[error("unexpected extension response: {0}")]
     Shape(String),
+    #[error("{0}")]
     Invalid(String),
 }
-
-impl fmt::Display for ExtensionError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            ExtensionError::Remote(error) => write!(f, "{error}"),
-            ExtensionError::Shape(why) => write!(f, "unexpected extension response: {why}"),
-            ExtensionError::Invalid(why) => write!(f, "{why}"),
-        }
-    }
-}
-
-impl std::error::Error for ExtensionError {}
 
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct Package {

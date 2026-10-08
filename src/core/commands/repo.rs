@@ -4,7 +4,6 @@ use super::{lock_workspace, Access, Effects, Mode, Notices};
 use crate::core::codes::{Coded, ErrorCode};
 use crate::core::config::Solution;
 use crate::core::{lock, profile, repo, workspace};
-use std::fmt;
 use std::path::PathBuf;
 
 /// A repository operation requested by either adapter.
@@ -93,30 +92,21 @@ impl RepoOutcome {
 }
 
 /// A failure before a typed repository outcome could be produced.
-#[derive(Debug)]
+#[derive(Debug, thiserror::Error)]
 pub enum RepoCommandError {
+    #[error("{0}")]
     Lock(lock::LockError),
+    #[error("{0}")]
     Profile(profile::ProfileError),
+    #[error("{0}")]
     Repo(repo::RepoError),
+    #[error("{} exists; pass --force to replace it", .0.display())]
     Exists(PathBuf),
+    #[error("{}: {why}", .path.display())]
     Create { path: PathBuf, why: std::io::Error },
+    #[error("{0}")]
     Write(workspace::WorkspaceError),
 }
-impl fmt::Display for RepoCommandError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Self::Lock(why) => why.fmt(f),
-            Self::Profile(why) => why.fmt(f),
-            Self::Repo(why) => why.fmt(f),
-            Self::Exists(path) => {
-                write!(f, "{} exists; pass --force to replace it", path.display())
-            }
-            Self::Create { path, why } => write!(f, "{}: {why}", path.display()),
-            Self::Write(why) => why.fmt(f),
-        }
-    }
-}
-impl std::error::Error for RepoCommandError {}
 impl Coded for RepoCommandError {
     fn code(&self) -> ErrorCode {
         match self {

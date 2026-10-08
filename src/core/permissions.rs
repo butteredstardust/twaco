@@ -102,16 +102,9 @@ impl KindKey {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+#[error("{0}")]
 pub struct PermissionsError(String);
-
-impl fmt::Display for PermissionsError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_str(&self.0)
-    }
-}
-
-impl std::error::Error for PermissionsError {}
 
 fn error(message: impl Into<String>) -> PermissionsError {
     PermissionsError(message.into())

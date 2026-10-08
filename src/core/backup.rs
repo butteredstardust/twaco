@@ -19,7 +19,6 @@ use super::push::{self, Decision, Refusal};
 use super::server::{Client, ServerError};
 use super::workspace;
 use serde::{Deserialize, Serialize};
-use std::fmt;
 use std::path::{Path, PathBuf};
 
 pub const DIR: &str = ".twaco/backups";
@@ -54,45 +53,25 @@ impl Remote for Client {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, thiserror::Error)]
 pub enum BackupError {
-    Remote {
-        entity: String,
-        why: ServerError,
-    },
-    Io {
-        path: PathBuf,
-        why: String,
-    },
+    #[error("{entity}: {why}")]
+    Remote { entity: String, why: ServerError },
+    #[error("{}: {why}", .path.display())]
+    Io { path: PathBuf, why: String },
     /// The entity is on the server but its export holds nothing twaco can save.
-    Unreadable {
-        entity: String,
-    },
-    NoSuchSet {
-        id: String,
-    },
+    #[error("{entity}: the server's export of it is empty or not an entity")]
+    Unreadable { entity: String },
+    #[error("no backup set {id} under {DIR}; `twaco entity restore` lists them")]
+    NoSuchSet { id: String },
     /// What a forced push or deploy would overwrite could not be worked out.
+    #[error(
+        "could not work out what the forced write would overwrite, so nothing was changed: {0}"
+    )]
     Plan(String),
-    Invalid {
-        path: PathBuf,
-        why: String,
-    },
+    #[error("{}: not a backup set: {why}", .path.display())]
+    Invalid { path: PathBuf, why: String },
 }
-
-impl fmt::Display for BackupError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            BackupError::Remote { entity, why } => write!(f, "{entity}: {why}"),
-            BackupError::Io { path, why } => write!(f, "{}: {why}", path.display()),
-            BackupError::Unreadable { entity } => write!(f, "{entity}: the server's export of it is empty or not an entity"),
-            BackupError::Plan(why) => write!(f, "could not work out what the forced write would overwrite, so nothing was changed: {why}"),
-            BackupError::NoSuchSet { id } => write!(f, "no backup set {id} under {DIR}; `twaco entity restore` lists them"),
-            BackupError::Invalid { path, why } => write!(f, "{}: not a backup set: {why}", path.display()),
-        }
-    }
-}
-
-impl std::error::Error for BackupError {}
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Item {

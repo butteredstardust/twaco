@@ -113,35 +113,16 @@ impl Report {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, thiserror::Error)]
 pub enum AdoptError {
-    Export {
-        path: PathBuf,
-        why: String,
-    },
-    Repository {
-        path: PathBuf,
-        why: String,
-    },
+    #[error("cannot read export {}: {why}", .path.display())]
+    Export { path: PathBuf, why: String },
+    #[error("cannot read {}: {why}", .path.display())]
+    Repository { path: PathBuf, why: String },
     /// The writes, made as one transaction, did not happen.
+    #[error("nothing was adopted: {0}")]
     Write(super::transaction::TransactionError),
 }
-
-impl fmt::Display for AdoptError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            AdoptError::Export { path, why } => {
-                write!(f, "cannot read export {}: {why}", path.display())
-            }
-            AdoptError::Repository { path, why } => {
-                write!(f, "cannot read {}: {why}", path.display())
-            }
-            AdoptError::Write(error) => write!(f, "nothing was adopted: {error}"),
-        }
-    }
-}
-
-impl std::error::Error for AdoptError {}
 
 /// Compare an export with the solution. `only` narrows the entity comparison, not the service
 /// check, to names containing any of its fragments, preserving the established filter semantics.

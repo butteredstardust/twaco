@@ -9,7 +9,6 @@
 
 use super::config::Solution;
 use std::collections::HashMap;
-use std::fmt;
 use std::path::{Path, PathBuf};
 
 const BUILTIN: [(&str, &str); 3] = [
@@ -33,20 +32,11 @@ const MAX_FILE: u64 = 2 * 1024 * 1024;
 /// A topic read whole up to this size; a longer one gives its outline unless a section is named.
 pub const WHOLE: usize = 24_000;
 
-#[derive(Debug)]
+#[derive(Debug, thiserror::Error)]
 pub enum GuideError {
+    #[error("{0}")]
     Invalid(String),
 }
-
-impl fmt::Display for GuideError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            GuideError::Invalid(why) => write!(f, "{why}"),
-        }
-    }
-}
-
-impl std::error::Error for GuideError {}
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Topic {

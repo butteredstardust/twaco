@@ -128,54 +128,40 @@ pub enum Outcome {
     Refused(Refusal),
 }
 
-#[derive(Debug)]
+#[derive(Debug, thiserror::Error)]
 pub enum PushError {
     /// The working copy cannot be hashed, including a file that holds more than one entity.
+    #[error("the working copy cannot be pushed: {0}")]
     Working(NormaliseError),
     /// The server's copy cannot be hashed.
+    #[error("the server's copy cannot be read: {0}")]
     Server(NormaliseError),
+    #[error("{0}")]
     Remote(ServerError),
     /// The import succeeded but the entity could not be read back. The server has changed to
     /// something not yet observed, and the baseline was left alone.
+    #[error(
+        "the import succeeded, but reading the entity back failed, so what the server now \
+                 holds is unknown; the baseline was not updated. Run `twaco entity status` once \
+                 the server answers ({0})"
+    )]
     Unverified(ServerError),
+    #[error("{0}")]
     Baseline(BaselineError),
     /// The import said success, but the entity read back is not what was sent. The baseline
     /// was left alone, so `entity status` still shows the difference.
+    #[error("the import reported success, but the server did not keep what was sent \
+                 (sent {sent}, read back {}); the baseline was not updated. Known causes: a \
+                 configuration table the template does not define is dropped, and a file \
+                 missing sections the server always writes (a hand-written one, typically) \
+                 comes back with them filled in. `twaco entity get` shows what the server kept", .read_back
+                    .as_deref()
+                    .unwrap_or("nothing: the entity is missing"))]
     NotKept {
         sent: String,
         read_back: Option<String>,
     },
 }
-
-impl fmt::Display for PushError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            PushError::Working(error) => write!(f, "the working copy cannot be pushed: {error}"),
-            PushError::Server(error) => write!(f, "the server's copy cannot be read: {error}"),
-            PushError::Remote(error) => write!(f, "{error}"),
-            PushError::Unverified(error) => write!(
-                f,
-                "the import succeeded, but reading the entity back failed, so what the server now \
-                 holds is unknown; the baseline was not updated. Run `twaco entity status` once \
-                 the server answers ({error})"
-            ),
-            PushError::Baseline(error) => write!(f, "{error}"),
-            PushError::NotKept { sent, read_back } => write!(
-                f,
-                "the import reported success, but the server did not keep what was sent \
-                 (sent {sent}, read back {}); the baseline was not updated. Known causes: a \
-                 configuration table the template does not define is dropped, and a file \
-                 missing sections the server always writes (a hand-written one, typically) \
-                 comes back with them filled in. `twaco entity get` shows what the server kept",
-                read_back
-                    .as_deref()
-                    .unwrap_or("nothing: the entity is missing")
-            ),
-        }
-    }
-}
-
-impl std::error::Error for PushError {}
 
 /// Decide, and with `apply`, act. `force` overrides a refusal and nothing else.
 ///

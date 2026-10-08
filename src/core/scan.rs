@@ -9,8 +9,6 @@
 //! **It fails closed.** Anything it cannot account for is an error, never a guessed span. A
 //! wrong span silently corrupts a file, which is the one outcome worse than refusing to work.
 
-use std::fmt;
-
 /// A half-open byte range into the source document.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub struct Span {
@@ -88,37 +86,21 @@ pub struct Attribute {
     pub value: Span,
 }
 
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq, thiserror::Error)]
 pub enum ScanError {
     /// A construct was opened and never closed.
+    #[error("unterminated {what} starting at byte {at}")]
     Unterminated { what: &'static str, at: usize },
     /// Markup this scanner refuses to guess at.
+    #[error("malformed {what} at byte {at}")]
     Malformed { what: &'static str, at: usize },
     /// The document is not UTF-8, which twaco requires rather than guesses at.
+    #[error("not valid UTF-8 at byte {at}")]
     NotUtf8 { at: usize },
     /// A byte-order mark for an encoding this tool does not handle.
+    #[error("{what} encoding is not supported; entity XML must be UTF-8")]
     UnsupportedEncoding { what: &'static str },
 }
-
-impl fmt::Display for ScanError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            ScanError::Unterminated { what, at } => {
-                write!(f, "unterminated {what} starting at byte {at}")
-            }
-            ScanError::Malformed { what, at } => write!(f, "malformed {what} at byte {at}"),
-            ScanError::NotUtf8 { at } => write!(f, "not valid UTF-8 at byte {at}"),
-            ScanError::UnsupportedEncoding { what } => {
-                write!(
-                    f,
-                    "{what} encoding is not supported; entity XML must be UTF-8"
-                )
-            }
-        }
-    }
-}
-
-impl std::error::Error for ScanError {}
 
 /// A UTF-8 byte-order mark, which ThingWorx sometimes writes and which must be preserved.
 pub const UTF8_BOM: &[u8] = &[0xEF, 0xBB, 0xBF];

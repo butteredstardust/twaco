@@ -4,7 +4,6 @@ use super::{Access, Effects, Mode, Notices};
 use crate::core::codes::{Coded, ErrorCode};
 use crate::core::config::Solution;
 use crate::core::{imports, profile};
-use std::fmt;
 
 /// An import source supplied by either adapter.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -45,21 +44,13 @@ impl ImportOutcome {
 }
 
 /// A failure before a typed import outcome could be produced.
-#[derive(Debug)]
+#[derive(Debug, thiserror::Error)]
 pub enum ImportCommandError {
+    #[error("{0}")]
     Profile(profile::ProfileError),
+    #[error("{0}")]
     Import(imports::ImportError),
 }
-impl fmt::Display for ImportCommandError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Self::Profile(why) => why.fmt(f),
-            Self::Import(why) => why.fmt(f),
-        }
-    }
-}
-
-impl std::error::Error for ImportCommandError {}
 impl Coded for ImportCommandError {
     fn code(&self) -> ErrorCode {
         match self {

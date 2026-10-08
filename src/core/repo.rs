@@ -11,7 +11,6 @@ use super::server::{Client, ServerError};
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
 use std::collections::BTreeMap;
-use std::fmt;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
@@ -67,26 +66,17 @@ impl Remote for Client {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, thiserror::Error)]
 pub enum RepoError {
+    #[error("{0}")]
     Remote(ServerError),
+    #[error("unexpected repository response: {0}")]
     Shape(String),
+    #[error("{0}")]
     Invalid(String),
+    #[error("{}: {why}", .path.display())]
     Local { path: PathBuf, why: String },
 }
-
-impl fmt::Display for RepoError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            RepoError::Remote(error) => write!(f, "{error}"),
-            RepoError::Shape(why) => write!(f, "unexpected repository response: {why}"),
-            RepoError::Invalid(why) => write!(f, "{why}"),
-            RepoError::Local { path, why } => write!(f, "{}: {why}", path.display()),
-        }
-    }
-}
-
-impl std::error::Error for RepoError {}
 
 /// A repository path as the server takes it: `/`-rooted, slash-separated, with no empty, `.`
 /// or `..` segment. The server refuses a climbing path itself; refusing it here says so plainly.

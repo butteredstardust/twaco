@@ -10,7 +10,6 @@
 use super::entity_key::{EntityKey, ServiceTarget};
 use super::server::{Client, ServerError};
 use serde_json::{json, Value};
-use std::fmt;
 use std::io::Read;
 use std::time::Duration;
 
@@ -61,22 +60,13 @@ impl Remote for Client {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, thiserror::Error)]
 pub enum ImportError {
+    #[error("{0}")]
     Remote(ServerError),
+    #[error("{0}")]
     Invalid(String),
 }
-
-impl fmt::Display for ImportError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            ImportError::Remote(error) => write!(f, "{error}"),
-            ImportError::Invalid(why) => write!(f, "{why}"),
-        }
-    }
-}
-
-impl std::error::Error for ImportError {}
 
 /// Every entity an export document holds: the named children of each collection element under
 /// `<Entities>`. A name that cannot address an entity (empty, `.`, `..`, or holding a `/`) is

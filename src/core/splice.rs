@@ -5,7 +5,6 @@
 //! that can quietly renormalise a declaration, reorder attributes, or collapse an empty element.
 
 use super::scan::Span;
-use std::fmt;
 
 /// One replacement: the range to remove and the bytes to put in its place.
 #[derive(Clone, Debug)]
@@ -23,43 +22,21 @@ impl Edit {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, thiserror::Error)]
 pub enum SpliceError {
     /// Two edits cover overlapping bytes, so the result would depend on their order.
+    #[error("overlapping edits: {}..{} and {}..{}", .first.start, .first.end, .second.start, .second.end)]
     Overlap { first: Span, second: Span },
     /// An edit points outside the document.
+    #[error("edit {}..{} is outside a document of {} bytes", .span.start, .span.end, .len)]
     OutOfBounds { span: Span, len: usize },
     /// Two zero-length edits share a position, so their order would decide the result.
+    #[error("two insertions at byte {at}; their order would decide the result")]
     CoincidentInsert { at: usize },
     /// The result would not fit in memory addressable by this platform.
+    #[error("spliced document would be too large")]
     TooLarge,
 }
-
-impl fmt::Display for SpliceError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            SpliceError::Overlap { first, second } => write!(
-                f,
-                "overlapping edits: {}..{} and {}..{}",
-                first.start, first.end, second.start, second.end
-            ),
-            SpliceError::OutOfBounds { span, len } => write!(
-                f,
-                "edit {}..{} is outside a document of {} bytes",
-                span.start, span.end, len
-            ),
-            SpliceError::CoincidentInsert { at } => {
-                write!(
-                    f,
-                    "two insertions at byte {at}; their order would decide the result"
-                )
-            }
-            SpliceError::TooLarge => write!(f, "spliced document would be too large"),
-        }
-    }
-}
-
-impl std::error::Error for SpliceError {}
 
 /// Apply edits to a document.
 ///

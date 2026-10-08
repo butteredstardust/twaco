@@ -177,22 +177,13 @@ pub struct AuditRequest {
     pub server: Option<String>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, thiserror::Error)]
 pub enum AuditCommandError {
+    #[error("{0}")]
     Audit(permissions::audit::AuditError),
+    #[error("{0}")]
     Profile(profile::ProfileError),
 }
-
-impl fmt::Display for AuditCommandError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Self::Audit(error) => error.fmt(f),
-            Self::Profile(error) => error.fmt(f),
-        }
-    }
-}
-
-impl std::error::Error for AuditCommandError {}
 
 impl Coded for AuditCommandError {
     fn code(&self) -> ErrorCode {
@@ -272,24 +263,15 @@ pub struct InitOutcome {
     pub written: bool,
 }
 
-#[derive(Debug)]
+#[derive(Debug, thiserror::Error)]
 pub enum InitCommandError {
+    #[error("{0}")]
     Lock(lock::LockError),
+    #[error("{0}")]
     Init(permissions::init::InitError),
+    #[error("{0}")]
     Write(transaction::TransactionError),
 }
-
-impl fmt::Display for InitCommandError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Self::Lock(error) => error.fmt(f),
-            Self::Init(error) => error.fmt(f),
-            Self::Write(error) => error.fmt(f),
-        }
-    }
-}
-
-impl std::error::Error for InitCommandError {}
 
 impl Coded for InitCommandError {
     fn code(&self) -> ErrorCode {
@@ -359,24 +341,15 @@ impl ApplyOutcome {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, thiserror::Error)]
 pub enum ApplyCommandError {
+    #[error("{0}")]
     Lock(lock::LockError),
+    #[error("{0}")]
     Plan(permissions::apply::ApplyError),
+    #[error("{0}")]
     Write(transaction::TransactionError),
 }
-
-impl fmt::Display for ApplyCommandError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Self::Lock(error) => error.fmt(f),
-            Self::Plan(error) => error.fmt(f),
-            Self::Write(error) => error.fmt(f),
-        }
-    }
-}
-
-impl std::error::Error for ApplyCommandError {}
 
 impl Coded for ApplyCommandError {
     fn code(&self) -> ErrorCode {

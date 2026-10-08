@@ -4,7 +4,6 @@ use super::{Access, Effects, Mode, Notices};
 use crate::core::codes::{Coded, ErrorCode};
 use crate::core::config::Solution;
 use crate::core::{extensions, profile};
-use std::fmt;
 
 /// An extension package operation requested by either adapter.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -66,21 +65,13 @@ impl ExtensionOutcome {
 }
 
 /// A failure before a typed extension outcome could be produced.
-#[derive(Debug)]
+#[derive(Debug, thiserror::Error)]
 pub enum ExtensionCommandError {
+    #[error("{0}")]
     Profile(profile::ProfileError),
+    #[error("{0}")]
     Extension(extensions::ExtensionError),
 }
-impl fmt::Display for ExtensionCommandError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Self::Profile(why) => why.fmt(f),
-            Self::Extension(why) => why.fmt(f),
-        }
-    }
-}
-
-impl std::error::Error for ExtensionCommandError {}
 impl Coded for ExtensionCommandError {
     fn code(&self) -> ErrorCode {
         match self {

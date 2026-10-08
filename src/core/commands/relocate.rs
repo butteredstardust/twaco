@@ -4,7 +4,6 @@ use super::{lock_workspace, Access, Effects, Mode, Notices};
 use crate::core::codes::{Coded, ErrorCode};
 use crate::core::config::Solution;
 use crate::core::{lock, relocate};
-use std::fmt;
 
 #[derive(Clone, Debug)]
 pub struct RelocateRequest {
@@ -44,20 +43,13 @@ impl RelocateOutcome {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, thiserror::Error)]
 pub enum RelocateCommandError {
+    #[error("{0}")]
     Lock(lock::LockError),
+    #[error("{0}")]
     Relocate(relocate::RelocateError),
 }
-impl fmt::Display for RelocateCommandError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Self::Lock(error) => error.fmt(f),
-            Self::Relocate(error) => error.fmt(f),
-        }
-    }
-}
-impl std::error::Error for RelocateCommandError {}
 impl Coded for RelocateCommandError {
     fn code(&self) -> ErrorCode {
         match self {

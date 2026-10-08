@@ -19,7 +19,6 @@ use super::refs;
 use super::server::{Client, ServerError};
 use serde::Serialize;
 use serde_json::{json, Value};
-use std::fmt;
 use std::time::Duration;
 
 /// The permission sets of an entity. Every entity has the first three. A ThingShape also has
@@ -172,23 +171,12 @@ pub struct Pair {
     new: EntityKey,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+#[error("{} and {} are in different collections", .old, .new)]
 pub struct PairError {
     old: EntityKey,
     new: EntityKey,
 }
-
-impl fmt::Display for PairError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(
-            f,
-            "{} and {} are in different collections",
-            self.old, self.new
-        )
-    }
-}
-
-impl std::error::Error for PairError {}
 
 impl Pair {
     pub fn new(old: EntityKey, new: EntityKey) -> Result<Self, PairError> {
@@ -211,22 +199,13 @@ impl Pair {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, thiserror::Error)]
 pub enum CarryError {
+    #[error("{why}; fix or remove .twaco/renames.json")]
     Ledger { why: String },
+    #[error("{why}")]
     Arguments { why: String },
 }
-
-impl fmt::Display for CarryError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            CarryError::Ledger { why } => write!(f, "{why}; fix or remove .twaco/renames.json"),
-            CarryError::Arguments { why } => f.write_str(why),
-        }
-    }
-}
-
-impl std::error::Error for CarryError {}
 
 /// Every old name that a rename in the ledger replaced, to map a permission's principals.
 #[derive(Debug, Default, Clone)]

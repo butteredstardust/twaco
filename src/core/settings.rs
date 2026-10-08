@@ -8,7 +8,6 @@
 use super::entity_key::ServiceTarget;
 use super::server::{Client, ServerError};
 use serde_json::{json, Value};
-use std::fmt;
 use std::time::Duration;
 
 const TIMEOUT: Duration = Duration::from_secs(60);
@@ -66,24 +65,15 @@ impl Remote for Client {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, thiserror::Error)]
 pub enum SettingsError {
+    #[error("{0}")]
     Remote(ServerError),
+    #[error("unexpected settings response: {0}")]
     Shape(String),
+    #[error("{0}")]
     Invalid(String),
 }
-
-impl fmt::Display for SettingsError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            SettingsError::Remote(error) => write!(f, "{error}"),
-            SettingsError::Shape(why) => write!(f, "unexpected settings response: {why}"),
-            SettingsError::Invalid(why) => write!(f, "{why}"),
-        }
-    }
-}
-
-impl std::error::Error for SettingsError {}
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct Field {
