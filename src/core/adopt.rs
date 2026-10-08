@@ -809,9 +809,11 @@ pub fn apply(
         lines.push(line);
     }
     let wrote = !transaction.is_empty();
+    tracing::info!(writes = transaction.len(), "adopt: writing");
     if wrote {
         transaction.apply(lock).map_err(AdoptError::Write)?;
     }
+    tracing::info!(wrote, "adopt: done");
     Ok(ApplyOutcome {
         lines,
         types: super::types::refresh_after_write(solution, wrote),

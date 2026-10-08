@@ -447,6 +447,37 @@ fn two_projects_import_in_the_given_dependency_order() {
     );
 }
 
+#[test]
+fn an_applied_deploy_logs_one_info_event_per_phase() {
+    let a = target("A", "a();");
+    let projects = [project("LogPhaseProject", vec![a.clone()], vec![])];
+    let remote = Fake {
+        import_values: BTreeMap::from([("LogPhaseProject.xml".to_string(), vec![a])]),
+        ..Fake::default()
+    };
+    let (result, logs) = crate::core::diagnostics::captured(|| {
+        run_test(&remote, &MemoryBaseline::default(), &projects, true, false)
+    });
+    result.unwrap();
+    for phase in [
+        "deploy: scripts checked",
+        "deploy: planned",
+        "deploy: read back",
+        "deploy: baseline written",
+    ] {
+        assert!(
+            logs.lines()
+                .any(|l| l.contains(phase) && l.contains("INFO")),
+            "{phase} is missing:\n{logs}"
+        );
+    }
+    assert!(
+        logs.lines()
+            .any(|l| l.contains("deploy: project imported") && l.contains("LogPhaseProject")),
+        "{logs}"
+    );
+}
+
 fn call(target: &str, service: &str, parameters: Value) -> ServiceCall {
     ServiceCall {
         target: target.into(),

@@ -802,9 +802,19 @@ fn run_hook(solution: &Solution, hook: &super::config::Check) -> GateResult {
         }
     }
 
+    // The environment is never logged: a hook with `needs_credentials` receives secrets there.
+    let started = std::time::Instant::now();
+    tracing::debug!(
+        hook = %hook.name,
+        program,
+        arguments = ?arguments,
+        needs_credentials = hook.needs_credentials,
+        "hook started"
+    );
     let child = match command.spawn() {
         Ok(c) => c,
         Err(e) => {
+            tracing::debug!(hook = %hook.name, why = %e, "hook could not start");
             result.broken = Some(format!("cannot run {program}: {e}"));
             return result;
         }
@@ -817,6 +827,13 @@ fn run_hook(solution: &Solution, hook: &super::config::Check) -> GateResult {
             return result;
         }
     };
+    tracing::debug!(
+        hook = %hook.name,
+        exit = finished.status.and_then(|status| status.code()),
+        timed_out = finished.timed_out,
+        elapsed_ms = u64::try_from(started.elapsed().as_millis()).unwrap_or(u64::MAX),
+        "hook finished"
+    );
 
     if finished.timed_out {
         result.broken = Some(format!(
@@ -1135,6 +1152,38 @@ mod tests {
         let finding = &result.findings[0];
         assert_eq!(finding.message, "leaked <redacted>");
         assert_eq!(finding.rule, "<redacted>");
+    }
+
+    #[test]
+    fn a_hook_logs_its_program_and_exit_but_never_its_environment() {
+        let (_dir, _, solution) = live_solution();
+        std::env::set_var("TWACO_LOG_PROBE_PASSWORD", "probe-log-5d1e");
+        let printer: Vec<String> = if cfg!(windows) {
+            vec!["cmd".into(), "/C".into(), "echo".into(), "hi".into()]
+        } else {
+            vec!["echo".into(), "hi".into()]
+        };
+        let (_, logs) = crate::core::diagnostics::captured(|| {
+            run_hook(
+                &solution,
+                &super::super::config::Check {
+                    name: "log-probe".to_string(),
+                    command: printer,
+                    gate: false,
+                    needs_credentials: true,
+                    timeout_seconds: 30,
+                },
+            )
+        });
+        std::env::remove_var("TWACO_LOG_PROBE_PASSWORD");
+        let mine = |message: &str| {
+            logs.lines()
+                .any(|line| line.contains(message) && line.contains("hook=log-probe"))
+        };
+        assert!(mine("hook started"), "{logs}");
+        assert!(mine("hook finished"), "{logs}");
+        assert!(logs.contains("exit=0"), "{logs}");
+        assert!(!logs.contains("probe-log-5d1e"), "{logs}");
     }
 
     #[test]

@@ -291,6 +291,7 @@ impl<'a> Transaction<'a> {
         }
         journal.state = State::Committed;
         journal::write(self.root, &journal).map_err(|why| self.io(&journal, why))?;
+        tracing::debug!(operation = %operation_id, steps, "transaction committed");
         failpoint!("after-commit");
         recover::clean(self.root, &journal, false);
         Ok(Committed {
@@ -426,11 +427,18 @@ impl<'a> Transaction<'a> {
             steps,
         };
         journal::write(self.root, &journal).map_err(|why| self.io(&journal, why))?;
+        tracing::debug!(
+            operation = %journal.operation_id,
+            command = self.command,
+            steps = journal.steps.len(),
+            "transaction journal written"
+        );
         failpoint!("after-journal");
         if let Err(error) = self.write_artifacts(&journal) {
             recover::clean(self.root, &journal, true);
             return Err(error);
         }
+        tracing::debug!(operation = %journal.operation_id, "transaction staged");
         failpoint!("after-stage");
         journal.state = State::Applying;
         if let Err(why) = journal::write(self.root, &journal) {
@@ -478,6 +486,13 @@ impl<'a> Transaction<'a> {
                 Err(why) => return Err(recover::Stop::Failed(format!("{}: {why}", step.path))),
             }
             recover::install(self.root, &step)?;
+            tracing::debug!(
+                operation = %journal.operation_id,
+                step = step.id,
+                kind = ?step.kind,
+                path = %step.path,
+                "transaction step installed"
+            );
             failpoint!("after-step-{}-visible", step.id);
             journal.steps[at].completed = true;
             journal::write(self.root, journal)
@@ -491,6 +506,12 @@ impl<'a> Transaction<'a> {
     /// the operation wrote it is never overwritten: it is named instead, and the journal stays.
     fn undo(&self, journal: Journal, stop: recover::Stop) -> TransactionError {
         let leftover = recover::undo_installed(self.root, &journal);
+        tracing::warn!(
+            operation = %journal.operation_id,
+            rolled_back = leftover.is_empty(),
+            leftover = leftover.len(),
+            "transaction step failed"
+        );
         if leftover.is_empty() {
             recover::clean(self.root, &journal, true);
             return match stop {

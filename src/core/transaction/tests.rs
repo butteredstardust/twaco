@@ -740,3 +740,58 @@ fn a_name_windows_would_read_as_another_is_refused() {
         );
     }
 }
+
+#[test]
+fn a_transaction_logs_its_stages_and_a_recovery_warns_with_its_decision() {
+    let (_dir, root) = workspace("logs");
+    let lock = lock::acquire(&root, "test", &[]).unwrap();
+    let (_, logs) = crate::core::diagnostics::captured(|| plan(&root).apply(&lock).unwrap());
+    drop(lock);
+    for stage in [
+        "transaction journal written",
+        "transaction staged",
+        "transaction step installed",
+        "transaction committed",
+    ] {
+        assert!(logs.contains(stage), "{stage} is missing:\n{logs}");
+    }
+
+    let (_dir, root) = workspace("logs-recovery");
+    let mut journal = plan(&root).stage().unwrap();
+    recover::install(&root, &journal.steps[0]).unwrap();
+    journal.steps[0].completed = true;
+    journal::write(&root, &journal).unwrap();
+    let (_, logs) = crate::core::diagnostics::captured(|| recover::recover_pending(&root));
+    let warning = logs
+        .lines()
+        .find(|line| {
+            line.contains("recovered an interrupted operation")
+                && line.contains(&journal.operation_id)
+        })
+        .unwrap_or_else(|| panic!("no recovery warning:\n{logs}"));
+    assert!(warning.contains("WARN"), "{warning}");
+    assert!(warning.contains("decision=\"finished\""), "{warning}");
+    assert!(warning.contains("a.txt"), "{warning}");
+}
+
+#[test]
+fn a_refused_recovery_warns_with_the_paths() {
+    let (_dir, root) = workspace("logs-refused");
+    let journal = plan(&root).stage().unwrap();
+    recover::install(&root, &journal.steps[0]).unwrap();
+    std::fs::remove_file(root.join(journal.steps[2].stage.as_ref().unwrap())).unwrap();
+    std::fs::remove_file(root.join(journal.steps[0].backup.as_ref().unwrap())).unwrap();
+    let (result, logs) = crate::core::diagnostics::captured(|| recover::recover_pending(&root));
+    assert!(result.is_err());
+    let warning = logs
+        .lines()
+        .find(|line| {
+            line.contains("interrupted operation not recovered")
+                && line.contains(&journal.operation_id)
+        })
+        .unwrap_or_else(|| panic!("no refusal warning:\n{logs}"));
+    assert!(
+        warning.contains("decision=\"refused\"") && warning.contains("a.txt"),
+        "{warning}"
+    );
+}

@@ -98,6 +98,7 @@ pub const SECRET_FOLDERS: &[&str] = &[".twaco/profiles", ".twaco/backups", ".twa
 /// Asks `git ls-files`, which reads the index and nothing else; an error says why git could not
 /// be asked.
 pub fn tracked_secrets(root: &Path) -> Result<Vec<String>, String> {
+    let started = std::time::Instant::now();
     let output = std::process::Command::new("git")
         .arg("-C")
         .arg(root)
@@ -106,6 +107,13 @@ pub fn tracked_secrets(root: &Path) -> Result<Vec<String>, String> {
         .stdin(std::process::Stdio::null())
         .output()
         .map_err(|error| format!("could not run git: {error}"))?;
+    tracing::debug!(
+        program = "git",
+        arguments = "ls-files -z",
+        exit = output.status.code(),
+        elapsed_ms = u64::try_from(started.elapsed().as_millis()).unwrap_or(u64::MAX),
+        "git finished"
+    );
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);
         return Err(format!("git ls-files failed: {}", stderr.trim()));

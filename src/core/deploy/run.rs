@@ -98,6 +98,7 @@ pub fn run(
         return Err(DeployError::ParseFailed(parse_failures));
     }
 
+    tracing::info!(scripts = report.scripts_checked, "deploy: scripts checked");
     let mut baseline = baselines.load().map_err(DeployError::Baseline)?;
     report.plans = decide_all(remote, &baseline, projects)?;
 
@@ -107,6 +108,13 @@ pub fn run(
         .filter(|plan| matches!(plan.decision, Decision::Refuse(_)))
         .cloned()
         .collect();
+    tracing::info!(
+        entities = report.plans.len(),
+        conflicts = conflicts.len(),
+        apply,
+        force,
+        "deploy: planned"
+    );
     if !conflicts.is_empty() && !force {
         return Err(DeployError::Conflicts(conflicts));
     }
@@ -120,8 +128,12 @@ pub fn run(
     let mut import_failure = None;
     for project in projects {
         match remote.import(&project.file_name, &project.bytes) {
-            Ok(()) => report.imported.push(project.project.clone()),
+            Ok(()) => {
+                tracing::info!(project = %project.project, "deploy: project imported");
+                report.imported.push(project.project.clone());
+            }
             Err(source) => {
+                tracing::info!(project = %project.project, "deploy: project import failed");
                 import_failure = Some(DeployError::Import {
                     project: project.project.clone(),
                     source,
@@ -190,6 +202,11 @@ pub fn run(
         }
     }
 
+    tracing::info!(
+        kept = report.kept.len(),
+        not_kept = report.not_kept.len(),
+        "deploy: read back"
+    );
     // Import and read-back failures stop before service calls. What did import is nevertheless
     // persisted below, preserving the partial-import rule with the same single baseline write.
     if let Some(failure) = import_failure {
@@ -228,6 +245,11 @@ pub fn run(
                         Duration::from_secs(300),
                     )
                 });
+            tracing::info!(
+                project = %project.project,
+                ok = outcome.is_ok(),
+                "deploy: service called"
+            );
             if let Err(source) = outcome {
                 call_failure = Some(DeployError::Call {
                     project: project.project.clone(),
@@ -302,6 +324,7 @@ pub fn run(
             None => DeployError::Baseline(why),
         });
     }
+    tracing::info!("deploy: baseline written");
     if let Some(failure) = call_failure {
         Err(failure)
     } else {

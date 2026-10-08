@@ -185,7 +185,32 @@ pub fn recover_pending(root: &Path) -> Result<Vec<Recovered>, Refusal> {
     }
     let mut recovered = Vec::new();
     for journal in &journals {
-        let action = resolve(root, journal)?;
+        let paths = journal
+            .steps
+            .iter()
+            .map(|step| step.path.as_str())
+            .collect::<Vec<_>>()
+            .join(", ");
+        let action = resolve(root, journal).inspect_err(|_| {
+            tracing::warn!(
+                operation = %journal.operation_id,
+                command = %journal.command,
+                decision = "refused",
+                paths = %paths,
+                "interrupted operation not recovered"
+            );
+        })?;
+        tracing::warn!(
+            operation = %journal.operation_id,
+            command = %journal.command,
+            decision = match action {
+                Action::Cleaned => "cleaned",
+                Action::RolledForward => "finished",
+                Action::RolledBack => "undone",
+            },
+            paths = %paths,
+            "recovered an interrupted operation"
+        );
         recovered.push(Recovered {
             operation_id: journal.operation_id.clone(),
             command: journal.command.clone(),

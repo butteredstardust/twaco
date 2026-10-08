@@ -99,6 +99,48 @@ fn open(path: &Path) -> std::io::Result<std::fs::File> {
     OpenOptions::new().create(true).append(true).open(path)
 }
 
+/// Test helper: run `f` and return the log text recorded meanwhile, at `trace`.
+///
+/// One global subscriber serves every test, because a subscriber set per thread races with
+/// tracing's callsite cache when tests run in parallel. While a capture runs, events from other
+/// test threads land in the text too. Assert on the presence of a line, not on its absence.
+#[cfg(test)]
+pub(crate) fn captured<R>(f: impl FnOnce() -> R) -> (R, String) {
+    use std::sync::Once;
+    static SERIAL: Mutex<()> = Mutex::new(());
+    static RECORD: Mutex<Option<Vec<u8>>> = Mutex::new(None);
+    static INSTALL: Once = Once::new();
+
+    struct Sink;
+    impl std::io::Write for Sink {
+        fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
+            if let Some(record) = RECORD.lock().unwrap().as_mut() {
+                record.extend_from_slice(bytes);
+            }
+            Ok(bytes.len())
+        }
+        fn flush(&mut self) -> std::io::Result<()> {
+            Ok(())
+        }
+    }
+
+    INSTALL.call_once(|| {
+        let subscriber = tracing_subscriber::fmt()
+            .with_max_level(tracing::Level::TRACE)
+            .with_writer(|| Sink)
+            .with_ansi(false)
+            .finish();
+        tracing::subscriber::set_global_default(subscriber).expect("no other global subscriber");
+    });
+    let _serial = SERIAL
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    *RECORD.lock().unwrap() = Some(Vec::new());
+    let result = f();
+    let bytes = RECORD.lock().unwrap().take().unwrap_or_default();
+    (result, String::from_utf8_lossy(&bytes).into_owned())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

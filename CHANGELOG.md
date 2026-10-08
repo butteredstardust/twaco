@@ -11,6 +11,9 @@ All notable changes to twaco are recorded here. The format follows
 - Diagnostic logs for every command, including `twaco mcp`. `--log <filter>` or `TWACO_LOG`
   writes them to stderr. `--log-file <path>` or `TWACO_LOG_FILE` appends them to a file.
   Logs are off by default. They never hold credentials, headers or bodies.
+- Logs show workspace lock actions, transaction stages, recovery decisions, subprocesses
+  (`[[check]]` hooks, the TypeScript compiler, `git`) and each phase of a deploy, rename or adopt.
+  A stale temporary that twaco removes and an interrupted operation that twaco recovers log a warning.
 
 ## [0.1.5] - 2026-10-08
 

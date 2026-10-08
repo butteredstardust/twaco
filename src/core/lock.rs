@@ -36,6 +36,13 @@ pub struct WorkspaceLock {
     /// Interrupted operations finished or undone when the lock was taken, one line each.
     pub recovery: Vec<String>,
     root: PathBuf,
+    command: String,
+}
+
+impl Drop for WorkspaceLock {
+    fn drop(&mut self) {
+        tracing::debug!(command = %self.command, "workspace lock released");
+    }
 }
 
 impl WorkspaceLock {
@@ -111,6 +118,7 @@ fn acquire_then_sweep(
             Err(TryLockError::WouldBlock) => {
                 let holder = std::fs::read_to_string(&holder_path).unwrap_or_default();
                 let holder = holder.trim();
+                tracing::debug!(command, holder, "workspace lock refused");
                 return Err(LockError::Held {
                     holder: if holder.is_empty() {
                         "holder unknown".to_string()
@@ -122,6 +130,7 @@ fn acquire_then_sweep(
             Err(TryLockError::Error(error)) => return Err(io(error)),
         }
     }
+    tracing::debug!(command, attempts = attempt, "workspace lock taken");
     let started = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .map(|d| d.as_secs())
@@ -152,7 +161,7 @@ fn acquire_then_sweep(
         .map_err(|refusal| LockError::Recovery { message: refusal.0 })?
         .iter()
         .map(super::transaction::Recovered::describe)
-        .collect();
+        .collect::<Vec<String>>();
 
     // Only folders inside the workspace are swept. A configured folder that is a link to
     // somewhere else is left alone: what lies there is not this lock's to recover.
@@ -169,6 +178,7 @@ fn acquire_then_sweep(
         recovered,
         recovery,
         root: root.to_path_buf(),
+        command: command.to_string(),
     })
 }
 
@@ -247,6 +257,7 @@ fn remove_temporaries(directory: &Path, recovered: &mut Vec<PathBuf>) {
                 .is_some_and(|name| is_temporary(&name.to_string_lossy()))
             && std::fs::remove_file(&path).is_ok()
         {
+            tracing::warn!(path = %path.display(), "removed a stale temporary left by an interrupted write");
             recovered.push(path);
         }
     }
@@ -336,6 +347,40 @@ mod tests {
         assert!(stale.iter().all(|path| !path.exists()));
         assert!(kept.iter().all(|path| path.exists()));
         drop(lock);
+    }
+
+    #[test]
+    fn the_lock_logs_each_step_and_warns_about_a_stale_temporary() {
+        let (_dir, root) = temp();
+        std::fs::create_dir_all(root.join(".twaco")).unwrap();
+        std::fs::write(root.join(".twaco/.old.json.7.twaco-tmp"), b"x").unwrap();
+        let (_, logs) = crate::core::diagnostics::captured(|| {
+            let lock = acquire(&root, "sync", &[]).unwrap();
+            assert!(matches!(
+                acquire(&root, "fmt", &[]),
+                Err(LockError::Held { .. })
+            ));
+            drop(lock);
+        });
+        let line = |needle: &str| logs.lines().find(|line| line.contains(needle));
+        assert!(
+            line("workspace lock taken").unwrap().contains("DEBUG"),
+            "{logs}"
+        );
+        let mine = root.display().to_string();
+        let warning = logs
+            .lines()
+            .find(|line| line.contains("removed a stale temporary") && line.contains(&mine))
+            .unwrap_or_else(|| panic!("no warning for {mine}:\n{logs}"));
+        assert!(
+            warning.contains("WARN") && warning.contains(".old.json.7.twaco-tmp"),
+            "{logs}"
+        );
+        assert!(
+            line("workspace lock refused").unwrap().contains("pid"),
+            "{logs}"
+        );
+        assert!(line("workspace lock released").is_some(), "{logs}");
     }
 
     #[test]

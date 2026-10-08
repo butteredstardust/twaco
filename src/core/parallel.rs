@@ -90,34 +90,13 @@ mod tests {
         assert!(threads.lock().unwrap().len() > 1);
     }
 
-    /// A log buffer that tests can read back.
-    #[derive(Clone, Default)]
-    struct Buffer(std::sync::Arc<Mutex<Vec<u8>>>);
-
-    impl std::io::Write for Buffer {
-        fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
-            self.0.lock().unwrap().extend_from_slice(bytes);
-            Ok(bytes.len())
-        }
-        fn flush(&mut self) -> std::io::Result<()> {
-            Ok(())
-        }
-    }
-
     #[test]
     fn workers_log_under_the_callers_span() {
-        let buffer = Buffer::default();
-        let writer = buffer.clone();
-        let subscriber = tracing_subscriber::fmt()
-            .with_writer(move || writer.clone())
-            .with_ansi(false)
-            .finish();
-        tracing::subscriber::with_default(subscriber, || {
+        let ((), text) = crate::core::diagnostics::captured(|| {
             let span = tracing::info_span!("caller_span");
             let _entered = span.enter();
             map(&[1, 2, 3, 4], |_| tracing::info!("worker event"));
         });
-        let text = String::from_utf8(buffer.0.lock().unwrap().clone()).unwrap();
         let lines: Vec<&str> = text
             .lines()
             .filter(|l| l.contains("worker event"))
