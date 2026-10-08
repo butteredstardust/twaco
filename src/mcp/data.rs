@@ -212,6 +212,18 @@ pub(crate) fn config_table_tool(
             },
             profile: arguments.profile.clone(),
         }
+    } else if arguments.action == TableAction::Backup {
+        let path = out_path(
+            solution,
+            required_text(&arguments.backup, "backup")?,
+            arguments.overwrite,
+        )?;
+        commands::config_table::ConfigTableRequest {
+            thing: thing.clone(),
+            table: table.to_string(),
+            action: commands::config_table::ConfigTableAction::Backup { path },
+            profile: arguments.profile.clone(),
+        }
     } else if arguments.action == TableAction::Diff {
         let entity = resolved.as_ref().ok_or_else(|| {
             ToolError::with(
@@ -278,7 +290,13 @@ pub(crate) fn config_table_tool(
             "rows": live.rows.len(),
             "differences": differences,
         }),
-        commands::config_table::ConfigTableOutcome::BackedUp { .. } => unreachable!(),
+        commands::config_table::ConfigTableOutcome::BackedUp { table: live, .. } => json!({
+            "thing": thing,
+            "table": table,
+            "rows": live.rows.len(),
+            "backup": required_text(&arguments.backup, "backup")?,
+            "next": "restore it with action restore and this backup",
+        }),
     };
     add_notices(&mut result, &notices);
     Ok(result)

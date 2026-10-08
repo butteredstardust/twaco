@@ -127,38 +127,44 @@
     "name": "sync",
     "description": "Write sidecars back into their entity XML: service scripts, DataShape fields, mashup content, DataTable configuration. This is how an edit to a script.js takes effect. check: true reports what would change and writes nothing. Takes the workspace lock while it writes.",
     "inputSchema": {
-      "type": "object",
+      "additionalProperties": false,
       "properties": {
         "entity": {
-          "type": "string",
-          "description": "One entity, full name or its last dotted segment. Name one, or pass all: true."
+          "description": "One entity, full name or its last dotted segment. Name one or more (entity, entities), or pass all: true.",
+          "type": "string"
+        },
+        "entities": {
+          "description": "Several entities, each as entity takes one.",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
         },
         "all": {
+          "description": "Every entity (of the project, if one is named).",
           "type": "boolean",
-          "default": false,
-          "description": "Every entity (of the project, if one is named)."
+          "default": false
         },
         "project": {
-          "type": "string",
-          "description": "Narrow to one project of the solution."
+          "description": "Narrow to one project of the solution.",
+          "type": "string"
         },
         "check": {
           "type": "boolean",
           "default": false
         },
         "allow_add_remove": {
+          "description": "Add the services and fields only the sidecars have, and remove those only the entity has.",
           "type": "boolean",
-          "default": false,
-          "description": "Add the services and fields only the sidecars have, and remove those only the entity has."
+          "default": false
         },
         "relayout": {
+          "description": "Rewrite every script payload in the configured layout.",
           "type": "boolean",
-          "default": false,
-          "description": "Rewrite every script payload in the configured layout."
+          "default": false
         }
       },
-      "required": [],
-      "additionalProperties": false
+      "type": "object"
     },
     "annotations": {
       "readOnlyHint": false,
@@ -170,23 +176,29 @@
     "name": "extract",
     "description": "Entity XML to sidecars: service scripts, DataShape fields, mashup content, DataTable configuration. Overwrites the sidecars of the entities chosen; takes the workspace lock.",
     "inputSchema": {
-      "type": "object",
+      "additionalProperties": false,
       "properties": {
         "entity": {
-          "type": "string",
-          "description": "One entity, full name or its last dotted segment. Name one, or pass all: true."
+          "description": "One entity, full name or its last dotted segment. Name one or more (entity, entities), or pass all: true.",
+          "type": "string"
+        },
+        "entities": {
+          "description": "Several entities, each as entity takes one.",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
         },
         "all": {
+          "description": "Every entity (of the project, if one is named).",
           "type": "boolean",
-          "default": false,
-          "description": "Every entity (of the project, if one is named)."
+          "default": false
         },
         "project": {
           "type": "string"
         }
       },
-      "required": [],
-      "additionalProperties": false
+      "type": "object"
     },
     "annotations": {
       "readOnlyHint": false,
@@ -799,31 +811,31 @@
   },
   {
     "name": "adopt_report",
-    "description": "Compare a designer's Composer <Entities> export with the repository: which services it would revert, which entities it adds or changes (node by node with detail), and which it lacks. Writes nothing.",
+    "description": "Compare a designer's Composer <Entities> export with the repository: which services it would revert, which entities it adds or changes (node by node with detail), and which it lacks. Writes nothing. reverts > 0 is what `twaco adopt --fail-on-revert` fails on: the export would undo repository work.",
     "inputSchema": {
-      "type": "object",
-      "properties": {
-        "export": {
-          "type": "string",
-          "description": "Path to the export, absolute or relative to the solution root."
-        },
-        "entity": {
-          "type": "array",
-          "items": {
-            "type": "string"
-          },
-          "description": "Only entities whose name contains one of these."
-        },
-        "detail": {
-          "type": "boolean",
-          "description": "Return everything instead of the summary.",
-          "default": false
-        }
-      },
       "required": [
         "export"
       ],
-      "additionalProperties": false
+      "additionalProperties": false,
+      "type": "object",
+      "properties": {
+        "export": {
+          "description": "Path to the export, absolute or relative to the solution root.",
+          "type": "string"
+        },
+        "entity": {
+          "description": "Only entities whose name contains one of these.",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "detail": {
+          "description": "Return everything instead of the summary.",
+          "type": "boolean",
+          "default": false
+        }
+      }
     },
     "annotations": {
       "readOnlyHint": true,
@@ -1104,8 +1116,13 @@
   },
   {
     "name": "config_table",
-    "description": "Read one Thing's configuration table on the server, diff it against the entity XML in the repository, or restore it from a backup file. restore is a dry run unless dry_run is false; it refuses a backup of another Thing or table, and reads the table back.",
+    "description": "Read one Thing's configuration table on the server, diff it against the entity XML in the repository, back it up to a file in the solution (refused if the file exists, unless overwrite), or restore it from such a backup. restore is a dry run unless dry_run is false; it refuses a backup of another Thing or table, and reads the table back.",
     "inputSchema": {
+      "required": [
+        "thing",
+        "table"
+      ],
+      "additionalProperties": false,
       "type": "object",
       "properties": {
         "thing": {
@@ -1119,34 +1136,35 @@
           "enum": [
             "read",
             "diff",
-            "restore"
+            "restore",
+            "backup"
           ],
           "default": "read"
         },
         "backup": {
-          "type": "string",
-          "description": "restore only: the backup file, as `twaco config-table --backup` writes it."
+          "description": "backup: the file to write, relative to the solution (under .twaco/backups/ git ignores it; a table can hold secrets). restore: the file a backup wrote.",
+          "type": "string"
+        },
+        "overwrite": {
+          "description": "backup: replace the file if it exists.",
+          "type": "boolean",
+          "default": false
         },
         "dry_run": {
           "type": "boolean",
           "default": true
         },
         "profile": {
-          "type": "string",
           "description": "Server profile name.",
+          "type": "string",
           "default": "default"
         },
         "detail": {
-          "type": "boolean",
           "description": "Return everything instead of the summary.",
+          "type": "boolean",
           "default": false
         }
-      },
-      "required": [
-        "thing",
-        "table"
-      ],
-      "additionalProperties": false
+      }
     },
     "annotations": {
       "readOnlyHint": false,
@@ -1158,26 +1176,31 @@
     "name": "logs",
     "description": "Read a server log: ApplicationLog, ScriptLog, CommunicationLog, ConfigurationLog or SecurityLog. Newest first. A summary first (counts by level, top origins, repeated messages, the newest entries); detail: true lists every entry. truncated: true means the limit was reached.",
     "inputSchema": {
+      "required": [
+        "log"
+      ],
+      "additionalProperties": false,
       "type": "object",
       "properties": {
         "log": {
-          "type": "string",
-          "description": "ApplicationLog, ScriptLog, CommunicationLog, ConfigurationLog or SecurityLog."
+          "description": "ApplicationLog, ScriptLog, CommunicationLog, ConfigurationLog or SecurityLog.",
+          "type": "string"
         },
         "since": {
+          "description": "How far back, ending now: a number and s, m, h or d. Not with from/to.",
           "type": "string",
-          "default": "1h",
-          "description": "How far back, ending now: a number and s, m, h or d. Not with from/to."
+          "default": "1h"
         },
         "from": {
-          "type": "string",
-          "description": "ISO-8601 with Z or an offset (2026-10-01T06:37:00Z); without one it is in the local time zone of the machine running twaco. Or `now`."
+          "description": "ISO-8601 with Z or an offset (2026-10-01T06:37:00Z); without one it is in the local time zone of the machine running twaco. Or `now`.",
+          "type": "string"
         },
         "to": {
-          "type": "string",
-          "description": "ISO-8601 or `now` (the default)."
+          "description": "ISO-8601 or `now` (the default).",
+          "type": "string"
         },
         "level": {
+          "description": "This level and above.",
           "type": "string",
           "enum": [
             "TRACE",
@@ -1185,16 +1208,15 @@
             "INFO",
             "WARN",
             "ERROR"
-          ],
-          "description": "This level and above."
+          ]
         },
         "grep": {
-          "type": "string",
-          "description": "Entries whose message contains this text."
+          "description": "Entries whose message contains this text.",
+          "type": "string"
         },
         "regex": {
-          "type": "string",
-          "description": "A Java regex that must match the whole message. Not with grep."
+          "description": "A Java regex that must match the whole message. Not with grep.",
+          "type": "string"
         },
         "user": {
           "type": "string"
@@ -1207,28 +1229,24 @@
         },
         "limit": {
           "type": "integer",
-          "minimum": 1,
-          "default": 200
+          "default": 100,
+          "minimum": 1
         },
         "oldest_first": {
           "type": "boolean",
           "default": false
         },
         "profile": {
-          "type": "string",
           "description": "Server profile name.",
+          "type": "string",
           "default": "default"
         },
         "detail": {
-          "type": "boolean",
           "description": "Return everything instead of the summary.",
+          "type": "boolean",
           "default": false
         }
-      },
-      "required": [
-        "log"
-      ],
-      "additionalProperties": false
+      }
     },
     "annotations": {
       "readOnlyHint": true,
@@ -1476,6 +1494,31 @@
         "action"
       ],
       "additionalProperties": false
+    },
+    "annotations": {
+      "readOnlyHint": false,
+      "destructiveHint": true,
+      "openWorldHint": false
+    }
+  },
+  {
+    "name": "bundle",
+    "description": "The solution's configured bundle, the one importable XML that [bundle] in twaco.toml names: whether it is current, out of date or missing (dry run, as `twaco bundle --check`), or with dry_run false rebuilt from the repository. notes name references to entities the bundle leaves out. package builds a release bundle into a file you name instead.",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "backend_only": {
+          "description": "Leave out the collections [bundle] ui_collections names (a designer's mashups and media).",
+          "type": "boolean",
+          "default": false
+        },
+        "dry_run": {
+          "description": "Only say whether the configured bundle is current, as `twaco bundle --check` does.",
+          "type": "boolean",
+          "default": true
+        }
+      },
+      "type": "object"
     },
     "annotations": {
       "readOnlyHint": false,
@@ -1741,7 +1784,7 @@
     "name": "settings",
     "description": "Read the server's subsystem settings (Composer: Browse > Subsystems): list the subsystems, show one with every setting, its value and description, or search every setting by name or description. Read-only; PASSWORD values are never shown.",
     "inputSchema": {
-      "type": "object",
+      "additionalProperties": false,
       "properties": {
         "action": {
           "type": "string",
@@ -1753,21 +1796,24 @@
           "default": "list"
         },
         "subsystem": {
-          "type": "string",
-          "description": "show: a subsystem, such as Logging or LoggingSubsystem."
+          "description": "show: a subsystem, such as Logging or LoggingSubsystem.",
+          "type": "string"
+        },
+        "table": {
+          "description": "show: only this table of the subsystem, such as Settings (any case).",
+          "type": "string"
         },
         "text": {
-          "type": "string",
-          "description": "search: part of a setting's name or description."
+          "description": "search: part of a setting's name or description.",
+          "type": "string"
         },
         "profile": {
-          "type": "string",
           "description": "Server profile name.",
+          "type": "string",
           "default": "default"
         }
       },
-      "required": [],
-      "additionalProperties": false
+      "type": "object"
     },
     "annotations": {
       "readOnlyHint": true,
@@ -1926,40 +1972,59 @@
     }
   },
   {
+    "name": "doctor",
+    "description": "What resolved, what is reachable and what is missing, before anything else is blamed: twaco's version, the solution and its projects, the entity files, sidecars, .gitignore and secrets git tracks, the baseline, the workspace lock, the profile, and whether the server answers and accepts the credentials. Read-only; works without a solution. ok is false when an item fails.",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "profile": {
+          "description": "Server profile name.",
+          "type": "string",
+          "default": "default"
+        }
+      },
+      "type": "object"
+    },
+    "annotations": {
+      "readOnlyHint": true,
+      "destructiveHint": false,
+      "openWorldHint": false
+    }
+  },
+  {
     "name": "guide",
     "description": "Knowledge for working on this solution: twaco's workflow, the ThingWorx platform's verified-live quirks, the service-code reference, and the solution's own AGENTS.md, CLAUDE.md and docs/. Search before a live import, a hand-written mashup binding, a configuration-table change, or a service that introspects metadata or touches JSON. list: the topics; search: the best-matching sections; read: a topic (a long one gives its outline) or one section by heading.",
     "inputSchema": {
-      "type": "object",
+      "additionalProperties": false,
       "properties": {
         "action": {
+          "description": "Default: search when text is given, read when a topic is, else list (as `twaco guide`).",
           "type": "string",
           "enum": [
             "list",
             "search",
             "read"
-          ],
-          "default": "search"
+          ]
         },
         "text": {
-          "type": "string",
-          "description": "search: words, such as \"AddMember group\" or \"configuration table row replaced\"."
+          "description": "search: words, such as \"AddMember group\" or \"configuration table row replaced\".",
+          "type": "string"
         },
         "topic": {
-          "type": "string",
-          "description": "read: a topic id from list or search, such as quirks or docs/DEVELOPER_GUIDE."
+          "description": "read: a topic id from list or search, such as quirks or docs/DEVELOPER_GUIDE.",
+          "type": "string"
         },
         "section": {
-          "type": "string",
-          "description": "read: a section heading, or a part of it that only one heading has."
+          "description": "read: a section heading, or a part of it that only one heading has.",
+          "type": "string"
         },
         "limit": {
           "type": "integer",
-          "minimum": 1,
-          "default": 8
+          "default": 8,
+          "minimum": 1
         }
       },
-      "required": [],
-      "additionalProperties": false
+      "type": "object"
     },
     "annotations": {
       "readOnlyHint": true,

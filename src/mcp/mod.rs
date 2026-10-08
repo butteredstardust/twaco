@@ -284,6 +284,46 @@ pub(crate) fn nonempty<'a>(value: &'a str, name: &str) -> Result<&'a str, ToolEr
         .ok_or_else(|| ToolError::invalid(format!("`{name}` is required")))
 }
 
+/// A file to write, given relative to the solution: a plain path whose nearest existing folder
+/// is really inside the solution, and not an existing file unless overwriting.
+pub(crate) fn out_path(
+    solution: &Solution,
+    relative: &str,
+    overwrite: bool,
+) -> Result<std::path::PathBuf, ToolError> {
+    // Only plain names: `\\x` or `C:x` is not absolute to Rust on Windows, yet joins outside.
+    let plain = std::path::Path::new(relative)
+        .components()
+        .all(|c| matches!(c, std::path::Component::Normal(_)));
+    if !plain || relative.trim().is_empty() {
+        return Err(ToolError::invalid(format!(
+            "{relative} must be a plain path inside the solution"
+        )));
+    }
+    let out = solution.root.join(relative);
+    // And no link along the way may lead out: the nearest folder that exists must be inside.
+    let root = std::fs::canonicalize(&solution.root).map_err(ToolError::io)?;
+    let existing = out
+        .ancestors()
+        .skip(1)
+        .find(|a| a.exists())
+        .unwrap_or(&solution.root);
+    let real = std::fs::canonicalize(existing)
+        .map_err(|e| ToolError::with(ErrorCode::IoError, format!("{}: {e}", existing.display())))?;
+    if !real.starts_with(&root) {
+        return Err(ToolError::invalid(format!(
+            "{relative} leads outside the solution"
+        )));
+    }
+    if out.exists() && !overwrite {
+        return Err(ToolError::with(
+            ErrorCode::AlreadyExists,
+            format!("{relative} exists; pass overwrite: true to replace it"),
+        ));
+    }
+    Ok(out)
+}
+
 /// A client for the named server profile.
 pub(crate) fn client(solution: &Solution, profile: &str) -> Result<server::Client, ToolError> {
     profile::load(&solution.root, profile)

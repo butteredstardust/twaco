@@ -2,9 +2,9 @@
 
 `twaco mcp` serves twaco to an AI agent over the [Model Context Protocol](https://modelcontextprotocol.io),
 on standard input and output, as tools covering most of the command line's work: the
-repository, deploys, the server and the knowledge. Setup (`init`, `doctor`), `bundle` and
-`update` are command-line only. `update` replaces the binary, and an agent
-must not replace the server it talks to.
+repository, deploys, the server and the knowledge. `init` and `update` are command-line only;
+[Where the tools differ from the command line](#where-the-tools-differ-from-the-command-line)
+says why, and what else differs on purpose.
 
 ## Set up
 
@@ -108,6 +108,7 @@ text and structured content. The code identifies the next action.
 | `repo_write` | server; workspace for pull | Put, mkdir, rm, mv, push and pull for file repositories |
 | `extensions` | no | The server's extension packages |
 | `extension_write` | server | Validate, install or remove an extension package |
+| `bundle` | workspace, with `dry_run: false` | Whether the configured bundle is current, or rebuild it |
 | `search` | no | Find server entities by text in a name or description, type and project |
 | `entity_get` | no | One entity's XML as the server has it, returned rather than written |
 | `export` | workspace* | Export from the server into a file of the solution |
@@ -117,6 +118,7 @@ text and structured content. The code identifies the next action.
 | `impact` | no | What changing an entity, or one service, property or field of it, would reach, each dependent at the strength of its weakest reference |
 | `unused` | no | Entities no entry point reaches (advisory; deletes nothing), with what still names them |
 | `docs` | no | The solution written down: projects and deploy order, inheritance, services, DataShapes and the references to review, as JSON and Markdown |
+| `doctor` | no | What resolved, what is reachable and what is missing |
 | `guide` | no | twaco's workflow, the platform's quirks and the solution's own documents |
 | `help_search` | no | Search the ThingWorx Platform help center |
 | `help_page` | no | Read a help page as Markdown |
@@ -126,6 +128,37 @@ text and structured content. The code identifies the next action.
 file repository instead, and that one is a dry run by default.
 
 Each tool's description and schema, from `tools/list`, tell the agent the rest.
+
+## Where the tools differ from the command line
+
+Every command has a tool except these two, each for a reason:
+
+- **`init`** sets up a solution once: it writes `twaco.toml`, the `.gitignore` lines and the
+  agent instruction files that configure the agent itself. A person runs it before an agent is
+  connected.
+- **`update`** replaces the twaco binary, and an agent must not replace the server it talks to.
+
+These differ on purpose:
+
+- **`call` plans by default** over MCP and acts on the command line: a person typing `twaco call`
+  means it, and twaco cannot tell which services write.
+- **`adopt` is two tools.** `adopt_report` compares and writes nothing; `adopt_apply` writes
+  without a dry run, as one transaction. `reverts` in the report is what `--fail-on-revert` fails on.
+- **A rename applies only with the plan's `plan_digest`**, so an agent cannot apply a plan the
+  repository has moved on from.
+- **Files stay in the solution.** A file a tool writes (`export`, `package`, a `config_table`
+  backup) or reads (`db_run`, `import`) is a plain path inside the solution, and an existing
+  file is replaced only with `overwrite`. The command line takes any path.
+- **Results are bounded.** `entity_get` cuts the XML at `max_chars` (export writes it whole);
+  `repo` returns a text file's content up to a limit and no bytes for a binary one
+  (`repo_write` with `pull` brings files into the solution); `logs` returns 100 entries unless
+  asked for more, as the command line does.
+- **SQL can be given inline** to `db_run`, so an agent needs no temporary file; the command line
+  reads a file.
+- **`status` returns what it could read** with `ok: false` and the unreadable files listed,
+  where the command line stops; recording still refuses unless every file was read.
+- **No exit codes, `--json` or update notice.** Every result is JSON with `ok`, and an error has
+  a stable `code`; stdout carries only the protocol.
 
 ## The agent's instructions
 

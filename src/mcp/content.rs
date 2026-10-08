@@ -257,6 +257,54 @@ pub(crate) fn import_tool(
 }
 
 /// An export from the server, to a file inside the solution or into a repository.
+/// The solution's configured bundle: whether it is current, or with dry_run false rebuild it.
+pub(crate) fn bundle_tool(
+    solution: &Solution,
+    arguments: tool::BundleRequest,
+) -> Result<Value, ToolError> {
+    let request = commands::bundle::BundleRequest {
+        backend_only: arguments.backend_only,
+        mode: if arguments.dry_run {
+            Mode::Plan
+        } else {
+            Mode::Apply
+        },
+        lock_label: "mcp bundle",
+    };
+    let mut notices = commands::Notices::default();
+    let outcome =
+        commands::bundle::execute(solution, &request, &mut notices).map_err(ToolError::coded)?;
+    let (state, target, built) = match &outcome {
+        commands::bundle::BundleOutcome::Current { target, bundle, .. } => {
+            ("current", target, Some(bundle))
+        }
+        commands::bundle::BundleOutcome::OutOfDate { target, .. } => ("out_of_date", target, None),
+        commands::bundle::BundleOutcome::Missing { target, .. } => ("missing", target, None),
+        commands::bundle::BundleOutcome::Written { target, bundle, .. } => {
+            ("written", target, Some(bundle))
+        }
+    };
+    let mut result = json!({
+        "ok": matches!(state, "current" | "written"),
+        "state": state,
+        "bundle": relative(solution, target),
+    });
+    if let Some(bundle) = built {
+        result["entities"] = json!(bundle.entities.len());
+        result["files"] = json!(bundle.files);
+    }
+    if matches!(state, "out_of_date" | "missing") {
+        result["next"] = json!("rebuild it with dry_run: false");
+    }
+    let files = crate::core::bundle::source_files(solution);
+    let notes = crate::core::bundle::dangling_references(&files, &files);
+    if !notes.is_empty() {
+        result["notes"] = json!(notes);
+    }
+    add_notices(&mut result, &notices);
+    Ok(result)
+}
+
 /// The server's entity search, as Composer's Spotlight box does it. Read-only.
 pub(crate) fn search_tool(
     solution: &Solution,
@@ -403,46 +451,6 @@ pub(crate) fn export_tool(
     });
     add_notices(&mut result, &notices);
     Ok(result)
-}
-
-/// A file to write, given relative to the solution: a plain path whose nearest existing folder
-/// is really inside the solution, and not an existing file unless overwriting.
-fn out_path(
-    solution: &Solution,
-    relative: &str,
-    overwrite: bool,
-) -> Result<std::path::PathBuf, ToolError> {
-    // Only plain names: `\\x` or `C:x` is not absolute to Rust on Windows, yet joins outside.
-    let plain = std::path::Path::new(relative)
-        .components()
-        .all(|c| matches!(c, std::path::Component::Normal(_)));
-    if !plain || relative.trim().is_empty() {
-        return Err(ToolError::invalid(format!(
-            "{relative} must be a plain path inside the solution"
-        )));
-    }
-    let out = solution.root.join(relative);
-    // And no link along the way may lead out: the nearest folder that exists must be inside.
-    let root = std::fs::canonicalize(&solution.root).map_err(ToolError::io)?;
-    let existing = out
-        .ancestors()
-        .skip(1)
-        .find(|a| a.exists())
-        .unwrap_or(&solution.root);
-    let real = std::fs::canonicalize(existing)
-        .map_err(|e| ToolError::with(ErrorCode::IoError, format!("{}: {e}", existing.display())))?;
-    if !real.starts_with(&root) {
-        return Err(ToolError::invalid(format!(
-            "{relative} leads outside the solution"
-        )));
-    }
-    if out.exists() && !overwrite {
-        return Err(ToolError::with(
-            ErrorCode::AlreadyExists,
-            format!("{relative} exists; pass overwrite: true to replace it"),
-        ));
-    }
-    Ok(out)
 }
 
 /// The repository packaged for release, offline, into a file inside the solution.

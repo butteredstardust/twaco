@@ -1,4 +1,4 @@
-use super::entity::{refusal_code, tool_target};
+use super::entity::{refusal_code, tool_targets};
 use super::requests::source::{
     CheckRequest, DeployRequest, ExtractRequest, FmtRequest, SyncRequest, TypesAction, TypesRequest,
 };
@@ -148,14 +148,14 @@ pub(crate) fn check_tool(solution: &Solution, request: CheckRequest) -> Result<V
 
 pub(crate) fn sync_tool(solution: &Solution, arguments: SyncRequest) -> Result<Value, ToolError> {
     let check = arguments.check;
-    let target = tool_target(&arguments.entity);
+    let target = tool_targets(&arguments.entity, &arguments.entities);
     let request = commands::sync::SyncRequest {
         target: commands::sync::SyncTarget {
             project: arguments.project.as_ref().cloned(),
             entities: target,
             all: arguments.all,
             reject_entities_with_all: true,
-            missing_target: "name an entity, or pass all: true",
+            missing_target: "name an entity (entity or entities), or pass all: true",
         },
         mode: if check { Mode::Plan } else { Mode::Apply },
         allow_structural: arguments.allow_add_remove,
@@ -184,14 +184,14 @@ pub(crate) fn extract_tool(
     solution: &Solution,
     arguments: ExtractRequest,
 ) -> Result<Value, ToolError> {
-    let target = tool_target(&arguments.entity);
+    let target = tool_targets(&arguments.entity, &arguments.entities);
     let request = commands::extract::ExtractRequest {
         target: commands::extract::ExtractTarget {
             project: arguments.project.as_ref().cloned(),
             entities: target,
             all: arguments.all,
             reject_entities_with_all: true,
-            missing_target: "name an entity, or pass all: true",
+            missing_target: "name an entity (entity or entities), or pass all: true",
         },
         lock_label: "mcp extract",
     };

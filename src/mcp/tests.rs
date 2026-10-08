@@ -820,6 +820,7 @@ fn every_tool_is_listed_with_a_schema_and_honest_annotations() {
             "repo_write",
             "extensions",
             "extension_write",
+            "bundle",
             "search",
             "entity_get",
             "export",
@@ -830,6 +831,7 @@ fn every_tool_is_listed_with_a_schema_and_honest_annotations() {
             "impact",
             "unused",
             "docs",
+            "doctor",
             "guide",
             "help_search",
             "help_page",
@@ -1482,7 +1484,11 @@ fn arguments_of_the_wrong_shape_are_refused_before_the_tool_runs() {
             "`check` must be a boolean",
         ),
         ("sync", json!({"entity": 17}), "`entity` must be a string"),
-        ("sync", json!({}), "name an entity, or pass all: true"),
+        (
+            "sync",
+            json!({}),
+            "name an entity (entity or entities), or pass all: true",
+        ),
         ("extract", json!({"entity": "P.T", "all": true}), "not both"),
         (
             "status",
@@ -1823,5 +1829,90 @@ fn package_reports_what_it_wrote_from_a_single_build() {
         solution["structuredContent"]["detail"]["projects"][0]["project"], "P",
         "{solution}"
     );
+    let _ = std::fs::remove_dir_all(root);
+}
+
+fn call_tool(root: &Path, tool: &str, arguments: Value) -> (bool, Value) {
+    let reply = converse(
+        root,
+        &[
+            json!({"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":tool,"arguments":arguments}}),
+        ],
+    );
+    let result = &reply[0]["result"];
+    let body = serde_json::from_str(result["content"][0]["text"].as_str().unwrap()).unwrap();
+    (result["isError"] == true, body)
+}
+
+#[test]
+fn the_tools_do_what_the_command_line_does() {
+    let root = solution_dir();
+
+    // `twaco guide` with nothing lists the topics; with words it searches.
+    let (failed, listed) = call_tool(&root, "guide", json!({}));
+    assert!(!failed && listed["topics"].is_array(), "{listed}");
+    let (failed, found) = call_tool(&root, "guide", json!({"text": "AddMember group"}));
+    assert!(!failed && found["results"].is_array(), "{found}");
+
+    // Several entities, as the command line takes them: every name is resolved.
+    for (tool, extra) in [("extract", json!({})), ("sync", json!({"check": true}))] {
+        let with = |names: Value| {
+            let mut arguments = extra.clone();
+            for (key, value) in names.as_object().unwrap() {
+                arguments[key] = value.clone();
+            }
+            arguments
+        };
+        let (failed, body) = call_tool(&root, tool, with(json!({"entities": ["P.T"]})));
+        assert!(!failed, "{tool}: {body}");
+        let (failed, body) = call_tool(
+            &root,
+            tool,
+            with(json!({"entity": "P.T", "entities": ["P.Nope"]})),
+        );
+        assert!(failed, "{tool}: {body}");
+        assert_eq!(body["code"], "unknown_entity", "{tool}: {body}");
+    }
+
+    // A backup goes into the solution, checked before anything is asked of the server.
+    for (backup, code) in [
+        ("../outside.json", "invalid_arguments"),
+        ("twaco.toml", "already_exists"),
+    ] {
+        let (failed, body) = call_tool(
+            &root,
+            "config_table",
+            json!({"thing": "P.T", "table": "Settings", "action": "backup", "backup": backup}),
+        );
+        assert!(failed, "{backup}: {body}");
+        assert_eq!(body["code"], code, "{backup}: {body}");
+    }
+
+    // doctor works without a profile, and says the server commands need one.
+    let (failed, body) = call_tool(&root, "doctor", json!({"profile": "no-such-profile"}));
+    assert!(!failed && body["ok"] == true, "{body}");
+    let subjects: Vec<&str> = body["items"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|item| item["subject"].as_str().unwrap())
+        .collect();
+    assert!(
+        subjects.contains(&"solution") && subjects.contains(&"profile"),
+        "{body}"
+    );
+
+    // bundle plans by default, as `twaco bundle --check`, and writes nothing.
+    let (failed, body) = call_tool(&root, "bundle", json!({}));
+    assert!(!failed, "{body}");
+    assert_eq!(body["state"], "missing", "{body}");
+    assert_eq!(body["ok"], false, "{body}");
+    let target = root.join(body["bundle"].as_str().unwrap());
+    assert!(!target.exists(), "a dry run wrote {}", target.display());
+    let (failed, body) = call_tool(&root, "bundle", json!({"dry_run": false}));
+    assert!(!failed && body["state"] == "written", "{body}");
+    assert!(target.is_file());
+    let (_, body) = call_tool(&root, "bundle", json!({}));
+    assert_eq!(body["state"], "current", "{body}");
     let _ = std::fs::remove_dir_all(root);
 }

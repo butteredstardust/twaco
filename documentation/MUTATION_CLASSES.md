@@ -148,13 +148,14 @@ when the command is asked to write. A local output named by an option is include
 | `move_member` | read-only | multi-file atomic | XML, sidecars | A crash is finished or undone by the next command that takes the workspace lock; if it refuses, follow its message. Otherwise retry. | `core/commands/relocate.rs: execute` |
 | `new_building_block` | read-only | multi-file atomic | project files, config | A crash is finished or undone by the next command that takes the workspace lock; if it refuses, follow its message. Otherwise retry. | `core/commands/newblock.rs: execute` |
 | `retemplate` | read-only | single-file atomic | one entity XML | The entity is old or new; retry freely. | `core/commands/retemplate.rs: execute` |
-| `config_table` | read-only | server-partial | server table | Read the table back before retrying restore. | `core/commands/config_table.rs: execute` |
+| `config_table` | read-only | server-partial | server table, a named backup file | A backup is old or new; read the table back before retrying restore. | `core/commands/config_table.rs: execute` |
 | `logs` | read-only | read-only | none | Retry freely. | `mcp/data.rs: logs_tool` |
 | `log_level` | read-only | server-partial | server log level | Read the current level and use the undo before retrying. | `core/commands/logs.rs: execute` |
 | `repo` | read-only | read-only | none | Retry freely. | `mcp/content.rs: repo_tool` |
 | `repo_write` | read-only | server-partial | server repository or local pull | Inspect copied paths before retrying. | `core/commands/repo.rs: execute` |
 | `extensions` | read-only | read-only | none | Retry freely. | `mcp/content.rs: extensions_tool` |
 | `extension_write` | read-only | server-partial | server extension | Check installed extensions before retrying. | `core/commands/extensions.rs: execute` |
+| `bundle` | read-only | single-file atomic | generated bundle | The generated bundle is old or new; retry freely. | `core/commands/bundle.rs: execute` |
 | `search` | read-only | read-only | none | Retry freely. | `mcp/content.rs: search_tool` |
 | `entity_get` | read-only | read-only | none | Retry freely. | `mcp/content.rs: entity_get_tool` |
 | `export` | read-only | server-partial | local export or server repository | Local export is atomic; source-control apply needs a new plan and inspection. | `core/commands/export.rs: execute` |
@@ -165,6 +166,7 @@ when the command is asked to write. A local output named by an option is include
 | `impact` | read-only | read-only | none | Retry freely. | `mcp/info.rs: impact_tool` |
 | `unused` | read-only | read-only | none | Retry freely. | `mcp/info.rs: unused_tool` |
 | `docs` | read-only | read-only | none | Retry freely. | `mcp/info.rs: docs_tool` |
+| `doctor` | read-only | read-only | none | Retry freely. | `mcp/info.rs: doctor_tool` |
 | `guide` | read-only | read-only | none | Retry freely. | `mcp/info.rs: guide_tool` |
 | `help_search` | single-file atomic | single-file atomic | user cache file | The cache file is old or new; retry freely. | `mcp/info.rs: help_search_tool` |
 | `help_page` | single-file atomic | single-file atomic | user cache file | The cache file is old or new; retry freely. | `mcp/info.rs: help_page_tool` |

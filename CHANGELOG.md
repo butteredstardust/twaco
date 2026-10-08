@@ -6,6 +6,22 @@ All notable changes to twaco are recorded here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- The MCP server has a `doctor` tool and a `bundle` tool (a dry run says whether the configured
+  bundle is current, as `twaco bundle --check`; `dry_run: false` rebuilds it), and
+  `config_table` can write a backup into the solution (`action: "backup"`).
+- MCP `extract` and `sync` take several entities (`entities`), and `settings` shows one table
+  (`table`), as the command line does.
+
+### Changed
+
+- MCP `guide` with no action lists the topics, searches when given text and reads when given a
+  topic, as `twaco guide` does; before, it searched and refused for want of text.
+- MCP `logs` returns 100 entries unless asked for more, as the command line does (was 200).
+- `documentation/MCP_SERVER.md` says why `init` and `update` have no tool, and what differs
+  between the tools and the commands on purpose.
+
 ## [0.1.4] - 2026-10-08
 
 ### Added

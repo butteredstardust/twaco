@@ -1,6 +1,29 @@
 use super::requests::info as tool;
 use super::*;
 
+/// What resolved, what is reachable and what is missing: `twaco doctor`. Read-only.
+pub(crate) fn doctor_tool(root: &Path, arguments: tool::DoctorRequest) -> Result<Value, ToolError> {
+    let items = crate::core::doctor::diagnose(root, &arguments.profile);
+    let word = |health: crate::core::doctor::Health| match health {
+        crate::core::doctor::Health::Ok => "ok",
+        crate::core::doctor::Health::Warn => "warn",
+        crate::core::doctor::Health::Fail => "fail",
+    };
+    let failed = items
+        .iter()
+        .filter(|item| item.health == crate::core::doctor::Health::Fail)
+        .count();
+    Ok(json!({
+        "ok": failed == 0,
+        "failed": failed,
+        "items": items.iter().map(|item| json!({
+            "health": word(item.health),
+            "subject": item.subject,
+            "detail": item.detail,
+        })).collect::<Vec<_>>(),
+    }))
+}
+
 pub(crate) fn settings_tool(
     solution: &Solution,
     arguments: tool::SettingsRequest,
@@ -20,8 +43,10 @@ pub(crate) fn settings_tool(
             let name = settings::resolve(&names, required_text(&arguments.subsystem, "subsystem")?)
                 .map_err(ToolError::coded)?;
             let read = settings::read(&client, name).map_err(ToolError::coded)?;
+            let chosen =
+                settings::tables(&read, arguments.table.as_deref()).map_err(ToolError::coded)?;
             Ok(
-                json!({ "ok": true, "subsystem": read.name, "running": read.running, "tables": read.tables.iter().map(|t| settings::table_json(&read.name, t)).collect::<Vec<_>>() }),
+                json!({ "ok": true, "subsystem": read.name, "running": read.running, "tables": chosen.iter().map(|t| settings::table_json(&read.name, t)).collect::<Vec<_>>() }),
             )
         }
         tool::SettingsAction::Search => {
@@ -207,7 +232,13 @@ pub(crate) fn guide_tool(root: &Path, arguments: tool::GuideRequest) -> Result<V
         Err(error) => return Err(ToolError::coded(error)),
     };
     let (topics, problems) = guide::topics(solution.as_ref());
-    let mut result = match arguments.action {
+    let action = match arguments.action.as_ref() {
+        Some(action) => *action,
+        None if arguments.text.is_some() => tool::GuideAction::Search,
+        None if arguments.topic.is_some() => tool::GuideAction::Read,
+        None => tool::GuideAction::List,
+    };
+    let mut result = match action {
         tool::GuideAction::List => json!({ "ok": true, "topics": topics.iter().map(|t| json!({
             "topic": t.id,
             "title": t.title,

@@ -477,8 +477,15 @@
       "additionalProperties": false,
       "properties": {
         "entity": {
-          "description": "One entity, full name or its last dotted segment. Name one, or pass all: true.",
+          "description": "One entity, full name or its last dotted segment. Name one or more (entity, entities), or pass all: true.",
           "type": "string"
+        },
+        "entities": {
+          "description": "Several entities, each as entity takes one.",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
         },
         "all": {
           "description": "Every entity (of the project, if one is named).",
@@ -585,8 +592,15 @@
       "additionalProperties": false,
       "properties": {
         "entity": {
-          "description": "One entity, full name or its last dotted segment. Name one, or pass all: true.",
+          "description": "One entity, full name or its last dotted segment. Name one or more (entity, entities), or pass all: true.",
           "type": "string"
+        },
+        "entities": {
+          "description": "Several entities, each as entity takes one.",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
         },
         "all": {
           "description": "Every entity (of the project, if one is named).",
@@ -1505,7 +1519,7 @@
   },
   {
     "name": "adopt_report",
-    "description": "Compare a designer's Composer <Entities> export with the repository: which services it would revert, which entities it adds or changes (node by node with detail), and which it lacks. Writes nothing.",
+    "description": "Compare a designer's Composer <Entities> export with the repository: which services it would revert, which entities it adds or changes (node by node with detail), and which it lacks. Writes nothing. reverts > 0 is what `twaco adopt --fail-on-revert` fails on: the export would undo repository work.",
     "inputSchema": {
       "required": [
         "export"
@@ -1810,7 +1824,7 @@
   },
   {
     "name": "config_table",
-    "description": "Read one Thing's configuration table on the server, diff it against the entity XML in the repository, or restore it from a backup file. restore is a dry run unless dry_run is false; it refuses a backup of another Thing or table, and reads the table back.",
+    "description": "Read one Thing's configuration table on the server, diff it against the entity XML in the repository, back it up to a file in the solution (refused if the file exists, unless overwrite), or restore it from such a backup. restore is a dry run unless dry_run is false; it refuses a backup of another Thing or table, and reads the table back.",
     "inputSchema": {
       "required": [
         "thing",
@@ -1830,13 +1844,19 @@
           "enum": [
             "read",
             "diff",
-            "restore"
+            "restore",
+            "backup"
           ],
           "default": "read"
         },
         "backup": {
-          "description": "restore only: the backup file, as `twaco config-table --backup` writes it.",
+          "description": "backup: the file to write, relative to the solution (under .twaco/backups/ git ignores it; a table can hold secrets). restore: the file a backup wrote.",
           "type": "string"
+        },
+        "overwrite": {
+          "description": "backup: replace the file if it exists.",
+          "type": "boolean",
+          "default": false
         },
         "dry_run": {
           "type": "boolean",
@@ -1917,7 +1937,7 @@
         },
         "limit": {
           "type": "integer",
-          "default": 200,
+          "default": 100,
           "minimum": 1
         },
         "oldest_first": {
@@ -2180,6 +2200,31 @@
           "default": "default"
         }
       }
+    },
+    "annotations": {
+      "readOnlyHint": false,
+      "destructiveHint": true,
+      "openWorldHint": false
+    }
+  },
+  {
+    "name": "bundle",
+    "description": "The solution's configured bundle, the one importable XML that [bundle] in twaco.toml names: whether it is current, out of date or missing (dry run, as `twaco bundle --check`), or with dry_run false rebuilt from the repository. notes name references to entities the bundle leaves out. package builds a release bundle into a file you name instead.",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "backend_only": {
+          "description": "Leave out the collections [bundle] ui_collections names (a designer's mashups and media).",
+          "type": "boolean",
+          "default": false
+        },
+        "dry_run": {
+          "description": "Only say whether the configured bundle is current, as `twaco bundle --check` does.",
+          "type": "boolean",
+          "default": true
+        }
+      },
+      "type": "object"
     },
     "annotations": {
       "readOnlyHint": false,
@@ -2460,6 +2505,10 @@
           "description": "show: a subsystem, such as Logging or LoggingSubsystem.",
           "type": "string"
         },
+        "table": {
+          "description": "show: only this table of the subsystem, such as Settings (any case).",
+          "type": "string"
+        },
         "text": {
           "description": "search: part of a setting's name or description.",
           "type": "string"
@@ -2626,19 +2675,39 @@
     }
   },
   {
+    "name": "doctor",
+    "description": "What resolved, what is reachable and what is missing, before anything else is blamed: twaco's version, the solution and its projects, the entity files, sidecars, .gitignore and secrets git tracks, the baseline, the workspace lock, the profile, and whether the server answers and accepts the credentials. Read-only; works without a solution. ok is false when an item fails.",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "profile": {
+          "description": "Server profile name.",
+          "type": "string",
+          "default": "default"
+        }
+      },
+      "type": "object"
+    },
+    "annotations": {
+      "readOnlyHint": true,
+      "destructiveHint": false,
+      "openWorldHint": false
+    }
+  },
+  {
     "name": "guide",
     "description": "Knowledge for working on this solution: twaco's workflow, the ThingWorx platform's verified-live quirks, the service-code reference, and the solution's own AGENTS.md, CLAUDE.md and docs/. Search before a live import, a hand-written mashup binding, a configuration-table change, or a service that introspects metadata or touches JSON. list: the topics; search: the best-matching sections; read: a topic (a long one gives its outline) or one section by heading.",
     "inputSchema": {
       "additionalProperties": false,
       "properties": {
         "action": {
+          "description": "Default: search when text is given, read when a topic is, else list (as `twaco guide`).",
           "type": "string",
           "enum": [
             "list",
             "search",
             "read"
-          ],
-          "default": "search"
+          ]
         },
         "text": {
           "description": "search: words, such as \"AddMember group\" or \"configuration table row replaced\".",
