@@ -16,6 +16,12 @@ All notable changes to twaco are recorded here. The format follows
   (`[[check]]` hooks, the TypeScript compiler, `git`) and each phase of a deploy, rename or adopt.
   A stale temporary that twaco removes and an interrupted operation that twaco recovers log a warning.
 
+### Fixed
+
+- A server error message no longer shows a credential that appears in the request URL. This
+  happens when an entity name holds a secret. Every client error now hides the password, the app
+  key and secret profile values in its URL, reason and body.
+
 ## [0.1.5] - 2026-10-08
 
 ### Added

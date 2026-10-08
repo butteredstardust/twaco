@@ -108,10 +108,8 @@ impl Client {
             None,
         )?;
         let bytes = checked(&self.secrets, Method::Get, url.clone(), response)?;
-        serde_json::from_slice(&bytes).map_err(|error| ServerError::InvalidResponse {
-            url,
-            why: error.to_string(),
-        })
+        serde_json::from_slice(&bytes)
+            .map_err(|error| self.invalid_response(&url, error.to_string()))
     }
 
     /// The names of every entity of a collection, from its REST listing.
@@ -132,18 +130,12 @@ impl Client {
             None,
         )?;
         let bytes = checked(&self.secrets, Method::Get, url.clone(), response)?;
-        let value: serde_json::Value =
-            serde_json::from_slice(&bytes).map_err(|error| ServerError::InvalidResponse {
-                url: url.clone(),
-                why: error.to_string(),
-            })?;
+        let value: serde_json::Value = serde_json::from_slice(&bytes)
+            .map_err(|error| self.invalid_response(&url, error.to_string()))?;
         let rows = value
             .get("rows")
             .and_then(serde_json::Value::as_array)
-            .ok_or_else(|| ServerError::InvalidResponse {
-                url,
-                why: "the listing has no rows".to_string(),
-            })?;
+            .ok_or_else(|| self.invalid_response(&url, "the listing has no rows".to_string()))?;
         Ok(rows
             .iter()
             .filter_map(|row| row.get("name").and_then(serde_json::Value::as_str))
@@ -289,7 +281,7 @@ impl Client {
             Ok(())
         } else {
             Err(ServerError::Rejected {
-                url,
+                url: scrub(&self.secrets, &url),
                 body: scrub(&self.secrets, &excerpt(&reply)),
             })
         }
@@ -370,10 +362,8 @@ impl Client {
             Some(Duration::from_secs(600)),
         )?;
         let reply = checked(&self.secrets, Method::Post, url.clone(), response)?;
-        serde_json::from_slice(&reply).map_err(|error| ServerError::InvalidResponse {
-            url,
-            why: error.to_string(),
-        })
+        serde_json::from_slice(&reply)
+            .map_err(|error| self.invalid_response(&url, error.to_string()))
     }
 
     /// Ask ThingWorx's Rhino parser to validate one service body.
@@ -402,16 +392,12 @@ impl Client {
             Some(&body),
         )?;
         let reply = checked(&self.secrets, Method::Post, url.clone(), response)?;
-        let parsed: ScriptCheckResponse =
-            serde_json::from_slice(&reply).map_err(|error| ServerError::InvalidResponse {
-                url: url.clone(),
-                why: error.to_string(),
-            })?;
+        let parsed: ScriptCheckResponse = serde_json::from_slice(&reply)
+            .map_err(|error| self.invalid_response(&url, error.to_string()))?;
         if parsed.rows.len() != 1 {
-            return Err(ServerError::InvalidResponse {
-                url,
-                why: format!("expected one row, got {}", parsed.rows.len()),
-            });
+            return Err(
+                self.invalid_response(&url, format!("expected one row, got {}", parsed.rows.len()))
+            );
         }
         Ok(parsed.rows.into_iter().next().expect("length checked"))
     }
@@ -458,10 +444,15 @@ impl Client {
         }
         serde_json::from_slice(&reply)
             .map(Some)
-            .map_err(|error| ServerError::InvalidResponse {
-                url,
-                why: error.to_string(),
-            })
+            .map_err(|error| self.invalid_response(&url, error.to_string()))
+    }
+
+    /// An `InvalidResponse` with every secret removed from the address and the reason.
+    fn invalid_response(&self, url: &str, why: impl fmt::Display) -> ServerError {
+        ServerError::InvalidResponse {
+            url: scrub(&self.secrets, url),
+            why: scrub(&self.secrets, &why.to_string()),
+        }
     }
 
     fn base(&self) -> &str {
@@ -545,6 +536,40 @@ pub enum ServerError {
 }
 
 impl ServerError {
+    /// The same error with every secret removed from its text fields. An entity name or a
+    /// service parameter can hold a secret, and the request URL then carries it.
+    fn scrubbed(self, secrets: &[String]) -> Self {
+        let clean = |text: String| scrub(secrets, &text);
+        match self {
+            ServerError::InvalidUrl(why) => ServerError::InvalidUrl(clean(why)),
+            ServerError::Transport { method, url, why } => ServerError::Transport {
+                method,
+                url: clean(url),
+                why: clean(why),
+            },
+            ServerError::Http {
+                method,
+                status,
+                url,
+                body,
+            } => ServerError::Http {
+                method,
+                status,
+                url: clean(url),
+                body: clean(body),
+            },
+            ServerError::Rejected { url, body } => ServerError::Rejected {
+                url: clean(url),
+                body: clean(body),
+            },
+            ServerError::InvalidResponse { url, why } => ServerError::InvalidResponse {
+                url: clean(url),
+                why: clean(why),
+            },
+            other @ (ServerError::UnsupportedCharset(_) | ServerError::InvalidUtf8 { .. }) => other,
+        }
+    }
+
     pub fn is_not_found(&self) -> bool {
         matches!(self, ServerError::Http { status: 404, .. })
     }
@@ -623,7 +648,7 @@ fn checked(
         return Err(ServerError::Http {
             method,
             status: response.status,
-            url,
+            url: scrub(secrets, &url),
             body: scrub(secrets, &excerpt(detail)),
         });
     }
@@ -642,7 +667,7 @@ fn checked_bytes(
         return Err(ServerError::Http {
             method,
             status: response.status,
-            url,
+            url: scrub(secrets, &url),
             body: scrub(secrets, &excerpt(&String::from_utf8_lossy(&response.body))),
         });
     }
@@ -865,7 +890,8 @@ fn transport_with_timeout(
 ) -> Result<Response, ServerError> {
     let started = std::time::Instant::now();
     let logged_url = || scrub(secrets, &super::profile::hide_url_credentials(url));
-    let result = send(agent, method, url, headers, body, timeout);
+    let result =
+        send(agent, method, url, headers, body, timeout).map_err(|error| error.scrubbed(secrets));
     let elapsed_ms = u64::try_from(started.elapsed().as_millis()).unwrap_or(u64::MAX);
     match &result {
         Ok(response) => tracing::debug!(
@@ -880,7 +906,7 @@ fn transport_with_timeout(
         Err(error) => tracing::debug!(
             %method,
             url = %logged_url(),
-            why = %scrub(secrets, &error.to_string()),
+            why = %error,
             elapsed_ms,
             "server request failed"
         ),
@@ -964,6 +990,59 @@ fn send(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A request URL carries an entity name, and a person can type a secret into one. Each error
+    /// kind the client builds around such a URL must hide every form of every secret.
+    #[test]
+    fn a_secret_in_the_request_url_never_reaches_an_error_message() {
+        let password = "pw-7f3a9c1e5b";
+        let app_key = "appkey-4d8e2b6f0a";
+        let profile_for = |url: String| Profile {
+            url,
+            username: "user".to_string(),
+            password: password.to_string(),
+            app_key: Some(app_key.to_string()),
+            extra: Default::default(),
+        };
+        let secrets = secrets_of(&profile_for(String::new()));
+        let key = EntityKey::new("Things", format!("Acme.{app_key}.{password}")).unwrap();
+        let assert_clean = |error: ServerError| {
+            let text = format!("{error} {error:?}");
+            for secret in &secrets {
+                assert!(!text.contains(secret.as_str()), "{secret} in {text}");
+            }
+        };
+
+        // Transport: nothing listens on the port.
+        let closed = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let address = closed.local_addr().unwrap();
+        drop(closed);
+        let client = Client::new(profile_for(format!("http://{address}/Thingworx/")));
+        let error = client.fetch_entity(&key).unwrap_err();
+        assert!(matches!(error, ServerError::Transport { .. }), "{error}");
+        assert_clean(error);
+
+        // Http: the server answers an error status.
+        let (url, server) = serve_once("500 Internal Server Error", "no");
+        let error = Client::new(profile_for(url))
+            .fetch_entity(&key)
+            .unwrap_err();
+        server.join().unwrap();
+        assert!(matches!(error, ServerError::Http { .. }), "{error}");
+        assert_clean(error);
+
+        // InvalidResponse: a success status with a body that is not JSON.
+        let (url, server) = serve_once("200 OK", "not json");
+        let error = Client::new(profile_for(url))
+            .fetch_entity_json(&key)
+            .unwrap_err();
+        server.join().unwrap();
+        assert!(
+            matches!(error, ServerError::InvalidResponse { .. }),
+            "{error}"
+        );
+        assert_clean(error);
+    }
 
     #[test]
     fn credentials_written_into_the_address_never_reach_an_error_message() {
