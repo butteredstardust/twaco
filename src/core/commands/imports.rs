@@ -3,6 +3,7 @@
 use super::{Access, Effects, Mode, Notices};
 use crate::core::codes::{Coded, ErrorCode};
 use crate::core::config::Solution;
+use crate::core::progress::{self, Progress};
 use crate::core::{imports, profile};
 
 /// An import source supplied by either adapter.
@@ -67,6 +68,7 @@ pub fn execute<R, F>(
     request: &ImportRequest,
     open: F,
     _: &mut Notices,
+    progress: &dyn Progress,
 ) -> Result<ImportOutcome, ImportCommandError>
 where
     R: imports::Remote,
@@ -79,27 +81,33 @@ where
     let server = if apply { Access::Write } else { Access::Read };
     match &request.action {
         ImportAction::File { file_name, bytes } => Ok(ImportOutcome::File {
-            plan: imports::import_file(
+            plan: imports::import_file_with_progress(
                 &remote,
                 file_name,
                 bytes,
                 request.overwrite_properties,
                 request.overwrite_tables,
                 apply,
+                progress,
             )
             .map_err(ImportCommandError::Import)?,
             effects: Effects::new(Access::None, server),
         }),
         ImportAction::SourceControl { repository, path } => Ok(ImportOutcome::SourceControl {
-            report: imports::import_source_control(
-                &remote,
-                repository,
-                path,
-                request.overwrite_properties,
-                request.overwrite_tables,
-                apply,
-            )
-            .map_err(ImportCommandError::Import)?,
+            report: {
+                let _phase = progress::phase(progress, "importing source control", Some(1));
+                let report = imports::import_source_control(
+                    &remote,
+                    repository,
+                    path,
+                    request.overwrite_properties,
+                    request.overwrite_tables,
+                    apply,
+                )
+                .map_err(ImportCommandError::Import)?;
+                progress.advance(1);
+                report
+            },
             effects: Effects::new(Access::None, server),
         }),
     }
@@ -176,6 +184,7 @@ mod tests {
                 move |_| remote
             },
             &mut Notices::default(),
+            &crate::core::progress::NONE,
         )
         .unwrap();
         assert_eq!(plan.effects(), Effects::new(Access::None, Access::Read));
@@ -192,6 +201,7 @@ mod tests {
                 move |_| remote
             },
             &mut Notices::default(),
+            &crate::core::progress::NONE,
         )
         .unwrap();
         assert_eq!(apply.effects(), Effects::new(Access::None, Access::Write));
@@ -225,6 +235,7 @@ mod tests {
                 calls: Arc::new(Mutex::new(Vec::new())),
             },
             &mut Notices::default(),
+            &crate::core::progress::NONE,
         )
         .unwrap_err();
         assert_eq!(error.code(), ErrorCode::InvalidData);

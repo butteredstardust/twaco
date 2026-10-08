@@ -23,8 +23,15 @@ pub(crate) fn types_cmd(solution: &Solution, args: &Args) -> u8 {
         lock_label: "types",
     };
     let mut notices = commands::Notices::default();
-    let result =
-        commands::types::execute(solution, &request, server::Client::new, None, &mut notices);
+    let progress = super::progress::reporter();
+    let result = commands::types::execute(
+        solution,
+        &request,
+        server::Client::new,
+        None,
+        &mut notices,
+        &progress,
+    );
     print_notices(&notices);
     match result {
         Ok(commands::types::TypesOutcome::Platform(outcome)) => {
@@ -463,11 +470,13 @@ pub(crate) fn deploy_cmd(solution: &Solution, args: &Args) -> u8 {
         lock_label: "deploy",
     };
     let mut notices = commands::Notices::default();
+    let progress = super::progress::reporter();
     let outcome = match commands::deploy::execute(
         solution,
         &request,
         server::Client::new,
         &mut notices,
+        &progress,
     ) {
         Ok(outcome) => outcome,
         Err(error) => {

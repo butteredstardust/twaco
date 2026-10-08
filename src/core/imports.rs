@@ -8,6 +8,7 @@
 //! differs. Both are plans unless applied.
 
 use super::entity_key::{EntityKey, ServiceTarget};
+use super::progress::{self, Progress, NONE};
 use super::server::{Client, ServerError};
 use serde_json::{json, Value};
 use std::io::Read;
@@ -182,8 +183,35 @@ pub fn import_file(
     overwrite_tables: bool,
     apply: bool,
 ) -> Result<FilePlan, ImportError> {
+    import_file_with_progress(
+        remote,
+        file_name,
+        bytes,
+        overwrite_properties,
+        overwrite_tables,
+        apply,
+        &NONE,
+    )
+}
+
+/// Like [`import_file`], and report progress: one step per entity looked up, one for the send.
+pub fn import_file_with_progress(
+    remote: &dyn Remote,
+    file_name: &str,
+    bytes: &[u8],
+    overwrite_properties: bool,
+    overwrite_tables: bool,
+    apply: bool,
+    progress: &dyn Progress,
+) -> Result<FilePlan, ImportError> {
     let entities = entities_in_file(file_name, bytes)?;
-    let present = super::parallel::map(&entities, |key| remote.exists(key));
+    let present = {
+        let _phase = progress::phase(progress, "looking up entities", Some(entities.len() as u64));
+        super::parallel::map_progress(&entities, progress, |key| {
+            progress.message(&key.to_string());
+            remote.exists(key)
+        })
+    };
     let mut plan = FilePlan {
         new: Vec::new(),
         replaced: Vec::new(),
@@ -199,10 +227,20 @@ pub fn import_file(
     if !apply {
         return Ok(plan);
     }
-    remote
-        .import_file(file_name, bytes, overwrite_properties, overwrite_tables)
-        .map_err(ImportError::Remote)?;
-    let after = super::parallel::map(&entities, |key| remote.exists(key));
+    {
+        let _phase = progress::phase(progress, "importing", Some(1));
+        remote
+            .import_file(file_name, bytes, overwrite_properties, overwrite_tables)
+            .map_err(ImportError::Remote)?;
+        progress.advance(1);
+    }
+    let after = {
+        let _phase = progress::phase(progress, "confirming entities", Some(entities.len() as u64));
+        super::parallel::map_progress(&entities, progress, |key| {
+            progress.message(&key.to_string());
+            remote.exists(key)
+        })
+    };
     let missing: Vec<String> = entities
         .iter()
         .zip(after)

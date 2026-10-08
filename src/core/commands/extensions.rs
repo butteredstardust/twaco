@@ -3,6 +3,7 @@
 use super::{Access, Effects, Mode, Notices};
 use crate::core::codes::{Coded, ErrorCode};
 use crate::core::config::Solution;
+use crate::core::progress::Progress;
 use crate::core::{extensions, profile};
 
 /// An extension package operation requested by either adapter.
@@ -88,6 +89,7 @@ pub fn execute<R, F>(
     request: &ExtensionRequest,
     open: F,
     _: &mut Notices,
+    progress: &dyn Progress,
 ) -> Result<ExtensionOutcome, ExtensionCommandError>
 where
     R: extensions::Remote,
@@ -110,8 +112,14 @@ where
             zip,
             mode,
         } => Ok(ExtensionOutcome::Imported {
-            imported: extensions::import(&remote, file_name, zip, matches!(mode, Mode::Apply))
-                .map_err(ExtensionCommandError::Extension)?,
+            imported: extensions::import_with_progress(
+                &remote,
+                file_name,
+                zip,
+                matches!(mode, Mode::Apply),
+                progress,
+            )
+            .map_err(ExtensionCommandError::Extension)?,
             mode: *mode,
             effects: Effects::new(
                 Access::None,
@@ -234,6 +242,7 @@ mod tests {
                 move |_| remote
             },
             &mut Notices::default(),
+            &crate::core::progress::NONE,
         )
         .unwrap();
         assert_eq!(plan.effects(), Effects::new(Access::None, Access::Read));
@@ -250,6 +259,7 @@ mod tests {
                 move |_| remote
             },
             &mut Notices::default(),
+            &crate::core::progress::NONE,
         )
         .unwrap();
         assert_eq!(apply.effects(), Effects::new(Access::None, Access::Write));
@@ -270,6 +280,7 @@ mod tests {
                 installed: Arc::new(Mutex::new(false)),
             },
             &mut Notices::default(),
+            &crate::core::progress::NONE,
         )
         .unwrap_err();
         assert_eq!(error.code(), ErrorCode::InvalidData);

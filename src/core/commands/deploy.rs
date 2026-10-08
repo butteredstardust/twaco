@@ -5,6 +5,7 @@ use crate::core::backup;
 use crate::core::check;
 use crate::core::codes::{Coded, ErrorCode};
 use crate::core::config::Solution;
+use crate::core::progress::Progress;
 use crate::core::{deploy, lock, profile};
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -124,6 +125,7 @@ pub fn execute<R, F>(
     request: &DeployRequest,
     open: F,
     notices: &mut Notices,
+    progress: &dyn Progress,
 ) -> Result<DeployOutcome, DeployCommandError>
 where
     R: Remote,
@@ -190,14 +192,17 @@ where
     } else {
         None
     };
-    let report = match deploy::run(
+    let report = match deploy::run_with_progress(
         &remote,
         &deploy::DiskBaseline::new(&solution.root),
         &profile,
         &projects,
-        matches!(request.mode, Mode::Apply),
-        request.force,
-        !request.only.is_empty(),
+        deploy::RunOptions {
+            apply: matches!(request.mode, Mode::Apply),
+            force: request.force,
+            only: !request.only.is_empty(),
+        },
+        progress,
     ) {
         Ok(report) => report,
         Err(why) => {
@@ -259,7 +264,8 @@ mod tests {
                 &solution,
                 &request,
                 crate::core::server::Client::new,
-                &mut Notices::default()
+                &mut Notices::default(),
+                &crate::core::progress::NONE
             ),
             Err(DeployCommandError::Plan { .. })
         ));
@@ -272,7 +278,8 @@ mod tests {
                 &solution,
                 &apply,
                 crate::core::server::Client::new,
-                &mut Notices::default()
+                &mut Notices::default(),
+                &crate::core::progress::NONE
             ),
             Err(DeployCommandError::Lock(_))
         ));

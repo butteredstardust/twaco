@@ -93,6 +93,7 @@ pub(crate) fn search_cmd(solution: &Solution, args: &Args) -> u8 {
 
 pub(crate) fn export_cmd(solution: &Solution, args: &Args) -> u8 {
     use twaco::core::commands::export::{self as command, ExportAction, ExportRequest};
+    let progress = super::progress::reporter();
     use twaco::core::export;
     let profile_name = args.profile.as_deref().unwrap_or("default");
     let value = |flag: &str| args.values.get(flag).cloned();
@@ -154,7 +155,7 @@ pub(crate) fn export_cmd(solution: &Solution, args: &Args) -> u8 {
                     profile: profile_name.to_string(),
                 };
                 let mut notices = commands::Notices::default();
-                let outcome = command::execute(solution, &request, server::Client::new, &mut notices)
+                let outcome = command::execute(solution, &request, server::Client::new, &mut notices, &progress)
                     .map_err(|e| e.to_string())?;
                 print_notices(&notices);
                 let command::ExportOutcome::SourceControl { plan, download: link, .. } = outcome else {
@@ -177,8 +178,14 @@ pub(crate) fn export_cmd(solution: &Solution, args: &Args) -> u8 {
             profile: profile_name.to_string(),
         };
         let mut notices = commands::Notices::default();
-        let outcome = command::execute(solution, &request, server::Client::new, &mut notices)
-            .map_err(|e| e.to_string())?;
+        let outcome = command::execute(
+            solution,
+            &request,
+            server::Client::new,
+            &mut notices,
+            &progress,
+        )
+        .map_err(|e| e.to_string())?;
         print_notices(&notices);
         let command::ExportOutcome::Xml { out, exported, .. } = outcome else {
             unreachable!()
@@ -212,6 +219,7 @@ pub(crate) fn export_cmd(solution: &Solution, args: &Args) -> u8 {
 /// `twaco import <file> | import source-control`: into the server, as plans unless applied.
 pub(crate) fn import_cmd(solution: &Solution, args: &Args) -> u8 {
     use twaco::core::commands::imports::{self as command, ImportAction, ImportRequest};
+    let progress = super::progress::reporter();
     use twaco::core::imports;
     let profile_name = args.profile.as_deref().unwrap_or("default");
     let apply = args.has("--apply");
@@ -247,8 +255,14 @@ pub(crate) fn import_cmd(solution: &Solution, args: &Args) -> u8 {
                 profile: profile_name.to_string(),
             };
             let mut notices = commands::Notices::default();
-            let outcome = command::execute(solution, &request, server::Client::new, &mut notices)
-                .map_err(|e| e.to_string())?;
+            let outcome = command::execute(
+                solution,
+                &request,
+                server::Client::new,
+                &mut notices,
+                &progress,
+            )
+            .map_err(|e| e.to_string())?;
             print_notices(&notices);
             let command::ImportOutcome::SourceControl {
                 report: imported, ..
@@ -298,8 +312,14 @@ pub(crate) fn import_cmd(solution: &Solution, args: &Args) -> u8 {
                 profile: profile_name.to_string(),
             };
             let mut notices = commands::Notices::default();
-            let outcome = command::execute(solution, &request, server::Client::new, &mut notices)
-                .map_err(|e| e.to_string())?;
+            let outcome = command::execute(
+                solution,
+                &request,
+                server::Client::new,
+                &mut notices,
+                &progress,
+            )
+            .map_err(|e| e.to_string())?;
             print_notices(&notices);
             let command::ImportOutcome::File { plan, .. } = outcome else {
                 unreachable!()
@@ -406,6 +426,7 @@ pub(crate) fn package_cmd(solution: &Solution, args: &Args) -> u8 {
 /// `twaco ext list | show | import | remove`: the server's extension packages.
 pub(crate) fn ext_cmd(solution: &Solution, args: &Args) -> u8 {
     use twaco::core::commands::extensions::{self as command, ExtensionAction, ExtensionRequest};
+    let progress = super::progress::reporter();
     let profile_name = args.profile.as_deref().unwrap_or("default");
     let names: Vec<&str> = args.names.iter().map(String::as_str).collect();
     let result: Result<(), String> = (|| match names.as_slice() {
@@ -415,8 +436,14 @@ pub(crate) fn ext_cmd(solution: &Solution, args: &Args) -> u8 {
                 profile: profile_name.to_string(),
             };
             let mut notices = commands::Notices::default();
-            let outcome = command::execute(solution, &request, server::Client::new, &mut notices)
-                .map_err(|e| e.to_string())?;
+            let outcome = command::execute(
+                solution,
+                &request,
+                server::Client::new,
+                &mut notices,
+                &progress,
+            )
+            .map_err(|e| e.to_string())?;
             print_notices(&notices);
             let command::ExtensionOutcome::Listed { packages, .. } = outcome else {
                 unreachable!()
@@ -442,8 +469,14 @@ pub(crate) fn ext_cmd(solution: &Solution, args: &Args) -> u8 {
                 profile: profile_name.to_string(),
             };
             let mut notices = commands::Notices::default();
-            let outcome = command::execute(solution, &request, server::Client::new, &mut notices)
-                .map_err(|e| e.to_string())?;
+            let outcome = command::execute(
+                solution,
+                &request,
+                server::Client::new,
+                &mut notices,
+                &progress,
+            )
+            .map_err(|e| e.to_string())?;
             print_notices(&notices);
             let command::ExtensionOutcome::Shown { shown, .. } = outcome else {
                 unreachable!()
@@ -494,8 +527,14 @@ pub(crate) fn ext_cmd(solution: &Solution, args: &Args) -> u8 {
                 profile: profile_name.to_string(),
             };
             let mut notices = commands::Notices::default();
-            let outcome = command::execute(solution, &request, server::Client::new, &mut notices)
-                .map_err(|e| e.to_string())?;
+            let outcome = command::execute(
+                solution,
+                &request,
+                server::Client::new,
+                &mut notices,
+                &progress,
+            )
+            .map_err(|e| e.to_string())?;
             print_notices(&notices);
             let command::ExtensionOutcome::Imported { imported, .. } = outcome else {
                 unreachable!()
@@ -523,8 +562,14 @@ pub(crate) fn ext_cmd(solution: &Solution, args: &Args) -> u8 {
                 profile: profile_name.to_string(),
             };
             let mut notices = commands::Notices::default();
-            let outcome = command::execute(solution, &request, server::Client::new, &mut notices)
-                .map_err(|e| e.to_string())?;
+            let outcome = command::execute(
+                solution,
+                &request,
+                server::Client::new,
+                &mut notices,
+                &progress,
+            )
+            .map_err(|e| e.to_string())?;
             print_notices(&notices);
             let command::ExtensionOutcome::Removed { plan, .. } = outcome else {
                 unreachable!()

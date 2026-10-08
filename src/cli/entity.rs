@@ -81,21 +81,27 @@ pub(crate) fn entity_status(solution: &Solution, args: &Args) -> u8 {
         refuse_record_failures: false,
     };
     let mut notices = commands::Notices::default();
-    let outcome =
-        match commands::status::execute(solution, &request, server::Client::new, &mut notices) {
-            Ok(outcome) => outcome,
-            Err(error) => {
-                print_notices(&notices);
-                if let commands::status::StatusCommandError::Unreadable(items) = &error {
-                    for problem in items {
-                        eprintln!("twaco: {problem}");
-                    }
-                } else {
-                    eprintln!("twaco: {error}");
+    let progress = super::progress::reporter();
+    let outcome = match commands::status::execute(
+        solution,
+        &request,
+        server::Client::new,
+        &mut notices,
+        &progress,
+    ) {
+        Ok(outcome) => outcome,
+        Err(error) => {
+            print_notices(&notices);
+            if let commands::status::StatusCommandError::Unreadable(items) = &error {
+                for problem in items {
+                    eprintln!("twaco: {problem}");
                 }
-                return FAILED;
+            } else {
+                eprintln!("twaco: {error}");
             }
-        };
+            return FAILED;
+        }
+    };
     print_notices(&notices);
     if !outcome.failures.is_empty() {
         for failure in &outcome.failures {

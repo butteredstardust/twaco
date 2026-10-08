@@ -7,6 +7,7 @@
 //! cannot read is a bare 406, so twaco opens the zip itself first, to say what is wrong.
 
 use super::entity_key::ServiceTarget;
+use super::progress::{self, Progress, NONE};
 use super::server::{Client, ServerError};
 use serde_json::{json, Value};
 use std::io::Read;
@@ -222,8 +223,26 @@ pub fn import(
     zip: &[u8],
     apply: bool,
 ) -> Result<Imported, ExtensionError> {
+    import_with_progress(remote, file_name, zip, apply, &NONE)
+}
+
+/// Like [`import`], and report progress: one step per upload and per package-list read.
+pub fn import_with_progress(
+    remote: &dyn Remote,
+    file_name: &str,
+    zip: &[u8],
+    apply: bool,
+    progress: &dyn Progress,
+) -> Result<Imported, ExtensionError> {
     let package = inspect(zip)?;
-    let installed = list(remote)?.into_iter().find(|p| p.name == package.name);
+    let installed = {
+        let _phase = progress::phase(progress, "reading the package list", Some(1));
+        let packages = list(remote)?;
+        progress.advance(1);
+        packages
+    }
+    .into_iter()
+    .find(|p| p.name == package.name);
     let plan = match &installed {
         None => format!("install {} {}", package.name, package.version),
         Some(old) if old.version == package.version => format!(
@@ -241,12 +260,17 @@ pub fn import(
             package.name
         ))
     };
-    let reply = remote.upload(file_name, zip, true).map_err(|e| match e {
-        ServerError::Http { status: 406, .. } => {
-            rejected("406 Not Acceptable".to_string(), "validation")
-        }
-        other => ExtensionError::Remote(other),
-    })?;
+    let reply = {
+        let _phase = progress::phase(progress, "validating the package", Some(1));
+        let reply = remote.upload(file_name, zip, true).map_err(|e| match e {
+            ServerError::Http { status: 406, .. } => {
+                rejected("406 Not Acceptable".to_string(), "validation")
+            }
+            other => ExtensionError::Remote(other),
+        })?;
+        progress.advance(1);
+        reply
+    };
     report(&reply).map_err(|why| rejected(why, "validation"))?;
     if !apply {
         return Ok(Imported {
@@ -255,11 +279,23 @@ pub fn import(
             applied: false,
         });
     }
-    let reply = remote
-        .upload(file_name, zip, false)
-        .map_err(ExtensionError::Remote)?;
+    let reply = {
+        let _phase = progress::phase(progress, "importing the package", Some(1));
+        let reply = remote
+            .upload(file_name, zip, false)
+            .map_err(ExtensionError::Remote)?;
+        progress.advance(1);
+        reply
+    };
     report(&reply).map_err(|why| rejected(why, "import"))?;
-    let now = list(remote)?.into_iter().find(|p| p.name == package.name);
+    let now = {
+        let _phase = progress::phase(progress, "confirming the package", Some(1));
+        let packages = list(remote)?;
+        progress.advance(1);
+        packages
+    }
+    .into_iter()
+    .find(|p| p.name == package.name);
     if now.as_ref().map(|p| p.version.as_str()) != Some(package.version.as_str()) {
         return Err(ExtensionError::Shape(format!(
             "the import was sent, but the package list shows {} at {}",
@@ -431,6 +467,26 @@ mod tests {
             .unwrap_err()
             .to_string()
             .contains("no ExtensionPackage"));
+    }
+
+    #[test]
+    fn an_applied_import_reports_its_uploads_as_phases() {
+        use crate::core::progress::Recorder;
+        let fake = Fake::with(&[("P", "1.0.0")]);
+        let zip = package_zip(Some(&metadata("P", "1.2.0")));
+        let recorder = Recorder::default();
+        import_with_progress(&fake, "p.zip", &zip, true, &recorder).unwrap();
+        let names: Vec<String> = recorder.phases().into_iter().map(|(n, _)| n).collect();
+        assert_eq!(
+            names,
+            [
+                "reading the package list",
+                "validating the package",
+                "importing the package",
+                "confirming the package"
+            ]
+        );
+        assert_eq!(recorder.advanced(), 4);
     }
 
     #[test]

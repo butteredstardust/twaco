@@ -16,6 +16,7 @@ use crate::core::codes::{Coded, ErrorCode};
 use crate::core::commands::{self, Mode};
 use crate::core::config::Solution;
 use crate::core::index::Confidence;
+use crate::core::progress::{self as core_progress, Progress};
 use crate::core::{
     adopt, backup, catalog, check, config_table, db, deploy, docs, entity_carry, entity_delete,
     export, extensions, guide, help, impact, imports, javadoc, logs, newblock, profile, push,
@@ -24,12 +25,14 @@ use crate::core::{
 use serde_json::{json, Map, Value};
 use std::io::{BufRead, Write};
 use std::path::{Path, PathBuf};
+use std::sync::Mutex;
 use std::time::{Duration, Instant};
 mod content;
 mod data;
 mod entity;
 mod info;
 mod outputs;
+mod progress;
 mod refactor;
 mod registry;
 mod requests;
@@ -64,7 +67,11 @@ Start with `projects`, then `check`, then `status` with `all: true` (or one `ent
 
 /// Serve until stdin closes. `root` is where the solution is looked for, on every call, so an
 /// edit to `twaco.toml` takes effect without a restart.
-pub fn serve(root: &Path, input: impl BufRead, mut output: impl Write) -> std::io::Result<()> {
+///
+/// Progress notifications and responses share `output` under one lock, so each is a whole line.
+pub fn serve(root: &Path, input: impl BufRead, output: impl Write + Send) -> std::io::Result<()> {
+    let output = Mutex::new(output);
+    let sink: &progress::Sink<'_> = &output;
     let mut protocol = LATEST.to_string();
     let mut input = input;
     let mut bytes = Vec::new();
@@ -82,7 +89,7 @@ pub fn serve(root: &Path, input: impl BufRead, mut output: impl Write) -> std::i
             )),
             Ok(line) if line.trim().is_empty() => None,
             Ok(line) => match serde_json::from_str::<Value>(line) {
-                Ok(message) => handle(root, &message, &mut protocol),
+                Ok(message) => handle(root, &message, &mut protocol, sink),
                 Err(error) => Some(error_response(
                     Value::Null,
                     -32700,
@@ -91,11 +98,10 @@ pub fn serve(root: &Path, input: impl BufRead, mut output: impl Write) -> std::i
             },
         };
         if let Some(response) = response {
-            writeln!(
-                output,
-                "{}",
-                serde_json::to_string(&response).expect("JSON values serialise")
-            )?;
+            let mut line = serde_json::to_string(&response).expect("JSON values serialise");
+            line.push('\n');
+            let mut output = sink.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+            output.write_all(line.as_bytes())?;
             output.flush()?;
         }
     }
@@ -103,7 +109,12 @@ pub fn serve(root: &Path, input: impl BufRead, mut output: impl Write) -> std::i
 }
 
 /// One message in, at most one response out. A notification (no `id`) never gets a response.
-fn handle(root: &Path, message: &Value, protocol: &mut String) -> Option<Value> {
+fn handle(
+    root: &Path,
+    message: &Value,
+    protocol: &mut String,
+    sink: &progress::Sink<'_>,
+) -> Option<Value> {
     let invalid = |id: Value, why: &str| {
         Some(error_response(
             id,
@@ -191,7 +202,14 @@ fn handle(root: &Path, message: &Value, protocol: &mut String) -> Option<Value> 
                 .get("arguments")
                 .cloned()
                 .unwrap_or_else(|| json!({}));
-            match call_tool(root, name, &arguments) {
+            // Only a call that carries a token reports progress.
+            let notifier =
+                progress::token_of(&params).map(|token| progress::Notifier::new(sink, token));
+            let reporter: &dyn Progress = match &notifier {
+                Some(notifier) => notifier,
+                None => &core_progress::NONE,
+            };
+            match call_tool(root, name, &arguments, reporter) {
                 Some(outcome) => {
                     if let Err(error) = &outcome {
                         tracing::info!(code = error.code.as_str(), "tool failed");
@@ -283,9 +301,14 @@ pub(crate) fn tool_result(outcome: Result<Value, ToolError>, protocol: &str) -> 
 
 // ---- tool implementations -------------------------------------------------------------------
 
-fn call_tool(root: &Path, name: &str, arguments: &Value) -> Option<Result<Value, ToolError>> {
+fn call_tool(
+    root: &Path,
+    name: &str,
+    arguments: &Value,
+    progress: &dyn Progress,
+) -> Option<Result<Value, ToolError>> {
     let started = Instant::now();
-    let outcome = registry::call(root, name, arguments)?;
+    let outcome = registry::call(root, name, arguments, progress)?;
     Some(outcome.map(|mut value| {
         if let Some(object) = value.as_object_mut() {
             object.insert(

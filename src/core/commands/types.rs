@@ -3,6 +3,7 @@
 use super::{lock_workspace, Access, Effects, Notices};
 use crate::core::codes::{Coded, ErrorCode};
 use crate::core::config::Solution;
+use crate::core::progress::{self, Progress};
 use crate::core::{lock, profile, types};
 
 /// The operation a types request performs.
@@ -76,6 +77,7 @@ pub fn execute<R, F>(
     open: F,
     compiler: Option<&dyn types::CompilerRunner>,
     notices: &mut Notices,
+    progress: &dyn Progress,
 ) -> Result<TypesOutcome, TypesCommandError>
 where
     R: types::Remote,
@@ -87,16 +89,19 @@ where
         TypesAction::Generate => types::write(solution)
             .map(TypesOutcome::Generated)
             .map_err(TypesCommandError::Types),
-        TypesAction::Check => match compiler {
-            Some(compiler) => types::check_with(solution, compiler),
-            None => types::check(solution),
+        TypesAction::Check => {
+            let _phase = progress::phase(progress, "type-checking services", None);
+            match compiler {
+                Some(compiler) => types::check_with(solution, compiler),
+                None => types::check(solution),
+            }
+            .map(TypesOutcome::Checked)
+            .map_err(TypesCommandError::Check)
         }
-        .map(TypesOutcome::Checked)
-        .map_err(TypesCommandError::Check),
         TypesAction::Platform => {
             let profile = profile::load(&solution.root, &request.profile)
                 .map_err(TypesCommandError::Profile)?;
-            types::fetch_platform(&open(profile), solution)
+            types::fetch_platform_with_progress(&open(profile), solution, progress)
                 .map(TypesOutcome::Platform)
                 .map_err(TypesCommandError::Types)
         }
@@ -132,6 +137,7 @@ mod tests {
             Client::new,
             None,
             &mut Notices::default(),
+            &progress::NONE,
         )
         .unwrap_err();
         assert!(matches!(error, TypesCommandError::Lock(_)));

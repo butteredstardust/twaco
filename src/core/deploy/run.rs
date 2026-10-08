@@ -2,12 +2,13 @@ use super::super::entity_key::{EntityKey, ServiceTarget};
 use super::super::normalise;
 use super::super::parallel;
 use super::super::profile::Profile;
+use super::super::progress::{self, Progress, NONE};
 use super::super::push::Decision;
 use super::super::server::ServerError;
 use super::calls::{redact_placeholder_values, resolve_call};
 use super::{
-    decide_all, BaselineStore, DeployError, Entity, EntityPlan, NotKept, ParseFailure, PlannedCall,
-    ProjectBundle, Remote, Report, Script, ServiceCall,
+    decide_all_with_progress, BaselineStore, DeployError, Entity, EntityPlan, NotKept,
+    ParseFailure, PlannedCall, ProjectBundle, Remote, Report, Script, ServiceCall,
 };
 use std::collections::BTreeMap;
 use std::time::Duration;
@@ -22,6 +23,34 @@ pub fn run(
     force: bool,
     only: bool,
 ) -> Result<Report, DeployError> {
+    run_with_progress(
+        remote,
+        baselines,
+        profile,
+        projects,
+        RunOptions { apply, force, only },
+        &NONE,
+    )
+}
+
+/// What a deploy run does: send changes, override conflicts, skip post-import services.
+#[derive(Clone, Copy, Debug)]
+pub struct RunOptions {
+    pub apply: bool,
+    pub force: bool,
+    pub only: bool,
+}
+
+/// Like [`run`], and report progress. Messages hold project and entity names only.
+pub fn run_with_progress(
+    remote: &dyn Remote,
+    baselines: &dyn BaselineStore,
+    profile: &Profile,
+    projects: &[ProjectBundle],
+    options: RunOptions,
+    progress: &dyn Progress,
+) -> Result<Report, DeployError> {
+    let RunOptions { apply, force, only } = options;
     let mut report = Report {
         projects: projects
             .iter()
@@ -69,17 +98,21 @@ pub fn run(
         .iter()
         .flat_map(|project| &project.scripts)
         .collect();
-    let checks = parallel::map(&scripts, |script| {
-        let script = *script;
-        remote
-            .check_script(&script.source)
-            .map(|checked| (script, checked))
-            .map_err(|source| DeployError::ParseUnavailable {
-                entity: script.entity.clone(),
-                service: script.service.clone(),
-                source,
-            })
-    });
+    let checks = {
+        let _phase = progress::phase(progress, "checking scripts", Some(scripts.len() as u64));
+        parallel::map_progress(&scripts, progress, |script| {
+            let script = *script;
+            progress.message(&script.entity);
+            remote
+                .check_script(&script.source)
+                .map(|checked| (script, checked))
+                .map_err(|source| DeployError::ParseUnavailable {
+                    entity: script.entity.clone(),
+                    service: script.service.clone(),
+                    source,
+                })
+        })
+    };
     let mut parse_failures = Vec::new();
     for result in checks {
         let (script, checked) = result?;
@@ -100,7 +133,11 @@ pub fn run(
 
     tracing::info!(scripts = report.scripts_checked, "deploy: scripts checked");
     let mut baseline = baselines.load().map_err(DeployError::Baseline)?;
-    report.plans = decide_all(remote, &baseline, projects)?;
+    report.plans = {
+        let entity_count = projects.iter().map(|p| p.entities.len() as u64).sum();
+        let _phase = progress::phase(progress, "comparing entities", Some(entity_count));
+        decide_all_with_progress(remote, &baseline, projects, progress)?
+    };
 
     let conflicts: Vec<EntityPlan> = report
         .plans
@@ -126,8 +163,12 @@ pub fn run(
     // then. They are still read back and recorded, so a partial deploy does not later look like
     // someone else's change to entities this deploy wrote.
     let mut import_failure = None;
+    let import_phase = progress::phase(progress, "importing", Some(projects.len() as u64));
     for project in projects {
-        match remote.import(&project.file_name, &project.bytes) {
+        progress.message(&project.project);
+        let imported = remote.import(&project.file_name, &project.bytes);
+        progress.advance(1);
+        match imported {
             Ok(()) => {
                 tracing::info!(project = %project.project, "deploy: project imported");
                 report.imported.push(project.project.clone());
@@ -144,13 +185,21 @@ pub fn run(
         }
     }
 
+    drop(import_phase);
+
     let imported_entities: Vec<&Entity> = projects
         .iter()
         .filter(|project| report.imported.contains(&project.project))
         .flat_map(|project| &project.entities)
         .collect();
-    let read_backs = parallel::map(&imported_entities, |entity| {
+    let read_back_phase = progress::phase(
+        progress,
+        "reading back",
+        Some(imported_entities.len() as u64),
+    );
+    let read_backs = parallel::map_progress(&imported_entities, progress, |entity| {
         let entity = *entity;
+        progress.message(&entity.name);
         let sent = normalise::hash(&entity.bytes).map_err(|error| DeployError::Working {
             collection: entity.collection.clone(),
             name: entity.name.clone(),
@@ -175,6 +224,7 @@ pub fn run(
         };
         Ok((entity, sent, read_back, error, only_permissions))
     });
+    drop(read_back_phase);
     let mut first_read_back = BTreeMap::<(String, String), String>::new();
     for result in read_backs {
         let (entity, sent, read_back, error, only_permissions) = result?;
@@ -227,6 +277,14 @@ pub fn run(
     }
 
     let mut call_failure = None;
+    let call_total = projects
+        .iter()
+        .map(|project| {
+            let (deploy, post_import) = &resolved_calls[&project.project];
+            deploy.iter().count() + if only { 0 } else { post_import.len() }
+        })
+        .sum::<usize>();
+    let call_phase = progress::phase(progress, "calling services", Some(call_total as u64));
     'projects: for project in projects {
         let (deploy, post_import) = resolved_calls
             .get(&project.project)
@@ -235,6 +293,7 @@ pub fn run(
             .iter()
             .chain((!only).then_some(post_import).into_iter().flatten());
         for call in calls {
+            progress.message(&project.project);
             let outcome = ServiceTarget::parse(&call.target)
                 .map_err(ServerError::from)
                 .and_then(|target| {
@@ -250,6 +309,7 @@ pub fn run(
                 ok = outcome.is_ok(),
                 "deploy: service called"
             );
+            progress.advance(1);
             if let Err(source) = outcome {
                 call_failure = Some(DeployError::Call {
                     project: project.project.clone(),
@@ -263,9 +323,16 @@ pub fn run(
         }
     }
 
+    drop(call_phase);
     if call_failure.is_none() {
-        let re_reads = parallel::map(&imported_entities, |entity| {
+        let re_read_phase = progress::phase(
+            progress,
+            "reading back again",
+            Some(imported_entities.len() as u64),
+        );
+        let re_reads = parallel::map_progress(&imported_entities, progress, |entity| {
             let entity = *entity;
+            progress.message(&entity.name);
             let bytes = EntityKey::address(&entity.collection, &entity.name)
                 .and_then(|key| remote.fetch(&key))
                 .map_err(|why| DeployError::Server {
@@ -285,6 +352,7 @@ pub fn run(
             })?;
             Ok((entity, hash))
         });
+        drop(re_read_phase);
         for result in re_reads {
             match result {
                 Ok((entity, hash)) => {

@@ -1331,6 +1331,7 @@ fn types_generate_and_check_return_the_mcp_shapes() {
         &solution,
         parse_typed(&json!({"action":"check"})).unwrap(),
         Some(&FakeCompiler),
+        &crate::core::progress::NONE,
     )
     .unwrap();
     assert_eq!(checked["ok"], false);
@@ -1344,6 +1345,7 @@ fn types_generate_and_check_return_the_mcp_shapes() {
         &solution,
         parse_typed(&json!({"action":"check", "detail":true})).unwrap(),
         Some(&FakeCompiler),
+        &crate::core::progress::NONE,
     )
     .unwrap();
     assert_eq!(detailed["findings_list"].as_array().unwrap().len(), 1);
@@ -1915,4 +1917,119 @@ fn the_tools_do_what_the_command_line_does() {
     assert!(target.is_file());
     let (_, body) = call_tool(&root, "bundle", json!({}));
     assert_eq!(body["state"], "current", "{body}");
+}
+
+/// A server that answers every entity read with the same XML, so a status read has work to do.
+fn entity_server() -> std::net::SocketAddr {
+    use std::io::{Read, Write};
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let address = listener.local_addr().unwrap();
+    std::thread::spawn(move || {
+        for stream in listener.incoming() {
+            let Ok(mut stream) = stream else { return };
+            let mut buffer = [0u8; 8192];
+            let read = stream.read(&mut buffer).unwrap_or(0);
+            let request = String::from_utf8_lossy(&buffer[..read]).into_owned();
+            let path = request.split_whitespace().nth(1).unwrap_or("");
+            let name = path.rsplit('/').next().unwrap_or("");
+            let body = format!(
+                "<Entities><Things><Thing name=\"{name}\" projectName=\"Test\"></Thing></Things></Entities>"
+            );
+            let _ = write!(
+                stream,
+                "HTTP/1.1 200 OK\r\nContent-Type: text/xml\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+                body.len()
+            );
+        }
+    });
+    address
+}
+
+fn status_workspace() -> (tempfile::TempDir, PathBuf) {
+    let (guard, root) = solution_dir();
+    for n in 0..6 {
+        std::fs::write(
+            root.join(format!("Things/P.T{n}.xml")),
+            format!("<Entities><Things><Thing name=\"P.T{n}\" projectName=\"P\"></Thing></Things></Entities>"),
+        )
+        .unwrap();
+    }
+    std::fs::create_dir_all(root.join(".twaco/profiles")).unwrap();
+    std::fs::write(
+        root.join(".twaco/profiles/default.toml"),
+        format!(
+            "url = \"http://{}/Thingworx/\"\nusername = \"user\"\npassword = \"pass\"\n",
+            entity_server()
+        ),
+    )
+    .unwrap();
+    (guard, root)
+}
+
+fn status_call(id: u64, meta: Option<Value>) -> Value {
+    let mut params = json!({ "name": "status", "arguments": { "all": true } });
+    if let Some(meta) = meta {
+        params["_meta"] = meta;
+    }
+    json!({ "jsonrpc": "2.0", "id": id, "method": "tools/call", "params": params })
+}
+
+fn progress_lines(lines: &[Value]) -> Vec<&Value> {
+    lines
+        .iter()
+        .filter(|line| line["method"] == "notifications/progress")
+        .collect()
+}
+
+#[test]
+fn a_call_with_a_progress_token_gets_rising_notifications_before_its_response() {
+    let (_guard, root) = status_workspace();
+    let lines = converse(
+        &root,
+        &[status_call(1, Some(json!({ "progressToken": "tok-1" })))],
+    );
+    let notifications = progress_lines(&lines);
+    assert!(notifications.len() >= 2, "{lines:?}");
+    let values: Vec<u64> = notifications
+        .iter()
+        .map(|line| line["params"]["progress"].as_u64().unwrap())
+        .collect();
+    assert!(
+        values.windows(2).all(|pair| pair[0] < pair[1]),
+        "{values:?}"
+    );
+    assert_eq!(*values.last().unwrap(), 7, "all 7 entities counted");
+    assert!(notifications
+        .iter()
+        .all(|line| line["params"]["progressToken"] == "tok-1" && line["jsonrpc"] == "2.0"));
+    // The response is the last line, and it answers the request.
+    let response = lines.last().unwrap();
+    assert_eq!(response["id"], 1);
+    assert!(response.get("result").is_some(), "{response}");
+    assert_eq!(lines.len(), notifications.len() + 1);
+}
+
+#[test]
+fn a_call_without_a_progress_token_gets_no_notifications() {
+    let (_guard, root) = status_workspace();
+    let lines = converse(
+        &root,
+        &[status_call(1, None), status_call(2, Some(json!({})))],
+    );
+    assert!(progress_lines(&lines).is_empty(), "{lines:?}");
+    assert_eq!(lines.len(), 2);
+}
+
+#[test]
+fn a_number_token_is_echoed_as_a_number() {
+    let (_guard, root) = status_workspace();
+    let lines = converse(
+        &root,
+        &[status_call(5, Some(json!({ "progressToken": 42 })))],
+    );
+    let notifications = progress_lines(&lines);
+    assert!(!notifications.is_empty());
+    assert!(notifications
+        .iter()
+        .all(|line| line["params"]["progressToken"] == 42));
 }

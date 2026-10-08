@@ -6,7 +6,11 @@ use super::requests::entity::{
 };
 use super::*;
 
-pub(crate) fn status_tool(solution: &Solution, request: StatusRequest) -> Result<Value, ToolError> {
+pub(crate) fn status_tool(
+    solution: &Solution,
+    request: StatusRequest,
+    progress: &dyn Progress,
+) -> Result<Value, ToolError> {
     let record = request.record;
     let target = match (request.entity.as_deref(), request.all) {
         (Some(_), true) => {
@@ -28,21 +32,26 @@ pub(crate) fn status_tool(solution: &Solution, request: StatusRequest) -> Result
         refuse_record_failures: record,
     };
     let mut notices = commands::Notices::default();
-    let outcome =
-        match commands::status::execute(solution, &command, server::Client::new, &mut notices) {
-            Ok(outcome) => outcome,
-            Err(commands::status::StatusCommandError::Unreadable(items)) if record => {
-                return Err(ToolError::with(
-                    ErrorCode::InvalidData,
-                    format!(
-                        "nothing was recorded: {} entity file(s) could not be read: {}",
-                        items.len(),
-                        items.join("; ")
-                    ),
-                ));
-            }
-            Err(error) => return Err(ToolError::coded(error)),
-        };
+    let outcome = match commands::status::execute(
+        solution,
+        &command,
+        server::Client::new,
+        &mut notices,
+        progress,
+    ) {
+        Ok(outcome) => outcome,
+        Err(commands::status::StatusCommandError::Unreadable(items)) if record => {
+            return Err(ToolError::with(
+                ErrorCode::InvalidData,
+                format!(
+                    "nothing was recorded: {} entity file(s) could not be read: {}",
+                    items.len(),
+                    items.join("; ")
+                ),
+            ));
+        }
+        Err(error) => return Err(ToolError::coded(error)),
+    };
     let counts: Map<String, Value> = status::counts(&outcome.statuses)
         .into_iter()
         .map(|(v, n)| (v.label().to_string(), json!(n)))

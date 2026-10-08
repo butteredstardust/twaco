@@ -844,3 +844,82 @@ fn re_read_advances_only_changed_server_sides_and_writes_once() {
     let same_entry = baseline.get("Things", "Same").unwrap();
     assert_eq!(same_entry.local, same_entry.server);
 }
+
+#[test]
+fn an_applied_deploy_reports_each_phase_with_its_total() {
+    use super::super::progress::{Event, Recorder};
+    let a = target("A", "a();");
+    let b = target("B", "b();");
+    let mut pa = project("A", vec![a.clone()], vec![script("A", "a();")]);
+    pa.deploy = Some(call("Things/A.Entry", "DeployA", serde_json::json!({})));
+    pa.post_import = vec![call("Things/A.Seed", "SeedA", serde_json::json!({}))];
+    let pb = project("B", vec![b.clone()], vec![script("B", "b();")]);
+    let remote = Fake {
+        import_values: BTreeMap::from([("A.xml".into(), vec![a]), ("B.xml".into(), vec![b])]),
+        ..Fake::default()
+    };
+    let recorder = Recorder::default();
+    run_with_progress(
+        &remote,
+        &MemoryBaseline::default(),
+        &profile(BTreeMap::new()),
+        &[pa, pb],
+        RunOptions {
+            apply: true,
+            force: false,
+            only: false,
+        },
+        &recorder,
+    )
+    .unwrap();
+    let phases: Vec<(String, Option<u64>)> = [
+        ("checking scripts", 2),
+        ("comparing entities", 2),
+        ("importing", 2),
+        ("reading back", 2),
+        ("calling services", 2),
+        ("reading back again", 2),
+    ]
+    .map(|(name, total)| (name.to_string(), Some(total)))
+    .to_vec();
+    assert_eq!(recorder.phases(), phases);
+    // Every phase advances by exactly its total, and ends.
+    assert_eq!(recorder.advanced(), 12);
+    let events = recorder.events();
+    assert_eq!(
+        events.iter().filter(|e| **e == Event::Finish).count(),
+        phases.len()
+    );
+    // Messages hold names only.
+    for event in &events {
+        if let Event::Message(text) = event {
+            assert!(
+                ["A", "B"].contains(&text.as_str()),
+                "unexpected message {text:?}"
+            );
+        }
+    }
+}
+
+#[test]
+fn a_plan_reports_no_import_phase() {
+    use super::super::progress::Recorder;
+    let a = target("A", "a();");
+    let remote = Fake::default();
+    let recorder = Recorder::default();
+    run_with_progress(
+        &remote,
+        &MemoryBaseline::default(),
+        &profile(BTreeMap::new()),
+        &[project("A", vec![a], vec![])],
+        RunOptions {
+            apply: false,
+            force: false,
+            only: false,
+        },
+        &recorder,
+    )
+    .unwrap();
+    let names: Vec<String> = recorder.phases().into_iter().map(|(n, _)| n).collect();
+    assert_eq!(names, ["checking scripts", "comparing entities"]);
+}

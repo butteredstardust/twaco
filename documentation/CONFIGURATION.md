@@ -321,6 +321,25 @@ twaco deploy --log debug
 twaco entity status --all --log-file twaco.log
 ```
 
+## Progress
+
+Some commands send many requests or wait a long time for the server. These commands show
+progress on stderr:
+
+- `deploy`
+- `entity status`
+- `types --platform`, and the type check of `types --check`
+- `import` and `export`
+- `ext import`
+
+Progress follows these rules:
+
+- A bar shows when stderr is a terminal. With a pipe, a file or a CI run, twaco draws nothing.
+- Logs on stderr (`--log` without `--log-file`) switch the bars off. Use `--log-file` to keep
+  both.
+- Twaco never draws on stdout. Stdout is the same with or without a bar.
+- A bar shows phase names and entity names. It never shows a URL, a parameter or a credential.
+
 ## Server profiles
 
 A profile is a TOML file named after it, `<name>.toml`, looked for in this order:

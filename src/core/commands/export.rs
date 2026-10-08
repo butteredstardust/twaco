@@ -3,6 +3,7 @@
 use super::{Access, Effects, Mode, Notices};
 use crate::core::codes::{Coded, ErrorCode};
 use crate::core::config::Solution;
+use crate::core::progress::{self, Progress};
 use crate::core::{export, profile, workspace};
 use std::path::PathBuf;
 
@@ -87,6 +88,7 @@ pub fn execute<R, F>(
     request: &ExportRequest,
     open: F,
     _: &mut Notices,
+    progress: &dyn Progress,
 ) -> Result<ExportOutcome, ExportCommandError>
 where
     R: export::Remote,
@@ -100,7 +102,12 @@ where
             if out.exists() && !force {
                 return Err(ExportCommandError::Exists(out.clone()));
             }
-            let exported = export::export(&remote, what).map_err(ExportCommandError::Export)?;
+            let exported = {
+                let _phase = progress::phase(progress, "exporting", Some(1));
+                let exported = export::export(&remote, what).map_err(ExportCommandError::Export)?;
+                progress.advance(1);
+                exported
+            };
             if let Some(folder) = out.parent().filter(|path| !path.as_os_str().is_empty()) {
                 std::fs::create_dir_all(folder).map_err(|why| ExportCommandError::Create {
                     path: folder.to_path_buf(),
@@ -121,15 +128,20 @@ where
             zip,
             mode,
         } => {
-            let (plan, download) = export::source_control(
-                &remote,
-                repository,
-                path,
-                filters,
-                zip.as_deref(),
-                matches!(mode, Mode::Apply),
-            )
-            .map_err(ExportCommandError::Export)?;
+            let (plan, download) = {
+                let _phase = progress::phase(progress, "exporting source control", Some(1));
+                let done = export::source_control(
+                    &remote,
+                    repository,
+                    path,
+                    filters,
+                    zip.as_deref(),
+                    matches!(mode, Mode::Apply),
+                )
+                .map_err(ExportCommandError::Export)?;
+                progress.advance(1);
+                done
+            };
             let server = if matches!(mode, Mode::Apply) {
                 Access::Write
             } else {
@@ -220,6 +232,7 @@ mod tests {
                 move |_| remote
             },
             &mut Notices::default(),
+            &crate::core::progress::NONE,
         )
         .unwrap();
         assert_eq!(plan.effects(), Effects::new(Access::None, Access::Read));
@@ -237,6 +250,7 @@ mod tests {
                 move |_| remote
             },
             &mut Notices::default(),
+            &crate::core::progress::NONE,
         )
         .unwrap();
         assert_eq!(apply.effects(), Effects::new(Access::None, Access::Write));
@@ -268,6 +282,7 @@ mod tests {
                 calls: Arc::new(Mutex::new(Vec::new())),
             },
             &mut Notices::default(),
+            &crate::core::progress::NONE,
         )
         .unwrap_err();
         assert_eq!(refusal.code(), ErrorCode::AlreadyExists);
@@ -278,6 +293,7 @@ mod tests {
                 calls: Arc::new(Mutex::new(Vec::new())),
             },
             &mut Notices::default(),
+            &crate::core::progress::NONE,
         )
         .unwrap();
         assert_eq!(outcome.effects(), Effects::new(Access::Write, Access::Read));

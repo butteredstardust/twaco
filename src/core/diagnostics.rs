@@ -9,6 +9,7 @@
 
 use std::fs::OpenOptions;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Mutex;
 
 use tracing_subscriber::EnvFilter;
@@ -17,6 +18,13 @@ use tracing_subscriber::EnvFilter;
 pub const LOG_VARIABLE: &str = "TWACO_LOG";
 /// Log file: `--log-file` beats this variable.
 pub const LOG_FILE_VARIABLE: &str = "TWACO_LOG_FILE";
+
+static ON_STDERR: AtomicBool = AtomicBool::new(false);
+
+/// Tell whether logs are written to stderr. Progress bars stay off then, so the two do not mix.
+pub fn writes_to_stderr() -> bool {
+    ON_STDERR.load(Ordering::Relaxed)
+}
 
 const LEVELS: [&str; 6] = ["error", "warn", "info", "debug", "trace", "off"];
 
@@ -95,7 +103,13 @@ fn install(plan: &Plan) -> Result<(), String> {
             tracing::subscriber::set_global_default(builder.with_writer(Mutex::new(file)).finish())
         }
         None => {
-            tracing::subscriber::set_global_default(builder.with_writer(std::io::stderr).finish())
+            let set = tracing::subscriber::set_global_default(
+                builder.with_writer(std::io::stderr).finish(),
+            );
+            if set.is_ok() {
+                ON_STDERR.store(true, Ordering::Relaxed);
+            }
+            set
         }
     };
     set.map_err(|why| format!("logs are already set up: {why}"))

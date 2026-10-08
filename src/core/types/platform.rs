@@ -1,5 +1,6 @@
 use super::super::config::Solution;
 use super::super::entity_key::ServiceTarget;
+use super::super::progress::{self, Progress, NONE};
 use super::super::server::{Client, ServerError};
 use super::super::workspace;
 use super::model::{load_model, Member, Parameter, Property, Service, TypedValue};
@@ -99,6 +100,15 @@ pub fn fetch_platform(
     remote: &dyn Remote,
     solution: &Solution,
 ) -> Result<PlatformOutcome, TypesError> {
+    fetch_platform_with_progress(remote, solution, &NONE)
+}
+
+/// Like [`fetch_platform`], and report one step per template, shape and resource fetched.
+pub fn fetch_platform_with_progress(
+    remote: &dyn Remote,
+    solution: &Solution,
+    progress: &dyn Progress,
+) -> Result<PlatformOutcome, TypesError> {
     let (model, model_skipped) = load_model(solution);
     let local_templates: BTreeSet<&str> = model
         .entities
@@ -129,7 +139,10 @@ pub fn fetch_platform(
 
     let mut platform = Platform::default();
     let mut skipped = Vec::new();
+    let template_phase =
+        progress::phase(progress, "fetching templates", Some(templates.len() as u64));
     for name in templates {
+        progress.message(&name);
         fetch_one(
             remote,
             "ThingTemplates",
@@ -138,8 +151,12 @@ pub fn fetch_platform(
             &mut platform.templates,
             &mut skipped,
         )?;
+        progress.advance(1);
     }
+    drop(template_phase);
+    let shape_phase = progress::phase(progress, "fetching shapes", Some(shapes.len() as u64));
     for name in shapes {
+        progress.message(&name);
         fetch_one(
             remote,
             "ThingShapes",
@@ -148,8 +165,11 @@ pub fn fetch_platform(
             &mut platform.shapes,
             &mut skipped,
         )?;
+        progress.advance(1);
     }
+    drop(shape_phase);
 
+    let listing_phase = progress::phase(progress, "listing resources", Some(1));
     let listing = required_reply(
         remote.call(
             &ServiceTarget::platform("Resources", "EntityServices"),
@@ -180,7 +200,15 @@ pub fn fetch_platform(
                 })
         })
         .collect::<Result<BTreeSet<_>, _>>()?;
+    progress.advance(1);
+    drop(listing_phase);
+    let resource_phase = progress::phase(
+        progress,
+        "fetching resources",
+        Some(resource_names.len() as u64),
+    );
     for name in resource_names {
+        progress.message(&name);
         fetch_one(
             remote,
             "Resources",
@@ -189,7 +217,9 @@ pub fn fetch_platform(
             &mut platform.resources,
             &mut skipped,
         )?;
+        progress.advance(1);
     }
+    drop(resource_phase);
 
     let text = format!(
         "{}\n",

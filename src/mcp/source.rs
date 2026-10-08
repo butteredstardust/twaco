@@ -4,14 +4,19 @@ use super::requests::source::{
 };
 use super::*;
 
-pub(crate) fn types_tool(solution: &Solution, request: TypesRequest) -> Result<Value, ToolError> {
-    types_tool_with_compiler(solution, request, None)
+pub(crate) fn types_tool(
+    solution: &Solution,
+    request: TypesRequest,
+    progress: &dyn Progress,
+) -> Result<Value, ToolError> {
+    types_tool_with_compiler(solution, request, None, progress)
 }
 
 pub(crate) fn types_tool_with_compiler(
     solution: &Solution,
     arguments: TypesRequest,
     compiler: Option<&dyn types::CompilerRunner>,
+    progress: &dyn Progress,
 ) -> Result<Value, ToolError> {
     let action = match arguments.action {
         TypesAction::Generate => commands::types::TypesAction::Generate,
@@ -30,6 +35,7 @@ pub(crate) fn types_tool_with_compiler(
         server::Client::new,
         compiler,
         &mut notices,
+        progress,
     );
     match result.map_err(ToolError::coded)? {
         commands::types::TypesOutcome::Generated(outcome) => {
@@ -246,6 +252,7 @@ pub(crate) fn fmt_tool(solution: &Solution, arguments: FmtRequest) -> Result<Val
 pub(crate) fn deploy_tool(
     solution: &Solution,
     arguments: DeployRequest,
+    progress: &dyn Progress,
 ) -> Result<Value, ToolError> {
     let dry_run = arguments.dry_run;
     let force = arguments.force;
@@ -269,6 +276,7 @@ pub(crate) fn deploy_tool(
         &request,
         server::Client::new,
         &mut notices,
+        progress,
     ) {
         Ok(commands::deploy::DeployOutcome::GatesBlocked { report, .. }) => {
             let failing: Vec<Value> = report.gates.iter().filter(|gate| gate.blocks()).map(

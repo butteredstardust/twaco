@@ -67,6 +67,12 @@ pass `profile` to choose one.
   person cannot interleave them. Files an agent names for `export` and `package` are written
   without it.
 - **A failure is an error** (`isError`), with what went wrong in the message.
+- **Progress for long calls.** Add `_meta.progressToken` to a `tools/call` request. Twaco then
+  sends `notifications/progress` lines before the response. This works for `deploy`, `status`,
+  `types`, `import`, `export` and `extension_write`. Each notification has `progress` (steps
+  done, always rising), `total` (when known) and `message` (a phase name or an entity name).
+  Twaco sends at most about ten per second, and one at the end of each phase. Without a token,
+  twaco sends none.
 
 ## Errors and codes
 

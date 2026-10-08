@@ -6,6 +6,7 @@ use super::requests::{
 };
 use super::{content, data, entity, info, refactor, source, ToolError};
 use crate::core::config::Solution;
+use crate::core::progress::Progress;
 use schemars::JsonSchema;
 use serde::de::DeserializeOwned;
 use serde::Serialize;
@@ -13,7 +14,7 @@ use serde_json::{json, Value};
 use std::path::Path;
 use std::sync::LazyLock;
 
-type Call = Box<dyn Fn(&Path, &Value) -> Result<Value, ToolError> + Send + Sync>;
+type Call = Box<dyn Fn(&Path, &Value, &dyn Progress) -> Result<Value, ToolError> + Send + Sync>;
 
 /// A typed MCP tool: its published definition, how its arguments are read and where they go.
 /// The schema, the parser and the route are built from one request type, so they cannot drift
@@ -85,6 +86,18 @@ fn tool<T: DeserializeOwned + Serialize + JsonSchema + 'static>(
     read_only: bool,
     call: impl Fn(&Path, T) -> Result<Value, ToolError> + Send + Sync + 'static,
 ) -> Tool {
+    tool_with_progress(name, description, read_only, move |root, request, _| {
+        call(root, request)
+    })
+}
+
+/// A typed tool that reports progress while it runs.
+fn tool_with_progress<T: DeserializeOwned + Serialize + JsonSchema + 'static>(
+    name: &'static str,
+    description: &'static str,
+    read_only: bool,
+    call: impl Fn(&Path, T, &dyn Progress) -> Result<Value, ToolError> + Send + Sync + 'static,
+) -> Tool {
     let input_schema = schema::<T>();
     let parser = input_schema.clone();
     Tool {
@@ -95,7 +108,9 @@ fn tool<T: DeserializeOwned + Serialize + JsonSchema + 'static>(
         output_schema: None,
         #[cfg(test)]
         check: check::<T>,
-        call: Box::new(move |root, arguments| call(root, read(&parser, arguments)?)),
+        call: Box::new(move |root, arguments, progress| {
+            call(root, read(&parser, arguments)?, progress)
+        }),
     }
 }
 
@@ -110,6 +125,24 @@ fn solution_tool<T: DeserializeOwned + Serialize + JsonSchema + 'static>(
         let solution = Solution::discover(root).map_err(ToolError::coded)?;
         route(&solution, request)
     })
+}
+
+/// A tool that runs inside the solution found from the root, and reports progress.
+fn solution_progress_tool<T: DeserializeOwned + Serialize + JsonSchema + 'static>(
+    name: &'static str,
+    description: &'static str,
+    read_only: bool,
+    route: fn(&Solution, T, &dyn Progress) -> Result<Value, ToolError>,
+) -> Tool {
+    tool_with_progress(
+        name,
+        description,
+        read_only,
+        move |root, request, progress| {
+            let solution = Solution::discover(root).map_err(ToolError::coded)?;
+            route(&solution, request, progress)
+        },
+    )
 }
 
 /// A tool that needs the solution's root but no solution.
@@ -145,7 +178,7 @@ static TOOLS: LazyLock<Vec<Tool>> = LazyLock::new(|| {
             |solution, _| super::projects(solution),
         )
         .with_output::<outputs::ProjectsResult>(),
-        solution_tool::<source_requests::TypesRequest>(
+        solution_progress_tool::<source_requests::TypesRequest>(
             "types",
             "Generate editor declarations, type-check every service, or fetch and cache platform declarations. All actions take the workspace lock.",
             false,
@@ -159,7 +192,7 @@ static TOOLS: LazyLock<Vec<Tool>> = LazyLock::new(|| {
             source::check_tool,
         )
         .with_output::<outputs::CheckResult>(),
-        solution_tool::<entity_requests::StatusRequest>(
+        solution_progress_tool::<entity_requests::StatusRequest>(
             "status",
             "Compare entities with the server and the recorded baseline: in-sync, local-changed, server-changed, both-changed, not-on-server, or no baseline yet. Lists every entity that needs attention.",
             false,
@@ -266,7 +299,7 @@ static TOOLS: LazyLock<Vec<Tool>> = LazyLock::new(|| {
             false,
             data::db_clean_tool,
         ),
-        solution_tool::<source_requests::DeployRequest>(
+        solution_progress_tool::<source_requests::DeployRequest>(
             "deploy",
             "Deploy the solution: offline gates, one bundle per project in dependency order, every script parsed by the server (fails closed), a conflict check per entity, then import, read-back, and the project's deploy and post-import services. A dry run (a plan) unless dry_run is false.",
             false,
@@ -345,7 +378,7 @@ static TOOLS: LazyLock<Vec<Tool>> = LazyLock::new(|| {
             true,
             content::extensions_tool,
         ),
-        solution_tool::<content_requests::ExtensionWriteRequest>(
+        solution_progress_tool::<content_requests::ExtensionWriteRequest>(
             "extension_write",
             "Import an extension package zip of the solution, or remove an installed package. A dry run unless dry_run is false: an import is then only validated by the server, which installs nothing. A removal is refused while the package is in use.",
             false,
@@ -369,7 +402,7 @@ static TOOLS: LazyLock<Vec<Tool>> = LazyLock::new(|| {
             true,
             content::entity_get_tool,
         ),
-        solution_tool::<content_requests::ExportRequest>(
+        solution_progress_tool::<content_requests::ExportRequest>(
             "export",
             "Export from the server as Composer's Import/Export does: an entity (Collection/Name), a collection (optionally one project's part), or a whole project, as one XML file written inside the solution; or the source-control layout of a project, collection or tags into a file repository folder or zip (a dry run unless dry_run is false).",
             false,
@@ -381,7 +414,7 @@ static TOOLS: LazyLock<Vec<Tool>> = LazyLock::new(|| {
             false,
             content::package_tool,
         ),
-        solution_tool::<content_requests::ImportRequest>(
+        solution_progress_tool::<content_requests::ImportRequest>(
             "import",
             "Import into the server as Composer's Import/Export does: an export file of the solution (XML, or a zip of them), or a source-control tree in a file repository. A dry run unless dry_run is false: a file's plan lists what it adds and what it replaces; a source-control plan is the server's own diff. The server's property values and configuration table rows are kept unless the overwrite flags say otherwise.",
             false,
@@ -471,9 +504,14 @@ pub(crate) fn registered_name(name: &str) -> Option<&'static str> {
 }
 
 /// Run a registered tool, arguments read and checked first.
-pub(crate) fn call(root: &Path, name: &str, arguments: &Value) -> Option<Result<Value, ToolError>> {
+pub(crate) fn call(
+    root: &Path,
+    name: &str,
+    arguments: &Value,
+    progress: &dyn Progress,
+) -> Option<Result<Value, ToolError>> {
     let tool = TOOLS.iter().find(|tool| tool.name == name)?;
-    let outcome = (tool.call)(root, arguments);
+    let outcome = (tool.call)(root, arguments, progress);
     // A tool that publishes an output schema owes every successful result to it.
     #[cfg(test)]
     if let (Ok(value), Some(schema)) = (&outcome, &tool.output_schema) {

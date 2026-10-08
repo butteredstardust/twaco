@@ -16,7 +16,7 @@ pub use outcome::{
     check_summary, finding_json, refresh_after_write, CheckError, CheckOutcome, Outcome,
     PlatformOutcome, Refresh, TypeFinding,
 };
-pub use platform::{fetch_platform, Remote};
+pub use platform::{fetch_platform, fetch_platform_with_progress, Remote};
 pub use write::write;
 
 use super::server::ServerError;

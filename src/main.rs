@@ -321,7 +321,7 @@ fn mcp_cmd() -> u8 {
         .or_else(|| std::env::current_dir().ok())
         .unwrap_or_else(|| PathBuf::from("."));
     let stdin = std::io::stdin();
-    match twaco::mcp::serve(&root, stdin.lock(), std::io::stdout().lock()) {
+    match twaco::mcp::serve(&root, stdin.lock(), std::io::stdout()) {
         Ok(()) => OK,
         Err(error) => {
             eprintln!("twaco: mcp: {error}");
