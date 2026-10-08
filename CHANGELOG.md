@@ -6,6 +6,12 @@ All notable changes to twaco are recorded here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- `twaco doctor` reports profiles, backups and journal backups that git already tracks, which an
+  ignore line added later does not untrack. A tracked profile fails (change the credentials it
+  holds: history keeps them); a tracked backup warns. Only file names are shown.
+
 ## [0.1.3] - 2026-10-08
 
 ### Changed
