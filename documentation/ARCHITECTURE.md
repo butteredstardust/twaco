@@ -5,6 +5,9 @@ How twaco is built, for anyone changing it. It is one Rust crate: a library (`sr
 (`src/mcp/`). Every behaviour lives in `core`, so the two front ends stay thin and are meant to agree
 wherever they share a feature.
 
+Colour belongs to the command line only. All styling lives in `src/cli/style.rs`. Core and MCP code
+never style text.
+
 ## Principles
 
 These decide most design questions. A change that breaks one needs a very good reason.

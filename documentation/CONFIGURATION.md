@@ -340,6 +340,20 @@ Progress follows these rules:
 - Twaco never draws on stdout. Stdout is the same with or without a bar.
 - A bar shows phase names and entity names. It never shows a URL, a parameter or a credential.
 
+## Colour
+
+Twaco colours status words in terminal output. Each stream is decided on its own.
+
+- Stdout carries `ok`, `FAIL`, `BROKEN`, `warn` and the status verdicts.
+- Stderr carries the `twaco:` prefix of an error.
+- Colour is off when the stream is not a terminal. Piped output has no escape codes.
+- `NO_COLOR` set to any non-empty value turns colour off.
+- `FORCE_COLOR` set to `1` turns colour on, also for a pipe. `NO_COLOR` wins over `FORCE_COLOR`.
+- A CI run (`CI` set) turns colour off unless `FORCE_COLOR` is set.
+
+The text is the same with and without colour. Only the escape codes differ.
+MCP output never has colour.
+
 ## Server profiles
 
 A profile is a TOML file named after it, `<name>.toml`, looked for in this order:

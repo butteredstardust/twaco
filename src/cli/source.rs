@@ -1,4 +1,5 @@
 use super::super::*;
+use super::style;
 
 pub(crate) fn types_cmd(solution: &Solution, args: &Args) -> u8 {
     let action = if args.has("--check") && args.has("--platform") {
@@ -36,7 +37,7 @@ pub(crate) fn types_cmd(solution: &Solution, args: &Args) -> u8 {
     match result {
         Ok(commands::types::TypesOutcome::Platform(outcome)) => {
             for skipped in outcome.skipped.iter().chain(&outcome.types.skipped) {
-                eprintln!("twaco: skipped {skipped}");
+                eprintln!("{} skipped {skipped}", style::prefix());
             }
             println!(
                 "fetched {} templates, {} shapes and {} resources from the server into .twaco/platform.json",
@@ -46,7 +47,7 @@ pub(crate) fn types_cmd(solution: &Solution, args: &Args) -> u8 {
         }
         Ok(commands::types::TypesOutcome::Checked(outcome)) => {
             for skipped in &outcome.declarations.skipped {
-                eprintln!("twaco: skipped {skipped}");
+                eprintln!("{} skipped {skipped}", style::prefix());
             }
             for finding in &outcome.findings {
                 if args.has("--json") {
@@ -71,7 +72,7 @@ pub(crate) fn types_cmd(solution: &Solution, args: &Args) -> u8 {
         }
         Ok(commands::types::TypesOutcome::Generated(outcome)) => {
             for skipped in &outcome.skipped {
-                eprintln!("twaco: skipped {skipped}");
+                eprintln!("{} skipped {skipped}", style::prefix());
             }
             println!(
                 "typed {} entities, {} DataShapes and {} services ({} files written)",
@@ -79,14 +80,15 @@ pub(crate) fn types_cmd(solution: &Solution, args: &Args) -> u8 {
             );
             if !outcome.gitignore_covers_types {
                 eprintln!(
-                    "twaco: note: add `.twaco/types/`, `**/services/*/jsconfig.json`, and \
-                     `**/services/*/twaco-globals.d.ts` to the solution root's .gitignore"
+                    "{} note: add `.twaco/types/`, `**/services/*/jsconfig.json`, and \
+                     `**/services/*/twaco-globals.d.ts` to the solution root's .gitignore",
+                    style::prefix()
                 );
             }
             OK
         }
         Err(error) => {
-            eprintln!("twaco: types: {error}");
+            eprintln!("{} types: {error}", style::prefix());
             FAILED
         }
     }
@@ -97,7 +99,7 @@ pub(crate) fn print_types_refresh(refresh: &types::Refresh) {
         println!("types: refreshed ({files} files written)");
     }
     if let Some(warning) = &refresh.warning {
-        eprintln!("twaco: warning: types: {warning}");
+        eprintln!("{} warning: types: {warning}", style::prefix());
     }
 }
 
@@ -118,7 +120,7 @@ pub(crate) fn extract(solution: &Solution, args: &Args) -> u8 {
     let outcome = match result {
         Ok(outcome) => outcome.report,
         Err(error) => {
-            eprintln!("twaco: {error}");
+            eprintln!("{} {error}", style::prefix());
             return FAILED;
         }
     };
@@ -131,7 +133,7 @@ pub(crate) fn extract(solution: &Solution, args: &Args) -> u8 {
         outcome.written, outcome.entities
     );
     if outcome.failed > 0 {
-        eprintln!("twaco: {} file(s) failed", outcome.failed);
+        eprintln!("{} {} file(s) failed", style::prefix(), outcome.failed);
         return FAILED;
     }
     OK
@@ -158,7 +160,7 @@ pub(crate) fn sync_cmd(solution: &Solution, args: &Args) -> u8 {
     let outcome = match result {
         Ok(outcome) => outcome.report,
         Err(error) => {
-            eprintln!("twaco: {error}");
+            eprintln!("{} {error}", style::prefix());
             return FAILED;
         }
     };
@@ -166,7 +168,7 @@ pub(crate) fn sync_cmd(solution: &Solution, args: &Args) -> u8 {
     print_types_refresh(&outcome.types);
 
     if outcome.failed > 0 {
-        eprintln!("twaco: {} file(s) failed", outcome.failed);
+        eprintln!("{} {} file(s) failed", style::prefix(), outcome.failed);
         return FAILED;
     }
     if outcome.changed == 0 {
@@ -193,7 +195,7 @@ fn print_log(log: &workflow::Log) {
     for line in &log.lines {
         match line {
             workflow::Line::Change(text) => println!("{text}"),
-            workflow::Line::Error(text) => eprintln!("twaco: {text}"),
+            workflow::Line::Error(text) => eprintln!("{} {text}", style::prefix()),
         }
     }
 }
@@ -210,7 +212,7 @@ pub(crate) fn fmt(solution: &Solution, args: &Args) -> u8 {
     let outcome = match result {
         Ok(outcome) => outcome.report,
         Err(error) => {
-            eprintln!("twaco: {error}");
+            eprintln!("{} {error}", style::prefix());
             return FAILED;
         }
     };
@@ -231,7 +233,7 @@ pub(crate) fn fmt(solution: &Solution, args: &Args) -> u8 {
         );
     }
     if outcome.failed > 0 {
-        eprintln!("twaco: {} script(s) failed", outcome.failed);
+        eprintln!("{} {} script(s) failed", style::prefix(), outcome.failed);
         return FAILED;
     }
     if outcome.changed.is_empty() {
@@ -252,6 +254,39 @@ pub(crate) fn fmt(solution: &Solution, args: &Args) -> u8 {
         DRIFT
     } else {
         OK
+    }
+}
+
+/// Print the one-line result of a gate. Pad the plain word first, then style it.
+fn print_gate_line(gate: &twaco::core::check::GateResult) {
+    match &gate.broken {
+        Some(why) => println!(
+            "  {} {:<14} {why}",
+            style::fail(&format!("{:<7}", "BROKEN")),
+            gate.name
+        ),
+        None if gate.findings.is_empty() => println!(
+            "  {} {:<14} {} examined",
+            style::ok(&format!("{:<7}", "ok")),
+            gate.name,
+            gate.examined
+        ),
+        // A check that reports without blocking says so, rather than reading as a failure
+        // someone has to chase.
+        None => {
+            let (word, paint): (_, fn(&str) -> String) = if gate.gates_the_run {
+                ("FAIL", style::fail)
+            } else {
+                ("warn", style::warn)
+            };
+            println!(
+                "  {} {:<14} {} finding(s) in {} examined",
+                paint(&format!("{word:<7}")),
+                gate.name,
+                gate.findings.len(),
+                gate.examined
+            );
+        }
     }
 }
 
@@ -276,21 +311,7 @@ pub(crate) fn check(solution: &Solution, args: &Args) -> u8 {
     let detail = args.has("--detail");
 
     for gate in &report.gates {
-        match &gate.broken {
-            Some(why) => println!("  BROKEN  {:<14} {why}", gate.name),
-            None if gate.findings.is_empty() => {
-                println!("  ok      {:<14} {} examined", gate.name, gate.examined)
-            }
-            // A check that reports without blocking says so, rather than reading as a failure
-            // someone has to chase.
-            None => println!(
-                "  {:<7} {:<14} {} finding(s) in {} examined",
-                if gate.gates_the_run { "FAIL" } else { "warn" },
-                gate.name,
-                gate.findings.len(),
-                gate.examined
-            ),
-        }
+        print_gate_line(gate);
     }
 
     if detail {
@@ -338,19 +359,7 @@ pub(crate) fn check(solution: &Solution, args: &Args) -> u8 {
 /// Print a gate report in the command-line form shared by `check` and deploy's gate outcome.
 fn print_check_report(report: &twaco::core::check::CheckReport, detail: bool) {
     for gate in &report.gates {
-        match &gate.broken {
-            Some(why) => println!("  BROKEN  {:<14} {why}", gate.name),
-            None if gate.findings.is_empty() => {
-                println!("  ok      {:<14} {} examined", gate.name, gate.examined)
-            }
-            None => println!(
-                "  {:<7} {:<14} {} finding(s) in {} examined",
-                if gate.gates_the_run { "FAIL" } else { "warn" },
-                gate.name,
-                gate.findings.len(),
-                gate.examined
-            ),
-        }
+        print_gate_line(gate);
     }
     if detail {
         for gate in &report.gates {
@@ -402,7 +411,7 @@ pub(crate) fn bundle(solution: &Solution, args: &Args) -> u8 {
         Ok(outcome) => outcome,
         Err(error) => {
             print_notices(&notices);
-            eprintln!("twaco: {error}");
+            eprintln!("{} {error}", style::prefix());
             return FAILED;
         }
     };
@@ -449,7 +458,10 @@ pub(crate) fn bundle(solution: &Solution, args: &Args) -> u8 {
 /// Deploy through import, read-back, configured service calls, and a post-service re-read.
 pub(crate) fn deploy_cmd(solution: &Solution, args: &Args) -> u8 {
     if !args.names.is_empty() {
-        eprintln!("twaco: deploy takes no positional names; use --only <entity>");
+        eprintln!(
+            "{} deploy takes no positional names; use --only <entity>",
+            style::prefix()
+        );
         return FAILED;
     }
 
@@ -487,7 +499,10 @@ pub(crate) fn deploy_cmd(solution: &Solution, args: &Args) -> u8 {
                 println!();
             }
             if matches!(error, commands::deploy::DeployCommandError::Backup { .. }) {
-                eprintln!("twaco: {error} (--no-backup deploys without one)");
+                eprintln!(
+                    "{} {error} (--no-backup deploys without one)",
+                    style::prefix()
+                );
                 return FAILED;
             }
             if let Some(dir) = error.backup() {
@@ -496,68 +511,74 @@ pub(crate) fn deploy_cmd(solution: &Solution, args: &Args) -> u8 {
                 );
             }
             return match error {
-                commands::deploy::DeployCommandError::Deploy { why, .. } => {
-                    match *why {
-                        deploy::DeployError::ParseFailed(failures) => {
-                            for failure in failures {
+                commands::deploy::DeployCommandError::Deploy { why, .. } => match *why {
+                    deploy::DeployError::ParseFailed(failures) => {
+                        for failure in failures {
+                            eprintln!(
+                                "{} {}/{} {}:{} {}",
+                                style::prefix(),
+                                failure.entity,
+                                failure.service,
+                                failure.line,
+                                failure.column,
+                                failure.message
+                            );
+                        }
+                        eprintln!("{} live parse failed; no import was sent", style::prefix());
+                        FAILED
+                    }
+                    deploy::DeployError::Conflicts(conflicts) => {
+                        for conflict in conflicts {
+                            let deploy::EntityPlan {
+                                collection,
+                                name,
+                                decision,
+                                ..
+                            } = conflict;
+                            if let push::Decision::Refuse(reason) = decision {
                                 eprintln!(
-                                    "twaco: {}/{} {}:{} {}",
-                                    failure.entity,
-                                    failure.service,
-                                    failure.line,
-                                    failure.column,
-                                    failure.message
+                                    "{} {collection}/{name}: refused: {reason}",
+                                    style::prefix()
                                 );
                             }
-                            eprintln!("twaco: live parse failed; no import was sent");
-                            FAILED
                         }
-                        deploy::DeployError::Conflicts(conflicts) => {
-                            for conflict in conflicts {
-                                let deploy::EntityPlan {
-                                    collection,
-                                    name,
-                                    decision,
-                                    ..
-                                } = conflict;
-                                if let push::Decision::Refuse(reason) = decision {
-                                    eprintln!("twaco: {collection}/{name}: refused: {reason}");
-                                }
-                            }
-                            eprintln!("twaco: nothing was imported; pass --force to overwrite these changes");
-                            DRIFT
-                        }
-                        deploy::DeployError::NotKept(report) => {
-                            print_deploy_report(&report, true, force);
-                            for item in &report.not_kept {
+                        eprintln!(
+                            "{} nothing was imported; pass --force to overwrite these changes",
+                            style::prefix()
+                        );
+                        DRIFT
+                    }
+                    deploy::DeployError::NotKept(report) => {
+                        print_deploy_report(&report, true, force);
+                        for item in &report.not_kept {
+                            eprintln!(
+                                "{} {}/{}: not kept (sent {}, read back {}{})",
+                                style::prefix(),
+                                item.collection,
+                                item.name,
+                                item.sent,
+                                item.read_back.as_deref().unwrap_or("nothing"),
+                                item.error
+                                    .as_ref()
+                                    .map(|why| format!("; {why}"))
+                                    .unwrap_or_default()
+                            );
+                            if item.only_permissions {
                                 eprintln!(
-                                    "twaco: {}/{}: not kept (sent {}, read back {}{})",
-                                    item.collection,
-                                    item.name,
-                                    item.sent,
-                                    item.read_back.as_deref().unwrap_or("nothing"),
-                                    item.error
-                                        .as_ref()
-                                        .map(|why| format!("; {why}"))
-                                        .unwrap_or_default()
-                                );
-                                if item.only_permissions {
-                                    eprintln!(
-                                        "twaco: {}/{}: only its permissions differ, and an import never removes a grant or changes the server's allow/deny; `twaco permissions diff {}` shows them, `twaco permissions push {} --apply` makes them the repository's",
+                                        "{} {}/{}: only its permissions differ, and an import never removes a grant or changes the server's allow/deny; `twaco permissions diff {}` shows them, `twaco permissions push {} --apply` makes them the repository's", style::prefix(),
                                         item.collection, item.name, item.name, item.name
                                     );
-                                }
                             }
-                            FAILED
                         }
-                        why => {
-                            eprintln!("twaco: {why}");
-                            FAILED
-                        }
+                        FAILED
                     }
-                }
+                    why => {
+                        eprintln!("{} {why}", style::prefix());
+                        FAILED
+                    }
+                },
                 error => {
-                    eprintln!("twaco: {error}");
+                    eprintln!("{} {error}", style::prefix());
                     FAILED
                 }
             };
@@ -568,7 +589,7 @@ pub(crate) fn deploy_cmd(solution: &Solution, args: &Args) -> u8 {
         commands::deploy::DeployOutcome::GatesBlocked { report, .. } => {
             println!("offline gates:");
             print_check_report(&report, args.has("--detail"));
-            eprintln!("twaco: offline gates block deploy");
+            eprintln!("{} offline gates block deploy", style::prefix());
             if report.broken() > 0 {
                 FAILED
             } else {
@@ -617,7 +638,9 @@ fn print_deploy_report(report: &deploy::Report, apply: bool, force: bool) {
             push::Decision::Refuse(reason) if force => {
                 println!("  {label}: would overwrite with --force ({reason})")
             }
-            push::Decision::Refuse(reason) => println!("  {label}: would refuse ({reason})"),
+            push::Decision::Refuse(reason) => {
+                println!("  {label}: {} ({reason})", style::warn("would refuse"))
+            }
         }
     }
     if !apply {
@@ -628,7 +651,7 @@ fn print_deploy_report(report: &deploy::Report, apply: bool, force: bool) {
         println!("dry run: no import was sent and no baseline was written; pass --apply to deploy");
     } else {
         for project in &report.imported {
-            println!("project {project}: imported");
+            println!("project {project}: {}", style::ok("imported"));
         }
         println!(
             "import read-back: {} matching, {} not kept",

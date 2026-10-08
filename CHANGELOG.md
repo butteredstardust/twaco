@@ -11,6 +11,9 @@ All notable changes to twaco are recorded here. The format follows
 - Progress for long commands. `deploy`, `entity status`, `types`, `import`, `export` and `ext import`
   draw a progress bar on stderr when stderr is a terminal. With a pipe, a file or a CI run, twaco
   draws nothing, and stdout does not change. Logs on stderr switch the bars off.
+- Colour in terminal output. `check`, `entity status`, deploy results and the `twaco:` error prefix
+  use colour. `NO_COLOR` turns it off and `FORCE_COLOR` turns it on. Piped output stays plain and
+  byte-identical.
 - MCP progress notifications. A `tools/call` request with `_meta.progressToken` gets
   `notifications/progress` lines before its response, for `deploy`, `status`, `types`, `import`,
   `export` and `extension_write`. Twaco sends at most about ten per second.

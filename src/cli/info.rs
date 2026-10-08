@@ -1,4 +1,5 @@
 use super::super::*;
+use super::style;
 
 /// `twaco help search <words> | page <page>`: the ThingWorx Platform help center, for the
 /// server's own version unless told otherwise. Read-only; downloads go to the user's cache.
@@ -28,7 +29,7 @@ pub(crate) fn write_agent_files(solution: &Solution) -> u8 {
                         added.len()
                     ),
                     Err(error) => {
-                        eprintln!("twaco: .gitignore: {error}");
+                        eprintln!("{} .gitignore: {error}", style::prefix());
                         return FAILED;
                     }
                 }
@@ -36,7 +37,7 @@ pub(crate) fn write_agent_files(solution: &Solution) -> u8 {
             OK
         }
         Err(error) => {
-            eprintln!("twaco: agent files: {error}");
+            eprintln!("{} agent files: {error}", style::prefix());
             FAILED
         }
     }
@@ -47,7 +48,7 @@ pub(crate) fn write_agent_files(solution: &Solution) -> u8 {
 pub(crate) fn update_cmd(parsed: &Args) -> u8 {
     use twaco::core::update;
     if !parsed.names.is_empty() {
-        eprintln!("twaco: update takes only --apply");
+        eprintln!("{} update takes only --apply", style::prefix());
         return FAILED;
     }
     let current = env!("CARGO_PKG_VERSION");
@@ -55,7 +56,7 @@ pub(crate) fn update_cmd(parsed: &Args) -> u8 {
     let manifest = match update::manifest(&web, update::MANIFEST_URL, update::PUBLIC_KEY) {
         Ok(manifest) => manifest,
         Err(error) => {
-            eprintln!("twaco: update: {error}");
+            eprintln!("{} update: {error}", style::prefix());
             return FAILED;
         }
     };
@@ -63,7 +64,7 @@ pub(crate) fn update_cmd(parsed: &Args) -> u8 {
     // this twaco is current.
     if let Some(cache) = update::cache_file() {
         if let Err(error) = update::accept(&cache, &manifest.version) {
-            eprintln!("twaco: update: {error}");
+            eprintln!("{} update: {error}", style::prefix());
             return FAILED;
         }
     }
@@ -82,7 +83,10 @@ pub(crate) fn update_cmd(parsed: &Args) -> u8 {
     let exe = match std::env::current_exe().and_then(std::fs::canonicalize) {
         Ok(exe) => exe,
         Err(error) => {
-            eprintln!("twaco: update: cannot find this executable: {error}");
+            eprintln!(
+                "{} update: cannot find this executable: {error}",
+                style::prefix()
+            );
             return FAILED;
         }
     };
@@ -100,7 +104,7 @@ pub(crate) fn update_cmd(parsed: &Args) -> u8 {
         return OK;
     }
     if let Some(why) = owner {
-        eprintln!("twaco: update: {why}");
+        eprintln!("{} update: {why}", style::prefix());
         return FAILED;
     }
     let installed = update::download(&web, &manifest, update::TARGET, update::PUBLIC_KEY)
@@ -111,7 +115,7 @@ pub(crate) fn update_cmd(parsed: &Args) -> u8 {
             OK
         }
         Err(error) => {
-            eprintln!("twaco: update: {error}");
+            eprintln!("{} update: {error}", style::prefix());
             FAILED
         }
     }
@@ -126,13 +130,13 @@ pub(crate) fn guide_cmd(parsed: &Args) -> u8 {
         Ok(solution) => Some(solution),
         Err(twaco::core::config::ConfigError::NotFound { .. }) => None,
         Err(error) => {
-            eprintln!("twaco: guide: {error}");
+            eprintln!("{} guide: {error}", style::prefix());
             return FAILED;
         }
     };
     let (topics, problems) = guide::topics(solution.as_ref());
     for problem in &problems {
-        eprintln!("twaco: guide: {problem}");
+        eprintln!("{} guide: {problem}", style::prefix());
     }
     let result: Result<(), String> = (|| {
         if let Some(query) = parsed.values.get("--search") {
@@ -219,7 +223,7 @@ pub(crate) fn guide_cmd(parsed: &Args) -> u8 {
     match result {
         Ok(()) => OK,
         Err(why) => {
-            eprintln!("twaco: guide: {why}");
+            eprintln!("{} guide: {why}", style::prefix());
             FAILED
         }
     }
@@ -231,7 +235,10 @@ pub(crate) fn help_cmd(parsed: &Args) -> u8 {
         parsed.names.first().map(String::as_str),
         parsed.names.get(1..).unwrap_or_default(),
     ) else {
-        eprintln!("twaco: help needs `search <words>` or `page <page>`");
+        eprintln!(
+            "{} help needs `search <words>` or `page <page>`",
+            style::prefix()
+        );
         return FAILED;
     };
     let here = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
@@ -241,7 +248,7 @@ pub(crate) fn help_cmd(parsed: &Args) -> u8 {
         Ok(solution) => Some(solution),
         Err(twaco::core::config::ConfigError::NotFound { .. }) => None,
         Err(error) => {
-            eprintln!("twaco: help: {error}");
+            eprintln!("{} help: {error}", style::prefix());
             return FAILED;
         }
     };
@@ -251,12 +258,12 @@ pub(crate) fn help_cmd(parsed: &Args) -> u8 {
             [page] => match help::page_path(page) {
                 Ok((version, _)) => version,
                 Err(error) => {
-                    eprintln!("twaco: help: {error}");
+                    eprintln!("{} help: {error}", style::prefix());
                     return FAILED;
                 }
             },
             _ => {
-                eprintln!("twaco: help page needs one page: a path such as ThingWorx/Welcome.html, or its address");
+                eprintln!("{} help page needs one page: a path such as ThingWorx/Welcome.html, or its address", style::prefix());
                 return FAILED;
             }
         },
@@ -271,17 +278,17 @@ pub(crate) fn help_cmd(parsed: &Args) -> u8 {
     ) {
         Ok(version) => version,
         Err(why) => {
-            eprintln!("twaco: help: {why}");
+            eprintln!("{} help: {why}", style::prefix());
             return FAILED;
         }
     };
     for note in &notes {
-        eprintln!("twaco: {note}");
+        eprintln!("{} {note}", style::prefix());
     }
     let cache = match help::cache_root() {
         Ok(cache) => cache,
         Err(error) => {
-            eprintln!("twaco: help: {error}");
+            eprintln!("{} help: {error}", style::prefix());
             return FAILED;
         }
     };
@@ -290,14 +297,17 @@ pub(crate) fn help_cmd(parsed: &Args) -> u8 {
     match action {
         "search" => {
             if rest.is_empty() {
-                eprintln!("twaco: help search needs words");
+                eprintln!("{} help search needs words", style::prefix());
                 return FAILED;
             }
             let limit = match parsed.values.get("--limit").map(|n| n.parse::<usize>()) {
                 None => 10,
                 Some(Ok(n)) if n > 0 => n,
                 Some(_) => {
-                    eprintln!("twaco: help: --limit needs a positive whole number");
+                    eprintln!(
+                        "{} help: --limit needs a positive whole number",
+                        style::prefix()
+                    );
                     return FAILED;
                 }
             };
@@ -306,7 +316,7 @@ pub(crate) fn help_cmd(parsed: &Args) -> u8 {
             {
                 Ok(index) => index,
                 Err(error) => {
-                    eprintln!("twaco: help: {error}");
+                    eprintln!("{} help: {error}", style::prefix());
                     return FAILED;
                 }
             };
@@ -331,7 +341,8 @@ pub(crate) fn help_cmd(parsed: &Args) -> u8 {
             }
             if !found.unknown.is_empty() {
                 eprintln!(
-                    "twaco: the {version} help never uses: {}",
+                    "{} the {version} help never uses: {}",
+                    style::prefix(),
                     found.unknown.join(", ")
                 );
             }
@@ -354,13 +365,16 @@ pub(crate) fn help_cmd(parsed: &Args) -> u8 {
                     OK
                 }
                 Err(error) => {
-                    eprintln!("twaco: help: {error}");
+                    eprintln!("{} help: {error}", style::prefix());
                     FAILED
                 }
             }
         }
         other => {
-            eprintln!("twaco: help has `search` and `page`, not {other:?}");
+            eprintln!(
+                "{} help has `search` and `page`, not {other:?}",
+                style::prefix()
+            );
             FAILED
         }
     }
@@ -374,28 +388,34 @@ pub(crate) fn javadoc_cmd(parsed: &Args) -> u8 {
         parsed.names.first().map(String::as_str),
         parsed.names.get(1..).unwrap_or_default(),
     ) else {
-        eprintln!("twaco: javadoc needs `search <name>` or `class <Name>`");
+        eprintln!(
+            "{} javadoc needs `search <name>` or `class <Name>`",
+            style::prefix()
+        );
         return FAILED;
     };
     match action {
         "search" if rest.is_empty() => {
-            eprintln!("twaco: javadoc search needs a name");
+            eprintln!("{} javadoc search needs a name", style::prefix());
             return FAILED;
         }
         "class" if rest.len() != 1 => {
-            eprintln!("twaco: javadoc class needs one class name");
+            eprintln!("{} javadoc class needs one class name", style::prefix());
             return FAILED;
         }
         "search" | "class" => {}
         other => {
-            eprintln!("twaco: javadoc has `search` and `class`, not {other:?}");
+            eprintln!(
+                "{} javadoc has `search` and `class`, not {other:?}",
+                style::prefix()
+            );
             return FAILED;
         }
     }
     let cache = match javadoc::cache_root() {
         Ok(cache) => cache,
         Err(error) => {
-            eprintln!("twaco: javadoc: {error}");
+            eprintln!("{} javadoc: {error}", style::prefix());
             return FAILED;
         }
     };
@@ -405,28 +425,31 @@ pub(crate) fn javadoc_cmd(parsed: &Args) -> u8 {
     let types = match fetch(javadoc::TYPE_INDEX) {
         Ok(bytes) => bytes,
         Err(error) => {
-            eprintln!("twaco: javadoc: {error}");
+            eprintln!("{} javadoc: {error}", style::prefix());
             return FAILED;
         }
     };
     match action {
         "search" => {
             if parsed.values.contains_key("--member") {
-                eprintln!("twaco: javadoc: --member is only for `class`");
+                eprintln!("{} javadoc: --member is only for `class`", style::prefix());
                 return FAILED;
             }
             let limit = match parsed.values.get("--limit").map(|n| n.parse::<usize>()) {
                 None => 10,
                 Some(Ok(n)) if n > 0 => n,
                 Some(_) => {
-                    eprintln!("twaco: javadoc: --limit needs a positive whole number");
+                    eprintln!(
+                        "{} javadoc: --limit needs a positive whole number",
+                        style::prefix()
+                    );
                     return FAILED;
                 }
             };
             let members = match fetch(javadoc::MEMBER_INDEX) {
                 Ok(bytes) => bytes,
                 Err(error) => {
-                    eprintln!("twaco: javadoc: {error}");
+                    eprintln!("{} javadoc: {error}", style::prefix());
                     return FAILED;
                 }
             };
@@ -436,7 +459,7 @@ pub(crate) fn javadoc_cmd(parsed: &Args) -> u8 {
             ) {
                 Ok(index) => index,
                 Err(error) => {
-                    eprintln!("twaco: javadoc: {error}");
+                    eprintln!("{} javadoc: {error}", style::prefix());
                     return FAILED;
                 }
             };
@@ -469,21 +492,21 @@ pub(crate) fn javadoc_cmd(parsed: &Args) -> u8 {
             ) {
                 Ok(index) => index,
                 Err(error) => {
-                    eprintln!("twaco: javadoc: {error}");
+                    eprintln!("{} javadoc: {error}", style::prefix());
                     return FAILED;
                 }
             };
             let class = match javadoc::find_class(&index, &rest[0]) {
                 Ok(class) => class,
                 Err(error) => {
-                    eprintln!("twaco: javadoc: {error}");
+                    eprintln!("{} javadoc: {error}", style::prefix());
                     return FAILED;
                 }
             };
             let path = match javadoc::class_path(&class) {
                 Ok(path) => path,
                 Err(error) => {
-                    eprintln!("twaco: javadoc: {error}");
+                    eprintln!("{} javadoc: {error}", style::prefix());
                     return FAILED;
                 }
             };
@@ -510,7 +533,7 @@ pub(crate) fn javadoc_cmd(parsed: &Args) -> u8 {
                     OK
                 }
                 Err(error) => {
-                    eprintln!("twaco: javadoc: {error}");
+                    eprintln!("{} javadoc: {error}", style::prefix());
                     FAILED
                 }
             }
@@ -527,7 +550,7 @@ pub(crate) fn settings_cmd(solution: &Solution, args: &Args) -> u8 {
     let client = match profile::load(&solution.root, profile_name) {
         Ok(profile) => server::Client::new(profile),
         Err(error) => {
-            eprintln!("twaco: {error}");
+            eprintln!("{} {error}", style::prefix());
             return FAILED;
         }
     };
@@ -620,7 +643,7 @@ pub(crate) fn settings_cmd(solution: &Solution, args: &Args) -> u8 {
     match result {
         Ok(()) => OK,
         Err(why) => {
-            eprintln!("twaco: settings: {why}");
+            eprintln!("{} settings: {why}", style::prefix());
             FAILED
         }
     }
@@ -631,11 +654,17 @@ pub(crate) fn settings_cmd(solution: &Solution, args: &Args) -> u8 {
 /// read-only: it reads the solution into the index and asks it.
 pub(crate) fn impact_cmd(solution: &Solution, args: &Args) -> u8 {
     let [entity] = args.names.as_slice() else {
-        eprintln!("twaco: impact needs one <entity>, such as Acme.Orders.Manager");
+        eprintln!(
+            "{} impact needs one <entity>, such as Acme.Orders.Manager",
+            style::prefix()
+        );
         return FAILED;
     };
     if args.has("--json") && args.has("--dot") {
-        eprintln!("twaco: --json and --dot are different outputs; pick one");
+        eprintln!(
+            "{} --json and --dot are different outputs; pick one",
+            style::prefix()
+        );
         return FAILED;
     }
     let min = match args.values.get("--min-confidence") {
@@ -644,7 +673,8 @@ pub(crate) fn impact_cmd(solution: &Solution, args: &Args) -> u8 {
             Some(confidence) => confidence,
             None => {
                 eprintln!(
-                    "twaco: --min-confidence is structural, resolved or review, not {word:?}"
+                    "{} --min-confidence is structural, resolved or review, not {word:?}",
+                    style::prefix()
                 );
                 return FAILED;
             }
@@ -655,7 +685,10 @@ pub(crate) fn impact_cmd(solution: &Solution, args: &Args) -> u8 {
         Some(text) => match text.parse::<usize>() {
             Ok(depth) if depth > 0 => Some(depth),
             _ => {
-                eprintln!("twaco: --depth is a positive whole number, not {text:?}");
+                eprintln!(
+                    "{} --depth is a positive whole number, not {text:?}",
+                    style::prefix()
+                );
                 return FAILED;
             }
         },
@@ -669,7 +702,7 @@ pub(crate) fn impact_cmd(solution: &Solution, args: &Args) -> u8 {
     let report = match impact::run(solution, &request) {
         Ok(report) => report,
         Err(error) => {
-            eprintln!("twaco: {error}");
+            eprintln!("{} {error}", style::prefix());
             return FAILED;
         }
     };
@@ -690,7 +723,10 @@ pub(crate) fn impact_cmd(solution: &Solution, args: &Args) -> u8 {
 /// Entities no entry point reaches. Offline, advisory and read-only: it deletes nothing.
 pub(crate) fn unused_cmd(solution: &Solution, args: &Args) -> u8 {
     if !args.names.is_empty() {
-        eprintln!("twaco: unused takes no entity; use --collection to narrow it");
+        eprintln!(
+            "{} unused takes no entity; use --collection to narrow it",
+            style::prefix()
+        );
         return FAILED;
     }
     let min = match args.values.get("--min-confidence") {
@@ -699,7 +735,8 @@ pub(crate) fn unused_cmd(solution: &Solution, args: &Args) -> u8 {
             Some(confidence) => confidence,
             None => {
                 eprintln!(
-                    "twaco: --min-confidence is structural, resolved or review, not {word:?}"
+                    "{} --min-confidence is structural, resolved or review, not {word:?}",
+                    style::prefix()
                 );
                 return FAILED;
             }
@@ -709,7 +746,8 @@ pub(crate) fn unused_cmd(solution: &Solution, args: &Args) -> u8 {
     if let Some(name) = &collection {
         if !unused::JUDGED.contains(&name.as_str()) {
             eprintln!(
-                "twaco: --collection is one of {}, not {name:?}",
+                "{} --collection is one of {}, not {name:?}",
+                style::prefix(),
                 unused::JUDGED.join(", ")
             );
             return FAILED;
@@ -731,11 +769,11 @@ pub(crate) fn unused_cmd(solution: &Solution, args: &Args) -> u8 {
 /// The solution written down. Offline; with `--out` it writes exactly one file.
 pub(crate) fn docs_cmd(solution: &Solution, args: &Args) -> u8 {
     if !args.names.is_empty() {
-        eprintln!("twaco: docs takes no entity name");
+        eprintln!("{} docs takes no entity name", style::prefix());
         return FAILED;
     }
     if args.has("--force") && args.out.is_none() {
-        eprintln!("twaco: --force only applies to --out");
+        eprintln!("{} --force only applies to --out", style::prefix());
         return FAILED;
     }
     let document = docs::build(solution);
@@ -752,7 +790,7 @@ pub(crate) fn docs_cmd(solution: &Solution, args: &Args) -> u8 {
         None => print!("{text}"),
         Some(path) => {
             if let Err(error) = docs::write(path, &text, args.has("--force")) {
-                eprintln!("twaco: docs: {error}");
+                eprintln!("{} docs: {error}", style::prefix());
                 return FAILED;
             }
             println!("{} bytes to {}", text.len(), path.display());
@@ -763,7 +801,7 @@ pub(crate) fn docs_cmd(solution: &Solution, args: &Args) -> u8 {
 
 pub(crate) fn catalog_cmd(solution: &Solution, args: &Args) -> u8 {
     if args.names.len() > 1 {
-        eprintln!("twaco: catalog takes at most one entity name");
+        eprintln!("{} catalog takes at most one entity name", style::prefix());
         return FAILED;
     }
     let query = catalog::Query {
@@ -774,12 +812,12 @@ pub(crate) fn catalog_cmd(solution: &Solution, args: &Args) -> u8 {
     let result = match catalog::build(solution, query) {
         Ok(result) => result,
         Err(error) => {
-            eprintln!("twaco: catalog: {error}");
+            eprintln!("{} catalog: {error}", style::prefix());
             return FAILED;
         }
     };
     for skipped in &result.skipped {
-        eprintln!("twaco: skipped {skipped}");
+        eprintln!("{} skipped {skipped}", style::prefix());
     }
     for entity in &result.entities {
         if !args.has("--json") {

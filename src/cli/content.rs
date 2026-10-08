@@ -1,4 +1,5 @@
 use super::super::*;
+use super::style;
 
 /// `twaco export entity | collection | project | source-control`.
 /// Search the server's entities, as Composer's Spotlight box does.
@@ -8,7 +9,7 @@ pub(crate) fn search_cmd(solution: &Solution, args: &Args) -> u8 {
         None => search::DEFAULT_LIMIT,
         Some(Ok(limit)) => limit,
         Some(Err(_)) => {
-            eprintln!("twaco: --limit takes a number");
+            eprintln!("{} --limit takes a number", style::prefix());
             return FAILED;
         }
     };
@@ -24,14 +25,14 @@ pub(crate) fn search_cmd(solution: &Solution, args: &Args) -> u8 {
     let profile = match profile::load(&solution.root, profile_name) {
         Ok(profile) => profile,
         Err(error) => {
-            eprintln!("twaco: {error}");
+            eprintln!("{} {error}", style::prefix());
             return FAILED;
         }
     };
     let outcome = match search::search(&server::Client::new(profile), &query) {
         Ok(outcome) => outcome,
         Err(error) => {
-            eprintln!("twaco: search: {error}");
+            eprintln!("{} search: {error}", style::prefix());
             return FAILED;
         }
     };
@@ -210,7 +211,7 @@ pub(crate) fn export_cmd(solution: &Solution, args: &Args) -> u8 {
     match result {
         Ok(()) => OK,
         Err(why) => {
-            eprintln!("twaco: export: {why}");
+            eprintln!("{} export: {why}", style::prefix());
             FAILED
         }
     }
@@ -355,7 +356,7 @@ pub(crate) fn import_cmd(solution: &Solution, args: &Args) -> u8 {
     match result {
         Ok(()) => OK,
         Err(why) => {
-            eprintln!("twaco: import: {why}");
+            eprintln!("{} import: {why}", style::prefix());
             FAILED
         }
     }
@@ -366,7 +367,7 @@ pub(crate) fn import_cmd(solution: &Solution, args: &Args) -> u8 {
 pub(crate) fn package_cmd(solution: &Solution, args: &Args) -> u8 {
     use twaco::core::commands::package::{self, PackageAction, PackageRequest};
     let Some(out) = args.out.clone() else {
-        eprintln!("twaco: package: package needs --out <file>");
+        eprintln!("{} package: package needs --out <file>", style::prefix());
         return FAILED;
     };
     let action = match args.names.as_slice() {
@@ -374,7 +375,8 @@ pub(crate) fn package_cmd(solution: &Solution, args: &Args) -> u8 {
             match (args.has("--backend-only"), args.has("--frontend-only")) {
                 (true, true) => {
                     eprintln!(
-                        "twaco: package: --backend-only and --frontend-only say different things"
+                        "{} package: --backend-only and --frontend-only say different things",
+                        style::prefix()
                     );
                     return FAILED;
                 }
@@ -394,7 +396,10 @@ pub(crate) fn package_cmd(solution: &Solution, args: &Args) -> u8 {
             editable: args.has("--editable"),
         },
         _ => {
-            eprintln!("twaco: package: package takes: bundle | source-control | extension");
+            eprintln!(
+                "{} package: package takes: bundle | source-control | extension",
+                style::prefix()
+            );
             return FAILED;
         }
     };
@@ -417,7 +422,7 @@ pub(crate) fn package_cmd(solution: &Solution, args: &Args) -> u8 {
             OK
         }
         Err(error) => {
-            eprintln!("twaco: package: {error}");
+            eprintln!("{} package: {error}", style::prefix());
             FAILED
         }
     }
@@ -586,7 +591,7 @@ pub(crate) fn ext_cmd(solution: &Solution, args: &Args) -> u8 {
     match result {
         Ok(()) => OK,
         Err(why) => {
-            eprintln!("twaco: ext: {why}");
+            eprintln!("{} ext: {why}", style::prefix());
             FAILED
         }
     }
@@ -778,7 +783,7 @@ pub(crate) fn repo_cmd(solution: &Solution, args: &Args) -> u8 {
     match result {
         Ok(()) => OK,
         Err(why) => {
-            eprintln!("twaco: repo: {why}");
+            eprintln!("{} repo: {why}", style::prefix());
             FAILED
         }
     }

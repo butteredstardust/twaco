@@ -82,7 +82,7 @@ fn update_notice(command: &str) {
         now,
         current,
     ) {
-        eprintln!("twaco: {line}");
+        eprintln!("{} {line}", cli::style::prefix());
     }
 }
 
@@ -106,7 +106,11 @@ fn run_command(args: &[String]) -> ExitCode {
                 let _ = error.print();
             } else {
                 let text = error.render().to_string();
-                eprint!("twaco: {}", text.strip_prefix("error: ").unwrap_or(&text));
+                eprint!(
+                    "{} {}",
+                    cli::style::prefix(),
+                    text.strip_prefix("error: ").unwrap_or(&text)
+                );
             }
             return ExitCode::from(u8::try_from(error.exit_code()).unwrap_or(FAILED));
         }
@@ -115,14 +119,14 @@ fn run_command(args: &[String]) -> ExitCode {
     let parsed = match cli::spec::args_of(command, matched) {
         Ok(parsed) => parsed,
         Err(why) => {
-            eprintln!("twaco: {why}");
+            eprintln!("{} {why}", cli::style::prefix());
             return ExitCode::from(FAILED);
         }
     };
     let route = command.path;
     let (log, log_file) = cli::spec::log_options(matched);
     if let Some(warning) = twaco::core::diagnostics::init(log.as_deref(), log_file.as_deref()) {
-        eprintln!("twaco: {warning}");
+        eprintln!("{} {warning}", cli::style::prefix());
     }
     let span = tracing::info_span!("command", command = route);
     let _entered = span.enter();
@@ -227,19 +231,22 @@ fn init_cmd(parsed: &Args) -> u8 {
             return match Solution::discover(&here) {
                 Ok(solution) => write_agent_files(&solution),
                 Err(error) => {
-                    eprintln!("twaco: {error}");
+                    eprintln!("{} {error}", cli::style::prefix());
                     FAILED
                 }
             };
         }
         (true, true) => {
-            eprintln!("twaco: init takes --write or --agents, not both");
+            eprintln!(
+                "{} init takes --write or --agents, not both",
+                cli::style::prefix()
+            );
             return FAILED;
         }
     };
     let proposal = twaco::core::init::propose(&here);
     for note in &proposal.notes {
-        eprintln!("twaco: {note}");
+        eprintln!("{} {note}", cli::style::prefix());
     }
     if proposal.projects == 0 {
         return FAILED;
@@ -247,7 +254,7 @@ fn init_cmd(parsed: &Args) -> u8 {
     let target = here.join(twaco::core::config::CONFIG_FILE);
     if !write {
         print!("{}", proposal.toml);
-        eprintln!("twaco: nothing written; `twaco init --write` creates {}, and AGENTS.md and CLAUDE.md where absent", target.display());
+        eprintln!("{} nothing written; `twaco init --write` creates {}, and AGENTS.md and CLAUDE.md where absent", cli::style::prefix(), target.display());
         return OK;
     }
     // Created new, never renamed over: whatever is at the name, a file or a link, stays.
@@ -260,13 +267,14 @@ fn init_cmd(parsed: &Args) -> u8 {
         Ok(()) => {}
         Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => {
             eprintln!(
-                "twaco: {} exists and is never overwritten; remove it first to start again",
+                "{} {} exists and is never overwritten; remove it first to start again",
+                cli::style::prefix(),
                 target.display()
             );
             return FAILED;
         }
         Err(error) => {
-            eprintln!("twaco: {}: {error}", target.display());
+            eprintln!("{} {}: {error}", cli::style::prefix(), target.display());
             return FAILED;
         }
     }
@@ -281,7 +289,10 @@ fn init_cmd(parsed: &Args) -> u8 {
             write_agent_files(&solution)
         }
         Err(error) => {
-            eprintln!("twaco: the written config does not load: {error}");
+            eprintln!(
+                "{} the written config does not load: {error}",
+                cli::style::prefix()
+            );
             FAILED
         }
     }
@@ -324,7 +335,7 @@ fn mcp_cmd() -> u8 {
     match twaco::mcp::serve(&root, stdin.lock(), std::io::stdout()) {
         Ok(()) => OK,
         Err(error) => {
-            eprintln!("twaco: mcp: {error}");
+            eprintln!("{} mcp: {error}", cli::style::prefix());
             FAILED
         }
     }
@@ -394,17 +405,18 @@ fn take_lock(solution: &Solution, route: &str) -> Result<lock::WorkspaceLock, u8
         Ok(lock) => {
             for path in &lock.recovered {
                 eprintln!(
-                    "twaco: removed {}, left by an interrupted write",
+                    "{} removed {}, left by an interrupted write",
+                    cli::style::prefix(),
                     path.display()
                 );
             }
             for line in &lock.recovery {
-                eprintln!("twaco: {line}");
+                eprintln!("{} {line}", cli::style::prefix());
             }
             Ok(lock)
         }
         Err(error) => {
-            eprintln!("twaco: {error}");
+            eprintln!("{} {error}", cli::style::prefix());
             Err(FAILED)
         }
     }
@@ -413,7 +425,7 @@ fn take_lock(solution: &Solution, route: &str) -> Result<lock::WorkspaceLock, u8
 /// What an executor reported about taking the workspace lock, as the lines `take_lock` prints.
 fn print_notices(notices: &commands::Notices) {
     for line in notices.lines() {
-        eprintln!("twaco: {line}");
+        eprintln!("{} {line}", cli::style::prefix());
     }
 }
 
@@ -422,7 +434,7 @@ fn run(command: impl FnOnce(&Solution) -> u8) -> u8 {
     match Solution::discover(&here) {
         Ok(solution) => command(&solution),
         Err(e) => {
-            eprintln!("twaco: {e}");
+            eprintln!("{} {e}", cli::style::prefix());
             FAILED
         }
     }
@@ -432,7 +444,7 @@ fn projects(solution: &Solution) -> u8 {
     let order = match solution.deploy_order() {
         Ok(o) => o,
         Err(e) => {
-            eprintln!("twaco: {e}");
+            eprintln!("{} {e}", cli::style::prefix());
             return FAILED;
         }
     };
