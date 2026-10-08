@@ -2,6 +2,14 @@ use super::common::{default_profile, Absent};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
+#[derive(Debug, Deserialize, JsonSchema, Serialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct DoctorRequest {
+    /// Server profile name.
+    #[serde(default = "default_profile")]
+    pub(crate) profile: String,
+}
+
 #[derive(Clone, Copy, Debug, Deserialize, JsonSchema, PartialEq, Eq, Serialize)]
 pub(crate) enum SettingsAction {
     #[serde(rename = "list")]
@@ -20,6 +28,9 @@ pub(crate) struct SettingsRequest {
     /// show: a subsystem, such as Logging or LoggingSubsystem.
     #[serde(default, skip_serializing_if = "Absent::is_absent")]
     pub(crate) subsystem: Absent<String>,
+    /// show: only this table of the subsystem, such as Settings (any case).
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) table: Absent<String>,
     /// search: part of a setting's name or description.
     #[serde(default, skip_serializing_if = "Absent::is_absent")]
     pub(crate) text: Absent<String>,
@@ -170,8 +181,9 @@ pub(crate) enum GuideAction {
 #[derive(Debug, Deserialize, JsonSchema, Serialize)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct GuideRequest {
-    #[serde(default = "default_guide_action")]
-    pub(crate) action: GuideAction,
+    /// Default: search when text is given, read when a topic is, else list (as `twaco guide`).
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) action: Absent<GuideAction>,
     /// search: words, such as "AddMember group" or "configuration table row replaced".
     #[serde(default, skip_serializing_if = "Absent::is_absent")]
     pub(crate) text: Absent<String>,
@@ -184,10 +196,6 @@ pub(crate) struct GuideRequest {
     #[serde(default = "default_guide_limit")]
     #[schemars(range(min = 1))]
     pub(crate) limit: u64,
-}
-
-fn default_guide_action() -> GuideAction {
-    GuideAction::Search
 }
 
 fn default_guide_limit() -> u64 {

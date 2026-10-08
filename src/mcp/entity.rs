@@ -81,6 +81,13 @@ pub(crate) fn tool_target(entity: &Absent<String>) -> Vec<String> {
     entity.as_ref().cloned().into_iter().collect()
 }
 
+/// The entities named by `entity` and `entities` together, in that order.
+pub(crate) fn tool_targets(entity: &Absent<String>, entities: &Absent<Vec<String>>) -> Vec<String> {
+    let mut targets = tool_target(entity);
+    targets.extend(entities.items().iter().cloned());
+    targets
+}
+
 pub(crate) fn refusal_code(refusal: &push::Refusal) -> &'static str {
     match refusal {
         push::Refusal::Conflict { .. } => "server-changed",

@@ -46,9 +46,12 @@ pub(crate) struct CheckRequest {
 #[derive(Debug, Deserialize, JsonSchema, Serialize)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct SyncRequest {
-    /// One entity, full name or its last dotted segment. Name one, or pass all: true.
+    /// One entity, full name or its last dotted segment. Name one or more (entity, entities), or pass all: true.
     #[serde(default, skip_serializing_if = "Absent::is_absent")]
     pub(crate) entity: Absent<String>,
+    /// Several entities, each as entity takes one.
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) entities: Absent<Vec<String>>,
     /// Every entity (of the project, if one is named).
     #[serde(default)]
     pub(crate) all: bool,
@@ -68,9 +71,12 @@ pub(crate) struct SyncRequest {
 #[derive(Debug, Deserialize, JsonSchema, Serialize)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct ExtractRequest {
-    /// One entity, full name or its last dotted segment. Name one, or pass all: true.
+    /// One entity, full name or its last dotted segment. Name one or more (entity, entities), or pass all: true.
     #[serde(default, skip_serializing_if = "Absent::is_absent")]
     pub(crate) entity: Absent<String>,
+    /// Several entities, each as entity takes one.
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) entities: Absent<Vec<String>>,
     /// Every entity (of the project, if one is named).
     #[serde(default)]
     pub(crate) all: bool,

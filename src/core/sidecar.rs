@@ -64,6 +64,11 @@ pub enum SidecarError {
     NoScript {
         name: String,
     },
+    /// Markup between a script's CDATA sections (a comment, say), which rewriting the script
+    /// would drop.
+    MarkupInScript {
+        name: String,
+    },
     /// Several CDATA nodes in one `<code>`: writing one of them would truncate the script.
     ManyPayloads {
         name: String,
@@ -94,6 +99,11 @@ impl fmt::Display for SidecarError {
             SidecarError::NoScript { name } => {
                 write!(f, "script service {name} has no <code> element under its Script table")
             }
+            SidecarError::MarkupInScript { name } => write!(
+                f,
+                "{name}: its <code> holds markup between its CDATA sections, which a sync would drop; \
+                 take it out of the entity file, then sync"
+            ),
             SidecarError::ManyPayloads { name, count } => write!(
                 f,
                 "service {name} has {count} CDATA payloads in one <code>; writing one would truncate it"

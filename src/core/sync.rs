@@ -126,6 +126,10 @@ pub fn sync(
             // containing `]]>` is split across sections instead of closing the first one early,
             // and a `<code>` holding text or nothing at all can still receive a script.
             if let Some((region, existing)) = script_region(&tokens, src, implementation) {
+                let in_cdata = region.of(src).starts_with(b"<![CDATA[");
+                if !scan::only_cdata_and_text(&tokens, src, region, in_cdata) {
+                    return Err(SidecarError::MarkupInScript { name: name.clone() });
+                }
                 let payload = render_payload(
                     &existing,
                     &sidecar.script,
@@ -716,6 +720,27 @@ mod tests {
         .unwrap();
         let back = sidecar::extract(&out).unwrap();
         assert_eq!(back.services[0].script, "a(); ]]> b();");
+    }
+
+    #[test]
+    fn markup_between_cdata_sections_is_refused_rather_than_dropped() {
+        let src =
+            entity_with("<code><![CDATA[return ]]><!-- release note --><![CDATA[1;]]></code>");
+        // Unchanged, it round-trips untouched.
+        let (out, _) = sync(&src, &sidecars_of(&src), false, true, false).unwrap();
+        assert_eq!(out, src);
+        // Changed, the write would cover both sections and the comment between them.
+        let error = sync(&src, &with_script(&src, "return 2;"), false, true, false).unwrap_err();
+        assert!(
+            matches!(error, SidecarError::MarkupInScript { .. }),
+            "{error}"
+        );
+        // Text between sections is no loss to refuse; whitespace is fine.
+        let spaced = entity_with(
+            "<code><![CDATA[a();]]>
+    <![CDATA[b();]]></code>",
+        );
+        assert!(sync(&spaced, &with_script(&spaced, "c();"), false, true, false).is_ok());
     }
 
     #[test]

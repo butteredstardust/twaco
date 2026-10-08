@@ -402,8 +402,7 @@ pub(crate) fn bundle(solution: &Solution, args: &Args) -> u8 {
     print_notices(&notices);
     // A reference to something this repository owns but this bundle leaves out. Scoped to the
     // selection, so a backend-only build reports what it dropped rather than what it kept.
-    let files = twaco::core::bundle::source_files(solution);
-    for dangling in twaco::core::bundle::dangling_references(&files, &files) {
+    for dangling in twaco::core::bundle::dangling_in_selection(solution, backend_only) {
         println!("  note: {dangling}");
     }
     match outcome {

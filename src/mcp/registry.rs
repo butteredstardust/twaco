@@ -275,7 +275,7 @@ static TOOLS: LazyLock<Vec<Tool>> = LazyLock::new(|| {
         .with_output::<outputs::DeployResult>(),
         solution_tool::<refactor_requests::AdoptReportRequest>(
             "adopt_report",
-            "Compare a designer's Composer <Entities> export with the repository: which services it would revert, which entities it adds or changes (node by node with detail), and which it lacks. Writes nothing.",
+            "Compare a designer's Composer <Entities> export with the repository: which services it would revert, which entities it adds or changes (node by node with detail), and which it lacks. Writes nothing. reverts > 0 is what `twaco adopt --fail-on-revert` fails on: the export would undo repository work.",
             true,
             refactor::adopt_tool,
         ),
@@ -311,7 +311,7 @@ static TOOLS: LazyLock<Vec<Tool>> = LazyLock::new(|| {
         ),
         solution_tool::<data_requests::ConfigTableRequest>(
             "config_table",
-            "Read one Thing's configuration table on the server, diff it against the entity XML in the repository, or restore it from a backup file. restore is a dry run unless dry_run is false; it refuses a backup of another Thing or table, and reads the table back.",
+            "Read one Thing's configuration table on the server, diff it against the entity XML in the repository, back it up to a new file in the solution (a backup is never overwritten), or restore it from such a backup. restore is a dry run unless dry_run is false; it refuses a backup of another Thing or table, and reads the table back.",
             false,
             data::config_table_tool,
         ),
@@ -350,6 +350,12 @@ static TOOLS: LazyLock<Vec<Tool>> = LazyLock::new(|| {
             "Import an extension package zip of the solution, or remove an installed package. A dry run unless dry_run is false: an import is then only validated by the server, which installs nothing. A removal is refused while the package is in use.",
             false,
             content::extension_write_tool,
+        ),
+        solution_tool::<content_requests::BundleRequest>(
+            "bundle",
+            "The solution's configured bundle, the one importable XML that [bundle] in twaco.toml names: whether it is current, out of date or missing (dry run, as `twaco bundle --check`), or with dry_run false rebuilt from the repository. notes name references to entities the bundle leaves out. package builds a release bundle into a file you name instead.",
+            false,
+            content::bundle_tool,
         ),
         solution_tool::<content_requests::SearchRequest>(
             "search",
@@ -410,6 +416,12 @@ static TOOLS: LazyLock<Vec<Tool>> = LazyLock::new(|| {
             "The solution written down from the repository: the projects and their deploy order, how Things, templates and shapes inherit, every service with its signature, the DataShapes with their fields and where they are used, and the references that only look like a name and need a person's judgement. Offline and read-only; it has no dates, so regenerating it and diffing shows what changed. Permissions are not read yet, and references built at run time are not seen; `complete` says whether every input was read. Returns the document as JSON in `document` and as Markdown in `markdown`. Summary gives service and field counts; detail gives every signature and field.",
             true,
             info::docs_tool,
+        ),
+        root_tool::<info_requests::DoctorRequest>(
+            "doctor",
+            "What resolved, what is reachable and what is missing, before anything else is blamed: twaco's version, the solution and its projects, the entity files, sidecars, .gitignore and secrets git tracks, the baseline, the workspace lock, the profile, and whether the server answers and accepts the credentials. Read-only; works without a solution. ok is false when an item fails.",
+            true,
+            info::doctor_tool,
         ),
         root_tool::<info_requests::GuideRequest>(
             "guide",

@@ -6,6 +6,47 @@ All notable changes to twaco are recorded here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- The MCP server has a `doctor` tool and a `bundle` tool (a dry run says whether the configured
+  bundle is current, as `twaco bundle --check`; `dry_run: false` rebuilds it), and
+  `config_table` can write a backup into the solution (`action: "backup"`).
+- MCP `extract` and `sync` take several entities (`entities`), and `settings` shows one table
+  (`table`), as the command line does.
+
+### Changed
+
+- MCP `guide` with no action lists the topics, searches when given text and reads when given a
+  topic, as `twaco guide` does; before, it searched and refused for want of text.
+- MCP `logs` returns 100 entries unless asked for more, as the command line does (was 200).
+- `documentation/MCP_SERVER.md` says why `init` and `update` have no tool, and what differs
+  between the tools and the commands on purpose.
+
+### Fixed
+
+- `doctor` showed a profile's `url` as written, credentials in it included; it now shows `***`
+  in their place.
+- `bundle --backend-only` worked out its notes over every collection instead of the ones it
+  bundles, so a reference to an entity the backend bundle leaves out went unreported.
+- An MCP `config_table` restore read a backup from any path on the machine; like every file a
+  tool reads, it must now be inside the solution.
+- A server error quoted the request's address as written, so credentials put into a profile's
+  `url` (`https://user:token@host/`) could be printed, in its message and its debug form; both
+  now show `***` there, and a reply echoing them is scrubbed.
+- Backup files were named by the low byte of each character, so `Café` and `Cafǩ` shared one file
+  and a restore lost one of them. A set's `backup.json` now records each entity's file, unique
+  even where case is not told apart and cut to a safe length; sets saved before still restore.
+- `repo pull` wrote two server files whose paths differ only in case (`A.txt`, `a.txt`) to one
+  file on Windows and macOS, keeping whichever came last. Such a pull is now refused.
+- An import zip or an extension package whose entries expand without end was read into memory
+  until it ran out; an entry past 512 MiB (1 MiB for `metadata.xml`) is now refused.
+- What a `[[check]]` hook with `needs_credentials` printed of those credentials was shown by
+  `twaco check`; it is now `<redacted>`, in its text and in its JSON findings once decoded.
+- `retemplate --to` and `--add-shapes` wrote a name into the XML as given, so a quote in it
+  (`'P.New" x="1'`) added an attribute; names are now escaped (`P.B&amp;C`).
+- `sync` rewrote a script, a mashup's content or a DataTable value spread over several CDATA
+  sections as one, dropping a comment between them; it now refuses and names the element.
+
 ## [0.1.4] - 2026-10-08
 
 ### Added

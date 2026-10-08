@@ -156,6 +156,17 @@ pub(crate) enum ExportAction {
 
 #[derive(Debug, Deserialize, JsonSchema, Serialize)]
 #[serde(deny_unknown_fields)]
+pub(crate) struct BundleRequest {
+    /// Leave out the collections [bundle] ui_collections names (a designer's mashups and media).
+    #[serde(default)]
+    pub(crate) backend_only: bool,
+    /// Only say whether the configured bundle is current, as `twaco bundle --check` does.
+    #[serde(default = "default_true")]
+    pub(crate) dry_run: bool,
+}
+
+#[derive(Debug, Deserialize, JsonSchema, Serialize)]
+#[serde(deny_unknown_fields)]
 pub(crate) struct SearchRequest {
     /// Text found anywhere in an entity's name or description, in any case; with a * it is a pattern instead (*_DS). Absent: every entity.
     #[serde(default, skip_serializing_if = "Absent::is_absent")]

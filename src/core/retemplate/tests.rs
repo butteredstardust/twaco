@@ -472,3 +472,53 @@ fn a_file_changed_since_the_plan_is_refused() {
     std::fs::write(&path, bytes).unwrap();
     assert!(apply(&planned).is_err());
 }
+
+#[test]
+fn a_name_is_written_escaped_and_reads_back_as_given() {
+    let fixture = fixture();
+    let found = workspace::discover(&fixture.solution).entities;
+    let file = found.iter().find(|e| e.info.name == "P.T").unwrap();
+    let src = std::fs::read(&file.path).unwrap();
+    let request = Request {
+        template: Some("P.B&C".to_string()),
+        add_shapes: vec!["P.Odd\" x=\"1".to_string()],
+        ..request("P.T")
+    };
+    let out = edit_document(&src, file, &request).unwrap();
+    let text = String::from_utf8(out.clone()).unwrap();
+    assert!(text.contains("thingTemplate=\"P.B&amp;C\""), "{text}");
+    assert!(!text.contains(" x=\"1\""), "no attribute was added: {text}");
+    // What a reader of the document sees is exactly the name asked for.
+    let tokens = scan::tokenize(&out).unwrap();
+    let names: Vec<String> = tokens
+        .iter()
+        .filter(|t| t.name.of(&out) == b"ImplementedShape")
+        .filter_map(|t| scan::attribute(&out, t, "name").ok().flatten())
+        .map(|span| scan::decode_entities(&String::from_utf8_lossy(span.of(&out))))
+        .collect();
+    assert!(names.contains(&"P.Odd\" x=\"1".to_string()), "{names:?}");
+}
+
+#[test]
+fn an_empty_name_or_a_control_character_is_refused() {
+    let fixture = fixture();
+    for bad in ["", "P.\u{7}Bell"] {
+        for wanted in [
+            Request {
+                template: Some(bad.to_string()),
+                ..request("P.T")
+            },
+            Request {
+                add_shapes: vec![bad.to_string()],
+                ..request("P.T")
+            },
+        ] {
+            match plan(&fixture.solution, &wanted) {
+                Err(RetemplateError::Invalid(why)) => {
+                    assert!(why.contains("is not an entity name"), "{bad:?}: {why}")
+                }
+                other => panic!("{bad:?}: {other:?}"),
+            }
+        }
+    }
+}

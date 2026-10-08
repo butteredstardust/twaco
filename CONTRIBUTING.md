@@ -41,7 +41,8 @@ add a command.
   (`src/mcp/`) only parse, call and print.
 - **Entities are never re-serialised.** Edit by span, through `scan` and `splice`.
 - **A server write plans by default,** on the CLI (`--apply`) and over MCP (`dry_run`). CLI
-  `call` is the one exception: it invokes the service it is given.
+  `call` is one exception: it invokes the service it is given. `db query` is the other: it runs
+  read-only SQL through a temporary Thing it deletes again, so there is nothing to plan.
 - **Every behaviour has a test** that fails without it. Fake the server behind a trait.
 - **Errors say what to do.** A message names the file, the entity or the flag involved.
 - **Match the code around you:** its naming, its comment style (comments say why, not what),

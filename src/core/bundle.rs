@@ -493,6 +493,28 @@ fn collect_xml(dir: &Path, out: &mut Vec<PathBuf>) {
 /// what the platform's own importer expects and the stable bundle order used here, so this
 /// reports rather than reorders: a ThingTemplate deriving from one that is not here is a real
 /// problem, and one that merely sorts later is not.
+/// [`dangling_references`] for the bundle `twaco bundle` builds: everything, or with
+/// `backend_only` the collections a designer does not own.
+pub fn dangling_in_selection(solution: &Solution, backend_only: bool) -> Vec<String> {
+    let selection = if backend_only {
+        Selection::backend(solution)
+    } else {
+        Selection::everything()
+    };
+    let all = source_files(solution);
+    let selected: Vec<PathBuf> = all
+        .iter()
+        .filter(|path| {
+            std::fs::read(path)
+                .ok()
+                .and_then(|bytes| entity::parse(&bytes).ok())
+                .is_some_and(|info| selection.wants(&info.collection))
+        })
+        .cloned()
+        .collect();
+    dangling_references(&selected, &all)
+}
+
 pub fn dangling_references(selected: &[PathBuf], all: &[PathBuf]) -> Vec<String> {
     let mut present = BTreeSet::new();
     let mut wanted: Vec<(String, String, String)> = Vec::new();
@@ -549,6 +571,44 @@ pub fn dangling_references(selected: &[PathBuf], all: &[PathBuf]) -> Vec<String>
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_backend_bundle_names_what_it_leaves_out_and_a_whole_one_does_not() {
+        let root = std::env::temp_dir().join(format!(
+            "twaco-bundle-notes-{}-{}",
+            std::process::id(),
+            crate::test_nonce()
+        ));
+        std::fs::create_dir_all(root.join("Things")).unwrap();
+        std::fs::create_dir_all(root.join("ThingTemplates")).unwrap();
+        std::fs::write(
+            root.join("twaco.toml"),
+            "[[project]]
+name = \"P\"
+
+[bundle]
+ui_collections = [\"ThingTemplates\"]
+",
+        )
+        .unwrap();
+        std::fs::write(
+            root.join("ThingTemplates/P.TT.xml"),
+            "<Entities><ThingTemplates><ThingTemplate name=\"P.TT\" projectName=\"P\"></ThingTemplate></ThingTemplates></Entities>",
+        )
+        .unwrap();
+        std::fs::write(
+            root.join("Things/P.T.xml"),
+            "<Entities><Things><Thing name=\"P.T\" projectName=\"P\" thingTemplate=\"P.TT\"></Thing></Things></Entities>",
+        )
+        .unwrap();
+        let solution = Solution::load(&root.join("twaco.toml")).unwrap();
+        assert!(dangling_in_selection(&solution, false).is_empty());
+        assert_eq!(
+            dangling_in_selection(&solution, true),
+            ["P.T names P.TT as its thingTemplate"]
+        );
+        let _ = std::fs::remove_dir_all(root);
+    }
 
     #[test]
     fn the_body_of_a_collection_is_sliced_without_its_own_newlines() {

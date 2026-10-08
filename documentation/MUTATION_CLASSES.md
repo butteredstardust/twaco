@@ -38,8 +38,8 @@ when the command is asked to write. A local output named by an option is include
 | `types --platform` | best-effort batch | best-effort batch | platform cache, declarations | Inspect generated files and retry after the reported failure. | `core/commands/types.rs: execute` |
 | `extract` | best-effort batch | best-effort batch | sidecars, declarations | Each entity's sidecars are written together or not at all, and the next command that takes the workspace lock finishes or undoes one a crash interrupted; earlier entities remain extracted. Retry failed entities. | `core/commands/extract.rs: execute` |
 | `extract --all` | best-effort batch | best-effort batch | sidecars, declarations | Each entity's sidecars are written together or not at all, and the next command that takes the workspace lock finishes or undoes one a crash interrupted; earlier entities remain extracted. Retry failed entities. | `core/commands/extract.rs: execute` |
-| `sync` | best-effort batch | best-effort batch | entity XML, declarations | Each entity file is written once, atomically, with every kind of sidecar in it; earlier entities remain synced. Retry failed entities. | `core/commands/sync.rs: execute` |
-| `sync --all` | best-effort batch | best-effort batch | entity XML, declarations | Each entity file is written once, atomically, with every kind of sidecar in it; earlier entities remain synced. Retry failed entities. | `core/commands/sync.rs: execute` |
+| `sync` | best-effort batch | best-effort batch | entity XML, declarations | Each entity file is written once, atomically, with every kind of sidecar that synced (a kind that is refused is reported, and the others are still written); earlier entities remain synced. Retry failed entities. | `core/commands/sync.rs: execute` |
+| `sync --all` | best-effort batch | best-effort batch | entity XML, declarations | Each entity file is written once, atomically, with every kind of sidecar that synced (a kind that is refused is reported, and the others are still written); earlier entities remain synced. Retry failed entities. | `core/commands/sync.rs: execute` |
 | `fmt` | best-effort batch | best-effort batch | script sidecars | Earlier scripts remain formatted; retry reported scripts. | `core/commands/fmt.rs: execute` |
 | `check` | read-only | read-only | none | Retry freely. | `core/check.rs: run` |
 | `bundle` | single-file atomic | single-file atomic | generated bundle | The generated bundle is old or new; retry freely. | `core/commands/bundle.rs: execute` |
@@ -125,7 +125,7 @@ when the command is asked to write. A local output named by an option is include
 | `types` | best-effort batch | best-effort batch | declarations or platform cache | Every action can regenerate declarations; inspect completed files and retry. | `core/commands/types.rs: execute` |
 | `check` | read-only | read-only | none | Retry freely. | `mcp/source.rs: check_tool` |
 | `status` | read-only | single-file atomic | baseline | `record: true` replaces one baseline atomically; retry freely. | `core/commands/status.rs: execute` |
-| `sync` | best-effort batch | best-effort batch | entity XML, declarations | Each entity file is written once, atomically, with every kind of sidecar in it; earlier entities remain synced. Retry failed entities. | `core/commands/sync.rs: execute` |
+| `sync` | best-effort batch | best-effort batch | entity XML, declarations | Each entity file is written once, atomically, with every kind of sidecar that synced (a kind that is refused is reported, and the others are still written); earlier entities remain synced. Retry failed entities. | `core/commands/sync.rs: execute` |
 | `extract` | best-effort batch | best-effort batch | sidecars, declarations | Each entity's sidecars are written together or not at all, and the next command that takes the workspace lock finishes or undoes one a crash interrupted; earlier entities remain extracted. Retry failed entities. | `core/commands/extract.rs: execute` |
 | `fmt` | best-effort batch | best-effort batch | script sidecars | Earlier scripts remain formatted; retry reported scripts. | `core/commands/fmt.rs: execute` |
 | `push` | read-only | server-partial | server entity, baseline, backup | Read the entity and baseline before retrying. | `core/commands/push.rs: execute` |
@@ -148,13 +148,14 @@ when the command is asked to write. A local output named by an option is include
 | `move_member` | read-only | multi-file atomic | XML, sidecars | A crash is finished or undone by the next command that takes the workspace lock; if it refuses, follow its message. Otherwise retry. | `core/commands/relocate.rs: execute` |
 | `new_building_block` | read-only | multi-file atomic | project files, config | A crash is finished or undone by the next command that takes the workspace lock; if it refuses, follow its message. Otherwise retry. | `core/commands/newblock.rs: execute` |
 | `retemplate` | read-only | single-file atomic | one entity XML | The entity is old or new; retry freely. | `core/commands/retemplate.rs: execute` |
-| `config_table` | read-only | server-partial | server table | Read the table back before retrying restore. | `core/commands/config_table.rs: execute` |
+| `config_table` | read-only | server-partial | server table, a named backup file | A backup is old or new; read the table back before retrying restore. | `core/commands/config_table.rs: execute` |
 | `logs` | read-only | read-only | none | Retry freely. | `mcp/data.rs: logs_tool` |
 | `log_level` | read-only | server-partial | server log level | Read the current level and use the undo before retrying. | `core/commands/logs.rs: execute` |
 | `repo` | read-only | read-only | none | Retry freely. | `mcp/content.rs: repo_tool` |
 | `repo_write` | read-only | server-partial | server repository or local pull | Inspect copied paths before retrying. | `core/commands/repo.rs: execute` |
 | `extensions` | read-only | read-only | none | Retry freely. | `mcp/content.rs: extensions_tool` |
 | `extension_write` | read-only | server-partial | server extension | Check installed extensions before retrying. | `core/commands/extensions.rs: execute` |
+| `bundle` | read-only | single-file atomic | generated bundle | The generated bundle is old or new; retry freely. | `core/commands/bundle.rs: execute` |
 | `search` | read-only | read-only | none | Retry freely. | `mcp/content.rs: search_tool` |
 | `entity_get` | read-only | read-only | none | Retry freely. | `mcp/content.rs: entity_get_tool` |
 | `export` | read-only | server-partial | local export or server repository | Local export is atomic; source-control apply needs a new plan and inspection. | `core/commands/export.rs: execute` |
@@ -165,6 +166,7 @@ when the command is asked to write. A local output named by an option is include
 | `impact` | read-only | read-only | none | Retry freely. | `mcp/info.rs: impact_tool` |
 | `unused` | read-only | read-only | none | Retry freely. | `mcp/info.rs: unused_tool` |
 | `docs` | read-only | read-only | none | Retry freely. | `mcp/info.rs: docs_tool` |
+| `doctor` | read-only | read-only | none | Retry freely. | `mcp/info.rs: doctor_tool` |
 | `guide` | read-only | read-only | none | Retry freely. | `mcp/info.rs: guide_tool` |
 | `help_search` | single-file atomic | single-file atomic | user cache file | The cache file is old or new; retry freely. | `mcp/info.rs: help_search_tool` |
 | `help_page` | single-file atomic | single-file atomic | user cache file | The cache file is old or new; retry freely. | `mcp/info.rs: help_page_tool` |

@@ -122,6 +122,52 @@ pub fn load(solution_root: &Path, name: &str) -> Result<Profile, ProfileError> {
     load_from(solution_root, home.as_deref(), name, &environment)
 }
 
+/// A server address fit to show: credentials written into it (`https://user:token@host/`) are
+/// replaced by `***`, whatever the profile's own fields hold.
+pub fn shown_url(url: &str) -> String {
+    hide_url_credentials(url)
+}
+
+/// `text` with the credentials of every address in it (`scheme://user:secret@host`) replaced by
+/// `***`: for messages that quote a URL, such as a server error, wherever it came from.
+pub fn hide_url_credentials(text: &str) -> String {
+    let mut out = String::with_capacity(text.len());
+    let mut rest = text;
+    while let Some(at) = rest.find("://") {
+        let (before, after) = rest.split_at(at + 3);
+        out.push_str(before);
+        let end = after
+            .find(|c: char| {
+                matches!(c, '/' | '?' | '#' | '"' | '\'' | '<' | '>') || c.is_whitespace()
+            })
+            .unwrap_or(after.len());
+        let (authority, tail) = after.split_at(end);
+        match authority.rfind('@') {
+            Some(at) => {
+                out.push_str("***@");
+                out.push_str(&authority[at + 1..]);
+            }
+            None => out.push_str(authority),
+        }
+        // The rest of this address (path, query) is copied as it is: a `://` inside it is not
+        // another address.
+        let url_end = tail
+            .find(|c: char| matches!(c, '"' | '\'' | '<' | '>') || c.is_whitespace())
+            .unwrap_or(tail.len());
+        out.push_str(&tail[..url_end]);
+        rest = &tail[url_end..];
+    }
+    out.push_str(rest);
+    out
+}
+
+/// The `user:secret` written into an address, if any.
+pub fn url_credentials(url: &str) -> Option<&str> {
+    let (_, rest) = url.split_once("://")?;
+    let authority = &rest[..rest.find(['/', '?', '#']).unwrap_or(rest.len())];
+    authority.rfind('@').map(|at| &authority[..at])
+}
+
 /// Where `name` would be read from, for `doctor`: the first profile file that exists (the
 /// workspace's, then the user's), else the environment, and whether environment variables
 /// override any of its fields. Mirrors [`load`]'s selection; it never reads a secret.
@@ -276,6 +322,41 @@ fn load_from(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_shown_url_never_holds_the_credentials_written_into_it() {
+        for (url, shown) in [
+            (
+                "http://localhost:8080/Thingworx/",
+                "http://localhost:8080/Thingworx/",
+            ),
+            (
+                "https://user:t0k3n@host/Thingworx/",
+                "https://***@host/Thingworx/",
+            ),
+            ("https://a@b:pw@host:443", "https://***@host:443"),
+            (
+                "https://host/Thingworx/?u=a@b",
+                "https://host/Thingworx/?u=a@b",
+            ),
+            ("not a url", "not a url"),
+        ] {
+            assert_eq!(shown_url(url), shown, "{url}");
+        }
+        assert_eq!(
+            hide_url_credentials(
+                "GET https://u:s3cret@host/Thingworx/Things/T failed; see http://a@b/x and ftp://plain/"
+            ),
+            "GET https://***@host/Thingworx/Things/T failed; see http://***@b/x and ftp://plain/"
+        );
+        assert_eq!(
+            hide_url_credentials("see https://host/a://b@c and http://u:p@h/"),
+            "see https://host/a://b@c and http://***@h/",
+            "a :// in a path is not another address"
+        );
+        assert_eq!(url_credentials("https://u:s3cret@host/x"), Some("u:s3cret"));
+        assert_eq!(url_credentials("https://host/x?a=b@c"), None);
+    }
 
     /// A profile's `Debug` is what ends up in a panic message, a log line or an error chain, so it
     /// must show no secret however awkward: quotes, a newline, URL delimiters, non-ASCII.

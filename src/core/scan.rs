@@ -488,6 +488,37 @@ pub fn attributes(src: &[u8], tag: &Token) -> Result<Vec<Attribute>, ScanError> 
     Ok(found)
 }
 
+/// `value` written inside a double-quoted attribute: `&`, `<`, `>` and `"` escaped, so the value
+/// is read back as given and cannot end the attribute.
+pub fn escape_attribute(value: &str) -> String {
+    value
+        .replace('&', "&amp;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
+        .replace('"', "&quot;")
+}
+
+/// Whether `span` holds only CDATA sections and text, the text only whitespace when
+/// `whitespace_only`: nothing that writing the whole span would silently drop. A comment, a
+/// processing instruction or an element between two CDATA sections fails it.
+pub fn only_cdata_and_text(
+    tokens: &[Token],
+    src: &[u8],
+    span: Span,
+    whitespace_only: bool,
+) -> bool {
+    tokens
+        .iter()
+        .filter(|token| token.span.start >= span.start && token.span.end <= span.end)
+        .all(|token| match token.kind {
+            Kind::Cdata => true,
+            Kind::Text => {
+                !whitespace_only || token.span.of(src).iter().all(u8::is_ascii_whitespace)
+            }
+            _ => false,
+        })
+}
+
 /// Render a payload for a CDATA section, splitting it if it contains the terminator.
 ///
 /// `]]>` cannot appear inside one CDATA section, so a payload containing it is written as two

@@ -603,29 +603,14 @@ pub(crate) fn settings_cmd(solution: &Solution, args: &Args) -> u8 {
             [subsystem, rest @ ..] if rest.len() <= 1 => {
                 let name = settings::resolve(&names, subsystem).map_err(|e| e.to_string())?;
                 let read = settings::read(&client, name).map_err(|e| e.to_string())?;
-                let mut shown = 0;
-                for table in &read.tables {
-                    if rest
-                        .first()
-                        .is_some_and(|wanted| !table.name.eq_ignore_ascii_case(wanted))
-                    {
-                        continue;
-                    }
-                    shown += 1;
+                let chosen = settings::tables(&read, rest.first().map(String::as_str))
+                    .map_err(|e| e.to_string())?;
+                for table in chosen {
                     if args.has("--json") {
                         println!("{}", settings::table_json(&read.name, table));
                     } else {
                         print_table(&read.name, table);
                     }
-                }
-                if shown == 0 {
-                    let tables: Vec<&str> = read.tables.iter().map(|t| t.name.as_str()).collect();
-                    return Err(format!(
-                        "{} has no table {:?}; it has: {}",
-                        read.name,
-                        rest.first().map(String::as_str).unwrap_or(""),
-                        tables.join(", ")
-                    ));
                 }
                 Ok(())
             }

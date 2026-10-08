@@ -251,6 +251,15 @@ pub fn plan(solution: &Solution, request: &Request) -> Result<Plan, RetemplateEr
             "nothing to change: give --to <template>, --add-shapes or --remove-shapes".to_string(),
         ));
     }
+    // The names written into the document are escaped there (`&` and all, as `P.B&amp;C`); an
+    // empty one or a control character cannot be an entity name at all.
+    for name in request.template.iter().chain(&request.add_shapes) {
+        if name.is_empty() || name.chars().any(char::is_control) {
+            return Err(RetemplateError::Invalid(format!(
+                "{name:?} is not an entity name: it is empty or holds a control character"
+            )));
+        }
+    }
     let mut discovery = workspace::discover(solution);
     if !discovery.unreadable.is_empty() {
         return Err(RetemplateError::Unreadable {
@@ -569,7 +578,10 @@ fn edit_document(src: &[u8], file: &EntityFile, request: &Request) -> Result<Vec
         };
         let span = attribute_value(src, &tokens[entity], attribute)
             .ok_or_else(|| format!("the entity has no {attribute} attribute to change"))?;
-        edits.push(Edit::new(span, template.as_bytes().to_vec()));
+        edits.push(Edit::new(
+            span,
+            scan::escape_attribute(template).into_bytes(),
+        ));
     }
     if !request.add_shapes.is_empty() || !request.remove_shapes.is_empty() {
         let host = sidecar::member_host_of(&tokens, src).ok_or("the entity has no member host")?;
@@ -604,7 +616,12 @@ fn edit_document(src: &[u8], file: &EntityFile, request: &Request) -> Result<Vec
         let elements: Vec<String> = request
             .add_shapes
             .iter()
-            .map(|shape| format!("<ImplementedShape name=\"{shape}\"></ImplementedShape>"))
+            .map(|shape| {
+                format!(
+                    "<ImplementedShape name=\"{}\"></ImplementedShape>",
+                    scan::escape_attribute(shape)
+                )
+            })
             .collect();
         if !elements.is_empty() {
             match section {

@@ -145,12 +145,18 @@ pub fn inspect(zip: &[u8]) -> Result<Package, ExtensionError> {
     let bad = |why: String| ExtensionError::Invalid(format!("not an extension package: {why}"));
     let mut archive = zip::ZipArchive::new(std::io::Cursor::new(zip))
         .map_err(|e| bad(format!("not a zip ({e})")))?;
+    // A crafted zip can expand without end; a real metadata.xml is a few kilobytes.
+    const MAX_METADATA_BYTES: u64 = 1 << 20;
     let mut metadata = String::new();
     archive
         .by_name("metadata.xml")
         .map_err(|_| bad("it has no metadata.xml at its root".to_string()))?
+        .take(MAX_METADATA_BYTES + 1)
         .read_to_string(&mut metadata)
         .map_err(|e| bad(format!("metadata.xml cannot be read ({e})")))?;
+    if metadata.len() as u64 > MAX_METADATA_BYTES {
+        return Err(bad("metadata.xml is larger than 1 MiB".to_string()));
+    }
     let src = metadata.as_bytes();
     let tokens =
         super::scan::tokenize(src).map_err(|e| bad(format!("metadata.xml is not XML ({e})")))?;
@@ -464,6 +470,13 @@ mod tests {
             import(&fake, "q.zip", &fresh, false).unwrap().plan,
             "install Q 1.0.0"
         );
+    }
+
+    #[test]
+    fn a_metadata_xml_past_a_megabyte_is_refused() {
+        let huge = format!("<Entities>{}</Entities>", " ".repeat((1 << 20) + 1));
+        let error = inspect(&package_zip(Some(&huge))).unwrap_err().to_string();
+        assert!(error.contains("larger than 1 MiB"), "{error}");
     }
 
     #[test]

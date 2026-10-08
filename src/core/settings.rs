@@ -275,6 +275,30 @@ pub fn resolve<'a>(names: &'a [String], wanted: &str) -> Result<&'a str, Setting
         })
 }
 
+/// The tables of a subsystem to show: all of them, or the one `wanted` names in any case.
+pub fn tables<'a>(
+    subsystem: &'a Subsystem,
+    wanted: Option<&str>,
+) -> Result<Vec<&'a Table>, SettingsError> {
+    let Some(wanted) = wanted else {
+        return Ok(subsystem.tables.iter().collect());
+    };
+    let found: Vec<&Table> = subsystem
+        .tables
+        .iter()
+        .filter(|table| table.name.eq_ignore_ascii_case(wanted))
+        .collect();
+    if found.is_empty() {
+        let names: Vec<&str> = subsystem.tables.iter().map(|t| t.name.as_str()).collect();
+        return Err(SettingsError::Invalid(format!(
+            "{} has no table {wanted:?}; it has: {}",
+            subsystem.name,
+            names.join(", ")
+        )));
+    }
+    Ok(found)
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct Found {
     pub subsystem: String,
@@ -413,6 +437,28 @@ mod tests {
             federation.tables[0].rows[1]["applicationKey"], "",
             "an empty secret says it is empty"
         );
+    }
+
+    #[test]
+    fn one_table_is_chosen_in_any_case_and_a_missing_one_names_the_others() {
+        let table = |name: &str| Table {
+            name: name.to_string(),
+            fields: Vec::new(),
+            rows: Vec::new(),
+        };
+        let subsystem = Subsystem {
+            name: "LoggingSubsystem".to_string(),
+            running: true,
+            tables: vec![table("Settings"), table("Format")],
+        };
+        assert_eq!(tables(&subsystem, None).unwrap().len(), 2);
+        let one = tables(&subsystem, Some("format")).unwrap();
+        assert_eq!(
+            one.iter().map(|t| t.name.as_str()).collect::<Vec<_>>(),
+            ["Format"]
+        );
+        let error = tables(&subsystem, Some("Nope")).unwrap_err().to_string();
+        assert!(error.contains("it has: Settings, Format"), "{error}");
     }
 
     #[test]
