@@ -94,13 +94,21 @@ fn install(plan: &Plan) -> Result<(), String> {
         Some(path) => {
             let file = open(path)
                 .map_err(|why| format!("ignoring the log file {}: {why}", path.display()))?;
-            if is_stdout(&file) {
+            if is_same(&file, std::io::stdout()) {
                 return Err(format!(
                     "ignoring the log file {}: it is standard output",
                     path.display()
                 ));
             }
-            tracing::subscriber::set_global_default(builder.with_writer(Mutex::new(file)).finish())
+            // A log file can be stderr, for example `/dev/stderr`. Progress bars must stay off then.
+            let on_stderr = is_same(&file, std::io::stderr());
+            let set = tracing::subscriber::set_global_default(
+                builder.with_writer(Mutex::new(file)).finish(),
+            );
+            if set.is_ok() && on_stderr {
+                ON_STDERR.store(true, Ordering::Relaxed);
+            }
+            set
         }
         None => {
             let set = tracing::subscriber::set_global_default(
@@ -115,23 +123,23 @@ fn install(plan: &Plan) -> Result<(), String> {
     set.map_err(|why| format!("logs are already set up: {why}"))
 }
 
-/// Tell whether `file` is the same file as standard output. Logs on stdout break MCP messages.
+/// Tell whether `file` is the same file as `stream`. Logs on stdout break MCP messages, and logs
+/// on stderr mix with progress bars.
 #[cfg(unix)]
-fn is_stdout(file: &std::fs::File) -> bool {
-    use std::os::fd::AsFd;
+fn is_same(file: &std::fs::File, stream: impl std::os::fd::AsFd) -> bool {
     use std::os::unix::fs::MetadataExt;
-    let Ok(stdout) = std::io::stdout().as_fd().try_clone_to_owned() else {
+    let Ok(stream) = stream.as_fd().try_clone_to_owned() else {
         return false;
     };
-    let (Ok(mine), Ok(theirs)) = (file.metadata(), std::fs::File::from(stdout).metadata()) else {
+    let (Ok(mine), Ok(theirs)) = (file.metadata(), std::fs::File::from(stream).metadata()) else {
         return false;
     };
     mine.dev() == theirs.dev() && mine.ino() == theirs.ino()
 }
 
-/// Windows has no check: the stdout comparison needs Unix device and inode numbers.
+/// Windows has no check: the comparison needs Unix device and inode numbers.
 #[cfg(not(unix))]
-fn is_stdout(_file: &std::fs::File) -> bool {
+fn is_same<S>(_file: &std::fs::File, _stream: S) -> bool {
     false
 }
 
@@ -183,6 +191,16 @@ pub(crate) fn captured<R>(f: impl FnOnce() -> R) -> (R, String) {
 
 #[cfg(test)]
 mod tests {
+    #[cfg(unix)]
+    #[test]
+    fn a_log_file_is_recognised_as_stderr_only_when_it_is_stderr() {
+        let stderr = super::open(std::path::Path::new("/dev/stderr")).unwrap();
+        assert!(super::is_same(&stderr, std::io::stderr()));
+        let dir = tempfile::tempdir().unwrap();
+        let file = super::open(&dir.path().join("twaco.log")).unwrap();
+        assert!(!super::is_same(&file, std::io::stderr()));
+    }
+
     use super::*;
 
     fn none(_: &str) -> Option<String> {

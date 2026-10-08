@@ -32,6 +32,9 @@ All notable changes to twaco are recorded here. The format follows
 - A server error message no longer shows a credential that appears in the request URL. This
   happens when an entity name holds a secret. Every client error now hides the password, the app
   key and secret profile values in its URL, reason and body.
+- A server error body no longer shows part of a secret that crosses the 4096-byte cut. Secrets
+  are now removed before the cut.
+- Progress bars stay off when `--log-file` names stderr, for example `/dev/stderr`.
 
 ## [0.1.5] - 2026-10-08
 

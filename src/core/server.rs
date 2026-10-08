@@ -282,7 +282,7 @@ impl Client {
         } else {
             Err(ServerError::Rejected {
                 url: scrub(&self.secrets, &url),
-                body: scrub(&self.secrets, &excerpt(&reply)),
+                body: excerpt(&scrub(&self.secrets, &reply)),
             })
         }
     }
@@ -654,7 +654,7 @@ fn checked(
             method,
             status: response.status,
             url: scrub(secrets, &url),
-            body: scrub(secrets, &excerpt(detail)),
+            body: excerpt(&scrub(secrets, detail)),
         });
     }
     Ok(response.body)
@@ -673,7 +673,7 @@ fn checked_bytes(
             method,
             status: response.status,
             url: scrub(secrets, &url),
-            body: scrub(secrets, &excerpt(&String::from_utf8_lossy(&response.body))),
+            body: excerpt(&scrub(secrets, &String::from_utf8_lossy(&response.body))),
         });
     }
     Ok(response.body)
@@ -748,6 +748,9 @@ fn scrub(secrets: &[String], text: &str) -> String {
     out
 }
 
+/// WARNING: Remove secrets before the cut. A cut through a secret leaves a prefix that the
+/// scrubber no longer recognises.
+///
 /// At most 4096 bytes of a server message, cut on a character boundary: slicing a multi-byte
 /// character in half panics.
 fn excerpt(text: &str) -> String {
@@ -1065,6 +1068,22 @@ mod tests {
         );
         let text = format!("{error} {error:?}");
         assert!(!text.contains("pw-7f3a9c1e5b"), "{text}");
+    }
+
+    /// An error body is cut to 4096 bytes. A secret across the cut must not leave a prefix.
+    #[test]
+    fn a_secret_across_the_body_cut_never_reaches_an_error_message() {
+        let secret = "pw-7f3a9c1e5b";
+        let secrets = vec![secret.to_string()];
+        let body = format!("{}{secret}", "x".repeat(4096 - 6));
+        let response = Response {
+            status: 500,
+            content_type: Some("text/plain".to_string()),
+            body: body.into_bytes(),
+        };
+        let error = checked(&secrets, Method::Get, "http://h/T".to_string(), response).unwrap_err();
+        let text = format!("{error} {error:?}");
+        assert!(!text.contains(&secret[..6]), "{}", &text[text.len() - 80..]);
     }
 
     #[test]
