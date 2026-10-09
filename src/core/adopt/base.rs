@@ -300,10 +300,10 @@ fn revision(solution: &Solution, revision: &str) -> Result<Base, String> {
         .ok_or_else(|| "this solution is outside a git repository".to_string())?;
     let names = git_output(&git_root, ["ls-tree", "-r", "--name-only", revision])?;
     let temporary = tempfile::tempdir().map_err(|error| error.to_string())?;
-    let solution_relative = solution
-        .root
-        .strip_prefix(&git_root)
-        .map_err(|_| "solution is outside its git worktree".to_string())?;
+    // Git says where the solution sits in its worktree; comparing paths ourselves fails where
+    // the two spell one folder differently (a symlinked /var, a Windows short name).
+    let prefix = git_output(&solution.root, ["rev-parse", "--show-prefix"])?;
+    let solution_relative = PathBuf::from(prefix.trim().trim_end_matches('/'));
     let config_relative = solution_relative.join("twaco.toml");
     let config = config_relative.to_string_lossy().replace('\\', "/");
     if !names.lines().any(|name| name == config) {
@@ -333,11 +333,16 @@ pub fn history_versions(solution: &Solution, path: &Path, limit: usize) -> Vec<V
     let Some(root) = git_root(&solution.root) else {
         return Vec::new();
     };
-    let Ok(relative) = path.strip_prefix(&root) else {
+    // Git names the file relative to its worktree, whatever spelling `path` uses.
+    let (Some(folder), Some(name)) = (path.parent(), path.file_name().and_then(|n| n.to_str()))
+    else {
         return Vec::new();
     };
-    let relative = relative.to_string_lossy().replace('\\', "/");
-    if git_output(&root, ["ls-files", "--error-unmatch", &relative]).is_err() {
+    let Ok(listed) = git_output(folder, ["ls-files", "--full-name", "--", name]) else {
+        return Vec::new();
+    };
+    let relative = listed.lines().next().unwrap_or_default().trim().to_string();
+    if relative.is_empty() {
         return Vec::new();
     }
     let limit = limit.min(50).to_string();
