@@ -913,6 +913,10 @@ pub fn apply(
     // In the report's order, notes and writes alike, so the output reads as the comparison did.
     let mut steps: Vec<(Option<Write>, String)> = Vec::new();
     for entry in &report.entities {
+        // An identical entity has nothing to adopt and nothing worth a line.
+        if entry.change == Change::Same {
+            continue;
+        }
         let Some(element) = exported.get(&entry.entity) else {
             continue;
         };
@@ -1143,7 +1147,7 @@ fn ui_skip_line(entry: &EntityReport, takes: &[Take]) -> String {
             if !has_take(takes, TakeSide::Theirs, &entry.entity.name) =>
         {
             format!(
-                "conflict {path}: both changed; --take theirs {} or --take ours {}",
+                "conflict {path}: both changed; --take theirs:{} or --take ours:{}",
                 entry.entity.name, entry.entity.name
             )
         }
@@ -1258,7 +1262,7 @@ fn plan_backend(
         steps.push((
             None,
             format!(
-                "conflict {}: both changed; --take theirs {} or --take ours {}",
+                "conflict {}: both changed; --take theirs:{} or --take ours:{}",
                 entity.path(),
                 entity_name,
                 entity_name
@@ -1318,7 +1322,7 @@ fn plan_backend(
             {
                 steps.push((
                     None,
-                    format!("conflict {target}: both changed; --take theirs|ours {target}"),
+                    format!("conflict {target}: both changed; --take theirs:{target} or --take ours:{target}"),
                 ));
             } else if change == Change::Stale {
                 steps.push((None, format!("kept     {target}: stale")));

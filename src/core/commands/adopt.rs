@@ -11,6 +11,8 @@ use std::path::PathBuf;
 pub struct AdoptRequest {
     pub export: PathBuf,
     pub only: Vec<String>,
+    pub base: Option<String>,
+    pub only_kind: Option<adopt::Kind>,
     /// Resolutions are optional until the front ends grow `--take`; keeping this default makes
     /// older adapters retain their conservative behaviour.
     pub takes: Vec<adopt::Take>,
@@ -69,8 +71,16 @@ pub fn execute(
                 .map_err(AdoptCommandError::Lock)?,
         ),
     };
-    let report = adopt::compare(solution, &request.export, &request.only)
-        .map_err(AdoptCommandError::Adopt)?;
+    let report = adopt::compare_with(
+        solution,
+        &request.export,
+        &request.only,
+        &adopt::CompareOptions {
+            base: request.base.clone(),
+            only_kind: request.only_kind,
+        },
+    )
+    .map_err(AdoptCommandError::Adopt)?;
     match request.mode {
         Mode::Plan => Ok(AdoptOutcome::Plan {
             report,
@@ -107,6 +117,8 @@ mod tests {
         let request = |mode| AdoptRequest {
             export: root.join("missing.xml"),
             only: Vec::new(),
+            base: None,
+            only_kind: None,
             takes: Vec::new(),
             mode,
             lock_label: "adopt",
@@ -136,6 +148,8 @@ mod tests {
         let request = AdoptRequest {
             export: root.join("missing.xml"),
             only: Vec::new(),
+            base: None,
+            only_kind: None,
             takes: Vec::new(),
             mode: Mode::Apply,
             lock_label: "adopt",

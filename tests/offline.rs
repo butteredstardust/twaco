@@ -536,6 +536,53 @@ fn bundle_carries_10_2_ai_entities_and_refuses_an_unknown_collection() {
 }
 
 #[test]
+fn handoffs_are_recorded_selected_by_adopt_and_bundled() {
+    let root_guard = tempfile::Builder::new()
+        .prefix("twaco-handoff-")
+        .tempdir()
+        .unwrap();
+    let root = root_guard.path();
+    std::fs::create_dir_all(root.join("Things")).unwrap();
+    std::fs::write(root.join("twaco.toml"), "[[project]]\nname = \"P\"\n").unwrap();
+    let xml = "<Entities><Things><Thing name=\"Acme.T\" projectName=\"P\"><ThingShape/></Thing></Things></Entities>";
+    std::fs::write(root.join("Things/Acme.T.xml"), xml).unwrap();
+    std::fs::write(root.join("base.xml"), xml).unwrap();
+    std::fs::write(root.join("export.xml"), xml).unwrap();
+    let run = |args: &[&str]| {
+        Command::new(env!("CARGO_BIN_EXE_twaco"))
+            .args(args)
+            .current_dir(root)
+            .env_clear()
+            .output()
+            .unwrap()
+    };
+    let record = run(&["handoff", "record", "base.xml", "--name", "h1", "--apply"]);
+    assert!(
+        record.status.success(),
+        "{}",
+        String::from_utf8_lossy(&record.stderr)
+    );
+    let listed = run(&["handoff", "list"]);
+    assert!(String::from_utf8_lossy(&listed.stdout).contains("h1"));
+    let report = run(&["adopt", "export.xml", "--json"]);
+    let json: serde_json::Value = serde_json::from_slice(&report.stdout).unwrap();
+    assert!(json["base"]
+        .as_str()
+        .unwrap_or_default()
+        .starts_with("handoff h1"));
+    assert!(json["entities"][0].get("change").is_some());
+    assert!(json["entities"][0].get("kind").is_some());
+    assert_eq!(
+        run(&["adopt", "export.xml", "--take", "bad"]).status.code(),
+        Some(2)
+    );
+    assert!(run(&["bundle", "--handoff", "h2", "--apply"])
+        .status
+        .success());
+    assert!(String::from_utf8_lossy(&run(&["handoff", "list"]).stdout).contains("h2"));
+}
+
+#[test]
 fn an_advisory_gate_reports_without_failing_the_run() {
     let root_guard = tempfile::Builder::new()
         .prefix("twaco-advisory-")

@@ -811,7 +811,7 @@
   },
   {
     "name": "adopt_report",
-    "description": "Compare a designer's Composer <Entities> export with the repository: which services it would revert, which entities it adds or changes (node by node with detail), and which it lacks. Writes nothing. reverts > 0 is what `twaco adopt --fail-on-revert` fails on: the export would undo repository work.",
+    "description": "Compare a designer's or backend collaborator's Composer <Entities> export with the repository, three-way against its base. Returns which UI and backend entities/services are theirs, stale or conflicting. Writes nothing; reverts is what `twaco adopt --fail-on-revert` fails on.",
     "inputSchema": {
       "required": [
         "export"
@@ -820,9 +820,11 @@
       "type": "object",
       "properties": {
         "export": {
-          "description": "Path to the export, absolute or relative to the solution root.",
+          "description": "A designer's or backend collaborator's export, absolute or relative to the solution root.",
           "type": "string"
         },
+        "base": { "description": "The collaborator's starting export, recorded handoff, or git revision.", "type": "string" },
+        "only": { "description": "Limit comparison to designer-owned UI or backend collections.", "type": "string", "enum": ["ui", "backend"] },
         "entity": {
           "description": "Only entities whose name contains one of these.",
           "type": "array",
@@ -845,18 +847,33 @@
   },
   {
     "name": "adopt_apply",
-    "description": "Adopt the mechanical half of a designer's export: mashup content into sidecars, a new mashup's entity file, changed media. Never writes a service or configuration table; run sync afterwards. Takes the workspace lock.",
+    "description": "Apply a designer's or backend collaborator's export, three-way against its base: writes selected UI content and safe backend entity/service changes; conflicts need take. Backend changes are folded into entity XML; mashup sidecars may need sync. Takes the workspace lock.",
     "inputSchema": {
       "type": "object",
       "properties": {
         "export": {
           "type": "string",
-          "description": "Path to the export, absolute or relative to the solution root."
+          "description": "A designer's or backend collaborator's export, absolute or relative to the solution root."
         },
+        "base": { "description": "The collaborator's starting export, recorded handoff, or git revision.", "type": "string" },
+        "only": { "description": "Limit comparison to designer-owned UI or backend collections.", "type": "string", "enum": ["ui", "backend"] },
         "entity": {
           "type": "array",
           "items": {
             "type": "string"
+          }
+        },
+        "take": {
+          "description": "Resolve named conflicts by taking the collaborator's or repository's version.",
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "side": { "type": "string", "enum": ["theirs", "ours"] },
+              "target": { "description": "An entity or Entity.Service.", "type": "string" }
+            },
+            "additionalProperties": false,
+            "required": ["side", "target"]
           }
         }
       },
@@ -870,6 +887,22 @@
       "destructiveHint": true,
       "openWorldHint": false
     }
+  },
+  {
+    "name": "handoff",
+    "description": "List recorded collaborator handoffs, or record delivered <Entities> exports as a future three-way adopt base. Record is a dry run unless dry_run is false; applying copies files under .twaco/handoffs and takes the workspace lock.",
+    "inputSchema": {
+      "required": ["action"],
+      "additionalProperties": false,
+      "type": "object",
+      "properties": {
+        "action": { "type": "string", "enum": ["list", "record"] },
+        "name": { "description": "Required for action record.", "type": "string" },
+        "files": { "description": "Export paths required for action record, absolute or relative to the solution root.", "type": "array", "items": { "type": "string" } },
+        "dry_run": { "description": "Record only when false; record plans by default.", "type": "boolean", "default": true }
+      }
+    },
+    "annotations": { "readOnlyHint": false, "destructiveHint": true, "openWorldHint": false }
   },
   {
     "name": "rename",

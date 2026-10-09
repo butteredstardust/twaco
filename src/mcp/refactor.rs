@@ -1,6 +1,6 @@
 use super::requests::refactor::{
-    AdoptApplyRequest, AdoptReportRequest, MoveMemberRequest, NewBuildingBlockRequest,
-    RenameRequest, RetemplateRequest,
+    AdoptApplyRequest, AdoptKind, AdoptReportRequest, AdoptTakeSide, HandoffAction, HandoffRequest,
+    MoveMemberRequest, NewBuildingBlockRequest, RenameRequest, RetemplateRequest,
 };
 use super::source::add_types_refresh;
 use super::*;
@@ -153,7 +153,20 @@ pub(crate) fn adopt_apply_tool(
     let request = commands::adopt::AdoptRequest {
         export,
         only,
-        takes: Vec::new(),
+        base: arguments.base.as_ref().cloned(),
+        only_kind: arguments.only.as_ref().map(adopt_kind),
+        takes: arguments
+            .take
+            .items()
+            .iter()
+            .map(|take| adopt::Take {
+                side: match take.side {
+                    AdoptTakeSide::Theirs => adopt::TakeSide::Theirs,
+                    AdoptTakeSide::Ours => adopt::TakeSide::Ours,
+                },
+                target: take.target.clone(),
+            })
+            .collect(),
         mode: Mode::Apply,
         lock_label: "mcp adopt_apply",
     };
@@ -166,10 +179,25 @@ pub(crate) fn adopt_apply_tool(
     else {
         unreachable!("an adopt apply request has an applied outcome")
     };
+    let mashup_written = report.entities.iter().any(|entry| {
+        entry.entity.collection == "Mashups"
+            && outcome
+                .lines
+                .iter()
+                .any(|line| line == &format!("sidecar  {}", entry.entity.name))
+    });
+    let next = if mashup_written {
+        "backend changes are already folded; sync mashup sidecars, then check"
+    } else {
+        "backend changes are already folded; then check"
+    };
     let mut result = json!({
         "applied": outcome.lines,
         "reverts_not_applied": report.reverts().count(),
-        "next": "run sync, then check",
+        "base": report.base,
+        "entities": report.entities.iter().map(adopt_entity_json).collect::<Vec<_>>(),
+        "services": report.services.iter().map(adopt_service_json).collect::<Vec<_>>(),
+        "next": next,
     });
     add_types_refresh(&mut result, &outcome.types);
     add_notices(&mut result, &notices);
@@ -193,6 +221,8 @@ pub(crate) fn adopt_tool(
     let request = commands::adopt::AdoptRequest {
         export,
         only,
+        base: arguments.base.as_ref().cloned(),
+        only_kind: arguments.only.as_ref().map(adopt_kind),
         takes: Vec::new(),
         mode: Mode::Plan,
         lock_label: "mcp adopt_report",
@@ -208,12 +238,9 @@ pub(crate) fn adopt_tool(
         .services
         .iter()
         .map(|s| {
-            json!({
-                "entity": s.entity,
-                "service": s.service,
-                "generated": s.generated,
-                "compared_with": relative(solution, &s.source),
-            })
+            let mut item = adopt_service_json(s);
+            item["compared_with"] = json!(relative(solution, &s.source));
+            item
         })
         .collect();
     let changed: Vec<Value> = report
@@ -224,6 +251,8 @@ pub(crate) fn adopt_tool(
                 "nodes": e.differences.len(),
                 "regenerated_ids": e.volatile_ids,
                 "ignored": e.ignored,
+                "change": change_word(e.change),
+                "kind": kind_word(e.kind),
             });
             if detail {
                 entry["differences"] = json!(e
@@ -243,7 +272,91 @@ pub(crate) fn adopt_tool(
         "absent": report.absent.iter().map(adopt::EntityRef::path).collect::<Vec<_>>(),
         "changed": changed,
         "identical": report.with_status(adopt::Status::Identical).count(),
+        "base": report.base,
+        "entities": report.entities.iter().map(adopt_entity_json).collect::<Vec<_>>(),
     });
+    add_notices(&mut result, &notices);
+    Ok(result)
+}
+
+fn adopt_kind(kind: &AdoptKind) -> adopt::Kind {
+    match kind {
+        AdoptKind::Ui => adopt::Kind::Ui,
+        AdoptKind::Backend => adopt::Kind::Backend,
+    }
+}
+fn change_word(change: adopt::Change) -> &'static str {
+    match change {
+        adopt::Change::Same => "same",
+        adopt::Change::Stale => "stale",
+        adopt::Change::Theirs => "theirs",
+        adopt::Change::Conflict => "conflict",
+        adopt::Change::Added => "added",
+        adopt::Change::WeRemoved => "we_removed",
+        adopt::Change::Unknown => "unknown",
+    }
+}
+fn kind_word(kind: adopt::Kind) -> &'static str {
+    match kind {
+        adopt::Kind::Ui => "ui",
+        adopt::Kind::Backend => "backend",
+    }
+}
+fn adopt_entity_json(entry: &adopt::EntityReport) -> Value {
+    json!({ "entity": entry.entity.path(), "change": change_word(entry.change), "kind": kind_word(entry.kind) })
+}
+fn adopt_service_json(service: &adopt::ServiceReport) -> Value {
+    json!({ "entity": service.entity, "service": service.service, "generated": service.generated, "change": change_word(service.change), "kind": "backend" })
+}
+
+pub(crate) fn handoff_tool(
+    solution: &Solution,
+    arguments: HandoffRequest,
+) -> Result<Value, ToolError> {
+    let request = match arguments.action {
+        HandoffAction::List => commands::handoff::HandoffRequest::List,
+        HandoffAction::Record => {
+            let name = required_text(&arguments.name, "name")?.to_string();
+            let files = arguments
+                .files
+                .items()
+                .iter()
+                .map(|file| {
+                    let path = PathBuf::from(file);
+                    if path.is_absolute() {
+                        path
+                    } else {
+                        solution.root.join(path)
+                    }
+                })
+                .collect();
+            commands::handoff::HandoffRequest::Record { name, files }
+        }
+    };
+    let mut notices = commands::Notices::default();
+    let outcome = commands::handoff::execute(
+        solution,
+        &request,
+        if arguments.dry_run {
+            Mode::Plan
+        } else {
+            Mode::Apply
+        },
+        "mcp handoff",
+        &mut notices,
+    )
+    .map_err(ToolError::coded)?;
+    let mut result = match outcome {
+        commands::handoff::HandoffOutcome::Listed { handoffs, .. } => {
+            json!({ "ok": true, "handoffs": handoffs })
+        }
+        commands::handoff::HandoffOutcome::Planned { name, files, .. } => {
+            json!({ "ok": true, "plan": true, "name": name, "files": files.iter().map(|file| relative(solution, file)).collect::<Vec<_>>() })
+        }
+        commands::handoff::HandoffOutcome::Recorded { handoff, .. } => {
+            json!({ "ok": true, "recorded": handoff })
+        }
+    };
     add_notices(&mut result, &notices);
     Ok(result)
 }

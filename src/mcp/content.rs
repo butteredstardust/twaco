@@ -521,6 +521,7 @@ pub(crate) fn bundle_tool(
 ) -> Result<Value, ToolError> {
     let request = commands::bundle::BundleRequest {
         backend_only: arguments.backend_only,
+        handoff: None,
         mode: if arguments.dry_run {
             Mode::Plan
         } else {

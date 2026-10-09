@@ -397,6 +397,10 @@ pub(crate) const FLAGS: &[Flag] = &[
         takes: Takes::Switch,
     },
     Flag {
+        name: "--base",
+        takes: Takes::Value("file|handoff|git rev"),
+    },
+    Flag {
         name: "--backup",
         takes: Takes::Value("file"),
     },
@@ -477,6 +481,10 @@ pub(crate) const FLAGS: &[Flag] = &[
         takes: Takes::Switch,
     },
     Flag {
+        name: "--handoff",
+        takes: Takes::Value("name"),
+    },
+    Flag {
         name: "--leave-delegate",
         takes: Takes::Switch,
     },
@@ -545,12 +553,20 @@ pub(crate) const FLAGS: &[Flag] = &[
         takes: Takes::Switch,
     },
     Flag {
+        name: "--name",
+        takes: Takes::Value("name"),
+    },
+    Flag {
         name: "--oldest-first",
         takes: Takes::Switch,
     },
     Flag {
         name: "--only",
         takes: Takes::Repeated("entity"),
+    },
+    Flag {
+        name: "--take",
+        takes: Takes::Value("side:name,..."),
     },
     Flag {
         name: "--only-projects",
@@ -894,13 +910,25 @@ pub(crate) const COMMANDS: &[Command] = &[
         operands: true,
         flags: &[
             "--entity",
+            "--base",
+            "--only",
+            "--take",
             "--detail",
             "--json",
             "--fail-on-revert",
             "--apply",
         ],
-        text: r#"  adopt <export.xml>          what a designer's Composer export really changes; --apply writes it in
-      --entity <name>         only this entity; --detail; --json; --fail-on-revert"#,
+        text: r#"  adopt <export.xml>          take a designer's or backend collaborator's export; plan unless --apply
+      --base <file|handoff|git rev>  collaborator's starting point; --only ui|backend
+      --take theirs:<name>,ours:<name>  resolve conflicts; --entity <name>; --detail; --json; --fail-on-revert"#,
+    },
+    Command {
+        path: "handoff",
+        group: 1,
+        operands: true,
+        flags: &["--name", "--apply"],
+        text: r#"  handoff list|record <file.xml>... --name <name> [--apply]
+                              list recorded collaborator bases, or plan/copy one under .twaco/handoffs"#,
     },
     Command {
         path: "rename entity",
@@ -1245,8 +1273,8 @@ pub(crate) const COMMANDS: &[Command] = &[
         path: "bundle",
         group: 2,
         operands: false,
-        flags: &["--backend-only", "--check"],
-        text: r#"  bundle [--backend-only]     one importable document
+        flags: &["--backend-only", "--check", "--handoff", "--apply"],
+        text: r#"  bundle [--backend-only] [--handoff <name>] [--apply]  one importable document
       --check                 report whether the bundle is current, write nothing"#,
     },
     Command {

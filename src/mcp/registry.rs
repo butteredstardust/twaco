@@ -308,15 +308,21 @@ static TOOLS: LazyLock<Vec<Tool>> = LazyLock::new(|| {
         .with_output::<outputs::DeployResult>(),
         solution_tool::<refactor_requests::AdoptReportRequest>(
             "adopt_report",
-            "Compare a designer's Composer <Entities> export with the repository: which services it would revert, which entities it adds or changes (node by node with detail), and which it lacks. Writes nothing. reverts > 0 is what `twaco adopt --fail-on-revert` fails on: the export would undo repository work.",
+            "Compare a designer's or backend collaborator's Composer <Entities> export with the repository, three-way against its base. Returns which UI and backend entities/services are theirs, stale or conflicting. Writes nothing; reverts is what `twaco adopt --fail-on-revert` fails on.",
             true,
             refactor::adopt_tool,
         ),
         solution_tool::<refactor_requests::AdoptApplyRequest>(
             "adopt_apply",
-            "Adopt the mechanical half of a designer's export: mashup content into sidecars, a new mashup's entity file, changed media. Never writes a service or configuration table; run sync afterwards. Takes the workspace lock.",
+            "Apply a designer's or backend collaborator's export, three-way against its base: writes selected UI content and safe backend entity/service changes; conflicts need take. Backend changes are folded into entity XML; mashup sidecars may need sync. Takes the workspace lock.",
             false,
             refactor::adopt_apply_tool,
+        ),
+        solution_tool::<refactor_requests::HandoffRequest>(
+            "handoff",
+            "List recorded collaborator handoffs, or record delivered <Entities> exports as a future three-way adopt base. Record is a dry run unless dry_run is false; applying copies files under .twaco/handoffs and takes the workspace lock.",
+            false,
+            refactor::handoff_tool,
         ),
         solution_tool::<refactor_requests::RenameRequest>(
             "rename",

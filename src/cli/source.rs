@@ -403,6 +403,7 @@ pub(crate) fn bundle(solution: &Solution, args: &Args) -> u8 {
     let backend_only = args.has("--backend-only");
     let request = commands::bundle::BundleRequest {
         backend_only,
+        handoff: args.values.get("--handoff").cloned(),
         mode: if args.has("--check") {
             Mode::Plan
         } else {

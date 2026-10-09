@@ -135,22 +135,43 @@ designer's mashups. `twaco bundle` builds the document without sending it.
 
 `twaco entity push <Entity>` imports a single entity, with the same conflict check.
 
-## A designer's Composer work
+## Taking in a designer's or another backend developer's work
 
-A designer often changes mashups, themes and media in Composer and exports them. To take
-that work in:
+Give a collaborator the exact package they start from, then keep that package as the comparison
+base. A twaco-built package records itself while it is written; a package built another way can
+be recorded directly.
 
 ```sh
-twaco adopt export.xml              # what it really changes, node by node
-twaco adopt export.xml --apply      # write the mechanical half into the repository
+twaco bundle --handoff acme-orders --apply
+twaco handoff record backend.xml --name acme-orders --apply
+twaco handoff list
+twaco adopt returned-export.xml                 # review the three-way plan
+twaco adopt returned-export.xml --apply         # take safe collaborator changes
 ```
 
-`adopt` compares the export with the repository and ignores Composer's noise. It reports any
-service the export would revert, because a designer's export carries the server's version of
-every script, which may be older than the repository's. `--apply` writes mashup content, new
-mashups and changed media. It never writes a service or a configuration table: those changes
-are reported, for a person to decide. `[adopt]` in `twaco.toml` lists values that differ on
-every export by design.
+`adopt` compares Composer's canonical form, so formatting and platform noise do not count. It
+uses the named `--base <file|handoff|git-rev>`, otherwise the most similar recorded handoff; with
+no base it uses git history to spot stale content and calls the rest unknown. The first report line
+names the selected base. Handoffs are local derived files under `.twaco/handoffs/`; pass a package
+with `--base` on another machine.
+
+| State | Meaning | Apply |
+| --- | --- | --- |
+| same | both sides already agree | does nothing |
+| stale | ours changed after the handoff | keeps ours |
+| theirs | only the collaborator changed it | writes theirs |
+| conflict | both changed differently | reports it; use `--take` |
+| added | it did not exist at the handoff or here | writes theirs |
+| we removed | it was removed here | reports it |
+| unknown | no base can prove its origin | reports it as a conflict |
+
+Mashups, media, themes and configured UI collections are UI; everything else is backend. Use
+`--only ui` or `--only backend` to narrow a run. Backend service and entity changes that are safe
+to take are folded into XML and sidecars in the apply transaction. Mashup sidecars alone may need
+`twaco sync --all` afterwards. Resolve an individual conflict with
+`--take theirs:Acme.Orders.Manager.GetOrders` or keep it with
+`--take ours:Acme.Orders.Manager`; a take may name an entity or one service. `[adopt]` in
+`twaco.toml` still lists values that differ on every export by design.
 
 ## Renaming
 

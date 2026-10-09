@@ -395,7 +395,7 @@ copy of an entity as it is, a database Thing's password included. A solution's `
 hold the lines below. `twaco init --write` and `twaco init --agents` add the missing ones, and
 `twaco doctor` warns when any is missing. An ignore line does not untrack a file committed before it, so
 `twaco doctor` also asks git whether it tracks anything under `.twaco/profiles`, `.twaco/backups` or
-`.twaco/transactions`: a tracked backup is a warning, a tracked profile a failure (history keeps it,
+`.twaco/transactions` or `.twaco/handoffs`: a tracked backup is a warning, a tracked profile a failure (history keeps it,
 so change the password it holds).
 
 ```gitignore
@@ -403,6 +403,7 @@ so change the password it holds).
 .twaco/lock
 .twaco/lock.holder
 .twaco/backups/
+.twaco/handoffs/
 .twaco/transactions/
 .twaco/types/
 .twaco/platform.json

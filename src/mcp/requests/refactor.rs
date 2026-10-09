@@ -5,8 +5,14 @@ use serde::{Deserialize, Serialize};
 #[derive(Debug, Deserialize, JsonSchema, Serialize)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct AdoptReportRequest {
-    /// Path to the export, absolute or relative to the solution root.
+    /// A designer's or backend collaborator's export, absolute or relative to the solution root.
     pub(crate) export: String,
+    /// The collaborator's starting export, recorded handoff, or git revision.
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) base: Absent<String>,
+    /// Limit comparison to designer-owned UI or backend collections.
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) only: Absent<AdoptKind>,
     /// Only entities whose name contains one of these.
     #[serde(default, skip_serializing_if = "Absent::is_absent")]
     pub(crate) entity: Absent<Vec<String>>,
@@ -18,10 +24,66 @@ pub(crate) struct AdoptReportRequest {
 #[derive(Debug, Deserialize, JsonSchema, Serialize)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct AdoptApplyRequest {
-    /// Path to the export, absolute or relative to the solution root.
+    /// A designer's or backend collaborator's export, absolute or relative to the solution root.
     pub(crate) export: String,
+    /// The collaborator's starting export, recorded handoff, or git revision.
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) base: Absent<String>,
+    /// Limit comparison to designer-owned UI or backend collections.
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) only: Absent<AdoptKind>,
     #[serde(default, skip_serializing_if = "Absent::is_absent")]
     pub(crate) entity: Absent<Vec<String>>,
+    /// Resolve named conflicts by taking the collaborator's or repository's version.
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) take: Absent<Vec<AdoptTakeRequest>>,
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, JsonSchema, PartialEq, Eq, Serialize)]
+pub(crate) enum AdoptKind {
+    #[serde(rename = "ui")]
+    Ui,
+    #[serde(rename = "backend")]
+    Backend,
+}
+
+#[derive(Debug, Deserialize, JsonSchema, Serialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct AdoptTakeRequest {
+    pub(crate) side: AdoptTakeSide,
+    /// An entity or Entity.Service.
+    pub(crate) target: String,
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, JsonSchema, PartialEq, Eq, Serialize)]
+pub(crate) enum AdoptTakeSide {
+    #[serde(rename = "theirs")]
+    Theirs,
+    #[serde(rename = "ours")]
+    Ours,
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, JsonSchema, PartialEq, Eq, Serialize)]
+pub(crate) enum HandoffAction {
+    #[serde(rename = "list")]
+    List,
+    #[serde(rename = "record")]
+    Record,
+}
+
+#[derive(Debug, Deserialize, JsonSchema, Serialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct HandoffRequest {
+    pub(crate) action: HandoffAction,
+    /// Required for action record.
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) name: Absent<String>,
+    /// Export paths required for action record, absolute or relative to the solution root.
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) files: Absent<Vec<String>>,
+    /// Record only when false; record plans by default.
+    #[serde(default = "default_true")]
+    pub(crate) dry_run: bool,
 }
 
 #[derive(Clone, Copy, Debug, Deserialize, JsonSchema, PartialEq, Eq, Serialize)]
