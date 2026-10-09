@@ -459,6 +459,8 @@ pub fn discover(root: &Path) -> Result<Discovered, LocalizationError> {
             Ok(src) => match read(&path, &src) {
                 Ok(Some(file)) => found.files.push(file),
                 Ok(None) => {}
+                // The path is the first half of the pair; keep it out of the reason.
+                Err(LocalizationError::Invalid { why, .. }) => found.unreadable.push((path, why)),
                 Err(error) => found.unreadable.push((path, error.to_string())),
             },
             Err(error) => found.unreadable.push((path, error.to_string())),

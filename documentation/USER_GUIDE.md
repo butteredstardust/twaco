@@ -615,8 +615,10 @@ twaco localization remove Acme.App.Title --apply   # from every table
 A project's tokens are those named under its prefixes: the project name followed by `.`, or
 `[project.localization] prefixes`. Every command but `status` plans until `--apply`. An import
 never removes a token, which is why deleting needs `--prune`. A language token must also be in
-Default (the server refuses one that is not), and `status` exits 1 for such a token, a
-duplicate or an unreadable file, since each blocks a push. Files twaco creates carry no
+Default: the server's token services refuse one that is not, although an import takes it, so
+twaco refuses to push one, and a token pruned from Default is pruned from every language table
+that has it. `status` exits 1 for such a token, a duplicate or an unreadable file, since each
+blocks a push. Files twaco creates carry no
 `projectName`: importing one with a `projectName` would put the shared table into that project.
 
 ## Releases

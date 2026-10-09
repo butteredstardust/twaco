@@ -105,6 +105,7 @@ pub fn status<R: Remote + ?Sized>(
     remote: &R,
     table: Option<&str>,
 ) -> Result<Status, LocalizationError> {
+    check_prefixes(solution)?;
     let found = discover(&root(solution))?;
     let mut tables = remote.tables()?;
     tables.sort();
@@ -117,12 +118,12 @@ pub fn status<R: Remote + ?Sized>(
         }
     }
     let files = files_for(&found.files, table);
-    let server_tables: Vec<String> = files
+    // Every server table is read, not only those with a file: a table the server holds tokens of
+    // this solution in and no file has is what pull would create, and status must say so.
+    let server_tables: Vec<String> = tables
         .iter()
-        .map(|file| file.table.clone())
-        .collect::<BTreeSet<_>>()
-        .into_iter()
-        .filter(|name| tables.contains(name))
+        .filter(|name| table.is_none_or(|table| *name == table))
+        .cloned()
         .collect();
     let server = server_tokens(remote, &server_tables)?;
     let mut missing_tables: Vec<String> = files
@@ -134,11 +135,89 @@ pub fn status<R: Remote + ?Sized>(
         .collect();
     missing_tables.sort();
     Ok(Status {
-        compared: compare(&files, &server, &all_prefixes(solution)),
+        compared: with_unfiled(
+            compare(&files, &server, &all_prefixes(solution)),
+            &files,
+            &server,
+            solution,
+        ),
         problems: problems(&files, &all_prefixes(solution)),
         missing_tables,
         unreadable: found.unreadable,
     })
+}
+
+/// `compared` plus, for each server table no file holds, its tokens under this solution's
+/// prefixes as server only, in `compare`'s order.
+fn with_unfiled(
+    mut compared: Vec<Compared>,
+    files: &[TableFile],
+    server: &BTreeMap<String, Vec<Token>>,
+    solution: &Solution,
+) -> Vec<Compared> {
+    for (table, tokens) in server {
+        if files.iter().any(|file| &file.table == table) {
+            continue;
+        }
+        for token in tokens {
+            if project_for(solution, &token.name).is_some() {
+                compared.push(Compared {
+                    table: table.clone(),
+                    name: token.name.clone(),
+                    state: State::ServerOnly,
+                    local: None,
+                    server: Some(token.clone()),
+                    file: None,
+                });
+            }
+        }
+    }
+    compared.sort_by(|a, b| {
+        (a.table != DEFAULT_TABLE, &a.table, &a.name).cmp(&(
+            b.table != DEFAULT_TABLE,
+            &b.table,
+            &b.name,
+        ))
+    });
+    compared
+}
+
+/// Two projects claiming the same prefix would make a token's owner depend on their order.
+fn check_prefixes(solution: &Solution) -> Result<(), LocalizationError> {
+    let mut owners: BTreeMap<String, &str> = BTreeMap::new();
+    for project in &solution.projects {
+        for prefix in prefixes(project) {
+            if let Some(other) = owners.insert(prefix.clone(), &project.name) {
+                if other != project.name {
+                    return Err(LocalizationError::Arguments(format!(
+                        "projects {other} and {} both claim localization prefix {prefix}; give each its own in [project.localization] prefixes",
+                        project.name
+                    )));
+                }
+            }
+        }
+    }
+    Ok(())
+}
+
+/// The files with only the tokens `project` owns, so `target` does not mistake a file of a
+/// project with a longer, overlapping prefix for this project's.
+fn owned_by(files: &[TableFile], solution: &Solution, project: &Project) -> Vec<TableFile> {
+    files
+        .iter()
+        .map(|file| TableFile {
+            tokens: file
+                .tokens
+                .iter()
+                .filter(|token| {
+                    project_for(solution, &token.name)
+                        .is_some_and(|owner| owner.name == project.name)
+                })
+                .cloned()
+                .collect(),
+            ..file.clone()
+        })
+        .collect()
 }
 
 /// Refuse when any problem `blocks`, naming up to five of them.
@@ -186,22 +265,32 @@ struct PlannedFile {
     bytes: Vec<u8>,
 }
 
+/// Write each planned file atomically. A failure names the files already written: they stay
+/// written, and the next run plans from them.
 fn write_plans(plans: &[PlannedFile]) -> Result<(), LocalizationError> {
+    let mut written: Vec<String> = Vec::new();
     for plan in plans {
-        if plan.change.created {
-            if let Some(parent) = plan.change.path.parent() {
-                std::fs::create_dir_all(parent).map_err(|error| LocalizationError::Io {
-                    path: parent.to_path_buf(),
-                    why: error.to_string(),
-                })?;
+        let result = (|| {
+            if plan.change.created {
+                if let Some(parent) = plan.change.path.parent() {
+                    std::fs::create_dir_all(parent)?;
+                }
             }
-        }
-        workspace::write_entity(&plan.change.path, &plan.bytes).map_err(|error| {
-            LocalizationError::Io {
+            workspace::write_entity(&plan.change.path, &plan.bytes)
+                .map_err(|error| std::io::Error::other(error.to_string()))
+        })();
+        if let Err(error) = result {
+            let why = if written.is_empty() {
+                error.to_string()
+            } else {
+                format!("{error}; already written: {}", written.join(", "))
+            };
+            return Err(LocalizationError::Io {
                 path: plan.change.path.clone(),
-                why: error.to_string(),
-            }
-        })?;
+                why,
+            });
+        }
+        written.push(plan.change.path.display().to_string());
     }
     Ok(())
 }
@@ -214,6 +303,7 @@ pub fn pull<R: Remote + ?Sized>(
     prune: bool,
     apply: bool,
 ) -> Result<Pulled, LocalizationError> {
+    check_prefixes(solution)?;
     let found = discover(&root(solution))?;
     let mut tables = remote.tables()?;
     tables.sort();
@@ -253,7 +343,7 @@ pub fn pull<R: Remote + ?Sized>(
                     continue;
                 };
                 let path = target(
-                    &files,
+                    &owned_by(&files, solution, project),
                     &root(solution),
                     project,
                     &prefixes(project),
@@ -292,7 +382,7 @@ pub fn pull<R: Remote + ?Sized>(
                 continue;
             };
             let path = target(
-                &files,
+                &owned_by(&files, solution, project),
                 &root(solution),
                 project,
                 &prefixes(project),
@@ -368,7 +458,25 @@ pub fn push<R: Remote>(
     apply: bool,
     progress: &dyn Progress,
 ) -> Result<Pushed, LocalizationError> {
+    check_prefixes(solution)?;
     let found = discover(&root(solution))?;
+    if !found.unreadable.is_empty() {
+        // An unreadable file may hold tokens this push would otherwise prune or leave stale.
+        return Err(LocalizationError::Invalid {
+            path: root(solution),
+            why: format!(
+                "{} table file(s) cannot be read; fix them before pushing: {}",
+                found.unreadable.len(),
+                found
+                    .unreadable
+                    .iter()
+                    .take(5)
+                    .map(|(path, why)| format!("{} ({why})", path.display()))
+                    .collect::<Vec<_>>()
+                    .join("; ")
+            ),
+        });
+    }
     let _reading = progress::phase(progress, "reading tables", None);
     let mut server_tables = remote.tables()?;
     server_tables.sort();
@@ -378,14 +486,19 @@ pub fn push<R: Remote>(
         Some(table) => vec![table.to_string()],
         None => local_tables.iter().cloned().collect(),
     };
-    let queried: Vec<String> = selected
+    // Default is read too: a language token needs it there, and a pruned Default token is
+    // pruned from every language table that has it, so with --prune every table is read.
+    let queried: Vec<String> = server_tables
         .iter()
-        .filter(|name| server_tables.contains(name))
+        .filter(|name| prune || selected.contains(name) || name.as_str() == DEFAULT_TABLE)
         .cloned()
         .collect();
     let server = server_tokens(remote, &queried)?;
     drop(_reading);
-    let compared = compare(&files, &server, &all_prefixes(solution));
+    let compared: Vec<Compared> = compare(&files, &server, &all_prefixes(solution))
+        .into_iter()
+        .filter(|item| selected.contains(&item.table))
+        .collect();
     let mut out = Vec::new();
     for table in selected {
         let table_files: Vec<&TableFile> =
@@ -421,9 +534,84 @@ pub fn push<R: Remote>(
             });
         }
     }
+    // A Default token pruned goes from every other table on the server too: the token services
+    // refuse a language token Default lacks, and nothing would ever clean it up.
+    let default_deletes: Vec<String> = out
+        .iter()
+        .find(|push| push.table == DEFAULT_TABLE)
+        .map(|push| push.delete.clone())
+        .unwrap_or_default();
+    if !default_deletes.is_empty() {
+        for (other, tokens) in &server {
+            if other == DEFAULT_TABLE {
+                continue;
+            }
+            let orphans: Vec<String> = default_deletes
+                .iter()
+                .filter(|name| tokens.iter().any(|token| &&token.name == name))
+                .cloned()
+                .collect();
+            if orphans.is_empty() {
+                continue;
+            }
+            match out.iter_mut().find(|push| &push.table == other) {
+                Some(push) => {
+                    push.delete.extend(orphans);
+                    push.delete.sort();
+                    push.delete.dedup();
+                }
+                None => out.push(TablePush {
+                    table: other.clone(),
+                    files: files
+                        .iter()
+                        .filter(|file| &file.table == other)
+                        .map(|file| file.path.clone())
+                        .collect(),
+                    create: false,
+                    set: Vec::new(),
+                    delete: orphans,
+                }),
+            }
+        }
+    }
     out.sort_by(|a, b| {
         (a.table != DEFAULT_TABLE, &a.table).cmp(&(b.table != DEFAULT_TABLE, &b.table))
     });
+    // The Importer takes a language token Default lacks, though nothing can resolve it: each
+    // language token pushed must be in the server's Default or be pushed to Default now.
+    let server_default: BTreeSet<&str> = server
+        .get(DEFAULT_TABLE)
+        .into_iter()
+        .flatten()
+        .map(|token| token.name.as_str())
+        .collect();
+    let default_set: BTreeSet<&str> = out
+        .iter()
+        .filter(|push| push.table == DEFAULT_TABLE)
+        .flat_map(|push| push.set.iter().map(String::as_str))
+        .collect();
+    let lacking: Vec<String> = out
+        .iter()
+        .filter(|push| push.table != DEFAULT_TABLE)
+        .flat_map(|push| {
+            push.set
+                .iter()
+                .filter(|name| {
+                    !server_default.contains(name.as_str()) && !default_set.contains(name.as_str())
+                })
+                .map(move |name| format!("{}/{name}", push.table))
+        })
+        .collect();
+    if !lacking.is_empty() {
+        return Err(LocalizationError::Invalid {
+            path: root(solution),
+            why: format!(
+                "{} token(s) are not in the server's Default table; push Default too (without --table, or --table Default first): {}",
+                lacking.len(),
+                lacking.into_iter().take(5).collect::<Vec<_>>().join(", ")
+            ),
+        });
+    }
     let pushed_tables: BTreeSet<&str> = out.iter().map(|push| push.table.as_str()).collect();
     refuse(
         &files,
@@ -494,6 +682,19 @@ pub fn push<R: Remote>(
             })
             .map(|item| format!("{}/{}", item.table, item.name))
             .collect();
+        let mut failures = failures;
+        for push in &out {
+            for name in &push.delete {
+                if after
+                    .get(&push.table)
+                    .is_some_and(|tokens| tokens.iter().any(|token| &token.name == name))
+                {
+                    failures.push(format!("{}/{name}", push.table));
+                }
+            }
+        }
+        failures.sort();
+        failures.dedup();
         if !failures.is_empty() {
             return Err(LocalizationError::NotVerified(format!(
                 "server did not retain localization tokens: {}",
@@ -556,6 +757,7 @@ pub fn new(
     header: Header,
     apply: bool,
 ) -> Result<Edited, LocalizationError> {
+    check_prefixes(solution)?;
     let found = discover(&root(solution))?;
     let project = project(solution, project_name, None)?;
     let path = root(solution).join(&project.name).join(file_name(table));
@@ -566,7 +768,7 @@ pub fn new(
         )));
     }
     let target_path = target(
-        &found.files,
+        &owned_by(&found.files, solution, project),
         &root(solution),
         project,
         &prefixes(project),
@@ -629,6 +831,7 @@ pub fn set(
     project_name: Option<&str>,
     apply: bool,
 ) -> Result<Edited, LocalizationError> {
+    check_prefixes(solution)?;
     if value != value.trim() {
         return Err(LocalizationError::Arguments(
             "a localization value cannot start or end with whitespace; the server trims it"
@@ -660,7 +863,7 @@ pub fn set(
         None => {
             let project = project(solution, project_name, Some(name))?;
             target(
-                &found.files,
+                &owned_by(&found.files, solution, project),
                 &root(solution),
                 project,
                 &prefixes(project),

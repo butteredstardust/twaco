@@ -124,14 +124,19 @@ struct Workspace {
 impl Workspace {
     /// A solution with the given projects and the given files under `localization/`.
     fn new(projects: &[&str], files: &[(&str, &[u8])]) -> Self {
-        let temp = tempfile::Builder::new()
-            .prefix("twaco-localization-")
-            .tempdir()
-            .unwrap();
         let toml: String = projects
             .iter()
             .map(|name| format!("[[project]]\nname = \"{name}\"\n"))
             .collect();
+        Self::configured(&toml, files)
+    }
+
+    /// A solution with this `twaco.toml` and the given files under `localization/`.
+    fn configured(toml: &str, files: &[(&str, &[u8])]) -> Self {
+        let temp = tempfile::Builder::new()
+            .prefix("twaco-localization-")
+            .tempdir()
+            .unwrap();
         std::fs::write(temp.path().join("twaco.toml"), toml).unwrap();
         for (path, bytes) in files {
             let path = temp.path().join("localization").join(path);
@@ -935,4 +940,227 @@ fn remove_takes_a_token_from_every_table_or_from_one() {
 
     let error = remove(&workspace.solution, "Acme.App.Nothing", None, true).unwrap_err();
     assert_eq!(error.code(), ErrorCode::UnknownEntity);
+}
+
+// ---------- review fixes ----------
+
+fn with_toml(toml: &str, files: &[(&str, &[u8])]) -> Workspace {
+    Workspace::configured(toml, files)
+}
+
+#[test]
+fn a_language_push_needs_its_tokens_in_the_servers_default() {
+    let workspace = Workspace::curated();
+    let server = in_step();
+    {
+        let mut tables = server.tables.lock().unwrap();
+        tables
+            .get_mut(DEFAULT_TABLE)
+            .unwrap()
+            .1
+            .retain(|t| t.name != "Acme.App.Help");
+        tables
+            .get_mut("de")
+            .unwrap()
+            .1
+            .retain(|t| t.name != "Acme.App.Help");
+    }
+    let error = push(
+        &workspace.solution,
+        &server,
+        Some("de"),
+        false,
+        true,
+        &progress::NONE,
+    )
+    .unwrap_err();
+    assert_eq!(error.code(), ErrorCode::InvalidData);
+    assert!(error.to_string().contains("de/Acme.App.Help"), "{error}");
+    assert!(server.log().is_empty());
+    // Without --table, Default goes first and carries it.
+    push(
+        &workspace.solution,
+        &server,
+        None,
+        false,
+        true,
+        &progress::NONE,
+    )
+    .unwrap();
+    assert_eq!(server.log(), ["import Default", "import de"]);
+}
+
+#[test]
+fn a_token_pruned_from_default_goes_from_every_language_table_on_the_server() {
+    let workspace = Workspace::curated();
+    let server = in_step();
+    {
+        let mut tables = server.tables.lock().unwrap();
+        tables
+            .get_mut(DEFAULT_TABLE)
+            .unwrap()
+            .1
+            .push(token("Acme.App.Retired", "r"));
+        tables.insert(
+            "fr".to_string(),
+            (
+                Header::default(),
+                vec![token("Acme.App.Retired", "r"), plain("Someone.Else", "x")],
+            ),
+        );
+    }
+    let pushed = push(
+        &workspace.solution,
+        &server,
+        Some(DEFAULT_TABLE),
+        true,
+        true,
+        &progress::NONE,
+    )
+    .unwrap();
+    assert_eq!(
+        pushed
+            .tables
+            .iter()
+            .map(|t| t.table.as_str())
+            .collect::<Vec<_>>(),
+        ["Default", "fr"]
+    );
+    assert_eq!(
+        server.log(),
+        [
+            "delete fr/Acme.App.Retired",
+            "delete Default/Acme.App.Retired"
+        ]
+    );
+    assert_eq!(server.tokens_of("fr"), [plain("Someone.Else", "x")]);
+}
+
+#[test]
+fn a_push_refuses_while_a_table_file_is_unreadable() {
+    let workspace = Workspace::new(
+        &["Acme.App"],
+        &[
+            ("Acme.App_LocalizationTable_Default.xml", FLAT_DEFAULT),
+            ("bad.xml", b"<Entities><LocalizationTables><LocalizationTable/></LocalizationTables></Entities>"),
+        ],
+    );
+    let server = Server::with(&[(DEFAULT_TABLE, vec![])]);
+    let error = push(
+        &workspace.solution,
+        &server,
+        None,
+        false,
+        true,
+        &progress::NONE,
+    )
+    .unwrap_err();
+    assert!(error.to_string().contains("bad.xml"), "{error}");
+    assert!(server.log().is_empty());
+}
+
+#[test]
+fn status_shows_the_solutions_tokens_in_a_table_it_has_no_file_for() {
+    let workspace = Workspace::curated();
+    let server = in_step();
+    server.tables.lock().unwrap().insert(
+        "fr".to_string(),
+        (
+            Header::default(),
+            vec![
+                token("Acme.App.Save", "Enregistrer"),
+                plain("Someone.Else", "x"),
+            ],
+        ),
+    );
+    let found = super::status(&workspace.solution, &server, None).unwrap();
+    assert_eq!(
+        states(&found),
+        [("fr".into(), "Acme.App.Save".into(), State::ServerOnly)]
+    );
+    let empty = Workspace::new(&["Acme.App"], &[]);
+    let found = super::status(&empty.solution, &in_step(), None).unwrap();
+    assert_eq!(
+        found.compared.len(),
+        12,
+        "every token of the solution on the server"
+    );
+}
+
+#[test]
+fn a_file_of_a_project_with_a_longer_prefix_is_not_taken_for_anothers() {
+    let workspace = with_toml(
+        "[[project]]\nname = \"Acme.App\"\n[project.localization]\nprefixes = [\"Acme.\"]\n\n[[project]]\nname = \"Acme.B\"\n",
+        &[("Acme.B/LocalizationTable_de.xml", &render("de", &Header::default(), &[token("Acme.B.X", "x")]))],
+    );
+    let server = Server::with(&[
+        (DEFAULT_TABLE, vec![]),
+        ("de", vec![token("Acme.B.X", "x"), token("Acme.C.X", "c")]),
+    ]);
+    let pulled = pull(&workspace.solution, &server, None, false, false).unwrap();
+    assert_eq!(pulled.files.len(), 1);
+    assert_eq!(
+        pulled.files[0].path,
+        workspace.path("Acme.App/LocalizationTable_de.xml")
+    );
+    assert_eq!(names(&pulled.files[0]).0, ["Acme.C.X"]);
+}
+
+#[test]
+fn two_projects_claiming_one_prefix_are_refused() {
+    let workspace = with_toml(
+        "[[project]]\nname = \"A\"\n[project.localization]\nprefixes = [\"Acme.\"]\n\n[[project]]\nname = \"B\"\n[project.localization]\nprefixes = [\"Acme.\"]\n",
+        &[],
+    );
+    let error = set(
+        &workspace.solution,
+        "Acme.X",
+        "x",
+        None,
+        None,
+        None,
+        None,
+        false,
+    )
+    .unwrap_err();
+    assert_eq!(error.code(), ErrorCode::InvalidArguments);
+    assert!(error.to_string().contains("both claim"), "{error}");
+}
+
+#[test]
+fn a_failed_write_names_the_files_already_written() {
+    let workspace = Workspace::new(&["Acme.App", "Acme.Other"], &[]);
+    // A file where Acme.Other's folder would go: its table file cannot be created.
+    std::fs::create_dir_all(workspace.path("")).unwrap();
+    std::fs::write(workspace.path("Acme.Other"), b"in the way").unwrap();
+    let server = Server::with(&[(
+        DEFAULT_TABLE,
+        vec![token("Acme.App.A", "a"), token("Acme.Other.B", "b")],
+    )]);
+    let error = pull(&workspace.solution, &server, None, false, true).unwrap_err();
+    assert_eq!(error.code(), ErrorCode::IoError);
+    assert!(error.to_string().contains("already written"), "{error}");
+    assert!(
+        error.to_string().contains("LocalizationTable.xml"),
+        "{error}"
+    );
+    assert!(workspace.path("Acme.App/LocalizationTable.xml").exists());
+}
+
+#[test]
+fn an_unreadable_reason_holds_no_path() {
+    let workspace = Workspace::new(
+        &["Acme.App"],
+        &[(
+            "bad.xml",
+            b"<Entities><LocalizationTables><LocalizationTable/></LocalizationTables></Entities>",
+        )],
+    );
+    let found = discover(&root(&workspace.solution)).unwrap();
+    assert_eq!(found.unreadable.len(), 1);
+    assert!(
+        !found.unreadable[0].1.contains("bad.xml"),
+        "{}",
+        found.unreadable[0].1
+    );
 }
