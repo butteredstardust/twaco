@@ -15,6 +15,7 @@ pub const ENTRIES: &[&str] = &[
     ".twaco/lock",
     ".twaco/lock.holder",
     ".twaco/backups/",
+    ".twaco/handoffs/",
     ".twaco/transactions/",
     ".twaco/types/",
     ".twaco/platform.json",

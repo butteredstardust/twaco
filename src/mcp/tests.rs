@@ -412,6 +412,39 @@ fn typed_requests_keep_defaults_and_argument_errors() {
 }
 
 #[test]
+fn localization_tools_plan_apply_and_refuse_missing_values() {
+    let (_directory, root) = solution_dir();
+    let (failed, plan) = call_tool(
+        &root,
+        "localization_write",
+        json!({"action":"set","token":"P.Title","value":"Title"}),
+    );
+    assert!(!failed && plan["dry_run"] == true, "{plan}");
+    assert!(!root.join("localization/P/LocalizationTable.xml").exists());
+    let (failed, applied) = call_tool(
+        &root,
+        "localization_write",
+        json!({"action":"set","token":"P.Title","value":"Title","dry_run":false}),
+    );
+    assert!(!failed && applied["dry_run"] == false, "{applied}");
+    assert!(root.join("localization/P/LocalizationTable.xml").exists());
+    let (failed, refused) = call_tool(
+        &root,
+        "localization_write",
+        json!({"action":"set","token":"P.Title"}),
+    );
+    assert!(
+        failed
+            && refused["error"]
+                .as_str()
+                .unwrap()
+                .contains("`value` is required")
+    );
+    let (failed, profile) = call_tool(&root, "localization", json!({"profile":"missing"}));
+    assert!(failed && profile["code"].is_string(), "{profile}");
+}
+
+#[test]
 fn output_schema_waits_for_the_new_protocol() {
     let old = registry::output_definition_for_test("2025-03-26");
     let new = registry::output_definition_for_test("2025-06-18");
@@ -807,6 +840,7 @@ fn every_tool_is_listed_with_a_schema_and_honest_annotations() {
             "deploy",
             "adopt_report",
             "adopt_apply",
+            "handoff",
             "rename",
             "move_member",
             "new_building_block",
@@ -816,6 +850,8 @@ fn every_tool_is_listed_with_a_schema_and_honest_annotations() {
             "log_level",
             "repo",
             "repo_write",
+            "localization",
+            "localization_write",
             "extensions",
             "extension_write",
             "bundle",
@@ -856,6 +892,7 @@ fn every_tool_is_listed_with_a_schema_and_honest_annotations() {
         "config_table",
         "log_level",
         "repo_write",
+        "localization_write",
         "extension_write",
         "export",
         "import",
@@ -1119,6 +1156,44 @@ fn projects_and_check_answer_offline_with_structured_content() {
         check.get("failures").is_none(),
         "findings are detail, not summary"
     );
+}
+
+#[test]
+fn handoff_plans_records_and_supplies_an_adopt_base() {
+    let (_dir, root) = solution_dir();
+    let export = root.join("base.xml");
+    std::fs::write(
+        &export,
+        "<Entities><Things><Thing name=\"P.T\" projectName=\"P\"></Thing></Things></Entities>",
+    )
+    .unwrap();
+    let call = |id, name, arguments| {
+        converse(
+            &root,
+            &[json!({"jsonrpc":"2.0","id":id,"method":"tools/call","params":{"name":name,"arguments":arguments}})],
+        )
+        .remove(0)
+    };
+    let body = |reply: &Value| -> Value {
+        serde_json::from_str(reply["result"]["content"][0]["text"].as_str().unwrap()).unwrap()
+    };
+    let plan = call(
+        1,
+        "handoff",
+        json!({"action":"record","name":"h1","files":["base.xml"]}),
+    );
+    assert!(body(&plan)["plan"].as_bool().unwrap());
+    assert!(!root.join(".twaco/handoffs/h1").exists());
+    let recorded = call(
+        2,
+        "handoff",
+        json!({"action":"record","name":"h1","files":["base.xml"],"dry_run":false}),
+    );
+    assert_eq!(body(&recorded)["recorded"]["name"], "h1");
+    let listed = call(3, "handoff", json!({"action":"list"}));
+    assert_eq!(body(&listed)["handoffs"][0]["name"], "h1");
+    let report = call(4, "adopt_report", json!({"export":"base.xml","base":"h1"}));
+    assert_eq!(body(&report)["base"], "handoff h1");
 }
 
 #[test]

@@ -135,22 +135,43 @@ designer's mashups. `twaco bundle` builds the document without sending it.
 
 `twaco entity push <Entity>` imports a single entity, with the same conflict check.
 
-## A designer's Composer work
+## Taking in a designer's or another backend developer's work
 
-A designer often changes mashups, themes and media in Composer and exports them. To take
-that work in:
+Give a collaborator the exact package they start from, then keep that package as the comparison
+base. A twaco-built package records itself while it is written; a package built another way can
+be recorded directly.
 
 ```sh
-twaco adopt export.xml              # what it really changes, node by node
-twaco adopt export.xml --apply      # write the mechanical half into the repository
+twaco bundle --handoff acme-orders --apply
+twaco handoff record backend.xml --name acme-orders --apply
+twaco handoff list
+twaco adopt returned-export.xml                 # review the three-way plan
+twaco adopt returned-export.xml --apply         # take safe collaborator changes
 ```
 
-`adopt` compares the export with the repository and ignores Composer's noise. It reports any
-service the export would revert, because a designer's export carries the server's version of
-every script, which may be older than the repository's. `--apply` writes mashup content, new
-mashups and changed media. It never writes a service or a configuration table: those changes
-are reported, for a person to decide. `[adopt]` in `twaco.toml` lists values that differ on
-every export by design.
+`adopt` compares Composer's canonical form, so formatting and platform noise do not count. It
+uses the named `--base <file|handoff|git-rev>`, otherwise the most similar recorded handoff; with
+no base it uses git history to spot stale content and calls the rest unknown. The first report line
+names the selected base. Handoffs are local derived files under `.twaco/handoffs/`; pass a package
+with `--base` on another machine.
+
+| State | Meaning | Apply |
+| --- | --- | --- |
+| same | both sides already agree | does nothing |
+| stale | ours changed after the handoff | keeps ours |
+| theirs | only the collaborator changed it | writes theirs |
+| conflict | both changed differently | reports it; use `--take` |
+| added | it did not exist at the handoff or here | writes theirs |
+| we removed | it was removed here | reports it |
+| unknown | no base can prove its origin | reports it as a conflict |
+
+Mashups, media, themes and configured UI collections are UI; everything else is backend. Use
+`--only ui` or `--only backend` to narrow a run. Backend service and entity changes that are safe
+to take are folded into XML and sidecars in the apply transaction. Mashup sidecars alone may need
+`twaco sync --all` afterwards. Resolve an individual conflict with
+`--take theirs:Acme.Orders.Manager.GetOrders` or keep it with
+`--take ours:Acme.Orders.Manager`; a take may name an entity or one service. `[adopt]` in
+`twaco.toml` still lists values that differ on every export by design.
 
 ## Renaming
 
@@ -579,6 +600,7 @@ confirms each is gone.
   and `pull` mirror Composer's Repository page. `filerepository/<repo>/` in the solution
   holds a repository's tree. `push` and `pull` never delete, and a file that differs on both
   sides needs `--overwrite`.
+
 - **Extensions:** `twaco ext list`, `show`, `import` and `remove`. `import` without `--apply`
   only has the server validate the package; nothing is installed.
 - **Finding entities:** `twaco search <text>` asks the server what Composer's Spotlight box
@@ -590,6 +612,35 @@ confirms each is gone.
 - **Exports and imports:** `twaco export` and `twaco import` do what Composer's Import/Export
   dialog does, for an entity, a collection, a project or a source-control tree. An import
   without `--apply` lists what it would add and what it would replace.
+
+### Localization tables
+
+A solution keeps its tokens of the shared localization tables under `localization/`, one file
+per table: `localization/<Project>/LocalizationTable.xml` for `Default` and
+`LocalizationTable_<table>.xml` for each language, holding only the project's tokens. Other
+names and flat layouts are read too, by the table name inside each file. twaco edits these files
+in place, so section comments and row order survive; a file holding several tables is reported
+as unreadable (keep one table per file).
+
+```sh
+twaco localization status --detail                 # each token: same, differs, local only, server only
+twaco localization pull --apply                    # the server's tokens into the files
+twaco localization push --apply                    # import the tables that differ, Default first; read back
+twaco localization push --prune --apply            # also delete server tokens no file has
+twaco localization new de --language-common German --language-native Deutsch --apply
+twaco localization set Acme.App.Title --value Title --apply
+twaco localization set Acme.App.Title --value Titel --table de --apply
+twaco localization remove Acme.App.Title --apply   # from every table
+```
+
+A project's tokens are those named under its prefixes: the project name followed by `.`, or
+`[project.localization] prefixes`. Every command but `status` plans until `--apply`. An import
+never removes a token, which is why deleting needs `--prune`. A language token must also be in
+Default: the server's token services refuse one that is not, although an import takes it, so
+twaco refuses to push one, and a token pruned from Default is pruned from every language table
+that has it. `status` exits 1 for such a token, a duplicate or an unreadable file, since each
+blocks a push. Files twaco creates carry no
+`projectName`: importing one with a `projectName` would put the shared table into that project.
 
 ## Releases
 

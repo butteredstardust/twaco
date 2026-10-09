@@ -466,7 +466,11 @@ impl Coded for super::entity_get::GetError {
 impl Coded for super::adopt::AdoptError {
     fn code(&self) -> ErrorCode {
         match self {
-            Self::Export { .. } | Self::Repository { .. } => ErrorCode::IoError,
+            Self::Export { .. }
+            | Self::Repository { .. }
+            | Self::Base { .. }
+            | Self::AlreadyExists { .. } => ErrorCode::IoError,
+            Self::Take(_) => ErrorCode::InvalidArguments,
             Self::Write(error) => error.code(),
         }
     }

@@ -16,11 +16,27 @@
 //! ElementTree-compatible text semantics: an element's text is what precedes its first child,
 //! CDATA included and comments invisible.
 
+mod base;
+mod classify;
+
+#[cfg(test)]
+mod apply_tests;
+#[cfg(test)]
+mod base_tests;
+#[cfg(test)]
+mod classify_tests;
+
+pub use base::{
+    handoffs, history_versions, record_handoff, resolve, Base, BaseSource, Handoff, Side,
+};
+pub use classify::{Change, Kind};
+
 use super::config::Solution;
 use super::lock::WorkspaceLock;
 use super::normalise::{self, Element, Node};
 use super::transaction::Transaction;
 use super::workspace;
+use super::{scan, sidecar, splice, sync};
 use serde_json::Value;
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
@@ -77,6 +93,10 @@ pub struct EntityReport {
     pub differences: Vec<Difference>,
     pub volatile_ids: usize,
     pub ignored: usize,
+    /// Whether this is a designer-owned collection or backend work.
+    pub kind: Kind,
+    /// What the three-way comparison says about importing the export.
+    pub change: Change,
 }
 
 #[derive(Debug, Clone)]
@@ -88,10 +108,17 @@ pub struct ServiceReport {
     pub generated: bool,
     /// False when compared with the entity XML because the service has no sidecar.
     pub sidecar: bool,
+    /// What the three-way comparison says about this service body.
+    pub change: Change,
 }
 
 #[derive(Debug, Default)]
 pub struct Report {
+    /// The base used for the three-way comparison, when one was found.
+    pub base: Option<String>,
+    /// The parsed base is retained for apply's frame-level merge.  It is intentionally not a
+    /// presentation field: callers present `base`, above, rather than an XML tree.
+    base_side: Option<Side>,
     pub services: Vec<ServiceReport>,
     pub entities: Vec<EntityReport>,
     /// Exported services with nothing here to compare with.
@@ -107,9 +134,16 @@ impl Report {
             .filter(move |entity| entity.status == status)
     }
 
-    /// Service differences that are not generated: each is a revert or a change to adopt.
+    /// Non-generated services for which importing the export would undo or conflict with
+    /// repository work. `Theirs`, `Added` and `Same` are not reverts.
     pub fn reverts(&self) -> impl Iterator<Item = &ServiceReport> {
-        self.services.iter().filter(|service| !service.generated)
+        self.services.iter().filter(|service| {
+            !service.generated
+                && matches!(
+                    service.change,
+                    Change::Stale | Change::Conflict | Change::Unknown
+                )
+        })
     }
 }
 
@@ -119,17 +153,61 @@ pub enum AdoptError {
     Export { path: PathBuf, why: String },
     #[error("cannot read {}: {why}", .path.display())]
     Repository { path: PathBuf, why: String },
+    #[error("cannot use base {base}: {why}")]
+    Base { base: String, why: String },
+    #[error("handoff {name} already exists")]
+    AlreadyExists { name: String },
     /// The writes, made as one transaction, did not happen.
     #[error("nothing was adopted: {0}")]
     Write(super::transaction::TransactionError),
+    #[error("--take names nothing in this report: {0}")]
+    Take(String),
 }
 
-/// Compare an export with the solution. `only` narrows the entity comparison, not the service
-/// check, to names containing any of its fragments, preserving the established filter semantics.
+/// Which side an explicit adopt resolution selects.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum TakeSide {
+    Theirs,
+    Ours,
+}
+
+/// An explicit resolution for an entity (`Thing`) or service (`Thing.Run`).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Take {
+    pub side: TakeSide,
+    pub target: String,
+}
+
+/// Extra inputs to the three-way comparison.  The old [`compare`] entry point intentionally
+/// keeps its two-way-shaped signature for existing front ends.
+#[derive(Debug, Default)]
+pub struct CompareOptions {
+    pub base: Option<String>,
+    pub only_kind: Option<Kind>,
+}
+
+/// Compare an export with the solution. `only` retains its established name-fragment meaning.
 pub fn compare(solution: &Solution, export: &Path, only: &[String]) -> Result<Report, AdoptError> {
+    compare_with(solution, export, only, &CompareOptions::default())
+}
+
+/// Compare an export using an explicit base and/or collection kind filter.
+pub fn compare_with(
+    solution: &Solution,
+    export: &Path,
+    only: &[String],
+    options: &CompareOptions,
+) -> Result<Report, AdoptError> {
     let exported = export_entities(export)?;
+    let export_side = Side::from_export(export)?;
     let here = repository_entities(solution)?;
-    let mut report = Report::default();
+    let ours = Side::from_solution(solution)?;
+    let base = resolve(solution, options.base.as_deref(), &export_side)?;
+    let mut report = Report {
+        base: base.as_ref().map(|base| base.label.clone()),
+        base_side: base.as_ref().map(|base| base.side.clone()),
+        ..Report::default()
+    };
 
     let generated: BTreeSet<&str> = solution
         .adopt
@@ -137,55 +215,79 @@ pub fn compare(solution: &Solution, export: &Path, only: &[String]) -> Result<Re
         .iter()
         .map(String::as_str)
         .collect();
-    let src_root = solution.src_root();
+    let kind_passes = |entity: &EntityRef| {
+        options
+            .only_kind
+            .is_none_or(|kind| kind == kind_of(solution, entity))
+    };
+    // `only` narrows the entity comparison, not the service check: a revert anywhere in the
+    // export matters whichever entity was asked about.
+    let passes = |entity: &EntityRef| {
+        kind_passes(entity)
+            && (only.is_empty()
+                || only
+                    .iter()
+                    .any(|fragment| entity.name.contains(fragment.as_str())))
+    };
+
     for (entity, element) in &exported {
-        let mut repo_bodies: Option<BTreeMap<String, String>> = None;
+        if !kind_passes(entity) {
+            continue;
+        }
         for (service, body) in service_bodies(element) {
             let label = format!("{}.{service}", entity.name);
-            let sidecar = src_root
+            let sidecar = solution
+                .src_root()
                 .join(&entity.name)
                 .join("services")
                 .join(&service)
                 .join("script.js");
-            let (mine, source, from_sidecar) = if sidecar.is_file() {
-                let text =
-                    std::fs::read_to_string(&sidecar).map_err(|e| AdoptError::Repository {
-                        path: sidecar.clone(),
-                        why: e.to_string(),
-                    })?;
-                (text, sidecar, true)
+            let key = (entity.name.clone(), service.clone());
+            let mine = ours.services.get(&key);
+            let (source, from_sidecar) = if sidecar.is_file() {
+                (sidecar, true)
+            } else if let Some((_, path)) = here.get(entity) {
+                (path.clone(), false)
             } else {
-                let Some((repo_element, path)) = here.get(entity) else {
-                    report.unmatched_services.push(label);
-                    continue;
-                };
-                let bodies = repo_bodies.get_or_insert_with(|| service_bodies(repo_element));
-                let Some(mine) = bodies.get(&service) else {
-                    report.unmatched_services.push(label);
-                    continue;
-                };
-                (mine.clone(), path.clone(), false)
+                report.unmatched_services.push(label);
+                continue;
             };
-            if canonical(&body) != canonical(&mine) {
-                report.services.push(ServiceReport {
-                    entity: entity.name.clone(),
-                    service,
-                    source,
-                    generated: generated.contains(label.as_str()),
-                    sidecar: from_sidecar,
-                });
+            let base_service = base.as_ref().and_then(|base| base.side.services.get(&key));
+            let change = match mine {
+                Some(mine) => script_change(&body, mine, base_service, || {
+                    history_versions(solution, &source, 50).iter().any(|old| {
+                        std::str::from_utf8(old).is_ok_and(|old| canonical(&body) == canonical(old))
+                    })
+                }),
+                None => {
+                    if base_service.is_some() {
+                        Change::WeRemoved
+                    } else {
+                        Change::Added
+                    }
+                }
+            };
+            // Only a difference is reported, as before the three-way states existed.
+            if change == Change::Same {
+                continue;
             }
+            report.services.push(ServiceReport {
+                entity: entity.name.clone(),
+                service,
+                source,
+                generated: generated.contains(label.as_str()),
+                sidecar: from_sidecar,
+                change,
+            });
         }
     }
 
-    let passes = |name: &str| {
-        only.is_empty() || only.iter().any(|fragment| name.contains(fragment.as_str()))
-    };
     for (entity, element) in &exported {
-        if !passes(&entity.name) {
+        if !passes(entity) {
             continue;
         }
         let project = attribute(element, "projectName").unwrap_or_default();
+        let kind = kind_of(solution, entity);
         match here.get(entity) {
             None => report.entities.push(EntityReport {
                 entity: entity.clone(),
@@ -194,11 +296,30 @@ pub fn compare(solution: &Solution, export: &Path, only: &[String]) -> Result<Re
                 differences: Vec::new(),
                 volatile_ids: 0,
                 ignored: 0,
+                kind,
+                change: if base
+                    .as_ref()
+                    .is_some_and(|base| base.side.entities.contains_key(entity))
+                {
+                    Change::WeRemoved
+                } else {
+                    Change::Added
+                },
             }),
             Some((repo_element, _)) => {
                 let mut compared =
                     compare_entity(entity, element, repo_element, &solution.adopt.ignore_paths);
                 compared.project = project;
+                compared.kind = kind;
+                compared.change = entity_change(
+                    solution,
+                    entity,
+                    element,
+                    repo_element,
+                    base.as_ref()
+                        .and_then(|base| base.side.entities.get(entity)),
+                    here.get(entity).map(|(_, path)| path.as_path()),
+                );
                 report.entities.push(compared);
             }
         }
@@ -208,13 +329,97 @@ pub fn compare(solution: &Solution, export: &Path, only: &[String]) -> Result<Re
     report.absent = here
         .keys()
         .filter(|e| {
-            !exported.contains_key(*e)
-                && collections.contains(e.collection.as_str())
-                && passes(&e.name)
+            !exported.contains_key(*e) && collections.contains(e.collection.as_str()) && passes(e)
         })
         .cloned()
         .collect();
     Ok(report)
+}
+
+fn script_change(
+    theirs: &str,
+    ours: &str,
+    base: Option<&String>,
+    history_stale: impl FnOnce() -> bool,
+) -> Change {
+    if canonical(theirs) == canonical(ours) {
+        Change::Same
+    } else if let Some(base) = base {
+        classify::three_way(
+            canonical(theirs) == canonical(base),
+            canonical(ours) == canonical(base),
+        )
+    } else if history_stale() {
+        Change::Stale
+    } else {
+        Change::Unknown
+    }
+}
+
+fn entity_change(
+    solution: &Solution,
+    entity: &EntityRef,
+    theirs: &Element,
+    ours: &Element,
+    base: Option<&Element>,
+    source: Option<&Path>,
+) -> Change {
+    if entity_same(entity, theirs, ours, &solution.adopt.ignore_paths) {
+        Change::Same
+    } else if let Some(base) = base {
+        classify::three_way(
+            entity_same(entity, theirs, base, &solution.adopt.ignore_paths),
+            entity_same(entity, ours, base, &solution.adopt.ignore_paths),
+        )
+    } else if source.is_some_and(|source| {
+        history_versions(solution, source, 50).iter().any(|bytes| {
+            entity_from_bytes(bytes, entity)
+                .is_some_and(|old| entity_same(entity, theirs, &old, &solution.adopt.ignore_paths))
+        })
+    }) {
+        Change::Stale
+    } else {
+        Change::Unknown
+    }
+}
+
+fn entity_same(entity: &EntityRef, left: &Element, right: &Element, ignore: &[String]) -> bool {
+    compare_entity(entity, left, right, ignore)
+        .differences
+        .is_empty()
+}
+
+fn entity_from_bytes(bytes: &[u8], wanted: &EntityRef) -> Option<Element> {
+    normalise::parse_document(bytes)
+        .ok()?
+        .into_iter()
+        .find_map(|node| match node {
+            Node::Element(root) if root.name == b"Entities" => entities_in(root).remove(wanted),
+            _ => None,
+        })
+}
+
+fn kind_of(solution: &Solution, entity: &EntityRef) -> Kind {
+    const UI: &[&str] = &[
+        "Mashups",
+        "MediaEntities",
+        "StyleThemes",
+        "StyleDefinitions",
+        "StateDefinitions",
+        "Menus",
+        "Dashboards",
+    ];
+    if UI.contains(&entity.collection.as_str())
+        || solution
+            .bundle
+            .ui_collections
+            .iter()
+            .any(|name| name == &entity.collection)
+    {
+        Kind::Ui
+    } else {
+        Kind::Backend
+    }
 }
 
 fn compare_entity(
@@ -231,6 +436,8 @@ fn compare_entity(
         differences: Vec::new(),
         volatile_ids: 0,
         ignored: 0,
+        kind: Kind::Backend,
+        change: Change::Unknown,
     };
     let entity_path = entity.path();
     let paths: BTreeSet<&String> = left.keys().chain(right.keys()).collect();
@@ -261,7 +468,7 @@ fn compare_entity(
 }
 
 /// Every named entity in a flat export, keyed and ordered by `Collection/Name`.
-fn export_entities(path: &Path) -> Result<BTreeMap<EntityRef, Element>, AdoptError> {
+pub(crate) fn export_entities(path: &Path) -> Result<BTreeMap<EntityRef, Element>, AdoptError> {
     let bad = |why: String| AdoptError::Export {
         path: path.to_path_buf(),
         why,
@@ -289,7 +496,7 @@ fn export_entities(path: &Path) -> Result<BTreeMap<EntityRef, Element>, AdoptErr
 }
 
 /// Every entity file of the solution, parsed the same way.
-fn repository_entities(
+pub(crate) fn repository_entities(
     solution: &Solution,
 ) -> Result<BTreeMap<EntityRef, (Element, PathBuf)>, AdoptError> {
     let mut found = BTreeMap::new();
@@ -642,7 +849,7 @@ pub fn glob_matches(pattern: &str, text: &str) -> bool {
 /// A `ServiceImplementation` wraps its script in a configuration table beside an editor-state
 /// blob that changes whenever the designer scrolls. The longest text run that is not that blob
 /// is the script.
-fn service_bodies(entity: &Element) -> BTreeMap<String, String> {
+pub(crate) fn service_bodies(entity: &Element) -> BTreeMap<String, String> {
     let mut all = Vec::new();
     descendants(entity, &mut all);
     let mut bodies = BTreeMap::new();
@@ -683,16 +890,12 @@ pub struct ApplyOutcome {
     pub types: super::types::Refresh,
 }
 
-/// Adopt what is mechanical in an export, for the entities `report` found new or changed:
+/// Adopt the report's selected changes from an export.
 ///
-/// - a mashup's content, written to its sidecars through the same rendering `extract` uses;
-/// - a new mashup's entity file, shaped like an existing mashup of its own project;
-/// - a MediaEntity's image, re-wrapped as the repository stores it.
-///
-/// Everything else (a Thing's configuration table, a template's inline DataShape copy, a
-/// service) is a judgement call, and stays reported and untouched. So does anything the report
-/// counts as a revert: `apply` never writes a service. Run `twaco sync --all` afterwards to fold
-/// the sidecars into the entity XML. Returns one line per step and any declaration refresh.
+/// UI content follows the designer workflow, but a stale or unresolved conflicting export never
+/// overwrites it.  Backend entities are either taken whole or merged with service sidecars: the
+/// frame is selected by the three-way base and each script service is selected independently.
+/// Explicit takes resolve only reported conflicts or unknowns.
 ///
 /// Every write is worked out before the first is made, so an export that cannot be adopted
 /// (a payload that is not JSON, a name that is not a file name) changes nothing. The writes are
@@ -701,89 +904,109 @@ pub fn apply(
     solution: &Solution,
     export: &Path,
     report: &Report,
+    takes: &[Take],
     lock: &WorkspaceLock,
 ) -> Result<ApplyOutcome, AdoptError> {
     let exported = export_entities(export)?;
     let here = repository_entities(solution)?;
+    validate_takes(report, takes)?;
     // In the report's order, notes and writes alike, so the output reads as the comparison did.
     let mut steps: Vec<(Option<Write>, String)> = Vec::new();
-    for entry in report
-        .entities
-        .iter()
-        .filter(|e| e.status != Status::Identical)
-    {
+    for entry in &report.entities {
+        // An identical entity has nothing to adopt and nothing worth a line.
+        if entry.change == Change::Same {
+            continue;
+        }
         let Some(element) = exported.get(&entry.entity) else {
             continue;
         };
         let name = &entry.entity.name;
-        match entry.entity.collection.as_str() {
-            "Mashups" => {
-                if !is_file_name(name) {
-                    return Err(AdoptError::Export {
-                        path: export.to_path_buf(),
-                        why: format!(
-                            "the mashup name {name:?} cannot be a file name; nothing was adopted"
-                        ),
-                    });
-                }
-                let dir = solution.src_root().join(name).join("mashup");
-                let assets = mashup_assets(element).map_err(|why| io_error(&dir, why))?;
-                if !here.contains_key(&entry.entity) {
-                    if assets.is_none() {
-                        steps.push((None, format!("skipped  Mashups/{name}: the export holds no mashup content to create it from")));
+        match entry.kind {
+            Kind::Ui => match entry.entity.collection.as_str() {
+                "Mashups" => {
+                    if !ui_should_write(report, entry, takes) {
+                        steps.push((None, ui_skip_line(entry, takes)));
                         continue;
                     }
-                    match new_mashup_file(solution, &entry.project, element, name)? {
-                        Some((path, text)) => {
-                            let line = format!("created  {}", relative_to(solution, &path));
-                            steps.push((Some(Write::Entity(path, text)), line));
+                    if !is_file_name(name) {
+                        return Err(AdoptError::Export {
+                            path: export.to_path_buf(),
+                            why: format!(
+                            "the mashup name {name:?} cannot be a file name; nothing was adopted"
+                        ),
+                        });
+                    }
+                    let dir = solution.src_root().join(name).join("mashup");
+                    let assets = mashup_assets(element).map_err(|why| io_error(&dir, why))?;
+                    if !here.contains_key(&entry.entity) {
+                        if assets.is_none() {
+                            steps.push((None, format!("skipped  Mashups/{name}: the export holds no mashup content to create it from")));
+                            continue;
                         }
-                        None => {
-                            steps.push((
-                                None,
-                                format!(
+                        match new_mashup_file(solution, &entry.project, element, name)? {
+                            Some((path, text)) => {
+                                let line = format!("created  {}", relative_to(solution, &path));
+                                steps.push((Some(Write::Entity(path, text)), line));
+                            }
+                            None => {
+                                steps.push((
+                                    None,
+                                    format!(
                                     "skipped  Mashups/{name}: project {:?} is not in this solution",
                                     entry.project
                                 ),
+                                ));
+                                continue;
+                            }
+                        }
+                    }
+                    if let Some(assets) = assets {
+                        let current =
+                            workspace::read_mashup(&dir).map_err(|e| io_error(&dir, e))?;
+                        if current.as_ref() != Some(&assets) {
+                            steps.push((
+                                Some(Write::Sidecars(dir, assets)),
+                                format!("sidecar  {name}"),
                             ));
-                            continue;
                         }
                     }
                 }
-                if let Some(assets) = assets {
-                    let current = workspace::read_mashup(&dir).map_err(|e| io_error(&dir, e))?;
-                    if current.as_ref() != Some(&assets) {
-                        steps.push((
-                            Some(Write::Sidecars(dir, assets)),
-                            format!("sidecar  {name}"),
-                        ));
-                    }
-                }
-            }
-            "MediaEntities" => {
-                if let (Some((_, path)), Some(content)) = (
-                    here.get(&entry.entity),
-                    child_elements(element)
-                        .find(|c| is_named(c, "content"))
-                        .and_then(et_text),
-                ) {
-                    let encoded: String = content.chars().filter(|c| !py_space(*c)).collect();
-                    if encoded.is_empty() {
+                "MediaEntities" => {
+                    if !ui_should_write(report, entry, takes) {
+                        steps.push((None, ui_skip_line(entry, takes)));
                         continue;
                     }
-                    if !is_base64(&encoded) {
-                        return Err(AdoptError::Export {
+                    if let (Some((_, path)), Some(content)) = (
+                        here.get(&entry.entity),
+                        child_elements(element)
+                            .find(|c| is_named(c, "content"))
+                            .and_then(et_text),
+                    ) {
+                        let encoded: String = content.chars().filter(|c| !py_space(*c)).collect();
+                        if encoded.is_empty() {
+                            continue;
+                        }
+                        if !is_base64(&encoded) {
+                            return Err(AdoptError::Export {
                             path: export.to_path_buf(),
                             why: format!("MediaEntities/{name}: the image is not base64; nothing was adopted"),
                         });
-                    }
-                    if let Some(text) = media_content(path, &encoded)? {
-                        let line = format!("content  {}", relative_to(solution, path));
-                        steps.push((Some(Write::Entity(path.clone(), text)), line));
+                        }
+                        if let Some(text) = media_content(path, &encoded)? {
+                            let line = format!("content  {}", relative_to(solution, path));
+                            steps.push((Some(Write::Entity(path.clone(), text)), line));
+                        }
                     }
                 }
-            }
-            _ => {}
+                _ => {
+                    if !ui_should_write(report, entry, takes) {
+                        steps.push((None, ui_skip_line(entry, takes)));
+                    }
+                }
+            },
+            Kind::Backend => plan_backend(
+                solution, export, report, entry, element, &here, takes, &mut steps,
+            )?,
         }
     }
     let mut transaction = Transaction::new(&solution.root, "adopt");
@@ -792,6 +1015,9 @@ pub fn apply(
         match write {
             Some(Write::Entity(path, text)) => transaction
                 .write_file(&path, text.into_bytes())
+                .map_err(AdoptError::Write)?,
+            Some(Write::Bytes(path, bytes)) => transaction
+                .write_file(&path, bytes)
                 .map_err(AdoptError::Write)?,
             Some(Write::Sidecars(dir, assets)) => {
                 // As extract writes them: LF line endings.
@@ -802,6 +1028,45 @@ pub fn apply(
                     transaction
                         .write_file(&dir.join(file), text.replace("\r\n", "\n").into_bytes())
                         .map_err(AdoptError::Write)?;
+                }
+            }
+            Some(Write::Services {
+                dir,
+                services,
+                remove,
+            }) => {
+                for service in services.values() {
+                    for (file, text) in [
+                        ("definition.xml", &service.definition),
+                        ("script.js", &service.script),
+                    ] {
+                        let path = dir.join(&service.name).join(file);
+                        let wanted = text.replace("\r\n", "\n");
+                        // A sidecar we keep is left byte for byte, CRLF checkout included.
+                        let current = std::fs::read_to_string(&path).ok();
+                        if current.is_some_and(|current| current.replace("\r\n", "\n") == wanted) {
+                            continue;
+                        }
+                        transaction
+                            .write_file(&path, wanted.into_bytes())
+                            .map_err(AdoptError::Write)?;
+                    }
+                }
+                for service in remove {
+                    let folder = dir.join(service);
+                    for file in [
+                        "definition.xml",
+                        "script.js",
+                        "jsconfig.json",
+                        "twaco-globals.d.ts",
+                    ] {
+                        let path = folder.join(file);
+                        if let Ok(bytes) = std::fs::read(&path) {
+                            transaction
+                                .delete_file(&path, &bytes)
+                                .map_err(AdoptError::Write)?;
+                        }
+                    }
                 }
             }
             None => {}
@@ -823,7 +1088,467 @@ pub fn apply(
 /// One file or sidecar folder `apply` will write, worked out in full beforehand.
 enum Write {
     Entity(PathBuf, String),
+    Bytes(PathBuf, Vec<u8>),
     Sidecars(PathBuf, super::mashup::Assets),
+    Services {
+        dir: PathBuf,
+        services: BTreeMap<String, sidecar::ServiceSidecar>,
+        remove: Vec<String>,
+    },
+}
+
+fn has_take(takes: &[Take], side: TakeSide, target: &str) -> bool {
+    takes
+        .iter()
+        .any(|take| take.side == side && take.target == target)
+}
+
+fn validate_takes(report: &Report, takes: &[Take]) -> Result<(), AdoptError> {
+    let known: BTreeSet<String> = report
+        .entities
+        .iter()
+        .filter(|entry| matches!(entry.change, Change::Conflict | Change::Unknown))
+        .map(|entry| entry.entity.name.clone())
+        .chain(
+            report
+                .services
+                .iter()
+                .filter(|service| matches!(service.change, Change::Conflict | Change::Unknown))
+                .map(|service| format!("{}.{}", service.entity, service.service)),
+        )
+        .collect();
+    let bad: Vec<String> = takes
+        .iter()
+        .filter(|take| !known.contains(&take.target))
+        .map(|take| take.target.clone())
+        .collect();
+    if bad.is_empty() {
+        Ok(())
+    } else {
+        let available = known.into_iter().collect::<Vec<_>>().join(", ");
+        Err(AdoptError::Take(format!(
+            "{}; conflicts and unknowns that can be taken: {available}",
+            bad.join(", ")
+        )))
+    }
+}
+
+fn ui_should_write(report: &Report, entry: &EntityReport, takes: &[Take]) -> bool {
+    matches!(entry.change, Change::Theirs | Change::Added)
+        || has_take(takes, TakeSide::Theirs, &entry.entity.name)
+        || (report.base.is_none() && entry.change == Change::Unknown)
+}
+
+fn ui_skip_line(entry: &EntityReport, takes: &[Take]) -> String {
+    let path = entry.entity.path();
+    match entry.change {
+        Change::Stale => format!("kept     {path}: stale, ours is newer"),
+        Change::Conflict | Change::Unknown
+            if !has_take(takes, TakeSide::Theirs, &entry.entity.name) =>
+        {
+            format!(
+                "conflict {path}: both changed; --take theirs:{} or --take ours:{}",
+                entry.entity.name, entry.entity.name
+            )
+        }
+        Change::WeRemoved => format!("skipped  {path}: we removed it"),
+        Change::Same => format!("skipped  {path}: unchanged"),
+        _ => format!("skipped  {path}"),
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
+fn plan_backend(
+    solution: &Solution,
+    export: &Path,
+    report: &Report,
+    entry: &EntityReport,
+    _element: &Element,
+    here: &BTreeMap<EntityRef, (Element, PathBuf)>,
+    takes: &[Take],
+    steps: &mut Vec<(Option<Write>, String)>,
+) -> Result<(), AdoptError> {
+    let entity = &entry.entity;
+    let entity_name = &entity.name;
+    let their_raw = raw_entity(export, entity)?;
+    let their_services = services_from_document(&entity_document(&entity.collection, &their_raw))?;
+    let service_dir = solution.src_root().join(entity_name).join("services");
+
+    if entry.change == Change::Added {
+        let Some(path) = new_backend_path(solution, entry, here)? else {
+            steps.push((
+                None,
+                format!(
+                    "skipped  {}: project {:?} is not in this solution",
+                    entity.path(),
+                    entry.project
+                ),
+            ));
+            return Ok(());
+        };
+        let bytes = if let Some((sample_key, (_, sample))) =
+            here.iter().find(|(key, (value, _))| {
+                key.collection == entity.collection
+                    && attribute(value, "projectName").as_deref() == Some(entry.project.as_str())
+            }) {
+            // Shaped like a file of its own collection and project: that file's entity is
+            // swapped for the new one, so the declaration and wrapper match the solution's.
+            let old = std::fs::read(sample).map_err(|e| io_error(sample, e))?;
+            replace_entity_bytes(&old, sample_key, &their_raw)?
+        } else {
+            entity_document(&entity.collection, &their_raw)
+        };
+        steps.push((
+            Some(Write::Bytes(path.clone(), bytes)),
+            format!("created  {}", relative_to(solution, &path)),
+        ));
+        steps.push((
+            Some(Write::Services {
+                dir: service_dir,
+                services: their_services,
+                remove: Vec::new(),
+            }),
+            format!("sidecar  {entity_name}"),
+        ));
+        return Ok(());
+    }
+
+    let Some((ours_element, path)) = here.get(entity) else {
+        steps.push((None, format!("skipped  {}: we removed it", entity.path())));
+        return Ok(());
+    };
+    let ours_raw = std::fs::read(path).map_err(|e| io_error(path, e))?;
+    let ours_services = ours_services(solution, entity_name, &ours_raw)?;
+    let their_entity_take = has_take(takes, TakeSide::Theirs, entity_name);
+
+    let generated_here = report
+        .services
+        .iter()
+        .any(|service| service.entity == *entity_name && service.generated);
+    if (entry.change == Change::Theirs && !generated_here)
+        || (entry.change == Change::Unknown && report.base.is_none() && their_entity_take)
+    {
+        let bytes = replace_entity_bytes(&ours_raw, entity, &their_raw)?;
+        let remove = stale_service_dirs(&service_dir, &their_services);
+        steps.push((
+            Some(Write::Bytes(path.clone(), bytes)),
+            format!("replaced {}", relative_to(solution, path)),
+        ));
+        steps.push((
+            Some(Write::Services {
+                dir: service_dir,
+                services: their_services,
+                remove,
+            }),
+            format!("sidecar  {entity_name}"),
+        ));
+        return Ok(());
+    }
+    if matches!(
+        entry.change,
+        Change::Stale | Change::Same | Change::WeRemoved
+    ) {
+        steps.push((
+            None,
+            match entry.change {
+                Change::Stale => format!("kept     {}: stale, ours is newer", entity.path()),
+                Change::WeRemoved => format!("skipped  {}: we removed it", entity.path()),
+                _ => format!("skipped  {}: unchanged", entity.path()),
+            },
+        ));
+        return Ok(());
+    }
+    if entry.change == Change::Unknown && report.base.is_none() {
+        steps.push((
+            None,
+            format!(
+                "conflict {}: both changed; --take theirs:{} or --take ours:{}",
+                entity.path(),
+                entity_name,
+                entity_name
+            ),
+        ));
+        return Ok(());
+    }
+
+    let base = report
+        .base_side
+        .as_ref()
+        .and_then(|side| side.entities.get(entity));
+    let theirs_frame_is_base = base.is_some_and(|base| same_frame(_element, base));
+    let ours_frame_is_base = base.is_some_and(|base| same_frame(ours_element, base));
+    let frame_theirs = their_entity_take || (!theirs_frame_is_base && ours_frame_is_base);
+    let frame_conflict = !theirs_frame_is_base && !ours_frame_is_base;
+    let mut chosen = BTreeMap::new();
+    let mut took = 0usize;
+    let mut kept_stale = 0usize;
+    let service_changes: BTreeMap<String, &ServiceReport> = report
+        .services
+        .iter()
+        .filter(|service| service.entity == *entity_name)
+        .map(|service| (service.service.clone(), service))
+        .collect();
+    let names: BTreeSet<String> = ours_services
+        .keys()
+        .chain(their_services.keys())
+        .cloned()
+        .collect();
+    for name in names {
+        let change = service_changes
+            .get(&name)
+            .map_or(Change::Same, |service| service.change);
+        let target = format!("{entity_name}.{name}");
+        let generated = service_changes
+            .get(&name)
+            .is_some_and(|service| service.generated);
+        let choose_theirs = !generated
+            && (matches!(change, Change::Theirs | Change::Added)
+                || has_take(takes, TakeSide::Theirs, &target));
+        if change == Change::WeRemoved {
+            continue;
+        }
+        if choose_theirs {
+            if let Some(service) = their_services.get(&name) {
+                chosen.insert(name.clone(), service.clone());
+                took += 1;
+            }
+        } else if let Some(service) = ours_services.get(&name) {
+            chosen.insert(name.clone(), service.clone());
+            if change == Change::Stale || has_take(takes, TakeSide::Ours, &target) {
+                kept_stale += 1;
+            }
+            if matches!(change, Change::Conflict | Change::Unknown)
+                && !has_take(takes, TakeSide::Ours, &target)
+            {
+                steps.push((
+                    None,
+                    format!("conflict {target}: both changed; --take theirs:{target} or --take ours:{target}"),
+                ));
+            } else if change == Change::Stale {
+                steps.push((None, format!("kept     {target}: stale")));
+            } else if has_take(takes, TakeSide::Ours, &target) {
+                steps.push((None, format!("kept     {target}: ours")));
+            }
+        }
+    }
+    let their_document = entity_document(&entity.collection, &their_raw);
+    let seed = if frame_theirs {
+        their_document.as_slice()
+    } else {
+        ours_raw.as_slice()
+    };
+    let merged = sync::sync(
+        seed,
+        &chosen,
+        true,
+        solution.format.indent_cdata_payload,
+        false,
+    )
+    .map_err(|error| io_error(path, error))?
+    .0;
+    let output = if frame_theirs {
+        let merged_entity = entity_span(
+            &scan::tokenize(&merged).map_err(|error| io_error(path, error))?,
+            &merged,
+            entity,
+        )
+        .map(|span| span.of(&merged).to_vec())
+        .ok_or_else(|| io_error(path, "the merged entity disappeared"))?;
+        replace_entity_bytes(&ours_raw, entity, &merged_entity)?
+    } else {
+        merged
+    };
+    if output != ours_raw {
+        let remove = stale_service_dirs(&service_dir, &chosen);
+        let frame = if frame_theirs { "theirs" } else { "ours" };
+        let suffix = if frame_conflict && !their_entity_take && !frame_theirs {
+            "; frame conflict"
+        } else {
+            ""
+        };
+        steps.push((Some(Write::Bytes(path.clone(), output)), format!("merged   {entity_name}: took {took} services, kept {kept_stale} (stale), frame {frame}{suffix}")));
+        steps.push((
+            Some(Write::Services {
+                dir: service_dir,
+                services: chosen,
+                remove,
+            }),
+            format!("sidecar  {entity_name}"),
+        ));
+    }
+    Ok(())
+}
+
+fn same_frame(left: &Element, right: &Element) -> bool {
+    let frame = |element: &Element| {
+        flatten(element)
+            .into_iter()
+            .filter(|(path, _)| {
+                !path.contains("/ServiceDefinitions") && !path.contains("/ServiceImplementations")
+            })
+            .collect::<BTreeMap<_, _>>()
+    };
+    frame(left) == frame(right)
+}
+
+fn services_from_document(
+    bytes: &[u8],
+) -> Result<BTreeMap<String, sidecar::ServiceSidecar>, AdoptError> {
+    sidecar::extract(bytes)
+        .map(|extraction| {
+            extraction
+                .services
+                .into_iter()
+                .map(|service| (service.name.clone(), service))
+                .collect()
+        })
+        .map_err(|error| AdoptError::Export {
+            path: PathBuf::from("export entity"),
+            why: error.to_string(),
+        })
+}
+
+fn ours_services(
+    solution: &Solution,
+    entity: &str,
+    bytes: &[u8],
+) -> Result<BTreeMap<String, sidecar::ServiceSidecar>, AdoptError> {
+    let mut services = services_from_document(bytes)?;
+    for service in services.values_mut() {
+        let script = solution
+            .src_root()
+            .join(entity)
+            .join("services")
+            .join(&service.name)
+            .join("script.js");
+        if script.is_file() {
+            service.script = std::fs::read_to_string(&script).map_err(|e| io_error(&script, e))?;
+        }
+    }
+    Ok(services)
+}
+
+fn stale_service_dirs(
+    dir: &Path,
+    wanted: &BTreeMap<String, sidecar::ServiceSidecar>,
+) -> Vec<String> {
+    std::fs::read_dir(dir)
+        .ok()
+        .into_iter()
+        .flatten()
+        .flatten()
+        .filter(|entry| entry.path().is_dir())
+        .filter_map(|entry| entry.file_name().into_string().ok())
+        .filter(|name| !wanted.contains_key(name))
+        .collect()
+}
+
+fn new_backend_path(
+    solution: &Solution,
+    entry: &EntityReport,
+    here: &BTreeMap<EntityRef, (Element, PathBuf)>,
+) -> Result<Option<PathBuf>, AdoptError> {
+    let Some(project) = solution.project(&entry.project) else {
+        return Ok(None);
+    };
+    let folder = here
+        .iter()
+        .find_map(|(key, (element, path))| {
+            (key.collection == entry.entity.collection
+                && attribute(element, "projectName").as_deref() == Some(entry.project.as_str()))
+            .then(|| path.parent().map(Path::to_path_buf))
+            .flatten()
+        })
+        .unwrap_or_else(|| {
+            solution
+                .project_root(project)
+                .join(&entry.entity.collection)
+        });
+    let path = folder.join(format!("{}.xml", entry.entity.name));
+    if path.exists() {
+        return Err(io_error(
+            &path,
+            "already exists, though the comparison found no such entity",
+        ));
+    }
+    Ok(Some(path))
+}
+
+fn entity_document(collection: &str, entity: &[u8]) -> Vec<u8> {
+    [
+        b"<Entities><".as_slice(),
+        collection.as_bytes(),
+        b">",
+        entity,
+        b"</",
+        collection.as_bytes(),
+        b"></Entities>",
+    ]
+    .concat()
+}
+
+fn raw_entity(path: &Path, wanted: &EntityRef) -> Result<Vec<u8>, AdoptError> {
+    let bytes = std::fs::read(path).map_err(|e| io_error(path, e))?;
+    let tokens = scan::tokenize(&bytes).map_err(|e| io_error(path, e))?;
+    entity_span(&tokens, &bytes, wanted)
+        .map(|span| span.of(&bytes).to_vec())
+        .ok_or_else(|| io_error(path, format!("no {} in export", wanted.path())))
+}
+
+fn replace_entity_bytes(
+    src: &[u8],
+    wanted: &EntityRef,
+    entity: &[u8],
+) -> Result<Vec<u8>, AdoptError> {
+    let tokens = scan::tokenize(src).map_err(|e| io_error(Path::new("entity"), e))?;
+    let span = entity_span(&tokens, src, wanted).ok_or_else(|| {
+        io_error(
+            Path::new("entity"),
+            format!("no {} in entity file", wanted.path()),
+        )
+    })?;
+    splice::splice(src, &[splice::Edit::new(span, entity.to_vec())])
+        .map_err(|e| io_error(Path::new("entity"), e))
+}
+
+fn entity_span(tokens: &[scan::Token], src: &[u8], wanted: &EntityRef) -> Option<scan::Span> {
+    let root = tokens.iter().position(|token| {
+        matches!(token.kind, scan::Kind::Start) && token.name.of(src) == b"Entities"
+    })?;
+    let root_end = scan::element_end(tokens, root)?;
+    let mut at = root + 1;
+    while at < root_end {
+        if matches!(tokens[at].kind, scan::Kind::Start)
+            && tokens[at].name.of(src) == wanted.collection.as_bytes()
+        {
+            let end = scan::element_end(tokens, at)?;
+            let mut child = at + 1;
+            while child < end {
+                if matches!(tokens[child].kind, scan::Kind::Start | scan::Kind::Empty)
+                    && scan::attribute(src, &tokens[child], "name")
+                        .ok()
+                        .flatten()
+                        .is_some_and(|name| {
+                            scan::decode_entities(&String::from_utf8_lossy(name.of(src)))
+                                == wanted.name
+                        })
+                {
+                    return scan::element_span(tokens, child);
+                }
+                child = if tokens[child].kind == scan::Kind::Start {
+                    scan::element_end(tokens, child).map_or(end, |at| at + 1)
+                } else {
+                    child + 1
+                };
+            }
+        }
+        at = if tokens[at].kind == scan::Kind::Start {
+            scan::element_end(tokens, at).map_or(root_end, |at| at + 1)
+        } else {
+            at + 1
+        };
+    }
+    None
 }
 
 /// Whether an entity name can be used as one file or folder name on every platform: an export
@@ -1223,7 +1948,7 @@ mod tests {
                 .collect()
         };
         let before = outside_twaco(&root);
-        let error = apply(&solution, &export, &report, &locked(&solution))
+        let error = apply(&solution, &export, &report, &[], &locked(&solution))
             .err()
             .expect("the sidecar folder cannot be made");
         // Where it fails depends on the platform: Windows reads `src/P.B/mashup/content.json` as
@@ -1246,7 +1971,7 @@ mod tests {
         let (_dir, root, solution, export) = adopt_case(&[("P.B&C", "{\"UI\":{\"x\":1}}")]);
         std::fs::create_dir_all(root.join(".twaco/types")).unwrap();
         let report = compare(&solution, &export, &[]).unwrap();
-        let outcome = apply(&solution, &export, &report, &locked(&solution)).unwrap();
+        let outcome = apply(&solution, &export, &report, &[], &locked(&solution)).unwrap();
         assert!(outcome.types.files_written.is_some());
         let lines: Vec<String> = outcome
             .lines
@@ -1271,7 +1996,7 @@ mod tests {
             let before = files_under(&root);
             let report = compare(&solution, &export, &[]).unwrap();
             assert!(
-                apply(&solution, &export, &report, &lock).is_err(),
+                apply(&solution, &export, &report, &[], &lock).is_err(),
                 "{bad:?}"
             );
             assert_eq!(files_under(&root), before, "{bad:?} wrote something");
@@ -1283,7 +2008,7 @@ mod tests {
     fn a_new_mashup_without_content_is_skipped_not_given_another_ones() {
         let (_dir, root, solution, export) = adopt_case(&[("P.D", "  ")]);
         let report = compare(&solution, &export, &[]).unwrap();
-        let lines: Vec<String> = apply(&solution, &export, &report, &locked(&solution))
+        let lines: Vec<String> = apply(&solution, &export, &report, &[], &locked(&solution))
             .unwrap()
             .lines
             .into_iter()
@@ -1302,7 +2027,7 @@ mod tests {
         let (_dir, _, solution, export) =
             adopt_case(&[("P.B", "{\"UI\":{\"x\":1}}"), ("P.C", " ")]);
         let report = compare(&solution, &export, &[]).unwrap();
-        let lines: Vec<String> = apply(&solution, &export, &report, &locked(&solution))
+        let lines: Vec<String> = apply(&solution, &export, &report, &[], &locked(&solution))
             .unwrap()
             .lines
             .into_iter()

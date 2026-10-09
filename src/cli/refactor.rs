@@ -14,9 +14,37 @@ pub(crate) fn adopt_cmd(solution: &Solution, args: &Args) -> u8 {
         );
         return FAILED;
     }
+    let only_kind = match args.only.as_slice() {
+        [] => None,
+        [value] => match value.as_str() {
+            "ui" => Some(adopt::Kind::Ui),
+            "backend" => Some(adopt::Kind::Backend),
+            _ => {
+                eprintln!(
+                    "{} --only needs `ui` or `backend`, not `{value}`",
+                    style::prefix()
+                );
+                return FAILED;
+            }
+        },
+        _ => {
+            eprintln!("{} --only needs one of `ui` or `backend`", style::prefix());
+            return FAILED;
+        }
+    };
+    let takes = match parse_takes(args.values.get("--take").map(String::as_str)) {
+        Ok(takes) => takes,
+        Err(error) => {
+            eprintln!("{} {error}", style::prefix());
+            return FAILED;
+        }
+    };
     let request = commands::adopt::AdoptRequest {
         export: PathBuf::from(&args.names[0]),
         only: args.entity_filters.clone(),
+        base: args.values.get("--base").cloned(),
+        only_kind,
+        takes,
         mode: if args.has("--apply") {
             Mode::Apply
         } else {
@@ -46,7 +74,7 @@ pub(crate) fn adopt_cmd(solution: &Solution, args: &Args) -> u8 {
         let services: Vec<serde_json::Value> = report
             .services
             .iter()
-            .map(|s| serde_json::json!({ "entity": s.entity, "service": s.service, "generated": s.generated }))
+            .map(|s| serde_json::json!({ "entity": s.entity, "service": s.service, "generated": s.generated, "change": change_word(s.change), "kind": "backend" }))
             .collect();
         let changed: serde_json::Map<String, serde_json::Value> = report
             .with_status(adopt::Status::Changed)
@@ -58,6 +86,8 @@ pub(crate) fn adopt_cmd(solution: &Solution, args: &Args) -> u8 {
             "absent": report.absent.iter().map(adopt::EntityRef::path).collect::<Vec<_>>(),
             "changed": changed,
             "identical": report.with_status(adopt::Status::Identical).count(),
+            "base": report.base,
+            "entities": report.entities.iter().map(|e| serde_json::json!({ "entity": e.entity.path(), "change": change_word(e.change), "kind": kind_word(e.kind) })).collect::<Vec<_>>(),
         });
         println!(
             "{}",
@@ -72,7 +102,18 @@ pub(crate) fn adopt_cmd(solution: &Solution, args: &Args) -> u8 {
             println!("  {line}");
         }
         print_types_refresh(&outcome.types);
-        println!("\nRun `twaco sync --all` to fold the sidecars into the entity XML, then `twaco check`.");
+        let mashup_written = report.entities.iter().any(|entry| {
+            entry.entity.collection == "Mashups"
+                && outcome
+                    .lines
+                    .iter()
+                    .any(|line| line == &format!("sidecar  {}", entry.entity.name))
+        });
+        if mashup_written {
+            println!("\nMashup sidecars may need `twaco sync --all`; backend changes are already folded. Then run `twaco check`.");
+        } else {
+            println!("\nBackend changes are already folded; run `twaco check`.");
+        }
         if reverts > 0 {
             println!(
                 "The {reverts} service difference(s) above were not applied; they need a person."
@@ -84,6 +125,128 @@ pub(crate) fn adopt_cmd(solution: &Solution, args: &Args) -> u8 {
     } else {
         OK
     }
+}
+
+fn parse_takes(value: Option<&str>) -> Result<Vec<adopt::Take>, String> {
+    let Some(value) = value else {
+        return Ok(Vec::new());
+    };
+    value
+        .split(',')
+        .map(|item| {
+            let Some((side, target)) = item.split_once(':') else {
+                return Err(format!("bad --take `{item}`; expected `theirs:Entity[.Service]` or `ours:Entity[.Service]`"));
+            };
+            let side = match side {
+                "theirs" => adopt::TakeSide::Theirs,
+                "ours" => adopt::TakeSide::Ours,
+                _ => return Err(format!("bad --take `{item}`; expected `theirs:Entity[.Service]` or `ours:Entity[.Service]`")),
+            };
+            if target.is_empty() || target.contains(':') {
+                return Err(format!("bad --take `{item}`; expected `theirs:Entity[.Service]` or `ours:Entity[.Service]`"));
+            }
+            Ok(adopt::Take { side, target: target.to_string() })
+        })
+        .collect()
+}
+
+fn change_word(change: adopt::Change) -> &'static str {
+    match change {
+        adopt::Change::Same => "same",
+        adopt::Change::Stale => "stale",
+        adopt::Change::Theirs => "theirs",
+        adopt::Change::Conflict => "conflict",
+        adopt::Change::Added => "added",
+        adopt::Change::WeRemoved => "we_removed",
+        adopt::Change::Unknown => "unknown",
+    }
+}
+
+fn kind_word(kind: adopt::Kind) -> &'static str {
+    match kind {
+        adopt::Kind::Ui => "ui",
+        adopt::Kind::Backend => "backend",
+    }
+}
+
+pub(crate) fn handoff_cmd(solution: &Solution, args: &Args) -> u8 {
+    let Some(action) = args.names.first().map(String::as_str) else {
+        eprintln!(
+            "{} handoff needs `list` or `record <file.xml>... --name <name>`",
+            style::prefix()
+        );
+        return FAILED;
+    };
+    let request = match action {
+        "list" if args.names.len() == 1 => commands::handoff::HandoffRequest::List,
+        "record" => {
+            let Some(name) = args.values.get("--name") else {
+                eprintln!("{} handoff record needs --name <name>", style::prefix());
+                return FAILED;
+            };
+            let files = args.names[1..].iter().map(PathBuf::from).collect();
+            commands::handoff::HandoffRequest::Record {
+                name: name.clone(),
+                files,
+            }
+        }
+        _ => {
+            eprintln!(
+                "{} handoff needs `list` or `record <file.xml>... --name <name>`",
+                style::prefix()
+            );
+            return FAILED;
+        }
+    };
+    let mode = if args.has("--apply") {
+        Mode::Apply
+    } else {
+        Mode::Plan
+    };
+    let mut notices = commands::Notices::default();
+    let outcome =
+        match commands::handoff::execute(solution, &request, mode, "handoff", &mut notices) {
+            Ok(outcome) => outcome,
+            Err(error) => {
+                print_notices(&notices);
+                eprintln!("{} {error}", style::prefix());
+                return FAILED;
+            }
+        };
+    print_notices(&notices);
+    match outcome {
+        commands::handoff::HandoffOutcome::Listed { handoffs, .. } => {
+            if handoffs.is_empty() {
+                println!("no recorded handoffs");
+            }
+            for handoff in handoffs {
+                println!(
+                    "{}  {}  {}  {}  {}",
+                    handoff.name,
+                    jiff::Timestamp::from_millisecond(handoff.created as i64)
+                        .map(|at| at.strftime("%Y-%m-%d %H:%M").to_string())
+                        .unwrap_or_else(|_| handoff.created.to_string()),
+                    handoff.commit.as_deref().unwrap_or("none"),
+                    if handoff.dirty { "dirty" } else { "clean" },
+                    handoff.files.join(", ")
+                );
+            }
+        }
+        commands::handoff::HandoffOutcome::Planned { name, files, .. } => println!(
+            "would record handoff {name}: {}",
+            files
+                .iter()
+                .map(|file| file.display().to_string())
+                .collect::<Vec<_>>()
+                .join(", ")
+        ),
+        commands::handoff::HandoffOutcome::Recorded { handoff, .. } => println!(
+            "recorded handoff {}: {}",
+            handoff.name,
+            handoff.files.join(", ")
+        ),
+    }
+    OK
 }
 
 pub(crate) fn rename_cmd(solution: &Solution, route: &str, args: &Args) -> u8 {
@@ -282,6 +445,51 @@ fn print_rename_json(solution: &Solution, outcome: &rename::Outcome, include_out
 }
 
 fn print_adopt_report(solution: &Solution, report: &adopt::Report, detail: bool) {
+    match &report.base {
+        Some(base) => println!("base: {base}"),
+        None => println!(
+            "base: none (git history decides what is stale; record a handoff or pass --base)"
+        ),
+    }
+    for (heading, changes) in [
+        ("theirs", &[adopt::Change::Theirs][..]),
+        ("added", &[adopt::Change::Added][..]),
+        ("conflict", &[adopt::Change::Conflict][..]),
+        ("unknown", &[adopt::Change::Unknown][..]),
+        ("stale", &[adopt::Change::Stale][..]),
+        ("we removed", &[adopt::Change::WeRemoved][..]),
+    ] {
+        let entities: Vec<_> = report
+            .entities
+            .iter()
+            .filter(|entry| changes.contains(&entry.change))
+            .collect();
+        let services: Vec<_> = report
+            .services
+            .iter()
+            .filter(|service| changes.contains(&service.change))
+            .collect();
+        if entities.is_empty() && services.is_empty() {
+            continue;
+        }
+        println!("\n=== {heading} ({}) ===", entities.len() + services.len());
+        for entry in entities {
+            println!(
+                "  {}  {}  ({})",
+                change_word(entry.change),
+                entry.entity.path(),
+                kind_word(entry.kind)
+            );
+        }
+        for service in services {
+            println!(
+                "  {}  {}.{}  (backend)",
+                change_word(service.change),
+                service.entity,
+                service.service
+            );
+        }
+    }
     println!("=== services the export would change ===");
     if report.services.is_empty() {
         println!("  none: every service in the export matches the repository");

@@ -1,6 +1,7 @@
 //! The command policy around assembling one importable bundle.
 
 use super::{lock_workspace, Access, Effects, Mode, Notices};
+use crate::core::adopt;
 use crate::core::bundle;
 use crate::core::codes::{Coded, ErrorCode};
 use crate::core::config::Solution;
@@ -10,6 +11,7 @@ use std::path::PathBuf;
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct BundleRequest {
     pub backend_only: bool,
+    pub handoff: Option<String>,
     pub mode: Mode,
     pub lock_label: &'static str,
 }
@@ -58,6 +60,8 @@ pub enum BundleCommandError {
     Create { path: PathBuf, why: std::io::Error },
     #[error("{0}")]
     Write(workspace::WorkspaceError),
+    #[error("{0}")]
+    Handoff(adopt::AdoptError),
 }
 
 impl Coded for BundleCommandError {
@@ -67,6 +71,7 @@ impl Coded for BundleCommandError {
             Self::Empty { .. } | Self::Build(_) => ErrorCode::InvalidData,
             Self::Create { .. } => ErrorCode::IoError,
             Self::Write(error) => error.code(),
+            Self::Handoff(error) => error.code(),
         }
     }
 }
@@ -125,6 +130,10 @@ pub fn execute(
                 why,
             })?;
             workspace::write_entity(&target, &built.bytes).map_err(BundleCommandError::Write)?;
+            if let Some(name) = &request.handoff {
+                adopt::record_handoff(solution, name, std::slice::from_ref(&target))
+                    .map_err(BundleCommandError::Handoff)?;
+            }
             Ok(BundleOutcome::Written {
                 target,
                 bundle: built,
@@ -152,6 +161,7 @@ mod tests {
         let held = lock::acquire(&root, "holder", &[]).unwrap();
         let plan = BundleRequest {
             backend_only: false,
+            handoff: None,
             mode: Mode::Plan,
             lock_label: "bundle",
         };

@@ -1,0 +1,152 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Entities>
+    <LocalizationTables>
+        <LocalizationTable
+                description="de localization table"
+                aspect.isEditableExtensionObject="false"
+                documentationContent=""
+                homeMashup=""
+                name="de"
+                tags="">
+            <avatar></avatar>
+            <DesignTimePermissions>
+                <Create></Create>
+                <Read></Read>
+                <Update></Update>
+                <Delete></Delete>
+                <Metadata></Metadata>
+            </DesignTimePermissions>
+            <RunTimePermissions></RunTimePermissions>
+            <VisibilityPermissions>
+                <Visibility></Visibility>
+            </VisibilityPermissions>
+            <ConfigurationTableDefinitions></ConfigurationTableDefinitions>
+            <ConfigurationTables>
+                <ConfigurationTable
+                        dataShapeName=""
+                        description="Localization tokens and usage"
+                        isMultiRow="true"
+                        name="LocalizationTokens"
+                        ordinal="0">
+                    <DataShape>
+                        <FieldDefinitions>
+                            <FieldDefinition
+                                    aspect.friendlyName="Translation context"
+                                    baseType="STRING"
+                                    description="Translation context"
+                                    name="context"
+                                    ordinal="3"></FieldDefinition>
+                            <FieldDefinition
+                                    aspect.friendlyName="Token name"
+                                    baseType="STRING"
+                                    description="Token name"
+                                    name="name"
+                                    ordinal="0"></FieldDefinition>
+                            <FieldDefinition
+                                    aspect.friendlyName="Token usage"
+                                    baseType="STRING"
+                                    description="Token usage"
+                                    name="usage"
+                                    ordinal="2"></FieldDefinition>
+                            <FieldDefinition
+                                    aspect.friendlyName="Localized value"
+                                    baseType="STRING"
+                                    description="Localized value"
+                                    name="value"
+                                    ordinal="1"></FieldDefinition>
+                        </FieldDefinitions>
+                    </DataShape>
+                    <Rows>
+                        <!-- Actions -->
+                        <Row>
+                            <context>
+                                <![CDATA[Acme label.]]>
+                            </context>
+                            <name>
+                                <![CDATA[Acme.App.Save]]>
+                            </name>
+                            <usage>
+                                <![CDATA[label]]>
+                            </usage>
+                            <value>
+                                <![CDATA[Speichern]]>
+                            </value>
+                        </Row>
+                        <Row>
+                            <context>
+                                <![CDATA[Acme label.]]>
+                            </context>
+                            <name>
+                                <![CDATA[Acme.App.Open]]>
+                            </name>
+                            <usage>
+                                <![CDATA[label]]>
+                            </usage>
+                            <value>
+                                <![CDATA[Öffnen]]>
+                            </value>
+                        </Row>
+                        <Row>
+                            <context>
+                                <![CDATA[Acme label.]]>
+                            </context>
+                            <name>
+                                <![CDATA[Acme.App.Delete]]>
+                            </name>
+                            <usage>
+                                <![CDATA[label]]>
+                            </usage>
+                            <value>
+                                <![CDATA[Löschen]]>
+                            </value>
+                        </Row>
+                        <Row>
+                            <context>
+                                <![CDATA[Acme label.]]>
+                            </context>
+                            <name>
+                                <![CDATA[Acme.App.Close]]>
+                            </name>
+                            <usage>
+                                <![CDATA[label]]>
+                            </usage>
+                            <value>
+                                <![CDATA[Schließen]]>
+                            </value>
+                        </Row>
+                        <!-- Messages -->
+                        <Row>
+                            <context>
+                                <![CDATA[Acme label.]]>
+                            </context>
+                            <name>
+                                <![CDATA[Acme.App.Cancel]]>
+                            </name>
+                            <usage>
+                                <![CDATA[label]]>
+                            </usage>
+                            <value>
+                                <![CDATA[Abbrechen]]>
+                            </value>
+                        </Row>
+                        <Row>
+                            <context>
+                                <![CDATA[Acme label.]]>
+                            </context>
+                            <name>
+                                <![CDATA[Acme.App.Help]]>
+                            </name>
+                            <usage>
+                                <![CDATA[label]]>
+                            </usage>
+                            <value>
+                                <![CDATA[Hilfe]]>
+                            </value>
+                        </Row>
+                        <!-- END -->
+                    </Rows>
+                </ConfigurationTable>
+            </ConfigurationTables>
+        </LocalizationTable>
+    </LocalizationTables>
+</Entities>

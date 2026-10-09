@@ -28,6 +28,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 use std::time::{Duration, Instant};
 mod content;
+pub use content::localization_status_json;
 mod data;
 mod entity;
 mod info;

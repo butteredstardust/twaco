@@ -189,6 +189,232 @@ pub(crate) fn repo_tool(
     }
 }
 
+pub(crate) fn localization_tool(
+    solution: &Solution,
+    arguments: tool::LocalizationRequest,
+    progress: &dyn Progress,
+) -> Result<Value, ToolError> {
+    use crate::core::commands::localization::{
+        self as command, LocalizationAction, LocalizationRequest,
+    };
+    let request = LocalizationRequest {
+        action: LocalizationAction::Status {
+            table: arguments.table.as_ref().cloned(),
+        },
+        profile: arguments.profile,
+    };
+    let mut notices = commands::Notices::default();
+    let outcome = command::execute_with_progress(
+        solution,
+        &request,
+        server::Client::new,
+        &mut notices,
+        progress,
+    )
+    .map_err(ToolError::coded)?;
+    let command::LocalizationOutcome::Status { status, .. } = outcome else {
+        unreachable!()
+    };
+    let mut result = localization_status_json(solution, &status, arguments.detail);
+    add_notices(&mut result, &notices);
+    Ok(result)
+}
+
+/// A localization status as JSON: per-table and problem counts always, the tokens that are not
+/// the same and each problem only with `detail`. Shared by the MCP tool and `--json`.
+pub fn localization_status_json(
+    solution: &Solution,
+    status: &crate::core::localization::Status,
+    detail: bool,
+) -> Value {
+    use crate::core::localization::{Problem, State};
+    let path = |p: &std::path::Path| {
+        p.strip_prefix(&solution.root)
+            .unwrap_or(p)
+            .to_string_lossy()
+            .replace('\\', "/")
+    };
+    let label = |state| match state {
+        State::Same => "same",
+        State::Differs => "differs",
+        State::LocalOnly => "local only",
+        State::ServerOnly => "server only",
+    };
+    let mut tables: std::collections::BTreeMap<&str, [usize; 4]> = Default::default();
+    for item in &status.compared {
+        tables.entry(&item.table).or_default()[item.state as usize] += 1;
+    }
+    let tables: Vec<Value> = tables
+        .into_iter()
+        .map(|(table, count)| {
+            serde_json::json!({
+                "table": table,
+                "tokens": count.iter().sum::<usize>(),
+                "same": count[State::Same as usize],
+                "differs": count[State::Differs as usize],
+                "local_only": count[State::LocalOnly as usize],
+                "server_only": count[State::ServerOnly as usize],
+                "on_server": !status.missing_tables.iter().any(|missing| missing == table),
+            })
+        })
+        .collect();
+    let mut counts = [0usize; 3];
+    for problem in &status.problems {
+        counts[match problem {
+            Problem::Untranslated { .. } => 0,
+            Problem::NotInDefault { .. } => 1,
+            Problem::Duplicate { .. } => 2,
+        }] += 1;
+    }
+    let mut result = serde_json::json!({
+        "root": path(&crate::core::localization::root(solution)),
+        "tables": tables,
+        "problem_counts": {
+            "untranslated": counts[0],
+            "not_in_default": counts[1],
+            "duplicate": counts[2],
+        },
+        "unreadable": status
+            .unreadable
+            .iter()
+            .map(|(p, why)| serde_json::json!({"path": path(p), "why": why}))
+            .collect::<Vec<_>>(),
+    });
+    if detail {
+        result["compared"] = status
+            .compared
+            .iter()
+            .filter(|item| item.state != State::Same)
+            .map(|item| {
+                serde_json::json!({
+                    "table": item.table,
+                    "name": item.name,
+                    "state": label(item.state),
+                    "file": item.file.as_deref().map(path),
+                })
+            })
+            .collect();
+        result["problems"] = status
+            .problems
+            .iter()
+            .map(|problem| {
+                let (kind, table, name, files) = match problem {
+                    Problem::Untranslated { table, name } => ("untranslated", table, name, vec![]),
+                    Problem::NotInDefault { table, name, file } => {
+                        ("not_in_default", table, name, vec![path(file)])
+                    }
+                    Problem::Duplicate { table, name, files } => (
+                        "duplicate",
+                        table,
+                        name,
+                        files.iter().map(|f| path(f)).collect(),
+                    ),
+                };
+                serde_json::json!({"kind": kind, "table": table, "name": name, "files": files})
+            })
+            .collect();
+    }
+    result
+}
+
+pub(crate) fn localization_write_tool(
+    solution: &Solution,
+    arguments: tool::LocalizationWriteRequest,
+    progress: &dyn Progress,
+) -> Result<Value, ToolError> {
+    use crate::core::commands::localization::{
+        self as command, LocalizationAction, LocalizationRequest,
+    };
+    let mode = if arguments.dry_run {
+        commands::Mode::Plan
+    } else {
+        commands::Mode::Apply
+    };
+    let table = arguments.table.as_ref().cloned();
+    let action = match arguments.action {
+        tool::LocalizationWriteAction::Pull => LocalizationAction::Pull {
+            table,
+            prune: arguments.prune,
+            mode,
+        },
+        tool::LocalizationWriteAction::Push => LocalizationAction::Push {
+            table,
+            prune: arguments.prune,
+            mode,
+        },
+        tool::LocalizationWriteAction::New => LocalizationAction::New {
+            table: required_text(&arguments.table, "table")?.to_string(),
+            project: arguments.project.as_ref().cloned(),
+            header: crate::core::localization::Header {
+                description: arguments.description.as_ref().cloned(),
+                language_common: arguments.language_common.as_ref().cloned(),
+                language_native: arguments.language_native.as_ref().cloned(),
+            },
+            mode,
+        },
+        tool::LocalizationWriteAction::Set => LocalizationAction::Set {
+            name: required_text(&arguments.token, "token")?.to_string(),
+            value: required_text(&arguments.value, "value")?.to_string(),
+            table,
+            usage: arguments.usage.as_ref().cloned(),
+            context: arguments.context.as_ref().cloned(),
+            project: arguments.project.as_ref().cloned(),
+            mode,
+        },
+        tool::LocalizationWriteAction::Remove => LocalizationAction::Remove {
+            name: required_text(&arguments.token, "token")?.to_string(),
+            table,
+            mode,
+        },
+    };
+    let request = LocalizationRequest {
+        action,
+        profile: arguments.profile,
+    };
+    let mut notices = commands::Notices::default();
+    let outcome = command::execute_with_progress(
+        solution,
+        &request,
+        server::Client::new,
+        &mut notices,
+        progress,
+    )
+    .map_err(ToolError::coded)?;
+    let mut result = match outcome {
+        command::LocalizationOutcome::Pulled { pulled, .. } => {
+            localization_files_json(solution, &pulled.files, arguments.dry_run, arguments.detail)
+        }
+        command::LocalizationOutcome::Edited { edited, .. } => {
+            localization_files_json(solution, &edited.files, arguments.dry_run, arguments.detail)
+        }
+        command::LocalizationOutcome::Pushed { pushed, .. } => {
+            let tables: Vec<_> = pushed.tables.iter().map(|table| {
+                let mut item = serde_json::json!({"table":table.table,"files":table.files.iter().map(|p|p.strip_prefix(&solution.root).unwrap_or(p).to_string_lossy().replace('\\', "/")).collect::<Vec<_>>(),"create":table.create,"set_count":table.set.len(),"delete_count":table.delete.len()});
+                if arguments.detail { item["set"] = serde_json::json!(table.set); item["delete"] = serde_json::json!(table.delete); }
+                item
+            }).collect();
+            serde_json::json!({"dry_run": arguments.dry_run, "tables": tables})
+        }
+        command::LocalizationOutcome::Status { .. } => unreachable!(),
+    };
+    add_notices(&mut result, &notices);
+    Ok(result)
+}
+
+fn localization_files_json(
+    solution: &Solution,
+    changes: &[crate::core::localization::FileChange],
+    dry_run: bool,
+    detail: bool,
+) -> Value {
+    let files: Vec<_> = changes.iter().map(|file| {
+        let mut item = serde_json::json!({"path": file.path.strip_prefix(&solution.root).unwrap_or(&file.path).to_string_lossy().replace('\\', "/"), "created": file.created, "set_count": file.set.len(), "removed_count": file.removed.len()});
+        if detail { item["set"] = serde_json::json!(file.set); item["removed"] = serde_json::json!(file.removed); }
+        item
+    }).collect();
+    serde_json::json!({"dry_run": dry_run, "files": files})
+}
+
 /// An import into the server, a plan unless dry_run is false.
 pub(crate) fn import_tool(
     solution: &Solution,
@@ -295,6 +521,7 @@ pub(crate) fn bundle_tool(
 ) -> Result<Value, ToolError> {
     let request = commands::bundle::BundleRequest {
         backend_only: arguments.backend_only,
+        handoff: None,
         mode: if arguments.dry_run {
             Mode::Plan
         } else {

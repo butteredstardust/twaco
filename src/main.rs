@@ -36,7 +36,10 @@ use cli::info::{
     catalog_cmd, docs_cmd, guide_cmd, help_cmd, impact_cmd, javadoc_cmd, settings_cmd, unused_cmd,
     update_cmd, write_agent_files,
 };
-use cli::refactor::{adopt_cmd, new_building_block_cmd, relocate_cmd, rename_cmd, retemplate_cmd};
+use cli::localization::localization_cmd;
+use cli::refactor::{
+    adopt_cmd, handoff_cmd, new_building_block_cmd, relocate_cmd, rename_cmd, retemplate_cmd,
+};
 use cli::source::{bundle, check, deploy_cmd, extract, fmt, sync_cmd, types_cmd};
 
 /// Success.
@@ -180,6 +183,7 @@ fn dispatch(route: &str, parsed: &Args) -> u8 {
             "deploy" => deploy_cmd(solution, parsed),
             "call" => call(solution, parsed),
             "repo" => repo_cmd(solution, parsed),
+            "localization" => localization_cmd(solution, parsed),
             "ext" => ext_cmd(solution, parsed),
             "settings" => settings_cmd(solution, parsed),
             "catalog" => catalog_cmd(solution, parsed),
@@ -192,6 +196,7 @@ fn dispatch(route: &str, parsed: &Args) -> u8 {
             "import" => import_cmd(solution, parsed),
             "logs" => logs_cmd(solution, parsed),
             "adopt" => adopt_cmd(solution, parsed),
+            "handoff" => handoff_cmd(solution, parsed),
             "rename entity" | "rename prefix" | "rename field" | "rename service"
             | "rename param" | "rename table" | "rename property" => {
                 rename_cmd(solution, route, parsed)
@@ -395,6 +400,8 @@ fn writes_workspace(route: &str, _args: &Args) -> bool {
         "db run" => false,
         // `repo pull` takes its own lock before discovering the tree it will write.
         "repo" => false,
+        // `localization` takes its own lock before discovering the table files it will write.
+        "localization" => false,
         _ => false,
     }
 }

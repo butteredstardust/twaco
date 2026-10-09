@@ -6,6 +6,20 @@ All notable changes to twaco are recorded here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- `twaco localization` and the MCP `localization` and `localization_write` tools compare, synchronize and edit localization table files.
+- Three-way `adopt` collaboration, recorded handoffs, and `--base`, `--only` and `--take` support designer and backend handoffs.
+
+### Changed
+
+- `adopt --fail-on-revert` now counts stale, conflicting and unknown services only, and `adopt --apply` writes safe backend changes as well as UI changes.
+
+### Fixed
+
+- `twaco import` of a localization table that already exists no longer reports a failure: the Importer answers partial-success although it took the tokens.
+- A designer's stale mashup no longer overwrites a newer repository mashup when an adopt base is known.
+
 ## [0.1.6] - 2026-10-08
 
 ### Added

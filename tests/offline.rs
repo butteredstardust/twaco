@@ -30,6 +30,98 @@ fn offline_projects_needs_no_profile_or_environment() {
 }
 
 #[test]
+fn localization_edits_plan_then_apply_without_a_server() {
+    let directory = tempfile::Builder::new()
+        .prefix("twaco-localization-")
+        .tempdir()
+        .unwrap();
+    let root = directory.path();
+    std::fs::write(
+        root.join("twaco.toml"),
+        "[[project]]\nname = \"Acme.App\"\n",
+    )
+    .unwrap();
+    let run = |args: &[&str]| {
+        Command::new(env!("CARGO_BIN_EXE_twaco"))
+            .args(args)
+            .current_dir(root)
+            .env_clear()
+            .output()
+            .unwrap()
+    };
+
+    let plan = run(&["localization", "set", "Acme.App.Title", "--value", "Title"]);
+    assert!(plan.status.success());
+    assert!(String::from_utf8_lossy(&plan.stdout).contains("plan: 1 file(s)"));
+    assert!(!root
+        .join("localization/Acme.App/LocalizationTable.xml")
+        .exists());
+    let applied = run(&[
+        "localization",
+        "set",
+        "Acme.App.Title",
+        "--value",
+        "Title",
+        "--apply",
+    ]);
+    assert!(applied.status.success());
+    assert!(String::from_utf8_lossy(&applied.stdout).contains("wrote 1 file(s)"));
+    assert!(root
+        .join("localization/Acme.App/LocalizationTable.xml")
+        .exists());
+
+    assert!(run(&[
+        "localization",
+        "new",
+        "de",
+        "--language-common",
+        "German",
+        "--apply"
+    ])
+    .status
+    .success());
+    assert!(run(&[
+        "localization",
+        "set",
+        "Acme.App.Title",
+        "--value",
+        "Titel",
+        "--table",
+        "de",
+        "--apply"
+    ])
+    .status
+    .success());
+    assert!(
+        run(&["localization", "remove", "Acme.App.Title", "--apply"])
+            .status
+            .success()
+    );
+    for file in [
+        "localization/Acme.App/LocalizationTable.xml",
+        "localization/Acme.App/LocalizationTable_de.xml",
+    ] {
+        assert!(
+            !String::from_utf8_lossy(&std::fs::read(root.join(file)).unwrap())
+                .contains("Acme.App.Title")
+        );
+    }
+    assert_eq!(
+        run(&["localization", "set", "Acme.App.Title"])
+            .status
+            .code(),
+        Some(2)
+    );
+    assert_eq!(run(&["localization", "new"]).status.code(), Some(2));
+    assert_eq!(
+        run(&["localization", "status", "--profile", "missing"])
+            .status
+            .code(),
+        Some(2)
+    );
+}
+
+#[test]
 fn types_command_writes_shared_declarations_and_second_run_is_clean() {
     let root_guard = tempfile::Builder::new()
         .prefix("twaco-types-command-")
@@ -441,6 +533,53 @@ fn bundle_carries_10_2_ai_entities_and_refuses_an_unknown_collection() {
         !refused.status.success() && said.contains("<Gizmos>"),
         "an unknown collection must not vanish: {said}"
     );
+}
+
+#[test]
+fn handoffs_are_recorded_selected_by_adopt_and_bundled() {
+    let root_guard = tempfile::Builder::new()
+        .prefix("twaco-handoff-")
+        .tempdir()
+        .unwrap();
+    let root = root_guard.path();
+    std::fs::create_dir_all(root.join("Things")).unwrap();
+    std::fs::write(root.join("twaco.toml"), "[[project]]\nname = \"P\"\n").unwrap();
+    let xml = "<Entities><Things><Thing name=\"Acme.T\" projectName=\"P\"><ThingShape/></Thing></Things></Entities>";
+    std::fs::write(root.join("Things/Acme.T.xml"), xml).unwrap();
+    std::fs::write(root.join("base.xml"), xml).unwrap();
+    std::fs::write(root.join("export.xml"), xml).unwrap();
+    let run = |args: &[&str]| {
+        Command::new(env!("CARGO_BIN_EXE_twaco"))
+            .args(args)
+            .current_dir(root)
+            .env_clear()
+            .output()
+            .unwrap()
+    };
+    let record = run(&["handoff", "record", "base.xml", "--name", "h1", "--apply"]);
+    assert!(
+        record.status.success(),
+        "{}",
+        String::from_utf8_lossy(&record.stderr)
+    );
+    let listed = run(&["handoff", "list"]);
+    assert!(String::from_utf8_lossy(&listed.stdout).contains("h1"));
+    let report = run(&["adopt", "export.xml", "--json"]);
+    let json: serde_json::Value = serde_json::from_slice(&report.stdout).unwrap();
+    assert!(json["base"]
+        .as_str()
+        .unwrap_or_default()
+        .starts_with("handoff h1"));
+    assert!(json["entities"][0].get("change").is_some());
+    assert!(json["entities"][0].get("kind").is_some());
+    assert_eq!(
+        run(&["adopt", "export.xml", "--take", "bad"]).status.code(),
+        Some(2)
+    );
+    assert!(run(&["bundle", "--handoff", "h2", "--apply"])
+        .status
+        .success());
+    assert!(String::from_utf8_lossy(&run(&["handoff", "list"]).stdout).contains("h2"));
 }
 
 #[test]

@@ -397,6 +397,10 @@ pub(crate) const FLAGS: &[Flag] = &[
         takes: Takes::Switch,
     },
     Flag {
+        name: "--base",
+        takes: Takes::Value("file|handoff|git rev"),
+    },
+    Flag {
         name: "--backup",
         takes: Takes::Value("file"),
     },
@@ -477,12 +481,24 @@ pub(crate) const FLAGS: &[Flag] = &[
         takes: Takes::Switch,
     },
     Flag {
+        name: "--handoff",
+        takes: Takes::Value("name"),
+    },
+    Flag {
         name: "--leave-delegate",
         takes: Takes::Switch,
     },
     Flag {
         name: "--level",
         takes: Takes::Value("level"),
+    },
+    Flag {
+        name: "--language-common",
+        takes: Takes::Value("text"),
+    },
+    Flag {
+        name: "--language-native",
+        takes: Takes::Value("text"),
     },
     Flag {
         name: "--limit",
@@ -537,12 +553,20 @@ pub(crate) const FLAGS: &[Flag] = &[
         takes: Takes::Switch,
     },
     Flag {
+        name: "--name",
+        takes: Takes::Value("name"),
+    },
+    Flag {
         name: "--oldest-first",
         takes: Takes::Switch,
     },
     Flag {
         name: "--only",
         takes: Takes::Repeated("entity"),
+    },
+    Flag {
+        name: "--take",
+        takes: Takes::Value("side:name,..."),
     },
     Flag {
         name: "--only-projects",
@@ -575,6 +599,10 @@ pub(crate) const FLAGS: &[Flag] = &[
     Flag {
         name: "--path",
         takes: Takes::Value("path"),
+    },
+    Flag {
+        name: "--prune",
+        takes: Takes::Switch,
     },
     Flag {
         name: "--platform",
@@ -669,6 +697,10 @@ pub(crate) const FLAGS: &[Flag] = &[
         takes: Takes::Value("value"),
     },
     Flag {
+        name: "--table",
+        takes: Takes::Value("name"),
+    },
+    Flag {
         name: "--text",
         takes: Takes::Switch,
     },
@@ -695,6 +727,18 @@ pub(crate) const FLAGS: &[Flag] = &[
     Flag {
         name: "--user",
         takes: Takes::Value("value"),
+    },
+    Flag {
+        name: "--usage",
+        takes: Takes::Value("text"),
+    },
+    Flag {
+        name: "--context",
+        takes: Takes::Value("text"),
+    },
+    Flag {
+        name: "--value",
+        takes: Takes::Value("text"),
     },
     Flag {
         name: "--version",
@@ -866,13 +910,25 @@ pub(crate) const COMMANDS: &[Command] = &[
         operands: true,
         flags: &[
             "--entity",
+            "--base",
+            "--only",
+            "--take",
             "--detail",
             "--json",
             "--fail-on-revert",
             "--apply",
         ],
-        text: r#"  adopt <export.xml>          what a designer's Composer export really changes; --apply writes it in
-      --entity <name>         only this entity; --detail; --json; --fail-on-revert"#,
+        text: r#"  adopt <export.xml>          take a designer's or backend collaborator's export; plan unless --apply
+      --base <file|handoff|git rev>  collaborator's starting point; --only ui|backend
+      --take theirs:<name>,ours:<name>  resolve conflicts; --entity <name>; --detail; --json; --fail-on-revert"#,
+    },
+    Command {
+        path: "handoff",
+        group: 1,
+        operands: true,
+        flags: &["--name", "--apply"],
+        text: r#"  handoff list|record <file.xml>... --name <name> [--apply]
+                              list recorded collaborator bases, or plan/copy one under .twaco/handoffs"#,
     },
     Command {
         path: "rename entity",
@@ -1217,8 +1273,8 @@ pub(crate) const COMMANDS: &[Command] = &[
         path: "bundle",
         group: 2,
         operands: false,
-        flags: &["--backend-only", "--check"],
-        text: r#"  bundle [--backend-only]     one importable document
+        flags: &["--backend-only", "--check", "--handoff", "--apply"],
+        text: r#"  bundle [--backend-only] [--handoff <name>] [--apply]  one importable document
       --check                 report whether the bundle is current, write nothing"#,
     },
     Command {
@@ -1378,6 +1434,38 @@ pub(crate) const COMMANDS: &[Command] = &[
   repo pull <repo>            download what the server has into filerepository/<repo>/
                               (neither deletes; a file differing on both sides needs --overwrite)
       --apply                 make the change: put, mkdir, rm and mv are plans without it"#,
+    },
+    Command {
+        path: "localization",
+        group: 4,
+        operands: true,
+        flags: &[
+            "--table",
+            "--project",
+            "--prune",
+            "--language-common",
+            "--language-native",
+            "--description",
+            "--value",
+            "--usage",
+            "--context",
+            "--json",
+            "--detail",
+            "--profile",
+            "--apply",
+        ],
+        text: r#"  localization status         the solution's localization tables (localization/) against the
+                              server: same, differs, local only, server only; problems; --json; --detail
+  localization pull           write the server's tokens of this solution into the table files
+  localization push           import the table files that differ, Default first, and read back
+                              (--prune also deletes server tokens no file has, on pull removes
+                              rows the server lacks)
+  localization new <table>    a table file for a language, seeded with the Default tokens;
+                              --language-common, --language-native, --description, --project
+  localization set <token> --value <text>  add or change a token; --table (default Default),
+                              --usage (new: label), --context, --project
+  localization remove <token> remove a token from every table, or from --table
+      --table <name>          one table only; --apply makes the change (all but status plan)"#,
     },
     Command {
         path: "ext",

@@ -42,7 +42,7 @@ when the command is asked to write. A local output named by an option is include
 | `sync --all` | best-effort batch | best-effort batch | entity XML, declarations | Each entity file is written once, atomically, with every kind of sidecar that synced (a kind that is refused is reported, and the others are still written); earlier entities remain synced. Retry failed entities. | `core/commands/sync.rs: execute` |
 | `fmt` | best-effort batch | best-effort batch | script sidecars | Earlier scripts remain formatted; retry reported scripts. | `core/commands/fmt.rs: execute` |
 | `check` | read-only | read-only | none | Retry freely. | `core/check.rs: run` |
-| `bundle` | single-file atomic | single-file atomic | generated bundle | The generated bundle is old or new; retry freely. | `core/commands/bundle.rs: execute` |
+| `bundle` | read-only | single-file atomic | generated bundle and optional handoff | The generated bundle is old or new; an applied handoff is available as a base. Retry freely. | `core/commands/bundle.rs: execute` |
 | `deploy` | read-only | server-partial | server, baseline, backups | Read back reported imports and baseline; use the plan and backups before retrying. | `core/commands/deploy.rs: execute` |
 | `call` | server-partial | server-partial | service effects | Inspect the service's effects and logs before retrying. | `core/commands/call.rs: execute` |
 | `logs` | read-only | read-only | none | Retry freely. | `cli/data.rs: logs_cmd` |
@@ -93,13 +93,20 @@ when the command is asked to write. A local output named by an option is include
 | `repo mv` | read-only | server-partial | server repository | List source and destination before retrying. | `cli/content.rs: repo_change` |
 | `repo push` | read-only | server-partial | server repository | Inspect copied paths before retrying. | `core/repo.rs: sync` |
 | `repo pull` | read-only | best-effort batch | local repository files | Stops at the first failed file; the files already copied stay and are listed in the error. Retry after fixing the cause; copied files are then unchanged. | `core/commands/repo.rs: execute` |
+| `localization status` | read-only | read-only | none | Retry freely. | `core/commands/localization.rs: execute` |
+| `localization pull` | read-only | best-effort batch | localization files | Inspect files already written and retry after fixing the cause. | `core/commands/localization.rs: execute` |
+| `localization push` | read-only | server-partial | localization tables | Read tables back before retrying. | `core/commands/localization.rs: execute` |
+| `localization new` | read-only | single-file atomic | localization file | The file is old or new; retry freely. | `core/commands/localization.rs: execute` |
+| `localization set` | read-only | single-file atomic | localization file | The file is old or new; retry freely. | `core/commands/localization.rs: execute` |
+| `localization remove` | read-only | best-effort batch | localization files | Inspect files already written and retry after fixing the cause. | `core/commands/localization.rs: execute` |
 | `guide` | read-only | read-only | none | Retry freely. | `cli/info.rs: guide_cmd` |
 | `help search` | single-file atomic | single-file atomic | user cache file | The cache file is old or new; retry freely. | `core/help.rs: cached_file` |
 | `help page` | single-file atomic | single-file atomic | user cache file | The cache file is old or new; retry freely. | `core/help.rs: cached_file` |
 | `javadoc search` | single-file atomic | single-file atomic | user cache file | The cache file is old or new; retry freely. | `core/javadoc.rs: cached` |
 | `javadoc class` | single-file atomic | single-file atomic | user cache file | The cache file is old or new; retry freely. | `core/javadoc.rs: cached` |
 | `init` | read-only | best-effort batch | config and optional guide files | Inspect files already created; retry only missing work. | `main.rs: main; core/init.rs: write_agent_files` |
-| `adopt` | read-only | multi-file atomic | entities, sidecars, declarations | Every entity and sidecar write happened or none did; a crash is finished or undone by the next command that takes the workspace lock. Declarations are regenerated afterwards, and a failure there is a warning. Retry. | `core/commands/adopt.rs: execute` |
+| `adopt` | read-only | multi-file atomic | entities, service/mashup sidecars, declarations | Three-way apply writes only selected UI and backend changes in one transaction; every entity and sidecar write happened or none did. Declarations are regenerated afterwards, and a failure there is a warning. Retry. | `core/commands/adopt.rs: execute` |
+| `handoff` | read-only | best-effort batch | `.twaco/handoffs` copies and metadata | Listing retries freely; a record plan writes nothing, and an applied record can be retried with a new name. | `core/commands/handoff.rs: execute` |
 | `entity push` | read-only | server-partial | server entity, baseline, backup | Read the entity back and check the baseline before retrying. | `core/commands/push.rs: execute` |
 | `entity delete` | read-only | server-partial | server entities, ledger, backups | Inspect confirmed deletions and ledger entries before retrying. | `core/commands/delete.rs: execute` |
 | `move service` | read-only | multi-file atomic | XML, sidecars | A crash is finished or undone by the next command that takes the workspace lock; if it refuses, follow its message. Otherwise retry. | `core/commands/relocate.rs: execute` |
@@ -137,6 +144,8 @@ when the command is asked to write. A local output named by an option is include
 | `permissions_apply` | read-only | multi-file atomic | entity XML | One transaction; run `permissions_audit` before retrying. | `core/commands/permissions.rs: execute_apply` |
 | `permissions` | read-only | read-only | none | Retry freely. | `core/commands/permissions.rs: execute` |
 | `permissions_push` | read-only | server-partial | server permissions, baseline; with `platform`, grants and memberships on shared entities | Each set is written whole and read back; `platform` adds one item at a time and never removes. Run `permissions` or `permissions_audit` with `server` before retrying. | `core/commands/permissions.rs: execute` |
+| `localization` | read-only | read-only | none | Retry freely. | `core/commands/localization.rs: execute` |
+| `localization_write` | read-only | server-partial | localization files or tables | Inspect the listed changes and read tables back before retrying a push. | `core/commands/localization.rs: execute` |
 | `db_run` | read-only | server-partial | SQL, temporary server Thing | Inspect SQL effects and clean temporary Things before retrying. | `core/commands/db.rs: execute` |
 | `db_query` | server-partial | server-partial | temporary server Thing | Run `db_clean` if temporary cleanup failed. | `core/commands/db.rs: execute` |
 | `datatable_copy` | read-only | server-partial | target DataTable | Read the target back before retrying. | `core/commands/datatable_copy.rs: execute` |
@@ -144,6 +153,7 @@ when the command is asked to write. A local output named by an option is include
 | `deploy` | read-only | server-partial | server, baseline, backups | Read back imports and baseline; use plan and backups before retrying. | `core/commands/deploy.rs: execute` |
 | `adopt_report` | read-only | read-only | none | Retry freely. | `mcp/refactor.rs: adopt_tool` |
 | `adopt_apply` | multi-file atomic | multi-file atomic | entities, sidecars, declarations | Unlike the CLI form, this tool applies directly. Every entity and sidecar write happened or none did; a crash is finished or undone by the next command that takes the workspace lock. Retry. | `core/commands/adopt.rs: execute` |
+| `handoff` | read-only | best-effort batch | `.twaco/handoffs` copies and metadata | List retries freely; a record plan writes nothing, and an applied record can be retried with a new name. | `core/commands/handoff.rs: execute` |
 | `rename` | read-only | multi-file atomic | XML, sidecars, ledger, SQL | A crash is finished or undone by the next command that takes the workspace lock; if it refuses, follow its message. Otherwise retry the reviewed plan. | `core/commands/rename.rs: execute` |
 | `move_member` | read-only | multi-file atomic | XML, sidecars | A crash is finished or undone by the next command that takes the workspace lock; if it refuses, follow its message. Otherwise retry. | `core/commands/relocate.rs: execute` |
 | `new_building_block` | read-only | multi-file atomic | project files, config | A crash is finished or undone by the next command that takes the workspace lock; if it refuses, follow its message. Otherwise retry. | `core/commands/newblock.rs: execute` |

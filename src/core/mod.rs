@@ -37,6 +37,7 @@ pub mod init;
 pub mod javadoc;
 pub mod ledger;
 pub mod lint;
+pub mod localization;
 pub mod lock;
 pub mod logs;
 pub mod mashup;

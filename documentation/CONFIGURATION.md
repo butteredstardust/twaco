@@ -75,6 +75,12 @@ version = "10.1"              # the help center release (default: the server's o
 [repositories]
 root = "filerepository"       # one subfolder per FileRepository (default)
 
+[localization]
+root = "localization"          # localization table exports (default)
+
+[project.localization]
+prefixes = ["Acme.App."]       # token prefixes this project owns (default: project name + .)
+
 [package]
 version = "1.2.0"             # extension package version (default 1.0.0)
 group = "com.acme"            # groupId (default: the solution's name)
@@ -189,13 +195,15 @@ How `twaco adopt` reads a designer's export:
 - **`generated_services`:** `Entity.Service` names whose body this repository generates, so
   the repository wins.
 
-### `[types]`, `[help]`, `[repositories]`, `[package]`, `[knowledge]`
+### `[types]`, `[help]`, `[repositories]`, `[localization]`, `[project.localization]`, `[package]`, `[knowledge]`
 
 | Key | Meaning |
 | --- | --- |
 | `types.tsc` | The TypeScript compiler command for `types --check`, before twaco's own `-p` arguments. Default: `tsc` (`tsc.cmd` on Windows) on `PATH`. |
 | `help.version` | The help center release `twaco help` reads, such as `10.1`. Default: the server's version, else the newest. |
 | `repositories.root` | The folder holding one subfolder per FileRepository, for `repo status`, `push` and `pull`. Default `filerepository`. |
+| `localization.root` | The folder holding localization table files. Default `localization`. |
+| `project.localization.prefixes` | Token-name prefixes this project owns. Default the project name followed by `.`. |
 | `package.*` | Extension metadata for `twaco package extension`: `version` (1.0.0), `group` (the solution's name), `vendor`, `minimum_thingworx` (9.0.0). Each project's `artifactId` is its name in lower case. |
 | `knowledge.paths` | Markdown files or folders `twaco guide` reads besides its built-in topics. Each must exist and stay inside the solution. Default: AGENTS.md, CLAUDE.md and `docs/`, where they exist. |
 
@@ -387,7 +395,7 @@ copy of an entity as it is, a database Thing's password included. A solution's `
 hold the lines below. `twaco init --write` and `twaco init --agents` add the missing ones, and
 `twaco doctor` warns when any is missing. An ignore line does not untrack a file committed before it, so
 `twaco doctor` also asks git whether it tracks anything under `.twaco/profiles`, `.twaco/backups` or
-`.twaco/transactions`: a tracked backup is a warning, a tracked profile a failure (history keeps it,
+`.twaco/transactions` or `.twaco/handoffs`: a tracked backup is a warning, a tracked profile a failure (history keeps it,
 so change the password it holds).
 
 ```gitignore
@@ -395,6 +403,7 @@ so change the password it holds).
 .twaco/lock
 .twaco/lock.holder
 .twaco/backups/
+.twaco/handoffs/
 .twaco/transactions/
 .twaco/types/
 .twaco/platform.json

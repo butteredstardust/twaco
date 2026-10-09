@@ -45,8 +45,11 @@ usage: twaco <command>
       --detail                every signature and field, and every review reference
       --json                  JSON instead of Markdown
       --out <file>            write it to one file (atomically) instead of printing; --force replaces
-  adopt <export.xml>          what a designer's Composer export really changes; --apply writes it in
-      --entity <name>         only this entity; --detail; --json; --fail-on-revert
+  adopt <export.xml>          take a designer's or backend collaborator's export; plan unless --apply
+      --base <file|handoff|git rev>  collaborator's starting point; --only ui|backend
+      --take theirs:<name>,ours:<name>  resolve conflicts; --entity <name>; --detail; --json; --fail-on-revert
+  handoff list|record <file.xml>... --name <name> [--apply]
+                              list recorded collaborator bases, or plan/copy one under .twaco/handoffs
   rename entity <old> <new> [--apply] [--text] [--detail] [--json] [--skip-checks]
                               rename exactly one entity; plan unless --apply
       --sql | --sql-dir <dir> | --no-sql   the database half, as for rename field
@@ -165,7 +168,7 @@ usage: twaco <command>
       --map a=b,...           source field -> target field (same names and the rename ledger match otherwise)
       --drop-unmapped         leave behind source fields that have no target field
       --append                allow a target that already has rows
-  bundle [--backend-only]     one importable document
+  bundle [--backend-only] [--handoff <name>] [--apply]  one importable document
       --check                 report whether the bundle is current, write nothing
   deploy [--apply] [--force]  check, bundle, live-parse, conflict-check, import
       --backend-only          exclude configured UI collections
@@ -215,6 +218,18 @@ usage: twaco <command>
   repo pull <repo>            download what the server has into filerepository/<repo>/
                               (neither deletes; a file differing on both sides needs --overwrite)
       --apply                 make the change: put, mkdir, rm and mv are plans without it
+  localization status         the solution's localization tables (localization/) against the
+                              server: same, differs, local only, server only; problems; --json; --detail
+  localization pull           write the server's tokens of this solution into the table files
+  localization push           import the table files that differ, Default first, and read back
+                              (--prune also deletes server tokens no file has, on pull removes
+                              rows the server lacks)
+  localization new <table>    a table file for a language, seeded with the Default tokens;
+                              --language-common, --language-native, --description, --project
+  localization set <token> --value <text>  add or change a token; --table (default Default),
+                              --usage (new: label), --context, --project
+  localization remove <token> remove a token from every table, or from --table
+      --table <name>          one table only; --apply makes the change (all but status plan)
   ext list [--json]           the server's extension packages
   ext show <package>          one package: its extensions, and which are in use
   ext import <zip>            validate a package on the server; --apply installs it
