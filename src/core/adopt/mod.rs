@@ -16,6 +16,19 @@
 //! ElementTree-compatible text semantics: an element's text is what precedes its first child,
 //! CDATA included and comments invisible.
 
+mod base;
+mod classify;
+
+#[cfg(test)]
+mod base_tests;
+#[cfg(test)]
+mod classify_tests;
+
+pub use base::{
+    handoffs, history_versions, record_handoff, resolve, Base, BaseSource, Handoff, Side,
+};
+pub use classify::{Change, Kind};
+
 use super::config::Solution;
 use super::lock::WorkspaceLock;
 use super::normalise::{self, Element, Node};
@@ -77,6 +90,10 @@ pub struct EntityReport {
     pub differences: Vec<Difference>,
     pub volatile_ids: usize,
     pub ignored: usize,
+    /// Whether this is a designer-owned collection or backend work.
+    pub kind: Kind,
+    /// What the three-way comparison says about importing the export.
+    pub change: Change,
 }
 
 #[derive(Debug, Clone)]
@@ -88,10 +105,14 @@ pub struct ServiceReport {
     pub generated: bool,
     /// False when compared with the entity XML because the service has no sidecar.
     pub sidecar: bool,
+    /// What the three-way comparison says about this service body.
+    pub change: Change,
 }
 
 #[derive(Debug, Default)]
 pub struct Report {
+    /// The base used for the three-way comparison, when one was found.
+    pub base: Option<String>,
     pub services: Vec<ServiceReport>,
     pub entities: Vec<EntityReport>,
     /// Exported services with nothing here to compare with.
@@ -107,9 +128,16 @@ impl Report {
             .filter(move |entity| entity.status == status)
     }
 
-    /// Service differences that are not generated: each is a revert or a change to adopt.
+    /// Non-generated services for which importing the export would undo or conflict with
+    /// repository work. `Theirs`, `Added` and `Same` are not reverts.
     pub fn reverts(&self) -> impl Iterator<Item = &ServiceReport> {
-        self.services.iter().filter(|service| !service.generated)
+        self.services.iter().filter(|service| {
+            !service.generated
+                && matches!(
+                    service.change,
+                    Change::Stale | Change::Conflict | Change::Unknown
+                )
+        })
     }
 }
 
@@ -119,17 +147,44 @@ pub enum AdoptError {
     Export { path: PathBuf, why: String },
     #[error("cannot read {}: {why}", .path.display())]
     Repository { path: PathBuf, why: String },
+    #[error("cannot use base {base}: {why}")]
+    Base { base: String, why: String },
+    #[error("handoff {name} already exists")]
+    AlreadyExists { name: String },
     /// The writes, made as one transaction, did not happen.
     #[error("nothing was adopted: {0}")]
     Write(super::transaction::TransactionError),
 }
 
-/// Compare an export with the solution. `only` narrows the entity comparison, not the service
-/// check, to names containing any of its fragments, preserving the established filter semantics.
+/// Extra inputs to the three-way comparison.  The old [`compare`] entry point intentionally
+/// keeps its two-way-shaped signature for existing front ends.
+#[derive(Debug, Default)]
+pub struct CompareOptions {
+    pub base: Option<String>,
+    pub only_kind: Option<Kind>,
+}
+
+/// Compare an export with the solution. `only` retains its established name-fragment meaning.
 pub fn compare(solution: &Solution, export: &Path, only: &[String]) -> Result<Report, AdoptError> {
+    compare_with(solution, export, only, &CompareOptions::default())
+}
+
+/// Compare an export using an explicit base and/or collection kind filter.
+pub fn compare_with(
+    solution: &Solution,
+    export: &Path,
+    only: &[String],
+    options: &CompareOptions,
+) -> Result<Report, AdoptError> {
     let exported = export_entities(export)?;
+    let export_side = Side::from_export(export)?;
     let here = repository_entities(solution)?;
-    let mut report = Report::default();
+    let ours = Side::from_solution(solution)?;
+    let base = resolve(solution, options.base.as_deref(), &export_side)?;
+    let mut report = Report {
+        base: base.as_ref().map(|base| base.label.clone()),
+        ..Report::default()
+    };
 
     let generated: BTreeSet<&str> = solution
         .adopt
@@ -137,55 +192,79 @@ pub fn compare(solution: &Solution, export: &Path, only: &[String]) -> Result<Re
         .iter()
         .map(String::as_str)
         .collect();
-    let src_root = solution.src_root();
+    let kind_passes = |entity: &EntityRef| {
+        options
+            .only_kind
+            .is_none_or(|kind| kind == kind_of(solution, entity))
+    };
+    // `only` narrows the entity comparison, not the service check: a revert anywhere in the
+    // export matters whichever entity was asked about.
+    let passes = |entity: &EntityRef| {
+        kind_passes(entity)
+            && (only.is_empty()
+                || only
+                    .iter()
+                    .any(|fragment| entity.name.contains(fragment.as_str())))
+    };
+
     for (entity, element) in &exported {
-        let mut repo_bodies: Option<BTreeMap<String, String>> = None;
+        if !kind_passes(entity) {
+            continue;
+        }
         for (service, body) in service_bodies(element) {
             let label = format!("{}.{service}", entity.name);
-            let sidecar = src_root
+            let sidecar = solution
+                .src_root()
                 .join(&entity.name)
                 .join("services")
                 .join(&service)
                 .join("script.js");
-            let (mine, source, from_sidecar) = if sidecar.is_file() {
-                let text =
-                    std::fs::read_to_string(&sidecar).map_err(|e| AdoptError::Repository {
-                        path: sidecar.clone(),
-                        why: e.to_string(),
-                    })?;
-                (text, sidecar, true)
+            let key = (entity.name.clone(), service.clone());
+            let mine = ours.services.get(&key);
+            let (source, from_sidecar) = if sidecar.is_file() {
+                (sidecar, true)
+            } else if let Some((_, path)) = here.get(entity) {
+                (path.clone(), false)
             } else {
-                let Some((repo_element, path)) = here.get(entity) else {
-                    report.unmatched_services.push(label);
-                    continue;
-                };
-                let bodies = repo_bodies.get_or_insert_with(|| service_bodies(repo_element));
-                let Some(mine) = bodies.get(&service) else {
-                    report.unmatched_services.push(label);
-                    continue;
-                };
-                (mine.clone(), path.clone(), false)
+                report.unmatched_services.push(label);
+                continue;
             };
-            if canonical(&body) != canonical(&mine) {
-                report.services.push(ServiceReport {
-                    entity: entity.name.clone(),
-                    service,
-                    source,
-                    generated: generated.contains(label.as_str()),
-                    sidecar: from_sidecar,
-                });
+            let base_service = base.as_ref().and_then(|base| base.side.services.get(&key));
+            let change = match mine {
+                Some(mine) => script_change(&body, mine, base_service, || {
+                    history_versions(solution, &source, 50).iter().any(|old| {
+                        std::str::from_utf8(old).is_ok_and(|old| canonical(&body) == canonical(old))
+                    })
+                }),
+                None => {
+                    if base_service.is_some() {
+                        Change::WeRemoved
+                    } else {
+                        Change::Added
+                    }
+                }
+            };
+            // Only a difference is reported, as before the three-way states existed.
+            if change == Change::Same {
+                continue;
             }
+            report.services.push(ServiceReport {
+                entity: entity.name.clone(),
+                service,
+                source,
+                generated: generated.contains(label.as_str()),
+                sidecar: from_sidecar,
+                change,
+            });
         }
     }
 
-    let passes = |name: &str| {
-        only.is_empty() || only.iter().any(|fragment| name.contains(fragment.as_str()))
-    };
     for (entity, element) in &exported {
-        if !passes(&entity.name) {
+        if !passes(entity) {
             continue;
         }
         let project = attribute(element, "projectName").unwrap_or_default();
+        let kind = kind_of(solution, entity);
         match here.get(entity) {
             None => report.entities.push(EntityReport {
                 entity: entity.clone(),
@@ -194,11 +273,30 @@ pub fn compare(solution: &Solution, export: &Path, only: &[String]) -> Result<Re
                 differences: Vec::new(),
                 volatile_ids: 0,
                 ignored: 0,
+                kind,
+                change: if base
+                    .as_ref()
+                    .is_some_and(|base| base.side.entities.contains_key(entity))
+                {
+                    Change::WeRemoved
+                } else {
+                    Change::Added
+                },
             }),
             Some((repo_element, _)) => {
                 let mut compared =
                     compare_entity(entity, element, repo_element, &solution.adopt.ignore_paths);
                 compared.project = project;
+                compared.kind = kind;
+                compared.change = entity_change(
+                    solution,
+                    entity,
+                    element,
+                    repo_element,
+                    base.as_ref()
+                        .and_then(|base| base.side.entities.get(entity)),
+                    here.get(entity).map(|(_, path)| path.as_path()),
+                );
                 report.entities.push(compared);
             }
         }
@@ -208,13 +306,97 @@ pub fn compare(solution: &Solution, export: &Path, only: &[String]) -> Result<Re
     report.absent = here
         .keys()
         .filter(|e| {
-            !exported.contains_key(*e)
-                && collections.contains(e.collection.as_str())
-                && passes(&e.name)
+            !exported.contains_key(*e) && collections.contains(e.collection.as_str()) && passes(e)
         })
         .cloned()
         .collect();
     Ok(report)
+}
+
+fn script_change(
+    theirs: &str,
+    ours: &str,
+    base: Option<&String>,
+    history_stale: impl FnOnce() -> bool,
+) -> Change {
+    if canonical(theirs) == canonical(ours) {
+        Change::Same
+    } else if let Some(base) = base {
+        classify::three_way(
+            canonical(theirs) == canonical(base),
+            canonical(ours) == canonical(base),
+        )
+    } else if history_stale() {
+        Change::Stale
+    } else {
+        Change::Unknown
+    }
+}
+
+fn entity_change(
+    solution: &Solution,
+    entity: &EntityRef,
+    theirs: &Element,
+    ours: &Element,
+    base: Option<&Element>,
+    source: Option<&Path>,
+) -> Change {
+    if entity_same(entity, theirs, ours, &solution.adopt.ignore_paths) {
+        Change::Same
+    } else if let Some(base) = base {
+        classify::three_way(
+            entity_same(entity, theirs, base, &solution.adopt.ignore_paths),
+            entity_same(entity, ours, base, &solution.adopt.ignore_paths),
+        )
+    } else if source.is_some_and(|source| {
+        history_versions(solution, source, 50).iter().any(|bytes| {
+            entity_from_bytes(bytes, entity)
+                .is_some_and(|old| entity_same(entity, theirs, &old, &solution.adopt.ignore_paths))
+        })
+    }) {
+        Change::Stale
+    } else {
+        Change::Unknown
+    }
+}
+
+fn entity_same(entity: &EntityRef, left: &Element, right: &Element, ignore: &[String]) -> bool {
+    compare_entity(entity, left, right, ignore)
+        .differences
+        .is_empty()
+}
+
+fn entity_from_bytes(bytes: &[u8], wanted: &EntityRef) -> Option<Element> {
+    normalise::parse_document(bytes)
+        .ok()?
+        .into_iter()
+        .find_map(|node| match node {
+            Node::Element(root) if root.name == b"Entities" => entities_in(root).remove(wanted),
+            _ => None,
+        })
+}
+
+fn kind_of(solution: &Solution, entity: &EntityRef) -> Kind {
+    const UI: &[&str] = &[
+        "Mashups",
+        "MediaEntities",
+        "StyleThemes",
+        "StyleDefinitions",
+        "StateDefinitions",
+        "Menus",
+        "Dashboards",
+    ];
+    if UI.contains(&entity.collection.as_str())
+        || solution
+            .bundle
+            .ui_collections
+            .iter()
+            .any(|name| name == &entity.collection)
+    {
+        Kind::Ui
+    } else {
+        Kind::Backend
+    }
 }
 
 fn compare_entity(
@@ -231,6 +413,8 @@ fn compare_entity(
         differences: Vec::new(),
         volatile_ids: 0,
         ignored: 0,
+        kind: Kind::Backend,
+        change: Change::Unknown,
     };
     let entity_path = entity.path();
     let paths: BTreeSet<&String> = left.keys().chain(right.keys()).collect();
@@ -261,7 +445,7 @@ fn compare_entity(
 }
 
 /// Every named entity in a flat export, keyed and ordered by `Collection/Name`.
-fn export_entities(path: &Path) -> Result<BTreeMap<EntityRef, Element>, AdoptError> {
+pub(crate) fn export_entities(path: &Path) -> Result<BTreeMap<EntityRef, Element>, AdoptError> {
     let bad = |why: String| AdoptError::Export {
         path: path.to_path_buf(),
         why,
@@ -289,7 +473,7 @@ fn export_entities(path: &Path) -> Result<BTreeMap<EntityRef, Element>, AdoptErr
 }
 
 /// Every entity file of the solution, parsed the same way.
-fn repository_entities(
+pub(crate) fn repository_entities(
     solution: &Solution,
 ) -> Result<BTreeMap<EntityRef, (Element, PathBuf)>, AdoptError> {
     let mut found = BTreeMap::new();
@@ -642,7 +826,7 @@ pub fn glob_matches(pattern: &str, text: &str) -> bool {
 /// A `ServiceImplementation` wraps its script in a configuration table beside an editor-state
 /// blob that changes whenever the designer scrolls. The longest text run that is not that blob
 /// is the script.
-fn service_bodies(entity: &Element) -> BTreeMap<String, String> {
+pub(crate) fn service_bodies(entity: &Element) -> BTreeMap<String, String> {
     let mut all = Vec::new();
     descendants(entity, &mut all);
     let mut bodies = BTreeMap::new();
