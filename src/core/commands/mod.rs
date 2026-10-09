@@ -14,6 +14,7 @@ pub mod extensions;
 pub mod extract;
 pub mod fmt;
 pub mod imports;
+pub mod localization;
 pub mod logs;
 pub mod newblock;
 pub mod package;

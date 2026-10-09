@@ -229,9 +229,16 @@ pub fn import_file_with_progress(
     }
     {
         let _phase = progress::phase(progress, "importing", Some(1));
-        remote
-            .import_file(file_name, bytes, overwrite_properties, overwrite_tables)
-            .map_err(ImportError::Remote)?;
+        match remote.import_file(file_name, bytes, overwrite_properties, overwrite_tables) {
+            Ok(()) => {}
+            Err(ServerError::Rejected { body, .. })
+                if body.trim().eq_ignore_ascii_case("partial-success")
+                    && entities
+                        .iter()
+                        .all(|key| key.collection() == "LocalizationTables")
+                    && entities.iter().all(|key| plan.replaced.contains(key)) => {}
+            Err(error) => return Err(ImportError::Remote(error)),
+        }
         progress.advance(1);
     }
     let after = {
@@ -564,5 +571,65 @@ mod tests {
                 .collect::<Vec<_>>(),
             ["Db"]
         );
+    }
+
+    struct PartialFake {
+        present: Vec<String>,
+    }
+
+    impl Remote for PartialFake {
+        fn exists(&self, key: &EntityKey) -> Result<bool, ServerError> {
+            Ok(self.present.contains(&key.to_string()))
+        }
+
+        fn import_file(&self, _: &str, _: &[u8], _: bool, _: bool) -> Result<(), ServerError> {
+            Err(ServerError::Rejected {
+                url: "http://example.invalid".to_string(),
+                body: " Partial-Success\n".to_string(),
+            })
+        }
+
+        fn source_control(&self, _: &str, _: &Value) -> Result<Option<Value>, ServerError> {
+            unreachable!()
+        }
+    }
+
+    #[test]
+    fn localization_partial_success_is_accepted_only_for_existing_localization_tables() {
+        let localization = br#"<Entities><LocalizationTables><LocalizationTable name="Default"/></LocalizationTables></Entities>"#;
+        let existing = PartialFake {
+            present: vec!["LocalizationTables/Default".to_string()],
+        };
+        assert!(
+            import_file(&existing, "table.xml", localization, true, true, true)
+                .unwrap()
+                .applied
+        );
+
+        let new = PartialFake {
+            present: Vec::new(),
+        };
+        assert!(import_file(&new, "table.xml", localization, true, true, true).is_err());
+
+        let thing = PartialFake {
+            present: vec!["Things/T".to_string()],
+        };
+        assert!(import_file(
+            &thing,
+            "thing.xml",
+            b"<Entities><Things><Thing name=\"T\"/></Things></Entities>",
+            true,
+            true,
+            true
+        )
+        .is_err());
+
+        let mixed = PartialFake {
+            present: vec![
+                "LocalizationTables/Default".to_string(),
+                "Things/T".to_string(),
+            ],
+        };
+        assert!(import_file(&mixed, "mixed.xml", b"<Entities><LocalizationTables><LocalizationTable name=\"Default\"/></LocalizationTables><Things><Thing name=\"T\"/></Things></Entities>", true, true, true).is_err());
     }
 }

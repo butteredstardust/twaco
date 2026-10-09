@@ -10,6 +10,13 @@ use super::{scan, splice};
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 
+pub mod ops;
+pub mod remote;
+pub use ops::{
+    new, pull, push, remove, set, status, Edited, FileChange, Pulled, Pushed, Status, TablePush,
+};
+pub use remote::Remote;
+
 pub const DEFAULT_ROOT: &str = "localization";
 pub const DEFAULT_TABLE: &str = "Default";
 
@@ -62,6 +69,14 @@ pub enum LocalizationError {
     Invalid { path: PathBuf, why: String },
     #[error("invalid localization edit: {0}")]
     Arguments(String),
+    #[error("{0}")]
+    Remote(#[from] super::server::ServerError),
+    #[error("{0}")]
+    NotVerified(String),
+    #[error("{0}")]
+    AlreadyExists(String),
+    #[error("{0}")]
+    Unknown(String),
 }
 
 impl Coded for LocalizationError {
@@ -70,6 +85,10 @@ impl Coded for LocalizationError {
             Self::Io { .. } => ErrorCode::IoError,
             Self::Invalid { .. } => ErrorCode::InvalidData,
             Self::Arguments(_) => ErrorCode::InvalidArguments,
+            Self::Remote(error) => error.code(),
+            Self::NotVerified(_) => ErrorCode::NotVerified,
+            Self::AlreadyExists(_) => ErrorCode::AlreadyExists,
+            Self::Unknown(_) => ErrorCode::UnknownEntity,
         }
     }
 }
@@ -1054,5 +1073,7 @@ fn problem_key(problem: &Problem) -> (bool, String, String, u8, String) {
     }
 }
 
+#[cfg(test)]
+mod ops_tests;
 #[cfg(test)]
 mod tests;
