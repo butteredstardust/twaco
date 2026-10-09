@@ -153,6 +153,7 @@ pub(crate) fn adopt_apply_tool(
     let request = commands::adopt::AdoptRequest {
         export,
         only,
+        takes: Vec::new(),
         mode: Mode::Apply,
         lock_label: "mcp adopt_apply",
     };
@@ -192,6 +193,7 @@ pub(crate) fn adopt_tool(
     let request = commands::adopt::AdoptRequest {
         export,
         only,
+        takes: Vec::new(),
         mode: Mode::Plan,
         lock_label: "mcp adopt_report",
     };

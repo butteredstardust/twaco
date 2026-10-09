@@ -17,6 +17,7 @@ pub(crate) fn adopt_cmd(solution: &Solution, args: &Args) -> u8 {
     let request = commands::adopt::AdoptRequest {
         export: PathBuf::from(&args.names[0]),
         only: args.entity_filters.clone(),
+        takes: Vec::new(),
         mode: if args.has("--apply") {
             Mode::Apply
         } else {

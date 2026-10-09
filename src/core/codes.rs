@@ -470,6 +470,7 @@ impl Coded for super::adopt::AdoptError {
             | Self::Repository { .. }
             | Self::Base { .. }
             | Self::AlreadyExists { .. } => ErrorCode::IoError,
+            Self::Take(_) => ErrorCode::InvalidArguments,
             Self::Write(error) => error.code(),
         }
     }
