@@ -372,6 +372,18 @@ static TOOLS: LazyLock<Vec<Tool>> = LazyLock::new(|| {
             false,
             content::repo_write_tool,
         ),
+        solution_progress_tool::<content_requests::LocalizationRequest>(
+            "localization",
+            "Compare the solution's localization table files with the server: same, differs, local-only and server-only tokens, plus problems that would block a push. Read-only; detail: true lists tokens and problems.",
+            true,
+            content::localization_tool,
+        ),
+        solution_progress_tool::<content_requests::LocalizationWriteRequest>(
+            "localization_write",
+            "Pull localization tables into the solution, push local tables (and read them back), or create, set or remove local tokens. A dry run unless dry_run is false. push imports tokens without deleting any; prune: true deletes server tokens no local file has.",
+            false,
+            content::localization_write_tool,
+        ),
         solution_tool::<content_requests::ExtensionsRequest>(
             "extensions",
             "The server's extension packages: list them, or show one (its extensions, and which are in use). Read-only.",

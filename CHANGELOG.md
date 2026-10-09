@@ -6,6 +6,14 @@ All notable changes to twaco are recorded here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- `twaco localization` and the MCP `localization` and `localization_write` tools compare, synchronize and edit localization table files.
+
+### Fixed
+
+- `twaco import` of a localization table that already exists no longer reports a failure: the Importer answers partial-success although it took the tokens.
+
 ## [0.1.6] - 2026-10-08
 
 ### Added

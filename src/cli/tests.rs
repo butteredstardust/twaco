@@ -60,6 +60,7 @@ fn usage_paths() -> std::collections::BTreeSet<String> {
         "import",
         "ext",
         "repo",
+        "localization",
         "help",
         "javadoc",
         "permissions",

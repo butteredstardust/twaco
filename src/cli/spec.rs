@@ -485,6 +485,14 @@ pub(crate) const FLAGS: &[Flag] = &[
         takes: Takes::Value("level"),
     },
     Flag {
+        name: "--language-common",
+        takes: Takes::Value("text"),
+    },
+    Flag {
+        name: "--language-native",
+        takes: Takes::Value("text"),
+    },
+    Flag {
         name: "--limit",
         takes: Takes::Value("n"),
     },
@@ -575,6 +583,10 @@ pub(crate) const FLAGS: &[Flag] = &[
     Flag {
         name: "--path",
         takes: Takes::Value("path"),
+    },
+    Flag {
+        name: "--prune",
+        takes: Takes::Switch,
     },
     Flag {
         name: "--platform",
@@ -669,6 +681,10 @@ pub(crate) const FLAGS: &[Flag] = &[
         takes: Takes::Value("value"),
     },
     Flag {
+        name: "--table",
+        takes: Takes::Value("name"),
+    },
+    Flag {
         name: "--text",
         takes: Takes::Switch,
     },
@@ -695,6 +711,18 @@ pub(crate) const FLAGS: &[Flag] = &[
     Flag {
         name: "--user",
         takes: Takes::Value("value"),
+    },
+    Flag {
+        name: "--usage",
+        takes: Takes::Value("text"),
+    },
+    Flag {
+        name: "--context",
+        takes: Takes::Value("text"),
+    },
+    Flag {
+        name: "--value",
+        takes: Takes::Value("text"),
     },
     Flag {
         name: "--version",
@@ -1378,6 +1406,38 @@ pub(crate) const COMMANDS: &[Command] = &[
   repo pull <repo>            download what the server has into filerepository/<repo>/
                               (neither deletes; a file differing on both sides needs --overwrite)
       --apply                 make the change: put, mkdir, rm and mv are plans without it"#,
+    },
+    Command {
+        path: "localization",
+        group: 4,
+        operands: true,
+        flags: &[
+            "--table",
+            "--project",
+            "--prune",
+            "--language-common",
+            "--language-native",
+            "--description",
+            "--value",
+            "--usage",
+            "--context",
+            "--json",
+            "--detail",
+            "--profile",
+            "--apply",
+        ],
+        text: r#"  localization status         the solution's localization tables (localization/) against the
+                              server: same, differs, local only, server only; problems; --json; --detail
+  localization pull           write the server's tokens of this solution into the table files
+  localization push           import the table files that differ, Default first, and read back
+                              (--prune also deletes server tokens no file has, on pull removes
+                              rows the server lacks)
+  localization new <table>    a table file for a language, seeded with the Default tokens;
+                              --language-common, --language-native, --description, --project
+  localization set <token> --value <text>  add or change a token; --table (default Default),
+                              --usage (new: label), --context, --project
+  localization remove <token> remove a token from every table, or from --table
+      --table <name>          one table only; --apply makes the change (all but status plan)"#,
     },
     Command {
         path: "ext",

@@ -132,6 +132,8 @@ text and structured content. The code identifies the next action.
 | `settings` | no | The server's subsystem settings |
 | `repo` | no | List and read file repositories, compare with the solution |
 | `repo_write` | server; workspace for pull | Put, mkdir, rm, mv, push and pull for file repositories |
+| `localization` | no | Compare localization table files with the server |
+| `localization_write` | server or workspace | Pull, push, create and edit localization tables; dry run by default |
 | `extensions` | no | The server's extension packages |
 | `extension_write` | server | Validate, install or remove an extension package |
 | `bundle` | workspace, with `dry_run: false` | Whether the configured bundle is current, or rebuild it |

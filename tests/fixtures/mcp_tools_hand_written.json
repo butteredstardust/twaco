@@ -1422,6 +1422,42 @@
     }
   },
   {
+    "name": "localization",
+    "description": "Compare the solution's localization table files with the server: same, differs, local-only and server-only tokens, plus problems that would block a push. Read-only; detail: true lists tokens and problems.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "table": { "description": "Only one localization table, by its table name.", "type": "string" },
+        "profile": { "description": "Server profile name.", "type": "string", "default": "default" },
+        "detail": { "description": "Include each differing token and problem rather than only counts.", "type": "boolean", "default": false }
+      },
+      "required": [],
+      "additionalProperties": false
+    },
+    "annotations": { "readOnlyHint": true, "destructiveHint": false, "openWorldHint": false }
+  },
+  {
+    "name": "localization_write",
+    "description": "Pull localization tables into the solution, push local tables (and read them back), or create, set or remove local tokens. A dry run unless dry_run is false. push imports tokens without deleting any; prune: true deletes server tokens no local file has.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "action": { "type": "string", "enum": ["pull", "push", "new", "set", "remove"] },
+        "table": { "description": "new: table name; set/remove: optionally limit the action to this table.", "type": "string" },
+        "token": { "description": "set/remove: the localization token name.", "type": "string" },
+        "value": { "description": "set: the localized text.", "type": "string" },
+        "usage": { "type": "string" }, "context": { "type": "string" }, "project": { "type": "string" },
+        "prune": { "type": "boolean", "default": false },
+        "language_common": { "type": "string" }, "language_native": { "type": "string" },
+        "description": { "type": "string" }, "profile": { "type": "string", "default": "default" },
+        "dry_run": { "type": "boolean", "default": true }, "detail": { "type": "boolean", "default": false }
+      },
+      "required": ["action"],
+      "additionalProperties": false
+    },
+    "annotations": { "readOnlyHint": false, "destructiveHint": true, "openWorldHint": false }
+  },
+  {
     "name": "extensions",
     "description": "The server's extension packages: list them, or show one (its extensions, and which are in use). Read-only.",
     "inputSchema": {

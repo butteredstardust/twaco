@@ -412,6 +412,39 @@ fn typed_requests_keep_defaults_and_argument_errors() {
 }
 
 #[test]
+fn localization_tools_plan_apply_and_refuse_missing_values() {
+    let (_directory, root) = solution_dir();
+    let (failed, plan) = call_tool(
+        &root,
+        "localization_write",
+        json!({"action":"set","token":"P.Title","value":"Title"}),
+    );
+    assert!(!failed && plan["dry_run"] == true, "{plan}");
+    assert!(!root.join("localization/P/LocalizationTable.xml").exists());
+    let (failed, applied) = call_tool(
+        &root,
+        "localization_write",
+        json!({"action":"set","token":"P.Title","value":"Title","dry_run":false}),
+    );
+    assert!(!failed && applied["dry_run"] == false, "{applied}");
+    assert!(root.join("localization/P/LocalizationTable.xml").exists());
+    let (failed, refused) = call_tool(
+        &root,
+        "localization_write",
+        json!({"action":"set","token":"P.Title"}),
+    );
+    assert!(
+        failed
+            && refused["error"]
+                .as_str()
+                .unwrap()
+                .contains("`value` is required")
+    );
+    let (failed, profile) = call_tool(&root, "localization", json!({"profile":"missing"}));
+    assert!(failed && profile["code"].is_string(), "{profile}");
+}
+
+#[test]
 fn output_schema_waits_for_the_new_protocol() {
     let old = registry::output_definition_for_test("2025-03-26");
     let new = registry::output_definition_for_test("2025-06-18");
@@ -816,6 +849,8 @@ fn every_tool_is_listed_with_a_schema_and_honest_annotations() {
             "log_level",
             "repo",
             "repo_write",
+            "localization",
+            "localization_write",
             "extensions",
             "extension_write",
             "bundle",
@@ -856,6 +891,7 @@ fn every_tool_is_listed_with_a_schema_and_honest_annotations() {
         "config_table",
         "log_level",
         "repo_write",
+        "localization_write",
         "extension_write",
         "export",
         "import",

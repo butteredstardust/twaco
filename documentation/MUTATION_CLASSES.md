@@ -93,6 +93,12 @@ when the command is asked to write. A local output named by an option is include
 | `repo mv` | read-only | server-partial | server repository | List source and destination before retrying. | `cli/content.rs: repo_change` |
 | `repo push` | read-only | server-partial | server repository | Inspect copied paths before retrying. | `core/repo.rs: sync` |
 | `repo pull` | read-only | best-effort batch | local repository files | Stops at the first failed file; the files already copied stay and are listed in the error. Retry after fixing the cause; copied files are then unchanged. | `core/commands/repo.rs: execute` |
+| `localization status` | read-only | read-only | none | Retry freely. | `core/commands/localization.rs: execute` |
+| `localization pull` | read-only | best-effort batch | localization files | Inspect files already written and retry after fixing the cause. | `core/commands/localization.rs: execute` |
+| `localization push` | read-only | server-partial | localization tables | Read tables back before retrying. | `core/commands/localization.rs: execute` |
+| `localization new` | read-only | single-file atomic | localization file | The file is old or new; retry freely. | `core/commands/localization.rs: execute` |
+| `localization set` | read-only | single-file atomic | localization file | The file is old or new; retry freely. | `core/commands/localization.rs: execute` |
+| `localization remove` | read-only | best-effort batch | localization files | Inspect files already written and retry after fixing the cause. | `core/commands/localization.rs: execute` |
 | `guide` | read-only | read-only | none | Retry freely. | `cli/info.rs: guide_cmd` |
 | `help search` | single-file atomic | single-file atomic | user cache file | The cache file is old or new; retry freely. | `core/help.rs: cached_file` |
 | `help page` | single-file atomic | single-file atomic | user cache file | The cache file is old or new; retry freely. | `core/help.rs: cached_file` |
@@ -137,6 +143,8 @@ when the command is asked to write. A local output named by an option is include
 | `permissions_apply` | read-only | multi-file atomic | entity XML | One transaction; run `permissions_audit` before retrying. | `core/commands/permissions.rs: execute_apply` |
 | `permissions` | read-only | read-only | none | Retry freely. | `core/commands/permissions.rs: execute` |
 | `permissions_push` | read-only | server-partial | server permissions, baseline; with `platform`, grants and memberships on shared entities | Each set is written whole and read back; `platform` adds one item at a time and never removes. Run `permissions` or `permissions_audit` with `server` before retrying. | `core/commands/permissions.rs: execute` |
+| `localization` | read-only | read-only | none | Retry freely. | `core/commands/localization.rs: execute` |
+| `localization_write` | read-only | server-partial | localization files or tables | Inspect the listed changes and read tables back before retrying a push. | `core/commands/localization.rs: execute` |
 | `db_run` | read-only | server-partial | SQL, temporary server Thing | Inspect SQL effects and clean temporary Things before retrying. | `core/commands/db.rs: execute` |
 | `db_query` | server-partial | server-partial | temporary server Thing | Run `db_clean` if temporary cleanup failed. | `core/commands/db.rs: execute` |
 | `datatable_copy` | read-only | server-partial | target DataTable | Read the target back before retrying. | `core/commands/datatable_copy.rs: execute` |

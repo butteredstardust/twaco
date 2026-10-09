@@ -1025,14 +1025,20 @@ When a project search comes back empty, check `Projects/<name>` exists before re
 
 ## Importing a localization table merges its tokens; it does not replace the table
 
-A `LocalizationTable` export such as `Default` or `fr` is the platform's own entity, and an
-import of one carrying only a project's tokens could plausibly wipe every other token in it. It
-does not. Verified on ThingWorx 10.1: importing a subset increased the token count without
-removing existing tokens.
+Verified on ThingWorx 10: importing a table that does not exist creates it with the file's
+description, languageCommon, languageNative and projectName; a file without projectName puts
+the new table in `PTCDefaultProject`. Into one that exists, the Importer
+answers `partial-success`, logs "Editable Localization Table Already Exists, Ignoring Imported
+Object Except for Tokens", and overwrites the value, usage and context of the file's tokens. It
+never removes a token, whatever `overwriteConfigurationTableValues` says. Whitespace inside a
+CDATA is trimmed.
 
-The reverse follows: an import never removes a token. Tokens from a renamed or retired prefix
-stay until `LocalizationTables/<table>/Services/DeleteToken` (`{"name": "<token>"}`) removes
-them. `GetTokens` lists what is there.
+`AddTokenAnnotated` on a language table refuses a token that Default lacks ("must also be defined
+in the Default localization table"); the Importer does not. `DeleteToken {name}` removes one
+token (404 when absent). `DELETE /Thingworx/LocalizationTables/<table>` needs a Content-Type
+header (without one it answers 500, "Content type may not be null"). The Exporter's XML for a
+table is one line holding every token of every block, so it is no file to commit.
+`twaco localization` does this.
 
 ## Deleting a repository Thing deletes its files
 

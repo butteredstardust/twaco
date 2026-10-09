@@ -30,6 +30,98 @@ fn offline_projects_needs_no_profile_or_environment() {
 }
 
 #[test]
+fn localization_edits_plan_then_apply_without_a_server() {
+    let directory = tempfile::Builder::new()
+        .prefix("twaco-localization-")
+        .tempdir()
+        .unwrap();
+    let root = directory.path();
+    std::fs::write(
+        root.join("twaco.toml"),
+        "[[project]]\nname = \"Acme.App\"\n",
+    )
+    .unwrap();
+    let run = |args: &[&str]| {
+        Command::new(env!("CARGO_BIN_EXE_twaco"))
+            .args(args)
+            .current_dir(root)
+            .env_clear()
+            .output()
+            .unwrap()
+    };
+
+    let plan = run(&["localization", "set", "Acme.App.Title", "--value", "Title"]);
+    assert!(plan.status.success());
+    assert!(String::from_utf8_lossy(&plan.stdout).contains("plan: 1 file(s)"));
+    assert!(!root
+        .join("localization/Acme.App/LocalizationTable.xml")
+        .exists());
+    let applied = run(&[
+        "localization",
+        "set",
+        "Acme.App.Title",
+        "--value",
+        "Title",
+        "--apply",
+    ]);
+    assert!(applied.status.success());
+    assert!(String::from_utf8_lossy(&applied.stdout).contains("wrote 1 file(s)"));
+    assert!(root
+        .join("localization/Acme.App/LocalizationTable.xml")
+        .exists());
+
+    assert!(run(&[
+        "localization",
+        "new",
+        "de",
+        "--language-common",
+        "German",
+        "--apply"
+    ])
+    .status
+    .success());
+    assert!(run(&[
+        "localization",
+        "set",
+        "Acme.App.Title",
+        "--value",
+        "Titel",
+        "--table",
+        "de",
+        "--apply"
+    ])
+    .status
+    .success());
+    assert!(
+        run(&["localization", "remove", "Acme.App.Title", "--apply"])
+            .status
+            .success()
+    );
+    for file in [
+        "localization/Acme.App/LocalizationTable.xml",
+        "localization/Acme.App/LocalizationTable_de.xml",
+    ] {
+        assert!(
+            !String::from_utf8_lossy(&std::fs::read(root.join(file)).unwrap())
+                .contains("Acme.App.Title")
+        );
+    }
+    assert_eq!(
+        run(&["localization", "set", "Acme.App.Title"])
+            .status
+            .code(),
+        Some(2)
+    );
+    assert_eq!(run(&["localization", "new"]).status.code(), Some(2));
+    assert_eq!(
+        run(&["localization", "status", "--profile", "missing"])
+            .status
+            .code(),
+        Some(2)
+    );
+}
+
+#[test]
 fn types_command_writes_shared_declarations_and_second_run_is_clean() {
     let root_guard = tempfile::Builder::new()
         .prefix("twaco-types-command-")

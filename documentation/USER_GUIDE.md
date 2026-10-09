@@ -579,6 +579,7 @@ confirms each is gone.
   and `pull` mirror Composer's Repository page. `filerepository/<repo>/` in the solution
   holds a repository's tree. `push` and `pull` never delete, and a file that differs on both
   sides needs `--overwrite`.
+
 - **Extensions:** `twaco ext list`, `show`, `import` and `remove`. `import` without `--apply`
   only has the server validate the package; nothing is installed.
 - **Finding entities:** `twaco search <text>` asks the server what Composer's Spotlight box
@@ -590,6 +591,33 @@ confirms each is gone.
 - **Exports and imports:** `twaco export` and `twaco import` do what Composer's Import/Export
   dialog does, for an entity, a collection, a project or a source-control tree. An import
   without `--apply` lists what it would add and what it would replace.
+
+### Localization tables
+
+A solution keeps its tokens of the shared localization tables under `localization/`, one file
+per table: `localization/<Project>/LocalizationTable.xml` for `Default` and
+`LocalizationTable_<table>.xml` for each language, holding only the project's tokens. Other
+names and flat layouts are read too, by the table name inside each file. twaco edits these files
+in place, so section comments and row order survive; a file holding several tables is reported
+as unreadable (keep one table per file).
+
+```sh
+twaco localization status --detail                 # each token: same, differs, local only, server only
+twaco localization pull --apply                    # the server's tokens into the files
+twaco localization push --apply                    # import the tables that differ, Default first; read back
+twaco localization push --prune --apply            # also delete server tokens no file has
+twaco localization new de --language-common German --language-native Deutsch --apply
+twaco localization set Acme.App.Title --value Title --apply
+twaco localization set Acme.App.Title --value Titel --table de --apply
+twaco localization remove Acme.App.Title --apply   # from every table
+```
+
+A project's tokens are those named under its prefixes: the project name followed by `.`, or
+`[project.localization] prefixes`. Every command but `status` plans until `--apply`. An import
+never removes a token, which is why deleting needs `--prune`. A language token must also be in
+Default (the server refuses one that is not), and `status` exits 1 for such a token, a
+duplicate or an unreadable file, since each blocks a push. Files twaco creates carry no
+`projectName`: importing one with a `projectName` would put the shared table into that project.
 
 ## Releases
 

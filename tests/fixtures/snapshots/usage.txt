@@ -215,6 +215,18 @@ usage: twaco <command>
   repo pull <repo>            download what the server has into filerepository/<repo>/
                               (neither deletes; a file differing on both sides needs --overwrite)
       --apply                 make the change: put, mkdir, rm and mv are plans without it
+  localization status         the solution's localization tables (localization/) against the
+                              server: same, differs, local only, server only; problems; --json; --detail
+  localization pull           write the server's tokens of this solution into the table files
+  localization push           import the table files that differ, Default first, and read back
+                              (--prune also deletes server tokens no file has, on pull removes
+                              rows the server lacks)
+  localization new <table>    a table file for a language, seeded with the Default tokens;
+                              --language-common, --language-native, --description, --project
+  localization set <token> --value <text>  add or change a token; --table (default Default),
+                              --usage (new: label), --context, --project
+  localization remove <token> remove a token from every table, or from --table
+      --table <name>          one table only; --apply makes the change (all but status plan)
   ext list [--json]           the server's extension packages
   ext show <package>          one package: its extensions, and which are in use
   ext import <zip>            validate a package on the server; --apply installs it

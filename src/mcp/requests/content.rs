@@ -93,6 +93,69 @@ pub(crate) struct RepoWriteRequest {
 }
 
 #[derive(Clone, Copy, Debug, Deserialize, JsonSchema, PartialEq, Eq, Serialize)]
+pub(crate) enum LocalizationWriteAction {
+    #[serde(rename = "pull")]
+    Pull,
+    #[serde(rename = "push")]
+    Push,
+    #[serde(rename = "new")]
+    New,
+    #[serde(rename = "set")]
+    Set,
+    #[serde(rename = "remove")]
+    Remove,
+}
+
+#[derive(Debug, Deserialize, JsonSchema, Serialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct LocalizationRequest {
+    /// Only one localization table, by its table name.
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) table: Absent<String>,
+    /// Server profile name.
+    #[serde(default = "default_profile")]
+    pub(crate) profile: String,
+    /// Include each differing token and problem rather than only counts.
+    #[serde(default)]
+    pub(crate) detail: bool,
+}
+
+#[derive(Debug, Deserialize, JsonSchema, Serialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct LocalizationWriteRequest {
+    pub(crate) action: LocalizationWriteAction,
+    /// new: table name; set/remove: optionally limit the action to this table.
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) table: Absent<String>,
+    /// set/remove: the localization token name.
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) token: Absent<String>,
+    /// set: the localized text.
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) value: Absent<String>,
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) usage: Absent<String>,
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) context: Absent<String>,
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) project: Absent<String>,
+    #[serde(default)]
+    pub(crate) prune: bool,
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) language_common: Absent<String>,
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) language_native: Absent<String>,
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) description: Absent<String>,
+    #[serde(default = "default_profile")]
+    pub(crate) profile: String,
+    #[serde(default = "default_true")]
+    pub(crate) dry_run: bool,
+    #[serde(default)]
+    pub(crate) detail: bool,
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, JsonSchema, PartialEq, Eq, Serialize)]
 pub(crate) enum ExtensionsAction {
     #[serde(rename = "list")]
     List,
