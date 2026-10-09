@@ -48,6 +48,9 @@ pub struct Solution {
     /// Where file repositories' trees are kept: `[repositories] root = "filerepository"`.
     #[serde(default)]
     pub repositories: Repositories,
+    /// Where localization table exports live: `[localization] root = "localization"`.
+    #[serde(default)]
+    pub localization: Localization,
     /// What `twaco package extension` writes into each `metadata.xml`.
     #[serde(default)]
     pub package: Package,
@@ -109,6 +112,12 @@ pub struct Help {
 /// `[repositories] root`: the folder holding one subfolder per FileRepository.
 #[derive(Debug, Default, Deserialize)]
 pub struct Repositories {
+    pub root: Option<String>,
+}
+
+/// Where localization table exports live.
+#[derive(Debug, Default, Deserialize)]
+pub struct Localization {
     pub root: Option<String>,
 }
 
@@ -220,6 +229,16 @@ pub struct Project {
     /// Calls made after this project's imported entities have been read back successfully.
     #[serde(default)]
     pub deploy: Deploy,
+    /// Token-name prefixes this project owns in shared localization tables.
+    #[serde(default)]
+    pub localization: ProjectLocalization,
+}
+
+/// Localization token namespaces owned by one project.
+#[derive(Debug, Default, Deserialize)]
+pub struct ProjectLocalization {
+    #[serde(default)]
+    pub prefixes: Vec<String>,
 }
 
 /// Optional post-import behaviour for one project.
@@ -607,6 +626,19 @@ name = \"Only\"
             solution("[format]\nindent_cdata_payload = true\n\n[[project]]\nname = \"Only\"\n")
                 .unwrap();
         assert!(indented.format.indent_cdata_payload);
+    }
+
+    #[test]
+    fn localization_configuration_parses_at_solution_and_project_scope() {
+        let s = solution(
+            "[localization]\nroot = \"translations\"\n\n[[project]]\nname = \"Acme.App\"\n[project.localization]\nprefixes = [\"Acme.App.\"]\n",
+        )
+        .unwrap();
+        assert_eq!(s.localization.root.as_deref(), Some("translations"));
+        assert_eq!(
+            s.projects[0].localization.prefixes,
+            vec!["Acme.App.".to_string()]
+        );
     }
 
     #[test]

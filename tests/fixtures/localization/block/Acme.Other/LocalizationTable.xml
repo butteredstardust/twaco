@@ -1,0 +1,150 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Entities
+ build="b103"
+ majorVersion="9"
+ minorVersion="0"
+ modelPersistenceProviderPackage="MssqlPersistenceProviderPackage"
+ revision="1"
+ schemaVersion="1100"
+ universal="password">
+    <LocalizationTables>
+        <LocalizationTable
+         aspect.isCreatable="false"
+         aspect.isEditableExtensionObject="false"
+         aspect.isEditableSystemObject="true"
+         description="Default localization table"
+         documentationContent=""
+         homeMashup=""
+         languageCommon="English"
+         languageNative="English"
+         lastModifiedDate="2020-12-23T18:19:15.932+05:30"
+         name="Default"
+         projectName="Acme.Other"
+         tags="">
+            <avatar></avatar>
+            <DesignTimePermissions>
+                <Create></Create>
+                <Read></Read>
+                <Update></Update>
+                <Delete></Delete>
+                <Metadata></Metadata>
+            </DesignTimePermissions>
+            <RunTimePermissions></RunTimePermissions>
+            <VisibilityPermissions>
+                <Visibility></Visibility>
+            </VisibilityPermissions>
+            <ConfigurationTableDefinitions></ConfigurationTableDefinitions>
+            <ConfigurationTables>
+                <ConfigurationTable
+                 dataShapeName=""
+                 description="Localization tokens and usage"
+                 isMultiRow="true"
+                 name="LocalizationTokens"
+                 ordinal="0">
+                    <DataShape>
+                        <FieldDefinitions>
+                            <FieldDefinition
+                             aspect.friendlyName="Translation context"
+                             baseType="STRING"
+                             description="Translation context"
+                             name="context"
+                             ordinal="3"></FieldDefinition>
+                            <FieldDefinition
+                             aspect.friendlyName="Token name"
+                             baseType="STRING"
+                             description="Token name"
+                             name="name"
+                             ordinal="0"></FieldDefinition>
+                            <FieldDefinition
+                             aspect.friendlyName="Token usage"
+                             baseType="STRING"
+                             description="Token usage"
+                             name="usage"
+                             ordinal="2"></FieldDefinition>
+                            <FieldDefinition
+                             aspect.friendlyName="Localized value"
+                             baseType="STRING"
+                             description="Localized value"
+                             name="value"
+                             ordinal="1"></FieldDefinition>
+                        </FieldDefinitions>
+                    </DataShape>
+                    <Rows>
+                        <Row>
+                            <context></context>
+                            <name>
+                            <![CDATA[
+                            Acme.Other.Start
+                            ]]>
+                            </name>
+                            <usage>
+                            <![CDATA[
+                            label
+                            ]]>
+                            </usage>
+                            <value>
+                            <![CDATA[
+                            Start
+                            ]]>
+                            </value>
+                        </Row>
+                        <Row>
+                            <context></context>
+                            <name>
+                            <![CDATA[
+                            Acme.Other.Stop
+                            ]]>
+                            </name>
+                            <usage>
+                            <![CDATA[
+                            label
+                            ]]>
+                            </usage>
+                            <value>
+                            <![CDATA[
+                            Stop
+                            ]]>
+                            </value>
+                        </Row>
+                        <Row>
+                            <context></context>
+                            <name>
+                            <![CDATA[
+                            Acme.Other.Reset
+                            ]]>
+                            </name>
+                            <usage>
+                            <![CDATA[
+                            label
+                            ]]>
+                            </usage>
+                            <value>
+                            <![CDATA[
+                            Reset
+                            ]]>
+                            </value>
+                        </Row>
+                        <Row>
+                            <context></context>
+                            <name>
+                            <![CDATA[
+                            Acme.Other.Stop
+                            ]]>
+                            </name>
+                            <usage>
+                            <![CDATA[
+                            label
+                            ]]>
+                            </usage>
+                            <value>
+                            <![CDATA[
+                            Stop again
+                            ]]>
+                            </value>
+                        </Row>
+                    </Rows>
+                </ConfigurationTable>
+            </ConfigurationTables>
+        </LocalizationTable>
+    </LocalizationTables>
+</Entities>
