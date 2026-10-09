@@ -6,6 +6,8 @@ All notable changes to twaco are recorded here. The format follows
 
 ## [Unreleased]
 
+## [0.1.7] - 2026-10-09
+
 ### Added
 
 - `twaco localization` and the MCP `localization` and `localization_write` tools compare, synchronize and edit localization table files.
@@ -402,6 +404,7 @@ The first public release.
 - `mcp` serves 39 tools over stdio to MCP clients, with compact summaries, validated arguments
   and dry runs by default for tools that can write to a server.
 
+[0.1.7]: https://github.com/butteredstardust/twaco/releases/tag/v0.1.7
 [0.1.6]: https://github.com/butteredstardust/twaco/releases/tag/v0.1.6
 [0.1.5]: https://github.com/butteredstardust/twaco/releases/tag/v0.1.5
 [0.1.4]: https://github.com/butteredstardust/twaco/releases/tag/v0.1.4
