@@ -17,6 +17,10 @@ impl<T> Default for Absent<T> {
 }
 
 impl<T> Absent<T> {
+    pub(crate) fn present(value: T) -> Self {
+        Self(Some(value))
+    }
+
     pub(crate) fn as_ref(&self) -> Option<&T> {
         self.0.as_ref()
     }

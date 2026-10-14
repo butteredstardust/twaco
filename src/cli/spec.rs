@@ -429,6 +429,10 @@ pub(crate) const FLAGS: &[Flag] = &[
         takes: Takes::Switch,
     },
     Flag {
+        name: "--fields",
+        takes: Takes::Switch,
+    },
+    Flag {
         name: "--diff",
         takes: Takes::Switch,
     },
@@ -886,9 +890,16 @@ pub(crate) const COMMANDS: &[Command] = &[
         path: "unused",
         group: 1,
         operands: false,
-        flags: &["--min-confidence", "--collection", "--detail", "--json"],
-        text: r#"  unused [--min-confidence structural|resolved|review] [--collection <name>]
+        flags: &[
+            "--min-confidence",
+            "--collection",
+            "--fields",
+            "--detail",
+            "--json",
+        ],
+        text: r#"  unused [--min-confidence structural|resolved|review] [--collection <name>] [--fields]
                               entities no entry point reaches; advisory, deletes nothing
+      --fields                result fields mashups bind, which no mashup binds or names
       --detail                list every one, with the entry points and each file
       --json                  the report as JSON"#,
     },
@@ -920,7 +931,8 @@ pub(crate) const COMMANDS: &[Command] = &[
         ],
         text: r#"  adopt <export.xml>          take a designer's or backend collaborator's export; plan unless --apply
       --base <file|handoff|git rev>  collaborator's starting point; --only ui|backend
-      --take theirs:<name>,ours:<name>  resolve conflicts; --entity <name>; --detail; --json; --fail-on-revert"#,
+      --take theirs:<name>,ours:<name>  resolve conflicts (theirs:ui takes every UI one)
+      --entity <name>; --detail; --json; --fail-on-revert"#,
     },
     Command {
         path: "handoff",

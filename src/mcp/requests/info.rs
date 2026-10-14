@@ -145,9 +145,13 @@ impl UnusedCollection {
 #[derive(Debug, Deserialize, JsonSchema, Serialize)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct UnusedRequest {
+    /// Report the fields of service results mashups bind field by field which no mashup binds or names, instead of entities; cannot be combined with collection or min_confidence.
+    #[serde(default)]
+    pub(crate) fields: bool,
     /// The weakest reference that counts as use; a stronger minimum reports more entities.
-    #[serde(default = "default_unused_min_confidence")]
-    pub(crate) min_confidence: UnusedMinConfidence,
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    #[schemars(default = "default_unused_min_confidence")]
+    pub(crate) min_confidence: Absent<UnusedMinConfidence>,
     /// Judge one collection only.
     #[serde(default, skip_serializing_if = "Absent::is_absent")]
     pub(crate) collection: Absent<UnusedCollection>,
@@ -156,16 +160,16 @@ pub(crate) struct UnusedRequest {
     pub(crate) detail: bool,
 }
 
-fn default_unused_min_confidence() -> UnusedMinConfidence {
-    UnusedMinConfidence::Review
-}
-
 #[derive(Debug, Deserialize, JsonSchema, Serialize)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct DocsRequest {
     /// Return everything instead of the summary.
     #[serde(default)]
     pub(crate) detail: bool,
+}
+
+fn default_unused_min_confidence() -> Absent<UnusedMinConfidence> {
+    Absent::present(UnusedMinConfidence::Review)
 }
 
 #[derive(Clone, Copy, Debug, Deserialize, JsonSchema, PartialEq, Eq, Serialize)]

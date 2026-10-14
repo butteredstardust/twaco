@@ -5,17 +5,20 @@
 mod compiler;
 mod model;
 mod outcome;
-mod platform;
+pub(crate) mod platform;
 mod render;
 mod write;
 
 pub(crate) use compiler::check_with;
 pub use compiler::{check, CompilerOutput, CompilerRunner};
-pub(crate) use model::{load_model, Entity, Member, Model, Service, TypedValue};
+pub(crate) use model::{
+    load_model, DataShape, Entity, Member, Model, Parameter, Service, TypedValue,
+};
 pub use outcome::{
     check_summary, finding_json, refresh_after_write, CheckError, CheckOutcome, Outcome,
     PlatformOutcome, Refresh, TypeFinding,
 };
+pub(crate) use platform::{cached as cached_platform, Platform};
 pub use platform::{fetch_platform, fetch_platform_with_progress, Remote};
 pub use write::write;
 

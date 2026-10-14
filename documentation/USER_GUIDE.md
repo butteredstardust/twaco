@@ -68,6 +68,7 @@ without it, each gate gives a summary.
 | script traps | a script uses something the ThingWorx Rhino engine punishes (see below) |
 | code order | a service's main code is below its helper functions |
 | project | the entity files disagree with themselves or each other: a file named for another entity, two files for one entity, a misfiled or project-less entity, a service declared without its implementation or the reverse, a mashup whose JSON does not parse |
+| mashup bindings | a repository-resolved mashup service, result field or parameter is not declared; unresolved platform and inherited DataShape details are left unchecked |
 | your hooks | a `[[check]]` command fails ([Configuration](CONFIGURATION.md#check-your-own-gates)) |
 | live parse | with `--live` or `[gates] live`: the server's own parser rejects a script |
 
@@ -80,6 +81,11 @@ The script traps are runtime failures that look like valid JavaScript:
 - **`unbounded-loop`:** a `while` loop that can run forever pins a platform thread.
 - **`nan-risk`:** a NaN in a result row makes the whole service fail to serialise.
 - **`read-before-assign`:** a variable read before it is assigned.
+
+`twaco unused --fields` is a separate advisory report: for each service result that mashups bind
+field by field, the fields no mashup binds or names. A result some mashup binds whole (a grid
+showing every column) is not judged. Only mashups are read, so a field a script, another service
+or a REST client reads looks unused: review before removing one.
 
 `twaco types --check` type-checks every service against declarations generated from the
 entities, the DataShapes and the server's platform metadata. A typo in a property name or a
@@ -168,10 +174,18 @@ with `--base` on another machine.
 Mashups, media, themes and configured UI collections are UI; everything else is backend. Use
 `--only ui` or `--only backend` to narrow a run. Backend service and entity changes that are safe
 to take are folded into XML and sidecars in the apply transaction. Mashup sidecars alone may need
-`twaco sync --all` afterwards. Resolve an individual conflict with
+`twaco sync --all` afterwards. Apply writes mashups and media; another UI entity it would take is
+listed as `not adopted`, to import from the export. Resolve an individual conflict with
 `--take theirs:Acme.Orders.Manager.GetOrders` or keep it with
-`--take ours:Acme.Orders.Manager`; a take may name an entity or one service. `[adopt]` in
-`twaco.toml` still lists values that differ on every export by design.
+`--take ours:Acme.Orders.Manager`; a take may name an entity or one service, and taking ours for
+an entity leaves it whole. `--take theirs:ui` takes every UI conflict and unknown at once, for a
+designer's export adopted without a base. `[adopt]` in `twaco.toml` still lists values that differ on every
+export by design.
+
+States compare entity XML, so sidecars edited since the last `twaco sync` are protected
+separately: a backend entity with such a service is merged service by service rather than
+replaced, and a mashup whose sidecars changed is kept until you sync and adopt again (or
+`--take theirs:` it).
 
 ## Renaming
 

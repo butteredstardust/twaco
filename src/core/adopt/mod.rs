@@ -27,7 +27,8 @@ mod base_tests;
 mod classify_tests;
 
 pub use base::{
-    handoffs, history_versions, record_handoff, resolve, Base, BaseSource, Handoff, Side,
+    check_handoff, handoffs, history_versions, record_handoff, resolve, Base, BaseSource, Handoff,
+    Side,
 };
 pub use classify::{Change, Kind};
 
@@ -256,7 +257,17 @@ pub fn compare_with(
             let change = match mine {
                 Some(mine) => script_change(&body, mine, base_service, || {
                     history_versions(solution, &source, 50).iter().any(|old| {
-                        std::str::from_utf8(old).is_ok_and(|old| canonical(&body) == canonical(old))
+                        if from_sidecar {
+                            std::str::from_utf8(old)
+                                .is_ok_and(|old| canonical(&body) == canonical(old))
+                        } else {
+                            // Without a sidecar the history is the entity file's: its script.
+                            entity_from_bytes(old, entity).is_some_and(|old| {
+                                service_bodies(&old)
+                                    .get(&service)
+                                    .is_some_and(|old| canonical(&body) == canonical(old))
+                            })
+                        }
                     })
                 }),
                 None => {
@@ -924,7 +935,7 @@ pub fn apply(
         match entry.kind {
             Kind::Ui => match entry.entity.collection.as_str() {
                 "Mashups" => {
-                    if !ui_should_write(report, entry, takes) {
+                    if !ui_should_write(entry, takes) {
                         steps.push((None, ui_skip_line(entry, takes)));
                         continue;
                     }
@@ -963,6 +974,36 @@ pub fn apply(
                     if let Some(assets) = assets {
                         let current =
                             workspace::read_mashup(&dir).map_err(|e| io_error(&dir, e))?;
+                        // The comparison read the entity XML; sidecars edited since the last
+                        // sync are newer work it never saw. Only an explicit take replaces them.
+                        let synced = match here.get(&entry.entity) {
+                            Some((ours, _)) => {
+                                mashup_assets(ours).map_err(|why| io_error(&dir, why))?
+                            }
+                            None => current.clone(),
+                        };
+                        let same =
+                            |a: Option<&super::mashup::Assets>,
+                             b: Option<&super::mashup::Assets>| {
+                                match (a, b) {
+                                    (Some(a), Some(b)) => {
+                                        canonical(&a.content) == canonical(&b.content)
+                                            && canonical(&a.css) == canonical(&b.css)
+                                    }
+                                    (a, b) => a.is_none() && b.is_none(),
+                                }
+                            };
+                        if current.is_some()
+                            && !same(current.as_ref(), synced.as_ref())
+                            && !same(current.as_ref(), Some(&assets))
+                            && !ui_taken(entry, takes)
+                        {
+                            steps.push((
+                                None,
+                                format!("kept     Mashups/{name}: its sidecars changed since the last sync; sync, then adopt again"),
+                            ));
+                            continue;
+                        }
                         if current.as_ref() != Some(&assets) {
                             steps.push((
                                 Some(Write::Sidecars(dir, assets)),
@@ -972,7 +1013,7 @@ pub fn apply(
                     }
                 }
                 "MediaEntities" => {
-                    if !ui_should_write(report, entry, takes) {
+                    if !ui_should_write(entry, takes) {
                         steps.push((None, ui_skip_line(entry, takes)));
                         continue;
                     }
@@ -996,11 +1037,15 @@ pub fn apply(
                             let line = format!("content  {}", relative_to(solution, path));
                             steps.push((Some(Write::Entity(path.clone(), text)), line));
                         }
+                    } else if !here.contains_key(&entry.entity) {
+                        steps.push((None, ui_not_adopted_line(entry)));
                     }
                 }
                 _ => {
-                    if !ui_should_write(report, entry, takes) {
+                    if !ui_should_write(entry, takes) {
                         steps.push((None, ui_skip_line(entry, takes)));
+                    } else {
+                        steps.push((None, ui_not_adopted_line(entry)));
                     }
                 }
             },
@@ -1041,11 +1086,16 @@ pub fn apply(
                         ("script.js", &service.script),
                     ] {
                         let path = dir.join(&service.name).join(file);
-                        let wanted = text.replace("\r\n", "\n");
-                        // A sidecar we keep is left byte for byte, CRLF checkout included.
+                        let mut wanted = text.replace("\r\n", "\n");
+                        // A sidecar we keep is left byte for byte, CRLF checkout included, and
+                        // one we change keeps the line endings it had.
                         let current = std::fs::read_to_string(&path).ok();
-                        if current.is_some_and(|current| current.replace("\r\n", "\n") == wanted) {
-                            continue;
+                        match current {
+                            Some(current) if current.replace("\r\n", "\n") == wanted => continue,
+                            Some(current) if current.contains("\r\n") => {
+                                wanted = wanted.replace('\n', "\r\n");
+                            }
+                            _ => {}
                         }
                         transaction
                             .write_file(&path, wanted.into_bytes())
@@ -1117,15 +1167,25 @@ fn validate_takes(report: &Report, takes: &[Take]) -> Result<(), AdoptError> {
                 .map(|service| format!("{}.{}", service.entity, service.service)),
         )
         .collect();
+    let ui_open = report.entities.iter().any(|entry| {
+        entry.kind == Kind::Ui && matches!(entry.change, Change::Conflict | Change::Unknown)
+    });
     let bad: Vec<String> = takes
         .iter()
-        .filter(|take| !known.contains(&take.target))
+        .filter(|take| {
+            !known.contains(&take.target)
+                && !(ui_open && take.side == TakeSide::Theirs && take.target == TAKE_ALL_UI)
+        })
         .map(|take| take.target.clone())
         .collect();
     if bad.is_empty() {
         Ok(())
     } else {
-        let available = known.into_iter().collect::<Vec<_>>().join(", ");
+        let mut available = known.into_iter().collect::<Vec<_>>();
+        if ui_open {
+            available.push(format!("{TAKE_ALL_UI} (theirs only)"));
+        }
+        let available = available.join(", ");
         Err(AdoptError::Take(format!(
             "{}; conflicts and unknowns that can be taken: {available}",
             bad.join(", ")
@@ -1133,19 +1193,46 @@ fn validate_takes(report: &Report, takes: &[Take]) -> Result<(), AdoptError> {
     }
 }
 
-fn ui_should_write(report: &Report, entry: &EntityReport, takes: &[Take]) -> bool {
-    matches!(entry.change, Change::Theirs | Change::Added)
-        || has_take(takes, TakeSide::Theirs, &entry.entity.name)
-        || (report.base.is_none() && entry.change == Change::Unknown)
+/// The take target that resolves every UI conflict and unknown in favour of the export.
+pub const TAKE_ALL_UI: &str = "ui";
+
+/// Whether the export's version of a UI entity was explicitly asked for, by name or as `ui`.
+fn ui_taken(entry: &EntityReport, takes: &[Take]) -> bool {
+    has_take(takes, TakeSide::Theirs, &entry.entity.name)
+        || (has_take(takes, TakeSide::Theirs, TAKE_ALL_UI)
+            && matches!(entry.change, Change::Conflict | Change::Unknown))
+}
+
+/// An unknown is a conflict here as everywhere: with no base, nothing shows which side changed.
+fn ui_should_write(entry: &EntityReport, takes: &[Take]) -> bool {
+    if has_take(takes, TakeSide::Ours, &entry.entity.name) {
+        return false;
+    }
+    matches!(entry.change, Change::Theirs | Change::Added) || ui_taken(entry, takes)
+}
+
+/// For a UI entity adopt selected but has no writer for: saying nothing would read as adopted.
+fn ui_not_adopted_line(entry: &EntityReport) -> String {
+    format!(
+        "not adopted {}: adopt writes mashups and media only; import it from the export",
+        entry.entity.path()
+    )
 }
 
 fn ui_skip_line(entry: &EntityReport, takes: &[Take]) -> String {
     let path = entry.entity.path();
+    if has_take(takes, TakeSide::Ours, &entry.entity.name) {
+        return format!("kept     {path}: ours");
+    }
     match entry.change {
         Change::Stale => format!("kept     {path}: stale, ours is newer"),
-        Change::Conflict | Change::Unknown
-            if !has_take(takes, TakeSide::Theirs, &entry.entity.name) =>
-        {
+        Change::Unknown if !ui_taken(entry, takes) => {
+            format!(
+                "conflict {path}: no base shows who changed it; --take theirs:{}, --take ours:{} or --take theirs:{TAKE_ALL_UI}",
+                entry.entity.name, entry.entity.name
+            )
+        }
+        Change::Conflict if !ui_taken(entry, takes) => {
             format!(
                 "conflict {path}: both changed; --take theirs:{} or --take ours:{}",
                 entry.entity.name, entry.entity.name
@@ -1170,8 +1257,26 @@ fn plan_backend(
 ) -> Result<(), AdoptError> {
     let entity = &entry.entity;
     let entity_name = &entity.name;
+    if has_take(takes, TakeSide::Ours, entity_name) {
+        steps.push((None, format!("kept     {}: ours", entity.path())));
+        return Ok(());
+    }
     let their_raw = raw_entity(export, entity)?;
     let their_services = services_from_document(&entity_document(&entity.collection, &their_raw))?;
+    // Both name folders under src/; the transaction would refuse an escape, but not `CON`, and
+    // its refusal would not say which name was at fault.
+    if let Some(bad) = std::iter::once(entity_name)
+        .chain(their_services.keys())
+        .find(|name| !is_file_name(name))
+    {
+        return Err(AdoptError::Export {
+            path: export.to_path_buf(),
+            why: format!(
+                "{}: the name {bad:?} cannot be a file name; nothing was adopted",
+                entity.path()
+            ),
+        });
+    }
     let service_dir = solution.src_root().join(entity_name).join("services");
 
     if entry.change == Change::Added {
@@ -1225,7 +1330,18 @@ fn plan_backend(
         .services
         .iter()
         .any(|service| service.entity == *entity_name && service.generated);
-    if (entry.change == Change::Theirs && !generated_here)
+    // The entity's state compares entity XML; a service's compares its sidecar. A sidecar edited
+    // since the last sync makes the XML look like the base while the script is ours: such an
+    // entity is merged service by service rather than replaced.
+    let services_disagree = report.services.iter().any(|service| {
+        service.entity == *entity_name
+            && !service.generated
+            && matches!(
+                service.change,
+                Change::Stale | Change::Conflict | Change::Unknown
+            )
+    });
+    if (entry.change == Change::Theirs && !generated_here && !services_disagree)
         || (entry.change == Change::Unknown && report.base.is_none() && their_entity_take)
     {
         let bytes = replace_entity_bytes(&ours_raw, entity, &their_raw)?;
@@ -1976,7 +2092,7 @@ mod tests {
         let lines: Vec<String> = outcome
             .lines
             .into_iter()
-            .filter(|l| !l.ends_with("P.A"))
+            .filter(|l| !l.contains("P.A"))
             .collect();
         assert_eq!(lines, ["created  Mashups/P.B&C.xml", "sidecar  P.B&C"]);
         let text = std::fs::read_to_string(root.join("Mashups/P.B&C.xml")).unwrap();
@@ -2012,7 +2128,7 @@ mod tests {
             .unwrap()
             .lines
             .into_iter()
-            .filter(|l| !l.ends_with("P.A"))
+            .filter(|l| !l.contains("P.A"))
             .collect();
         assert_eq!(lines.len(), 1);
         assert!(
@@ -2031,7 +2147,7 @@ mod tests {
             .unwrap()
             .lines
             .into_iter()
-            .filter(|l| !l.ends_with("P.A"))
+            .filter(|l| !l.contains("P.A"))
             .collect();
         let kinds: Vec<&str> = lines
             .iter()

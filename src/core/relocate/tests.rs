@@ -18,8 +18,12 @@ fn snapshot(root: &Path) -> BTreeMap<PathBuf, Vec<u8>> {
     fn walk(dir: &Path, out: &mut BTreeMap<PathBuf, Vec<u8>>) {
         for entry in std::fs::read_dir(dir).unwrap().flatten() {
             let path = entry.path();
+            let name = path.file_name().unwrap().to_string_lossy().into_owned();
             if path.is_dir() {
                 walk(&path, out);
+            } else if (name == "lock" || name == "lock.holder") && dir.ends_with(".twaco") {
+                // The workspace lock a test takes to apply a plan is not part of the workspace:
+                // its holder names the second it was taken, so a slow run would differ.
             } else {
                 out.insert(path.clone(), std::fs::read(&path).unwrap());
             }
@@ -531,7 +535,6 @@ fn a_file_changed_since_the_plan_is_refused_and_a_failed_write_is_undone() {
     let mut edited = original.clone();
     edited.extend_from_slice(b"<!-- later -->\n");
     std::fs::write(&target_path, &edited).unwrap();
-    // Says what came back instead: under a loaded parallel test run this has failed rarely.
     match apply(&planned, &locked(&fixture)) {
         Err(RelocateError::Refused(_)) => {}
         other => panic!("expected the changed file to be refused, got {other:?}"),

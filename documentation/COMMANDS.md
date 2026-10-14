@@ -46,8 +46,9 @@ impact <entity> [--member <name>] [--min-confidence structural|resolved|review] 
     --detail                list every dependent and the chain of references to each
     --json                  the report as JSON (chains with --detail)
     --dot                   the dependents as a Graphviz graph
-unused [--min-confidence structural|resolved|review] [--collection <name>]
+unused [--min-confidence structural|resolved|review] [--collection <name>] [--fields]
                             entities no entry point reaches; advisory, deletes nothing
+    --fields                result fields mashups bind, which no mashup binds or names
     --detail                list every one, with the entry points and each file
     --json                  the report as JSON
 docs [--out <file>] [--force]
@@ -58,7 +59,8 @@ docs [--out <file>] [--force]
     --out <file>            write it to one file (atomically) instead of printing; --force replaces
 adopt <export.xml>          take a designer's or backend collaborator's export; plan unless --apply
     --base <file|handoff|git rev>  collaborator's starting point; --only ui|backend
-    --take theirs:<name>,ours:<name>  resolve conflicts; --entity <name>; --detail; --json; --fail-on-revert
+    --take theirs:<name>,ours:<name>  resolve conflicts (theirs:ui takes every UI one)
+    --entity <name>; --detail; --json; --fail-on-revert
 handoff list|record <file.xml>... --name <name> [--apply]
                             list recorded collaborator bases, or plan/copy one under .twaco/handoffs
 rename entity <old> <new> [--apply] [--text] [--detail] [--json] [--skip-checks]

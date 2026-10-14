@@ -106,6 +106,75 @@ fn revision_loads_the_requested_commit_and_unknown_revision_names_it() {
 }
 
 #[test]
+fn revision_reads_files_with_non_ascii_names_and_refuses_an_option() {
+    let (temporary, solution) = solution();
+    git(temporary.path(), &["init"]);
+    std::fs::write(
+        temporary.path().join("Things/P.Ünï.xml"),
+        xml("one", "base();").replace("P.T", "P.Ünï"),
+    )
+    .unwrap();
+    commit(temporary.path(), "one");
+    let first = git(temporary.path(), &["rev-parse", "HEAD"]);
+    let export = Side::from_solution(&solution).unwrap();
+    let base = resolve(&solution, Some(&first), &export).unwrap().unwrap();
+    assert!(base
+        .side
+        .entities
+        .keys()
+        .any(|entity| entity.name == "P.Ünï"));
+
+    let error = resolve(&solution, Some("--output=leaked"), &export).unwrap_err();
+    assert!(error.to_string().contains("--output=leaked"), "{error}");
+    assert!(!temporary.path().join("leaked").exists());
+}
+
+#[test]
+fn a_handoff_left_half_recorded_does_not_break_the_others() {
+    let (temporary, solution) = solution();
+    let package = temporary.path().join("package.xml");
+    std::fs::write(&package, xml("one", "base();")).unwrap();
+    record_handoff(&solution, "first", std::slice::from_ref(&package)).unwrap();
+    // What an interrupted recording leaves behind.
+    std::fs::create_dir_all(temporary.path().join(".twaco/handoffs/.second.partial")).unwrap();
+    let names: Vec<String> = handoffs(&solution)
+        .unwrap()
+        .into_iter()
+        .map(|h| h.name)
+        .collect();
+    assert_eq!(names, ["first"]);
+    record_handoff(&solution, "second", std::slice::from_ref(&package)).unwrap();
+    assert!(!temporary
+        .path()
+        .join(".twaco/handoffs/.second.partial")
+        .exists());
+    assert_eq!(handoffs(&solution).unwrap().len(), 2);
+}
+
+#[test]
+fn a_handoff_refuses_two_files_with_one_name() {
+    let (temporary, solution) = solution();
+    for folder in ["a", "b"] {
+        std::fs::create_dir(temporary.path().join(folder)).unwrap();
+        std::fs::write(
+            temporary.path().join(folder).join("package.xml"),
+            xml(folder, "base();"),
+        )
+        .unwrap();
+    }
+    let files = [
+        temporary.path().join("a/package.xml"),
+        temporary.path().join("b/package.xml"),
+    ];
+    // A plan is refused for the same reason, so a plan that passes can be recorded.
+    let planned = check_handoff(&solution, "both", &files).unwrap_err();
+    assert!(planned.to_string().contains("package.xml"), "{planned}");
+    let error = record_handoff(&solution, "both", &files).unwrap_err();
+    assert!(error.to_string().contains("package.xml"), "{error}");
+    assert!(!temporary.path().join(".twaco/handoffs/both").exists());
+}
+
+#[test]
 fn handoffs_record_list_and_refuse_bad_inputs() {
     let (temporary, solution) = solution();
     git(temporary.path(), &["init"]);

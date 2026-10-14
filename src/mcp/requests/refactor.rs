@@ -51,7 +51,7 @@ pub(crate) enum AdoptKind {
 #[serde(deny_unknown_fields)]
 pub(crate) struct AdoptTakeRequest {
     pub(crate) side: AdoptTakeSide,
-    /// An entity or Entity.Service.
+    /// An entity or Entity.Service; `ui` with theirs takes every UI conflict and unknown.
     pub(crate) target: String,
 }
 

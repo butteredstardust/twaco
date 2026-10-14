@@ -458,7 +458,7 @@ static TOOLS: LazyLock<Vec<Tool>> = LazyLock::new(|| {
         ),
         solution_tool::<info_requests::UnusedRequest>(
             "unused",
-            "Entities nothing reaches: Things, templates, shapes and DataShapes with no chain of references from an entry point (what twaco.toml deploys, every mashup, anything that runs on events, and what `[unused] keep` names). Advisory and read-only: it deletes nothing, and an entity used only from outside the repository (a REST client, a connected system) looks unused, so list those under `[unused] keep`. `complete` says whether every input was read; `keep_unmatched` lists keep patterns that match nothing.",
+            "Entities nothing reaches: Things, templates, shapes and DataShapes with no chain of references from an entry point (what twaco.toml deploys, every mashup, anything that runs on events, and what `[unused] keep` names). Advisory and read-only: it deletes nothing, and an entity used only from outside the repository (a REST client, a connected system) looks unused, so list those under `[unused] keep`. `complete` says whether every input was read; `keep_unmatched` lists keep patterns that match nothing. With `fields`, instead the fields of service results that mashups bind field by field which no mashup binds or names; a result bound whole is not judged, and a field read by a script, another service or a REST client looks unused.",
             true,
             info::unused_tool,
         ),

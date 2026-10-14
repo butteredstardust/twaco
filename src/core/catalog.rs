@@ -4,6 +4,7 @@ use super::config::Solution;
 use super::index::inherit::{implements_shape, inheritance_chain, Inherits};
 use super::index::Index;
 use super::types::{self, Entity, Member, Service};
+use super::types::{Parameter, Platform, TypedValue};
 use serde::Serialize;
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -310,6 +311,131 @@ fn callable_services(
             catalog_service(service, from, scripted)
         })
         .collect()
+}
+
+/// Resolve one service through the same local inheritance order as the catalog. `complete` says
+/// that every referenced template and shape (including GenericThing) was available locally or in
+/// the optional platform cache, so a missing service is safe to diagnose.
+pub(crate) fn lookup_service(
+    entity: &Entity,
+    entities: &[Entity],
+    platform: Option<&Platform>,
+    wanted: &str,
+) -> ServiceLookup {
+    let local = |collection: &str, name: &str| {
+        entities
+            .iter()
+            .find(|candidate| candidate.collection == collection && candidate.name == name)
+    };
+    let mut complete = true;
+    let mut visited_templates = BTreeSet::new();
+    let mut visited_shapes = BTreeSet::new();
+    let mut current = Some(entity);
+    while let Some(item) = current {
+        if let Some(service) = item.members.iter().find_map(|member| match member {
+            Member::Service(service) if service.name == wanted => Some(service.clone()),
+            _ => None,
+        }) {
+            return ServiceLookup {
+                service: Some(service),
+                complete,
+            };
+        }
+        for shape_name in &item.shapes {
+            if !visited_shapes.insert(shape_name.as_str()) {
+                continue;
+            }
+            if let Some(shape) = local("ThingShapes", shape_name) {
+                if let Some(service) = shape.members.iter().find_map(|member| match member {
+                    Member::Service(service) if service.name == wanted => Some(service.clone()),
+                    _ => None,
+                }) {
+                    return ServiceLookup {
+                        service: Some(service),
+                        complete,
+                    };
+                }
+            } else if let Some(meta) = platform.and_then(|p| p.shapes.get(shape_name)) {
+                if let Some(service) = meta.services.get(wanted) {
+                    return ServiceLookup {
+                        service: Some(platform_service(wanted, service)),
+                        complete,
+                    };
+                }
+            } else {
+                complete = false;
+            }
+        }
+        let Some(template_name) = item.template.as_deref() else {
+            break;
+        };
+        if !visited_templates.insert(template_name) {
+            break;
+        }
+        if let Some(template) = local("ThingTemplates", template_name) {
+            current = Some(template);
+        } else if let Some(meta) = platform.and_then(|p| p.templates.get(template_name)) {
+            if let Some(service) = meta.services.get(wanted) {
+                return ServiceLookup {
+                    service: Some(platform_service(wanted, service)),
+                    complete,
+                };
+            }
+            current = None;
+        } else {
+            complete = false;
+            current = None;
+        }
+    }
+    // Every Thing has GenericThing's services, but only below everything else on its chain: a
+    // template or shape twaco cannot see may declare the same service differently.
+    match platform
+        .filter(|_| complete)
+        .and_then(|p| p.templates.get("GenericThing"))
+    {
+        Some(meta) => ServiceLookup {
+            service: meta
+                .services
+                .get(wanted)
+                .map(|service| platform_service(wanted, service)),
+            complete,
+        },
+        None => ServiceLookup {
+            service: None,
+            complete: false,
+        },
+    }
+}
+
+#[derive(Clone)]
+pub(crate) struct ServiceLookup {
+    pub(crate) service: Option<Service>,
+    pub(crate) complete: bool,
+}
+
+fn platform_service(name: &str, service: &super::types::platform::PlatformService) -> Service {
+    Service {
+        name: name.to_string(),
+        description: service.description.clone(),
+        parameters: service
+            .inputs
+            .iter()
+            .map(|(name, input)| Parameter {
+                name: name.clone(),
+                description: input.description.clone(),
+                required: input.required,
+                default: None,
+                value: TypedValue {
+                    base_type: input.base_type.clone(),
+                    data_shape: input.data_shape.clone(),
+                },
+            })
+            .collect(),
+        result: TypedValue {
+            base_type: service.result.base_type.clone(),
+            data_shape: service.result.data_shape.clone(),
+        },
+    }
 }
 
 fn has_script(solution: &Solution, entity: &Entity, service: &str) -> bool {

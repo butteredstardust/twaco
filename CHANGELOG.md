@@ -6,6 +6,27 @@ All notable changes to twaco are recorded here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- `twaco check` has a `mashup bindings` gate: a mashup that binds a field its service's result DataShape does not declare, passes a parameter the service does not have, or calls a service its entity does not have fails it. ThingWorx imports all three and the widget quietly draws without the value. What twaco cannot see (a DataShape or entity outside the repository, a platform service before `twaco types --platform` has cached them) is counted as not checked rather than guessed. `[gates] advisory = ["mashup bindings"]` makes it report without failing.
+- `twaco unused --fields` (and `fields` on the `unused` MCP tool) lists, for each service result mashups bind field by field, the fields no mashup binds or names.
+
+### Changed
+
+- `adopt --apply` without a base no longer writes a mashup or media entity it can only call unknown: it is a conflict, as everywhere else. `--take theirs:ui` takes every UI conflict and unknown at once.
+- `adopt --base <git-rev>` reads the revision with one git process instead of one per file: about ten times faster on a solution of 700 files.
+
+### Fixed
+
+- `adopt --apply` no longer overwrites a service or mashup sidecar edited since the last `twaco sync` when the collaborator changed the same entity.
+- `adopt --take ours:<Entity>` keeps the entity whole; it used to be accepted and ignored.
+- `adopt --apply` lists a theme, menu or other UI entity it does not write as `not adopted`, instead of saying nothing.
+- `adopt --apply` keeps the CRLF line endings of a service sidecar it changes.
+- `adopt` without a base recognises a committed script that lives only in the entity XML as stale, not unknown.
+- `adopt --apply` refuses a backend entity or service name that cannot be a file name, naming it.
+- `adopt --base <git-rev>` reads files whose names git quotes (non-ASCII), skips submodules, and refuses a revision that starts with `-`.
+- `handoff record` refuses two files with the same name, and an interrupted recording no longer breaks every later `adopt`.
+
 ## [0.1.7] - 2026-10-09
 
 ### Added

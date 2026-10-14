@@ -204,6 +204,41 @@ pub fn run(solution: &Solution, request: &Request) -> Report {
     }
 }
 
+/// Fields of a service result that mashups bind, which no mashup binds or names.
+pub fn fields(solution: &Solution) -> super::bindings::FieldsReport {
+    super::bindings::unused_fields(solution)
+}
+
+pub fn render_fields(report: &super::bindings::FieldsReport) -> String {
+    let mut out = format!(
+        "unused fields: {} of {} DataShape(s) mashups bind field by field have a field no mashup uses",
+        report.data_shapes.len(),
+        report.judged
+    );
+    if report.bound_whole > 0 {
+        out.push_str(&format!(
+            "; {} bound whole somewhere, not judged",
+            report.bound_whole
+        ));
+    }
+    out.push('\n');
+    for shape in &report.data_shapes {
+        out.push_str(&format!(
+            "  {}  ({})\n",
+            shape.data_shape,
+            shape.services.join(", ")
+        ));
+        for field in &shape.fields {
+            out.push_str(&format!("    {field}\n"));
+        }
+    }
+    out.push_str(&format!(
+        "\nadvisory: nothing is changed\nlimits: {}\n",
+        report.limits
+    ));
+    out
+}
+
 impl Report {
     /// The report as JSON. The entry points are listed only when `detail` asks (a mashup-heavy
     /// solution has hundreds).

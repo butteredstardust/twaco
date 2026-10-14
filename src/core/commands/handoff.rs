@@ -70,18 +70,10 @@ pub fn execute(
             effects: Effects::new(Access::Read, Access::None),
         }),
         HandoffRequest::Record { name, files } => {
-            // Validate a plan with the same parser as a real recording, without making its
-            // directory visible. `record_handoff` repeats this just before copying under lock.
+            // Validate a plan with the same checks as a real recording, without making its
+            // directory visible. `record_handoff` repeats them just before copying under lock.
             if mode == Mode::Plan {
-                if files.is_empty() {
-                    return Err(HandoffCommandError::Adopt(adopt::AdoptError::Base {
-                        base: name.clone(),
-                        why: "record at least one <Entities> document".to_string(),
-                    }));
-                }
-                for file in files {
-                    adopt::Side::from_export(file).map_err(HandoffCommandError::Adopt)?;
-                }
+                adopt::check_handoff(solution, name, files).map_err(HandoffCommandError::Adopt)?;
                 return Ok(HandoffOutcome::Planned {
                     name: name.clone(),
                     files: files.clone(),

@@ -8,7 +8,8 @@ exit: 0
   ok      script traps   7 examined
   ok      code order     7 examined
   ok      project        12 examined
+  ok      mashup bindings 0 examined
 
-6 gate(s) passed
+7 gate(s) passed
 --- stderr
 
