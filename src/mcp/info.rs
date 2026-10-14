@@ -70,7 +70,21 @@ pub(crate) fn unused_tool(
     solution: &Solution,
     arguments: tool::UnusedRequest,
 ) -> Result<Value, ToolError> {
-    let min = match arguments.min_confidence {
+    if arguments.fields {
+        if !arguments.collection.is_absent() || !arguments.min_confidence.is_absent() {
+            return Err(ToolError::invalid(
+                "`fields` cannot be used with `collection` or `min_confidence`",
+            ));
+        }
+        return serde_json::to_value(unused::fields(solution))
+            .map_err(|error| ToolError::invalid(error.to_string()));
+    }
+    let min = match arguments
+        .min_confidence
+        .as_ref()
+        .copied()
+        .unwrap_or(tool::UnusedMinConfidence::Review)
+    {
         tool::UnusedMinConfidence::Structural => Confidence::Structural,
         tool::UnusedMinConfidence::Resolved => Confidence::Resolved,
         tool::UnusedMinConfidence::Review => Confidence::Review,

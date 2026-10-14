@@ -46,8 +46,9 @@ impact <entity> [--member <name>] [--min-confidence structural|resolved|review] 
     --detail                list every dependent and the chain of references to each
     --json                  the report as JSON (chains with --detail)
     --dot                   the dependents as a Graphviz graph
-unused [--min-confidence structural|resolved|review] [--collection <name>]
+unused [--min-confidence structural|resolved|review] [--collection <name>] [--fields]
                             entities no entry point reaches; advisory, deletes nothing
+    --fields                result fields mashups bind, which no mashup binds or names
     --detail                list every one, with the entry points and each file
     --json                  the report as JSON
 docs [--out <file>] [--force]

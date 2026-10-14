@@ -68,6 +68,7 @@ without it, each gate gives a summary.
 | script traps | a script uses something the ThingWorx Rhino engine punishes (see below) |
 | code order | a service's main code is below its helper functions |
 | project | the entity files disagree with themselves or each other: a file named for another entity, two files for one entity, a misfiled or project-less entity, a service declared without its implementation or the reverse, a mashup whose JSON does not parse |
+| mashup bindings | a repository-resolved mashup service, result field or parameter is not declared; unresolved platform and inherited DataShape details are left unchecked |
 | your hooks | a `[[check]]` command fails ([Configuration](CONFIGURATION.md#check-your-own-gates)) |
 | live parse | with `--live` or `[gates] live`: the server's own parser rejects a script |
 
@@ -80,6 +81,11 @@ The script traps are runtime failures that look like valid JavaScript:
 - **`unbounded-loop`:** a `while` loop that can run forever pins a platform thread.
 - **`nan-risk`:** a NaN in a result row makes the whole service fail to serialise.
 - **`read-before-assign`:** a variable read before it is assigned.
+
+`twaco unused --fields` is a separate advisory report: for each service result that mashups bind
+field by field, the fields no mashup binds or names. A result some mashup binds whole (a grid
+showing every column) is not judged. Only mashups are read, so a field a script, another service
+or a REST client reads looks unused: review before removing one.
 
 `twaco types --check` type-checks every service against declarations generated from the
 entities, the DataShapes and the server's platform metadata. A typo in a property name or a

@@ -6,7 +6,7 @@
 
 use super::config::Solution;
 use super::progress::{self, Progress, NONE};
-use super::{fmt as format_js, sync, workspace};
+use super::{bindings, fmt as format_js, sync, workspace};
 use std::collections::BTreeSet;
 use std::fmt;
 use std::path::{Path, PathBuf};
@@ -117,6 +117,7 @@ pub const BUILT_IN_GATES: &[&str] = &[
     "script traps",
     "code order",
     "project",
+    "mashup bindings",
 ];
 
 /// A built-in gate as the solution wants it: blocking, or advisory when `[gates] advisory`
@@ -138,6 +139,7 @@ pub fn run(solution: &Solution) -> CheckReport {
         script_traps(solution),
         code_order(solution),
         project_validation(solution),
+        mashup_bindings(solution),
     ] {
         report.gates.push(as_configured(solution, gate));
     }
@@ -793,6 +795,31 @@ fn project_validation(solution: &Solution) -> GateResult {
             message: problem.message,
         });
     }
+    result
+}
+
+/// Fields and parameters in a mashup are names rather than references in XML, so validate the
+/// JSON only after the project gate has established that it is readable.
+fn mashup_bindings(solution: &Solution) -> GateResult {
+    let checked = bindings::run(solution);
+    let mut result = GateResult::passed(bindings::GATE, checked.examined);
+    result.findings = checked
+        .problems
+        .into_iter()
+        .map(|problem| Finding {
+            gate: bindings::GATE.to_string(),
+            file: problem.file,
+            line: 0,
+            rule: problem.rule,
+            message: problem.message,
+        })
+        .collect();
+    let checked_count = result.examined;
+    let mut prose = format!("{checked_count} checked in {} mashups; {} not checked (entity, service or DataShape outside the repository)", checked.mashups, checked.not_checked);
+    if checked.platform_hint {
+        prose.push_str("; twaco types --platform caches the platform's services");
+    }
+    result.prose.push(prose);
     result
 }
 

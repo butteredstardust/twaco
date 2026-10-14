@@ -3,6 +3,7 @@
 pub mod adopt;
 pub mod backup;
 pub mod baseline;
+pub mod bindings;
 pub mod bundle;
 pub mod catalog;
 pub mod check;

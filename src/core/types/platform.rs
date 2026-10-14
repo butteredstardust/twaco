@@ -35,54 +35,62 @@ impl Remote for Client {
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
-pub(super) struct Platform {
+pub(crate) struct Platform {
     #[serde(default)]
-    pub(super) templates: BTreeMap<String, PlatformMeta>,
+    pub(crate) templates: BTreeMap<String, PlatformMeta>,
     #[serde(default)]
-    pub(super) shapes: BTreeMap<String, PlatformMeta>,
+    pub(crate) shapes: BTreeMap<String, PlatformMeta>,
     #[serde(default)]
-    pub(super) resources: BTreeMap<String, PlatformMeta>,
+    pub(crate) resources: BTreeMap<String, PlatformMeta>,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
-pub(super) struct PlatformMeta {
+pub(crate) struct PlatformMeta {
     #[serde(default)]
-    pub(super) services: BTreeMap<String, PlatformService>,
+    pub(crate) services: BTreeMap<String, PlatformService>,
     #[serde(default)]
-    pub(super) properties: BTreeMap<String, PlatformProperty>,
+    pub(crate) properties: BTreeMap<String, PlatformProperty>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub(super) struct PlatformService {
+pub(crate) struct PlatformService {
     #[serde(default, skip_serializing_if = "String::is_empty")]
-    description: String,
+    pub(crate) description: String,
     #[serde(default)]
-    inputs: BTreeMap<String, PlatformInput>,
-    result: PlatformValue,
+    pub(crate) inputs: BTreeMap<String, PlatformInput>,
+    pub(crate) result: PlatformValue,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-struct PlatformInput {
+pub(crate) struct PlatformInput {
     #[serde(rename = "baseType")]
-    base_type: String,
+    pub(crate) base_type: String,
     #[serde(rename = "dataShape", default, skip_serializing_if = "Option::is_none")]
-    data_shape: Option<String>,
+    pub(crate) data_shape: Option<String>,
     #[serde(default, skip_serializing_if = "is_false")]
-    required: bool,
+    pub(crate) required: bool,
     #[serde(default, skip_serializing_if = "String::is_empty")]
-    description: String,
+    pub(crate) description: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-struct PlatformValue {
+pub(crate) struct PlatformValue {
     #[serde(rename = "baseType")]
-    base_type: String,
+    pub(crate) base_type: String,
     #[serde(rename = "dataShape", default, skip_serializing_if = "Option::is_none")]
-    data_shape: Option<String>,
+    pub(crate) data_shape: Option<String>,
+}
+
+/// Read the optional platform cache. A malformed or unreadable cache deliberately behaves as no
+/// cache: callers must leave platform-dependent facts unchecked rather than guess.
+pub(crate) fn cached(solution: &Solution) -> Option<Platform> {
+    std::fs::read(solution.root.join(".twaco/platform.json"))
+        .ok()
+        .and_then(|bytes| serde_json::from_slice(&bytes).ok())
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub(super) struct PlatformProperty {
+pub(crate) struct PlatformProperty {
     #[serde(rename = "baseType")]
     pub(super) base_type: String,
     #[serde(rename = "dataShape", default, skip_serializing_if = "Option::is_none")]

@@ -6,6 +6,11 @@ All notable changes to twaco are recorded here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- `twaco check` has a `mashup bindings` gate: a mashup that binds a field its service's result DataShape does not declare, passes a parameter the service does not have, or calls a service its entity does not have fails it. ThingWorx imports all three and the widget quietly draws without the value. What twaco cannot see (a DataShape or entity outside the repository, a platform service before `twaco types --platform` has cached them) is counted as not checked rather than guessed. `[gates] advisory = ["mashup bindings"]` makes it report without failing.
+- `twaco unused --fields` (and `fields` on the `unused` MCP tool) lists, for each service result mashups bind field by field, the fields no mashup binds or names.
+
 ### Changed
 
 - `adopt --apply` without a base no longer writes a mashup or media entity it can only call unknown: it is a conflict, as everywhere else. `--take theirs:ui` takes every UI conflict and unknown at once.

@@ -79,6 +79,8 @@ impl Entity {
 #[derive(Debug, Clone)]
 pub(crate) struct DataShape {
     pub(crate) name: String,
+    /// A derived shape cannot be checked locally: its inherited fields are not in this model.
+    pub(crate) base_data_shape: Option<String>,
     pub(crate) fields: Vec<datashape::Field>,
 }
 
@@ -159,8 +161,16 @@ pub(super) fn parse_document(
         .filter(|value| !value.is_empty())
         .unwrap_or_else(|| name.to_string());
     if collection == "DataShapes" {
+        let base_data_shape =
+            attribute(&tokens[entity_at], src, "baseDataShape")?.filter(|value| !value.is_empty());
         return datashape::extract(src)
-            .map(|fields| Parsed::DataShape(DataShape { name, fields }))
+            .map(|fields| {
+                Parsed::DataShape(DataShape {
+                    name,
+                    base_data_shape,
+                    fields,
+                })
+            })
             .map_err(|error| ParseError(error.to_string()));
     }
     let host = sidecar::member_host_of(&tokens, src)

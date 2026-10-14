@@ -729,6 +729,29 @@ pub(crate) fn unused_cmd(solution: &Solution, args: &Args) -> u8 {
         );
         return FAILED;
     }
+    let fields = args.has("--fields");
+    if fields
+        && (args.values.contains_key("--min-confidence")
+            || args.values.contains_key("--collection"))
+    {
+        eprintln!(
+            "{} --fields cannot be used with --collection or --min-confidence",
+            style::prefix()
+        );
+        return FAILED;
+    }
+    if fields {
+        let report = unused::fields(solution);
+        if args.has("--json") {
+            println!(
+                "{}",
+                serde_json::to_string_pretty(&report).expect("a report serialises")
+            );
+        } else {
+            print!("{}", unused::render_fields(&report));
+        }
+        return OK;
+    }
     let min = match args.values.get("--min-confidence") {
         None => Confidence::Review,
         Some(word) => match Confidence::parse(word) {
