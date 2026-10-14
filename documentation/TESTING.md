@@ -37,7 +37,9 @@ include the awkward cases: a CDATA terminator inside a string, template literals
 a call, a `GetDBInfo` override. `TWACO_CORPUS` adds real repositories to it. The bundled one cannot
 show what ThingWorx really writes, so run real ones after touching `scan`, `splice` or a sidecar
 module. Each repository's script layout is detected from its own files, as `twaco init` detects
-it.
+it. A name that is not a folder fails the run rather than testing nothing. In a git repository
+only what it holds is read (tracked files and new ones `.gitignore` does not name), so twaco's
+backups and scratch exports are left out; `.twaco/` is skipped everywhere.
 
 A few real exports are refused by design and the tests expect exactly those refusals: a DataTable
 whose accumulated shape the platform stored as invalid JSON, two services of one name in one

@@ -40,7 +40,15 @@ fn bundled_roots() -> Vec<PathBuf> {
 fn corpus_roots() -> Vec<PathBuf> {
     let mut roots = bundled_roots();
     if let Ok(joined) = std::env::var("TWACO_CORPUS") {
-        roots.extend(std::env::split_paths(&joined).filter(|p| p.is_dir()));
+        // A name that is not a folder (a typo, a relative path) would pass by testing nothing.
+        for root in std::env::split_paths(&joined).filter(|p| !p.as_os_str().is_empty()) {
+            assert!(
+                root.is_dir(),
+                "TWACO_CORPUS names {}, which is not a folder; give absolute paths",
+                root.display()
+            );
+            roots.push(root);
+        }
     }
     roots
 }
@@ -74,8 +82,66 @@ fn the_bundled_repository_is_present_so_these_tests_never_skip() {
     }
 }
 
-/// Every XML file under a project root, skipping build output and foreign trees.
+/// Folders that are never a repository's own entities: generated output, other tools' trees, and
+/// twaco's own state (its backups are older copies, paired with today's sidecars they differ).
+const NOT_THE_REPOSITORY: [&str; 6] = [
+    ".git",
+    ".twaco",
+    "target",
+    "dist",
+    "distribution-backend",
+    "node_modules",
+];
+
+/// Every XML file under a project root, skipping build output and foreign trees. In a git
+/// worktree, only what the repository holds: tracked files and new ones it does not ignore, so a
+/// scratch export or a staged copy that `.gitignore` names is not taken for the repository.
 fn xml_files(root: &Path) -> Vec<PathBuf> {
+    let mut out = git_xml_files(root).unwrap_or_else(|| walked_xml_files(root));
+    out.retain(|path| {
+        !path
+            .strip_prefix(root)
+            .unwrap_or(path)
+            .components()
+            .any(|part| NOT_THE_REPOSITORY.contains(&part.as_os_str().to_string_lossy().as_ref()))
+    });
+    out.sort();
+    out
+}
+
+/// The XML files git lists under `root`, or None when `root` is not in a git worktree.
+fn git_xml_files(root: &Path) -> Option<Vec<PathBuf>> {
+    let listed = std::process::Command::new("git")
+        .arg("-C")
+        .arg(root)
+        .args([
+            "-c",
+            "core.quotePath=false",
+            "ls-files",
+            "-z",
+            "--cached",
+            "--others",
+            "--exclude-standard",
+            "--",
+            "*.xml",
+        ])
+        .output()
+        .ok()?;
+    if !listed.status.success() {
+        return None;
+    }
+    let text = String::from_utf8(listed.stdout).ok()?;
+    let mut out: Vec<PathBuf> = text
+        .split('\0')
+        .filter(|name| !name.is_empty())
+        .map(|name| root.join(name))
+        .filter(|path| path.is_file())
+        .collect();
+    out.dedup();
+    Some(out)
+}
+
+fn walked_xml_files(root: &Path) -> Vec<PathBuf> {
     fn walk(dir: &Path, out: &mut Vec<PathBuf>) {
         let Ok(entries) = std::fs::read_dir(dir) else {
             return;
@@ -85,15 +151,7 @@ fn xml_files(root: &Path) -> Vec<PathBuf> {
             let name = entry.file_name();
             let name = name.to_string_lossy();
             if path.is_dir() {
-                // dist and distribution-backend are generated; .git and target are not ours.
-                let skip = [
-                    ".git",
-                    "target",
-                    "dist",
-                    "distribution-backend",
-                    "node_modules",
-                ];
-                if skip.contains(&name.as_ref()) {
+                if NOT_THE_REPOSITORY.contains(&name.as_ref()) {
                     continue;
                 }
                 walk(&path, out);
@@ -104,7 +162,6 @@ fn xml_files(root: &Path) -> Vec<PathBuf> {
     }
     let mut out = Vec::new();
     walk(root, &mut out);
-    out.sort();
     out
 }
 
