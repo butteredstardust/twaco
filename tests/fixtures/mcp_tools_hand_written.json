@@ -870,7 +870,7 @@
             "type": "object",
             "properties": {
               "side": { "type": "string", "enum": ["theirs", "ours"] },
-              "target": { "description": "An entity or Entity.Service.", "type": "string" }
+              "target": { "description": "An entity or Entity.Service; `ui` with theirs takes every UI conflict and unknown.", "type": "string" }
             },
             "additionalProperties": false,
             "required": ["side", "target"]

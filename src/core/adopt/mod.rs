@@ -934,7 +934,7 @@ pub fn apply(
         match entry.kind {
             Kind::Ui => match entry.entity.collection.as_str() {
                 "Mashups" => {
-                    if !ui_should_write(report, entry, takes) {
+                    if !ui_should_write(entry, takes) {
                         steps.push((None, ui_skip_line(entry, takes)));
                         continue;
                     }
@@ -995,7 +995,7 @@ pub fn apply(
                         if current.is_some()
                             && !same(current.as_ref(), synced.as_ref())
                             && !same(current.as_ref(), Some(&assets))
-                            && !has_take(takes, TakeSide::Theirs, name)
+                            && !ui_taken(entry, takes)
                         {
                             steps.push((
                                 None,
@@ -1012,7 +1012,7 @@ pub fn apply(
                     }
                 }
                 "MediaEntities" => {
-                    if !ui_should_write(report, entry, takes) {
+                    if !ui_should_write(entry, takes) {
                         steps.push((None, ui_skip_line(entry, takes)));
                         continue;
                     }
@@ -1041,7 +1041,7 @@ pub fn apply(
                     }
                 }
                 _ => {
-                    if !ui_should_write(report, entry, takes) {
+                    if !ui_should_write(entry, takes) {
                         steps.push((None, ui_skip_line(entry, takes)));
                     } else {
                         steps.push((None, ui_not_adopted_line(entry)));
@@ -1166,15 +1166,25 @@ fn validate_takes(report: &Report, takes: &[Take]) -> Result<(), AdoptError> {
                 .map(|service| format!("{}.{}", service.entity, service.service)),
         )
         .collect();
+    let ui_open = report.entities.iter().any(|entry| {
+        entry.kind == Kind::Ui && matches!(entry.change, Change::Conflict | Change::Unknown)
+    });
     let bad: Vec<String> = takes
         .iter()
-        .filter(|take| !known.contains(&take.target))
+        .filter(|take| {
+            !known.contains(&take.target)
+                && !(ui_open && take.side == TakeSide::Theirs && take.target == TAKE_ALL_UI)
+        })
         .map(|take| take.target.clone())
         .collect();
     if bad.is_empty() {
         Ok(())
     } else {
-        let available = known.into_iter().collect::<Vec<_>>().join(", ");
+        let mut available = known.into_iter().collect::<Vec<_>>();
+        if ui_open {
+            available.push(format!("{TAKE_ALL_UI} (theirs only)"));
+        }
+        let available = available.join(", ");
         Err(AdoptError::Take(format!(
             "{}; conflicts and unknowns that can be taken: {available}",
             bad.join(", ")
@@ -1182,13 +1192,22 @@ fn validate_takes(report: &Report, takes: &[Take]) -> Result<(), AdoptError> {
     }
 }
 
-fn ui_should_write(report: &Report, entry: &EntityReport, takes: &[Take]) -> bool {
+/// The take target that resolves every UI conflict and unknown in favour of the export.
+pub const TAKE_ALL_UI: &str = "ui";
+
+/// Whether the export's version of a UI entity was explicitly asked for, by name or as `ui`.
+fn ui_taken(entry: &EntityReport, takes: &[Take]) -> bool {
+    has_take(takes, TakeSide::Theirs, &entry.entity.name)
+        || (has_take(takes, TakeSide::Theirs, TAKE_ALL_UI)
+            && matches!(entry.change, Change::Conflict | Change::Unknown))
+}
+
+/// An unknown is a conflict here as everywhere: with no base, nothing shows which side changed.
+fn ui_should_write(entry: &EntityReport, takes: &[Take]) -> bool {
     if has_take(takes, TakeSide::Ours, &entry.entity.name) {
         return false;
     }
-    matches!(entry.change, Change::Theirs | Change::Added)
-        || has_take(takes, TakeSide::Theirs, &entry.entity.name)
-        || (report.base.is_none() && entry.change == Change::Unknown)
+    matches!(entry.change, Change::Theirs | Change::Added) || ui_taken(entry, takes)
 }
 
 /// For a UI entity adopt selected but has no writer for: saying nothing would read as adopted.
@@ -1206,9 +1225,13 @@ fn ui_skip_line(entry: &EntityReport, takes: &[Take]) -> String {
     }
     match entry.change {
         Change::Stale => format!("kept     {path}: stale, ours is newer"),
-        Change::Conflict | Change::Unknown
-            if !has_take(takes, TakeSide::Theirs, &entry.entity.name) =>
-        {
+        Change::Unknown if !ui_taken(entry, takes) => {
+            format!(
+                "conflict {path}: no base shows who changed it; --take theirs:{}, --take ours:{} or --take theirs:{TAKE_ALL_UI}",
+                entry.entity.name, entry.entity.name
+            )
+        }
+        Change::Conflict if !ui_taken(entry, takes) => {
             format!(
                 "conflict {path}: both changed; --take theirs:{} or --take ours:{}",
                 entry.entity.name, entry.entity.name
@@ -2068,7 +2091,7 @@ mod tests {
         let lines: Vec<String> = outcome
             .lines
             .into_iter()
-            .filter(|l| !l.ends_with("P.A"))
+            .filter(|l| !l.contains("P.A"))
             .collect();
         assert_eq!(lines, ["created  Mashups/P.B&C.xml", "sidecar  P.B&C"]);
         let text = std::fs::read_to_string(root.join("Mashups/P.B&C.xml")).unwrap();
@@ -2104,7 +2127,7 @@ mod tests {
             .unwrap()
             .lines
             .into_iter()
-            .filter(|l| !l.ends_with("P.A"))
+            .filter(|l| !l.contains("P.A"))
             .collect();
         assert_eq!(lines.len(), 1);
         assert!(
@@ -2123,7 +2146,7 @@ mod tests {
             .unwrap()
             .lines
             .into_iter()
-            .filter(|l| !l.ends_with("P.A"))
+            .filter(|l| !l.contains("P.A"))
             .collect();
         let kinds: Vec<&str> = lines
             .iter()

@@ -127,6 +127,41 @@ fn stale_backend_service_is_a_noop_and_conflict_needs_a_take() {
 }
 
 #[test]
+fn taking_all_ui_needs_a_ui_conflict_and_the_theirs_side() {
+    // A backend-only report: there is no UI conflict for `ui` to name.
+    let (_dir, solution, base, export) = backend_case("base();", "ours();", "theirs();");
+    let report = compared(&solution, &base, &export);
+    let all_ui = |side| {
+        [Take {
+            side,
+            target: TAKE_ALL_UI.to_string(),
+        }]
+    };
+    assert!(matches!(
+        apply(
+            &solution,
+            &export,
+            &report,
+            &all_ui(TakeSide::Theirs),
+            &locked(&solution)
+        ),
+        Err(AdoptError::Take(_))
+    ));
+    let (_dir, solution, _base, export) = ui_case(r#"{"x": 1}"#, r#"{"x": 2}"#, r#"{"x": 3}"#);
+    let report = compare(&solution, &export, &[]).unwrap();
+    let error = apply(
+        &solution,
+        &export,
+        &report,
+        &all_ui(TakeSide::Ours),
+        &locked(&solution),
+    )
+    .err()
+    .expect("ours:ui is not a take");
+    assert!(error.to_string().contains("ui (theirs only)"), "{error}");
+}
+
+#[test]
 fn an_unknown_take_is_refused_before_any_write() {
     let (_dir, solution, base, export) = backend_case("old();", "old();", "theirs();");
     let before = std::fs::read(solution.root.join("Things/P.T.xml")).unwrap();
@@ -146,7 +181,7 @@ fn an_unknown_take_is_refused_before_any_write() {
 }
 
 #[test]
-fn ui_writes_theirs_and_unknown_without_a_base_but_never_stale_or_unresolved_conflict() {
+fn ui_writes_theirs_but_never_stale_unknown_or_unresolved_conflict() {
     let (_dir, solution, base, export) = ui_case(r#"{"x": 1}"#, r#"{"x": 1}"#, r#"{"x": 2}"#);
     let report = compared(&solution, &base, &export);
     apply(&solution, &export, &report, &[], &locked(&solution)).unwrap();
@@ -164,14 +199,27 @@ fn ui_writes_theirs_and_unknown_without_a_base_but_never_stale_or_unresolved_con
         r#"{"x": 2}"#
     );
 
+    // No base: an unknown is a conflict, which a take of the mashup or of all UI resolves.
     let (_dir, solution, _base, export) = ui_case(r#"{"x": 1}"#, r#"{"x": 2}"#, r#"{"x": 3}"#);
+    let content = solution.root.join("src/P.M/mashup/content.json");
     let report = compare(&solution, &export, &[]).unwrap();
-    apply(&solution, &export, &report, &[], &locked(&solution)).unwrap();
-    assert!(
-        std::fs::read_to_string(solution.root.join("src/P.M/mashup/content.json"))
-            .unwrap()
-            .contains("\"x\": 3")
+    assert_eq!(report.entities[0].change, Change::Unknown);
+    let lines = apply(&solution, &export, &report, &[], &locked(&solution))
+        .unwrap()
+        .lines;
+    assert_eq!(
+        lines,
+        ["conflict Mashups/P.M: no base shows who changed it; --take theirs:P.M, --take ours:P.M or --take theirs:ui"]
     );
+    assert_eq!(std::fs::read_to_string(&content).unwrap(), r#"{"x": 2}"#);
+    let all_ui = [Take {
+        side: TakeSide::Theirs,
+        target: TAKE_ALL_UI.to_string(),
+    }];
+    apply(&solution, &export, &report, &all_ui, &locked(&solution)).unwrap();
+    assert!(std::fs::read_to_string(&content)
+        .unwrap()
+        .contains("\"x\": 3"));
 
     let (_dir, solution, base, export) = ui_case(r#"{"x": 1}"#, r#"{"x": 2}"#, r#"{"x": 3}"#);
     let report = compared(&solution, &base, &export);
@@ -535,16 +583,13 @@ fn a_mashup_only_they_changed_keeps_a_sidecar_edit_not_yet_synced() {
         side: TakeSide::Theirs,
         target: "P.M".to_string(),
     }];
-    let (_dir, solution, _base, export) = ui_case(r#"{"x": 1}"#, r#"{"x": 2}"#, r#"{"x": 3}"#);
+    let (_dir, solution, base, export) = ui_case(r#"{"x": 1}"#, r#"{"x": 2}"#, r#"{"x": 3}"#);
     let content = solution.root.join("src/P.M/mashup/content.json");
     std::fs::write(&content, r#"{"x": 5}"#).unwrap();
-    let report = compare(&solution, &export, &[]).unwrap();
-    assert_eq!(
-        apply(&solution, &export, &report, &[], &locked(&solution))
-            .unwrap()
-            .lines,
-        ["kept     Mashups/P.M: its sidecars changed since the last sync; sync, then adopt again"]
-    );
+    let report = compared(&solution, &base, &export);
+    assert_eq!(report.entities[0].change, Change::Conflict);
+    apply(&solution, &export, &report, &[], &locked(&solution)).unwrap();
+    assert_eq!(std::fs::read_to_string(&content).unwrap(), r#"{"x": 5}"#);
     apply(&solution, &export, &report, &takes, &locked(&solution)).unwrap();
     assert!(std::fs::read_to_string(&content)
         .unwrap()

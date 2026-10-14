@@ -1609,7 +1609,7 @@
                 ]
               },
               "target": {
-                "description": "An entity or Entity.Service.",
+                "description": "An entity or Entity.Service; `ui` with theirs takes every UI conflict and unknown.",
                 "type": "string"
               }
             },

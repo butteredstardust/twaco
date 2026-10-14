@@ -8,6 +8,7 @@ All notable changes to twaco are recorded here. The format follows
 
 ### Changed
 
+- `adopt --apply` without a base no longer writes a mashup or media entity it can only call unknown: it is a conflict, as everywhere else. `--take theirs:ui` takes every UI conflict and unknown at once.
 - `adopt --base <git-rev>` reads the revision with one git process instead of one per file: about ten times faster on a solution of 700 files.
 
 ### Fixed

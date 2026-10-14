@@ -920,7 +920,8 @@ pub(crate) const COMMANDS: &[Command] = &[
         ],
         text: r#"  adopt <export.xml>          take a designer's or backend collaborator's export; plan unless --apply
       --base <file|handoff|git rev>  collaborator's starting point; --only ui|backend
-      --take theirs:<name>,ours:<name>  resolve conflicts; --entity <name>; --detail; --json; --fail-on-revert"#,
+      --take theirs:<name>,ours:<name>  resolve conflicts (theirs:ui takes every UI one)
+      --entity <name>; --detail; --json; --fail-on-revert"#,
     },
     Command {
         path: "handoff",
