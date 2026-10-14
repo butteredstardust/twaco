@@ -6,6 +6,8 @@ All notable changes to twaco are recorded here. The format follows
 
 ## [Unreleased]
 
+## [0.1.8] - 2026-10-14
+
 ### Added
 
 - `twaco check` has a `mashup bindings` gate: a mashup that binds a field its service's result DataShape does not declare, passes a parameter the service does not have, or calls a service its entity does not have fails it. ThingWorx imports all three and the widget quietly draws without the value. What twaco cannot see (a DataShape or entity outside the repository, a platform service before `twaco types --platform` has cached them) is counted as not checked rather than guessed. `[gates] advisory = ["mashup bindings"]` makes it report without failing.
@@ -425,6 +427,7 @@ The first public release.
 - `mcp` serves 39 tools over stdio to MCP clients, with compact summaries, validated arguments
   and dry runs by default for tools that can write to a server.
 
+[0.1.8]: https://github.com/butteredstardust/twaco/releases/tag/v0.1.8
 [0.1.7]: https://github.com/butteredstardust/twaco/releases/tag/v0.1.7
 [0.1.6]: https://github.com/butteredstardust/twaco/releases/tag/v0.1.6
 [0.1.5]: https://github.com/butteredstardust/twaco/releases/tag/v0.1.5
