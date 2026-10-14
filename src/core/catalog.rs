@@ -387,7 +387,12 @@ pub(crate) fn lookup_service(
             current = None;
         }
     }
-    match platform.and_then(|p| p.templates.get("GenericThing")) {
+    // Every Thing has GenericThing's services, but only below everything else on its chain: a
+    // template or shape twaco cannot see may declare the same service differently.
+    match platform
+        .filter(|_| complete)
+        .and_then(|p| p.templates.get("GenericThing"))
+    {
         Some(meta) => ServiceLookup {
             service: meta
                 .services
@@ -402,6 +407,7 @@ pub(crate) fn lookup_service(
     }
 }
 
+#[derive(Clone)]
 pub(crate) struct ServiceLookup {
     pub(crate) service: Option<Service>,
     pub(crate) complete: bool,

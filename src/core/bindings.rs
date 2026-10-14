@@ -3,11 +3,12 @@
 use super::catalog;
 use super::config::Solution;
 use super::mashup;
-use super::types::{self, Model, Service};
+use super::types::{self, DataShape, Entity, Model, Service};
 use super::workspace;
 use serde::Serialize;
 use serde_json::Value;
-use std::collections::{BTreeMap, BTreeSet};
+use std::cell::RefCell;
+use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 
 pub(crate) const GATE: &str = "mashup bindings";
 
@@ -60,13 +61,16 @@ pub(crate) fn unused_fields(solution: &Solution) -> FieldsReport {
     // A field a mashup names anywhere counts as used: a grid's column settings, an expression, a
     // binding from another service. Scripts do not count: the service that fills a field always
     // names it, so every field would look used.
-    let texts: Vec<String> = workspace::discover(solution)
+    let mut named = HashSet::new();
+    for file in workspace::discover(solution)
         .entities
         .iter()
         .filter(|file| file.info.collection == "Mashups")
-        .filter_map(|file| std::fs::read(&file.path).ok())
-        .map(|bytes| String::from_utf8_lossy(&bytes).into_owned())
-        .collect();
+    {
+        if let Ok(bytes) = std::fs::read(&file.path) {
+            words(&String::from_utf8_lossy(&bytes), &mut named);
+        }
+    }
     let mut judged = 0;
     let mut bound_whole = 0;
     let mut data_shapes = Vec::new();
@@ -80,7 +84,7 @@ pub(crate) fn unused_fields(solution: &Solution) -> FieldsReport {
             .fields
             .iter()
             .filter(|field| !seen.bound.contains(*field))
-            .filter(|field| !texts.iter().any(|text| contains_word(text, field)))
+            .filter(|field| !named.contains(field.as_str()))
             .cloned()
             .collect();
         if !fields.is_empty() {
@@ -116,6 +120,8 @@ fn analyse(solution: &Solution) -> (Report, FieldUsage) {
     let (model, _) = types::load_model(solution);
     let platform = types::cached_platform(solution);
     let cache_missing = platform.is_none();
+    let resolver = Resolver::new(&model, platform.as_ref());
+    let model = &resolver;
     let discovery = workspace::discover(solution);
     let mut report = Report {
         problems: Vec::new(),
@@ -151,7 +157,7 @@ fn analyse(solution: &Solution) -> (Report, FieldUsage) {
         let sections = data_sections(&content);
         for section in sections.values() {
             for service in &section.services {
-                let lookup = resolve(&model, platform.as_ref(), section, &service.target);
+                let lookup = model.service(section, &service.target);
                 if let Some(found) = lookup.service.as_ref() {
                     report.examined += 1;
                     for parameter in &service.static_parameters {
@@ -200,14 +206,14 @@ fn analyse(solution: &Solution) -> (Report, FieldUsage) {
                     binding.get("PropertyMaps").and_then(Value::as_array),
                 ) {
                     if let Some((section, service)) = service_at(&sections, section, instance) {
-                        let lookup = resolve(&model, platform.as_ref(), section, &service.target);
+                        let lookup = model.service(section, &service.target);
                         if let Some(found) = lookup.service.as_ref() {
                             track_result(
                                 &mut usage,
                                 &section.entity,
                                 &service.target,
                                 found,
-                                &model,
+                                model,
                             );
                         }
                         for map in property {
@@ -215,11 +221,10 @@ fn analyse(solution: &Solution) -> (Report, FieldUsage) {
                                 .get("SourceProperty")
                                 .and_then(Value::as_str)
                                 .filter(|value| !value.is_empty());
-                            let field = map.get("SourcePropertyType").and_then(Value::as_str)
-                                == Some("Field");
-                            let Some(name) = name.filter(|_| field) else {
+                            let kind = map.get("SourcePropertyType").and_then(Value::as_str);
+                            let Some(name) = name.filter(|_| kind == Some("Field")) else {
                                 // The whole table (AllData, SelectedRows) goes to the widget.
-                                if name.is_none() {
+                                if name.is_none() || kind == Some("InfoTable") {
                                     if let Some(shape) = lookup
                                         .service
                                         .as_ref()
@@ -242,7 +247,7 @@ fn analyse(solution: &Solution) -> (Report, FieldUsage) {
                                 },
                                 name,
                                 &lookup,
-                                &model,
+                                model,
                             );
                             report.platform_hint |=
                                 cache_missing && lookup.service.is_none() && !lookup.complete;
@@ -257,7 +262,7 @@ fn analyse(solution: &Solution) -> (Report, FieldUsage) {
                     binding.get("PropertyMaps").and_then(Value::as_array),
                 ) {
                     if let Some((section, service)) = service_at(&sections, section, instance) {
-                        let lookup = resolve(&model, platform.as_ref(), section, &service.target);
+                        let lookup = model.service(section, &service.target);
                         for map in property {
                             if map.get("TargetPropertyType").and_then(Value::as_str)
                                 != Some("Parameter")
@@ -399,21 +404,68 @@ fn service_at<'a>(
         .map(|service| (section, service))
 }
 
-fn resolve<'a>(
+/// The model indexed by name, and each service looked up once: a large solution binds the same
+/// few services from hundreds of mashups.
+struct Resolver<'a> {
     model: &'a Model,
     platform: Option<&'a types::Platform>,
-    section: &Section,
-    service: &str,
-) -> catalog::ServiceLookup {
-    model
-        .entities
-        .iter()
-        .find(|entity| entity.collection == section.collection && entity.name == section.entity)
-        .map(|entity| catalog::lookup_service(entity, &model.entities, platform, service))
-        .unwrap_or(catalog::ServiceLookup {
-            service: None,
-            complete: false,
-        })
+    entities: HashMap<(&'a str, &'a str), &'a Entity>,
+    shapes: HashMap<&'a str, &'a DataShape>,
+    looked_up: RefCell<HashMap<(String, String, String), catalog::ServiceLookup>>,
+}
+
+impl<'a> Resolver<'a> {
+    fn new(model: &'a Model, platform: Option<&'a types::Platform>) -> Self {
+        let mut entities = HashMap::new();
+        for entity in &model.entities {
+            // The first of two same-named entities, as a search through the list finds it.
+            entities
+                .entry((entity.collection.as_str(), entity.name.as_str()))
+                .or_insert(entity);
+        }
+        let mut shapes = HashMap::new();
+        for shape in &model.data_shapes {
+            shapes.entry(shape.name.as_str()).or_insert(shape);
+        }
+        Resolver {
+            model,
+            platform,
+            entities,
+            shapes,
+            looked_up: RefCell::new(HashMap::new()),
+        }
+    }
+
+    fn service(&self, section: &Section, service: &str) -> catalog::ServiceLookup {
+        let key = (
+            section.collection.clone(),
+            section.entity.clone(),
+            service.to_string(),
+        );
+        if let Some(found) = self.looked_up.borrow().get(&key) {
+            return found.clone();
+        }
+        let found = self
+            .entities
+            .get(&(section.collection.as_str(), section.entity.as_str()))
+            .map(|entity| {
+                catalog::lookup_service(entity, &self.model.entities, self.platform, service)
+            })
+            .unwrap_or(catalog::ServiceLookup {
+                service: None,
+                complete: false,
+            });
+        self.looked_up.borrow_mut().insert(key, found.clone());
+        found
+    }
+
+    /// A DataShape whose fields are all in the repository: present, and not derived.
+    fn checkable_shape(&self, name: &str) -> Option<&'a DataShape> {
+        self.shapes
+            .get(name)
+            .copied()
+            .filter(|shape| shape.base_data_shape.is_none())
+    }
 }
 
 fn head(name: &str) -> &str {
@@ -447,7 +499,7 @@ fn check_field(
     site: &Site<'_>,
     name: &str,
     lookup: &catalog::ServiceLookup,
-    model: &Model,
+    model: &Resolver<'_>,
 ) {
     let Some(service) = lookup.service.as_ref() else {
         report.not_checked += 1;
@@ -461,11 +513,7 @@ fn check_field(
         report.not_checked += 1;
         return;
     };
-    let Some(shape) = model
-        .data_shapes
-        .iter()
-        .find(|shape| shape.name == shape_name && shape.base_data_shape.is_none())
-    else {
+    let Some(shape) = model.checkable_shape(shape_name) else {
         report.not_checked += 1;
         return;
     };
@@ -484,7 +532,7 @@ fn track_result(
     entity: &str,
     service_name: &str,
     service: &Service,
-    model: &Model,
+    model: &Resolver<'_>,
 ) {
     if !service.result.base_type.eq_ignore_ascii_case("INFOTABLE") {
         return;
@@ -492,11 +540,7 @@ fn track_result(
     let Some(shape_name) = service.result.data_shape.as_deref() else {
         return;
     };
-    let Some(shape) = model
-        .data_shapes
-        .iter()
-        .find(|shape| shape.name == shape_name && shape.base_data_shape.is_none())
-    else {
+    let Some(shape) = model.checkable_shape(shape_name) else {
         return;
     };
     let entry = usage
@@ -529,20 +573,16 @@ fn add_problem(report: &mut Report, site: &Site<'_>, rule: &str, name: &str, mes
     }
 }
 
-fn contains_word(text: &str, word: &str) -> bool {
-    let is_word = |character: Option<char>| {
-        character.is_some_and(|character| character.is_alphanumeric() || character == '_')
-    };
-    let mut start = 0;
-    while let Some(found) = text[start..].find(word) {
-        let at = start + found;
-        let end = at + word.len();
-        if !is_word(text[..at].chars().next_back()) && !is_word(text[end..].chars().next()) {
-            return true;
+/// Every word of `text` into `out`. A word is letters, digits, `_` and `-`, so a field named
+/// `foo` is not found inside `foo-bar`.
+fn words(text: &str, out: &mut HashSet<String>) {
+    for word in text.split(|character: char| {
+        !(character.is_alphanumeric() || character == '_' || character == '-')
+    }) {
+        if !word.is_empty() && !out.contains(word) {
+            out.insert(word.to_string());
         }
-        start = end;
     }
-    false
 }
 
 #[cfg(test)]
@@ -753,6 +793,39 @@ mod tests {
         let (_named_dir, named) = super::tests::solution(named);
         let report = unused_fields(&named);
         assert_eq!(report.judged, 1);
+        assert_eq!(report.data_shapes[0].fields, ["unused"]);
+    }
+
+    #[test]
+    fn generic_thing_does_not_answer_for_a_template_twaco_cannot_see() {
+        // RemoteThing may declare GetPropertyValues with other parameters; nothing is known.
+        let (dir, solution) = solution(
+            r#"{"Data":{"T":{"EntityName":"P.Other","EntityType":"Things","Services":[{"Name":"GetPropertyValues","Target":"GetPropertyValues","Parameters":{"x":"1"}}]}}}"#,
+        );
+        write(
+            dir.path(),
+            "Things/P.Other.xml",
+            r#"<Entities><Things><Thing name="P.Other" thingTemplate="RemoteThing"><ThingShape><ServiceDefinitions/><ServiceImplementations/></ThingShape></Thing></Things></Entities>"#,
+        );
+        cache_platform(&solution);
+        let report = run(&solution);
+        assert!(report.problems.is_empty(), "{:?}", report.problems);
+        assert_eq!((report.examined, report.not_checked), (0, 1));
+    }
+
+    #[test]
+    fn an_infotable_map_with_a_source_name_is_still_the_whole_table() {
+        let content = r#"{"Data":{"Shape":{"EntityName":"P.Shape","EntityType":"DynamicThingShapes","Services":[{"Name":"Svc","Target":"Svc"}]}},"DataBindings":[{"SourceArea":"Data","SourceSection":"Shape","SourceId":"Svc","PropertyMaps":[{"SourcePropertyType":"Field","SourceProperty":"good"},{"SourcePropertyType":"InfoTable","SourceProperty":"AllData"}]}]}"#;
+        let (_dir, solution) = solution(content);
+        let report = unused_fields(&solution);
+        assert_eq!((report.judged, report.bound_whole), (0, 1));
+    }
+
+    #[test]
+    fn a_field_is_not_found_inside_a_longer_hyphenated_name() {
+        let content = r#"{"Data":{"Shape":{"EntityName":"P.Shape","EntityType":"DynamicThingShapes","Services":[{"Name":"Svc","Target":"Svc"}]}},"DataBindings":[{"SourceArea":"Data","SourceSection":"Shape","SourceId":"Svc","PropertyMaps":[{"SourcePropertyType":"Field","SourceProperty":"good"}]}],"UI":{"Label":"unused-label scripted"}}"#;
+        let (_dir, solution) = solution(content);
+        let report = unused_fields(&solution);
         assert_eq!(report.data_shapes[0].fields, ["unused"]);
     }
 

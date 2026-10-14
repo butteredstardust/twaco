@@ -116,6 +116,50 @@ pub fn record_handoff(
     name: &str,
     files: &[PathBuf],
 ) -> Result<Handoff, AdoptError> {
+    let recorded = check_handoff(solution, name, files)?;
+    let directory = handoff_root(solution).join(name);
+    // Take this before making `.twaco/handoffs` itself visible to `git status`.
+    let commit = git_text(&solution.root, ["rev-parse", "HEAD"]);
+    let dirty =
+        git_text(&solution.root, ["status", "--porcelain"]).is_some_and(|text| !text.is_empty());
+    // Written beside its final place and renamed into it, so an interruption leaves a hidden
+    // folder `handoffs` skips rather than a handoff without its `handoff.json`.
+    let staging = handoff_root(solution).join(format!(".{name}.partial"));
+    let io = |path: &Path, error: std::io::Error| AdoptError::Repository {
+        path: path.to_path_buf(),
+        why: error.to_string(),
+    };
+    if staging.exists() {
+        std::fs::remove_dir_all(&staging).map_err(|error| io(&staging, error))?;
+    }
+    std::fs::create_dir_all(&staging).map_err(|error| io(&staging, error))?;
+    for (file, file_name) in files.iter().zip(&recorded) {
+        std::fs::copy(file, staging.join(file_name)).map_err(|error| io(file, error))?;
+    }
+    let handoff = Handoff {
+        name: name.to_string(),
+        commit,
+        dirty,
+        created: std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_millis() as u64,
+        files: recorded,
+    };
+    let json = serde_json::to_vec_pretty(&handoff).expect("handoff is serializable");
+    let metadata = staging.join("handoff.json");
+    std::fs::write(&metadata, json).map_err(|error| io(&metadata, error))?;
+    std::fs::rename(&staging, &directory).map_err(|error| io(&directory, error))?;
+    Ok(handoff)
+}
+
+/// Everything `record_handoff` refuses, without writing anything: a plan of a recording runs it,
+/// so a plan that passes can be recorded. Returns the file names the handoff will hold.
+pub fn check_handoff(
+    solution: &Solution,
+    name: &str,
+    files: &[PathBuf],
+) -> Result<Vec<String>, AdoptError> {
     if !plain_name(name) {
         return Err(AdoptError::Base {
             base: name.to_string(),
@@ -155,39 +199,7 @@ pub fn record_handoff(
         }
         recorded.push(file_name.to_string());
     }
-    // Take this before making `.twaco/handoffs` itself visible to `git status`.
-    let commit = git_text(&solution.root, ["rev-parse", "HEAD"]);
-    let dirty =
-        git_text(&solution.root, ["status", "--porcelain"]).is_some_and(|text| !text.is_empty());
-    // Written beside its final place and renamed into it, so an interruption leaves a hidden
-    // folder `handoffs` skips rather than a handoff without its `handoff.json`.
-    let staging = handoff_root(solution).join(format!(".{name}.partial"));
-    let io = |path: &Path, error: std::io::Error| AdoptError::Repository {
-        path: path.to_path_buf(),
-        why: error.to_string(),
-    };
-    if staging.exists() {
-        std::fs::remove_dir_all(&staging).map_err(|error| io(&staging, error))?;
-    }
-    std::fs::create_dir_all(&staging).map_err(|error| io(&staging, error))?;
-    for (file, file_name) in files.iter().zip(&recorded) {
-        std::fs::copy(file, staging.join(file_name)).map_err(|error| io(file, error))?;
-    }
-    let handoff = Handoff {
-        name: name.to_string(),
-        commit,
-        dirty,
-        created: std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap_or_default()
-            .as_millis() as u64,
-        files: recorded,
-    };
-    let json = serde_json::to_vec_pretty(&handoff).expect("handoff is serializable");
-    let metadata = staging.join("handoff.json");
-    std::fs::write(&metadata, json).map_err(|error| io(&metadata, error))?;
-    std::fs::rename(&staging, &directory).map_err(|error| io(&directory, error))?;
-    Ok(handoff)
+    Ok(recorded)
 }
 
 /// Recorded handoffs, newest first. Invalid entries are refused rather than silently ignored.

@@ -21,7 +21,7 @@ fn snapshot(root: &Path) -> BTreeMap<PathBuf, Vec<u8>> {
             let name = path.file_name().unwrap().to_string_lossy().into_owned();
             if path.is_dir() {
                 walk(&path, out);
-            } else if name == "lock" || name == "lock.holder" {
+            } else if (name == "lock" || name == "lock.holder") && dir.ends_with(".twaco") {
                 // The workspace lock a test takes to apply a plan is not part of the workspace:
                 // its holder names the second it was taken, so a slow run would differ.
             } else {

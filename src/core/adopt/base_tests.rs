@@ -162,15 +162,14 @@ fn a_handoff_refuses_two_files_with_one_name() {
         )
         .unwrap();
     }
-    let error = record_handoff(
-        &solution,
-        "both",
-        &[
-            temporary.path().join("a/package.xml"),
-            temporary.path().join("b/package.xml"),
-        ],
-    )
-    .unwrap_err();
+    let files = [
+        temporary.path().join("a/package.xml"),
+        temporary.path().join("b/package.xml"),
+    ];
+    // A plan is refused for the same reason, so a plan that passes can be recorded.
+    let planned = check_handoff(&solution, "both", &files).unwrap_err();
+    assert!(planned.to_string().contains("package.xml"), "{planned}");
+    let error = record_handoff(&solution, "both", &files).unwrap_err();
     assert!(error.to_string().contains("package.xml"), "{error}");
     assert!(!temporary.path().join(".twaco/handoffs/both").exists());
 }

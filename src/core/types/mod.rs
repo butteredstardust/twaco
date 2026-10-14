@@ -11,7 +11,9 @@ mod write;
 
 pub(crate) use compiler::check_with;
 pub use compiler::{check, CompilerOutput, CompilerRunner};
-pub(crate) use model::{load_model, Entity, Member, Model, Parameter, Service, TypedValue};
+pub(crate) use model::{
+    load_model, DataShape, Entity, Member, Model, Parameter, Service, TypedValue,
+};
 pub use outcome::{
     check_summary, finding_json, refresh_after_write, CheckError, CheckOutcome, Outcome,
     PlatformOutcome, Refresh, TypeFinding,

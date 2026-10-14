@@ -27,7 +27,8 @@ mod base_tests;
 mod classify_tests;
 
 pub use base::{
-    handoffs, history_versions, record_handoff, resolve, Base, BaseSource, Handoff, Side,
+    check_handoff, handoffs, history_versions, record_handoff, resolve, Base, BaseSource, Handoff,
+    Side,
 };
 pub use classify::{Change, Kind};
 
