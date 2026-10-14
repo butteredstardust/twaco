@@ -488,6 +488,162 @@ fn a_kept_sidecar_keeps_its_crlf_bytes() {
 }
 
 #[test]
+fn an_entity_only_they_changed_keeps_a_sidecar_edit_not_yet_synced() {
+    // The entity XML still equals the base, but our sidecar holds newer, unsynced work.
+    let (_dir, solution, base, export) = multi_case(
+        ("v", &[("A", "a();"), ("B", "b();")]),
+        ("v", &[("A", "a();"), ("B", "b();")]),
+        ("t", &[("A", "a();"), ("B", "b();")]),
+    );
+    std::fs::write(sidecar(&solution, "A").join("script.js"), "mine();").unwrap();
+    let lines = apply_all(&solution, &base, &export, &[]);
+    assert!(
+        !lines.iter().any(|l| l.starts_with("replaced")),
+        "{lines:?}"
+    );
+    assert!(
+        lines.iter().any(|l| l == "kept     P.T.A: stale"),
+        "{lines:?}"
+    );
+    assert_eq!(
+        std::fs::read_to_string(sidecar(&solution, "A").join("script.js")).unwrap(),
+        "mine();"
+    );
+    let entity = read(&solution, "Things/P.T.xml");
+    assert!(
+        entity.contains("<value>t</value>") && entity.contains("mine();"),
+        "{entity}"
+    );
+}
+
+#[test]
+fn a_mashup_only_they_changed_keeps_a_sidecar_edit_not_yet_synced() {
+    let (_dir, solution, base, export) = ui_case(r#"{"x": 1}"#, r#"{"x": 1}"#, r#"{"x": 2}"#);
+    let content = solution.root.join("src/P.M/mashup/content.json");
+    std::fs::write(&content, r#"{"x": 5}"#).unwrap();
+    let report = compared(&solution, &base, &export);
+    let lines = apply(&solution, &export, &report, &[], &locked(&solution))
+        .unwrap()
+        .lines;
+    assert_eq!(
+        lines,
+        ["kept     Mashups/P.M: its sidecars changed since the last sync; sync, then adopt again"]
+    );
+    assert_eq!(std::fs::read_to_string(&content).unwrap(), r#"{"x": 5}"#);
+    // An explicit take still wins.
+    let takes = [Take {
+        side: TakeSide::Theirs,
+        target: "P.M".to_string(),
+    }];
+    let (_dir, solution, _base, export) = ui_case(r#"{"x": 1}"#, r#"{"x": 2}"#, r#"{"x": 3}"#);
+    let content = solution.root.join("src/P.M/mashup/content.json");
+    std::fs::write(&content, r#"{"x": 5}"#).unwrap();
+    let report = compare(&solution, &export, &[]).unwrap();
+    assert_eq!(
+        apply(&solution, &export, &report, &[], &locked(&solution))
+            .unwrap()
+            .lines,
+        ["kept     Mashups/P.M: its sidecars changed since the last sync; sync, then adopt again"]
+    );
+    apply(&solution, &export, &report, &takes, &locked(&solution)).unwrap();
+    assert!(std::fs::read_to_string(&content)
+        .unwrap()
+        .contains("\"x\": 3"));
+}
+
+#[test]
+fn taking_our_entity_keeps_it_whole_and_quiet() {
+    let (_dir, solution, base, export) = multi_case(
+        ("v", &[("A", "a();")]),
+        ("o", &[("A", "a();")]),
+        ("t", &[("A", "a2();")]),
+    );
+    let before = file_snapshot(&solution.root);
+    let lines = apply_all(
+        &solution,
+        &base,
+        &export,
+        &[Take {
+            side: TakeSide::Ours,
+            target: "P.T".to_string(),
+        }],
+    );
+    assert_eq!(lines, ["kept     Things/P.T: ours"]);
+    assert_eq!(file_snapshot(&solution.root), before);
+
+    let (_dir, solution, base, export) = ui_case(r#"{"x": 1}"#, r#"{"x": 2}"#, r#"{"x": 3}"#);
+    let report = compared(&solution, &base, &export);
+    let takes = [Take {
+        side: TakeSide::Ours,
+        target: "P.M".to_string(),
+    }];
+    let lines = apply(&solution, &export, &report, &takes, &locked(&solution))
+        .unwrap()
+        .lines;
+    assert_eq!(lines, ["kept     Mashups/P.M: ours"]);
+}
+
+#[test]
+fn a_changed_crlf_sidecar_keeps_crlf() {
+    let (_dir, solution, base, export) = multi_case(
+        ("v", &[("A", "a();")]),
+        ("v", &[("A", "a();")]),
+        ("v", &[("A", "a2();\nz();")]),
+    );
+    let script = sidecar(&solution, "A").join("script.js");
+    std::fs::write(&script, "a();\r\n").unwrap();
+    apply_all(&solution, &base, &export, &[]);
+    assert_eq!(std::fs::read_to_string(&script).unwrap(), "a2();\r\nz();");
+}
+
+#[test]
+fn backend_names_that_cannot_be_file_names_are_refused_before_any_write() {
+    for (entity, service) in [("../P.Evil", "Run"), ("P.New", "../Run"), ("P.New", "CON")] {
+        let (_dir, solution, base, export) = multi_case(
+            ("v", &[("A", "a();")]),
+            ("v", &[("A", "a();")]),
+            ("v", &[("A", "a();")]),
+        );
+        let new = entity_named(entity, "n", &[(service, "run();")]);
+        let xml = std::fs::read_to_string(&export)
+            .unwrap()
+            .replace("</Things></Entities>", &new["<Entities><Things>".len()..]);
+        std::fs::write(&export, xml).unwrap();
+        let before = file_snapshot(&solution.root);
+        let report = compared(&solution, &base, &export);
+        let error = apply(&solution, &export, &report, &[], &locked(&solution))
+            .err()
+            .unwrap_or_else(|| panic!("{entity}.{service} was adopted"));
+        assert!(
+            error.to_string().contains("cannot be a file name"),
+            "{entity}.{service}: {error}"
+        );
+        assert_eq!(file_snapshot(&solution.root), before, "{entity}.{service}");
+    }
+}
+
+#[test]
+fn a_ui_entity_adopt_cannot_write_says_so() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("twaco.toml"), "[[project]]\nname = \"P\"\n").unwrap();
+    let export = dir.path().join("export.xml");
+    std::fs::write(
+        &export,
+        "<Entities><StyleThemes><StyleTheme name=\"P.Theme\" projectName=\"P\"/></StyleThemes></Entities>",
+    )
+    .unwrap();
+    let solution = Solution::load(&dir.path().join("twaco.toml")).unwrap();
+    let report = compare(&solution, &export, &[]).unwrap();
+    let lines = apply(&solution, &export, &report, &[], &locked(&solution))
+        .unwrap()
+        .lines;
+    assert_eq!(
+        lines,
+        ["not adopted StyleThemes/P.Theme: adopt writes mashups and media only; import it from the export"]
+    );
+}
+
+#[test]
 fn a_failure_preparing_a_later_entity_writes_nothing() {
     let (_dir, solution, base, export) = multi_case(
         ("v", &[("A", "a();")]),

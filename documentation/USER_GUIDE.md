@@ -163,15 +163,22 @@ with `--base` on another machine.
 | conflict | both changed differently | reports it; use `--take` |
 | added | it did not exist at the handoff or here | writes theirs |
 | we removed | it was removed here | reports it |
-| unknown | no base can prove its origin | reports it as a conflict |
+| unknown | no base can prove its origin | reports it as a conflict; with no base at all, a mashup or media entity is written as before three-way adopt |
 
 Mashups, media, themes and configured UI collections are UI; everything else is backend. Use
 `--only ui` or `--only backend` to narrow a run. Backend service and entity changes that are safe
 to take are folded into XML and sidecars in the apply transaction. Mashup sidecars alone may need
-`twaco sync --all` afterwards. Resolve an individual conflict with
+`twaco sync --all` afterwards. Apply writes mashups and media; another UI entity it would take is
+listed as `not adopted`, to import from the export. Resolve an individual conflict with
 `--take theirs:Acme.Orders.Manager.GetOrders` or keep it with
-`--take ours:Acme.Orders.Manager`; a take may name an entity or one service. `[adopt]` in
-`twaco.toml` still lists values that differ on every export by design.
+`--take ours:Acme.Orders.Manager`; a take may name an entity or one service, and taking ours for
+an entity leaves it whole. `[adopt]` in `twaco.toml` still lists values that differ on every
+export by design.
+
+States compare entity XML, so sidecars edited since the last `twaco sync` are protected
+separately: a backend entity with such a service is merged service by service rather than
+replaced, and a mashup whose sidecars changed is kept until you sync and adopt again (or
+`--take theirs:` it).
 
 ## Renaming
 

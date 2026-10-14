@@ -228,6 +228,48 @@ fn history_fallback_marks_committed_values_stale() {
 }
 
 #[test]
+fn history_fallback_finds_a_committed_script_held_only_in_the_entity_xml() {
+    let (dir, solution, _base, export) = case(
+        "Things",
+        "old",
+        "old",
+        "old",
+        Some(("old();", "old();", "old();")),
+    );
+    // No sidecar: the service lives only inside the entity file, in git history too.
+    std::fs::remove_dir_all(solution.root.join("src")).unwrap();
+    let run = |args: &[&str]| {
+        let status = Command::new("git")
+            .arg("-C")
+            .arg(dir.path())
+            .args(args)
+            .status()
+            .unwrap();
+        assert!(status.success());
+    };
+    run(&["init"]);
+    run(&["add", "."]);
+    run(&[
+        "-c",
+        "user.name=T",
+        "-c",
+        "user.email=t@x",
+        "commit",
+        "-m",
+        "old",
+    ]);
+    std::fs::write(
+        solution.root.join("Things/P.T.xml"),
+        entity_xml("Things", "new", Some("new();")),
+    )
+    .unwrap();
+    let result = compare(&solution, &export, &[]).unwrap();
+    assert_eq!(result.services.len(), 1, "{:?}", result.services);
+    assert!(!result.services[0].sidecar);
+    assert_eq!(result.services[0].change, Change::Stale);
+}
+
+#[test]
 fn only_theirs_and_added_are_not_reverts_and_a_name_filter_keeps_the_service_check() {
     let (_dir, solution, base, export) =
         case("Things", "v", "v", "t", Some(("b();", "b();", "t();")));

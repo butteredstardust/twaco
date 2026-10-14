@@ -6,6 +6,21 @@ All notable changes to twaco are recorded here. The format follows
 
 ## [Unreleased]
 
+### Changed
+
+- `adopt --base <git-rev>` reads the revision with one git process instead of one per file: about ten times faster on a solution of 700 files.
+
+### Fixed
+
+- `adopt --apply` no longer overwrites a service or mashup sidecar edited since the last `twaco sync` when the collaborator changed the same entity.
+- `adopt --take ours:<Entity>` keeps the entity whole; it used to be accepted and ignored.
+- `adopt --apply` lists a theme, menu or other UI entity it does not write as `not adopted`, instead of saying nothing.
+- `adopt --apply` keeps the CRLF line endings of a service sidecar it changes.
+- `adopt` without a base recognises a committed script that lives only in the entity XML as stale, not unknown.
+- `adopt --apply` refuses a backend entity or service name that cannot be a file name, naming it.
+- `adopt --base <git-rev>` reads files whose names git quotes (non-ASCII), skips submodules, and refuses a revision that starts with `-`.
+- `handoff record` refuses two files with the same name, and an interrupted recording no longer breaks every later `adopt`.
+
 ## [0.1.7] - 2026-10-09
 
 ### Added
