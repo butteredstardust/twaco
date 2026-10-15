@@ -578,6 +578,8 @@ twaco users delete --apply       # remove the test users
 
 A case names a service, the test users or groups it runs as, and the status it expects: 200 for
 a call the role may make, 401 for one it may not, 404 for a user who cannot see the entity at all.
+A new user in no group is answered 404 by most of the platform's resources too, `EntityServices`
+and `CurrentSessionInfo` included; a wrong name or password is always 401.
 
 ```toml
 [[case]]

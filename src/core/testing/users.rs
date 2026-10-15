@@ -144,7 +144,9 @@ fn group_members<R: Remote + ?Sized>(
     ))
 }
 
-/// Whether a session as `user` is the user: the server answers who is signed in.
+/// Whether a session as `user` is the user: the server answers who is signed in. A user with no
+/// permission on `CurrentSessionInfo` (a new account in no group) is answered 404, or 403, and
+/// is signed in all the same; only a 401 says the name or the password is wrong.
 fn signs_in<S: Remote>(session: &S, user: &str) -> Result<bool, TestError> {
     let reply = session.call(
         &ServiceTarget::platform("Resources", "CurrentSessionInfo"),
@@ -161,6 +163,9 @@ fn signs_in<S: Remote>(session: &S, user: &str) -> Result<bool, TestError> {
             .and_then(Value::as_str)
             == Some(user)),
         Err(ServerError::Http { status: 401, .. }) => Ok(false),
+        Err(ServerError::Http {
+            status: 403 | 404, ..
+        }) => Ok(true),
         Err(error) => Err(error.into()),
     }
 }
@@ -370,6 +375,20 @@ mod tests {
                     });
                 }
                 assert_eq!(service, "GetCurrentUser");
+                // As observed live: a user in no group may not see CurrentSessionInfo.
+                let in_a_group = self
+                    .server
+                    .groups
+                    .values()
+                    .any(|members| members.lock().unwrap().contains(user));
+                if !in_a_group {
+                    return Err(ServerError::Http {
+                        method: Method::Post,
+                        status: 404,
+                        url: String::new(),
+                        body: String::new(),
+                    });
+                }
                 return Ok(Some(json!({ "rows": [{ "result": user }] })));
             }
             self.server
@@ -430,7 +449,8 @@ mod tests {
     const TOML: &str =
         "[[project]]\nname = \"Acme.App\"\n\n[test]\nproject = \"Acme.App.TestUsers\"\n\n\
 [[test.user]]\nname = \"vera.viewer\"\ngroups = [\"Acme.App.Viewers_UG\"]\n\n\
-[[test.user]]\nname = \"ed.editor\"\ngroups = [\"Acme.App.Viewers_UG\", \"Acme.App.Editors_UG\"]\n";
+[[test.user]]\nname = \"ed.editor\"\ngroups = [\"Acme.App.Viewers_UG\", \"Acme.App.Editors_UG\"]\n\n\
+[[test.user]]\nname = \"nora.none\"\n";
 
     fn profile(extra: &str) -> Profile {
         toml::from_str(&format!(
@@ -502,6 +522,7 @@ mod tests {
                 "create user vera.viewer",
                 "add vera.viewer to Acme.App.Viewers_UG",
                 "add ed.editor to Acme.App.Editors_UG",
+                "create user nora.none",
             ]
         );
         assert!(!plan.applied);
