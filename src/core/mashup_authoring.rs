@@ -129,6 +129,13 @@ pub fn parse_visibility(text: &str) -> Result<Visibility, AuthoringError> {
 pub fn plan_new(solution: &Solution, request: &NewRequest) -> Result<NewPlan, AuthoringError> {
     EntityKey::new("Mashups", request.name.as_str())
         .map_err(|error| AuthoringError::Invalid(format!("not a mashup name: {error}")))?;
+    // The name is a file name twice over (the entity file, the sidecar folder), on every platform.
+    if !crate::core::adopt::is_file_name(&request.name) {
+        return Err(AuthoringError::Invalid(format!(
+            "{:?} cannot be a file name on every platform; leave out / \\ : * ? \" < > | and a device name such as CON",
+            request.name
+        )));
+    }
     let project = match &request.project {
         Some(name) => solution.project(name).ok_or_else(|| {
             AuthoringError::Unknown(format!("twaco.toml declares no project {name}"))
@@ -194,6 +201,20 @@ pub fn plan_new(solution: &Solution, request: &NewRequest) -> Result<NewPlan, Au
                 "{} already exists",
                 path.display()
             )));
+        }
+        // What apply would refuse, refused now: a link on the way, or a file where a folder goes.
+        crate::core::transaction::check_inside(&solution.root, path)
+            .map_err(AuthoringError::Invalid)?;
+        for folder in path.ancestors().skip(1) {
+            if folder == solution.root {
+                break;
+            }
+            if folder.symlink_metadata().is_ok_and(|meta| !meta.is_dir()) {
+                return Err(AuthoringError::Exists(format!(
+                    "{} is a file where the mashup needs a folder",
+                    folder.display()
+                )));
+            }
         }
     }
 
@@ -504,6 +525,53 @@ mod tests {
         assert!(plan.entity_path.ends_with("ui/Mashups/Acme.Orders_MU.xml"));
         let error = plan_new(&two, &request("Acme/Orders")).unwrap_err();
         assert_eq!(error.code(), ErrorCode::InvalidArguments);
+    }
+
+    #[test]
+    fn a_name_that_cannot_be_a_file_name_everywhere_is_refused_when_planning() {
+        let (_dir, solution) = one_project();
+        for name in [
+            "Acme?Orders_MU",
+            "Acme*Orders",
+            "CON.Orders_MU",
+            "Acme|X",
+            "Acme.Orders.",
+        ] {
+            let error = plan_new(&solution, &request(name)).unwrap_err();
+            assert_eq!(error.code(), ErrorCode::InvalidArguments, "{name}: {error}");
+        }
+    }
+
+    #[test]
+    fn a_file_where_a_folder_goes_is_refused_when_planning() {
+        let (dir, solution) = one_project();
+        write(dir.path(), "src/Acme.Orders_MU", "not a folder");
+        let error = plan_new(&solution, &request("Acme.Orders_MU")).unwrap_err();
+        assert_eq!(error.code(), ErrorCode::AlreadyExists, "{error}");
+        assert!(error.to_string().contains("needs a folder"), "{error}");
+    }
+
+    #[test]
+    fn a_new_mashup_passes_every_gate() {
+        let (_dir, solution) = one_project();
+        for request in [
+            request("Acme.Orders_MU"),
+            NewRequest {
+                master: true,
+                ..request("Acme.Main_MM")
+            },
+        ] {
+            let plan = plan_new(&solution, &request).unwrap();
+            apply_new(&solution, &plan, &lock(&solution)).unwrap();
+        }
+        let report = crate::core::check::run(&solution);
+        let failing: Vec<_> = report
+            .gates
+            .iter()
+            .filter(|gate| !gate.ok())
+            .map(|gate| format!("{}: {:?} {:?}", gate.name, gate.findings, gate.broken))
+            .collect();
+        assert!(failing.is_empty(), "{failing:?}");
     }
 
     #[test]

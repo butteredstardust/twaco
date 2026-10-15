@@ -1669,7 +1669,7 @@ fn entity_span(tokens: &[scan::Token], src: &[u8], wanted: &EntityRef) -> Option
 
 /// Whether an entity name can be used as one file or folder name on every platform: an export
 /// is data from elsewhere, and `..`, a separator or a device name would write outside the tree.
-fn is_file_name(name: &str) -> bool {
+pub(crate) fn is_file_name(name: &str) -> bool {
     const DEVICES: [&str; 22] = [
         "CON", "PRN", "AUX", "NUL", "COM1", "COM2", "COM3", "COM4", "COM5", "COM6", "COM7", "COM8",
         "COM9", "LPT1", "LPT2", "LPT3", "LPT4", "LPT5", "LPT6", "LPT7", "LPT8", "LPT9",
