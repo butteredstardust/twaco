@@ -313,6 +313,95 @@ pub(crate) fn mashup_bind_cmd(solution: &Solution, args: &Args) -> u8 {
     OK
 }
 
+/// `twaco mashup on <mashup> --event <address> --invoke <address>`: plan an event handler or apply it.
+pub(crate) fn mashup_on_cmd(solution: &Solution, args: &Args) -> u8 {
+    let [mashup] = args.names.as_slice() else {
+        eprintln!("{} mashup on needs one <mashup>", style::prefix());
+        return FAILED;
+    };
+    let (Some(event), Some(invoke)) = (args.values.get("--event"), args.values.get("--invoke"))
+    else {
+        eprintln!(
+            "{} mashup on needs --event <address> and --invoke <address>",
+            style::prefix()
+        );
+        return FAILED;
+    };
+    let request = commands::mashup::MashupOnRequest {
+        request: mashup_authoring::OnRequest {
+            mashup: mashup.clone(),
+            event: event.clone(),
+            invoke: invoke.clone(),
+        },
+        mode: if args.has("--apply") {
+            Mode::Apply
+        } else {
+            Mode::Plan
+        },
+        lock_label: "mashup on",
+    };
+    let mut notices = commands::Notices::default();
+    let outcome = match commands::mashup::on(solution, &request, &mut notices) {
+        Ok(outcome) => outcome,
+        Err(error) => {
+            print_notices(&notices);
+            eprintln!("{} {error}", style::prefix());
+            return FAILED;
+        }
+    };
+    print_notices(&notices);
+    let mut files = vec![outcome
+        .plan
+        .edit
+        .entity_path
+        .strip_prefix(&solution.root)
+        .unwrap_or(&outcome.plan.edit.entity_path)
+        .to_string_lossy()
+        .replace('\\', "/")];
+    if let Some(sidecars) = &outcome.plan.edit.sidecars {
+        files.push(
+            sidecars
+                .content_path
+                .strip_prefix(&solution.root)
+                .unwrap_or(&sidecars.content_path)
+                .to_string_lossy()
+                .replace('\\', "/"),
+        );
+    }
+    let report = serde_json::json!({ "applied": outcome.applied, "mashup": outcome.plan.edit.mashup, "event": outcome.plan.event, "invoke": outcome.plan.invoke, "new_source": outcome.plan.new_source, "files": files });
+    if args.has("--json") {
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&report).expect("an event plan serialises")
+        );
+        return OK;
+    }
+    println!(
+        "{} {} on {} in {}",
+        if outcome.applied { "runs" } else { "would run" },
+        outcome.plan.invoke,
+        outcome.plan.event,
+        outcome.plan.edit.mashup
+    );
+    if let Some(source) = &outcome.plan.new_source {
+        println!("  new data source {source}");
+    }
+    println!(
+        "  files: {}",
+        report["files"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .filter_map(|v| v.as_str())
+            .collect::<Vec<_>>()
+            .join(", ")
+    );
+    if !outcome.applied {
+        println!("run again with --apply to write it");
+    }
+    OK
+}
+
 fn beside(anchor: &str, side: Side) -> Placement {
     Placement::Beside {
         anchor: anchor.to_string(),

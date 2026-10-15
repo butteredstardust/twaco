@@ -8,6 +8,7 @@ All notable changes to twaco are recorded here. The format follows
 
 ### Added
 
+- `twaco mashup on <mashup> --event <address> --invoke <address>` (MCP `mashup_on`) makes a widget event (from its catalogue contract), the page's `mashup:Loaded` or a call's `ServiceInvokeCompleted` run a data service or a widget service, adding a Thing service call when needed. It plans until applied and updates the entity plus managed content sidecar atomically.
 - `twaco mashup bind <mashup> --from <address> --to <address>` (MCP `mashup_bind`) adds one checked mashup data binding, creating a Thing service call when needed. It plans until applied and updates the entity plus managed content sidecar atomically.
 - `twaco mashup add <mashup> <widget>` (MCP `mashup_add`) adds a catalogue widget to an existing responsive mashup, in a container or beside another widget, with simple label and property settings. It plans until applied and updates the entity plus managed content sidecar atomically.
 - `twaco widgets [<widget>] [--search <text>]` (MCP `widgets`) reads the embedded ThingWorx 10.2 widget catalogue without a solution or server: its types, Composer labels, aliases, containers and binding contracts; detail gives bindable properties with directions, events and services. `--json` returns the same data.

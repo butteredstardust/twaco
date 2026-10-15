@@ -1,6 +1,6 @@
 use super::requests::refactor::{
     AdoptApplyRequest, AdoptKind, AdoptReportRequest, AdoptTakeSide, HandoffAction, HandoffRequest,
-    MashupAddRequest, MashupBindRequest, MashupDescribeRequest, MashupNewRequest,
+    MashupAddRequest, MashupBindRequest, MashupDescribeRequest, MashupNewRequest, MashupOnRequest,
     MoveMemberRequest, NewBuildingBlockRequest, RenameRequest, ReprojectRequest, RetemplateRequest,
     WidgetsRequest,
 };
@@ -302,6 +302,42 @@ pub(crate) fn mashup_bind_tool(
         "to": outcome.plan.to,
         "new_source": outcome.plan.new_source,
         "files": files,
+    });
+    add_notices(&mut result, &notices);
+    Ok(result)
+}
+
+pub(crate) fn mashup_on_tool(
+    solution: &Solution,
+    arguments: MashupOnRequest,
+) -> Result<Value, ToolError> {
+    let dry_run = arguments.dry_run;
+    let request = commands::mashup::MashupOnRequest {
+        request: crate::core::mashup_authoring::OnRequest {
+            mashup: nonempty(&arguments.mashup, "mashup")?.to_string(),
+            event: nonempty(&arguments.event, "event")?.to_string(),
+            invoke: nonempty(&arguments.invoke, "invoke")?.to_string(),
+        },
+        mode: if dry_run { Mode::Plan } else { Mode::Apply },
+        lock_label: "mcp mashup_on",
+    };
+    let mut notices = commands::Notices::default();
+    let outcome =
+        commands::mashup::on(solution, &request, &mut notices).map_err(ToolError::coded)?;
+    let relative = |path: &std::path::Path| {
+        path.strip_prefix(&solution.root)
+            .unwrap_or(path)
+            .to_string_lossy()
+            .replace('\\', "/")
+    };
+    let mut files = vec![relative(&outcome.plan.edit.entity_path)];
+    if let Some(sidecars) = &outcome.plan.edit.sidecars {
+        files.push(relative(&sidecars.content_path));
+    }
+    let mut result = json!({
+        "applied": outcome.applied, "dry_run": dry_run, "mashup": outcome.plan.edit.mashup,
+        "event": outcome.plan.event, "invoke": outcome.plan.invoke,
+        "new_source": outcome.plan.new_source, "files": files,
     });
     add_notices(&mut result, &notices);
     Ok(result)

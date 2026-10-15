@@ -352,6 +352,19 @@ pub(crate) struct MashupBindRequest {
 
 #[derive(Debug, Deserialize, JsonSchema, Serialize)]
 #[serde(deny_unknown_fields)]
+pub(crate) struct MashupOnRequest {
+    /// The existing mashup's name.
+    pub(crate) mashup: String,
+    /// A UI, mashup or existing data event address.
+    pub(crate) event: String,
+    /// A data call or widget service address.
+    pub(crate) invoke: String,
+    #[serde(default = "default_true")]
+    pub(crate) dry_run: bool,
+}
+
+#[derive(Debug, Deserialize, JsonSchema, Serialize)]
+#[serde(deny_unknown_fields)]
 pub(crate) struct RetemplateRequest {
     /// The Thing or template to change.
     pub(crate) entity: String,

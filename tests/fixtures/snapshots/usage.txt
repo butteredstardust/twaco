@@ -118,6 +118,10 @@ usage: twaco <command>
                               add one data binding to a mashup; plan unless --apply
       --from <address>        source address from mashup describe
       --to <address>          target address from mashup describe
+  mashup on <mashup> --event <address> --invoke <address> [--apply] [--json]
+                              run a service or widget service when a mashup event fires; plan unless --apply
+      --event <address>       event address from mashup describe
+      --invoke <address>      data call or widget service to run
   mashup new <name> [--project <name>] [--layout blank] [--theme <StyleTheme>] [--master]
       [--visibility <principal>]... [--apply] [--json]
                               create a ThingWorx 10.2 responsive mashup as Composer would: its entity file

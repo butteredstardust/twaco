@@ -847,6 +847,7 @@ fn every_tool_is_listed_with_a_schema_and_honest_annotations() {
             "mashup_new",
             "mashup_add",
             "mashup_bind",
+            "mashup_on",
             "widgets",
             "mashup_describe",
             "reproject",
@@ -900,6 +901,7 @@ fn every_tool_is_listed_with_a_schema_and_honest_annotations() {
         "mashup_new",
         "mashup_add",
         "mashup_bind",
+        "mashup_on",
         "reproject",
         "retemplate",
         "config_table",
@@ -2277,6 +2279,40 @@ fn mashup_bind_adds_a_thing_call_after_creating_a_grid() {
     assert_eq!(
         bound["structuredContent"]["new_source"],
         "Acme.Orders.Manager.GetOrders"
+    );
+}
+
+#[test]
+fn mashup_on_runs_a_service_after_creating_a_button() {
+    let (_dir, root) = solution_dir();
+    std::fs::write(
+        root.join("Things/Acme.Orders.Manager.xml"),
+        r#"<Entities><Things><Thing name="Acme.Orders.Manager" projectName="P"><ThingShape><ServiceDefinitions><ServiceDefinition name="SaveOrder"><ResultType baseType="NOTHING"/></ServiceDefinition></ServiceDefinitions><ServiceImplementations/></ThingShape></Thing></Things></Entities>"#,
+    ).unwrap();
+    assert_eq!(
+        call(
+            &root,
+            "mashup_new",
+            json!({"name": "Acme.Orders_MU", "dry_run": false})
+        )["isError"],
+        false
+    );
+    let button = call(
+        &root,
+        "mashup_add",
+        json!({"mashup": "Acme.Orders_MU", "widget": "button", "dry_run": false}),
+    );
+    assert_eq!(button["isError"], false, "{button}");
+    let on = call(
+        &root,
+        "mashup_on",
+        json!({"mashup": "Acme.Orders_MU", "event": "ui:ptcsbutton-3.Clicked", "invoke": "data:Acme.Orders.Manager.SaveOrder", "dry_run": false}),
+    );
+    assert_eq!(on["isError"], false, "{on}");
+    assert_eq!(on["structuredContent"]["applied"], true);
+    assert_eq!(
+        on["structuredContent"]["new_source"],
+        "Acme.Orders.Manager.SaveOrder"
     );
 }
 

@@ -360,6 +360,12 @@ static TOOLS: LazyLock<Vec<Tool>> = LazyLock::new(|| {
               false,
               refactor::mashup_bind_tool,
           ),
+          solution_tool::<refactor_requests::MashupOnRequest>(
+              "mashup_on",
+              "Run a data call or widget service when one mashup event fires. Triggers are ui:<widget>.<Event>, mashup:Loaded, or an existing data:<Entity>.<Service>[as alias].ServiceInvokeCompleted, AllDataChanged or SelectedRowsChanged; handlers are data calls or widget services. A missing Thing handler call is created; templates and shapes need an existing call. A dry run unless dry_run is false; an apply takes the workspace lock and writes the entity and managed content sidecar together.",
+              false,
+              refactor::mashup_on_tool,
+          ),
         bare_tool::<refactor_requests::WidgetsRequest>(
             "widgets",
             "List or search the embedded ThingWorx 10.2 widget catalogue (type, Composer label, aliases, container, whether bindable), or with widget, one widget's bindable properties with base type and direction (in, out, in/out), its events and services. Read-only; no server.",

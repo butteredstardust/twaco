@@ -1,0 +1,7 @@
+$ twaco mashup on Acme.Orders.Dashboard --event mashup:Loaded
+exit: 2
+
+--- stdout
+
+--- stderr
+twaco: mashup on needs --event <address> and --invoke <address>

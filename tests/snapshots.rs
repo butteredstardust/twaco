@@ -93,6 +93,28 @@ const SCENARIOS: &[(&str, &[&str])] = &[
         &["mashup", "describe", "Acme.Orders.Dashboard"],
     ),
     (
+        "mashup_on_fixture_refusal",
+        &[
+            "mashup",
+            "on",
+            "Acme.Orders.Dashboard",
+            "--event",
+            "mashup:Loaded",
+            "--invoke",
+            "data:Acme.Orders.Manager.GetOrder",
+        ],
+    ),
+    (
+        "mashup_on_missing_invoke",
+        &[
+            "mashup",
+            "on",
+            "Acme.Orders.Dashboard",
+            "--event",
+            "mashup:Loaded",
+        ],
+    ),
+    (
         "mashup_new_plan",
         &["mashup", "new", "Acme.Orders.Board_MU", "--master"],
     ),

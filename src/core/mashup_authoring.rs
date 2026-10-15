@@ -129,6 +129,21 @@ pub struct BindPlan {
     pub new_source: Option<String>,
 }
 
+#[derive(Clone, Debug)]
+pub struct OnRequest {
+    pub mashup: String,
+    pub event: String,
+    pub invoke: String,
+}
+
+#[derive(Debug)]
+pub struct OnPlan {
+    pub edit: EditPlan,
+    pub event: String,
+    pub invoke: String,
+    pub new_source: Option<String>,
+}
+
 struct ExistingMashup {
     mashup: String,
     entity_path: PathBuf,
@@ -720,6 +735,267 @@ pub fn plan_bind(solution: &Solution, request: &BindRequest) -> Result<BindPlan,
     })
 }
 
+/// Plan one event handler, adding a Thing service call for a data handler when needed.
+pub fn plan_on(solution: &Solution, request: &OnRequest) -> Result<OnPlan, AuthoringError> {
+    let loaded = load_existing(solution, &request.mashup)?;
+    let mut document = mashup_edit::parse(&loaded.assets.content).map_err(AuthoringError::Edit)?;
+    let (model, _) = types::load_model(solution);
+    let platform = types::cached_platform(solution);
+    let trigger = resolve_trigger(&document, &model, platform.as_ref(), &request.event)?;
+    let handler = resolve_handler(&document, &model, platform.as_ref(), &request.invoke)?;
+    let (handler_section, handler_id, new_source) = data_call(&mut document, &handler)?;
+    // A data handler is addressed by its section and the call's alias; a widget handler by the
+    // widget's id and the widget's own service.
+    let (handler_section, handler_service) = if matches!(handler, End::Data { .. }) {
+        (handler_section, handler_id.clone())
+    } else {
+        (handler_id.clone(), handler_service(&handler).to_string())
+    };
+    if event_exists(
+        &document,
+        &trigger,
+        area(&handler),
+        &handler_section,
+        &handler_service,
+    ) {
+        return Err(AuthoringError::Exists(format!(
+            "{} already invokes {}",
+            request.event, request.invoke
+        )));
+    }
+    let mut event = Map::new();
+    insert(
+        &mut event,
+        "EventHandlerArea",
+        Value::String(area(&handler).into()),
+    );
+    insert(&mut event, "EventHandlerId", Value::String(handler_section));
+    insert(
+        &mut event,
+        "EventHandlerService",
+        Value::String(handler_service),
+    );
+    insert(
+        &mut event,
+        "EventHandlerServiceMethod",
+        Value::String(String::new()),
+    );
+    insert(
+        &mut event,
+        "EventTriggerArea",
+        Value::String(trigger.area.into()),
+    );
+    insert(
+        &mut event,
+        "EventTriggerEvent",
+        Value::String(trigger.event),
+    );
+    insert(&mut event, "EventTriggerId", Value::String(trigger.id));
+    insert(
+        &mut event,
+        "EventTriggerSection",
+        Value::String(trigger.section),
+    );
+    insert(&mut event, "Id", Value::String(Uuid::new_v4().to_string()));
+    let root = document
+        .value_mut()
+        .as_object_mut()
+        .expect("checked: root object");
+    root.entry("Events")
+        .or_insert_with(|| Value::Array(Vec::new()))
+        .as_array_mut()
+        .expect("checked: events array")
+        .push(Value::Object(event));
+    let edit = finish_edit(loaded, document, "mashup on")?;
+    Ok(OnPlan {
+        edit,
+        event: request.event.clone(),
+        invoke: request.invoke.clone(),
+        new_source,
+    })
+}
+
+struct Trigger {
+    area: &'static str,
+    section: String,
+    id: String,
+    event: String,
+}
+
+fn resolve_trigger(
+    document: &MashupDocument,
+    model: &types::Model,
+    platform: Option<&types::Platform>,
+    raw: &str,
+) -> Result<Trigger, AuthoringError> {
+    if raw == "mashup:Loaded" {
+        return Ok(Trigger {
+            area: "Mashup",
+            section: String::new(),
+            id: mashup_edit::ROOT_ID.into(),
+            event: "Loaded".into(),
+        });
+    }
+    if raw.starts_with("mashup:") {
+        return Err(AuthoringError::Invalid("only mashup:Loaded".into()));
+    }
+    if let Some(rest) = raw.strip_prefix("ui:") {
+        let (widget, event) = rest
+            .rsplit_once('.')
+            .ok_or_else(|| AuthoringError::Invalid(format!("invalid mashup address `{raw}`")))?;
+        let found = document.find(widget).map_err(AuthoringError::Edit)?;
+        let catalog = event_contract(&found.id, &found.type_id)?;
+        if !catalog.has_event(event) {
+            return Err(AuthoringError::Invalid(format!(
+                "widget `{}` has no event {}; its events are {}",
+                found.id,
+                event,
+                catalog
+                    .events
+                    .as_ref()
+                    .map_or(String::new(), |events| events.join(", "))
+            )));
+        }
+        return Ok(Trigger {
+            area: "UI",
+            section: String::new(),
+            id: found.id,
+            event: event.into(),
+        });
+    }
+    let rest = raw
+        .strip_prefix("data:")
+        .ok_or_else(|| AuthoringError::Invalid(format!("invalid mashup address `{raw}`")))?;
+    let (call, event) = rest
+        .rsplit_once('.')
+        .ok_or_else(|| AuthoringError::Invalid(format!("invalid mashup address `{raw}`")))?;
+    if !matches!(
+        event,
+        "ServiceInvokeCompleted" | "AllDataChanged" | "SelectedRowsChanged"
+    ) {
+        return Err(AuthoringError::Invalid(format!(
+            "invalid mashup event `{raw}`"
+        )));
+    }
+    let address = parse_address(&format!("data:{call}"))
+        .map_err(|e| AuthoringError::Invalid(e.to_string()))?;
+    let end = resolve_data_call(model, platform, address)?;
+    let (section, id) = existing_data_call(document, &end)
+        .ok_or_else(|| AuthoringError::Invalid(format!("{call} is not a call this mashup has")))?;
+    Ok(Trigger {
+        area: "Data",
+        section,
+        id,
+        event: event.into(),
+    })
+}
+
+fn resolve_handler(
+    document: &MashupDocument,
+    model: &types::Model,
+    platform: Option<&types::Platform>,
+    raw: &str,
+) -> Result<End, AuthoringError> {
+    if let Some(rest) = raw.strip_prefix("ui:") {
+        let (widget, service) = rest
+            .rsplit_once('.')
+            .ok_or_else(|| AuthoringError::Invalid(format!("invalid mashup address `{raw}`")))?;
+        let found = document.find(widget).map_err(AuthoringError::Edit)?;
+        let catalog = event_contract(&found.id, &found.type_id)?;
+        if !catalog
+            .services
+            .as_ref()
+            .is_some_and(|services| services.iter().any(|known| known == service))
+        {
+            return Err(AuthoringError::Invalid(format!(
+                "widget `{}` has no service {service}",
+                found.id
+            )));
+        }
+        return Ok(End::Ui {
+            id: found.id,
+            property: service.into(),
+            base: String::new(),
+        });
+    }
+    let address = parse_address(raw).map_err(|e| AuthoringError::Invalid(e.to_string()))?;
+    resolve_data_call(model, platform, address)
+}
+
+fn event_contract<'a>(id: &str, type_id: &str) -> Result<&'a widgets::Widget, AuthoringError> {
+    widgets::catalog().by_type(type_id).filter(|widget| widget.has_contract()).ok_or_else(|| AuthoringError::Refused(format!(
+        "widget `{id}` has type `{type_id}`, whose contract is not in the embedded ThingWorx 10.2 catalogue; twaco will not create an event for it"
+    )))
+}
+
+fn resolve_data_call(
+    model: &types::Model,
+    platform: Option<&types::Platform>,
+    address: Address,
+) -> Result<End, AuthoringError> {
+    let Address::Data {
+        entity_service,
+        alias,
+        selected_rows,
+        member,
+    } = address
+    else {
+        return Err(AuthoringError::Invalid(
+            "event data addresses name a service call".into(),
+        ));
+    };
+    if selected_rows || member.is_some() {
+        return Err(AuthoringError::Invalid(
+            "event data addresses name a service call".into(),
+        ));
+    }
+    let (entity, service) = resolve_service(model, platform, &entity_service)?;
+    Ok(End::Data {
+        entity: entity.name.clone(),
+        collection: entity.collection.clone(),
+        service,
+        requested_alias: alias,
+        selected_rows: false,
+        member: None,
+        base: String::new(),
+        property_type: String::new(),
+    })
+}
+
+fn handler_service(end: &End) -> &str {
+    match end {
+        End::Data {
+            requested_alias,
+            service,
+            ..
+        } => requested_alias.as_deref().unwrap_or(service),
+        End::Ui { property, .. } => property,
+        End::Mashup { .. } => unreachable!("mashup is not an event handler"),
+    }
+}
+
+fn event_exists(
+    document: &MashupDocument,
+    trigger: &Trigger,
+    handler_area: &str,
+    handler_id: &str,
+    handler_service: &str,
+) -> bool {
+    document.value()["Events"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .any(|event| {
+            event["EventTriggerArea"] == trigger.area
+                && event["EventTriggerSection"] == trigger.section
+                && event["EventTriggerId"] == trigger.id
+                && event["EventTriggerEvent"] == trigger.event
+                && event["EventHandlerArea"] == handler_area
+                && event["EventHandlerId"] == handler_id
+                && event["EventHandlerService"] == handler_service
+        })
+}
+
 fn insert(map: &mut Map<String, Value>, key: &str, value: Value) {
     mashup_edit::insert_sorted(map, key, value);
 }
@@ -978,32 +1254,8 @@ fn data_call(
             None,
         ));
     };
-    let sections = bindings::data_sections(document.value());
-    if let Some((section, call)) = sections.iter().find_map(|(section, details)| {
-        (details.entity == *entity
-            && details.services.iter().any(|call| {
-                call.target == *service
-                    && requested_alias
-                        .as_ref()
-                        .is_none_or(|alias| call.instance == *alias)
-            }))
-        .then(|| {
-            (
-                section,
-                details
-                    .services
-                    .iter()
-                    .find(|call| {
-                        call.target == *service
-                            && requested_alias
-                                .as_ref()
-                                .is_none_or(|alias| call.instance == *alias)
-                    })
-                    .unwrap(),
-            )
-        })
-    }) {
-        return Ok((section.clone(), call.instance.clone(), None));
+    if let Some((section, call)) = existing_data_call(document, end) {
+        return Ok((section, call, None));
     }
     if collection != "Things" {
         return Err(AuthoringError::Refused(format!("{entity} is a template/shape: its data source needs the entity it runs on bound first (twaco does not create that yet); add the call in Composer once")));
@@ -1059,6 +1311,36 @@ fn data_call(
     insert(&mut call, "Target", Value::String(service.clone()));
     services.push(Value::Object(call));
     Ok((key, alias, Some(format!("{entity}.{service}"))))
+}
+
+fn existing_data_call(document: &MashupDocument, end: &End) -> Option<(String, String)> {
+    let End::Data {
+        entity,
+        service,
+        requested_alias,
+        ..
+    } = end
+    else {
+        return None;
+    };
+    bindings::data_sections(document.value())
+        .into_iter()
+        .find_map(|(section, details)| {
+            (details.entity == *entity)
+                .then(|| {
+                    details
+                        .services
+                        .iter()
+                        .find(|call| {
+                            call.target == *service
+                                && requested_alias
+                                    .as_ref()
+                                    .is_none_or(|alias| call.instance == *alias)
+                        })
+                        .map(|call| (section, call.instance.clone()))
+                })
+                .flatten()
+        })
 }
 
 fn binding_exists(
@@ -1801,5 +2083,164 @@ mod tests {
                 .contains("whose contract is not in the embedded ThingWorx 10.2 catalogue"),
             "{error}"
         );
+    }
+
+    fn on(solution: &Solution, event: &str, invoke: &str) -> Result<OnPlan, AuthoringError> {
+        plan_on(
+            solution,
+            &OnRequest {
+                mashup: "Acme.Orders_MU".into(),
+                event: event.into(),
+                invoke: invoke.into(),
+            },
+        )
+    }
+
+    #[test]
+    fn events_use_composer_keys_and_describe_their_wiring() {
+        let (_dir, solution) = bind_fixture();
+        let button = plan_add(&solution, &add_request("Acme.Orders_MU", "button")).unwrap();
+        assert_eq!(button.placed.id, "ptcsbutton-6");
+        apply_edit(&solution, &button.edit, &lock(&solution)).unwrap();
+        let rows = [
+            (
+                "ui:ptcsbutton-6.Clicked",
+                "data:Acme.Orders.Manager.SaveOrder",
+            ),
+            ("mashup:Loaded", "data:Acme.Orders.Manager.GetOrders"),
+            (
+                "data:Acme.Orders.Manager.SaveOrder.ServiceInvokeCompleted",
+                "data:Acme.Orders.Manager.GetOrders",
+            ),
+        ];
+        for (event, invoke) in rows {
+            let plan = on(&solution, event, invoke)
+                .unwrap_or_else(|error| panic!("{event} -> {invoke}: {error}"));
+            apply_edit(&solution, &plan.edit, &lock(&solution)).unwrap();
+        }
+        let value: Value = serde_json::from_str(&sidecar_content(&solution)).unwrap();
+        let first = value["Events"][0].as_object().unwrap();
+        assert_eq!(
+            first.keys().map(String::as_str).collect::<Vec<_>>(),
+            [
+                "EventHandlerArea",
+                "EventHandlerId",
+                "EventHandlerService",
+                "EventHandlerServiceMethod",
+                "EventTriggerArea",
+                "EventTriggerEvent",
+                "EventTriggerId",
+                "EventTriggerSection",
+                "Id"
+            ]
+        );
+        assert_eq!(first["EventHandlerArea"], "Data");
+        assert_eq!(first["EventHandlerId"], "Things_Acme.Orders.Manager");
+        assert_eq!(first["EventHandlerService"], "SaveOrder");
+        assert_eq!(first["EventHandlerServiceMethod"], "");
+        assert_eq!(first["EventTriggerArea"], "UI");
+        assert_eq!(first["EventTriggerEvent"], "Clicked");
+        assert_eq!(first["EventTriggerId"], "ptcsbutton-6");
+        assert_eq!(first["EventTriggerSection"], "");
+        assert!(first["Id"]
+            .as_str()
+            .is_some_and(|id| uuid::Uuid::parse_str(id).is_ok()));
+        let described: Vec<(String, String)> =
+            crate::core::mashup_describe::describe(&solution, "Acme.Orders_MU")
+                .unwrap()
+                .events
+                .into_iter()
+                .map(|event| (event.trigger, event.handler))
+                .collect();
+        assert_eq!(
+            described,
+            rows.map(|(event, invoke)| (event.into(), invoke.into()))
+        );
+        let failing: Vec<_> = crate::core::check::run(&solution)
+            .gates
+            .into_iter()
+            .filter(|gate| !gate.ok() && gate.name != "project")
+            .collect();
+        assert!(failing.is_empty(), "{failing:?}");
+    }
+
+    #[test]
+    fn event_authoring_refuses_unverified_wiring() {
+        let (dir, solution) = bind_fixture();
+        let button = plan_add(&solution, &add_request("Acme.Orders_MU", "button")).unwrap();
+        apply_edit(&solution, &button.edit, &lock(&solution)).unwrap();
+        let code = |event: &str, invoke: &str| on(&solution, event, invoke).unwrap_err().code();
+        assert_eq!(
+            code("ui:ptcsbutton-6.Nope", "data:Acme.Orders.Manager.SaveOrder"),
+            ErrorCode::InvalidArguments
+        );
+        assert_eq!(
+            code("mashup:Unloaded", "data:Acme.Orders.Manager.SaveOrder"),
+            ErrorCode::InvalidArguments
+        );
+        assert_eq!(
+            code(
+                "data:Acme.Orders.Manager.SaveOrder.ServiceInvokeCompleted",
+                "data:Acme.Orders.Manager.GetOrders"
+            ),
+            ErrorCode::InvalidArguments
+        );
+        assert_eq!(
+            code("ui:ptcsbutton-6.Clicked", "ui:ptcsbutton-6.Nope"),
+            ErrorCode::InvalidArguments
+        );
+        let plan = on(
+            &solution,
+            "ui:ptcsbutton-6.Clicked",
+            "data:Acme.Orders.Manager.SaveOrder",
+        )
+        .unwrap();
+        apply_edit(&solution, &plan.edit, &lock(&solution)).unwrap();
+        assert_eq!(
+            code(
+                "ui:ptcsbutton-6.Clicked",
+                "data:Acme.Orders.Manager.SaveOrder"
+            ),
+            ErrorCode::AlreadyExists
+        );
+        let content = sidecar_content(&solution).replace("\"ptcsbutton\"", "\"acmewidget\"");
+        std::fs::write(
+            dir.path().join("src/Acme.Orders_MU/mashup/content.json"),
+            &content,
+        )
+        .unwrap();
+        let entity_path = dir.path().join("acme/Mashups/Acme.Orders_MU.xml");
+        let css = std::fs::read_to_string(dir.path().join("src/Acme.Orders_MU/mashup/custom.css"))
+            .unwrap();
+        let (entity, _) = mashup::sync(
+            &std::fs::read(&entity_path).unwrap(),
+            &mashup::Assets { content, css },
+        )
+        .unwrap();
+        std::fs::write(entity_path, entity).unwrap();
+        assert_eq!(
+            code(
+                "ui:ptcsbutton-6.Clicked",
+                "data:Acme.Orders.Manager.SaveOrder"
+            ),
+            ErrorCode::GuardRefused
+        );
+    }
+
+    #[test]
+    fn a_widget_service_handler_is_addressed_by_the_widget() {
+        let (_dir, solution) = bind_fixture();
+        let button = plan_add(&solution, &add_request("Acme.Orders_MU", "button")).unwrap();
+        apply_edit(&solution, &button.edit, &lock(&solution)).unwrap();
+        let plan = on(&solution, "ui:ptcsbutton-6.Clicked", "ui:ptcsgrid-5.Reset").unwrap();
+        apply_edit(&solution, &plan.edit, &lock(&solution)).unwrap();
+        let value: Value = serde_json::from_str(&sidecar_content(&solution)).unwrap();
+        let event = &value["Events"][0];
+        assert_eq!(event["EventHandlerArea"], "UI");
+        assert_eq!(event["EventHandlerId"], "ptcsgrid-5");
+        assert_eq!(event["EventHandlerService"], "Reset");
+        let described =
+            crate::core::mashup_describe::describe(&solution, "Acme.Orders_MU").unwrap();
+        assert_eq!(described.events[0].handler, "ui:ptcsgrid-5.Reset");
     }
 }

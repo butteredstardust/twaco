@@ -447,12 +447,20 @@ pub(crate) const FLAGS: &[Flag] = &[
         takes: Takes::Switch,
     },
     Flag {
+        name: "--event",
+        takes: Takes::Value("address"),
+    },
+    Flag {
         name: "--display-name",
         takes: Takes::Value("text"),
     },
     Flag {
         name: "--in",
         takes: Takes::Value("widget"),
+    },
+    Flag {
+        name: "--invoke",
+        takes: Takes::Value("address"),
     },
     Flag {
         name: "--dot",
@@ -1200,6 +1208,16 @@ pub(crate) const COMMANDS: &[Command] = &[
                               add one data binding to a mashup; plan unless --apply
       --from <address>        source address from mashup describe
       --to <address>          target address from mashup describe"#,
+    },
+    Command {
+        path: "mashup on",
+        group: 1,
+        operands: true,
+        flags: &["--event", "--invoke", "--apply", "--json"],
+        text: r#"  mashup on <mashup> --event <address> --invoke <address> [--apply] [--json]
+                              run a service or widget service when a mashup event fires; plan unless --apply
+      --event <address>       event address from mashup describe
+      --invoke <address>      data call or widget service to run"#,
     },
     Command {
         path: "mashup new",
