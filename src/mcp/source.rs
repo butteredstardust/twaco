@@ -307,8 +307,9 @@ pub(crate) fn deploy_tool(
             report,
             notes,
             backup,
+            localization,
             ..
-        }) => (Ok(report), notes, backup),
+        }) => (Ok((report, localization)), notes, backup),
         Err(commands::deploy::DeployCommandError::Deploy { why, backup, .. }) => {
             (Err(*why), Vec::new(), backup)
         }
@@ -335,7 +336,7 @@ pub(crate) fn deploy_tool(
             .collect()
     };
     let mut value = match result {
-        Ok(report) => {
+        Ok((report, localization)) => {
             let mut value = json!({
                 "ok": true,
                 "dry_run": dry_run,
@@ -346,6 +347,18 @@ pub(crate) fn deploy_tool(
             });
             if let Some(dir) = &saved {
                 value["backup"] = json!(dir);
+            }
+            if let Some(pushed) = &localization {
+                value["localization"] = json!(pushed
+                    .tables
+                    .iter()
+                    .map(|table| json!({
+                        "table": table.table,
+                        "create": table.create,
+                        "set": table.set.len(),
+                        "imported": pushed.applied,
+                    }))
+                    .collect::<Vec<_>>());
             }
             if !dry_run {
                 value["imported"] = json!(report.imported);

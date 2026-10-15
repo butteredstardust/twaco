@@ -43,7 +43,7 @@ when the command is asked to write. A local output named by an option is include
 | `fmt` | best-effort batch | best-effort batch | script sidecars | Earlier scripts remain formatted; retry reported scripts. | `core/commands/fmt.rs: execute` |
 | `check` | read-only | read-only | none | Retry freely. | `core/check.rs: run` |
 | `bundle` | read-only | single-file atomic | generated bundle and optional handoff | The generated bundle is old or new; an applied handoff is available as a base. Retry freely. | `core/commands/bundle.rs: execute` |
-| `deploy` | read-only | server-partial | server, baseline, backups | Read back reported imports and baseline; use the plan and backups before retrying. | `core/commands/deploy.rs: execute` |
+| `deploy` | read-only | server-partial | server, baseline, backups, localization tables | Read back reported imports and baseline; use the plan and backups before retrying. A localization failure after the imports says so; `localization push --apply` retries the tables. | `core/commands/deploy.rs: execute` |
 | `call` | server-partial | server-partial | service effects | Inspect the service's effects and logs before retrying. | `core/commands/call.rs: execute` |
 | `logs` | read-only | read-only | none | Retry freely. | `cli/data.rs: logs_cmd` |
 | `logs level` | read-only | server-partial | server log level | Read the current level and use the printed undo before retrying. | `core/commands/logs.rs: execute` |
@@ -150,7 +150,7 @@ when the command is asked to write. A local output named by an option is include
 | `db_query` | server-partial | server-partial | temporary server Thing | Run `db_clean` if temporary cleanup failed. | `core/commands/db.rs: execute` |
 | `datatable_copy` | read-only | server-partial | target DataTable | Read the target back before retrying. | `core/commands/datatable_copy.rs: execute` |
 | `db_clean` | read-only | server-partial | temporary server Things | List remaining temporary Things before retrying. | `core/commands/db.rs: execute` |
-| `deploy` | read-only | server-partial | server, baseline, backups | Read back imports and baseline; use plan and backups before retrying. | `core/commands/deploy.rs: execute` |
+| `deploy` | read-only | server-partial | server, baseline, backups, localization tables | Read back imports and baseline; use plan and backups before retrying. A localization failure after the imports says so; `localization_write` push retries the tables. | `core/commands/deploy.rs: execute` |
 | `adopt_report` | read-only | read-only | none | Retry freely. | `mcp/refactor.rs: adopt_tool` |
 | `adopt_apply` | multi-file atomic | multi-file atomic | entities, sidecars, declarations | Unlike the CLI form, this tool applies directly. Every entity and sidecar write happened or none did; a crash is finished or undone by the next command that takes the workspace lock. Retry. | `core/commands/adopt.rs: execute` |
 | `handoff` | read-only | best-effort batch | `.twaco/handoffs` copies and metadata | List retries freely; a record plan writes nothing, and an applied record can be retried with a new name. | `core/commands/handoff.rs: execute` |

@@ -1475,6 +1475,14 @@
             "type": "string"
           }
         },
+        "localization": {
+          "description": "The localization tables a whole-solution deploy carries: each table that differs.",
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": true
+        },
         "plans": {
           "type": [
             "array",

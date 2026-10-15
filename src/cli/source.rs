@@ -606,6 +606,7 @@ pub(crate) fn deploy_cmd(solution: &Solution, args: &Args) -> u8 {
             gates,
             notes,
             backup,
+            localization,
             ..
         } => {
             if let Some(gates) = gates {
@@ -622,7 +623,33 @@ pub(crate) fn deploy_cmd(solution: &Solution, args: &Args) -> u8 {
                 );
             }
             print_deploy_report(&report, apply, force);
+            if let Some(pushed) = localization {
+                print_deploy_localization(&pushed);
+            }
             OK
+        }
+    }
+}
+
+/// The localization tables a whole-solution deploy carries.
+fn print_deploy_localization(pushed: &twaco::core::localization::Pushed) {
+    if pushed.tables.is_empty() {
+        println!("localization: every table matches the server");
+    }
+    for table in &pushed.tables {
+        let what = format!(
+            "{}{} token(s) to set",
+            if table.create { "new table, " } else { "" },
+            table.set.len()
+        );
+        if pushed.applied {
+            println!(
+                "localization {}: {} ({what})",
+                table.table,
+                style::ok("imported")
+            );
+        } else {
+            println!("localization {}: would import ({what})", table.table);
         }
     }
 }

@@ -130,12 +130,19 @@ name. Without `--apply` it plans and stops. With it, it:
    the importer needs;
 3. sends every script to the server's parser, and stops on any failure;
 4. checks every entity for a conflict with the baseline;
-5. imports each bundle, reads each entity back, and fails if the server did not keep it;
-6. calls the project's deploy and post-import services, if `[project.deploy]` names them;
-7. records the new baseline.
+5. plans the localization tables, as `twaco localization push` does, and stops on a table the
+   server would refuse (a deploy of the whole solution only);
+6. imports each bundle, reads each entity back, and fails if the server did not keep it;
+7. calls the project's deploy and post-import services, if `[project.deploy]` names them;
+8. records the new baseline;
+9. imports each localization table that differs from the server, Default first, and reads it
+   back. It never prunes: `twaco localization push --prune` deletes server tokens.
 
 With `--only`, the project's deploy service still runs, but its `post_import` calls are
 skipped: they are written for a whole project's import.
+
+The localization tables are shared by every project, so a deploy of some projects or entities
+(`--only`, `--only-projects`) or of the backend only leaves them to `twaco localization push`.
 
 `--backend-only` leaves out `[bundle] ui_collections`, so backend work does not overwrite a
 designer's mashups. `twaco bundle` builds the document without sending it.

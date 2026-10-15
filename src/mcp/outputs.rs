@@ -171,6 +171,8 @@ pub(crate) struct DeployResult {
     imported: Option<Value>,
     kept: Option<u64>,
     changed_by_deploy_step: Option<Vec<String>>,
+    /// The localization tables a whole-solution deploy carries: each table that differs.
+    localization: Option<Vec<Value>>,
     plans: Option<Vec<Value>>,
     failures: Option<Vec<Value>>,
     refused: Option<Vec<Value>>,
