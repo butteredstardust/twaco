@@ -1,3 +1,4 @@
+use super::ops::{write_plans, PlannedFile};
 use super::*;
 use crate::core::codes::{Coded, ErrorCode};
 use crate::core::config::Solution;
@@ -161,6 +162,11 @@ impl Workspace {
         )
     }
 
+    /// The workspace lock an applied edit writes under.
+    fn lock(&self) -> crate::core::lock::WorkspaceLock {
+        crate::core::lock::acquire_for(&self.solution, "test").unwrap()
+    }
+
     fn path(&self, relative: &str) -> PathBuf {
         self.solution.root.join("localization").join(relative)
     }
@@ -169,13 +175,17 @@ impl Workspace {
         String::from_utf8(std::fs::read(self.path(relative)).unwrap()).unwrap()
     }
 
-    /// Every file under the root with its bytes, to prove a plan wrote nothing.
+    /// Every file under the root with its bytes, to prove a plan wrote nothing. twaco's own
+    /// state is left out: the workspace lock is held open while a test checks.
     fn snapshot(&self) -> BTreeMap<PathBuf, Vec<u8>> {
         let mut out = BTreeMap::new();
         let mut stack = vec![self.solution.root.clone()];
         while let Some(dir) = stack.pop() {
             for entry in std::fs::read_dir(dir).unwrap() {
                 let path = entry.unwrap().path();
+                if path == self.solution.root.join(".twaco") {
+                    continue;
+                }
                 if path.is_dir() {
                     stack.push(path);
                 } else {
@@ -344,7 +354,7 @@ fn a_pull_plan_writes_nothing() {
     let server = in_step();
     server.tables.lock().unwrap().get_mut("de").unwrap().1[0].value = "Sichern".to_string();
     let before = workspace.snapshot();
-    let pulled = pull(&workspace.solution, &server, None, true, false).unwrap();
+    let pulled = pull(&workspace.solution, &server, None, true, None).unwrap();
     assert!(!pulled.applied);
     assert_eq!(pulled.files.len(), 1);
     assert_eq!(workspace.snapshot(), before);
@@ -360,7 +370,14 @@ fn a_pull_updates_a_curated_file_in_place_and_adds_what_the_server_has() {
         de[0].value = "  Sichern \n".to_string();
         de.push(token("Acme.App.Print", "Drucken"));
     }
-    let pulled = pull(&workspace.solution, &server, None, false, true).unwrap();
+    let pulled = pull(
+        &workspace.solution,
+        &server,
+        None,
+        false,
+        Some(&workspace.lock()),
+    )
+    .unwrap();
     assert!(pulled.applied);
     assert_eq!(pulled.files.len(), 1);
     assert_eq!(
@@ -414,7 +431,14 @@ fn a_pull_creates_a_file_for_a_server_table_the_solution_has_none_of() {
         "it".to_string(),
         (Header::default(), vec![plain("Someone.Else", "y")]),
     );
-    let pulled = pull(&workspace.solution, &server, None, false, true).unwrap();
+    let pulled = pull(
+        &workspace.solution,
+        &server,
+        None,
+        false,
+        Some(&workspace.lock()),
+    )
+    .unwrap();
     assert_eq!(pulled.files.len(), 1, "it holds no token of this solution");
     let created = &pulled.files[0];
     assert!(created.created);
@@ -442,9 +466,16 @@ fn a_pull_with_prune_removes_what_the_server_lacks() {
         .unwrap()
         .1
         .retain(|t| t.name != "Acme.App.Open");
-    let kept = pull(&workspace.solution, &server, None, false, false).unwrap();
+    let kept = pull(&workspace.solution, &server, None, false, None).unwrap();
     assert!(kept.files.is_empty(), "without --prune a local token stays");
-    let pulled = pull(&workspace.solution, &server, None, true, true).unwrap();
+    let pulled = pull(
+        &workspace.solution,
+        &server,
+        None,
+        true,
+        Some(&workspace.lock()),
+    )
+    .unwrap();
     assert_eq!(names(&pulled.files[0]), (vec![], vec!["Acme.App.Open"]));
     assert_eq!(
         workspace
@@ -470,8 +501,9 @@ fn a_pull_refuses_duplicates_before_writing_anything() {
     );
     let server = in_step();
     server.tables.lock().unwrap().get_mut("de").unwrap().1[0].value = "Sichern".to_string();
+    let lock = workspace.lock();
     let before = workspace.snapshot();
-    let error = pull(&workspace.solution, &server, None, false, true).unwrap_err();
+    let error = pull(&workspace.solution, &server, None, false, Some(&lock)).unwrap_err();
     assert_eq!(error.code(), ErrorCode::InvalidData);
     assert!(
         error
@@ -659,18 +691,32 @@ fn new_seeds_from_default_and_refuses_a_table_the_project_has() {
         language_native: Some("Français".to_string()),
     };
     let before = workspace.snapshot();
-    let planned = new(&workspace.solution, "fr", None, header.clone(), false).unwrap();
+    let planned = new(&workspace.solution, "fr", None, header.clone(), None).unwrap();
     assert_eq!(workspace.snapshot(), before);
     let path = workspace.path("Acme.App/LocalizationTable_fr.xml");
     assert_eq!(planned.files[0].path, path);
-    new(&workspace.solution, "fr", None, header.clone(), true).unwrap();
+    new(
+        &workspace.solution,
+        "fr",
+        None,
+        header.clone(),
+        Some(&workspace.lock()),
+    )
+    .unwrap();
     assert_eq!(
         std::fs::read(&path).unwrap(),
         render("fr", &header, &tokens(&EN))
     );
 
     for table in ["fr", "de", DEFAULT_TABLE] {
-        let error = new(&workspace.solution, table, None, Header::default(), true).unwrap_err();
+        let error = new(
+            &workspace.solution,
+            table,
+            None,
+            Header::default(),
+            Some(&workspace.lock()),
+        )
+        .unwrap_err();
         assert_eq!(error.code(), ErrorCode::AlreadyExists, "{table}");
     }
 }
@@ -678,7 +724,7 @@ fn new_seeds_from_default_and_refuses_a_table_the_project_has() {
 #[test]
 fn new_needs_a_project_when_there_are_several() {
     let workspace = Workspace::new(&["Acme.App", "Acme.Other"], &[]);
-    let error = new(&workspace.solution, "fr", None, Header::default(), false).unwrap_err();
+    let error = new(&workspace.solution, "fr", None, Header::default(), None).unwrap_err();
     assert_eq!(error.code(), ErrorCode::InvalidArguments);
     assert!(error.to_string().contains("Acme.Other"), "{error}");
     let planned = new(
@@ -686,7 +732,7 @@ fn new_needs_a_project_when_there_are_several() {
         "fr",
         Some("Acme.Other"),
         Header::default(),
-        false,
+        None,
     )
     .unwrap();
     assert_eq!(
@@ -709,7 +755,7 @@ fn set_updates_in_place_keeping_usage_and_context_unless_given() {
         None,
         None,
         None,
-        false,
+        None,
     )
     .unwrap();
     assert_eq!(workspace.snapshot(), before);
@@ -721,7 +767,7 @@ fn set_updates_in_place_keeping_usage_and_context_unless_given() {
         None,
         None,
         None,
-        true,
+        Some(&workspace.lock()),
     )
     .unwrap();
     assert!(!edited.files[0].created);
@@ -739,7 +785,7 @@ fn set_updates_in_place_keeping_usage_and_context_unless_given() {
         Some("tooltip"),
         Some("Button"),
         None,
-        true,
+        Some(&workspace.lock()),
     )
     .unwrap();
     let de = read(
@@ -765,7 +811,7 @@ fn set_adds_a_new_token_with_label_usage() {
         None,
         None,
         None,
-        true,
+        Some(&workspace.lock()),
     )
     .unwrap();
     let default = read(
@@ -793,7 +839,7 @@ fn set_refuses_what_the_server_would_refuse_or_trim() {
         None,
         None,
         None,
-        true,
+        Some(&workspace.lock()),
     )
     .unwrap_err();
     assert!(error.to_string().contains("not in Default"), "{error}");
@@ -805,7 +851,7 @@ fn set_refuses_what_the_server_would_refuse_or_trim() {
         None,
         None,
         None,
-        true,
+        Some(&workspace.lock()),
     )
     .unwrap_err();
     assert_eq!(error.code(), ErrorCode::InvalidArguments);
@@ -817,7 +863,7 @@ fn set_refuses_what_the_server_would_refuse_or_trim() {
         None,
         None,
         None,
-        true,
+        Some(&workspace.lock()),
     )
     .unwrap_err();
     assert!(
@@ -832,7 +878,7 @@ fn set_refuses_what_the_server_would_refuse_or_trim() {
         None,
         None,
         None,
-        true,
+        Some(&workspace.lock()),
     )
     .unwrap_err();
     assert!(
@@ -852,7 +898,7 @@ fn set_with_a_project_places_a_foreign_name_and_keeps_an_existing_one_where_it_i
         None,
         None,
         Some("Acme.App"),
-        true,
+        Some(&workspace.lock()),
     )
     .unwrap();
     let default = workspace.text("Acme.App_LocalizationTable_Default.xml");
@@ -866,7 +912,7 @@ fn set_with_a_project_places_a_foreign_name_and_keeps_an_existing_one_where_it_i
         None,
         None,
         None,
-        true,
+        Some(&workspace.lock()),
     )
     .unwrap();
     assert!(workspace
@@ -885,7 +931,7 @@ fn set_creates_the_default_file_when_the_project_has_none() {
         None,
         None,
         None,
-        true,
+        Some(&workspace.lock()),
     )
     .unwrap();
     assert!(edited.files[0].created);
@@ -905,11 +951,17 @@ fn set_creates_the_default_file_when_the_project_has_none() {
 fn remove_takes_a_token_from_every_table_or_from_one() {
     let workspace = Workspace::curated();
     let before = workspace.snapshot();
-    let planned = remove(&workspace.solution, "Acme.App.Open", None, false).unwrap();
+    let planned = remove(&workspace.solution, "Acme.App.Open", None, None).unwrap();
     assert_eq!(planned.files.len(), 2);
     assert_eq!(workspace.snapshot(), before);
 
-    let only = remove(&workspace.solution, "Acme.App.Open", Some("de"), true).unwrap();
+    let only = remove(
+        &workspace.solution,
+        "Acme.App.Open",
+        Some("de"),
+        Some(&workspace.lock()),
+    )
+    .unwrap();
     assert_eq!(only.files.len(), 1);
     assert_eq!(
         workspace
@@ -933,12 +985,18 @@ fn remove_takes_a_token_from_every_table_or_from_one() {
         &workspace.solution,
         "Acme.App.Save",
         Some(DEFAULT_TABLE),
-        true,
+        Some(&workspace.lock()),
     )
     .unwrap();
     assert_eq!(every.files.len(), 2, "Default takes the languages with it");
 
-    let error = remove(&workspace.solution, "Acme.App.Nothing", None, true).unwrap_err();
+    let error = remove(
+        &workspace.solution,
+        "Acme.App.Nothing",
+        None,
+        Some(&workspace.lock()),
+    )
+    .unwrap_err();
     assert_eq!(error.code(), ErrorCode::UnknownEntity);
 }
 
@@ -1097,7 +1155,7 @@ fn a_file_of_a_project_with_a_longer_prefix_is_not_taken_for_anothers() {
         (DEFAULT_TABLE, vec![]),
         ("de", vec![token("Acme.B.X", "x"), token("Acme.C.X", "c")]),
     ]);
-    let pulled = pull(&workspace.solution, &server, None, false, false).unwrap();
+    let pulled = pull(&workspace.solution, &server, None, false, None).unwrap();
     assert_eq!(pulled.files.len(), 1);
     assert_eq!(
         pulled.files[0].path,
@@ -1120,7 +1178,7 @@ fn two_projects_claiming_one_prefix_are_refused() {
         None,
         None,
         None,
-        false,
+        None,
     )
     .unwrap_err();
     assert_eq!(error.code(), ErrorCode::InvalidArguments);
@@ -1128,7 +1186,7 @@ fn two_projects_claiming_one_prefix_are_refused() {
 }
 
 #[test]
-fn a_failed_write_names_the_files_already_written() {
+fn a_failed_write_changes_no_file() {
     let workspace = Workspace::new(&["Acme.App", "Acme.Other"], &[]);
     // A file where Acme.Other's folder would go: its table file cannot be created.
     std::fs::create_dir_all(workspace.path("")).unwrap();
@@ -1137,14 +1195,60 @@ fn a_failed_write_names_the_files_already_written() {
         DEFAULT_TABLE,
         vec![token("Acme.App.A", "a"), token("Acme.Other.B", "b")],
     )]);
-    let error = pull(&workspace.solution, &server, None, false, true).unwrap_err();
-    assert_eq!(error.code(), ErrorCode::IoError);
-    assert!(error.to_string().contains("already written"), "{error}");
+    let lock = workspace.lock();
+    let error = pull(&workspace.solution, &server, None, false, Some(&lock)).unwrap_err();
+    assert!(matches!(error, LocalizationError::Write(_)), "{error:?}");
     assert!(
-        error.to_string().contains("LocalizationTable.xml"),
+        error
+            .to_string()
+            .contains("no localization file was changed"),
         "{error}"
     );
-    assert!(workspace.path("Acme.App/LocalizationTable.xml").exists());
+    // Acme.App's file comes first and could be written; it was undone with the rest.
+    assert!(!workspace.path("Acme.App/LocalizationTable.xml").exists());
+    assert!(!workspace.path("Acme.App").exists());
+    assert_eq!(
+        std::fs::read(workspace.path("Acme.Other")).unwrap(),
+        b"in the way"
+    );
+}
+
+/// A file edited after the plan read it is refused, and nothing else is written either.
+#[test]
+fn a_file_changed_after_planning_is_refused_and_no_file_changes() {
+    let workspace = Workspace::curated();
+    let mut plans = Vec::new();
+    for relative in [
+        "Acme.App_LocalizationTable_Default.xml",
+        "Acme.App_LocalizationTable_DE.xml",
+    ] {
+        let before = std::fs::read(workspace.path(relative)).unwrap();
+        let mut bytes = before.clone();
+        bytes.extend_from_slice(
+            b"<!-- planned -->
+",
+        );
+        plans.push(PlannedFile {
+            change: FileChange {
+                path: workspace.path(relative),
+                created: false,
+                set: Vec::new(),
+                removed: Vec::new(),
+            },
+            before: Some(before),
+            bytes,
+        });
+    }
+    std::fs::write(
+        workspace.path("Acme.App_LocalizationTable_DE.xml"),
+        b"someone's edit",
+    )
+    .unwrap();
+    let lock = workspace.lock();
+    let before = workspace.snapshot();
+    let error = write_plans(&workspace.solution, &plans, &lock).unwrap_err();
+    assert!(matches!(error, LocalizationError::Write(_)), "{error:?}");
+    assert_eq!(workspace.snapshot(), before);
 }
 
 #[test]

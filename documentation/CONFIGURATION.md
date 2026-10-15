@@ -201,8 +201,8 @@ How `twaco adopt` reads a designer's export:
 | --- | --- |
 | `types.tsc` | The TypeScript compiler command for `types --check`, before twaco's own `-p` arguments. Default: `tsc` (`tsc.cmd` on Windows) on `PATH`. |
 | `help.version` | The help center release `twaco help` reads, such as `10.1`. Default: the server's version, else the newest. |
-| `repositories.root` | The folder holding one subfolder per FileRepository, for `repo status`, `push` and `pull`. Default `filerepository`. |
-| `localization.root` | The folder holding localization table files. Default `localization`. |
+| `repositories.root` | The folder holding one subfolder per FileRepository, for `repo status`, `push` and `pull`. Default `filerepository`. A pull writes only inside the solution. |
+| `localization.root` | The folder holding localization table files. Default `localization`. Edits write only inside the solution. |
 | `project.localization.prefixes` | Token-name prefixes this project owns. Default the project name followed by `.`. |
 | `package.*` | Extension metadata for `twaco package extension`: `version` (1.0.0), `group` (the solution's name), `vendor`, `minimum_thingworx` (9.0.0). Each project's `artifactId` is its name in lower case. |
 | `knowledge.paths` | Markdown files or folders `twaco guide` reads besides its built-in topics. Each must exist and stay inside the solution. Default: AGENTS.md, CLAUDE.md and `docs/`, where they exist. |

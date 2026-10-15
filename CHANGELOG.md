@@ -10,6 +10,11 @@ All notable changes to twaco are recorded here. The format follows
 
 - `twaco docs --out <file> --check` writes nothing and exits 1 when the file is missing or no longer matches what `twaco docs` would write with the same `--detail` and `--json`, so CI can fail a pull request whose committed solution document is stale. A CRLF checkout of an up-to-date file is up to date.
 
+### Changed
+
+- `repo pull --apply` downloads every file before it writes any, then writes them all as one journaled transaction: a download that fails midway, a failed write or a killed process no longer leaves some files copied. A file that appears or changes locally while the pull runs is refused, not overwritten. A pull needs the repository folder (`[repositories] root`) to be inside the solution.
+- `localization pull --apply` and `localization remove --apply` write every table file in one journaled transaction, or none, and refuse a file edited since they read it. `localization new` and `set` write through the same journal. Both refuse a `[localization] root` outside the solution.
+
 ## [0.1.8] - 2026-10-14
 
 ### Added

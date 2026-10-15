@@ -142,7 +142,8 @@ where
         } => Some("localization remove"),
         _ => None,
     };
-    let _lock = lock_label
+    // Present exactly when a local mutation is applied: the core writes through it.
+    let lock = lock_label
         .map(|label| lock_workspace(solution, label, notices))
         .transpose()
         .map_err(LocalizationCommandError::Lock)?;
@@ -166,14 +167,9 @@ where
         LocalizationAction::Pull { table, prune, mode } => {
             let remote = remote(&mut open)?;
             let _phase = progress::phase(progress, "reading tables", None);
-            let pulled = localization::pull(
-                solution,
-                &remote,
-                table.as_deref(),
-                *prune,
-                *mode == Mode::Apply,
-            )
-            .map_err(LocalizationCommandError::Localization)?;
+            let pulled =
+                localization::pull(solution, &remote, table.as_deref(), *prune, lock.as_ref())
+                    .map_err(LocalizationCommandError::Localization)?;
             Ok(LocalizationOutcome::Pulled {
                 pulled,
                 effects: Effects::new(
@@ -220,7 +216,7 @@ where
                 table,
                 project.as_deref(),
                 header.clone(),
-                *mode == Mode::Apply,
+                lock.as_ref(),
             )
             .map_err(LocalizationCommandError::Localization)?;
             Ok(LocalizationOutcome::Edited {
@@ -252,7 +248,7 @@ where
                 usage.as_deref(),
                 context.as_deref(),
                 project.as_deref(),
-                *mode == Mode::Apply,
+                lock.as_ref(),
             )
             .map_err(LocalizationCommandError::Localization)?;
             Ok(LocalizationOutcome::Edited {
@@ -268,9 +264,8 @@ where
             })
         }
         LocalizationAction::Remove { name, table, mode } => {
-            let edited =
-                localization::remove(solution, name, table.as_deref(), *mode == Mode::Apply)
-                    .map_err(LocalizationCommandError::Localization)?;
+            let edited = localization::remove(solution, name, table.as_deref(), lock.as_ref())
+                .map_err(LocalizationCommandError::Localization)?;
             Ok(LocalizationOutcome::Edited {
                 edited,
                 effects: Effects::new(

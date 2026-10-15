@@ -11,8 +11,8 @@ classes are ordered from weakest to strongest: `server-partial`, `best-effort ba
 - **multi-file atomic** writes several local files and undoes files already written if a later
   write fails. That rollback is in-process only: a killed process or power loss between writes
   cannot run it. A crash-recoverable journal now exists (see [TRANSACTIONS.md](TRANSACTIONS.md)) and
-  `new building-block`, `move`, `copy`, `adopt` and every `rename` use it (and `extract`, for each
-  entity's sidecars): the next command to take the
+  `new building-block`, `move`, `copy`, `adopt`, every `rename`, `repo pull` and the
+  `localization` file edits use it (and `extract`, for each entity's sidecars): the next command to take the
   workspace lock finishes or undoes an interrupted run. The other multi-file commands still have
   the in-process rollback only, so inspect the workspace after such an interruption before
   retrying.
@@ -92,13 +92,13 @@ when the command is asked to write. A local output named by an option is include
 | `repo rm` | read-only | server-partial | server repository | List the path before retrying. | `cli/content.rs: repo_change` |
 | `repo mv` | read-only | server-partial | server repository | List source and destination before retrying. | `cli/content.rs: repo_change` |
 | `repo push` | read-only | server-partial | server repository | Inspect copied paths before retrying. | `core/repo.rs: sync` |
-| `repo pull` | read-only | best-effort batch | local repository files | Stops at the first failed file; the files already copied stay and are listed in the error. Retry after fixing the cause; copied files are then unchanged. | `core/commands/repo.rs: execute` |
+| `repo pull` | read-only | multi-file atomic | local repository files | Every file is downloaded before any is written, then all are written in one journaled transaction: a failed download or write copies nothing. Retry after fixing the cause. | `core/commands/repo.rs: execute` |
 | `localization status` | read-only | read-only | none | Retry freely. | `core/commands/localization.rs: execute` |
-| `localization pull` | read-only | best-effort batch | localization files | Inspect files already written and retry after fixing the cause. | `core/commands/localization.rs: execute` |
+| `localization pull` | read-only | multi-file atomic | localization files | Every file is written in one journaled transaction, or none is; a file edited since the plan read it is refused. Retry after fixing the cause. | `core/commands/localization.rs: execute` |
 | `localization push` | read-only | server-partial | localization tables | Read tables back before retrying. | `core/commands/localization.rs: execute` |
 | `localization new` | read-only | single-file atomic | localization file | The file is old or new; retry freely. | `core/commands/localization.rs: execute` |
 | `localization set` | read-only | single-file atomic | localization file | The file is old or new; retry freely. | `core/commands/localization.rs: execute` |
-| `localization remove` | read-only | best-effort batch | localization files | Inspect files already written and retry after fixing the cause. | `core/commands/localization.rs: execute` |
+| `localization remove` | read-only | multi-file atomic | localization files | Every file is written in one journaled transaction, or none is; a file edited since the plan read it is refused. Retry after fixing the cause. | `core/commands/localization.rs: execute` |
 | `guide` | read-only | read-only | none | Retry freely. | `cli/info.rs: guide_cmd` |
 | `help search` | single-file atomic | single-file atomic | user cache file | The cache file is old or new; retry freely. | `core/help.rs: cached_file` |
 | `help page` | single-file atomic | single-file atomic | user cache file | The cache file is old or new; retry freely. | `core/help.rs: cached_file` |

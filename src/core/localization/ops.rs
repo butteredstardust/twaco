@@ -6,9 +6,10 @@ use super::{
 };
 use crate::core::config::{Project, Solution};
 use crate::core::imports;
+use crate::core::lock::WorkspaceLock;
 use crate::core::parallel;
 use crate::core::progress::{self, Progress};
-use crate::core::workspace;
+use crate::core::transaction::Transaction;
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::PathBuf;
 
@@ -260,38 +261,30 @@ fn refuse(
     })
 }
 
-struct PlannedFile {
-    change: FileChange,
-    bytes: Vec<u8>,
+pub(super) struct PlannedFile {
+    pub(super) change: FileChange,
+    /// What the file held when it was planned; `None` for a file to create. A file that holds
+    /// anything else by the time it is written is refused, not overwritten.
+    pub(super) before: Option<Vec<u8>>,
+    pub(super) bytes: Vec<u8>,
 }
 
-/// Write each planned file atomically. A failure names the files already written: they stay
-/// written, and the next run plans from them.
-fn write_plans(plans: &[PlannedFile]) -> Result<(), LocalizationError> {
-    let mut written: Vec<String> = Vec::new();
+/// Write every planned file in one transaction: all of them change, or none does, even when the
+/// process dies midway (the next command to take the lock finishes or undoes it).
+pub(super) fn write_plans(
+    solution: &Solution,
+    plans: &[PlannedFile],
+    lock: &WorkspaceLock,
+) -> Result<(), LocalizationError> {
+    let mut transaction = Transaction::new(&solution.root, "localization");
     for plan in plans {
-        let result = (|| {
-            if plan.change.created {
-                if let Some(parent) = plan.change.path.parent() {
-                    std::fs::create_dir_all(parent)?;
-                }
-            }
-            workspace::write_entity(&plan.change.path, &plan.bytes)
-                .map_err(|error| std::io::Error::other(error.to_string()))
-        })();
-        if let Err(error) = result {
-            let why = if written.is_empty() {
-                error.to_string()
-            } else {
-                format!("{error}; already written: {}", written.join(", "))
-            };
-            return Err(LocalizationError::Io {
-                path: plan.change.path.clone(),
-                why,
-            });
+        match &plan.before {
+            Some(before) => transaction.replace_file(&plan.change.path, before, plan.bytes.clone()),
+            None => transaction.create_file(&plan.change.path, plan.bytes.clone()),
         }
-        written.push(plan.change.path.display().to_string());
+        .map_err(LocalizationError::Write)?;
     }
+    transaction.apply(lock).map_err(LocalizationError::Write)?;
     Ok(())
 }
 
@@ -301,7 +294,7 @@ pub fn pull<R: Remote + ?Sized>(
     remote: &R,
     table: Option<&str>,
     prune: bool,
-    apply: bool,
+    apply: Option<&WorkspaceLock>,
 ) -> Result<Pulled, LocalizationError> {
     check_prefixes(solution)?;
     let found = discover(&root(solution))?;
@@ -422,6 +415,7 @@ pub fn pull<R: Remote + ?Sized>(
                 set,
                 removed,
             },
+            before: Some(source),
             bytes,
         });
     }
@@ -436,16 +430,17 @@ pub fn pull<R: Remote + ?Sized>(
                 set,
                 removed: Vec::new(),
             },
+            before: None,
             bytes: render(&table, &header, &tokens),
         });
     }
     plans.sort_by(|a, b| a.change.path.cmp(&b.change.path));
-    if apply {
-        write_plans(&plans)?;
+    if let Some(lock) = apply {
+        write_plans(solution, &plans, lock)?;
     }
     Ok(Pulled {
         files: plans.into_iter().map(|plan| plan.change).collect(),
-        applied: apply,
+        applied: apply.is_some(),
     })
 }
 
@@ -755,7 +750,7 @@ pub fn new(
     table: &str,
     project_name: Option<&str>,
     header: Header,
-    apply: bool,
+    apply: Option<&WorkspaceLock>,
 ) -> Result<Edited, LocalizationError> {
     check_prefixes(solution)?;
     let found = discover(&root(solution))?;
@@ -808,14 +803,15 @@ pub fn new(
             set: tokens.iter().map(|token| token.name.clone()).collect(),
             removed: Vec::new(),
         },
+        before: None,
         bytes: render(table, &header, &tokens),
     };
-    if apply {
-        write_plans(std::slice::from_ref(&plan))?;
+    if let Some(lock) = apply {
+        write_plans(solution, std::slice::from_ref(&plan), lock)?;
     }
     Ok(Edited {
         files: vec![plan.change],
-        applied: apply,
+        applied: apply.is_some(),
     })
 }
 
@@ -829,7 +825,7 @@ pub fn set(
     usage: Option<&str>,
     context: Option<&str>,
     project_name: Option<&str>,
-    apply: bool,
+    apply: Option<&WorkspaceLock>,
 ) -> Result<Edited, LocalizationError> {
     check_prefixes(solution)?;
     if value != value.trim() {
@@ -891,14 +887,18 @@ pub fn set(
             .unwrap_or_default(),
     };
     let created = !path.exists();
-    let bytes = if created {
-        render(table, &Header::default(), std::slice::from_ref(&token))
+    let (before, bytes) = if created {
+        (
+            None,
+            render(table, &Header::default(), std::slice::from_ref(&token)),
+        )
     } else {
         let source = std::fs::read(&path).map_err(|error| LocalizationError::Io {
             path: path.clone(),
             why: error.to_string(),
         })?;
-        edit(&path, &source, &[Edit::Set(token.clone())])?
+        let bytes = edit(&path, &source, &[Edit::Set(token.clone())])?;
+        (Some(source), bytes)
     };
     let plan = PlannedFile {
         change: FileChange {
@@ -907,14 +907,15 @@ pub fn set(
             set: vec![name.to_string()],
             removed: Vec::new(),
         },
+        before,
         bytes,
     };
-    if apply {
-        write_plans(std::slice::from_ref(&plan))?;
+    if let Some(lock) = apply {
+        write_plans(solution, std::slice::from_ref(&plan), lock)?;
     }
     Ok(Edited {
         files: vec![plan.change],
-        applied: apply,
+        applied: apply.is_some(),
     })
 }
 
@@ -923,7 +924,7 @@ pub fn remove(
     solution: &Solution,
     name: &str,
     table: Option<&str>,
-    apply: bool,
+    apply: Option<&WorkspaceLock>,
 ) -> Result<Edited, LocalizationError> {
     let found = discover(&root(solution))?;
     // Removing from Default removes from every table: a language token Default lacks is one the
@@ -956,14 +957,15 @@ pub fn remove(
                 set: Vec::new(),
                 removed: vec![name.to_string()],
             },
+            before: Some(source),
             bytes,
         });
     }
-    if apply {
-        write_plans(&plans)?;
+    if let Some(lock) = apply {
+        write_plans(solution, &plans, lock)?;
     }
     Ok(Edited {
         files: plans.into_iter().map(|plan| plan.change).collect(),
-        applied: apply,
+        applied: apply.is_some(),
     })
 }

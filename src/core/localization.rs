@@ -77,6 +77,9 @@ pub enum LocalizationError {
     AlreadyExists(String),
     #[error("{0}")]
     Unknown(String),
+    /// The file writes, made as one transaction, did not happen.
+    #[error("no localization file was changed: {0}")]
+    Write(super::transaction::TransactionError),
 }
 
 impl Coded for LocalizationError {
@@ -89,6 +92,7 @@ impl Coded for LocalizationError {
             Self::NotVerified(_) => ErrorCode::NotVerified,
             Self::AlreadyExists(_) => ErrorCode::AlreadyExists,
             Self::Unknown(_) => ErrorCode::UnknownEntity,
+            Self::Write(error) => error.code(),
         }
     }
 }
