@@ -6,6 +6,6 @@ exit: 2
 --- stderr
 twaco: unexpected argument 'Audit' found
 
-Usage: twaco docs [--out <file>] [--force]
+Usage: twaco docs [--out <file>] [--force | --check]
 
 For more information, try '--help'.

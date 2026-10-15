@@ -6,6 +6,10 @@ All notable changes to twaco are recorded here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- `twaco docs --out <file> --check` writes nothing and exits 1 when the file is missing or no longer matches what `twaco docs` would write with the same `--detail` and `--json`, so CI can fail a pull request whose committed solution document is stale. A CRLF checkout of an up-to-date file is up to date.
+
 ## [0.1.8] - 2026-10-14
 
 ### Added

@@ -40,12 +40,13 @@ usage: twaco <command>
       --fields                result fields mashups bind, which no mashup binds or names
       --detail                list every one, with the entry points and each file
       --json                  the report as JSON
-  docs [--out <file>] [--force]
+  docs [--out <file>] [--force | --check]
                               the solution written down: projects and deploy order, inheritance,
                               services, DataShapes, and the references to review; Markdown
       --detail                every signature and field, and every review reference
       --json                  JSON instead of Markdown
       --out <file>            write it to one file (atomically) instead of printing; --force replaces
+      --check                 with --out: write nothing, exit 1 when the file is missing or stale
   adopt <export.xml>          take a designer's or backend collaborator's export; plan unless --apply
       --base <file|handoff|git rev>  collaborator's starting point; --only ui|backend
       --take theirs:<name>,ours:<name>  resolve conflicts (theirs:ui takes every UI one)

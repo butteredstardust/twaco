@@ -799,6 +799,20 @@ pub(crate) fn docs_cmd(solution: &Solution, args: &Args) -> u8 {
         eprintln!("{} --force only applies to --out", style::prefix());
         return FAILED;
     }
+    if args.has("--check") && args.out.is_none() {
+        eprintln!(
+            "{} --check needs --out <file>: the document to compare",
+            style::prefix()
+        );
+        return FAILED;
+    }
+    if args.has("--check") && args.has("--force") {
+        eprintln!(
+            "{} --check writes nothing; leave out --force",
+            style::prefix()
+        );
+        return FAILED;
+    }
     let document = docs::build(solution);
     let detail = args.has("--detail");
     let text = if args.has("--json") {
@@ -811,6 +825,33 @@ pub(crate) fn docs_cmd(solution: &Solution, args: &Args) -> u8 {
     };
     match &args.out {
         None => print!("{text}"),
+        Some(path) if args.has("--check") => {
+            let format = if args.has("--json") { " --json" } else { "" };
+            let detail = if detail { " --detail" } else { "" };
+            match docs::is_current(path, &text) {
+                Ok(true) => println!("{} is up to date", path.display()),
+                Ok(false) if !path.exists() => {
+                    println!(
+                        "{} does not exist; write it with `twaco docs{detail}{format} --out {}`",
+                        path.display(),
+                        path.display()
+                    );
+                    return DRIFT;
+                }
+                Ok(false) => {
+                    println!(
+                        "{} is out of date; regenerate it with `twaco docs{detail}{format} --out {} --force`",
+                        path.display(),
+                        path.display()
+                    );
+                    return DRIFT;
+                }
+                Err(error) => {
+                    eprintln!("{} docs: {error}", style::prefix());
+                    return FAILED;
+                }
+            }
+        }
         Some(path) => {
             if let Err(error) = docs::write(path, &text, args.has("--force")) {
                 eprintln!("{} docs: {error}", style::prefix());

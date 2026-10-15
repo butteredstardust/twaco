@@ -907,13 +907,14 @@ pub(crate) const COMMANDS: &[Command] = &[
         path: "docs",
         group: 1,
         operands: false,
-        flags: &["--detail", "--json", "--out", "--force"],
-        text: r#"  docs [--out <file>] [--force]
+        flags: &["--detail", "--json", "--out", "--force", "--check"],
+        text: r#"  docs [--out <file>] [--force | --check]
                               the solution written down: projects and deploy order, inheritance,
                               services, DataShapes, and the references to review; Markdown
       --detail                every signature and field, and every review reference
       --json                  JSON instead of Markdown
-      --out <file>            write it to one file (atomically) instead of printing; --force replaces"#,
+      --out <file>            write it to one file (atomically) instead of printing; --force replaces
+      --check                 with --out: write nothing, exit 1 when the file is missing or stale"#,
     },
     Command {
         path: "adopt",
