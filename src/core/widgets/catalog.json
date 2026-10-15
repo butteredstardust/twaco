@@ -18,9 +18,8 @@
     }
   },
   "dropped": {
-    "leaf": {
-      "UseTheme": true,
-      "ResponsiveLayout": true
+    "ptcs": {
+      "UseTheme": true
     },
     "flexcontainer": {
       "UseTheme": true,
@@ -40,6 +39,8 @@
       "type_display_name": "Responsive Container",
       "display_name": "container",
       "container": true,
+      "numbered": true,
+      "auto_resize": false,
       "defaults": {
         "align-content": "flex-start",
         "align-items": "flex-start",
@@ -88,6 +89,8 @@
       "type_display_name": "Contained Mashup",
       "display_name": "mashupcontainer",
       "container": false,
+      "numbered": true,
+      "auto_resize": true,
       "defaults": {
         "Area": "UI",
         "CustomClass": "",
@@ -105,6 +108,31 @@
       }
     },
     {
+      "type": "pagemashupcontainer",
+      "aliases": [
+        "page-mashup-container",
+        "page-container"
+      ],
+      "type_display_name": "Page Mashup Container",
+      "display_name": "Page Mashup",
+      "container": false,
+      "numbered": false,
+      "auto_resize": true,
+      "defaults": {
+        "Area": "UI",
+        "Height": 300,
+        "Left": 0,
+        "Margin": "5",
+        "Name": "",
+        "ResponsiveLayout": false,
+        "ShowDataLoading": true,
+        "Top": 0,
+        "Visible": true,
+        "Width": 400,
+        "Z-index": 10
+      }
+    },
+    {
       "type": "ptcsbreadcrumb",
       "aliases": [
         "breadcrumb"
@@ -112,6 +140,8 @@
       "type_display_name": "Breadcrumb",
       "display_name": "ptcs-breadcrumb",
       "container": false,
+      "numbered": true,
+      "auto_resize": true,
       "defaults": {
         "Area": "UI",
         "CustomClass": "",
@@ -215,6 +245,8 @@
       "type_display_name": "Button",
       "display_name": "ptcs-button",
       "container": false,
+      "numbered": true,
+      "auto_resize": false,
       "defaults": {
         "Area": "UI",
         "ButtonType": "primary",
@@ -345,6 +377,8 @@
       "type_display_name": "Bar Chart",
       "display_name": "ptcs-chartbar",
       "container": false,
+      "numbered": true,
+      "auto_resize": true,
       "defaults": {
         "Area": "UI",
         "ChartType": "bar",
@@ -1236,6 +1270,8 @@
       "type_display_name": "Combo Chart",
       "display_name": "ptcs-chartcombo",
       "container": false,
+      "numbered": true,
+      "auto_resize": true,
       "defaults": {
         "AlignBarsAtZero": false,
         "Area": "UI",
@@ -3408,6 +3444,8 @@
       "type_display_name": "Line Chart",
       "display_name": "ptcs-chartline",
       "container": false,
+      "numbered": true,
+      "auto_resize": true,
       "defaults": {
         "Area": "UI",
         "ChartType": "linechart",
@@ -4755,6 +4793,8 @@
       "type_display_name": "Pareto Chart",
       "display_name": "ptcs-chartpareto",
       "container": false,
+      "numbered": true,
+      "auto_resize": true,
       "defaults": {
         "Area": "UI",
         "CumulativeLineLabel": "Percentage",
@@ -5403,6 +5443,8 @@
       "type_display_name": "Pie Chart",
       "display_name": "piechart",
       "container": false,
+      "numbered": true,
+      "auto_resize": true,
       "defaults": {
         "Area": "UI",
         "CustomClass": "",
@@ -5738,6 +5780,8 @@
       "type_display_name": "Schedule Chart",
       "display_name": "ptcs-chartschedule",
       "container": false,
+      "numbered": true,
+      "auto_resize": true,
       "defaults": {
         "Area": "UI",
         "AxisZoom": false,
@@ -6430,6 +6474,8 @@
       "type_display_name": "Waterfall Chart",
       "display_name": "ptcs-chartwaterfall",
       "container": false,
+      "numbered": true,
+      "auto_resize": true,
       "defaults": {
         "Area": "UI",
         "CustomClass": "",
@@ -7138,6 +7184,8 @@
       "type_display_name": "Checkbox",
       "display_name": "ptcs-checkbox",
       "container": false,
+      "numbered": true,
+      "auto_resize": false,
       "defaults": {
         "Area": "UI",
         "CriteriaMessage": "",
@@ -7294,6 +7342,8 @@
       "type_display_name": "Data Filter",
       "display_name": "ptcs-chipdatafilter",
       "container": false,
+      "numbered": true,
+      "auto_resize": true,
       "defaults": {
         "Area": "UI",
         "CategoryLabel": "[[Category]]",
@@ -7742,6 +7792,8 @@
       "type_display_name": "Collection",
       "display_name": "ptcs-collection",
       "container": false,
+      "numbered": true,
+      "auto_resize": true,
       "defaults": {
         "Area": "UI",
         "AutoSelectFirstRow": false,
@@ -8116,6 +8168,8 @@
       "type_display_name": "Confirmation",
       "display_name": "ptcs-confirmation",
       "container": false,
+      "numbered": true,
+      "auto_resize": false,
       "defaults": {
         "ActionButtonLabel": "Action",
         "ActionButtonPosition": "left",
@@ -8225,6 +8279,8 @@
       "type_display_name": "Date Time Picker",
       "display_name": "ptcs-datepicker",
       "container": false,
+      "numbered": true,
+      "auto_resize": false,
       "defaults": {
         "AMPMLabel": "[[ampm]]",
         "Area": "UI",
@@ -8666,6 +8722,8 @@
       "type_display_name": "Divider",
       "display_name": "ptcs-divider",
       "container": false,
+      "numbered": true,
+      "auto_resize": true,
       "defaults": {
         "Area": "UI",
         "CustomClass": "",
@@ -8707,6 +8765,8 @@
       "type_display_name": "DropDown",
       "display_name": "ptcs-dropdown",
       "container": false,
+      "numbered": true,
+      "auto_resize": false,
       "defaults": {
         "Alignment": "left",
         "AllLabel": "[[all]]",
@@ -8963,6 +9023,8 @@
       "type_display_name": "Dynamic Panel",
       "display_name": "ptcs-dynamicpanel",
       "container": false,
+      "numbered": true,
+      "auto_resize": true,
       "defaults": {
         "AnchorLocation": "left",
         "AnimationSpeed": "200ms",
@@ -9159,6 +9221,8 @@
       "type_display_name": "File Upload",
       "display_name": "ptcs-fileupload",
       "container": false,
+      "numbered": true,
+      "auto_resize": false,
       "defaults": {
         "AllowedFileTypes": "",
         "AllowedFileTypesMessage": "[[Widgets.FileUpload.Validation.AllowedFileTypesMessage]]",
@@ -9516,6 +9580,8 @@
       "type_display_name": "Grid",
       "display_name": "ptcs-grid",
       "container": false,
+      "numbered": true,
+      "auto_resize": true,
       "defaults": {
         "AddButtonText": "[[add]]",
         "AddRowButtonText": "[[add]]",
@@ -10300,6 +10366,8 @@
       "type_display_name": "Icon",
       "display_name": "ptcs-icon",
       "container": false,
+      "numbered": true,
+      "auto_resize": false,
       "defaults": {
         "AlternateText": "",
         "Area": "UI",
@@ -10375,6 +10443,8 @@
       "type_display_name": "Image",
       "display_name": "ptcs-image",
       "container": false,
+      "numbered": true,
+      "auto_resize": true,
       "defaults": {
         "AlternateText": "",
         "Area": "UI",
@@ -10458,6 +10528,8 @@
       "type_display_name": "KPI Dial",
       "display_name": "ptcs-kpidial",
       "container": false,
+      "numbered": true,
+      "auto_resize": true,
       "defaults": {
         "Area": "UI",
         "CriteriaMessage": "",
@@ -10672,6 +10744,8 @@
       "type_display_name": "Label",
       "display_name": "ptcs-label",
       "container": false,
+      "numbered": true,
+      "auto_resize": false,
       "defaults": {
         "Area": "UI",
         "CustomClass": "",
@@ -10785,6 +10859,8 @@
       "type_display_name": "Link",
       "display_name": "ptcs-link",
       "container": false,
+      "numbered": true,
+      "auto_resize": false,
       "defaults": {
         "Alignment": "left",
         "Area": "UI",
@@ -10900,6 +10976,8 @@
       "type_display_name": "List",
       "display_name": "ptcs-list",
       "container": false,
+      "numbered": true,
+      "auto_resize": true,
       "defaults": {
         "Alignment": "left",
         "Area": "UI",
@@ -11134,6 +11212,8 @@
       "type_display_name": "List Shuttle",
       "display_name": "ptcs-listshuttle",
       "container": false,
+      "numbered": true,
+      "auto_resize": true,
       "defaults": {
         "AddLabel": "[[add]]",
         "Area": "UI",
@@ -11426,6 +11506,8 @@
       "type_display_name": "Media Gallery",
       "display_name": "ptcs-mediagallery",
       "container": false,
+      "numbered": true,
+      "auto_resize": true,
       "defaults": {
         "Area": "UI",
         "CustomClass": "",
@@ -11581,6 +11663,8 @@
       "type_display_name": "Menu Bar (Preview)",
       "display_name": "ptcs-menubar",
       "container": false,
+      "numbered": true,
+      "auto_resize": true,
       "defaults": {
         "AlwaysOpen": false,
         "Area": "UI",
@@ -11785,6 +11869,8 @@
       "type_display_name": "Menu Button",
       "display_name": "ptcs-menubutton",
       "container": false,
+      "numbered": true,
+      "auto_resize": false,
       "defaults": {
         "AllowMissingIcons": false,
         "Area": "UI",
@@ -11948,6 +12034,8 @@
       "type_display_name": "Pagination",
       "display_name": "ptcs-pagination",
       "container": false,
+      "numbered": true,
+      "auto_resize": false,
       "defaults": {
         "Area": "UI",
         "CustomClass": "",
@@ -12026,6 +12114,139 @@
       "services": []
     },
     {
+      "type": "ptcsprogresstracker",
+      "aliases": [
+        "progress-tracker"
+      ],
+      "type_display_name": "Progress Tracker",
+      "display_name": "ptcs-progresstracker",
+      "container": false,
+      "numbered": true,
+      "auto_resize": true,
+      "defaults": {
+        "Area": "UI",
+        "CurrentStepMashup": "",
+        "CustomClass": "",
+        "DisableAutoStepCompletion": false,
+        "Disabled": false,
+        "DisableLegacyCustomClassStyles": false,
+        "ErrorStateIcon": "cds:icon_error",
+        "ErrorStateText": "[[ProgressTracker.unableToLoadData]]",
+        "FillContainer": true,
+        "Height": 90,
+        "Left": 0,
+        "Margin": "5",
+        "MinStepSpacing": 90,
+        "NoBindingIcon": "cds:icon_bind",
+        "NoBindingText": "[[ProgressTracker.noDataToDisplay]]",
+        "NoDataIcon": "cds:icon_not_visible",
+        "NoDataText": "[[ProgressTracker.noStepData]]",
+        "ShowDataLoading": true,
+        "StepSize": "medium",
+        "TabSequence": 0,
+        "Top": 0,
+        "Visible": true,
+        "Width": 600,
+        "Z-index": 10
+      },
+      "properties": {
+        "CustomClass": {
+          "base_type": "STRING",
+          "source": true
+        },
+        "TabSequence": {
+          "base_type": "NUMBER"
+        },
+        "Data": {
+          "base_type": "INFOTABLE",
+          "target": true,
+          "editable": false
+        },
+        "StepNumberField": {
+          "base_type": "FIELDNAME"
+        },
+        "StepLabelField": {
+          "base_type": "FIELDNAME"
+        },
+        "StepStateField": {
+          "base_type": "FIELDNAME"
+        },
+        "StepInteractiveField": {
+          "base_type": "FIELDNAME"
+        },
+        "StepMashupNameField": {
+          "base_type": "FIELDNAME"
+        },
+        "SelectedData": {
+          "base_type": "INFOTABLE",
+          "source": true
+        },
+        "IsInteractive": {
+          "base_type": "BOOLEAN"
+        },
+        "CurrentStepMashup": {
+          "base_type": "STRING",
+          "source": true,
+          "editable": false
+        },
+        "StepSize": {
+          "base_type": "STRING",
+          "options": [
+            "small",
+            "medium",
+            "large"
+          ]
+        },
+        "MinStepSpacing": {
+          "base_type": "NUMBER"
+        },
+        "NoDataText": {
+          "base_type": "STRING",
+          "target": true
+        },
+        "NoDataIcon": {
+          "base_type": "IMAGELINK",
+          "target": true
+        },
+        "NoBindingText": {
+          "base_type": "STRING"
+        },
+        "NoBindingIcon": {
+          "base_type": "IMAGELINK"
+        },
+        "ErrorStateText": {
+          "base_type": "STRING",
+          "target": true
+        },
+        "ErrorStateIcon": {
+          "base_type": "IMAGELINK",
+          "target": true
+        },
+        "Width": {
+          "base_type": "NUMBER"
+        },
+        "Height": {
+          "base_type": "NUMBER"
+        },
+        "CurrentStepNumber": {
+          "base_type": "NUMBER",
+          "source": true,
+          "target": true
+        },
+        "Disabled": {
+          "base_type": "BOOLEAN",
+          "target": true
+        },
+        "DisableAutoStepCompletion": {
+          "base_type": "BOOLEAN"
+        }
+      },
+      "events": [
+        "StepClicked"
+      ],
+      "services": []
+    },
+    {
       "type": "ptcspropertydisplay",
       "aliases": [
         "property-display"
@@ -12033,6 +12254,8 @@
       "type_display_name": "Property Display",
       "display_name": "ptcs-propertydisplay",
       "container": false,
+      "numbered": true,
+      "auto_resize": true,
       "defaults": {
         "Area": "UI",
         "CustomClass": "",
@@ -12202,137 +12425,6 @@
       "services": []
     },
     {
-      "type": "ptcsprogresstracker",
-      "aliases": [
-        "progress-tracker"
-      ],
-      "type_display_name": "Progress Tracker",
-      "display_name": "ptcs-progresstracker",
-      "container": false,
-      "defaults": {
-        "Area": "UI",
-        "CurrentStepMashup": "",
-        "CustomClass": "",
-        "DisableAutoStepCompletion": false,
-        "Disabled": false,
-        "DisableLegacyCustomClassStyles": false,
-        "ErrorStateIcon": "cds:icon_error",
-        "ErrorStateText": "[[ProgressTracker.unableToLoadData]]",
-        "FillContainer": true,
-        "Height": 90,
-        "Left": 0,
-        "Margin": "5",
-        "MinStepSpacing": 90,
-        "NoBindingIcon": "cds:icon_bind",
-        "NoBindingText": "[[ProgressTracker.noDataToDisplay]]",
-        "NoDataIcon": "cds:icon_not_visible",
-        "NoDataText": "[[ProgressTracker.noStepData]]",
-        "ShowDataLoading": true,
-        "StepSize": "medium",
-        "TabSequence": 0,
-        "Top": 0,
-        "Visible": true,
-        "Width": 600,
-        "Z-index": 10
-      },
-      "properties": {
-        "CustomClass": {
-          "base_type": "STRING",
-          "source": true
-        },
-        "TabSequence": {
-          "base_type": "NUMBER"
-        },
-        "Data": {
-          "base_type": "INFOTABLE",
-          "target": true,
-          "editable": false
-        },
-        "StepNumberField": {
-          "base_type": "FIELDNAME"
-        },
-        "StepLabelField": {
-          "base_type": "FIELDNAME"
-        },
-        "StepStateField": {
-          "base_type": "FIELDNAME"
-        },
-        "StepInteractiveField": {
-          "base_type": "FIELDNAME"
-        },
-        "StepMashupNameField": {
-          "base_type": "FIELDNAME"
-        },
-        "SelectedData": {
-          "base_type": "INFOTABLE",
-          "source": true
-        },
-        "IsInteractive": {
-          "base_type": "BOOLEAN"
-        },
-        "CurrentStepMashup": {
-          "base_type": "STRING",
-          "source": true,
-          "editable": false
-        },
-        "StepSize": {
-          "base_type": "STRING",
-          "options": [
-            "small",
-            "medium",
-            "large"
-          ]
-        },
-        "MinStepSpacing": {
-          "base_type": "NUMBER"
-        },
-        "NoDataText": {
-          "base_type": "STRING",
-          "target": true
-        },
-        "NoDataIcon": {
-          "base_type": "IMAGELINK",
-          "target": true
-        },
-        "NoBindingText": {
-          "base_type": "STRING"
-        },
-        "NoBindingIcon": {
-          "base_type": "IMAGELINK"
-        },
-        "ErrorStateText": {
-          "base_type": "STRING",
-          "target": true
-        },
-        "ErrorStateIcon": {
-          "base_type": "IMAGELINK",
-          "target": true
-        },
-        "Width": {
-          "base_type": "NUMBER"
-        },
-        "Height": {
-          "base_type": "NUMBER"
-        },
-        "CurrentStepNumber": {
-          "base_type": "NUMBER",
-          "source": true,
-          "target": true
-        },
-        "Disabled": {
-          "base_type": "BOOLEAN",
-          "target": true
-        },
-        "DisableAutoStepCompletion": {
-          "base_type": "BOOLEAN"
-        }
-      },
-      "events": [
-        "StepClicked"
-      ],
-      "services": []
-    },
-    {
       "type": "ptcsradio",
       "aliases": [
         "radio-button",
@@ -12341,6 +12433,8 @@
       "type_display_name": "Radio Button",
       "display_name": "ptcs-radio",
       "container": false,
+      "numbered": true,
+      "auto_resize": false,
       "defaults": {
         "Area": "UI",
         "CustomClass": "",
@@ -12415,6 +12509,8 @@
       "type_display_name": "Rich Text Editor",
       "display_name": "ptcs-rte",
       "container": false,
+      "numbered": true,
+      "auto_resize": true,
       "defaults": {
         "Area": "UI",
         "CustomClass": "",
@@ -12649,6 +12745,8 @@
       "type_display_name": "Slider",
       "display_name": "ptcs-slider",
       "container": false,
+      "numbered": true,
+      "auto_resize": false,
       "defaults": {
         "Area": "UI",
         "CriteriaMessage": "",
@@ -12996,6 +13094,8 @@
       "type_display_name": "Tabs",
       "display_name": "ptcs-tabset",
       "container": false,
+      "numbered": true,
+      "auto_resize": true,
       "defaults": {
         "Area": "UI",
         "CustomClass": "",
@@ -13217,6 +13317,8 @@
       "type_display_name": "Text Area",
       "display_name": "ptcs-textarea",
       "container": false,
+      "numbered": true,
+      "auto_resize": true,
       "defaults": {
         "AllowResize": false,
         "Area": "UI",
@@ -13441,6 +13543,8 @@
       "type_display_name": "Text Field",
       "display_name": "ptcs-textfield",
       "container": false,
+      "numbered": true,
+      "auto_resize": false,
       "defaults": {
         "AllowDecimals": true,
         "AllowNegativeValues": true,
@@ -13737,6 +13841,8 @@
       "type_display_name": "Timer",
       "display_name": "ptcs-timer",
       "container": false,
+      "numbered": true,
+      "auto_resize": true,
       "defaults": {
         "AlternateIconAlignment": "right",
         "AlternateIconSize": 16,
@@ -13909,6 +14015,8 @@
       "type_display_name": "Toggle Button",
       "display_name": "ptcs-togglebutton",
       "container": false,
+      "numbered": true,
+      "auto_resize": false,
       "defaults": {
         "Area": "UI",
         "CustomClass": "",
@@ -13984,6 +14092,8 @@
       "type_display_name": "Toolbar",
       "display_name": "ptcs-toolbar",
       "container": false,
+      "numbered": true,
+      "auto_resize": true,
       "defaults": {
         "Area": "UI",
         "Borders": "tblr",
@@ -14214,6 +14324,8 @@
       "type_display_name": "Tree Selector",
       "display_name": "ptcs-treeselector",
       "container": false,
+      "numbered": true,
+      "auto_resize": true,
       "defaults": {
         "Area": "UI",
         "ClearSelectionLabel": "[[Widgets.ClearSelectionMessage]]",
@@ -14370,6 +14482,8 @@
       "type_display_name": "Value Display",
       "display_name": "ptcs-valuedisplay",
       "container": false,
+      "numbered": true,
+      "auto_resize": true,
       "defaults": {
         "Area": "UI",
         "CustomClass": "",
@@ -14539,6 +14653,8 @@
       "type_display_name": "Video",
       "display_name": "ptcs-video",
       "container": false,
+      "numbered": true,
+      "auto_resize": true,
       "defaults": {
         "Area": "UI",
         "AutoPlay": false,

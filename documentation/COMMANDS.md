@@ -110,6 +110,15 @@ reproject <entity>... --to <project> [--apply] [--json]
                             under that project's root; the plan names each reference the move puts
                             outside the deploy order, with the depends_on that allows it
     --to <project>          the project they move to
+mashup new <name> [--project <name>] [--layout blank] [--theme <StyleTheme>] [--master]
+    [--visibility <principal>]... [--apply] [--json]
+                            create a ThingWorx 10.2 responsive mashup as Composer would: its entity file
+                            and its content sidecars; plan unless --apply
+    --layout blank          one center container (the default)
+    --theme <StyleTheme>    a StyleTheme in the solution (default: PTC Convergence Theme)
+    --master                a master mashup, with a page container filling the center
+    --visibility            Organization/<name> or OrganizationalUnit/<organization>:<unit>, repeatable;
+                            none unless given
 new building-block <name> [--type standard|abstract|implementation] [--display-name <text>] [--description <text>]
     [--parent <block>] [--model-logic] [--no-management-shape] [--root <dir>] [--base-extension PTC.Base:<version>]
     [--apply] [--json]

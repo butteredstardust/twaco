@@ -64,6 +64,7 @@ fn usage_paths() -> std::collections::BTreeSet<String> {
         "help",
         "javadoc",
         "permissions",
+        "mashup",
     ];
     let mut paths = std::collections::BTreeSet::new();
     let blocks: String = COMMANDS

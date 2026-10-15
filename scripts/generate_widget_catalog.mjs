@@ -121,6 +121,11 @@ for (const [type, extra] of Object.entries(overlay.widgets)) {
     // Composer's DisplayName for a dropped widget: ptcsbutton -> ptcs-button-<n>.
     display_name: extra.display_name ?? (type.startsWith("ptcs") ? `ptcs-${type.slice(4)}` : type),
     container: extra.container === true,
+    // A single page container is "Page Mashup"; other widgets are numbered like their ids.
+    numbered: extra.numbered !== false,
+    // Whether Composer lets it fill a container it is alone in (ResponsiveLayout): the contract's
+    // supportsAutoResize, or the overlay's word for a widget without a contract.
+    auto_resize: extra.auto_resize === true,
     defaults,
   };
   const contract = contracts[type];
@@ -131,6 +136,7 @@ for (const [type, extra] of Object.entries(overlay.widgets)) {
     }
     refuseCaseClash(Object.keys(properties), type);
     entry.properties = properties;
+    entry.auto_resize = contract.flags?.supportsAutoResize === true;
     entry.events = Object.keys(contract.events ?? {});
     entry.services = Object.keys(contract.services ?? {});
   }
@@ -145,7 +151,7 @@ const catalog = {
     widget_contracts: { path: "Common/mashup-common-widgets-shared.js", sha256: sha256(sharedBytes) },
   },
   base_properties: overlay.base_properties,
-  dropped: { leaf: overlay.dropped.leaf, flexcontainer: overlay.dropped.flexcontainer },
+  dropped: { ptcs: overlay.dropped.ptcs, flexcontainer: overlay.dropped.flexcontainer },
   widgets,
 };
 

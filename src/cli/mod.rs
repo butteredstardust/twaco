@@ -4,6 +4,7 @@ pub(crate) mod data;
 pub(crate) mod entity;
 pub(crate) mod info;
 pub(crate) mod localization;
+pub(crate) mod mashup;
 pub(crate) mod progress;
 pub(crate) mod refactor;
 pub(crate) mod service_tests;

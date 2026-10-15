@@ -1,0 +1,14 @@
+$ twaco mashup new Acme.Orders.Board_MU --master
+exit: 0
+
+--- stdout
+would create master mashup Acme.Orders.Board_MU in project Acme.Orders (blank layout, theme PTC Convergence Theme)
+  Mashups/Acme.Orders.Board_MU.xml
+  src/Acme.Orders.Board_MU/mashup/content.json
+  src/Acme.Orders.Board_MU/mashup/custom.css
+  visible to: nobody yet (--visibility grants it)
+  widget flexcontainer-2 (flexcontainer, center)
+  widget pagemashupcontainer-3 (pagemashupcontainer, Page Mashup)
+run again with --apply to write it
+--- stderr
+

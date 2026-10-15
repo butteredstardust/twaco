@@ -1,6 +1,7 @@
 use super::requests::refactor::{
     AdoptApplyRequest, AdoptKind, AdoptReportRequest, AdoptTakeSide, HandoffAction, HandoffRequest,
-    MoveMemberRequest, NewBuildingBlockRequest, RenameRequest, ReprojectRequest, RetemplateRequest,
+    MashupNewRequest, MoveMemberRequest, NewBuildingBlockRequest, RenameRequest, ReprojectRequest,
+    RetemplateRequest,
 };
 use super::source::add_types_refresh;
 use super::*;
@@ -153,6 +154,38 @@ pub(crate) fn reproject_tool(
     let outcome =
         commands::reproject::execute(solution, &request, &mut notices).map_err(ToolError::coded)?;
     let mut result = crate::core::reproject::plan_json(solution, outcome.plan(), !dry_run);
+    result["dry_run"] = json!(dry_run);
+    add_notices(&mut result, &notices);
+    Ok(result)
+}
+
+pub(crate) fn mashup_new_tool(
+    solution: &Solution,
+    arguments: MashupNewRequest,
+) -> Result<Value, ToolError> {
+    let dry_run = arguments.dry_run;
+    let layout = match arguments.layout.as_ref().map(String::as_str) {
+        None => crate::core::mashup_authoring::Layout::Blank,
+        Some(word) => crate::core::mashup_authoring::Layout::from_word(word)
+            .ok_or_else(|| ToolError::invalid(format!("unknown layout `{word}`; use `blank`")))?,
+    };
+    let request = commands::mashup::MashupNewRequest {
+        request: crate::core::mashup_authoring::NewRequest {
+            name: nonempty(&arguments.name, "name")?.to_string(),
+            project: arguments.project.as_ref().cloned(),
+            layout,
+            theme: arguments.theme.as_ref().cloned(),
+            master: arguments.master,
+            visibility: arguments.visibility.items().to_vec(),
+        },
+        mode: if dry_run { Mode::Plan } else { Mode::Apply },
+        lock_label: "mcp mashup_new",
+    };
+    let mut notices = commands::Notices::default();
+    let outcome =
+        commands::mashup::new(solution, &request, &mut notices).map_err(ToolError::coded)?;
+    let mut result =
+        crate::core::mashup_authoring::new_plan_json(solution, &outcome.plan, outcome.applied);
     result["dry_run"] = json!(dry_run);
     add_notices(&mut result, &notices);
     Ok(result)

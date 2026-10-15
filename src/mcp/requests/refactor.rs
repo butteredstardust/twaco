@@ -269,6 +269,30 @@ pub(crate) struct ReprojectRequest {
 
 #[derive(Debug, Deserialize, JsonSchema, Serialize)]
 #[serde(deny_unknown_fields)]
+pub(crate) struct MashupNewRequest {
+    /// The new mashup's name.
+    pub(crate) name: String,
+    /// The project it belongs to; may be left out when the solution has one project.
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) project: Absent<String>,
+    /// `blank`: one center container (the default).
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) layout: Absent<String>,
+    /// A StyleTheme in the solution; default PTC Convergence Theme.
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) theme: Absent<String>,
+    /// A master mashup, with a page container filling the center.
+    #[serde(default)]
+    pub(crate) master: bool,
+    /// `Organization/<name>` or `OrganizationalUnit/<organization>:<unit>`; none unless given.
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) visibility: Absent<Vec<String>>,
+    #[serde(default = "default_true")]
+    pub(crate) dry_run: bool,
+}
+
+#[derive(Debug, Deserialize, JsonSchema, Serialize)]
+#[serde(deny_unknown_fields)]
 pub(crate) struct RetemplateRequest {
     /// The Thing or template to change.
     pub(crate) entity: String,

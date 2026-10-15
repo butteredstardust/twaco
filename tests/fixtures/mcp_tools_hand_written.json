@@ -1102,6 +1102,56 @@
     }
   },
   {
+    "name": "mashup_new",
+    "description": "Create a ThingWorx 10.2 responsive mashup in the repository as Composer would: its entity file (from the 10.2 template, no permissions) and its content.json and custom.css sidecars, written by the same sync as any mashup. layout blank is one center container; master makes a master mashup with a page container filling the center; theme must be a StyleTheme in the solution (default PTC Convergence Theme); visibility grants only the principals given. Refuses a name already used or files already there. A dry run unless dry_run is false; an apply takes the workspace lock and writes every file or none.",
+    "inputSchema": {
+      "required": [
+        "name"
+      ],
+      "additionalProperties": false,
+      "type": "object",
+      "properties": {
+        "name": {
+          "description": "The new mashup's name.",
+          "type": "string"
+        },
+        "project": {
+          "description": "The project it belongs to; may be left out when the solution has one project.",
+          "type": "string"
+        },
+        "layout": {
+          "description": "`blank`: one center container (the default).",
+          "type": "string"
+        },
+        "theme": {
+          "description": "A StyleTheme in the solution; default PTC Convergence Theme.",
+          "type": "string"
+        },
+        "master": {
+          "description": "A master mashup, with a page container filling the center.",
+          "type": "boolean",
+          "default": false
+        },
+        "visibility": {
+          "description": "`Organization/<name>` or `OrganizationalUnit/<organization>:<unit>`; none unless given.",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "dry_run": {
+          "type": "boolean",
+          "default": true
+        }
+      }
+    },
+    "annotations": {
+      "readOnlyHint": false,
+      "destructiveHint": true,
+      "openWorldHint": false
+    }
+  },
+  {
     "name": "reproject",
     "description": "Move entities to another project of the solution: their projectName, and their files under that project's root (sidecars stay). The plan names each reference the move puts outside the deploy order, with the depends_on that allows it. A dry run unless dry_run is false; an apply takes the workspace lock and writes every file or none.",
     "inputSchema": {

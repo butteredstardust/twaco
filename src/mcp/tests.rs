@@ -844,6 +844,7 @@ fn every_tool_is_listed_with_a_schema_and_honest_annotations() {
             "rename",
             "move_member",
             "new_building_block",
+            "mashup_new",
             "reproject",
             "retemplate",
             "config_table",
@@ -892,6 +893,7 @@ fn every_tool_is_listed_with_a_schema_and_honest_annotations() {
         "rename",
         "move_member",
         "new_building_block",
+        "mashup_new",
         "reproject",
         "retemplate",
         "config_table",
@@ -2169,4 +2171,31 @@ fn a_deploy_the_localization_tables_stop_says_whether_the_entities_were_imported
             "{note}"
         );
     }
+}
+
+#[test]
+fn mashup_new_plans_by_default_and_creates_the_files_when_asked() {
+    let (_dir, root) = solution_dir();
+    let arguments = json!({"name": "P.Orders_MU", "visibility": ["Organization/P.Org"]});
+    let planned = call(&root, "mashup_new", arguments.clone());
+    assert_eq!(planned["isError"], false, "{planned}");
+    let report = &planned["structuredContent"];
+    assert_eq!(report["applied"], false);
+    assert_eq!(report["dry_run"], true);
+    assert_eq!(report["visibility"], json!(["Organization/P.Org"]));
+    assert!(!root.join("Mashups/P.Orders_MU.xml").exists());
+
+    let mut apply = arguments;
+    apply["dry_run"] = json!(false);
+    let applied = call(&root, "mashup_new", apply.clone());
+    assert_eq!(applied["structuredContent"]["applied"], true, "{applied}");
+    assert!(root.join("Mashups/P.Orders_MU.xml").exists());
+    assert!(root.join("src/P.Orders_MU/mashup/content.json").exists());
+    // Again: the mashup exists now, and the refusal says so with its code.
+    let again = call(&root, "mashup_new", apply);
+    assert_eq!(again["isError"], true);
+    assert_eq!(
+        again["structuredContent"]["code"], "already_exists",
+        "{again}"
+    );
 }

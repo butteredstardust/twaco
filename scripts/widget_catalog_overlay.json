@@ -7,10 +7,9 @@
     }
   },
   "dropped": {
-    "comment": "Properties Composer writes on every widget it drops, after the 10.2 defaults.",
-    "leaf": {
-      "UseTheme": true,
-      "ResponsiveLayout": true
+    "comment": "Properties Composer writes on a widget it drops, after the 10.2 defaults: ptcs on every PTCS widget, flexcontainer on a container. ResponsiveLayout is set by the editor (a widget that supports auto-resize fills its container when it is alone in it).",
+    "ptcs": {
+      "UseTheme": true
     },
     "flexcontainer": {
       "UseTheme": true,
@@ -36,7 +35,18 @@
         "mashup-container"
       ],
       "type_display_name": "Contained Mashup",
-      "display_name": "mashupcontainer"
+      "display_name": "mashupcontainer",
+      "auto_resize": true
+    },
+    "pagemashupcontainer": {
+      "aliases": [
+        "page-mashup-container",
+        "page-container"
+      ],
+      "type_display_name": "Page Mashup Container",
+      "display_name": "Page Mashup",
+      "numbered": false,
+      "auto_resize": true
     },
     "ptcsbreadcrumb": {
       "aliases": [
@@ -233,17 +243,17 @@
       ],
       "type_display_name": "Pagination"
     },
-    "ptcspropertydisplay": {
-      "aliases": [
-        "property-display"
-      ],
-      "type_display_name": "Property Display"
-    },
     "ptcsprogresstracker": {
       "aliases": [
         "progress-tracker"
       ],
       "type_display_name": "Progress Tracker"
+    },
+    "ptcspropertydisplay": {
+      "aliases": [
+        "property-display"
+      ],
+      "type_display_name": "Property Display"
     },
     "ptcsradio": {
       "aliases": [

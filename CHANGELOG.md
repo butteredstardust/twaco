@@ -6,6 +6,14 @@ All notable changes to twaco are recorded here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- `twaco mashup new <name>` (MCP `mashup_new`) creates a ThingWorx 10.2 responsive mashup in the repository as Composer would: the entity file from the 10.2 template and its `content.json` / `custom.css` sidecars, written by the same sync as any mashup, in one transaction. `--master` makes a master mashup with a page container filling the center; `--theme` takes a StyleTheme in the solution (default PTC Convergence Theme); `--visibility Organization/<name>` or `OrganizationalUnit/<org>:<unit>` grants visibility, and nothing is granted unless asked. Plans until `--apply`.
+
+### Fixed
+
+- `twaco impact <entity> --member <service>` narrows mashups to those that bind that service. An exported mashup lists a data source's services as `Services: [{Name, Target}]`, which the index did not read, so every mashup binding any service of the entity was reported as a dependent of each of them.
+
 ## [0.1.9] - 2026-10-15
 
 ### Added

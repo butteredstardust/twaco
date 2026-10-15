@@ -82,6 +82,20 @@ const SCENARIOS: &[(&str, &[&str])] = &[
     ),
     ("users_list_takes_no_apply", &["users", "list", "--apply"]),
     (
+        "mashup_new_plan",
+        &["mashup", "new", "Acme.Orders.Board_MU", "--master"],
+    ),
+    (
+        "mashup_new_bad_visibility",
+        &[
+            "mashup",
+            "new",
+            "Acme.Orders.Board_MU",
+            "--visibility",
+            "Acme.Orders.Org",
+        ],
+    ),
+    (
         "docs_check_without_force",
         &["docs", "--out", "SOLUTION.md", "--check", "--force"],
     ),

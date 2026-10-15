@@ -31,7 +31,8 @@ pub struct Catalog {
 
 #[derive(Debug, Deserialize)]
 pub struct Dropped {
-    pub leaf: Map<String, Value>,
+    /// On every PTCS widget.
+    pub ptcs: Map<String, Value>,
     pub flexcontainer: Map<String, Value>,
 }
 
@@ -43,10 +44,15 @@ pub struct Widget {
     pub aliases: Vec<String>,
     /// Composer's label, written as `__TypeDisplayName`.
     pub type_display_name: String,
-    /// The `DisplayName` stem: a dropped widget is `<display_name>-<n>`.
+    /// The `DisplayName` stem: a dropped widget is `<display_name>-<n>`, or just this when it is
+    /// not `numbered`.
     pub display_name: String,
+    pub numbered: bool,
     /// Whether other widgets go inside it.
     pub container: bool,
+    /// Whether it can fill the container it is alone in (Composer's `supportsAutoResize`).
+    #[serde(default)]
+    pub auto_resize: bool,
     /// Composer's defaults, in Composer's order.
     pub defaults: Map<String, Value>,
     /// The binding contract; absent for a widget whose contract the catalogue does not know.
@@ -238,6 +244,33 @@ mod tests {
         let keys: Vec<&str> = button.defaults.keys().map(String::as_str).collect();
         assert_eq!(&keys[..3], ["Area", "ButtonType", "ContextID"]);
         assert_eq!(button.defaults["Label"], Value::from("[[Button]]"));
+    }
+
+    #[test]
+    fn the_contracts_agents_bind_most_are_as_the_10_2_bundle_declares_them() {
+        let catalog = catalog();
+        let contract = |widget: &str, property: &str| {
+            let found = catalog.by_type(widget).unwrap().property(property).unwrap();
+            (found.base_type.clone().unwrap(), found.source, found.target)
+        };
+        assert_eq!(
+            contract("ptcsgrid", "Data"),
+            ("INFOTABLE".into(), false, true)
+        );
+        assert_eq!(
+            contract("ptcstextfield", "Text"),
+            ("STRING".into(), true, true)
+        );
+        assert_eq!(
+            contract("ptcsdropdown", "SelectedText"),
+            ("STRING".into(), true, true)
+        );
+        assert_eq!(
+            contract("ptcsmenubar", "PrimaryNavData"),
+            ("INFOTABLE".into(), false, true)
+        );
+        assert!(catalog.by_type("ptcsgrid").unwrap().auto_resize);
+        assert!(!catalog.by_type("ptcsbutton").unwrap().auto_resize);
     }
 
     #[test]

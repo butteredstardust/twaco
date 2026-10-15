@@ -212,6 +212,7 @@ pub(crate) fn args_from(
                 match *name {
                     "--only" => args.only.extend(values),
                     "--entity" => args.entity_filters.extend(values),
+                    "--visibility" => args.visibility.extend(values),
                     other => unreachable!("{other} repeats but nothing reads it"),
                 }
             }
@@ -505,6 +506,10 @@ pub(crate) const FLAGS: &[Flag] = &[
         takes: Takes::Value("text"),
     },
     Flag {
+        name: "--layout",
+        takes: Takes::Value("layout"),
+    },
+    Flag {
         name: "--limit",
         takes: Takes::Value("n"),
     },
@@ -518,6 +523,10 @@ pub(crate) const FLAGS: &[Flag] = &[
     },
     Flag {
         name: "--live",
+        takes: Takes::Switch,
+    },
+    Flag {
+        name: "--master",
         takes: Takes::Switch,
     },
     Flag {
@@ -713,6 +722,10 @@ pub(crate) const FLAGS: &[Flag] = &[
         takes: Takes::Value("name"),
     },
     Flag {
+        name: "--theme",
+        takes: Takes::Value("theme"),
+    },
+    Flag {
         name: "--thread",
         takes: Takes::Value("value"),
     },
@@ -743,6 +756,10 @@ pub(crate) const FLAGS: &[Flag] = &[
     Flag {
         name: "--value",
         takes: Takes::Value("text"),
+    },
+    Flag {
+        name: "--visibility",
+        takes: Takes::Repeated("principal"),
     },
     Flag {
         name: "--version",
@@ -1101,6 +1118,29 @@ pub(crate) const COMMANDS: &[Command] = &[
                               under that project's root; the plan names each reference the move puts
                               outside the deploy order, with the depends_on that allows it
       --to <project>          the project they move to"#,
+    },
+    Command {
+        path: "mashup new",
+        group: 1,
+        operands: true,
+        flags: &[
+            "--project",
+            "--layout",
+            "--theme",
+            "--master",
+            "--visibility",
+            "--apply",
+            "--json",
+        ],
+        text: r#"  mashup new <name> [--project <name>] [--layout blank] [--theme <StyleTheme>] [--master]
+      [--visibility <principal>]... [--apply] [--json]
+                              create a ThingWorx 10.2 responsive mashup as Composer would: its entity file
+                              and its content sidecars; plan unless --apply
+      --layout blank          one center container (the default)
+      --theme <StyleTheme>    a StyleTheme in the solution (default: PTC Convergence Theme)
+      --master                a master mashup, with a page container filling the center
+      --visibility            Organization/<name> or OrganizationalUnit/<organization>:<unit>, repeatable;
+                              none unless given"#,
     },
     Command {
         path: "new building-block",

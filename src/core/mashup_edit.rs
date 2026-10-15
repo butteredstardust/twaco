@@ -172,6 +172,37 @@ impl MashupDocument {
         node
     }
 
+    /// Append `widget` as the last child of the widget at `parent`.
+    pub fn push_child(&mut self, parent: &[usize], widget: Value) {
+        let mut node = &mut self.value["UI"];
+        for &index in parent {
+            node = &mut node["Widgets"][index];
+        }
+        let object = node
+            .as_object_mut()
+            .expect("checked: a widget is an object");
+        if !object.contains_key("Widgets") {
+            insert_sorted(object, "Widgets", Value::Array(Vec::new()));
+        }
+        object["Widgets"]
+            .as_array_mut()
+            .expect("checked: Widgets is a list")
+            .push(widget);
+    }
+
+    /// The root widget's properties.
+    pub fn root_properties_mut(&mut self) -> &mut Map<String, Value> {
+        self.value["UI"]["Properties"]
+            .as_object_mut()
+            .expect("checked: the root has Properties")
+    }
+
+    /// Set a top-level key of the document, such as `mashupType`.
+    pub fn set_top(&mut self, key: &str, value: Value) {
+        let object = self.value.as_object_mut().expect("checked: an object");
+        insert_sorted(object, key, value);
+    }
+
     /// The next free number for a new widget id, which the root's `id_index` then records.
     pub fn allocate(&mut self) -> u64 {
         let used = self
@@ -221,21 +252,39 @@ impl MashupDocument {
 
 /// A widget as Composer writes it when the widget is dropped: the 10.2 defaults, what Composer
 /// adds on every drop, then its identity. Keys are sorted, as an export writes them.
-pub fn new_widget(widget: &Widget, number: u64) -> Value {
+///
+/// `alone` says whether it will be the only widget in its container: Composer makes a widget
+/// that can resize fill a container it is alone in (`ResponsiveLayout`), and gives every other
+/// widget a fixed size.
+pub fn new_widget(widget: &Widget, number: u64, alone: bool) -> Value {
     let catalog = widgets::catalog();
     let mut properties: Map<String, Value> = widget.defaults.clone();
     let dropped = if widget.type_id == "flexcontainer" {
-        &catalog.dropped.flexcontainer
+        Some(&catalog.dropped.flexcontainer)
+    } else if widget.has_contract() {
+        Some(&catalog.dropped.ptcs)
     } else {
-        &catalog.dropped.leaf
+        None
     };
-    for (key, value) in dropped {
+    for (key, value) in dropped.into_iter().flatten() {
         properties.insert(key.clone(), value.clone());
     }
-    let id = format!("{}-{number}", widget.type_id);
-    let display = format!("{}-{number}", widget.display_name);
+    if widget.type_id != "flexcontainer" {
+        properties.insert(
+            "ResponsiveLayout".into(),
+            Value::from(widget.auto_resize && alone),
+        );
+    }
+    let display = if widget.numbered {
+        format!("{}-{number}", widget.display_name)
+    } else {
+        widget.display_name.clone()
+    };
     properties.insert("DisplayName".into(), Value::from(display));
-    properties.insert("Id".into(), Value::from(id));
+    properties.insert(
+        "Id".into(),
+        Value::from(format!("{}-{number}", widget.type_id)),
+    );
     properties.insert("LastContainer".into(), Value::from(false));
     properties.insert("Type".into(), Value::from(widget.type_id.clone()));
     properties.insert(
@@ -337,9 +386,10 @@ pub(crate) fn type_of(widget: &Value) -> Option<&str> {
     widget["Properties"]["Type"].as_str()
 }
 
-/// The `<n>` of an id that ends in `-<n>`.
+/// The number an id ends in: `3` for `ptcslabel-3`, `7` for `legacy7`.
 fn number_of(id: &str) -> Option<u64> {
-    id.rsplit_once('-')?.1.parse().ok()
+    let digits = id.len() - id.trim_end_matches(|c: char| c.is_ascii_digit()).len();
+    id[id.len() - digits..].parse().ok()
 }
 
 #[cfg(test)]
@@ -426,12 +476,17 @@ mod tests {
         assert_eq!(labelled.value()["UI"]["Properties"]["id_index"], 10);
         // A deleted widget's number is never handed out again: the index remembers it.
         assert_eq!(document("", 12).allocate(), 13);
+        // Any trailing number counts, with or without a dash.
+        assert_eq!(
+            document(&widget("ptcslabel", "legacy41", "x", ""), 4).allocate(),
+            42
+        );
     }
 
     #[test]
     fn a_new_widget_is_written_as_composer_drops_it_with_sorted_keys() {
         let button = widgets::catalog().by_type("ptcsbutton").unwrap();
-        let made = new_widget(button, 7);
+        let made = new_widget(button, 7, true);
         let properties = made["Properties"].as_object().unwrap();
         assert_eq!(properties["Id"], "ptcsbutton-7");
         assert_eq!(properties["DisplayName"], "ptcs-button-7");
@@ -441,12 +496,40 @@ mod tests {
         assert_eq!(properties["UseTheme"], true);
         let keys: Vec<&String> = properties.keys().collect();
         assert!(keys.windows(2).all(|p| p[0] < p[1]), "{keys:?}");
-        let container = new_widget(widgets::catalog().by_type("flexcontainer").unwrap(), 8);
+        // A button cannot resize, so it never fills its container.
+        assert_eq!(properties["ResponsiveLayout"], false);
+        let container = new_widget(
+            widgets::catalog().by_type("flexcontainer").unwrap(),
+            8,
+            true,
+        );
         assert_eq!(container["Properties"]["DisplayName"], "container-8");
         assert_eq!(
             container["Properties"]["iconClass"],
             "widgets-flexcontainer"
         );
+    }
+
+    #[test]
+    fn a_widget_that_can_resize_fills_its_container_only_when_alone_in_it() {
+        let grid = widgets::catalog().by_type("ptcsgrid").unwrap();
+        assert_eq!(
+            new_widget(grid, 3, true)["Properties"]["ResponsiveLayout"],
+            true
+        );
+        assert_eq!(
+            new_widget(grid, 3, false)["Properties"]["ResponsiveLayout"],
+            false
+        );
+        // The older containers are not themed, and the page container has one fixed name.
+        let page = new_widget(
+            widgets::catalog().by_type("pagemashupcontainer").unwrap(),
+            4,
+            true,
+        );
+        assert_eq!(page["Properties"]["DisplayName"], "Page Mashup");
+        assert_eq!(page["Properties"]["Id"], "pagemashupcontainer-4");
+        assert!(page["Properties"].get("UseTheme").is_none());
     }
 
     #[test]

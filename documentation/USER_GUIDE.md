@@ -422,6 +422,24 @@ matches what the framework itself produced (the tests hold it against server exp
 exists is overwritten. Not created: the component permission helper (the framework builds it on the
 server), and the `ui` and `test` types. Then `twaco check`, commit and `twaco deploy`.
 
+## Creating mashups
+
+```sh
+twaco mashup new Acme.App.Orders_MU --project Acme.App                     # plan
+twaco mashup new Acme.App.Orders_MU --project Acme.App --apply
+twaco mashup new Acme.App.Main_MM --master --visibility Organization/Acme.App.Org --apply
+```
+
+`mashup new` writes a ThingWorx 10.2 responsive mashup the way Composer makes one: the entity file
+under the project's `Mashups` folder, and its `content.json` and `custom.css` sidecars, written by the
+same sync as every other mashup, so a new mashup is already in sync. The page has one container,
+`center`, laid out as a column. `--master` makes a master mashup instead, with a page container
+filling the center for the pages it shows. The theme is ThingWorx's default unless `--theme` names a
+StyleTheme in the solution; twaco never creates one. Nothing is granted visibility unless
+`--visibility` names an `Organization/<name>` or an `OrganizationalUnit/<organization>:<unit>`.
+`--project` may be left out when the solution has one project. A name that is already a mashup, or
+files already in the way, are refused.
+
 ## Moving entities to another project
 
 ```sh

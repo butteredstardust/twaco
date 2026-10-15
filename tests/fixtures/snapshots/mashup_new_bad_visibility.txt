@@ -1,0 +1,7 @@
+$ twaco mashup new Acme.Orders.Board_MU --visibility Acme.Orders.Org
+exit: 2
+
+--- stdout
+
+--- stderr
+twaco: visibility "Acme.Orders.Org" is not Organization/<name> or OrganizationalUnit/<organization>:<unit>
