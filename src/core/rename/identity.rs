@@ -189,8 +189,7 @@ pub(super) fn plan_identity(solution: &Solution, spec: &Spec) -> Result<Plan, Re
             .ancestors()
             .skip(1)
             .any(|ancestor| sidecar_roots.contains(ancestor));
-        if spec.kind == Kind::Prefix
-            && !is_sidecar
+        if !is_sidecar
             && path.starts_with(&localization_root)
             && path
                 .extension()
@@ -332,8 +331,9 @@ fn qualified_names(
 }
 
 /// Rename the tokens of a localization table file: only the content of its name cells, by the
-/// same whole-token rule as everywhere else. False when the file is not a table export, for the
-/// caller to treat as any other file.
+/// same whole-token rule as everywhere else, and only in a prefix rename (an entity rename
+/// leaves a dotted `[[token]]` alone, so it leaves the table alone too, `--text` or not). False
+/// when the file is not a table export, for the caller to treat as any other file.
 fn scan_token_names(
     path: &Path,
     spec: &Spec,
@@ -344,6 +344,9 @@ fn scan_token_names(
     let Ok(Some(cells)) = crate::core::localization::name_cells(path, &bytes) else {
         return Ok(false);
     };
+    if spec.kind != Kind::Prefix {
+        return Ok(true);
+    }
     let mut pass = rename_scan::XmlPass::new_for(&bytes);
     for cell in cells {
         let Ok(found) =

@@ -731,6 +731,10 @@ fn only_a_prefix_rename_changes_tokens_and_only_in_real_table_files() {
         .changes
         .iter()
         .all(|change| change.kind != FileKind::Localization));
+    // Not with --text either: the table is no other text.
+    assert!(entity.outside.iter().all(|change| {
+        relative(&fixture.root, &change.path) != "localization/Acme.App/LocalizationTable.xml"
+    }));
     // A prefix rename: the table is renamed; the XML file that is not a table is other text.
     let prefix = plan(
         &fixture.solution,

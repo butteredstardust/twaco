@@ -169,22 +169,27 @@ fn references(src: &[u8]) -> Vec<(usize, String)> {
         if !contains(raw, b"[[") && !contains(raw, b"&") {
             continue;
         }
-        let text = String::from_utf8_lossy(raw);
-        let text = if token.kind == scan::Kind::Cdata {
-            text.into_owned()
-        } else {
-            scan::decode_entities(&text)
-        };
+        let text = scan::decode_entities(&String::from_utf8_lossy(raw));
         line += src[counted_to..token.span.start]
             .iter()
             .filter(|byte| **byte == b'\n')
             .count();
         counted_to = token.span.start;
-        // A decoded `&#10;` is no line of the file: an attribute or text with entities is
-        // reported at the line it starts on.
-        let decoded = token.kind != scan::Kind::Cdata && contains(raw, b"&");
-        for (within, name) in bracketed(&text) {
-            out.push((if decoded { line } else { line + within - 1 }, name));
+        // Lines come from the bytes as written: a decoded `&#10;` is no line of the file. A name
+        // that only decoding reveals (`&#91;&#91;...`) is reported where its token starts.
+        let written = bracketed(&String::from_utf8_lossy(raw));
+        for (within, name) in &written {
+            out.push((line + within - 1, name.clone()));
+        }
+        if token.kind != scan::Kind::Cdata && contains(raw, b"&") {
+            let mut seen: Vec<&String> = written.iter().map(|(_, name)| name).collect();
+            for (_, name) in bracketed(&text) {
+                if let Some(at) = seen.iter().position(|known| **known == name) {
+                    seen.remove(at);
+                } else {
+                    out.push((line, name));
+                }
+            }
         }
     }
     out
@@ -390,12 +395,17 @@ prefixes = [\"Acme.\"]
     fn a_decoded_line_feed_is_no_line_of_the_file() {
         let found = references(
             b"<Mashup
- label=\"&#10;&#10;[[On.Two]]\"/>
-[[On.Three]]",
+ label=\"&#10;&#10;[[On.Two]]\" other=\"&amp;
+[[On.Three]]\"/>
+[[On.Four]]",
         );
         assert_eq!(
             found,
-            [(1, "On.Two".to_string()), (3, "On.Three".to_string())]
+            [
+                (2, "On.Two".to_string()),
+                (3, "On.Three".to_string()),
+                (4, "On.Four".to_string())
+            ]
         );
     }
 

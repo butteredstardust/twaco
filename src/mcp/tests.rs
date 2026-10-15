@@ -2136,3 +2136,30 @@ fn a_push_with_a_progress_token_reports_its_entity() {
         "{notifications:?}"
     );
 }
+
+#[test]
+fn a_deploy_the_localization_tables_stop_says_whether_the_entities_were_imported() {
+    use crate::core::commands::deploy::DeployCommandError;
+    use crate::core::localization::LocalizationError;
+    for deployed in [false, true] {
+        let error = DeployCommandError::Localization {
+            why: Box::new(LocalizationError::NotVerified(
+                "de/Acme.App.Save".to_string(),
+            )),
+            deployed,
+            backup: deployed.then(|| ".twaco/backups/x".to_string()),
+            gates: None,
+        };
+        let value = super::source::localization_failure(&error);
+        assert_eq!(value["ok"], false);
+        assert_eq!(value["stage"], "localization");
+        assert_eq!(value["entities_deployed"], deployed);
+        assert_eq!(value["backup"].is_string(), deployed);
+        let note = value["note"].as_str().unwrap();
+        assert_eq!(
+            note.contains("the entities were deployed"),
+            deployed,
+            "{note}"
+        );
+    }
+}
