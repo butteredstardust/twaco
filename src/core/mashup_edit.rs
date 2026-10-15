@@ -1371,7 +1371,21 @@ mod placement_walkthrough {
                 )
             })
             .collect();
-        println!("{}", tree.join("\n"));
+        assert_eq!(
+            tree,
+            [
+                "mashup-root  fills=true",
+                "  flexcontainer-2 row fills=true",
+                "    flexcontainer-5 row fills=true",
+                "      ptcschartbar-3  fills=true",
+                "    flexcontainer-6 column fills=true",
+                "      flexcontainer-8 row fills=true",
+                "        ptcsgrid-4  fills=true",
+                "      flexcontainer-9 row fills=true",
+                "        ptcsbutton-7  fills=false",
+            ],
+            "center, alone with the chart, becomes the row; the grid's own container the column"
+        );
         assert!(document.problems().is_empty());
         assert_eq!(chart.id, "ptcschartbar-3");
         let after = document.find("ptcschartbar-3").unwrap();
