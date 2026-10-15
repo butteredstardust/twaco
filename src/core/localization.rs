@@ -11,6 +11,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 
 pub mod ops;
+pub(crate) mod references;
 pub mod remote;
 pub use ops::{
     new, pull, push, remove, set, status, Edited, FileChange, Pulled, Pushed, Status, TablePush,

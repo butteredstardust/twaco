@@ -118,6 +118,7 @@ pub const BUILT_IN_GATES: &[&str] = &[
     "code order",
     "project",
     "mashup bindings",
+    "localization tokens",
 ];
 
 /// A built-in gate as the solution wants it: blocking, or advisory when `[gates] advisory`
@@ -140,6 +141,7 @@ pub fn run(solution: &Solution) -> CheckReport {
         code_order(solution),
         project_validation(solution),
         mashup_bindings(solution),
+        localization_tokens(solution),
     ] {
         report.gates.push(as_configured(solution, gate));
     }
@@ -820,6 +822,28 @@ fn mashup_bindings(solution: &Solution) -> GateResult {
         prose.push_str("; twaco types --platform caches the platform's services");
     }
     result.prose.push(prose);
+    result
+}
+
+/// `[[token]]` references to the solution's own tokens, and the table files that define them.
+fn localization_tokens(solution: &Solution) -> GateResult {
+    let checked = super::localization::references::run(solution);
+    let mut result = GateResult::passed(super::localization::references::GATE, checked.checked);
+    result.findings = checked
+        .problems
+        .into_iter()
+        .map(|problem| Finding {
+            gate: super::localization::references::GATE.to_string(),
+            file: problem.file,
+            line: problem.line,
+            rule: problem.rule.to_string(),
+            message: problem.message,
+        })
+        .collect();
+    result.prose.push(format!(
+        "{} references to the solution's tokens checked in {} files; {} not checked (platform or extension tokens)",
+        checked.checked, checked.files, checked.not_checked
+    ));
     result
 }
 

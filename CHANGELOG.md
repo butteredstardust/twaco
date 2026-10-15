@@ -8,6 +8,8 @@ All notable changes to twaco are recorded here. The format follows
 
 ### Added
 
+- `twaco check` has a `localization tokens` gate: a mashup, menu or other entity that names a `[[token]]` under one of the solution's token prefixes that no Default table file holds fails it, since the label would show the raw `[[name]]`. A language table token Default lacks, a token in one table twice, and an unreadable table file fail it too. Tokens outside the solution's prefixes (the platform's, an extension's) are counted as not checked. `[gates] advisory = ["localization tokens"]` makes it report without failing.
+
 - `twaco docs --out <file> --check` writes nothing and exits 1 when the file is missing or no longer matches what `twaco docs` would write with the same `--detail` and `--json`, so CI can fail a pull request whose committed solution document is stale. A CRLF checkout of an up-to-date file is up to date.
 
 ### Changed

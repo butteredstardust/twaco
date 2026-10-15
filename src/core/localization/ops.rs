@@ -60,7 +60,7 @@ fn all_prefixes(solution: &Solution) -> Vec<String> {
     solution.projects.iter().flat_map(prefixes).collect()
 }
 
-fn project_for<'a>(solution: &'a Solution, name: &str) -> Option<&'a Project> {
+pub(super) fn project_for<'a>(solution: &'a Solution, name: &str) -> Option<&'a Project> {
     solution
         .projects
         .iter()
