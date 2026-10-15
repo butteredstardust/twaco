@@ -716,6 +716,78 @@ pub(crate) fn new_building_block_cmd(solution: &Solution, args: &Args) -> u8 {
 
 /// Change a template or implemented shapes. Plans unless --apply; a loss that holds data or is
 /// still referenced is refused unless --accept-loss.
+/// `twaco reproject <entity>... --to <project>`: move entities to another project.
+pub(crate) fn reproject_cmd(solution: &Solution, args: &Args) -> u8 {
+    let Some(to) = args.values.get("--to") else {
+        eprintln!("{} reproject needs --to <project>", style::prefix());
+        return FAILED;
+    };
+    if args.names.is_empty() {
+        eprintln!("{} reproject needs at least one <entity>", style::prefix());
+        return FAILED;
+    }
+    let apply = args.has("--apply");
+    let request = commands::reproject::ReprojectRequest {
+        request: twaco::core::reproject::Request {
+            entities: args.names.clone(),
+            to: to.clone(),
+        },
+        mode: if apply { Mode::Apply } else { Mode::Plan },
+        lock_label: "reproject",
+    };
+    let mut notices = commands::Notices::default();
+    let outcome = match commands::reproject::execute(solution, &request, &mut notices) {
+        Ok(outcome) => outcome,
+        Err(error) => {
+            print_notices(&notices);
+            eprintln!("{} {error}", style::prefix());
+            return FAILED;
+        }
+    };
+    print_notices(&notices);
+    let plan = outcome.plan();
+    if args.has("--json") {
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&twaco::core::reproject::plan_json(solution, plan, apply))
+                .expect("a plan serialises")
+        );
+        return OK;
+    }
+    let relative = |path: &std::path::Path| {
+        path.strip_prefix(&solution.root)
+            .unwrap_or(path)
+            .to_string_lossy()
+            .replace('\\', "/")
+    };
+    for item in &plan.moves {
+        let verb = if apply { "moved" } else { "would move" };
+        if item.new_path == item.old_path {
+            println!(
+                "{verb} {}/{} from {} to {}",
+                item.collection, item.name, item.from, plan.to
+            );
+        } else {
+            println!(
+                "{verb} {}/{} from {} to {}: {} -> {}",
+                item.collection,
+                item.name,
+                item.from,
+                plan.to,
+                relative(&item.old_path),
+                relative(&item.new_path)
+            );
+        }
+    }
+    for warning in &plan.warnings {
+        println!("{} {warning}", style::warn("deploy order:"));
+    }
+    if !apply {
+        println!("dry run: nothing was written; pass --apply");
+    }
+    OK
+}
+
 pub(crate) fn retemplate_cmd(solution: &Solution, args: &Args) -> u8 {
     let [entity] = args.names.as_slice() else {
         eprintln!("{} retemplate needs one <entity>", style::prefix());

@@ -140,6 +140,31 @@ impl fmt::Display for TransactionError {
 
 impl std::error::Error for TransactionError {}
 
+impl TransactionError {
+    /// Whether the workspace is known to be as it was: nothing was installed, or everything
+    /// installed was put back. Only then may a caller say nothing changed.
+    pub fn changed_nothing(&self) -> bool {
+        !matches!(
+            self,
+            Self::Failed {
+                rolled_back: false,
+                ..
+            }
+        )
+    }
+}
+
+/// Refuse a folder or file a command will write under unless it is inside the workspace at
+/// `root` and reached through no link. A command checks this before it reads or downloads
+/// anything, so a misplaced root is refused even when nothing turns out to change.
+pub fn check_inside(root: &Path, path: &Path) -> Result<(), String> {
+    if path == root {
+        return Ok(());
+    }
+    let relative = paths::relative(root, path)?;
+    paths::reject_links(root, &relative)
+}
+
 impl<'a> Transaction<'a> {
     pub fn new(root: &'a Path, command: &'a str) -> Self {
         Transaction {
@@ -315,6 +340,12 @@ impl<'a> Transaction<'a> {
             why: why.to_string(),
         };
         for planned in &self.planned {
+            // Checked when planned, and again here: a folder on the way can have become a link
+            // while the caller prepared the rest (a pull downloading).
+            paths::reject_links(self.root, &planned.path).map_err(TransactionError::Invalid)?;
+            if let Some(to) = &planned.to {
+                paths::reject_links(self.root, to).map_err(TransactionError::Invalid)?;
+            }
             if planned.kind == Kind::Move {
                 continue;
             }

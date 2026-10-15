@@ -621,6 +621,31 @@ pub fn write(path: &std::path::Path, text: &str, force: bool) -> Result<(), Stri
         .map_err(|e| format!("{}: {e}", path.display()))
 }
 
+/// Whether `path` already holds `text`, for a CI step that fails when a committed document is
+/// stale. Line endings compare as LF, so a checkout git turned to CRLF is not stale. A missing
+/// file is not current; a directory or a file that cannot be read is an error.
+pub fn is_current(path: &std::path::Path, text: &str) -> Result<bool, String> {
+    if path.is_dir() {
+        return Err(format!("{} is a directory", path.display()));
+    }
+    let held = match std::fs::read(path) {
+        Ok(bytes) => bytes,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(false),
+        Err(error) => return Err(format!("{}: {error}", path.display())),
+    };
+    let lf = |bytes: &[u8]| -> Vec<u8> {
+        let mut out = Vec::with_capacity(bytes.len());
+        for (index, byte) in bytes.iter().enumerate() {
+            if *byte == b'\r' && bytes.get(index + 1) == Some(&b'\n') {
+                continue;
+            }
+            out.push(*byte);
+        }
+        out
+    };
+    Ok(lf(&held) == lf(text.as_bytes()))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -773,5 +798,25 @@ mod tests {
         write(&target, "two", true).unwrap();
         assert_eq!(std::fs::read_to_string(&target).unwrap(), "two");
         assert!(write(&dir, "x", true).unwrap_err().contains("directory"));
+    }
+
+    #[test]
+    fn a_document_is_current_only_when_it_holds_the_same_text_whatever_its_line_endings() {
+        let dir_guard = tempfile::Builder::new()
+            .prefix("twaco-docs-check-")
+            .tempdir()
+            .unwrap();
+        let dir = dir_guard.path().to_path_buf();
+        let target = dir.join("SOLUTION.md");
+        assert!(!is_current(&target, "# A\n\nb\n").unwrap(), "missing");
+        std::fs::write(&target, "# A\n\nb\n").unwrap();
+        assert!(is_current(&target, "# A\n\nb\n").unwrap());
+        std::fs::write(&target, "# A\r\n\r\nb\r\n").unwrap();
+        assert!(is_current(&target, "# A\n\nb\n").unwrap(), "CRLF checkout");
+        std::fs::write(&target, "# A\n\nc\n").unwrap();
+        assert!(!is_current(&target, "# A\n\nb\n").unwrap(), "edited");
+        std::fs::write(&target, "# A\n\nb").unwrap();
+        assert!(!is_current(&target, "# A\n\nb\n").unwrap(), "final newline");
+        assert!(is_current(&dir, "x").unwrap_err().contains("directory"));
     }
 }

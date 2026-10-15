@@ -189,6 +189,89 @@ pub(crate) fn repo_tool(
     }
 }
 
+/// The test users of `[[test.user]]` on the server.
+pub(crate) fn users_tool(
+    solution: &Solution,
+    arguments: tool::UsersRequest,
+) -> Result<Value, ToolError> {
+    use crate::core::commands::users::{self as command, UsersAction, UsersOutcome, UsersRequest};
+    let request = UsersRequest {
+        action: UsersAction::List,
+        profile: arguments.profile,
+    };
+    let UsersOutcome::Listed { users, .. } =
+        command::execute(solution, &request, server::Client::new).map_err(ToolError::coded)?
+    else {
+        unreachable!()
+    };
+    Ok(json!({
+        "ready": users.iter().all(|user| user.exists
+            && user.signs_in != Some(false)
+            && user.groups.iter().all(|(_, state)| *state
+                == crate::core::testing::users::Membership::Member)),
+        "users": crate::core::testing::users::users_json(&users),
+    }))
+}
+
+/// Create or delete the test users; a plan unless `dry_run` is false.
+pub(crate) fn users_write_tool(
+    solution: &Solution,
+    arguments: tool::UsersWriteRequest,
+) -> Result<Value, ToolError> {
+    use crate::core::commands::users::{self as command, UsersAction, UsersOutcome, UsersRequest};
+    let mode = if arguments.dry_run {
+        commands::Mode::Plan
+    } else {
+        commands::Mode::Apply
+    };
+    let action = match arguments.action {
+        tool::UsersWriteAction::Seed => UsersAction::Seed { mode },
+        tool::UsersWriteAction::Delete => UsersAction::Delete { mode },
+    };
+    let request = UsersRequest {
+        action,
+        profile: arguments.profile,
+    };
+    let UsersOutcome::Changed { changed, .. } =
+        command::execute(solution, &request, server::Client::new).map_err(ToolError::coded)?
+    else {
+        unreachable!()
+    };
+    Ok(json!({
+        "dry_run": !changed.applied,
+        "steps": changed.steps.iter().map(ToString::to_string).collect::<Vec<_>>(),
+        "users": crate::core::testing::users::users_json(&changed.users),
+    }))
+}
+
+/// The service cases of `tests/*.toml`, run as the test users; a check and listing unless
+/// `dry_run` is false.
+pub(crate) fn test_tool(
+    solution: &Solution,
+    arguments: tool::TestRequest,
+) -> Result<Value, ToolError> {
+    use crate::core::commands::service_tests::{self as command, TestOutcome, TestRequest};
+    let request = TestRequest {
+        filters: arguments.filters,
+        mode: if arguments.dry_run {
+            commands::Mode::Plan
+        } else {
+            commands::Mode::Apply
+        },
+        profile: arguments.profile,
+    };
+    match command::execute(solution, &request, server::Client::new).map_err(ToolError::coded)? {
+        TestOutcome::Plan { cases, .. } => Ok(crate::core::testing::cases::plan_json(&cases)),
+        TestOutcome::Ran {
+            cases, outcomes, ..
+        } => {
+            let mut value = crate::core::testing::cases::outcomes_json(&cases, &outcomes);
+            value["dry_run"] = json!(false);
+            Ok(value)
+        }
+    }
+}
+
 pub(crate) fn localization_tool(
     solution: &Solution,
     arguments: tool::LocalizationRequest,

@@ -636,3 +636,121 @@ fn prefixes_default_to_the_project_name_and_root_to_localization() {
     assert_eq!(file_name(DEFAULT_TABLE), "LocalizationTable.xml");
     assert_eq!(file_name("pt-BR"), "LocalizationTable_pt-BR.xml");
 }
+
+/// One export holding the de and Default tables of the flat fixtures, as an extension ships them.
+fn two_tables() -> Vec<u8> {
+    let element = |src: &[u8]| -> String {
+        let text = String::from_utf8(src.to_vec()).unwrap();
+        let start = text
+            .find(
+                "<LocalizationTable
+",
+            )
+            .unwrap();
+        let end = text.rfind("</LocalizationTable>").unwrap() + "</LocalizationTable>".len();
+        text[start..end].to_string()
+    };
+    format!(
+        "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<Entities>\n  <LocalizationTables>\n    {}\n    {}\n  </LocalizationTables>\n</Entities>\n",
+        element(FLAT_DE),
+        element(FLAT_DEFAULT)
+    )
+    .into_bytes()
+}
+
+#[test]
+fn a_file_of_several_tables_is_read_table_by_table() {
+    let src = two_tables();
+    let tables = read_all(Path::new("bundle.xml"), &src).unwrap();
+    let names: Vec<&str> = tables.iter().map(|file| file.table.as_str()).collect();
+    assert_eq!(names, ["de", "Default"]);
+    assert_eq!(
+        tables[1].tokens,
+        read(Path::new("d.xml"), FLAT_DEFAULT)
+            .unwrap()
+            .unwrap()
+            .tokens
+    );
+    assert!(tables
+        .iter()
+        .all(|file| file.path == Path::new("bundle.xml")));
+    assert!(read_all(Path::new("t.xml"), THING).unwrap().is_empty());
+}
+
+#[test]
+fn a_file_of_several_tables_is_not_edited() {
+    let src = two_tables();
+    let error = read(Path::new("bundle.xml"), &src).unwrap_err();
+    assert!(
+        error
+            .to_string()
+            .contains("split it into one file per table"),
+        "{error}"
+    );
+    let error = edit(
+        Path::new("bundle.xml"),
+        &src,
+        &[Edit::Set(token("Acme.App.Save", "Store"))],
+    )
+    .unwrap_err();
+    assert!(
+        error.to_string().contains("holds 2 LocalizationTables"),
+        "{error}"
+    );
+}
+
+#[test]
+fn an_export_of_one_table_cuts_the_others_out_and_keeps_every_other_byte() {
+    let src = two_tables();
+    let de = table_export(Path::new("bundle.xml"), &src, "de").unwrap();
+    let tables = read_all(Path::new("de.xml"), &de).unwrap();
+    assert_eq!(tables.len(), 1);
+    assert_eq!(tables[0].table, "de");
+    let text = String::from_utf8(de).unwrap();
+    assert!(text.starts_with(
+        "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<Entities>\n  <LocalizationTables>\n    <LocalizationTable\n"
+    ));
+    assert!(text.ends_with("</LocalizationTable>\n  </LocalizationTables>\n</Entities>\n"));
+    let default = table_export(Path::new("bundle.xml"), &src, "Default").unwrap();
+    assert_eq!(
+        read_all(Path::new("d.xml"), &default).unwrap()[0].table,
+        "Default"
+    );
+    // A file of one table is sent as it is.
+    assert_eq!(
+        table_export(Path::new("d.xml"), FLAT_DEFAULT, "Default").unwrap(),
+        FLAT_DEFAULT
+    );
+    assert!(table_export(Path::new("bundle.xml"), &src, "fr").is_err());
+}
+
+#[test]
+fn a_file_naming_one_table_twice_is_refused() {
+    let text = String::from_utf8(two_tables())
+        .unwrap()
+        .replace("name=\"de\"", "name=\"Default\"");
+    let error = read_all(Path::new("bundle.xml"), text.as_bytes()).unwrap_err();
+    assert!(
+        error.to_string().contains("holds table Default twice"),
+        "{error}"
+    );
+    assert!(table_export(Path::new("bundle.xml"), text.as_bytes(), "Default").is_err());
+}
+
+#[test]
+fn discovery_skips_twacos_own_state_and_hidden_folders() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path();
+    for relative in [
+        "Acme.App_LocalizationTable_Default.xml",
+        ".twaco/backups/20261015-120000/LocalizationTables/Default.xml",
+        ".git/Default.xml",
+    ] {
+        let path = root.join(relative);
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::write(path, FLAT_DEFAULT).unwrap();
+    }
+    let found = discover(root).unwrap();
+    let paths: Vec<PathBuf> = found.files.iter().map(|file| file.path.clone()).collect();
+    assert_eq!(paths, [root.join("Acme.App_LocalizationTable_Default.xml")]);
+}

@@ -7,8 +7,10 @@
 //! question is how that tree and the server's differ.
 
 use super::entity_key::ServiceTarget;
+use super::lock::WorkspaceLock;
 use super::progress::{self, Progress, NONE};
 use super::server::{Client, ServerError};
+use super::transaction::Transaction;
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
 use std::collections::BTreeMap;
@@ -617,6 +619,9 @@ pub struct Synced {
 /// either side: a file present only where the copy goes is reported in `left`. A file that
 /// differs on both sides is a conflict, and any conflict refuses the whole sync unless
 /// `overwrite`, so a sync never half-happens over a decision nobody made.
+///
+/// An applied pull writes under `lock`, the workspace's lock, and `local_root` must be inside
+/// that workspace: every file is downloaded first, then all are written as one transaction.
 pub fn sync(
     remote: &dyn Remote,
     repository: &str,
@@ -624,9 +629,10 @@ pub fn sync(
     direction: Direction,
     overwrite: bool,
     apply: bool,
+    lock: Option<&WorkspaceLock>,
 ) -> Result<Synced, RepoError> {
     sync_with_progress(
-        remote, repository, local_root, direction, overwrite, apply, &NONE,
+        remote, repository, local_root, direction, overwrite, apply, lock, &NONE,
     )
 }
 
@@ -639,8 +645,22 @@ pub fn sync_with_progress(
     direction: Direction,
     overwrite: bool,
     apply: bool,
+    lock: Option<&WorkspaceLock>,
     progress: &dyn Progress,
 ) -> Result<Synced, RepoError> {
+    if direction == Direction::Pull && apply {
+        let lock = lock.ok_or_else(|| {
+            RepoError::Invalid("an applied pull needs the workspace lock".to_string())
+        })?;
+        crate::core::transaction::check_inside(lock.root(), local_root).map_err(|why| {
+            RepoError::Local {
+                path: local_root.to_path_buf(),
+                why: format!(
+                    "{why}; [repositories] root must be a folder inside the solution for a pull"
+                ),
+            }
+        })?;
+    }
     let compared = status_with_progress(remote, repository, local_root, progress)?;
     let (source_only, target_only) = match direction {
         Direction::Push => (State::LocalOnly, State::RemoteOnly),
@@ -676,12 +696,13 @@ pub fn sync_with_progress(
         same: compared.iter().filter(|c| c.state == State::Same).count(),
         ..Synced::default()
     };
-    let mut differs = std::collections::BTreeSet::new();
+    // Each differing file with the size the comparison saw locally.
+    let mut differs: BTreeMap<String, Option<u64>> = BTreeMap::new();
     for item in &compared {
         if item.state == source_only || item.state == State::Differs {
             synced.copied.push(item.path.clone());
             if item.state == State::Differs {
-                differs.insert(item.path.clone());
+                differs.insert(item.path.clone(), item.local_size);
             }
         } else if item.state == target_only {
             synced.left.push(item.path.clone());
@@ -690,16 +711,29 @@ pub fn sync_with_progress(
     if !apply {
         return Ok(synced);
     }
-    let mut done: Vec<String> = Vec::new();
     let _phase = progress::phase(progress, "copying files", Some(synced.copied.len() as u64));
-    for path in &synced.copied {
-        let result = copy_one(
+    if direction == Direction::Pull {
+        let lock = lock.expect("checked before the comparison");
+        pull_all(
             remote,
             repository,
             local_root,
-            direction,
+            &synced.copied,
+            &differs,
+            lock,
+            progress,
+        )?;
+        synced.applied = true;
+        return Ok(synced);
+    }
+    let mut done: Vec<String> = Vec::new();
+    for path in &synced.copied {
+        let result = push_one(
+            remote,
+            repository,
+            local_root,
             path,
-            differs.contains(path),
+            differs.contains_key(path),
         );
         if let Err(error) = result {
             return Err(RepoError::Invalid(format!(
@@ -749,75 +783,95 @@ fn case_clashes(compared: &[Compared]) -> Vec<String> {
     clashes
 }
 
-/// One file of a sync. A push replaces a server file only when the plan found it differing:
-/// one that appeared since is not overwritten. A pull writes only inside the local tree, and
-/// never through a link.
-fn copy_one(
+/// One file of a push. It replaces a server file only when the plan found it differing: one
+/// that appeared since is not overwritten.
+fn push_one(
     remote: &dyn Remote,
     repository: &str,
     local_root: &Path,
-    direction: Direction,
     path: &str,
     planned_differing: bool,
 ) -> Result<(), RepoError> {
     let path = remote_path(path)?;
-    let local = local_root.join(
+    let local = local_file(local_root, &path);
+    let bytes = std::fs::read(&local).map_err(|e| RepoError::Local {
+        path: local.clone(),
+        why: e.to_string(),
+    })?;
+    change(
+        remote,
+        repository,
+        &Change::Put {
+            path,
+            bytes,
+            overwrite: planned_differing,
+        },
+        true,
+    )?;
+    Ok(())
+}
+
+/// Download every file a pull copies, then write them all in one transaction: a failed
+/// download or a failed write leaves the local tree as it was, and a process killed midway is
+/// finished or undone by the next command to take the lock. The downloads are held in memory
+/// until written. A file planned as new locally must still not exist when written. A file
+/// planned as differing is read before the first download, must still have the size the
+/// comparison saw, and must still hold those bytes when it is replaced. Links are never written
+/// through.
+fn pull_all(
+    remote: &dyn Remote,
+    repository: &str,
+    local_root: &Path,
+    copied: &[String],
+    differs: &BTreeMap<String, Option<u64>>,
+    lock: &WorkspaceLock,
+    progress: &dyn Progress,
+) -> Result<(), RepoError> {
+    let nothing = |why: String| RepoError::Invalid(format!("{why}; nothing was copied"));
+    let mut before: BTreeMap<&str, Vec<u8>> = BTreeMap::new();
+    for (listed, size) in differs {
+        let local = local_file(local_root, &remote_path(listed)?);
+        let bytes = std::fs::read(&local).map_err(|e| RepoError::Local {
+            path: local.clone(),
+            why: e.to_string(),
+        })?;
+        if Some(bytes.len() as u64) != *size {
+            return Err(nothing(format!(
+                "{listed} changed locally since it was compared"
+            )));
+        }
+        before.insert(listed, bytes);
+    }
+    let mut transaction = Transaction::new(lock.root(), "repo pull");
+    for listed in copied {
+        let path = remote_path(listed)?;
+        let local = local_file(local_root, &path);
+        let bytes = remote
+            .download(repository, &path)
+            .map_err(|error| nothing(format!("downloading {path} failed ({error})")))?;
+        match before.get(listed.as_str()) {
+            Some(held) => transaction.replace_file(&local, held, bytes),
+            None => transaction.create_file(&local, bytes),
+        }
+        .map_err(|error| nothing(format!("{path}: {error}")))?;
+        progress.advance(1);
+    }
+    transaction.apply(lock).map_err(|error| {
+        if error.changed_nothing() {
+            nothing(error.to_string())
+        } else {
+            RepoError::Invalid(format!("the pull was left part-written: {error}"))
+        }
+    })?;
+    Ok(())
+}
+
+/// Where a checked repository path lives under the local tree.
+fn local_file(local_root: &Path, path: &str) -> PathBuf {
+    local_root.join(
         path.trim_start_matches('/')
             .replace('/', std::path::MAIN_SEPARATOR_STR),
-    );
-    match direction {
-        Direction::Push => {
-            let bytes = std::fs::read(&local).map_err(|e| RepoError::Local {
-                path: local.clone(),
-                why: e.to_string(),
-            })?;
-            change(
-                remote,
-                repository,
-                &Change::Put {
-                    path,
-                    bytes,
-                    overwrite: planned_differing,
-                },
-                true,
-            )?;
-        }
-        Direction::Pull => {
-            let bytes = remote
-                .download(repository, &path)
-                .map_err(RepoError::Remote)?;
-            let folder = local.parent().expect("a file has a folder");
-            std::fs::create_dir_all(folder).map_err(|e| RepoError::Local {
-                path: folder.to_path_buf(),
-                why: e.to_string(),
-            })?;
-            let root = std::fs::canonicalize(local_root).map_err(|e| RepoError::Local {
-                path: local_root.to_path_buf(),
-                why: e.to_string(),
-            })?;
-            let real = std::fs::canonicalize(folder).map_err(|e| RepoError::Local {
-                path: folder.to_path_buf(),
-                why: e.to_string(),
-            })?;
-            if !real.starts_with(&root) {
-                return Err(RepoError::Local {
-                    path: folder.to_path_buf(),
-                    why: "leads outside the repository's tree (a link?)".to_string(),
-                });
-            }
-            if std::fs::symlink_metadata(&local).is_ok_and(|m| m.file_type().is_symlink()) {
-                return Err(RepoError::Local {
-                    path: local.clone(),
-                    why: "is a link; twaco does not write through one".to_string(),
-                });
-            }
-            super::workspace::write_entity(&local, &bytes).map_err(|e| RepoError::Local {
-                path: local.clone(),
-                why: e.to_string(),
-            })?;
-        }
-    }
-    Ok(())
+    )
 }
 
 /// A file's SHA-256, as lowercase hex.
@@ -1143,6 +1197,11 @@ mod tests {
         assert_eq!(*live.writes.lock().unwrap(), ["DeleteFile"]);
     }
 
+    /// The lock of the workspace a test tree stands for.
+    fn lock(dir: &Path) -> WorkspaceLock {
+        crate::core::lock::acquire(dir, "test", &[]).unwrap()
+    }
+
     fn tree(files: &[(&str, &[u8])]) -> (tempfile::TempDir, PathBuf) {
         let dir_guard = tempfile::Builder::new()
             .prefix("twaco-sync-")
@@ -1162,7 +1221,7 @@ mod tests {
     fn push_copies_what_is_new_and_never_deletes() {
         let (_dir, dir) = tree(&[("/same.bin", b"s"), ("/A/new.bin", b"n")]);
         let live = Live::with(&[("/same.bin", b"s"), ("/server-only.bin", b"r")], &[]);
-        let plan = sync(&live, "R", &dir, Direction::Push, false, false).unwrap();
+        let plan = sync(&live, "R", &dir, Direction::Push, false, false, None).unwrap();
         assert_eq!(
             (plan.copied.clone(), plan.left.clone(), plan.same),
             (
@@ -1175,7 +1234,7 @@ mod tests {
             live.writes.lock().unwrap().is_empty(),
             "a plan sends nothing"
         );
-        sync(&live, "R", &dir, Direction::Push, false, true).unwrap();
+        sync(&live, "R", &dir, Direction::Push, false, true, None).unwrap();
         let files = live.files.lock().unwrap();
         assert_eq!(files["/A/new.bin"], b"n");
         assert!(files.contains_key("/server-only.bin"), "never deleted");
@@ -1185,7 +1244,16 @@ mod tests {
     fn pull_writes_what_is_new_locally_and_never_deletes() {
         let (_dir, dir) = tree(&[("/local-only.bin", b"l")]);
         let live = Live::with(&[("/B/deep/r.bin", b"remote")], &["/B", "/B/deep"]);
-        sync(&live, "R", &dir, Direction::Pull, false, true).unwrap();
+        sync(
+            &live,
+            "R",
+            &dir,
+            Direction::Pull,
+            false,
+            true,
+            Some(&lock(&dir)),
+        )
+        .unwrap();
         assert_eq!(std::fs::read(dir.join("B/deep/r.bin")).unwrap(), b"remote");
         assert!(dir.join("local-only.bin").exists(), "never deleted");
     }
@@ -1195,7 +1263,16 @@ mod tests {
         let (_dir, dir) = tree(&[]);
         let live = Live::with(&[("/A.txt", b"upper"), ("/a.txt", b"lower")], &[]);
         for apply in [false, true] {
-            let error = sync(&live, "R", &dir, Direction::Pull, false, apply).unwrap_err();
+            let error = sync(
+                &live,
+                "R",
+                &dir,
+                Direction::Pull,
+                false,
+                apply,
+                apply.then(|| lock(&dir)).as_ref(),
+            )
+            .unwrap_err();
             assert!(error.to_string().contains("differ only in case"), "{error}");
         }
         assert!(!dir.join("A.txt").exists() && !dir.join("a.txt").exists());
@@ -1203,33 +1280,42 @@ mod tests {
         // A server file and a local-only one, or a file and a folder, equal apart from case.
         let (_dir, dir) = tree(&[("/notes.txt", b"mine")]);
         let live = Live::with(&[("/Notes.txt", b"theirs")], &[]);
-        let error = sync(&live, "R", &dir, Direction::Pull, false, false).unwrap_err();
+        let error = sync(&live, "R", &dir, Direction::Pull, false, false, None).unwrap_err();
         assert!(
             error.to_string().contains("/Notes.txt and /notes.txt"),
             "{error}"
         );
         let (_dir, dir) = tree(&[]);
         let live = Live::with(&[("/A", b"file"), ("/a/x.txt", b"in a folder")], &["/a"]);
-        let error = sync(&live, "R", &dir, Direction::Pull, false, false).unwrap_err();
+        let error = sync(&live, "R", &dir, Direction::Pull, false, false, None).unwrap_err();
         assert!(error.to_string().contains("differ only in case"), "{error}");
 
         // A folder and the files in it are no clash.
         let (_dir, dir) = tree(&[]);
         let live = Live::with(&[("/a/x.txt", b"x"), ("/a/y.txt", b"y")], &["/a"]);
-        assert!(sync(&live, "R", &dir, Direction::Pull, false, false).is_ok());
+        assert!(sync(&live, "R", &dir, Direction::Pull, false, false, None).is_ok());
     }
 
     #[test]
     fn a_file_that_differs_refuses_the_whole_sync_unless_overwriting() {
         let (_dir, dir) = tree(&[("/both.bin", b"mine"), ("/new.bin", b"n")]);
         let live = Live::with(&[("/both.bin", b"them")], &[]);
-        let error = sync(&live, "R", &dir, Direction::Push, false, true).unwrap_err();
+        let error = sync(&live, "R", &dir, Direction::Push, false, true, None).unwrap_err();
         assert!(error.to_string().contains("/both.bin"), "{error}");
         assert!(
             live.writes.lock().unwrap().is_empty(),
             "nothing copied, not even the new file"
         );
-        sync(&live, "R", &dir, Direction::Pull, true, true).unwrap();
+        sync(
+            &live,
+            "R",
+            &dir,
+            Direction::Pull,
+            true,
+            true,
+            Some(&lock(&dir)),
+        )
+        .unwrap();
         assert_eq!(std::fs::read(dir.join("both.bin")).unwrap(), b"them");
     }
 
@@ -1261,6 +1347,7 @@ mod tests {
             Direction::Pull,
             false,
             true,
+            Some(&lock(&dir)),
         )
         .unwrap_err();
         assert!(
@@ -1268,6 +1355,181 @@ mod tests {
             "{error}"
         );
         assert!(!dir.join("outside.bin").exists());
+    }
+
+    #[test]
+    fn a_pull_whose_download_fails_midway_copies_nothing() {
+        /// Serves every file but one.
+        struct Failing(Live);
+        impl Remote for Failing {
+            fn service(
+                &self,
+                repository: &str,
+                service: &str,
+                body: &Value,
+            ) -> Result<Option<Value>, ServerError> {
+                self.0.service(repository, service, body)
+            }
+            fn download(&self, repository: &str, path: &str) -> Result<Vec<u8>, ServerError> {
+                if path == "/z.bin" {
+                    return Err(ServerError::Transport {
+                        method: crate::core::server::Method::Get,
+                        url: "http://server/z.bin".to_string(),
+                        why: "connection reset".to_string(),
+                    });
+                }
+                self.0.download(repository, path)
+            }
+            fn repositories(&self) -> Result<Vec<String>, ServerError> {
+                self.0.repositories()
+            }
+        }
+        let (_dir, dir) = tree(&[("/both.bin", b"mine")]);
+        let remote = Failing(Live::with(
+            &[("/a.bin", b"a"), ("/both.bin", b"them"), ("/z.bin", b"z")],
+            &[],
+        ));
+        let error = sync(
+            &remote,
+            "R",
+            &dir,
+            Direction::Pull,
+            true,
+            true,
+            Some(&lock(&dir)),
+        )
+        .unwrap_err();
+        assert!(
+            error.to_string().contains("downloading /z.bin failed"),
+            "{error}"
+        );
+        assert!(error.to_string().contains("nothing was copied"), "{error}");
+        assert!(
+            !dir.join("a.bin").exists(),
+            "downloaded first, never written"
+        );
+        assert_eq!(std::fs::read(dir.join("both.bin")).unwrap(), b"mine");
+    }
+
+    #[test]
+    fn a_pull_does_not_replace_a_file_that_appeared_or_changed_after_the_plan() {
+        /// Someone writes the local files while the downloads run.
+        struct Racing<'a>(Live, &'a Path);
+        impl Remote for Racing<'_> {
+            fn service(
+                &self,
+                repository: &str,
+                service: &str,
+                body: &Value,
+            ) -> Result<Option<Value>, ServerError> {
+                self.0.service(repository, service, body)
+            }
+            fn download(&self, repository: &str, path: &str) -> Result<Vec<u8>, ServerError> {
+                std::fs::write(self.1.join("new.bin"), b"someone's").unwrap();
+                self.0.download(repository, path)
+            }
+            fn repositories(&self) -> Result<Vec<String>, ServerError> {
+                self.0.repositories()
+            }
+        }
+        let (_dir, dir) = tree(&[]);
+        let remote = Racing(Live::with(&[("/new.bin", b"them")], &[]), &dir);
+        let error = sync(
+            &remote,
+            "R",
+            &dir,
+            Direction::Pull,
+            false,
+            true,
+            Some(&lock(&dir)),
+        )
+        .unwrap_err();
+        assert!(error.to_string().contains("nothing was copied"), "{error}");
+        assert_eq!(std::fs::read(dir.join("new.bin")).unwrap(), b"someone's");
+    }
+
+    #[test]
+    fn a_pull_does_not_replace_a_differing_file_edited_while_it_downloads() {
+        /// Someone saves the local copy, at the same size, while the downloads run.
+        struct Editing<'a>(Live, &'a Path, AtomicUsize);
+        impl Remote for Editing<'_> {
+            fn service(
+                &self,
+                repository: &str,
+                service: &str,
+                body: &Value,
+            ) -> Result<Option<Value>, ServerError> {
+                self.0.service(repository, service, body)
+            }
+            fn download(&self, repository: &str, path: &str) -> Result<Vec<u8>, ServerError> {
+                // /both.bin is downloaded once to compare it and again to pull it: the edit
+                // lands during the second, after the comparison and before the write.
+                if path == "/both.bin" && self.2.fetch_add(1, Ordering::SeqCst) == 1 {
+                    std::fs::write(self.1.join("both.bin"), b"edit").unwrap();
+                }
+                self.0.download(repository, path)
+            }
+            fn repositories(&self) -> Result<Vec<String>, ServerError> {
+                self.0.repositories()
+            }
+        }
+        let (_dir, dir) = tree(&[("/both.bin", b"mine")]);
+        let remote = Editing(
+            Live::with(&[("/both.bin", b"them"), ("/new.bin", b"n")], &[]),
+            &dir,
+            AtomicUsize::new(0),
+        );
+        let error = sync(
+            &remote,
+            "R",
+            &dir,
+            Direction::Pull,
+            true,
+            true,
+            Some(&lock(&dir)),
+        )
+        .unwrap_err();
+        assert!(error.to_string().contains("nothing was copied"), "{error}");
+        assert_eq!(std::fs::read(dir.join("both.bin")).unwrap(), b"edit");
+        assert!(!dir.join("new.bin").exists());
+    }
+
+    #[test]
+    fn a_pull_into_a_folder_outside_the_workspace_is_refused_before_anything_is_read() {
+        let (_dir, dir) = tree(&[]);
+        let workspace = dir.join("solution");
+        std::fs::create_dir_all(&workspace).unwrap();
+        let live = Live::with(&[("/a.bin", b"a")], &[]);
+        for outside in [workspace.join("../elsewhere"), dir.join("elsewhere")] {
+            let error = sync(
+                &live,
+                "R",
+                &outside,
+                Direction::Pull,
+                false,
+                true,
+                Some(&lock(&workspace)),
+            )
+            .unwrap_err();
+            assert!(
+                error
+                    .to_string()
+                    .contains("must be a folder inside the solution"),
+                "{error}"
+            );
+        }
+        assert!(!dir.join("elsewhere").exists());
+        // A plan reads the folder wherever it is.
+        assert!(sync(
+            &live,
+            "R",
+            &dir.join("elsewhere"),
+            Direction::Pull,
+            false,
+            false,
+            None
+        )
+        .is_ok());
     }
 
     #[test]
@@ -1303,7 +1565,7 @@ mod tests {
         }
         let (_dir, dir) = tree(&[("/new.bin", b"mine")]);
         let remote = Appearing(Live::with(&[], &[]));
-        let error = sync(&remote, "R", &dir, Direction::Push, false, true).unwrap_err();
+        let error = sync(&remote, "R", &dir, Direction::Push, false, true, None).unwrap_err();
         assert!(
             error.to_string().contains("0 of 1 file(s) were copied"),
             "{error}"
@@ -1439,8 +1701,17 @@ mod tests {
         let (_dir, dir) = tree(&[("/one.bin", b"1"), ("/two.bin", b"2")]);
         let live = Live::with(&[], &[]);
         let recorder = Recorder::default();
-        let synced =
-            sync_with_progress(&live, "R", &dir, Direction::Push, false, true, &recorder).unwrap();
+        let synced = sync_with_progress(
+            &live,
+            "R",
+            &dir,
+            Direction::Push,
+            false,
+            true,
+            None,
+            &recorder,
+        )
+        .unwrap();
         assert_eq!(synced.copied.len(), 2);
         assert!(recorder
             .phases()

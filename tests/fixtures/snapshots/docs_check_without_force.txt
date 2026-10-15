@@ -1,0 +1,7 @@
+$ twaco docs --out SOLUTION.md --check --force
+exit: 2
+
+--- stdout
+
+--- stderr
+twaco: --check writes nothing; leave out --force

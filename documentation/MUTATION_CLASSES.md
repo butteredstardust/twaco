@@ -11,8 +11,8 @@ classes are ordered from weakest to strongest: `server-partial`, `best-effort ba
 - **multi-file atomic** writes several local files and undoes files already written if a later
   write fails. That rollback is in-process only: a killed process or power loss between writes
   cannot run it. A crash-recoverable journal now exists (see [TRANSACTIONS.md](TRANSACTIONS.md)) and
-  `new building-block`, `move`, `copy`, `adopt` and every `rename` use it (and `extract`, for each
-  entity's sidecars): the next command to take the
+  `new building-block`, `move`, `copy`, `adopt`, every `rename`, `repo pull` and the
+  `localization` file edits use it (and `extract`, for each entity's sidecars): the next command to take the
   workspace lock finishes or undoes an interrupted run. The other multi-file commands still have
   the in-process rollback only, so inspect the workspace after such an interruption before
   retrying.
@@ -43,7 +43,7 @@ when the command is asked to write. A local output named by an option is include
 | `fmt` | best-effort batch | best-effort batch | script sidecars | Earlier scripts remain formatted; retry reported scripts. | `core/commands/fmt.rs: execute` |
 | `check` | read-only | read-only | none | Retry freely. | `core/check.rs: run` |
 | `bundle` | read-only | single-file atomic | generated bundle and optional handoff | The generated bundle is old or new; an applied handoff is available as a base. Retry freely. | `core/commands/bundle.rs: execute` |
-| `deploy` | read-only | server-partial | server, baseline, backups | Read back reported imports and baseline; use the plan and backups before retrying. | `core/commands/deploy.rs: execute` |
+| `deploy` | read-only | server-partial | server, baseline, backups, localization tables | Read back reported imports and baseline; use the plan and backups before retrying. A localization failure after the imports says so; `localization push --apply` retries the tables. | `core/commands/deploy.rs: execute` |
 | `call` | server-partial | server-partial | service effects | Inspect the service's effects and logs before retrying. | `core/commands/call.rs: execute` |
 | `logs` | read-only | read-only | none | Retry freely. | `cli/data.rs: logs_cmd` |
 | `logs level` | read-only | server-partial | server log level | Read the current level and use the printed undo before retrying. | `core/commands/logs.rs: execute` |
@@ -92,13 +92,15 @@ when the command is asked to write. A local output named by an option is include
 | `repo rm` | read-only | server-partial | server repository | List the path before retrying. | `cli/content.rs: repo_change` |
 | `repo mv` | read-only | server-partial | server repository | List source and destination before retrying. | `cli/content.rs: repo_change` |
 | `repo push` | read-only | server-partial | server repository | Inspect copied paths before retrying. | `core/repo.rs: sync` |
-| `repo pull` | read-only | best-effort batch | local repository files | Stops at the first failed file; the files already copied stay and are listed in the error. Retry after fixing the cause; copied files are then unchanged. | `core/commands/repo.rs: execute` |
+| `repo pull` | read-only | multi-file atomic | local repository files | Every file is downloaded before any is written, then all are written in one journaled transaction: a failed download or write copies nothing (an error that says the pull was left part-written names what the journal holds). The repository folder must be inside the solution. Retry after fixing the cause. | `core/commands/repo.rs: execute` |
 | `localization status` | read-only | read-only | none | Retry freely. | `core/commands/localization.rs: execute` |
-| `localization pull` | read-only | best-effort batch | localization files | Inspect files already written and retry after fixing the cause. | `core/commands/localization.rs: execute` |
+| `localization pull` | read-only | multi-file atomic | localization files | Every file is written in one journaled transaction, or none is; a file edited since the plan read it is refused (an error that says files were left part-written names what the journal holds). Retry after fixing the cause. | `core/commands/localization.rs: execute` |
 | `localization push` | read-only | server-partial | localization tables | Read tables back before retrying. | `core/commands/localization.rs: execute` |
 | `localization new` | read-only | single-file atomic | localization file | The file is old or new; retry freely. | `core/commands/localization.rs: execute` |
 | `localization set` | read-only | single-file atomic | localization file | The file is old or new; retry freely. | `core/commands/localization.rs: execute` |
-| `localization remove` | read-only | best-effort batch | localization files | Inspect files already written and retry after fixing the cause. | `core/commands/localization.rs: execute` |
+| `localization remove` | read-only | multi-file atomic | localization files | Every file is written in one journaled transaction, or none is; a file edited since the plan read it is refused (an error that says files were left part-written names what the journal holds). Retry after fixing the cause. | `core/commands/localization.rs: execute` |
+| `users` | read-only | server-partial | server users, group memberships, test project | `list` writes nothing. `seed` and `delete` make one server call per user, membership or project: `users list` shows what exists before retrying, and a seed never changes what exists. | `core/commands/users.rs: execute` |
+| `test` | read-only | server-partial | whatever the cases' services change | Without `--apply` it reads and checks the case files only. Applied, each case calls its service as written, one after another; a failing case does not stop the rest. Rerunning repeats every call. | `core/commands/service_tests.rs: execute` |
 | `guide` | read-only | read-only | none | Retry freely. | `cli/info.rs: guide_cmd` |
 | `help search` | single-file atomic | single-file atomic | user cache file | The cache file is old or new; retry freely. | `core/help.rs: cached_file` |
 | `help page` | single-file atomic | single-file atomic | user cache file | The cache file is old or new; retry freely. | `core/help.rs: cached_file` |
@@ -115,6 +117,7 @@ when the command is asked to write. A local output named by an option is include
 | `copy property` | read-only | multi-file atomic | XML, sidecars | A crash is finished or undone by the next command that takes the workspace lock; if it refuses, follow its message. Otherwise retry. | `core/commands/relocate.rs: execute` |
 | `new building-block` | read-only | multi-file atomic | project files, config | A crash is finished or undone by the next command that takes the workspace lock; if it refuses, follow its message. Otherwise retry. | `core/commands/newblock.rs: execute` |
 | `retemplate` | read-only | single-file atomic | one entity XML | The entity is old or new; retry freely. | `core/commands/retemplate.rs: execute` |
+| `reproject` | read-only | multi-file atomic | entity files | Every moved file is rewritten and moved in one journaled transaction, or none is; a file edited since the plan read it is refused. Retry. | `core/commands/reproject.rs: execute` |
 | `entity restore` | read-only | server-partial | server entities | Read restored entities back before retrying. | `core/commands/restore.rs: execute` |
 | `entity carry` | read-only | server-partial | server permissions, ledger | Read permissions and ledger before retrying. | `core/commands/carry.rs: execute` |
 | `permissions init` | read-only | multi-file atomic | new permissions.toml files | One transaction of new files; an existing policy is never touched. | `core/commands/permissions.rs: execute_init` |
@@ -146,11 +149,14 @@ when the command is asked to write. A local output named by an option is include
 | `permissions_push` | read-only | server-partial | server permissions, baseline; with `platform`, grants and memberships on shared entities | Each set is written whole and read back; `platform` adds one item at a time and never removes. Run `permissions` or `permissions_audit` with `server` before retrying. | `core/commands/permissions.rs: execute` |
 | `localization` | read-only | read-only | none | Retry freely. | `core/commands/localization.rs: execute` |
 | `localization_write` | read-only | server-partial | localization files or tables | Inspect the listed changes and read tables back before retrying a push. | `core/commands/localization.rs: execute` |
+| `users` | read-only | read-only | none | Retry freely. | `core/commands/users.rs: execute` |
+| `users_write` | read-only | server-partial | server users, group memberships, test project | `users` shows what exists before retrying; nothing that exists is changed by a seed. | `core/commands/users.rs: execute` |
+| `test` | read-only | server-partial | whatever the cases' services change | A dry run reads and checks the case files only; run, each case calls its service as written. Rerunning repeats every call. | `core/commands/service_tests.rs: execute` |
 | `db_run` | read-only | server-partial | SQL, temporary server Thing | Inspect SQL effects and clean temporary Things before retrying. | `core/commands/db.rs: execute` |
 | `db_query` | server-partial | server-partial | temporary server Thing | Run `db_clean` if temporary cleanup failed. | `core/commands/db.rs: execute` |
 | `datatable_copy` | read-only | server-partial | target DataTable | Read the target back before retrying. | `core/commands/datatable_copy.rs: execute` |
 | `db_clean` | read-only | server-partial | temporary server Things | List remaining temporary Things before retrying. | `core/commands/db.rs: execute` |
-| `deploy` | read-only | server-partial | server, baseline, backups | Read back imports and baseline; use plan and backups before retrying. | `core/commands/deploy.rs: execute` |
+| `deploy` | read-only | server-partial | server, baseline, backups, localization tables | Read back imports and baseline; use plan and backups before retrying. A localization failure after the imports says so; `localization_write` push retries the tables. | `core/commands/deploy.rs: execute` |
 | `adopt_report` | read-only | read-only | none | Retry freely. | `mcp/refactor.rs: adopt_tool` |
 | `adopt_apply` | multi-file atomic | multi-file atomic | entities, sidecars, declarations | Unlike the CLI form, this tool applies directly. Every entity and sidecar write happened or none did; a crash is finished or undone by the next command that takes the workspace lock. Retry. | `core/commands/adopt.rs: execute` |
 | `handoff` | read-only | best-effort batch | `.twaco/handoffs` copies and metadata | List retries freely; a record plan writes nothing, and an applied record can be retried with a new name. | `core/commands/handoff.rs: execute` |
@@ -158,6 +164,7 @@ when the command is asked to write. A local output named by an option is include
 | `move_member` | read-only | multi-file atomic | XML, sidecars | A crash is finished or undone by the next command that takes the workspace lock; if it refuses, follow its message. Otherwise retry. | `core/commands/relocate.rs: execute` |
 | `new_building_block` | read-only | multi-file atomic | project files, config | A crash is finished or undone by the next command that takes the workspace lock; if it refuses, follow its message. Otherwise retry. | `core/commands/newblock.rs: execute` |
 | `retemplate` | read-only | single-file atomic | one entity XML | The entity is old or new; retry freely. | `core/commands/retemplate.rs: execute` |
+| `reproject` | read-only | multi-file atomic | entity files | Every moved file is rewritten and moved in one journaled transaction, or none is; a file edited since the plan read it is refused. Retry. | `core/commands/reproject.rs: execute` |
 | `config_table` | read-only | server-partial | server table, a named backup file | A backup is old or new; read the table back before retrying restore. | `core/commands/config_table.rs: execute` |
 | `logs` | read-only | read-only | none | Retry freely. | `mcp/data.rs: logs_tool` |
 | `log_level` | read-only | server-partial | server log level | Read the current level and use the undo before retrying. | `core/commands/logs.rs: execute` |

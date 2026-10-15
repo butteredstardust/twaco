@@ -907,13 +907,14 @@ pub(crate) const COMMANDS: &[Command] = &[
         path: "docs",
         group: 1,
         operands: false,
-        flags: &["--detail", "--json", "--out", "--force"],
-        text: r#"  docs [--out <file>] [--force]
+        flags: &["--detail", "--json", "--out", "--force", "--check"],
+        text: r#"  docs [--out <file>] [--force | --check]
                               the solution written down: projects and deploy order, inheritance,
                               services, DataShapes, and the references to review; Markdown
       --detail                every signature and field, and every review reference
       --json                  JSON instead of Markdown
-      --out <file>            write it to one file (atomically) instead of printing; --force replaces"#,
+      --out <file>            write it to one file (atomically) instead of printing; --force replaces
+      --check                 with --out: write nothing, exit 1 when the file is missing or stale"#,
     },
     Command {
         path: "adopt",
@@ -1089,6 +1090,17 @@ pub(crate) const COMMANDS: &[Command] = &[
       --add-shapes a,b        implement these shapes too
       --remove-shapes a,b     stop implementing these shapes
       --accept-loss           go ahead although stored values or references would lose their definition"#,
+    },
+    Command {
+        path: "reproject",
+        group: 1,
+        operands: true,
+        flags: &["--to", "--apply", "--json"],
+        text: r#"  reproject <entity>... --to <project> [--apply] [--json]
+                              move entities to another project: their projectName, and their files
+                              under that project's root; the plan names each reference the move puts
+                              outside the deploy order, with the depends_on that allows it
+      --to <project>          the project they move to"#,
     },
     Command {
         path: "new building-block",
@@ -1478,6 +1490,29 @@ pub(crate) const COMMANDS: &[Command] = &[
                               --usage (new: label), --context, --project
   localization remove <token> remove a token from every table, or from --table
       --table <name>          one table only; --apply makes the change (all but status plan)"#,
+    },
+    Command {
+        path: "users",
+        group: 4,
+        operands: true,
+        flags: &["--apply", "--json", "--profile"],
+        text: r#"  users list [--json]         the test users of [[test.user]] on the server: present, signing in
+                              with the profile's test_password, in their groups
+  users seed                  create the missing users, the [test] project and group memberships
+  users delete                delete the test users; both need allow_test_users = true in the
+                              profile and plan until --apply"#,
+    },
+    Command {
+        path: "test",
+        group: 4,
+        operands: true,
+        flags: &["--apply", "--json", "--detail", "--profile"],
+        text: r#"  test [<filter>...]          the service cases of tests/*.toml: each called as each of its test
+                              users, expecting a status and optionally rows; checks and lists them
+                              until --apply runs them (a case may change the server; the profile
+                              must say allow_test_users = true); exit 1 when one fails
+      --detail                every passing call too
+      --json                  the calls run as JSON"#,
     },
     Command {
         path: "ext",

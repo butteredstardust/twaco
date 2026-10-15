@@ -168,23 +168,28 @@ fn a_path_that_could_leave_the_workspace_is_refused_when_it_is_named() {
     assert!(error.to_string().contains("named twice"), "{error}");
 }
 
+/// Make `at` a link to the folder `to`; false when this account may not.
+fn link_folder(at: &Path, to: &Path) -> bool {
+    #[cfg(unix)]
+    let linked = std::os::unix::fs::symlink(to, at).is_ok();
+    #[cfg(windows)]
+    let linked = std::os::windows::fs::symlink_dir(to, at).is_ok()
+        // A junction needs no privilege, and is a reparse point that is not a symbolic link.
+        || std::process::Command::new("cmd")
+            .args(["/C", "mklink", "/J"])
+            .arg(at)
+            .arg(to)
+            .output()
+            .is_ok_and(|output| output.status.success());
+    linked
+}
+
 #[test]
 fn a_link_on_the_way_is_refused() {
     let (_dir, root) = workspace("links");
     let (_dir, outside) = scratch("links-outside");
     std::fs::create_dir_all(root.join("real")).unwrap();
-    #[cfg(unix)]
-    let linked = std::os::unix::fs::symlink(&outside, root.join("link")).is_ok();
-    #[cfg(windows)]
-    let linked = std::os::windows::fs::symlink_dir(&outside, root.join("link")).is_ok()
-        // A junction needs no privilege, and is a reparse point that is not a symbolic link.
-        || std::process::Command::new("cmd")
-            .args(["/C", "mklink", "/J"])
-            .arg(root.join("link"))
-            .arg(&outside)
-            .output()
-            .is_ok_and(|output| output.status.success());
-    if !linked {
+    if !link_folder(&root.join("link"), &outside) {
         eprintln!("skipped: this account may not create links");
         return;
     }
@@ -192,6 +197,24 @@ fn a_link_on_the_way_is_refused() {
     let error = transaction
         .create_file(&root.join("link/escape.txt"), b"x".to_vec())
         .unwrap_err();
+    assert!(error.to_string().contains("link"), "{error}");
+    assert!(!outside.join("escape.txt").exists());
+}
+
+#[test]
+fn a_folder_that_becomes_a_link_after_planning_is_refused_when_applied() {
+    let (_dir, root) = workspace("links-later");
+    let (_dir, outside) = scratch("links-later-outside");
+    let mut transaction = Transaction::new(&root, "test");
+    transaction
+        .create_file(&root.join("later/escape.txt"), b"x".to_vec())
+        .unwrap();
+    if !link_folder(&root.join("later"), &outside) {
+        eprintln!("skipped: this account may not create links");
+        return;
+    }
+    let lock = crate::core::lock::acquire(&root, "test", &[]).unwrap();
+    let error = transaction.apply(&lock).unwrap_err();
     assert!(error.to_string().contains("link"), "{error}");
     assert!(!outside.join("escape.txt").exists());
 }

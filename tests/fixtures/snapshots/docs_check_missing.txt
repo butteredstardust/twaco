@@ -1,0 +1,7 @@
+$ twaco docs --detail --out SOLUTION.md --check
+exit: 1
+
+--- stdout
+SOLUTION.md does not exist; write it with `twaco docs --detail --out SOLUTION.md`
+--- stderr
+

@@ -261,6 +261,25 @@ pub(crate) fn fmt_tool(solution: &Solution, arguments: FmtRequest) -> Result<Val
     Ok(result)
 }
 
+/// A deploy the localization tables stopped, as a result rather than an error: whether the
+/// entities were imported first is what an agent needs to decide its next step.
+pub(crate) fn localization_failure(error: &commands::deploy::DeployCommandError) -> Value {
+    let deployed = matches!(
+        error,
+        commands::deploy::DeployCommandError::Localization { deployed: true, .. }
+    );
+    let mut value = json!({
+        "ok": false,
+        "stage": "localization",
+        "entities_deployed": deployed,
+        "note": error.to_string(),
+    });
+    if let Some(dir) = error.backup() {
+        value["backup"] = json!(dir);
+    }
+    value
+}
+
 pub(crate) fn deploy_tool(
     solution: &Solution,
     arguments: DeployRequest,
@@ -307,10 +326,16 @@ pub(crate) fn deploy_tool(
             report,
             notes,
             backup,
+            localization,
             ..
-        }) => (Ok(report), notes, backup),
+        }) => (Ok((report, localization)), notes, backup),
         Err(commands::deploy::DeployCommandError::Deploy { why, backup, .. }) => {
             (Err(*why), Vec::new(), backup)
+        }
+        Err(error @ commands::deploy::DeployCommandError::Localization { .. }) => {
+            let mut value = localization_failure(&error);
+            add_notices(&mut value, &notices);
+            return Ok(value);
         }
         Err(error) => return Err(ToolError::coded(error)),
     };
@@ -335,7 +360,7 @@ pub(crate) fn deploy_tool(
             .collect()
     };
     let mut value = match result {
-        Ok(report) => {
+        Ok((report, localization)) => {
             let mut value = json!({
                 "ok": true,
                 "dry_run": dry_run,
@@ -346,6 +371,18 @@ pub(crate) fn deploy_tool(
             });
             if let Some(dir) = &saved {
                 value["backup"] = json!(dir);
+            }
+            if let Some(pushed) = &localization {
+                value["localization"] = json!(pushed
+                    .tables
+                    .iter()
+                    .map(|table| json!({
+                        "table": table.table,
+                        "create": table.create,
+                        "set": table.set.len(),
+                        "imported": pushed.applied,
+                    }))
+                    .collect::<Vec<_>>());
             }
             if !dry_run {
                 value["imported"] = json!(report.imported);

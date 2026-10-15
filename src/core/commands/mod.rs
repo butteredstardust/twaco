@@ -24,11 +24,14 @@ pub mod push;
 pub mod relocate;
 pub mod rename;
 pub mod repo;
+pub mod reproject;
 pub mod restore;
 pub mod retemplate;
+pub mod service_tests;
 pub mod status;
 pub mod sync;
 pub mod types;
+pub mod users;
 
 use super::config::Solution;
 use super::lock::{self, LockError, WorkspaceLock};

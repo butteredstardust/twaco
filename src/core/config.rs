@@ -57,6 +57,9 @@ pub struct Solution {
     /// The solution's own markdown that `twaco guide` reads besides its built-in topics.
     #[serde(default)]
     pub knowledge: Knowledge,
+    /// The test users and the cases `twaco test` runs as them. See [`Test`].
+    #[serde(default)]
+    pub test: Test,
     #[serde(skip)]
     pub root: PathBuf,
 }
@@ -126,6 +129,27 @@ pub struct Localization {
 #[derive(Debug, Default, Deserialize)]
 pub struct Knowledge {
     pub paths: Option<Vec<String>>,
+}
+
+/// `[test]` and `[[test.user]]`: the accounts `twaco users seed` creates on a test server and
+/// `twaco test` signs in as, and where the case files are. Their one password is the profile's
+/// `test_password`, never this file.
+#[derive(Debug, Default, Deserialize)]
+pub struct Test {
+    #[serde(default, rename = "user")]
+    pub users: Vec<TestUser>,
+    /// The project the users are created in. Unset, they are in none.
+    pub project: Option<String>,
+    /// The folder of case files (`*.toml`), relative to the solution. Default `tests`.
+    pub cases: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct TestUser {
+    pub name: String,
+    /// The groups the user belongs to: the roles a case runs as.
+    #[serde(default)]
+    pub groups: Vec<String>,
 }
 
 /// `[package]`: an extension package's metadata. Unset, the version is 1.0.0, the group the

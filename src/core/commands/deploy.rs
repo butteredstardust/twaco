@@ -6,7 +6,7 @@ use crate::core::check;
 use crate::core::codes::{Coded, ErrorCode};
 use crate::core::config::Solution;
 use crate::core::progress::Progress;
-use crate::core::{deploy, lock, profile};
+use crate::core::{deploy, localization, lock, profile};
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct DeployRequest {
@@ -32,6 +32,9 @@ pub enum DeployOutcome {
         gates: Option<check::CheckReport>,
         notes: Vec<String>,
         backup: Option<String>,
+        /// The localization tables a whole-solution deploy carries: planned, or imported when
+        /// applied. `None` when the deploy does not carry them.
+        localization: Option<localization::Pushed>,
         effects: Effects,
     },
 }
@@ -44,10 +47,10 @@ impl DeployOutcome {
     }
 }
 
-/// A remote used by deploy and its pre-overwrite backup.
-pub trait Remote: deploy::Remote + backup::Remote {}
+/// A remote used by deploy, its pre-overwrite backup and its localization tables.
+pub trait Remote: deploy::Remote + backup::Remote + localization::Remote {}
 
-impl<T: deploy::Remote + backup::Remote + ?Sized> Remote for T {}
+impl<T: deploy::Remote + backup::Remote + localization::Remote + ?Sized> Remote for T {}
 
 #[derive(Debug, thiserror::Error)]
 pub enum DeployCommandError {
@@ -74,21 +77,42 @@ pub enum DeployCommandError {
         backup: Option<String>,
         gates: Option<check::CheckReport>,
     },
+    /// The localization tables stopped the deploy: before any import, or after the entities
+    /// were imported (`deployed`).
+    #[error("{}", localization_failure(why, *deployed))]
+    Localization {
+        why: Box<localization::LocalizationError>,
+        deployed: bool,
+        backup: Option<String>,
+        gates: Option<check::CheckReport>,
+    },
+}
+
+fn localization_failure(why: &localization::LocalizationError, deployed: bool) -> String {
+    if deployed {
+        format!(
+            "the entities were deployed, but the localization tables were not: {why}; \
+             `twaco localization push --apply` retries them"
+        )
+    } else {
+        format!("localization tables: {why}; nothing was imported")
+    }
 }
 
 impl DeployCommandError {
     pub fn backup(&self) -> Option<&str> {
         match self {
-            Self::Deploy { backup, .. } => backup.as_deref(),
+            Self::Deploy { backup, .. } | Self::Localization { backup, .. } => backup.as_deref(),
             _ => None,
         }
     }
 
     pub fn gates(&self) -> Option<&check::CheckReport> {
         match self {
-            Self::Plan { gates, .. } | Self::Backup { gates, .. } | Self::Deploy { gates, .. } => {
-                gates.as_ref()
-            }
+            Self::Plan { gates, .. }
+            | Self::Backup { gates, .. }
+            | Self::Deploy { gates, .. }
+            | Self::Localization { gates, .. } => gates.as_ref(),
             Self::Lock(_) => None,
             Self::Profile { gates, .. } => gates.as_ref(),
         }
@@ -103,6 +127,7 @@ impl Coded for DeployCommandError {
             Self::Plan { .. } => ErrorCode::Unclassified,
             Self::Backup { why, .. } => why.code(),
             Self::Deploy { why, .. } => why.code(),
+            Self::Localization { why, .. } => why.code(),
         }
     }
 }
@@ -188,6 +213,23 @@ where
         Err(why) => return Err(DeployCommandError::Profile { why, gates }),
     };
     let remote = open(profile.clone());
+    // Planned before anything is imported, so a table the server would refuse stops the deploy
+    // while nothing has been sent.
+    let tables = if carries_localization(solution, request) {
+        match localization::push(solution, &remote, None, false, false, progress) {
+            Ok(planned) => Some(planned),
+            Err(why) => {
+                return Err(DeployCommandError::Localization {
+                    why: Box::new(why),
+                    deployed: false,
+                    backup: None,
+                    gates,
+                })
+            }
+        }
+    } else {
+        None
+    };
     let backup = if matches!(request.mode, Mode::Apply) && request.force && request.backup {
         match backup::before_forced_deploy(&remote, solution, &projects, &backup::new_stamp()) {
             Ok(saved) => saved,
@@ -217,6 +259,22 @@ where
             })
         }
     };
+    let localization = match tables {
+        Some(planned) if matches!(request.mode, Mode::Apply) && !planned.tables.is_empty() => {
+            match localization::push(solution, &remote, None, false, true, progress) {
+                Ok(pushed) => Some(pushed),
+                Err(why) => {
+                    return Err(DeployCommandError::Localization {
+                        why: Box::new(why),
+                        deployed: true,
+                        backup,
+                        gates,
+                    })
+                }
+            }
+        }
+        tables => tables,
+    };
     let workspace = if matches!(request.mode, Mode::Apply) {
         Access::Write
     } else {
@@ -232,8 +290,22 @@ where
         gates,
         notes,
         backup,
+        localization,
         effects: Effects::new(workspace, server),
     })
+}
+
+/// Whether this deploy carries the localization tables: a deploy of the whole solution does,
+/// when it has table files (or files that look like tables and cannot be read, which then stop
+/// it). A deploy of some projects or entities, or of the backend only, leaves them to
+/// `twaco localization push`: the tables are shared by every project.
+fn carries_localization(solution: &Solution, request: &DeployRequest) -> bool {
+    request.only.is_empty()
+        && request.only_projects.is_empty()
+        && !request.backend_only
+        && localization::discover(&localization::root(solution)).map_or(true, |found| {
+            !found.files.is_empty() || !found.unreadable.is_empty()
+        })
 }
 
 #[cfg(test)]
@@ -348,6 +420,375 @@ mod tests {
         ) -> Result<Option<serde_json::Value>, crate::core::server::ServerError> {
             Ok(None)
         }
+    }
+
+    impl crate::core::imports::Remote for Rejecting {
+        fn exists(
+            &self,
+            _: &crate::core::entity_key::EntityKey,
+        ) -> Result<bool, crate::core::server::ServerError> {
+            Ok(false)
+        }
+
+        fn import_file(
+            &self,
+            _: &str,
+            _: &[u8],
+            _: bool,
+            _: bool,
+        ) -> Result<(), crate::core::server::ServerError> {
+            unreachable!("no test here imports a file")
+        }
+
+        fn source_control(
+            &self,
+            _: &str,
+            _: &serde_json::Value,
+        ) -> Result<Option<serde_json::Value>, crate::core::server::ServerError> {
+            unreachable!("no test here exports")
+        }
+    }
+
+    /// A server with an empty Default table: every local token is one to import.
+    impl localization::Remote for Rejecting {
+        fn tables(&self) -> Result<Vec<String>, crate::core::server::ServerError> {
+            Ok(vec![localization::DEFAULT_TABLE.to_string()])
+        }
+
+        fn tokens(
+            &self,
+            _: &str,
+        ) -> Result<Vec<localization::Token>, crate::core::server::ServerError> {
+            Ok(Vec::new())
+        }
+
+        fn header(
+            &self,
+            _: &str,
+        ) -> Result<localization::Header, crate::core::server::ServerError> {
+            Ok(localization::Header::default())
+        }
+
+        fn delete_token(&self, _: &str, _: &str) -> Result<(), crate::core::server::ServerError> {
+            unreachable!("a deploy never prunes")
+        }
+    }
+
+    /// A solution of one Thing, a profile, and a Default table file holding `table`.
+    fn with_table(table: &[u8]) -> (tempfile::TempDir, Solution) {
+        let root_guard = tempfile::Builder::new()
+            .prefix("twaco-deploy-localization-")
+            .tempdir()
+            .unwrap();
+        let root = root_guard.path();
+        std::fs::create_dir_all(root.join("Things")).unwrap();
+        std::fs::create_dir_all(root.join("localization")).unwrap();
+        std::fs::create_dir_all(root.join(".twaco/profiles")).unwrap();
+        std::fs::write(
+            root.join(".twaco/profiles/default.toml"),
+            "url = \"http://127.0.0.1:1\"
+username = \"u\"
+password = \"p\"
+",
+        )
+        .unwrap();
+        std::fs::write(
+            root.join("twaco.toml"),
+            "[[project]]
+name = \"Acme.App\"
+",
+        )
+        .unwrap();
+        std::fs::write(
+            root.join("Things/Acme.App.T.xml"),
+            "<Entities><Things><Thing name=\"Acme.App.T\" projectName=\"Acme.App\"></Thing></Things></Entities>",
+        )
+        .unwrap();
+        std::fs::write(
+            root.join("localization/Acme.App_LocalizationTable_Default.xml"),
+            table,
+        )
+        .unwrap();
+        let solution = Solution::load(&root.join("twaco.toml")).unwrap();
+        (root_guard, solution)
+    }
+
+    fn whole(mode: Mode) -> DeployRequest {
+        DeployRequest {
+            mode,
+            force: false,
+            backup: false,
+            skip_checks: true,
+            only_projects: Vec::new(),
+            only: Vec::new(),
+            backend_only: false,
+            profile: "default".to_string(),
+            lock_label: "deploy",
+        }
+    }
+
+    const DEFAULT: &[u8] = include_bytes!(
+        "../../../tests/fixtures/localization/flat/Acme.App_LocalizationTable_Default.xml"
+    );
+
+    #[test]
+    fn a_whole_solution_deploy_plans_its_localization_tables_and_a_partial_one_leaves_them() {
+        let (_root, solution) = with_table(DEFAULT);
+        let outcome = execute(
+            &solution,
+            &whole(Mode::Plan),
+            |_| Rejecting,
+            &mut Notices::default(),
+            &crate::core::progress::NONE,
+        )
+        .unwrap();
+        let DeployOutcome::Complete { localization, .. } = outcome else {
+            panic!("the plan completes");
+        };
+        let pushed = localization.expect("a whole-solution deploy carries the tables");
+        assert!(!pushed.applied);
+        assert_eq!(pushed.tables.len(), 1);
+        assert_eq!(pushed.tables[0].table, localization::DEFAULT_TABLE);
+        assert_eq!(pushed.tables[0].set.len(), 6);
+        for partial in [
+            DeployRequest {
+                only_projects: vec!["Acme.App".to_string()],
+                ..whole(Mode::Plan)
+            },
+            DeployRequest {
+                only: vec!["Acme.App.T".to_string()],
+                ..whole(Mode::Plan)
+            },
+            DeployRequest {
+                backend_only: true,
+                ..whole(Mode::Plan)
+            },
+        ] {
+            assert!(!carries_localization(&solution, &partial), "{partial:?}");
+        }
+    }
+
+    /// A server that keeps what it imports: the entity, read back as the file holds it, and the
+    /// localization tables, unless `forgets` makes it drop every token it is sent.
+    #[derive(Clone)]
+    struct Keeping {
+        entity: Vec<u8>,
+        imported: std::sync::Arc<std::sync::Mutex<bool>>,
+        tables: std::sync::Arc<std::sync::Mutex<Vec<localization::Token>>>,
+        events: std::sync::Arc<std::sync::Mutex<Vec<String>>>,
+        forgets: bool,
+    }
+
+    impl Keeping {
+        fn new(solution: &Solution, forgets: bool) -> Self {
+            Keeping {
+                entity: std::fs::read(solution.root.join("Things/Acme.App.T.xml")).unwrap(),
+                imported: std::sync::Arc::default(),
+                tables: std::sync::Arc::default(),
+                events: std::sync::Arc::default(),
+                forgets,
+            }
+        }
+    }
+
+    impl crate::core::push::Remote for Keeping {
+        fn fetch(
+            &self,
+            _: &crate::core::entity_key::EntityKey,
+        ) -> Result<Option<Vec<u8>>, crate::core::server::ServerError> {
+            Ok((*self.imported.lock().unwrap()).then(|| self.entity.clone()))
+        }
+
+        fn import(&self, _: &str, _: &[u8]) -> Result<(), crate::core::server::ServerError> {
+            *self.imported.lock().unwrap() = true;
+            self.events.lock().unwrap().push("entities".to_string());
+            Ok(())
+        }
+    }
+
+    impl backup::Remote for Keeping {
+        fn export(
+            &self,
+            _: &crate::core::entity_key::EntityKey,
+        ) -> Result<Option<Vec<u8>>, crate::core::server::ServerError> {
+            Ok(None)
+        }
+
+        fn import(&self, _: &str, _: &[u8]) -> Result<(), crate::core::server::ServerError> {
+            Ok(())
+        }
+
+        fn exists(
+            &self,
+            _: &crate::core::entity_key::EntityKey,
+        ) -> Result<bool, crate::core::server::ServerError> {
+            Ok(false)
+        }
+    }
+
+    impl deploy::Remote for Keeping {
+        fn check_script(
+            &self,
+            _: &str,
+        ) -> Result<crate::core::server::ScriptCheck, crate::core::server::ServerError> {
+            unreachable!("the solution has no scripts")
+        }
+
+        fn call_service(
+            &self,
+            _: &crate::core::entity_key::ServiceTarget,
+            _: &str,
+            _: &serde_json::Value,
+            _: std::time::Duration,
+        ) -> Result<Option<serde_json::Value>, crate::core::server::ServerError> {
+            Ok(None)
+        }
+    }
+
+    impl crate::core::imports::Remote for Keeping {
+        fn exists(
+            &self,
+            _: &crate::core::entity_key::EntityKey,
+        ) -> Result<bool, crate::core::server::ServerError> {
+            Ok(true)
+        }
+
+        fn import_file(
+            &self,
+            _: &str,
+            bytes: &[u8],
+            _: bool,
+            _: bool,
+        ) -> Result<(), crate::core::server::ServerError> {
+            let file = localization::read(std::path::Path::new("sent.xml"), bytes)
+                .unwrap()
+                .unwrap();
+            self.events
+                .lock()
+                .unwrap()
+                .push(format!("table {}", file.table));
+            if !self.forgets {
+                *self.tables.lock().unwrap() = file.tokens;
+            }
+            Ok(())
+        }
+
+        fn source_control(
+            &self,
+            _: &str,
+            _: &serde_json::Value,
+        ) -> Result<Option<serde_json::Value>, crate::core::server::ServerError> {
+            unreachable!()
+        }
+    }
+
+    impl localization::Remote for Keeping {
+        fn tables(&self) -> Result<Vec<String>, crate::core::server::ServerError> {
+            Ok(vec![localization::DEFAULT_TABLE.to_string()])
+        }
+
+        fn tokens(
+            &self,
+            _: &str,
+        ) -> Result<Vec<localization::Token>, crate::core::server::ServerError> {
+            Ok(self.tables.lock().unwrap().clone())
+        }
+
+        fn header(
+            &self,
+            _: &str,
+        ) -> Result<localization::Header, crate::core::server::ServerError> {
+            Ok(localization::Header::default())
+        }
+
+        fn delete_token(&self, _: &str, _: &str) -> Result<(), crate::core::server::ServerError> {
+            unreachable!("a deploy never prunes")
+        }
+    }
+
+    #[test]
+    fn an_applied_deploy_imports_the_entities_then_the_tables_that_differ() {
+        let (_root, solution) = with_table(DEFAULT);
+        let server = Keeping::new(&solution, false);
+        let outcome = execute(
+            &solution,
+            &whole(Mode::Apply),
+            |_| server.clone(),
+            &mut Notices::default(),
+            &crate::core::progress::NONE,
+        )
+        .unwrap();
+        let DeployOutcome::Complete { localization, .. } = outcome else {
+            panic!("the deploy completes");
+        };
+        let pushed = localization.unwrap();
+        assert!(pushed.applied);
+        assert_eq!(pushed.tables[0].table, localization::DEFAULT_TABLE);
+        assert_eq!(
+            *server.events.lock().unwrap(),
+            ["entities", "table Default"]
+        );
+        assert_eq!(server.tables.lock().unwrap().len(), 6);
+    }
+
+    #[test]
+    fn tables_that_fail_after_the_import_say_the_entities_were_deployed() {
+        let (_root, solution) = with_table(DEFAULT);
+        let server = Keeping::new(&solution, true);
+        let error = execute(
+            &solution,
+            &whole(Mode::Apply),
+            |_| server.clone(),
+            &mut Notices::default(),
+            &crate::core::progress::NONE,
+        )
+        .unwrap_err();
+        assert!(
+            matches!(
+                error,
+                DeployCommandError::Localization { deployed: true, .. }
+            ),
+            "{error:?}"
+        );
+        assert!(
+            error.to_string().contains("the entities were deployed"),
+            "{error}"
+        );
+        assert_eq!(
+            *server.events.lock().unwrap(),
+            ["entities", "table Default"]
+        );
+    }
+
+    #[test]
+    fn a_table_the_server_would_refuse_stops_the_deploy_before_anything_is_imported() {
+        let (_root, solution) = with_table(
+            b"<Entities><LocalizationTables><LocalizationTable/></LocalizationTables></Entities>",
+        );
+        // Rejecting answers an import as success; reaching one would not fail this test, so the
+        // apply is refused by its error, which says nothing was imported.
+        let error = execute(
+            &solution,
+            &whole(Mode::Apply),
+            |_| Rejecting,
+            &mut Notices::default(),
+            &crate::core::progress::NONE,
+        )
+        .unwrap_err();
+        assert!(
+            matches!(
+                error,
+                DeployCommandError::Localization {
+                    deployed: false,
+                    ..
+                }
+            ),
+            "{error:?}"
+        );
+        assert!(
+            error.to_string().contains("nothing was imported"),
+            "{error}"
+        );
     }
 
     #[test]

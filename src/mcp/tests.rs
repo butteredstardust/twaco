@@ -844,6 +844,7 @@ fn every_tool_is_listed_with_a_schema_and_honest_annotations() {
             "rename",
             "move_member",
             "new_building_block",
+            "reproject",
             "retemplate",
             "config_table",
             "logs",
@@ -852,6 +853,9 @@ fn every_tool_is_listed_with_a_schema_and_honest_annotations() {
             "repo_write",
             "localization",
             "localization_write",
+            "users",
+            "users_write",
+            "test",
             "extensions",
             "extension_write",
             "bundle",
@@ -888,11 +892,14 @@ fn every_tool_is_listed_with_a_schema_and_honest_annotations() {
         "rename",
         "move_member",
         "new_building_block",
+        "reproject",
         "retemplate",
         "config_table",
         "log_level",
         "repo_write",
         "localization_write",
+        "users_write",
+        "test",
         "extension_write",
         "export",
         "import",
@@ -2135,4 +2142,31 @@ fn a_push_with_a_progress_token_reports_its_entity() {
             .is_some_and(|text| text.contains("planning push"))),
         "{notifications:?}"
     );
+}
+
+#[test]
+fn a_deploy_the_localization_tables_stop_says_whether_the_entities_were_imported() {
+    use crate::core::commands::deploy::DeployCommandError;
+    use crate::core::localization::LocalizationError;
+    for deployed in [false, true] {
+        let error = DeployCommandError::Localization {
+            why: Box::new(LocalizationError::NotVerified(
+                "de/Acme.App.Save".to_string(),
+            )),
+            deployed,
+            backup: deployed.then(|| ".twaco/backups/x".to_string()),
+            gates: None,
+        };
+        let value = super::source::localization_failure(&error);
+        assert_eq!(value["ok"], false);
+        assert_eq!(value["stage"], "localization");
+        assert_eq!(value["entities_deployed"], deployed);
+        assert_eq!(value["backup"].is_string(), deployed);
+        let note = value["note"].as_str().unwrap();
+        assert_eq!(
+            note.contains("the entities were deployed"),
+            deployed,
+            "{note}"
+        );
+    }
 }

@@ -1,0 +1,7 @@
+$ twaco docs --check
+exit: 2
+
+--- stdout
+
+--- stderr
+twaco: --check needs --out <file>: the document to compare

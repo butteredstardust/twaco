@@ -17,6 +17,26 @@ An entity belongs to the project its own `projectName` names. A file filed under
 project's folder is reported by `check`, because it would otherwise import into the wrong
 project silently.
 
+### Starting from a project that is only on a server
+
+A project built in Composer becomes a repository with three commands. Declare the project, take
+the server's export of it in, and record that the files are what the server holds:
+
+```sh
+printf '[[project]]
+name = "Acme.App"
+' > twaco.toml   # one [[project]] per project, with depends_on
+twaco export project Acme.App --out acme-app.xml
+twaco adopt acme-app.xml --apply           # one file per entity, service sidecars extracted
+twaco entity status --all --record         # the baseline: these files are what the server has
+twaco init --agents                        # AGENTS.md, CLAUDE.md and the .gitignore lines
+twaco check                                # a script Composer formatted fails `formatting`: twaco fmt
+```
+
+`adopt` writes each entity the export holds and the solution lacks, in the solution's layout, with
+its sidecars; nothing that exists is overwritten. Repeat the export and adopt for each project the
+solution keeps. Delete the export file afterwards: the entity files are the source now.
+
 ### Sidecars are what you edit
 
 `twaco extract` writes the parts worth editing out of the XML into files under `src/`
@@ -69,6 +89,7 @@ without it, each gate gives a summary.
 | code order | a service's main code is below its helper functions |
 | project | the entity files disagree with themselves or each other: a file named for another entity, two files for one entity, a misfiled or project-less entity, a service declared without its implementation or the reverse, a mashup whose JSON does not parse |
 | mashup bindings | a repository-resolved mashup service, result field or parameter is not declared; unresolved platform and inherited DataShape details are left unchecked |
+| localization tokens | an entity names a `[[token]]` under one of the solution's token prefixes that no Default table file holds (the label would show the raw text), a language table holds a token Default lacks, a token is in one table twice, or a table file cannot be read. Tokens outside the prefixes are the platform's or an extension's and are not checked |
 | your hooks | a `[[check]]` command fails ([Configuration](CONFIGURATION.md#check-your-own-gates)) |
 | live parse | with `--live` or `[gates] live`: the server's own parser rejects a script |
 
@@ -127,14 +148,21 @@ name. Without `--apply` it plans and stops. With it, it:
 1. runs the offline gates, unless `--skip-checks`;
 2. builds one bundle per project, projects in `depends_on` order, collections in the order
    the importer needs;
-3. sends every script to the server's parser, and stops on any failure;
-4. checks every entity for a conflict with the baseline;
-5. imports each bundle, reads each entity back, and fails if the server did not keep it;
-6. calls the project's deploy and post-import services, if `[project.deploy]` names them;
-7. records the new baseline.
+3. plans the localization tables, as `twaco localization push` does, and stops on a table the
+   server would refuse (a deploy of the whole solution only);
+4. sends every script to the server's parser, and stops on any failure;
+5. checks every entity for a conflict with the baseline;
+6. imports each bundle, reads each entity back, and fails if the server did not keep it;
+7. calls the project's deploy and post-import services, if `[project.deploy]` names them;
+8. records the new baseline;
+9. imports each localization table that differs from the server, Default first, and reads it
+   back. It never prunes: `twaco localization push --prune` deletes server tokens.
 
 With `--only`, the project's deploy service still runs, but its `post_import` calls are
 skipped: they are written for a whole project's import.
+
+The localization tables are shared by every project, so a deploy of some projects or entities
+(`--only`, `--only-projects`) or of the backend only leaves them to `twaco localization push`.
 
 `--backend-only` leaves out `[bundle] ui_collections`, so backend work does not overwrite a
 designer's mashups. `twaco bundle` builds the document without sending it.
@@ -203,9 +231,10 @@ twaco rename prefix Acme.App Acme.Platform --apply --text   # write it, docs and
 ```
 
 Like `adopt`, it plans by default. The plan says how many entities move and how many references
-change in the entity files, the sidecars, `twaco.toml` and the other text files, and lists what
-it left for a person. `--apply` writes. `--text` also changes the other text files (docs, `sql/`,
-localization tables); without it they are counted and left alone. `--detail` lists every finding.
+change in the entity files, the sidecars, `twaco.toml`, the localization tables and the other text
+files, and lists what it left for a person. `--apply` writes. A prefix rename changes the token names
+in the localization tables (their name cells only) with the `[[token]]` references to them, always. `--text` also changes the other
+text files (docs, `sql/`); without it they are counted and left alone. `--detail` lists every finding.
 
 **What counts as a reference.** A name matches as a whole token: it is not part of a longer
 name (`Acme.App-2`, `Acme.App_TS`, and for an entity not `Acme.App.Manager.Child`). In
@@ -393,6 +422,24 @@ matches what the framework itself produced (the tests hold it against server exp
 exists is overwritten. Not created: the component permission helper (the framework builds it on the
 server), and the `ui` and `test` types. Then `twaco check`, commit and `twaco deploy`.
 
+## Moving entities to another project
+
+```sh
+twaco reproject Acme.App.Report_DS Acme.App.Reports --to Acme.Reporting           # plan
+twaco reproject Acme.App.Report_DS Acme.App.Reports --to Acme.Reporting --apply
+```
+
+`reproject` changes each entity's `projectName` and, when the projects keep their files in
+different folders, moves the file to the same collection folder under the other project's root.
+Sidecars are filed by entity name and stay where they are. Every file changes in one transaction,
+or none does. The plan also names each reference twaco resolves (templates, shapes, DataShapes,
+script references it can read, mashup bindings, `twaco.toml`) that the move puts outside the deploy
+order: an entity of a project that does not depend on the new one using a moved entity, or a moved
+entity using one of a project the new one does not depend on, each with the `depends_on` that
+allows it; a mere mention of the name is not checked. A misfiled entity, or a collection the new
+project does not keep, is refused. On the server, the next deploy's import gives the entities their
+new project; until then `entity status` reports them `local-changed`, which that deploy records.
+
 ## Changing a template
 
 Pointing a Thing at a different template, a template at a different base, or adding or removing an
@@ -551,6 +598,43 @@ audit also compares the helper's three tables and the columns of its two DataSha
 policy, and `apply` writes them, so the helper's mashup shows what the entity XML grants. A
 change made in that mashup shows up in the audit; carry it into `permissions.toml`.
 
+## Testing services as users
+
+A permission policy says who may call what; `twaco test` checks that the server agrees. The test
+users are declared in `twaco.toml`, each with its groups ([Configuration](CONFIGURATION.md#test-and-testuser-test-users)),
+and share one password, the profile's `test_password`. A profile must say
+`allow_test_users = true` before twaco creates an account on its server or runs a case there.
+
+```sh
+twaco users list                 # each test user: present, signs in, in its groups
+twaco users seed --apply         # create what is missing; nothing that exists is changed
+twaco test                       # read and check tests/*.toml, list the calls
+twaco test --apply               # run them; exit 1 when one fails
+twaco test dashboards --apply    # only the cases whose name, service or file says dashboards
+twaco users delete --apply       # remove the test users
+```
+
+A case names a service, the test users or groups it runs as, and the status it expects: 200 for
+a call the role may make, 401 for one it may not, 404 for a user who cannot see the entity at all.
+A new user in no group is answered 404 by most of the platform's resources too, `EntityServices`
+and `CurrentSessionInfo` included; a wrong name or password is always 401.
+
+```toml
+[[case]]
+name = "a viewer reads the dashboards"
+service = "Acme.App.Manager.GetDashboards"   # Thing.Service, or Collection/Name.Service
+as = ["Acme.App.Viewers_UG", "nobody"]       # a group means each test user in it
+expect = 200
+params = { limit = 10 }
+rows = 2                                      # optional, with expect = 200
+first = { name = "Overview" }                 # optional: these fields of the first row
+```
+
+A case calls its service as written: one that creates something creates it, as the user it runs
+as. The cases run in file and case order, so a case can clean up after the one before it. `seed`
+needs the groups on the server, so deploy first; it never resets a password, and `users list`
+reports a user that cannot sign in with `test_password`.
+
 ## Copying DataTable rows
 
 Renaming a DataTable creates a new, empty one: its rows live on the server, not in the XML.
@@ -633,8 +717,10 @@ A solution keeps its tokens of the shared localization tables under `localizatio
 per table: `localization/<Project>/LocalizationTable.xml` for `Default` and
 `LocalizationTable_<table>.xml` for each language, holding only the project's tokens. Other
 names and flat layouts are read too, by the table name inside each file. twaco edits these files
-in place, so section comments and row order survive; a file holding several tables is reported
-as unreadable (keep one table per file).
+in place, so section comments and row order survive. A file holding several tables, as an
+extension ships them, is read table by table: `status` compares it and `push` imports each of its
+tables alone (the other tables cut out of the bytes it sends); `pull`, `set` and `remove` refuse to
+edit it and say to split it into one file per table.
 
 ```sh
 twaco localization status --detail                 # each token: same, differs, local only, server only

@@ -1390,3 +1390,68 @@ fn rename_table_plans_applies_checks_json_and_refuses_text() {
     assert_eq!(text.status.code(), Some(2));
     assert!(String::from_utf8_lossy(&text.stderr).contains("a table rename has no text pass"));
 }
+
+#[test]
+fn docs_check_fails_a_stale_document_and_writes_nothing() {
+    let root_guard = tempfile::Builder::new()
+        .prefix("twaco-docs-check-")
+        .tempdir()
+        .unwrap();
+    let root = root_guard.path().to_path_buf();
+    std::fs::create_dir_all(root.join("Things")).unwrap();
+    std::fs::write(
+        root.join("twaco.toml"),
+        "[[project]]\nname = \"P\"\ncollections = [\"Things\"]\n",
+    )
+    .unwrap();
+    std::fs::write(
+        root.join("Things/T.xml"),
+        "<Entities><Things><Thing name=\"T\" projectName=\"P\"></Thing></Things></Entities>\n",
+    )
+    .unwrap();
+    let run = |args: &[&str]| {
+        Command::new(env!("CARGO_BIN_EXE_twaco"))
+            .args(args)
+            .current_dir(&root)
+            .env_clear()
+            .output()
+            .unwrap()
+    };
+    let document = root.join("SOLUTION.md");
+
+    let written = run(&["docs", "--out", "SOLUTION.md"]);
+    assert!(written.status.success(), "{written:?}");
+    let checked = run(&["docs", "--out", "SOLUTION.md", "--check"]);
+    assert_eq!(checked.status.code(), Some(0), "{checked:?}");
+    assert!(String::from_utf8_lossy(&checked.stdout).contains("is up to date"));
+
+    // git on Windows may check the file out with CRLF: that is not drift.
+    let text = std::fs::read_to_string(&document).unwrap();
+    std::fs::write(&document, text.replace('\n', "\r\n")).unwrap();
+    let crlf = run(&["docs", "--out", "SOLUTION.md", "--check"]);
+    assert_eq!(crlf.status.code(), Some(0), "{crlf:?}");
+
+    // A new entity the document does not mention makes it stale, and --check leaves it alone.
+    std::fs::write(
+        root.join("Things/U.xml"),
+        "<Entities><Things><Thing name=\"U\" projectName=\"P\"></Thing></Things></Entities>\n",
+    )
+    .unwrap();
+    let before = std::fs::read(&document).unwrap();
+    let stale = run(&["docs", "--out", "SOLUTION.md", "--check"]);
+    assert_eq!(stale.status.code(), Some(1), "{stale:?}");
+    assert!(
+        String::from_utf8_lossy(&stale.stdout)
+            .contains("regenerate it with `twaco docs --out SOLUTION.md --force`"),
+        "{stale:?}"
+    );
+    assert_eq!(std::fs::read(&document).unwrap(), before);
+
+    // A document generated in another format is compared in that format.
+    let json = run(&["docs", "--json", "--out", "SOLUTION.json"]);
+    assert!(json.status.success(), "{json:?}");
+    let json_check = run(&["docs", "--json", "--out", "SOLUTION.json", "--check"]);
+    assert_eq!(json_check.status.code(), Some(0), "{json_check:?}");
+    let markdown_check = run(&["docs", "--out", "SOLUTION.json", "--check"]);
+    assert_eq!(markdown_check.status.code(), Some(1), "{markdown_check:?}");
+}

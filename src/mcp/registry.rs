@@ -342,6 +342,12 @@ static TOOLS: LazyLock<Vec<Tool>> = LazyLock::new(|| {
             false,
             refactor::new_building_block_tool,
         ),
+        solution_tool::<refactor_requests::ReprojectRequest>(
+            "reproject",
+            "Move entities to another project of the solution: their projectName, and their files under that project's root (sidecars stay). The plan names each reference the move puts outside the deploy order, with the depends_on that allows it. A dry run unless dry_run is false; an apply takes the workspace lock and writes every file or none.",
+            false,
+            refactor::reproject_tool,
+        ),
         solution_tool::<refactor_requests::RetemplateRequest>(
             "retemplate",
             "Change a Thing's template (or a template's base template) and/or the shapes it implements, in the repository. The plan lists what the entity and everything inheriting it gains and loses, the stored property values and configuration-table rows left with no definition, and the references to a lost member; such a loss is refused unless accept_loss is true. A dry run unless dry_run is false; an apply takes the workspace lock.",
@@ -389,6 +395,24 @@ static TOOLS: LazyLock<Vec<Tool>> = LazyLock::new(|| {
             "Pull localization tables into the solution, push local tables (and read them back), or create, set or remove local tokens. A dry run unless dry_run is false. push imports tokens without deleting any; prune: true deletes server tokens no local file has.",
             false,
             content::localization_write_tool,
+        ),
+        solution_tool::<content_requests::UsersRequest>(
+            "users",
+            "The test users twaco.toml declares ([[test.user]]) on the server: whether each exists, signs in with the profile's test_password, and is in its groups. Read-only.",
+            true,
+            content::users_tool,
+        ),
+        solution_tool::<content_requests::UsersWriteRequest>(
+            "users_write",
+            "Create the missing test users, the [test] project and their group memberships (seed), or delete the test users (delete). The profile must say allow_test_users = true; seed also needs its test_password, which is never returned. A dry run unless dry_run is false.",
+            false,
+            content::users_write_tool,
+        ),
+        solution_tool::<content_requests::TestRequest>(
+            "test",
+            "The service cases of tests/*.toml, each called as each of its test users and expecting a status (and optionally rows). A dry run lists and checks the cases; dry_run false calls them, which may change the server, and needs allow_test_users = true in the profile.",
+            false,
+            content::test_tool,
         ),
         solution_tool::<content_requests::ExtensionsRequest>(
             "extensions",

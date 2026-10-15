@@ -46,6 +46,11 @@ impl Drop for WorkspaceLock {
 }
 
 impl WorkspaceLock {
+    /// The workspace this lock holds.
+    pub fn root(&self) -> &Path {
+        &self.root
+    }
+
     /// Whether this lock is the one for the workspace at `root`.
     pub fn covers(&self, root: &Path) -> bool {
         match (

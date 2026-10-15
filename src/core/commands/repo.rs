@@ -156,7 +156,7 @@ where
             ..
         }
     );
-    let _lock = if pull {
+    let lock = if pull {
         Some(lock_workspace(solution, "repo pull", notices).map_err(RepoCommandError::Lock)?)
     } else {
         None
@@ -278,6 +278,7 @@ where
                 *direction,
                 *overwrite,
                 matches!(mode, Mode::Apply),
+                lock.as_ref(),
                 progress,
             )
             .map_err(RepoCommandError::Repo)?;

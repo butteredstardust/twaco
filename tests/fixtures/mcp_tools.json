@@ -1475,6 +1475,21 @@
             "type": "string"
           }
         },
+        "localization": {
+          "description": "The localization tables a whole-solution deploy carries: each table that differs.",
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": true
+        },
+        "entities_deployed": {
+          "description": "With stage `localization`: whether the entities were imported before the tables failed.",
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
         "plans": {
           "type": [
             "array",
@@ -1852,6 +1867,40 @@
         },
         "base_extension": {
           "description": "PTC.Base:<version>; default what another project of the solution declares.",
+          "type": "string"
+        },
+        "dry_run": {
+          "type": "boolean",
+          "default": true
+        }
+      }
+    },
+    "annotations": {
+      "readOnlyHint": false,
+      "destructiveHint": true,
+      "openWorldHint": false
+    }
+  },
+  {
+    "name": "reproject",
+    "description": "Move entities to another project of the solution: their projectName, and their files under that project's root (sidecars stay). The plan names each reference the move puts outside the deploy order, with the depends_on that allows it. A dry run unless dry_run is false; an apply takes the workspace lock and writes every file or none.",
+    "inputSchema": {
+      "required": [
+        "entities",
+        "to"
+      ],
+      "additionalProperties": false,
+      "type": "object",
+      "properties": {
+        "entities": {
+          "description": "The entities to move: `Name`, or `Collection/Name` when a name is in two collections.",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "to": {
+          "description": "The project they move to.",
           "type": "string"
         },
         "dry_run": {
@@ -2314,6 +2363,93 @@
           "default": false
         }
       }
+    },
+    "annotations": {
+      "readOnlyHint": false,
+      "destructiveHint": true,
+      "openWorldHint": false
+    }
+  },
+  {
+    "name": "users",
+    "description": "The test users twaco.toml declares ([[test.user]]) on the server: whether each exists, signs in with the profile's test_password, and is in its groups. Read-only.",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "profile": {
+          "description": "Server profile name.",
+          "type": "string",
+          "default": "default"
+        }
+      },
+      "type": "object"
+    },
+    "annotations": {
+      "readOnlyHint": true,
+      "destructiveHint": false,
+      "openWorldHint": false
+    }
+  },
+  {
+    "name": "users_write",
+    "description": "Create the missing test users, the [test] project and their group memberships (seed), or delete the test users (delete). The profile must say allow_test_users = true; seed also needs its test_password, which is never returned. A dry run unless dry_run is false.",
+    "inputSchema": {
+      "required": [
+        "action"
+      ],
+      "additionalProperties": false,
+      "type": "object",
+      "properties": {
+        "action": {
+          "type": "string",
+          "enum": [
+            "seed",
+            "delete"
+          ]
+        },
+        "profile": {
+          "description": "Server profile name. It must say `allow_test_users = true`.",
+          "type": "string",
+          "default": "default"
+        },
+        "dry_run": {
+          "type": "boolean",
+          "default": true
+        }
+      }
+    },
+    "annotations": {
+      "readOnlyHint": false,
+      "destructiveHint": true,
+      "openWorldHint": false
+    }
+  },
+  {
+    "name": "test",
+    "description": "The service cases of tests/*.toml, each called as each of its test users and expecting a status (and optionally rows). A dry run lists and checks the cases; dry_run false calls them, which may change the server, and needs allow_test_users = true in the profile.",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "filters": {
+          "description": "Keep the cases whose name, service or file contains one of these.",
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": []
+        },
+        "profile": {
+          "description": "Server profile name. It must say `allow_test_users = true` to run the cases.",
+          "type": "string",
+          "default": "default"
+        },
+        "dry_run": {
+          "description": "True lists and checks the cases; false calls them, which may change the server.",
+          "type": "boolean",
+          "default": true
+        }
+      },
+      "type": "object"
     },
     "annotations": {
       "readOnlyHint": false,

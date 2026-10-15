@@ -1,0 +1,7 @@
+$ twaco test
+exit: 2
+
+--- stdout
+
+--- stderr
+twaco: test: no case files (*.toml) in <ROOT>/tests

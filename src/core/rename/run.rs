@@ -554,7 +554,7 @@ pub fn follow_up(plan: &Plan, outside_included: bool) -> Vec<String> {
             .filter(|finding| finding.tier != refs::Tier::Review)
             .count();
         items.push(format!(
-            "{references} reference(s) in {} other file(s) were not changed (docs, sql, localization ...); pass --text.",
+            "{references} reference(s) in {} other file(s) were not changed (docs, sql ...); pass --text.",
             plan.outside.len()
         ));
     }

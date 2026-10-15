@@ -163,6 +163,10 @@ pub(super) fn plan_identity(solution: &Solution, spec: &Spec) -> Result<Plan, Re
         .filter_map(|item| item.old_repo_files.as_deref())
         .collect();
     let mut outside = Vec::new();
+    // Token names in the localization tables are the other half of every `[[token]]` an entity
+    // names: a prefix rename changes both, never one without the other (and not left to
+    // `--text`). Only the name cells of real table files; anything else there is other text.
+    let localization_root = crate::core::localization::root(solution);
     for path in check::walk_files(solution) {
         if covered.contains(&path) {
             continue;
@@ -179,6 +183,19 @@ pub(super) fn plan_identity(solution: &Solution, spec: &Spec) -> Result<Plan, Re
         })?;
         if metadata.len() > 5 * 1024 * 1024 {
             skipped.push(path);
+            continue;
+        }
+        let is_sidecar = path
+            .ancestors()
+            .skip(1)
+            .any(|ancestor| sidecar_roots.contains(ancestor));
+        if !is_sidecar
+            && path.starts_with(&localization_root)
+            && path
+                .extension()
+                .is_some_and(|ext| ext.eq_ignore_ascii_case("xml"))
+            && scan_token_names(&path, spec, mode, &mut changes)?
+        {
             continue;
         }
         if path
@@ -311,4 +328,51 @@ fn qualified_names(
         }
     }
     qualified
+}
+
+/// Rename the tokens of a localization table file: only the content of its name cells, by the
+/// same whole-token rule as everywhere else, and only in a prefix rename (an entity rename
+/// leaves a dotted `[[token]]` alone, so it leaves the table alone too, `--text` or not). False
+/// when the file is not a table export, for the caller to treat as any other file.
+fn scan_token_names(
+    path: &Path,
+    spec: &Spec,
+    mode: refs::Mode,
+    changes: &mut Vec<FileChange>,
+) -> Result<bool, RenameError> {
+    let bytes = super::common::read(path)?;
+    let Ok(Some(cells)) = crate::core::localization::name_cells(path, &bytes) else {
+        return Ok(false);
+    };
+    if spec.kind != Kind::Prefix {
+        return Ok(true);
+    }
+    let mut pass = rename_scan::XmlPass::new_for(&bytes);
+    for cell in cells {
+        let Ok(found) =
+            rename_scan::scan_text_with(cell.of(&bytes), &spec.old, mode, &spec.new, None)
+        else {
+            continue;
+        };
+        let line = 1 + bytes[..cell.start].iter().filter(|b| **b == b'\n').count();
+        for mut edit in found.edits {
+            edit.span = crate::core::scan::Span::new(
+                cell.start + edit.span.start,
+                cell.start + edit.span.end,
+            );
+            pass.edits.push(edit);
+        }
+        for mut finding in found.findings {
+            finding.line += line - 1;
+            pass.findings.push(finding);
+        }
+    }
+    push_change(
+        changes,
+        path.to_path_buf(),
+        FileKind::Localization,
+        &bytes,
+        pass,
+    );
+    Ok(true)
 }

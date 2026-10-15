@@ -74,6 +74,21 @@ const SCENARIOS: &[(&str, &[&str])] = &[
     ("docs_json", &["docs", "--json"]),
     ("docs_force_needs_out", &["docs", "--force"]),
     ("docs_takes_no_entity", &["docs", "Audit"]),
+    ("docs_check_needs_out", &["docs", "--check"]),
+    ("test_without_cases", &["test"]),
+    (
+        "reproject_unknown_project",
+        &["reproject", "Audit", "--to", "Acme.Nope"],
+    ),
+    ("users_list_takes_no_apply", &["users", "list", "--apply"]),
+    (
+        "docs_check_without_force",
+        &["docs", "--out", "SOLUTION.md", "--check", "--force"],
+    ),
+    (
+        "docs_check_missing",
+        &["docs", "--detail", "--out", "SOLUTION.md", "--check"],
+    ),
     (
         "rename_service_plan",
         &[

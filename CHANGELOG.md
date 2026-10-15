@@ -6,6 +6,34 @@ All notable changes to twaco are recorded here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- `twaco reproject <entity>... --to <project>` (MCP `reproject`) moves entities to another project: their `projectName`, and their files under that project's root, in one transaction. The plan names each reference the move puts outside the deploy order, with the `depends_on` that allows it.
+
+- The user guide shows how a project that is only on a server becomes a repository: `export project`, `adopt --apply`, `entity status --all --record`.
+
+- `twaco test [<filter>...]` (MCP `test`) runs the service cases of `tests/*.toml` (`[test] cases` names another folder): each case calls a service as each of its test users or groups and expects a status (200, 401, 404, ...) and optionally a row count and first-row fields. Without `--apply` it reads, checks and lists the cases; with it, it calls them and exits 1 when one fails. Running needs `allow_test_users = true` in the profile.
+- `twaco users list|seed|delete` (MCP `users`, `users_write`) manage test users: the accounts `[[test.user]]` declares, each with its groups, all with the profile's `test_password`. `list` shows whether each exists, signs in and is in its groups; `seed` creates what is missing (users, memberships, an optional `[test] project`) and changes nothing that exists; `delete` removes the users. Both writes plan until `--apply` and need `allow_test_users = true` in the profile.
+
+- `twaco check` has a `localization tokens` gate: a mashup, menu or other entity that names a `[[token]]` under one of the solution's token prefixes that no Default table file holds fails it, since the label would show the raw `[[name]]`. A language table token Default lacks, a token in one table twice, and an unreadable table file fail it too. Tokens outside the solution's prefixes (the platform's, an extension's) are counted as not checked. `[gates] advisory = ["localization tokens"]` makes it report without failing.
+
+- `twaco docs --out <file> --check` writes nothing and exits 1 when the file is missing or no longer matches what `twaco docs` would write with the same `--detail` and `--json`, so CI can fail a pull request whose committed solution document is stale. A CRLF checkout of an up-to-date file is up to date.
+
+### Changed
+
+- `twaco deploy` of the whole solution carries the localization tables: it plans them before anything is imported, stopping on a table the server would refuse, and after the entities are imported it imports each table that differs from the server, Default first, and reads it back. It never prunes. A deploy of some projects or entities, or `--backend-only`, leaves them to `twaco localization push`. The MCP `deploy` result has a `localization` list, and a failure there is `stage: "localization"` with `entities_deployed`.
+
+- `twaco rename prefix` renames the tokens in the localization tables (`[localization] root`) together with the `[[token]]` references to them, without `--text`: `rename prefix Acme.App Acme.Platform` turns `Acme.App.Save` into `Acme.Platform.Save` in every table file's name cells and every entity. Values, comments and XML files that are not tables stay other text (`--text`). An entity rename leaves the tables alone, as it leaves a dotted `[[token]]` alone. Before, the references changed and the tables kept the old names unless `--text` was given. The plan has a `localization` row and the JSON a `localization` count.
+
+- A localization file holding several tables, as an extension ships them, is read table by table instead of being unreadable: `localization status`, `push` and the `localization tokens` gate use it, and `push` imports each of its tables alone. `pull`, `set` and `remove` refuse to edit such a file and say to split it.
+
+- `repo pull --apply` downloads every file before it writes any, then writes them all as one journaled transaction: a download that fails midway, a failed write or a killed process no longer leaves some files copied. A file that appears or changes locally while the pull runs is refused, not overwritten. A pull needs the repository folder (`[repositories] root`) to be inside the solution.
+- `localization pull --apply` and `localization remove --apply` write every table file in one journaled transaction, or none, and refuse a file edited since they read it. `localization new` and `set` write through the same journal. Both refuse a `[localization] root` outside the solution.
+
+### Security
+
+- rustls 0.23.46: fixes RUSTSEC-2026-0346 to 0349 in the TLS client every server command uses.
+
 ## [0.1.8] - 2026-10-14
 
 ### Added
