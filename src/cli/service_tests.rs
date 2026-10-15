@@ -1,0 +1,84 @@
+use super::super::*;
+use super::style;
+use twaco::core::commands::service_tests::{self as command, TestOutcome, TestRequest};
+use twaco::core::testing::cases::{outcomes_json, Case};
+
+/// `twaco test [<filter>...]`: the service cases of `tests/*.toml`, called as the test users.
+pub(crate) fn test_cmd(solution: &Solution, args: &Args) -> u8 {
+    let request = TestRequest {
+        filters: args.names.clone(),
+        mode: if args.has("--apply") {
+            Mode::Apply
+        } else {
+            Mode::Plan
+        },
+        profile: args.profile.as_deref().unwrap_or("default").to_string(),
+    };
+    match command::execute(solution, &request, server::Client::new) {
+        Ok(TestOutcome::Plan { cases, .. }) => {
+            let calls: usize = cases.iter().map(|case| case.users.len()).sum();
+            for case in &cases {
+                println!(
+                    "{}: {}.{} as {}, expects {}",
+                    case.name,
+                    case.target,
+                    case.service,
+                    case.users.join(", "),
+                    case.expect
+                );
+            }
+            println!(
+                "dry run: {} case(s), {calls} call(s); nothing was sent; pass --apply to run them",
+                cases.len()
+            );
+            OK
+        }
+        Ok(TestOutcome::Ran {
+            cases, outcomes, ..
+        }) => {
+            if args.has("--json") {
+                println!(
+                    "{}",
+                    serde_json::to_string_pretty(&outcomes_json(&cases, &outcomes))
+                        .expect("a result serialises")
+                );
+            } else {
+                print_outcomes(&cases, &outcomes, args.has("--detail"));
+            }
+            if outcomes.iter().all(|outcome| outcome.failure.is_none()) {
+                OK
+            } else {
+                DRIFT
+            }
+        }
+        Err(error) => {
+            eprintln!("{} test: {error}", style::prefix());
+            FAILED
+        }
+    }
+}
+
+fn print_outcomes(cases: &[Case], outcomes: &[twaco::core::testing::cases::Outcome], all: bool) {
+    let failed = outcomes
+        .iter()
+        .filter(|outcome| outcome.failure.is_some())
+        .count();
+    for outcome in outcomes {
+        let case = &cases[outcome.case];
+        match &outcome.failure {
+            Some(why) => println!(
+                "{} {} as {}: {why}",
+                style::warn("fail"),
+                case.name,
+                outcome.user
+            ),
+            None if all => println!("{} {} as {}", style::ok("pass"), case.name, outcome.user),
+            None => {}
+        }
+    }
+    println!(
+        "{} call(s): {} passed, {failed} failed",
+        outcomes.len(),
+        outcomes.len() - failed
+    );
+}

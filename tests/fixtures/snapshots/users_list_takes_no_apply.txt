@@ -1,0 +1,7 @@
+$ twaco users list --apply
+exit: 2
+
+--- stdout
+
+--- stderr
+twaco: users list changes nothing; leave out --apply

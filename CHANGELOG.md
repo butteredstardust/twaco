@@ -8,6 +8,7 @@ All notable changes to twaco are recorded here. The format follows
 
 ### Added
 
+- `twaco test [<filter>...]` (MCP `test`) runs the service cases of `tests/*.toml` (`[test] cases` names another folder): each case calls a service as each of its test users or groups and expects a status (200, 401, 404, ...) and optionally a row count and first-row fields. Without `--apply` it reads, checks and lists the cases; with it, it calls them and exits 1 when one fails. Running needs `allow_test_users = true` in the profile.
 - `twaco users list|seed|delete` (MCP `users`, `users_write`) manage test users: the accounts `[[test.user]]` declares, each with its groups, all with the profile's `test_password`. `list` shows whether each exists, signs in and is in its groups; `seed` creates what is missing (users, memberships, an optional `[test] project`) and changes nothing that exists; `delete` removes the users. Both writes plan until `--apply` and need `allow_test_users = true` in the profile.
 
 - `twaco check` has a `localization tokens` gate: a mashup, menu or other entity that names a `[[token]]` under one of the solution's token prefixes that no Default table file holds fails it, since the label would show the raw `[[name]]`. A language table token Default lacks, a token in one table twice, and an unreadable table file fail it too. Tokens outside the solution's prefixes (the platform's, an extension's) are counted as not checked. `[gates] advisory = ["localization tokens"]` makes it report without failing.

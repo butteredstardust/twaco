@@ -5,6 +5,7 @@
 //! a way in, and has no place on a customer's server. The password lives in the profile, which
 //! is never committed, and is never printed: every error passes through the client's scrubbing.
 
+pub mod cases;
 pub mod users;
 
 use super::codes::{Coded, ErrorCode};

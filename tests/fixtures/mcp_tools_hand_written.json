@@ -1546,6 +1546,40 @@
     }
   },
   {
+    "name": "test",
+    "description": "The service cases of tests/*.toml, each called as each of its test users and expecting a status (and optionally rows). A dry run lists and checks the cases; dry_run false calls them, which may change the server, and needs allow_test_users = true in the profile.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "filters": {
+          "description": "Keep the cases whose name, service or file contains one of these.",
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": []
+        },
+        "profile": {
+          "description": "Server profile name. It must say `allow_test_users = true` to run the cases.",
+          "type": "string",
+          "default": "default"
+        },
+        "dry_run": {
+          "description": "True lists and checks the cases; false calls them, which may change the server.",
+          "type": "boolean",
+          "default": true
+        }
+      },
+      "required": [],
+      "additionalProperties": false
+    },
+    "annotations": {
+      "readOnlyHint": false,
+      "destructiveHint": true,
+      "openWorldHint": false
+    }
+  },
+  {
     "name": "extensions",
     "description": "The server's extension packages: list them, or show one (its extensions, and which are in use). Read-only.",
     "inputSchema": {

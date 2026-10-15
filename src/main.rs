@@ -40,6 +40,7 @@ use cli::localization::localization_cmd;
 use cli::refactor::{
     adopt_cmd, handoff_cmd, new_building_block_cmd, relocate_cmd, rename_cmd, retemplate_cmd,
 };
+use cli::service_tests::test_cmd;
 use cli::source::{bundle, check, deploy_cmd, extract, fmt, sync_cmd, types_cmd};
 use cli::users::users_cmd;
 
@@ -186,6 +187,7 @@ fn dispatch(route: &str, parsed: &Args) -> u8 {
             "repo" => repo_cmd(solution, parsed),
             "localization" => localization_cmd(solution, parsed),
             "users" => users_cmd(solution, parsed),
+            "test" => test_cmd(solution, parsed),
             "ext" => ext_cmd(solution, parsed),
             "settings" => settings_cmd(solution, parsed),
             "catalog" => catalog_cmd(solution, parsed),

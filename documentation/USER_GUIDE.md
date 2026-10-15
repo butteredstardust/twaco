@@ -560,6 +560,41 @@ audit also compares the helper's three tables and the columns of its two DataSha
 policy, and `apply` writes them, so the helper's mashup shows what the entity XML grants. A
 change made in that mashup shows up in the audit; carry it into `permissions.toml`.
 
+## Testing services as users
+
+A permission policy says who may call what; `twaco test` checks that the server agrees. The test
+users are declared in `twaco.toml`, each with its groups ([Configuration](CONFIGURATION.md#test-and-testuser-test-users)),
+and share one password, the profile's `test_password`. A profile must say
+`allow_test_users = true` before twaco creates an account on its server or runs a case there.
+
+```sh
+twaco users list                 # each test user: present, signs in, in its groups
+twaco users seed --apply         # create what is missing; nothing that exists is changed
+twaco test                       # read and check tests/*.toml, list the calls
+twaco test --apply               # run them; exit 1 when one fails
+twaco test dashboards --apply    # only the cases whose name, service or file says dashboards
+twaco users delete --apply       # remove the test users
+```
+
+A case names a service, the test users or groups it runs as, and the status it expects: 200 for
+a call the role may make, 401 for one it may not, 404 for a user who cannot see the entity at all.
+
+```toml
+[[case]]
+name = "a viewer reads the dashboards"
+service = "Acme.App.Manager.GetDashboards"   # Thing.Service, or Collection/Name.Service
+as = ["Acme.App.Viewers_UG", "nobody"]       # a group means each test user in it
+expect = 200
+params = { limit = 10 }
+rows = 2                                      # optional, with expect = 200
+first = { name = "Overview" }                 # optional: these fields of the first row
+```
+
+A case calls its service as written: one that creates something creates it, as the user it runs
+as. The cases run in file and case order, so a case can clean up after the one before it. `seed`
+needs the groups on the server, so deploy first; it never resets a password, and `users list`
+reports a user that cannot sign in with `test_password`.
+
 ## Copying DataTable rows
 
 Renaming a DataTable creates a new, empty one: its rows live on the server, not in the XML.

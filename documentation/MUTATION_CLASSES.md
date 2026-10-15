@@ -100,6 +100,7 @@ when the command is asked to write. A local output named by an option is include
 | `localization set` | read-only | single-file atomic | localization file | The file is old or new; retry freely. | `core/commands/localization.rs: execute` |
 | `localization remove` | read-only | multi-file atomic | localization files | Every file is written in one journaled transaction, or none is; a file edited since the plan read it is refused (an error that says files were left part-written names what the journal holds). Retry after fixing the cause. | `core/commands/localization.rs: execute` |
 | `users` | read-only | server-partial | server users, group memberships, test project | `list` writes nothing. `seed` and `delete` make one server call per user, membership or project: `users list` shows what exists before retrying, and a seed never changes what exists. | `core/commands/users.rs: execute` |
+| `test` | read-only | server-partial | whatever the cases' services change | Without `--apply` it reads and checks the case files only. Applied, each case calls its service as written, one after another; a failing case does not stop the rest. Rerunning repeats every call. | `core/commands/service_tests.rs: execute` |
 | `guide` | read-only | read-only | none | Retry freely. | `cli/info.rs: guide_cmd` |
 | `help search` | single-file atomic | single-file atomic | user cache file | The cache file is old or new; retry freely. | `core/help.rs: cached_file` |
 | `help page` | single-file atomic | single-file atomic | user cache file | The cache file is old or new; retry freely. | `core/help.rs: cached_file` |
@@ -149,6 +150,7 @@ when the command is asked to write. A local output named by an option is include
 | `localization_write` | read-only | server-partial | localization files or tables | Inspect the listed changes and read tables back before retrying a push. | `core/commands/localization.rs: execute` |
 | `users` | read-only | read-only | none | Retry freely. | `core/commands/users.rs: execute` |
 | `users_write` | read-only | server-partial | server users, group memberships, test project | `users` shows what exists before retrying; nothing that exists is changed by a seed. | `core/commands/users.rs: execute` |
+| `test` | read-only | server-partial | whatever the cases' services change | A dry run reads and checks the case files only; run, each case calls its service as written. Rerunning repeats every call. | `core/commands/service_tests.rs: execute` |
 | `db_run` | read-only | server-partial | SQL, temporary server Thing | Inspect SQL effects and clean temporary Things before retrying. | `core/commands/db.rs: execute` |
 | `db_query` | server-partial | server-partial | temporary server Thing | Run `db_clean` if temporary cleanup failed. | `core/commands/db.rs: execute` |
 | `datatable_copy` | read-only | server-partial | target DataTable | Read the target back before retrying. | `core/commands/datatable_copy.rs: execute` |

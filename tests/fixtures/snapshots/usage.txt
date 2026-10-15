@@ -238,6 +238,12 @@ usage: twaco <command>
   users seed                  create the missing users, the [test] project and group memberships
   users delete                delete the test users; both need allow_test_users = true in the
                               profile and plan until --apply
+  test [<filter>...]          the service cases of tests/*.toml: each called as each of its test
+                              users, expecting a status and optionally rows; checks and lists them
+                              until --apply runs them (a case may change the server; the profile
+                              must say allow_test_users = true); exit 1 when one fails
+      --detail                every passing call too
+      --json                  the calls run as JSON
   ext list [--json]           the server's extension packages
   ext show <package>          one package: its extensions, and which are in use
   ext import <zip>            validate a package on the server; --apply installs it

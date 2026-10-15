@@ -244,6 +244,42 @@ pub(crate) fn users_write_tool(
     }))
 }
 
+/// The service cases of `tests/*.toml`, run as the test users; a check and listing unless
+/// `dry_run` is false.
+pub(crate) fn test_tool(
+    solution: &Solution,
+    arguments: tool::TestRequest,
+) -> Result<Value, ToolError> {
+    use crate::core::commands::service_tests::{self as command, TestOutcome, TestRequest};
+    let request = TestRequest {
+        filters: arguments.filters,
+        mode: if arguments.dry_run {
+            commands::Mode::Plan
+        } else {
+            commands::Mode::Apply
+        },
+        profile: arguments.profile,
+    };
+    match command::execute(solution, &request, server::Client::new).map_err(ToolError::coded)? {
+        TestOutcome::Plan { cases, .. } => Ok(json!({
+            "dry_run": true,
+            "cases": cases.iter().map(|case| json!({
+                "case": case.name,
+                "service": format!("{}.{}", case.target, case.service),
+                "as": case.users,
+                "expect": case.expect,
+            })).collect::<Vec<_>>(),
+        })),
+        TestOutcome::Ran {
+            cases, outcomes, ..
+        } => {
+            let mut value = crate::core::testing::cases::outcomes_json(&cases, &outcomes);
+            value["dry_run"] = json!(false);
+            Ok(value)
+        }
+    }
+}
+
 pub(crate) fn localization_tool(
     solution: &Solution,
     arguments: tool::LocalizationRequest,

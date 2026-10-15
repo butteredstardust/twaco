@@ -1492,6 +1492,18 @@ pub(crate) const COMMANDS: &[Command] = &[
                               profile and plan until --apply"#,
     },
     Command {
+        path: "test",
+        group: 4,
+        operands: true,
+        flags: &["--apply", "--json", "--detail", "--profile"],
+        text: r#"  test [<filter>...]          the service cases of tests/*.toml: each called as each of its test
+                              users, expecting a status and optionally rows; checks and lists them
+                              until --apply runs them (a case may change the server; the profile
+                              must say allow_test_users = true); exit 1 when one fails
+      --detail                every passing call too
+      --json                  the calls run as JSON"#,
+    },
+    Command {
         path: "ext",
         group: 4,
         operands: true,

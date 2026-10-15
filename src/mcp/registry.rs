@@ -402,6 +402,12 @@ static TOOLS: LazyLock<Vec<Tool>> = LazyLock::new(|| {
             false,
             content::users_write_tool,
         ),
+        solution_tool::<content_requests::TestRequest>(
+            "test",
+            "The service cases of tests/*.toml, each called as each of its test users and expecting a status (and optionally rows). A dry run lists and checks the cases; dry_run false calls them, which may change the server, and needs allow_test_users = true in the profile.",
+            false,
+            content::test_tool,
+        ),
         solution_tool::<content_requests::ExtensionsRequest>(
             "extensions",
             "The server's extension packages: list them, or show one (its extensions, and which are in use). Read-only.",
