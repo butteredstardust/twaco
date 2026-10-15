@@ -65,6 +65,45 @@ pub struct Problem {
     pub message: String,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Side {
+    Left,
+    Right,
+    Above,
+    Below,
+}
+
+impl Side {
+    pub fn axis(self) -> &'static str {
+        match self {
+            Self::Left | Self::Right => "row",
+            Self::Above | Self::Below => "column",
+        }
+    }
+
+    fn before(self) -> bool {
+        matches!(self, Self::Left | Self::Above)
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Placement {
+    In(String),
+    Beside { anchor: String, side: Side },
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Default)]
+pub struct Placed {
+    /// The id of the new widget.
+    pub id: String,
+    /// The containers made to hold widgets during the placement, in creation order.
+    pub containers: Vec<String>,
+    /// A container whose direction changed to make a sibling insertion possible.
+    pub flipped: Option<String>,
+    /// Existing leaf widgets that moved into wrappers.
+    pub wrapped: Vec<String>,
+}
+
 /// A mashup content document that has passed the checks an edit relies on.
 #[derive(Clone, Debug, PartialEq)]
 pub struct MashupDocument {
@@ -160,6 +199,21 @@ impl MashupDocument {
                 return found;
             }
         }
+        // "the chart": the only widget whose type, alias or label has the word in it.
+        let kinds: Vec<&str> = widgets::catalog()
+            .search(word)
+            .into_iter()
+            .map(|widget| widget.type_id.as_str())
+            .collect();
+        if !word.trim().is_empty() {
+            if let Some(found) = one(all
+                .iter()
+                .filter(|w| kinds.contains(&w.type_id.as_str()))
+                .collect())
+            {
+                return found;
+            }
+        }
         Err(EditError::NoWidget(word.to_string()))
     }
 
@@ -172,13 +226,23 @@ impl MashupDocument {
         node
     }
 
-    /// Append `widget` as the last child of the widget at `parent`.
-    pub fn push_child(&mut self, parent: &[usize], widget: Value) {
+    /// The mutable widget object at `path`.
+    pub(crate) fn at_mut(&mut self, path: &[usize]) -> &mut Value {
         let mut node = &mut self.value["UI"];
-        for &index in parent {
+        for &index in path {
             node = &mut node["Widgets"][index];
         }
-        let object = node
+        node
+    }
+
+    /// Append `widget` as the last child of the widget at `parent`.
+    pub fn push_child(&mut self, parent: &[usize], widget: Value) {
+        self.insert_child(parent, children(self.at(parent)).len(), widget);
+    }
+
+    fn insert_child(&mut self, parent: &[usize], index: usize, widget: Value) {
+        let object = self
+            .at_mut(parent)
             .as_object_mut()
             .expect("checked: a widget is an object");
         if !object.contains_key("Widgets") {
@@ -187,7 +251,20 @@ impl MashupDocument {
         object["Widgets"]
             .as_array_mut()
             .expect("checked: Widgets is a list")
-            .push(widget);
+            .insert(index, widget);
+    }
+
+    fn replace_child(&mut self, parent: &[usize], index: usize, widget: Value) {
+        self.at_mut(parent)["Widgets"]
+            .as_array_mut()
+            .expect("checked: Widgets is a list")[index] = widget;
+    }
+
+    fn set_property(&mut self, path: &[usize], key: &str, value: Value) {
+        let properties = self.at_mut(path)["Properties"]
+            .as_object_mut()
+            .expect("checked: a widget has Properties");
+        insert_sorted(properties, key, value);
     }
 
     /// The root widget's properties.
@@ -247,6 +324,247 @@ impl MashupDocument {
             }
         }
         out
+    }
+
+    /// Put a new widget in a responsive container or beside an existing widget.
+    pub fn place(&mut self, widget: &Widget, placement: &Placement) -> Result<Placed, EditError> {
+        match placement {
+            Placement::In(target) => self.place_in(widget, target),
+            Placement::Beside { anchor, side } => self.place_beside(widget, anchor, *side),
+        }
+    }
+
+    fn place_in(&mut self, widget: &Widget, target: &str) -> Result<Placed, EditError> {
+        let target = self.find(target)?;
+        if target.type_id != "flexcontainer" {
+            return Err(EditError::Refused(format!(
+                "{} is a {}, not a responsive container; place the widget beside it instead",
+                target.id, target.type_id
+            )));
+        }
+        let target_children = children(self.at(&target.path));
+        let holds_containers = target_children
+            .iter()
+            .any(|child| type_of(child) == Some("flexcontainer"));
+        let holds_leaves = target_children
+            .iter()
+            .any(|child| type_of(child) != Some("flexcontainer"));
+        if holds_leaves && widget.type_id == "flexcontainer" {
+            return Err(EditError::Refused(format!(
+                "{} holds widgets, so it cannot also hold a container",
+                target.id
+            )));
+        }
+        let target_empty = target_children.is_empty();
+        if target_children.len() == 1 && fills(&target_children[0]) {
+            let child_id = widget_id(&target_children[0]);
+            return Err(EditError::Refused(format!(
+                "{child_id} fills {}; place the widget beside it (--right-of, --below, ...)",
+                target.id
+            )));
+        }
+
+        let number = self.allocate();
+        let id = format!("{}-{number}", widget.type_id);
+        let wrap_new = holds_containers && widget.type_id != "flexcontainer";
+        let new = new_widget(widget, number, target_empty || wrap_new);
+        let mut placed = Placed {
+            id,
+            ..Placed::default()
+        };
+        if widget.type_id == "flexcontainer" {
+            placed.containers.push(placed.id.clone());
+        }
+        if wrap_new {
+            let wrapper = self.wrap(new, &mut placed);
+            self.push_child(&target.path, wrapper);
+        } else {
+            self.push_child(&target.path, new);
+        }
+        Ok(placed)
+    }
+
+    fn place_beside(
+        &mut self,
+        widget: &Widget,
+        anchor_word: &str,
+        side: Side,
+    ) -> Result<Placed, EditError> {
+        let anchor = self.find(anchor_word)?;
+        if anchor.path.is_empty() {
+            return Err(EditError::Refused(format!(
+                "{} is the page's top container; place the widget inside it",
+                anchor.id
+            )));
+        }
+        let mut parent_path = anchor.path.clone();
+        let anchor_index = parent_path.pop().expect("checked: anchor is not root");
+        if parent_path.is_empty() {
+            return Err(EditError::Refused(format!(
+                "{} is the page's top container; place the widget inside it",
+                anchor.id
+            )));
+        }
+        let parent = self.at(&parent_path);
+        let parent_type = type_of(parent).unwrap_or_default().to_string();
+        if parent_type != "flexcontainer" {
+            return Err(EditError::Refused(format!(
+                "{} is inside a {}, which twaco does not lay out",
+                anchor.id, parent_type
+            )));
+        }
+        let parent_id = widget_id(parent).to_string();
+        let parent_children = children(parent);
+        let direction = parent["Properties"]["flex-direction"]
+            .as_str()
+            .map(str::to_string);
+        let sibling_possible = !fills(self.at(&anchor.path))
+            && (direction.as_deref() == Some(side.axis()) || parent_children.len() == 1);
+        let anchor_is_container = anchor.type_id == "flexcontainer";
+        let new_is_container = widget.type_id == "flexcontainer";
+
+        if sibling_possible && (anchor_is_container || !new_is_container) {
+            let number = self.allocate();
+            let id = format!("{}-{number}", widget.type_id);
+            let wrap_new = anchor_is_container && !new_is_container;
+            let new = new_widget(widget, number, wrap_new);
+            let mut placed = Placed {
+                id,
+                ..Placed::default()
+            };
+            if new_is_container {
+                placed.containers.push(placed.id.clone());
+            }
+            if direction.as_deref() != Some(side.axis()) {
+                self.set_property(&parent_path, "flex-direction", Value::from(side.axis()));
+                placed.flipped = Some(parent_id);
+            }
+            let inserted = if wrap_new {
+                self.wrap(new, &mut placed)
+            } else {
+                new
+            };
+            let index = if side.before() {
+                anchor_index
+            } else {
+                anchor_index + 1
+            };
+            self.insert_child(&parent_path, index, inserted);
+            return Ok(placed);
+        }
+
+        Ok(self.split_beside(widget, &anchor, &parent_path, anchor_index, side))
+    }
+
+    fn split_beside(
+        &mut self,
+        widget: &Widget,
+        anchor: &WidgetRef,
+        parent_path: &[usize],
+        anchor_index: usize,
+        side: Side,
+    ) -> Placed {
+        let number = self.allocate();
+        let id = format!("{}-{number}", widget.type_id);
+        let anchor_value = self.at(&anchor.path).clone();
+        let anchor_is_container = anchor.type_id == "flexcontainer";
+        let new_is_container = widget.type_id == "flexcontainer";
+        let new = new_widget(widget, number, !new_is_container);
+        let mut placed = Placed {
+            id,
+            ..Placed::default()
+        };
+        if new_is_container {
+            placed.containers.push(placed.id.clone());
+        }
+
+        // The anchor alone in its container (a widget that fills it): that container becomes the
+        // row or column itself, holding the anchor and the new widget each in a container of
+        // their own, rather than gaining one more level that holds a single container.
+        if children(self.at(parent_path)).len() == 1 {
+            let parent_id = widget_id(self.at(parent_path)).to_string();
+            if self.at(parent_path)["Properties"]["flex-direction"].as_str() != Some(side.axis()) {
+                self.set_property(parent_path, "flex-direction", Value::from(side.axis()));
+                placed.flipped = Some(parent_id);
+            }
+            let anchor_child = if anchor_is_container {
+                anchor_value
+            } else {
+                placed.wrapped.push(anchor.id.clone());
+                self.wrap(anchor_value, &mut placed)
+            };
+            let new_child = if new_is_container {
+                new
+            } else {
+                self.wrap(new, &mut placed)
+            };
+            let (first, second) = if side.before() {
+                (new_child, anchor_child)
+            } else {
+                (anchor_child, new_child)
+            };
+            self.replace_child(parent_path, 0, first);
+            self.insert_child(parent_path, 1, second);
+            return placed;
+        }
+
+        let wrapper_number = self.allocate();
+        let mut wrapper = new_widget(
+            widgets::catalog()
+                .by_type("flexcontainer")
+                .expect("the catalogue has flexcontainer"),
+            wrapper_number,
+            true,
+        );
+        let wrapper_id = widget_id(&wrapper).to_string();
+        placed.containers.push(wrapper_id);
+        set_value_property(&mut wrapper, "flex-direction", Value::from(side.axis()));
+
+        let anchor_child = if anchor_is_container {
+            anchor_value
+        } else {
+            placed.wrapped.push(anchor.id.clone());
+            self.wrap(anchor_value, &mut placed)
+        };
+        let new_child = if new_is_container {
+            new
+        } else {
+            self.wrap(new, &mut placed)
+        };
+        if side.before() {
+            push_value_child(&mut wrapper, new_child);
+            push_value_child(&mut wrapper, anchor_child);
+        } else {
+            push_value_child(&mut wrapper, anchor_child);
+            push_value_child(&mut wrapper, new_child);
+        }
+
+        if !anchor_is_container {
+            let old_children = children(self.at(parent_path)).to_vec();
+            for (index, child) in old_children.into_iter().enumerate() {
+                if index != anchor_index && type_of(&child) != Some("flexcontainer") {
+                    placed.wrapped.push(widget_id(&child).to_string());
+                    let wrapped = self.wrap(child, &mut placed);
+                    self.replace_child(parent_path, index, wrapped);
+                }
+            }
+        }
+        self.replace_child(parent_path, anchor_index, wrapper);
+        placed
+    }
+
+    fn wrap(&mut self, child: Value, placed: &mut Placed) -> Value {
+        let number = self.allocate();
+        let mut wrapper = new_widget(
+            widgets::catalog()
+                .by_type("flexcontainer")
+                .expect("the catalogue has flexcontainer"),
+            number,
+            true,
+        );
+        placed.containers.push(widget_id(&wrapper).to_string());
+        push_value_child(&mut wrapper, child);
+        wrapper
     }
 }
 
@@ -386,6 +704,37 @@ pub(crate) fn type_of(widget: &Value) -> Option<&str> {
     widget["Properties"]["Type"].as_str()
 }
 
+fn widget_id(widget: &Value) -> &str {
+    widget["Properties"]["Id"]
+        .as_str()
+        .expect("checked: a widget has an Id")
+}
+
+fn fills(widget: &Value) -> bool {
+    type_of(widget) != Some("flexcontainer")
+        && widget["Properties"]["ResponsiveLayout"] == Value::Bool(true)
+}
+
+fn push_value_child(parent: &mut Value, child: Value) {
+    let object = parent
+        .as_object_mut()
+        .expect("checked: a widget is an object");
+    if !object.contains_key("Widgets") {
+        insert_sorted(object, "Widgets", Value::Array(Vec::new()));
+    }
+    object["Widgets"]
+        .as_array_mut()
+        .expect("checked: Widgets is a list")
+        .push(child);
+}
+
+fn set_value_property(widget: &mut Value, key: &str, value: Value) {
+    let properties = widget["Properties"]
+        .as_object_mut()
+        .expect("checked: a widget has Properties");
+    insert_sorted(properties, key, value);
+}
+
 /// The number an id ends in: `3` for `ptcslabel-3`, `7` for `legacy7`.
 fn number_of(id: &str) -> Option<u64> {
     let digits = id.len() - id.trim_end_matches(|c: char| c.is_ascii_digit()).len();
@@ -409,6 +758,29 @@ mod tests {
         format!(
             r#"{{"Properties":{{"DisplayName":"{display}","Id":"{id}","Type":"{type_id}"}},"Widgets":[{children}]}}"#
         )
+    }
+
+    fn container(id: &str, display: &str, direction: &str, children: &str) -> String {
+        format!(
+            r#"{{"Properties":{{"DisplayName":"{display}","Id":"{id}","Type":"flexcontainer","flex-direction":"{direction}"}},"Widgets":[{children}]}}"#
+        )
+    }
+
+    fn filling_widget(type_id: &str, id: &str, display: &str) -> String {
+        format!(
+            r#"{{"Properties":{{"DisplayName":"{display}","Id":"{id}","ResponsiveLayout":true,"Type":"{type_id}"}},"Widgets":[]}}"#
+        )
+    }
+
+    fn child_ids(document: &MashupDocument, id: &str) -> Vec<String> {
+        children(document.at(&document.find(id).unwrap().path))
+            .iter()
+            .map(|child| widget_id(child).to_string())
+            .collect()
+    }
+
+    fn catalogue_widget(type_id: &str) -> &Widget {
+        widgets::catalog().by_type(type_id).unwrap()
     }
 
     #[test]
@@ -560,5 +932,452 @@ mod tests {
         let problems = document(&mixed, 4).problems();
         assert_eq!(problems.len(), 1);
         assert_eq!(problems[0].widget.as_deref(), Some("flexcontainer-2"));
+    }
+
+    #[test]
+    fn placing_in_a_container_obeys_responsive_layout_and_the_filling_guard() {
+        let mut document = parse(BLANK).unwrap();
+        let grid = document
+            .place(
+                catalogue_widget("ptcsgrid"),
+                &Placement::In("center".into()),
+            )
+            .unwrap();
+        assert_eq!(grid.id, "ptcsgrid-3");
+        assert_eq!(
+            document.at(&document.find(&grid.id).unwrap().path)["Properties"]["ResponsiveLayout"],
+            true
+        );
+        let mut labels = parse(BLANK).unwrap();
+        let label = labels
+            .place(
+                catalogue_widget("ptcslabel"),
+                &Placement::In("center".into()),
+            )
+            .unwrap();
+        assert_eq!(label.id, "ptcslabel-3");
+        assert_eq!(
+            labels.at(&labels.find(&label.id).unwrap().path)["Properties"]["ResponsiveLayout"],
+            false
+        );
+        assert!(document.problems().is_empty());
+        assert!(labels.problems().is_empty());
+
+        let mut filled = parse(BLANK).unwrap();
+        filled
+            .place(
+                catalogue_widget("ptcsgrid"),
+                &Placement::In("center".into()),
+            )
+            .unwrap();
+        let error = filled
+            .place(
+                catalogue_widget("ptcslabel"),
+                &Placement::In("center".into()),
+            )
+            .unwrap_err();
+        assert!(
+            matches!(error, EditError::Refused(message) if message.contains("fills flexcontainer-2"))
+        );
+    }
+
+    #[test]
+    fn placing_a_leaf_in_a_container_of_containers_wraps_the_leaf() {
+        let inner = container("flexcontainer-3", "container-3", "row", "");
+        let outer = container("flexcontainer-2", "outer", "column", &inner);
+        let mut document = document(&outer, 3);
+        let placed = document
+            .place(
+                catalogue_widget("ptcslabel"),
+                &Placement::In("flexcontainer-2".into()),
+            )
+            .unwrap();
+        assert_eq!(placed.containers, ["flexcontainer-5"]);
+        assert_eq!(
+            child_ids(&document, "flexcontainer-2"),
+            ["flexcontainer-3", "flexcontainer-5"]
+        );
+        assert_eq!(child_ids(&document, "flexcontainer-5"), ["ptcslabel-4"]);
+        assert!(document.problems().is_empty());
+    }
+
+    #[test]
+    fn placing_in_a_leaf_or_mixing_a_container_with_leaves_is_refused() {
+        let leaf = widget("ptcsbutton", "ptcsbutton-3", "button", "");
+        let mut leaf_document = document(&leaf, 3);
+        let error = leaf_document
+            .place(
+                catalogue_widget("ptcslabel"),
+                &Placement::In("ptcsbutton-3".into()),
+            )
+            .unwrap_err();
+        assert!(
+            matches!(error, EditError::Refused(message) if message.contains("not a responsive container"))
+        );
+
+        let leaves = [
+            widget("ptcslabel", "ptcslabel-3", "label-3", ""),
+            widget("ptcslabel", "ptcslabel-4", "label-4", ""),
+        ]
+        .join(",");
+        let target = container("flexcontainer-2", "target", "row", &leaves);
+        let mut document = document(&target, 4);
+        let error = document
+            .place(
+                catalogue_widget("flexcontainer"),
+                &Placement::In("flexcontainer-2".into()),
+            )
+            .unwrap_err();
+        assert!(matches!(error, EditError::Refused(message) if message.contains("holds widgets")));
+    }
+
+    #[test]
+    fn matching_direction_inserts_beside_the_anchor_in_side_order() {
+        let leaves = [
+            widget("ptcslabel", "ptcslabel-3", "label-3", ""),
+            widget("ptcslabel", "ptcslabel-4", "label-4", ""),
+        ]
+        .join(",");
+        let row = container("flexcontainer-2", "row", "row", &leaves);
+        let mut right = document(&row, 4);
+        right
+            .place(
+                catalogue_widget("ptcsbutton"),
+                &Placement::Beside {
+                    anchor: "ptcslabel-3".into(),
+                    side: Side::Right,
+                },
+            )
+            .unwrap();
+        assert_eq!(
+            child_ids(&right, "flexcontainer-2"),
+            ["ptcslabel-3", "ptcsbutton-5", "ptcslabel-4"]
+        );
+        assert!(right.problems().is_empty());
+
+        let mut left = document(&row, 4);
+        left.place(
+            catalogue_widget("ptcsbutton"),
+            &Placement::Beside {
+                anchor: "ptcslabel-3".into(),
+                side: Side::Left,
+            },
+        )
+        .unwrap();
+        assert_eq!(
+            child_ids(&left, "flexcontainer-2"),
+            ["ptcsbutton-5", "ptcslabel-3", "ptcslabel-4"]
+        );
+
+        let column = container("flexcontainer-2", "column", "column", &leaves);
+        let mut above = document(&column, 4);
+        above
+            .place(
+                catalogue_widget("ptcsbutton"),
+                &Placement::Beside {
+                    anchor: "ptcslabel-3".into(),
+                    side: Side::Above,
+                },
+            )
+            .unwrap();
+        assert_eq!(
+            child_ids(&above, "flexcontainer-2"),
+            ["ptcsbutton-5", "ptcslabel-3", "ptcslabel-4"]
+        );
+    }
+
+    #[test]
+    fn one_child_container_flips_direction_for_a_sibling() {
+        let leaf = widget("ptcslabel", "ptcslabel-3", "label-3", "");
+        let column = container("flexcontainer-2", "column", "column", &leaf);
+        let mut document = document(&column, 3);
+        let placed = document
+            .place(
+                catalogue_widget("ptcsbutton"),
+                &Placement::Beside {
+                    anchor: "ptcslabel-3".into(),
+                    side: Side::Right,
+                },
+            )
+            .unwrap();
+        assert_eq!(placed.flipped.as_deref(), Some("flexcontainer-2"));
+        assert_eq!(
+            document.at(&document.find("flexcontainer-2").unwrap().path)["Properties"]
+                ["flex-direction"],
+            "row"
+        );
+        assert_eq!(
+            child_ids(&document, "flexcontainer-2"),
+            ["ptcslabel-3", "ptcsbutton-4"]
+        );
+        assert!(document.problems().is_empty());
+    }
+
+    #[test]
+    fn a_container_next_to_a_leaf_splits_even_when_the_direction_matches() {
+        let leaves = [
+            widget("ptcslabel", "ptcslabel-3", "label-3", ""),
+            widget("ptcslabel", "ptcslabel-4", "label-4", ""),
+        ]
+        .join(",");
+        let row = container("flexcontainer-2", "row", "row", &leaves);
+        let mut document = document(&row, 4);
+        let placed = document
+            .place(
+                catalogue_widget("flexcontainer"),
+                &Placement::Beside {
+                    anchor: "ptcslabel-3".into(),
+                    side: Side::Right,
+                },
+            )
+            .unwrap();
+        assert_eq!(
+            placed.containers,
+            [
+                "flexcontainer-5",
+                "flexcontainer-6",
+                "flexcontainer-7",
+                "flexcontainer-8"
+            ]
+        );
+        assert_eq!(
+            child_ids(&document, "flexcontainer-2"),
+            ["flexcontainer-6", "flexcontainer-8"]
+        );
+        assert_eq!(
+            child_ids(&document, "flexcontainer-6"),
+            ["flexcontainer-7", "flexcontainer-5"]
+        );
+        assert!(document.problems().is_empty());
+    }
+
+    #[test]
+    fn splitting_beside_a_filling_chart_wraps_all_leaf_siblings() {
+        let leaves = [
+            filling_widget("ptcschartbar", "ptcschartbar-3", "chart"),
+            widget("ptcslabel", "ptcslabel-4", "label", ""),
+        ]
+        .join(",");
+        let column = container("flexcontainer-2", "column", "column", &leaves);
+        let mut document = document(&column, 4);
+        let placed = document
+            .place(
+                catalogue_widget("ptcsgrid"),
+                &Placement::Beside {
+                    anchor: "ptcschartbar-3".into(),
+                    side: Side::Right,
+                },
+            )
+            .unwrap();
+        assert_eq!(placed.id, "ptcsgrid-5");
+        assert_eq!(
+            placed.containers,
+            [
+                "flexcontainer-6",
+                "flexcontainer-7",
+                "flexcontainer-8",
+                "flexcontainer-9"
+            ]
+        );
+        assert_eq!(placed.wrapped, ["ptcschartbar-3", "ptcslabel-4"]);
+        assert_eq!(
+            child_ids(&document, "flexcontainer-2"),
+            ["flexcontainer-6", "flexcontainer-9"]
+        );
+        assert_eq!(
+            document.at(&document.find("flexcontainer-6").unwrap().path)["Properties"]
+                ["flex-direction"],
+            "row"
+        );
+        assert_eq!(
+            child_ids(&document, "flexcontainer-6"),
+            ["flexcontainer-7", "flexcontainer-8"]
+        );
+        assert_eq!(child_ids(&document, "flexcontainer-7"), ["ptcschartbar-3"]);
+        assert_eq!(child_ids(&document, "flexcontainer-8"), ["ptcsgrid-5"]);
+        assert_eq!(
+            document.at(&document.find("ptcschartbar-3").unwrap().path)["Properties"]
+                ["ResponsiveLayout"],
+            true
+        );
+        assert_eq!(
+            document.at(&document.find("ptcsgrid-5").unwrap().path)["Properties"]
+                ["ResponsiveLayout"],
+            true
+        );
+        assert_eq!(document.value()["UI"]["Properties"]["id_index"], 9);
+        assert_eq!(
+            document
+                .widgets()
+                .iter()
+                .map(|widget| &widget.id)
+                .collect::<BTreeSet<_>>()
+                .len(),
+            document.widgets().len()
+        );
+        assert!(document.problems().is_empty());
+    }
+
+    #[test]
+    fn direction_mismatch_with_siblings_splits_and_wraps_leaves() {
+        let leaves = [
+            widget("ptcslabel", "ptcslabel-3", "label-3", ""),
+            widget("ptcslabel", "ptcslabel-4", "label-4", ""),
+        ]
+        .join(",");
+        let column = container("flexcontainer-2", "column", "column", &leaves);
+        let mut document = document(&column, 4);
+        let placed = document
+            .place(
+                catalogue_widget("ptcsbutton"),
+                &Placement::Beside {
+                    anchor: "ptcslabel-3".into(),
+                    side: Side::Right,
+                },
+            )
+            .unwrap();
+        assert_eq!(placed.wrapped, ["ptcslabel-3", "ptcslabel-4"]);
+        assert_eq!(
+            child_ids(&document, "flexcontainer-2"),
+            ["flexcontainer-6", "flexcontainer-9"]
+        );
+        assert_eq!(
+            child_ids(&document, "flexcontainer-6"),
+            ["flexcontainer-7", "flexcontainer-8"]
+        );
+        assert!(document.problems().is_empty());
+    }
+
+    #[test]
+    fn placing_below_a_container_splits_without_wrapping_its_siblings() {
+        let children = [
+            container("flexcontainer-3", "container-3", "column", ""),
+            container("flexcontainer-4", "container-4", "column", ""),
+        ]
+        .join(",");
+        let row = container("flexcontainer-2", "row", "row", &children);
+        let mut document = document(&row, 4);
+        let placed = document
+            .place(
+                catalogue_widget("ptcslabel"),
+                &Placement::Beside {
+                    anchor: "flexcontainer-3".into(),
+                    side: Side::Below,
+                },
+            )
+            .unwrap();
+        assert!(placed.wrapped.is_empty());
+        assert_eq!(placed.containers, ["flexcontainer-6", "flexcontainer-7"]);
+        assert_eq!(
+            child_ids(&document, "flexcontainer-2"),
+            ["flexcontainer-6", "flexcontainer-4"]
+        );
+        assert_eq!(
+            child_ids(&document, "flexcontainer-6"),
+            ["flexcontainer-3", "flexcontainer-7"]
+        );
+        assert_eq!(child_ids(&document, "flexcontainer-7"), ["ptcslabel-5"]);
+        assert!(document.problems().is_empty());
+    }
+
+    #[test]
+    fn top_unknown_and_ambiguous_anchors_are_refused() {
+        let mut blank = parse(BLANK).unwrap();
+        let error = blank
+            .place(
+                catalogue_widget("ptcslabel"),
+                &Placement::Beside {
+                    anchor: "center".into(),
+                    side: Side::Right,
+                },
+            )
+            .unwrap_err();
+        assert!(matches!(error, EditError::Refused(message) if message.contains("top container")));
+        let error = blank
+            .place(
+                catalogue_widget("ptcslabel"),
+                &Placement::Beside {
+                    anchor: "missing".into(),
+                    side: Side::Right,
+                },
+            )
+            .unwrap_err();
+        assert_eq!(error, EditError::NoWidget("missing".into()));
+
+        let labels = [
+            widget("ptcslabel", "ptcslabel-3", "first", ""),
+            widget("ptcslabel", "ptcslabel-4", "second", ""),
+        ]
+        .join(",");
+        let mut ambiguous = document(&container("flexcontainer-2", "row", "row", &labels), 4);
+        let error = ambiguous
+            .place(
+                catalogue_widget("ptcsbutton"),
+                &Placement::Beside {
+                    anchor: "label".into(),
+                    side: Side::Right,
+                },
+            )
+            .unwrap_err();
+        assert!(matches!(error, EditError::Ambiguous { word, .. } if word == "label"));
+    }
+}
+
+#[cfg(test)]
+mod placement_walkthrough {
+    use super::*;
+
+    /// The user's example on the real blank template: a chart in center, a grid to its right, a
+    /// button below the grid. Prints the tree so a person can read the result.
+    #[test]
+    fn a_grid_right_of_the_chart_then_a_button_below_the_grid() {
+        let catalog = widgets::catalog();
+        let mut document = parse(crate::core::mashup_templates::BLANK).unwrap();
+        let chart = document
+            .place(
+                catalog.resolve("bar-chart").unwrap(),
+                &Placement::In("center".into()),
+            )
+            .unwrap();
+        let grid = document
+            .place(
+                catalog.resolve("grid").unwrap(),
+                &Placement::Beside {
+                    anchor: "chart".into(),
+                    side: Side::Right,
+                },
+            )
+            .unwrap();
+        document
+            .place(
+                catalog.resolve("button").unwrap(),
+                &Placement::Beside {
+                    anchor: grid.id.clone(),
+                    side: Side::Below,
+                },
+            )
+            .unwrap();
+        let tree: Vec<String> = document
+            .widgets()
+            .iter()
+            .map(|w| {
+                let p = &document.at(&w.path)["Properties"];
+                format!(
+                    "{}{} {} fills={}",
+                    "  ".repeat(w.path.len()),
+                    w.id,
+                    p["flex-direction"].as_str().unwrap_or(""),
+                    p["ResponsiveLayout"]
+                )
+            })
+            .collect();
+        println!("{}", tree.join("\n"));
+        assert!(document.problems().is_empty());
+        assert_eq!(chart.id, "ptcschartbar-3");
+        let after = document.find("ptcschartbar-3").unwrap();
+        assert_eq!(
+            document.at(&after.path)["Properties"]["ResponsiveLayout"],
+            true
+        );
     }
 }
