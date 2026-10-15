@@ -108,6 +108,9 @@ pub struct Binding {
     pub id: String,
     pub from: String,
     pub to: String,
+    /// A property map after the first: the runtime does not apply it.
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub ignored: bool,
 }
 
 #[derive(Debug, Serialize, PartialEq)]
@@ -202,7 +205,7 @@ fn of_content(name: &str, file: &str, value: &Value, signature: &Signature<'_>) 
                 maps.len()
             ));
         }
-        for map in maps {
+        for (index, map) in maps.iter().enumerate() {
             let from = address.of(
                 &text(binding, "SourceArea"),
                 &text(binding, "SourceSection"),
@@ -217,7 +220,8 @@ fn of_content(name: &str, file: &str, value: &Value, signature: &Signature<'_>) 
                 &text(map, "TargetProperty"),
                 "",
             );
-            if text(binding, "TargetArea") == "Data" {
+            // Only the first map runs, so only it sets a parameter.
+            if index == 0 && text(binding, "TargetArea") == "Data" {
                 setters
                     .entry((
                         text(binding, "TargetSection"),
@@ -231,6 +235,7 @@ fn of_content(name: &str, file: &str, value: &Value, signature: &Signature<'_>) 
                 id: id.clone(),
                 from,
                 to,
+                ignored: index > 0,
             });
         }
     }
@@ -372,7 +377,7 @@ impl Addresses<'_> {
                     .map(|call| call.target.as_str());
                 match target {
                     Some(target) if target != alias => {
-                        format!("data:{}.{target} as {alias}", found.entity)
+                        format!("data:{}.{target}[as {alias}]", found.entity)
                     }
                     _ => format!("data:{}.{alias}", found.entity),
                 }
@@ -408,14 +413,14 @@ impl Addresses<'_> {
             // A shape's or template's data source takes the entity it runs on from a binding
             // to `EntityName`, not to a service.
             "Data" if self.is_entity_slot(section, id) => {
-                format!("data:{} ({id})", self.entity(section))
+                format!("data:{}[{id}]", self.entity(section))
             }
             "Data" => {
                 let rows = match details {
                     "" | "AllData" => String::new(),
-                    other => format!(" ({other})"),
+                    other => format!("[{other}]"),
                 };
-                format!("{}{property}{rows}", self.call(section, id))
+                format!("{}{rows}{property}", self.call(section, id))
             }
             // Session and UserExtensions name themselves three times over.
             other if id == other && (section.is_empty() || section == other) => {
@@ -568,7 +573,16 @@ pub fn render(description: &Description) -> String {
     if !description.bindings.is_empty() {
         out.push_str("\nbindings\n");
         for binding in &description.bindings {
-            out.push_str(&format!("  {} -> {}\n", binding.from, binding.to));
+            out.push_str(&format!(
+                "  {} -> {}{}\n",
+                binding.from,
+                binding.to,
+                if binding.ignored {
+                    "  (ignored: only the first property map applies)"
+                } else {
+                    ""
+                }
+            ));
         }
     }
     if !description.events.is_empty() {
@@ -593,7 +607,7 @@ mod tests {
 
     /// An order screen: a grid of GetOrders, a text field for SaveOrder's note, a button that saves,
     /// and SaveOrder's `id` never bound.
-    fn orders() -> Value {
+    pub(super) fn orders() -> Value {
         json!({
             "Data": {
                 "Things_Acme.Orders.Manager": {
@@ -649,6 +663,7 @@ mod tests {
                 ("id".into(), "LONG".into()),
                 ("mode".into(), "STRING".into()),
                 ("note".into(), "STRING".into()),
+                ("title".into(), "STRING".into()),
             ]),
             _ => None,
         }
@@ -658,7 +673,7 @@ mod tests {
     fn services_list_what_sets_each_parameter_and_what_is_left_unbound() {
         let description = of_content("Acme.Orders_MU", "Mashups/x.xml", &orders(), &signature);
         let save = &description.services[1];
-        assert_eq!(save.service, "Acme.Orders.Manager.SaveOrder as Save");
+        assert_eq!(save.service, "Acme.Orders.Manager.SaveOrder[as Save]");
         let set: Vec<(&str, Vec<String>)> = save
             .parameters
             .iter()
@@ -670,7 +685,8 @@ mod tests {
                 ("id", vec!["unbound".to_string()]),
                 ("mode", vec!["static".to_string()]),
                 ("note", vec!["ui:ptcstextfield-4.Text".to_string()]),
-                ("title", vec!["ui:ptcstextfield-4.Text".to_string()]),
+                // Bound only by the binding's second map, which the runtime ignores.
+                ("title", vec!["unbound".to_string()]),
             ]
         );
         assert_eq!(save.invoked_by, ["ui:ptcsbutton-5.Clicked"]);
@@ -690,11 +706,11 @@ mod tests {
                 ("data:Acme.Orders.Manager.GetOrders", "ui:ptcsgrid-3.Data"),
                 (
                     "ui:ptcstextfield-4.Text",
-                    "data:Acme.Orders.Manager.SaveOrder as Save.note"
+                    "data:Acme.Orders.Manager.SaveOrder[as Save].note"
                 ),
                 (
                     "ui:ptcstextfield-4.Text",
-                    "data:Acme.Orders.Manager.SaveOrder as Save.title"
+                    "data:Acme.Orders.Manager.SaveOrder[as Save].title"
                 ),
             ]
         );
@@ -702,14 +718,25 @@ mod tests {
             .warnings
             .iter()
             .any(|w| w.contains("b2 has 2 property maps")));
+        assert!(!description.bindings[1].ignored);
+        assert!(description.bindings[2].ignored, "only the first map runs");
+        assert!(render(&description).contains("(ignored: only the first property map applies)"));
+        assert_eq!(
+            description.events[0].handler,
+            "data:Acme.Orders.Manager.SaveOrder[as Save]"
+        );
+        // A binding to a parameter the service does not declare is shown and warned about.
+        let mut content = orders();
+        content["DataBindings"].as_array_mut().unwrap().push(json!({
+            "Id": "b3", "SourceArea": "UI", "SourceId": "ptcstextfield-4", "SourceSection": "",
+            "TargetArea": "Data", "TargetSection": "Things_Acme.Orders.Manager", "TargetId": "Save",
+            "PropertyMaps": [{"SourceProperty": "Text", "TargetProperty": "priority"}]
+        }));
+        let description = of_content("Acme.Orders_MU", "Mashups/x.xml", &content, &signature);
         assert!(description
             .warnings
             .iter()
-            .any(|w| w.contains("binds title, which the service does not declare")));
-        assert_eq!(
-            description.events[0].handler,
-            "data:Acme.Orders.Manager.SaveOrder as Save"
-        );
+            .any(|w| w.contains("binds priority, which the service does not declare")));
     }
 
     #[test]
@@ -737,7 +764,7 @@ mod tests {
         assert!(text.contains("      id LONG: unbound"), "{text}");
         assert!(
             text.contains(
-                "  ui:ptcsbutton-5.Clicked -> data:Acme.Orders.Manager.SaveOrder as Save"
+                "  ui:ptcsbutton-5.Clicked -> data:Acme.Orders.Manager.SaveOrder[as Save]"
             ),
             "{text}"
         );
@@ -758,7 +785,7 @@ mod tests {
                 description.bindings[3].from.as_str(),
                 description.bindings[3].to.as_str()
             ),
-            ("mashup:Manager", "data:Acme.Orders.Manager (EntityName)")
+            ("mashup:Manager", "data:Acme.Orders.Manager[EntityName]")
         );
         assert!(!description.widgets[0].fills);
         let address = Addresses {
@@ -818,8 +845,69 @@ mod tests {
             .any(|w| w.contains("does not declare")));
         assert_eq!(
             description.services[1].parameters.len(),
-            2,
-            "note and title, from bindings"
+            1,
+            "note, from the binding that runs"
         );
+    }
+}
+
+#[cfg(test)]
+mod repository_tests {
+    use super::*;
+    use std::path::Path;
+
+    fn write(root: &Path, relative: &str, text: &str) {
+        let path = root.join(relative);
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::write(path, text).unwrap();
+    }
+
+    #[test]
+    fn describe_reads_the_mashup_and_the_services_it_calls_from_the_repository() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        write(root, "twaco.toml", "[[project]]\nname = \"Acme\"\n");
+        write(
+            root,
+            "Things/Acme.Orders.Manager.xml",
+            r#"<Entities><Things><Thing name="Acme.Orders.Manager" projectName="Acme" thingTemplate="GenericThing"><ThingShape><ServiceDefinitions>
+                <ServiceDefinition name="GetOrders"><ParameterDefinitions></ParameterDefinitions><ResultType baseType="INFOTABLE" name="result"></ResultType></ServiceDefinition>
+                <ServiceDefinition name="SaveOrder"><ParameterDefinitions>
+                    <FieldDefinition baseType="LONG" name="id"></FieldDefinition>
+                    <FieldDefinition baseType="STRING" name="note"></FieldDefinition>
+                </ParameterDefinitions><ResultType baseType="NOTHING" name="result"></ResultType></ServiceDefinition>
+            </ServiceDefinitions></ThingShape></Thing></Things></Entities>"#,
+        );
+        write(
+            root,
+            "Mashups/Acme.Orders_MU.xml",
+            &format!(
+                "<Entities><Mashups><Mashup name=\"Acme.Orders_MU\" projectName=\"Acme\"><ParameterDefinitions><FieldDefinition baseType=\"STRING\" name=\"Order\"></FieldDefinition></ParameterDefinitions><mashupContent><![CDATA[{}]]></mashupContent></Mashup></Mashups></Entities>",
+                super::tests::orders()
+            ),
+        );
+        let solution = Solution::load(&root.join("twaco.toml")).unwrap();
+        let description = describe(&solution, "Acme.Orders_MU").unwrap();
+        assert_eq!(description.parameters[0].name, "Order");
+        let save = &description.services[1];
+        assert!(save.resolved, "SaveOrder is found in the Thing's XML");
+        let set: Vec<(&str, &str, &str)> = save
+            .parameters
+            .iter()
+            .map(|p| (p.name.as_str(), p.base_type.as_str(), p.set_by[0].as_str()))
+            .collect();
+        assert_eq!(
+            set,
+            [
+                ("id", "LONG", "unbound"),
+                ("note", "STRING", "ui:ptcstextfield-4.Text")
+            ]
+        );
+        let json = serde_json::to_value(&description).unwrap();
+        assert_eq!(json["services"][1]["parameters"][0]["set_by"][0], "unbound");
+        assert!(matches!(
+            describe(&solution, "Acme.Nope_MU"),
+            Err(DescribeError::Unknown(_))
+        ));
     }
 }

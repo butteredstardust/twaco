@@ -452,7 +452,11 @@ mashup's XML: the widget tree with each container's direction, the mashup's para
 service it calls with what sets each declared parameter (a binding's source, `static`, or
 `unbound`, which falls back to the service's default) and what runs it, then every binding and
 event. It reads the sidecar `content.json` when there is one. Addresses are written as
-`ui:<widget>.<Property>`, `data:<Entity>.<Service>[.<Parameter>]` and `mashup:<Parameter>`.
+`ui:<widget>.<Property>`, `data:<Entity>.<Service>[.<Parameter>]` and `mashup:<Parameter>`; a call
+the mashup names differently from its service is `data:<Entity>.<Service>[as <name>]`, a source of
+selected rows `data:<Entity>.<Service>[SelectedRows].<field>`, and the entity a shape's data source
+runs on `data:<Entity>[EntityName]`. A property map after a binding's first is listed as ignored,
+since the runtime applies only the first.
 
 ## Moving entities to another project
 
