@@ -648,6 +648,19 @@ pub fn sync_with_progress(
     lock: Option<&WorkspaceLock>,
     progress: &dyn Progress,
 ) -> Result<Synced, RepoError> {
+    if direction == Direction::Pull && apply {
+        let lock = lock.ok_or_else(|| {
+            RepoError::Invalid("an applied pull needs the workspace lock".to_string())
+        })?;
+        crate::core::transaction::check_inside(lock.root(), local_root).map_err(|why| {
+            RepoError::Local {
+                path: local_root.to_path_buf(),
+                why: format!(
+                    "{why}; [repositories] root must be a folder inside the solution for a pull"
+                ),
+            }
+        })?;
+    }
     let compared = status_with_progress(remote, repository, local_root, progress)?;
     let (source_only, target_only) = match direction {
         Direction::Push => (State::LocalOnly, State::RemoteOnly),
@@ -683,12 +696,13 @@ pub fn sync_with_progress(
         same: compared.iter().filter(|c| c.state == State::Same).count(),
         ..Synced::default()
     };
-    let mut differs = std::collections::BTreeSet::new();
+    // Each differing file with the size the comparison saw locally.
+    let mut differs: BTreeMap<String, Option<u64>> = BTreeMap::new();
     for item in &compared {
         if item.state == source_only || item.state == State::Differs {
             synced.copied.push(item.path.clone());
             if item.state == State::Differs {
-                differs.insert(item.path.clone());
+                differs.insert(item.path.clone(), item.local_size);
             }
         } else if item.state == target_only {
             synced.left.push(item.path.clone());
@@ -699,9 +713,7 @@ pub fn sync_with_progress(
     }
     let _phase = progress::phase(progress, "copying files", Some(synced.copied.len() as u64));
     if direction == Direction::Pull {
-        let lock = lock.ok_or_else(|| {
-            RepoError::Invalid("an applied pull needs the workspace lock".to_string())
-        })?;
+        let lock = lock.expect("checked before the comparison");
         pull_all(
             remote,
             repository,
@@ -716,7 +728,13 @@ pub fn sync_with_progress(
     }
     let mut done: Vec<String> = Vec::new();
     for path in &synced.copied {
-        let result = push_one(remote, repository, local_root, path, differs.contains(path));
+        let result = push_one(
+            remote,
+            repository,
+            local_root,
+            path,
+            differs.contains_key(path),
+        );
         if let Err(error) = result {
             return Err(RepoError::Invalid(format!(
                 "{} of {} file(s) were copied before {path} failed ({error}); copied: {}",
@@ -796,18 +814,34 @@ fn push_one(
 /// Download every file a pull copies, then write them all in one transaction: a failed
 /// download or a failed write leaves the local tree as it was, and a process killed midway is
 /// finished or undone by the next command to take the lock. The downloads are held in memory
-/// until written. A file planned as new locally must still not exist, and one planned as
-/// differing must still hold what it held when it is replaced; links are never written through.
+/// until written. A file planned as new locally must still not exist when written. A file
+/// planned as differing is read before the first download, must still have the size the
+/// comparison saw, and must still hold those bytes when it is replaced. Links are never written
+/// through.
 fn pull_all(
     remote: &dyn Remote,
     repository: &str,
     local_root: &Path,
     copied: &[String],
-    differs: &std::collections::BTreeSet<String>,
+    differs: &BTreeMap<String, Option<u64>>,
     lock: &WorkspaceLock,
     progress: &dyn Progress,
 ) -> Result<(), RepoError> {
     let nothing = |why: String| RepoError::Invalid(format!("{why}; nothing was copied"));
+    let mut before: BTreeMap<&str, Vec<u8>> = BTreeMap::new();
+    for (listed, size) in differs {
+        let local = local_file(local_root, &remote_path(listed)?);
+        let bytes = std::fs::read(&local).map_err(|e| RepoError::Local {
+            path: local.clone(),
+            why: e.to_string(),
+        })?;
+        if Some(bytes.len() as u64) != *size {
+            return Err(nothing(format!(
+                "{listed} changed locally since it was compared"
+            )));
+        }
+        before.insert(listed, bytes);
+    }
     let mut transaction = Transaction::new(lock.root(), "repo pull");
     for listed in copied {
         let path = remote_path(listed)?;
@@ -815,17 +849,20 @@ fn pull_all(
         let bytes = remote
             .download(repository, &path)
             .map_err(|error| nothing(format!("downloading {path} failed ({error})")))?;
-        if differs.contains(listed) {
-            transaction.write_file(&local, bytes)
-        } else {
-            transaction.create_file(&local, bytes)
+        match before.get(listed.as_str()) {
+            Some(held) => transaction.replace_file(&local, held, bytes),
+            None => transaction.create_file(&local, bytes),
         }
         .map_err(|error| nothing(format!("{path}: {error}")))?;
         progress.advance(1);
     }
-    transaction
-        .apply(lock)
-        .map_err(|error| nothing(error.to_string()))?;
+    transaction.apply(lock).map_err(|error| {
+        if error.changed_nothing() {
+            nothing(error.to_string())
+        } else {
+            RepoError::Invalid(format!("the pull was left part-written: {error}"))
+        }
+    })?;
     Ok(())
 }
 
@@ -1409,6 +1446,90 @@ mod tests {
         .unwrap_err();
         assert!(error.to_string().contains("nothing was copied"), "{error}");
         assert_eq!(std::fs::read(dir.join("new.bin")).unwrap(), b"someone's");
+    }
+
+    #[test]
+    fn a_pull_does_not_replace_a_differing_file_edited_while_it_downloads() {
+        /// Someone saves the local copy, at the same size, while the downloads run.
+        struct Editing<'a>(Live, &'a Path, AtomicUsize);
+        impl Remote for Editing<'_> {
+            fn service(
+                &self,
+                repository: &str,
+                service: &str,
+                body: &Value,
+            ) -> Result<Option<Value>, ServerError> {
+                self.0.service(repository, service, body)
+            }
+            fn download(&self, repository: &str, path: &str) -> Result<Vec<u8>, ServerError> {
+                // /both.bin is downloaded once to compare it and again to pull it: the edit
+                // lands during the second, after the comparison and before the write.
+                if path == "/both.bin" && self.2.fetch_add(1, Ordering::SeqCst) == 1 {
+                    std::fs::write(self.1.join("both.bin"), b"edit").unwrap();
+                }
+                self.0.download(repository, path)
+            }
+            fn repositories(&self) -> Result<Vec<String>, ServerError> {
+                self.0.repositories()
+            }
+        }
+        let (_dir, dir) = tree(&[("/both.bin", b"mine")]);
+        let remote = Editing(
+            Live::with(&[("/both.bin", b"them"), ("/new.bin", b"n")], &[]),
+            &dir,
+            AtomicUsize::new(0),
+        );
+        let error = sync(
+            &remote,
+            "R",
+            &dir,
+            Direction::Pull,
+            true,
+            true,
+            Some(&lock(&dir)),
+        )
+        .unwrap_err();
+        assert!(error.to_string().contains("nothing was copied"), "{error}");
+        assert_eq!(std::fs::read(dir.join("both.bin")).unwrap(), b"edit");
+        assert!(!dir.join("new.bin").exists());
+    }
+
+    #[test]
+    fn a_pull_into_a_folder_outside_the_workspace_is_refused_before_anything_is_read() {
+        let (_dir, dir) = tree(&[]);
+        let workspace = dir.join("solution");
+        std::fs::create_dir_all(&workspace).unwrap();
+        let live = Live::with(&[("/a.bin", b"a")], &[]);
+        for outside in [workspace.join("../elsewhere"), dir.join("elsewhere")] {
+            let error = sync(
+                &live,
+                "R",
+                &outside,
+                Direction::Pull,
+                false,
+                true,
+                Some(&lock(&workspace)),
+            )
+            .unwrap_err();
+            assert!(
+                error
+                    .to_string()
+                    .contains("must be a folder inside the solution"),
+                "{error}"
+            );
+        }
+        assert!(!dir.join("elsewhere").exists());
+        // A plan reads the folder wherever it is.
+        assert!(sync(
+            &live,
+            "R",
+            &dir.join("elsewhere"),
+            Direction::Pull,
+            false,
+            false,
+            None
+        )
+        .is_ok());
     }
 
     #[test]

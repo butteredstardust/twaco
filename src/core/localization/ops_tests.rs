@@ -1213,6 +1213,72 @@ fn a_failed_write_changes_no_file() {
     );
 }
 
+#[test]
+fn a_localization_root_outside_the_solution_is_refused_even_when_nothing_changes() {
+    let outside = tempfile::Builder::new()
+        .prefix("twaco-localization-outside-")
+        .tempdir()
+        .unwrap();
+    let workspace = with_toml(
+        &format!(
+            "[localization]\nroot = '{}'\n\n[[project]]\nname = \"Acme.App\"\n",
+            outside.path().display()
+        ),
+        &[],
+    );
+    std::fs::write(
+        outside
+            .path()
+            .join("Acme.App_LocalizationTable_Default.xml"),
+        FLAT_DEFAULT,
+    )
+    .unwrap();
+    let lock = workspace.lock();
+    let planned = set(
+        &workspace.solution,
+        "Acme.App.Cancel",
+        "Cancel",
+        None,
+        None,
+        None,
+        None,
+        None,
+    );
+    assert!(planned.is_ok(), "a plan reads it: {planned:?}");
+    let before = std::fs::read(
+        outside
+            .path()
+            .join("Acme.App_LocalizationTable_Default.xml"),
+    )
+    .unwrap();
+    let error = set(
+        &workspace.solution,
+        "Acme.App.Cancel",
+        "Cancel",
+        None,
+        None,
+        None,
+        None,
+        Some(&lock),
+    )
+    .unwrap_err();
+    assert!(
+        error
+            .to_string()
+            .contains("must be a folder inside the solution"),
+        "{error}"
+    );
+    assert_eq!(
+        std::fs::read(
+            outside
+                .path()
+                .join("Acme.App_LocalizationTable_Default.xml")
+        )
+        .unwrap(),
+        before
+    );
+}
+
 /// A file edited after the plan read it is refused, and nothing else is written either.
 #[test]
 fn a_file_changed_after_planning_is_refused_and_no_file_changes() {

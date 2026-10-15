@@ -276,6 +276,13 @@ pub(super) fn write_plans(
     plans: &[PlannedFile],
     lock: &WorkspaceLock,
 ) -> Result<(), LocalizationError> {
+    let folder = root(solution);
+    crate::core::transaction::check_inside(&solution.root, &folder).map_err(|why| {
+        LocalizationError::Invalid {
+            path: folder.clone(),
+            why: format!("{why}; [localization] root must be a folder inside the solution"),
+        }
+    })?;
     let mut transaction = Transaction::new(&solution.root, "localization");
     for plan in plans {
         match &plan.before {

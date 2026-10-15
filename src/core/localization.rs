@@ -77,9 +77,18 @@ pub enum LocalizationError {
     AlreadyExists(String),
     #[error("{0}")]
     Unknown(String),
-    /// The file writes, made as one transaction, did not happen.
-    #[error("no localization file was changed: {0}")]
+    /// The file writes, made as one transaction, failed. The text says whether every change
+    /// was undone.
+    #[error("{}", write_failure(.0))]
     Write(super::transaction::TransactionError),
+}
+
+fn write_failure(error: &super::transaction::TransactionError) -> String {
+    if error.changed_nothing() {
+        format!("no localization file was changed: {error}")
+    } else {
+        format!("localization files were left part-written: {error}")
+    }
 }
 
 impl Coded for LocalizationError {
