@@ -261,15 +261,7 @@ pub(crate) fn test_tool(
         profile: arguments.profile,
     };
     match command::execute(solution, &request, server::Client::new).map_err(ToolError::coded)? {
-        TestOutcome::Plan { cases, .. } => Ok(json!({
-            "dry_run": true,
-            "cases": cases.iter().map(|case| json!({
-                "case": case.name,
-                "service": format!("{}.{}", case.target, case.service),
-                "as": case.users,
-                "expect": case.expect,
-            })).collect::<Vec<_>>(),
-        })),
+        TestOutcome::Plan { cases, .. } => Ok(crate::core::testing::cases::plan_json(&cases)),
         TestOutcome::Ran {
             cases, outcomes, ..
         } => {

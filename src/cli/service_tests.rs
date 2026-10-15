@@ -1,7 +1,7 @@
 use super::super::*;
 use super::style;
 use twaco::core::commands::service_tests::{self as command, TestOutcome, TestRequest};
-use twaco::core::testing::cases::{outcomes_json, Case};
+use twaco::core::testing::cases::{outcomes_json, plan_json, Case};
 
 /// `twaco test [<filter>...]`: the service cases of `tests/*.toml`, called as the test users.
 pub(crate) fn test_cmd(solution: &Solution, args: &Args) -> u8 {
@@ -15,6 +15,13 @@ pub(crate) fn test_cmd(solution: &Solution, args: &Args) -> u8 {
         profile: args.profile.as_deref().unwrap_or("default").to_string(),
     };
     match command::execute(solution, &request, server::Client::new) {
+        Ok(TestOutcome::Plan { cases, .. }) if args.has("--json") => {
+            println!(
+                "{}",
+                serde_json::to_string_pretty(&plan_json(&cases)).expect("a plan serialises")
+            );
+            OK
+        }
         Ok(TestOutcome::Plan { cases, .. }) => {
             let calls: usize = cases.iter().map(|case| case.users.len()).sum();
             for case in &cases {

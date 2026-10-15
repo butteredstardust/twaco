@@ -178,8 +178,12 @@ fn case(solution: &Solution, path: &Path, name: &str, raw: RawCase) -> Result<Ca
             )
         })?;
     let target = ServiceTarget::parse(target).map_err(|error| error.to_string())?;
-    if !(100..=599).contains(&raw.expect) {
-        return Err(format!("expect {} is not an HTTP status", raw.expect));
+    // A reply is 200 whatever 2xx the server sent: twaco cannot tell them apart.
+    if raw.expect != 200 && !(400..=599).contains(&raw.expect) {
+        return Err(format!(
+            "expect {} is not 200 or a refusal (400 to 599)",
+            raw.expect
+        ));
     }
     if raw.expect != 200 && (raw.rows.is_some() || raw.first.is_some()) {
         return Err("rows and first check a reply: they need expect = 200".to_string());
@@ -287,6 +291,19 @@ pub fn outcomes_json(cases: &[Case], outcomes: &[Outcome]) -> Value {
     })
 }
 
+/// The cases a dry run would call, as JSON: the same for the command line and MCP.
+pub fn plan_json(cases: &[Case]) -> Value {
+    serde_json::json!({
+        "dry_run": true,
+        "cases": cases.iter().map(|case| serde_json::json!({
+            "case": case.name,
+            "service": format!("{}.{}", case.target, case.service),
+            "as": case.users,
+            "expect": case.expect,
+        })).collect::<Vec<_>>(),
+    })
+}
+
 /// What a reply lacks of what the case expects of it.
 fn check_reply(case: &Case, reply: Option<&Value>) -> Option<String> {
     if case.rows.is_none() && case.first.is_none() {
@@ -391,6 +408,10 @@ first = { name = \"Overview\", count = 3 }\n\n\
                 "[[case]]\nservice = \"T.S\"\nas = [\"vera.viewer\"]\nexpect = 200\ntypo = 1\n",
             ),
             ("e.toml", "# nothing here\n"),
+            (
+                "f.toml",
+                "[[case]]\nservice = \"T.S\"\nas = [\"vera.viewer\"]\nexpect = 204\n",
+            ),
         ]);
         let error = load(&solution, &[]).unwrap_err().to_string();
         for expected in [
@@ -399,6 +420,7 @@ first = { name = \"Overview\", count = 3 }\n\n\
             "tests/c.toml: case T.S #1: rows and first check a reply",
             "tests/d.toml: unknown field `typo`",
             "tests/e.toml: holds no [[case]]",
+            "tests/f.toml: case T.S #1: expect 204 is not 200 or a refusal",
         ] {
             assert!(error.contains(expected), "{expected} in {error}");
         }

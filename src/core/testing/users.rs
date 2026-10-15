@@ -85,6 +85,18 @@ where
     if solution.test.users.is_empty() {
         return Err(TestError::NoUsers);
     }
+    let mut seen = std::collections::BTreeSet::new();
+    if let Some(twice) = solution
+        .test
+        .users
+        .iter()
+        .find(|user| !seen.insert(user.name.as_str()))
+    {
+        return Err(TestError::Invalid(format!(
+            "[[test.user]] {} is declared twice; keep one",
+            twice.name
+        )));
+    }
     let mut members: BTreeMap<&str, Option<Vec<String>>> = BTreeMap::new();
     let mut out = Vec::new();
     for user in &solution.test.users {
@@ -253,6 +265,8 @@ where
                 admin.call(
                     &entity_services(),
                     "CreateProject",
+                    // `type`, not `projectType`: verified on 10.x, where `projectType` is ignored
+                    // and `type = "Solution"` makes a Solution project.
                     &json!({
                         "name": name,
                         "type": "Component",
@@ -415,6 +429,7 @@ mod tests {
                     Ok(None)
                 }
                 "CreateProject" => {
+                    assert_eq!(field("type"), "Component", "{parameters}");
                     self.server.projects.lock().unwrap().push(field("name"));
                     Ok(None)
                 }
@@ -626,6 +641,31 @@ mod tests {
         .unwrap_err();
         assert!(error.to_string().contains("Acme.App.Gone_UG"), "{error}");
         assert!(only_reads(&server));
+    }
+
+    #[test]
+    fn a_user_declared_twice_is_refused_before_the_server_is_asked() {
+        let (_dir, solution) =
+            solution(&format!("{TOML}\n[[test.user]]\nname = \"vera.viewer\"\n"));
+        let server = server();
+        let admin = Session {
+            server: &server,
+            user: None,
+        };
+        let profile = profile("allow_test_users = true\ntest_password = \"secret\"\n");
+        let error = seed(
+            &solution,
+            &profile,
+            &admin,
+            sign_in(&server, &profile),
+            true,
+        )
+        .unwrap_err();
+        assert!(
+            error.to_string().contains("vera.viewer is declared twice"),
+            "{error}"
+        );
+        assert!(server.calls.lock().unwrap().is_empty());
     }
 
     #[test]

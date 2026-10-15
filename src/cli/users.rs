@@ -63,7 +63,7 @@ pub(crate) fn users_cmd(solution: &Solution, args: &Args) -> u8 {
                 }
             } else {
                 if !changed.steps.is_empty() {
-                    println!("dry run: nothing was sent; pass --apply");
+                    println!("dry run: no change was sent; pass --apply");
                 }
                 OK
             }
