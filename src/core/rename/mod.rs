@@ -64,6 +64,8 @@ pub enum FileKind {
     Config,
     Outside,
     Mashup,
+    /// A localization table file: its token names are references, renamed with the rest.
+    Localization,
 }
 
 /// Findings and applicable byte edits for one file as it exists at planning time.
@@ -387,6 +389,7 @@ pub struct Counts {
     pub config: KindCounts,
     pub outside: KindCounts,
     pub mashup: KindCounts,
+    pub localization: KindCounts,
 }
 
 /// A condition that prevents a complete and collision-free plan.
@@ -737,6 +740,7 @@ impl Plan {
                     ("entity files", counts.entity, None),
                     ("sidecars", counts.sidecar, None),
                     ("twaco.toml", counts.config, None),
+                    ("localization", counts.localization, None),
                     ("elsewhere", counts.outside, Some(outside_note)),
                 ] {
                     if present(count) {
@@ -758,6 +762,7 @@ impl Plan {
                 FileKind::Config => &mut counts.config,
                 FileKind::Outside => &mut counts.outside,
                 FileKind::Mashup => &mut counts.mashup,
+                FileKind::Localization => &mut counts.localization,
             };
             target.files += 1;
             for finding in &change.findings {
@@ -845,6 +850,7 @@ pub fn summary_json(
             "config": count(counts.config),
             "outside": count(counts.outside),
             "mashup": count(counts.mashup),
+            "localization": count(counts.localization),
         },
         "review": review,
         "named": {

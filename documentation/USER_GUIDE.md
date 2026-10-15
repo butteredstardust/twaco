@@ -204,9 +204,10 @@ twaco rename prefix Acme.App Acme.Platform --apply --text   # write it, docs and
 ```
 
 Like `adopt`, it plans by default. The plan says how many entities move and how many references
-change in the entity files, the sidecars, `twaco.toml` and the other text files, and lists what
-it left for a person. `--apply` writes. `--text` also changes the other text files (docs, `sql/`,
-localization tables); without it they are counted and left alone. `--detail` lists every finding.
+change in the entity files, the sidecars, `twaco.toml`, the localization tables and the other text
+files, and lists what it left for a person. `--apply` writes. The token names in the localization
+tables change with the `[[token]]` references to them, always. `--text` also changes the other
+text files (docs, `sql/`); without it they are counted and left alone. `--detail` lists every finding.
 
 **What counts as a reference.** A name matches as a whole token: it is not part of a longer
 name (`Acme.App-2`, `Acme.App_TS`, and for an entity not `Acme.App.Manager.Child`). In

@@ -52,6 +52,12 @@ exit: 0
       "exact": 0,
       "embedded": 0,
       "review": 0
+    },
+    "localization": {
+      "files": 0,
+      "exact": 0,
+      "embedded": 0,
+      "review": 0
     }
   },
   "review": [],

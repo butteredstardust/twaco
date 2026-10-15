@@ -163,6 +163,9 @@ pub(super) fn plan_identity(solution: &Solution, spec: &Spec) -> Result<Plan, Re
         .filter_map(|item| item.old_repo_files.as_deref())
         .collect();
     let mut outside = Vec::new();
+    // Token names in the localization tables are the other half of every `[[token]]` an entity
+    // names: renamed together, never one without the other (and not left to `--text`).
+    let localization_root = crate::core::localization::root(solution);
     for path in check::walk_files(solution) {
         if covered.contains(&path) {
             continue;
@@ -181,7 +184,21 @@ pub(super) fn plan_identity(solution: &Solution, spec: &Spec) -> Result<Plan, Re
             skipped.push(path);
             continue;
         }
-        if path
+        if path.starts_with(&localization_root)
+            && path
+                .extension()
+                .is_some_and(|ext| ext.eq_ignore_ascii_case("xml"))
+        {
+            scan_text_file(
+                &path,
+                FileKind::Localization,
+                spec,
+                mode,
+                qualified,
+                &mut changes,
+                &mut skipped,
+            )?;
+        } else if path
             .ancestors()
             .skip(1)
             .any(|ancestor| sidecar_roots.contains(ancestor))

@@ -14,6 +14,8 @@ All notable changes to twaco are recorded here. The format follows
 
 ### Changed
 
+- `twaco rename` renames the tokens in the localization tables (`[localization] root`) together with the `[[token]]` references to them, without `--text`: `rename prefix Acme.App Acme.Platform` turns `Acme.App.Save` into `Acme.Platform.Save` in every table file and every entity. Before, the references changed and the tables kept the old names unless `--text` was given. The plan has a `localization` row and the JSON a `localization` count.
+
 - A localization file holding several tables, as an extension ships them, is read table by table instead of being unreadable: `localization status`, `push` and the `localization tokens` gate use it, and `push` imports each of its tables alone. `pull`, `set` and `remove` refuse to edit such a file and say to split it.
 
 - `repo pull --apply` downloads every file before it writes any, then writes them all as one journaled transaction: a download that fails midway, a failed write or a killed process no longer leaves some files copied. A file that appears or changes locally while the pull runs is refused, not overwritten. A pull needs the repository folder (`[repositories] root`) to be inside the solution.

@@ -640,3 +640,62 @@ fn projects_that_share_a_root_do_not_duplicate_entities_in_a_plan() {
         "one entity file and its sidecar folder"
     );
 }
+
+#[test]
+fn a_prefix_rename_renames_the_tokens_in_the_localization_tables_without_text() {
+    let fixture = fixture();
+    let table =
+        "<Entities><LocalizationTables><LocalizationTable name=\"Default\"><ConfigurationTables>\
+<ConfigurationTable name=\"LocalizationTokens\"><Rows><Row><name><![CDATA[Acme.App.Save]]></name>\
+<value><![CDATA[Save]]></value></Row><Row><name><![CDATA[Acme.Application.Keep]]></name>\
+<value><![CDATA[Keep]]></value></Row></Rows></ConfigurationTable></ConfigurationTables>\
+</LocalizationTable></LocalizationTables></Entities>\n";
+    write(
+        &fixture.root,
+        "localization/Acme.App/LocalizationTable.xml",
+        table,
+    );
+    let planned = plan(
+        &fixture.solution,
+        &spec(Kind::Prefix, "Acme.App", "Acme.New"),
+    )
+    .unwrap();
+    let counted = planned.counts().localization;
+    assert_eq!(
+        (
+            counted.files,
+            counted.exact + counted.embedded,
+            counted.review
+        ),
+        (1, 1, 0),
+        "{counted:?}"
+    );
+    assert!(planned
+        .outside
+        .iter()
+        .all(|change| change.kind != FileKind::Localization));
+    let rows = planned.summary_rows(false, false);
+    assert!(
+        rows.iter()
+            .any(|(label, text)| *label == "localization" && text == "1 file, 1 reference"),
+        "{rows:?}"
+    );
+    apply(
+        &fixture.solution,
+        &planned,
+        &options(false),
+        &locked(&fixture),
+    )
+    .unwrap();
+    let after = std::fs::read_to_string(
+        fixture
+            .root
+            .join("localization/Acme.App/LocalizationTable.xml"),
+    )
+    .unwrap();
+    assert_eq!(
+        after,
+        table.replace("Acme.App.Save", "Acme.New.Save"),
+        "only the whole token changes"
+    );
+}
