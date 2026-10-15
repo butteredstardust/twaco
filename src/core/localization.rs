@@ -144,6 +144,8 @@ struct Row {
 
 struct Parsed {
     tokens: Vec<scan::Token>,
+    /// The whole `<LocalizationTable>` element.
+    element: scan::Span,
     table: String,
     header: Header,
     rows_open: Option<usize>,
@@ -282,7 +284,27 @@ fn parse_row(
     })
 }
 
+/// The one table of an export twaco edits. A file that holds several tables is read, but not
+/// edited: an edit would have to choose among them.
 fn parse(path: &Path, src: &[u8]) -> Result<Option<Parsed>, LocalizationError> {
+    let Some(mut all) = parse_all(path, src)? else {
+        return Ok(None);
+    };
+    if all.len() != 1 {
+        return Err(invalid(
+            path,
+            format!(
+                "holds {} LocalizationTables; twaco reads such a file but edits only a file with \
+                 one table: split it into one file per table",
+                all.len()
+            ),
+        ));
+    }
+    Ok(all.pop())
+}
+
+/// Every table of a localization export, in file order. `None` for XML that is not one.
+fn parse_all(path: &Path, src: &[u8]) -> Result<Option<Vec<Parsed>>, LocalizationError> {
     let tokens = match scan::tokenize(src) {
         Ok(tokens) => tokens,
         Err(error) => {
@@ -323,29 +345,43 @@ fn parse(path: &Path, src: &[u8]) -> Result<Option<Parsed>, LocalizationError> {
         return Ok(None);
     }
     let tables = named_children(&tokens, src, collection, "LocalizationTable", path)?;
-    if tables.len() != 1 {
+    if tables.is_empty() {
         return Err(invalid(
             path,
-            "must contain exactly one LocalizationTable; split or repair the export",
+            "holds no LocalizationTable; repair the export",
         ));
     }
-    let table_open = tables[0];
-    let table = attribute(&tokens, src, table_open, "name", path)?.ok_or_else(|| {
+    let mut parsed = Vec::new();
+    for table_open in tables {
+        parsed.push(parse_table(path, src, &tokens, table_open)?);
+    }
+    Ok(Some(parsed))
+}
+
+/// One `<LocalizationTable>` element of an export.
+fn parse_table(
+    path: &Path,
+    src: &[u8],
+    tokens: &[scan::Token],
+    table_open: usize,
+) -> Result<Parsed, LocalizationError> {
+    let table_close = element_end(tokens, src, table_open, path)?;
+    let table = attribute(tokens, src, table_open, "name", path)?.ok_or_else(|| {
         invalid(
             path,
             "LocalizationTable has no name attribute; repair the export",
         )
     })?;
     let header = Header {
-        description: attribute(&tokens, src, table_open, "description", path)?,
-        language_common: attribute(&tokens, src, table_open, "languageCommon", path)?,
-        language_native: attribute(&tokens, src, table_open, "languageNative", path)?,
+        description: attribute(tokens, src, table_open, "description", path)?,
+        language_common: attribute(tokens, src, table_open, "languageCommon", path)?,
+        language_native: attribute(tokens, src, table_open, "languageNative", path)?,
     };
-    let configs = named_children(&tokens, src, table_open, "ConfigurationTables", path)?;
+    let configs = named_children(tokens, src, table_open, "ConfigurationTables", path)?;
     let mut localizations = Vec::new();
     for configs_open in configs {
-        for config in named_children(&tokens, src, configs_open, "ConfigurationTable", path)? {
-            if attribute(&tokens, src, config, "name", path)?.as_deref()
+        for config in named_children(tokens, src, configs_open, "ConfigurationTable", path)? {
+            if attribute(tokens, src, config, "name", path)?.as_deref()
                 == Some("LocalizationTokens")
             {
                 localizations.push(config);
@@ -359,14 +395,14 @@ fn parse(path: &Path, src: &[u8]) -> Result<Option<Parsed>, LocalizationError> {
         ));
     }
     let config = localizations[0];
-    let row_containers = named_children(&tokens, src, config, "Rows", path)?;
+    let row_containers = named_children(tokens, src, config, "Rows", path)?;
     let (rows_open, rows_close, rows_empty, rows) = if let Some(&rows_open) = row_containers.first()
     {
-        let rows_close = element_end(&tokens, src, rows_open, path)?;
+        let rows_close = element_end(tokens, src, rows_open, path)?;
         let mut rows = Vec::new();
         if tokens[rows_open].kind != scan::Kind::Empty {
-            for row in named_children(&tokens, src, rows_open, "Row", path)? {
-                let parsed = parse_row(&tokens, src, row, path)?;
+            for row in named_children(tokens, src, rows_open, "Row", path)? {
+                let parsed = parse_row(tokens, src, row, path)?;
                 if !parsed.cells.iter().any(|cell| cell.name == "name") {
                     return Err(invalid(
                         path,
@@ -385,23 +421,59 @@ fn parse(path: &Path, src: &[u8]) -> Result<Option<Parsed>, LocalizationError> {
     } else {
         (None, None, false, Vec::new())
     };
-    Ok(Some(Parsed {
-        tokens,
+    Ok(Parsed {
+        tokens: tokens.to_vec(),
+        element: scan::Span::new(tokens[table_open].span.start, tokens[table_close].span.end),
         table,
         header,
         rows_open,
         rows_close,
         rows_empty,
         rows,
-    }))
+    })
 }
 
-/// Read one localization export. Non-localization XML is ignored; a localization export whose
-/// table shape is incomplete is refused with its path so it can be repaired by hand.
+/// Read one localization export of one table. Non-localization XML is ignored; a localization
+/// export whose table shape is incomplete, or that holds several tables, is refused with its path
+/// so it can be repaired by hand.
 pub fn read(path: &Path, src: &[u8]) -> Result<Option<TableFile>, LocalizationError> {
-    let Some(parsed) = parse(path, src)? else {
-        return Ok(None);
-    };
+    Ok(parse(path, src)?.map(|parsed| table_file(path, parsed)))
+}
+
+/// Read every table of a localization export: one `TableFile` per table, each with the file's
+/// path. Empty for XML that is not a localization export.
+pub fn read_all(path: &Path, src: &[u8]) -> Result<Vec<TableFile>, LocalizationError> {
+    Ok(parse_all(path, src)?
+        .unwrap_or_default()
+        .into_iter()
+        .map(|parsed| table_file(path, parsed))
+        .collect())
+}
+
+/// What an import of `table` from this export sends: the file itself when it holds only that
+/// table, else its bytes with the other `<LocalizationTable>` elements cut out, so a push of one
+/// table never changes another. Nothing is re-serialised.
+pub fn table_export(path: &Path, src: &[u8], table: &str) -> Result<Vec<u8>, LocalizationError> {
+    let all =
+        parse_all(path, src)?.ok_or_else(|| invalid(path, "is not a localization table export"))?;
+    if !all.iter().any(|parsed| parsed.table == table) {
+        return Err(invalid(path, format!("holds no table {table}")));
+    }
+    if all.len() == 1 {
+        return Ok(src.to_vec());
+    }
+    let mut out = Vec::with_capacity(src.len());
+    let mut at = 0;
+    for parsed in all.iter().filter(|parsed| parsed.table != table) {
+        let start = parsed.element.start - whitespace_before(src, parsed.element.start).len();
+        out.extend_from_slice(&src[at..start]);
+        at = parsed.element.end;
+    }
+    out.extend_from_slice(&src[at..]);
+    Ok(out)
+}
+
+fn table_file(path: &Path, parsed: Parsed) -> TableFile {
     let tokens = parsed
         .rows
         .iter()
@@ -432,12 +504,12 @@ pub fn read(path: &Path, src: &[u8]) -> Result<Option<TableFile>, LocalizationEr
                 .unwrap_or_default(),
         })
         .collect();
-    Ok(Some(TableFile {
+    TableFile {
         path: path.to_path_buf(),
         table: parsed.table,
         header: parsed.header,
         tokens,
-    }))
+    }
 }
 
 /// Find localization exports recursively. A missing root is an empty solution, while malformed
@@ -470,9 +542,8 @@ pub fn discover(root: &Path) -> Result<Discovered, LocalizationError> {
     let mut found = Discovered::default();
     for path in paths {
         match std::fs::read(&path) {
-            Ok(src) => match read(&path, &src) {
-                Ok(Some(file)) => found.files.push(file),
-                Ok(None) => {}
+            Ok(src) => match read_all(&path, &src) {
+                Ok(files) => found.files.extend(files),
                 // The path is the first half of the pair; keep it out of the reason.
                 Err(LocalizationError::Invalid { why, .. }) => found.unreadable.push((path, why)),
                 Err(error) => found.unreadable.push((path, error.to_string())),

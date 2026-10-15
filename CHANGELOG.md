@@ -14,6 +14,8 @@ All notable changes to twaco are recorded here. The format follows
 
 ### Changed
 
+- A localization file holding several tables, as an extension ships them, is read table by table instead of being unreadable: `localization status`, `push` and the `localization tokens` gate use it, and `push` imports each of its tables alone. `pull`, `set` and `remove` refuse to edit such a file and say to split it.
+
 - `repo pull --apply` downloads every file before it writes any, then writes them all as one journaled transaction: a download that fails midway, a failed write or a killed process no longer leaves some files copied. A file that appears or changes locally while the pull runs is refused, not overwritten. A pull needs the repository folder (`[repositories] root`) to be inside the solution.
 - `localization pull --apply` and `localization remove --apply` write every table file in one journaled transaction, or none, and refuse a file edited since they read it. `localization new` and `set` write through the same journal. Both refuse a `[localization] root` outside the solution.
 

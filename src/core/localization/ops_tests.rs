@@ -581,6 +581,66 @@ fn a_push_imports_default_first_creates_a_missing_table_and_reads_back() {
 }
 
 #[test]
+fn a_push_from_a_file_of_several_tables_imports_each_table_alone() {
+    let element = |src: &[u8]| -> String {
+        let text = String::from_utf8(src.to_vec()).unwrap();
+        let start = text
+            .find(
+                "<LocalizationTable
+",
+            )
+            .unwrap();
+        let end = text.rfind("</LocalizationTable>").unwrap() + "</LocalizationTable>".len();
+        text[start..end].to_string()
+    };
+    let bundle = format!(
+        "<Entities>
+  <LocalizationTables>
+    {}
+    {}
+  </LocalizationTables>
+</Entities>
+",
+        element(FLAT_DE),
+        element(FLAT_DEFAULT)
+    );
+    let workspace = Workspace::new(&["Acme.App"], &[("bundle.xml", bundle.as_bytes())]);
+    let server = Server::with(&[(DEFAULT_TABLE, vec![token("Acme.App.Save", "Old")])]);
+    // The fake server reads each import as a file of one table, and fails on any other.
+    let pushed = push(
+        &workspace.solution,
+        &server,
+        None,
+        false,
+        true,
+        &progress::NONE,
+    )
+    .unwrap();
+    assert!(pushed.applied);
+    assert_eq!(server.log(), ["import Default", "import de"]);
+    assert_eq!(server.tokens_of("de").len(), 6);
+    // Editing the file is refused, naming the way out.
+    let lock = workspace.lock();
+    let error = set(
+        &workspace.solution,
+        "Acme.App.Save",
+        "Store",
+        None,
+        None,
+        None,
+        None,
+        Some(&lock),
+    )
+    .unwrap_err();
+    assert!(
+        error
+            .to_string()
+            .contains("split it into one file per table"),
+        "{error}"
+    );
+}
+
+#[test]
 fn a_token_the_server_did_not_keep_is_not_verified() {
     let workspace = Workspace::curated();
     let server = Server {

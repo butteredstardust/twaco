@@ -637,10 +637,12 @@ pub fn push<R: Remote>(
         let _imports = progress::phase(progress, "importing tables", Some(import_count));
         for push in imported {
             for path in &push.files {
-                let bytes = std::fs::read(path).map_err(|error| LocalizationError::Io {
+                let source = std::fs::read(path).map_err(|error| LocalizationError::Io {
                     path: path.clone(),
                     why: error.to_string(),
                 })?;
+                // A file of several tables sends only this one.
+                let bytes = super::table_export(path, &source, &push.table)?;
                 imports::import_file(remote, &file_name(&push.table), &bytes, true, true, true)
                     .map_err(|error| match error {
                         imports::ImportError::Remote(error) => LocalizationError::Remote(error),

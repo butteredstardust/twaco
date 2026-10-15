@@ -634,8 +634,10 @@ A solution keeps its tokens of the shared localization tables under `localizatio
 per table: `localization/<Project>/LocalizationTable.xml` for `Default` and
 `LocalizationTable_<table>.xml` for each language, holding only the project's tokens. Other
 names and flat layouts are read too, by the table name inside each file. twaco edits these files
-in place, so section comments and row order survive; a file holding several tables is reported
-as unreadable (keep one table per file).
+in place, so section comments and row order survive. A file holding several tables, as an
+extension ships them, is read table by table: `status` compares it and `push` imports each of its
+tables alone (the other tables cut out of the bytes it sends); `pull`, `set` and `remove` refuse to
+edit it and say to split it into one file per table.
 
 ```sh
 twaco localization status --detail                 # each token: same, differs, local only, server only
