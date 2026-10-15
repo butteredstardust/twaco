@@ -723,3 +723,34 @@ fn an_export_of_one_table_cuts_the_others_out_and_keeps_every_other_byte() {
     );
     assert!(table_export(Path::new("bundle.xml"), &src, "fr").is_err());
 }
+
+#[test]
+fn a_file_naming_one_table_twice_is_refused() {
+    let text = String::from_utf8(two_tables())
+        .unwrap()
+        .replace("name=\"de\"", "name=\"Default\"");
+    let error = read_all(Path::new("bundle.xml"), text.as_bytes()).unwrap_err();
+    assert!(
+        error.to_string().contains("holds table Default twice"),
+        "{error}"
+    );
+    assert!(table_export(Path::new("bundle.xml"), text.as_bytes(), "Default").is_err());
+}
+
+#[test]
+fn discovery_skips_twacos_own_state_and_hidden_folders() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path();
+    for relative in [
+        "Acme.App_LocalizationTable_Default.xml",
+        ".twaco/backups/20261015-120000/LocalizationTables/Default.xml",
+        ".git/Default.xml",
+    ] {
+        let path = root.join(relative);
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::write(path, FLAT_DEFAULT).unwrap();
+    }
+    let found = discover(root).unwrap();
+    let paths: Vec<PathBuf> = found.files.iter().map(|file| file.path.clone()).collect();
+    assert_eq!(paths, [root.join("Acme.App_LocalizationTable_Default.xml")]);
+}

@@ -351,9 +351,17 @@ fn parse_all(path: &Path, src: &[u8]) -> Result<Option<Vec<Parsed>>, Localizatio
             "holds no LocalizationTable; repair the export",
         ));
     }
-    let mut parsed = Vec::new();
+    let mut parsed: Vec<Parsed> = Vec::new();
     for table_open in tables {
-        parsed.push(parse_table(path, src, &tokens, table_open)?);
+        let table = parse_table(path, src, &tokens, table_open)?;
+        // A table is what a push of one table sends: two of one name cannot be told apart.
+        if parsed.iter().any(|other| other.table == table.table) {
+            return Err(invalid(
+                path,
+                format!("holds table {} twice; repair the export", table.table),
+            ));
+        }
+        parsed.push(table);
     }
     Ok(Some(parsed))
 }
@@ -524,7 +532,11 @@ pub fn discover(root: &Path) -> Result<Discovered, LocalizationError> {
             let entry = entry?;
             let path = entry.path();
             if entry.file_type()?.is_dir() {
-                visit(&path, paths)?;
+                // twaco's own state (backups of server exports) and other hidden folders are not
+                // the solution's tables, even with `[localization] root = "."`.
+                if !entry.file_name().to_string_lossy().starts_with('.') {
+                    visit(&path, paths)?;
+                }
             } else if path
                 .extension()
                 .is_some_and(|e| e.to_string_lossy().eq_ignore_ascii_case("xml"))

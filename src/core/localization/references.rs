@@ -10,7 +10,7 @@
 use super::ops::project_for;
 use super::{discover, problems, root, Problem, DEFAULT_TABLE};
 use crate::core::config::Solution;
-use crate::core::workspace;
+use crate::core::{scan, workspace};
 use std::collections::BTreeSet;
 use std::path::Path;
 
@@ -65,6 +65,14 @@ pub(crate) fn run(solution: &Solution) -> Report {
             message: why.clone(),
         });
     }
+    if let Err(error) = super::ops::check_prefixes(solution) {
+        report.problems.push(TokenProblem {
+            file: crate::core::config::CONFIG_FILE.to_string(),
+            line: 0,
+            rule: "prefix-clash",
+            message: error.to_string(),
+        });
+    }
     let prefixes: Vec<String> = solution.projects.iter().flat_map(super::prefixes).collect();
     for problem in problems(&found.files, &prefixes) {
         match problem {
@@ -105,11 +113,10 @@ pub(crate) fn run(solution: &Solution) -> Report {
             // The project gate reports a file it cannot read.
             continue;
         };
-        let text = String::from_utf8_lossy(&bytes);
-        let mut any = false;
+        let found = references(&bytes);
         let mut reported: BTreeSet<&str> = BTreeSet::new();
-        for (line, name) in tokens(&text) {
-            any = true;
+        for (line, name) in &found {
+            let (line, name) = (*line, name.as_str());
             if project_for(solution, name).is_none() {
                 report.not_checked += 1;
                 continue;
@@ -129,42 +136,93 @@ pub(crate) fn run(solution: &Solution) -> Report {
                 });
             }
         }
-        if any {
+        if !found.is_empty() {
             report.files += 1;
         }
     }
     report
 }
 
-/// Every `[[name]]` in `text`, with its 1-based line. A name is what ThingWorx resolves: no
-/// brackets, quotes, spaces or markup inside, and not empty.
-fn tokens(text: &str) -> Vec<(usize, &str)> {
+/// The longest token name looked for. Names are short keys; the bound keeps a file full of
+/// unterminated `[[` linear to scan.
+const LONGEST: usize = 256;
+
+/// Every `[[name]]` an entity file means, with its 1-based line: in text, CDATA and attribute
+/// values, entities decoded as a parser would, and never in a comment. A file the scanner cannot
+/// read is scanned as plain text; the project gate reports it.
+fn references(src: &[u8]) -> Vec<(usize, String)> {
+    let Ok(tokens) = scan::tokenize(src) else {
+        return bracketed(&String::from_utf8_lossy(src));
+    };
+    let mut out = Vec::new();
+    // Lines counted once, front to back, as the tokens come in order.
+    let (mut counted_to, mut line) = (0, 1);
+    for token in &tokens {
+        let raw = match token.kind {
+            scan::Kind::Comment | scan::Kind::Pi | scan::Kind::DocType | scan::Kind::End => {
+                continue
+            }
+            scan::Kind::Cdata => token.inner.of(src),
+            _ => token.span.of(src),
+        };
+        // `&#91;&#91;` decodes to `[[`: a raw `[[` or an entity is needed either way.
+        if !contains(raw, b"[[") && !contains(raw, b"&") {
+            continue;
+        }
+        let text = String::from_utf8_lossy(raw);
+        let text = if token.kind == scan::Kind::Cdata {
+            text.into_owned()
+        } else {
+            scan::decode_entities(&text)
+        };
+        line += src[counted_to..token.span.start]
+            .iter()
+            .filter(|byte| **byte == b'\n')
+            .count();
+        counted_to = token.span.start;
+        for (within, name) in bracketed(&text) {
+            out.push((line + within - 1, name));
+        }
+    }
+    out
+}
+
+fn contains(haystack: &[u8], needle: &[u8]) -> bool {
+    haystack.windows(needle.len()).any(|part| part == needle)
+}
+
+/// Every `[[name]]` in `text`, with its 1-based line within it. A name is what ThingWorx resolves:
+/// no brackets, quotes, spaces or markup inside, not empty, and at most `LONGEST` bytes.
+fn bracketed(text: &str) -> Vec<(usize, String)> {
+    let bytes = text.as_bytes();
+    let allowed = |byte: u8| {
+        !byte.is_ascii_whitespace()
+            && !matches!(byte, b'[' | b']' | b'"' | b'\'' | b'<' | b'>' | b'&')
+    };
     let mut out = Vec::new();
     let mut line = 1;
-    let mut rest = text;
-    let mut consumed_lines_to = 0;
-    let mut offset = 0;
-    while let Some(start) = rest.find("[[") {
-        let name_start = start + 2;
-        let candidate = &rest[name_start..];
-        let end = candidate.find("]]");
-        let advance = match end {
-            Some(end)
-                if end > 0
-                    && !candidate[..end].contains(|c: char| {
-                        c.is_whitespace() || matches!(c, '[' | ']' | '"' | '\'' | '<' | '>' | '&')
-                    }) =>
-            {
-                let at = offset + start;
-                line += text[consumed_lines_to..at].matches('\n').count();
-                consumed_lines_to = at;
-                out.push((line, &candidate[..end]));
-                name_start + end + 2
+    let mut at = 0;
+    while at < bytes.len() {
+        if bytes[at] == b'\n' {
+            line += 1;
+        } else if bytes[at] == b'[' && bytes.get(at + 1) == Some(&b'[') {
+            let start = at + 2;
+            let mut end = start;
+            while end < bytes.len() && end - start <= LONGEST && allowed(bytes[end]) {
+                end += 1;
             }
-            _ => start + 1,
-        };
-        offset += advance;
-        rest = &rest[advance..];
+            // `end` stops on an ASCII byte, so the slice is on a character boundary.
+            if end > start
+                && end - start <= LONGEST
+                && bytes.get(end) == Some(&b']')
+                && bytes.get(end + 1) == Some(&b']')
+            {
+                out.push((line, text[start..end].to_string()));
+                at = end + 2;
+                continue;
+            }
+        }
+        at += 1;
     }
     out
 }
@@ -237,6 +295,34 @@ collections = [\"Mashups\"]
     }
 
     #[test]
+    fn two_projects_claiming_one_prefix_are_a_finding() {
+        let (_dir, solution) = solution("");
+        std::fs::write(
+            solution.root.join("twaco.toml"),
+            "[[project]]
+name = \"Acme.App\"
+collections = [\"Mashups\"]
+             [project.localization]
+prefixes = [\"Acme.\"]
+
+             [[project]]
+name = \"Acme.Other\"
+[project.localization]
+prefixes = [\"Acme.\"]
+",
+        )
+        .unwrap();
+        let solution = Solution::load(&solution.root.join("twaco.toml")).unwrap();
+        let report = run(&solution);
+        assert_eq!(
+            report.problems[0].rule, "prefix-clash",
+            "{:?}",
+            report.problems
+        );
+        assert!(report.problems[0].message.contains("both claim"));
+    }
+
+    #[test]
     fn every_reference_in_default_passes() {
         let (_dir, solution) = solution("[[Acme.App.Save]] [[Acme.App.Cancel]]");
         let report = run(&solution);
@@ -275,6 +361,33 @@ collections = [\"Mashups\"]
     #[test]
     fn a_token_is_a_bracketed_name_and_its_line_is_counted() {
         let text = "a [[One]]\nb [[Two.Three]] [[]] [[with space]]\n\n[[[Four]]] [[\"q\"]]";
-        assert_eq!(tokens(text), [(1, "One"), (2, "Two.Three"), (4, "Four")]);
+        let found: Vec<(usize, String)> = bracketed(text);
+        let expected = [(1, "One"), (2, "Two.Three"), (4, "Four")]
+            .map(|(line, name)| (line, name.to_string()));
+        assert_eq!(found, expected);
+    }
+
+    #[test]
+    fn references_are_read_as_xml_means_them_and_never_in_a_comment() {
+        let src = b"<Mashup a=\"[[In.Attribute]]\" b=\"&#91;&#91;En.Coded&#93;&#93;\">\n\
+<!-- [[In.Comment]] -->\n<![CDATA[x [[In.Cdata]] &amp; [[Not&amp;Decoded]]]]>\n[[In.Text]]</Mashup>";
+        let found: Vec<(usize, String)> = references(src);
+        assert_eq!(
+            found,
+            [
+                (1, "In.Attribute".to_string()),
+                (1, "En.Coded".to_string()),
+                (3, "In.Cdata".to_string()),
+                (4, "In.Text".to_string()),
+            ]
+        );
+    }
+
+    #[test]
+    fn a_long_run_of_unterminated_brackets_is_scanned_in_linear_time() {
+        let text = "[[a".repeat(200_000);
+        let started = std::time::Instant::now();
+        assert!(bracketed(&text).is_empty());
+        assert!(started.elapsed() < std::time::Duration::from_secs(2));
     }
 }

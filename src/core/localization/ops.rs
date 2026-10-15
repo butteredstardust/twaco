@@ -184,7 +184,7 @@ fn with_unfiled(
 }
 
 /// Two projects claiming the same prefix would make a token's owner depend on their order.
-fn check_prefixes(solution: &Solution) -> Result<(), LocalizationError> {
+pub(super) fn check_prefixes(solution: &Solution) -> Result<(), LocalizationError> {
     let mut owners: BTreeMap<String, &str> = BTreeMap::new();
     for project in &solution.projects {
         for prefix in prefixes(project) {
