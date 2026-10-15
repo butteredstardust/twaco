@@ -120,6 +120,7 @@ when the command is asked to write. A local output named by an option is include
 | `mashup describe` | read-only | read-only | none | Retry freely. | `core/mashup_describe.rs: describe` |
 | `widgets` | read-only | read-only | none | Retry freely. | `core/widgets_view.rs: list` |
 | `mashup new` | read-only | multi-file atomic | new entity file, mashup sidecars | The entity file and its content.json and custom.css are created in one journaled transaction, or none is; a file that appeared since the plan is refused. Retry. | `core/commands/mashup.rs: new` |
+| `mashup add` | read-only | multi-file atomic | mashup entity file, content sidecar | The entity file and managed content.json are replaced in one journaled transaction, or neither is; a file edited since the plan read it is refused. Retry. | `core/commands/mashup.rs: add` |
 | `reproject` | read-only | multi-file atomic | entity files | Every moved file is rewritten and moved in one journaled transaction, or none is; a file edited since the plan read it is refused. Retry. | `core/commands/reproject.rs: execute` |
 | `entity restore` | read-only | server-partial | server entities | Read restored entities back before retrying. | `core/commands/restore.rs: execute` |
 | `entity carry` | read-only | server-partial | server permissions, ledger | Read permissions and ledger before retrying. | `core/commands/carry.rs: execute` |
@@ -170,6 +171,7 @@ when the command is asked to write. A local output named by an option is include
 | `mashup_describe` | read-only | read-only | none | Retry freely. | `core/mashup_describe.rs: describe` |
 | `widgets` | read-only | read-only | none | Retry freely. | `core/widgets_view.rs: list` |
 | `mashup_new` | read-only | multi-file atomic | new entity file, mashup sidecars | The entity file and its content.json and custom.css are created in one journaled transaction, or none is; a file that appeared since the plan is refused. Retry. | `core/commands/mashup.rs: new` |
+| `mashup_add` | read-only | multi-file atomic | mashup entity file, content sidecar | The entity file and managed content.json are replaced in one journaled transaction, or neither is; a file edited since the plan read it is refused. Retry. | `core/commands/mashup.rs: add` |
 | `reproject` | read-only | multi-file atomic | entity files | Every moved file is rewritten and moved in one journaled transaction, or none is; a file edited since the plan read it is refused. Retry. | `core/commands/reproject.rs: execute` |
 | `config_table` | read-only | server-partial | server table, a named backup file | A backup is old or new; read the table back before retrying restore. | `core/commands/config_table.rs: execute` |
 | `logs` | read-only | read-only | none | Retry freely. | `mcp/data.rs: logs_tool` |

@@ -1,6 +1,7 @@
 use super::common::{default_true, Absent};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
+use std::collections::BTreeMap;
 
 #[derive(Debug, Deserialize, JsonSchema, Serialize)]
 #[serde(deny_unknown_fields)]
@@ -305,6 +306,33 @@ pub(crate) struct MashupNewRequest {
     /// `Organization/<name>` or `OrganizationalUnit/<organization>:<unit>`; none unless given.
     #[serde(default, skip_serializing_if = "Absent::is_absent")]
     pub(crate) visibility: Absent<Vec<String>>,
+    #[serde(default = "default_true")]
+    pub(crate) dry_run: bool,
+}
+
+#[derive(Debug, Deserialize, JsonSchema, Serialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct MashupAddRequest {
+    /// The existing mashup's name.
+    pub(crate) mashup: String,
+    /// A catalogue widget type or alias.
+    pub(crate) widget: String,
+    /// Put the widget in this responsive container.
+    #[serde(default, rename = "in", skip_serializing_if = "Absent::is_absent")]
+    pub(crate) container: Absent<String>,
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) right_of: Absent<String>,
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) left_of: Absent<String>,
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) above: Absent<String>,
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) below: Absent<String>,
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) label: Absent<String>,
+    /// Simple catalogue default properties to set by exact property name.
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) properties: Absent<BTreeMap<String, String>>,
     #[serde(default = "default_true")]
     pub(crate) dry_run: bool,
 }

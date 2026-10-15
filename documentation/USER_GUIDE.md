@@ -440,6 +440,25 @@ StyleTheme in the solution; twaco never creates one. Nothing is granted visibili
 `--project` may be left out when the solution has one project. A name that is already a mashup, or
 files already in the way, are refused.
 
+### Adding widgets
+
+```sh
+twaco mashup add Acme.App.Orders_MU grid --apply
+twaco mashup add Acme.App.Orders_MU grid --right-of ptcschartbar-3 --apply
+twaco mashup add Acme.App.Orders_MU button --below ptcsgrid-7 --label Save --apply
+```
+
+`mashup add` plans a catalogue widget insertion until `--apply`. Without a placement it adds to
+`center`; `--in` names a responsive container, and the four beside flags name the widget to place
+next to. A matching row or column accepts the sibling directly. When its direction differs, twaco
+makes a row or column and gives both widgets their own containers; it also wraps existing leaf
+siblings where that is needed to preserve responsive layout. A widget that can fill fills only
+when alone in its container. `--label` selects the first available LabelText, Label, Text or Title
+property; `--prop Name=value` changes a simple catalogue default property with its expected type.
+Managed mashups update `content.json` and the entity in one transaction; unmanaged mashups update
+only their entity file. If sidecars and entity content disagree, resolve it first with `sync` or
+`extract`.
+
 ### Finding widgets
 
 ```sh

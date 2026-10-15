@@ -213,6 +213,7 @@ pub(crate) fn args_from(
                     "--only" => args.only.extend(values),
                     "--entity" => args.entity_filters.extend(values),
                     "--visibility" => args.visibility.extend(values),
+                    "--prop" => args.props.extend(values),
                     other => unreachable!("{other} repeats but nothing reads it"),
                 }
             }
@@ -350,6 +351,10 @@ fn dedent(text: &str) -> String {
 /// Every flag, and what it takes.
 pub(crate) const FLAGS: &[Flag] = &[
     Flag {
+        name: "--above",
+        takes: Takes::Value("widget"),
+    },
+    Flag {
         name: "--accept-loss",
         takes: Takes::Switch,
     },
@@ -406,6 +411,10 @@ pub(crate) const FLAGS: &[Flag] = &[
         takes: Takes::Value("file"),
     },
     Flag {
+        name: "--below",
+        takes: Takes::Value("widget"),
+    },
+    Flag {
         name: "--base-extension",
         takes: Takes::Value("value"),
     },
@@ -440,6 +449,10 @@ pub(crate) const FLAGS: &[Flag] = &[
     Flag {
         name: "--display-name",
         takes: Takes::Value("text"),
+    },
+    Flag {
+        name: "--in",
+        takes: Takes::Value("widget"),
     },
     Flag {
         name: "--dot",
@@ -510,6 +523,14 @@ pub(crate) const FLAGS: &[Flag] = &[
         takes: Takes::Value("layout"),
     },
     Flag {
+        name: "--label",
+        takes: Takes::Value("text"),
+    },
+    Flag {
+        name: "--left-of",
+        takes: Takes::Value("widget"),
+    },
+    Flag {
         name: "--limit",
         takes: Takes::Value("n"),
     },
@@ -578,6 +599,10 @@ pub(crate) const FLAGS: &[Flag] = &[
         takes: Takes::Repeated("entity"),
     },
     Flag {
+        name: "--prop",
+        takes: Takes::Repeated("name=value"),
+    },
+    Flag {
         name: "--take",
         takes: Takes::Value("side:name,..."),
     },
@@ -636,6 +661,10 @@ pub(crate) const FLAGS: &[Flag] = &[
     Flag {
         name: "--recursive",
         takes: Takes::Switch,
+    },
+    Flag {
+        name: "--right-of",
+        takes: Takes::Value("widget"),
     },
     Flag {
         name: "--refresh",
@@ -1137,6 +1166,30 @@ pub(crate) const COMMANDS: &[Command] = &[
                               what a mashup holds and how it is wired, without its XML: the widget tree,
                               each service it calls with what sets each parameter (or that nothing does),
                               each binding and each event, in the addresses mashup bind and on take"#,
+    },
+    Command {
+        path: "mashup add",
+        group: 1,
+        operands: true,
+        flags: &[
+            "--in",
+            "--right-of",
+            "--left-of",
+            "--above",
+            "--below",
+            "--label",
+            "--prop",
+            "--apply",
+            "--json",
+        ],
+        text: r#"  mashup add <mashup> <widget> [--in <container> | --right-of <widget> | --left-of <widget> | --above <widget> | --below <widget>]
+      [--label <text>] [--prop <name=value>]... [--apply] [--json]
+                              add a catalogue widget to a mashup; plan unless --apply
+      --in <container>        add inside a responsive container (center when omitted)
+      --right-of/--left-of/--above/--below <widget>
+                              place beside an existing widget
+      --label <text>          set the widget's LabelText, Label, Text or Title property
+      --prop <name=value>     set one simple catalogue default property, repeatable"#,
     },
     Command {
         path: "mashup new",

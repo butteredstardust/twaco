@@ -1932,6 +1932,63 @@
     }
   },
   {
+    "name": "mashup_add",
+    "description": "Add a catalogue widget to an existing responsive mashup. With no placement it goes in center. A widget beside another goes in the same row or column when that container runs that way; otherwise both get containers of their own in a new row or column. A widget that can fill fills only a container it is alone in. A dry run unless dry_run is false; an apply takes the workspace lock and writes the entity and managed content sidecar together.",
+    "inputSchema": {
+      "required": [
+        "mashup",
+        "widget"
+      ],
+      "additionalProperties": false,
+      "type": "object",
+      "properties": {
+        "mashup": {
+          "description": "The existing mashup's name.",
+          "type": "string"
+        },
+        "widget": {
+          "description": "A catalogue widget type or alias.",
+          "type": "string"
+        },
+        "in": {
+          "description": "Put the widget in this responsive container.",
+          "type": "string"
+        },
+        "right_of": {
+          "type": "string"
+        },
+        "left_of": {
+          "type": "string"
+        },
+        "above": {
+          "type": "string"
+        },
+        "below": {
+          "type": "string"
+        },
+        "label": {
+          "type": "string"
+        },
+        "properties": {
+          "description": "Simple catalogue default properties to set by exact property name.",
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
+          }
+        },
+        "dry_run": {
+          "type": "boolean",
+          "default": true
+        }
+      }
+    },
+    "annotations": {
+      "readOnlyHint": false,
+      "destructiveHint": true,
+      "openWorldHint": false
+    }
+  },
+  {
     "name": "widgets",
     "description": "List or search the embedded ThingWorx 10.2 widget catalogue (type, Composer label, aliases, container, whether bindable), or with widget, one widget's bindable properties with base type and direction (in, out, in/out), its events and services. Read-only; no server.",
     "inputSchema": {

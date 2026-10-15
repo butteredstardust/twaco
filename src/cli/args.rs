@@ -24,6 +24,8 @@ pub(crate) struct Args {
     pub(crate) entity_filters: Vec<String>,
     /// `mashup new --visibility`: principals, repeatable.
     pub(crate) visibility: Vec<String>,
+    /// `mashup add --prop`: properties, repeatable.
+    pub(crate) props: Vec<String>,
     /// Flags that take one value and need no parsing here, such as `logs --since`.
     pub(crate) values: std::collections::BTreeMap<String, String>,
 }

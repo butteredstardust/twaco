@@ -1,0 +1,7 @@
+$ twaco mashup add X grid --in a --below b
+exit: 2
+
+--- stdout
+
+--- stderr
+twaco: give one of --in, --right-of, --left-of, --above, --below

@@ -107,6 +107,14 @@ const SCENARIOS: &[(&str, &[&str])] = &[
         ],
     ),
     (
+        "mashup_add_fixture_parse_error",
+        &["mashup", "add", "Acme.Orders.Dashboard", "grid"],
+    ),
+    (
+        "mashup_add_two_placements",
+        &["mashup", "add", "X", "grid", "--in", "a", "--below", "b"],
+    ),
+    (
         "docs_check_without_force",
         &["docs", "--out", "SOLUTION.md", "--check", "--force"],
     ),

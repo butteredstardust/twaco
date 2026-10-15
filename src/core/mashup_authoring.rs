@@ -10,7 +10,7 @@ use crate::core::config::Solution;
 use crate::core::entity_key::EntityKey;
 use crate::core::lock::WorkspaceLock;
 use crate::core::mashup;
-use crate::core::mashup_edit::{self, EditError, MashupDocument};
+use crate::core::mashup_edit::{self, EditError, MashupDocument, Placement};
 use crate::core::mashup_templates::{self, MashupKind, Visibility};
 use crate::core::transaction::{Transaction, TransactionError};
 use crate::core::{widgets, workspace};
@@ -72,6 +72,45 @@ pub struct NewPlan {
     pub widgets: Vec<mashup_edit::WidgetRef>,
 }
 
+#[derive(Clone, Debug)]
+pub struct AddRequest {
+    pub mashup: String,
+    pub widget: String,
+    pub placement: Option<Placement>,
+    pub label: Option<String>,
+    pub properties: Vec<(String, String)>,
+}
+
+#[derive(Debug)]
+pub struct SidecarEdit {
+    pub content_path: PathBuf,
+    pub content_before: Vec<u8>,
+    pub content_after: Vec<u8>,
+    pub css_path: PathBuf,
+    /// The stylesheet is retained while content changes.
+    pub css: String,
+}
+
+#[derive(Debug)]
+pub struct EditPlan {
+    /// The command, as the transaction journal names it (`mashup add`, `mashup bind`).
+    pub command: &'static str,
+    pub mashup: String,
+    pub entity_path: PathBuf,
+    pub entity_before: Vec<u8>,
+    pub entity_after: Vec<u8>,
+    /// `None` means this mashup has no sidecars and only its entity is changed.
+    pub sidecars: Option<SidecarEdit>,
+}
+
+#[derive(Debug)]
+pub struct AddPlan {
+    pub edit: EditPlan,
+    pub placed: mashup_edit::Placed,
+    /// The catalogue type, such as `ptcsgrid`.
+    pub widget: String,
+}
+
 #[derive(Debug, thiserror::Error)]
 pub enum AuthoringError {
     #[error("{0}")]
@@ -81,9 +120,13 @@ pub enum AuthoringError {
     #[error("{0}")]
     Exists(String),
     #[error("{0}")]
+    Refused(String),
+    #[error("{0}")]
     Edit(EditError),
     #[error("{0}")]
     Mashup(mashup::MashupError),
+    #[error("{0}")]
+    Unreadable(String),
     #[error("nothing was written: {0}")]
     Write(TransactionError),
 }
@@ -94,8 +137,10 @@ impl Coded for AuthoringError {
             Self::Invalid(_) => ErrorCode::InvalidArguments,
             Self::Unknown(_) => ErrorCode::UnknownEntity,
             Self::Exists(_) => ErrorCode::AlreadyExists,
+            Self::Refused(_) => ErrorCode::GuardRefused,
             Self::Edit(error) => error.code(),
             Self::Mashup(_) => ErrorCode::InvalidData,
+            Self::Unreadable(_) => ErrorCode::InvalidData,
             Self::Write(error) => error.code(),
         }
     }
@@ -317,6 +362,232 @@ pub fn new_plan_json(solution: &Solution, plan: &NewPlan, applied: bool) -> Valu
             "type": w.type_id,
             "display_name": w.display_name,
         })).collect::<Vec<_>>(),
+    })
+}
+
+/// Plan adding one catalogue widget to an existing mashup. Nothing is written.
+pub fn plan_add(solution: &Solution, request: &AddRequest) -> Result<AddPlan, AuthoringError> {
+    let entity = workspace::entities(solution)
+        .into_iter()
+        .find(|entity| entity.info.collection == "Mashups" && entity.info.name == request.mashup)
+        .ok_or_else(|| {
+            AuthoringError::Unknown(format!("no mashup {} in the solution", request.mashup))
+        })?;
+    let entity_before = std::fs::read(&entity.path).map_err(|error| {
+        AuthoringError::Unreadable(format!("{}: {error}", entity.path.display()))
+    })?;
+    let directory = workspace::mashup_dir(solution, &entity);
+    let sidecar_assets = workspace::read_mashup(&directory)
+        .map_err(|error| AuthoringError::Unreadable(error.to_string()))?;
+    let (assets, sidecars) = match sidecar_assets {
+        Some(assets) => {
+            let (_, changes) =
+                mashup::sync(&entity_before, &assets).map_err(AuthoringError::Mashup)?;
+            if !changes.is_empty() {
+                return Err(AuthoringError::Refused(format!(
+                    "{}: content.json and the entity file disagree; run `twaco sync` (keeps the sidecars) or `twaco extract` (keeps the entity file) first",
+                    request.mashup
+                )));
+            }
+            let content_path = directory.join("content.json");
+            let content_before = std::fs::read(&content_path).map_err(|error| {
+                AuthoringError::Unreadable(format!("{}: {error}", content_path.display()))
+            })?;
+            (
+                assets,
+                Some((content_path, content_before, directory.join("custom.css"))),
+            )
+        }
+        None => (
+            mashup::extract(&entity_before).map_err(AuthoringError::Mashup)?,
+            None,
+        ),
+    };
+    let mut document = mashup_edit::parse(&assets.content).map_err(AuthoringError::Edit)?;
+    let widget = widgets::catalog()
+        .resolve(&request.widget)
+        .map_err(|error| AuthoringError::Invalid(error.to_string()))?;
+    let placement = match &request.placement {
+        Some(placement) => placement.clone(),
+        None if document.find("center").is_ok() => Placement::In("center".to_string()),
+        None => {
+            return Err(AuthoringError::Invalid(
+                "say where: --in <container>, or --right-of/--left-of/--above/--below <widget>"
+                    .to_string(),
+            ))
+        }
+    };
+    let placed = document
+        .place(widget, &placement)
+        .map_err(AuthoringError::Edit)?;
+    if let Some(label) = &request.label {
+        let property = ["LabelText", "Label", "Text", "Title"]
+            .into_iter()
+            .find(|name| widget.defaults.contains_key(*name))
+            .ok_or_else(|| {
+                AuthoringError::Invalid(format!(
+                    "{} has no label property; use --prop",
+                    widget.type_id
+                ))
+            })?;
+        let path = document
+            .find(&placed.id)
+            .map_err(AuthoringError::Edit)?
+            .path;
+        document.set_property(&path, property, Value::String(label.clone()));
+    }
+    for (name, text) in &request.properties {
+        if [
+            "Id",
+            "Type",
+            "DisplayName",
+            "__TypeDisplayName",
+            "LastContainer",
+            "ResponsiveLayout",
+        ]
+        .contains(&name.as_str())
+        {
+            return Err(AuthoringError::Invalid(format!("twaco sets {name}")));
+        }
+        let default = widget.defaults.get(name).ok_or_else(|| {
+            AuthoringError::Invalid(format!("{} has no property {name}", widget.type_id))
+        })?;
+        let value = property_value(name, text, default)?;
+        if let Some(contract) = widget.property(name) {
+            if !contract.options.is_empty() && !contract.options.contains(&value) {
+                return Err(AuthoringError::Invalid(format!(
+                    "{name} for {} must be one of {}",
+                    widget.type_id,
+                    contract
+                        .options
+                        .iter()
+                        .map(Value::to_string)
+                        .collect::<Vec<_>>()
+                        .join(", ")
+                )));
+            }
+        }
+        let path = document
+            .find(&placed.id)
+            .map_err(AuthoringError::Edit)?
+            .path;
+        document.set_property(&path, name, value);
+    }
+    let content = document.to_content();
+    let assets_after = mashup::Assets {
+        content: content.clone(),
+        css: assets.css.clone(),
+    };
+    let (entity_after, _) =
+        mashup::sync(&entity_before, &assets_after).map_err(AuthoringError::Mashup)?;
+    if mashup::extract(&entity_after)
+        .map_err(AuthoringError::Mashup)?
+        .content
+        != content
+    {
+        return Err(AuthoringError::Invalid(format!(
+            "{}: mashup content did not round-trip through the entity file",
+            request.mashup
+        )));
+    }
+    let sidecars = sidecars.map(|(content_path, content_before, css_path)| SidecarEdit {
+        content_path,
+        content_before,
+        content_after: content.into_bytes(),
+        css_path,
+        css: assets.css,
+    });
+    Ok(AddPlan {
+        edit: EditPlan {
+            command: "mashup add",
+            mashup: request.mashup.clone(),
+            entity_path: entity.path,
+            entity_before,
+            entity_after,
+            sidecars,
+        },
+        placed,
+        widget: widget.type_id.clone(),
+    })
+}
+
+fn property_value(name: &str, text: &str, default: &Value) -> Result<Value, AuthoringError> {
+    match default {
+        Value::Bool(_) => match text {
+            "true" => Ok(Value::Bool(true)),
+            "false" => Ok(Value::Bool(false)),
+            _ => Err(AuthoringError::Invalid(format!(
+                "{name} must be true or false"
+            ))),
+        },
+        Value::Number(_) => {
+            if let Ok(number) = text.parse::<i64>() {
+                Ok(Value::from(number))
+            } else if let Ok(number) = text.parse::<f64>() {
+                serde_json::Number::from_f64(number)
+                    .map(Value::Number)
+                    .ok_or_else(|| AuthoringError::Invalid(format!("{name} must be a JSON number")))
+            } else {
+                Err(AuthoringError::Invalid(format!(
+                    "{name} must be a JSON number"
+                )))
+            }
+        }
+        Value::String(_) => Ok(Value::String(text.to_string())),
+        Value::Object(_) | Value::Array(_) | Value::Null => Err(AuthoringError::Invalid(format!(
+            "{name} is structured; set it in Composer"
+        ))),
+    }
+}
+
+/// Apply an existing-mashup edit as one transaction.
+pub fn apply_edit(
+    solution: &Solution,
+    plan: &EditPlan,
+    lock: &WorkspaceLock,
+) -> Result<(), AuthoringError> {
+    let mut transaction = Transaction::new(&solution.root, plan.command);
+    transaction
+        .replace_file(
+            &plan.entity_path,
+            &plan.entity_before,
+            plan.entity_after.clone(),
+        )
+        .map_err(AuthoringError::Write)?;
+    if let Some(sidecars) = &plan.sidecars {
+        transaction
+            .replace_file(
+                &sidecars.content_path,
+                &sidecars.content_before,
+                sidecars.content_after.clone(),
+            )
+            .map_err(AuthoringError::Write)?;
+    }
+    transaction.apply(lock).map_err(AuthoringError::Write)?;
+    Ok(())
+}
+
+/// The add plan as `--json` and MCP report it.
+pub fn add_plan_json(solution: &Solution, plan: &AddPlan, applied: bool) -> Value {
+    let relative = |path: &Path| {
+        path.strip_prefix(&solution.root)
+            .unwrap_or(path)
+            .to_string_lossy()
+            .replace('\\', "/")
+    };
+    let mut files = vec![relative(&plan.edit.entity_path)];
+    if let Some(sidecars) = &plan.edit.sidecars {
+        files.push(relative(&sidecars.content_path));
+    }
+    json!({
+        "applied": applied,
+        "mashup": plan.edit.mashup,
+        "widget": plan.widget,
+        "id": plan.placed.id,
+        "containers": plan.placed.containers,
+        "flipped": plan.placed.flipped,
+        "wrapped": plan.placed.wrapped,
+        "files": files,
     })
 }
 
@@ -587,5 +858,114 @@ mod tests {
         assert!(matches!(error, AuthoringError::Write(_)), "{error}");
         assert!(!plan.entity_path.exists());
         assert!(!plan.content_path.exists());
+    }
+
+    fn add_request(mashup: &str, widget: &str) -> AddRequest {
+        AddRequest {
+            mashup: mashup.to_string(),
+            widget: widget.to_string(),
+            placement: None,
+            label: None,
+            properties: Vec::new(),
+        }
+    }
+
+    #[test]
+    fn adding_widgets_keeps_sidecars_and_the_rest_of_the_entity_identical() {
+        let (_dir, solution) = one_project();
+        let name = "Acme.Orders_MU";
+        let new = plan_new(&solution, &request(name)).unwrap();
+        apply_new(&solution, &new, &lock(&solution)).unwrap();
+        let grid = plan_add(&solution, &add_request(name, "grid")).unwrap();
+        assert_eq!(grid.placed.id, "ptcsgrid-3");
+        apply_edit(&solution, &grid.edit, &lock(&solution)).unwrap();
+        let before_button = std::fs::read(&grid.edit.entity_path).unwrap();
+        let mut button_request = add_request(name, "button");
+        button_request.placement = Some(Placement::Beside {
+            anchor: grid.placed.id.clone(),
+            side: mashup_edit::Side::Below,
+        });
+        button_request.label = Some("Save".into());
+        button_request.properties = vec![("ButtonType".into(), "secondary".into())];
+        let button = plan_add(&solution, &button_request).unwrap();
+        apply_edit(&solution, &button.edit, &lock(&solution)).unwrap();
+        let entity = std::fs::read(&button.edit.entity_path).unwrap();
+        let assets = workspace::read_mashup(new.content_path.parent().unwrap())
+            .unwrap()
+            .unwrap();
+        assert!(mashup::sync(&entity, &assets).unwrap().1.is_empty());
+        let document = mashup_edit::parse(&assets.content).unwrap();
+        let properties =
+            &document.at(&document.find(&button.placed.id).unwrap().path)["Properties"];
+        assert_eq!(properties["Label"], "Save");
+        assert_eq!(properties["ButtonType"], "secondary");
+        let content = |bytes: &[u8]| {
+            let start = bytes
+                .windows(b"<mashupContent".len())
+                .position(|part| part == b"<mashupContent")
+                .unwrap();
+            let end = bytes
+                .windows(b"</mashupContent>".len())
+                .position(|part| part == b"</mashupContent>")
+                .unwrap()
+                + b"</mashupContent>".len();
+            (bytes[..start].to_vec(), bytes[end..].to_vec())
+        };
+        assert_eq!(content(&before_button), content(&entity));
+        assert!(crate::core::check::run(&solution).ok());
+    }
+
+    #[test]
+    fn adding_refuses_drift_and_edits_an_unmanaged_mashup_only_in_its_entity() {
+        let (dir, solution) = one_project();
+        let name = "Acme.Orders_MU";
+        let new = plan_new(&solution, &request(name)).unwrap();
+        apply_new(&solution, &new, &lock(&solution)).unwrap();
+        write(dir.path(), "src/Acme.Orders_MU/mashup/content.json", "{}\n");
+        let error = plan_add(&solution, &add_request(name, "grid")).unwrap_err();
+        assert!(matches!(error, AuthoringError::Refused(_)));
+        let assets = mashup::extract(&std::fs::read(&new.entity_path).unwrap()).unwrap();
+        std::fs::write(&new.content_path, assets.content).unwrap();
+        std::fs::remove_dir_all(new.content_path.parent().unwrap()).unwrap();
+        let plan = plan_add(&solution, &add_request(name, "grid")).unwrap();
+        assert!(plan.edit.sidecars.is_none());
+        apply_edit(&solution, &plan.edit, &lock(&solution)).unwrap();
+        assert!(!new.content_path.exists());
+    }
+
+    #[test]
+    fn add_validates_widget_properties_and_labels() {
+        let (_dir, solution) = one_project();
+        let name = "Acme.Orders_MU";
+        let new = plan_new(&solution, &request(name)).unwrap();
+        apply_new(&solution, &new, &lock(&solution)).unwrap();
+        for (widget, property) in [
+            ("grid", ("Nope", "x")),
+            ("grid", ("Visible", "TRUE")),
+            ("button", ("ButtonType", "wrong")),
+            ("button", ("Id", "x")),
+            ("toolbar", ("CustomBaseTypesMapping", "x")),
+        ] {
+            let mut request = add_request(name, widget);
+            request.properties = vec![(property.0.into(), property.1.into())];
+            assert!(matches!(
+                plan_add(&solution, &request),
+                Err(AuthoringError::Invalid(_))
+            ));
+        }
+        let mut label = add_request(name, "flexcontainer");
+        label.label = Some("No label".into());
+        assert!(matches!(
+            plan_add(&solution, &label),
+            Err(AuthoringError::Invalid(_))
+        ));
+        assert!(matches!(
+            plan_add(&solution, &add_request(name, "nope")),
+            Err(AuthoringError::Invalid(_))
+        ));
+        assert!(matches!(
+            plan_add(&solution, &add_request("Acme.Nope_MU", "grid")),
+            Err(AuthoringError::Unknown(_))
+        ));
     }
 }

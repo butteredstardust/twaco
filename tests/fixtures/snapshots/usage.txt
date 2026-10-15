@@ -106,6 +106,14 @@ usage: twaco <command>
                               what a mashup holds and how it is wired, without its XML: the widget tree,
                               each service it calls with what sets each parameter (or that nothing does),
                               each binding and each event, in the addresses mashup bind and on take
+  mashup add <mashup> <widget> [--in <container> | --right-of <widget> | --left-of <widget> | --above <widget> | --below <widget>]
+      [--label <text>] [--prop <name=value>]... [--apply] [--json]
+                              add a catalogue widget to a mashup; plan unless --apply
+      --in <container>        add inside a responsive container (center when omitted)
+      --right-of/--left-of/--above/--below <widget>
+                              place beside an existing widget
+      --label <text>          set the widget's LabelText, Label, Text or Title property
+      --prop <name=value>     set one simple catalogue default property, repeatable
   mashup new <name> [--project <name>] [--layout blank] [--theme <StyleTheme>] [--master]
       [--visibility <principal>]... [--apply] [--json]
                               create a ThingWorx 10.2 responsive mashup as Composer would: its entity file

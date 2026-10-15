@@ -37,7 +37,7 @@ use cli::info::{
     update_cmd, write_agent_files,
 };
 use cli::localization::localization_cmd;
-use cli::mashup::{mashup_describe_cmd, mashup_new_cmd};
+use cli::mashup::{mashup_add_cmd, mashup_describe_cmd, mashup_new_cmd};
 use cli::refactor::{
     adopt_cmd, handoff_cmd, new_building_block_cmd, relocate_cmd, rename_cmd, reproject_cmd,
     retemplate_cmd,
@@ -214,6 +214,7 @@ fn dispatch(route: &str, parsed: &Args) -> u8 {
             }
             "retemplate" => retemplate_cmd(solution, parsed),
             "reproject" => reproject_cmd(solution, parsed),
+            "mashup add" => mashup_add_cmd(solution, parsed),
             "mashup new" => mashup_new_cmd(solution, parsed),
             "mashup describe" => mashup_describe_cmd(solution, parsed),
             "new building-block" => new_building_block_cmd(solution, parsed),

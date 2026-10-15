@@ -260,7 +260,8 @@ impl MashupDocument {
             .expect("checked: Widgets is a list")[index] = widget;
     }
 
-    fn set_property(&mut self, path: &[usize], key: &str, value: Value) {
+    /// Set one widget property, preserving Composer's key ordering convention.
+    pub fn set_property(&mut self, path: &[usize], key: &str, value: Value) {
         let properties = self.at_mut(path)["Properties"]
             .as_object_mut()
             .expect("checked: a widget has Properties");

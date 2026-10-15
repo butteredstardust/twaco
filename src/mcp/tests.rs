@@ -845,6 +845,7 @@ fn every_tool_is_listed_with_a_schema_and_honest_annotations() {
             "move_member",
             "new_building_block",
             "mashup_new",
+            "mashup_add",
             "widgets",
             "mashup_describe",
             "reproject",
@@ -2200,6 +2201,39 @@ fn mashup_new_plans_by_default_and_creates_the_files_when_asked() {
         again["structuredContent"]["code"], "already_exists",
         "{again}"
     );
+}
+
+#[test]
+fn mashup_add_applies_a_widget_and_refuses_two_placements() {
+    let (_dir, root) = solution_dir();
+    let created = call(
+        &root,
+        "mashup_new",
+        json!({"name": "Acme.Orders_MU", "dry_run": false}),
+    );
+    assert_eq!(created["isError"], false, "{created}");
+    let grid = call(
+        &root,
+        "mashup_add",
+        json!({"mashup": "Acme.Orders_MU", "widget": "grid", "dry_run": false}),
+    );
+    assert_eq!(grid["isError"], false, "{grid}");
+    assert_eq!(grid["structuredContent"]["applied"], true);
+    assert_eq!(grid["structuredContent"]["id"], "ptcsgrid-3");
+    let label = call(
+        &root,
+        "mashup_add",
+        json!({"mashup": "Acme.Orders_MU", "widget": "label", "below": "ptcsgrid-3", "label": "Total", "dry_run": false}),
+    );
+    assert_eq!(label["isError"], false, "{label}");
+    assert_eq!(label["structuredContent"]["applied"], true);
+    assert_eq!(label["structuredContent"]["id"], "ptcslabel-4");
+    let invalid = call(
+        &root,
+        "mashup_add",
+        json!({"mashup": "Acme.Orders_MU", "widget": "label", "in": "x", "below": "y"}),
+    );
+    assert_eq!(invalid["isError"], true, "{invalid}");
 }
 
 #[test]
