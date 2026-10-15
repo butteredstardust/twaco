@@ -171,7 +171,7 @@ fn attribute_escaped(value: &str) -> String {
 }
 
 /// Replace every `@@TOKEN@@` in one pass, so a value is never searched for tokens itself.
-fn fill(template: &str, values: &BTreeMap<&str, String>) -> String {
+pub(crate) fn fill(template: &str, values: &BTreeMap<&str, String>) -> String {
     let mut out = String::with_capacity(template.len());
     let mut rest = template;
     while let Some(start) = rest.find("@@") {
