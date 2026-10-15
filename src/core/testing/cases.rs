@@ -85,6 +85,7 @@ pub fn folder(solution: &Solution) -> PathBuf {
 /// name, service or file contains one of `filters` (all of them without filters). Every problem
 /// in every file is reported at once, and nothing runs while there is one.
 pub fn load(solution: &Solution, filters: &[String]) -> Result<Vec<Case>, TestError> {
+    super::check_users(solution)?;
     let folder = folder(solution);
     let mut paths: Vec<PathBuf> = match std::fs::read_dir(&folder) {
         Ok(entries) => entries

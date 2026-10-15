@@ -404,7 +404,7 @@ static TOOLS: LazyLock<Vec<Tool>> = LazyLock::new(|| {
         ),
         solution_tool::<content_requests::UsersWriteRequest>(
             "users_write",
-            "Create the missing test users, the [test] project and their group memberships (seed), or delete the test users (delete). The profile must say allow_test_users = true and hold test_password, which is never returned. A dry run unless dry_run is false.",
+            "Create the missing test users, the [test] project and their group memberships (seed), or delete the test users (delete). The profile must say allow_test_users = true; seed also needs its test_password, which is never returned. A dry run unless dry_run is false.",
             false,
             content::users_write_tool,
         ),

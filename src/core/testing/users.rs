@@ -85,18 +85,7 @@ where
     if solution.test.users.is_empty() {
         return Err(TestError::NoUsers);
     }
-    let mut seen = std::collections::BTreeSet::new();
-    if let Some(twice) = solution
-        .test
-        .users
-        .iter()
-        .find(|user| !seen.insert(user.name.as_str()))
-    {
-        return Err(TestError::Invalid(format!(
-            "[[test.user]] {} is declared twice; keep one",
-            twice.name
-        )));
-    }
+    super::check_users(solution)?;
     let mut members: BTreeMap<&str, Option<Vec<String>>> = BTreeMap::new();
     let mut out = Vec::new();
     for user in &solution.test.users {
@@ -316,6 +305,7 @@ pub fn delete<R: Remote + ?Sized>(
     apply: bool,
 ) -> Result<Changed, TestError> {
     allowed(profile)?;
+    super::check_users(solution)?;
     if solution.test.users.is_empty() {
         return Err(TestError::NoUsers);
     }
@@ -665,6 +655,8 @@ mod tests {
             error.to_string().contains("vera.viewer is declared twice"),
             "{error}"
         );
+        let error = delete(&solution, &profile, &admin, true).unwrap_err();
+        assert!(error.to_string().contains("declared twice"), "{error}");
         assert!(server.calls.lock().unwrap().is_empty());
     }
 

@@ -111,6 +111,24 @@ impl Coded for TestError {
     }
 }
 
+/// Refuse a `[[test.user]]` declared twice: a seed would create it twice, a delete delete it
+/// twice, and a case run it twice. Every users and test action checks this first.
+pub fn check_users(solution: &crate::core::config::Solution) -> Result<(), TestError> {
+    let mut seen = std::collections::BTreeSet::new();
+    match solution
+        .test
+        .users
+        .iter()
+        .find(|user| !seen.insert(user.name.as_str()))
+    {
+        Some(twice) => Err(TestError::Invalid(format!(
+            "[[test.user]] {} is declared twice; keep one",
+            twice.name
+        ))),
+        None => Ok(()),
+    }
+}
+
 /// The status a call answered with: 200 for a reply, the HTTP status of a refusal. Anything
 /// else (no connection, a reply that is not JSON) is not a status and stays an error.
 pub fn status(result: &Result<Option<Value>, ServerError>) -> Option<u16> {
