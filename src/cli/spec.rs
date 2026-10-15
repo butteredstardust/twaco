@@ -1092,6 +1092,17 @@ pub(crate) const COMMANDS: &[Command] = &[
       --accept-loss           go ahead although stored values or references would lose their definition"#,
     },
     Command {
+        path: "reproject",
+        group: 1,
+        operands: true,
+        flags: &["--to", "--apply", "--json"],
+        text: r#"  reproject <entity>... --to <project> [--apply] [--json]
+                              move entities to another project: their projectName, and their files
+                              under that project's root; the plan names each reference the move puts
+                              outside the deploy order, with the depends_on that allows it
+      --to <project>          the project they move to"#,
+    },
+    Command {
         path: "new building-block",
         group: 1,
         operands: true,

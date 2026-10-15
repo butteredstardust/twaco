@@ -8,6 +8,8 @@ All notable changes to twaco are recorded here. The format follows
 
 ### Added
 
+- `twaco reproject <entity>... --to <project>` (MCP `reproject`) moves entities to another project: their `projectName`, and their files under that project's root, in one transaction. The plan names each reference the move puts outside the deploy order, with the `depends_on` that allows it.
+
 - The user guide shows how a project that is only on a server becomes a repository: `export project`, `adopt --apply`, `entity status --all --record`.
 
 - `twaco test [<filter>...]` (MCP `test`) runs the service cases of `tests/*.toml` (`[test] cases` names another folder): each case calls a service as each of its test users or groups and expects a status (200, 401, 404, ...) and optionally a row count and first-row fields. Without `--apply` it reads, checks and lists the cases; with it, it calls them and exits 1 when one fails. Running needs `allow_test_users = true` in the profile.

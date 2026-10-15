@@ -422,6 +422,21 @@ matches what the framework itself produced (the tests hold it against server exp
 exists is overwritten. Not created: the component permission helper (the framework builds it on the
 server), and the `ui` and `test` types. Then `twaco check`, commit and `twaco deploy`.
 
+## Moving entities to another project
+
+```sh
+twaco reproject Acme.App.Report_DS Acme.App.Reports --to Acme.Reporting           # plan
+twaco reproject Acme.App.Report_DS Acme.App.Reports --to Acme.Reporting --apply
+```
+
+`reproject` changes each entity's `projectName` and, when the projects keep their files in
+different folders, moves the file to the same collection folder under the other project's root.
+Sidecars are filed by entity name and stay where they are. Every file changes in one transaction,
+or none does. The plan also names each reference the move puts outside the deploy order: an entity
+of a project that does not depend on the new one using a moved entity, or a moved entity using one
+of a project the new one does not depend on, each with the `depends_on` that allows it. On the
+server, the next deploy's import gives the entities their new project.
+
 ## Changing a template
 
 Pointing a Thing at a different template, a template at a different base, or adding or removing an

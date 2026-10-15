@@ -258,6 +258,17 @@ fn default_new_building_block_type() -> NewBuildingBlockType {
 
 #[derive(Debug, Deserialize, JsonSchema, Serialize)]
 #[serde(deny_unknown_fields)]
+pub(crate) struct ReprojectRequest {
+    /// The entities to move: `Name`, or `Collection/Name` when a name is in two collections.
+    pub(crate) entities: Vec<String>,
+    /// The project they move to.
+    pub(crate) to: String,
+    #[serde(default = "default_true")]
+    pub(crate) dry_run: bool,
+}
+
+#[derive(Debug, Deserialize, JsonSchema, Serialize)]
+#[serde(deny_unknown_fields)]
 pub(crate) struct RetemplateRequest {
     /// The Thing or template to change.
     pub(crate) entity: String,

@@ -76,6 +76,10 @@ const SCENARIOS: &[(&str, &[&str])] = &[
     ("docs_takes_no_entity", &["docs", "Audit"]),
     ("docs_check_needs_out", &["docs", "--check"]),
     ("test_without_cases", &["test"]),
+    (
+        "reproject_unknown_project",
+        &["reproject", "Audit", "--to", "Acme.Nope"],
+    ),
     ("users_list_takes_no_apply", &["users", "list", "--apply"]),
     (
         "docs_check_without_force",

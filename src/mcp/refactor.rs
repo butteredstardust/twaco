@@ -1,6 +1,6 @@
 use super::requests::refactor::{
     AdoptApplyRequest, AdoptKind, AdoptReportRequest, AdoptTakeSide, HandoffAction, HandoffRequest,
-    MoveMemberRequest, NewBuildingBlockRequest, RenameRequest, RetemplateRequest,
+    MoveMemberRequest, NewBuildingBlockRequest, RenameRequest, ReprojectRequest, RetemplateRequest,
 };
 use super::source::add_types_refresh;
 use super::*;
@@ -132,6 +132,28 @@ pub(crate) fn retemplate_tool(
         "needs_accept_loss": plan.blocked, "notes": plan.notes,
     });
     result[if dry_run { "plan" } else { "applied" }] = json!(true);
+    add_notices(&mut result, &notices);
+    Ok(result)
+}
+
+pub(crate) fn reproject_tool(
+    solution: &Solution,
+    arguments: ReprojectRequest,
+) -> Result<Value, ToolError> {
+    let dry_run = arguments.dry_run;
+    let request = commands::reproject::ReprojectRequest {
+        request: crate::core::reproject::Request {
+            entities: arguments.entities,
+            to: nonempty(&arguments.to, "to")?.to_string(),
+        },
+        mode: if dry_run { Mode::Plan } else { Mode::Apply },
+        lock_label: "mcp reproject",
+    };
+    let mut notices = commands::Notices::default();
+    let outcome =
+        commands::reproject::execute(solution, &request, &mut notices).map_err(ToolError::coded)?;
+    let mut result = crate::core::reproject::plan_json(solution, outcome.plan(), !dry_run);
+    result["dry_run"] = json!(dry_run);
     add_notices(&mut result, &notices);
     Ok(result)
 }

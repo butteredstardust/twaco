@@ -105,6 +105,11 @@ retemplate <entity> [--to <template>] [--add-shapes a,b] [--remove-shapes a,b] [
     --add-shapes a,b        implement these shapes too
     --remove-shapes a,b     stop implementing these shapes
     --accept-loss           go ahead although stored values or references would lose their definition
+reproject <entity>... --to <project> [--apply] [--json]
+                            move entities to another project: their projectName, and their files
+                            under that project's root; the plan names each reference the move puts
+                            outside the deploy order, with the depends_on that allows it
+    --to <project>          the project they move to
 new building-block <name> [--type standard|abstract|implementation] [--display-name <text>] [--description <text>]
     [--parent <block>] [--model-logic] [--no-management-shape] [--root <dir>] [--base-extension PTC.Base:<version>]
     [--apply] [--json]

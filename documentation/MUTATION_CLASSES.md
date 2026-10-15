@@ -117,6 +117,7 @@ when the command is asked to write. A local output named by an option is include
 | `copy property` | read-only | multi-file atomic | XML, sidecars | A crash is finished or undone by the next command that takes the workspace lock; if it refuses, follow its message. Otherwise retry. | `core/commands/relocate.rs: execute` |
 | `new building-block` | read-only | multi-file atomic | project files, config | A crash is finished or undone by the next command that takes the workspace lock; if it refuses, follow its message. Otherwise retry. | `core/commands/newblock.rs: execute` |
 | `retemplate` | read-only | single-file atomic | one entity XML | The entity is old or new; retry freely. | `core/commands/retemplate.rs: execute` |
+| `reproject` | read-only | multi-file atomic | entity files | Every moved file is rewritten and moved in one journaled transaction, or none is; a file edited since the plan read it is refused. Retry. | `core/commands/reproject.rs: execute` |
 | `entity restore` | read-only | server-partial | server entities | Read restored entities back before retrying. | `core/commands/restore.rs: execute` |
 | `entity carry` | read-only | server-partial | server permissions, ledger | Read permissions and ledger before retrying. | `core/commands/carry.rs: execute` |
 | `permissions init` | read-only | multi-file atomic | new permissions.toml files | One transaction of new files; an existing policy is never touched. | `core/commands/permissions.rs: execute_init` |
@@ -163,6 +164,7 @@ when the command is asked to write. A local output named by an option is include
 | `move_member` | read-only | multi-file atomic | XML, sidecars | A crash is finished or undone by the next command that takes the workspace lock; if it refuses, follow its message. Otherwise retry. | `core/commands/relocate.rs: execute` |
 | `new_building_block` | read-only | multi-file atomic | project files, config | A crash is finished or undone by the next command that takes the workspace lock; if it refuses, follow its message. Otherwise retry. | `core/commands/newblock.rs: execute` |
 | `retemplate` | read-only | single-file atomic | one entity XML | The entity is old or new; retry freely. | `core/commands/retemplate.rs: execute` |
+| `reproject` | read-only | multi-file atomic | entity files | Every moved file is rewritten and moved in one journaled transaction, or none is; a file edited since the plan read it is refused. Retry. | `core/commands/reproject.rs: execute` |
 | `config_table` | read-only | server-partial | server table, a named backup file | A backup is old or new; read the table back before retrying restore. | `core/commands/config_table.rs: execute` |
 | `logs` | read-only | read-only | none | Retry freely. | `mcp/data.rs: logs_tool` |
 | `log_level` | read-only | server-partial | server log level | Read the current level and use the undo before retrying. | `core/commands/logs.rs: execute` |

@@ -1,0 +1,7 @@
+$ twaco reproject Audit --to Acme.Nope
+exit: 2
+
+--- stdout
+
+--- stderr
+twaco: project Acme.Nope is not in twaco.toml; declare it first

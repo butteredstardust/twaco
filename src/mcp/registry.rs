@@ -342,6 +342,12 @@ static TOOLS: LazyLock<Vec<Tool>> = LazyLock::new(|| {
             false,
             refactor::new_building_block_tool,
         ),
+        solution_tool::<refactor_requests::ReprojectRequest>(
+            "reproject",
+            "Move entities to another project of the solution: their projectName, and their files under that project's root (sidecars stay). The plan names each reference the move puts outside the deploy order, with the depends_on that allows it. A dry run unless dry_run is false; an apply takes the workspace lock and writes every file or none.",
+            false,
+            refactor::reproject_tool,
+        ),
         solution_tool::<refactor_requests::RetemplateRequest>(
             "retemplate",
             "Change a Thing's template (or a template's base template) and/or the shapes it implements, in the repository. The plan lists what the entity and everything inheriting it gains and loses, the stored property values and configuration-table rows left with no definition, and the references to a lost member; such a loss is refused unless accept_loss is true. A dry run unless dry_run is false; an apply takes the workspace lock.",
