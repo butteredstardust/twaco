@@ -125,6 +125,10 @@ mashup add <mashup> <widget> [--in <container> | --right-of <widget> | --left-of
                             place beside an existing widget
     --label <text>          set the widget's LabelText, Label, Text or Title property
     --prop <name=value>     set one simple catalogue default property, repeatable
+mashup bind <mashup> --from <address> --to <address> [--apply] [--json]
+                            add one data binding to a mashup; plan unless --apply
+    --from <address>        source address from mashup describe
+    --to <address>          target address from mashup describe
 mashup new <name> [--project <name>] [--layout blank] [--theme <StyleTheme>] [--master]
     [--visibility <principal>]... [--apply] [--json]
                             create a ThingWorx 10.2 responsive mashup as Composer would: its entity file

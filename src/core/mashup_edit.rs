@@ -128,6 +128,12 @@ impl MashupDocument {
         &self.value
     }
 
+    /// The editable root.  Callers must retain Composer's ordering conventions with
+    /// [`insert_sorted`].
+    pub(crate) fn value_mut(&mut self) -> &mut Value {
+        &mut self.value
+    }
+
     /// The `content.json` text, formatted as extraction writes it.
     pub fn to_content(&self) -> String {
         crate::core::mashup::to_sidecar(&self.value)

@@ -846,6 +846,7 @@ fn every_tool_is_listed_with_a_schema_and_honest_annotations() {
             "new_building_block",
             "mashup_new",
             "mashup_add",
+            "mashup_bind",
             "widgets",
             "mashup_describe",
             "reproject",
@@ -897,6 +898,8 @@ fn every_tool_is_listed_with_a_schema_and_honest_annotations() {
         "move_member",
         "new_building_block",
         "mashup_new",
+        "mashup_add",
+        "mashup_bind",
         "reproject",
         "retemplate",
         "config_table",
@@ -2234,6 +2237,47 @@ fn mashup_add_applies_a_widget_and_refuses_two_placements() {
         json!({"mashup": "Acme.Orders_MU", "widget": "label", "in": "x", "below": "y"}),
     );
     assert_eq!(invalid["isError"], true, "{invalid}");
+}
+
+#[test]
+fn mashup_bind_adds_a_thing_call_after_creating_a_grid() {
+    let (_dir, root) = solution_dir();
+    std::fs::write(
+        root.join("Things/Acme.Orders.Manager.xml"),
+        r#"<Entities><Things><Thing name="Acme.Orders.Manager" projectName="P"><ThingShape><ServiceDefinitions><ServiceDefinition name="GetOrders"><ResultType baseType="INFOTABLE"/></ServiceDefinition></ServiceDefinitions><ServiceImplementations/></ThingShape></Thing></Things></Entities>"#,
+    ).unwrap();
+    assert_eq!(
+        call(
+            &root,
+            "mashup_new",
+            json!({"name": "Acme.Orders_MU", "dry_run": false})
+        )["isError"],
+        false
+    );
+    assert_eq!(
+        call(
+            &root,
+            "mashup_add",
+            json!({"mashup": "Acme.Orders_MU", "widget": "grid", "dry_run": false})
+        )["isError"],
+        false
+    );
+    let bound = call(
+        &root,
+        "mashup_bind",
+        json!({
+            "mashup": "Acme.Orders_MU",
+            "from": "data:Acme.Orders.Manager.GetOrders",
+            "to": "ui:ptcsgrid-3.Data",
+            "dry_run": false
+        }),
+    );
+    assert_eq!(bound["isError"], false, "{bound}");
+    assert_eq!(bound["structuredContent"]["applied"], true);
+    assert_eq!(
+        bound["structuredContent"]["new_source"],
+        "Acme.Orders.Manager.GetOrders"
+    );
 }
 
 #[test]

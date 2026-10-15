@@ -455,9 +455,26 @@ makes a row or column and gives both widgets their own containers; it also wraps
 siblings where that is needed to preserve responsive layout. A widget that can fill fills only
 when alone in its container. `--label` selects the first available LabelText, Label, Text or Title
 property; `--prop Name=value` changes a simple catalogue default property with its expected type.
-Managed mashups update `content.json` and the entity in one transaction; unmanaged mashups update
-only their entity file. If sidecars and entity content disagree, resolve it first with `sync` or
-`extract`.
+  Managed mashups update `content.json` and the entity in one transaction; unmanaged mashups update
+  only their entity file. If sidecars and entity content disagree, resolve it first with `sync` or
+  `extract`.
+
+  ### Binding
+
+  ```sh
+  twaco mashup bind Acme.App.Orders_MU --from data:Acme.App.Orders.Manager.GetOrders --to ui:ptcsgrid-3.Data --apply
+  twaco mashup bind Acme.App.Orders_MU --from ui:ptcstextfield-4.Text --to data:Acme.App.Orders.Manager.SaveOrder.note --apply
+  twaco mashup bind Acme.App.Orders_MU --from mashup:OrderId --to data:Acme.App.Orders.Manager.SaveOrder.id --apply
+  ```
+
+  `mashup bind` adds one binding until `--apply`. Addresses are the ones `mashup describe` shows:
+  `ui:<widget-id>.<Property>`, `mashup:<Parameter>`, and `data:<Entity>.<Service>` for a result or
+  `data:<Entity>.<Service>.<field-or-parameter>`. A mashup call with its own name is
+  `data:<Entity>.<Service>[as <alias>]`, and a selected row field is
+  `data:<Entity>.<Service>[SelectedRows].<field>`. The command checks property direction and base
+  types before it writes. A missing call for a Thing is added to a `Things_<Entity>` data source;
+  templates and shapes need the runtime entity binding Composer creates, so twaco asks you to add
+  that call there once. The entity and managed content sidecar change in one transaction.
 
 ### Finding widgets
 

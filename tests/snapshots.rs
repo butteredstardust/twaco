@@ -115,6 +115,28 @@ const SCENARIOS: &[(&str, &[&str])] = &[
         &["mashup", "add", "X", "grid", "--in", "a", "--below", "b"],
     ),
     (
+        "mashup_bind_fixture_refusal",
+        &[
+            "mashup",
+            "bind",
+            "Acme.Orders.Dashboard",
+            "--from",
+            "x",
+            "--to",
+            "y",
+        ],
+    ),
+    (
+        "mashup_bind_missing_to",
+        &[
+            "mashup",
+            "bind",
+            "Acme.Orders.Dashboard",
+            "--from",
+            "ui:x.Text",
+        ],
+    ),
+    (
         "docs_check_without_force",
         &["docs", "--out", "SOLUTION.md", "--check", "--force"],
     ),

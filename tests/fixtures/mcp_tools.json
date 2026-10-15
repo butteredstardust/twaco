@@ -1989,6 +1989,42 @@
     }
   },
   {
+    "name": "mashup_bind",
+    "description": "Add one data binding to an existing mashup. Addresses are exactly those mashup describe prints: ui:<widget>.<Property>, mashup:<Parameter>, and data:<Entity>.<Service> with an optional [as alias], [SelectedRows], field or parameter. A missing Thing call is created; templates and shapes need an existing call. A dry run unless dry_run is false; an apply takes the workspace lock and writes the entity and managed content sidecar together.",
+    "inputSchema": {
+      "required": [
+        "mashup",
+        "from",
+        "to"
+      ],
+      "additionalProperties": false,
+      "type": "object",
+      "properties": {
+        "mashup": {
+          "description": "The existing mashup's name.",
+          "type": "string"
+        },
+        "from": {
+          "description": "A source address as `mashup describe` prints it.",
+          "type": "string"
+        },
+        "to": {
+          "description": "A target address as `mashup describe` prints it.",
+          "type": "string"
+        },
+        "dry_run": {
+          "type": "boolean",
+          "default": true
+        }
+      }
+    },
+    "annotations": {
+      "readOnlyHint": false,
+      "destructiveHint": true,
+      "openWorldHint": false
+    }
+  },
+  {
     "name": "widgets",
     "description": "List or search the embedded ThingWorx 10.2 widget catalogue (type, Composer label, aliases, container, whether bindable), or with widget, one widget's bindable properties with base type and direction (in, out, in/out), its events and services. Read-only; no server.",
     "inputSchema": {

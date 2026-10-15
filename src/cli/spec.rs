@@ -480,7 +480,7 @@ pub(crate) const FLAGS: &[Flag] = &[
     },
     Flag {
         name: "--from",
-        takes: Takes::Value("time"),
+        takes: Takes::Value("address"),
     },
     Flag {
         name: "--from-helper",
@@ -764,7 +764,7 @@ pub(crate) const FLAGS: &[Flag] = &[
     },
     Flag {
         name: "--to",
-        takes: Takes::Value("value"),
+        takes: Takes::Value("address"),
     },
     Flag {
         name: "--type",
@@ -1190,6 +1190,16 @@ pub(crate) const COMMANDS: &[Command] = &[
                               place beside an existing widget
       --label <text>          set the widget's LabelText, Label, Text or Title property
       --prop <name=value>     set one simple catalogue default property, repeatable"#,
+    },
+    Command {
+        path: "mashup bind",
+        group: 1,
+        operands: true,
+        flags: &["--from", "--to", "--apply", "--json"],
+        text: r#"  mashup bind <mashup> --from <address> --to <address> [--apply] [--json]
+                              add one data binding to a mashup; plan unless --apply
+      --from <address>        source address from mashup describe
+      --to <address>          target address from mashup describe"#,
     },
     Command {
         path: "mashup new",

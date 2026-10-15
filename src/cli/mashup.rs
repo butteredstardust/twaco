@@ -221,6 +221,98 @@ pub(crate) fn mashup_add_cmd(solution: &Solution, args: &Args) -> u8 {
     OK
 }
 
+/// `twaco mashup bind <mashup> --from <address> --to <address>`: plan a data binding or apply it.
+pub(crate) fn mashup_bind_cmd(solution: &Solution, args: &Args) -> u8 {
+    let [mashup] = args.names.as_slice() else {
+        eprintln!("{} mashup bind needs one <mashup>", style::prefix());
+        return FAILED;
+    };
+    let (Some(from), Some(to)) = (args.values.get("--from"), args.values.get("--to")) else {
+        eprintln!(
+            "{} mashup bind needs --from <address> and --to <address>",
+            style::prefix()
+        );
+        return FAILED;
+    };
+    let request = commands::mashup::MashupBindRequest {
+        request: mashup_authoring::BindRequest {
+            mashup: mashup.clone(),
+            from: from.clone(),
+            to: to.clone(),
+        },
+        mode: if args.has("--apply") {
+            Mode::Apply
+        } else {
+            Mode::Plan
+        },
+        lock_label: "mashup bind",
+    };
+    let mut notices = commands::Notices::default();
+    let outcome = match commands::mashup::bind(solution, &request, &mut notices) {
+        Ok(outcome) => outcome,
+        Err(error) => {
+            print_notices(&notices);
+            eprintln!("{} {error}", style::prefix());
+            return FAILED;
+        }
+    };
+    print_notices(&notices);
+    let mut files = vec![outcome
+        .plan
+        .edit
+        .entity_path
+        .strip_prefix(&solution.root)
+        .unwrap_or(&outcome.plan.edit.entity_path)
+        .to_string_lossy()
+        .replace('\\', "/")];
+    if let Some(sidecars) = &outcome.plan.edit.sidecars {
+        files.push(
+            sidecars
+                .content_path
+                .strip_prefix(&solution.root)
+                .unwrap_or(&sidecars.content_path)
+                .to_string_lossy()
+                .replace('\\', "/"),
+        );
+    }
+    let report = serde_json::json!({ "applied": outcome.applied, "mashup": outcome.plan.edit.mashup, "from": outcome.plan.from, "to": outcome.plan.to, "new_source": outcome.plan.new_source, "files": files });
+    if args.has("--json") {
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&report).expect("a bind plan serialises")
+        );
+        return OK;
+    }
+    println!(
+        "{} {} -> {} in {}",
+        if outcome.applied {
+            "bound"
+        } else {
+            "would bind"
+        },
+        outcome.plan.from,
+        outcome.plan.to,
+        outcome.plan.edit.mashup
+    );
+    if let Some(source) = &outcome.plan.new_source {
+        println!("  new data source {source}");
+    }
+    println!(
+        "  files: {}",
+        report["files"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .filter_map(|v| v.as_str())
+            .collect::<Vec<_>>()
+            .join(", ")
+    );
+    if !outcome.applied {
+        println!("run again with --apply to write it");
+    }
+    OK
+}
+
 fn beside(anchor: &str, side: Side) -> Placement {
     Placement::Beside {
         anchor: anchor.to_string(),

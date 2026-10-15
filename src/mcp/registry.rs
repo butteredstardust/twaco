@@ -348,12 +348,18 @@ static TOOLS: LazyLock<Vec<Tool>> = LazyLock::new(|| {
             false,
             refactor::mashup_new_tool,
         ),
-        solution_tool::<refactor_requests::MashupAddRequest>(
+          solution_tool::<refactor_requests::MashupAddRequest>(
             "mashup_add",
             "Add a catalogue widget to an existing responsive mashup. With no placement it goes in center. A widget beside another goes in the same row or column when that container runs that way; otherwise both get containers of their own in a new row or column. A widget that can fill fills only a container it is alone in. A dry run unless dry_run is false; an apply takes the workspace lock and writes the entity and managed content sidecar together.",
             false,
-            refactor::mashup_add_tool,
-        ),
+              refactor::mashup_add_tool,
+          ),
+          solution_tool::<refactor_requests::MashupBindRequest>(
+              "mashup_bind",
+              "Add one data binding to an existing mashup. Addresses are exactly those mashup describe prints: ui:<widget>.<Property>, mashup:<Parameter>, and data:<Entity>.<Service> with an optional [as alias], [SelectedRows], field or parameter. A missing Thing call is created; templates and shapes need an existing call. A dry run unless dry_run is false; an apply takes the workspace lock and writes the entity and managed content sidecar together.",
+              false,
+              refactor::mashup_bind_tool,
+          ),
         bare_tool::<refactor_requests::WidgetsRequest>(
             "widgets",
             "List or search the embedded ThingWorx 10.2 widget catalogue (type, Composer label, aliases, container, whether bindable), or with widget, one widget's bindable properties with base type and direction (in, out, in/out), its events and services. Read-only; no server.",

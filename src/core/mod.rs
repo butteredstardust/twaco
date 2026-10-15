@@ -42,6 +42,7 @@ pub mod localization;
 pub mod lock;
 pub mod logs;
 pub mod mashup;
+pub mod mashup_address;
 pub mod mashup_authoring;
 pub mod mashup_describe;
 pub mod mashup_edit;

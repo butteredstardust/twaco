@@ -10,12 +10,15 @@ use crate::core::config::Solution;
 use crate::core::entity_key::EntityKey;
 use crate::core::lock::WorkspaceLock;
 use crate::core::mashup;
+use crate::core::mashup_address::{parse_address, Address};
+use crate::core::mashup_describe::mashup_parameters;
 use crate::core::mashup_edit::{self, EditError, MashupDocument, Placement};
 use crate::core::mashup_templates::{self, MashupKind, Visibility};
 use crate::core::transaction::{Transaction, TransactionError};
-use crate::core::{widgets, workspace};
-use serde_json::{json, Value};
+use crate::core::{bindings, catalog, types, widgets, workspace};
+use serde_json::{json, Map, Value};
 use std::path::{Path, PathBuf};
+use uuid::Uuid;
 
 /// The theme a new mashup uses unless asked for another: 10.2's default.
 pub const DEFAULT_THEME: &str = "PTC Convergence Theme";
@@ -111,6 +114,29 @@ pub struct AddPlan {
     pub widget: String,
 }
 
+#[derive(Clone, Debug)]
+pub struct BindRequest {
+    pub mashup: String,
+    pub from: String,
+    pub to: String,
+}
+
+#[derive(Debug)]
+pub struct BindPlan {
+    pub edit: EditPlan,
+    pub from: String,
+    pub to: String,
+    pub new_source: Option<String>,
+}
+
+struct ExistingMashup {
+    mashup: String,
+    entity_path: PathBuf,
+    entity_before: Vec<u8>,
+    assets: mashup::Assets,
+    sidecars: Option<(PathBuf, Vec<u8>, PathBuf)>,
+}
+
 #[derive(Debug, thiserror::Error)]
 pub enum AuthoringError {
     #[error("{0}")]
@@ -119,6 +145,8 @@ pub enum AuthoringError {
     Unknown(String),
     #[error("{0}")]
     Exists(String),
+    #[error("{0}")]
+    Ambiguous(String),
     #[error("{0}")]
     Refused(String),
     #[error("{0}")]
@@ -137,6 +165,7 @@ impl Coded for AuthoringError {
             Self::Invalid(_) => ErrorCode::InvalidArguments,
             Self::Unknown(_) => ErrorCode::UnknownEntity,
             Self::Exists(_) => ErrorCode::AlreadyExists,
+            Self::Ambiguous(_) => ErrorCode::Ambiguous,
             Self::Refused(_) => ErrorCode::GuardRefused,
             Self::Edit(error) => error.code(),
             Self::Mashup(_) => ErrorCode::InvalidData,
@@ -367,43 +396,8 @@ pub fn new_plan_json(solution: &Solution, plan: &NewPlan, applied: bool) -> Valu
 
 /// Plan adding one catalogue widget to an existing mashup. Nothing is written.
 pub fn plan_add(solution: &Solution, request: &AddRequest) -> Result<AddPlan, AuthoringError> {
-    let entity = workspace::entities(solution)
-        .into_iter()
-        .find(|entity| entity.info.collection == "Mashups" && entity.info.name == request.mashup)
-        .ok_or_else(|| {
-            AuthoringError::Unknown(format!("no mashup {} in the solution", request.mashup))
-        })?;
-    let entity_before = std::fs::read(&entity.path).map_err(|error| {
-        AuthoringError::Unreadable(format!("{}: {error}", entity.path.display()))
-    })?;
-    let directory = workspace::mashup_dir(solution, &entity);
-    let sidecar_assets = workspace::read_mashup(&directory)
-        .map_err(|error| AuthoringError::Unreadable(error.to_string()))?;
-    let (assets, sidecars) = match sidecar_assets {
-        Some(assets) => {
-            let (_, changes) =
-                mashup::sync(&entity_before, &assets).map_err(AuthoringError::Mashup)?;
-            if !changes.is_empty() {
-                return Err(AuthoringError::Refused(format!(
-                    "{}: content.json and the entity file disagree; run `twaco sync` (keeps the sidecars) or `twaco extract` (keeps the entity file) first",
-                    request.mashup
-                )));
-            }
-            let content_path = directory.join("content.json");
-            let content_before = std::fs::read(&content_path).map_err(|error| {
-                AuthoringError::Unreadable(format!("{}: {error}", content_path.display()))
-            })?;
-            (
-                assets,
-                Some((content_path, content_before, directory.join("custom.css"))),
-            )
-        }
-        None => (
-            mashup::extract(&entity_before).map_err(AuthoringError::Mashup)?,
-            None,
-        ),
-    };
-    let mut document = mashup_edit::parse(&assets.content).map_err(AuthoringError::Edit)?;
+    let loaded = load_existing(solution, &request.mashup)?;
+    let mut document = mashup_edit::parse(&loaded.assets.content).map_err(AuthoringError::Edit)?;
     let widget = widgets::catalog()
         .resolve(&request.widget)
         .map_err(|error| AuthoringError::Invalid(error.to_string()))?;
@@ -473,13 +467,72 @@ pub fn plan_add(solution: &Solution, request: &AddRequest) -> Result<AddPlan, Au
             .path;
         document.set_property(&path, name, value);
     }
+    Ok(AddPlan {
+        edit: finish_edit(loaded, document, "mashup add")?,
+        placed,
+        widget: widget.type_id.clone(),
+    })
+}
+
+/// Load one existing mashup, refusing a managed sidecar that is not its entity's current content.
+fn load_existing(solution: &Solution, mashup_name: &str) -> Result<ExistingMashup, AuthoringError> {
+    let entity = workspace::entities(solution)
+        .into_iter()
+        .find(|entity| entity.info.collection == "Mashups" && entity.info.name == mashup_name)
+        .ok_or_else(|| {
+            AuthoringError::Unknown(format!("no mashup {mashup_name} in the solution"))
+        })?;
+    let entity_before = std::fs::read(&entity.path).map_err(|error| {
+        AuthoringError::Unreadable(format!("{}: {error}", entity.path.display()))
+    })?;
+    let directory = workspace::mashup_dir(solution, &entity);
+    let sidecar_assets = workspace::read_mashup(&directory)
+        .map_err(|error| AuthoringError::Unreadable(error.to_string()))?;
+    let (assets, sidecars) = match sidecar_assets {
+        Some(assets) => {
+            let (_, changes) =
+                mashup::sync(&entity_before, &assets).map_err(AuthoringError::Mashup)?;
+            if !changes.is_empty() {
+                return Err(AuthoringError::Refused(format!(
+                    "{mashup_name}: content.json and the entity file disagree; run `twaco sync` (keeps the sidecars) or `twaco extract` (keeps the entity file) first"
+                )));
+            }
+            let content_path = directory.join("content.json");
+            let content_before = std::fs::read(&content_path).map_err(|error| {
+                AuthoringError::Unreadable(format!("{}: {error}", content_path.display()))
+            })?;
+            (
+                assets,
+                Some((content_path, content_before, directory.join("custom.css"))),
+            )
+        }
+        None => (
+            mashup::extract(&entity_before).map_err(AuthoringError::Mashup)?,
+            None,
+        ),
+    };
+    Ok(ExistingMashup {
+        mashup: mashup_name.to_string(),
+        entity_path: entity.path,
+        entity_before,
+        assets,
+        sidecars,
+    })
+}
+
+/// Put the changed content back through sync and prove that the entity holds precisely that content.
+fn finish_edit(
+    loaded: ExistingMashup,
+    document: MashupDocument,
+    command: &'static str,
+) -> Result<EditPlan, AuthoringError> {
     let content = document.to_content();
     let assets_after = mashup::Assets {
         content: content.clone(),
-        css: assets.css.clone(),
+        css: loaded.assets.css.clone(),
     };
     let (entity_after, _) =
-        mashup::sync(&entity_before, &assets_after).map_err(AuthoringError::Mashup)?;
+        mashup::sync(&loaded.entity_before, &assets_after).map_err(AuthoringError::Mashup)?;
     if mashup::extract(&entity_after)
         .map_err(AuthoringError::Mashup)?
         .content
@@ -487,28 +540,555 @@ pub fn plan_add(solution: &Solution, request: &AddRequest) -> Result<AddPlan, Au
     {
         return Err(AuthoringError::Invalid(format!(
             "{}: mashup content did not round-trip through the entity file",
-            request.mashup
+            loaded.mashup
         )));
     }
-    let sidecars = sidecars.map(|(content_path, content_before, css_path)| SidecarEdit {
-        content_path,
-        content_before,
-        content_after: content.into_bytes(),
-        css_path,
-        css: assets.css,
-    });
-    Ok(AddPlan {
-        edit: EditPlan {
-            command: "mashup add",
-            mashup: request.mashup.clone(),
-            entity_path: entity.path,
-            entity_before,
-            entity_after,
-            sidecars,
-        },
-        placed,
-        widget: widget.type_id.clone(),
+    let sidecars = loaded
+        .sidecars
+        .map(|(content_path, content_before, css_path)| SidecarEdit {
+            content_path,
+            content_before,
+            content_after: content.into_bytes(),
+            css_path,
+            css: loaded.assets.css,
+        });
+    Ok(EditPlan {
+        command,
+        mashup: loaded.mashup,
+        entity_path: loaded.entity_path,
+        entity_before: loaded.entity_before,
+        entity_after,
+        sidecars,
     })
+}
+
+#[derive(Clone)]
+enum End {
+    Ui {
+        id: String,
+        property: String,
+        base: String,
+    },
+    Mashup {
+        parameter: String,
+        base: String,
+    },
+    Data {
+        entity: String,
+        collection: String,
+        service: String,
+        requested_alias: Option<String>,
+        selected_rows: bool,
+        member: Option<String>,
+        base: String,
+        property_type: String,
+    },
+}
+
+/// Plan one Composer-format data binding.  Calls and sections are created only when an address
+/// needs one; the entity content and managed sidecar then travel through the usual edit path.
+pub fn plan_bind(solution: &Solution, request: &BindRequest) -> Result<BindPlan, AuthoringError> {
+    let loaded = load_existing(solution, &request.mashup)?;
+    let mut document = mashup_edit::parse(&loaded.assets.content).map_err(AuthoringError::Edit)?;
+    let from_address =
+        parse_address(&request.from).map_err(|e| AuthoringError::Invalid(e.to_string()))?;
+    let to_address =
+        parse_address(&request.to).map_err(|e| AuthoringError::Invalid(e.to_string()))?;
+    let parameters =
+        mashup_parameters(&loaded.entity_before).map_err(AuthoringError::Unreadable)?;
+    let (model, _) = types::load_model(solution);
+    let platform = types::cached_platform(solution);
+    let from = resolve_end(
+        &document,
+        &parameters,
+        &model,
+        platform.as_ref(),
+        from_address,
+        true,
+    )?;
+    let to = resolve_end(
+        &document,
+        &parameters,
+        &model,
+        platform.as_ref(),
+        to_address,
+        false,
+    )?;
+    if !allowed(&from, &to) {
+        return Err(AuthoringError::Invalid(format!(
+            "{} cannot bind to {}",
+            request.from, request.to
+        )));
+    }
+    let from_base = base(&from);
+    let to_base = base(&to);
+    if from_base != to_base && to_base != "STRING" {
+        return Err(AuthoringError::Refused(format!(
+            "{} is {} but {} is {}",
+            request.from, from_base, request.to, to_base
+        )));
+    }
+    let (source_section, source_id, source_added) = data_call(&mut document, &from)?;
+    let (target_section, target_id, target_added) = data_call(&mut document, &to)?;
+    if binding_exists(
+        &document,
+        &from,
+        &to,
+        &source_section,
+        &source_id,
+        &target_section,
+        &target_id,
+    ) {
+        return Err(AuthoringError::Exists(format!(
+            "{} is already bound to {}",
+            request.from, request.to
+        )));
+    }
+    let mut binding = Map::new();
+    insert(
+        &mut binding,
+        "Id",
+        Value::String(Uuid::new_v4().to_string()),
+    );
+    let mut map = Map::new();
+    insert(
+        &mut map,
+        "SourceProperty",
+        Value::String(property(&from).to_string()),
+    );
+    insert(
+        &mut map,
+        "SourcePropertyBaseType",
+        Value::String(from_base.to_string()),
+    );
+    insert(
+        &mut map,
+        "SourcePropertyType",
+        Value::String(source_property_type(&from).to_string()),
+    );
+    insert(
+        &mut map,
+        "TargetProperty",
+        Value::String(property(&to).to_string()),
+    );
+    insert(
+        &mut map,
+        "TargetPropertyBaseType",
+        Value::String(to_base.to_string()),
+    );
+    insert(
+        &mut map,
+        "TargetPropertyType",
+        Value::String(target_property_type(&to).to_string()),
+    );
+    insert(
+        &mut binding,
+        "PropertyMaps",
+        Value::Array(vec![Value::Object(map)]),
+    );
+    insert(
+        &mut binding,
+        "SourceArea",
+        Value::String(area(&from).into()),
+    );
+    insert(
+        &mut binding,
+        "SourceDetails",
+        Value::String(details(&from).into()),
+    );
+    insert(&mut binding, "SourceId", Value::String(source_id));
+    insert(&mut binding, "SourceSection", Value::String(source_section));
+    insert(&mut binding, "TargetArea", Value::String(area(&to).into()));
+    insert(&mut binding, "TargetId", Value::String(target_id));
+    insert(&mut binding, "TargetSection", Value::String(target_section));
+    let root = document
+        .value_mut()
+        .as_object_mut()
+        .expect("checked: root object");
+    root.entry("DataBindings")
+        .or_insert_with(|| Value::Array(Vec::new()))
+        .as_array_mut()
+        .expect("checked: bindings array")
+        .push(Value::Object(binding));
+    let new_source = source_added.or(target_added);
+    let edit = finish_edit(loaded, document, "mashup bind")?;
+    Ok(BindPlan {
+        edit,
+        from: request.from.clone(),
+        to: request.to.clone(),
+        new_source,
+    })
+}
+
+fn insert(map: &mut Map<String, Value>, key: &str, value: Value) {
+    mashup_edit::insert_sorted(map, key, value);
+}
+
+fn resolve_end(
+    document: &MashupDocument,
+    parameters: &[crate::core::mashup_describe::MashupParameter],
+    model: &types::Model,
+    platform: Option<&types::Platform>,
+    address: Address,
+    source: bool,
+) -> Result<End, AuthoringError> {
+    match address {
+        Address::Ui { widget, property } => {
+            let found = document.find(&widget).map_err(AuthoringError::Edit)?;
+            let catalog = widgets::catalog().by_type(&found.type_id).filter(|w| w.has_contract()).ok_or_else(|| AuthoringError::Refused(format!("widget `{}` has type `{}`, whose contract is not in the embedded ThingWorx 10.2 catalogue; twaco will not create a binding for it", found.id, found.type_id)))?;
+            let contract = catalog.property(&property).ok_or_else(|| {
+                AuthoringError::Unknown(format!("{} has no property {property}", found.id))
+            })?;
+            let valid = if source {
+                contract.source
+            } else {
+                contract.target
+            };
+            if !valid {
+                return Err(AuthoringError::Refused(format!(
+                    "ui:{}.{property} is not a {} property",
+                    found.id,
+                    if source { "source" } else { "target" }
+                )));
+            }
+            Ok(End::Ui {
+                id: found.id,
+                property,
+                base: contract.base_type.clone().unwrap_or_default(),
+            })
+        }
+        Address::Mashup { parameter } => {
+            let found = parameters
+                .iter()
+                .find(|p| p.name == parameter)
+                .ok_or_else(|| {
+                    AuthoringError::Unknown(format!("mashup has no parameter {parameter}"))
+                })?;
+            Ok(End::Mashup {
+                parameter,
+                base: found.base_type.clone(),
+            })
+        }
+        Address::Data {
+            entity_service,
+            alias,
+            selected_rows,
+            member,
+        } => {
+            if !source && selected_rows {
+                return Err(AuthoringError::Invalid(
+                    "SelectedRows is a data source, not a parameter target".into(),
+                ));
+            }
+            let (entity, service) = resolve_service(model, platform, &entity_service)?;
+            let found = catalog::lookup_service(entity, &model.entities, platform, &service)
+                .service
+                .expect("resolved above");
+            let member = member.or_else(|| {
+                entity_service
+                    .strip_prefix(&format!("{}.{}.", entity.name, service))
+                    .filter(|name| !name.is_empty())
+                    .map(str::to_string)
+            });
+            if source {
+                let (base, property_type) = match member.as_deref() {
+                    None => (found.result.base_type.clone(), "InfoTable".to_string()),
+                    Some(name) => {
+                        if found.parameters.iter().any(|p| p.name == name) {
+                            return Err(AuthoringError::Invalid(format!(
+                                "data:{entity_service}.{name} is a parameter, not a data source"
+                            )));
+                        }
+                        let shape_name = found.result.data_shape.as_deref().ok_or_else(|| {
+                            AuthoringError::Refused(format!("{} has no result DataShape", service))
+                        })?;
+                        let shape = model
+                            .data_shapes
+                            .iter()
+                            .find(|shape| shape.name == shape_name)
+                            .ok_or_else(|| {
+                                AuthoringError::Refused(format!(
+                                    "result DataShape {shape_name} is not in the repository"
+                                ))
+                            })?;
+                        let field = shape
+                            .fields
+                            .iter()
+                            .find(|field| field.name == name)
+                            .ok_or_else(|| {
+                                AuthoringError::Refused(format!(
+                                    "result DataShape {shape_name} has no field {name}"
+                                ))
+                            })?;
+                        (field.base_type.clone(), "Field".to_string())
+                    }
+                };
+                Ok(End::Data {
+                    entity: entity.name.clone(),
+                    collection: entity.collection.clone(),
+                    service,
+                    requested_alias: alias,
+                    selected_rows,
+                    member,
+                    base,
+                    property_type,
+                })
+            } else {
+                let name = member.ok_or_else(|| {
+                    AuthoringError::Invalid(format!(
+                        "data:{entity_service} needs a parameter target"
+                    ))
+                })?;
+                let parameter = found
+                    .parameters
+                    .iter()
+                    .find(|p| p.name == name)
+                    .ok_or_else(|| {
+                        AuthoringError::Unknown(format!(
+                            "{}.{} has no parameter {}",
+                            entity.name, service, name
+                        ))
+                    })?;
+                Ok(End::Data {
+                    entity: entity.name.clone(),
+                    collection: entity.collection.clone(),
+                    service,
+                    requested_alias: alias,
+                    selected_rows,
+                    member: Some(name),
+                    base: parameter.value.base_type.clone(),
+                    property_type: "Parameter".into(),
+                })
+            }
+        }
+    }
+}
+
+fn resolve_service<'a>(
+    model: &'a types::Model,
+    platform: Option<&types::Platform>,
+    raw: &str,
+) -> Result<(&'a types::Entity, String), AuthoringError> {
+    let mut matches = Vec::new();
+    for entity in &model.entities {
+        if !matches!(
+            entity.collection.as_str(),
+            "Things" | "ThingTemplates" | "ThingShapes"
+        ) {
+            continue;
+        }
+        let Some(rest) = raw.strip_prefix(&(entity.name.clone() + ".")) else {
+            continue;
+        };
+        let mut ends = vec![rest];
+        ends.extend(rest.match_indices('.').map(|(at, _)| &rest[..at]));
+        for service in ends {
+            if catalog::lookup_service(entity, &model.entities, platform, service)
+                .service
+                .is_some()
+            {
+                matches.push((entity, service.to_string()));
+            }
+        }
+    }
+    matches.sort_by(|a, b| (&a.0.name, &a.1).cmp(&(&b.0.name, &b.1)));
+    matches.dedup_by(|a, b| a.0.name == b.0.name && a.1 == b.1);
+    match matches.as_slice() {
+        [] => Err(AuthoringError::Unknown(format!(
+            "no entity and service in the solution match data:{raw}"
+        ))),
+        [only] => Ok((only.0, only.1.clone())),
+        _ => Err(AuthoringError::Ambiguous(format!(
+            "data:{raw} is ambiguous; name an entity and service that resolve once"
+        ))),
+    }
+}
+
+fn base(end: &End) -> &str {
+    match end {
+        End::Ui { base, .. } | End::Mashup { base, .. } | End::Data { base, .. } => base,
+    }
+}
+fn property(end: &End) -> &str {
+    match end {
+        End::Ui { property, .. } => property,
+        End::Mashup { parameter, .. } => parameter,
+        End::Data { member, .. } => member.as_deref().unwrap_or(""),
+    }
+}
+fn area(end: &End) -> &'static str {
+    match end {
+        End::Ui { .. } => "UI",
+        End::Mashup { .. } => "Mashup",
+        End::Data { .. } => "Data",
+    }
+}
+fn details(end: &End) -> &'static str {
+    match end {
+        End::Data {
+            selected_rows: true,
+            ..
+        } => "SelectedRows",
+        End::Data { .. } => "AllData",
+        _ => "",
+    }
+}
+fn source_property_type(end: &End) -> &str {
+    match end {
+        End::Ui { .. } | End::Mashup { .. } => "Property",
+        End::Data { property_type, .. } => property_type,
+    }
+}
+fn target_property_type(end: &End) -> &str {
+    match end {
+        End::Ui { .. } | End::Mashup { .. } => "property",
+        End::Data { .. } => "Parameter",
+    }
+}
+fn allowed(from: &End, to: &End) -> bool {
+    matches!(
+        (from, to),
+        (
+            End::Ui { .. },
+            End::Ui { .. } | End::Mashup { .. } | End::Data { .. }
+        ) | (End::Mashup { .. }, End::Ui { .. } | End::Data { .. })
+            | (End::Data { .. }, End::Ui { .. } | End::Data { .. })
+    )
+}
+
+fn data_call(
+    document: &mut MashupDocument,
+    end: &End,
+) -> Result<(String, String, Option<String>), AuthoringError> {
+    let End::Data {
+        entity,
+        collection,
+        service,
+        requested_alias,
+        ..
+    } = end
+    else {
+        return Ok((
+            String::new(),
+            match end {
+                End::Ui { id, .. } => id.clone(),
+                End::Mashup { .. } => mashup_edit::ROOT_ID.into(),
+                End::Data { .. } => unreachable!(),
+            },
+            None,
+        ));
+    };
+    let sections = bindings::data_sections(document.value());
+    if let Some((section, call)) = sections.iter().find_map(|(section, details)| {
+        (details.entity == *entity
+            && details.services.iter().any(|call| {
+                call.target == *service
+                    && requested_alias
+                        .as_ref()
+                        .is_none_or(|alias| call.instance == *alias)
+            }))
+        .then(|| {
+            (
+                section,
+                details
+                    .services
+                    .iter()
+                    .find(|call| {
+                        call.target == *service
+                            && requested_alias
+                                .as_ref()
+                                .is_none_or(|alias| call.instance == *alias)
+                    })
+                    .unwrap(),
+            )
+        })
+    }) {
+        return Ok((section.clone(), call.instance.clone(), None));
+    }
+    if collection != "Things" {
+        return Err(AuthoringError::Refused(format!("{entity} is a template/shape: its data source needs the entity it runs on bound first (twaco does not create that yet); add the call in Composer once")));
+    }
+    let key = format!("Things_{entity}");
+    let root = document
+        .value_mut()
+        .as_object_mut()
+        .expect("checked: root object");
+    if !root.contains_key("Data") {
+        insert(root, "Data", Value::Object(Map::new()));
+    }
+    let data = root["Data"].as_object_mut().expect("checked: Data object");
+    if !data.contains_key(&key) {
+        let mut value = Map::new();
+        insert(&mut value, "DataName", Value::String(key.clone()));
+        insert(&mut value, "EntityName", Value::String(entity.clone()));
+        insert(&mut value, "EntityType", Value::String("Things".into()));
+        insert(&mut value, "Id", Value::String(Uuid::new_v4().to_string()));
+        insert(&mut value, "RefreshInterval", Value::from(0));
+        insert(&mut value, "Services", Value::Array(Vec::new()));
+        insert(data, &key, Value::Object(value));
+    }
+    let section = &mut data[&key];
+    let services = section["Services"]
+        .as_array_mut()
+        .ok_or_else(|| AuthoringError::Refused(format!("{key}.Services is not a list")))?;
+    let alias = requested_alias.clone().unwrap_or_else(|| {
+        let mut n = 1;
+        loop {
+            let name = if n == 1 {
+                service.clone()
+            } else {
+                format!("{service}_{n}")
+            };
+            if !services.iter().any(|call| call["Name"] == name) {
+                break name;
+            }
+            n += 1;
+        }
+    });
+    let mut call = Map::new();
+    insert(&mut call, "APIMethod", Value::String("post".into()));
+    insert(
+        &mut call,
+        "Characteristic",
+        Value::String("Services".into()),
+    );
+    insert(&mut call, "Id", Value::String(Uuid::new_v4().to_string()));
+    insert(&mut call, "Name", Value::String(alias.clone()));
+    insert(&mut call, "Parameters", Value::Object(Map::new()));
+    insert(&mut call, "RefreshInterval", Value::from(0));
+    insert(&mut call, "Target", Value::String(service.clone()));
+    services.push(Value::Object(call));
+    Ok((key, alias, Some(format!("{entity}.{service}"))))
+}
+
+fn binding_exists(
+    document: &MashupDocument,
+    from: &End,
+    to: &End,
+    source_section: &str,
+    source_id: &str,
+    target_section: &str,
+    target_id: &str,
+) -> bool {
+    document.value()["DataBindings"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .any(|binding| {
+            binding["SourceArea"] == area(from)
+                && binding["SourceSection"] == source_section
+                && binding["SourceId"] == source_id
+                && binding["SourceDetails"] == details(from)
+                && binding["TargetArea"] == area(to)
+                && binding["TargetSection"] == target_section
+                && binding["TargetId"] == target_id
+                && binding["PropertyMaps"].as_array().is_some_and(|maps| {
+                    maps.iter().any(|map| {
+                        map["SourceProperty"] == property(from)
+                            && map["TargetProperty"] == property(to)
+                    })
+                })
+        })
 }
 
 fn property_value(name: &str, text: &str, default: &Value) -> Result<Value, AuthoringError> {
@@ -967,5 +1547,259 @@ mod tests {
             plan_add(&solution, &add_request("Acme.Nope_MU", "grid")),
             Err(AuthoringError::Unknown(_))
         ));
+    }
+
+    #[test]
+    fn binding_a_service_result_creates_a_thing_call_and_composer_binding() {
+        let (dir, solution) = one_project();
+        write(
+            dir.path(),
+            "acme/Things/Acme.Orders.Manager.xml",
+            r#"<Entities><Things><Thing name="Acme.Orders.Manager" projectName="Acme"><ThingShape><ServiceDefinitions><ServiceDefinition name="GetOrders"><ResultType baseType="INFOTABLE" aspect.dataShape="Acme.Orders.Order_DS"/></ServiceDefinition></ServiceDefinitions><ServiceImplementations/></ThingShape></Thing></Things></Entities>"#,
+        );
+        write(
+            dir.path(),
+            "acme/DataShapes/Acme.Orders.Order_DS.xml",
+            r#"<Entities><DataShapes><DataShape name="Acme.Orders.Order_DS" projectName="Acme"><FieldDefinitions><FieldDefinition name="id" baseType="LONG"/><FieldDefinition name="note" baseType="STRING"/></FieldDefinitions></DataShape></DataShapes></Entities>"#,
+        );
+        let name = "Acme.Orders_MU";
+        let new = plan_new(&solution, &request(name)).unwrap();
+        apply_new(&solution, &new, &lock(&solution)).unwrap();
+        let grid = plan_add(&solution, &add_request(name, "grid")).unwrap();
+        apply_edit(&solution, &grid.edit, &lock(&solution)).unwrap();
+        let plan = plan_bind(
+            &solution,
+            &BindRequest {
+                mashup: name.into(),
+                from: "data:Acme.Orders.Manager.GetOrders".into(),
+                to: "ui:ptcsgrid-3.Data".into(),
+            },
+        )
+        .unwrap();
+        assert_eq!(
+            plan.new_source.as_deref(),
+            Some("Acme.Orders.Manager.GetOrders")
+        );
+        let content = plan.edit.sidecars.as_ref().unwrap().content_after.clone();
+        let value: Value = serde_json::from_slice(&content).unwrap();
+        let call = &value["Data"]["Things_Acme.Orders.Manager"]["Services"][0];
+        assert_eq!(call["Name"], "GetOrders");
+        let binding = &value["DataBindings"][0];
+        assert_eq!(binding["SourceArea"], "Data");
+        assert_eq!(binding["SourceDetails"], "AllData");
+        assert_eq!(
+            binding["PropertyMaps"][0]["SourcePropertyType"],
+            "InfoTable"
+        );
+        assert_eq!(
+            binding["PropertyMaps"][0]["SourcePropertyBaseType"],
+            "INFOTABLE"
+        );
+    }
+
+    /// A Thing with GetOrders (a result of Order_DS) and SaveOrder(id, note), a shape with GetLog,
+    /// that DataShape, and a blank mashup with a grid, a text field and a label in it.
+    fn bind_fixture() -> (tempfile::TempDir, Solution) {
+        let (dir, solution) = one_project();
+        write(
+            dir.path(),
+            "acme/Things/Acme.Orders.Manager.xml",
+            r#"<Entities><Things><Thing name="Acme.Orders.Manager" projectName="Acme"><ThingShape><ServiceDefinitions>
+            <ServiceDefinition name="GetOrders"><ResultType baseType="INFOTABLE" aspect.dataShape="Acme.Orders.Order_DS"/></ServiceDefinition>
+            <ServiceDefinition name="SaveOrder"><ParameterDefinitions><FieldDefinition name="id" baseType="LONG"/><FieldDefinition name="note" baseType="STRING"/></ParameterDefinitions><ResultType baseType="NOTHING"/></ServiceDefinition>
+            </ServiceDefinitions><ServiceImplementations/></ThingShape></Thing></Things></Entities>"#,
+        );
+        write(
+            dir.path(),
+            "acme/ThingShapes/Acme.Orders.Audit_TS.xml",
+            r#"<Entities><ThingShapes><ThingShape name="Acme.Orders.Audit_TS" projectName="Acme"><ServiceDefinitions>
+            <ServiceDefinition name="GetLog"><ResultType baseType="INFOTABLE" aspect.dataShape="Acme.Orders.Order_DS"/></ServiceDefinition>
+            </ServiceDefinitions></ThingShape></ThingShapes></Entities>"#,
+        );
+        write(
+            dir.path(),
+            "acme/DataShapes/Acme.Orders.Order_DS.xml",
+            r#"<Entities><DataShapes><DataShape name="Acme.Orders.Order_DS" projectName="Acme"><FieldDefinitions><FieldDefinition name="id" baseType="LONG"/><FieldDefinition name="note" baseType="STRING"/></FieldDefinitions></DataShape></DataShapes></Entities>"#,
+        );
+        let name = "Acme.Orders_MU";
+        let new = plan_new(&solution, &request(name)).unwrap();
+        apply_new(&solution, &new, &lock(&solution)).unwrap();
+        // The grid last, so it shares center and does not fill it.
+        for widget in ["text-field", "label", "grid"] {
+            let add = add_request(name, widget);
+            let plan = plan_add(&solution, &add).unwrap();
+            apply_edit(&solution, &plan.edit, &lock(&solution)).unwrap();
+        }
+        (dir, solution)
+    }
+
+    fn bind(solution: &Solution, from: &str, to: &str) -> Result<BindPlan, AuthoringError> {
+        plan_bind(
+            solution,
+            &BindRequest {
+                mashup: "Acme.Orders_MU".into(),
+                from: from.into(),
+                to: to.into(),
+            },
+        )
+    }
+
+    fn sidecar_content(solution: &Solution) -> String {
+        workspace::read_mashup(&solution.src_root().join("Acme.Orders_MU/mashup"))
+            .unwrap()
+            .unwrap()
+            .content
+    }
+
+    #[test]
+    fn bindings_to_parameters_and_from_selected_rows_reuse_calls_and_pass_the_gates() {
+        let (_dir, solution) = bind_fixture();
+        let ids: Vec<String> = mashup_edit::parse(&sidecar_content(&solution))
+            .unwrap()
+            .widgets()
+            .into_iter()
+            .map(|w| w.id)
+            .collect();
+        assert!(ids.contains(&"ptcstextfield-3".to_string()), "{ids:?}");
+        assert!(ids.contains(&"ptcslabel-4".to_string()), "{ids:?}");
+        let rows = [
+            ("data:Acme.Orders.Manager.GetOrders", "ui:ptcsgrid-5.Data"),
+            (
+                "ui:ptcstextfield-3.Text",
+                "data:Acme.Orders.Manager.SaveOrder.note",
+            ),
+            (
+                "data:Acme.Orders.Manager.GetOrders[SelectedRows].note",
+                "ui:ptcslabel-4.LabelText",
+            ),
+        ];
+        for (from, to) in rows {
+            let plan = bind(&solution, from, to).unwrap_or_else(|e| panic!("{from} -> {to}: {e}"));
+            apply_edit(&solution, &plan.edit, &lock(&solution)).unwrap();
+        }
+        let value: Value = serde_json::from_str(&sidecar_content(&solution)).unwrap();
+        let calls: Vec<&str> = value["Data"]["Things_Acme.Orders.Manager"]["Services"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|call| call["Name"].as_str().unwrap())
+            .collect();
+        assert_eq!(calls, ["GetOrders", "SaveOrder"], "GetOrders is reused");
+        let maps: Vec<(&str, &str, &str)> = value["DataBindings"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|b| {
+                let map = &b["PropertyMaps"][0];
+                (
+                    map["SourcePropertyType"].as_str().unwrap(),
+                    map["TargetPropertyType"].as_str().unwrap(),
+                    map["SourcePropertyBaseType"].as_str().unwrap(),
+                )
+            })
+            .collect();
+        assert_eq!(
+            maps,
+            [
+                ("InfoTable", "property", "INFOTABLE"),
+                ("Property", "Parameter", "STRING"),
+                ("Field", "property", "STRING"),
+            ]
+        );
+        assert_eq!(value["DataBindings"][2]["SourceDetails"], "SelectedRows");
+        let report = crate::core::check::run(&solution);
+        let failing: Vec<_> = report
+            .gates
+            .iter()
+            // The fixture's services have no implementations, which only the project gate minds.
+            .filter(|gate| !gate.ok() && gate.name != "project")
+            .map(|gate| format!("{}: {:?} {:?}", gate.name, gate.findings, gate.broken))
+            .collect();
+        assert!(failing.is_empty(), "{failing:?}");
+        let described: Vec<(String, String)> =
+            crate::core::mashup_describe::describe(&solution, "Acme.Orders_MU")
+                .unwrap()
+                .bindings
+                .into_iter()
+                .map(|b| (b.from, b.to))
+                .collect();
+        assert_eq!(described, rows.map(|(a, b)| (a.to_string(), b.to_string())));
+    }
+
+    #[test]
+    fn a_binding_twaco_cannot_stand_behind_is_refused() {
+        let (dir, solution) = bind_fixture();
+        let code = |from: &str, to: &str| bind(&solution, from, to).unwrap_err().code();
+        assert_eq!(
+            code("ui:nope-9.Text", "ui:ptcsgrid-5.Data"),
+            ErrorCode::UnknownEntity
+        );
+        // STRING into a LONG parameter.
+        assert_eq!(
+            code(
+                "ui:ptcstextfield-3.Text",
+                "data:Acme.Orders.Manager.SaveOrder.id"
+            ),
+            ErrorCode::GuardRefused
+        );
+        // A grid's Data is an input only.
+        assert_eq!(
+            code("ui:ptcsgrid-5.Data", "ui:ptcslabel-4.LabelText"),
+            ErrorCode::GuardRefused
+        );
+        // A service as a target needs a parameter.
+        assert_eq!(
+            code(
+                "ui:ptcstextfield-3.Text",
+                "data:Acme.Orders.Manager.SaveOrder"
+            ),
+            ErrorCode::InvalidArguments
+        );
+        // A shape's service with no call in the mashup yet.
+        assert_eq!(
+            code("data:Acme.Orders.Audit_TS.GetLog", "ui:ptcsgrid-5.Data"),
+            ErrorCode::GuardRefused
+        );
+        assert_eq!(
+            code("bogus", "ui:ptcsgrid-5.Data"),
+            ErrorCode::InvalidArguments
+        );
+        // The same binding twice.
+        let plan = bind(
+            &solution,
+            "data:Acme.Orders.Manager.GetOrders",
+            "ui:ptcsgrid-5.Data",
+        )
+        .unwrap();
+        apply_edit(&solution, &plan.edit, &lock(&solution)).unwrap();
+        assert_eq!(
+            code("data:Acme.Orders.Manager.GetOrders", "ui:ptcsgrid-5.Data"),
+            ErrorCode::AlreadyExists
+        );
+        // A widget the catalogue has no contract for: the label becomes an extension's widget, in
+        // both the sidecar and the entity file so they agree.
+        let content = sidecar_content(&solution).replace("\"ptcslabel\"", "\"acmewidget\"");
+        std::fs::write(
+            dir.path().join("src/Acme.Orders_MU/mashup/content.json"),
+            &content,
+        )
+        .unwrap();
+        let entity_path = dir.path().join("acme/Mashups/Acme.Orders_MU.xml");
+        let css = std::fs::read_to_string(dir.path().join("src/Acme.Orders_MU/mashup/custom.css"))
+            .unwrap();
+        let (entity, _) = mashup::sync(
+            &std::fs::read(&entity_path).unwrap(),
+            &mashup::Assets { content, css },
+        )
+        .unwrap();
+        std::fs::write(&entity_path, entity).unwrap();
+        let error = bind(&solution, "ui:ptcstextfield-3.Text", "ui:ptcslabel-4.Text").unwrap_err();
+        assert_eq!(error.code(), ErrorCode::GuardRefused, "{error}");
+        assert!(
+            error
+                .to_string()
+                .contains("whose contract is not in the embedded ThingWorx 10.2 catalogue"),
+            "{error}"
+        );
     }
 }

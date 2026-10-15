@@ -1,0 +1,7 @@
+$ twaco mashup bind Acme.Orders.Dashboard --from ui:x.Text
+exit: 2
+
+--- stdout
+
+--- stderr
+twaco: mashup bind needs --from <address> and --to <address>

@@ -1,7 +1,8 @@
 use super::requests::refactor::{
     AdoptApplyRequest, AdoptKind, AdoptReportRequest, AdoptTakeSide, HandoffAction, HandoffRequest,
-    MashupAddRequest, MashupDescribeRequest, MashupNewRequest, MoveMemberRequest,
-    NewBuildingBlockRequest, RenameRequest, ReprojectRequest, RetemplateRequest, WidgetsRequest,
+    MashupAddRequest, MashupBindRequest, MashupDescribeRequest, MashupNewRequest,
+    MoveMemberRequest, NewBuildingBlockRequest, RenameRequest, ReprojectRequest, RetemplateRequest,
+    WidgetsRequest,
 };
 use super::source::add_types_refresh;
 use super::*;
@@ -262,6 +263,46 @@ pub(crate) fn mashup_add_tool(
     let mut result =
         crate::core::mashup_authoring::add_plan_json(solution, &outcome.plan, outcome.applied);
     result["dry_run"] = json!(dry_run);
+    add_notices(&mut result, &notices);
+    Ok(result)
+}
+
+pub(crate) fn mashup_bind_tool(
+    solution: &Solution,
+    arguments: MashupBindRequest,
+) -> Result<Value, ToolError> {
+    let dry_run = arguments.dry_run;
+    let request = commands::mashup::MashupBindRequest {
+        request: crate::core::mashup_authoring::BindRequest {
+            mashup: nonempty(&arguments.mashup, "mashup")?.to_string(),
+            from: nonempty(&arguments.from, "from")?.to_string(),
+            to: nonempty(&arguments.to, "to")?.to_string(),
+        },
+        mode: if dry_run { Mode::Plan } else { Mode::Apply },
+        lock_label: "mcp mashup_bind",
+    };
+    let mut notices = commands::Notices::default();
+    let outcome =
+        commands::mashup::bind(solution, &request, &mut notices).map_err(ToolError::coded)?;
+    let relative = |path: &std::path::Path| {
+        path.strip_prefix(&solution.root)
+            .unwrap_or(path)
+            .to_string_lossy()
+            .replace('\\', "/")
+    };
+    let mut files = vec![relative(&outcome.plan.edit.entity_path)];
+    if let Some(sidecars) = &outcome.plan.edit.sidecars {
+        files.push(relative(&sidecars.content_path));
+    }
+    let mut result = json!({
+        "applied": outcome.applied,
+        "dry_run": dry_run,
+        "mashup": outcome.plan.edit.mashup,
+        "from": outcome.plan.from,
+        "to": outcome.plan.to,
+        "new_source": outcome.plan.new_source,
+        "files": files,
+    });
     add_notices(&mut result, &notices);
     Ok(result)
 }
