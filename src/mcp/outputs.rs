@@ -173,6 +173,8 @@ pub(crate) struct DeployResult {
     changed_by_deploy_step: Option<Vec<String>>,
     /// The localization tables a whole-solution deploy carries: each table that differs.
     localization: Option<Vec<Value>>,
+    /// With stage `localization`: whether the entities were imported before the tables failed.
+    entities_deployed: Option<bool>,
     plans: Option<Vec<Value>>,
     failures: Option<Vec<Value>>,
     refused: Option<Vec<Value>>,

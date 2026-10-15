@@ -1483,6 +1483,13 @@
           ],
           "items": true
         },
+        "entities_deployed": {
+          "description": "With stage `localization`: whether the entities were imported before the tables failed.",
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
         "plans": {
           "type": [
             "array",

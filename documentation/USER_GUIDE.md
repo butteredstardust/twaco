@@ -128,10 +128,10 @@ name. Without `--apply` it plans and stops. With it, it:
 1. runs the offline gates, unless `--skip-checks`;
 2. builds one bundle per project, projects in `depends_on` order, collections in the order
    the importer needs;
-3. sends every script to the server's parser, and stops on any failure;
-4. checks every entity for a conflict with the baseline;
-5. plans the localization tables, as `twaco localization push` does, and stops on a table the
+3. plans the localization tables, as `twaco localization push` does, and stops on a table the
    server would refuse (a deploy of the whole solution only);
+4. sends every script to the server's parser, and stops on any failure;
+5. checks every entity for a conflict with the baseline;
 6. imports each bundle, reads each entity back, and fails if the server did not keep it;
 7. calls the project's deploy and post-import services, if `[project.deploy]` names them;
 8. records the new baseline;
@@ -212,8 +212,8 @@ twaco rename prefix Acme.App Acme.Platform --apply --text   # write it, docs and
 
 Like `adopt`, it plans by default. The plan says how many entities move and how many references
 change in the entity files, the sidecars, `twaco.toml`, the localization tables and the other text
-files, and lists what it left for a person. `--apply` writes. The token names in the localization
-tables change with the `[[token]]` references to them, always. `--text` also changes the other
+files, and lists what it left for a person. `--apply` writes. A prefix rename changes the token names
+in the localization tables (their name cells only) with the `[[token]]` references to them, always. `--text` also changes the other
 text files (docs, `sql/`); without it they are counted and left alone. `--detail` lists every finding.
 
 **What counts as a reference.** A name matches as a whole token: it is not part of a longer

@@ -481,6 +481,19 @@ pub fn table_export(path: &Path, src: &[u8], table: &str) -> Result<Vec<u8>, Loc
     Ok(out)
 }
 
+/// The content of every token-name cell, in every table of an export: where a rename changes a
+/// token. `None` for a file that is not a localization export.
+pub fn name_cells(path: &Path, src: &[u8]) -> Result<Option<Vec<scan::Span>>, LocalizationError> {
+    Ok(parse_all(path, src)?.map(|all| {
+        all.iter()
+            .flat_map(|parsed| parsed.rows.iter())
+            .flat_map(|row| row.cells.iter())
+            .filter(|cell| cell.name == "name" && !cell.empty)
+            .map(|cell| cell.inner)
+            .collect()
+    }))
+}
+
 fn table_file(path: &Path, parsed: Parsed) -> TableFile {
     let tokens = parsed
         .rows

@@ -313,6 +313,19 @@ pub(crate) fn deploy_tool(
         Err(commands::deploy::DeployCommandError::Deploy { why, backup, .. }) => {
             (Err(*why), Vec::new(), backup)
         }
+        Err(error @ commands::deploy::DeployCommandError::Localization { deployed, .. }) => {
+            let mut value = json!({
+                "ok": false,
+                "stage": "localization",
+                "entities_deployed": deployed,
+                "note": error.to_string(),
+            });
+            if let Some(dir) = error.backup() {
+                value["backup"] = json!(dir);
+            }
+            add_notices(&mut value, &notices);
+            return Ok(value);
+        }
         Err(error) => return Err(ToolError::coded(error)),
     };
     let plans = |report: &deploy::Report| -> Value {

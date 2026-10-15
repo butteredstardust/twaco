@@ -180,8 +180,11 @@ fn references(src: &[u8]) -> Vec<(usize, String)> {
             .filter(|byte| **byte == b'\n')
             .count();
         counted_to = token.span.start;
+        // A decoded `&#10;` is no line of the file: an attribute or text with entities is
+        // reported at the line it starts on.
+        let decoded = token.kind != scan::Kind::Cdata && contains(raw, b"&");
         for (within, name) in bracketed(&text) {
-            out.push((line + within - 1, name));
+            out.push((if decoded { line } else { line + within - 1 }, name));
         }
     }
     out
@@ -380,6 +383,19 @@ prefixes = [\"Acme.\"]
                 (3, "In.Cdata".to_string()),
                 (4, "In.Text".to_string()),
             ]
+        );
+    }
+
+    #[test]
+    fn a_decoded_line_feed_is_no_line_of_the_file() {
+        let found = references(
+            b"<Mashup
+ label=\"&#10;&#10;[[On.Two]]\"/>
+[[On.Three]]",
+        );
+        assert_eq!(
+            found,
+            [(1, "On.Two".to_string()), (3, "On.Three".to_string())]
         );
     }
 

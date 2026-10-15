@@ -568,6 +568,198 @@ name = \"Acme.App\"
         }
     }
 
+    /// A server that keeps what it imports: the entity, read back as the file holds it, and the
+    /// localization tables, unless `forgets` makes it drop every token it is sent.
+    #[derive(Clone)]
+    struct Keeping {
+        entity: Vec<u8>,
+        imported: std::sync::Arc<std::sync::Mutex<bool>>,
+        tables: std::sync::Arc<std::sync::Mutex<Vec<localization::Token>>>,
+        events: std::sync::Arc<std::sync::Mutex<Vec<String>>>,
+        forgets: bool,
+    }
+
+    impl Keeping {
+        fn new(solution: &Solution, forgets: bool) -> Self {
+            Keeping {
+                entity: std::fs::read(solution.root.join("Things/Acme.App.T.xml")).unwrap(),
+                imported: std::sync::Arc::default(),
+                tables: std::sync::Arc::default(),
+                events: std::sync::Arc::default(),
+                forgets,
+            }
+        }
+    }
+
+    impl crate::core::push::Remote for Keeping {
+        fn fetch(
+            &self,
+            _: &crate::core::entity_key::EntityKey,
+        ) -> Result<Option<Vec<u8>>, crate::core::server::ServerError> {
+            Ok((*self.imported.lock().unwrap()).then(|| self.entity.clone()))
+        }
+
+        fn import(&self, _: &str, _: &[u8]) -> Result<(), crate::core::server::ServerError> {
+            *self.imported.lock().unwrap() = true;
+            self.events.lock().unwrap().push("entities".to_string());
+            Ok(())
+        }
+    }
+
+    impl backup::Remote for Keeping {
+        fn export(
+            &self,
+            _: &crate::core::entity_key::EntityKey,
+        ) -> Result<Option<Vec<u8>>, crate::core::server::ServerError> {
+            Ok(None)
+        }
+
+        fn import(&self, _: &str, _: &[u8]) -> Result<(), crate::core::server::ServerError> {
+            Ok(())
+        }
+
+        fn exists(
+            &self,
+            _: &crate::core::entity_key::EntityKey,
+        ) -> Result<bool, crate::core::server::ServerError> {
+            Ok(false)
+        }
+    }
+
+    impl deploy::Remote for Keeping {
+        fn check_script(
+            &self,
+            _: &str,
+        ) -> Result<crate::core::server::ScriptCheck, crate::core::server::ServerError> {
+            unreachable!("the solution has no scripts")
+        }
+
+        fn call_service(
+            &self,
+            _: &crate::core::entity_key::ServiceTarget,
+            _: &str,
+            _: &serde_json::Value,
+            _: std::time::Duration,
+        ) -> Result<Option<serde_json::Value>, crate::core::server::ServerError> {
+            Ok(None)
+        }
+    }
+
+    impl crate::core::imports::Remote for Keeping {
+        fn exists(
+            &self,
+            _: &crate::core::entity_key::EntityKey,
+        ) -> Result<bool, crate::core::server::ServerError> {
+            Ok(true)
+        }
+
+        fn import_file(
+            &self,
+            _: &str,
+            bytes: &[u8],
+            _: bool,
+            _: bool,
+        ) -> Result<(), crate::core::server::ServerError> {
+            let file = localization::read(std::path::Path::new("sent.xml"), bytes)
+                .unwrap()
+                .unwrap();
+            self.events
+                .lock()
+                .unwrap()
+                .push(format!("table {}", file.table));
+            if !self.forgets {
+                *self.tables.lock().unwrap() = file.tokens;
+            }
+            Ok(())
+        }
+
+        fn source_control(
+            &self,
+            _: &str,
+            _: &serde_json::Value,
+        ) -> Result<Option<serde_json::Value>, crate::core::server::ServerError> {
+            unreachable!()
+        }
+    }
+
+    impl localization::Remote for Keeping {
+        fn tables(&self) -> Result<Vec<String>, crate::core::server::ServerError> {
+            Ok(vec![localization::DEFAULT_TABLE.to_string()])
+        }
+
+        fn tokens(
+            &self,
+            _: &str,
+        ) -> Result<Vec<localization::Token>, crate::core::server::ServerError> {
+            Ok(self.tables.lock().unwrap().clone())
+        }
+
+        fn header(
+            &self,
+            _: &str,
+        ) -> Result<localization::Header, crate::core::server::ServerError> {
+            Ok(localization::Header::default())
+        }
+
+        fn delete_token(&self, _: &str, _: &str) -> Result<(), crate::core::server::ServerError> {
+            unreachable!("a deploy never prunes")
+        }
+    }
+
+    #[test]
+    fn an_applied_deploy_imports_the_entities_then_the_tables_that_differ() {
+        let (_root, solution) = with_table(DEFAULT);
+        let server = Keeping::new(&solution, false);
+        let outcome = execute(
+            &solution,
+            &whole(Mode::Apply),
+            |_| server.clone(),
+            &mut Notices::default(),
+            &crate::core::progress::NONE,
+        )
+        .unwrap();
+        let DeployOutcome::Complete { localization, .. } = outcome else {
+            panic!("the deploy completes");
+        };
+        let pushed = localization.unwrap();
+        assert!(pushed.applied);
+        assert_eq!(pushed.tables[0].table, localization::DEFAULT_TABLE);
+        assert_eq!(
+            *server.events.lock().unwrap(),
+            ["entities", "table Default"]
+        );
+        assert_eq!(server.tables.lock().unwrap().len(), 6);
+    }
+
+    #[test]
+    fn tables_that_fail_after_the_import_say_the_entities_were_deployed() {
+        let (_root, solution) = with_table(DEFAULT);
+        let server = Keeping::new(&solution, true);
+        let error = execute(
+            &solution,
+            &whole(Mode::Apply),
+            |_| server.clone(),
+            &mut Notices::default(),
+            &crate::core::progress::NONE,
+        )
+        .unwrap_err();
+        assert!(
+            matches!(
+                error,
+                DeployCommandError::Localization { deployed: true, .. }
+            ),
+            "{error:?}"
+        );
+        assert!(
+            error.to_string().contains("the entities were deployed"),
+            "{error}"
+        );
+        assert_eq!(
+            *server.events.lock().unwrap(),
+            ["entities", "table Default"]
+        );
+    }
+
     #[test]
     fn a_table_the_server_would_refuse_stops_the_deploy_before_anything_is_imported() {
         let (_root, solution) = with_table(

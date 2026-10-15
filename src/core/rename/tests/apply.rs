@@ -646,8 +646,9 @@ fn a_prefix_rename_renames_the_tokens_in_the_localization_tables_without_text() 
     let fixture = fixture();
     let table =
         "<Entities><LocalizationTables><LocalizationTable name=\"Default\"><ConfigurationTables>\
-<ConfigurationTable name=\"LocalizationTokens\"><Rows><Row><name><![CDATA[Acme.App.Save]]></name>\
-<value><![CDATA[Save]]></value></Row><Row><name><![CDATA[Acme.Application.Keep]]></name>\
+<ConfigurationTable name=\"LocalizationTokens\"><Rows><!-- Acme.App.Save is the save label -->\
+<Row><name><![CDATA[Acme.App.Save]]></name>\
+<value><![CDATA[Save in Acme.App.Save]]></value></Row><Row><name><![CDATA[Acme.Application.Keep]]></name>\
 <value><![CDATA[Keep]]></value></Row></Rows></ConfigurationTable></ConfigurationTables>\
 </LocalizationTable></LocalizationTables></Entities>\n";
     write(
@@ -695,7 +696,59 @@ fn a_prefix_rename_renames_the_tokens_in_the_localization_tables_without_text() 
     .unwrap();
     assert_eq!(
         after,
-        table.replace("Acme.App.Save", "Acme.New.Save"),
-        "only the whole token changes"
+        table.replacen(
+            "<name><![CDATA[Acme.App.Save]]>",
+            "<name><![CDATA[Acme.New.Save]]>",
+            1
+        ),
+        "only the name cell changes: not the comment, not the value"
     );
+}
+
+#[test]
+fn only_a_prefix_rename_changes_tokens_and_only_in_real_table_files() {
+    let fixture = fixture();
+    write(
+        &fixture.root,
+        "localization/Acme.App/LocalizationTable.xml",
+        "<Entities><LocalizationTables><LocalizationTable name=\"Default\"><ConfigurationTables><ConfigurationTable name=\"LocalizationTokens\"><Rows><Row><name><![CDATA[Acme.App.Manager.Run]]></name><value><![CDATA[Run]]></value></Row></Rows></ConfigurationTable></ConfigurationTables></LocalizationTable></LocalizationTables></Entities>
+",
+    );
+    write(
+        &fixture.root,
+        "localization/notes.xml",
+        "<notes>Acme.App.Manager</notes>
+",
+    );
+    // An entity rename: `[[Acme.App.Manager.Run]]` in an entity is not renamed (a dotted
+    // continuation), so neither is the table's token.
+    let entity = plan(
+        &fixture.solution,
+        &spec(Kind::Entity, "Acme.App.Manager", "Acme.App.Director"),
+    )
+    .unwrap();
+    assert!(entity
+        .changes
+        .iter()
+        .all(|change| change.kind != FileKind::Localization));
+    // A prefix rename: the table is renamed; the XML file that is not a table is other text.
+    let prefix = plan(
+        &fixture.solution,
+        &spec(Kind::Prefix, "Acme.App", "Acme.New"),
+    )
+    .unwrap();
+    let localization: Vec<String> = prefix
+        .changes
+        .iter()
+        .filter(|change| change.kind == FileKind::Localization)
+        .map(|change| relative(&fixture.root, &change.path))
+        .collect();
+    assert_eq!(
+        localization,
+        ["localization/Acme.App/LocalizationTable.xml"]
+    );
+    assert!(prefix
+        .outside
+        .iter()
+        .any(|change| relative(&fixture.root, &change.path) == "localization/notes.xml"));
 }
