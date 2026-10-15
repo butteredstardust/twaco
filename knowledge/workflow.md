@@ -18,6 +18,7 @@ a service does before you call it.
 - `twaco unused`: entities no entry point reaches (advisory); list anything used from outside the repository under `[unused] keep` in `twaco.toml`.
 - `twaco docs [--out <file>]`: the solution written down (projects, inheritance, services, DataShapes, references to review); regenerate and diff to see what changed. `--out <file> --check` exits 1 when a committed document is missing or stale, for CI.
 - `twaco test [--apply]`: the service cases of `tests/*.toml`, each called as test users (`[[test.user]]`, `twaco users seed`) and expecting a status such as 200, 401 or 404; plans until `--apply`, and needs `allow_test_users = true` in the profile.
+- A project only on a server: declare it in `twaco.toml`, `twaco export project <P> --out p.xml`, `twaco adopt p.xml --apply`, then `twaco entity status --all --record`.
 - `twaco guide --search <words>`: this knowledge, plus the project's own documents.
   `twaco help search <words>` searches the ThingWorx Platform help for the server's version.
   `twaco javadoc search <name>` searches the Java API of objects scripts call and Resource services.

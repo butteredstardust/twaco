@@ -17,6 +17,26 @@ An entity belongs to the project its own `projectName` names. A file filed under
 project's folder is reported by `check`, because it would otherwise import into the wrong
 project silently.
 
+### Starting from a project that is only on a server
+
+A project built in Composer becomes a repository with three commands. Declare the project, take
+the server's export of it in, and record that the files are what the server holds:
+
+```sh
+printf '[[project]]
+name = "Acme.App"
+' > twaco.toml   # one [[project]] per project, with depends_on
+twaco export project Acme.App --out acme-app.xml
+twaco adopt acme-app.xml --apply           # one file per entity, service sidecars extracted
+twaco entity status --all --record         # the baseline: these files are what the server has
+twaco init --agents                        # AGENTS.md, CLAUDE.md and the .gitignore lines
+twaco check                                # a script Composer formatted fails `formatting`: twaco fmt
+```
+
+`adopt` writes each entity the export holds and the solution lacks, in the solution's layout, with
+its sidecars; nothing that exists is overwritten. Repeat the export and adopt for each project the
+solution keeps. Delete the export file afterwards: the entity files are the source now.
+
 ### Sidecars are what you edit
 
 `twaco extract` writes the parts worth editing out of the XML into files under `src/`

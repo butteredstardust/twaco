@@ -8,6 +8,8 @@ All notable changes to twaco are recorded here. The format follows
 
 ### Added
 
+- The user guide shows how a project that is only on a server becomes a repository: `export project`, `adopt --apply`, `entity status --all --record`.
+
 - `twaco test [<filter>...]` (MCP `test`) runs the service cases of `tests/*.toml` (`[test] cases` names another folder): each case calls a service as each of its test users or groups and expects a status (200, 401, 404, ...) and optionally a row count and first-row fields. Without `--apply` it reads, checks and lists the cases; with it, it calls them and exits 1 when one fails. Running needs `allow_test_users = true` in the profile.
 - `twaco users list|seed|delete` (MCP `users`, `users_write`) manage test users: the accounts `[[test.user]]` declares, each with its groups, all with the profile's `test_password`. `list` shows whether each exists, signs in and is in its groups; `seed` creates what is missing (users, memberships, an optional `[test] project`) and changes nothing that exists; `delete` removes the users. Both writes plan until `--apply` and need `allow_test_users = true` in the profile.
 
