@@ -440,6 +440,20 @@ StyleTheme in the solution; twaco never creates one. Nothing is granted visibili
 `--project` may be left out when the solution has one project. A name that is already a mashup, or
 files already in the way, are refused.
 
+### Reading a mashup's wiring
+
+```sh
+twaco mashup describe Acme.App.Orders_MU
+twaco mashup describe Acme.App.Orders_MU --json
+```
+
+`mashup describe` answers "which services drive this page, and is anything left unset" without the
+mashup's XML: the widget tree with each container's direction, the mashup's parameters, every
+service it calls with what sets each declared parameter (a binding's source, `static`, or
+`unbound`, which falls back to the service's default) and what runs it, then every binding and
+event. It reads the sidecar `content.json` when there is one. Addresses are written as
+`ui:<widget>.<Property>`, `data:<Entity>.<Service>[.<Parameter>]` and `mashup:<Parameter>`.
+
 ## Moving entities to another project
 
 ```sh

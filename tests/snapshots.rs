@@ -82,6 +82,10 @@ const SCENARIOS: &[(&str, &[&str])] = &[
     ),
     ("users_list_takes_no_apply", &["users", "list", "--apply"]),
     (
+        "mashup_describe",
+        &["mashup", "describe", "Acme.Orders.Dashboard"],
+    ),
+    (
         "mashup_new_plan",
         &["mashup", "new", "Acme.Orders.Board_MU", "--master"],
     ),

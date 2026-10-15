@@ -110,6 +110,10 @@ reproject <entity>... --to <project> [--apply] [--json]
                             under that project's root; the plan names each reference the move puts
                             outside the deploy order, with the depends_on that allows it
     --to <project>          the project they move to
+mashup describe <mashup> [--json]
+                            what a mashup holds and how it is wired, without its XML: the widget tree,
+                            each service it calls with what sets each parameter (or that nothing does),
+                            each binding and each event, in the addresses mashup bind and on take
 mashup new <name> [--project <name>] [--layout blank] [--theme <StyleTheme>] [--master]
     [--visibility <principal>]... [--apply] [--json]
                             create a ThingWorx 10.2 responsive mashup as Composer would: its entity file

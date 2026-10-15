@@ -1120,6 +1120,16 @@ pub(crate) const COMMANDS: &[Command] = &[
       --to <project>          the project they move to"#,
     },
     Command {
+        path: "mashup describe",
+        group: 1,
+        operands: true,
+        flags: &["--json"],
+        text: r#"  mashup describe <mashup> [--json]
+                              what a mashup holds and how it is wired, without its XML: the widget tree,
+                              each service it calls with what sets each parameter (or that nothing does),
+                              each binding and each event, in the addresses mashup bind and on take"#,
+    },
+    Command {
         path: "mashup new",
         group: 1,
         operands: true,

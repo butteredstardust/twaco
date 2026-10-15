@@ -1,0 +1,10 @@
+$ twaco mashup describe Acme.Orders.Dashboard
+exit: 0
+
+--- stdout
+mashup Acme.Orders.Dashboard (Mashups/Acme.Orders.Dashboard.xml)
+
+widgets
+  (none Composer would recognise)
+--- stderr
+

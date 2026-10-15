@@ -1,7 +1,7 @@
 use super::requests::refactor::{
     AdoptApplyRequest, AdoptKind, AdoptReportRequest, AdoptTakeSide, HandoffAction, HandoffRequest,
-    MashupNewRequest, MoveMemberRequest, NewBuildingBlockRequest, RenameRequest, ReprojectRequest,
-    RetemplateRequest,
+    MashupDescribeRequest, MashupNewRequest, MoveMemberRequest, NewBuildingBlockRequest,
+    RenameRequest, ReprojectRequest, RetemplateRequest,
 };
 use super::source::add_types_refresh;
 use super::*;
@@ -157,6 +157,16 @@ pub(crate) fn reproject_tool(
     result["dry_run"] = json!(dry_run);
     add_notices(&mut result, &notices);
     Ok(result)
+}
+
+pub(crate) fn mashup_describe_tool(
+    solution: &Solution,
+    arguments: MashupDescribeRequest,
+) -> Result<Value, ToolError> {
+    let description =
+        crate::core::mashup_describe::describe(solution, nonempty(&arguments.mashup, "mashup")?)
+            .map_err(ToolError::coded)?;
+    Ok(serde_json::to_value(description).expect("a description serialises"))
 }
 
 pub(crate) fn mashup_new_tool(

@@ -844,6 +844,7 @@ fn every_tool_is_listed_with_a_schema_and_honest_annotations() {
             "rename",
             "move_member",
             "new_building_block",
+            "mashup_describe",
             "mashup_new",
             "reproject",
             "retemplate",

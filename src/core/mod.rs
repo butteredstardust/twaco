@@ -43,6 +43,7 @@ pub mod lock;
 pub mod logs;
 pub mod mashup;
 pub mod mashup_authoring;
+pub mod mashup_describe;
 pub mod mashup_edit;
 pub mod mashup_templates;
 pub mod newblock;

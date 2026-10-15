@@ -88,3 +88,28 @@ pub(crate) fn mashup_new_cmd(solution: &Solution, args: &Args) -> u8 {
     }
     OK
 }
+
+/// `twaco mashup describe <mashup>`: read-only.
+pub(crate) fn mashup_describe_cmd(solution: &Solution, args: &Args) -> u8 {
+    let [name] = args.names.as_slice() else {
+        eprintln!("{} mashup describe needs one <mashup>", style::prefix());
+        return FAILED;
+    };
+    match twaco::core::mashup_describe::describe(solution, name) {
+        Ok(description) => {
+            if args.has("--json") {
+                println!(
+                    "{}",
+                    serde_json::to_string_pretty(&description).expect("a description serialises")
+                );
+            } else {
+                print!("{}", twaco::core::mashup_describe::render(&description));
+            }
+            OK
+        }
+        Err(error) => {
+            eprintln!("{} {error}", style::prefix());
+            FAILED
+        }
+    }
+}

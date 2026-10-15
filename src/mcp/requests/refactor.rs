@@ -269,6 +269,13 @@ pub(crate) struct ReprojectRequest {
 
 #[derive(Debug, Deserialize, JsonSchema, Serialize)]
 #[serde(deny_unknown_fields)]
+pub(crate) struct MashupDescribeRequest {
+    /// The mashup's name.
+    pub(crate) mashup: String,
+}
+
+#[derive(Debug, Deserialize, JsonSchema, Serialize)]
+#[serde(deny_unknown_fields)]
 pub(crate) struct MashupNewRequest {
     /// The new mashup's name.
     pub(crate) name: String,
