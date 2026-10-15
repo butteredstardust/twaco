@@ -99,6 +99,9 @@ usage: twaco <command>
                               under that project's root; the plan names each reference the move puts
                               outside the deploy order, with the depends_on that allows it
       --to <project>          the project they move to
+  widgets [<widget>] [--search <text>] [--json]
+                              the embedded ThingWorx 10.2 widget catalogue: types, Composer labels,
+                              aliases, containers and bindable properties, events and services
   mashup describe <mashup> [--json]
                               what a mashup holds and how it is wired, without its XML: the widget tree,
                               each service it calls with what sets each parameter (or that nothing does),

@@ -80,5 +80,6 @@ pub mod unused;
 pub mod update;
 pub mod validate;
 pub mod widgets;
+pub mod widgets_view;
 pub mod workflow;
 pub mod workspace;

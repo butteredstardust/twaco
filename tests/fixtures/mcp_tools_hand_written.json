@@ -1102,28 +1102,6 @@
     }
   },
   {
-    "name": "mashup_describe",
-    "description": "Describe a mashup in the repository without its XML: the widget tree (ids, types, row/column containers, which widget fills its container, text and [[tokens]]); each service it calls, with what sets each declared parameter (a binding's source, static, or unbound); each binding, one row per property map, warning when a binding has more than one (the runtime applies only the first); and each event. Addresses are those mashup bind and on take: ui:<widget>.<Property>, data:<Entity>.<Service>[.<Parameter>], mashup:<Parameter>. Read-only.",
-    "inputSchema": {
-      "required": [
-        "mashup"
-      ],
-      "additionalProperties": false,
-      "type": "object",
-      "properties": {
-        "mashup": {
-          "description": "The mashup's name.",
-          "type": "string"
-        }
-      }
-    },
-    "annotations": {
-      "readOnlyHint": true,
-      "destructiveHint": false,
-      "openWorldHint": false
-    }
-  },
-  {
     "name": "mashup_new",
     "description": "Create a ThingWorx 10.2 responsive mashup in the repository as Composer would: its entity file (from the 10.2 template, no permissions) and its content.json and custom.css sidecars, written by the same sync as any mashup. layout blank is one center container; master makes a master mashup with a page container filling the center; theme must be a StyleTheme in the solution (default PTC Convergence Theme); visibility grants only the principals given. Refuses a name already used or files already there. A dry run unless dry_run is false; an apply takes the workspace lock and writes every file or none.",
     "inputSchema": {
@@ -1170,6 +1148,51 @@
     "annotations": {
       "readOnlyHint": false,
       "destructiveHint": true,
+      "openWorldHint": false
+    }
+  },
+  {
+    "name": "widgets",
+    "description": "List or search the embedded ThingWorx 10.2 widget catalogue (type, Composer label, aliases, container, whether bindable), or with widget, one widget's bindable properties with base type and direction (in, out, in/out), its events and services. Read-only; no server.",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "widget": {
+          "description": "One widget type or alias; omit to list the catalogue.",
+          "type": "string"
+        },
+        "search": {
+          "description": "Narrow the list by type, Composer label or alias.",
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "annotations": {
+      "readOnlyHint": true,
+      "destructiveHint": false,
+      "openWorldHint": false
+    }
+  },
+  {
+    "name": "mashup_describe",
+    "description": "Describe a mashup in the repository without its XML: the widget tree (ids, types, row/column containers, which widget fills its container, text and [[tokens]]); each service it calls, with what sets each declared parameter (a binding's source, static, or unbound); each binding, one row per property map, warning when a binding has more than one (the runtime applies only the first); and each event. Addresses are those mashup bind and on take: ui:<widget>.<Property>, data:<Entity>.<Service>[.<Parameter>], mashup:<Parameter>. Read-only.",
+    "inputSchema": {
+      "required": [
+        "mashup"
+      ],
+      "additionalProperties": false,
+      "type": "object",
+      "properties": {
+        "mashup": {
+          "description": "The mashup's name.",
+          "type": "string"
+        }
+      }
+    },
+    "annotations": {
+      "readOnlyHint": true,
+      "destructiveHint": false,
       "openWorldHint": false
     }
   },

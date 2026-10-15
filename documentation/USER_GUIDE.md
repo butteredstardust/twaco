@@ -440,6 +440,19 @@ StyleTheme in the solution; twaco never creates one. Nothing is granted visibili
 `--project` may be left out when the solution has one project. A name that is already a mashup, or
 files already in the way, are refused.
 
+### Finding widgets
+
+```sh
+twaco widgets --search chart
+twaco widgets grid
+```
+
+`widgets` reads the embedded ThingWorx 10.2 catalogue, so it needs neither a solution nor a
+server. Search by type, Composer label or alias; name one widget to see the properties that can
+bind, their base types and directions, and its events and services. `--json` gives the same data
+to automation. A container with no binding contract is marked so it can be placed without being
+mistaken for a bindable widget.
+
 ### Reading a mashup's wiring
 
 ```sh

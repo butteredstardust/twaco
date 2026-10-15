@@ -1,0 +1,7 @@
+$ twaco widgets grid --search x
+exit: 2
+
+--- stdout
+
+--- stderr
+twaco: give a widget or --search, not both

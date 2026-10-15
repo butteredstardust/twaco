@@ -1,7 +1,7 @@
 use super::requests::refactor::{
     AdoptApplyRequest, AdoptKind, AdoptReportRequest, AdoptTakeSide, HandoffAction, HandoffRequest,
     MashupDescribeRequest, MashupNewRequest, MoveMemberRequest, NewBuildingBlockRequest,
-    RenameRequest, ReprojectRequest, RetemplateRequest,
+    RenameRequest, ReprojectRequest, RetemplateRequest, WidgetsRequest,
 };
 use super::source::add_types_refresh;
 use super::*;
@@ -199,6 +199,18 @@ pub(crate) fn mashup_new_tool(
     result["dry_run"] = json!(dry_run);
     add_notices(&mut result, &notices);
     Ok(result)
+}
+
+pub(crate) fn widgets_tool(arguments: WidgetsRequest) -> Result<Value, ToolError> {
+    match (arguments.widget.as_ref(), arguments.search.as_ref()) {
+        (Some(_), Some(_)) => Err(ToolError::invalid("give a widget or search, not both")),
+        (Some(widget), None) => crate::core::widgets_view::detail(widget)
+            .map(|detail| serde_json::to_value(detail).expect("a widget serialises"))
+            .map_err(ToolError::coded),
+        (None, search) => {
+            Ok(json!({ "widgets": crate::core::widgets_view::list(search.map(String::as_str)) }))
+        }
+    }
 }
 
 pub(crate) fn adopt_apply_tool(

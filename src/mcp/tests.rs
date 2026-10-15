@@ -844,8 +844,9 @@ fn every_tool_is_listed_with_a_schema_and_honest_annotations() {
             "rename",
             "move_member",
             "new_building_block",
-            "mashup_describe",
             "mashup_new",
+            "widgets",
+            "mashup_describe",
             "reproject",
             "retemplate",
             "config_table",
@@ -2199,4 +2200,24 @@ fn mashup_new_plans_by_default_and_creates_the_files_when_asked() {
         again["structuredContent"]["code"], "already_exists",
         "{again}"
     );
+}
+
+#[test]
+fn widgets_returns_catalogue_details_and_refuses_two_selectors() {
+    let (_dir, root) = solution_dir();
+    let button = call(&root, "widgets", json!({"widget": "button"}));
+    assert_eq!(button["isError"], false, "{button}");
+    assert!(button["structuredContent"]["events"]
+        .as_array()
+        .is_some_and(|events| events.iter().any(|event| event == "Clicked")));
+    let listed = call(&root, "widgets", json!({"search": "list"}));
+    assert!(listed["structuredContent"]["widgets"]
+        .as_array()
+        .is_some_and(|widgets| !widgets.is_empty()));
+    let both = call(
+        &root,
+        "widgets",
+        json!({"widget": "button", "search": "list"}),
+    );
+    assert_eq!(both["isError"], true, "{both}");
 }

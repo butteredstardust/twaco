@@ -1,0 +1,55 @@
+$ twaco widgets grid
+exit: 0
+
+--- stdout
+ptcsgrid (Grid)
+aliases: grid, table
+properties:
+  AddRowFormTitle STRING in
+  ChildData INFOTABLE in
+  ClickedLinkColumn STRING out
+  ClickedLinkData INFOTABLE out
+  ColumnDelayedData INFOTABLE in
+  Configuration JSON in
+  CustomClass STRING out
+  Data INFOTABLE in
+  DefaultSelectedRows STRING in
+  DeletedData INFOTABLE out
+  EditedData INFOTABLE out
+  EditedRow INFOTABLE in/out
+  ExpandLoadedRows BOOLEAN in
+  ExpandableRows INFOTABLE in
+  FilterLabel STRING in
+  FilterString STRING in/out
+  FooterData INFOTABLE in
+  HideHeaderRow BOOLEAN in
+  IsEditable BOOLEAN in/out
+  Label STRING in
+  LastClickedRow INFOTABLE out
+  LegacyConfiguration STRING in
+  MaxHeaderHeight NUMBER in
+  MaxRowHeight NUMBER in
+  MinRowHeight NUMBER in
+  NoDataSourceLabel STRING in
+  NoMatchesFoundLabel STRING in
+  NoResultsLabel STRING in
+  ParentIDFieldName STRING in
+  PurgeSavedSelectionData INFOTABLE in
+  QueryFilter QUERY in/out
+  ResetScrollOnDataChange BOOLEAN in
+  RowDelayedData INFOTABLE in
+  RowEditFormTitle STRING in
+  RowSelected BOOLEAN out
+  RowSelection STRING in
+  RowTotalNumber INTEGER in
+  SelectedRows INFOTABLE in/out
+  SelectedRowsIDs INFOTABLE in/out
+  ShowFilter BOOLEAN in
+  SingleLineHeader BOOLEAN in
+  SingleLineRows BOOLEAN in
+  ToolbarActionsData INFOTABLE in
+  Visible BOOLEAN in
+events: Filter, RowClicked, SelectedRowsChanged, LinkClicked, EditCellStarted, EditCellCompleted, EditCellCancelled, EditRowStarted, EditRowCompleted, EditRowCancelled, EditStarted, EditCompleted, EditCanceled, DeleteRowClicked, ResetButtonClicked, DoubleClicked
+services: Cancel, ConfirmDelete, Reset, Save
+--- stderr
+

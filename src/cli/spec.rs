@@ -1120,6 +1120,15 @@ pub(crate) const COMMANDS: &[Command] = &[
       --to <project>          the project they move to"#,
     },
     Command {
+        path: "widgets",
+        group: 1,
+        operands: true,
+        flags: &["--search", "--json"],
+        text: r#"  widgets [<widget>] [--search <text>] [--json]
+                              the embedded ThingWorx 10.2 widget catalogue: types, Composer labels,
+                              aliases, containers and bindable properties, events and services"#,
+    },
+    Command {
         path: "mashup describe",
         group: 1,
         operands: true,

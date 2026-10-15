@@ -1,0 +1,7 @@
+$ twaco widgets gizmo
+exit: 2
+
+--- stdout
+
+--- stderr
+twaco: no widget is called `gizmo` in the ThingWorx 10.2 catalogue; `twaco widgets` lists them

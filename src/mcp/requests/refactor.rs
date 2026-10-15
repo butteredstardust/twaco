@@ -276,6 +276,17 @@ pub(crate) struct MashupDescribeRequest {
 
 #[derive(Debug, Deserialize, JsonSchema, Serialize)]
 #[serde(deny_unknown_fields)]
+pub(crate) struct WidgetsRequest {
+    /// One widget type or alias; omit to list the catalogue.
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) widget: Absent<String>,
+    /// Narrow the list by type, Composer label or alias.
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) search: Absent<String>,
+}
+
+#[derive(Debug, Deserialize, JsonSchema, Serialize)]
+#[serde(deny_unknown_fields)]
 pub(crate) struct MashupNewRequest {
     /// The new mashup's name.
     pub(crate) name: String,

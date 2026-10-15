@@ -45,6 +45,7 @@ use cli::refactor::{
 use cli::service_tests::test_cmd;
 use cli::source::{bundle, check, deploy_cmd, extract, fmt, sync_cmd, types_cmd};
 use cli::users::users_cmd;
+use cli::widgets::widgets_cmd;
 
 /// Success.
 const OK: u8 = 0;
@@ -163,6 +164,7 @@ fn dispatch(route: &str, parsed: &Args) -> u8 {
         // doctor diagnoses a missing solution rather than failing on it.
         "doctor" => return doctor_cmd(parsed),
         "mcp" => return mcp_cmd(),
+        "widgets" => return widgets_cmd(parsed),
         _ => {}
     }
 

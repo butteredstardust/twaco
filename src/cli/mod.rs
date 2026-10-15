@@ -14,3 +14,4 @@ pub(crate) mod style;
 #[cfg(test)]
 mod tests;
 pub(crate) mod users;
+pub(crate) mod widgets;

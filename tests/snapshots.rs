@@ -81,6 +81,13 @@ const SCENARIOS: &[(&str, &[&str])] = &[
         &["reproject", "Audit", "--to", "Acme.Nope"],
     ),
     ("users_list_takes_no_apply", &["users", "list", "--apply"]),
+    ("widgets_search_chart", &["widgets", "--search", "chart"]),
+    ("widgets_grid", &["widgets", "grid"]),
+    ("widgets_gizmo", &["widgets", "gizmo"]),
+    (
+        "widgets_grid_and_search",
+        &["widgets", "grid", "--search", "x"],
+    ),
     (
         "mashup_describe",
         &["mashup", "describe", "Acme.Orders.Dashboard"],
