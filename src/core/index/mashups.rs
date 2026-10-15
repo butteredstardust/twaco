@@ -13,14 +13,18 @@ fn collection_of(entity_type: &str) -> String {
     match entity_type {
         "Thing" => "Things",
         "ThingTemplate" => "ThingTemplates",
-        "ThingShape" => "ThingShapes",
+        "ThingShape" | "DynamicThingShapes" => "ThingShapes",
+        "DynamicThingTemplates" => "ThingTemplates",
         "DataShape" => "DataShapes",
         other => other,
     }
     .to_string()
 }
 
-/// Every object in `value` that names an entity: `{ "EntityName": ..., "EntityType": ..., "Service": ... }`.
+/// Every object in `value` that names an entity: `{ "EntityName": ..., "EntityType": ... }`, with
+/// the services it calls. An export's Data section lists them as `Services: [{ "Name": alias,
+/// "Target": service }]`; a single `Service` is read too. A section that names no service binds the
+/// entity as a whole.
 fn bindings(value: &Value, out: &mut Vec<(String, String, Option<String>)>) {
     match value {
         Value::Object(object) => {
@@ -29,15 +33,36 @@ fn bindings(value: &Value, out: &mut Vec<(String, String, Option<String>)>) {
                     .get("EntityType")
                     .and_then(Value::as_str)
                     .unwrap_or("");
-                let service = object
-                    .get("Service")
-                    .and_then(Value::as_str)
-                    .filter(|service| !service.is_empty());
-                out.push((
-                    kind.to_string(),
-                    name.to_string(),
-                    service.map(str::to_string),
-                ));
+                let mut services: Vec<&str> = object
+                    .get("Services")
+                    .and_then(Value::as_array)
+                    .into_iter()
+                    .flatten()
+                    .filter_map(|service| {
+                        ["Target", "Name"].into_iter().find_map(|key| {
+                            service
+                                .get(key)
+                                .and_then(Value::as_str)
+                                .filter(|text| !text.is_empty())
+                        })
+                    })
+                    .collect();
+                services.extend(
+                    object
+                        .get("Service")
+                        .and_then(Value::as_str)
+                        .filter(|service| !service.is_empty()),
+                );
+                if services.is_empty() {
+                    out.push((kind.to_string(), name.to_string(), None));
+                }
+                for service in services {
+                    out.push((
+                        kind.to_string(),
+                        name.to_string(),
+                        Some(service.to_string()),
+                    ));
+                }
             }
             for child in object.values() {
                 bindings(child, out);
