@@ -127,9 +127,25 @@ pub fn plan(solution: &Solution, request: &Request) -> Result<Plan, ReprojectErr
         }) {
             continue;
         }
+        // A misfiled entity, or one of a project twaco.toml does not declare, is the project
+        // gate's to report and a person's to fix: a move would hide it.
+        if file.info.project != file.found_under {
+            return Err(ReprojectError::Invalid(format!(
+                "{wanted} declares project {:?} but is filed under {}; fix that first (twaco check)",
+                file.info.project, file.found_under
+            )));
+        }
         let from = solution.project(&file.found_under).ok_or_else(|| {
             ReprojectError::Invalid(format!("{wanted} is in no declared project"))
         })?;
+        if !target.collections.is_empty() && !target.collections.contains(&file.info.collection) {
+            return Err(ReprojectError::Invalid(format!(
+                "project {} keeps only {}; add {} to its collections first",
+                target.name,
+                target.collections.join(", "),
+                file.info.collection
+            )));
+        }
         // The same place under the other project's root: collection folder and subfolders.
         let relative = file
             .path
@@ -202,6 +218,10 @@ fn order_warnings(solution: &Solution, moves: &[Move], to: &str) -> Vec<String> 
         .collect();
     for label in &moved {
         project_of.insert(label.clone(), to.to_string());
+    }
+    // A project node (its entry point, its post-import calls in twaco.toml) is its own project.
+    for project in &solution.projects {
+        project_of.insert(format!("project {}", project.name), project.name.clone());
     }
     let reaches = |from: &str, to: &str| -> bool {
         let mut seen = BTreeSet::new();
@@ -398,6 +418,53 @@ mod tests {
         assert_eq!(
             std::fs::read_to_string(solution.root.join("a/Things/sub/A.User.xml")).unwrap(),
             thing("A.User", "A", "A.Base_TT")
+        );
+    }
+
+    #[test]
+    fn a_misfiled_entity_and_a_collection_the_target_does_not_keep_are_refused() {
+        let (_dir, solution) = fixture(true);
+        write(
+            &solution.root,
+            "a/Things/A.Stray.xml",
+            &thing("A.Stray", "Gone", "GenericThing"),
+        );
+        let error = plan(&solution, &request(&["A.Stray"], "B"))
+            .unwrap_err()
+            .to_string();
+        assert!(
+            error.contains("declares project \"Gone\" but is filed under A"),
+            "{error}"
+        );
+        std::fs::write(
+            solution.root.join("twaco.toml"),
+            "[[project]]\nname = \"A\"\nroot = \"a\"\n\n[[project]]\nname = \"B\"\nroot = \"b\"\ncollections = [\"Things\"]\n",
+        )
+        .unwrap();
+        let solution = Solution::load(&solution.root.join("twaco.toml")).unwrap();
+        let error = plan(&solution, &request(&["A.Base_TT"], "B"))
+            .unwrap_err()
+            .to_string();
+        assert!(error.contains("project B keeps only Things"), "{error}");
+    }
+
+    #[test]
+    fn an_entry_point_moved_out_of_its_project_is_named() {
+        let (_dir, solution) = fixture(true);
+        std::fs::write(
+            solution.root.join("twaco.toml"),
+            "[[project]]\nname = \"A\"\nroot = \"a\"\n\n[project.deploy]\nentry_point_thing = \"A.User\"\n\n[[project]]\nname = \"B\"\nroot = \"b\"\ndepends_on = [\"A\"]\n",
+        )
+        .unwrap();
+        let solution = Solution::load(&solution.root.join("twaco.toml")).unwrap();
+        let planned = plan(&solution, &request(&["A.User"], "B")).unwrap();
+        assert!(
+            planned
+                .warnings
+                .iter()
+                .any(|warning| warning.starts_with("project A (project A) uses Things/A.User")),
+            "{:?}",
+            planned.warnings
         );
     }
 
