@@ -390,6 +390,18 @@ static TOOLS: LazyLock<Vec<Tool>> = LazyLock::new(|| {
             false,
             content::localization_write_tool,
         ),
+        solution_tool::<content_requests::UsersRequest>(
+            "users",
+            "The test users twaco.toml declares ([[test.user]]) on the server: whether each exists, signs in with the profile's test_password, and is in its groups. Read-only.",
+            true,
+            content::users_tool,
+        ),
+        solution_tool::<content_requests::UsersWriteRequest>(
+            "users_write",
+            "Create the missing test users, the [test] project and their group memberships (seed), or delete the test users (delete). The profile must say allow_test_users = true and hold test_password, which is never returned. A dry run unless dry_run is false.",
+            false,
+            content::users_write_tool,
+        ),
         solution_tool::<content_requests::ExtensionsRequest>(
             "extensions",
             "The server's extension packages: list them, or show one (its extensions, and which are in use). Read-only.",

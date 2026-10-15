@@ -155,6 +155,33 @@ pub(crate) struct LocalizationWriteRequest {
     pub(crate) detail: bool,
 }
 
+#[derive(Debug, Deserialize, JsonSchema, Serialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct UsersRequest {
+    /// Server profile name.
+    #[serde(default = "default_profile")]
+    pub(crate) profile: String,
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, JsonSchema, PartialEq, Eq, Serialize)]
+pub(crate) enum UsersWriteAction {
+    #[serde(rename = "seed")]
+    Seed,
+    #[serde(rename = "delete")]
+    Delete,
+}
+
+#[derive(Debug, Deserialize, JsonSchema, Serialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct UsersWriteRequest {
+    pub(crate) action: UsersWriteAction,
+    /// Server profile name. It must say `allow_test_users = true`.
+    #[serde(default = "default_profile")]
+    pub(crate) profile: String,
+    #[serde(default = "default_true")]
+    pub(crate) dry_run: bool,
+}
+
 #[derive(Clone, Copy, Debug, Deserialize, JsonSchema, PartialEq, Eq, Serialize)]
 pub(crate) enum ExtensionsAction {
     #[serde(rename = "list")]

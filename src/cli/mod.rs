@@ -11,3 +11,4 @@ pub(crate) mod spec;
 pub(crate) mod style;
 #[cfg(test)]
 mod tests;
+pub(crate) mod users;

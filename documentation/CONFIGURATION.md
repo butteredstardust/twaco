@@ -207,6 +207,29 @@ How `twaco adopt` reads a designer's export:
 | `package.*` | Extension metadata for `twaco package extension`: `version` (1.0.0), `group` (the solution's name), `vendor`, `minimum_thingworx` (9.0.0). Each project's `artifactId` is its name in lower case. |
 | `knowledge.paths` | Markdown files or folders `twaco guide` reads besides its built-in topics. Each must exist and stay inside the solution. Default: AGENTS.md, CLAUDE.md and `docs/`, where they exist. |
 
+### `[test]` and `[[test.user]]`: test users
+
+The accounts `twaco users seed` creates on a test server, and the cases `twaco test` signs in as.
+
+```toml
+[test]
+project = "Acme.App.TestUsers"   # optional: the project the users are created in
+cases = "tests"                  # optional: the folder of case files (*.toml); default tests
+
+[[test.user]]
+name = "vera.viewer"
+groups = ["Acme.App.Viewers_UG"] # the groups it belongs to: its role
+
+[[test.user]]
+name = "ed.editor"
+groups = ["Acme.App.Viewers_UG", "Acme.App.Editors_UG"]
+```
+
+Every test user has the one password the profile holds as `test_password`; it is never in this
+file, and never printed. A profile must also say `allow_test_users = true` before `users seed`,
+`users delete` or `twaco test` act on its server: a test account is a way in, and has no place on
+a customer's server.
+
 ### `[[check]]`: your own gates
 
 Each `[[check]]` runs a command as part of `twaco check`, from the solution root, with no
@@ -379,6 +402,8 @@ username = "Administrator"
 password = "..."
 app_key = "..."                           # optional; see below
 database_password = "..."                 # any other key, for ${profile:key} placeholders
+allow_test_users = true                   # a test server: users seed and twaco test may act on it
+test_password = "..."                     # the password of every [[test.user]]
 ```
 
 Commands use the profile `default` unless given `--profile <name>`, or `profile` over MCP.

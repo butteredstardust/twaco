@@ -1491,6 +1491,61 @@
     "annotations": { "readOnlyHint": false, "destructiveHint": true, "openWorldHint": false }
   },
   {
+    "name": "users",
+    "description": "The test users twaco.toml declares ([[test.user]]) on the server: whether each exists, signs in with the profile's test_password, and is in its groups. Read-only.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "profile": {
+          "description": "Server profile name.",
+          "type": "string",
+          "default": "default"
+        }
+      },
+      "required": [],
+      "additionalProperties": false
+    },
+    "annotations": {
+      "readOnlyHint": true,
+      "destructiveHint": false,
+      "openWorldHint": false
+    }
+  },
+  {
+    "name": "users_write",
+    "description": "Create the missing test users, the [test] project and their group memberships (seed), or delete the test users (delete). The profile must say allow_test_users = true and hold test_password, which is never returned. A dry run unless dry_run is false.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "action": {
+          "type": "string",
+          "enum": [
+            "seed",
+            "delete"
+          ]
+        },
+        "profile": {
+          "description": "Server profile name. It must say `allow_test_users = true`.",
+          "type": "string",
+          "default": "default"
+        },
+        "dry_run": {
+          "type": "boolean",
+          "default": true
+        }
+      },
+      "required": [
+        "action"
+      ],
+      "additionalProperties": false
+    },
+    "annotations": {
+      "readOnlyHint": false,
+      "destructiveHint": true,
+      "openWorldHint": false
+    }
+  },
+  {
     "name": "extensions",
     "description": "The server's extension packages: list them, or show one (its extensions, and which are in use). Read-only.",
     "inputSchema": {

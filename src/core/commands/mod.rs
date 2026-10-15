@@ -29,6 +29,7 @@ pub mod retemplate;
 pub mod status;
 pub mod sync;
 pub mod types;
+pub mod users;
 
 use super::config::Solution;
 use super::lock::{self, LockError, WorkspaceLock};

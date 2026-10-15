@@ -1481,6 +1481,17 @@ pub(crate) const COMMANDS: &[Command] = &[
       --table <name>          one table only; --apply makes the change (all but status plan)"#,
     },
     Command {
+        path: "users",
+        group: 4,
+        operands: true,
+        flags: &["--apply", "--json", "--profile"],
+        text: r#"  users list [--json]         the test users of [[test.user]] on the server: present, signing in
+                              with the profile's test_password, in their groups
+  users seed                  create the missing users, the [test] project and group memberships
+  users delete                delete the test users; both need allow_test_users = true in the
+                              profile and plan until --apply"#,
+    },
+    Command {
         path: "ext",
         group: 4,
         operands: true,

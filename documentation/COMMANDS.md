@@ -265,6 +265,11 @@ localization set <token> --value <text>  add or change a token; --table (default
                             --usage (new: label), --context, --project
 localization remove <token> remove a token from every table, or from --table
     --table <name>          one table only; --apply makes the change (all but status plan)
+users list [--json]         the test users of [[test.user]] on the server: present, signing in
+                            with the profile's test_password, in their groups
+users seed                  create the missing users, the [test] project and group memberships
+users delete                delete the test users; both need allow_test_users = true in the
+                            profile and plan until --apply
 ext list [--json]           the server's extension packages
 ext show <package>          one package: its extensions, and which are in use
 ext import <zip>            validate a package on the server; --apply installs it

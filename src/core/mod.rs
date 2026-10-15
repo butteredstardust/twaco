@@ -68,6 +68,7 @@ pub mod sidecar;
 pub mod splice;
 pub mod status;
 pub mod sync;
+pub mod testing;
 pub mod transaction;
 pub mod types;
 pub mod unused;
