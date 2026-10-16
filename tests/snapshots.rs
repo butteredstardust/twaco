@@ -118,6 +118,18 @@ const SCENARIOS: &[(&str, &[&str])] = &[
         "mashup_new_plan",
         &["mashup", "new", "Acme.Orders.Board_MU", "--master"],
     ),
+    ("mashup_templates", &["mashup", "templates"]),
+    ("mashup_templates_card", &["mashup", "templates", "card"]),
+    (
+        "mashup_new_form_dialog_plan",
+        &[
+            "mashup",
+            "new",
+            "Acme.Orders.Edit_MU",
+            "--template",
+            "form-dialog",
+        ],
+    ),
     (
         "mashup_new_header_footer_plan",
         &[

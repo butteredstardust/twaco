@@ -1,0 +1,30 @@
+{
+  "name": "kpi-tile",
+  "summary": "Compact KPI title and centered value",
+  "aliases": [
+    "kpi"
+  ],
+  "page": {
+    "flex-direction": "column",
+    "align-items": "stretch"
+  },
+  "master_slot": "value",
+  "children": [
+    {
+      "slot": "title",
+      "flex-direction": "row",
+      "align-items": "center",
+      "fixed": "40px"
+    },
+    {
+      "divider": true
+    },
+    {
+      "slot": "value",
+      "flex-direction": "column",
+      "flex-grow": 1,
+      "justify-content": "center",
+      "align-items": "center"
+    }
+  ]
+}

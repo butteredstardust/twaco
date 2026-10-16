@@ -133,14 +133,17 @@ mashup on <mashup> --event <address> --invoke <address> [--apply] [--json]
                             run a service or widget service when a mashup event fires; plan unless --apply
     --event <address>       event address from mashup describe
     --invoke <address>      data call or widget service to run
-mashup new <name> [--project <name>] [--layout blank|sidebar|header-footer] [--primary-menu <address>]
+mashup templates [<name>] [--json]
+                            list the embedded responsive mashup templates and their slots
+mashup new <name> [--project <name>] [--template <name>] [--primary-menu <address>]
     [--secondary-menu <address>] [--theme <StyleTheme>] [--master]
     [--visibility <principal>]... [--apply] [--json]
                             create a ThingWorx 10.2 responsive mashup as Composer would: its entity file
                             and its content sidecars; plan unless --apply
-    --layout                blank has one center container; sidebar has a menu and center; header-footer has three regions
-    --primary-menu          required INFOTABLE service result for a sidebar's primary menu
-    --secondary-menu        optional INFOTABLE service result for a sidebar's secondary menu
+    --template              layout template name or alias (default: blank); see mashup templates
+    --layout                compatibility alias for --template
+    --primary-menu          required INFOTABLE service result for a template's menu bar
+    --secondary-menu        optional INFOTABLE service result for a template's menu bar
     --theme <StyleTheme>    a StyleTheme in the solution (default: PTC Convergence Theme)
     --master                a master mashup, with a page container filling the center
     --visibility            Organization/<name> or OrganizationalUnit/<organization>:<unit>, repeatable;

@@ -1,8 +1,8 @@
 use super::requests::refactor::{
     AdoptApplyRequest, AdoptKind, AdoptReportRequest, AdoptTakeSide, HandoffAction, HandoffRequest,
     MashupAddRequest, MashupBindRequest, MashupDescribeRequest, MashupNewRequest, MashupOnRequest,
-    MoveMemberRequest, NewBuildingBlockRequest, RenameRequest, ReprojectRequest, RetemplateRequest,
-    WidgetsRequest,
+    MashupTemplatesRequest, MoveMemberRequest, NewBuildingBlockRequest, RenameRequest,
+    ReprojectRequest, RetemplateRequest, WidgetsRequest,
 };
 use super::source::add_types_refresh;
 use super::*;
@@ -175,19 +175,20 @@ pub(crate) fn mashup_new_tool(
     arguments: MashupNewRequest,
 ) -> Result<Value, ToolError> {
     let dry_run = arguments.dry_run;
-    let layout = match arguments.layout.as_ref().map(String::as_str) {
-        None => crate::core::mashup_authoring::Layout::Blank,
-        Some(word) => crate::core::mashup_authoring::Layout::from_word(word).ok_or_else(|| {
-            ToolError::invalid(format!(
-                "unknown layout `{word}`; use `blank`, `sidebar` or `header-footer`"
-            ))
-        })?,
-    };
+    if !arguments.template.is_absent() && !arguments.layout.is_absent() {
+        return Err(ToolError::invalid("give template or layout, not both"));
+    }
+    let template = arguments
+        .template
+        .as_ref()
+        .or_else(|| arguments.layout.as_ref())
+        .cloned()
+        .unwrap_or_else(|| "blank".into());
     let request = commands::mashup::MashupNewRequest {
         request: crate::core::mashup_authoring::NewRequest {
             name: nonempty(&arguments.name, "name")?.to_string(),
             project: arguments.project.as_ref().cloned(),
-            layout,
+            template,
             primary_menu: arguments.primary_menu.as_ref().cloned(),
             secondary_menu: arguments.secondary_menu.as_ref().cloned(),
             theme: arguments.theme.as_ref().cloned(),
@@ -205,6 +206,18 @@ pub(crate) fn mashup_new_tool(
     result["dry_run"] = json!(dry_run);
     add_notices(&mut result, &notices);
     Ok(result)
+}
+
+pub(crate) fn mashup_templates_tool(arguments: MashupTemplatesRequest) -> Result<Value, ToolError> {
+    match arguments.name.as_ref() {
+        Some(name) => crate::core::mashup_templates_view::detail(name)
+            .map_err(ToolError::invalid)?
+            .map(|template| serde_json::to_value(template).expect("template serialises"))
+            .ok_or_else(|| ToolError::invalid(format!("unknown template `{name}`"))),
+        None => crate::core::mashup_templates_view::list()
+            .map(|templates| json!({ "templates": templates }))
+            .map_err(ToolError::invalid),
+    }
 }
 
 pub(crate) fn mashup_add_tool(

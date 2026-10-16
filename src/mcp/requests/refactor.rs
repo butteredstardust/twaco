@@ -288,13 +288,24 @@ pub(crate) struct WidgetsRequest {
 
 #[derive(Debug, Deserialize, JsonSchema, Serialize)]
 #[serde(deny_unknown_fields)]
+pub(crate) struct MashupTemplatesRequest {
+    /// One template name or alias; omit to list every embedded template.
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) name: Absent<String>,
+}
+
+#[derive(Debug, Deserialize, JsonSchema, Serialize)]
+#[serde(deny_unknown_fields)]
 pub(crate) struct MashupNewRequest {
     /// The new mashup's name.
     pub(crate) name: String,
     /// The project it belongs to; may be left out when the solution has one project.
     #[serde(default, skip_serializing_if = "Absent::is_absent")]
     pub(crate) project: Absent<String>,
-    /// `blank`: one center container (the default); `sidebar` or `header-footer` add page regions.
+    /// An embedded layout template name or alias; default `blank`.
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) template: Absent<String>,
+    /// Compatibility alias for template.
     #[serde(default, skip_serializing_if = "Absent::is_absent")]
     pub(crate) layout: Absent<String>,
     /// The INFOTABLE service result used as a sidebar's primary menu.

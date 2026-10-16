@@ -4,4 +4,4 @@ exit: 2
 --- stdout
 
 --- stderr
-twaco: --primary-menu is required for --layout sidebar
+twaco: --primary-menu is required for --template sidebar

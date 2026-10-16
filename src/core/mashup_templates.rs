@@ -7,12 +7,76 @@
 //! properties for a master mashup.
 
 use crate::core::scan::escape_attribute;
-use serde_json::Value;
+use serde::{Deserialize, Serialize};
+use serde_json::{Map, Value};
 use std::collections::BTreeMap;
 
 const ENTITY_XML: &str = include_str!("mashup_templates/mashup.xml");
 pub const BLANK: &str = include_str!("mashup_templates/blank.content.json");
 const MASTER_ROOT: &str = include_str!("mashup_templates/master_root.json");
+
+const LAYOUTS: &[&str] = &[
+    include_str!("mashup_templates/layouts/blank.json"),
+    include_str!("mashup_templates/layouts/sidebar.json"),
+    include_str!("mashup_templates/layouts/header-footer.json"),
+    include_str!("mashup_templates/layouts/header-sidebar.json"),
+    include_str!("mashup_templates/layouts/form-dialog.json"),
+    include_str!("mashup_templates/layouts/confirm-dialog.json"),
+    include_str!("mashup_templates/layouts/list-page.json"),
+    include_str!("mashup_templates/layouts/card.json"),
+    include_str!("mashup_templates/layouts/master-detail.json"),
+    include_str!("mashup_templates/layouts/kpi-tile.json"),
+    include_str!("mashup_templates/layouts/filter-panel.json"),
+];
+
+/// An embedded responsive layout template.
+#[derive(Clone, Debug, Deserialize, Serialize)]
+pub struct LayoutTemplate {
+    pub name: String,
+    pub summary: String,
+    #[serde(default)]
+    pub aliases: Vec<String>,
+    pub page: Map<String, Value>,
+    #[serde(default)]
+    pub master_slot: Option<String>,
+    #[serde(default)]
+    pub children: Vec<LayoutNode>,
+}
+
+/// A slot container in a layout template. Properties not part of the layout vocabulary are
+/// Composer properties and are copied without interpretation.
+#[derive(Clone, Debug, Deserialize, Serialize)]
+pub struct LayoutNode {
+    #[serde(default)]
+    pub slot: Option<String>,
+    #[serde(default)]
+    pub children: Vec<LayoutNode>,
+    #[serde(default)]
+    pub widget: Option<String>,
+    #[serde(default)]
+    pub fixed: Option<String>,
+    #[serde(default)]
+    pub divider: bool,
+    #[serde(flatten)]
+    pub properties: Map<String, Value>,
+}
+
+/// Parse the fixed, ordered set of templates embedded in this binary.
+pub fn layouts() -> Result<Vec<LayoutTemplate>, String> {
+    LAYOUTS
+        .iter()
+        .map(|text| {
+            serde_json::from_str(text).map_err(|error| format!("embedded mashup layout: {error}"))
+        })
+        .collect()
+}
+
+/// One template by canonical name or alias.
+pub fn layout(word: &str) -> Result<Option<LayoutTemplate>, String> {
+    Ok(layouts()?.into_iter().find(|template| {
+        template.name == word || template.aliases.iter().any(|alias| alias == word)
+    }))
+}
 
 /// What kind of mashup the entity says it is.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

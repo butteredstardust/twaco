@@ -23,44 +23,16 @@ use uuid::Uuid;
 /// The theme a new mashup uses unless asked for another: 10.2's default.
 pub const DEFAULT_THEME: &str = "PTC Convergence Theme";
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum Layout {
-    /// One `center` container.
-    Blank,
-    /// A menu sidebar beside a center container.
-    Sidebar,
-    /// Fixed header and footer around a center container.
-    HeaderFooter,
-}
-
-impl Layout {
-    pub fn from_word(word: &str) -> Option<Self> {
-        match word {
-            "blank" => Some(Self::Blank),
-            "sidebar" => Some(Self::Sidebar),
-            "header-footer" => Some(Self::HeaderFooter),
-            _ => None,
-        }
-    }
-
-    pub const fn word(self) -> &'static str {
-        match self {
-            Self::Blank => "blank",
-            Self::Sidebar => "sidebar",
-            Self::HeaderFooter => "header-footer",
-        }
-    }
-}
-
 #[derive(Clone, Debug)]
 pub struct NewRequest {
     pub name: String,
     /// The project it belongs to; may be left out when the solution has one project.
     pub project: Option<String>,
-    pub layout: Layout,
-    /// The required primary menu service for a sidebar layout.
+    /// An embedded layout template name or alias.
+    pub template: String,
+    /// The required primary menu service for a template with a menu bar.
     pub primary_menu: Option<String>,
-    /// The optional secondary menu service for a sidebar layout.
+    /// The optional secondary menu service for a template with a menu bar.
     pub secondary_menu: Option<String>,
     /// A StyleTheme in the solution, or 10.2's default.
     pub theme: Option<String>,
@@ -74,7 +46,7 @@ pub struct NewRequest {
 pub struct NewPlan {
     pub name: String,
     pub project: String,
-    pub layout: Layout,
+    pub template: mashup_templates::LayoutTemplate,
     pub master: bool,
     pub theme: String,
     pub visibility: Vec<Visibility>,
@@ -232,20 +204,10 @@ pub fn parse_visibility(text: &str) -> Result<Visibility, AuthoringError> {
 
 /// What creating the mashup would write. Nothing is written.
 pub fn plan_new(solution: &Solution, request: &NewRequest) -> Result<NewPlan, AuthoringError> {
-    match request.layout {
-        Layout::Sidebar if request.primary_menu.is_none() => {
-            return Err(AuthoringError::Invalid(
-                "--primary-menu is required for --layout sidebar".into(),
-            ));
-        }
-        Layout::Sidebar => {}
-        _ if request.primary_menu.is_some() || request.secondary_menu.is_some() => {
-            return Err(AuthoringError::Invalid(
-                "menus are for --layout sidebar".into(),
-            ));
-        }
-        _ => {}
-    }
+    let template = mashup_templates::layout(&request.template)
+        .map_err(AuthoringError::Invalid)?
+        .ok_or_else(|| AuthoringError::Invalid(unknown_template(&request.template)))?;
+    validate_template(&template)?;
     EntityKey::new("Mashups", request.name.as_str())
         .map_err(|error| AuthoringError::Invalid(format!("not a mashup name: {error}")))?;
     // The name is a file name twice over (the entity file, the sidecar folder), on every platform.
@@ -337,7 +299,25 @@ pub fn plan_new(solution: &Solution, request: &NewRequest) -> Result<NewPlan, Au
         }
     }
 
-    let mut document = new_document(request.layout, request.master, &theme)?;
+    let mut document = new_document(&template, request.master, &theme)?;
+    let menu = document
+        .widgets()
+        .into_iter()
+        .find(|widget| widget.type_id == "ptcsmenubar");
+    match (menu.as_ref(), request.primary_menu.as_ref()) {
+        (Some(_), None) => {
+            return Err(AuthoringError::Invalid(format!(
+                "--primary-menu is required for --template {}",
+                template.name
+            )));
+        }
+        (None, _) if request.primary_menu.is_some() || request.secondary_menu.is_some() => {
+            return Err(AuthoringError::Invalid(
+                "menus are for a template with a menu bar (sidebar, header-sidebar)".into(),
+            ));
+        }
+        _ => {}
+    }
     let mut menus = Vec::new();
     if let Some(primary_menu) = &request.primary_menu {
         let (model, _) = types::load_model(solution);
@@ -359,7 +339,7 @@ pub fn plan_new(solution: &Solution, request: &NewRequest) -> Result<NewPlan, Au
                 &mut document,
                 &context,
                 service,
-                &format!("ui:ptcsmenubar-4.{property}"),
+                &format!("ui:{}.{property}", menu.as_ref().expect("checked menu").id),
             )?;
             on_in(&mut document, &context, "mashup:Loaded", service)?;
             menus.push((service.clone(), property.to_string()));
@@ -372,12 +352,14 @@ pub fn plan_new(solution: &Solution, request: &NewRequest) -> Result<NewPlan, Au
     };
     let assets =
         mashup::assets_from_payload(&document.to_content()).map_err(AuthoringError::Mashup)?;
-    let template = mashup_templates::entity_xml(&request.name, &project.name, kind, &visibility);
-    let (entity, _) = mashup::sync(template.as_bytes(), &assets).map_err(AuthoringError::Mashup)?;
+    let entity_template =
+        mashup_templates::entity_xml(&request.name, &project.name, kind, &visibility);
+    let (entity, _) =
+        mashup::sync(entity_template.as_bytes(), &assets).map_err(AuthoringError::Mashup)?;
     Ok(NewPlan {
         name: request.name.clone(),
         project: project.name.clone(),
-        layout: request.layout,
+        template,
         master: request.master,
         theme,
         visibility,
@@ -393,89 +375,19 @@ pub fn plan_new(solution: &Solution, request: &NewRequest) -> Result<NewPlan, Au
 
 /// The content of a new mashup.
 fn new_document(
-    layout: Layout,
+    template: &mashup_templates::LayoutTemplate,
     master: bool,
     theme: &str,
 ) -> Result<MashupDocument, AuthoringError> {
     let mut document = mashup_edit::parse(mashup_templates::BLANK).map_err(AuthoringError::Edit)?;
     let root = document.find("center").map_err(AuthoringError::Edit)?;
-    match layout {
-        Layout::Blank => {}
-        Layout::Sidebar => {
-            document.set_property(&root.path, "DisplayName", json!("page"));
-            document.set_property(&root.path, "flex-direction", json!("row"));
-            document.set_property(&root.path, "align-items", json!("stretch"));
-            let container = widgets::catalog()
-                .by_type("flexcontainer")
-                .expect("the catalogue has the flex container; a test checks it");
-            let sidebar_number = document.allocate();
-            let mut sidebar = mashup_edit::new_widget(container, sidebar_number, true);
-            let menu = widgets::catalog()
-                .by_type("ptcsmenubar")
-                .expect("the catalogue has the menu bar; a test checks it");
-            let menu_number = document.allocate();
-            sidebar["Widgets"] = json!([mashup_edit::new_widget(menu, menu_number, true)]);
-            document.push_child(&root.path, sidebar);
-            let sidebar = document
-                .find(&format!("flexcontainer-{sidebar_number}"))
-                .map_err(AuthoringError::Edit)?;
-            document.set_property(&sidebar.path, "DisplayName", json!("sidebar"));
-            document.set_property(&sidebar.path, "flex-direction", json!("column"));
-            document.set_property(&sidebar.path, "flex-grow", json!(0));
-            document.set_property(&sidebar.path, "align-items", json!("stretch"));
-            let center_number = document.allocate();
-            let center = mashup_edit::new_widget(container, center_number, true);
-            document.push_child(&root.path, center);
-            let center = document
-                .find("flexcontainer-5")
-                .map_err(AuthoringError::Edit)?;
-            document.set_property(&center.path, "DisplayName", json!("center"));
-            document.set_property(&center.path, "flex-direction", json!("column"));
-            document.set_property(&center.path, "flex-grow", json!(1));
-            document.set_property(&center.path, "align-items", json!("stretch"));
-        }
-        Layout::HeaderFooter => {
-            document.set_property(&root.path, "DisplayName", json!("page"));
-            document.set_property(&root.path, "flex-direction", json!("column"));
-            document.set_property(&root.path, "align-items", json!("stretch"));
-            let container = widgets::catalog()
-                .by_type("flexcontainer")
-                .expect("the catalogue has the flex container; a test checks it");
-            for (name, height) in [("header", "50px"), ("center", ""), ("footer", "40px")] {
-                let number = document.allocate();
-                let child = mashup_edit::new_widget(container, number, true);
-                document.push_child(&root.path, child);
-                let child = document
-                    .find(&format!("flexcontainer-{number}"))
-                    .map_err(AuthoringError::Edit)?;
-                document.set_property(&child.path, "DisplayName", json!(name));
-                document.set_property(
-                    &child.path,
-                    "flex-direction",
-                    json!(if name == "center" { "column" } else { "row" }),
-                );
-                document.set_property(
-                    &child.path,
-                    "align-items",
-                    json!(if name == "center" {
-                        "stretch"
-                    } else {
-                        "center"
-                    }),
-                );
-                if name == "center" {
-                    document.set_property(&child.path, "flex-grow", json!(1));
-                } else {
-                    document.set_property(&child.path, "flex-size", json!("fixed"));
-                    document.set_property(
-                        &child.path,
-                        "iconClass",
-                        json!("widgets-flexcontainer-fixed"),
-                    );
-                    document.set_property(&child.path, "flex-min-height", json!(height));
-                    document.set_property(&child.path, "flex-max-height", json!(height));
-                }
-            }
+    for (key, value) in &template.page {
+        document.set_property(&root.path, key, value.clone());
+    }
+    if !template.children.is_empty() {
+        document.set_property(&root.path, "DisplayName", json!("page"));
+        for child in &template.children {
+            add_template_node(&mut document, &root.path, child, template.name.as_str())?;
         }
     }
     if master {
@@ -486,8 +398,10 @@ fn new_document(
         root.insert("id_index".into(), index);
         *document.root_properties_mut() = root;
         document.set_top("mashupType", json!(MashupKind::Master.content_type()));
-        // Pages open in a page container that fills the center.
-        let center = document.find("center").map_err(AuthoringError::Edit)?;
+        // Pages open in the template's designated page container.
+        let center = document
+            .find(template.master_slot.as_deref().unwrap_or("center"))
+            .map_err(AuthoringError::Edit)?;
         let number = document.allocate();
         let page = widgets::catalog()
             .by_type("pagemashupcontainer")
@@ -496,6 +410,175 @@ fn new_document(
     }
     mashup_edit::insert_sorted(document.root_properties_mut(), "StyleTheme", json!(theme));
     Ok(document)
+}
+
+fn unknown_template(word: &str) -> String {
+    let names = mashup_templates::layouts()
+        .expect("embedded templates parse; a test checks them")
+        .into_iter()
+        .map(|template| template.name)
+        .collect::<Vec<_>>()
+        .join(", ");
+    format!("unknown template `{word}`; use {names}")
+}
+
+fn add_template_node(
+    document: &mut MashupDocument,
+    parent: &[usize],
+    node: &mashup_templates::LayoutNode,
+    template: &str,
+) -> Result<(), AuthoringError> {
+    validate_node(node, template)?;
+    let container = widgets::catalog()
+        .by_type("flexcontainer")
+        .expect("the catalogue has the flex container; a test checks it");
+    let number = document.allocate();
+    document.push_child(parent, mashup_edit::new_widget(container, number, true));
+    let child = document
+        .find_exact(&format!("flexcontainer-{number}"))
+        .map_err(AuthoringError::Edit)?;
+    let name = if node.divider {
+        format!("divider-{number}")
+    } else {
+        node.slot.clone().expect("validated slot")
+    };
+    document.set_property(&child.path, "DisplayName", json!(name));
+    for (key, value) in &node.properties {
+        document.set_property(&child.path, key, value.clone());
+    }
+    if let Some(fixed) = node.fixed.as_deref().or(node.divider.then_some("1px")) {
+        document.set_property(&child.path, "flex-size", json!("fixed"));
+        document.set_property(
+            &child.path,
+            "iconClass",
+            json!("widgets-flexcontainer-fixed"),
+        );
+        let dimension = match document.at(parent)["Properties"]["flex-direction"].as_str() {
+            Some("row") => "width",
+            _ => "height",
+        };
+        document.set_property(&child.path, &format!("flex-min-{dimension}"), json!(fixed));
+        document.set_property(&child.path, &format!("flex-max-{dimension}"), json!(fixed));
+    }
+    if let Some(type_id) = &node.widget {
+        let widget = widgets::catalog().by_type(type_id).ok_or_else(|| {
+            AuthoringError::Invalid(format!(
+                "template {template}: unknown widget type {type_id}"
+            ))
+        })?;
+        let number = document.allocate();
+        document.push_child(&child.path, mashup_edit::new_widget(widget, number, true));
+    }
+    for grandchild in &node.children {
+        add_template_node(document, &child.path, grandchild, template)?;
+    }
+    Ok(())
+}
+
+fn validate_node(
+    node: &mashup_templates::LayoutNode,
+    template: &str,
+) -> Result<(), AuthoringError> {
+    if !node.divider && node.slot.as_deref().is_none_or(str::is_empty) {
+        return Err(AuthoringError::Invalid(format!(
+            "template {template}: a node needs slot"
+        )));
+    }
+    if node.widget.is_some() && !node.children.is_empty() {
+        return Err(AuthoringError::Invalid(format!(
+            "template {template}: a node cannot have both widget and children"
+        )));
+    }
+    for key in node.properties.keys() {
+        if [
+            "Id",
+            "Type",
+            "DisplayName",
+            "ResponsiveLayout",
+            "LastContainer",
+        ]
+        .contains(&key.as_str())
+        {
+            return Err(AuthoringError::Invalid(format!(
+                "template {template}: {key} is not a layout property"
+            )));
+        }
+    }
+    if let Some(type_id) = &node.widget {
+        if widgets::catalog().by_type(type_id).is_none() {
+            return Err(AuthoringError::Invalid(format!(
+                "template {template}: unknown widget type {type_id}"
+            )));
+        }
+    }
+    Ok(())
+}
+
+/// Validate an embedded template before it becomes a Composer document.
+pub fn validate_template(
+    template: &mashup_templates::LayoutTemplate,
+) -> Result<(), AuthoringError> {
+    for key in template.page.keys() {
+        if [
+            "Id",
+            "Type",
+            "DisplayName",
+            "ResponsiveLayout",
+            "LastContainer",
+        ]
+        .contains(&key.as_str())
+        {
+            return Err(AuthoringError::Invalid(format!(
+                "template {}: {key} is not a layout property",
+                template.name
+            )));
+        }
+    }
+    let mut slots = std::collections::BTreeSet::new();
+    fn walk(
+        nodes: &[mashup_templates::LayoutNode],
+        template: &str,
+        slots: &mut std::collections::BTreeSet<String>,
+    ) -> Result<(), AuthoringError> {
+        for node in nodes {
+            validate_node(node, template)?;
+            if let Some(slot) = &node.slot {
+                if !slots.insert(slot.clone()) {
+                    return Err(AuthoringError::Invalid(format!(
+                        "template {template}: slot {slot} appears more than once"
+                    )));
+                }
+            }
+            walk(&node.children, template, slots)?;
+        }
+        Ok(())
+    }
+    walk(&template.children, &template.name, &mut slots)?;
+    if !template.children.is_empty()
+        && !template
+            .master_slot
+            .as_ref()
+            .is_some_and(|slot| slots.contains(slot))
+    {
+        return Err(AuthoringError::Invalid(format!(
+            "template {}: master_slot must name a slot",
+            template.name
+        )));
+    }
+    if template.children.is_empty() && template.master_slot.as_deref() != Some("center") {
+        return Err(AuthoringError::Invalid(format!(
+            "template {}: blank master_slot must be center",
+            template.name
+        )));
+    }
+    let document = new_document(template, false, DEFAULT_THEME)?;
+    if !document.problems().is_empty() {
+        return Err(AuthoringError::Invalid(format!(
+            "template {}: generated document has problems",
+            template.name
+        )));
+    }
+    Ok(())
 }
 
 /// Write the planned files, all or none.
@@ -530,7 +613,9 @@ pub fn new_plan_json(solution: &Solution, plan: &NewPlan, applied: bool) -> Valu
         "applied": applied,
         "mashup": plan.name,
         "project": plan.project,
-        "layout": plan.layout.word(),
+        "template": plan.template.name,
+        "layout": plan.template.name,
+        "slots": template_slots(&plan.template),
         "master": plan.master,
         "theme": plan.theme,
         "visibility": plan.visibility.iter().map(|v| format!("{}/{}", v.kind, v.name)).collect::<Vec<_>>(),
@@ -545,6 +630,24 @@ pub fn new_plan_json(solution: &Solution, plan: &NewPlan, applied: bool) -> Valu
             "property": property,
         })).collect::<Vec<_>>(),
     })
+}
+
+/// Slot names in the order a person sees them in the generated document.
+pub fn template_slots(template: &mashup_templates::LayoutTemplate) -> Vec<String> {
+    fn collect(nodes: &[mashup_templates::LayoutNode], out: &mut Vec<String>) {
+        for node in nodes {
+            if let Some(slot) = &node.slot {
+                out.push(slot.clone());
+            }
+            collect(&node.children, out);
+        }
+    }
+    let mut slots = Vec::new();
+    collect(&template.children, &mut slots);
+    if slots.is_empty() {
+        slots.push("center".into());
+    }
+    slots
 }
 
 /// Plan adding one catalogue widget to an existing mashup. Nothing is written.
@@ -1767,7 +1870,7 @@ mod tests {
         NewRequest {
             name: name.to_string(),
             project: None,
-            layout: Layout::Blank,
+            template: "blank".into(),
             primary_menu: None,
             secondary_menu: None,
             theme: None,
@@ -1849,7 +1952,7 @@ mod tests {
     fn layouts_have_the_composer_tree_and_masters_put_pages_in_center() {
         for (layout, expected) in [
             (
-                Layout::Sidebar,
+                "sidebar",
                 vec![
                     ("flexcontainer-2", "flexcontainer", "page", "row"),
                     ("flexcontainer-3", "flexcontainer", "sidebar", "column"),
@@ -1858,7 +1961,7 @@ mod tests {
                 ],
             ),
             (
-                Layout::HeaderFooter,
+                "header-footer",
                 vec![
                     ("flexcontainer-2", "flexcontainer", "page", "column"),
                     ("flexcontainer-3", "flexcontainer", "header", "row"),
@@ -1868,7 +1971,8 @@ mod tests {
             ),
         ] {
             for master in [false, true] {
-                let document = new_document(layout, master, DEFAULT_THEME).unwrap();
+                let template = mashup_templates::layout(layout).unwrap().unwrap();
+                let document = new_document(&template, master, DEFAULT_THEME).unwrap();
                 let tree: Vec<(String, String, String, String)> = document
                     .widgets()
                     .into_iter()
@@ -1895,7 +1999,7 @@ mod tests {
                     })
                     .collect();
                 if master {
-                    let at = if layout == Layout::Sidebar { 4 } else { 3 };
+                    let at = if layout == "sidebar" { 4 } else { 3 };
                     expected.insert(
                         at,
                         (
@@ -1911,6 +2015,150 @@ mod tests {
                 assert_eq!(tree, expected);
             }
         }
+    }
+
+    #[test]
+    fn every_embedded_template_validates_and_its_fixed_nodes_follow_the_parent_axis() {
+        for template in mashup_templates::layouts().unwrap() {
+            validate_template(&template).unwrap();
+        }
+        for (name, expected) in [
+            (
+                "header-sidebar",
+                vec![("flexcontainer-3", "header", "height")],
+            ),
+            (
+                "form-dialog",
+                vec![
+                    ("flexcontainer-3", "title", "height"),
+                    ("flexcontainer-5", "actions", "height"),
+                ],
+            ),
+            (
+                "card",
+                vec![
+                    ("flexcontainer-3", "header", "height"),
+                    ("flexcontainer-5", "actions", "width"),
+                ],
+            ),
+            (
+                "master-detail",
+                vec![("flexcontainer-4", "divider-4", "width")],
+            ),
+            ("kpi-tile", vec![("flexcontainer-4", "divider-4", "height")]),
+        ] {
+            let template = mashup_templates::layout(name).unwrap().unwrap();
+            let document = new_document(&template, false, DEFAULT_THEME).unwrap();
+            let expected_tree = match name {
+                "header-sidebar" => vec![
+                    ("flexcontainer-2", "flexcontainer", "page"),
+                    ("flexcontainer-3", "flexcontainer", "header"),
+                    ("flexcontainer-4", "flexcontainer", "body"),
+                    ("flexcontainer-5", "flexcontainer", "sidebar"),
+                    ("ptcsmenubar-6", "ptcsmenubar", "ptcs-menubar-6"),
+                    ("flexcontainer-7", "flexcontainer", "center"),
+                ],
+                "form-dialog" => vec![
+                    ("flexcontainer-2", "flexcontainer", "page"),
+                    ("flexcontainer-3", "flexcontainer", "title"),
+                    ("flexcontainer-4", "flexcontainer", "fields"),
+                    ("flexcontainer-5", "flexcontainer", "actions"),
+                ],
+                "card" => vec![
+                    ("flexcontainer-2", "flexcontainer", "page"),
+                    ("flexcontainer-3", "flexcontainer", "header"),
+                    ("flexcontainer-4", "flexcontainer", "title"),
+                    ("flexcontainer-5", "flexcontainer", "actions"),
+                    ("flexcontainer-6", "flexcontainer", "body"),
+                ],
+                "master-detail" => vec![
+                    ("flexcontainer-2", "flexcontainer", "page"),
+                    ("flexcontainer-3", "flexcontainer", "list"),
+                    ("flexcontainer-4", "flexcontainer", "divider-4"),
+                    ("flexcontainer-5", "flexcontainer", "detail"),
+                ],
+                "kpi-tile" => vec![
+                    ("flexcontainer-2", "flexcontainer", "page"),
+                    ("flexcontainer-3", "flexcontainer", "title"),
+                    ("flexcontainer-4", "flexcontainer", "divider-4"),
+                    ("flexcontainer-5", "flexcontainer", "value"),
+                ],
+                _ => unreachable!("only requested templates"),
+            };
+            assert_eq!(
+                document
+                    .widgets()
+                    .into_iter()
+                    .skip(1)
+                    .map(|widget| (widget.id, widget.type_id, widget.display_name))
+                    .collect::<Vec<_>>(),
+                expected_tree
+                    .into_iter()
+                    .map(|(id, type_id, display_name)| {
+                        (id.into(), type_id.into(), display_name.into())
+                    })
+                    .collect::<Vec<_>>(),
+                "{name}"
+            );
+            for (id, slot, axis) in expected {
+                let widget = document.find_exact(id).unwrap();
+                let properties = &document.at(&widget.path)["Properties"];
+                assert_eq!(properties["DisplayName"], slot, "{name}: {id}");
+                assert_eq!(properties["flex-size"], "fixed", "{name}: {id}");
+                assert!(
+                    properties[format!("flex-min-{axis}")].is_string(),
+                    "{name}: {id}"
+                );
+                assert!(
+                    properties[format!("flex-max-{axis}")].is_string(),
+                    "{name}: {id}"
+                );
+            }
+            assert!(document.problems().is_empty(), "{name}");
+        }
+    }
+
+    #[test]
+    fn masters_use_each_template_master_slot() {
+        for (name, slot) in [("form-dialog", "fields"), ("header-sidebar", "center")] {
+            let template = mashup_templates::layout(name).unwrap().unwrap();
+            let document = new_document(&template, true, DEFAULT_THEME).unwrap();
+            let page = document.find("Page Mashup").unwrap();
+            let container = document.find(slot).unwrap();
+            assert_eq!(page.path[..page.path.len() - 1], container.path, "{name}");
+        }
+    }
+
+    #[test]
+    fn add_in_a_template_slot_places_the_widget_in_that_container() {
+        let (_dir, solution) = one_project();
+        let new = plan_new(
+            &solution,
+            &NewRequest {
+                template: "form-dialog".into(),
+                ..request("Acme.Edit_MU")
+            },
+        )
+        .unwrap();
+        apply_new(&solution, &new, &lock(&solution)).unwrap();
+        let added = plan_add(
+            &solution,
+            &AddRequest {
+                mashup: "Acme.Edit_MU".into(),
+                widget: "button".into(),
+                placement: Some(Placement::In("actions".into())),
+                label: None,
+                properties: Vec::new(),
+            },
+        )
+        .unwrap();
+        let content = String::from_utf8(added.edit.sidecars.unwrap().content_after).unwrap();
+        let document = mashup_edit::parse(&content).unwrap();
+        let button = document.find_exact(&added.placed.id).unwrap();
+        assert_eq!(
+            button.path[..button.path.len() - 1],
+            document.find("actions").unwrap().path
+        );
     }
 
     #[test]
@@ -1932,7 +2180,7 @@ mod tests {
         let plan = plan_new(
             &solution,
             &NewRequest {
-                layout: Layout::Sidebar,
+                template: "sidebar".into(),
                 primary_menu: Some("data:Acme.Nav.Manager.GetPrimaryMenu".into()),
                 secondary_menu: Some("data:Acme.Nav.Manager.GetSecondaryMenu".into()),
                 ..request("Acme.Nav_MU")
@@ -2031,7 +2279,7 @@ mod tests {
         let error = plan_new(
             &solution,
             &NewRequest {
-                layout: Layout::Sidebar,
+                template: "sidebar".into(),
                 ..request("Acme.Nav_MU")
             },
         )
@@ -2041,7 +2289,7 @@ mod tests {
             plan_new(
                 &solution,
                 &NewRequest {
-                    layout: Layout::Sidebar,
+                    template: "sidebar".into(),
                     primary_menu: Some(primary_menu.into()),
                     ..request("Acme.Nav_MU")
                 },
@@ -2062,14 +2310,14 @@ mod tests {
         let error = plan_new(
             &solution,
             &NewRequest {
-                layout: Layout::HeaderFooter,
+                template: "header-footer".into(),
                 primary_menu: Some("data:Acme.Nav.Manager.GetTable".into()),
                 ..request("Acme.Nav_MU")
             },
         )
         .unwrap_err();
         assert_eq!(error.code(), ErrorCode::InvalidArguments);
-        assert_eq!(Layout::from_word("stacked"), None);
+        assert!(mashup_templates::layout("stacked").unwrap().is_none());
     }
 
     #[test]

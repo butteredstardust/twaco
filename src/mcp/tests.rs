@@ -845,6 +845,7 @@ fn every_tool_is_listed_with_a_schema_and_honest_annotations() {
             "move_member",
             "new_building_block",
             "mashup_new",
+            "mashup_templates",
             "mashup_add",
             "mashup_bind",
             "mashup_on",
@@ -2340,4 +2341,25 @@ fn widgets_returns_catalogue_details_and_refuses_two_selectors() {
         json!({"widget": "button", "search": "list"}),
     );
     assert_eq!(both["isError"], true, "{both}");
+}
+
+#[test]
+fn mashup_templates_lists_every_template_and_new_uses_template() {
+    let (_dir, root) = solution_dir();
+    let listed = call(&root, "mashup_templates", json!({}));
+    assert_eq!(listed["isError"], false, "{listed}");
+    assert_eq!(
+        listed["structuredContent"]["templates"]
+            .as_array()
+            .unwrap()
+            .len(),
+        11
+    );
+    let created = call(
+        &root,
+        "mashup_new",
+        json!({"name": "Acme.Card_MU", "template": "card", "dry_run": false}),
+    );
+    assert_eq!(created["isError"], false, "{created}");
+    assert_eq!(created["structuredContent"]["template"], "card");
 }

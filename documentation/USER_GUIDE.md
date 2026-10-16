@@ -428,18 +428,33 @@ server), and the `ui` and `test` types. Then `twaco check`, commit and `twaco de
 twaco mashup new Acme.App.Orders_MU --project Acme.App                     # plan
 twaco mashup new Acme.App.Orders_MU --project Acme.App --apply
 twaco mashup new Acme.App.Main_MM --master --visibility Organization/Acme.App.Org --apply
-twaco mashup new Acme.App.Navigation_MU --layout sidebar --primary-menu data:Acme.App.Nav.Manager.GetPrimaryMenu --apply
+twaco mashup new Acme.App.Navigation_MU --template sidebar --primary-menu data:Acme.App.Nav.Manager.GetPrimaryMenu --apply
 ```
 
 `mashup new` writes a ThingWorx 10.2 responsive mashup the way Composer makes one: the entity file
 under the project's `Mashups` folder, and its `content.json` and `custom.css` sidecars, written by the
-same sync as every other mashup, so a new mashup is already in sync. The default page has one
-container, `center`, laid out as a column. `--layout sidebar` has `sidebar` and `center` regions;
-its required `--primary-menu` and optional `--secondary-menu` are INFOTABLE-returning services.
-Their menu-bar data bindings and page-loaded service events are exactly those `mashup bind` and
-`mashup on` would create. `--layout header-footer` has fixed `header` and `footer` regions around
-`center`. `--master` makes a master mashup instead, with a page container filling the center for
-the pages it shows. The theme is ThingWorx's default unless `--theme` names a
+same sync as every other mashup, so a new mashup is already in sync. `--template` selects a named
+layout (and `--layout` remains a compatibility alias); `twaco mashup templates` lists the names,
+aliases and slots. Slots are responsive container names usable with `mashup add --in <slot>`.
+
+| Template | Slots | For |
+| --- | --- | --- |
+| blank | center | A free-form page |
+| sidebar | sidebar, center | Navigation beside content |
+| header-footer | header, center, footer | Framed application page |
+| header-sidebar | header, body, sidebar, center | Navigation page with a header |
+| form-dialog | title, fields, actions | Form editing dialog |
+| confirm-dialog | close, message, actions | Confirmation dialog |
+| list-page | title, toolbar, body | List and toolbar page |
+| card | header, title, actions, body | Card content |
+| master-detail | list, detail | Master and detail panes |
+| kpi-tile | title, value | A compact KPI display |
+| filter-panel | filters, content | Filters beside results |
+
+`sidebar` and `header-sidebar` require `--primary-menu`; their optional `--secondary-menu` values
+are INFOTABLE-returning services. Their menu-bar data bindings and page-loaded service events are
+exactly those `mashup bind` and `mashup on` would create. `--master` makes a master mashup instead,
+with a page container filling the template's master slot for the pages it shows. The theme is ThingWorx's default unless `--theme` names a
 StyleTheme in the solution; twaco never creates one. Nothing is granted visibility unless
 `--visibility` names an `Organization/<name>` or an `OrganizationalUnit/<organization>:<unit>`.
 `--project` may be left out when the solution has one project. A name that is already a mashup, or

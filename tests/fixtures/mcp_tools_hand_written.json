@@ -1103,7 +1103,7 @@
   },
   {
     "name": "mashup_new",
-    "description": "Create a ThingWorx 10.2 responsive mashup in the repository as Composer would: its entity file (from the 10.2 template, no permissions) and its content.json and custom.css sidecars, written by the same sync as any mashup. layout blank is one center container; sidebar adds a menu and center, with a required primary_menu and optional secondary_menu INFOTABLE service bound and loaded like mashup bind and mashup on; header-footer adds fixed header and footer regions. master makes a master mashup with a page container filling the center; theme must be a StyleTheme in the solution (default PTC Convergence Theme); visibility grants only the principals given. Refuses a name already used or files already there. A dry run unless dry_run is false; an apply takes the workspace lock and writes every file or none.",
+    "description": "Create a ThingWorx 10.2 responsive mashup from an embedded layout template, with its entity file and managed content.json and custom.css sidecars. template is a name or alias (blank by default); mashup_templates lists the slots where mashup_add can place widgets. Menu templates require primary_menu and may use secondary_menu. master puts its page container in the template's master slot. A dry run unless dry_run is false; an apply takes the workspace lock and writes every file or none.",
     "inputSchema": {
       "required": [
         "name"
@@ -1119,8 +1119,12 @@
           "description": "The project it belongs to; may be left out when the solution has one project.",
           "type": "string"
         },
+        "template": {
+          "description": "An embedded layout template name or alias; default `blank`.",
+          "type": "string"
+        },
         "layout": {
-          "description": "`blank`: one center container (the default); `sidebar` or `header-footer` add page regions.",
+          "description": "Compatibility alias for template.",
           "type": "string"
         },
         "primary_menu": {
@@ -1156,6 +1160,25 @@
     "annotations": {
       "readOnlyHint": false,
       "destructiveHint": true,
+      "openWorldHint": false
+    }
+  },
+  {
+    "name": "mashup_templates",
+    "description": "List embedded responsive mashup templates, or with name one template's slot tree. Read-only; no server.",
+    "inputSchema": {
+      "additionalProperties": false,
+      "type": "object",
+      "properties": {
+        "name": {
+          "description": "One template name or alias; omit to list every embedded template.",
+          "type": "string"
+        }
+      }
+    },
+    "annotations": {
+      "readOnlyHint": true,
+      "destructiveHint": false,
       "openWorldHint": false
     }
   },

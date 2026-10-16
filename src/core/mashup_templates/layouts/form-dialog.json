@@ -1,0 +1,34 @@
+{
+  "name": "form-dialog",
+  "summary": "Title bar, fields, and a right-aligned action bar",
+  "aliases": [
+    "form",
+    "dialog"
+  ],
+  "page": {
+    "flex-direction": "column",
+    "align-items": "stretch"
+  },
+  "master_slot": "fields",
+  "children": [
+    {
+      "slot": "title",
+      "flex-direction": "row",
+      "align-items": "center",
+      "fixed": "50px"
+    },
+    {
+      "slot": "fields",
+      "flex-direction": "column",
+      "flex-grow": 1,
+      "align-items": "stretch"
+    },
+    {
+      "slot": "actions",
+      "flex-direction": "row",
+      "justify-content": "flex-end",
+      "align-items": "center",
+      "fixed": "50px"
+    }
+  ]
+}

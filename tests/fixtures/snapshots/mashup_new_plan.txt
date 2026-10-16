@@ -2,7 +2,8 @@ $ twaco mashup new Acme.Orders.Board_MU --master
 exit: 0
 
 --- stdout
-would create master mashup Acme.Orders.Board_MU in project Acme.Orders (blank layout, theme PTC Convergence Theme)
+would create master mashup Acme.Orders.Board_MU in project Acme.Orders (blank template, theme PTC Convergence Theme)
+  slots: center
   Mashups/Acme.Orders.Board_MU.xml
   src/Acme.Orders.Board_MU/mashup/content.json
   src/Acme.Orders.Board_MU/mashup/custom.css

@@ -1,0 +1,39 @@
+{
+  "name": "card",
+  "summary": "Card with a title, actions, and body",
+  "aliases": [],
+  "page": {
+    "flex-direction": "column",
+    "align-items": "stretch"
+  },
+  "master_slot": "body",
+  "children": [
+    {
+      "slot": "header",
+      "flex-direction": "row",
+      "align-items": "center",
+      "fixed": "50px",
+      "children": [
+        {
+          "slot": "title",
+          "flex-direction": "row",
+          "align-items": "center",
+          "flex-grow": 1
+        },
+        {
+          "slot": "actions",
+          "flex-direction": "row",
+          "justify-content": "flex-end",
+          "align-items": "center",
+          "fixed": "46px"
+        }
+      ]
+    },
+    {
+      "slot": "body",
+      "flex-direction": "column",
+      "flex-grow": 1,
+      "align-items": "stretch"
+    }
+  ]
+}

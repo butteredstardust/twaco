@@ -1,6 +1,6 @@
 use super::super::*;
 use super::style;
-use twaco::core::mashup_authoring::{self, Layout};
+use twaco::core::mashup_authoring;
 use twaco::core::mashup_edit::{Placement, Side};
 
 /// `twaco mashup new <name>`: plan a new mashup, or create it with `--apply`.
@@ -9,22 +9,22 @@ pub(crate) fn mashup_new_cmd(solution: &Solution, args: &Args) -> u8 {
         eprintln!("{} mashup new needs one <name>", style::prefix());
         return FAILED;
     };
-    let layout = match args.values.get("--layout").map(String::as_str) {
-        None => Layout::Blank,
-        Some(word) => match Layout::from_word(word) {
-            Some(layout) => layout,
-            None => {
-                eprintln!("{} --layout is blank, not `{word}`", style::prefix());
-                return FAILED;
-            }
-        },
-    };
+    if args.values.contains_key("--template") && args.values.contains_key("--layout") {
+        eprintln!("{} give --template or --layout, not both", style::prefix());
+        return FAILED;
+    }
+    let template = args
+        .values
+        .get("--template")
+        .or_else(|| args.values.get("--layout"))
+        .cloned()
+        .unwrap_or_else(|| "blank".into());
     let apply = args.has("--apply");
     let request = commands::mashup::MashupNewRequest {
         request: mashup_authoring::NewRequest {
             name: name.clone(),
             project: args.project.clone(),
-            layout,
+            template,
             primary_menu: args.values.get("--primary-menu").cloned(),
             secondary_menu: args.values.get("--secondary-menu").cloned(),
             theme: args.values.get("--theme").cloned(),
@@ -59,7 +59,7 @@ pub(crate) fn mashup_new_cmd(solution: &Solution, args: &Args) -> u8 {
         "mashup"
     };
     println!(
-        "{} {kind} {} in project {} ({} layout, theme {})",
+        "{} {kind} {} in project {} ({} template, theme {})",
         if outcome.applied {
             "created"
         } else {
@@ -67,8 +67,12 @@ pub(crate) fn mashup_new_cmd(solution: &Solution, args: &Args) -> u8 {
         },
         plan.name,
         plan.project,
-        plan.layout.word(),
+        plan.template.name,
         plan.theme
+    );
+    println!(
+        "  slots: {}",
+        mashup_authoring::template_slots(&plan.template).join(", ")
     );
     for file in report["files"].as_array().into_iter().flatten() {
         println!("  {}", file.as_str().unwrap_or_default());
@@ -93,6 +97,90 @@ pub(crate) fn mashup_new_cmd(solution: &Solution, args: &Args) -> u8 {
         println!("run again with --apply to write it");
     }
     OK
+}
+
+/// `twaco mashup templates [<name>]`: read the embedded layout templates.
+pub(crate) fn mashup_templates_cmd(args: &Args) -> u8 {
+    let detail = match args.names.as_slice() {
+        [] => None,
+        [name] => Some(name),
+        _ => {
+            eprintln!(
+                "{} mashup templates takes at most one <name>",
+                style::prefix()
+            );
+            return FAILED;
+        }
+    };
+    match detail {
+        Some(name) => match twaco::core::mashup_templates_view::detail(name) {
+            Ok(Some(template)) => {
+                if args.has("--json") {
+                    println!(
+                        "{}",
+                        serde_json::to_string_pretty(&template).expect("template serialises")
+                    );
+                } else {
+                    println!("{}: {}", template.name, template.summary);
+                    if !template.aliases.is_empty() {
+                        println!("aliases: {}", template.aliases.join(", "));
+                    }
+                    for line in twaco::core::mashup_templates_view::tree_lines(&template) {
+                        println!("  {line}");
+                    }
+                    if let Some(slot) = &template.master_slot {
+                        println!("with --master, the page mashup container goes in {slot}");
+                    }
+                }
+                OK
+            }
+            Ok(None) => {
+                let names = twaco::core::mashup_templates_view::list()
+                    .map(|all| {
+                        all.into_iter()
+                            .map(|t| t.name)
+                            .collect::<Vec<_>>()
+                            .join(", ")
+                    })
+                    .unwrap_or_default();
+                eprintln!(
+                    "{} unknown template `{name}`; the templates are {names}",
+                    style::prefix()
+                );
+                FAILED
+            }
+            Err(error) => {
+                eprintln!("{} {error}", style::prefix());
+                FAILED
+            }
+        },
+        None => match twaco::core::mashup_templates_view::list() {
+            Ok(templates) => {
+                if args.has("--json") {
+                    println!(
+                        "{}",
+                        serde_json::to_string_pretty(&templates).expect("templates serialise")
+                    );
+                } else {
+                    println!("Mashup templates");
+                    for template in templates {
+                        let aliases = if template.aliases.is_empty() {
+                            String::new()
+                        } else {
+                            format!(" (also {})", template.aliases.join(", "))
+                        };
+                        println!("  {:<15} {}{aliases}", template.name, template.summary);
+                        println!("  {:<15} slots: {}", "", template.slots.join(", "));
+                    }
+                }
+                OK
+            }
+            Err(error) => {
+                eprintln!("{} {error}", style::prefix());
+                FAILED
+            }
+        },
+    }
 }
 
 /// `twaco mashup add <mashup> <widget>`: plan a catalogue widget insertion, or apply it.

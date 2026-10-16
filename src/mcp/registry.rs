@@ -344,9 +344,15 @@ static TOOLS: LazyLock<Vec<Tool>> = LazyLock::new(|| {
         ),
         solution_tool::<refactor_requests::MashupNewRequest>(
             "mashup_new",
-            "Create a ThingWorx 10.2 responsive mashup in the repository as Composer would: its entity file (from the 10.2 template, no permissions) and its content.json and custom.css sidecars, written by the same sync as any mashup. layout blank is one center container; sidebar adds a menu and center, with a required primary_menu and optional secondary_menu INFOTABLE service bound and loaded like mashup bind and mashup on; header-footer adds fixed header and footer regions. master makes a master mashup with a page container filling the center; theme must be a StyleTheme in the solution (default PTC Convergence Theme); visibility grants only the principals given. Refuses a name already used or files already there. A dry run unless dry_run is false; an apply takes the workspace lock and writes every file or none.",
+            "Create a ThingWorx 10.2 responsive mashup from an embedded layout template, with its entity file and managed content.json and custom.css sidecars. template is a name or alias (blank by default); mashup_templates lists the slots where mashup_add can place widgets. Menu templates require primary_menu and may use secondary_menu. master puts its page container in the template's master slot. A dry run unless dry_run is false; an apply takes the workspace lock and writes every file or none.",
             false,
             refactor::mashup_new_tool,
+        ),
+        bare_tool::<refactor_requests::MashupTemplatesRequest>(
+            "mashup_templates",
+            "List embedded responsive mashup templates, or with name one template's slot tree. Read-only; no server.",
+            true,
+            refactor::mashup_templates_tool,
         ),
           solution_tool::<refactor_requests::MashupAddRequest>(
             "mashup_add",

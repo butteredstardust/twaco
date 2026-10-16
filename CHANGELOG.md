@@ -8,6 +8,7 @@ All notable changes to twaco are recorded here. The format follows
 
 ### Added
 
+- `twaco mashup templates` (MCP `mashup_templates`) lists the 11 embedded responsive mashup templates and their slots. `mashup new --template <name>` creates any one of them, accepts aliases, reports its slots, places master pages in the template's master slot, and finds menu bars from the generated document; `--layout` remains a compatibility alias.
 - `twaco mashup on <mashup> --event <address> --invoke <address>` (MCP `mashup_on`) makes a widget event (from its catalogue contract), the page's `mashup:Loaded` or a call's `ServiceInvokeCompleted` run a data service or a widget service, adding a Thing service call when needed. It plans until applied and updates the entity plus managed content sidecar atomically.
 - `twaco mashup bind <mashup> --from <address> --to <address>` (MCP `mashup_bind`) adds one checked mashup data binding, creating a Thing service call when needed. It plans until applied and updates the entity plus managed content sidecar atomically.
 - `twaco mashup add <mashup> <widget>` (MCP `mashup_add`) adds a catalogue widget to an existing responsive mashup, in a container or beside another widget, with simple label and property settings. It plans until applied and updates the entity plus managed content sidecar atomically.

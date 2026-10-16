@@ -1,0 +1,30 @@
+{
+  "name": "header-footer",
+  "summary": "Fixed header and footer around a center content area",
+  "aliases": [],
+  "page": {
+    "flex-direction": "column",
+    "align-items": "stretch"
+  },
+  "master_slot": "center",
+  "children": [
+    {
+      "slot": "header",
+      "flex-direction": "row",
+      "align-items": "center",
+      "fixed": "50px"
+    },
+    {
+      "slot": "center",
+      "flex-direction": "column",
+      "flex-grow": 1,
+      "align-items": "stretch"
+    },
+    {
+      "slot": "footer",
+      "flex-direction": "row",
+      "align-items": "center",
+      "fixed": "40px"
+    }
+  ]
+}
