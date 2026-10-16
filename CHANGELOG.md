@@ -6,6 +6,16 @@ All notable changes to twaco are recorded here. The format follows
 
 ## [Unreleased]
 
+### Changed
+
+- `twaco.toml` refuses a key or table it does not know, naming it and the keys it expects.
+  Before, a misspelled `[gatez]` or `depends_onn` was ignored, so `check` could run fewer gates or a
+  deploy go out of order without a word. Free-form tables such as `deploy_parameters` are unchanged.
+- MCP tool annotations are set per tool. `openWorldHint` is true for the tools that can reach a
+  ThingWorx server or the Platform help; `destructiveHint` is false for tools that only add or
+  regenerate (`fmt`, `types`, `status`, `bundle`, the `new` tools, ...); writing tools now carry
+  `idempotentHint`. Read-only tools no longer carry `destructiveHint`.
+
 ## [0.1.10] - 2026-10-16
 
 ### Added

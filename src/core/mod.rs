@@ -1,4 +1,4 @@
-//! Everything twaco does. The CLI and, later, the MCP server are thin adapters over this.
+//! Everything twaco does. The CLI and the MCP server are thin adapters over this.
 
 pub mod adopt;
 pub mod backup;

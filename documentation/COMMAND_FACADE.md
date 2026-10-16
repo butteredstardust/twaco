@@ -31,8 +31,7 @@ implementations.
 ## What an adapter holds
 
 - The command line: flags to a request, the executor call, `print_notices`, then the outcome as
-  the lines and exit status the command has always printed. The route is removed from
-  `writes_workspace` in `main.rs` once the executor takes the lock.
+  the lines and exit status the command has always printed. The adapter takes no lock itself.
 - MCP: arguments to a request, the executor call, then the outcome as the JSON the tool has
   always returned, with `notices` added when there are any. The tool takes no lock itself.
 

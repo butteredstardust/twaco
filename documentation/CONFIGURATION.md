@@ -14,7 +14,9 @@ beyond what it writes.
 
 A complete example. At least one `[[project]]` table is required, with its `name`. Every
 other table is optional, but one you declare needs its own required keys: a `[[check]]` its
-`name` and `command`, a `[[project.deploy.post_import]]` its `thing` and `service`.
+`name` and `command`, a `[[project.deploy.post_import]]` its `thing` and `service`. A key or
+table twaco does not know is refused, with its name, so a misspelling never quietly runs fewer
+gates; only free-form tables such as `deploy_parameters` take any key.
 
 ```toml
 [solution]

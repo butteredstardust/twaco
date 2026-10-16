@@ -4,7 +4,7 @@ use super::requests::{
     content as content_requests, data as data_requests, entity as entity_requests,
     info as info_requests, refactor as refactor_requests, source as source_requests,
 };
-use super::{content, data, entity, info, refactor, source, ToolError};
+use super::{content, data, entity, info, refactor, source, Protocol, ToolError};
 use crate::core::config::Solution;
 use crate::core::progress::Progress;
 use schemars::JsonSchema;
@@ -33,18 +33,14 @@ pub(crate) struct Tool {
 impl Tool {
     /// The tool's entry in `tools/list`. An output schema is published only to clients that
     /// negotiated a protocol revision that has them.
-    fn definition(&self, protocol: &str) -> Value {
+    fn definition(&self, protocol: Protocol) -> Value {
         let mut definition = json!({
             "name": self.name,
             "description": self.description,
             "inputSchema": self.input_schema,
-            "annotations": {
-                "readOnlyHint": self.read_only,
-                "destructiveHint": !self.read_only,
-                "openWorldHint": false,
-            },
+            "annotations": annotations(self.name, self.read_only),
         });
-        if protocol >= "2025-06-18" {
+        if protocol.has_structured_output() {
             if let Some(output_schema) = &self.output_schema {
                 definition["outputSchema"] = output_schema.clone();
             }
@@ -58,6 +54,89 @@ impl Tool {
         self
     }
 }
+
+/// Tools that may reach beyond the solution on some path: a ThingWorx server, or the
+/// Platform help and Javadoc sites. `check` and `types` do so only when asked (`live`,
+/// `platform`), which is still "may".
+const OPEN_WORLD: &[&str] = &[
+    "types",
+    "check",
+    "status",
+    "push",
+    "entity_delete",
+    "entity_restore",
+    "entity_carry",
+    "permissions",
+    "permissions_audit",
+    "permissions_push",
+    "db_run",
+    "db_query",
+    "datatable_copy",
+    "db_clean",
+    "deploy",
+    "config_table",
+    "logs",
+    "log_level",
+    "repo",
+    "repo_write",
+    "localization",
+    "localization_write",
+    "users",
+    "users_write",
+    "test",
+    "extensions",
+    "extension_write",
+    "search",
+    "entity_get",
+    "export",
+    "import",
+    "settings",
+    "doctor",
+    "help_search",
+    "help_page",
+    "javadoc",
+    "call",
+];
+
+/// Writing tools whose changes only add or regenerate: they create files that did not exist,
+/// or rewrite derived files (declarations, the bundle, the baseline, formatting) that the
+/// repository can produce again. Every other writing tool may discard something.
+const ADDITIVE: &[&str] = &[
+    "types",
+    "fmt",
+    "status",
+    "bundle",
+    "handoff",
+    "new_building_block",
+    "entity_new",
+    "mashup_new",
+    "permissions_init",
+];
+
+/// Writing tools that, called again with the same arguments, change nothing more.
+const IDEMPOTENT: &[&str] = &["types", "fmt", "extract", "sync", "status", "bundle"];
+
+/// The MCP behaviour hints for a tool. Clients use them to decide what to ask a person before
+/// running it, so a hint errs towards caution: unlisted means destructive, not idempotent.
+fn annotations(name: &str, read_only: bool) -> Value {
+    let mut hints = json!({
+        "readOnlyHint": read_only,
+        "openWorldHint": OPEN_WORLD.contains(&name),
+    });
+    // The spec gives these meaning only for a tool that writes.
+    if !read_only {
+        hints["destructiveHint"] = json!(!ADDITIVE.contains(&name));
+        hints["idempotentHint"] = json!(IDEMPOTENT.contains(&name));
+    }
+    hints
+}
+
+#[cfg(test)]
+pub(crate) const HINT_LISTS: [(&str, &[&str]); 3] = [
+    ("OPEN_WORLD", OPEN_WORLD),
+    ("ADDITIVE", ADDITIVE),
+    ("IDEMPOTENT", IDEMPOTENT),
+];
 
 /// Read the arguments into a request, answering a bad one as a tool error the agent can correct.
 fn read<T: DeserializeOwned>(schema: &Value, arguments: &Value) -> Result<T, ToolError> {
@@ -622,7 +701,7 @@ static TOOLS: LazyLock<Vec<Tool>> = LazyLock::new(|| {
 });
 
 /// Every tool's `tools/list` entry, in the order the tools are published.
-pub(crate) fn definitions(protocol: &str) -> Vec<Value> {
+pub(crate) fn definitions(protocol: Protocol) -> Vec<Value> {
     TOOLS.iter().map(|tool| tool.definition(protocol)).collect()
 }
 
@@ -664,7 +743,7 @@ pub(crate) fn accepts(name: &str, arguments: &Value) -> Option<Result<(), String
 }
 
 #[cfg(test)]
-pub(crate) fn output_definition_for_test(protocol: &str) -> Value {
+pub(crate) fn output_definition_for_test(protocol: Protocol) -> Value {
     #[derive(schemars::JsonSchema)]
     struct Projection {
         _ok: bool,

@@ -119,8 +119,9 @@ See [Testing](TESTING.md) for commands.
 3. Add the MCP tool: a request object in `mcp/requests/`, its adapter in the family file, and one
    entry in `mcp/registry.rs` (see [MCP schemas](MCP_SCHEMAS.md)). Writes take `dry_run` defaulting
    to `true`; results lead with a summary.
-4. If it writes the workspace, take the lock (`writes_workspace` in `main.rs`; the MCP route
-   does it per tool).
+4. If it writes the workspace, its executor in `core/commands/` takes the lock through
+   `commands::lock_workspace`, so both front ends take it the same way (see
+   [COMMAND_FACADE.md](COMMAND_FACADE.md)).
 5. Regenerate [Commands](COMMANDS.md) with `TWACO_BLESS=1 cargo test --bin twaco commands_md`, and document
    the command wherever it belongs in the user guide.
 6. Classify the command in [Mutation classes](MUTATION_CLASSES.md); its coverage test fails
