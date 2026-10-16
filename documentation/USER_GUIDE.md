@@ -465,7 +465,16 @@ files already in the way, are refused.
 
 ### Contained mashups and parameters
 
-A contained mashup receives only the parameters its container declares. Composer stores one
+A contained mashup receives only the parameters its container declares. Add one from a mashup in
+the repository with `twaco mashup add-contained Acme.App.Board_MU Acme.App.Card_MU --set id=7
+--apply`. It uses the same `--in`, `--right-of`, `--left-of`, `--above` and `--below` placement
+rules as `mashup add`; without one it goes in `center`. Its visible child parameters become
+container properties, so bind them as `ui:mashupcontainer-7.id`. IN parameters are binding
+targets, OUT parameters are sources, and BOTH parameters support both directions. `Name` is the
+MASHUPNAME target that selects the displayed child. A child cache that lacks a parameter is
+refreshed as part of a binding plan and the plan names the refreshed container.
+
+Composer stores one
 parameter in four places: the mashup entity's `ParameterDefinitions`, the content root's
 `_currentParameterDefs`, the base type on every binding property map that names it, and the
 `MashupParameters` cache on every `mashupcontainer` showing that mashup. A missing cache entry

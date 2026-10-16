@@ -2027,6 +2027,59 @@
     }
   },
   {
+    "name": "mashup_add_contained",
+    "description": "Add a repository mashup as a contained mashup. Its visible child parameters become container properties; set supplies static values for visible input parameters. With no placement it goes in center. A dry run unless dry_run is false; an apply takes the workspace lock and writes the entity and managed content sidecar together.",
+    "inputSchema": {
+      "required": [
+        "mashup",
+        "child"
+      ],
+      "additionalProperties": false,
+      "type": "object",
+      "properties": {
+        "mashup": {
+          "description": "The mashup that will hold the contained child.",
+          "type": "string"
+        },
+        "child": {
+          "description": "The repository mashup the container shows.",
+          "type": "string"
+        },
+        "in": {
+          "type": "string"
+        },
+        "right_of": {
+          "type": "string"
+        },
+        "left_of": {
+          "type": "string"
+        },
+        "above": {
+          "type": "string"
+        },
+        "below": {
+          "type": "string"
+        },
+        "set": {
+          "description": "Static values for visible IN or BOTH child parameters.",
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
+          }
+        },
+        "dry_run": {
+          "type": "boolean",
+          "default": true
+        }
+      }
+    },
+    "annotations": {
+      "readOnlyHint": false,
+      "destructiveHint": true,
+      "openWorldHint": false
+    }
+  },
+  {
     "name": "mashup_bind",
     "description": "Add one data binding to an existing mashup. Addresses are exactly those mashup describe prints: ui:<widget>.<Property>, mashup:<Parameter>, and data:<Entity>.<Service> with an optional [as alias], [SelectedRows], field or parameter. A missing Thing call is created; templates and shapes need an existing call. A dry run unless dry_run is false; an apply takes the workspace lock and writes the entity and managed content sidecar together.",
     "inputSchema": {

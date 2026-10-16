@@ -213,7 +213,7 @@ pub(crate) fn args_from(
                     "--only" => args.only.extend(values),
                     "--entity" => args.entity_filters.extend(values),
                     "--visibility" => args.visibility.extend(values),
-                    "--prop" => args.props.extend(values),
+                    "--prop" | "--set" => args.props.extend(values),
                     "--param" => args.params.extend(values),
                     other => unreachable!("{other} repeats but nothing reads it"),
                 }
@@ -614,6 +614,10 @@ pub(crate) const FLAGS: &[Flag] = &[
     Flag {
         name: "--prop",
         takes: Takes::Repeated("name=value"),
+    },
+    Flag {
+        name: "--set",
+        takes: Takes::Repeated("parameter=value"),
     },
     Flag {
         name: "--direction",
@@ -1231,6 +1235,28 @@ pub(crate) const COMMANDS: &[Command] = &[
                               place beside an existing widget
       --label <text>          set the widget's LabelText, Label, Text or Title property
       --prop <name=value>     set one simple catalogue default property, repeatable"#,
+    },
+    Command {
+        path: "mashup add-contained",
+        group: 1,
+        operands: true,
+        flags: &[
+            "--in",
+            "--right-of",
+            "--left-of",
+            "--above",
+            "--below",
+            "--set",
+            "--apply",
+            "--json",
+        ],
+        text: r#"  mashup add-contained <parent> <child> [--in <container> | --right-of <widget> | --left-of <widget> | --above <widget> | --below <widget>]
+      [--set <parameter=value>]... [--apply] [--json]
+                              add a child mashup as a contained mashup; plan unless --apply
+      --in <container>        add inside a responsive container (center when omitted)
+      --right-of/--left-of/--above/--below <widget>
+                              place beside an existing widget
+      --set <parameter=value> set a visible input parameter on the child"#,
     },
     Command {
         path: "mashup bind",

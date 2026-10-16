@@ -441,6 +441,144 @@ pub(crate) fn mashup_add_cmd(solution: &Solution, args: &Args) -> u8 {
     OK
 }
 
+/// `twaco mashup add-contained <parent> <child>`: place a child mashup as a container.
+pub(crate) fn mashup_add_contained_cmd(solution: &Solution, args: &Args) -> u8 {
+    let [mashup, child] = args.names.as_slice() else {
+        eprintln!(
+            "{} mashup add-contained needs <parent> and <child>",
+            style::prefix()
+        );
+        return FAILED;
+    };
+    let placements: Vec<(&str, &String)> = [
+        ("--in", args.values.get("--in")),
+        ("--right-of", args.values.get("--right-of")),
+        ("--left-of", args.values.get("--left-of")),
+        ("--above", args.values.get("--above")),
+        ("--below", args.values.get("--below")),
+    ]
+    .into_iter()
+    .filter_map(|(flag, value)| value.map(|value| (flag, value)))
+    .collect();
+    if placements.len() > 1 {
+        eprintln!(
+            "{} give one of --in, --right-of, --left-of, --above, --below",
+            style::prefix()
+        );
+        return FAILED;
+    }
+    let placement = placements.first().map(|(flag, value)| match *flag {
+        "--in" => Placement::In((*value).clone()),
+        "--right-of" => beside(value, Side::Right),
+        "--left-of" => beside(value, Side::Left),
+        "--above" => beside(value, Side::Above),
+        "--below" => beside(value, Side::Below),
+        _ => unreachable!(),
+    });
+    let settings = match args
+        .props
+        .iter()
+        .map(|text| {
+            text.split_once('=')
+                .map(|(name, value)| (name.into(), value.into()))
+                .ok_or_else(|| format!("--set {text:?} must be parameter=value"))
+        })
+        .collect::<Result<Vec<_>, _>>()
+    {
+        Ok(settings) => settings,
+        Err(error) => {
+            eprintln!("{} {error}", style::prefix());
+            return FAILED;
+        }
+    };
+    let request = commands::mashup::MashupAddContainedRequest {
+        request: mashup_authoring::AddContainedRequest {
+            mashup: mashup.clone(),
+            child: child.clone(),
+            placement,
+            settings: settings.clone(),
+        },
+        mode: if args.has("--apply") {
+            Mode::Apply
+        } else {
+            Mode::Plan
+        },
+        lock_label: "mashup add-contained",
+    };
+    let mut notices = commands::Notices::default();
+    let outcome = match commands::mashup::add_contained(solution, &request, &mut notices) {
+        Ok(outcome) => outcome,
+        Err(error) => {
+            print_notices(&notices);
+            eprintln!("{} {error}", style::prefix());
+            return FAILED;
+        }
+    };
+    print_notices(&notices);
+    let report =
+        mashup_authoring::add_contained_plan_json(solution, &outcome.plan, outcome.applied);
+    if args.has("--json") {
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&report).expect("a contained plan serialises")
+        );
+        return OK;
+    }
+    let where_ = match placements.first() {
+        None => "in center".to_string(),
+        Some(("--in", value)) => format!("in {value}"),
+        Some(("--right-of", value)) => format!("right of {value}"),
+        Some(("--left-of", value)) => format!("left of {value}"),
+        Some(("--above", value)) => format!("above {value}"),
+        Some(("--below", value)) => format!("below {value}"),
+        Some(_) => unreachable!(),
+    };
+    println!(
+        "{} {} showing {} {where_}",
+        if outcome.applied {
+            "added"
+        } else {
+            "would add"
+        },
+        outcome.plan.placed.id,
+        outcome.plan.child
+    );
+    let parameters = outcome
+        .plan
+        .parameters
+        .iter()
+        .map(
+            |parameter| match settings.iter().find(|(name, _)| *name == parameter.name) {
+                Some((_, value)) => format!(
+                    "{} {} ({}, set to {value})",
+                    parameter.name, parameter.base_type, parameter.direction
+                ),
+                None => format!(
+                    "{} {} ({})",
+                    parameter.name, parameter.base_type, parameter.direction
+                ),
+            },
+        )
+        .collect::<Vec<_>>();
+    if !parameters.is_empty() {
+        println!("  parameters: {}", parameters.join(", "));
+    }
+    println!(
+        "  files: {}",
+        report["files"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .filter_map(|value| value.as_str())
+            .collect::<Vec<_>>()
+            .join(", ")
+    );
+    if !outcome.applied {
+        println!("run again with --apply to write it");
+    }
+    OK
+}
+
 /// `twaco mashup bind <mashup> --from <address> --to <address>`: plan a data binding or apply it.
 pub(crate) fn mashup_bind_cmd(solution: &Solution, args: &Args) -> u8 {
     let [mashup] = args.names.as_slice() else {
@@ -495,7 +633,7 @@ pub(crate) fn mashup_bind_cmd(solution: &Solution, args: &Args) -> u8 {
                 .replace('\\', "/"),
         );
     }
-    let report = serde_json::json!({ "applied": outcome.applied, "mashup": outcome.plan.edit.mashup, "from": outcome.plan.from, "to": outcome.plan.to, "new_source": outcome.plan.new_source, "warnings": outcome.plan.warnings, "files": files });
+    let report = serde_json::json!({ "applied": outcome.applied, "mashup": outcome.plan.edit.mashup, "from": outcome.plan.from, "to": outcome.plan.to, "new_source": outcome.plan.new_source, "warnings": outcome.plan.warnings, "refreshed": outcome.plan.refreshed, "files": files });
     if args.has("--json") {
         println!(
             "{}",
@@ -519,6 +657,9 @@ pub(crate) fn mashup_bind_cmd(solution: &Solution, args: &Args) -> u8 {
     }
     for warning in &outcome.plan.warnings {
         println!("  warning: {warning}");
+    }
+    for container in &outcome.plan.refreshed {
+        println!("  container cache refreshed: {container}");
     }
     println!(
         "  files: {}",

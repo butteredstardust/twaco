@@ -360,6 +360,12 @@ static TOOLS: LazyLock<Vec<Tool>> = LazyLock::new(|| {
             false,
               refactor::mashup_add_tool,
           ),
+          solution_tool::<refactor_requests::MashupAddContainedRequest>(
+              "mashup_add_contained",
+              "Add a repository mashup as a contained mashup. Its visible child parameters become container properties; set supplies static values for visible input parameters. With no placement it goes in center. A dry run unless dry_run is false; an apply takes the workspace lock and writes the entity and managed content sidecar together.",
+              false,
+              refactor::mashup_add_contained_tool,
+          ),
           solution_tool::<refactor_requests::MashupBindRequest>(
               "mashup_bind",
               "Add one data binding to an existing mashup. Addresses are exactly those mashup describe prints: ui:<widget>.<Property>, mashup:<Parameter>, and data:<Entity>.<Service> with an optional [as alias], [SelectedRows], field or parameter. A missing Thing call is created; templates and shapes need an existing call. A dry run unless dry_run is false; an apply takes the workspace lock and writes the entity and managed content sidecar together.",

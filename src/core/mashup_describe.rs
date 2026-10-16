@@ -48,6 +48,7 @@ pub struct Container {
 #[derive(Debug, Serialize, PartialEq)]
 pub struct ContainerParameter {
     pub name: String,
+    pub direction: String,
     pub status: String,
 }
 
@@ -398,13 +399,37 @@ fn containers(solution: &Solution, value: &Value) -> Vec<Container> {
         let properties = &widget["Properties"];
         if properties["Type"] == "mashupcontainer" {
             if let Some(mashup) = properties["Name"].as_str() {
-                let declared = workspace::entities(solution)
+                let declared: Vec<MashupParameter> = workspace::entities(solution)
                     .into_iter()
                     .find(|entity| {
                         entity.info.collection == "Mashups" && entity.info.name == mashup
                     })
                     .and_then(|entity| std::fs::read(entity.path).ok())
-                    .and_then(|xml| mashup_parameters(&xml).ok())
+                    .and_then(|xml| {
+                        let declared = mashup_parameters(&xml).ok()?;
+                        let content: Value =
+                            serde_json::from_str(&mashup::extract(&xml).ok()?.content).ok()?;
+                        let current =
+                            content["UI"]["Properties"]["_currentParameterDefs"].as_array();
+                        Some(
+                            declared
+                                .into_iter()
+                                .filter(|parameter| {
+                                    !parameter.name.starts_with("ConfigForm_")
+                                        && current.is_none_or(|entries| {
+                                            entries
+                                                .iter()
+                                                .find(|entry| {
+                                                    entry["ParameterName"] == parameter.name
+                                                })
+                                                .is_none_or(|entry| {
+                                                    entry["Aspects"]["isVisible"] != false
+                                                })
+                                        })
+                                })
+                                .collect(),
+                        )
+                    })
                     .unwrap_or_default();
                 let cached = properties["MashupParameters"]
                     .as_array()
@@ -412,6 +437,7 @@ fn containers(solution: &Solution, value: &Value) -> Vec<Container> {
                     .unwrap_or_default();
                 let mut parameters = declared
                     .iter()
+                    .filter(|parameter| !parameter.name.starts_with("ConfigForm_"))
                     .map(|parameter| {
                         let status = match cached
                             .iter()
@@ -428,6 +454,11 @@ fn containers(solution: &Solution, value: &Value) -> Vec<Container> {
                         };
                         ContainerParameter {
                             name: parameter.name.clone(),
+                            direction: if parameter.direction.is_empty() {
+                                "BOTH".into()
+                            } else {
+                                parameter.direction.clone()
+                            },
                             status: status.into(),
                         }
                     })
@@ -437,6 +468,7 @@ fn containers(solution: &Solution, value: &Value) -> Vec<Container> {
                         if !declared.iter().any(|parameter| parameter.name == name) {
                             parameters.push(ContainerParameter {
                                 name: name.into(),
+                                direction: String::new(),
                                 status: "not in child".into(),
                             });
                         }
@@ -655,10 +687,21 @@ pub fn render(description: &Description) -> String {
                 .filter(|p| p.status != "ok")
                 .map(|p| format!("{} {}", p.name, p.status))
                 .collect();
+            let parameters = container
+                .parameters
+                .iter()
+                .filter(|parameter| parameter.status == "ok")
+                .map(|parameter| format!("{} {}", parameter.name, parameter.direction))
+                .collect::<Vec<_>>();
             out.push_str(&format!(
-                "  {} shows {}{}\n",
+                "  {} shows {}{}{}\n",
                 container.id,
                 container.mashup,
+                if parameters.is_empty() {
+                    String::new()
+                } else {
+                    format!(" ({})", parameters.join(", "))
+                },
                 if drift.is_empty() {
                     String::new()
                 } else {

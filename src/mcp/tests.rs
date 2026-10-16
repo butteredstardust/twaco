@@ -847,6 +847,7 @@ fn every_tool_is_listed_with_a_schema_and_honest_annotations() {
             "mashup_new",
             "mashup_templates",
             "mashup_add",
+            "mashup_add_contained",
             "mashup_bind",
             "mashup_on",
             "widgets",
@@ -902,6 +903,7 @@ fn every_tool_is_listed_with_a_schema_and_honest_annotations() {
         "new_building_block",
         "mashup_new",
         "mashup_add",
+        "mashup_add_contained",
         "mashup_bind",
         "mashup_on",
         "mashup_param",
@@ -2248,6 +2250,35 @@ fn mashup_add_applies_a_widget_and_refuses_two_placements() {
             .contains("give one of in, right_of, left_of, above, below"),
         "{invalid}"
     );
+}
+
+#[test]
+fn mashup_add_contained_applies_a_repository_child() {
+    let (_dir, root) = solution_dir();
+    assert_eq!(
+        call(
+            &root,
+            "mashup_new",
+            json!({"name": "Acme.Card_MU", "params": ["id:LONG:IN"], "dry_run": false})
+        )["isError"],
+        false
+    );
+    assert_eq!(
+        call(
+            &root,
+            "mashup_new",
+            json!({"name": "Acme.Board_MU", "dry_run": false})
+        )["isError"],
+        false
+    );
+    let applied = call(
+        &root,
+        "mashup_add_contained",
+        json!({"mashup": "Acme.Board_MU", "child": "Acme.Card_MU", "set": {"id": "7"}, "dry_run": false}),
+    );
+    assert_eq!(applied["isError"], false, "{applied}");
+    assert_eq!(applied["structuredContent"]["applied"], true);
+    assert_eq!(applied["structuredContent"]["id"], "mashupcontainer-3");
 }
 
 #[test]

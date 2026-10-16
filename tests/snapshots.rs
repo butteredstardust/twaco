@@ -193,6 +193,19 @@ const SCENARIOS: &[(&str, &[&str])] = &[
         &["mashup", "add", "X", "grid", "--in", "a", "--below", "b"],
     ),
     (
+        "mashup_add_contained_help",
+        &["mashup", "add-contained", "--help"],
+    ),
+    (
+        "mashup_add_contained_unknown_child",
+        &[
+            "mashup",
+            "add-contained",
+            "Acme.Orders.Dashboard",
+            "Acme.Orders.Nope_MU",
+        ],
+    ),
+    (
         "mashup_bind_fixture_refusal",
         &[
             "mashup",

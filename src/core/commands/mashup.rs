@@ -34,6 +34,20 @@ pub struct MashupAddOutcome {
 }
 
 #[derive(Clone, Debug)]
+pub struct MashupAddContainedRequest {
+    pub request: mashup_authoring::AddContainedRequest,
+    pub mode: Mode,
+    pub lock_label: &'static str,
+}
+
+#[derive(Debug)]
+pub struct MashupAddContainedOutcome {
+    pub plan: mashup_authoring::AddContainedPlan,
+    pub applied: bool,
+    pub effects: Effects,
+}
+
+#[derive(Clone, Debug)]
 pub struct MashupBindRequest {
     pub request: mashup_authoring::BindRequest,
     pub mode: Mode,
@@ -149,6 +163,37 @@ pub fn add(
             mashup_authoring::apply_edit(&reloaded, &plan.edit, &lock)
                 .map_err(MashupCommandError::Authoring)?;
             Ok(MashupAddOutcome {
+                plan,
+                applied: true,
+                effects: Effects::new(Access::Write, Access::None),
+            })
+        }
+    }
+}
+
+/// Plan without a lock; to apply, lock first and plan again from what is on disk then.
+pub fn add_contained(
+    solution: &Solution,
+    request: &MashupAddContainedRequest,
+    notices: &mut Notices,
+) -> Result<MashupAddContainedOutcome, MashupCommandError> {
+    match request.mode {
+        Mode::Plan => Ok(MashupAddContainedOutcome {
+            plan: mashup_authoring::plan_add_contained(solution, &request.request)
+                .map_err(MashupCommandError::Authoring)?,
+            applied: false,
+            effects: Effects::new(Access::Read, Access::None),
+        }),
+        Mode::Apply => {
+            let lock = lock_workspace(solution, request.lock_label, notices)
+                .map_err(MashupCommandError::Lock)?;
+            let reloaded = Solution::load(&solution.root.join(config::CONFIG_FILE))
+                .map_err(MashupCommandError::Config)?;
+            let plan = mashup_authoring::plan_add_contained(&reloaded, &request.request)
+                .map_err(MashupCommandError::Authoring)?;
+            mashup_authoring::apply_edit(&reloaded, &plan.edit, &lock)
+                .map_err(MashupCommandError::Authoring)?;
+            Ok(MashupAddContainedOutcome {
                 plan,
                 applied: true,
                 effects: Effects::new(Access::Write, Access::None),

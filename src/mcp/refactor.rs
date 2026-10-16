@@ -1,8 +1,9 @@
 use super::requests::refactor::{
     AdoptApplyRequest, AdoptKind, AdoptReportRequest, AdoptTakeSide, HandoffAction, HandoffRequest,
-    MashupAddRequest, MashupBindRequest, MashupDescribeRequest, MashupNewRequest, MashupOnRequest,
-    MashupParameterAction, MashupParameterRequest, MashupTemplatesRequest, MoveMemberRequest,
-    NewBuildingBlockRequest, RenameRequest, ReprojectRequest, RetemplateRequest, WidgetsRequest,
+    MashupAddContainedRequest, MashupAddRequest, MashupBindRequest, MashupDescribeRequest,
+    MashupNewRequest, MashupOnRequest, MashupParameterAction, MashupParameterRequest,
+    MashupTemplatesRequest, MoveMemberRequest, NewBuildingBlockRequest, RenameRequest,
+    ReprojectRequest, RetemplateRequest, WidgetsRequest,
 };
 use super::source::add_types_refresh;
 use super::*;
@@ -286,6 +287,73 @@ pub(crate) fn mashup_add_tool(
     Ok(result)
 }
 
+pub(crate) fn mashup_add_contained_tool(
+    solution: &Solution,
+    arguments: MashupAddContainedRequest,
+) -> Result<Value, ToolError> {
+    let placements = [
+        arguments
+            .container
+            .as_ref()
+            .cloned()
+            .map(crate::core::mashup_edit::Placement::In),
+        arguments
+            .right_of
+            .as_ref()
+            .cloned()
+            .map(|anchor| beside(anchor, crate::core::mashup_edit::Side::Right)),
+        arguments
+            .left_of
+            .as_ref()
+            .cloned()
+            .map(|anchor| beside(anchor, crate::core::mashup_edit::Side::Left)),
+        arguments
+            .above
+            .as_ref()
+            .cloned()
+            .map(|anchor| beside(anchor, crate::core::mashup_edit::Side::Above)),
+        arguments
+            .below
+            .as_ref()
+            .cloned()
+            .map(|anchor| beside(anchor, crate::core::mashup_edit::Side::Below)),
+    ];
+    let supplied: Vec<_> = placements.into_iter().flatten().collect();
+    if supplied.len() > 1 {
+        return Err(ToolError::invalid(
+            "give one of in, right_of, left_of, above, below",
+        ));
+    }
+    let dry_run = arguments.dry_run;
+    let request = commands::mashup::MashupAddContainedRequest {
+        request: crate::core::mashup_authoring::AddContainedRequest {
+            mashup: nonempty(&arguments.mashup, "mashup")?.into(),
+            child: nonempty(&arguments.child, "child")?.into(),
+            placement: supplied.into_iter().next(),
+            settings: arguments
+                .set
+                .as_ref()
+                .cloned()
+                .unwrap_or_default()
+                .into_iter()
+                .collect(),
+        },
+        mode: if dry_run { Mode::Plan } else { Mode::Apply },
+        lock_label: "mcp mashup_add_contained",
+    };
+    let mut notices = commands::Notices::default();
+    let outcome = commands::mashup::add_contained(solution, &request, &mut notices)
+        .map_err(ToolError::coded)?;
+    let mut result = crate::core::mashup_authoring::add_contained_plan_json(
+        solution,
+        &outcome.plan,
+        outcome.applied,
+    );
+    result["dry_run"] = json!(dry_run);
+    add_notices(&mut result, &notices);
+    Ok(result)
+}
+
 pub(crate) fn mashup_parameter_tool(
     solution: &Solution,
     arguments: MashupParameterRequest,
@@ -369,6 +437,7 @@ pub(crate) fn mashup_bind_tool(
         "to": outcome.plan.to,
         "new_source": outcome.plan.new_source,
         "warnings": outcome.plan.warnings,
+        "refreshed": outcome.plan.refreshed,
         "files": files,
     });
     add_notices(&mut result, &notices);

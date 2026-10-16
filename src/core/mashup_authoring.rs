@@ -143,6 +143,33 @@ pub struct AddPlan {
     pub widget: String,
 }
 
+/// A contained mashup is a `mashupcontainer` whose public properties mirror the child's
+/// parameters.  It deliberately has its own request rather than pretending that the catalogue
+/// knows the child-specific contract.
+#[derive(Clone, Debug)]
+pub struct AddContainedRequest {
+    pub mashup: String,
+    pub child: String,
+    pub placement: Option<Placement>,
+    pub settings: Vec<(String, String)>,
+}
+
+#[derive(Debug)]
+pub struct AddContainedPlan {
+    pub edit: EditPlan,
+    pub placed: mashup_edit::Placed,
+    pub child: String,
+    pub parameters: Vec<ContainedParameter>,
+    pub settings: Vec<String>,
+}
+
+#[derive(Debug)]
+pub struct ContainedParameter {
+    pub name: String,
+    pub base_type: String,
+    pub direction: String,
+}
+
 #[derive(Clone, Debug)]
 pub struct BindRequest {
     pub mashup: String,
@@ -158,6 +185,8 @@ pub struct BindPlan {
     pub new_source: Option<String>,
     /// Said, not refused: the target already has another source.
     pub warnings: Vec<String>,
+    /// Contained-mashup caches repaired while resolving an endpoint.
+    pub refreshed: Vec<String>,
 }
 
 #[derive(Clone, Debug)]
@@ -392,9 +421,10 @@ pub fn plan_new(solution: &Solution, request: &NewRequest) -> Result<NewPlan, Au
                 .as_ref()
                 .map(|service| (service, "SecondaryNavData")),
         ) {
-            menu_service(&document, &context, service)?;
+            menu_service(&mut document, &context, service)?;
             bind_in(
                 &mut document,
+                Some(solution),
                 &context,
                 service,
                 &format!("ui:{}.{property}", menu.as_ref().expect("checked menu").id),
@@ -481,6 +511,7 @@ struct ParameterDefinition {
     description: String,
     default: Option<Value>,
     data_shape: Option<String>,
+    visible: bool,
 }
 
 fn parse_new_parameter(text: &str) -> Result<ParameterDefinition, AuthoringError> {
@@ -508,6 +539,7 @@ fn parse_new_parameter(text: &str) -> Result<ParameterDefinition, AuthoringError
         description: String::new(),
         default: None,
         data_shape: None,
+        visible: !name.starts_with("ConfigForm_"),
     })
 }
 
@@ -651,6 +683,7 @@ fn definition_from_request(
         description,
         default,
         data_shape,
+        visible: !request.name.starts_with("ConfigForm_"),
     })
 }
 
@@ -671,6 +704,7 @@ fn content_parameter(document: &MashupDocument, name: &str) -> Option<ParameterD
                 description: entry["Description"].as_str().unwrap_or_default().into(),
                 default: entry.get("DefaultValue").cloned(),
                 data_shape: entry["Aspects"]["dataShape"].as_str().map(str::to_string),
+                visible: entry["Aspects"]["isVisible"] != false && !name.starts_with("ConfigForm_"),
             })
         })
 }
@@ -1058,6 +1092,8 @@ fn document_parameters(document: &MashupDocument) -> Vec<ParameterDefinition> {
                     description: entry["Description"].as_str().unwrap_or_default().into(),
                     default: entry.get("DefaultValue").cloned(),
                     data_shape: entry["Aspects"]["dataShape"].as_str().map(str::to_string),
+                    visible: entry["Aspects"]["isVisible"] != false
+                        && !name.starts_with("ConfigForm_"),
                 })
         })
         .collect()
@@ -1088,6 +1124,7 @@ pub fn plan_parameter(
             description: String::new(),
             default: None,
             data_shape: None,
+            visible: !parameter.name.starts_with("ConfigForm_"),
         })
     });
     if request.action == ParameterAction::Add && existing.is_some() {
@@ -1585,6 +1622,162 @@ pub fn plan_add(solution: &Solution, request: &AddRequest) -> Result<AddPlan, Au
     })
 }
 
+/// Plan adding a child mashup as Composer's contained-mashup builder does.  The child is read
+/// from the repository, never from a server, so the cache is deterministic and reviewable.
+pub fn plan_add_contained(
+    solution: &Solution,
+    request: &AddContainedRequest,
+) -> Result<AddContainedPlan, AuthoringError> {
+    if request.mashup == request.child {
+        return Err(AuthoringError::Refused(
+            "a mashup cannot contain itself".into(),
+        ));
+    }
+    let loaded = load_existing(solution, &request.mashup)?;
+    let child = load_existing(solution, &request.child)?;
+    let child_document = parse_loaded(&child)?;
+    if child_document.value()["mashupType"] == "targetmashup" {
+        return Err(AuthoringError::Refused(
+            "a master mashup is shown by a page container, not contained".into(),
+        ));
+    }
+    let definitions = contained_parameters(&child, &child_document)?;
+    let placement = match &request.placement {
+        Some(placement) => placement.clone(),
+        None if parse_loaded(&loaded)?.find("center").is_ok() => Placement::In("center".into()),
+        None => {
+            return Err(AuthoringError::Invalid(
+                "say where: --in <container>, or --right-of/--left-of/--above/--below <widget>"
+                    .into(),
+            ))
+        }
+    };
+    let mut document = parse_loaded(&loaded)?;
+    let widget = widgets::catalog()
+        .by_type("mashupcontainer")
+        .expect("the embedded catalogue has mashupcontainer");
+    let placed = document
+        .place(widget, &placement)
+        .map_err(AuthoringError::Edit)?;
+    let path = document
+        .find(&placed.id)
+        .map_err(AuthoringError::Edit)?
+        .path;
+    document.set_property(&path, "Name", json!(request.child));
+    document.set_property(
+        &path,
+        "MashupParameters",
+        Value::Array(
+            definitions
+                .iter()
+                .map(|def| cache_entry(def, def.default.clone()))
+                .collect(),
+        ),
+    );
+    let visible = definitions
+        .iter()
+        .filter(|definition| definition.visible && definition.direction != "OUT")
+        .map(|definition| definition.name.as_str())
+        .collect::<Vec<_>>();
+    let mut settings = Vec::new();
+    for (name, text) in &request.settings {
+        let definition = definitions
+            .iter()
+            .find(|definition| definition.name == *name)
+            .ok_or_else(|| {
+                AuthoringError::Invalid(format!(
+                    "{} has no settable parameter {name}; settable parameters are {}",
+                    request.child,
+                    visible.join(", ")
+                ))
+            })?;
+        if !definition.visible || definition.direction == "OUT" {
+            return Err(AuthoringError::Invalid(format!(
+                "{}.{name} is not a settable parameter; settable parameters are {}",
+                request.child,
+                visible.join(", ")
+            )));
+        }
+        let value = default_value(&definition.base_type, text)?;
+        document.set_property(&path, name, value.clone());
+        let properties = document.at_mut(&path)["Properties"]
+            .as_object_mut()
+            .expect("a placed widget has properties");
+        if let Some(entry) = properties["MashupParameters"]
+            .as_array_mut()
+            .and_then(|entries| {
+                entries
+                    .iter_mut()
+                    .find(|entry| entry["ParameterName"] == *name)
+            })
+        {
+            mashup_edit::insert_sorted(
+                entry.as_object_mut().expect("cache entries are objects"),
+                "DefaultValue",
+                value,
+            );
+        }
+        settings.push(name.clone());
+    }
+    Ok(AddContainedPlan {
+        edit: finish_edit(loaded, document, "mashup add-contained")?,
+        placed,
+        child: request.child.clone(),
+        parameters: definitions
+            .iter()
+            .map(|definition| ContainedParameter {
+                name: definition.name.clone(),
+                base_type: definition.base_type.clone(),
+                direction: definition.direction.clone(),
+            })
+            .collect(),
+        settings,
+    })
+}
+
+/// Content metadata is Composer's current definition; an older/unmanaged mashup can have only
+/// XML definitions, which remain a supported fallback.
+fn contained_parameters(
+    child: &ExistingMashup,
+    document: &MashupDocument,
+) -> Result<Vec<ParameterDefinition>, AuthoringError> {
+    let mut definitions = document_parameters(document);
+    if definitions.is_empty() {
+        definitions = mashup_parameters(&child.entity_before)
+            .map_err(AuthoringError::Invalid)?
+            .into_iter()
+            .map(|parameter| ParameterDefinition {
+                visible: !parameter.name.starts_with("ConfigForm_"),
+                name: parameter.name,
+                base_type: parameter.base_type,
+                direction: if parameter.direction.is_empty() {
+                    "BOTH".into()
+                } else {
+                    parameter.direction
+                },
+                description: String::new(),
+                default: None,
+                data_shape: None,
+            })
+            .collect();
+    }
+    if matches!(
+        document.value()["mashupType"].as_str(),
+        Some("thingtemplatemashup" | "thingshapemashup")
+    ) {
+        definitions.push(ParameterDefinition {
+            name: "Entity".into(),
+            base_type: "THINGNAME".into(),
+            direction: "BOTH".into(),
+            description: String::new(),
+            default: None,
+            data_shape: None,
+            visible: true,
+        });
+    }
+    Ok(definitions)
+}
+
 /// Load one existing mashup, refusing a managed sidecar that is not its entity's current content.
 fn load_existing(solution: &Solution, mashup_name: &str) -> Result<ExistingMashup, AuthoringError> {
     let entity = workspace::entities(solution)
@@ -1720,7 +1913,13 @@ pub fn plan_bind(solution: &Solution, request: &BindRequest) -> Result<BindPlan,
         model: &model,
         platform: platform.as_ref(),
     };
-    let result = bind_in(&mut document, &context, &request.from, &request.to)?;
+    let result = bind_in(
+        &mut document,
+        Some(solution),
+        &context,
+        &request.from,
+        &request.to,
+    )?;
     let edit = finish_edit(loaded, document, "mashup bind")?;
     Ok(BindPlan {
         edit,
@@ -1728,6 +1927,7 @@ pub fn plan_bind(solution: &Solution, request: &BindRequest) -> Result<BindPlan,
         to: request.to.clone(),
         new_source: result.new_source,
         warnings: result.warnings,
+        refreshed: result.refreshed,
     })
 }
 
@@ -1740,11 +1940,13 @@ struct AuthoringContext<'a> {
 struct BindIn {
     new_source: Option<String>,
     warnings: Vec<String>,
+    refreshed: Vec<String>,
 }
 
 /// Add one checked binding to an already loaded document.
 fn bind_in(
     document: &mut MashupDocument,
+    solution: Option<&Solution>,
     context: &AuthoringContext<'_>,
     from_raw: &str,
     to_raw: &str,
@@ -1752,21 +1954,22 @@ fn bind_in(
     let from_address =
         parse_address(from_raw).map_err(|e| AuthoringError::Invalid(e.to_string()))?;
     let to_address = parse_address(to_raw).map_err(|e| AuthoringError::Invalid(e.to_string()))?;
+    let mut refreshed = Vec::new();
     let from = resolve_end(
         document,
-        context.parameters,
-        context.model,
-        context.platform,
+        solution,
+        context,
         from_address,
         true,
+        &mut refreshed,
     )?;
     let to = resolve_end(
         document,
-        context.parameters,
-        context.model,
-        context.platform,
+        solution,
+        context,
         to_address,
         false,
+        &mut refreshed,
     )?;
     if !allowed(&from, &to) {
         return Err(AuthoringError::Invalid(format!(
@@ -1876,6 +2079,7 @@ fn bind_in(
     Ok(BindIn {
         new_source,
         warnings,
+        refreshed,
     })
 }
 
@@ -2005,6 +2209,11 @@ fn resolve_trigger(
             .rsplit_once('.')
             .ok_or_else(|| AuthoringError::Invalid(format!("invalid mashup address `{raw}`")))?;
         let found = document.find_exact(widget).map_err(AuthoringError::Edit)?;
+        if found.type_id == "mashupcontainer" {
+            return Err(AuthoringError::Invalid(
+                "a contained mashup has no events; see twaco mashup event (planned)".into(),
+            ));
+        }
         let catalog = event_contract(&found.id, &found.type_id)?;
         if !catalog.has_event(event) {
             return Err(AuthoringError::Invalid(format!(
@@ -2062,6 +2271,18 @@ fn resolve_handler(
             .rsplit_once('.')
             .ok_or_else(|| AuthoringError::Invalid(format!("invalid mashup address `{raw}`")))?;
         let found = document.find_exact(widget).map_err(AuthoringError::Edit)?;
+        if found.type_id == "mashupcontainer" {
+            if service != "Refresh" {
+                return Err(AuthoringError::Invalid(format!(
+                    "a contained mashup has no service {service}; only Refresh is supported"
+                )));
+            }
+            return Ok(End::Ui {
+                id: found.id,
+                property: service.into(),
+                base: String::new(),
+            });
+        }
         let catalog = event_contract(&found.id, &found.type_id)?;
         if !catalog
             .services
@@ -2162,16 +2383,22 @@ fn insert(map: &mut Map<String, Value>, key: &str, value: Value) {
 }
 
 fn resolve_end(
-    document: &MashupDocument,
-    parameters: &[crate::core::mashup_describe::MashupParameter],
-    model: &types::Model,
-    platform: Option<&types::Platform>,
+    document: &mut MashupDocument,
+    solution: Option<&Solution>,
+    context: &AuthoringContext<'_>,
     address: Address,
     source: bool,
+    refreshed: &mut Vec<String>,
 ) -> Result<End, AuthoringError> {
+    let (parameters, model, platform) = (context.parameters, context.model, context.platform);
     match address {
         Address::Ui { widget, property } => {
             let found = document.find_exact(&widget).map_err(AuthoringError::Edit)?;
+            if found.type_id == "mashupcontainer" {
+                return resolve_container_end(
+                    document, solution, found, property, source, refreshed,
+                );
+            }
             let catalog = widgets::catalog().by_type(&found.type_id).filter(|w| w.has_contract()).ok_or_else(|| AuthoringError::Refused(format!("widget `{}` has type `{}`, whose contract is not in the embedded ThingWorx 10.2 catalogue; twaco will not create a binding for it", found.id, found.type_id)))?;
             let contract = catalog.property(&property).ok_or_else(|| {
                 AuthoringError::Unknown(format!("{} has no property {property}", found.id))
@@ -2310,6 +2537,91 @@ fn resolve_end(
     }
 }
 
+fn resolve_container_end(
+    document: &mut MashupDocument,
+    solution: Option<&Solution>,
+    found: mashup_edit::WidgetRef,
+    property: String,
+    source: bool,
+    refreshed: &mut Vec<String>,
+) -> Result<End, AuthoringError> {
+    let child = document.at(&found.path)["Properties"]["Name"]
+        .as_str()
+        .filter(|name| !name.is_empty())
+        .ok_or_else(|| {
+            AuthoringError::Refused(format!(
+                "contained mashup `{}` has no child mashup",
+                found.id
+            ))
+        })?
+        .to_string();
+    let solution = solution.ok_or_else(|| {
+        AuthoringError::Refused(format!(
+            "contained mashup `{}` cannot be resolved without the repository",
+            found.id
+        ))
+    })?;
+    let loaded = load_existing(solution, &child).map_err(|error| match error {
+        AuthoringError::Unknown(_) => AuthoringError::Refused(format!(
+            "contained mashup `{}` shows {child}, which is not in the repository",
+            found.id
+        )),
+        other => other,
+    })?;
+    let child_document = parse_loaded(&loaded)?;
+    let definitions = contained_parameters(&loaded, &child_document)?;
+    if property == "Name" {
+        if source {
+            return Err(AuthoringError::Refused(format!(
+                "ui:{}.Name is a target-only MASHUPNAME property",
+                found.id
+            )));
+        }
+        return Ok(End::Ui {
+            id: found.id,
+            property,
+            base: "MASHUPNAME".into(),
+        });
+    }
+    let definition = definitions.iter().find(|definition| definition.name == property && definition.visible)
+        .ok_or_else(|| AuthoringError::Unknown(format!(
+            "contained mashup `{}` has no bindable parameter {property}; bindable parameters are {}",
+            found.id,
+            definitions.iter().filter(|definition| definition.visible).map(|definition| definition.name.as_str()).collect::<Vec<_>>().join(", ")
+        )))?;
+    if source && definition.direction == "IN" {
+        return Err(AuthoringError::Refused(format!(
+            "{property} is an input of {child}"
+        )));
+    }
+    if !source && definition.direction == "OUT" {
+        return Err(AuthoringError::Refused(format!(
+            "{property} is an output of {child}"
+        )));
+    }
+    let cached = document.at(&found.path)["Properties"]["MashupParameters"]
+        .as_array()
+        .is_some_and(|entries| {
+            entries
+                .iter()
+                .any(|entry| entry["ParameterName"] == property)
+        });
+    if !cached {
+        let mut entries = Vec::new();
+        refresh_containers(document.value_mut(), &child, &definitions, &mut entries);
+        for (id, _) in entries {
+            if !refreshed.contains(&id) {
+                refreshed.push(id);
+            }
+        }
+    }
+    Ok(End::Ui {
+        id: found.id,
+        property,
+        base: definition.base_type.clone(),
+    })
+}
+
 fn resolve_service<'a>(
     model: &'a types::Model,
     platform: Option<&types::Platform>,
@@ -2358,7 +2670,7 @@ fn base(end: &End) -> &str {
 
 /// Sidebar menus receive a complete service result, never a parameter or selected rows.
 fn menu_service(
-    document: &MashupDocument,
+    document: &mut MashupDocument,
     context: &AuthoringContext<'_>,
     raw: &str,
 ) -> Result<(), AuthoringError> {
@@ -2378,14 +2690,7 @@ fn menu_service(
             "a menu address names a service result, not a parameter or SelectedRows".into(),
         ));
     }
-    let end = resolve_end(
-        document,
-        context.parameters,
-        context.model,
-        context.platform,
-        address,
-        true,
-    )?;
+    let end = resolve_end(document, None, context, address, true, &mut Vec::new())?;
     if base(&end) != "INFOTABLE" {
         return Err(AuthoringError::Refused(
             "the menu service must return an INFOTABLE".into(),
@@ -2697,6 +3002,33 @@ pub fn add_plan_json(solution: &Solution, plan: &AddPlan, applied: bool) -> Valu
         "flipped": plan.placed.flipped,
         "wrapped": plan.placed.wrapped,
         "files": files,
+    })
+}
+
+/// The contained-mashup plan as `--json` and MCP report it.
+pub fn add_contained_plan_json(
+    solution: &Solution,
+    plan: &AddContainedPlan,
+    applied: bool,
+) -> Value {
+    let relative = |path: &Path| {
+        path.strip_prefix(&solution.root)
+            .unwrap_or(path)
+            .to_string_lossy()
+            .replace('\\', "/")
+    };
+    let mut files = vec![relative(&plan.edit.entity_path)];
+    if let Some(sidecars) = &plan.edit.sidecars {
+        files.push(relative(&sidecars.content_path));
+    }
+    json!({
+        "applied": applied, "mashup": plan.edit.mashup, "child": plan.child,
+        "widget": "mashupcontainer", "id": plan.placed.id,
+        "containers": plan.placed.containers, "flipped": plan.placed.flipped,
+        "wrapped": plan.placed.wrapped, "parameters": plan.parameters.iter().map(|parameter| json!({
+            "name": parameter.name, "base_type": parameter.base_type,
+            "direction": parameter.direction, "set": plan.settings.contains(&parameter.name),
+        })).collect::<Vec<_>>(), "files": files,
     })
 }
 
@@ -4349,6 +4681,357 @@ mod tests {
             .unwrap()
     }
 
+    fn contained_fixture() -> (tempfile::TempDir, Solution) {
+        let (dir, solution) = one_project();
+        let mut child = request("Acme.Card_MU");
+        child.params = vec![
+            "id:LONG:IN".into(),
+            "title:STRING:BOTH".into(),
+            "done:NUMBER:OUT".into(),
+        ];
+        apply_new(
+            &solution,
+            &plan_new(&solution, &child).unwrap(),
+            &lock(&solution),
+        )
+        .unwrap();
+        apply_new(
+            &solution,
+            &plan_new(&solution, &request("Acme.Board_MU")).unwrap(),
+            &lock(&solution),
+        )
+        .unwrap();
+        (dir, solution)
+    }
+
+    #[test]
+    fn add_contained_in_center_writes_composer_cache_and_passes_the_project_gate() {
+        let (_dir, solution) = contained_fixture();
+        let plan = plan_add_contained(
+            &solution,
+            &AddContainedRequest {
+                mashup: "Acme.Board_MU".into(),
+                child: "Acme.Card_MU".into(),
+                placement: None,
+                settings: vec![("id".into(), "7".into())],
+            },
+        )
+        .unwrap();
+        assert_eq!(plan.placed.id, "mashupcontainer-3");
+        let value: Value =
+            serde_json::from_slice(&plan.edit.sidecars.as_ref().unwrap().content_after).unwrap();
+        let properties = &value["UI"]["Widgets"][0]["Widgets"][0]["Properties"];
+        assert_eq!(properties["Name"], "Acme.Card_MU");
+        assert_eq!(properties["ResponsiveLayout"], true);
+        assert_eq!(properties["Margin"], "5");
+        assert_eq!(properties["id"], 7);
+        assert_eq!(properties["MashupParameters"][0]["DefaultValue"], 7);
+        assert_eq!(
+            properties["MashupParameters"][0],
+            cache_entry(
+                &ParameterDefinition {
+                    name: "id".into(),
+                    base_type: "LONG".into(),
+                    direction: "IN".into(),
+                    description: String::new(),
+                    default: None,
+                    data_shape: None,
+                    visible: true
+                },
+                Some(json!(7))
+            )
+        );
+        apply_edit(&solution, &plan.edit, &lock(&solution)).unwrap();
+        let failures: Vec<_> = crate::core::check::run(&solution)
+            .gates
+            .into_iter()
+            .filter(|gate| gate.name == "project" && !gate.ok())
+            .collect();
+        assert!(failures.is_empty(), "{failures:?}");
+    }
+
+    #[test]
+    fn add_contained_refuses_invalid_children_and_settings() {
+        let (_dir, solution) = contained_fixture();
+        let add = |child: &str, settings: Vec<(String, String)>| {
+            plan_add_contained(
+                &solution,
+                &AddContainedRequest {
+                    mashup: "Acme.Board_MU".into(),
+                    child: child.into(),
+                    placement: None,
+                    settings,
+                },
+            )
+        };
+        assert_eq!(
+            add("Acme.Nope_MU", vec![]).unwrap_err().code(),
+            ErrorCode::UnknownEntity
+        );
+        assert_eq!(
+            plan_add_contained(
+                &solution,
+                &AddContainedRequest {
+                    mashup: "Acme.Board_MU".into(),
+                    child: "Acme.Board_MU".into(),
+                    placement: None,
+                    settings: vec![]
+                }
+            )
+            .unwrap_err()
+            .code(),
+            ErrorCode::GuardRefused
+        );
+        assert_eq!(
+            add("Acme.Card_MU", vec![("done".into(), "1".into())])
+                .unwrap_err()
+                .code(),
+            ErrorCode::InvalidArguments
+        );
+        assert_eq!(
+            add("Acme.Card_MU", vec![("nope".into(), "1".into())])
+                .unwrap_err()
+                .code(),
+            ErrorCode::InvalidArguments
+        );
+        assert_eq!(
+            add("Acme.Card_MU", vec![("id".into(), "nope".into())])
+                .unwrap_err()
+                .code(),
+            ErrorCode::InvalidArguments
+        );
+        let master = plan_new(
+            &solution,
+            &NewRequest {
+                master: true,
+                ..request("Acme.Master_MM")
+            },
+        )
+        .unwrap();
+        apply_new(&solution, &master, &lock(&solution)).unwrap();
+        assert_eq!(
+            add("Acme.Master_MM", vec![]).unwrap_err().code(),
+            ErrorCode::GuardRefused
+        );
+    }
+
+    #[test]
+    fn add_contained_beside_a_label_uses_the_normal_placement_rules() {
+        let (_dir, solution) = contained_fixture();
+        let label = plan_add(&solution, &add_request("Acme.Board_MU", "label")).unwrap();
+        apply_edit(&solution, &label.edit, &lock(&solution)).unwrap();
+        let plan = plan_add_contained(
+            &solution,
+            &AddContainedRequest {
+                mashup: "Acme.Board_MU".into(),
+                child: "Acme.Card_MU".into(),
+                placement: Some(Placement::Beside {
+                    anchor: "ptcslabel-3".into(),
+                    side: mashup_edit::Side::Right,
+                }),
+                settings: vec![],
+            },
+        )
+        .unwrap();
+        let value: Value =
+            serde_json::from_slice(&plan.edit.sidecars.as_ref().unwrap().content_after).unwrap();
+        let ids = value["UI"]["Widgets"][0]["Widgets"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|widget| widget["Properties"]["Id"].as_str().unwrap())
+            .collect::<Vec<_>>();
+        assert_eq!(ids, ["ptcslabel-3", "mashupcontainer-4"]);
+    }
+
+    #[test]
+    fn contained_parameters_bind_refresh_and_events_follow_the_container_contract() {
+        let (_dir, solution) = contained_fixture();
+        let add = plan_add_contained(
+            &solution,
+            &AddContainedRequest {
+                mashup: "Acme.Board_MU".into(),
+                child: "Acme.Card_MU".into(),
+                placement: None,
+                settings: vec![],
+            },
+        )
+        .unwrap();
+        apply_edit(&solution, &add.edit, &lock(&solution)).unwrap();
+        let add_sibling = |widget: &str, anchor: &str| {
+            let mut request = add_request("Acme.Board_MU", widget);
+            request.placement = Some(Placement::Beside {
+                anchor: anchor.into(),
+                side: mashup_edit::Side::Right,
+            });
+            let plan = plan_add(&solution, &request).unwrap();
+            let id = plan.placed.id.clone();
+            apply_edit(&solution, &plan.edit, &lock(&solution)).unwrap();
+            id
+        };
+        let text = add_sibling("text-field", "mashupcontainer-3");
+        let label = add_sibling("label", &text);
+        let button = add_sibling("button", &label);
+        rewrite_mashup(_dir.path(), "Acme.Board_MU", |value| {
+            fn clear(widget: &mut Value) {
+                if widget["Properties"]["Id"] == "mashupcontainer-3" {
+                    widget["Properties"]["MashupParameters"] = json!([]);
+                }
+                if let Some(children) = widget["Widgets"].as_array_mut() {
+                    for child in children {
+                        clear(child);
+                    }
+                }
+            }
+            clear(&mut value["UI"]);
+        });
+        let bind_board = |from: String, to: String| {
+            plan_bind(
+                &solution,
+                &BindRequest {
+                    mashup: "Acme.Board_MU".into(),
+                    from,
+                    to,
+                },
+            )
+        };
+        let title = bind_board(
+            format!("ui:{text}.Text"),
+            "ui:mashupcontainer-3.title".into(),
+        )
+        .unwrap();
+        let value: Value =
+            serde_json::from_slice(&title.edit.sidecars.as_ref().unwrap().content_after).unwrap();
+        assert_eq!(value["DataBindings"][0]["TargetArea"], "UI");
+        assert_eq!(value["DataBindings"][0]["TargetId"], "mashupcontainer-3");
+        assert_eq!(
+            value["DataBindings"][0]["PropertyMaps"][0]["TargetPropertyType"],
+            "property"
+        );
+        assert_eq!(title.refreshed, ["mashupcontainer-3"]);
+        assert_eq!(
+            bind_board(
+                "ui:mashupcontainer-3.done".into(),
+                format!("ui:{label}.LabelText")
+            )
+            .unwrap()
+            .edit
+            .mashup,
+            "Acme.Board_MU"
+        );
+        assert_eq!(
+            bind_board(
+                format!("ui:{text}.Text"),
+                "ui:mashupcontainer-3.done".into()
+            )
+            .unwrap_err()
+            .code(),
+            ErrorCode::GuardRefused
+        );
+        assert_eq!(
+            bind_board(
+                "ui:mashupcontainer-3.id".into(),
+                format!("ui:{label}.LabelText")
+            )
+            .unwrap_err()
+            .code(),
+            ErrorCode::GuardRefused
+        );
+        let unknown = bind_board(
+            format!("ui:{text}.Text"),
+            "ui:mashupcontainer-3.nope".into(),
+        )
+        .unwrap_err();
+        assert_eq!(unknown.code(), ErrorCode::UnknownEntity);
+        assert!(unknown.to_string().contains("id, title, done"));
+        let on_plan = plan_on(
+            &solution,
+            &OnRequest {
+                mashup: "Acme.Board_MU".into(),
+                event: format!("ui:{button}.Clicked"),
+                invoke: "ui:mashupcontainer-3.Refresh".into(),
+            },
+        )
+        .unwrap();
+        let event: Value =
+            serde_json::from_slice(&on_plan.edit.sidecars.as_ref().unwrap().content_after).unwrap();
+        assert_eq!(event["Events"][0]["EventHandlerArea"], "UI");
+        assert_eq!(event["Events"][0]["EventHandlerId"], "mashupcontainer-3");
+        assert_eq!(event["Events"][0]["EventHandlerService"], "Refresh");
+        assert_eq!(
+            plan_on(
+                &solution,
+                &OnRequest {
+                    mashup: "Acme.Board_MU".into(),
+                    event: "ui:mashupcontainer-3.Anything".into(),
+                    invoke: "ui:mashupcontainer-3.Refresh".into()
+                }
+            )
+            .unwrap_err()
+            .code(),
+            ErrorCode::InvalidArguments
+        );
+    }
+
+    #[test]
+    fn hidden_and_config_form_child_parameters_are_not_offered_or_bindable() {
+        let (dir, solution) = contained_fixture();
+        rewrite_mashup(dir.path(), "Acme.Card_MU", |value| {
+            value["UI"]["Properties"]["_currentParameterDefs"].as_array_mut().unwrap().push(json!({
+                "ParameterName": "ConfigForm_mode", "BaseType": "STRING", "Description": "", "Aspects": {"bindingDirection": "BOTH"}
+            }));
+            value["UI"]["Properties"]["_currentParameterDefs"][1]["Aspects"]["isVisible"] =
+                json!(false);
+        });
+        let plan = plan_add_contained(
+            &solution,
+            &AddContainedRequest {
+                mashup: "Acme.Board_MU".into(),
+                child: "Acme.Card_MU".into(),
+                placement: None,
+                settings: vec![],
+            },
+        )
+        .unwrap();
+        apply_edit(&solution, &plan.edit, &lock(&solution)).unwrap();
+        let text = plan_add(
+            &solution,
+            &AddRequest {
+                mashup: "Acme.Board_MU".into(),
+                widget: "text-field".into(),
+                placement: Some(Placement::Beside {
+                    anchor: "mashupcontainer-3".into(),
+                    side: mashup_edit::Side::Right,
+                }),
+                label: None,
+                properties: vec![],
+            },
+        )
+        .unwrap();
+        apply_edit(&solution, &text.edit, &lock(&solution)).unwrap();
+        let error = plan_bind(
+            &solution,
+            &BindRequest {
+                mashup: "Acme.Board_MU".into(),
+                from: format!("ui:{}.Text", text.placed.id),
+                to: "ui:mashupcontainer-3.title".into(),
+            },
+        )
+        .unwrap_err();
+        assert_eq!(error.code(), ErrorCode::UnknownEntity);
+        assert!(!error.to_string().contains("title, "), "{error}");
+        let error = plan_bind(
+            &solution,
+            &BindRequest {
+                mashup: "Acme.Board_MU".into(),
+                from: format!("ui:{}.Text", text.placed.id),
+                to: "ui:mashupcontainer-3.ConfigForm_mode".into(),
+            },
+        )
+        .unwrap_err();
+        assert_eq!(error.code(), ErrorCode::UnknownEntity);
+    }
+
     #[test]
     fn adding_a_parameter_refreshes_every_container_of_the_mashup_and_keeps_static_values() {
         let (_dir, solution) = parent_and_child();
@@ -4712,5 +5395,24 @@ mod tests {
             sorted.sort();
             assert_eq!(keys, sorted, "master: {master}");
         }
+    }
+
+    #[test]
+    fn describe_shows_each_container_with_its_child_parameters_and_their_bindings() {
+        let (_dir, solution) = parent_and_child();
+        let mut add = param_request("Acme.Card_MU", ParameterAction::Add, "title");
+        add.base_type = Some("STRING".into());
+        param(&solution, &add).unwrap();
+        let description =
+            crate::core::mashup_describe::describe(&solution, "Acme.Board_MU").unwrap();
+        let text = crate::core::mashup_describe::render(&description);
+        assert!(
+            text.contains("mashupcontainer-9 shows Acme.Card_MU (id IN, title BOTH)"),
+            "{text}"
+        );
+        assert!(
+            text.contains("ui:mashupcontainer-9.id -> ui:ptcslabel-3.LabelText"),
+            "{text}"
+        );
     }
 }

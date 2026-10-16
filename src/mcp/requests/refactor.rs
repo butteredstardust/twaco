@@ -357,6 +357,30 @@ pub(crate) struct MashupAddRequest {
     pub(crate) dry_run: bool,
 }
 
+#[derive(Debug, Deserialize, JsonSchema, Serialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct MashupAddContainedRequest {
+    /// The mashup that will hold the contained child.
+    pub(crate) mashup: String,
+    /// The repository mashup the container shows.
+    pub(crate) child: String,
+    #[serde(default, rename = "in", skip_serializing_if = "Absent::is_absent")]
+    pub(crate) container: Absent<String>,
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) right_of: Absent<String>,
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) left_of: Absent<String>,
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) above: Absent<String>,
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) below: Absent<String>,
+    /// Static values for visible IN or BOTH child parameters.
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) set: Absent<BTreeMap<String, String>>,
+    #[serde(default = "default_true")]
+    pub(crate) dry_run: bool,
+}
+
 #[derive(Clone, Copy, Debug, Deserialize, JsonSchema, PartialEq, Eq, Serialize)]
 pub(crate) enum MashupParameterAction {
     #[serde(rename = "add")]

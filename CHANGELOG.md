@@ -6,6 +6,10 @@ All notable changes to twaco are recorded here. The format follows
 
 ## [Unreleased]
 
+- `twaco mashup add-contained` (MCP `mashup_add_contained`) adds a repository child mashup as a
+  Composer-compatible `mashupcontainer`, including its parameter cache and static input values.
+  Bindings and `mashup describe` now treat visible child parameters as the container's properties;
+  a binding repairs a stale container cache in the same edit.
 ### Added
 
 - `twaco mashup param add|set|remove` (MCP `mashup_param`) keeps mashup parameter definitions,

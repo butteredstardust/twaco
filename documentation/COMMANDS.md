@@ -125,6 +125,13 @@ mashup add <mashup> <widget> [--in <container> | --right-of <widget> | --left-of
                             place beside an existing widget
     --label <text>          set the widget's LabelText, Label, Text or Title property
     --prop <name=value>     set one simple catalogue default property, repeatable
+mashup add-contained <parent> <child> [--in <container> | --right-of <widget> | --left-of <widget> | --above <widget> | --below <widget>]
+    [--set <parameter=value>]... [--apply] [--json]
+                            add a child mashup as a contained mashup; plan unless --apply
+    --in <container>        add inside a responsive container (center when omitted)
+    --right-of/--left-of/--above/--below <widget>
+                            place beside an existing widget
+    --set <parameter=value> set a visible input parameter on the child
 mashup bind <mashup> --from <address> --to <address> [--apply] [--json]
                             add one data binding to a mashup; plan unless --apply
     --from <address>        source address from mashup describe
