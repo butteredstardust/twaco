@@ -11,6 +11,7 @@
 //! which matters because open mashups read it. The key comes from the table's own DataShape,
 //! never assumed, and a multi-row table without one is refused rather than guessed at.
 
+use super::codes::{Coded, ErrorCode};
 use super::entity_key::ServiceTarget;
 use super::scan::{self, Kind, Token};
 use super::server::{Client, ServerError};
@@ -684,6 +685,20 @@ fn row_cells(tokens: &[Token], src: &[u8], row: usize) -> Map<String, Value> {
         }
     }
     cells
+}
+
+impl Coded for TableError {
+    fn code(&self) -> ErrorCode {
+        match self {
+            Self::Remote(error) | Self::PartlyRestored { why: error, .. } => error.code(),
+            Self::Shape(_) | Self::Backup { .. } | Self::Repository(_) => ErrorCode::InvalidData,
+            Self::WrongBackup { .. }
+            | Self::NoPrimaryKey
+            | Self::KeyMismatch { .. }
+            | Self::BadKey(_) => ErrorCode::GuardRefused,
+            Self::NotRestored(_) => ErrorCode::NotVerified,
+        }
+    }
 }
 
 #[cfg(test)]

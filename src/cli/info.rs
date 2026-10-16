@@ -510,12 +510,13 @@ pub(crate) fn javadoc_cmd(parsed: &Args) -> u8 {
                     return FAILED;
                 }
             };
-            match fetch(&path).and_then(|html| {
+            match fetch(&path).map_err(|e| e.to_string()).and_then(|html| {
                 javadoc::read(
                     &html,
                     &class,
                     parsed.values.get("--member").map(String::as_str),
                 )
+                .map_err(|e| e.to_string())
             }) {
                 Ok(read) => {
                     if parsed.has("--json") {

@@ -12,6 +12,7 @@
 //! design time, `{"Visibility": [...]}`); a visibility principal is an organization or an
 //! organizational unit, never a group.
 
+use super::codes::{Coded, ErrorCode};
 use super::config::Solution;
 use super::entity_key::{EntityKey, ServiceTarget};
 use super::ledger::{self, Ledger};
@@ -518,6 +519,15 @@ fn measure(
             Some(remote.differences(pair.collection(), pair.new_name(), pair.old())?);
     }
     Ok(())
+}
+
+impl Coded for CarryError {
+    fn code(&self) -> ErrorCode {
+        match self {
+            Self::Ledger { .. } => ErrorCode::InvalidData,
+            Self::Arguments { .. } => ErrorCode::InvalidArguments,
+        }
+    }
 }
 
 #[cfg(test)]

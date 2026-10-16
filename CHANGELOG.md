@@ -6,6 +6,18 @@ All notable changes to twaco are recorded here. The format follows
 
 ## [Unreleased]
 
+### Fixed
+
+- `check` and `fmt` no longer skip a file or folder they cannot read: the gate fails and names it.
+  Script gates walk the scripts once even through a linked folder, and find a service named like
+  a build folder (`build`, `target`, ...). Every walk now honours `.gitignore` the same way and
+  never follows links.
+- A write to a ThingWorx server is never retried; a read whose connection drops is tried once
+  more, after a pause. Connecting gives up after 10 seconds instead of waiting for the whole call.
+- A replaced file's folder is synced after the rename on Unix, so a crash cannot lose the rename.
+- Every MCP tool failure carries a code: `javadoc` failures used to come back `unclassified`; a
+  failed fetch is now `server_unreachable` or `io_error`, an unknown member `invalid_arguments`.
+
 ## [0.1.12] - 2026-10-16
 
 ### Added

@@ -7,6 +7,7 @@
 //! `DiffSourceControlledEntities`, which names every entity of the tree whose server copy
 //! differs. Both are plans unless applied.
 
+use super::codes::{Coded, ErrorCode};
 use super::entity_key::{EntityKey, ServiceTarget};
 use super::progress::{self, Progress, NONE};
 use super::server::{Client, ServerError};
@@ -384,6 +385,15 @@ pub fn import_source_control(
         differ: before,
         still_differ: Some(after),
     })
+}
+
+impl Coded for ImportError {
+    fn code(&self) -> ErrorCode {
+        match self {
+            Self::Remote(error) => error.code(),
+            Self::Invalid(_) => ErrorCode::InvalidData,
+        }
+    }
 }
 
 #[cfg(test)]

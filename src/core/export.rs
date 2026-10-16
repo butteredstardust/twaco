@@ -5,6 +5,7 @@
 //! repository folder, or a zip there. Exports read the server; only the source-control export
 //! writes to it, so only it is a plan unless applied.
 
+use super::codes::{Coded, ErrorCode};
 use super::entity_key::{EntityKey, ServiceTarget};
 use super::server::{Client, ServerError};
 use serde_json::{json, Value};
@@ -251,6 +252,15 @@ pub fn source_control(
         }
     };
     Ok((plan, link))
+}
+
+impl Coded for ExportError {
+    fn code(&self) -> ErrorCode {
+        match self {
+            Self::Remote(e) => e.code(),
+            Self::Invalid(_) => ErrorCode::InvalidArguments,
+        }
+    }
 }
 
 #[cfg(test)]

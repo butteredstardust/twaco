@@ -4,6 +4,7 @@
 //! separation is the lazy-credential guarantee: an offline command never visits a profile path
 //! and never requires a credential-shaped environment variable merely to start.
 
+use super::codes::{Coded, ErrorCode};
 use serde::Deserialize;
 use std::collections::BTreeMap;
 use std::fmt;
@@ -317,6 +318,18 @@ fn load_from(
         app_key: values.remove("app_key"),
         extra,
     })
+}
+
+impl Coded for ProfileError {
+    fn code(&self) -> ErrorCode {
+        match self {
+            Self::InvalidName(_) => ErrorCode::InvalidArguments,
+            Self::Missing { .. }
+            | Self::Incomplete { .. }
+            | Self::Unreadable { .. }
+            | Self::Invalid { .. } => ErrorCode::InvalidData,
+        }
+    }
 }
 
 #[cfg(test)]

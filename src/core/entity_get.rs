@@ -4,6 +4,7 @@
 //! `search` found, a platform one). A bare name is looked up in the repository, the way the
 //! other entity commands take one.
 
+use super::codes::{Coded, ErrorCode};
 use super::config::Solution;
 use super::entity_key::EntityKey;
 use super::server::{Client, ServerError};
@@ -62,6 +63,17 @@ pub fn fetch(remote: &dyn Remote, key: &EntityKey) -> Result<Vec<u8>, GetError> 
         Ok(bytes) => Ok(bytes),
         Err(error) if error.is_not_found() => Err(GetError::NotOnServer(key.clone())),
         Err(error) => Err(GetError::Remote(error)),
+    }
+}
+
+impl Coded for GetError {
+    fn code(&self) -> ErrorCode {
+        match self {
+            Self::Invalid(_) => ErrorCode::InvalidArguments,
+            Self::Resolve(error) => error.code(),
+            Self::NotOnServer(_) => ErrorCode::UnknownEntity,
+            Self::Remote(error) => error.code(),
+        }
     }
 }
 

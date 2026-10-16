@@ -11,6 +11,7 @@
 //! permissions. Not held: persisted property values, DataTable rows, stream data and the contents
 //! of a file repository.
 
+use super::codes::{Coded, ErrorCode};
 use super::config::Solution;
 use super::deploy;
 use super::entity;
@@ -476,6 +477,18 @@ pub fn relative(solution: &Solution, path: &Path) -> String {
         .display()
         .to_string()
         .replace('\\', "/")
+}
+
+impl Coded for BackupError {
+    fn code(&self) -> ErrorCode {
+        match self {
+            Self::Remote { why, .. } => why.code(),
+            Self::Io { .. } => ErrorCode::IoError,
+            Self::Unreadable { .. } | Self::Invalid { .. } => ErrorCode::InvalidData,
+            Self::NoSuchSet { .. } => ErrorCode::UnknownEntity,
+            Self::Plan(_) => ErrorCode::GuardRefused,
+        }
+    }
 }
 
 #[cfg(test)]

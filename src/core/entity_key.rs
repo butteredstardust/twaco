@@ -1,5 +1,6 @@
 //! Validated addresses for entities and service calls.
 
+use super::codes::{Coded, ErrorCode};
 use super::server::{encode_path_segment, ServerError};
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use std::fmt;
@@ -174,6 +175,12 @@ impl fmt::Display for ServiceTarget {
             ServiceTarget::Thing(name) => f.write_str(name),
             ServiceTarget::Entity(key) => key.fmt(f),
         }
+    }
+}
+
+impl Coded for KeyError {
+    fn code(&self) -> ErrorCode {
+        ErrorCode::InvalidArguments
     }
 }
 

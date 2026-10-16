@@ -6,6 +6,7 @@
 //! attribute `aspect.isEditableExtensionObject`. A solution is an outer zip of its projects'
 //! extension zips. Entity files go in byte for byte, but for that one attribute.
 
+use super::codes::{Coded, ErrorCode};
 use super::config::Solution;
 use super::workspace::EntityFile;
 use std::io::Write;
@@ -362,6 +363,15 @@ pub fn solution_extensions(
         counts.push((project.name.clone(), count));
     }
     Ok((zip_bytes(&entries)?, counts))
+}
+
+impl Coded for PackageError {
+    fn code(&self) -> ErrorCode {
+        match self {
+            Self::Invalid(_) => ErrorCode::InvalidArguments,
+            Self::Io { .. } => ErrorCode::IoError,
+        }
+    }
 }
 
 #[cfg(test)]

@@ -1,5 +1,6 @@
 //! Offline service catalog derived from the entity model used by TypeScript generation.
 
+use super::codes::{Coded, ErrorCode};
 use super::config::Solution;
 use super::index::inherit::{implements_shape, inheritance_chain, Inherits};
 use super::index::Index;
@@ -522,6 +523,16 @@ pub(crate) fn implementers(
         .collect();
     out.sort();
     out
+}
+
+impl Coded for CatalogError {
+    fn code(&self) -> ErrorCode {
+        match self {
+            Self::Invalid(_) => ErrorCode::InvalidArguments,
+            Self::UnknownEntity(_) => ErrorCode::UnknownEntity,
+            Self::Ambiguous(_) => ErrorCode::Ambiguous,
+        }
+    }
 }
 
 #[cfg(test)]

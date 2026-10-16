@@ -5,6 +5,7 @@
 //! Script strings and Mashup JSON are outside ThingWorx's incoming-dependency graph and the
 //! result says so rather than presenting the guard as complete.
 
+use super::codes::{Coded, ErrorCode};
 use super::ledger;
 
 mod guards;
@@ -13,6 +14,17 @@ mod remote;
 mod report;
 mod run;
 mod targets;
+
+impl Coded for DeleteError {
+    fn code(&self) -> ErrorCode {
+        match self {
+            Self::Remote { why, .. } => why.code(),
+            Self::Target(_) => ErrorCode::InvalidArguments,
+            Self::Ledger { .. } => ErrorCode::InvalidData,
+            Self::Write { .. } | Self::Backup(_) => ErrorCode::IoError,
+        }
+    }
+}
 
 #[cfg(test)]
 mod tests;

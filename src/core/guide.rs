@@ -7,6 +7,7 @@
 //! A topic is searched per `##` section, because a search should find the one section about
 //! `AddMember`, not a document of sixty thousand characters.
 
+use super::codes::{Coded, ErrorCode};
 use super::config::Solution;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -485,6 +486,14 @@ fn shorten(text: &str, most: usize) -> String {
     }
     let cut: String = text.chars().take(most - 1).collect();
     format!("{cut}…")
+}
+
+impl Coded for GuideError {
+    fn code(&self) -> ErrorCode {
+        match self {
+            Self::Invalid(_) => ErrorCode::InvalidArguments,
+        }
+    }
 }
 
 #[cfg(test)]

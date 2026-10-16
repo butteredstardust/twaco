@@ -25,6 +25,8 @@
 //!
 //! This covers local files only. A server call is never part of a transaction.
 
+use super::codes::{Coded, ErrorCode};
+
 /// Abort the process at a named point of a transaction. Present only when tests ask for it.
 #[cfg(feature = "test-failpoints")]
 macro_rules! failpoint {
@@ -43,6 +45,22 @@ macro_rules! failpoint {
 mod journal;
 mod paths;
 mod recover;
+impl Coded for TransactionError {
+    fn code(&self) -> ErrorCode {
+        match self {
+            Self::Invalid(_) => ErrorCode::InvalidArguments,
+            Self::Stale(_) => ErrorCode::StalePlan,
+            Self::Io { .. }
+            | Self::Failed {
+                rolled_back: true, ..
+            } => ErrorCode::IoError,
+            Self::Failed {
+                rolled_back: false, ..
+            } => ErrorCode::RollbackFailed,
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests;
 

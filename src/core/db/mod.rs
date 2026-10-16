@@ -2,12 +2,22 @@
 //! The repository identifies the connection, but credentials and connection values come from
 //! the live Thing and the selected profile. The temporary Thing is removed on every exit path.
 
+use super::codes::{Coded, ErrorCode};
+
 mod connection;
 mod execute;
 mod model;
 mod remote;
 mod resolve;
 mod sweep;
+
+// A string newtype that mixes caller mistakes, server failures and local failures: no variant
+// says which, so the honest category is `unclassified` until the type gains variants.
+impl Coded for DbError {
+    fn code(&self) -> ErrorCode {
+        ErrorCode::Unclassified
+    }
+}
 
 #[cfg(test)]
 mod tests;

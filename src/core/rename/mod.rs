@@ -5,6 +5,7 @@
 //! discovery rather than presenting a partial rename as complete.
 
 use super::baseline::{Baseline, RELATIVE_PATH as BASELINE_PATH};
+use super::codes::{Coded, ErrorCode};
 use super::config::{Solution, CONFIG_FILE};
 use super::ledger::{self, Ledger, LedgerError};
 use super::lock::WorkspaceLock;
@@ -581,6 +582,32 @@ mod identity;
 mod member;
 mod run;
 mod table;
+impl Coded for RenameError {
+    fn code(&self) -> ErrorCode {
+        match self {
+            Self::InvalidNew { .. }
+            | Self::InvalidOld { .. }
+            | Self::Same { .. }
+            | Self::Nested { .. } => ErrorCode::InvalidArguments,
+            Self::Unknown { .. } => ErrorCode::UnknownEntity,
+            Self::Ambiguous { .. } => ErrorCode::Ambiguous,
+            Self::Exists { .. } => ErrorCode::AlreadyExists,
+            Self::DatabaseHalf { .. }
+            | Self::ServiceScope { .. }
+            | Self::TableScope { .. }
+            | Self::WouldDesync { .. } => ErrorCode::GuardRefused,
+            Self::GatesFail { .. } => ErrorCode::GateFailed,
+            Self::Stale { .. } | Self::PlanChanged { .. } => ErrorCode::StalePlan,
+            Self::RollbackFailed { .. } => ErrorCode::RollbackFailed,
+            Self::Io { .. } | Self::Apply { .. } => ErrorCode::IoError,
+            Self::Xml { .. }
+            | Self::Splice { .. }
+            | Self::InvalidLedger { .. }
+            | Self::Unreadable { .. } => ErrorCode::InvalidData,
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests;
 

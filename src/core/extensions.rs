@@ -6,6 +6,7 @@
 //! nothing, which makes it the plan, and with `validate=false` installs it. A package the server
 //! cannot read is a bare 406, so twaco opens the zip itself first, to say what is wrong.
 
+use super::codes::{Coded, ErrorCode};
 use super::entity_key::ServiceTarget;
 use super::progress::{self, Progress, NONE};
 use super::server::{Client, ServerError};
@@ -347,6 +348,16 @@ pub fn remove(remote: &dyn Remote, name: &str, apply: bool) -> Result<String, Ex
         )));
     }
     Ok(plan)
+}
+
+impl Coded for ExtensionError {
+    fn code(&self) -> ErrorCode {
+        match self {
+            Self::Remote(error) => error.code(),
+            Self::Shape(_) => ErrorCode::InvalidData,
+            Self::Invalid(_) => ErrorCode::InvalidArguments,
+        }
+    }
 }
 
 #[cfg(test)]

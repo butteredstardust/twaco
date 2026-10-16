@@ -16,6 +16,7 @@
 //! - a project that does not exist matches nothing, like one with no entities. When a project
 //!   search finds nothing, the server is asked whether the project exists.
 
+use super::codes::{Coded, ErrorCode};
 use super::entity_key::{EntityKey, ServiceTarget};
 use super::server::{Client, ServerError};
 use serde::Serialize;
@@ -257,6 +258,16 @@ pub fn search(remote: &dyn Remote, query: &Query) -> Result<Outcome, SearchError
         more,
         note,
     })
+}
+
+impl Coded for SearchError {
+    fn code(&self) -> ErrorCode {
+        match self {
+            Self::Invalid(_) => ErrorCode::InvalidArguments,
+            Self::Remote(error) => error.code(),
+            Self::Reply(_) => ErrorCode::InvalidData,
+        }
+    }
 }
 
 #[cfg(test)]

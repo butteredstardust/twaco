@@ -16,6 +16,8 @@
 //! ElementTree-compatible text semantics: an element's text is what precedes its first child,
 //! CDATA included and comments invisible.
 
+use super::codes::{Coded, ErrorCode};
+
 mod base;
 mod classify;
 
@@ -1890,6 +1892,19 @@ fn media_content(path: &Path, encoded: &str) -> Result<Option<String>, AdoptErro
         &text[end..]
     );
     Ok((rebuilt != text).then_some(rebuilt))
+}
+
+impl Coded for AdoptError {
+    fn code(&self) -> ErrorCode {
+        match self {
+            Self::Export { .. }
+            | Self::Repository { .. }
+            | Self::Base { .. }
+            | Self::AlreadyExists { .. } => ErrorCode::IoError,
+            Self::Take(_) => ErrorCode::InvalidArguments,
+            Self::Write(error) => error.code(),
+        }
+    }
 }
 
 #[cfg(test)]

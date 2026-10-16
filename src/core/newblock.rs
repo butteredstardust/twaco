@@ -19,6 +19,7 @@
 //! `UI` and `Test` types (a main mashup and a navigation entry; a helper manager), and the copy of
 //! a parent's manager configuration that the framework can make.
 
+use super::codes::{Coded, ErrorCode};
 use super::config::{Solution, CONFIG_FILE};
 use super::lock::WorkspaceLock;
 use super::refs;
@@ -635,6 +636,17 @@ pub fn apply(
         .map_err(NewBlockError::from)?;
     transaction.apply(lock).map_err(NewBlockError::from)?;
     Ok(plan.files.iter().map(|file| file.path.clone()).collect())
+}
+
+impl Coded for NewBlockError {
+    fn code(&self) -> ErrorCode {
+        match self {
+            Self::Invalid(_) => ErrorCode::InvalidArguments,
+            Self::Exists(_) => ErrorCode::AlreadyExists,
+            Self::Io { .. } => ErrorCode::IoError,
+            Self::Write(error) => error.code(),
+        }
+    }
 }
 
 #[cfg(test)]

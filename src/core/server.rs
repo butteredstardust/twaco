@@ -6,6 +6,7 @@
 //! system trust store through ureq's platform verifier, and redirects are refused so basic-auth
 //! credentials are never carried to a host the server names.
 
+use super::codes::{Coded, ErrorCode};
 use super::entity_key::{EntityKey, ServiceTarget};
 use super::profile::Profile;
 use super::scan;
@@ -14,6 +15,14 @@ use std::fmt;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 const XSRF_VALUE: &str = "TWX-XSRF-TOKEN-VALUE";
+
+/// How long a connection may take to open. A request's own timeout still bounds the whole call.
+const CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
+
+/// The pause before a failed GET is tried once more. A read changes nothing on the server, so a
+/// connection that dropped (a restarting proxy, a reset under load) costs one retry, not a
+/// failed status or deploy; a POST or DELETE is never repeated, since it may have arrived.
+const GET_RETRY_PAUSE: Duration = Duration::from_millis(250);
 
 /// The Importer's observed flags. Without
 /// `overwriteConfigurationTableValues` an edited configuration table imports and silently keeps
@@ -42,6 +51,8 @@ impl Client {
             .build();
         let agent = ureq::Agent::config_builder()
             .timeout_global(Some(Duration::from_secs(120)))
+            // A server that is down should say so in seconds, not after the whole budget.
+            .timeout_connect(Some(CONNECT_TIMEOUT))
             .http_status_as_error(false)
             .max_redirects(0)
             .tls_config(tls_config)
@@ -868,26 +879,8 @@ fn validate_charset(content_type: Option<&str>, body: &[u8]) -> Result<(), Serve
 }
 
 fn base64(bytes: &[u8]) -> String {
-    const ALPHABET: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
-    let mut out = String::with_capacity(bytes.len().div_ceil(3) * 4);
-    for chunk in bytes.chunks(3) {
-        let value = (chunk[0] as u32) << 16
-            | (chunk.get(1).copied().unwrap_or(0) as u32) << 8
-            | chunk.get(2).copied().unwrap_or(0) as u32;
-        out.push(ALPHABET[((value >> 18) & 63) as usize] as char);
-        out.push(ALPHABET[((value >> 12) & 63) as usize] as char);
-        out.push(if chunk.len() > 1 {
-            ALPHABET[((value >> 6) & 63) as usize] as char
-        } else {
-            '='
-        });
-        out.push(if chunk.len() > 2 {
-            ALPHABET[(value & 63) as usize] as char
-        } else {
-            '='
-        });
-    }
-    out
+    use base64::Engine;
+    base64::engine::general_purpose::STANDARD.encode(bytes)
 }
 
 fn transport(
@@ -916,8 +909,14 @@ fn transport_with_timeout(
 ) -> Result<Response, ServerError> {
     let started = std::time::Instant::now();
     let logged_url = || scrub(secrets, &super::profile::hide_url_credentials(url));
-    let result =
+    let mut result =
         send(agent, method, url, headers, body, timeout).map_err(|error| error.scrubbed(secrets));
+    if method == Method::Get && matches!(result, Err(ServerError::Transport { .. })) {
+        tracing::debug!(url = %logged_url(), "server read failed; trying it once more");
+        std::thread::sleep(GET_RETRY_PAUSE);
+        result = send(agent, method, url, headers, body, timeout)
+            .map_err(|error| error.scrubbed(secrets));
+    }
     let elapsed_ms = u64::try_from(started.elapsed().as_millis()).unwrap_or(u64::MAX);
     match &result {
         Ok(response) => tracing::debug!(
@@ -1011,6 +1010,20 @@ fn send(
         content_type,
         body,
     })
+}
+
+impl Coded for ServerError {
+    fn code(&self) -> ErrorCode {
+        match self {
+            Self::InvalidUrl(_) => ErrorCode::InvalidArguments,
+            Self::Transport { .. } => ErrorCode::ServerUnreachable,
+            Self::Http { .. }
+            | Self::Rejected { .. }
+            | Self::UnsupportedCharset(_)
+            | Self::InvalidUtf8 { .. }
+            | Self::InvalidResponse { .. } => ErrorCode::ServerError,
+        }
+    }
 }
 
 #[cfg(test)]
@@ -1366,6 +1379,57 @@ mod tests {
         assert_eq!(
             body,
             b"<Entities>pass dXNlcjpwYXNz user:pass</Entities>".to_vec()
+        );
+    }
+
+    /// A server that drops the first connection of each request, then answers the second.
+    fn drops_first_then_answers(
+        answer: &'static str,
+    ) -> (String, std::sync::Arc<std::sync::atomic::AtomicUsize>) {
+        use std::io::{Read, Write};
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let address = listener.local_addr().unwrap();
+        let accepted = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let counter = std::sync::Arc::clone(&accepted);
+        std::thread::spawn(move || {
+            for stream in listener.incoming() {
+                let Ok(mut stream) = stream else { return };
+                let mut buffer = [0u8; 8192];
+                let _ = stream.read(&mut buffer);
+                let n = counter.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                if n.is_multiple_of(2) {
+                    // Closed without a response, as a reset under load is.
+                    drop(stream);
+                    continue;
+                }
+                let _ = write!(
+                    stream,
+                    "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{answer}",
+                    answer.len()
+                );
+            }
+        });
+        (format!("http://{address}/Thingworx/"), accepted)
+    }
+
+    #[test]
+    fn a_dropped_read_is_tried_once_more_and_a_dropped_write_never() {
+        let (url, accepted) = drops_first_then_answers("<Entities/>");
+        let body = client_for(url)
+            .fetch_entity(&EntityKey::new("Things", "T").unwrap())
+            .unwrap();
+        assert_eq!(body, b"<Entities/>");
+        assert_eq!(accepted.load(std::sync::atomic::Ordering::SeqCst), 2);
+
+        let (url, accepted) = drops_first_then_answers("ok");
+        let error = client_for(url)
+            .import_entity("T.xml", b"<Entities/>")
+            .unwrap_err();
+        assert!(matches!(error, ServerError::Transport { .. }), "{error}");
+        assert_eq!(
+            accepted.load(std::sync::atomic::Ordering::SeqCst),
+            1,
+            "an import may have arrived, so it is not sent again"
         );
     }
 

@@ -16,6 +16,7 @@
 //! what the server holds. The next `deploy` makes the server follow.
 
 use super::catalog;
+use super::codes::{Coded, ErrorCode};
 use super::config::Solution;
 use super::lock::WorkspaceLock;
 use super::refs;
@@ -1215,6 +1216,21 @@ fn put_sidecar(
         .map_err(RelocateError::from)?;
     }
     Ok(())
+}
+
+impl Coded for RelocateError {
+    fn code(&self) -> ErrorCode {
+        match self {
+            Self::Invalid(_) => ErrorCode::InvalidArguments,
+            Self::Unknown { .. } | Self::NotDeclared { .. } => ErrorCode::UnknownEntity,
+            Self::Unreadable { .. } | Self::Xml { .. } => ErrorCode::InvalidData,
+            Self::Inherited { .. } | Self::Refused(_) => ErrorCode::GuardRefused,
+            Self::Exists { .. } => ErrorCode::AlreadyExists,
+            Self::Apply { .. } => ErrorCode::IoError,
+            Self::Verification(_) => ErrorCode::StalePlan,
+            Self::Write(error) => error.code(),
+        }
+    }
 }
 
 #[cfg(test)]
