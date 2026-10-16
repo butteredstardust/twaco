@@ -46,6 +46,11 @@ impact <entity> [--member <name>] [--min-confidence structural|resolved|review] 
     --detail                list every dependent and the chain of references to each
     --json                  the report as JSON (chains with --detail)
     --dot                   the dependents as a Graphviz graph
+trace <Entity>.<Service> [--param <name>] [--json]
+                            how each caller uses a service: what runs each mashup call, what sets
+                            each parameter, where each result field goes, the arguments each script
+                            passes and what it reads of the result, and what the service calls
+    --param <name>          only that parameter's sources
 unused [--min-confidence structural|resolved|review] [--collection <name>] [--fields]
                             entities no entry point reaches; advisory, deletes nothing
     --fields                result fields mashups bind, which no mashup binds or names

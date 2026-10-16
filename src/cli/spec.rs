@@ -1247,6 +1247,17 @@ pub(crate) const COMMANDS: &[Command] = &[
       --dot                   the dependents as a Graphviz graph"#,
     },
     Command {
+        path: "trace",
+        group: 1,
+        operands: true,
+        flags: &["--param", "--json"],
+        text: r#"  trace <Entity>.<Service> [--param <name>] [--json]
+                              how each caller uses a service: what runs each mashup call, what sets
+                              each parameter, where each result field goes, the arguments each script
+                              passes and what it reads of the result, and what the service calls
+      --param <name>          only that parameter's sources"#,
+    },
+    Command {
         path: "unused",
         group: 1,
         operands: false,

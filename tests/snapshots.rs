@@ -52,6 +52,8 @@ const SCENARIOS: &[(&str, &[&str])] = &[
         "impact_json_and_dot",
         &["impact", "Audit", "--json", "--dot"],
     ),
+    ("trace_service", &["trace", "Audit.Record"]),
+    ("trace_unknown_service", &["trace", "Audit.Nope"]),
     ("unused_plan", &["unused"]),
     ("unused_detail", &["unused", "--detail"]),
     ("unused_json", &["unused", "--json"]),

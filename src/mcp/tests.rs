@@ -881,6 +881,7 @@ fn every_tool_is_listed_with_a_schema_and_honest_annotations() {
             "settings",
             "catalog",
             "impact",
+            "trace",
             "unused",
             "docs",
             "doctor",
@@ -2291,6 +2292,21 @@ fn entity_edit_property_add_plans_then_applies() {
         json!({"action": "property_add", "entity": "P.Press", "name": "Rate"}),
     );
     assert_eq!(missing["isError"], true, "{missing}");
+}
+
+#[test]
+fn trace_reports_a_service_and_refuses_an_unknown_one() {
+    let (_dir, root) = solution_dir();
+    let created = call(
+        &root,
+        "entity_new",
+        json!({"kind": "thing", "name": "P.Press", "dry_run": false}),
+    );
+    assert_eq!(created["isError"], false, "{created}");
+    let unknown = call(&root, "trace", json!({"service": "P.Press.Nope"}));
+    assert_eq!(unknown["isError"], true, "{unknown}");
+    let bad = call(&root, "trace", json!({"service": "nodot"}));
+    assert_eq!(bad["isError"], true, "{bad}");
 }
 
 #[test]

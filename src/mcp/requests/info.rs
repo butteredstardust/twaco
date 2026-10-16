@@ -80,6 +80,16 @@ pub(crate) enum ImpactFormat {
 
 #[derive(Debug, Deserialize, JsonSchema, Serialize)]
 #[serde(deny_unknown_fields)]
+pub(crate) struct TraceRequest {
+    /// `<Entity>.<Service>`, the entity as Collection/Name, a full name, or its last segment.
+    pub(crate) service: String,
+    /// Only this parameter's sources.
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) param: Absent<String>,
+}
+
+#[derive(Debug, Deserialize, JsonSchema, Serialize)]
+#[serde(deny_unknown_fields)]
 pub(crate) struct ImpactRequest {
     /// Collection/Name, a full name, or its last dotted segment.
     pub(crate) entity: String,

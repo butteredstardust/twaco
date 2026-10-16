@@ -15,6 +15,7 @@ a service does before you call it.
 - `twaco entity status --all`: which entities differ between the repository and the server.
 - `twaco catalog`: every service, where it lives, its signature and what it is for.
 - `twaco impact <entity> [--member <name>]`: what changing an entity, or one service of it, would reach, with how sure each reference is; run it before a rename, a move or a delete.
+- `twaco trace <Entity>.<Service> [--param <name>]`: how each caller uses a service, where impact says who: per mashup, what runs the call, what sets each parameter (or unbound, with its default) and where each result field goes; per script, the call, the variable and what it reads; and what the service calls. Run it before changing a service's parameters or result.
 - `twaco unused`: entities no entry point reaches (advisory); list anything used from outside the repository under `[unused] keep` in `twaco.toml`.
 - `twaco docs [--out <file>]`: the solution written down (projects, inheritance, services, DataShapes, references to review); regenerate and diff to see what changed. `--out <file> --check` exits 1 when a committed document is missing or stale, for CI.
 - `twaco test [--apply]`: the service cases of `tests/*.toml`, each called as test users (`[[test.user]]`, `twaco users seed`) and expecting a status such as 200, 401 or 404; plans until `--apply`, and needs `allow_test_users = true` in the profile.

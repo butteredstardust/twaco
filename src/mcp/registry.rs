@@ -564,6 +564,12 @@ static TOOLS: LazyLock<Vec<Tool>> = LazyLock::new(|| {
             true,
             info::impact_tool,
         ),
+        solution_tool::<info_requests::TraceRequest>(
+            "trace",
+            "How each caller uses one service, where impact says only who: for each mashup, what runs the call, what sets each parameter (or that it is unbound, with the default it then gets) and where each result field goes; for each script, the call as written, the variable the result goes in and what the script reads of it (Things[\"X\"].Service() from anywhere, me.Service() from the entity and what inherits it); and what the service itself calls. Offline and read-only; names built at run time are not seen.",
+            true,
+            info::trace_tool,
+        ),
         solution_tool::<info_requests::UnusedRequest>(
             "unused",
             "Entities nothing reaches: Things, templates, shapes and DataShapes with no chain of references from an entry point (what twaco.toml deploys, every mashup, anything that runs on events, and what `[unused] keep` names). Advisory and read-only: it deletes nothing, and an entity used only from outside the repository (a REST client, a connected system) looks unused, so list those under `[unused] keep`. `complete` says whether every input was read; `keep_unmatched` lists keep patterns that match nothing. With `fields`, instead the fields of service results that mashups bind field by field which no mashup binds or names; a result bound whole is not judged, and a field read by a script, another service or a REST client looks unused.",

@@ -203,6 +203,7 @@ fn dispatch(route: &str, parsed: &Args) -> u8 {
             "settings" => settings_cmd(solution, parsed),
             "catalog" => catalog_cmd(solution, parsed),
             "impact" => impact_cmd(solution, parsed),
+            "trace" => cli::info::trace_cmd(solution, parsed),
             "unused" => unused_cmd(solution, parsed),
             "docs" => docs_cmd(solution, parsed),
             "package" => package_cmd(solution, parsed),

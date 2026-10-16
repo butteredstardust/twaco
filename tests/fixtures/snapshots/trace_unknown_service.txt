@@ -1,0 +1,7 @@
+$ twaco trace Audit.Nope
+exit: 2
+
+--- stdout
+
+--- stderr
+twaco: Things/Acme.Orders.Audit has no service Nope, of its own or inherited from the repository

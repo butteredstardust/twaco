@@ -8,6 +8,10 @@ All notable changes to twaco are recorded here. The format follows
 
 ### Added
 
+- `twaco trace <Entity>.<Service>` (MCP `trace`): how each caller uses a service. For each mashup,
+  what runs the call, what sets each parameter (or that it is unbound, and the default it gets) and
+  where each result field goes; for each script, the call, the variable and what it reads of the
+  result; and what the service itself calls.
 - `twaco adopt` lists base-type changes (a mashup parameter retyped from LONG to STRING, say) under
   their own heading, and as `type_changes` in `--json` and MCP `adopt_report`; before, they were one
   node in an entity's count unless `--detail` was given.

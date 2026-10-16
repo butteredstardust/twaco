@@ -77,6 +77,7 @@ when the command is asked to write. A local output named by an option is include
 | `settings` | read-only | read-only | none | Retry freely. | `cli/info.rs: settings_cmd` |
 | `catalog` | read-only | read-only | none | Retry freely. | `cli/info.rs: catalog_cmd` |
 | `impact` | read-only | read-only | none | Retry freely. | `core/impact.rs: run` |
+| `trace` | read-only | read-only | none | Retry freely. | `core/trace.rs: run` |
 | `unused` | read-only | read-only | none | Retry freely. | `core/unused.rs: run` |
 | `docs` | read-only | single-file atomic | named output file | The output is old or new; retry freely. | `cli/info.rs: docs_cmd` |
 | `ext list` | read-only | read-only | none | Retry freely. | `cli/content.rs: ext_cmd` |
@@ -230,6 +231,7 @@ when the command is asked to write. A local output named by an option is include
 | `settings` | read-only | read-only | none | Retry freely. | `mcp/info.rs: settings_tool` |
 | `catalog` | read-only | read-only | none | Retry freely. | `mcp/info.rs: catalog_tool` |
 | `impact` | read-only | read-only | none | Retry freely. | `mcp/info.rs: impact_tool` |
+| `trace` | read-only | read-only | none | Retry freely. | `mcp/info.rs: trace_tool` |
 | `unused` | read-only | read-only | none | Retry freely. | `mcp/info.rs: unused_tool` |
 | `docs` | read-only | read-only | none | Retry freely. | `mcp/info.rs: docs_tool` |
 | `doctor` | read-only | read-only | none | Retry freely. | `mcp/info.rs: doctor_tool` |

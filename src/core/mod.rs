@@ -81,6 +81,7 @@ pub mod splice;
 pub mod status;
 pub mod sync;
 pub mod testing;
+pub mod trace;
 pub mod transaction;
 pub mod types;
 pub mod unused;

@@ -1,0 +1,15 @@
+$ twaco trace Audit.Record
+exit: 0
+
+--- stdout
+trace Things/Acme.Orders.Audit.Record
+  defined in ThingShapes/Acme.Orders.Audit_TS
+  takes   orderId STRING, note STRING
+  returns NOTHING
+mashup callers (0)
+script callers (1)
+  Things/Acme.Orders.Manager.GetOrder:12  Things["Acme.Orders.Audit"].Record({ orderId: orderId, note: `read ${orderId} (${lines.rows.length} lines, ${perDay} ...
+calls (0)
+note: references built at run time, and anything outside this repository, are not seen
+--- stderr
+
