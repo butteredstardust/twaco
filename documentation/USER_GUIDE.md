@@ -89,6 +89,7 @@ without it, each gate gives a summary.
 | code order | a service's main code is below its helper functions |
 | project | the entity files disagree with themselves or each other: a file named for another entity, two files for one entity, a misfiled or project-less entity, a service declared without its implementation or the reverse, a mashup whose JSON does not parse |
 | mashup bindings | a repository-resolved mashup service, result field or parameter is not declared; unresolved platform and inherited DataShape details are left unchecked |
+| contained mashups | a binding to a contained mashup's or navigation function's parameter that its copy of the parameters lacks (the value is dropped) or that the mashup it shows no longer declares; `twaco mashup param set <mashup> <parameter>` refreshes every copy; a stale copy nothing binds is only counted |
 | localization tokens | an entity names a `[[token]]` under one of the solution's token prefixes that no Default table file holds (the label would show the raw text), a language table holds a token Default lacks, a token is in one table twice, or a table file cannot be read. Tokens outside the prefixes are the platform's or an extension's and are not checked |
 | your hooks | a `[[check]]` command fails ([Configuration](CONFIGURATION.md#check-your-own-gates)) |
 | live parse | with `--live` or `[gates] live`: the server's own parser rejects a script |

@@ -118,6 +118,7 @@ pub const BUILT_IN_GATES: &[&str] = &[
     "code order",
     "project",
     "mashup bindings",
+    "contained mashups",
     "localization tokens",
 ];
 
@@ -141,6 +142,7 @@ pub fn run(solution: &Solution) -> CheckReport {
         code_order(solution),
         project_validation(solution),
         mashup_bindings(solution),
+        contained_mashups(solution),
         localization_tokens(solution),
     ] {
         report.gates.push(as_configured(solution, gate));
@@ -820,6 +822,36 @@ fn mashup_bindings(solution: &Solution) -> GateResult {
     let mut prose = format!("{checked_count} checked in {} mashups; {} not checked (entity, service or DataShape outside the repository)", checked.mashups, checked.not_checked);
     if checked.platform_hint {
         prose.push_str("; twaco types --platform caches the platform's services");
+    }
+    result.prose.push(prose);
+    result
+}
+
+/// Bindings to parameters a contained mashup's or navigation function's copy lacks, or the mashup
+/// it shows no longer declares: both reach nothing at runtime.
+fn contained_mashups(solution: &Solution) -> GateResult {
+    let checked = super::contained_check::run(solution);
+    let mut result = GateResult::passed(super::contained_check::GATE, checked.examined);
+    result.findings = checked
+        .problems
+        .into_iter()
+        .map(|problem| Finding {
+            gate: super::contained_check::GATE.to_string(),
+            file: problem.file,
+            line: 0,
+            rule: problem.rule,
+            message: problem.message,
+        })
+        .collect();
+    let mut prose = format!(
+        "{} contained mashups and navigation functions checked; {} not checked (the mashup they show is outside the repository)",
+        checked.examined, checked.not_checked
+    );
+    if checked.unbound_drift > 0 {
+        prose.push_str(&format!(
+            "; {} keep a stale copy of parameters nothing binds yet (`twaco mashup describe` shows which)",
+            checked.unbound_drift
+        ));
     }
     result.prose.push(prose);
     result

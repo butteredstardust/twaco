@@ -208,8 +208,8 @@ pub(crate) fn mashup_param_cmd(solution: &Solution, args: &Args) -> u8 {
         },
         outcome.plan.mashup
     );
-    for (parent, container) in &outcome.plan.refreshed {
-        println!("  containers refreshed: {parent} ({container})");
+    for (widget, parent) in &outcome.plan.refreshed {
+        println!("  copy of the parameters refreshed: {widget} in {parent}");
     }
     for binding in &outcome.plan.retyped {
         println!("  bindings retyped: {binding}");

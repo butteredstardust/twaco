@@ -9,8 +9,9 @@ exit: 0
   ok      code order     7 examined
   ok      project        12 examined
   ok      mashup bindings 0 examined
+  ok      contained mashups 0 examined
   ok      localization tokens 0 examined
 
-8 gate(s) passed
+9 gate(s) passed
 --- stderr
 

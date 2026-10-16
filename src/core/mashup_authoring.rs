@@ -1223,14 +1223,22 @@ pub fn plan_parameter(
         }
     }
     let mut changed_bindings = Vec::new();
-    change_parameter_bindings(
-        document.value_mut(),
-        &request.mashup,
-        &request.name,
-        (request.action != ParameterAction::Remove).then_some(definition.base_type.as_str()),
-        request.force,
-        &mut changed_bindings,
-    )?;
+    // Bindings change only with a removal or a new type; a set that keeps the type (say, only to
+    // refresh every copy of the parameters) leaves even an odd existing binding alone.
+    let touches_bindings = request.action == ParameterAction::Remove
+        || existing
+            .as_ref()
+            .is_some_and(|before| before.base_type != definition.base_type);
+    if touches_bindings {
+        change_parameter_bindings(
+            document.value_mut(),
+            &request.mashup,
+            &request.name,
+            (request.action != ParameterAction::Remove).then_some(definition.base_type.as_str()),
+            request.force,
+            &mut changed_bindings,
+        )?;
+    }
     set_content_parameter(
         &mut document,
         &definition,
@@ -1264,20 +1272,28 @@ pub fn plan_parameter(
         }
         let parent = load_existing(solution, &entity.info.name)?;
         let mut parent_document = parse_loaded(&parent)?;
-        change_parameter_bindings(
-            parent_document.value_mut(),
-            &request.mashup,
-            &request.name,
-            (request.action != ParameterAction::Remove).then_some(definition.base_type.as_str()),
-            request.force,
-            &mut changed_bindings,
-        )?;
+        if touches_bindings {
+            change_parameter_bindings(
+                parent_document.value_mut(),
+                &request.mashup,
+                &request.name,
+                (request.action != ParameterAction::Remove)
+                    .then_some(definition.base_type.as_str()),
+                request.force,
+                &mut changed_bindings,
+            )?;
+        }
+        let first = refreshed.len();
         refresh_containers(
             parent_document.value_mut(),
             &request.mashup,
             &definitions,
             &mut refreshed,
         );
+        // Report the mashup holding each refreshed widget, not the one it shows.
+        for entry in &mut refreshed[first..] {
+            entry.1 = entity.info.name.clone();
+        }
         edits.push(finish_edit(parent, parent_document, "mashup param")?);
     }
     let retyped = if request.action == ParameterAction::Set {
@@ -5210,7 +5226,7 @@ mod tests {
         let plan = param(&solution, &add).unwrap();
         assert_eq!(
             plan.refreshed,
-            [("mashupcontainer-9".to_string(), "Acme.Card_MU".to_string())]
+            [("mashupcontainer-9".to_string(), "Acme.Board_MU".to_string())]
         );
         let parent = content_of(&solution, "Acme.Board_MU");
         let cache = &container(&parent)["MashupParameters"];
@@ -5615,7 +5631,7 @@ mod tests {
         let plan = param(&solution, &add).unwrap();
         assert!(plan.refreshed.contains(&(
             "navigationfunction-11".to_string(),
-            "Acme.Card_MU".to_string()
+            "Acme.Board_MU".to_string()
         )));
         let parent = content_of(&solution, "Acme.Board_MU");
         let navigation = &parent["UI"]["Widgets"][1]["Properties"];
@@ -5873,5 +5889,35 @@ mod tests {
         );
         // Nothing was written for any of them.
         assert!(!dir.path().join("acme/Mashups/Acme.X_MU.xml").exists());
+    }
+
+    #[test]
+    fn a_set_that_keeps_the_type_only_refreshes_the_copies_and_leaves_bindings_alone() {
+        let (dir, solution) = parent_and_child();
+        // An odd binding from before: a BOOLEAN into the LONG parameter. Not twaco's to judge
+        // unless the type changes.
+        rewrite_mashup(dir.path(), "Acme.Card_MU", |value| {
+            value["DataBindings"][0]["PropertyMaps"][0]["TargetPropertyBaseType"] =
+                json!("BOOLEAN");
+        });
+        rewrite_mashup(dir.path(), "Acme.Board_MU", |value| {
+            value["UI"]["Widgets"][0]["Widgets"][1]["Properties"]["MashupParameters"] = json!([]);
+        });
+        let plan = param(
+            &solution,
+            &param_request("Acme.Card_MU", ParameterAction::Set, "id"),
+        )
+        .unwrap();
+        assert!(plan.retyped.is_empty());
+        let parent = content_of(&solution, "Acme.Board_MU");
+        assert_eq!(
+            container(&parent)["MashupParameters"][0]["ParameterName"],
+            "id"
+        );
+        let child = content_of(&solution, "Acme.Card_MU");
+        assert_eq!(
+            child["DataBindings"][0]["PropertyMaps"][0]["TargetPropertyBaseType"],
+            "BOOLEAN"
+        );
     }
 }
