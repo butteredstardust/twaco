@@ -21,6 +21,9 @@ pub struct Description {
     pub parameters: Vec<MashupParameter>,
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub containers: Vec<Container>,
+    /// Function widgets (expressions, validators, navigation...) as what they do.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub functions: Vec<Function>,
     pub widgets: Vec<WidgetNode>,
     pub services: Vec<ServiceUse>,
     pub bindings: Vec<Binding>,
@@ -37,6 +40,15 @@ pub struct MashupParameter {
     pub direction: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub default: Option<Value>,
+}
+
+/// A function widget and, in one sentence, what it does.
+#[derive(Debug, Serialize, PartialEq)]
+pub struct Function {
+    pub id: String,
+    #[serde(rename = "type")]
+    pub type_id: String,
+    pub does: String,
 }
 
 #[derive(Debug, Serialize, PartialEq)]
@@ -212,6 +224,7 @@ pub fn describe(solution: &Solution, name: &str) -> Result<Description, Describe
         })
         .collect();
     description.containers = containers(solution, &value);
+    description.functions = functions(&value, &description.bindings, &description.events);
     Ok(description)
 }
 
@@ -386,12 +399,155 @@ fn of_content(name: &str, file: &str, value: &Value, signature: &Signature<'_>) 
         mashup_type: text(value, "mashupType"),
         parameters: Vec::new(),
         containers: Vec::new(),
+        functions: Vec::new(),
         widgets,
         services,
         bindings: bindings_out,
         events,
         warnings,
     }
+}
+
+/// Each function widget under the root, said as what it does from its properties and the bindings
+/// and events that reach it.
+fn functions(value: &Value, bindings: &[Binding], events: &[Event]) -> Vec<Function> {
+    let mut out = Vec::new();
+    for widget in value["UI"]["Widgets"].as_array().into_iter().flatten() {
+        let p = &widget["Properties"];
+        let (Some(id), Some(type_id)) = (p["Id"].as_str(), p["Type"].as_str()) else {
+            continue;
+        };
+        let me = format!("ui:{id}.");
+        let text = |key: &str| p[key].as_str().unwrap_or_default().to_string();
+        let list = |items: Vec<String>| {
+            if items.is_empty() {
+                "nothing".to_string()
+            } else {
+                items.join(", ")
+            }
+        };
+        let fed: Vec<String> = bindings
+            .iter()
+            .filter(|b| b.to.starts_with(&me))
+            .map(|b| format!("{} from {}", &b.to[me.len()..], b.from))
+            .collect();
+        let feeds = |property: &str| -> Vec<String> {
+            bindings
+                .iter()
+                .filter(|b| b.from == format!("{me}{property}"))
+                .map(|b| b.to.clone())
+                .collect()
+        };
+        let runs_on = |service: &str| -> Vec<String> {
+            events
+                .iter()
+                .filter(|e| e.handler == format!("{me}{service}"))
+                .map(|e| e.trigger.clone())
+                .collect()
+        };
+        let then = |event: &str| -> Vec<String> {
+            events
+                .iter()
+                .filter(|e| e.trigger == format!("{me}{event}"))
+                .map(|e| e.handler.clone())
+                .collect()
+        };
+        let short = |code: String| {
+            let line = code.split_whitespace().collect::<Vec<_>>().join(" ");
+            if line.chars().count() > 70 {
+                format!("{}...", line.chars().take(67).collect::<String>())
+            } else {
+                line
+            }
+        };
+        let does = match type_id {
+            "expression" | "expression2" => {
+                let targets = feeds("Output");
+                let event = text("Expression").contains("Date.now")
+                    && targets.iter().any(|t| t.starts_with("mashup:"));
+                format!(
+                    "computes `{}` ({}) from {}; feeds {}; evaluated on {}{}",
+                    short(text("Expression")),
+                    text("OutputBaseType"),
+                    list(fed),
+                    list(targets),
+                    list(runs_on("Evaluate")),
+                    if event {
+                        "; this mashup's event, set to the time"
+                    } else {
+                        ""
+                    }
+                )
+            }
+            "validator" | "validator2" => format!(
+                "checks `{}` from {} on {}; true runs {}; false runs {}",
+                short(text("Expression")),
+                list(fed),
+                list(runs_on("Evaluate")),
+                list(then("True")),
+                list(then("False"))
+            ),
+            "navigationfunction" => {
+                let size = match (p["PopupWidth"].as_u64(), p["PopupHeight"].as_u64()) {
+                    (Some(w), Some(h)) if w > 0 && h > 0 => format!(", {w}x{h}"),
+                    _ => String::new(),
+                };
+                format!(
+                    "opens {} ({}{size}) on {}; passes {}; when it closes runs {}",
+                    if text("TargetMashup").is_empty() {
+                        "a bound mashup".into()
+                    } else {
+                        text("TargetMashup")
+                    },
+                    text("TargetWindowType"),
+                    list(runs_on("Navigate")),
+                    list(fed),
+                    list(then("WindowClosed"))
+                )
+            }
+            "statusmessage" => format!(
+                "shows {} ({}) on {}",
+                if text("Message").is_empty() {
+                    list(fed)
+                } else {
+                    format!("\"{}\"", text("Message"))
+                },
+                text("MessageType"),
+                list(runs_on("ShowMessage"))
+            ),
+            "eventsrouter" => format!(
+                "routes {}; feeds {}; on change runs {}",
+                list(fed),
+                list(feeds("Output")),
+                list(then("Changed"))
+            ),
+            "autorefreshfunction" => format!(
+                "every {}s{} runs {}",
+                p["RefreshInterval"]
+                    .as_u64()
+                    .map_or_else(|| list(fed), |n| n.to_string()),
+                if p["AutoRefresh"] == false {
+                    " (when switched on)"
+                } else {
+                    ""
+                },
+                list(then("Refresh"))
+            ),
+            "ptcsconfirmation" => format!(
+                "asks \"{}\" on {}; its action runs {}",
+                text("TitleText"),
+                list(runs_on("OpenConfirmation")),
+                list(then("ActionClick"))
+            ),
+            _ => continue,
+        };
+        out.push(Function {
+            id: id.to_string(),
+            type_id: type_id.to_string(),
+            does,
+        });
+    }
+    out
 }
 
 fn containers(solution: &Solution, value: &Value) -> Vec<Container> {
@@ -708,6 +864,12 @@ pub fn render(description: &Description) -> String {
                     format!("  (parameters: {})", drift.join(", "))
                 }
             ));
+        }
+    }
+    if !description.functions.is_empty() {
+        out.push_str("\nfunctions\n");
+        for function in &description.functions {
+            out.push_str(&format!("  {}: {}\n", function.id, function.does));
         }
     }
     if !description.services.is_empty() {

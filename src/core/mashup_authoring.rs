@@ -7178,4 +7178,39 @@ mod tests {
         let value: Value = serde_json::from_str(&sidecar_content(&solution)).unwrap();
         assert_eq!(value["UI"]["Widgets"].as_array().unwrap().len(), 1);
     }
+
+    #[test]
+    fn describe_says_what_each_function_widget_does() {
+        let (_dir, solution) = recipe_fixture();
+        let input = || vec!["note=ui:ptcstextfield-3.Text".to_string()];
+        recipe(
+            &solution,
+            "enable-when",
+            RecipeArgs {
+                widget: Some("ptcsbutton-6".into()),
+                condition: Some("note !== ''".into()),
+                inputs: input(),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        recipe(
+            &solution,
+            "popup",
+            RecipeArgs {
+                widget: Some("ptcsbutton-6".into()),
+                target: Some("Acme.Detail_MU".into()),
+                pass: input(),
+                reload: Some("data:Acme.Orders.Manager.GetOrders".into()),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        let description =
+            crate::core::mashup_describe::describe(&solution, "Acme.Orders_MU").unwrap();
+        let text = crate::core::mashup_describe::render(&description);
+        assert!(text.contains("\nfunctions\n"), "{text}");
+        assert!(text.contains("computes `Output = !(note !== '');` (BOOLEAN) from note from ui:ptcstextfield-3.Text; feeds ui:ptcsbutton-6.Disabled; evaluated on mashup:Loaded"), "{text}");
+        assert!(text.contains("opens Acme.Detail_MU (modal-popup) on ui:ptcsbutton-6.Clicked; passes note from ui:ptcstextfield-3.Text; when it closes runs data:Acme.Orders.Manager.GetOrders"), "{text}");
+    }
 }
