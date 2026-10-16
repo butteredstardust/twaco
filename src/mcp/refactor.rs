@@ -1,8 +1,8 @@
 use super::requests::refactor::{
     AdoptApplyRequest, AdoptKind, AdoptReportRequest, AdoptTakeSide, HandoffAction, HandoffRequest,
     MashupAddRequest, MashupBindRequest, MashupDescribeRequest, MashupNewRequest, MashupOnRequest,
-    MashupTemplatesRequest, MoveMemberRequest, NewBuildingBlockRequest, RenameRequest,
-    ReprojectRequest, RetemplateRequest, WidgetsRequest,
+    MashupParameterAction, MashupParameterRequest, MashupTemplatesRequest, MoveMemberRequest,
+    NewBuildingBlockRequest, RenameRequest, ReprojectRequest, RetemplateRequest, WidgetsRequest,
 };
 use super::source::add_types_refresh;
 use super::*;
@@ -194,6 +194,7 @@ pub(crate) fn mashup_new_tool(
             theme: arguments.theme.as_ref().cloned(),
             master: arguments.master,
             visibility: arguments.visibility.items().to_vec(),
+            params: arguments.params.items().to_vec(),
         },
         mode: if dry_run { Mode::Plan } else { Mode::Apply },
         lock_label: "mcp mashup_new",
@@ -280,6 +281,54 @@ pub(crate) fn mashup_add_tool(
         commands::mashup::add(solution, &request, &mut notices).map_err(ToolError::coded)?;
     let mut result =
         crate::core::mashup_authoring::add_plan_json(solution, &outcome.plan, outcome.applied);
+    result["dry_run"] = json!(dry_run);
+    add_notices(&mut result, &notices);
+    Ok(result)
+}
+
+pub(crate) fn mashup_parameter_tool(
+    solution: &Solution,
+    arguments: MashupParameterRequest,
+) -> Result<Value, ToolError> {
+    let dry_run = arguments.dry_run;
+    if arguments.no_default && !arguments.default.is_absent() {
+        return Err(ToolError::invalid("give default or no_default, not both"));
+    }
+    let action = match arguments.action {
+        MashupParameterAction::Add => crate::core::mashup_authoring::ParameterAction::Add,
+        MashupParameterAction::Set => crate::core::mashup_authoring::ParameterAction::Set,
+        MashupParameterAction::Remove => crate::core::mashup_authoring::ParameterAction::Remove,
+    };
+    let default = if arguments.no_default {
+        crate::core::mashup_authoring::ParameterDefault::Clear
+    } else if let Some(value) = arguments.default.as_ref() {
+        crate::core::mashup_authoring::ParameterDefault::Set(value.clone())
+    } else {
+        crate::core::mashup_authoring::ParameterDefault::Unchanged
+    };
+    let request = commands::mashup::MashupParameterRequest {
+        request: crate::core::mashup_authoring::ParameterRequest {
+            mashup: nonempty(&arguments.mashup, "mashup")?.into(),
+            action,
+            name: nonempty(&arguments.name, "name")?.into(),
+            base_type: arguments.r#type.as_ref().cloned(),
+            direction: arguments.direction.as_ref().cloned(),
+            description: arguments.description.as_ref().cloned(),
+            default,
+            data_shape: arguments.data_shape.as_ref().cloned(),
+            force: arguments.force,
+        },
+        mode: if dry_run { Mode::Plan } else { Mode::Apply },
+        lock_label: "mcp mashup_param",
+    };
+    let mut notices = commands::Notices::default();
+    let outcome =
+        commands::mashup::parameter(solution, &request, &mut notices).map_err(ToolError::coded)?;
+    let mut result = crate::core::mashup_authoring::parameter_plan_json(
+        solution,
+        &outcome.plan,
+        outcome.applied,
+    );
     result["dry_run"] = json!(dry_run);
     add_notices(&mut result, &notices);
     Ok(result)

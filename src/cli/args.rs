@@ -26,6 +26,8 @@ pub(crate) struct Args {
     pub(crate) visibility: Vec<String>,
     /// `mashup add --prop`: properties, repeatable.
     pub(crate) props: Vec<String>,
+    /// `mashup new --param`, repeatable.
+    pub(crate) params: Vec<String>,
     /// Flags that take one value and need no parsing here, such as `logs --since`.
     pub(crate) values: std::collections::BTreeMap<String, String>,
 }

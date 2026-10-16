@@ -323,6 +323,9 @@ pub(crate) struct MashupNewRequest {
     /// `Organization/<name>` or `OrganizationalUnit/<organization>:<unit>`; none unless given.
     #[serde(default, skip_serializing_if = "Absent::is_absent")]
     pub(crate) visibility: Absent<Vec<String>>,
+    /// Parameter declarations as `name:TYPE[:DIRECTION]`; INFOTABLE is not supported here.
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) params: Absent<Vec<String>>,
     #[serde(default = "default_true")]
     pub(crate) dry_run: bool,
 }
@@ -350,6 +353,40 @@ pub(crate) struct MashupAddRequest {
     /// Simple catalogue default properties to set by exact property name.
     #[serde(default, skip_serializing_if = "Absent::is_absent")]
     pub(crate) properties: Absent<BTreeMap<String, String>>,
+    #[serde(default = "default_true")]
+    pub(crate) dry_run: bool,
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, JsonSchema, PartialEq, Eq, Serialize)]
+pub(crate) enum MashupParameterAction {
+    #[serde(rename = "add")]
+    Add,
+    #[serde(rename = "set")]
+    Set,
+    #[serde(rename = "remove")]
+    Remove,
+}
+
+#[derive(Debug, Deserialize, JsonSchema, Serialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct MashupParameterRequest {
+    pub(crate) action: MashupParameterAction,
+    pub(crate) mashup: String,
+    pub(crate) name: String,
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) r#type: Absent<String>,
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) direction: Absent<String>,
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) description: Absent<String>,
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) default: Absent<String>,
+    #[serde(default)]
+    pub(crate) no_default: bool,
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) data_shape: Absent<String>,
+    #[serde(default)]
+    pub(crate) force: bool,
     #[serde(default = "default_true")]
     pub(crate) dry_run: bool,
 }

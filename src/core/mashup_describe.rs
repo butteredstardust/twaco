@@ -19,6 +19,8 @@ pub struct Description {
     pub file: String,
     pub mashup_type: String,
     pub parameters: Vec<MashupParameter>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub containers: Vec<Container>,
     pub widgets: Vec<WidgetNode>,
     pub services: Vec<ServiceUse>,
     pub bindings: Vec<Binding>,
@@ -33,6 +35,20 @@ pub struct MashupParameter {
     pub base_type: String,
     /// `IN`, `OUT` or `BOTH`, as `aspect.bindingDirection` says; empty when it does not.
     pub direction: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub default: Option<Value>,
+}
+
+#[derive(Debug, Serialize, PartialEq)]
+pub struct Container {
+    pub id: String,
+    pub mashup: String,
+    pub parameters: Vec<ContainerParameter>,
+}
+#[derive(Debug, Serialize, PartialEq)]
+pub struct ContainerParameter {
+    pub name: String,
+    pub status: String,
 }
 
 /// The parameters an entity file declares, from its `ParameterDefinitions` only (the
@@ -59,6 +75,7 @@ pub fn mashup_parameters(src: &[u8]) -> Result<Vec<MashupParameter>, String> {
                 name: read(tag, "name")?,
                 base_type: read(tag, "baseType")?,
                 direction: read(tag, "aspect.bindingDirection")?,
+                default: None,
             })
         })
         .collect()
@@ -179,7 +196,21 @@ pub fn describe(solution: &Solution, name: &str) -> Result<Description, Describe
                 .collect()
         })
     });
-    description.parameters = parameters;
+    description.parameters = parameters
+        .into_iter()
+        .map(|mut parameter| {
+            parameter.default = value["UI"]["Properties"]["_currentParameterDefs"]
+                .as_array()
+                .and_then(|defs| {
+                    defs.iter()
+                        .find(|def| def["ParameterName"] == parameter.name)
+                })
+                .and_then(|def| def.get("DefaultValue"))
+                .cloned();
+            parameter
+        })
+        .collect();
+    description.containers = containers(solution, &value);
     Ok(description)
 }
 
@@ -353,12 +384,78 @@ fn of_content(name: &str, file: &str, value: &Value, signature: &Signature<'_>) 
         file: file.to_string(),
         mashup_type: text(value, "mashupType"),
         parameters: Vec::new(),
+        containers: Vec::new(),
         widgets,
         services,
         bindings: bindings_out,
         events,
         warnings,
     }
+}
+
+fn containers(solution: &Solution, value: &Value) -> Vec<Container> {
+    fn visit(solution: &Solution, widget: &Value, out: &mut Vec<Container>) {
+        let properties = &widget["Properties"];
+        if properties["Type"] == "mashupcontainer" {
+            if let Some(mashup) = properties["Name"].as_str() {
+                let declared = workspace::entities(solution)
+                    .into_iter()
+                    .find(|entity| {
+                        entity.info.collection == "Mashups" && entity.info.name == mashup
+                    })
+                    .and_then(|entity| std::fs::read(entity.path).ok())
+                    .and_then(|xml| mashup_parameters(&xml).ok())
+                    .unwrap_or_default();
+                let cached = properties["MashupParameters"]
+                    .as_array()
+                    .cloned()
+                    .unwrap_or_default();
+                let mut parameters = declared
+                    .iter()
+                    .map(|parameter| {
+                        let status = match cached
+                            .iter()
+                            .find(|cache| cache["ParameterName"] == parameter.name)
+                        {
+                            None => "missing in cache",
+                            Some(cache)
+                                if cache["BaseType"].as_str()
+                                    != Some(parameter.base_type.as_str()) =>
+                            {
+                                "stale type"
+                            }
+                            Some(_) => "ok",
+                        };
+                        ContainerParameter {
+                            name: parameter.name.clone(),
+                            status: status.into(),
+                        }
+                    })
+                    .collect::<Vec<_>>();
+                for cache in &cached {
+                    if let Some(name) = cache["ParameterName"].as_str() {
+                        if !declared.iter().any(|parameter| parameter.name == name) {
+                            parameters.push(ContainerParameter {
+                                name: name.into(),
+                                status: "not in child".into(),
+                            });
+                        }
+                    }
+                }
+                out.push(Container {
+                    id: properties["Id"].as_str().unwrap_or_default().into(),
+                    mashup: mashup.into(),
+                    parameters,
+                });
+            }
+        }
+        for child in widget["Widgets"].as_array().into_iter().flatten() {
+            visit(solution, child, out);
+        }
+    }
+    let mut out = Vec::new();
+    visit(solution, &value["UI"], &mut out);
+    out
 }
 
 struct Addresses<'a> {
@@ -503,10 +600,17 @@ pub fn render(description: &Description) -> String {
             .parameters
             .iter()
             .map(|p| {
-                if p.direction.is_empty() {
+                let detail = [
+                    (!p.direction.is_empty()).then_some(p.direction.clone()),
+                    p.default.as_ref().map(|value| format!("default {value}")),
+                ]
+                .into_iter()
+                .flatten()
+                .collect::<Vec<_>>();
+                if detail.is_empty() {
                     format!("{} {}", p.name, p.base_type)
                 } else {
-                    format!("{} {} ({})", p.name, p.base_type, p.direction)
+                    format!("{} {} ({})", p.name, p.base_type, detail.join(", "))
                 }
             })
             .collect();
@@ -541,6 +645,27 @@ pub fn render(description: &Description) -> String {
                 format!("  ({})", notes.join(", "))
             }
         ));
+    }
+    if !description.containers.is_empty() {
+        out.push_str("\ncontainers\n");
+        for container in &description.containers {
+            let drift: Vec<String> = container
+                .parameters
+                .iter()
+                .filter(|p| p.status != "ok")
+                .map(|p| format!("{} {}", p.name, p.status))
+                .collect();
+            out.push_str(&format!(
+                "  {} shows {}{}\n",
+                container.id,
+                container.mashup,
+                if drift.is_empty() {
+                    String::new()
+                } else {
+                    format!("  (parameters: {})", drift.join(", "))
+                }
+            ));
+        }
     }
     if !description.services.is_empty() {
         out.push_str("\nservices\n");
@@ -820,12 +945,14 @@ mod tests {
                 MashupParameter {
                     name: "Manager".into(),
                     base_type: "THINGNAME".into(),
-                    direction: "BOTH".into()
+                    direction: "BOTH".into(),
+                    default: None,
                 },
                 MashupParameter {
                     name: "R&D".into(),
                     base_type: "STRING".into(),
-                    direction: String::new()
+                    direction: String::new(),
+                    default: None,
                 },
             ]
         );

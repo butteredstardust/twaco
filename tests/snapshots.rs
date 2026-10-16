@@ -118,6 +118,30 @@ const SCENARIOS: &[(&str, &[&str])] = &[
         "mashup_new_plan",
         &["mashup", "new", "Acme.Orders.Board_MU", "--master"],
     ),
+    (
+        "mashup_new_params_plan",
+        &[
+            "mashup",
+            "new",
+            "Acme.Orders.Card_MU",
+            "--param",
+            "orderId:LONG:IN",
+            "--param",
+            "title:STRING",
+        ],
+    ),
+    (
+        "mashup_param_unknown_mashup",
+        &[
+            "mashup",
+            "param",
+            "add",
+            "Acme.Orders.Nope_MU",
+            "orderId",
+            "--type",
+            "LONG",
+        ],
+    ),
     ("mashup_templates", &["mashup", "templates"]),
     ("mashup_templates_card", &["mashup", "templates", "card"]),
     (

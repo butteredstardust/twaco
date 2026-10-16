@@ -1151,6 +1151,11 @@
             "type": "string"
           }
         },
+        "params": {
+          "description": "Parameter declarations as `name:TYPE[:DIRECTION]`; INFOTABLE is not supported here.",
+          "type": "array",
+          "items": { "type": "string" }
+        },
         "dry_run": {
           "type": "boolean",
           "default": true
@@ -1305,6 +1310,29 @@
       "destructiveHint": false,
       "openWorldHint": false
     }
+  },
+  {
+    "name": "mashup_param",
+    "description": "Add, change or remove a mashup parameter. It keeps the entity definition, content parameter definitions, parameter property maps and every containing mashupcontainer cache in step. A dry run unless dry_run is false; apply writes all affected mashups in one transaction.",
+    "inputSchema": {
+      "required": ["action", "mashup", "name"],
+      "additionalProperties": false,
+      "type": "object",
+      "properties": {
+        "action": { "type": "string", "enum": ["add", "set", "remove"] },
+        "mashup": { "type": "string" },
+        "name": { "type": "string" },
+        "type": { "type": "string" },
+        "direction": { "type": "string" },
+        "description": { "type": "string" },
+        "default": { "type": "string" },
+        "no_default": { "type": "boolean", "default": false },
+        "data_shape": { "type": "string" },
+        "force": { "type": "boolean", "default": false },
+        "dry_run": { "type": "boolean", "default": true }
+      }
+    },
+    "annotations": { "readOnlyHint": false, "destructiveHint": true, "openWorldHint": false }
   },
   {
     "name": "mashup_describe",

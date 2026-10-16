@@ -30,6 +30,7 @@ pub(crate) fn mashup_new_cmd(solution: &Solution, args: &Args) -> u8 {
             theme: args.values.get("--theme").cloned(),
             master: args.has("--master"),
             visibility: args.visibility.clone(),
+            params: args.params.clone(),
         },
         mode: if apply { Mode::Apply } else { Mode::Plan },
         lock_label: "mashup new",
@@ -74,6 +75,18 @@ pub(crate) fn mashup_new_cmd(solution: &Solution, args: &Args) -> u8 {
         "  slots: {}",
         mashup_authoring::template_slots(&plan.template).join(", ")
     );
+    let parameters =
+        twaco::core::mashup_describe::mashup_parameters(&plan.entity).unwrap_or_default();
+    if !parameters.is_empty() {
+        println!(
+            "  parameters: {}",
+            parameters
+                .iter()
+                .map(|p| format!("{} {} ({})", p.name, p.base_type, p.direction))
+                .collect::<Vec<_>>()
+                .join(", ")
+        );
+    }
     for file in report["files"].as_array().into_iter().flatten() {
         println!("  {}", file.as_str().unwrap_or_default());
     }
@@ -93,6 +106,116 @@ pub(crate) fn mashup_new_cmd(solution: &Solution, args: &Args) -> u8 {
     for (service, property) in &plan.menus {
         println!("  menu: {service} -> {property}, loaded with the page");
     }
+    if !outcome.applied {
+        println!("run again with --apply to write it");
+    }
+    OK
+}
+
+/// `twaco mashup param add|set|remove`: keep Composer's four parameter stores together.
+pub(crate) fn mashup_param_cmd(solution: &Solution, args: &Args) -> u8 {
+    let [action, mashup, name] = args.names.as_slice() else {
+        eprintln!(
+            "{} mashup param needs add|set|remove <mashup> <name>",
+            style::prefix()
+        );
+        return FAILED;
+    };
+    let action = match action.as_str() {
+        "add" => mashup_authoring::ParameterAction::Add,
+        "set" => mashup_authoring::ParameterAction::Set,
+        "remove" => mashup_authoring::ParameterAction::Remove,
+        _ => {
+            eprintln!("{} action must be add, set or remove", style::prefix());
+            return FAILED;
+        }
+    };
+    let default = if args.has("--no-default") {
+        mashup_authoring::ParameterDefault::Clear
+    } else if let Some(value) = args.values.get("--default") {
+        mashup_authoring::ParameterDefault::Set(value.clone())
+    } else {
+        mashup_authoring::ParameterDefault::Unchanged
+    };
+    if args.has("--no-default") && args.values.contains_key("--default") {
+        eprintln!(
+            "{} give --default or --no-default, not both",
+            style::prefix()
+        );
+        return FAILED;
+    }
+    let request = commands::mashup::MashupParameterRequest {
+        request: mashup_authoring::ParameterRequest {
+            mashup: mashup.clone(),
+            action,
+            name: name.clone(),
+            base_type: args.values.get("--type").cloned(),
+            direction: args.values.get("--direction").cloned(),
+            description: args.values.get("--description").cloned(),
+            default,
+            data_shape: args.values.get("--data-shape").cloned(),
+            force: args.has("--force"),
+        },
+        mode: if args.has("--apply") {
+            Mode::Apply
+        } else {
+            Mode::Plan
+        },
+        lock_label: "mashup param",
+    };
+    let mut notices = commands::Notices::default();
+    let outcome = match commands::mashup::parameter(solution, &request, &mut notices) {
+        Ok(outcome) => outcome,
+        Err(error) => {
+            print_notices(&notices);
+            eprintln!("{} {error}", style::prefix());
+            return FAILED;
+        }
+    };
+    print_notices(&notices);
+    let report = mashup_authoring::parameter_plan_json(solution, &outcome.plan, outcome.applied);
+    if args.has("--json") {
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&report).expect("parameter plan serialises")
+        );
+        return OK;
+    }
+    let verb = match action {
+        mashup_authoring::ParameterAction::Add => "add",
+        mashup_authoring::ParameterAction::Set => "change",
+        mashup_authoring::ParameterAction::Remove => "remove",
+    };
+    println!(
+        "{} {verb} parameter {}{} in {}",
+        if outcome.applied { "will" } else { "would" },
+        outcome.plan.name,
+        if action == mashup_authoring::ParameterAction::Remove {
+            String::new()
+        } else {
+            format!(" ({}, {})", outcome.plan.base_type, outcome.plan.direction)
+        },
+        outcome.plan.mashup
+    );
+    for (parent, container) in &outcome.plan.refreshed {
+        println!("  containers refreshed: {parent} ({container})");
+    }
+    for binding in &outcome.plan.retyped {
+        println!("  bindings retyped: {binding}");
+    }
+    for binding in &outcome.plan.removed {
+        println!("  bindings removed: {binding}");
+    }
+    println!(
+        "  files: {}",
+        report["files"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .filter_map(|file| file.as_str())
+            .collect::<Vec<_>>()
+            .join(", ")
+    );
     if !outcome.applied {
         println!("run again with --apply to write it");
     }

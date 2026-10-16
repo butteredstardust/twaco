@@ -214,6 +214,7 @@ pub(crate) fn args_from(
                     "--entity" => args.entity_filters.extend(values),
                     "--visibility" => args.visibility.extend(values),
                     "--prop" => args.props.extend(values),
+                    "--param" => args.params.extend(values),
                     other => unreachable!("{other} repeats but nothing reads it"),
                 }
             }
@@ -613,6 +614,26 @@ pub(crate) const FLAGS: &[Flag] = &[
     Flag {
         name: "--prop",
         takes: Takes::Repeated("name=value"),
+    },
+    Flag {
+        name: "--direction",
+        takes: Takes::Value("IN|OUT|BOTH"),
+    },
+    Flag {
+        name: "--default",
+        takes: Takes::Value("value"),
+    },
+    Flag {
+        name: "--no-default",
+        takes: Takes::Switch,
+    },
+    Flag {
+        name: "--data-shape",
+        takes: Takes::Value("DataShape"),
+    },
+    Flag {
+        name: "--param",
+        takes: Takes::Repeated("name:TYPE[:DIRECTION]"),
     },
     Flag {
         name: "--take",
@@ -1232,6 +1253,31 @@ pub(crate) const COMMANDS: &[Command] = &[
       --invoke <address>      data call or widget service to run"#,
     },
     Command {
+        path: "mashup param",
+        group: 1,
+        operands: true,
+        flags: &[
+            "--type",
+            "--direction",
+            "--description",
+            "--default",
+            "--no-default",
+            "--data-shape",
+            "--force",
+            "--apply",
+            "--json",
+        ],
+        text: r#"  mashup param <add|set|remove> <mashup> <name> [--type <BASETYPE>] [--direction <IN|OUT|BOTH>]
+      [--description <text>] [--default <value> | --no-default] [--data-shape <DataShape>] [--force] [--apply] [--json]
+                              change a mashup parameter and every contained-mashup cache; plan unless --apply
+      --type <BASETYPE>       required by add; ThingWorx base type
+      --direction              IN, OUT or BOTH (BOTH by default for add)
+      --default                a scalar default value
+      --no-default             clear the default on set
+      --data-shape             required for INFOTABLE
+      --force                  remove bindings when removing a parameter"#,
+    },
+    Command {
         path: "mashup templates",
         group: 1,
         operands: true,
@@ -1252,12 +1298,13 @@ pub(crate) const COMMANDS: &[Command] = &[
             "--theme",
             "--master",
             "--visibility",
+            "--param",
             "--apply",
             "--json",
         ],
         text: r#"  mashup new <name> [--project <name>] [--template <name>] [--primary-menu <address>]
       [--secondary-menu <address>] [--theme <StyleTheme>] [--master]
-      [--visibility <principal>]... [--apply] [--json]
+      [--visibility <principal>]... [--param <name:TYPE[:DIRECTION]>]... [--apply] [--json]
                               create a ThingWorx 10.2 responsive mashup as Composer would: its entity file
                               and its content sidecars; plan unless --apply
       --template              layout template name or alias (default: blank); see mashup templates

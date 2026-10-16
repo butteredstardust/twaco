@@ -15,7 +15,7 @@ use crate::core::mashup_describe::mashup_parameters;
 use crate::core::mashup_edit::{self, EditError, MashupDocument, Placement};
 use crate::core::mashup_templates::{self, MashupKind, Visibility};
 use crate::core::transaction::{Transaction, TransactionError};
-use crate::core::{bindings, catalog, types, widgets, workspace};
+use crate::core::{bindings, catalog, scan, splice, types, widgets, workspace};
 use serde_json::{json, Map, Value};
 use std::path::{Path, PathBuf};
 use uuid::Uuid;
@@ -40,6 +40,49 @@ pub struct NewRequest {
     pub master: bool,
     /// `Organization/<name>` or `OrganizationalUnit/<organization>:<unit>`; none unless asked.
     pub visibility: Vec<String>,
+    /// `name:TYPE[:DIRECTION]` declarations to create with the mashup.
+    pub params: Vec<String>,
+}
+
+/// One edit to a mashup parameter definition.
+#[derive(Clone, Debug)]
+pub struct ParameterRequest {
+    pub mashup: String,
+    pub action: ParameterAction,
+    pub name: String,
+    pub base_type: Option<String>,
+    pub direction: Option<String>,
+    pub description: Option<String>,
+    pub default: ParameterDefault,
+    pub data_shape: Option<String>,
+    pub force: bool,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ParameterAction {
+    Add,
+    Set,
+    Remove,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub enum ParameterDefault {
+    Unchanged,
+    Set(String),
+    Clear,
+}
+
+#[derive(Debug)]
+pub struct ParameterPlan {
+    pub edits: Vec<EditPlan>,
+    pub action: ParameterAction,
+    pub mashup: String,
+    pub name: String,
+    pub base_type: String,
+    pub direction: String,
+    pub refreshed: Vec<(String, String)>,
+    pub retyped: Vec<String>,
+    pub removed: Vec<String>,
 }
 
 #[derive(Debug)]
@@ -300,6 +343,21 @@ pub fn plan_new(solution: &Solution, request: &NewRequest) -> Result<NewPlan, Au
     }
 
     let mut document = new_document(&template, request.master, &theme)?;
+    let parameters: Vec<ParameterDefinition> = request
+        .params
+        .iter()
+        .map(|text| parse_new_parameter(text))
+        .collect::<Result<_, _>>()?;
+    let mut seen = std::collections::BTreeSet::new();
+    for parameter in &parameters {
+        if !seen.insert(parameter.name.clone()) {
+            return Err(AuthoringError::Exists(format!(
+                "parameter {} already exists",
+                parameter.name
+            )));
+        }
+        set_content_parameter(&mut document, parameter, false);
+    }
     let menu = document
         .widgets()
         .into_iter()
@@ -354,8 +412,11 @@ pub fn plan_new(solution: &Solution, request: &NewRequest) -> Result<NewPlan, Au
         mashup::assets_from_payload(&document.to_content()).map_err(AuthoringError::Mashup)?;
     let entity_template =
         mashup_templates::entity_xml(&request.name, &project.name, kind, &visibility);
-    let (entity, _) =
+    let (mut entity, _) =
         mashup::sync(entity_template.as_bytes(), &assets).map_err(AuthoringError::Mashup)?;
+    for parameter in &parameters {
+        entity = splice_parameter_definition(&entity, parameter, None, false)?;
+    }
     Ok(NewPlan {
         name: request.name.clone(),
         project: project.name.clone(),
@@ -410,6 +471,763 @@ fn new_document(
     }
     mashup_edit::insert_sorted(document.root_properties_mut(), "StyleTheme", json!(theme));
     Ok(document)
+}
+
+#[derive(Clone, Debug)]
+struct ParameterDefinition {
+    name: String,
+    base_type: String,
+    direction: String,
+    description: String,
+    default: Option<Value>,
+    data_shape: Option<String>,
+}
+
+fn parse_new_parameter(text: &str) -> Result<ParameterDefinition, AuthoringError> {
+    let mut parts = text.split(':');
+    let name = parts.next().unwrap_or_default();
+    let base_type = parts.next().ok_or_else(|| {
+        AuthoringError::Invalid(format!("--param {text:?} must be name:TYPE[:DIRECTION]"))
+    })?;
+    let direction = parts.next().unwrap_or("BOTH");
+    if parts.next().is_some() {
+        return Err(AuthoringError::Invalid(format!(
+            "--param {text:?} must be name:TYPE[:DIRECTION]"
+        )));
+    }
+    validate_parameter(name, base_type, direction, None)?;
+    if base_type == "INFOTABLE" {
+        return Err(AuthoringError::Invalid(
+            "INFOTABLE parameters need --data-shape and cannot be used with mashup new".into(),
+        ));
+    }
+    Ok(ParameterDefinition {
+        name: name.into(),
+        base_type: base_type.into(),
+        direction: direction.into(),
+        description: String::new(),
+        default: None,
+        data_shape: None,
+    })
+}
+
+fn known_base_type(name: &str) -> bool {
+    matches!(
+        name,
+        "BASE64"
+            | "BLOB"
+            | "BOOLEAN"
+            | "DATASHAPENAME"
+            | "DATETIME"
+            | "GUID"
+            | "HTML"
+            | "HYPERLINK"
+            | "IMAGE"
+            | "IMAGELINK"
+            | "INFOTABLE"
+            | "INTEGER"
+            | "JSON"
+            | "LOCATION"
+            | "LONG"
+            | "MASHUPNAME"
+            | "MEDIAENTITYNAME"
+            | "MENUNAME"
+            | "NAME"
+            | "NUMBER"
+            | "PASSWORD"
+            | "PROJECTNAME"
+            | "QUERY"
+            | "SCHEDULE"
+            | "STRING"
+            | "TAG"
+            | "TEXT"
+            | "THINGCODE"
+            | "THINGNAME"
+            | "THINGSHAPENAME"
+            | "THINGTEMPLATENAME"
+            | "USERNAME"
+            | "VARIANT"
+            | "XML"
+    )
+}
+
+fn validate_parameter(
+    name: &str,
+    base_type: &str,
+    direction: &str,
+    data_shape: Option<&str>,
+) -> Result<(), AuthoringError> {
+    if !name.as_bytes().first().is_some_and(u8::is_ascii_alphabetic) && !name.starts_with('_')
+        || !name.bytes().all(|c| c.is_ascii_alphanumeric() || c == b'_')
+    {
+        return Err(AuthoringError::Invalid(format!(
+            "parameter name {name:?} is not a valid identifier"
+        )));
+    }
+    if matches!(name, "Entity" | "ConfigurationMashup") {
+        return Err(AuthoringError::Invalid(format!(
+            "parameter name {name} is reserved"
+        )));
+    }
+    if !known_base_type(base_type) {
+        return Err(AuthoringError::Invalid(format!(
+            "unknown ThingWorx base type {base_type}"
+        )));
+    }
+    if !matches!(direction, "IN" | "OUT" | "BOTH") {
+        return Err(AuthoringError::Invalid(
+            "direction must be IN, OUT or BOTH".into(),
+        ));
+    }
+    if base_type == "INFOTABLE" && data_shape.is_none() {
+        return Err(AuthoringError::Invalid(
+            "INFOTABLE parameters require --data-shape".into(),
+        ));
+    }
+    Ok(())
+}
+
+fn default_value(base_type: &str, value: &str) -> Result<Value, AuthoringError> {
+    match base_type {
+        "INFOTABLE" | "JSON" => Err(AuthoringError::Invalid(
+            "this parameter is structured; set it in Composer".into(),
+        )),
+        "BOOLEAN" => match value {
+            "true" => Ok(json!(true)),
+            "false" => Ok(json!(false)),
+            _ => Err(AuthoringError::Invalid(
+                "default must be true or false".into(),
+            )),
+        },
+        "NUMBER" => value
+            .parse::<f64>()
+            .ok()
+            .and_then(serde_json::Number::from_f64)
+            .map(Value::Number)
+            .ok_or_else(|| AuthoringError::Invalid("default must be a JSON number".into())),
+        "INTEGER" | "LONG" => value
+            .parse::<i64>()
+            .map(Value::from)
+            .map_err(|_| AuthoringError::Invalid("default must be a whole number".into())),
+        _ => Ok(Value::String(value.into())),
+    }
+}
+
+fn definition_from_request(
+    request: &ParameterRequest,
+    existing: Option<&ParameterDefinition>,
+) -> Result<ParameterDefinition, AuthoringError> {
+    let base_type = request
+        .base_type
+        .clone()
+        .or_else(|| existing.map(|p| p.base_type.clone()))
+        .ok_or_else(|| {
+            AuthoringError::Invalid("--type is required when adding a parameter".into())
+        })?;
+    let direction = request
+        .direction
+        .clone()
+        .or_else(|| existing.map(|p| p.direction.clone()))
+        .unwrap_or_else(|| "BOTH".into());
+    let description = request
+        .description
+        .clone()
+        .or_else(|| existing.map(|p| p.description.clone()))
+        .unwrap_or_default();
+    let data_shape = request
+        .data_shape
+        .clone()
+        .or_else(|| existing.and_then(|p| p.data_shape.clone()));
+    validate_parameter(&request.name, &base_type, &direction, data_shape.as_deref())?;
+    let default = match &request.default {
+        ParameterDefault::Set(value) => Some(default_value(&base_type, value)?),
+        ParameterDefault::Clear => None,
+        ParameterDefault::Unchanged => existing.and_then(|p| p.default.clone()),
+    };
+    Ok(ParameterDefinition {
+        name: request.name.clone(),
+        base_type,
+        direction,
+        description,
+        default,
+        data_shape,
+    })
+}
+
+fn content_parameter(document: &MashupDocument, name: &str) -> Option<ParameterDefinition> {
+    let properties = document.value()["UI"]["Properties"].as_object()?;
+    properties
+        .get("_currentParameterDefs")?
+        .as_array()?
+        .iter()
+        .find_map(|entry| {
+            (entry["ParameterName"] == name).then(|| ParameterDefinition {
+                name: name.into(),
+                base_type: entry["BaseType"].as_str().unwrap_or_default().into(),
+                direction: entry["Aspects"]["bindingDirection"]
+                    .as_str()
+                    .unwrap_or("BOTH")
+                    .into(),
+                description: entry["Description"].as_str().unwrap_or_default().into(),
+                default: entry.get("DefaultValue").cloned(),
+                data_shape: entry["Aspects"]["dataShape"].as_str().map(str::to_string),
+            })
+        })
+}
+
+fn parameter_entry(def: &ParameterDefinition) -> Value {
+    let mut aspects = Map::new();
+    aspects.insert("bindingDirection".into(), json!(def.direction));
+    if let Some(shape) = &def.data_shape {
+        aspects.insert("dataShape".into(), json!(shape));
+    }
+    aspects.insert("isMandatory".into(), json!(false));
+    let mut item = Map::new();
+    item.insert("Aspects".into(), Value::Object(aspects));
+    item.insert("BaseType".into(), json!(def.base_type));
+    if let Some(value) = &def.default {
+        item.insert("DefaultValue".into(), value.clone());
+    }
+    item.insert("Description".into(), json!(def.description));
+    item.insert("ParameterName".into(), json!(def.name));
+    Value::Object(item)
+}
+
+fn set_content_parameter(document: &mut MashupDocument, def: &ParameterDefinition, remove: bool) {
+    let root = document
+        .value_mut()
+        .as_object_mut()
+        .expect("checked document");
+    let properties = root
+        .get_mut("UI")
+        .and_then(Value::as_object_mut)
+        .and_then(|ui| ui.get_mut("Properties"))
+        .and_then(Value::as_object_mut)
+        .expect("checked root properties");
+    let defs = properties
+        .entry("_currentParameterDefs")
+        .or_insert_with(|| Value::Array(Vec::new()))
+        .as_array_mut()
+        .expect("parameter definitions must be an array");
+    if remove {
+        defs.retain(|entry| entry["ParameterName"] != def.name);
+        properties.shift_remove(&def.name);
+        return;
+    }
+    if let Some(entry) = defs
+        .iter_mut()
+        .find(|entry| entry["ParameterName"] == def.name)
+    {
+        *entry = parameter_entry(def);
+    } else {
+        defs.push(parameter_entry(def));
+    }
+    match &def.default {
+        Some(value) => {
+            mashup_edit::insert_sorted(properties, &def.name, value.clone());
+        }
+        None => {
+            properties.shift_remove(&def.name);
+        }
+    }
+}
+
+fn field_xml(def: &ParameterDefinition) -> String {
+    let mut attributes = format!(
+        "aspect.bindingDirection=\"{}\"",
+        scan::escape_attribute(&def.direction)
+    );
+    if let Some(shape) = &def.data_shape {
+        attributes.push_str(&format!(
+            " aspect.dataShape=\"{}\"",
+            scan::escape_attribute(shape)
+        ));
+    }
+    attributes.push_str(&format!(" aspect.isMandatory=\"false\" baseType=\"{}\" description=\"{}\" name=\"{}\" ordinal=\"0\"", scan::escape_attribute(&def.base_type), scan::escape_attribute(&def.description), scan::escape_attribute(&def.name)));
+    format!("<FieldDefinition {attributes}/>")
+}
+
+/// Change just the parameter definition element, retaining every byte outside it.
+fn splice_parameter_definition(
+    src: &[u8],
+    def: &ParameterDefinition,
+    old_name: Option<&str>,
+    remove: bool,
+) -> Result<Vec<u8>, AuthoringError> {
+    let tokens = scan::tokenize(src).map_err(|e| AuthoringError::Invalid(e.to_string()))?;
+    let entity = crate::core::sidecar::entity_element(&tokens, src)
+        .ok_or_else(|| AuthoringError::Invalid("not an entity document".into()))?;
+    let definitions = *scan::child_tags(&tokens, src, "ParameterDefinitions", entity)
+        .first()
+        .ok_or_else(|| AuthoringError::Invalid("mashup has no ParameterDefinitions".into()))?;
+    let fields = scan::child_tags(&tokens, src, "FieldDefinition", definitions);
+    let find = |name: &str| -> Result<Option<usize>, AuthoringError> {
+        fields
+            .iter()
+            .copied()
+            .find_map(|field| match scan::attribute(src, &tokens[field], "name") {
+                Ok(Some(span))
+                    if scan::decode_entities(&String::from_utf8_lossy(span.of(src))) == name =>
+                {
+                    Some(Ok(field))
+                }
+                Ok(_) => None,
+                Err(e) => Some(Err(AuthoringError::Invalid(e.to_string()))),
+            })
+            .transpose()
+    };
+    let wanted = old_name.unwrap_or(&def.name);
+    let found = find(wanted)?;
+    if remove {
+        let field = found
+            .ok_or_else(|| AuthoringError::Unknown(format!("mashup has no parameter {wanted}")))?;
+        let span = scan::element_span(&tokens, field)
+            .ok_or_else(|| AuthoringError::Invalid("malformed FieldDefinition".into()))?;
+        return splice::splice(src, &[splice::Edit::new(span, Vec::new())])
+            .map_err(|e| AuthoringError::Invalid(e.to_string()));
+    }
+    if let Some(field) = found {
+        let span = scan::element_span(&tokens, field)
+            .ok_or_else(|| AuthoringError::Invalid("malformed FieldDefinition".into()))?;
+        return splice::splice(src, &[splice::Edit::new(span, field_xml(def))])
+            .map_err(|e| AuthoringError::Invalid(e.to_string()));
+    }
+    let end = scan::element_end_in(&tokens, src, definitions)
+        .ok_or_else(|| AuthoringError::Invalid("malformed ParameterDefinitions".into()))?;
+    let inner = scan::Span::new(tokens[definitions].span.end, tokens[end].span.start);
+    let parent_indent = String::from_utf8_lossy(&src[..tokens[definitions].span.start])
+        .rsplit('\n')
+        .next()
+        .unwrap_or("")
+        .chars()
+        .take_while(|c| c.is_whitespace())
+        .collect::<String>();
+    let child_indent = format!("{parent_indent}    ");
+    let before = String::from_utf8_lossy(inner.of(src));
+    let replacement = if before.trim().is_empty() {
+        format!("\n{child_indent}{}\n{parent_indent}", field_xml(def))
+    } else {
+        format!(
+            "{}\n{child_indent}{}\n{parent_indent}",
+            before.trim_end(),
+            field_xml(def)
+        )
+    };
+    splice::splice(src, &[splice::Edit::new(inner, replacement)])
+        .map_err(|e| AuthoringError::Invalid(e.to_string()))
+}
+
+fn cache_entry(def: &ParameterDefinition, value: Option<Value>) -> Value {
+    let mut aspects = Map::new();
+    aspects.insert("bindingDirection".into(), json!(def.direction));
+    if let Some(shape) = &def.data_shape {
+        aspects.insert("dataShape".into(), json!(shape));
+    }
+    aspects.insert("isMandatory".into(), json!("false"));
+    let mut parm = Map::new();
+    parm.insert("aspects".into(), Value::Object(aspects));
+    parm.insert("baseType".into(), json!(def.base_type));
+    parm.insert("description".into(), json!(def.description));
+    parm.insert("name".into(), json!(def.name));
+    parm.insert("ordinal".into(), json!(0));
+    let mut entry = Map::new();
+    entry.insert("BaseType".into(), json!(def.base_type));
+    if let Some(value) = value {
+        entry.insert("DefaultValue".into(), value);
+    }
+    entry.insert("Description".into(), json!(def.description));
+    entry.insert("ParameterName".into(), json!(def.name));
+    entry.insert("ParmDef".into(), Value::Object(parm));
+    Value::Object(entry)
+}
+
+fn refresh_containers(
+    value: &mut Value,
+    child: &str,
+    definitions: &[ParameterDefinition],
+    refreshed: &mut Vec<(String, String)>,
+) {
+    fn visit(
+        widget: &mut Value,
+        child: &str,
+        definitions: &[ParameterDefinition],
+        refreshed: &mut Vec<(String, String)>,
+    ) {
+        let properties = widget.get_mut("Properties").and_then(Value::as_object_mut);
+        if let Some(properties) = properties {
+            if properties.get("Type").and_then(Value::as_str) == Some("mashupcontainer")
+                && properties.get("Name").and_then(Value::as_str) == Some(child)
+            {
+                let id = properties
+                    .get("Id")
+                    .and_then(Value::as_str)
+                    .unwrap_or_default()
+                    .to_string();
+                let previous = properties
+                    .get("MashupParameters")
+                    .and_then(Value::as_array)
+                    .cloned()
+                    .unwrap_or_default();
+                let mut rebuilt = Vec::new();
+                for def in definitions {
+                    let old = previous
+                        .iter()
+                        .find(|entry| entry["ParameterName"] == def.name);
+                    let old_type = old.and_then(|entry| entry["BaseType"].as_str());
+                    let value = if old_type == Some(def.base_type.as_str()) {
+                        old.and_then(|entry| entry.get("DefaultValue"))
+                            .cloned()
+                            .or_else(|| properties.get(&def.name).cloned())
+                            .or_else(|| def.default.clone())
+                    } else {
+                        properties.shift_remove(&def.name);
+                        def.default.clone()
+                    };
+                    if let Some(value) = &value {
+                        mashup_edit::insert_sorted(properties, &def.name, value.clone());
+                    }
+                    rebuilt.push(cache_entry(def, value));
+                }
+                for old in previous {
+                    if let Some(name) = old["ParameterName"].as_str() {
+                        if !definitions.iter().any(|d| d.name == name) {
+                            properties.shift_remove(name);
+                        }
+                    }
+                }
+                mashup_edit::insert_sorted(properties, "MashupParameters", Value::Array(rebuilt));
+                refreshed.push((id, child.into()));
+            }
+        }
+        if let Some(children) = widget.get_mut("Widgets").and_then(Value::as_array_mut) {
+            for child_widget in children {
+                visit(child_widget, child, definitions, refreshed);
+            }
+        }
+    }
+    visit(&mut value["UI"], child, definitions, refreshed);
+}
+
+fn change_parameter_bindings(
+    value: &mut Value,
+    child: &str,
+    name: &str,
+    new_type: Option<&str>,
+    force: bool,
+    labels: &mut Vec<String>,
+) -> Result<(), AuthoringError> {
+    let container_ids: std::collections::BTreeSet<String> = {
+        fn collect(widget: &Value, child: &str, into: &mut std::collections::BTreeSet<String>) {
+            if widget["Properties"]["Type"] == "mashupcontainer"
+                && widget["Properties"]["Name"] == child
+            {
+                if let Some(id) = widget["Properties"]["Id"].as_str() {
+                    into.insert(id.into());
+                }
+            }
+            for w in widget["Widgets"].as_array().into_iter().flatten() {
+                collect(w, child, into);
+            }
+        }
+        let mut ids = std::collections::BTreeSet::new();
+        collect(&value["UI"], child, &mut ids);
+        ids
+    };
+    let bindings = value["DataBindings"].as_array_mut().into_iter().flatten();
+    for binding in bindings {
+        let source = (container_ids.is_empty() && binding["SourceArea"].as_str() == Some("Mashup"))
+            || container_ids.contains(binding["SourceId"].as_str().unwrap_or_default());
+        let target = (container_ids.is_empty() && binding["TargetArea"].as_str() == Some("Mashup"))
+            || container_ids.contains(binding["TargetId"].as_str().unwrap_or_default());
+        if !source && !target {
+            continue;
+        }
+        let id = binding["Id"].as_str().unwrap_or("binding").to_string();
+        let maps = binding["PropertyMaps"].as_array_mut().into_iter().flatten();
+        let mut remove_binding = false;
+        for map in maps {
+            let relevant = (source && map["SourceProperty"] == name)
+                || (target && map["TargetProperty"] == name);
+            if !relevant {
+                continue;
+            }
+            if new_type.is_none() {
+                if !force {
+                    labels.push(id.clone());
+                } else {
+                    remove_binding = true;
+                    labels.push(id.clone());
+                }
+                continue;
+            }
+            let new_type = new_type.unwrap();
+            let other = if source {
+                map["TargetPropertyBaseType"].as_str()
+            } else {
+                map["SourcePropertyBaseType"].as_str()
+            };
+            // The rule `mashup bind` applies: the same base type, or a STRING target.
+            let compatible = match other {
+                None => true,
+                Some(other) if source => other == new_type || other == "STRING",
+                Some(other) => other == new_type || new_type == "STRING",
+            };
+            if !compatible {
+                return Err(AuthoringError::Refused(format!(
+                    "binding {id} would join {new_type} with {}; change or remove it first",
+                    other.unwrap_or_default()
+                )));
+            }
+            if source {
+                map["SourcePropertyBaseType"] = json!(new_type);
+            } else {
+                map["TargetPropertyBaseType"] = json!(new_type);
+            }
+            labels.push(id.clone());
+        }
+        if remove_binding {
+            binding["__twaco_remove"] = json!(true);
+        }
+    }
+    if new_type.is_none() && !force && !labels.is_empty() {
+        return Err(AuthoringError::Refused(format!(
+            "parameter {name} is still bound by {}; use --force to remove those bindings",
+            labels.join(", ")
+        )));
+    }
+    if force {
+        if let Some(bindings) = value["DataBindings"].as_array_mut() {
+            bindings.retain(|b| b["__twaco_remove"] != true);
+        }
+    }
+    Ok(())
+}
+
+fn document_parameters(document: &MashupDocument) -> Vec<ParameterDefinition> {
+    document.value()["UI"]["Properties"]["_currentParameterDefs"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(|entry| {
+            entry["ParameterName"]
+                .as_str()
+                .map(|name| ParameterDefinition {
+                    name: name.into(),
+                    base_type: entry["BaseType"].as_str().unwrap_or_default().into(),
+                    direction: entry["Aspects"]["bindingDirection"]
+                        .as_str()
+                        .unwrap_or("BOTH")
+                        .into(),
+                    description: entry["Description"].as_str().unwrap_or_default().into(),
+                    default: entry.get("DefaultValue").cloned(),
+                    data_shape: entry["Aspects"]["dataShape"].as_str().map(str::to_string),
+                })
+        })
+        .collect()
+}
+
+/// Plan a parameter addition, definition change or deletion, including every container that
+/// displays the child mashup. Nothing is written.
+pub fn plan_parameter(
+    solution: &Solution,
+    request: &ParameterRequest,
+) -> Result<ParameterPlan, AuthoringError> {
+    let loaded = load_existing(solution, &request.mashup)?;
+    let entity_parameters =
+        mashup_parameters(&loaded.entity_before).map_err(AuthoringError::Invalid)?;
+    let mut document = parse_loaded(&loaded)?;
+    let existing_xml = entity_parameters
+        .iter()
+        .find(|parameter| parameter.name == request.name);
+    let existing = content_parameter(&document, &request.name).or_else(|| {
+        existing_xml.map(|parameter| ParameterDefinition {
+            name: parameter.name.clone(),
+            base_type: parameter.base_type.clone(),
+            direction: if parameter.direction.is_empty() {
+                "BOTH".into()
+            } else {
+                parameter.direction.clone()
+            },
+            description: String::new(),
+            default: None,
+            data_shape: None,
+        })
+    });
+    if request.action == ParameterAction::Add && existing.is_some() {
+        return Err(AuthoringError::Exists(format!(
+            "mashup {} already has parameter {}",
+            request.mashup, request.name
+        )));
+    }
+    if request.action != ParameterAction::Add && existing.is_none() {
+        return Err(AuthoringError::Unknown(format!(
+            "mashup {} has no parameter {}",
+            request.mashup, request.name
+        )));
+    }
+    if request.action == ParameterAction::Remove && existing.is_none() {
+        return Err(AuthoringError::Unknown(format!(
+            "mashup {} has no parameter {}",
+            request.mashup, request.name
+        )));
+    }
+    let definition = existing
+        .as_ref()
+        .cloned()
+        .map(Ok)
+        .unwrap_or_else(|| definition_from_request(request, None))?;
+    let definition = if request.action == ParameterAction::Remove {
+        definition
+    } else {
+        definition_from_request(request, existing.as_ref())?
+    };
+    if definition.base_type == "INFOTABLE" {
+        let shape = definition.data_shape.as_deref().unwrap_or_default();
+        if !workspace::entities(solution)
+            .iter()
+            .any(|entity| entity.info.collection == "DataShapes" && entity.info.name == shape)
+        {
+            return Err(AuthoringError::Unknown(format!(
+                "no DataShape {shape} in the solution"
+            )));
+        }
+    }
+    let mut changed_bindings = Vec::new();
+    change_parameter_bindings(
+        document.value_mut(),
+        &request.mashup,
+        &request.name,
+        (request.action != ParameterAction::Remove).then_some(definition.base_type.as_str()),
+        request.force,
+        &mut changed_bindings,
+    )?;
+    set_content_parameter(
+        &mut document,
+        &definition,
+        request.action == ParameterAction::Remove,
+    );
+    let definitions = document_parameters(&document);
+    let mut child_edit = finish_edit(loaded, document, "mashup param")?;
+    child_edit.entity_after = splice_parameter_definition(
+        &child_edit.entity_after,
+        &definition,
+        existing.as_ref().map(|_| request.name.as_str()),
+        request.action == ParameterAction::Remove,
+    )?;
+    let mut edits = vec![child_edit];
+    let mut refreshed = Vec::new();
+    for entity in workspace::entities(solution)
+        .into_iter()
+        .filter(|entity| entity.info.collection == "Mashups" && entity.info.name != request.mashup)
+    {
+        let bytes = std::fs::read(&entity.path).map_err(|error| {
+            AuthoringError::Unreadable(format!("{}: {error}", entity.path.display()))
+        })?;
+        let content = mashup::extract(&bytes)
+            .map_err(AuthoringError::Mashup)?
+            .content;
+        let value: Value = serde_json::from_str(&content).map_err(|error| {
+            AuthoringError::Invalid(format!("{}: {error}", entity.path.display()))
+        })?;
+        if !has_container(&value, &request.mashup) {
+            continue;
+        }
+        let parent = load_existing(solution, &entity.info.name)?;
+        let mut parent_document = parse_loaded(&parent)?;
+        change_parameter_bindings(
+            parent_document.value_mut(),
+            &request.mashup,
+            &request.name,
+            (request.action != ParameterAction::Remove).then_some(definition.base_type.as_str()),
+            request.force,
+            &mut changed_bindings,
+        )?;
+        refresh_containers(
+            parent_document.value_mut(),
+            &request.mashup,
+            &definitions,
+            &mut refreshed,
+        );
+        edits.push(finish_edit(parent, parent_document, "mashup param")?);
+    }
+    let retyped = if request.action == ParameterAction::Set {
+        changed_bindings.clone()
+    } else {
+        Vec::new()
+    };
+    let removed = if request.action == ParameterAction::Remove {
+        changed_bindings
+    } else {
+        Vec::new()
+    };
+    Ok(ParameterPlan {
+        edits,
+        action: request.action,
+        mashup: request.mashup.clone(),
+        name: request.name.clone(),
+        base_type: definition.base_type,
+        direction: definition.direction,
+        refreshed,
+        retyped,
+        removed,
+    })
+}
+
+fn has_container(value: &Value, name: &str) -> bool {
+    fn visit(widget: &Value, name: &str) -> bool {
+        (widget["Properties"]["Type"] == "mashupcontainer" && widget["Properties"]["Name"] == name)
+            || widget["Widgets"]
+                .as_array()
+                .is_some_and(|children| children.iter().any(|child| visit(child, name)))
+    }
+    visit(&value["UI"], name)
+}
+
+/// Apply every affected mashup in one transaction.
+pub fn apply_parameter(
+    solution: &Solution,
+    plan: &ParameterPlan,
+    lock: &WorkspaceLock,
+) -> Result<(), AuthoringError> {
+    let mut transaction = Transaction::new(&solution.root, "mashup param");
+    for edit in &plan.edits {
+        transaction
+            .replace_file(
+                &edit.entity_path,
+                &edit.entity_before,
+                edit.entity_after.clone(),
+            )
+            .map_err(AuthoringError::Write)?;
+        if let Some(sidecars) = &edit.sidecars {
+            transaction
+                .replace_file(
+                    &sidecars.content_path,
+                    &sidecars.content_before,
+                    sidecars.content_after.clone(),
+                )
+                .map_err(AuthoringError::Write)?;
+        }
+    }
+    transaction.apply(lock).map_err(AuthoringError::Write)?;
+    Ok(())
+}
+
+pub fn parameter_plan_json(solution: &Solution, plan: &ParameterPlan, applied: bool) -> Value {
+    let files = plan
+        .edits
+        .iter()
+        .flat_map(|edit| {
+            std::iter::once(&edit.entity_path)
+                .chain(edit.sidecars.iter().map(|sidecar| &sidecar.content_path))
+        })
+        .map(|path| {
+            path.strip_prefix(&solution.root)
+                .unwrap_or(path)
+                .to_string_lossy()
+                .replace('\\', "/")
+        })
+        .collect::<Vec<_>>();
+    json!({ "applied": applied, "action": format!("{:?}", plan.action).to_ascii_lowercase(), "mashup": plan.mashup, "name": plan.name, "base_type": plan.base_type, "direction": plan.direction, "containers_refreshed": plan.refreshed, "bindings_retyped": plan.retyped, "bindings_removed": plan.removed, "files": files })
 }
 
 fn unknown_template(word: &str) -> String {
@@ -1876,6 +2694,7 @@ mod tests {
             theme: None,
             master: false,
             visibility: Vec::new(),
+            params: Vec::new(),
         }
     }
 
@@ -1919,6 +2738,46 @@ mod tests {
         assert!(workspace::entities(&solution)
             .iter()
             .any(|e| e.info.collection == "Mashups" && e.info.name == "Acme.Orders_MU"));
+    }
+
+    #[test]
+    fn parameters_are_written_to_the_entity_and_content_together() {
+        let (_dir, solution) = one_project();
+        let mut request = request("Acme.Parameter_MU");
+        request.params = vec!["id:LONG:IN".into(), "title:STRING".into()];
+        let plan = plan_new(&solution, &request).unwrap();
+        let xml = String::from_utf8(plan.entity.clone()).unwrap();
+        assert!(xml.contains(r#"<FieldDefinition aspect.bindingDirection="IN" aspect.isMandatory="false" baseType="LONG" description="" name="id" ordinal="0"/>"#));
+        let value: Value = serde_json::from_str(&plan.assets.content).unwrap();
+        assert_eq!(
+            value["UI"]["Properties"]["_currentParameterDefs"][0]["ParameterName"],
+            "id"
+        );
+        assert_eq!(mashup_parameters(&plan.entity).unwrap().len(), 2);
+        apply_new(&solution, &plan, &lock(&solution)).unwrap();
+        let parameter = ParameterRequest {
+            mashup: "Acme.Parameter_MU".into(),
+            action: ParameterAction::Add,
+            name: "header".into(),
+            base_type: Some("STRING".into()),
+            direction: None,
+            description: None,
+            default: ParameterDefault::Set("Orders".into()),
+            data_shape: None,
+            force: false,
+        };
+        let update = plan_parameter(&solution, &parameter).unwrap();
+        apply_parameter(&solution, &update, &lock(&solution)).unwrap();
+        let content = workspace::read_mashup(&solution.src_root().join("Acme.Parameter_MU/mashup"))
+            .unwrap()
+            .unwrap()
+            .content;
+        let value: Value = serde_json::from_str(&content).unwrap();
+        assert_eq!(value["UI"]["Properties"]["header"], "Orders");
+        assert_eq!(
+            value["UI"]["Properties"]["_currentParameterDefs"][2]["DefaultValue"],
+            "Orders"
+        );
     }
 
     #[test]
@@ -3333,5 +4192,406 @@ mod tests {
         let mut after = std::collections::BTreeMap::new();
         snapshot(dir.path(), &mut after);
         assert!(before == after, "planning changed a file");
+    }
+
+    fn param_request(mashup: &str, action: ParameterAction, name: &str) -> ParameterRequest {
+        ParameterRequest {
+            mashup: mashup.into(),
+            action,
+            name: name.into(),
+            base_type: None,
+            direction: None,
+            description: None,
+            default: ParameterDefault::Unchanged,
+            data_shape: None,
+            force: false,
+        }
+    }
+
+    fn param(
+        solution: &Solution,
+        request: &ParameterRequest,
+    ) -> Result<ParameterPlan, AuthoringError> {
+        let plan = plan_parameter(solution, request)?;
+        apply_parameter(solution, &plan, &lock(solution))?;
+        Ok(plan)
+    }
+
+    fn content_of(solution: &Solution, mashup: &str) -> Value {
+        let text = workspace::read_mashup(&solution.src_root().join(format!("{mashup}/mashup")))
+            .unwrap()
+            .unwrap()
+            .content;
+        serde_json::from_str(&text).unwrap()
+    }
+
+    /// Change a mashup's content in its sidecar and entity file together.
+    fn rewrite_mashup(dir: &Path, mashup: &str, edit: impl FnOnce(&mut Value)) {
+        let content_path = dir.join(format!("src/{mashup}/mashup/content.json"));
+        let mut value: Value =
+            serde_json::from_str(&std::fs::read_to_string(&content_path).unwrap()).unwrap();
+        edit(&mut value);
+        let content = mashup_edit::parse(&serde_json::to_string(&value).unwrap())
+            .unwrap()
+            .to_content();
+        std::fs::write(&content_path, &content).unwrap();
+        let entity_path = dir.join(format!("acme/Mashups/{mashup}.xml"));
+        let css =
+            std::fs::read_to_string(dir.join(format!("src/{mashup}/mashup/custom.css"))).unwrap();
+        let (entity, _) = mashup::sync(
+            &std::fs::read(&entity_path).unwrap(),
+            &mashup::Assets { content, css },
+        )
+        .unwrap();
+        std::fs::write(&entity_path, entity).unwrap();
+    }
+
+    /// A child `Acme.Card_MU` with `id` (LONG, IN) whose content binds `mashup:id` into a label, and a
+    /// parent `Acme.Board_MU` holding it in `mashupcontainer-9` with a stale cache (no entries), a
+    /// static `id` of 7, and a binding from the container's `id` into a label.
+    fn parent_and_child() -> (tempfile::TempDir, Solution) {
+        let (dir, solution) = one_project();
+        let mut child = request("Acme.Card_MU");
+        child.params = vec!["id:LONG:IN".into()];
+        apply_new(
+            &solution,
+            &plan_new(&solution, &child).unwrap(),
+            &lock(&solution),
+        )
+        .unwrap();
+        let label = plan_add(&solution, &add_request("Acme.Card_MU", "label")).unwrap();
+        apply_edit(&solution, &label.edit, &lock(&solution)).unwrap();
+        rewrite_mashup(dir.path(), "Acme.Card_MU", |value| {
+            value["DataBindings"] = json!([{
+                "Id": "child-1",
+                "PropertyMaps": [{"SourceProperty": "id", "SourcePropertyBaseType": "LONG",
+                    "SourcePropertyType": "Property", "TargetProperty": "LabelText",
+                    "TargetPropertyBaseType": "STRING", "TargetPropertyType": "property"}],
+                "SourceArea": "Mashup", "SourceDetails": "", "SourceId": "mashup-root", "SourceSection": "",
+                "TargetArea": "UI", "TargetId": "ptcslabel-3", "TargetSection": ""
+            }]);
+        });
+        apply_new(
+            &solution,
+            &plan_new(&solution, &request("Acme.Board_MU")).unwrap(),
+            &lock(&solution),
+        )
+        .unwrap();
+        let label = plan_add(&solution, &add_request("Acme.Board_MU", "label")).unwrap();
+        apply_edit(&solution, &label.edit, &lock(&solution)).unwrap();
+        rewrite_mashup(dir.path(), "Acme.Board_MU", |value| {
+            value["UI"]["Widgets"][0]["Widgets"].as_array_mut().unwrap().push(json!({
+                "Properties": {"Id": "mashupcontainer-9", "Type": "mashupcontainer",
+                    "DisplayName": "mashupcontainer-9", "Name": "Acme.Card_MU", "ResponsiveLayout": true,
+                    "MashupParameters": [{"BaseType": "LONG", "DefaultValue": 7, "Description": "",
+                        "ParameterName": "id", "ParmDef": {"aspects": {"bindingDirection": "IN",
+                        "isMandatory": "false"}, "baseType": "LONG", "description": "", "name": "id",
+                        "ordinal": 0}}],
+                    "id": 7},
+                "Widgets": []
+            }));
+            value["DataBindings"] = json!([{
+                "Id": "parent-1",
+                "PropertyMaps": [{"SourceProperty": "id", "SourcePropertyBaseType": "LONG",
+                    "SourcePropertyType": "property", "TargetProperty": "LabelText",
+                    "TargetPropertyBaseType": "STRING", "TargetPropertyType": "property"}],
+                "SourceArea": "UI", "SourceDetails": "", "SourceId": "mashupcontainer-9", "SourceSection": "",
+                "TargetArea": "UI", "TargetId": "ptcslabel-3", "TargetSection": ""
+            }]);
+        });
+        (dir, solution)
+    }
+
+    fn container(value: &Value) -> &Value {
+        value["UI"]["Widgets"][0]["Widgets"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|w| w["Properties"]["Type"] == "mashupcontainer")
+            .map(|w| &w["Properties"])
+            .unwrap()
+    }
+
+    #[test]
+    fn adding_a_parameter_refreshes_every_container_of_the_mashup_and_keeps_static_values() {
+        let (_dir, solution) = parent_and_child();
+        let mut add = param_request("Acme.Card_MU", ParameterAction::Add, "title");
+        add.base_type = Some("STRING".into());
+        let plan = param(&solution, &add).unwrap();
+        assert_eq!(
+            plan.refreshed,
+            [("mashupcontainer-9".to_string(), "Acme.Card_MU".to_string())]
+        );
+        let parent = content_of(&solution, "Acme.Board_MU");
+        let cache = &container(&parent)["MashupParameters"];
+        assert_eq!(
+            cache[1],
+            json!({"BaseType": "STRING", "Description": "", "ParameterName": "title",
+                "ParmDef": {"aspects": {"bindingDirection": "BOTH", "isMandatory": "false"},
+                "baseType": "STRING", "description": "", "name": "title", "ordinal": 0}})
+        );
+        assert_eq!(
+            serde_json::to_string(&cache[1]).unwrap(),
+            r#"{"BaseType":"STRING","Description":"","ParameterName":"title","ParmDef":{"aspects":{"bindingDirection":"BOTH","isMandatory":"false"},"baseType":"STRING","description":"","name":"title","ordinal":0}}"#,
+            "key order as Composer writes it"
+        );
+        // The unrelated `id` keeps the static value the container passes.
+        assert_eq!(cache[0]["DefaultValue"], 7);
+        assert_eq!(container(&parent)["id"], 7);
+        // Both mashups changed in one plan, and the result passes the gates.
+        assert_eq!(plan.edits.len(), 2);
+        let failing: Vec<_> = crate::core::check::run(&solution)
+            .gates
+            .into_iter()
+            .filter(|gate| !gate.ok() && gate.name != "project")
+            .collect();
+        assert!(failing.is_empty(), "{failing:?}");
+        let described = crate::core::mashup_describe::describe(&solution, "Acme.Board_MU").unwrap();
+        assert_eq!(described.containers[0].mashup, "Acme.Card_MU");
+        assert!(described.containers[0]
+            .parameters
+            .iter()
+            .all(|parameter| parameter.status == "ok"));
+    }
+
+    #[test]
+    fn describe_reports_a_container_cache_that_misses_a_parameter() {
+        let (dir, solution) = parent_and_child();
+        rewrite_mashup(dir.path(), "Acme.Board_MU", |value| {
+            value["UI"]["Widgets"][0]["Widgets"][1]["Properties"]["MashupParameters"] = json!([]);
+        });
+        let described = crate::core::mashup_describe::describe(&solution, "Acme.Board_MU").unwrap();
+        assert_eq!(
+            described.containers[0].parameters[0].status,
+            "missing in cache"
+        );
+    }
+
+    #[test]
+    fn a_type_change_retypes_bindings_in_both_mashups_and_drops_the_stale_static_value() {
+        let (_dir, solution) = parent_and_child();
+        let mut set = param_request("Acme.Card_MU", ParameterAction::Set, "id");
+        set.base_type = Some("STRING".into());
+        let plan = param(&solution, &set).unwrap();
+        assert_eq!(plan.retyped, ["child-1", "parent-1"]);
+        let child = content_of(&solution, "Acme.Card_MU");
+        assert_eq!(
+            child["DataBindings"][0]["PropertyMaps"][0]["SourcePropertyBaseType"],
+            "STRING"
+        );
+        assert_eq!(
+            child["UI"]["Properties"]["_currentParameterDefs"][0]["BaseType"],
+            "STRING"
+        );
+        let entity =
+            std::fs::read_to_string(solution.root.join("acme/Mashups/Acme.Card_MU.xml")).unwrap();
+        assert!(entity.contains(
+            r#"<FieldDefinition aspect.bindingDirection="IN" aspect.isMandatory="false" baseType="STRING" description="" name="id" ordinal="0"/>"#
+        ));
+        let parent = content_of(&solution, "Acme.Board_MU");
+        assert_eq!(
+            parent["DataBindings"][0]["PropertyMaps"][0]["SourcePropertyBaseType"],
+            "STRING"
+        );
+        let properties = container(&parent);
+        assert!(
+            properties.get("id").is_none(),
+            "a LONG static value is not a STRING one"
+        );
+        assert_eq!(properties["MashupParameters"][0]["BaseType"], "STRING");
+        assert!(properties["MashupParameters"][0]
+            .get("DefaultValue")
+            .is_none());
+    }
+
+    #[test]
+    fn a_type_change_that_breaks_a_binding_is_refused_and_writes_nothing() {
+        let (dir, solution) = parent_and_child();
+        rewrite_mashup(dir.path(), "Acme.Card_MU", |value| {
+            let map = &mut value["DataBindings"][0]["PropertyMaps"][0];
+            map["TargetPropertyBaseType"] = json!("LONG");
+        });
+        let before = std::fs::read(solution.root.join("acme/Mashups/Acme.Card_MU.xml")).unwrap();
+        let mut set = param_request("Acme.Card_MU", ParameterAction::Set, "id");
+        set.base_type = Some("BOOLEAN".into());
+        let error = plan_parameter(&solution, &set).unwrap_err();
+        assert_eq!(error.code(), ErrorCode::GuardRefused, "{error}");
+        assert!(error.to_string().contains("child-1"), "{error}");
+        assert_eq!(
+            std::fs::read(solution.root.join("acme/Mashups/Acme.Card_MU.xml")).unwrap(),
+            before
+        );
+    }
+
+    #[test]
+    fn removing_a_bound_parameter_needs_force_which_removes_the_bindings_and_cache_entries() {
+        let (_dir, solution) = parent_and_child();
+        let remove = param_request("Acme.Card_MU", ParameterAction::Remove, "id");
+        let error = plan_parameter(&solution, &remove).unwrap_err();
+        assert_eq!(error.code(), ErrorCode::GuardRefused, "{error}");
+        assert!(error.to_string().contains("child-1"), "{error}");
+        let plan = param(
+            &solution,
+            &ParameterRequest {
+                force: true,
+                ..remove
+            },
+        )
+        .unwrap();
+        assert_eq!(plan.removed, ["child-1", "parent-1"]);
+        let child = content_of(&solution, "Acme.Card_MU");
+        assert_eq!(child["DataBindings"], json!([]));
+        assert_eq!(
+            child["UI"]["Properties"]["_currentParameterDefs"],
+            json!([])
+        );
+        let entity = std::fs::read(solution.root.join("acme/Mashups/Acme.Card_MU.xml")).unwrap();
+        assert!(mashup_parameters(&entity).unwrap().is_empty());
+        let parent = content_of(&solution, "Acme.Board_MU");
+        assert_eq!(parent["DataBindings"], json!([]));
+        let properties = container(&parent);
+        assert_eq!(properties["MashupParameters"], json!([]));
+        assert!(properties.get("id").is_none());
+    }
+
+    #[test]
+    fn removing_keeps_the_order_of_the_other_root_properties() {
+        let (_dir, solution) = parent_and_child();
+        let mut add = param_request("Acme.Card_MU", ParameterAction::Add, "title");
+        add.base_type = Some("STRING".into());
+        add.default = ParameterDefault::Set("Orders".into());
+        param(&solution, &add).unwrap();
+        let keys = |value: &Value| -> Vec<String> {
+            value["UI"]["Properties"]
+                .as_object()
+                .unwrap()
+                .keys()
+                .filter(|key| *key != "title")
+                .cloned()
+                .collect()
+        };
+        let before = keys(&content_of(&solution, "Acme.Card_MU"));
+        param(
+            &solution,
+            &param_request("Acme.Card_MU", ParameterAction::Remove, "title"),
+        )
+        .unwrap();
+        assert_eq!(keys(&content_of(&solution, "Acme.Card_MU")), before);
+    }
+
+    #[test]
+    fn a_parent_changed_after_planning_stops_the_whole_write() {
+        let (_dir, solution) = parent_and_child();
+        let mut add = param_request("Acme.Card_MU", ParameterAction::Add, "title");
+        add.base_type = Some("STRING".into());
+        let plan = plan_parameter(&solution, &add).unwrap();
+        let child_path = solution.root.join("acme/Mashups/Acme.Card_MU.xml");
+        let child_before = std::fs::read(&child_path).unwrap();
+        let parent_path = solution.root.join("acme/Mashups/Acme.Board_MU.xml");
+        let mut parent = std::fs::read(&parent_path).unwrap();
+        parent.extend_from_slice(b"\n");
+        std::fs::write(&parent_path, &parent).unwrap();
+        assert!(apply_parameter(&solution, &plan, &lock(&solution)).is_err());
+        assert_eq!(std::fs::read(&child_path).unwrap(), child_before);
+        assert_eq!(std::fs::read(&parent_path).unwrap(), parent);
+    }
+
+    #[test]
+    fn an_infotable_parameter_needs_a_data_shape_from_the_solution() {
+        let (dir, solution) = parent_and_child();
+        let mut add = param_request("Acme.Card_MU", ParameterAction::Add, "rows");
+        add.base_type = Some("INFOTABLE".into());
+        assert_eq!(
+            plan_parameter(&solution, &add).unwrap_err().code(),
+            ErrorCode::InvalidArguments
+        );
+        add.data_shape = Some("Acme.Orders.Row_DS".into());
+        assert_eq!(
+            plan_parameter(&solution, &add).unwrap_err().code(),
+            ErrorCode::UnknownEntity
+        );
+        write(
+            dir.path(),
+            "acme/DataShapes/Acme.Orders.Row_DS.xml",
+            r#"<Entities><DataShapes><DataShape name="Acme.Orders.Row_DS" projectName="Acme"><FieldDefinitions><FieldDefinition name="id" baseType="LONG"/></FieldDefinitions></DataShape></DataShapes></Entities>"#,
+        );
+        param(&solution, &add).unwrap();
+        let entity =
+            std::fs::read_to_string(dir.path().join("acme/Mashups/Acme.Card_MU.xml")).unwrap();
+        assert!(entity.contains(
+            r#"<FieldDefinition aspect.bindingDirection="BOTH" aspect.dataShape="Acme.Orders.Row_DS" aspect.isMandatory="false" baseType="INFOTABLE" description="" name="rows" ordinal="0"/>"#
+        ));
+        let child = content_of(&solution, "Acme.Card_MU");
+        assert_eq!(
+            child["UI"]["Properties"]["_currentParameterDefs"][1]["Aspects"],
+            json!({"bindingDirection": "BOTH", "dataShape": "Acme.Orders.Row_DS", "isMandatory": false})
+        );
+        let parent = content_of(&solution, "Acme.Board_MU");
+        assert_eq!(
+            container(&parent)["MashupParameters"][1]["ParmDef"]["aspects"]["dataShape"],
+            "Acme.Orders.Row_DS"
+        );
+    }
+
+    #[test]
+    fn parameter_requests_twaco_cannot_stand_behind_are_refused() {
+        let (_dir, solution) = parent_and_child();
+        let code = |name: &str, base_type: Option<&str>, action: ParameterAction| {
+            let mut request = param_request("Acme.Card_MU", action, name);
+            request.base_type = base_type.map(str::to_string);
+            plan_parameter(&solution, &request).unwrap_err().code()
+        };
+        assert_eq!(
+            code("id", Some("LONG"), ParameterAction::Add),
+            ErrorCode::AlreadyExists
+        );
+        assert_eq!(
+            code("1x", Some("STRING"), ParameterAction::Add),
+            ErrorCode::InvalidArguments
+        );
+        assert_eq!(
+            code("Entity", Some("STRING"), ParameterAction::Add),
+            ErrorCode::InvalidArguments
+        );
+        assert_eq!(
+            code("x", Some("WORD"), ParameterAction::Add),
+            ErrorCode::InvalidArguments
+        );
+        assert_eq!(
+            code("x", None, ParameterAction::Add),
+            ErrorCode::InvalidArguments
+        );
+        assert_eq!(
+            code("nope", None, ParameterAction::Remove),
+            ErrorCode::UnknownEntity
+        );
+        assert_eq!(
+            code("nope", Some("STRING"), ParameterAction::Set),
+            ErrorCode::UnknownEntity
+        );
+        let mut bad_default = param_request("Acme.Card_MU", ParameterAction::Add, "count");
+        bad_default.base_type = Some("LONG".into());
+        bad_default.default = ParameterDefault::Set("many".into());
+        assert_eq!(
+            plan_parameter(&solution, &bad_default).unwrap_err().code(),
+            ErrorCode::InvalidArguments
+        );
+    }
+
+    #[test]
+    fn a_mashup_without_sidecars_still_refreshes_its_containers() {
+        let (dir, solution) = parent_and_child();
+        std::fs::remove_dir_all(dir.path().join("src/Acme.Card_MU")).unwrap();
+        let mut add = param_request("Acme.Card_MU", ParameterAction::Add, "title");
+        add.base_type = Some("STRING".into());
+        let plan = param(&solution, &add).unwrap();
+        assert!(plan.edits[0].sidecars.is_none());
+        let names: Vec<_> = container(&content_of(&solution, "Acme.Board_MU"))["MashupParameters"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|entry| entry["ParameterName"].as_str().unwrap().to_string())
+            .collect();
+        assert_eq!(names, ["id", "title"]);
     }
 }

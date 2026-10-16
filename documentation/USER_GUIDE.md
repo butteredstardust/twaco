@@ -460,6 +460,20 @@ StyleTheme in the solution; twaco never creates one. Nothing is granted visibili
 `--project` may be left out when the solution has one project. A name that is already a mashup, or
 files already in the way, are refused.
 
+### Contained mashups and parameters
+
+A contained mashup receives only the parameters its container declares. Composer stores one
+parameter in four places: the mashup entity's `ParameterDefinitions`, the content root's
+`_currentParameterDefs`, the base type on every binding property map that names it, and the
+`MashupParameters` cache on every `mashupcontainer` showing that mashup. A missing cache entry
+silently drops a binding.
+
+Use `mashup param add`, `mashup param set`, and `mashup param remove` to keep those stores in
+step. They plan by default, refresh every parent container in one transaction on `--apply`, and
+refuse removals that still have bindings unless `--force` removes those bindings too. New mashups
+may declare scalar parameters with repeatable `--param name:TYPE[:IN|OUT|BOTH]`; INFOTABLE
+parameters need a DataShape and are added with `mashup param add --data-shape`.
+
 ### Adding widgets
 
 ```sh
