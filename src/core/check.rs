@@ -120,6 +120,7 @@ pub const BUILT_IN_GATES: &[&str] = &[
     "mashup bindings",
     "contained mashups",
     "localization tokens",
+    "result shapes",
 ];
 
 /// A built-in gate as the solution wants it: blocking, or advisory when `[gates] advisory`
@@ -144,6 +145,7 @@ pub fn run(solution: &Solution) -> CheckReport {
         mashup_bindings(solution),
         contained_mashups(solution),
         localization_tokens(solution),
+        result_shapes(solution),
     ] {
         report.gates.push(as_configured(solution, gate));
     }
@@ -759,6 +761,37 @@ fn script_traps(solution: &Solution) -> GateResult {
                 line: trap.line,
                 rule: trap.rule.to_string(),
                 message: trap.message,
+            });
+        }
+    }
+    result
+}
+
+/// A service whose script builds its result from another DataShape than it declares.
+fn result_shapes(solution: &Solution) -> GateResult {
+    let mut result = GateResult::passed("result shapes", 0);
+    for path in workspace::script_files(solution) {
+        let Some(definition) = path
+            .parent()
+            .and_then(|dir| std::fs::read_to_string(dir.join("definition.xml")).ok())
+        else {
+            continue;
+        };
+        let Ok(source) = std::fs::read_to_string(&path) else {
+            continue;
+        };
+        result.examined += 1;
+        for mismatch in super::result_shape::check(&definition, &source.replace("\r\n", "\n")) {
+            result.findings.push(Finding {
+                gate: "result shapes".to_string(),
+                file: relative(solution, &path),
+                line: mismatch.line,
+                rule: "result-datashape".to_string(),
+                message: format!(
+                    "the result is built from {} but the service declares {}; a mashup bound to \
+                     the declared shape finds other fields",
+                    mismatch.built, mismatch.declared
+                ),
             });
         }
     }

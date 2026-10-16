@@ -8,6 +8,9 @@ All notable changes to twaco are recorded here. The format follows
 
 ### Added
 
+- A `result shapes` check gate: a service whose script builds its result from another DataShape
+  than its definition declares. In 391 real services built this way it found 10, often a
+  same-named DataShape of another project.
 - `twaco call ... --as <test user>` (MCP `call` with `as`) makes one call as a declared
   `[[test.user]]`, with the profile's `test_password`, on a profile that allows test users.
 - `twaco thing property|subscription|shape`, `timer set`, `scheduler set`, `style set`, `media set`,

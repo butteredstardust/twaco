@@ -69,6 +69,7 @@ pub mod rename_scan;
 pub mod rename_sql;
 pub mod repo;
 pub mod reproject;
+pub mod result_shape;
 pub mod retemplate;
 pub mod scan;
 pub mod script;

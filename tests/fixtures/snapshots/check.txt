@@ -11,7 +11,8 @@ exit: 0
   ok      mashup bindings 0 examined
   ok      contained mashups 0 examined
   ok      localization tokens 0 examined
+  ok      result shapes  7 examined
 
-9 gate(s) passed
+10 gate(s) passed
 --- stderr
 

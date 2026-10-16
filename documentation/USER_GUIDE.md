@@ -91,6 +91,7 @@ without it, each gate gives a summary.
 | mashup bindings | a repository-resolved mashup service, result field or parameter is not declared; unresolved platform and inherited DataShape details are left unchecked |
 | contained mashups | a binding to a contained mashup's or navigation function's parameter that its copy of the parameters lacks (the value is dropped) or that the mashup it shows no longer declares; `twaco mashup param set <mashup> <parameter>` refreshes every copy; a stale copy nothing binds is only counted |
 | localization tokens | an entity names a `[[token]]` under one of the solution's token prefixes that no Default table file holds (the label would show the raw text), a language table holds a token Default lacks, a token is in one table twice, or a table file cannot be read. Tokens outside the prefixes are the platform's or an extension's and are not checked |
+| result shapes | a service's script builds its result with `CreateInfoTableFromDataShape` from another DataShape than its definition declares, named by a literal or a `const` holding one (a mashup bound to the declared shape finds other fields). A name computed at run time is not checked |
 | your hooks | a `[[check]]` command fails ([Configuration](CONFIGURATION.md#check-your-own-gates)) |
 | live parse | with `--live` or `[gates] live`: the server's own parser rejects a script |
 
