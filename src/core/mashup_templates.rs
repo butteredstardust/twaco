@@ -20,6 +20,7 @@ const LAYOUTS: &[&str] = &[
     include_str!("mashup_templates/layouts/sidebar.json"),
     include_str!("mashup_templates/layouts/header-footer.json"),
     include_str!("mashup_templates/layouts/header-sidebar.json"),
+    include_str!("mashup_templates/layouts/sidebar-header.json"),
     include_str!("mashup_templates/layouts/form-dialog.json"),
     include_str!("mashup_templates/layouts/confirm-dialog.json"),
     include_str!("mashup_templates/layouts/list-page.json"),
@@ -27,6 +28,7 @@ const LAYOUTS: &[&str] = &[
     include_str!("mashup_templates/layouts/master-detail.json"),
     include_str!("mashup_templates/layouts/kpi-tile.json"),
     include_str!("mashup_templates/layouts/filter-panel.json"),
+    include_str!("mashup_templates/layouts/dashboard.json"),
 ];
 
 /// An embedded responsive layout template.

@@ -11,6 +11,8 @@ Mashup templates
                   slots: header, center, footer
   header-sidebar  Header above a menu sidebar and center content area
                   slots: header, body, sidebar, center
+  sidebar-header  Menu sidebar the full height, a header and the page beside it (also app-shell)
+                  slots: sidebar, main, header, center
   form-dialog     Title bar, fields, and a right-aligned action bar (also form, dialog)
                   slots: title, fields, actions
   confirm-dialog  Confirmation message with close and action areas (also confirm)
@@ -25,5 +27,7 @@ Mashup templates
                   slots: title, value
   filter-panel    Fixed filters beside flexible content (also filters)
                   slots: filters, content
+  dashboard       A title, a row of four KPI tiles, and a side panel beside a main panel
+                  slots: title, tiles, tile-1, tile-2, tile-3, tile-4, panels, side, main
 --- stderr
 

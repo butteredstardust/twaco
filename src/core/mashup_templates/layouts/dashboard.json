@@ -1,0 +1,70 @@
+{
+  "name": "dashboard",
+  "summary": "A title, a row of four KPI tiles, and a side panel beside a main panel",
+  "aliases": [],
+  "page": {
+    "flex-direction": "column",
+    "align-items": "stretch"
+  },
+  "master_slot": "main",
+  "children": [
+    {
+      "slot": "title",
+      "flex-direction": "row",
+      "align-items": "center",
+      "fixed": "40px"
+    },
+    {
+      "slot": "tiles",
+      "flex-direction": "row",
+      "align-items": "stretch",
+      "fixed": "240px",
+      "children": [
+        {
+          "slot": "tile-1",
+          "flex-direction": "column",
+          "flex-grow": 1,
+          "align-items": "stretch"
+        },
+        {
+          "slot": "tile-2",
+          "flex-direction": "column",
+          "flex-grow": 1,
+          "align-items": "stretch"
+        },
+        {
+          "slot": "tile-3",
+          "flex-direction": "column",
+          "flex-grow": 1,
+          "align-items": "stretch"
+        },
+        {
+          "slot": "tile-4",
+          "flex-direction": "column",
+          "flex-grow": 1,
+          "align-items": "stretch"
+        }
+      ]
+    },
+    {
+      "slot": "panels",
+      "flex-direction": "row",
+      "flex-grow": 1,
+      "align-items": "stretch",
+      "children": [
+        {
+          "slot": "side",
+          "flex-direction": "column",
+          "flex-grow": 1,
+          "align-items": "stretch"
+        },
+        {
+          "slot": "main",
+          "flex-direction": "column",
+          "flex-grow": 3,
+          "align-items": "stretch"
+        }
+      ]
+    }
+  ]
+}

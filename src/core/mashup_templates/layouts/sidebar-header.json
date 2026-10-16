@@ -1,0 +1,45 @@
+{
+  "name": "sidebar-header",
+  "summary": "Menu sidebar the full height, a header and the page beside it",
+  "aliases": [
+    "app-shell"
+  ],
+  "page": {
+    "flex-direction": "row",
+    "align-items": "stretch"
+  },
+  "master_slot": "center",
+  "children": [
+    {
+      "slot": "sidebar",
+      "flex-direction": "row",
+      "flex-grow": 0,
+      "align-items": "stretch",
+      "widget": "ptcsmenubar"
+    },
+    {
+      "slot": "main",
+      "flex-direction": "column",
+      "flex-grow": 1,
+      "align-items": "stretch",
+      "children": [
+        {
+          "slot": "header",
+          "flex-direction": "row",
+          "align-items": "center",
+          "justify-content": "space-between",
+          "fixed": "50px"
+        },
+        {
+          "divider": true
+        },
+        {
+          "slot": "center",
+          "flex-direction": "column",
+          "flex-grow": 1,
+          "align-items": "stretch"
+        }
+      ]
+    }
+  ]
+}

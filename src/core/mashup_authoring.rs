@@ -5517,4 +5517,82 @@ mod tests {
             "STRING"
         );
     }
+
+    /// (id, DisplayName, flex-direction, min height, min width) of every widget below the root.
+    fn tree_of(name: &str, master: bool) -> Vec<(String, String, String, String, String)> {
+        let template = mashup_templates::layout(name).unwrap().unwrap();
+        let document = new_document(&template, master, DEFAULT_THEME).unwrap();
+        document
+            .widgets()
+            .into_iter()
+            .skip(1)
+            .map(|widget| {
+                let p = &document.at(&widget.path)["Properties"];
+                let text = |key: &str| p[key].as_str().unwrap_or("").to_string();
+                (
+                    widget.id,
+                    text("DisplayName"),
+                    text("flex-direction"),
+                    text("flex-min-height"),
+                    text("flex-min-width"),
+                )
+            })
+            .collect()
+    }
+
+    fn rows(
+        rows: &[(&str, &str, &str, &str, &str)],
+    ) -> Vec<(String, String, String, String, String)> {
+        rows.iter()
+            .map(|(a, b, c, d, e)| {
+                (
+                    a.to_string(),
+                    b.to_string(),
+                    c.to_string(),
+                    d.to_string(),
+                    e.to_string(),
+                )
+            })
+            .collect()
+    }
+
+    #[test]
+    fn the_sidebar_header_shell_has_the_stock_master_shape() {
+        assert_eq!(
+            tree_of("sidebar-header", true),
+            rows(&[
+                ("flexcontainer-2", "page", "row", "", ""),
+                ("flexcontainer-3", "sidebar", "row", "", ""),
+                ("ptcsmenubar-4", "ptcs-menubar-4", "", "", ""),
+                ("flexcontainer-5", "main", "column", "", ""),
+                ("flexcontainer-6", "header", "row", "50px", ""),
+                ("flexcontainer-7", "divider-7", "row", "1px", ""),
+                ("flexcontainer-8", "center", "column", "", ""),
+                ("pagemashupcontainer-9", "Page Mashup", "", "", ""),
+            ])
+        );
+    }
+
+    #[test]
+    fn the_dashboard_has_four_tiles_above_two_panels() {
+        assert_eq!(
+            tree_of("dashboard", false),
+            rows(&[
+                ("flexcontainer-2", "page", "column", "", ""),
+                ("flexcontainer-3", "title", "row", "40px", ""),
+                ("flexcontainer-4", "tiles", "row", "240px", ""),
+                ("flexcontainer-5", "tile-1", "column", "", ""),
+                ("flexcontainer-6", "tile-2", "column", "", ""),
+                ("flexcontainer-7", "tile-3", "column", "", ""),
+                ("flexcontainer-8", "tile-4", "column", "", ""),
+                ("flexcontainer-9", "panels", "row", "", ""),
+                ("flexcontainer-10", "side", "column", "", ""),
+                ("flexcontainer-11", "main", "column", "", ""),
+            ])
+        );
+        let template = mashup_templates::layout("dashboard").unwrap().unwrap();
+        let document = new_document(&template, false, DEFAULT_THEME).unwrap();
+        let main = document.find("main").unwrap();
+        assert_eq!(document.at(&main.path)["Properties"]["flex-grow"], 3);
+    }
 }

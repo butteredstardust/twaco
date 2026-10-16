@@ -443,6 +443,7 @@ aliases and slots. Slots are responsive container names usable with `mashup add 
 | sidebar | sidebar, center | Navigation beside content |
 | header-footer | header, center, footer | Framed application page |
 | header-sidebar | header, body, sidebar, center | Navigation page with a header |
+| sidebar-header | sidebar, main, header, center | Application shell: the menu the full height, a header above the page (the shape of the stock ThingWorx master templates) |
 | form-dialog | title, fields, actions | Form editing dialog |
 | confirm-dialog | close, message, actions | Confirmation dialog |
 | list-page | title, toolbar, body | List and toolbar page |
@@ -450,6 +451,7 @@ aliases and slots. Slots are responsive container names usable with `mashup add 
 | master-detail | list, detail | Master and detail panes |
 | kpi-tile | title, value | A compact KPI display |
 | filter-panel | filters, content | Filters beside results |
+| dashboard | title, tiles, tile-1..tile-4, panels, side, main | Four KPI tiles above a side panel and a main panel (1:3) |
 
 `sidebar` and `header-sidebar` require `--primary-menu`; their optional `--secondary-menu` values
 are INFOTABLE-returning services. Their menu-bar data bindings and page-loaded service events are
