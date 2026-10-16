@@ -335,6 +335,165 @@
         "video"
       ],
       "type_display_name": "Video"
+    },
+    "expression2": {
+      "aliases": [
+        "expression-function",
+        "expr"
+      ],
+      "type_display_name": "Expression",
+      "function": true
+    },
+    "expression": {
+      "type_display_name": "Expression",
+      "function": true,
+      "replaced_by": "expression2"
+    },
+    "validator2": {
+      "aliases": [
+        "validation"
+      ],
+      "type_display_name": "Validator",
+      "function": true
+    },
+    "validator": {
+      "type_display_name": "Validator",
+      "function": true,
+      "replaced_by": "validator2"
+    },
+    "eventsrouter": {
+      "aliases": [
+        "events-router",
+        "event-router"
+      ],
+      "type_display_name": "Events Router",
+      "function": true,
+      "contract": {
+        "properties": {
+          "DataType": {
+            "baseType": "STRING"
+          },
+          "NumberOfInputs": {
+            "baseType": "NUMBER"
+          },
+          "Output": {
+            "baseType": "",
+            "isBindingSource": true
+          },
+          "Input1": {
+            "baseType": "",
+            "isBindingTarget": true
+          },
+          "Input2": {
+            "baseType": "",
+            "isBindingTarget": true
+          },
+          "Input3": {
+            "baseType": "",
+            "isBindingTarget": true
+          },
+          "Input4": {
+            "baseType": "",
+            "isBindingTarget": true
+          },
+          "Input5": {
+            "baseType": "",
+            "isBindingTarget": true
+          },
+          "Input6": {
+            "baseType": "",
+            "isBindingTarget": true
+          },
+          "Input7": {
+            "baseType": "",
+            "isBindingTarget": true
+          },
+          "Input8": {
+            "baseType": "",
+            "isBindingTarget": true
+          },
+          "Input9": {
+            "baseType": "",
+            "isBindingTarget": true
+          },
+          "Input10": {
+            "baseType": "",
+            "isBindingTarget": true
+          },
+          "Input11": {
+            "baseType": "",
+            "isBindingTarget": true
+          },
+          "Input12": {
+            "baseType": "",
+            "isBindingTarget": true
+          },
+          "Input13": {
+            "baseType": "",
+            "isBindingTarget": true
+          },
+          "Input14": {
+            "baseType": "",
+            "isBindingTarget": true
+          },
+          "Input15": {
+            "baseType": "",
+            "isBindingTarget": true
+          },
+          "Input16": {
+            "baseType": "",
+            "isBindingTarget": true
+          },
+          "Input17": {
+            "baseType": "",
+            "isBindingTarget": true
+          },
+          "Input18": {
+            "baseType": "",
+            "isBindingTarget": true
+          },
+          "Input19": {
+            "baseType": "",
+            "isBindingTarget": true
+          },
+          "Input20": {
+            "baseType": "",
+            "isBindingTarget": true
+          }
+        },
+        "events": {
+          "Changed": {}
+        },
+        "services": {}
+      }
+    },
+    "navigationfunction": {
+      "aliases": [
+        "navigation",
+        "popup"
+      ],
+      "type_display_name": "Navigation",
+      "function": true,
+      "overrides": {
+        "Text": "tw.navigationfunction-ide.properties.text.default-value"
+      }
+    },
+    "statusmessage": {
+      "aliases": [
+        "status-message",
+        "message"
+      ],
+      "type_display_name": "Status Message",
+      "function": true
+    },
+    "autorefreshfunction": {
+      "aliases": [
+        "auto-refresh",
+        "autorefresh"
+      ],
+      "type_display_name": "Auto Refresh",
+      "function": true
     }
-  }
+  },
+  "comment_functions": "Function widgets sit under the mashup root, beside the layout. Their contracts come from mashup-common-widgets-builder.js; the events router's is given here because its inputs are made at run time (Input1..InputN, NumberOfInputs of them, of DataType). An expression's or validator's inputs are the entries of its _currentParameterDefs. A replaced_by widget stays readable in existing mashups; adding one adds its replacement."
 }

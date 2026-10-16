@@ -30,6 +30,8 @@ pub(crate) struct Args {
     pub(crate) params: Vec<String>,
     /// `mashup new --tab`, repeatable.
     pub(crate) tabs: Vec<String>,
+    /// `mashup add --input`, repeatable.
+    pub(crate) inputs: Vec<String>,
     /// Flags that take one value and need no parsing here, such as `logs --since`.
     pub(crate) values: std::collections::BTreeMap<String, String>,
 }

@@ -9,6 +9,10 @@
     "widget_contracts": {
       "path": "Common/mashup-common-widgets-shared.js",
       "sha256": "39359df0bc6ac04d4f3c47effa7a016e1a69bdb162b483ff68853e590c1baaec"
+    },
+    "function_widgets": {
+      "path": "Common/mashup-common-widgets-builder.js",
+      "sha256": "e706fe5f04e7b2c20a2baf446524720d776302886be3ced401e370dcf751fc11"
     }
   },
   "base_properties": {
@@ -14778,6 +14782,602 @@
       },
       "events": [],
       "services": []
+    },
+    {
+      "type": "expression2",
+      "aliases": [
+        "expression-function",
+        "expr"
+      ],
+      "type_display_name": "Expression",
+      "display_name": "expression2",
+      "container": false,
+      "numbered": true,
+      "auto_resize": false,
+      "defaults": {
+        "Area": "UI",
+        "AutoEvaluate": false,
+        "DataChangeType": "VALUE",
+        "DefaultNumberEvaluation": true,
+        "Description": "",
+        "DisableInitialOutput": false,
+        "DisplayName": "",
+        "Expression": "",
+        "FireOnFirstValue": false,
+        "Left": 0,
+        "Margin": "5",
+        "OutputBaseType": "NUMBER",
+        "ShowDataLoading": true,
+        "Top": 0,
+        "Visible": true,
+        "Z-index": 10
+      },
+      "function": true,
+      "properties": {
+        "Expression": {
+          "base_type": "STRING"
+        },
+        "AutoEvaluate": {
+          "base_type": "BOOLEAN"
+        },
+        "FireOnFirstValue": {
+          "base_type": "BOOLEAN"
+        },
+        "DataChangeType": {
+          "base_type": "STRING",
+          "options": [
+            "VALUE",
+            "ALWAYS",
+            "NEVER"
+          ]
+        },
+        "Output": {
+          "base_type": "NUMBER",
+          "source": true
+        },
+        "OutputBaseType": {
+          "base_type": "STRING"
+        },
+        "DefaultNumberEvaluation": {
+          "base_type": "BOOLEAN"
+        }
+      },
+      "events": [
+        "Changed"
+      ],
+      "services": [
+        "Evaluate"
+      ]
+    },
+    {
+      "type": "expression",
+      "aliases": [],
+      "type_display_name": "Expression",
+      "display_name": "expression",
+      "container": false,
+      "numbered": true,
+      "auto_resize": false,
+      "defaults": {
+        "Area": "UI",
+        "AutoEvaluate": false,
+        "DataChangeType": "VALUE",
+        "DefaultNumberEvaluation": true,
+        "Description": "",
+        "DisableInitialOutput": false,
+        "DisplayName": "",
+        "Expression": "",
+        "FireOnFirstValue": false,
+        "Left": 0,
+        "Margin": "5",
+        "OutputBaseType": "NUMBER",
+        "ShowDataLoading": true,
+        "Top": 0,
+        "Visible": true,
+        "Z-index": 10
+      },
+      "function": true,
+      "replaced_by": "expression2",
+      "properties": {
+        "Expression": {
+          "base_type": "STRING"
+        },
+        "AutoEvaluate": {
+          "base_type": "BOOLEAN"
+        },
+        "FireOnFirstValue": {
+          "base_type": "BOOLEAN"
+        },
+        "DataChangeType": {
+          "base_type": "STRING",
+          "options": [
+            "VALUE",
+            "ALWAYS",
+            "NEVER"
+          ]
+        },
+        "Output": {
+          "base_type": "NUMBER",
+          "source": true
+        },
+        "OutputBaseType": {
+          "base_type": "STRING"
+        },
+        "DefaultNumberEvaluation": {
+          "base_type": "BOOLEAN"
+        }
+      },
+      "events": [
+        "Changed"
+      ],
+      "services": [
+        "Evaluate"
+      ]
+    },
+    {
+      "type": "validator2",
+      "aliases": [
+        "validation"
+      ],
+      "type_display_name": "Validator",
+      "display_name": "validator2",
+      "container": false,
+      "numbered": true,
+      "auto_resize": false,
+      "defaults": {
+        "Area": "UI",
+        "AutoEvaluate": false,
+        "Description": "",
+        "DisplayName": "",
+        "Expression": "",
+        "Left": 0,
+        "Margin": "5",
+        "Output": true,
+        "ShowDataLoading": true,
+        "Top": 0,
+        "Visible": true,
+        "Z-index": 10
+      },
+      "function": true,
+      "properties": {
+        "Expression": {
+          "base_type": "STRING"
+        },
+        "AutoEvaluate": {
+          "base_type": "BOOLEAN"
+        },
+        "Output": {
+          "base_type": "BOOLEAN",
+          "source": true
+        }
+      },
+      "events": [
+        "True",
+        "False"
+      ],
+      "services": [
+        "Evaluate"
+      ]
+    },
+    {
+      "type": "validator",
+      "aliases": [],
+      "type_display_name": "Validator",
+      "display_name": "validator",
+      "container": false,
+      "numbered": true,
+      "auto_resize": false,
+      "defaults": {
+        "Area": "UI",
+        "AutoEvaluate": false,
+        "Description": "",
+        "DisplayName": "",
+        "Expression": "",
+        "Left": 0,
+        "Margin": "5",
+        "Output": true,
+        "ShowDataLoading": true,
+        "Top": 0,
+        "Visible": true,
+        "Z-index": 10
+      },
+      "function": true,
+      "replaced_by": "validator2",
+      "properties": {
+        "Expression": {
+          "base_type": "STRING"
+        },
+        "AutoEvaluate": {
+          "base_type": "BOOLEAN"
+        },
+        "Output": {
+          "base_type": "BOOLEAN",
+          "source": true
+        }
+      },
+      "events": [
+        "True",
+        "False"
+      ],
+      "services": [
+        "Evaluate"
+      ]
+    },
+    {
+      "type": "eventsrouter",
+      "aliases": [
+        "events-router",
+        "event-router"
+      ],
+      "type_display_name": "Events Router",
+      "display_name": "eventsrouter",
+      "container": false,
+      "numbered": true,
+      "auto_resize": false,
+      "defaults": {
+        "Area": "UI",
+        "DataShape": "",
+        "DataType": "STRING",
+        "Description": "",
+        "DisplayName": "",
+        "Input": "STRING",
+        "Input1": "",
+        "Input10": "",
+        "Input11": "",
+        "Input12": "",
+        "Input13": "",
+        "Input14": "",
+        "Input15": "",
+        "Input16": "",
+        "Input17": "",
+        "Input18": "",
+        "Input19": "",
+        "Input2": "",
+        "Input20": "",
+        "Input3": "",
+        "Input4": "",
+        "Input5": "",
+        "Input6": "",
+        "Input7": "",
+        "Input8": "",
+        "Input9": "",
+        "Left": 0,
+        "Margin": "5",
+        "NumberOfInputs": 5,
+        "Output": "",
+        "OutputBaseType": "NUMBER",
+        "ShowDataLoading": true,
+        "Top": 0,
+        "Visible": true,
+        "Z-index": 10
+      },
+      "function": true,
+      "properties": {
+        "DataType": {
+          "base_type": "STRING"
+        },
+        "NumberOfInputs": {
+          "base_type": "NUMBER"
+        },
+        "Output": {
+          "base_type": "",
+          "source": true
+        },
+        "Input1": {
+          "base_type": "",
+          "target": true
+        },
+        "Input2": {
+          "base_type": "",
+          "target": true
+        },
+        "Input3": {
+          "base_type": "",
+          "target": true
+        },
+        "Input4": {
+          "base_type": "",
+          "target": true
+        },
+        "Input5": {
+          "base_type": "",
+          "target": true
+        },
+        "Input6": {
+          "base_type": "",
+          "target": true
+        },
+        "Input7": {
+          "base_type": "",
+          "target": true
+        },
+        "Input8": {
+          "base_type": "",
+          "target": true
+        },
+        "Input9": {
+          "base_type": "",
+          "target": true
+        },
+        "Input10": {
+          "base_type": "",
+          "target": true
+        },
+        "Input11": {
+          "base_type": "",
+          "target": true
+        },
+        "Input12": {
+          "base_type": "",
+          "target": true
+        },
+        "Input13": {
+          "base_type": "",
+          "target": true
+        },
+        "Input14": {
+          "base_type": "",
+          "target": true
+        },
+        "Input15": {
+          "base_type": "",
+          "target": true
+        },
+        "Input16": {
+          "base_type": "",
+          "target": true
+        },
+        "Input17": {
+          "base_type": "",
+          "target": true
+        },
+        "Input18": {
+          "base_type": "",
+          "target": true
+        },
+        "Input19": {
+          "base_type": "",
+          "target": true
+        },
+        "Input20": {
+          "base_type": "",
+          "target": true
+        }
+      },
+      "events": [
+        "Changed"
+      ],
+      "services": []
+    },
+    {
+      "type": "navigationfunction",
+      "aliases": [
+        "navigation",
+        "popup"
+      ],
+      "type_display_name": "Navigation",
+      "display_name": "navigationfunction",
+      "container": false,
+      "numbered": true,
+      "auto_resize": false,
+      "defaults": {
+        "Area": "UI",
+        "ClickOutsideToClose": false,
+        "CloseButton": true,
+        "Description": "",
+        "DisplayName": "",
+        "IncludeLegacyHeightAdjustment": true,
+        "Left": 0,
+        "LegacyHeightAdjustmentEnabled": true,
+        "Margin": "5",
+        "MissingMashupMessage": "",
+        "PopupBlockedMessage": "",
+        "PopupHeight": 0,
+        "PopupScrollbar": "auto",
+        "PopupTitle": "",
+        "PopupWidth": 0,
+        "RedirectTo": "mashup",
+        "ReloadOnReplace": false,
+        "Result": "",
+        "ShowDataLoading": true,
+        "TargetMashup": "",
+        "TargetWindowType": "new",
+        "Text": "tw.navigationfunction-ide.properties.text.default-value",
+        "Top": 0,
+        "URL": "",
+        "URLTargetType": "new",
+        "Visible": true,
+        "Z-index": 10
+      },
+      "function": true,
+      "properties": {
+        "Text": {
+          "base_type": "STRING",
+          "target": true
+        },
+        "MashupParameters": {
+          "base_type": "VALUES"
+        },
+        "TargetMashup": {
+          "base_type": "MASHUPNAME",
+          "target": true
+        },
+        "TargetWindowType": {
+          "base_type": "STRING",
+          "target": true,
+          "options": [
+            "new",
+            "replace",
+            "popup",
+            "modal-popup",
+            "fullscreen"
+          ]
+        },
+        "MissingMashupMessage": {
+          "base_type": "STRING",
+          "target": true
+        },
+        "ReloadOnReplace": {
+          "base_type": "BOOLEAN"
+        },
+        "CloseButton": {
+          "base_type": "BOOLEAN"
+        },
+        "ClickOutsideToClose": {
+          "base_type": "BOOLEAN"
+        },
+        "LegacyHeightAdjustmentEnabled": {
+          "base_type": "BOOLEAN"
+        },
+        "IncludeLegacyHeightAdjustment": {
+          "base_type": "BOOLEAN"
+        },
+        "PopupTitle": {
+          "base_type": "STRING",
+          "target": true
+        },
+        "PopupWidth": {
+          "base_type": "NUMBER",
+          "target": true
+        },
+        "PopupHeight": {
+          "base_type": "NUMBER",
+          "target": true
+        },
+        "PopupScrollbar": {
+          "base_type": "STRING",
+          "options": [
+            "auto",
+            "hidden"
+          ]
+        },
+        "Result": {
+          "base_type": "STRING",
+          "source": true
+        },
+        "RedirectTo": {
+          "base_type": "STRING"
+        },
+        "URL": {
+          "base_type": "STRING",
+          "target": true
+        },
+        "URLTargetType": {
+          "base_type": "STRING",
+          "target": true
+        },
+        "ShowPopupBlockedMessage": {
+          "base_type": "BOOLEAN"
+        },
+        "PopupBlockedMessage": {
+          "base_type": "STRING",
+          "target": true
+        }
+      },
+      "events": [
+        "WindowClosed",
+        "PopupDone",
+        "PopupCanceled",
+        "PopupBlocked"
+      ],
+      "services": [
+        "Navigate"
+      ]
+    },
+    {
+      "type": "statusmessage",
+      "aliases": [
+        "status-message",
+        "message"
+      ],
+      "type_display_name": "Status Message",
+      "display_name": "statusmessage",
+      "container": false,
+      "numbered": true,
+      "auto_resize": false,
+      "defaults": {
+        "Area": "UI",
+        "Description": "",
+        "DisplayName": "",
+        "Height": 28,
+        "Left": 0,
+        "Margin": "5",
+        "Message": "",
+        "MessageType": "info",
+        "ShowDataLoading": true,
+        "Top": 0,
+        "Visible": true,
+        "Width": 200,
+        "Z-index": 10
+      },
+      "function": true,
+      "properties": {
+        "Width": {
+          "base_type": null
+        },
+        "Height": {
+          "base_type": null
+        },
+        "Message": {
+          "base_type": "STRING",
+          "target": true
+        },
+        "MessageType": {
+          "base_type": "STRING",
+          "options": [
+            "info",
+            "warning",
+            "error"
+          ]
+        }
+      },
+      "events": [],
+      "services": [
+        "ShowMessage"
+      ]
+    },
+    {
+      "type": "autorefreshfunction",
+      "aliases": [
+        "auto-refresh",
+        "autorefresh"
+      ],
+      "type_display_name": "Auto Refresh",
+      "display_name": "autorefreshfunction",
+      "container": false,
+      "numbered": true,
+      "auto_resize": false,
+      "defaults": {
+        "Area": "UI",
+        "AutoRefresh": false,
+        "Description": "",
+        "DisableAutoRefreshOnAuthError": false,
+        "DisplayName": "",
+        "Left": 0,
+        "Margin": "5",
+        "RefreshInterval": 30,
+        "ShowDataLoading": true,
+        "Top": 0,
+        "Visible": true,
+        "Z-index": 10
+      },
+      "function": true,
+      "properties": {
+        "RefreshInterval": {
+          "base_type": "NUMBER",
+          "source": true,
+          "target": true
+        },
+        "AutoRefresh": {
+          "base_type": "BOOLEAN",
+          "target": true
+        }
+      },
+      "events": [
+        "Refresh"
+      ],
+      "services": [
+        "ActivateWidgetRefresh"
+      ]
     }
   ]
 }

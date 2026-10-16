@@ -550,6 +550,23 @@ when a Thing's service is not called yet, or a widget's own service such as a gr
 Widgets whose contract the catalogue does not know are refused. `mashup describe` lists the
 result as `trigger -> handler`.
 
+### Function widgets
+
+```sh
+twaco mashup add Acme.App.Orders_MU expression --input note:STRING --prop "Expression=Output = note === '';" --prop OutputBaseType=BOOLEAN --apply
+twaco mashup bind Acme.App.Orders_MU --from ui:ptcstextfield-3.Text --to ui:expression2-7.note --apply
+twaco mashup bind Acme.App.Orders_MU --from ui:expression2-7.Output --to ui:ptcsbutton-6.Disabled --apply
+twaco mashup on Acme.App.Orders_MU --event ui:ptcstextfield-3.Changed --invoke ui:expression2-7.Evaluate --apply
+```
+
+Expressions, validators, events routers, navigation functions, status messages and auto-refresh
+draw nothing: `mashup add` puts them beside the layout, under the mashup itself, and refuses a place
+in it. An expression's or validator's inputs are declared with `--input name:TYPE` and become its
+bindable targets; an expression's `Output` has the base type its `OutputBaseType` says. An events
+router's inputs are `Input1` to `Input<NumberOfInputs>`, of its `DataType`. A navigation function's
+bindable properties include the parameters of the mashup it opens. The legacy `expression` and
+`validator` stay readable in existing mashups; adding either adds `expression2` or `validator2`.
+
 ### Finding widgets
 
 ```sh

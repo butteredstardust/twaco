@@ -368,6 +368,7 @@ pub(crate) fn mashup_add_cmd(solution: &Solution, args: &Args) -> u8 {
         request: mashup_authoring::AddRequest {
             mashup: mashup.clone(),
             widget: widget.clone(),
+            inputs: args.inputs.clone(),
             placement,
             label: args.values.get("--label").cloned(),
             properties,

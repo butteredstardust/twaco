@@ -265,6 +265,7 @@ pub(crate) fn mashup_add_tool(
         request: crate::core::mashup_authoring::AddRequest {
             mashup: nonempty(&arguments.mashup, "mashup")?.to_string(),
             widget: nonempty(&arguments.widget, "widget")?.to_string(),
+            inputs: arguments.inputs.items().to_vec(),
             placement: supplied.into_iter().next(),
             label: arguments.label.as_ref().cloned(),
             properties: arguments

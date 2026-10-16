@@ -4,6 +4,9 @@
 //
 // Reads Common/widget-meta-values.json (defaults) and Common/mashup-common-widgets-shared.js (each
 // `widgetWrapper.config(...)` literal, evaluated in isolation), plus widget_catalog_overlay.json.
+// Function widgets (expressions, validators, navigation...) are older Composer widgets: their
+// properties, events and services come from Common/mashup-common-widgets-builder.js, or from the
+// overlay's `contract` for one whose definition is built at run time (the events router).
 
 import { createHash } from "node:crypto";
 import { readFileSync, writeFileSync } from "node:fs";
@@ -21,6 +24,8 @@ if (!webapp) {
 
 const metaBytes = readFileSync(join(webapp, "Common", "widget-meta-values.json"));
 const sharedBytes = readFileSync(join(webapp, "Common", "mashup-common-widgets-shared.js"));
+const builderBytes = readFileSync(join(webapp, "Common", "mashup-common-widgets-builder.js"));
+const builderText = builderBytes.toString("utf8");
 const meta = JSON.parse(metaBytes.toString("utf8"));
 const sharedText = sharedBytes.toString("utf8");
 const overlay = JSON.parse(readFileSync(join(here, "widget_catalog_overlay.json"), "utf8"));
@@ -67,6 +72,24 @@ for (const match of sharedText.matchAll(/widgetWrapper\.config\("([a-z0-9]+)",\{
   const type = match[1];
   if (contracts[type]) throw new Error(`${type} is configured twice`);
   contracts[type] = evaluate(objectAt(sharedText, match.index + match[0].length - 1));
+}
+
+/** A function widget's `widgetProperties`/`widgetEvents`/`widgetServices` from the builder. */
+function builderContract(type) {
+  const start = builderText.indexOf(`TW.IDE.Widgets.${type}=`);
+  if (start < 0) throw new Error(`the builder does not define ${type}`);
+  const next = builderText.indexOf("TW.IDE.Widgets.", start + type.length + 16);
+  const body = builderText.slice(start, next > 0 ? next : undefined);
+  const part = (name) => {
+    const at = body.indexOf(`this.${name}=function(){return{`);
+    if (at < 0) return {};
+    return evaluate(objectAt(body, body.indexOf("{", body.indexOf("return", at))));
+  };
+  return {
+    properties: part("widgetProperties").properties ?? {},
+    events: part("widgetEvents"),
+    services: part("widgetServices"),
+  };
 }
 
 const plain = (value) =>
@@ -128,7 +151,11 @@ for (const [type, extra] of Object.entries(overlay.widgets)) {
     auto_resize: extra.auto_resize === true,
     defaults,
   };
-  const contract = contracts[type];
+  if (extra.function === true) {
+    entry.function = true;
+    if (extra.replaced_by) entry.replaced_by = extra.replaced_by;
+  }
+  const contract = contracts[type] ?? (extra.function === true ? extra.contract ?? builderContract(type) : undefined);
   if (contract) {
     const properties = {};
     for (const [name, definition] of Object.entries(contract.properties ?? {})) {
@@ -136,7 +163,7 @@ for (const [type, extra] of Object.entries(overlay.widgets)) {
     }
     refuseCaseClash(Object.keys(properties), type);
     entry.properties = properties;
-    entry.auto_resize = contract.flags?.supportsAutoResize === true;
+    if (extra.function !== true) entry.auto_resize = contract.flags?.supportsAutoResize === true;
     entry.events = Object.keys(contract.events ?? {});
     entry.services = Object.keys(contract.services ?? {});
   }
@@ -149,6 +176,7 @@ const catalog = {
   source: {
     widget_meta_values: { path: "Common/widget-meta-values.json", sha256: sha256(metaBytes) },
     widget_contracts: { path: "Common/mashup-common-widgets-shared.js", sha256: sha256(sharedBytes) },
+    function_widgets: { path: "Common/mashup-common-widgets-builder.js", sha256: sha256(builderBytes) },
   },
   base_properties: overlay.base_properties,
   dropped: { ptcs: overlay.dropped.ptcs, flexcontainer: overlay.dropped.flexcontainer },

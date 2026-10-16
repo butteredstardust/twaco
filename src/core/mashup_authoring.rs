@@ -112,6 +112,8 @@ pub struct NewPlan {
 pub struct AddRequest {
     pub mashup: String,
     pub widget: String,
+    /// `name:TYPE` inputs of an expression or validator.
+    pub inputs: Vec<String>,
     pub placement: Option<Placement>,
     pub label: Option<String>,
     pub properties: Vec<(String, String)>,
@@ -1727,6 +1729,146 @@ fn build_tabs(
     Ok(tabs)
 }
 
+/// Add a function widget under the mashup root, beside the layout, as Composer does; an expression
+/// or validator gets its `name:TYPE` inputs as bindable targets.
+fn add_function_widget(
+    document: &mut MashupDocument,
+    widget: &widgets::Widget,
+    request: &AddRequest,
+) -> Result<mashup_edit::Placed, AuthoringError> {
+    if request.placement.is_some() {
+        return Err(AuthoringError::Invalid(format!(
+            "{} is a function widget: it sits beside the layout, so leave out --in and --right-of/--left-of/--above/--below",
+            widget.type_id
+        )));
+    }
+    let takes_inputs = matches!(
+        widget.type_id.as_str(),
+        "expression" | "expression2" | "validator" | "validator2"
+    );
+    if !request.inputs.is_empty() && !takes_inputs {
+        return Err(AuthoringError::Invalid(format!(
+            "--input is for an expression or a validator, not {}",
+            widget.type_id
+        )));
+    }
+    let mut definitions = Vec::new();
+    for text in &request.inputs {
+        let (name, base_type) = text.split_once(':').ok_or_else(|| {
+            AuthoringError::Invalid(format!("--input {text:?} must be name:TYPE"))
+        })?;
+        validate_parameter(name, base_type, "IN", Some(""))?;
+        if definitions
+            .iter()
+            .any(|existing: &ParameterDefinition| existing.name == name)
+        {
+            return Err(AuthoringError::Invalid(format!(
+                "input {name} is given twice"
+            )));
+        }
+        definitions.push(ParameterDefinition {
+            name: name.into(),
+            base_type: base_type.into(),
+            direction: "IN".into(),
+            description: String::new(),
+            default: None,
+            data_shape: None,
+            visible: true,
+        });
+    }
+    let number = document.allocate();
+    let mut value = mashup_edit::new_widget(widget, number, false);
+    if takes_inputs {
+        let entries = definitions
+            .iter()
+            .map(|def| navigation_definition(def, None))
+            .collect();
+        mashup_edit::insert_sorted(
+            value["Properties"]
+                .as_object_mut()
+                .expect("a widget has properties"),
+            "_currentParameterDefs",
+            Value::Array(entries),
+        );
+    }
+    let id = value["Properties"]["Id"]
+        .as_str()
+        .unwrap_or_default()
+        .to_string();
+    document.push_child(&[], value);
+    Ok(mashup_edit::Placed {
+        id,
+        ..mashup_edit::Placed::default()
+    })
+}
+
+/// A function widget's property that its definition makes at run time: an expression's or
+/// validator's inputs and output, an events router's inputs and output, a navigation function's
+/// copy of its target's parameters. As (can be a source, can be a target, base type).
+fn function_property(
+    widget: &Value,
+    type_id: &str,
+    property: &str,
+) -> Option<(bool, bool, String)> {
+    let properties = &widget["Properties"];
+    let input = || {
+        properties["_currentParameterDefs"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .find(|entry| entry["ParameterName"] == property)
+            .map(|entry| {
+                (
+                    entry["isBindingSource"] == true,
+                    entry["isBindingTarget"] != false,
+                    entry["BaseType"].as_str().unwrap_or_default().to_string(),
+                )
+            })
+    };
+    match type_id {
+        "expression" | "expression2" if property == "Output" => Some((
+            true,
+            false,
+            properties["OutputBaseType"]
+                .as_str()
+                .unwrap_or("STRING")
+                .to_string(),
+        )),
+        "expression" | "expression2" | "validator" | "validator2" => input(),
+        "eventsrouter" => {
+            let data_type = properties["DataType"]
+                .as_str()
+                .unwrap_or("STRING")
+                .to_string();
+            if property == "Output" {
+                return Some((true, false, data_type));
+            }
+            let count = match &properties["NumberOfInputs"] {
+                Value::String(text) => text.parse().unwrap_or(0),
+                other => other.as_u64().unwrap_or(0),
+            };
+            let n: u64 = property.strip_prefix("Input")?.parse().ok()?;
+            (1..=count).contains(&n).then_some((false, true, data_type))
+        }
+        "navigationfunction" => properties["MashupParameters"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .find(|entry| entry["ParameterName"] == property)
+            .map(|entry| {
+                let direction = entry["ParmDef"]["aspects"]["bindingDirection"]
+                    .as_str()
+                    .unwrap_or("BOTH");
+                (
+                    direction != "IN",
+                    direction != "OUT",
+                    entry["BaseType"].as_str().unwrap_or_default().to_string(),
+                )
+            }),
+        _ => None,
+    }
+}
+
 /// Plan adding one catalogue widget to an existing mashup. Nothing is written.
 pub fn plan_add(solution: &Solution, request: &AddRequest) -> Result<AddPlan, AuthoringError> {
     let loaded = load_existing(solution, &request.mashup)?;
@@ -1734,19 +1876,28 @@ pub fn plan_add(solution: &Solution, request: &AddRequest) -> Result<AddPlan, Au
     let widget = widgets::catalog()
         .resolve(&request.widget)
         .map_err(|error| AuthoringError::Invalid(error.to_string()))?;
-    let placement = match &request.placement {
-        Some(placement) => placement.clone(),
-        None if document.find("center").is_ok() => Placement::In("center".to_string()),
-        None => {
-            return Err(AuthoringError::Invalid(
-                "say where: --in <container>, or --right-of/--left-of/--above/--below <widget>"
-                    .to_string(),
-            ))
+    let placed = if widget.function {
+        add_function_widget(&mut document, widget, request)?
+    } else {
+        if !request.inputs.is_empty() {
+            return Err(AuthoringError::Invalid(format!(
+                "--input is for an expression or a validator, not {}",
+                widget.type_id
+            )));
         }
+        let placement =
+            match &request.placement {
+                Some(placement) => placement.clone(),
+                None if document.find("center").is_ok() => Placement::In("center".to_string()),
+                None => return Err(AuthoringError::Invalid(
+                    "say where: --in <container>, or --right-of/--left-of/--above/--below <widget>"
+                        .to_string(),
+                )),
+            };
+        document
+            .place(widget, &placement)
+            .map_err(AuthoringError::Edit)?
     };
-    let placed = document
-        .place(widget, &placement)
-        .map_err(AuthoringError::Edit)?;
     if let Some(label) = &request.label {
         let property = ["LabelText", "Label", "Text", "Title"]
             .into_iter()
@@ -2585,6 +2736,44 @@ fn resolve_end(
                 );
             }
             let catalog = widgets::catalog().by_type(&found.type_id).filter(|w| w.has_contract()).ok_or_else(|| AuthoringError::Refused(format!("widget `{}` has type `{}`, whose contract is not in the embedded ThingWorx 10.2 catalogue; twaco will not create a binding for it", found.id, found.type_id)))?;
+            if catalog.function {
+                if let Some((can_source, can_target, base)) =
+                    function_property(document.at(&found.path), &found.type_id, &property)
+                {
+                    if !(if source { can_source } else { can_target }) {
+                        return Err(AuthoringError::Refused(format!(
+                            "ui:{}.{property} is not a {} property",
+                            found.id,
+                            if source { "source" } else { "target" }
+                        )));
+                    }
+                    return Ok(End::Ui {
+                        id: found.id,
+                        property,
+                        base,
+                    });
+                }
+                // An expression's inputs and an events router's are only those it declares.
+                if found.type_id == "eventsrouter" && property.starts_with("Input")
+                    || matches!(
+                        found.type_id.as_str(),
+                        "expression" | "expression2" | "validator" | "validator2"
+                    ) && catalog
+                        .properties
+                        .as_ref()
+                        .is_some_and(|own| !own.contains_key(&property))
+                {
+                    return Err(AuthoringError::Unknown(format!(
+                        "{} has no input {property}; {}",
+                        found.id,
+                        if found.type_id == "eventsrouter" {
+                            "raise its NumberOfInputs to use more"
+                        } else {
+                            "declare it with mashup add --input when adding the widget"
+                        }
+                    )));
+                }
+            }
             let contract = catalog.property(&property).ok_or_else(|| {
                 AuthoringError::Unknown(format!("{} has no property {property}", found.id))
             })?;
@@ -3560,6 +3749,7 @@ mod tests {
             &AddRequest {
                 mashup: "Acme.Edit_MU".into(),
                 widget: "button".into(),
+                inputs: Vec::new(),
                 placement: Some(Placement::In("actions".into())),
                 label: None,
                 properties: Vec::new(),
@@ -3906,6 +4096,7 @@ mod tests {
         AddRequest {
             mashup: mashup.to_string(),
             widget: widget.to_string(),
+            inputs: Vec::new(),
             placement: None,
             label: None,
             properties: Vec::new(),
@@ -5185,6 +5376,7 @@ mod tests {
             &AddRequest {
                 mashup: "Acme.Board_MU".into(),
                 widget: "text-field".into(),
+                inputs: Vec::new(),
                 placement: Some(Placement::Beside {
                     anchor: "mashupcontainer-3".into(),
                     side: mashup_edit::Side::Right,
@@ -5918,6 +6110,204 @@ mod tests {
         assert_eq!(
             child["DataBindings"][0]["PropertyMaps"][0]["TargetPropertyBaseType"],
             "BOOLEAN"
+        );
+    }
+
+    fn add_function(
+        solution: &Solution,
+        widget: &str,
+        inputs: &[&str],
+        properties: &[(&str, &str)],
+    ) -> Result<AddPlan, AuthoringError> {
+        let plan = plan_add(
+            solution,
+            &AddRequest {
+                inputs: inputs.iter().map(|input| input.to_string()).collect(),
+                properties: properties
+                    .iter()
+                    .map(|(name, value)| (name.to_string(), value.to_string()))
+                    .collect(),
+                ..add_request("Acme.Orders_MU", widget)
+            },
+        )?;
+        apply_edit(solution, &plan.edit, &lock(solution))?;
+        Ok(plan)
+    }
+
+    #[test]
+    fn an_expression_goes_beside_the_layout_with_its_inputs_and_wires_like_composers() {
+        let (_dir, solution) = bind_fixture();
+        let button = plan_add(&solution, &add_request("Acme.Orders_MU", "button")).unwrap();
+        apply_edit(&solution, &button.edit, &lock(&solution)).unwrap();
+        // `expression` is the legacy widget's word; adding it adds its replacement.
+        let plan = add_function(
+            &solution,
+            "expression",
+            &["note:STRING"],
+            &[
+                ("Expression", "Output = note === '';"),
+                ("OutputBaseType", "BOOLEAN"),
+            ],
+        )
+        .unwrap();
+        assert_eq!(plan.placed.id, "expression2-7");
+        let value: Value = serde_json::from_str(&sidecar_content(&solution)).unwrap();
+        let root = value["UI"]["Widgets"].as_array().unwrap();
+        assert_eq!(root.len(), 2, "beside the page container, not in it");
+        let expression = &root[1]["Properties"];
+        assert_eq!(expression["Type"], "expression2");
+        assert_eq!(expression["ResponsiveLayout"], false);
+        assert!(expression.get("UseTheme").is_none());
+        assert_eq!(
+            serde_json::to_string(&expression["_currentParameterDefs"]).unwrap(),
+            r#"[{"BaseType":"STRING","Description":"","ParameterName":"note","bindingDirection":"Target","bindingType":"Property","isBindingSource":false,"isBindingTarget":true,"shown":true}]"#
+        );
+        for (from, to) in [
+            ("ui:ptcstextfield-3.Text", "ui:expression2-7.note"),
+            ("ui:expression2-7.Output", "ui:ptcsbutton-6.Disabled"),
+        ] {
+            let plan = bind(&solution, from, to).unwrap_or_else(|e| panic!("{from} -> {to}: {e}"));
+            apply_edit(&solution, &plan.edit, &lock(&solution)).unwrap();
+        }
+        let value: Value = serde_json::from_str(&sidecar_content(&solution)).unwrap();
+        let maps: Vec<(&str, &str)> = value["DataBindings"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|b| {
+                (
+                    b["PropertyMaps"][0]["SourcePropertyBaseType"]
+                        .as_str()
+                        .unwrap(),
+                    b["PropertyMaps"][0]["TargetPropertyBaseType"]
+                        .as_str()
+                        .unwrap(),
+                )
+            })
+            .collect();
+        assert_eq!(maps, [("STRING", "STRING"), ("BOOLEAN", "BOOLEAN")]);
+        assert_eq!(
+            bind(
+                &solution,
+                "ui:ptcstextfield-3.Text",
+                "ui:expression2-7.Output"
+            )
+            .unwrap_err()
+            .code(),
+            ErrorCode::GuardRefused
+        );
+        assert_eq!(
+            bind(
+                &solution,
+                "ui:ptcstextfield-3.Text",
+                "ui:expression2-7.nope"
+            )
+            .unwrap_err()
+            .code(),
+            ErrorCode::UnknownEntity
+        );
+        for (event, invoke) in [
+            ("ui:ptcstextfield-3.Changed", "ui:expression2-7.Evaluate"),
+            (
+                "ui:expression2-7.Changed",
+                "data:Acme.Orders.Manager.GetOrders",
+            ),
+        ] {
+            let plan =
+                on(&solution, event, invoke).unwrap_or_else(|e| panic!("{event} -> {invoke}: {e}"));
+            apply_edit(&solution, &plan.edit, &lock(&solution)).unwrap();
+        }
+        let failing: Vec<_> = crate::core::check::run(&solution)
+            .gates
+            .into_iter()
+            .filter(|gate| !gate.ok() && gate.name != "project")
+            .collect();
+        assert!(failing.is_empty(), "{failing:?}");
+    }
+
+    #[test]
+    fn an_events_router_takes_as_many_inputs_as_it_says_of_its_data_type() {
+        let (_dir, solution) = bind_fixture();
+        let plan = add_function(
+            &solution,
+            "events-router",
+            &[],
+            &[("NumberOfInputs", "2"), ("DataType", "STRING")],
+        )
+        .unwrap();
+        let id = plan.placed.id;
+        assert!(id.starts_with("eventsrouter-"), "{id}");
+        for input in ["Input1", "Input2"] {
+            let plan = bind(
+                &solution,
+                "ui:ptcstextfield-3.Text",
+                &format!("ui:{id}.{input}"),
+            )
+            .unwrap();
+            apply_edit(&solution, &plan.edit, &lock(&solution)).unwrap();
+        }
+        assert_eq!(
+            bind(
+                &solution,
+                "ui:ptcstextfield-3.Text",
+                &format!("ui:{id}.Input3")
+            )
+            .unwrap_err()
+            .code(),
+            ErrorCode::UnknownEntity
+        );
+        bind(
+            &solution,
+            &format!("ui:{id}.Output"),
+            "ui:ptcslabel-4.LabelText",
+        )
+        .unwrap();
+        on(
+            &solution,
+            &format!("ui:{id}.Changed"),
+            "data:Acme.Orders.Manager.GetOrders",
+        )
+        .unwrap();
+    }
+
+    #[test]
+    fn function_widgets_refuse_a_place_in_the_layout_and_inputs_where_they_take_none() {
+        let (_dir, solution) = bind_fixture();
+        let code = |request: AddRequest| plan_add(&solution, &request).unwrap_err().code();
+        assert_eq!(
+            code(AddRequest {
+                placement: Some(Placement::In("center".into())),
+                ..add_request("Acme.Orders_MU", "expression2")
+            }),
+            ErrorCode::InvalidArguments
+        );
+        assert_eq!(
+            code(AddRequest {
+                inputs: vec!["x:STRING".into()],
+                ..add_request("Acme.Orders_MU", "button")
+            }),
+            ErrorCode::InvalidArguments
+        );
+        assert_eq!(
+            code(AddRequest {
+                inputs: vec!["x:STRING".into()],
+                ..add_request("Acme.Orders_MU", "status-message")
+            }),
+            ErrorCode::InvalidArguments
+        );
+        assert_eq!(
+            code(AddRequest {
+                inputs: vec!["x".into()],
+                ..add_request("Acme.Orders_MU", "expression2")
+            }),
+            ErrorCode::InvalidArguments
+        );
+        assert_eq!(
+            code(AddRequest {
+                inputs: vec!["x:STRING".into(), "x:NUMBER".into()],
+                ..add_request("Acme.Orders_MU", "validator2")
+            }),
+            ErrorCode::InvalidArguments
         );
     }
 }

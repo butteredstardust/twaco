@@ -59,6 +59,13 @@ pub struct Widget {
     pub properties: Option<BTreeMap<String, PropertyContract>>,
     pub events: Option<Vec<String>>,
     pub services: Option<Vec<String>>,
+    /// A function widget (expression, validator, navigation, ...): it sits under the mashup root,
+    /// beside the layout, and draws nothing.
+    #[serde(default)]
+    pub function: bool,
+    /// A legacy widget that stays readable in existing mashups; adding one adds this instead.
+    #[serde(default)]
+    pub replaced_by: Option<String>,
 }
 
 #[derive(Clone, Debug, Deserialize, PartialEq)]
@@ -125,6 +132,14 @@ impl Catalog {
                 widget
                     .names()
                     .any(|name| name.eq_ignore_ascii_case(&wanted))
+            })
+            // A legacy widget's word adds its replacement (`expression` adds `expression2`).
+            .map(|widget| {
+                widget
+                    .replaced_by
+                    .as_deref()
+                    .and_then(|replacement| self.by_type(replacement))
+                    .unwrap_or(widget)
             })
             .ok_or_else(|| CatalogError::Unknown {
                 word: word.to_string(),

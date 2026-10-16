@@ -2021,6 +2021,13 @@
             "type": "string"
           }
         },
+        "inputs": {
+          "description": "An expression's or validator's inputs as `name:TYPE`.",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
         "dry_run": {
           "type": "boolean",
           "default": true
