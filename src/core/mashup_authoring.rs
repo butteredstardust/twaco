@@ -912,6 +912,38 @@ fn cache_entry(def: &ParameterDefinition, value: Option<Value>) -> Value {
     Value::Object(entry)
 }
 
+/// Whether a widget caches `child`'s parameters: a container showing it, or a navigation function
+/// opening it (284 of 319 real ones keep the same `MashupParameters` cache a container does).
+fn shows_mashup(properties: &Value, child: &str) -> bool {
+    match properties["Type"].as_str() {
+        Some("mashupcontainer") => properties["Name"] == child,
+        Some("navigationfunction") => properties["TargetMashup"] == child,
+        _ => false,
+    }
+}
+
+/// A navigation function's own copy of the target's parameters, in its own shape.
+fn navigation_definition(def: &ParameterDefinition, value: Option<&Value>) -> Value {
+    let (direction, source, target) = match def.direction.as_str() {
+        "IN" => ("Target", false, true),
+        "OUT" => ("Source", true, false),
+        _ => ("Both", true, true),
+    };
+    let mut entry = Map::new();
+    entry.insert("BaseType".into(), json!(def.base_type));
+    if let Some(value) = value {
+        entry.insert("DefaultValue".into(), value.clone());
+    }
+    entry.insert("Description".into(), json!(def.description));
+    entry.insert("ParameterName".into(), json!(def.name));
+    entry.insert("bindingDirection".into(), json!(direction));
+    entry.insert("bindingType".into(), json!("Property"));
+    entry.insert("isBindingSource".into(), json!(source));
+    entry.insert("isBindingTarget".into(), json!(target));
+    entry.insert("shown".into(), json!(def.visible));
+    Value::Object(entry)
+}
+
 fn refresh_containers(
     value: &mut Value,
     child: &str,
@@ -924,11 +956,13 @@ fn refresh_containers(
         definitions: &[ParameterDefinition],
         refreshed: &mut Vec<(String, String)>,
     ) {
+        let shows = widget
+            .get("Properties")
+            .is_some_and(|properties| shows_mashup(properties, child));
+        let navigation = widget["Properties"]["Type"] == "navigationfunction";
         let properties = widget.get_mut("Properties").and_then(Value::as_object_mut);
         if let Some(properties) = properties {
-            if properties.get("Type").and_then(Value::as_str) == Some("mashupcontainer")
-                && properties.get("Name").and_then(Value::as_str) == Some(child)
-            {
+            if shows {
                 let id = properties
                     .get("Id")
                     .and_then(Value::as_str)
@@ -954,7 +988,7 @@ fn refresh_containers(
                         properties.shift_remove(&def.name);
                         def.default.clone()
                     };
-                    if let Some(value) = &value {
+                    if let Some(value) = value.as_ref().filter(|_| !navigation) {
                         mashup_edit::insert_sorted(properties, &def.name, value.clone());
                     }
                     rebuilt.push(cache_entry(def, value));
@@ -965,6 +999,18 @@ fn refresh_containers(
                             properties.shift_remove(name);
                         }
                     }
+                }
+                if navigation {
+                    let own: Vec<Value> = rebuilt
+                        .iter()
+                        .zip(definitions)
+                        .map(|(entry, def)| navigation_definition(def, entry.get("DefaultValue")))
+                        .collect();
+                    mashup_edit::insert_sorted(
+                        properties,
+                        "_currentParameterDefs",
+                        Value::Array(own),
+                    );
                 }
                 mashup_edit::insert_sorted(properties, "MashupParameters", Value::Array(rebuilt));
                 refreshed.push((id, child.into()));
@@ -989,9 +1035,7 @@ fn change_parameter_bindings(
 ) -> Result<(), AuthoringError> {
     let container_ids: std::collections::BTreeSet<String> = {
         fn collect(widget: &Value, child: &str, into: &mut std::collections::BTreeSet<String>) {
-            if widget["Properties"]["Type"] == "mashupcontainer"
-                && widget["Properties"]["Name"] == child
-            {
+            if shows_mashup(&widget["Properties"], child) {
                 if let Some(id) = widget["Properties"]["Id"].as_str() {
                     into.insert(id.into());
                 }
@@ -1249,7 +1293,7 @@ pub fn plan_parameter(
 
 fn has_container(value: &Value, name: &str) -> bool {
     fn visit(widget: &Value, name: &str) -> bool {
-        (widget["Properties"]["Type"] == "mashupcontainer" && widget["Properties"]["Name"] == name)
+        shows_mashup(&widget["Properties"], name)
             || widget["Widgets"]
                 .as_array()
                 .is_some_and(|children| children.iter().any(|child| visit(child, name)))
@@ -5413,6 +5457,64 @@ mod tests {
         assert!(
             text.contains("ui:mashupcontainer-9.id -> ui:ptcslabel-3.LabelText"),
             "{text}"
+        );
+    }
+
+    #[test]
+    fn a_navigation_function_opening_the_mashup_gets_both_its_parameter_caches_refreshed() {
+        let (dir, solution) = parent_and_child();
+        // Navigation functions sit beside the page container, under the root widget.
+        rewrite_mashup(dir.path(), "Acme.Board_MU", |value| {
+            value["UI"]["Widgets"].as_array_mut().unwrap().push(json!({
+                "Properties": {"Id": "navigationfunction-11", "Type": "navigationfunction",
+                    "DisplayName": "OpenCard", "TargetMashup": "Acme.Card_MU",
+                    "TargetWindowType": "modal-popup", "MashupParameters": [],
+                    "_currentParameterDefs": []},
+                "Widgets": []
+            }));
+            value["DataBindings"].as_array_mut().unwrap().push(json!({
+                "Id": "parent-2",
+                "PropertyMaps": [{"SourceProperty": "LabelText", "SourcePropertyBaseType": "STRING",
+                    "SourcePropertyType": "property", "TargetProperty": "id",
+                    "TargetPropertyBaseType": "LONG", "TargetPropertyType": "property"}],
+                "SourceArea": "UI", "SourceDetails": "", "SourceId": "ptcslabel-3", "SourceSection": "",
+                "TargetArea": "UI", "TargetId": "navigationfunction-11", "TargetSection": ""
+            }));
+        });
+        let mut add = param_request("Acme.Card_MU", ParameterAction::Add, "title");
+        add.base_type = Some("STRING".into());
+        let plan = param(&solution, &add).unwrap();
+        assert!(plan.refreshed.contains(&(
+            "navigationfunction-11".to_string(),
+            "Acme.Card_MU".to_string()
+        )));
+        let parent = content_of(&solution, "Acme.Board_MU");
+        let navigation = &parent["UI"]["Widgets"][1]["Properties"];
+        let names: Vec<&str> = navigation["MashupParameters"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|entry| entry["ParameterName"].as_str().unwrap())
+            .collect();
+        assert_eq!(names, ["id", "title"]);
+        assert_eq!(
+            serde_json::to_string(&navigation["_currentParameterDefs"]).unwrap(),
+            r#"[{"BaseType":"LONG","Description":"","ParameterName":"id","bindingDirection":"Target","bindingType":"Property","isBindingSource":false,"isBindingTarget":true,"shown":true},{"BaseType":"STRING","Description":"","ParameterName":"title","bindingDirection":"Both","bindingType":"Property","isBindingSource":true,"isBindingTarget":true,"shown":true}]"#
+        );
+        // A navigation function keeps no static values of its own.
+        assert!(navigation.get("id").is_none() && navigation.get("title").is_none());
+        let mut set = param_request("Acme.Card_MU", ParameterAction::Set, "id");
+        set.base_type = Some("STRING".into());
+        let plan = param(&solution, &set).unwrap();
+        assert!(
+            plan.retyped.contains(&"parent-2".to_string()),
+            "{:?}",
+            plan.retyped
+        );
+        let parent = content_of(&solution, "Acme.Board_MU");
+        assert_eq!(
+            parent["DataBindings"][1]["PropertyMaps"][0]["TargetPropertyBaseType"],
+            "STRING"
         );
     }
 }
