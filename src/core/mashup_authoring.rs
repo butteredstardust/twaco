@@ -704,9 +704,17 @@ fn set_content_parameter(document: &mut MashupDocument, def: &ParameterDefinitio
         .and_then(|ui| ui.get_mut("Properties"))
         .and_then(Value::as_object_mut)
         .expect("checked root properties");
+    // The server keeps these keys sorted; appended, the read-back differs from what was sent.
+    if !properties.contains_key("_currentParameterDefs") {
+        mashup_edit::insert_sorted(
+            properties,
+            "_currentParameterDefs",
+            Value::Array(Vec::new()),
+        );
+    }
     let defs = properties
-        .entry("_currentParameterDefs")
-        .or_insert_with(|| Value::Array(Vec::new()))
+        .get_mut("_currentParameterDefs")
+        .expect("inserted above")
         .as_array_mut()
         .expect("parameter definitions must be an array");
     if remove {
@@ -4683,5 +4691,26 @@ mod tests {
             .map(|entry| entry["ParameterName"].as_str().unwrap().to_string())
             .collect();
         assert_eq!(content, ["id", "title", "Alpha", "done"]);
+    }
+
+    #[test]
+    fn parameter_definitions_join_the_root_properties_in_the_order_the_server_keeps() {
+        // A live server read the content back with `_currentParameterDefs` before `id_index`.
+        for master in [false, true] {
+            let (_dir, solution) = one_project();
+            let mut new = request("Acme.Sorted_MU");
+            new.master = master;
+            new.params = vec!["id:LONG".into()];
+            let plan = plan_new(&solution, &new).unwrap();
+            let value: Value = serde_json::from_str(&plan.assets.content).unwrap();
+            let keys: Vec<&String> = value["UI"]["Properties"]
+                .as_object()
+                .unwrap()
+                .keys()
+                .collect();
+            let mut sorted = keys.clone();
+            sorted.sort();
+            assert_eq!(keys, sorted, "master: {master}");
+        }
     }
 }
