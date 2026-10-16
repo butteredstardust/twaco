@@ -7213,4 +7213,187 @@ mod tests {
         assert!(text.contains("computes `Output = !(note !== '');` (BOOLEAN) from note from ui:ptcstextfield-3.Text; feeds ui:ptcsbutton-6.Disabled; evaluated on mashup:Loaded"), "{text}");
         assert!(text.contains("opens Acme.Detail_MU (modal-popup) on ui:ptcsbutton-6.Clicked; passes note from ui:ptcstextfield-3.Text; when it closes runs data:Acme.Orders.Manager.GetOrders"), "{text}");
     }
+
+    #[test]
+    fn chart_columns_and_picker_recipes_configure_widgets_from_the_result_shape() {
+        let (_dir, solution) = recipe_fixture();
+        let mut ids = Vec::new();
+        for widget in ["bar-chart", "pie-chart", "dropdown"] {
+            let plan = plan_add(&solution, &add_request("Acme.Orders_MU", widget)).unwrap();
+            apply_edit(&solution, &plan.edit, &lock(&solution)).unwrap();
+            ids.push(plan.placed.id);
+        }
+        let (bar, pie, dropdown) = (&ids[0], &ids[1], &ids[2]);
+        let orders = || Some("data:Acme.Orders.Manager.GetOrders".to_string());
+        recipe(
+            &solution,
+            "chart",
+            RecipeArgs {
+                widget: Some(bar.clone()),
+                data: orders(),
+                x: Some("note".into()),
+                kind: Some("column".into()),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        recipe(
+            &solution,
+            "chart",
+            RecipeArgs {
+                widget: Some(pie.clone()),
+                data: orders(),
+                x: Some("note".into()),
+                value: Some("id".into()),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        recipe(
+            &solution,
+            "columns",
+            RecipeArgs {
+                widget: Some("ptcsgrid-5".into()),
+                data: orders(),
+                columns: vec!["note:Note".into(), "id:Order:120".into()],
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        recipe(
+            &solution,
+            "picker",
+            RecipeArgs {
+                widget: Some(dropdown.clone()),
+                data: orders(),
+                x: Some("note".into()),
+                value: Some("id".into()),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        let value: Value = serde_json::from_str(&sidecar_content(&solution)).unwrap();
+        let document = mashup_edit::parse(&sidecar_content(&solution)).unwrap();
+        let props =
+            |id: &str| document.at(&document.find_exact(id).unwrap().path)["Properties"].clone();
+        assert_eq!(props(bar)["XAxisField"], "note");
+        assert_eq!(props(bar)["ChartType"], "column");
+        assert_eq!(
+            (
+                props(pie)["DataField"].clone(),
+                props(pie)["ValueField"].clone()
+            ),
+            (json!("note"), json!("id"))
+        );
+        let format = &props("ptcsgrid-5")["ColumnFormat"]["formatInfo"];
+        assert_eq!(format[0]["FieldName"], "note");
+        assert_eq!(format[0]["Title"], "Note");
+        assert_eq!(format[0]["FormatOptions"]["renderer"], "STRING");
+        assert_eq!(format[1]["Title"], "Order");
+        assert_eq!(format[1]["Width"], 120);
+        assert_eq!(format[1]["FormatOptions"]["renderer"], "NUMBER");
+        assert_eq!(format[1]["FormatOptions"]["FormatString"], "0.00");
+        assert_eq!(props(dropdown)["DisplayField"], "note");
+        assert_eq!(props(dropdown)["DisplayFieldBaseType"], "STRING");
+        assert_eq!(props(dropdown)["ValueField"], "id");
+        for id in [bar.as_str(), pie.as_str(), "ptcsgrid-5", dropdown.as_str()] {
+            assert!(
+                has_binding(&value, "GetOrders", "", id, "Data"),
+                "{id} gets the result"
+            );
+        }
+        let failing: Vec<_> = crate::core::check::run(&solution)
+            .gates
+            .into_iter()
+            .filter(|gate| !gate.ok() && gate.name != "project")
+            .collect();
+        assert!(failing.is_empty(), "{failing:?}");
+        // Refusals: a field the result lacks, a pie without a value, a value on a bar, a wrong
+        // chart type, a non-chart, no columns.
+        let code = |name: &str, args: RecipeArgs| recipe(&solution, name, args).unwrap_err().code();
+        assert_eq!(
+            code(
+                "chart",
+                RecipeArgs {
+                    widget: Some(bar.clone()),
+                    data: orders(),
+                    x: Some("nope".into()),
+                    ..Default::default()
+                }
+            ),
+            ErrorCode::UnknownEntity
+        );
+        assert_eq!(
+            code(
+                "chart",
+                RecipeArgs {
+                    widget: Some(pie.clone()),
+                    data: orders(),
+                    x: Some("note".into()),
+                    ..Default::default()
+                }
+            ),
+            ErrorCode::InvalidArguments
+        );
+        assert_eq!(
+            code(
+                "chart",
+                RecipeArgs {
+                    widget: Some(bar.clone()),
+                    data: orders(),
+                    x: Some("note".into()),
+                    value: Some("id".into()),
+                    ..Default::default()
+                }
+            ),
+            ErrorCode::InvalidArguments
+        );
+        assert_eq!(
+            code(
+                "chart",
+                RecipeArgs {
+                    widget: Some(bar.clone()),
+                    data: orders(),
+                    x: Some("note".into()),
+                    kind: Some("donut".into()),
+                    ..Default::default()
+                }
+            ),
+            ErrorCode::InvalidArguments
+        );
+        assert_eq!(
+            code(
+                "chart",
+                RecipeArgs {
+                    widget: Some("ptcsgrid-5".into()),
+                    data: orders(),
+                    x: Some("note".into()),
+                    ..Default::default()
+                }
+            ),
+            ErrorCode::InvalidArguments
+        );
+        assert_eq!(
+            code(
+                "columns",
+                RecipeArgs {
+                    widget: Some("ptcsgrid-5".into()),
+                    ..Default::default()
+                }
+            ),
+            ErrorCode::InvalidArguments
+        );
+        assert_eq!(
+            code(
+                "picker",
+                RecipeArgs {
+                    widget: Some(dropdown.clone()),
+                    data: orders(),
+                    x: Some("nope".into()),
+                    ..Default::default()
+                }
+            ),
+            ErrorCode::UnknownEntity
+        );
+    }
 }

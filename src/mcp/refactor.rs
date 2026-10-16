@@ -430,6 +430,11 @@ pub(crate) fn mashup_recipe_tool(
         every: arguments.every.as_ref().copied(),
         interval: arguments.interval.as_ref().cloned(),
         else_say: arguments.else_say.as_ref().cloned(),
+        data: arguments.data.as_ref().cloned(),
+        x: arguments.x.as_ref().cloned(),
+        value: arguments.value.as_ref().cloned(),
+        columns: arguments.columns.items().to_vec(),
+        selected: arguments.selected.as_ref().cloned(),
     };
     let recipe = Recipe::from_args(nonempty(&arguments.recipe, "recipe")?, &recipe_args)
         .map_err(ToolError::coded)?;

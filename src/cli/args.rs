@@ -34,6 +34,8 @@ pub(crate) struct Args {
     pub(crate) inputs: Vec<String>,
     /// `mashup recipe --pass`, repeatable.
     pub(crate) pass: Vec<String>,
+    /// `mashup recipe --column`, repeatable.
+    pub(crate) columns: Vec<String>,
     /// Flags that take one value and need no parsing here, such as `logs --since`.
     pub(crate) values: std::collections::BTreeMap<String, String>,
 }

@@ -470,6 +470,21 @@ pub(crate) struct MashupRecipeRequest {
     pub(crate) interval: Absent<String>,
     #[serde(default, skip_serializing_if = "Absent::is_absent")]
     pub(crate) else_say: Absent<String>,
+    /// The service result a chart, grid or picker shows.
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) data: Absent<String>,
+    /// A chart's category (pie: label) field, a picker's display field.
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) x: Absent<String>,
+    /// A pie's or picker's value field.
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) value: Absent<String>,
+    /// `field[:Title[:width]]` grid columns.
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) columns: Absent<Vec<String>>,
+    /// What a picker's selection is bound from.
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) selected: Absent<String>,
     #[serde(default = "default_true")]
     pub(crate) dry_run: bool,
 }

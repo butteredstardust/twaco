@@ -218,6 +218,7 @@ pub(crate) fn args_from(
                     "--tab" => args.tabs.extend(values),
                     "--input" => args.inputs.extend(values),
                     "--pass" => args.pass.extend(values),
+                    "--column" => args.columns.extend(values),
                     other => unreachable!("{other} repeats but nothing reads it"),
                 }
             }
@@ -521,6 +522,22 @@ pub(crate) const FLAGS: &[Flag] = &[
     Flag {
         name: "--pass",
         takes: Takes::Repeated("name=address"),
+    },
+    Flag {
+        name: "--data",
+        takes: Takes::Value("address"),
+    },
+    Flag {
+        name: "--x",
+        takes: Takes::Value("field"),
+    },
+    Flag {
+        name: "--selected",
+        takes: Takes::Value("address"),
+    },
+    Flag {
+        name: "--column",
+        takes: Takes::Repeated("field[:Title[:width]]"),
     },
     Flag {
         name: "--display-name",
@@ -1408,6 +1425,11 @@ pub(crate) const COMMANDS: &[Command] = &[
             "--every",
             "--interval",
             "--else-say",
+            "--data",
+            "--x",
+            "--value",
+            "--column",
+            "--selected",
             "--apply",
             "--json",
         ],
@@ -1429,7 +1451,13 @@ pub(crate) const COMMANDS: &[Command] = &[
       auto-refresh --then <data call> (--every <seconds> | --interval <address>)
                               run the call again every so often
       validate <widget>|--on <event> --if <condition> [--input name=<address>]... --then <handler>
-          [--else-say <text>]   run the handler when the condition holds, else show the text"#,
+          [--else-say <text>]   run the handler when the condition holds, else show the text
+      chart <chart> --data <data call> --x <field> [--value <field>] [--kind <chart type>]
+                              draw a service result: the category field (a pie: label and value)
+      columns <grid> --column field[:Title[:width]]... [--data <data call>]
+                              a grid's columns, rendered by each field's base type
+      picker <dropdown|list> --data <data call> --x <display field> [--value <field>]
+          [--selected <address>]   fill a dropdown or list from a service result"#,
     },
     Command {
         path: "mashup event",

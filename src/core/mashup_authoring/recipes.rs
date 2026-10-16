@@ -65,6 +65,29 @@ pub enum Recipe {
         every: Option<u32>,
         interval: Option<String>,
     },
+    /// A chart drawing a service result: `Data` bound, the category field named (pie: label and
+    /// value fields). Every other numeric column of a single source becomes a series.
+    Chart {
+        widget: String,
+        data: String,
+        x: String,
+        value: Option<String>,
+        kind: Option<String>,
+    },
+    /// A grid's columns, in order, with titles and widths, rendered by each field's base type.
+    Columns {
+        widget: String,
+        data: Option<String>,
+        columns: Vec<String>,
+    },
+    /// A dropdown or list filled from a service result, showing one field.
+    Picker {
+        widget: String,
+        data: String,
+        display: String,
+        value: Option<String>,
+        selected: Option<String>,
+    },
     /// A check before an action: the handler runs when it holds, a message shows when not.
     Validate {
         trigger: String,
@@ -103,6 +126,9 @@ impl Recipe {
             Self::CloseAfter { .. } => "close-after",
             Self::AutoRefresh { .. } => "auto-refresh",
             Self::Validate { .. } => "validate",
+            Self::Chart { .. } => "chart",
+            Self::Columns { .. } => "columns",
+            Self::Picker { .. } => "picker",
         }
     }
 }
@@ -151,6 +177,83 @@ impl Work<'_> {
         on_in(&mut self.document, &self.context, event, invoke)?;
         self.wired.push(format!("{event} runs {invoke}"));
         Ok(())
+    }
+
+    /// The fields (name, base type) of the DataShape a whole service result has, when the
+    /// repository knows it: `data:<Entity>.<Service>` with nothing after it.
+    fn result_fields(&self, address: &str) -> Option<Vec<(String, String)>> {
+        let parsed = parse_address(address).ok()?;
+        let crate::core::mashup_address::Address::Data {
+            entity_service,
+            member: None,
+            selected_rows: false,
+            ..
+        } = parsed
+        else {
+            return None;
+        };
+        let (entity, service) =
+            super::resolve_service(self.context.model, self.context.platform, &entity_service)
+                .ok()?;
+        if entity_service != format!("{}.{service}", entity.name) {
+            return None;
+        }
+        let found = crate::core::catalog::lookup_service(
+            entity,
+            &self.context.model.entities,
+            self.context.platform,
+            &service,
+        )
+        .service?;
+        let shape_name = found.result.data_shape.as_deref()?;
+        let shape = self
+            .context
+            .model
+            .data_shapes
+            .iter()
+            .find(|s| s.name == shape_name)?;
+        Some(
+            shape
+                .fields
+                .iter()
+                .map(|f| (f.name.clone(), f.base_type.clone()))
+                .collect(),
+        )
+    }
+
+    /// Refuse a field the result's DataShape does not have, when the shape is known.
+    fn field(
+        &self,
+        fields: &Option<Vec<(String, String)>>,
+        name: &str,
+    ) -> Result<String, AuthoringError> {
+        match fields {
+            Some(fields) => fields
+                .iter()
+                .find(|(field, _)| field == name)
+                .map(|(_, base)| base.clone())
+                .ok_or_else(|| {
+                    AuthoringError::Unknown(format!(
+                        "the result has no field {name}; its fields are {}",
+                        fields
+                            .iter()
+                            .map(|(f, _)| f.as_str())
+                            .collect::<Vec<_>>()
+                            .join(", ")
+                    ))
+                }),
+            None => Ok(String::new()),
+        }
+    }
+
+    /// Set properties on a widget already in the layout.
+    fn set(&mut self, widget: &mashup_edit::WidgetRef, properties: &[(&str, Value)]) {
+        for (key, value) in properties {
+            self.document.set_property(&widget.path, key, value.clone());
+        }
+        let names: Vec<&str> = properties.iter().map(|(key, _)| *key).collect();
+        self.wired
+            .push(format!("set {} on {}", names.join(", "), widget.id));
     }
 
     /// The base type an address gives as a binding source.
@@ -456,6 +559,145 @@ pub fn plan_recipe(
             }
             work.on(&format!("ui:{id}.Refresh"), call)?;
         }
+        Recipe::Chart {
+            widget,
+            data,
+            x,
+            value,
+            kind,
+        } => {
+            let target = widget_id(&work.document, widget)?;
+            let pie = matches!(target.type_id.as_str(), "ptcschartpie");
+            if !target.type_id.starts_with("ptcschart") {
+                return Err(AuthoringError::Invalid(format!(
+                    "{} is a {}, not a chart",
+                    target.id, target.type_id
+                )));
+            }
+            if value.is_some() != pie {
+                return Err(AuthoringError::Invalid(if pie {
+                    "a pie chart needs --value <field> beside --x <label field>".into()
+                } else {
+                    "--value is for a pie chart; other charts take every other numeric column as a series".into()
+                }));
+            }
+            let fields = work.result_fields(data);
+            work.field(&fields, x)?;
+            let mut properties = Vec::new();
+            if pie {
+                let value = value.as_deref().expect("checked above");
+                work.field(&fields, value)?;
+                properties.push(("DataField", json!(x)));
+                properties.push(("ValueField", json!(value)));
+            } else {
+                properties.push(("XAxisField", json!(x)));
+            }
+            if let Some(kind) = kind {
+                let allowed: &[&str] = match target.type_id.as_str() {
+                    "ptcschartbar" => &["bar", "column"],
+                    "ptcschartline" => &["linechart", "areachart"],
+                    _ => &[],
+                };
+                if !allowed.contains(&kind.as_str()) {
+                    return Err(AuthoringError::Invalid(format!(
+                        "{} takes the chart type {}",
+                        target.type_id,
+                        if allowed.is_empty() {
+                            "it has".to_string()
+                        } else {
+                            allowed.join(" or ")
+                        }
+                    )));
+                }
+                properties.push(("ChartType", json!(kind)));
+            }
+            work.set(&target, &properties);
+            work.bind(data, &format!("ui:{}.Data", target.id))?;
+        }
+        Recipe::Columns {
+            widget,
+            data,
+            columns,
+        } => {
+            let target = widget_id(&work.document, widget)?;
+            if target.type_id != "ptcsgrid" {
+                return Err(AuthoringError::Invalid(format!(
+                    "{} is a {}, not a grid",
+                    target.id, target.type_id
+                )));
+            }
+            if columns.is_empty() {
+                return Err(AuthoringError::Invalid(
+                    "columns needs at least one --column".into(),
+                ));
+            }
+            let fields = data.as_deref().and_then(|data| work.result_fields(data));
+            let mut format = Vec::new();
+            for text in columns {
+                let mut parts = text.splitn(3, ':');
+                let name = parts.next().unwrap_or_default().trim().to_string();
+                if name.is_empty() {
+                    return Err(AuthoringError::Invalid(format!(
+                        "--column {text:?} must be field[:Title[:width]]"
+                    )));
+                }
+                let title = parts
+                    .next()
+                    .filter(|t| !t.is_empty())
+                    .unwrap_or(&name)
+                    .to_string();
+                let width = match parts.next() {
+                    None | Some("") => json!("auto"),
+                    Some(w) => {
+                        json!(w
+                            .trim()
+                            .parse::<u32>()
+                            .map_err(|_| AuthoringError::Invalid(format!(
+                                "--column {text:?}: the width is a number of pixels"
+                            )))?)
+                    }
+                };
+                let base = work.field(&fields, &name)?;
+                format.push(column_format(&name, &title, width, &base));
+            }
+            work.set(
+                &target,
+                &[("ColumnFormat", json!({ "formatInfo": format }))],
+            );
+            if let Some(data) = data {
+                work.bind(data, &format!("ui:{}.Data", target.id))?;
+            }
+        }
+        Recipe::Picker {
+            widget,
+            data,
+            display,
+            value,
+            selected,
+        } => {
+            let target = widget_id(&work.document, widget)?;
+            if !matches!(target.type_id.as_str(), "ptcsdropdown" | "ptcslist") {
+                return Err(AuthoringError::Invalid(format!(
+                    "{} is a {}, not a dropdown or list",
+                    target.id, target.type_id
+                )));
+            }
+            let fields = work.result_fields(data);
+            let display_base = work.field(&fields, display)?;
+            let mut properties = vec![("DisplayField", json!(display))];
+            if !display_base.is_empty() {
+                properties.push(("DisplayFieldBaseType", json!(display_base)));
+            }
+            if let Some(value) = value {
+                work.field(&fields, value)?;
+                properties.push(("ValueField", json!(value)));
+            }
+            work.set(&target, &properties);
+            work.bind(data, &format!("ui:{}.Data", target.id))?;
+            if let Some(selected) = selected {
+                work.bind(selected, &format!("ui:{}.SelectedText", target.id))?;
+            }
+        }
         Recipe::Validate {
             trigger,
             condition,
@@ -518,6 +760,16 @@ pub struct RecipeArgs {
     pub every: Option<u32>,
     pub interval: Option<String>,
     pub else_say: Option<String>,
+    /// The service result a chart, grid or picker shows.
+    pub data: Option<String>,
+    /// A chart's category field (a pie's label field), a picker's display field.
+    pub x: Option<String>,
+    /// A pie's value field, a picker's value field.
+    pub value: Option<String>,
+    /// `field[:Title[:width]]`, repeatable.
+    pub columns: Vec<String>,
+    /// What a picker's selection is bound from.
+    pub selected: Option<String>,
 }
 
 /// The recipe names, for help and errors.
@@ -531,6 +783,9 @@ pub const RECIPES: &[&str] = &[
     "close-after",
     "auto-refresh",
     "validate",
+    "chart",
+    "columns",
+    "picker",
 ];
 
 fn pairs(flag: &str, values: &[String]) -> Result<Vec<(String, String)>, AuthoringError> {
@@ -650,6 +905,25 @@ impl Recipe {
                 then: required(&args.then, "--then <handler>", name)?,
                 otherwise: args.else_say.clone(),
             },
+            "chart" => Recipe::Chart {
+                widget: widget("the chart")?,
+                data: required(&args.data, "--data <service result>", name)?,
+                x: required(&args.x, "--x <field>", name)?,
+                value: args.value.clone(),
+                kind: args.kind.clone(),
+            },
+            "columns" => Recipe::Columns {
+                widget: widget("the grid")?,
+                data: args.data.clone(),
+                columns: args.columns.clone(),
+            },
+            "picker" => Recipe::Picker {
+                widget: widget("the dropdown or list")?,
+                data: required(&args.data, "--data <service result>", name)?,
+                display: required(&args.x, "--x <display field>", name)?,
+                value: args.value.clone(),
+                selected: args.selected.clone(),
+            },
             other => {
                 return Err(AuthoringError::Invalid(format!(
                     "unknown recipe {other}; the recipes are {}",
@@ -679,5 +953,48 @@ pub fn recipe_plan_json(solution: &Solution, plan: &RecipePlan, applied: bool) -
         "added": plan.added,
         "wired": plan.wired,
         "files": files,
+    })
+}
+
+/// One grid column as Composer writes it: the renderer, its format and the cell editor follow the
+/// field's base type.
+fn column_format(name: &str, title: &str, width: Value, base: &str) -> Value {
+    let (renderer, format, editor) = match base {
+        "STRING" | "TEXT" | "THINGNAME" | "USERNAME" | "GUID" => ("STRING", "full", "textfield"),
+        "NUMBER" | "INTEGER" | "LONG" => ("NUMBER", "0.00", "textfield"),
+        "BOOLEAN" => ("BOOLEAN", "checkbox", "checkbox"),
+        "DATETIME" => ("DATETIME", "[[dateTimeFormat_Default]]", "datepicker"),
+        "IMAGELINK" => ("IMAGELINK", "", ""),
+        _ => ("DEFAULT", "", ""),
+    };
+    json!({
+        "AllowEdit": false,
+        "Description": "",
+        "FieldName": name,
+        "FormatOptions": {
+            "FormatString": format,
+            "RoundingEnabled": true,
+            "formatInfo": {"StateFormats": []},
+            "formatText": "[[HyperlinkName]]",
+            "renderer": renderer,
+            "roundingEnabled": true,
+            "showDependentField": false
+        },
+        "Title": title,
+        "Width": width,
+        "cellEditor": editor,
+        "cellHorizontalAlignment": "left",
+        "columnMinimumWidth": 75,
+        "editable": false,
+        "excludeFromRowEdit": false,
+        "expressionValidator": "validator2",
+        "headerHorizontalAlignment": "left",
+        "hidden": false,
+        "inLayout": true,
+        "initialSort": "none",
+        "required": false,
+        "routeLinks": false,
+        "sortable": true,
+        "stripHtml": false
     })
 }

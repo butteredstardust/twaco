@@ -170,6 +170,12 @@ mashup recipe <recipe> <mashup> [<widget>] [recipe flags] [--apply] [--json]
                             run the call again every so often
     validate <widget>|--on <event> --if <condition> [--input name=<address>]... --then <handler>
         [--else-say <text>]   run the handler when the condition holds, else show the text
+    chart <chart> --data <data call> --x <field> [--value <field>] [--kind <chart type>]
+                            draw a service result: the category field (a pie: label and value)
+    columns <grid> --column field[:Title[:width]]... [--data <data call>]
+                            a grid's columns, rendered by each field's base type
+    picker <dropdown|list> --data <data call> --x <display field> [--value <field>]
+        [--selected <address>]   fill a dropdown or list from a service result
 mashup event add <mashup> <name> --when <address> [--apply] [--json]
                             give a mashup an event its parents react to with mashup on --event
                             ui:<container>.<name>: a NUMBER parameter set to the time when the

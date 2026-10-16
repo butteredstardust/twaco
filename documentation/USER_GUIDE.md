@@ -603,6 +603,9 @@ twaco mashup recipe validate Acme.App.Edit_MU ptcsbutton-6 --if "note !== ''" --
 | close-after | the mashup closes itself (when it is a popup) once the `--after` call completes |
 | auto-refresh | `--then` run every `--every` seconds, or at a bound `--interval` |
 | validate | a validator of `--if` the click evaluates: true runs `--then`, false shows `--else-say` |
+| chart | `--data` bound into the chart and its category field `--x` named (a pie: `--x` label and `--value` fields); every other numeric column of the result becomes a series; `--kind` bar/column or linechart/areachart |
+| columns | the grid's `ColumnFormat`: each `--column field[:Title[:width]]` in order, rendered by the field's base type; `--data` also bound |
+| picker | a dropdown or list filled from `--data`, showing `--x`, valued by `--value`, its selection bound from `--selected` |
 
 ### Finding widgets
 

@@ -1375,7 +1375,7 @@
   },
   {
     "name": "mashup_recipe",
-    "description": "Write one recipe: the wiring real mashups repeat, in one edit. enable-when/show-when (widget, condition, inputs name=address: an expression into Disabled/Visible), text (widget, expression, inputs: a label's computed text), message (after a data call: say or from, kind info|warning|error), confirm (widget, then, title, say), popup (widget or on, target mashup, window modal-popup|popup|replace|new, size WxH, title, pass name=address, reload handler on close), close-after (after a data call the popup closes itself), auto-refresh (then data call, every seconds or interval address), validate (widget or on, condition, inputs, then, else_say). A dry run unless dry_run is false; an apply takes the workspace lock and writes the entity and managed content sidecar together.",
+    "description": "Write one recipe: the wiring real mashups repeat, in one edit. enable-when/show-when (widget, condition, inputs name=address: an expression into Disabled/Visible), text (widget, expression, inputs: a label's computed text), message (after a data call: say or from, kind info|warning|error), confirm (widget, then, title, say), popup (widget or on, target mashup, window modal-popup|popup|replace|new, size WxH, title, pass name=address, reload handler on close), close-after (after a data call the popup closes itself), auto-refresh (then data call, every seconds or interval address), validate (widget or on, condition, inputs, then, else_say), chart (widget, data, x, value for a pie, kind), columns (widget, columns field[:Title[:width]], data), picker (widget, data, x display field, value, selected). A dry run unless dry_run is false; an apply takes the workspace lock and writes the entity and managed content sidecar together.",
     "inputSchema": {
       "required": ["recipe", "mashup"],
       "additionalProperties": false,
@@ -1402,6 +1402,11 @@
         "every": { "type": "integer", "minimum": 0 },
         "interval": { "type": "string" },
         "else_say": { "type": "string" },
+        "data": { "description": "The service result a chart, grid or picker shows.", "type": "string" },
+        "x": { "description": "A chart's category (pie: label) field, a picker's display field.", "type": "string" },
+        "value": { "description": "A pie's or picker's value field.", "type": "string" },
+        "columns": { "description": "`field[:Title[:width]]` grid columns.", "type": "array", "items": { "type": "string" } },
+        "selected": { "description": "What a picker's selection is bound from.", "type": "string" },
         "dry_run": { "type": "boolean", "default": true }
       }
     },

@@ -163,6 +163,11 @@ pub(crate) fn mashup_recipe_cmd(solution: &Solution, args: &Args) -> u8 {
         every,
         interval: value("--interval"),
         else_say: value("--else-say"),
+        data: value("--data"),
+        x: value("--x"),
+        value: value("--value"),
+        columns: args.columns.clone(),
+        selected: value("--selected"),
     };
     let recipe = match mashup_authoring::Recipe::from_args(name, &recipe_args) {
         Ok(recipe) => recipe,
