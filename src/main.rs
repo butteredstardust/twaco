@@ -169,7 +169,7 @@ fn dispatch(route: &str, parsed: &Args) -> u8 {
         "init" => return init_cmd(parsed),
         // doctor diagnoses a missing solution rather than failing on it.
         "doctor" => return doctor_cmd(parsed),
-        "mcp" => return mcp_cmd(),
+        "mcp" => return mcp_cmd(parsed),
         "widgets" => return widgets_cmd(parsed),
         "mashup templates" => return mashup_templates_cmd(parsed),
         _ => {}
@@ -354,15 +354,30 @@ fn doctor_cmd(parsed: &Args) -> u8 {
     }
 }
 
-/// `twaco mcp`. The server finds the solution on every call rather than at start, so it starts in
-/// a directory without one and each tool says so, and an edit to twaco.toml needs no restart.
-fn mcp_cmd() -> u8 {
+/// `twaco mcp [--tools <groups>]`. The server finds the solution on every call rather than at
+/// start, so it starts in a directory without one and each tool says so, and an edit to
+/// twaco.toml needs no restart. The tool groups are fixed for the server's life: it tells clients
+/// its list does not change.
+fn mcp_cmd(parsed: &Args) -> u8 {
     let root = std::env::var_os("TWACO_ROOT")
         .map(PathBuf::from)
         .or_else(|| std::env::current_dir().ok())
         .unwrap_or_else(|| PathBuf::from("."));
+    let groups = parsed
+        .values
+        .get("--tools")
+        .cloned()
+        .or_else(|| std::env::var("TWACO_MCP_TOOLS").ok());
+    let selection = match groups.as_deref().map(twaco::mcp::Selection::parse) {
+        None => twaco::mcp::Selection::ALL,
+        Some(Ok(selection)) => selection,
+        Some(Err(why)) => {
+            eprintln!("{} mcp: {why}", cli::style::prefix());
+            return FAILED;
+        }
+    };
     let stdin = std::io::stdin();
-    match twaco::mcp::serve(&root, stdin.lock(), std::io::stdout()) {
+    match twaco::mcp::serve_tools(&root, &selection, stdin.lock(), std::io::stdout()) {
         Ok(()) => OK,
         Err(error) => {
             eprintln!("{} mcp: {error}", cli::style::prefix());

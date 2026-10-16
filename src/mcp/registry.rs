@@ -702,7 +702,171 @@ static TOOLS: LazyLock<Vec<Tool>> = LazyLock::new(|| {
 
 /// Every tool's `tools/list` entry, in the order the tools are published.
 pub(crate) fn definitions(protocol: Protocol) -> Vec<Value> {
-    TOOLS.iter().map(|tool| tool.definition(protocol)).collect()
+    selected_definitions(protocol, &Selection::ALL)
+}
+
+/// The definitions of the selected tools, in registry order.
+pub(crate) fn selected_definitions(protocol: Protocol, selection: &Selection) -> Vec<Value> {
+    TOOLS
+        .iter()
+        .filter(|tool| selection.includes(tool.name))
+        .map(|tool| tool.definition(protocol))
+        .collect()
+}
+
+/// The groups `twaco mcp --tools` chooses from, each with its tools. Every tool is in exactly one
+/// group; a test holds the table to the registry. `core` is the everyday loop: read the solution,
+/// gate it, compare with the server, sync and deploy.
+pub(crate) const GROUPS: &[(&str, &[&str])] = &[
+    (
+        "core",
+        &[
+            "projects",
+            "types",
+            "check",
+            "status",
+            "sync",
+            "extract",
+            "fmt",
+            "push",
+            "deploy",
+            "bundle",
+            "catalog",
+            "impact",
+            "trace",
+            "unused",
+            "search",
+            "entity_get",
+            "docs",
+            "doctor",
+            "guide",
+        ],
+    ),
+    (
+        "entity",
+        &[
+            "entity_delete",
+            "entity_restore",
+            "entity_carry",
+            "entity_new",
+            "entity_edit",
+            "new_building_block",
+            "export",
+            "import",
+            "package",
+        ],
+    ),
+    (
+        "refactor",
+        &[
+            "rename",
+            "move_member",
+            "reproject",
+            "retemplate",
+            "adopt_report",
+            "adopt_apply",
+            "handoff",
+        ],
+    ),
+    (
+        "mashup",
+        &[
+            "mashup_new",
+            "mashup_templates",
+            "mashup_add",
+            "mashup_add_contained",
+            "mashup_bind",
+            "mashup_on",
+            "widgets",
+            "mashup_param",
+            "mashup_recipe",
+            "mashup_event",
+            "mashup_validate",
+            "mashup_describe",
+        ],
+    ),
+    (
+        "permissions",
+        &[
+            "permissions",
+            "permissions_init",
+            "permissions_audit",
+            "permissions_apply",
+            "permissions_push",
+        ],
+    ),
+    (
+        "data",
+        &[
+            "db_run",
+            "db_query",
+            "datatable_copy",
+            "db_clean",
+            "config_table",
+            "call",
+            "test",
+        ],
+    ),
+    (
+        "server",
+        &[
+            "logs",
+            "log_level",
+            "repo",
+            "repo_write",
+            "localization",
+            "localization_write",
+            "users",
+            "users_write",
+            "extensions",
+            "extension_write",
+            "settings",
+        ],
+    ),
+    ("reference", &["help_search", "help_page", "javadoc"]),
+];
+
+/// Which tools a server lists and runs. A client's context holds every listed definition on
+/// every turn, so a client that needs only some groups should not pay for the rest.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Selection(Option<Vec<&'static str>>);
+
+impl Selection {
+    /// Every tool.
+    pub const ALL: Selection = Selection(None);
+
+    /// The tools of the named groups, comma-separated; `all` is every tool. An unknown group is
+    /// refused with the list of known ones, so a typo never serves nothing.
+    pub fn parse(text: &str) -> Result<Self, String> {
+        let mut tools = Vec::new();
+        let mut any = false;
+        for word in text
+            .split(',')
+            .map(str::trim)
+            .filter(|word| !word.is_empty())
+        {
+            any = true;
+            if word == "all" {
+                return Ok(Self::ALL);
+            }
+            let Some((_, members)) = GROUPS.iter().find(|(group, _)| *group == word) else {
+                let known: Vec<&str> = GROUPS.iter().map(|(group, _)| *group).collect();
+                return Err(format!(
+                    "unknown tool group `{word}`; use all or any of {}",
+                    known.join(", ")
+                ));
+            };
+            tools.extend_from_slice(members);
+        }
+        if !any {
+            return Err("--tools names no group; use all or a comma-separated list".to_string());
+        }
+        Ok(Self(Some(tools)))
+    }
+
+    fn includes(&self, name: &str) -> bool {
+        self.0.as_ref().is_none_or(|tools| tools.contains(&name))
+    }
 }
 
 /// The registered name equal to `name`, or `None`. The result is safe to log, because it comes
@@ -717,11 +881,15 @@ pub(crate) fn registered_name(name: &str) -> Option<&'static str> {
 /// Run a registered tool, arguments read and checked first.
 pub(crate) fn call(
     root: &Path,
+    selection: &Selection,
     name: &str,
     arguments: &Value,
     progress: &dyn Progress,
 ) -> Option<Result<Value, ToolError>> {
-    let tool = TOOLS.iter().find(|tool| tool.name == name)?;
+    // A tool the selection leaves out is unknown to this server, as `tools/list` says.
+    let tool = TOOLS
+        .iter()
+        .find(|tool| tool.name == name && selection.includes(name))?;
     let outcome = (tool.call)(root, arguments, progress);
     // A tool that publishes an output schema owes every successful result to it.
     #[cfg(test)]

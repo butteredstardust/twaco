@@ -13,7 +13,8 @@
 use crate::core::progress::Progress;
 use serde_json::{json, Value};
 use std::io::Write;
-use std::sync::Mutex;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 /// The shared output of the server: responses and notifications both go through this lock.
@@ -41,6 +42,8 @@ pub(crate) struct Notifier<'a> {
     token: Value,
     interval: Duration,
     state: Mutex<State>,
+    /// Set when the call is cancelled: from then on nothing more is sent.
+    stop: Option<Arc<AtomicBool>>,
 }
 
 /// The progress token of a request: a string or an integer, in `params._meta.progressToken`.
@@ -66,7 +69,14 @@ impl<'a> Notifier<'a> {
                 total: Some(0),
                 ..State::default()
             }),
+            stop: None,
         }
+    }
+
+    /// Send nothing more once `stop` is set: a cancelled call reports no further progress.
+    pub(crate) fn until(mut self, stop: Arc<AtomicBool>) -> Self {
+        self.stop = Some(stop);
+        self
     }
 
     fn state(&self) -> std::sync::MutexGuard<'_, State> {
@@ -77,6 +87,13 @@ impl<'a> Notifier<'a> {
 
     /// Write one notification. The caller holds the state lock, so values never go backwards.
     fn emit(&self, state: &mut State) {
+        if self
+            .stop
+            .as_ref()
+            .is_some_and(|stop| stop.load(Ordering::SeqCst))
+        {
+            return;
+        }
         let mut params = json!({ "progressToken": self.token, "progress": state.done });
         if let Some(total) = state.total {
             params["total"] = json!(total);

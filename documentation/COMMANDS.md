@@ -16,7 +16,10 @@ init [--write]              propose a twaco.toml from the repository's own entit
 init --agents               write only those, where absent
 doctor [--profile <name>]   what resolved, what is reachable, what is missing
 projects                    the solution's projects and their deploy order
-mcp                         serve the tools over MCP on stdio (TWACO_ROOT: the solution)
+mcp [--tools <groups>]      serve the tools over MCP on stdio (TWACO_ROOT: the solution)
+    --tools <groups>        only these tool groups, comma-separated (TWACO_MCP_TOOLS): core,
+                            entity, refactor, mashup, permissions, data, server, reference;
+                            default all
 update [--apply]            compare with the latest release; --apply verifies its signature
                             and replaces this binary (TWACO_NO_UPDATE_CHECK=1: no daily notice)
 ```
