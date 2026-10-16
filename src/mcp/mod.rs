@@ -53,10 +53,47 @@ pub(crate) fn legacy_schema(schema: &Value, arguments: &Value) -> Result<(), Str
     schema::validate_arguments(schema, arguments)
 }
 
-/// Protocol revisions this server speaks. A client asking for one of these gets it; any other
-/// gets [`LATEST`], and the client decides whether it can continue.
-const PROTOCOL_VERSIONS: [&str; 4] = ["2024-11-05", "2025-03-26", "2025-06-18", "2025-11-25"];
-const LATEST: &str = "2025-11-25";
+/// A protocol revision this server speaks, oldest first, so a feature's arrival is a comparison.
+/// A client asking for one of these gets it; any other gets [`LATEST`], and the client decides
+/// whether it can continue.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
+pub(crate) enum Protocol {
+    V2024_11_05,
+    V2025_03_26,
+    V2025_06_18,
+    V2025_11_25,
+}
+
+const LATEST: Protocol = Protocol::V2025_11_25;
+
+impl Protocol {
+    const ALL: [Self; 4] = [
+        Self::V2024_11_05,
+        Self::V2025_03_26,
+        Self::V2025_06_18,
+        Self::V2025_11_25,
+    ];
+
+    pub(crate) fn parse(text: &str) -> Option<Self> {
+        Self::ALL
+            .into_iter()
+            .find(|protocol| protocol.as_str() == text)
+    }
+
+    pub(crate) const fn as_str(self) -> &'static str {
+        match self {
+            Self::V2024_11_05 => "2024-11-05",
+            Self::V2025_03_26 => "2025-03-26",
+            Self::V2025_06_18 => "2025-06-18",
+            Self::V2025_11_25 => "2025-11-25",
+        }
+    }
+
+    /// `structuredContent` in results and `outputSchema` in definitions arrived in 2025-06-18.
+    pub(crate) fn has_structured_output(self) -> bool {
+        self >= Self::V2025_06_18
+    }
+}
 
 const INSTRUCTIONS: &str = "twaco manages a ThingWorx solution kept in source control: entity XML with \
 service scripts as sidecar files. Results are summaries by default; pass detail: true for \
@@ -73,7 +110,7 @@ Start with `projects`, then `check`, then `status` with `all: true` (or one `ent
 pub fn serve(root: &Path, input: impl BufRead, output: impl Write + Send) -> std::io::Result<()> {
     let output = Mutex::new(output);
     let sink: &progress::Sink<'_> = &output;
-    let mut protocol = LATEST.to_string();
+    let mut protocol = LATEST;
     let mut input = input;
     let mut bytes = Vec::new();
     loop {
@@ -113,7 +150,7 @@ pub fn serve(root: &Path, input: impl BufRead, output: impl Write + Send) -> std
 fn handle(
     root: &Path,
     message: &Value,
-    protocol: &mut String,
+    protocol: &mut Protocol,
     sink: &progress::Sink<'_>,
 ) -> Option<Value> {
     let invalid = |id: Value, why: &str| {
@@ -179,24 +216,20 @@ fn handle(
     tracing::info!("message received");
     let result = match method {
         "initialize" => {
-            let asked = params
+            *protocol = params
                 .get("protocolVersion")
                 .and_then(Value::as_str)
+                .and_then(Protocol::parse)
                 .unwrap_or(LATEST);
-            *protocol = if PROTOCOL_VERSIONS.contains(&asked) {
-                asked.to_string()
-            } else {
-                LATEST.to_string()
-            };
             Ok(json!({
-                "protocolVersion": protocol,
+                "protocolVersion": protocol.as_str(),
                 "capabilities": { "tools": { "listChanged": false } },
                 "serverInfo": { "name": "twaco", "version": env!("CARGO_PKG_VERSION") },
                 "instructions": INSTRUCTIONS,
             }))
         }
         "ping" => Ok(json!({})),
-        "tools/list" => Ok(json!({ "tools": registry::definitions(protocol) })),
+        "tools/list" => Ok(json!({ "tools": registry::definitions(*protocol) })),
         "tools/call" => {
             let name = params.get("name").and_then(Value::as_str).unwrap_or("");
             let arguments = params
@@ -215,7 +248,7 @@ fn handle(
                     if let Err(error) = &outcome {
                         tracing::info!(code = error.code.as_str(), "tool failed");
                     }
-                    Ok(tool_result(outcome, protocol))
+                    Ok(tool_result(outcome, *protocol))
                 }
                 None => Err((-32602, format!("unknown tool {name:?}"))),
             }
@@ -282,7 +315,7 @@ impl From<&str> for ToolError {
     }
 }
 
-pub(crate) fn tool_result(outcome: Result<Value, ToolError>, protocol: &str) -> Value {
+pub(crate) fn tool_result(outcome: Result<Value, ToolError>, protocol: Protocol) -> Value {
     let (value, is_error) = match outcome {
         Ok(value) => (value, false),
         Err(error) => (
@@ -294,7 +327,7 @@ pub(crate) fn tool_result(outcome: Result<Value, ToolError>, protocol: &str) -> 
         "content": [{ "type": "text", "text": serde_json::to_string(&value).expect("JSON values serialise") }],
         "isError": is_error,
     });
-    if protocol >= "2025-06-18" {
+    if protocol.has_structured_output() {
         result["structuredContent"] = value;
     }
     result

@@ -194,7 +194,7 @@ fn generated_schemas_are_valid_conservative_json_schema() {
 #[test]
 fn the_stable_tools_publish_an_output_schema_only_to_clients_that_know_it() {
     let with = |protocol: &str| -> Vec<String> {
-        registry::definitions(protocol)
+        registry::definitions(Protocol::parse(protocol).unwrap())
             .iter()
             .filter(|tool| tool.get("outputSchema").is_some())
             .map(|tool| tool["name"].as_str().unwrap().to_string())
@@ -205,7 +205,7 @@ fn the_stable_tools_publish_an_output_schema_only_to_clients_that_know_it() {
     let expected = [
         "projects", "types", "check", "status", "sync", "extract", "fmt", "push", "deploy",
     ];
-    for protocol in ["2025-06-18", LATEST] {
+    for protocol in ["2025-06-18", LATEST.as_str()] {
         let mut names = with(protocol);
         names.sort();
         let mut want: Vec<String> = expected.iter().map(|name| name.to_string()).collect();
@@ -446,8 +446,8 @@ fn localization_tools_plan_apply_and_refuse_missing_values() {
 
 #[test]
 fn output_schema_waits_for_the_new_protocol() {
-    let old = registry::output_definition_for_test("2025-03-26");
-    let new = registry::output_definition_for_test("2025-06-18");
+    let old = registry::output_definition_for_test(Protocol::V2025_03_26);
+    let new = registry::output_definition_for_test(Protocol::V2025_06_18);
     assert!(old.get("outputSchema").is_none());
     assert_eq!(new["outputSchema"]["type"], "object");
     assert!(jsonschema::draft202012::meta::is_valid(
@@ -739,7 +739,8 @@ fn the_handshake_negotiates_a_version_and_notifications_get_no_reply() {
     assert_eq!(responses[0]["result"]["serverInfo"]["name"], "twaco");
     assert_eq!(responses[1]["result"], json!({}));
     assert_eq!(
-        responses[2]["result"]["protocolVersion"], LATEST,
+        responses[2]["result"]["protocolVersion"],
+        LATEST.as_str(),
         "an unknown version gets ours"
     );
 }
@@ -803,6 +804,83 @@ fn logs_arguments_are_refused_before_the_server_is_asked() {
         assert_eq!(result["isError"], true, "{arguments}: {text}");
         assert!(text.contains(why), "{arguments}: {text}");
     }
+}
+
+#[test]
+fn protocol_revisions_round_trip_and_sort_by_date() {
+    let mut previous: Option<Protocol> = None;
+    for text in ["2024-11-05", "2025-03-26", "2025-06-18", "2025-11-25"] {
+        let protocol = Protocol::parse(text).unwrap();
+        assert_eq!(protocol.as_str(), text);
+        assert!(
+            previous.is_none_or(|previous| previous < protocol),
+            "{text}"
+        );
+        assert_eq!(
+            protocol.has_structured_output(),
+            text >= "2025-06-18",
+            "{text}"
+        );
+        previous = Some(protocol);
+    }
+    assert_eq!(previous, Some(LATEST));
+    assert_eq!(Protocol::parse("2025-06-19"), None);
+    let old = tool_result(Ok(json!({"ok": true})), Protocol::V2025_03_26);
+    assert!(old.get("structuredContent").is_none());
+    let new = tool_result(Ok(json!({"ok": true})), Protocol::V2025_06_18);
+    assert_eq!(new["structuredContent"], json!({"ok": true}));
+}
+
+#[test]
+fn annotations_say_what_each_tool_may_reach_and_discard() {
+    let tools = tool_definitions();
+    let tool = |name: &str| {
+        tools
+            .iter()
+            .find(|tool| tool["name"] == name)
+            .unwrap_or_else(|| panic!("{name} is not registered"))
+    };
+    for (list, names) in registry::HINT_LISTS {
+        for name in names {
+            let hints = &tool(name)["annotations"];
+            if list != "OPEN_WORLD" {
+                assert_eq!(
+                    hints["readOnlyHint"], false,
+                    "{list} names {name}, which writes nothing"
+                );
+            }
+        }
+    }
+    for tool in &tools {
+        let hints = &tool["annotations"];
+        let name = tool["name"].as_str().unwrap();
+        // The spec defines these for writing tools only; a reader that carries them says nothing.
+        if hints["readOnlyHint"] == true {
+            assert!(hints.get("destructiveHint").is_none(), "{name}");
+            assert!(hints.get("idempotentHint").is_none(), "{name}");
+        } else {
+            assert!(hints["destructiveHint"].is_boolean(), "{name}");
+            assert!(hints["idempotentHint"].is_boolean(), "{name}");
+        }
+    }
+    // A tool that takes a server profile can reach the server.
+    for tool in &tools {
+        if tool["inputSchema"]["properties"].get("profile").is_some() {
+            let name = tool["name"].as_str().unwrap();
+            assert_eq!(
+                tool["annotations"]["openWorldHint"], true,
+                "{name} takes a profile"
+            );
+        }
+    }
+    assert_eq!(tool("fmt")["annotations"]["destructiveHint"], false);
+    assert_eq!(
+        tool("sync")["annotations"]["destructiveHint"],
+        true,
+        "sync rewrites entity XML"
+    );
+    assert_eq!(tool("deploy")["annotations"]["idempotentHint"], false);
+    assert_eq!(tool("guide")["annotations"]["openWorldHint"], false);
 }
 
 #[test]
