@@ -2303,6 +2303,21 @@ fn trace_reports_a_service_and_refuses_an_unknown_one() {
         json!({"kind": "thing", "name": "P.Press", "dry_run": false}),
     );
     assert_eq!(created["isError"], false, "{created}");
+    std::fs::write(
+        root.join("Things/P.Report.xml"),
+        "<Entities><Things><Thing name=\"P.Report\" projectName=\"P\"><ThingShape>\
+         <ServiceDefinitions><ServiceDefinition name=\"Build\"><ResultType baseType=\"NUMBER\" \
+         name=\"result\"></ResultType><ParameterDefinitions><FieldDefinition baseType=\"STRING\" \
+         name=\"from\" aspect.defaultValue=\"today\"></FieldDefinition></ParameterDefinitions>\
+         </ServiceDefinition></ServiceDefinitions></ThingShape></Thing></Things></Entities>",
+    )
+    .unwrap();
+    let traced = call(&root, "trace", json!({"service": "P.Report.Build"}));
+    assert_eq!(traced["isError"], false, "{traced}");
+    let result = &traced["structuredContent"];
+    assert_eq!(result["service"], "Things/P.Report.Build");
+    assert_eq!(result["returns"], "NUMBER");
+    assert_eq!(result["parameters"][0]["default"], "today");
     let unknown = call(&root, "trace", json!({"service": "P.Press.Nope"}));
     assert_eq!(unknown["isError"], true, "{unknown}");
     let bad = call(&root, "trace", json!({"service": "nodot"}));

@@ -1262,6 +1262,94 @@ fn a_shape_whose_members_are_used_is_not_removed_unless_forced() {
 }
 
 #[test]
+fn a_shape_member_used_through_an_inheriting_thing_is_guarded() {
+    let (_dir, solution) = fixture();
+    family(&solution);
+    run(
+        &solution,
+        "Acme.Orders.Audit_TS",
+        Action::PropertyAdd(property("Checked", "BOOLEAN")),
+    );
+    run(
+        &solution,
+        "Acme.Orders.Machine_TT",
+        Action::ShapeAdd {
+            shape: "Acme.Orders.Audit_TS".into(),
+        },
+    );
+    // Press reads the property Saw has through the template and the shape.
+    add_service(
+        &solution,
+        "Things",
+        "Acme.Orders.Press",
+        "var done = Things[\"Acme.Orders.Saw\"].Checked;",
+    );
+    let refused = plan_of(
+        &solution,
+        "Acme.Orders.Machine_TT",
+        Action::ShapeRemove {
+            shape: "Acme.Orders.Audit_TS".into(),
+            force: false,
+        },
+    )
+    .unwrap_err();
+    assert_eq!(refused.code(), ErrorCode::GuardRefused);
+    assert!(
+        refused.to_string().contains("Things/Acme.Orders.Press"),
+        "{refused}"
+    );
+}
+
+#[test]
+fn a_crlf_menu_keeps_its_line_endings_and_a_terminator_in_an_item_is_refused() {
+    let (_dir, solution) = fixture();
+    std::fs::create_dir_all(solution.root.join("app/Mashups")).unwrap();
+    new(&solution, Kind::Menu, "Acme.Orders.Main_MN", |request| {
+        request.items = vec!["Home=Acme.Orders.Home_MU".into()];
+    });
+    let path = workspace::entities(&solution)
+        .into_iter()
+        .find(|file| file.info.name == "Acme.Orders.Main_MN")
+        .unwrap()
+        .path;
+    let lf = std::fs::read_to_string(&path).unwrap();
+    std::fs::write(&path, lf.replace('\n', "\r\n")).unwrap();
+    let add = Action::MenuItemAdd {
+        title: "Orders".into(),
+        mashup: "Acme.Orders.Orders_MU".into(),
+        default: false,
+        before: Some("Home".into()),
+    };
+    run(&solution, "Acme.Orders.Main_MN", add);
+    run(
+        &solution,
+        "Acme.Orders.Main_MN",
+        Action::MenuItemRemove {
+            title: "Home".into(),
+        },
+    );
+    let after = std::fs::read_to_string(&path).unwrap();
+    assert!(after.contains("title=\"Orders\""));
+    assert_eq!(after.matches('\n').count(), after.matches("\r\n").count());
+    // An existing title holding `]]>` cannot be repeated in a CDATA row.
+    std::fs::write(
+        &path,
+        after.replace("title=\"Orders\"", "title=\"A]]&gt;\""),
+    )
+    .unwrap();
+    let again = Action::MenuItemAdd {
+        title: "More".into(),
+        mashup: "Acme.Orders.Orders_MU".into(),
+        default: false,
+        before: None,
+    };
+    assert_eq!(
+        code(plan_of(&solution, "Acme.Orders.Main_MN", again)),
+        ErrorCode::InvalidArguments
+    );
+}
+
+#[test]
 fn a_crlf_file_keeps_its_line_endings() {
     let (_dir, solution) = fixture();
     family(&solution);

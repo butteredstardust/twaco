@@ -82,8 +82,14 @@ pub struct Difference {
 /// on both sides.
 fn is_type_change(difference: &Difference) -> bool {
     let path = difference.path.as_str();
-    let typed =
-        path.ends_with("@baseType") || path.ends_with(".BaseType") || path.ends_with(".baseType");
+    // A contract's type only: a field, parameter, property or result definition in the XML, or
+    // a mashup's data sources and bindings in its JSON, not any widget property of that name.
+    let definition = ["FieldDefinition", "ResultType", "PropertyDefinition"]
+        .iter()
+        .any(|tag| path.contains(tag));
+    let data = path.contains("#json.Data.") || path.contains("#json.DataBindings[");
+    let typed = (path.ends_with("@baseType") && definition)
+        || ((path.ends_with(".BaseType") || path.ends_with(".baseType")) && data);
     match (&difference.export, &difference.repo) {
         (Some(export), Some(repo)) => typed && export != repo,
         _ => false,
@@ -1917,6 +1923,8 @@ mod tests {
                     change("/mashupContent#json.Data.Things_Acme.Manager.Services[0].Parameters[0].BaseType", Some("STRING"), Some("LONG")),
                     change("/ParameterDefinitions/FieldDefinition[cardUid]@description", Some("b"), Some("a")),
                     change("/ParameterDefinitions/FieldDefinition[added]@baseType", Some("STRING"), None),
+                    // A widget property that happens to be called BaseType is no contract.
+                    change("/mashupContent#json.UI.Widgets[0].Properties.BaseType", Some("NUMBER"), Some("STRING")),
                 ],
             )],
             ..Report::default()

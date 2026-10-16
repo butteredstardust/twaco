@@ -1187,11 +1187,19 @@ impl Edit2<'_> {
         let doc = self.doc;
         let mut users: BTreeSet<String> = BTreeSet::new();
         let index = Index::build(self.solution);
-        if let Ok(key) = EntityKey::new(doc.collection(), doc.name()) {
-            let options = DependentOptions {
-                member: Some(member.to_string()),
-                min: Confidence::Resolved,
-                max_depth: Some(1),
+        let model = Model::build(self.solution, self.found)?;
+        let mut scope = vec![doc.file.clone()];
+        scope.extend(model.descendants(doc).into_iter().cloned());
+        // The member is reached through the entity and through everything that inherits it:
+        // `Things["C"].Checked` uses a template's property as surely as `me.Checked` does.
+        let options = DependentOptions {
+            member: Some(member.to_string()),
+            min: Confidence::Resolved,
+            max_depth: Some(1),
+        };
+        for holder in &scope {
+            let Ok(key) = EntityKey::new(&holder.info.collection, &holder.info.name) else {
+                continue;
             };
             for dependent in index.dependents(&key, &options) {
                 let inherited = !dependent.path.is_empty()
@@ -1201,9 +1209,6 @@ impl Edit2<'_> {
                 }
             }
         }
-        let model = Model::build(self.solution, self.found)?;
-        let mut scope = vec![doc.file.clone()];
-        scope.extend(model.descendants(doc).into_iter().cloned());
         for file in scope {
             if reads_me_member(&read_file(&file.path)?, member) {
                 let label = format!("{}/{}", file.info.collection, file.info.name);
@@ -1955,6 +1960,20 @@ fn menu_entries(doc: &Doc) -> Result<(usize, Vec<Entry>), EditError> {
         if kind != "Mashup" {
             return Err(invalid(format!(
                 "{} has a {kind} item; twaco edits menus of mashup items only",
+                doc.label()
+            )));
+        }
+        // A row repeats these as CDATA, which cannot hold its own terminator.
+        let values = [
+            "title",
+            "linkDestination",
+            "description",
+            "imageURL",
+            "linkTarget",
+        ];
+        if let Some(name) = values.iter().find(|name| get(name).contains("]]>")) {
+            return Err(invalid(format!(
+                "{} has an item whose {name} holds `]]>`; its effective-menu row cannot be written",
                 doc.label()
             )));
         }

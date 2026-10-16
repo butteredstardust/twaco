@@ -241,3 +241,33 @@ fn param_narrows_and_errors_say_what_is_wrong() {
         Err(TraceError::Entity(_))
     ));
 }
+
+#[test]
+fn a_caller_through_thing_templates_is_found_and_a_rebound_variable_is_not_followed() {
+    let (dir, solution) = fixture();
+    let nothing = "<ResultType baseType=\"NOTHING\" description=\"\" name=\"result\" \
+                   ordinal=\"0\"></ResultType>";
+    let caller = thing(
+        "Acme.Orders.Batch",
+        &[(
+            "Run",
+            "",
+            nothing,
+            "var rows = ThingTemplates[\"Acme.Orders.Manager\"].GetOrders();\n\
+             function helper(rows) { return rows.Secret; }\n\
+             rows = other();\n\
+             var total = rows.rows[0].Total;",
+        )],
+    );
+    std::fs::write(dir.path().join("Things/Acme.Orders.Batch.xml"), caller).unwrap();
+    let solution = Solution::load(&solution.root.join("twaco.toml")).unwrap();
+    let trace = run(&solution, "Acme.Orders.Manager.GetOrders", None).unwrap();
+    let batch = trace
+        .scripts
+        .iter()
+        .find(|call| call.caller == "Things/Acme.Orders.Batch.Run")
+        .expect("a ThingTemplates[...] caller is found");
+    assert!(!batch.reads_followed);
+    assert!(batch.reads.is_empty());
+    assert!(render(&trace).contains("reads not followed"));
+}

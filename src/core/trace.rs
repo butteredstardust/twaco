@@ -71,6 +71,9 @@ pub struct ScriptCall {
     pub into: Option<String>,
     /// What the script reads of the result: fields, `rows`, `length`...
     pub reads: Vec<String>,
+    /// False when the variable is bound more than once in the script (a parameter, another
+    /// declaration, a reassignment): then what is read of it may not be this result.
+    pub reads_followed: bool,
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -225,43 +228,30 @@ pub fn run(solution: &Solution, given: &str, param: Option<&str>) -> Result<Trac
         }
     }
 
-    // Script callers: `Things["X"].Service()` from anywhere, `me.Service()` from the holders.
-    let mut callers: BTreeMap<String, BTreeSet<String>> = BTreeMap::new();
-    for (from, to, edge) in &edges {
-        if edge.kind == EdgeKind::ScriptReference
-            && edge.to_member.as_deref() == Some(service)
-            && labels.contains(to)
-        {
-            if let Some(caller) = &edge.from_member {
-                callers
-                    .entry(from.clone())
-                    .or_default()
-                    .insert(caller.clone());
-            }
-        }
-    }
+    // Script callers: `Things|ThingTemplates|ThingShapes["X"].Service()` from anywhere, and
+    // `me.Service()` from the holders. Read from the scripts themselves: the index records only
+    // `Things[...]` receivers.
     let targets: BTreeSet<String> = holders.iter().map(|h| h.name().to_string()).collect();
+    let needle = format!(".{service}");
     let mut scripts = Vec::new();
     let mut parse_failures = Vec::new();
     for (entity, file) in found.iter().filter_map(|file| {
         let key = EntityKey::new(&file.info.collection, &file.info.name).ok()?;
         Some((key, file))
     }) {
-        let label = entity.to_string();
-        let own = holders.contains(&entity);
-        let named = callers.get(&label);
-        if !own && named.is_none() {
+        let src = std::fs::read(&file.path).unwrap_or_default();
+        if !String::from_utf8_lossy(&src).contains(&needle) {
             continue;
         }
-        let src = std::fs::read(&file.path).unwrap_or_default();
+        let label = entity.to_string();
+        let own = holders.contains(&entity);
         let Ok(services) = super::sidecar::script_services(&src) else {
             continue;
         };
-        for script in services {
-            let wanted = named.is_some_and(|names| names.contains(&script.name));
-            if !own && !wanted {
-                continue;
-            }
+        for script in services
+            .iter()
+            .filter(|script| script.script.contains(&needle))
+        {
             match call_sites(&script.script, service, &targets, own) {
                 Some(sites) => {
                     for site in sites {
@@ -271,11 +261,11 @@ pub fn run(solution: &Solution, given: &str, param: Option<&str>) -> Result<Trac
                             call: site.call,
                             into: site.into,
                             reads: site.reads,
+                            reads_followed: site.reads_followed,
                         });
                     }
                 }
-                None if wanted => parse_failures.push(format!("{label}.{}", script.name)),
-                None => {}
+                None => parse_failures.push(format!("{label}.{}", script.name)),
             }
         }
     }
@@ -298,8 +288,13 @@ pub fn run(solution: &Solution, given: &str, param: Option<&str>) -> Result<Trac
         let src = std::fs::read(&file.path).unwrap_or_default();
         if let Ok(services) = super::sidecar::script_services(&src) {
             if let Some(own) = services.iter().find(|script| script.name == service) {
-                for member in me_calls(&own.script) {
-                    calls.insert(format!("{owner_label}.{member}"));
+                for (receiver, member) in calls_in(&own.script) {
+                    let receiver = if receiver == "me" {
+                        owner_label.clone()
+                    } else {
+                        receiver
+                    };
+                    calls.insert(format!("{receiver}.{member}"));
                 }
             }
         }
@@ -308,7 +303,7 @@ pub fn run(solution: &Solution, given: &str, param: Option<&str>) -> Result<Trac
     let mut notes = Vec::new();
     if !parse_failures.is_empty() {
         notes.push(format!(
-            "could not parse {}: their calls are listed by impact only",
+            "could not parse {}: calls in them are not listed",
             parse_failures.join(", ")
         ));
     }
@@ -374,6 +369,7 @@ struct Site {
     call: String,
     into: Option<String>,
     reads: Vec<String>,
+    reads_followed: bool,
 }
 
 /// The calls of `service` in one script: on `me` (when `own`), or on `Things["T"]` / `Things.T`
@@ -392,15 +388,21 @@ fn call_sites(
         own,
         sites: Vec::new(),
         reads: BTreeMap::new(),
+        bindings: BTreeMap::new(),
     };
     ast.visit_with(&mut finder);
     let reads = finder.reads;
+    let bindings = finder.bindings;
     Some(
         finder
             .sites
             .into_iter()
             .map(|mut site| {
                 if let Some(variable) = &site.into {
+                    if bindings.get(variable).copied().unwrap_or(0) > 1 {
+                        site.reads_followed = false;
+                        return site;
+                    }
                     let all = reads.get(variable).cloned().unwrap_or_default();
                     // `getRow()` says nothing `getRow().Count` does not.
                     site.reads = all
@@ -418,21 +420,28 @@ fn call_sites(
     )
 }
 
-/// The `me.<Name>(...)` calls in a script.
-fn me_calls(script: &str) -> BTreeSet<String> {
+/// The calls in a script on `me`, or on `Things|ThingTemplates|ThingShapes["X"]` / `.X`:
+/// `("me" or "Collection/X", member)`.
+fn calls_in(script: &str) -> BTreeSet<(String, String)> {
     let Some(ast) = parse(script) else {
         return BTreeSet::new();
     };
-    struct Me(BTreeSet<String>);
-    impl Visit for Me {
+    struct Calls(BTreeSet<(String, String)>);
+    impl Visit for Calls {
         fn visit_call_expr(&mut self, call: &CallExpr) {
             if let Callee::Expr(callee) = &call.callee {
                 if let Expr::Member(member) = &**callee {
-                    if let (Expr::Ident(object), MemberProp::Ident(name)) =
-                        (&*member.obj, &member.prop)
-                    {
-                        if object.sym.as_ref() == "me" {
-                            self.0.insert(name.sym.to_string());
+                    if let MemberProp::Ident(name) = &member.prop {
+                        let receiver = match &*member.obj {
+                            Expr::Ident(object) if object.sym.as_ref() == "me" => {
+                                Some("me".to_string())
+                            }
+                            Expr::Member(things) => collection_target(things)
+                                .map(|(collection, entity)| format!("{collection}/{entity}")),
+                            _ => None,
+                        };
+                        if let Some(receiver) = receiver {
+                            self.0.insert((receiver, name.sym.to_string()));
                         }
                     }
                 }
@@ -440,9 +449,32 @@ fn me_calls(script: &str) -> BTreeSet<String> {
             call.visit_children_with(self);
         }
     }
-    let mut me = Me(BTreeSet::new());
-    ast.visit_with(&mut me);
-    me.0
+    let mut calls = Calls(BTreeSet::new());
+    ast.visit_with(&mut calls);
+    calls.0
+}
+
+/// `Things["X"]`, `ThingTemplates.X`...: the collection and the entity name.
+fn collection_target(member: &MemberExpr) -> Option<(String, String)> {
+    let Expr::Ident(root) = &*member.obj else {
+        return None;
+    };
+    let collection = root.sym.to_string();
+    if !matches!(
+        collection.as_str(),
+        "Things" | "ThingTemplates" | "ThingShapes"
+    ) {
+        return None;
+    }
+    let name = match &member.prop {
+        MemberProp::Ident(ident) => ident.sym.to_string(),
+        MemberProp::Computed(computed) => match &*computed.expr {
+            Expr::Lit(Lit::Str(string)) => string.value.to_atom_lossy().to_string(),
+            _ => return None,
+        },
+        MemberProp::PrivateName(_) => return None,
+    };
+    Some((collection, name))
 }
 
 fn parse(script: &str) -> Option<swc_ecma_ast::Script> {
@@ -467,6 +499,14 @@ struct Finder<'a> {
     sites: Vec<Site>,
     /// What is read off each variable: `v.X`, `v.rows[i].X`, `v.getRow(i).X`.
     reads: BTreeMap<String, BTreeSet<String>>,
+    /// How often each name is bound: declared with a value, assigned, or a parameter.
+    bindings: BTreeMap<String, usize>,
+}
+
+impl Finder<'_> {
+    fn bind(&mut self, name: &str) {
+        *self.bindings.entry(name.to_string()).or_default() += 1;
+    }
 }
 
 impl Finder<'_> {
@@ -495,26 +535,9 @@ impl Finder<'_> {
         }
     }
 
-    /// `Things["T"]` or `Things.T` with `T` a target.
+    /// `Things["T"]`, `ThingTemplates.T`... with `T` a target.
     fn things_target(&self, member: &MemberExpr) -> bool {
-        let Expr::Ident(root) = &*member.obj else {
-            return false;
-        };
-        if !matches!(
-            root.sym.as_ref(),
-            "Things" | "ThingTemplates" | "ThingShapes"
-        ) {
-            return false;
-        }
-        let name = match &member.prop {
-            MemberProp::Ident(ident) => ident.sym.to_string(),
-            MemberProp::Computed(computed) => match &*computed.expr {
-                Expr::Lit(Lit::Str(string)) => string.value.to_atom_lossy().to_string(),
-                _ => return false,
-            },
-            MemberProp::PrivateName(_) => return false,
-        };
-        self.targets.contains(&name)
+        collection_target(member).is_some_and(|(_, name)| self.targets.contains(&name))
     }
 
     fn record(&mut self, expr: &Expr, into: Option<String>) {
@@ -536,12 +559,39 @@ impl Finder<'_> {
             call,
             into,
             reads: Vec::new(),
+            reads_followed: true,
         });
     }
 }
 
 impl Visit for Finder<'_> {
+    fn visit_param(&mut self, param: &swc_ecma_ast::Param) {
+        if let Pat::Ident(name) = &param.pat {
+            self.bind(&name.id.sym);
+        }
+        param.visit_children_with(self);
+    }
+
+    fn visit_arrow_expr(&mut self, arrow: &swc_ecma_ast::ArrowExpr) {
+        for param in &arrow.params {
+            if let Pat::Ident(name) = param {
+                self.bind(&name.id.sym);
+            }
+        }
+        arrow.visit_children_with(self);
+    }
+
+    fn visit_catch_clause(&mut self, clause: &swc_ecma_ast::CatchClause) {
+        if let Some(Pat::Ident(name)) = &clause.param {
+            self.bind(&name.id.sym);
+        }
+        clause.visit_children_with(self);
+    }
+
     fn visit_var_declarator(&mut self, declarator: &VarDeclarator) {
+        if let (Pat::Ident(name), Some(_)) = (&declarator.name, &declarator.init) {
+            self.bind(&name.id.sym);
+        }
         if let (Pat::Ident(name), Some(init)) = (&declarator.name, &declarator.init) {
             if self.is_call(init) {
                 self.record(init, Some(name.id.sym.to_string()));
@@ -558,6 +608,7 @@ impl Visit for Finder<'_> {
 
     fn visit_assign_expr(&mut self, assign: &swc_ecma_ast::AssignExpr) {
         if let AssignTarget::Simple(SimpleAssignTarget::Ident(left)) = &assign.left {
+            self.bind(&left.id.sym);
             if self.is_call(&assign.right) {
                 self.record(&assign.right, Some(left.id.sym.to_string()));
                 if let Expr::Call(call) = &*assign.right {
@@ -697,7 +748,9 @@ pub fn render(trace: &Trace) -> String {
             "  {}:{}  {into}{}\n",
             call.caller, call.line, call.call
         ));
-        if !call.reads.is_empty() {
+        if !call.reads_followed {
+            out.push_str("    reads not followed: the variable is bound more than once\n");
+        } else if !call.reads.is_empty() {
             out.push_str(&format!("    reads {}\n", call.reads.join(", ")));
         }
     }
