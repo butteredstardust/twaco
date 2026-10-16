@@ -402,6 +402,12 @@ static TOOLS: LazyLock<Vec<Tool>> = LazyLock::new(|| {
             false,
             refactor::mashup_event_tool,
         ),
+        solution_tool::<refactor_requests::MashupValidateRequest>(
+            "mashup_validate",
+            "Validate mashups in the repository without the server: structure, containers that hold both containers and widgets, an id_index below the widgets' numbers, bindings and events naming a widget, data source or call the mashup lacks, bindings against a catalogue widget's contract (direction, unknown property), events naming an event or service the widget lacks, bindings with several property maps, and contained-mashup parameter drift. Give mashup, or all. Read-only.",
+            true,
+            refactor::mashup_validate_tool,
+        ),
         solution_tool::<refactor_requests::MashupDescribeRequest>(
             "mashup_describe",
             "Describe a mashup in the repository without its XML: the widget tree (ids, types, row/column containers, which widget fills its container, text and [[tokens]]); each service it calls, with what sets each declared parameter (a binding's source, static, or unbound); each binding, one row per property map, warning when a binding has more than one (the runtime applies only the first); and each event. Addresses are those mashup bind and on take: ui:<widget>.<Property>, data:<Entity>.<Service>[.<Parameter>], mashup:<Parameter>. Read-only.",

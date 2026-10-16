@@ -2,8 +2,9 @@ use super::requests::refactor::{
     AdoptApplyRequest, AdoptKind, AdoptReportRequest, AdoptTakeSide, HandoffAction, HandoffRequest,
     MashupAddContainedRequest, MashupAddRequest, MashupBindRequest, MashupDescribeRequest,
     MashupEventRequest, MashupNewRequest, MashupOnRequest, MashupParameterAction,
-    MashupParameterRequest, MashupRecipeRequest, MashupTemplatesRequest, MoveMemberRequest,
-    NewBuildingBlockRequest, RenameRequest, ReprojectRequest, RetemplateRequest, WidgetsRequest,
+    MashupParameterRequest, MashupRecipeRequest, MashupTemplatesRequest, MashupValidateRequest,
+    MoveMemberRequest, NewBuildingBlockRequest, RenameRequest, ReprojectRequest, RetemplateRequest,
+    WidgetsRequest,
 };
 use super::source::add_types_refresh;
 use super::*;
@@ -169,6 +170,25 @@ pub(crate) fn mashup_describe_tool(
         crate::core::mashup_describe::describe(solution, nonempty(&arguments.mashup, "mashup")?)
             .map_err(ToolError::coded)?;
     Ok(serde_json::to_value(description).expect("a description serialises"))
+}
+
+pub(crate) fn mashup_validate_tool(
+    solution: &Solution,
+    arguments: MashupValidateRequest,
+) -> Result<Value, ToolError> {
+    let name = match (arguments.mashup.as_ref(), arguments.all) {
+        (Some(name), false) => Some(nonempty(name, "mashup")?),
+        (None, true) => None,
+        _ => {
+            return Err(ToolError::invalid(
+                "give mashup, or all, not both or neither",
+            ))
+        }
+    };
+    let reports =
+        crate::core::mashup_validate::validate(solution, name).map_err(ToolError::coded)?;
+    let problems: usize = reports.iter().map(|report| report.problems.len()).sum();
+    Ok(json!({ "problems": problems, "mashups": reports }))
 }
 
 pub(crate) fn mashup_new_tool(

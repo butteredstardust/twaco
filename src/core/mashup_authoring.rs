@@ -2025,7 +2025,7 @@ fn add_function_widget(
 /// A function widget's property that its definition makes at run time: an expression's or
 /// validator's inputs and output, an events router's inputs and output, a navigation function's
 /// copy of its target's parameters. As (can be a source, can be a target, base type).
-fn function_property(
+pub(crate) fn function_property(
     widget: &Value,
     type_id: &str,
     property: &str,

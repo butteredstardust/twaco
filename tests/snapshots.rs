@@ -150,6 +150,7 @@ const SCENARIOS: &[(&str, &[&str])] = &[
         "mashup_recipe_unknown",
         &["mashup", "recipe", "sparkle", "Acme.Orders.Dashboard"],
     ),
+    ("mashup_validate_all", &["mashup", "validate", "--all"]),
     ("mashup_templates", &["mashup", "templates"]),
     (
         "mashup_new_tabs_plan",

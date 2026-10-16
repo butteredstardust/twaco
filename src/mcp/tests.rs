@@ -854,6 +854,7 @@ fn every_tool_is_listed_with_a_schema_and_honest_annotations() {
             "mashup_param",
             "mashup_recipe",
             "mashup_event",
+            "mashup_validate",
             "mashup_describe",
             "reproject",
             "retemplate",

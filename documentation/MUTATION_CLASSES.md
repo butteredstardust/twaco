@@ -118,6 +118,7 @@ when the command is asked to write. A local output named by an option is include
 | `new building-block` | read-only | multi-file atomic | project files, config | A crash is finished or undone by the next command that takes the workspace lock; if it refuses, follow its message. Otherwise retry. | `core/commands/newblock.rs: execute` |
 | `retemplate` | read-only | single-file atomic | one entity XML | The entity is old or new; retry freely. | `core/commands/retemplate.rs: execute` |
 | `mashup describe` | read-only | read-only | none | Retry freely. | `core/mashup_describe.rs: describe` |
+| `mashup validate` | read-only | read-only | none | Retry freely. | `core/mashup_validate.rs: validate` |
 | `widgets` | read-only | read-only | none | Retry freely. | `core/widgets_view.rs: list` |
 | `mashup templates` | read-only | read-only | none | Retry freely. | `core/mashup_templates_view.rs: list` |
 | `mashup new` | read-only | multi-file atomic | new entity file, mashup sidecars | The entity file and its content.json and custom.css are created in one journaled transaction, or none is; a file that appeared since the plan is refused. Retry. | `core/commands/mashup.rs: new` |
@@ -176,6 +177,7 @@ when the command is asked to write. A local output named by an option is include
 | `new_building_block` | read-only | multi-file atomic | project files, config | A crash is finished or undone by the next command that takes the workspace lock; if it refuses, follow its message. Otherwise retry. | `core/commands/newblock.rs: execute` |
 | `retemplate` | read-only | single-file atomic | one entity XML | The entity is old or new; retry freely. | `core/commands/retemplate.rs: execute` |
 | `mashup_describe` | read-only | read-only | none | Retry freely. | `core/mashup_describe.rs: describe` |
+| `mashup_validate` | read-only | read-only | none | Retry freely. | `core/mashup_validate.rs: validate` |
 | `widgets` | read-only | read-only | none | Retry freely. | `core/widgets_view.rs: list` |
 | `mashup_templates` | read-only | read-only | none | Retry freely. | `core/mashup_templates_view.rs: list` |
 | `mashup_new` | read-only | multi-file atomic | new entity file, mashup sidecars | The entity file and its content.json and custom.css are created in one journaled transaction, or none is; a file that appeared since the plan is refused. Retry. | `core/commands/mashup.rs: new` |

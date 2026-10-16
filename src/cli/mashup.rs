@@ -994,3 +994,55 @@ pub(crate) fn mashup_describe_cmd(solution: &Solution, args: &Args) -> u8 {
         }
     }
 }
+
+/// `twaco mashup validate <mashup>|--all`: report problems; exit 1 when there are any.
+pub(crate) fn mashup_validate_cmd(solution: &Solution, args: &Args) -> u8 {
+    let name = match (args.names.as_slice(), args.has("--all")) {
+        ([name], false) => Some(name.as_str()),
+        ([], true) => None,
+        _ => {
+            eprintln!(
+                "{} mashup validate needs one <mashup>, or --all",
+                style::prefix()
+            );
+            return FAILED;
+        }
+    };
+    let reports = match twaco::core::mashup_validate::validate(solution, name) {
+        Ok(reports) => reports,
+        Err(error) => {
+            eprintln!("{} {error}", style::prefix());
+            return FAILED;
+        }
+    };
+    let problems: usize = reports.iter().map(|report| report.problems.len()).sum();
+    if args.has("--json") {
+        println!(
+            "{}",
+            serde_json::to_string_pretty(
+                &serde_json::json!({ "problems": problems, "mashups": reports })
+            )
+            .expect("a validation report serialises")
+        );
+    } else {
+        for report in reports.iter().filter(|report| !report.problems.is_empty()) {
+            println!("{} ({})", report.mashup, report.file);
+            for problem in &report.problems {
+                println!("  [{}] {}", problem.rule, problem.message);
+            }
+        }
+        println!(
+            "{} mashup(s) validated, {} with problems, {problems} problem(s)",
+            reports.len(),
+            reports
+                .iter()
+                .filter(|report| !report.problems.is_empty())
+                .count()
+        );
+    }
+    if problems > 0 {
+        DRIFT
+    } else {
+        OK
+    }
+}

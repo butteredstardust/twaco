@@ -1299,6 +1299,17 @@ pub(crate) const COMMANDS: &[Command] = &[
                               aliases, containers and bindable properties, events and services"#,
     },
     Command {
+        path: "mashup validate",
+        group: 1,
+        operands: true,
+        flags: &["--all", "--json"],
+        text: r#"  mashup validate <mashup>|--all [--json]
+                              what in a mashup ThingWorx would load but not honour, or the next edit would
+                              trip over: structure, ids, bindings and events that name what is not there,
+                              catalogue contracts, several property maps, contained-mashup drift;
+                              exit 1 when it finds any"#,
+    },
+    Command {
         path: "mashup describe",
         group: 1,
         operands: true,

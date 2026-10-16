@@ -1,0 +1,9 @@
+$ twaco mashup validate --all
+exit: 1
+
+--- stdout
+Acme.Orders.Dashboard (Mashups/Acme.Orders.Dashboard.xml)
+  [structure] UI has no Properties object
+1 mashup(s) validated, 1 with problems, 1 problem(s)
+--- stderr
+

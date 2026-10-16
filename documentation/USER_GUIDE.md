@@ -607,6 +607,23 @@ twaco mashup recipe validate Acme.App.Edit_MU ptcsbutton-6 --if "note !== ''" --
 | columns | the grid's `ColumnFormat`: each `--column field[:Title[:width]]` in order, rendered by the field's base type; `--data` also bound |
 | picker | a dropdown or list filled from `--data`, showing `--x`, valued by `--value`, its selection bound from `--selected` |
 
+### Validating mashups
+
+```sh
+twaco mashup validate Acme.App.Orders_MU
+twaco mashup validate --all --json
+```
+
+`mashup validate` reads the repository and reports what ThingWorx would load but not honour, or
+what the next edit would trip over: content that is not a mashup twaco can edit, a container holding
+both containers and widgets, bindings and events naming a widget, data source or call the mashup no
+longer has (Composer leaves these behind when a call is removed), a binding against a catalogue
+widget's contract (the wrong direction, a property it lacks, such as a misspelt expression input),
+an event or service a widget lacks, a binding with several property maps, and the contained-mashup
+drift `twaco check` also reports. What it cannot judge, extension and legacy widgets, properties and
+events a widget makes per configured action, a collection's cell parameters, it leaves alone. It
+exits 1 when it finds anything.
+
 ### Finding widgets
 
 ```sh

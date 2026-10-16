@@ -113,6 +113,11 @@ reproject <entity>... --to <project> [--apply] [--json]
 widgets [<widget>] [--search <text>] [--json]
                             the embedded ThingWorx 10.2 widget catalogue: types, Composer labels,
                             aliases, containers and bindable properties, events and services
+mashup validate <mashup>|--all [--json]
+                            what in a mashup ThingWorx would load but not honour, or the next edit would
+                            trip over: structure, ids, bindings and events that name what is not there,
+                            catalogue contracts, several property maps, contained-mashup drift;
+                            exit 1 when it finds any
 mashup describe <mashup> [--json]
                             what a mashup holds and how it is wired, without its XML: the widget tree,
                             each service it calls with what sets each parameter (or that nothing does),
