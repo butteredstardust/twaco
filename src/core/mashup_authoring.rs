@@ -792,6 +792,35 @@ fn splice_parameter_definition(
         return splice::splice(src, &[splice::Edit::new(span, field_xml(def))])
             .map_err(|e| AuthoringError::Invalid(e.to_string()));
     }
+    // The server keeps parameter definitions sorted by name, ignoring case: insert where it would.
+    let wanted_key = def.name.to_lowercase();
+    for &field in &fields {
+        let name = scan::attribute(src, &tokens[field], "name")
+            .map_err(|e| AuthoringError::Invalid(e.to_string()))?
+            .map(|span| scan::decode_entities(&String::from_utf8_lossy(span.of(src))))
+            .unwrap_or_default();
+        if name.to_lowercase() > wanted_key {
+            let start = tokens[field].span.start;
+            let indent = String::from_utf8_lossy(&src[..start])
+                .rsplit('\n')
+                .next()
+                .unwrap_or("")
+                .to_string();
+            let separator = if indent.trim().is_empty() && !indent.is_empty() {
+                format!("\n{indent}")
+            } else {
+                String::new()
+            };
+            return splice::splice(
+                src,
+                &[splice::Edit::new(
+                    scan::Span::new(start, start),
+                    format!("{}{separator}", field_xml(def)),
+                )],
+            )
+            .map_err(|e| AuthoringError::Invalid(e.to_string()));
+        }
+    }
     let end = scan::element_end_in(&tokens, src, definitions)
         .ok_or_else(|| AuthoringError::Invalid("malformed ParameterDefinitions".into()))?;
     let inner = scan::Span::new(tokens[definitions].span.end, tokens[end].span.start);
@@ -4626,5 +4655,33 @@ mod tests {
                 "{name}"
             );
         }
+    }
+
+    #[test]
+    fn parameter_definitions_go_where_the_server_keeps_them_sorted_by_name_ignoring_case() {
+        // A live 10.1 server read back `done, orderId, title` for definitions sent as
+        // `orderId, title, done`; exports sort `cardWidth, Manager, mashupName` the same way.
+        let (_dir, solution) = parent_and_child();
+        for (name, base_type) in [("title", "STRING"), ("Alpha", "STRING"), ("done", "NUMBER")] {
+            let mut add = param_request("Acme.Card_MU", ParameterAction::Add, name);
+            add.base_type = Some(base_type.into());
+            param(&solution, &add).unwrap();
+        }
+        let entity = std::fs::read(solution.root.join("acme/Mashups/Acme.Card_MU.xml")).unwrap();
+        let names: Vec<String> = mashup_parameters(&entity)
+            .unwrap()
+            .into_iter()
+            .map(|parameter| parameter.name)
+            .collect();
+        assert_eq!(names, ["Alpha", "done", "id", "title"]);
+        // The content keeps the order they were made in, as the server does.
+        let content: Vec<String> = content_of(&solution, "Acme.Card_MU")["UI"]["Properties"]
+            ["_currentParameterDefs"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|entry| entry["ParameterName"].as_str().unwrap().to_string())
+            .collect();
+        assert_eq!(content, ["id", "title", "Alpha", "done"]);
     }
 }

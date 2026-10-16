@@ -182,13 +182,17 @@ pub(crate) fn mashup_param_cmd(solution: &Solution, args: &Args) -> u8 {
         return OK;
     }
     let verb = match action {
-        mashup_authoring::ParameterAction::Add => "add",
-        mashup_authoring::ParameterAction::Set => "change",
-        mashup_authoring::ParameterAction::Remove => "remove",
+        mashup_authoring::ParameterAction::Add => ("add", "added"),
+        mashup_authoring::ParameterAction::Set => ("change", "changed"),
+        mashup_authoring::ParameterAction::Remove => ("remove", "removed"),
     };
     println!(
-        "{} {verb} parameter {}{} in {}",
-        if outcome.applied { "will" } else { "would" },
+        "{} parameter {}{} in {}",
+        if outcome.applied {
+            verb.1.to_string()
+        } else {
+            format!("would {}", verb.0)
+        },
         outcome.plan.name,
         if action == mashup_authoring::ParameterAction::Remove {
             String::new()
