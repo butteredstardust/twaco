@@ -14,6 +14,7 @@ use std::path::{Path, PathBuf};
 pub const CONFIG_FILE: &str = "twaco.toml";
 
 #[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct Solution {
     #[serde(default)]
     pub solution: SolutionMeta,
@@ -66,6 +67,7 @@ pub struct Solution {
 
 /// How generated content is laid out inside entity XML.
 #[derive(Debug, Default, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct Format {
     /// Preserve the legacy, XML-aligned script layout instead of writing scripts flush left.
     #[serde(default)]
@@ -74,6 +76,7 @@ pub struct Format {
 
 /// Decisions a project has already made about a designer's export.
 #[derive(Debug, Default, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct Adopt {
     /// Node paths never reported as changes, as `Collection/Entity/node/path` globs: `*` stays
     /// within one path step and `**` crosses them. For values that differ on every export by
@@ -88,6 +91,7 @@ pub struct Adopt {
 
 /// `[gates]`: named for the built-in gates, since `[[check]]` is the hook list.
 #[derive(Debug, Default, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct Gates {
     /// Parse every script on the server on every `check`, as `check --live` does. The gate fails
     /// closed, so a project that sets this needs a reachable server for `check` to pass.
@@ -102,24 +106,28 @@ pub struct Gates {
 
 /// Optional TypeScript compiler command. Arguments before twaco's `-p` are allowed.
 #[derive(Debug, Default, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct Types {
     pub tsc: Option<Vec<String>>,
 }
 
 /// `[help] version = "10.1"`: the help center version, instead of the server's.
 #[derive(Debug, Default, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct Help {
     pub version: Option<String>,
 }
 
 /// `[repositories] root`: the folder holding one subfolder per FileRepository.
 #[derive(Debug, Default, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct Repositories {
     pub root: Option<String>,
 }
 
 /// Where localization table exports live.
 #[derive(Debug, Default, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct Localization {
     pub root: Option<String>,
 }
@@ -127,6 +135,7 @@ pub struct Localization {
 /// `[knowledge] paths`: files or folders of markdown, relative to the solution. Unset, it is
 /// AGENTS.md, CLAUDE.md and docs/, where they exist.
 #[derive(Debug, Default, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct Knowledge {
     pub paths: Option<Vec<String>>,
 }
@@ -135,6 +144,7 @@ pub struct Knowledge {
 /// `twaco test` signs in as, and where the case files are. Their one password is the profile's
 /// `test_password`, never this file.
 #[derive(Debug, Default, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct Test {
     #[serde(default, rename = "user")]
     pub users: Vec<TestUser>,
@@ -145,6 +155,7 @@ pub struct Test {
 }
 
 #[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct TestUser {
     pub name: String,
     /// The groups the user belongs to: the roles a case runs as.
@@ -155,6 +166,7 @@ pub struct TestUser {
 /// `[package]`: an extension package's metadata. Unset, the version is 1.0.0, the group the
 /// solution's name and the minimum ThingWorx 9.0.0.
 #[derive(Debug, Default, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct Package {
     pub version: Option<String>,
     pub group: Option<String>,
@@ -165,6 +177,7 @@ pub struct Package {
 /// What the project validator should tolerate.
 /// Entities `twaco unused` must never report, because something outside the repository uses them.
 #[derive(Debug, Default, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct Unused {
     /// Names or `Collection/Name` patterns, `*` standing for any text: `Acme.Orders.Database`,
     /// `Things/Acme.Orders.Api.*`. A database connection Thing that the platform calls, an entity
@@ -174,6 +187,7 @@ pub struct Unused {
 }
 
 #[derive(Debug, Default, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct Validate {
     /// Services implemented locally with the definition inherited from a shape or template.
     /// Legitimate, and impossible to tell from a mistake without being told.
@@ -183,6 +197,7 @@ pub struct Validate {
 
 /// An external command run as part of the gate.
 #[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct Check {
     pub name: String,
     /// The program and its arguments. Run from the solution root.
@@ -206,6 +221,7 @@ fn default_timeout() -> u64 {
 }
 
 #[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct SolutionMeta {
     #[serde(default)]
     pub name: String,
@@ -238,6 +254,7 @@ fn default_dist() -> String {
 }
 
 #[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct Project {
     /// The ThingWorx `projectName` this project's entities carry.
     pub name: String,
@@ -260,6 +277,7 @@ pub struct Project {
 
 /// Localization token namespaces owned by one project.
 #[derive(Debug, Default, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct ProjectLocalization {
     #[serde(default)]
     pub prefixes: Vec<String>,
@@ -267,6 +285,7 @@ pub struct ProjectLocalization {
 
 /// Optional post-import behaviour for one project.
 #[derive(Clone, Debug, Default, Deserialize, PartialEq)]
+#[serde(deny_unknown_fields)]
 pub struct Deploy {
     #[serde(default)]
     pub entry_point_thing: Option<String>,
@@ -280,6 +299,7 @@ pub struct Deploy {
 
 /// One configured service to run after the project's deploy service.
 #[derive(Clone, Debug, Deserialize, PartialEq)]
+#[serde(deny_unknown_fields)]
 pub struct PostImport {
     pub thing: String,
     pub service: String,
@@ -295,6 +315,7 @@ fn dot() -> String {
 }
 
 #[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct Bundle {
     /// Filename for the whole-solution document.
     #[serde(default = "default_bundle_name")]
@@ -576,6 +597,32 @@ mod tests {
         s.root = PathBuf::from(".");
         s.validate(Path::new("twaco.toml"))?;
         Ok(s)
+    }
+
+    #[test]
+    fn a_misspelled_key_is_refused_and_named_rather_than_ignored() {
+        // An ignored `[gatez]` or `depends_onn` would run fewer gates or deploy out of order
+        // without a word, so every table refuses what it does not declare.
+        for (text, key) in [
+            (
+                "[[project]]\nname = \"P\"\ndepends_onn = [\"X\"]\n",
+                "depends_onn",
+            ),
+            ("[[project]]\nname = \"P\"\n[gatez]\nlive = true\n", "gatez"),
+            ("[[project]]\nname = \"P\"\n[gates]\nlve = true\n", "lve"),
+            (
+                "[[project]]\nname = \"P\"\n[project.deploy]\nentry_point = \"T\"\n",
+                "entry_point",
+            ),
+        ] {
+            let error = solution(text).unwrap_err().to_string();
+            assert!(error.contains(key), "{key}: {error}");
+        }
+        // Free-form tables stay free-form.
+        solution(
+            "[[project]]\nname = \"P\"\n[project.deploy]\ndeploy_parameters = { anything = 1 }\n",
+        )
+        .unwrap();
     }
 
     #[test]
