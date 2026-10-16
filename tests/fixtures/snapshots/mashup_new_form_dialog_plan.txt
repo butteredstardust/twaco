@@ -1,0 +1,17 @@
+$ twaco mashup new Acme.Orders.Edit_MU --template form-dialog
+exit: 0
+
+--- stdout
+would create mashup Acme.Orders.Edit_MU in project Acme.Orders (form-dialog template, theme PTC Convergence Theme)
+  slots: title, fields, actions
+  Mashups/Acme.Orders.Edit_MU.xml
+  src/Acme.Orders.Edit_MU/mashup/content.json
+  src/Acme.Orders.Edit_MU/mashup/custom.css
+  visible to: nobody yet (--visibility grants it)
+  widget flexcontainer-2 (flexcontainer, page)
+  widget flexcontainer-3 (flexcontainer, title)
+  widget flexcontainer-4 (flexcontainer, fields)
+  widget flexcontainer-5 (flexcontainer, actions)
+run again with --apply to write it
+--- stderr
+

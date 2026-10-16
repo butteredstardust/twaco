@@ -1154,3 +1154,57 @@ fn a_template_that_inherits_itself_is_a_cycle() {
         ]
     );
 }
+
+#[test]
+fn an_exported_data_section_binds_each_service_it_lists_and_only_those() {
+    let (_dir, root) = scratch("data-section");
+    write(&root, "twaco.toml", "[[project]]\nname = \"P\"\n");
+    write(
+        &root,
+        "ThingShapes/P.Shape.xml",
+        &entity(
+            "ThingShapes",
+            "ThingShape",
+            "P.Shape",
+            "P",
+            "",
+            &format!(
+                "<ServiceDefinitions>{}{}</ServiceDefinitions>",
+                service("Run", None, None),
+                service("Other", None, None)
+            ),
+        ),
+    );
+    // As Composer exports it: `Name` is the mashup's alias, `Target` the service.
+    write(
+        &root,
+        "Mashups/P.Panel.xml",
+        r#"<Entities><Mashups><Mashup name="P.Panel" projectName="P"><mashupContent><![CDATA[{"UI":{"Id":"Panel"},"Data":{"DynamicThingShapes_P.Shape":{"DataName":"DynamicThingShapes_P.Shape","EntityName":"P.Shape","EntityType":"DynamicThingShapes","Services":[{"Name":"RunAgain","Target":"Run","Parameters":{}}]}}}]]></mashupContent></Mashup></Mashups></Entities>"#,
+    );
+    let solution = Solution::load(&root.join("twaco.toml")).unwrap();
+    let index = Index::build(&solution);
+    let binding = edge(
+        &index,
+        "Mashups/P.Panel",
+        "ThingShapes/P.Shape",
+        EdgeKind::MashupBinding,
+    );
+    assert_eq!(binding.len(), 1, "{binding:?}");
+    assert_eq!(binding[0].to_member.as_deref(), Some("Run"));
+    let asked = |member: &str| {
+        index
+            .dependents(
+                &key("ThingShapes", "P.Shape"),
+                &DependentOptions {
+                    member: Some(member.into()),
+                    min: Confidence::Resolved,
+                    ..Default::default()
+                },
+            )
+            .into_iter()
+            .map(|d| d.label)
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(asked("Run"), ["Mashups/P.Panel"]);
+    assert!(asked("Other").is_empty(), "{:?}", asked("Other"));
+}

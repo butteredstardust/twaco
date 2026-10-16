@@ -1,0 +1,27 @@
+{
+  "name": "master-detail",
+  "summary": "Side-by-side list and detail areas",
+  "aliases": [],
+  "page": {
+    "flex-direction": "row",
+    "align-items": "stretch"
+  },
+  "master_slot": "detail",
+  "children": [
+    {
+      "slot": "list",
+      "flex-direction": "column",
+      "flex-grow": 1,
+      "align-items": "stretch"
+    },
+    {
+      "divider": true
+    },
+    {
+      "slot": "detail",
+      "flex-direction": "column",
+      "flex-grow": 1,
+      "align-items": "stretch"
+    }
+  ]
+}

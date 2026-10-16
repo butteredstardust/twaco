@@ -1,0 +1,9 @@
+$ twaco new menu Acme.Orders.Main_MN --item Home=Acme.Orders.Home_MU --default
+exit: 0
+
+--- stdout
+would create menu Acme.Orders.Main_MN in project Acme.Orders
+  files: Menus/Acme.Orders.Main_MN.xml
+run again with --apply to write it
+--- stderr
+

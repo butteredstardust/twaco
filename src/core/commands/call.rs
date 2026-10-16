@@ -23,6 +23,8 @@ pub struct CallRequest {
     pub with_logs: bool,
     /// The command line historically reports a missing profile before resolving its target.
     pub profile_before_target: bool,
+    /// Call as this `[[test.user]]`, with the profile's `test_password`.
+    pub as_user: Option<String>,
 }
 
 /// The completed service call or its dry-run description.
@@ -83,6 +85,7 @@ impl Remote for server::Client {
 #[derive(Debug)]
 pub enum CallCommandError {
     Profile(profile::ProfileError),
+    TestUser(crate::core::testing::TestError),
     Target(workspace::WorkspaceError),
     Call {
         target: ServiceTarget,
@@ -95,6 +98,7 @@ impl fmt::Display for CallCommandError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::Profile(error) => error.fmt(f),
+            Self::TestUser(error) => error.fmt(f),
             Self::Target(error) => error.fmt(f),
             Self::Call { error, logs, .. } => {
                 error.fmt(f)?;
@@ -120,6 +124,7 @@ impl Coded for CallCommandError {
     fn code(&self) -> ErrorCode {
         match self {
             Self::Profile(error) => error.code(),
+            Self::TestUser(error) => error.code(),
             Self::Target(error) => error.code(),
             Self::Call { error, .. } => error.code(),
         }
@@ -157,6 +162,10 @@ where
             profile::load(&solution.root, &request.profile).map_err(CallCommandError::Profile)?
         }
     };
+    let profile = match &request.as_user {
+        None => profile,
+        Some(user) => as_test_user(solution, &profile, user)?,
+    };
     let remote = open(profile);
     let started = logs::now_ms();
     let called = remote.call_service(
@@ -193,6 +202,23 @@ where
     })
 }
 
+/// The profile signed in as a declared test user. Only a `[[test.user]]` of the solution, and only
+/// on a profile that allows test users: the shared test password goes to no other account.
+fn as_test_user(
+    solution: &Solution,
+    profile: &profile::Profile,
+    user: &str,
+) -> Result<profile::Profile, CallCommandError> {
+    use crate::core::testing::{self, TestError};
+    if !solution.test.users.iter().any(|known| known.name == user) {
+        return Err(CallCommandError::TestUser(TestError::Invalid(format!(
+            "{user} is not a [[test.user]] in twaco.toml; --as calls only as a declared test user"
+        ))));
+    }
+    testing::allowed(profile).map_err(CallCommandError::TestUser)?;
+    testing::as_user(profile, user).map_err(CallCommandError::TestUser)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -222,6 +248,7 @@ mod tests {
             profile: "missing".to_string(),
             with_logs: false,
             profile_before_target: false,
+            as_user: None,
         };
         let outcome = execute::<server::Client, _>(
             &solution,
@@ -246,6 +273,7 @@ mod tests {
             profile: "missing".to_string(),
             with_logs: false,
             profile_before_target: true,
+            as_user: None,
         };
         let error = execute::<server::Client, _>(
             &solution,
@@ -256,5 +284,48 @@ mod tests {
         .unwrap_err();
         assert!(matches!(error, CallCommandError::Profile(_)));
         assert_eq!(error.code(), ErrorCode::InvalidData);
+    }
+
+    #[test]
+    fn as_signs_in_only_as_a_declared_test_user_on_a_profile_that_allows_it() {
+        let (_dir, root, _) = solution();
+        std::fs::write(
+            root.join("twaco.toml"),
+            "[[project]]\nname = \"P\"\n[[test.user]]\nname = \"vera.viewer\"\n",
+        )
+        .unwrap();
+        let solution = Solution::load(&root.join("twaco.toml")).unwrap();
+        let profile = |extra: &str| -> profile::Profile {
+            toml::from_str(&format!(
+                "url = \"http://server/Thingworx\"\nusername = \"Administrator\"\n\
+                 password = \"admin\"\n{extra}"
+            ))
+            .unwrap()
+        };
+        let allowed = profile("allow_test_users = true\ntest_password = \"secret\"\n");
+        let signed = as_test_user(&solution, &allowed, "vera.viewer").unwrap();
+        assert_eq!(signed.username, "vera.viewer");
+        assert_eq!(signed.password, "secret");
+        assert!(signed.app_key.is_none());
+        // Any other account would receive the test password: refused.
+        let stranger = as_test_user(&solution, &allowed, "Administrator").unwrap_err();
+        assert!(
+            stranger.to_string().contains("not a [[test.user]]"),
+            "{stranger}"
+        );
+        let closed = profile("test_password = \"secret\"\n");
+        assert!(matches!(
+            as_test_user(&solution, &closed, "vera.viewer"),
+            Err(CallCommandError::TestUser(
+                crate::core::testing::TestError::NotAllowed
+            ))
+        ));
+        let no_password = profile("allow_test_users = true\n");
+        assert!(matches!(
+            as_test_user(&solution, &no_password, "vera.viewer"),
+            Err(CallCommandError::TestUser(
+                crate::core::testing::TestError::NoPassword
+            ))
+        ));
     }
 }

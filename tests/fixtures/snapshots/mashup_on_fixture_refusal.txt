@@ -1,0 +1,7 @@
+$ twaco mashup on Acme.Orders.Dashboard --event mashup:Loaded --invoke data:Acme.Orders.Manager.GetOrder
+exit: 2
+
+--- stdout
+
+--- stderr
+twaco: Acme.Orders.Dashboard: UI has no Properties object

@@ -118,7 +118,9 @@ pub const BUILT_IN_GATES: &[&str] = &[
     "code order",
     "project",
     "mashup bindings",
+    "contained mashups",
     "localization tokens",
+    "result shapes",
 ];
 
 /// A built-in gate as the solution wants it: blocking, or advisory when `[gates] advisory`
@@ -141,7 +143,9 @@ pub fn run(solution: &Solution) -> CheckReport {
         code_order(solution),
         project_validation(solution),
         mashup_bindings(solution),
+        contained_mashups(solution),
         localization_tokens(solution),
+        result_shapes(solution),
     ] {
         report.gates.push(as_configured(solution, gate));
     }
@@ -763,6 +767,37 @@ fn script_traps(solution: &Solution) -> GateResult {
     result
 }
 
+/// A service whose script builds its result from another DataShape than it declares.
+fn result_shapes(solution: &Solution) -> GateResult {
+    let mut result = GateResult::passed("result shapes", 0);
+    for path in workspace::script_files(solution) {
+        let Some(definition) = path
+            .parent()
+            .and_then(|dir| std::fs::read_to_string(dir.join("definition.xml")).ok())
+        else {
+            continue;
+        };
+        let Ok(source) = std::fs::read_to_string(&path) else {
+            continue;
+        };
+        result.examined += 1;
+        for mismatch in super::result_shape::check(&definition, &source.replace("\r\n", "\n")) {
+            result.findings.push(Finding {
+                gate: "result shapes".to_string(),
+                file: relative(solution, &path),
+                line: mismatch.line,
+                rule: "result-datashape".to_string(),
+                message: format!(
+                    "the result is built from {} but the service declares {}; a mashup bound to \
+                     the declared shape finds other fields",
+                    mismatch.built, mismatch.declared
+                ),
+            });
+        }
+    }
+    result
+}
+
 /// Main code above its helpers, so a service reads in the order it runs.
 fn code_order(solution: &Solution) -> GateResult {
     let mut result = GateResult::passed("code order", 0);
@@ -820,6 +855,36 @@ fn mashup_bindings(solution: &Solution) -> GateResult {
     let mut prose = format!("{checked_count} checked in {} mashups; {} not checked (entity, service or DataShape outside the repository)", checked.mashups, checked.not_checked);
     if checked.platform_hint {
         prose.push_str("; twaco types --platform caches the platform's services");
+    }
+    result.prose.push(prose);
+    result
+}
+
+/// Bindings to parameters a contained mashup's or navigation function's copy lacks, or the mashup
+/// it shows no longer declares: both reach nothing at runtime.
+fn contained_mashups(solution: &Solution) -> GateResult {
+    let checked = super::contained_check::run(solution);
+    let mut result = GateResult::passed(super::contained_check::GATE, checked.examined);
+    result.findings = checked
+        .problems
+        .into_iter()
+        .map(|problem| Finding {
+            gate: super::contained_check::GATE.to_string(),
+            file: problem.file,
+            line: 0,
+            rule: problem.rule,
+            message: problem.message,
+        })
+        .collect();
+    let mut prose = format!(
+        "{} contained mashups and navigation functions checked; {} not checked (the mashup they show is outside the repository)",
+        checked.examined, checked.not_checked
+    );
+    if checked.unbound_drift > 0 {
+        prose.push_str(&format!(
+            "; {} keep a stale copy of parameters nothing binds yet (`twaco mashup describe` shows which)",
+            checked.unbound_drift
+        ));
     }
     result.prose.push(prose);
     result

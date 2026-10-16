@@ -1,0 +1,499 @@
+{
+  "comment": "Hand-curated additions to the 10.2 widget catalogue; see scripts/generate_widget_catalog.mjs. type_display_name is Composer's English label (the server translates it, so it is not in the installation's files): the ones seen in exported mashups are copied from them. base_properties apply to every widget.",
+  "base_properties": {
+    "Visible": {
+      "base_type": "BOOLEAN",
+      "target": true
+    }
+  },
+  "dropped": {
+    "comment": "Properties Composer writes on a widget it drops, after the 10.2 defaults: ptcs on every PTCS widget, flexcontainer on a container. A container gets an empty Margin (the 10.2 default is 5, which nearly no real container keeps and which shrinks fixed bands and hides 1px dividers). ResponsiveLayout is set by the editor (a widget that supports auto-resize fills its container when it is alone in it).",
+    "ptcs": {
+      "UseTheme": true
+    },
+    "flexcontainer": {
+      "UseTheme": true,
+      "iconClass": "widgets-flexcontainer",
+      "isLocked": false,
+      "ShowVerticalScrollbar": false,
+      "Margin": ""
+    }
+  },
+  "widgets": {
+    "flexcontainer": {
+      "aliases": [
+        "container",
+        "responsive-container",
+        "panel"
+      ],
+      "type_display_name": "Responsive Container",
+      "display_name": "container",
+      "container": true
+    },
+    "mashupcontainer": {
+      "aliases": [
+        "contained-mashup",
+        "mashup-container"
+      ],
+      "type_display_name": "Contained Mashup",
+      "display_name": "mashupcontainer",
+      "auto_resize": true
+    },
+    "pagemashupcontainer": {
+      "aliases": [
+        "page-mashup-container",
+        "page-container"
+      ],
+      "type_display_name": "Page Mashup Container",
+      "display_name": "Page Mashup",
+      "numbered": false,
+      "auto_resize": true
+    },
+    "ptcsbreadcrumb": {
+      "aliases": [
+        "breadcrumb"
+      ],
+      "type_display_name": "Breadcrumb"
+    },
+    "ptcsbutton": {
+      "aliases": [
+        "button"
+      ],
+      "type_display_name": "Button"
+    },
+    "ptcschartbar": {
+      "aliases": [
+        "bar-chart"
+      ],
+      "type_display_name": "Bar Chart"
+    },
+    "ptcschartcombo": {
+      "aliases": [
+        "combo-chart"
+      ],
+      "type_display_name": "Combo Chart"
+    },
+    "ptcschartline": {
+      "aliases": [
+        "line-chart"
+      ],
+      "type_display_name": "Line Chart"
+    },
+    "ptcschartpareto": {
+      "aliases": [
+        "pareto-chart"
+      ],
+      "type_display_name": "Pareto Chart"
+    },
+    "ptcschartpie": {
+      "aliases": [
+        "pie-chart"
+      ],
+      "type_display_name": "Pie Chart",
+      "display_name": "piechart"
+    },
+    "ptcschartschedule": {
+      "aliases": [
+        "schedule-chart"
+      ],
+      "type_display_name": "Schedule Chart"
+    },
+    "ptcschartwaterfall": {
+      "aliases": [
+        "waterfall-chart"
+      ],
+      "type_display_name": "Waterfall Chart"
+    },
+    "ptcscheckbox": {
+      "aliases": [
+        "checkbox"
+      ],
+      "type_display_name": "Checkbox"
+    },
+    "ptcschipdatafilter": {
+      "aliases": [
+        "data-filter",
+        "chip-filter"
+      ],
+      "type_display_name": "Data Filter"
+    },
+    "ptcscollection": {
+      "aliases": [
+        "collection"
+      ],
+      "type_display_name": "Collection"
+    },
+    "ptcsconfirmation": {
+      "aliases": [
+        "confirmation",
+        "confirm-dialog"
+      ],
+      "type_display_name": "Confirmation",
+      "overrides": {
+        "CloseButtonTooltipField": "close"
+      }
+    },
+    "ptcsdatepicker": {
+      "aliases": [
+        "date-picker",
+        "date-time-picker"
+      ],
+      "type_display_name": "Date Time Picker"
+    },
+    "ptcsdivider": {
+      "aliases": [
+        "divider"
+      ],
+      "type_display_name": "Divider"
+    },
+    "ptcsdropdown": {
+      "aliases": [
+        "dropdown",
+        "select"
+      ],
+      "type_display_name": "DropDown"
+    },
+    "ptcsdynamicpanel": {
+      "aliases": [
+        "dynamic-panel",
+        "collapsible-panel"
+      ],
+      "type_display_name": "Dynamic Panel"
+    },
+    "ptcsfileupload": {
+      "aliases": [
+        "file-upload"
+      ],
+      "type_display_name": "File Upload"
+    },
+    "ptcsgrid": {
+      "aliases": [
+        "grid",
+        "table"
+      ],
+      "type_display_name": "Grid"
+    },
+    "ptcsicon": {
+      "aliases": [
+        "icon"
+      ],
+      "type_display_name": "Icon"
+    },
+    "ptcsimage": {
+      "aliases": [
+        "image"
+      ],
+      "type_display_name": "Image"
+    },
+    "ptcskpidial": {
+      "aliases": [
+        "kpi-dial",
+        "kpi"
+      ],
+      "type_display_name": "KPI Dial"
+    },
+    "ptcslabel": {
+      "aliases": [
+        "label",
+        "text"
+      ],
+      "type_display_name": "Label"
+    },
+    "ptcslink": {
+      "aliases": [
+        "link",
+        "hyperlink"
+      ],
+      "type_display_name": "Link"
+    },
+    "ptcslist": {
+      "aliases": [
+        "list"
+      ],
+      "type_display_name": "List"
+    },
+    "ptcslistshuttle": {
+      "aliases": [
+        "list-shuttle",
+        "shuttle"
+      ],
+      "type_display_name": "List Shuttle"
+    },
+    "ptcsmediagallery": {
+      "aliases": [
+        "media-gallery"
+      ],
+      "type_display_name": "Media Gallery"
+    },
+    "ptcsmenubar": {
+      "aliases": [
+        "menu-bar",
+        "sidebar-menu"
+      ],
+      "type_display_name": "Menu Bar (Preview)"
+    },
+    "ptcsmenubutton": {
+      "aliases": [
+        "menu-button"
+      ],
+      "type_display_name": "Menu Button"
+    },
+    "ptcspagination": {
+      "aliases": [
+        "pagination"
+      ],
+      "type_display_name": "Pagination"
+    },
+    "ptcsprogresstracker": {
+      "aliases": [
+        "progress-tracker"
+      ],
+      "type_display_name": "Progress Tracker"
+    },
+    "ptcspropertydisplay": {
+      "aliases": [
+        "property-display"
+      ],
+      "type_display_name": "Property Display"
+    },
+    "ptcsradio": {
+      "aliases": [
+        "radio-button",
+        "radio"
+      ],
+      "type_display_name": "Radio Button"
+    },
+    "ptcsrte": {
+      "aliases": [
+        "rich-text-editor",
+        "rte"
+      ],
+      "type_display_name": "Rich Text Editor"
+    },
+    "ptcsslider": {
+      "aliases": [
+        "slider"
+      ],
+      "type_display_name": "Slider"
+    },
+    "ptcstabset": {
+      "aliases": [
+        "tabs",
+        "tab-set"
+      ],
+      "type_display_name": "Tabs"
+    },
+    "ptcstextarea": {
+      "aliases": [
+        "text-area",
+        "textarea"
+      ],
+      "type_display_name": "Text Area"
+    },
+    "ptcstextfield": {
+      "aliases": [
+        "text-field",
+        "textfield",
+        "input"
+      ],
+      "type_display_name": "Text Field"
+    },
+    "ptcstimer": {
+      "aliases": [
+        "timer"
+      ],
+      "type_display_name": "Timer"
+    },
+    "ptcstogglebutton": {
+      "aliases": [
+        "toggle-button",
+        "toggle"
+      ],
+      "type_display_name": "Toggle Button"
+    },
+    "ptcstoolbar": {
+      "aliases": [
+        "toolbar"
+      ],
+      "type_display_name": "Toolbar"
+    },
+    "ptcstreeselector": {
+      "aliases": [
+        "tree-selector",
+        "tree"
+      ],
+      "type_display_name": "Tree Selector"
+    },
+    "ptcsvaluedisplay": {
+      "aliases": [
+        "value-display"
+      ],
+      "type_display_name": "Value Display"
+    },
+    "ptcsvideo": {
+      "aliases": [
+        "video"
+      ],
+      "type_display_name": "Video"
+    },
+    "expression2": {
+      "aliases": [
+        "expression-function",
+        "expr"
+      ],
+      "type_display_name": "Expression",
+      "function": true
+    },
+    "expression": {
+      "type_display_name": "Expression",
+      "function": true,
+      "replaced_by": "expression2"
+    },
+    "validator2": {
+      "aliases": [
+        "validation"
+      ],
+      "type_display_name": "Validator",
+      "function": true
+    },
+    "validator": {
+      "type_display_name": "Validator",
+      "function": true,
+      "replaced_by": "validator2"
+    },
+    "eventsrouter": {
+      "aliases": [
+        "events-router",
+        "event-router"
+      ],
+      "type_display_name": "Events Router",
+      "function": true,
+      "contract": {
+        "properties": {
+          "DataType": {
+            "baseType": "STRING"
+          },
+          "NumberOfInputs": {
+            "baseType": "NUMBER"
+          },
+          "Output": {
+            "baseType": "",
+            "isBindingSource": true
+          },
+          "Input1": {
+            "baseType": "",
+            "isBindingTarget": true
+          },
+          "Input2": {
+            "baseType": "",
+            "isBindingTarget": true
+          },
+          "Input3": {
+            "baseType": "",
+            "isBindingTarget": true
+          },
+          "Input4": {
+            "baseType": "",
+            "isBindingTarget": true
+          },
+          "Input5": {
+            "baseType": "",
+            "isBindingTarget": true
+          },
+          "Input6": {
+            "baseType": "",
+            "isBindingTarget": true
+          },
+          "Input7": {
+            "baseType": "",
+            "isBindingTarget": true
+          },
+          "Input8": {
+            "baseType": "",
+            "isBindingTarget": true
+          },
+          "Input9": {
+            "baseType": "",
+            "isBindingTarget": true
+          },
+          "Input10": {
+            "baseType": "",
+            "isBindingTarget": true
+          },
+          "Input11": {
+            "baseType": "",
+            "isBindingTarget": true
+          },
+          "Input12": {
+            "baseType": "",
+            "isBindingTarget": true
+          },
+          "Input13": {
+            "baseType": "",
+            "isBindingTarget": true
+          },
+          "Input14": {
+            "baseType": "",
+            "isBindingTarget": true
+          },
+          "Input15": {
+            "baseType": "",
+            "isBindingTarget": true
+          },
+          "Input16": {
+            "baseType": "",
+            "isBindingTarget": true
+          },
+          "Input17": {
+            "baseType": "",
+            "isBindingTarget": true
+          },
+          "Input18": {
+            "baseType": "",
+            "isBindingTarget": true
+          },
+          "Input19": {
+            "baseType": "",
+            "isBindingTarget": true
+          },
+          "Input20": {
+            "baseType": "",
+            "isBindingTarget": true
+          }
+        },
+        "events": {
+          "Changed": {}
+        },
+        "services": {}
+      }
+    },
+    "navigationfunction": {
+      "aliases": [
+        "navigation",
+        "popup"
+      ],
+      "type_display_name": "Navigation",
+      "function": true,
+      "overrides": {
+        "Text": "tw.navigationfunction-ide.properties.text.default-value"
+      }
+    },
+    "statusmessage": {
+      "aliases": [
+        "status-message",
+        "message"
+      ],
+      "type_display_name": "Status Message",
+      "function": true
+    },
+    "autorefreshfunction": {
+      "aliases": [
+        "auto-refresh",
+        "autorefresh"
+      ],
+      "type_display_name": "Auto Refresh",
+      "function": true
+    }
+  },
+  "comment_functions": "Function widgets sit under the mashup root, beside the layout. Their contracts come from mashup-common-widgets-builder.js; the events router's is given here because its inputs are made at run time (Input1..InputN, NumberOfInputs of them, of DataType). An expression's or validator's inputs are the entries of its _currentParameterDefs. A replaced_by widget stays readable in existing mashups; adding one adds its replacement."
+}

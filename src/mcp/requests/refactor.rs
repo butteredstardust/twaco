@@ -1,6 +1,7 @@
 use super::common::{default_true, Absent};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
+use std::collections::BTreeMap;
 
 #[derive(Debug, Deserialize, JsonSchema, Serialize)]
 #[serde(deny_unknown_fields)]
@@ -263,6 +264,525 @@ pub(crate) struct ReprojectRequest {
     pub(crate) entities: Vec<String>,
     /// The project they move to.
     pub(crate) to: String,
+    #[serde(default = "default_true")]
+    pub(crate) dry_run: bool,
+}
+
+#[derive(Debug, Deserialize, JsonSchema, Serialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct MashupDescribeRequest {
+    /// The mashup's name.
+    pub(crate) mashup: String,
+}
+
+#[derive(Debug, Deserialize, JsonSchema, Serialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct MashupValidateRequest {
+    /// One mashup's name; omit it with all.
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) mashup: Absent<String>,
+    /// Every mashup of the solution.
+    #[serde(default)]
+    pub(crate) all: bool,
+}
+
+#[derive(Debug, Deserialize, JsonSchema, Serialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct WidgetsRequest {
+    /// One widget type or alias; omit to list the catalogue.
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) widget: Absent<String>,
+    /// Narrow the list by type, Composer label or alias.
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) search: Absent<String>,
+}
+
+#[derive(Debug, Deserialize, JsonSchema, Serialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct MashupTemplatesRequest {
+    /// One template name or alias; omit to list every embedded template.
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) name: Absent<String>,
+}
+
+#[derive(Debug, Deserialize, JsonSchema, Serialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct MashupNewRequest {
+    /// The new mashup's name.
+    pub(crate) name: String,
+    /// The project it belongs to; may be left out when the solution has one project.
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) project: Absent<String>,
+    /// An embedded layout template name or alias; default `blank`.
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) template: Absent<String>,
+    /// Compatibility alias for template.
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) layout: Absent<String>,
+    /// The INFOTABLE service result used as a sidebar's primary menu.
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) primary_menu: Absent<String>,
+    /// The INFOTABLE service result used as a sidebar's secondary menu.
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) secondary_menu: Absent<String>,
+    /// A StyleTheme in the solution; default PTC Convergence Theme.
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) theme: Absent<String>,
+    /// A master mashup, with a page container filling the center.
+    #[serde(default)]
+    pub(crate) master: bool,
+    /// `Organization/<name>` or `OrganizationalUnit/<organization>:<unit>`; none unless given.
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) visibility: Absent<Vec<String>>,
+    /// Parameter declarations as `name:TYPE[:DIRECTION]`; INFOTABLE is not supported here.
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) params: Absent<Vec<String>>,
+    /// For template tabs: `Label=Mashup` (or `Label`) per tab.
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) tabs: Absent<Vec<String>>,
+    #[serde(default = "default_true")]
+    pub(crate) dry_run: bool,
+}
+
+#[derive(Debug, Deserialize, JsonSchema, Serialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct EntityNewRequest {
+    /// `thing`, `thing-template`, `thing-shape`, `data-shape`, `timer`, `scheduler`, `data-table`, `stream`, `value-stream`, `media`, `style`, `state`, `menu`, or `theme`.
+    pub(crate) kind: String,
+    /// The entity name.
+    pub(crate) name: String,
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) project: Absent<String>,
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) description: Absent<String>,
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) visibility: Absent<Vec<String>>,
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) template: Absent<String>,
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) shape: Absent<Vec<String>>,
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) value_stream: Absent<String>,
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) base: Absent<String>,
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) field: Absent<Vec<String>>,
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) every: Absent<String>,
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) cron: Absent<String>,
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) run_as: Absent<String>,
+    #[serde(default)]
+    pub(crate) disabled: bool,
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) then: Absent<String>,
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) script: Absent<String>,
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) data_shape: Absent<String>,
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) index: Absent<Vec<String>>,
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) file: Absent<String>,
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) background: Absent<String>,
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) foreground: Absent<String>,
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) secondary_background: Absent<String>,
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) line_color: Absent<String>,
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) line_style: Absent<String>,
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) line_thickness: Absent<String>,
+    #[serde(default)]
+    pub(crate) bold: bool,
+    #[serde(default)]
+    pub(crate) italic: bool,
+    #[serde(default)]
+    pub(crate) underline: bool,
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) text_size: Absent<String>,
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) image: Absent<String>,
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) display_string: Absent<String>,
+    #[serde(default, rename = "type", skip_serializing_if = "Absent::is_absent")]
+    pub(crate) state_type: Absent<String>,
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) state: Absent<Vec<String>>,
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) item: Absent<Vec<String>>,
+    #[serde(default)]
+    pub(crate) default: bool,
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) label: Absent<String>,
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) from: Absent<String>,
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) prop: Absent<Vec<String>>,
+    #[serde(default = "default_true")]
+    pub(crate) dry_run: bool,
+}
+
+/// One local entity edit. `property_add` and its sibling actions share one schema so agents can
+/// plan and apply all Composer-style changes through one dry-run-by-default tool.
+#[derive(Clone, Copy, Debug, Deserialize, JsonSchema, PartialEq, Eq, Serialize)]
+pub(crate) enum EntityEditAction {
+    #[serde(rename = "property_add")]
+    PropertyAdd,
+    #[serde(rename = "property_remove")]
+    PropertyRemove,
+    #[serde(rename = "property_set")]
+    PropertySet,
+    #[serde(rename = "subscription_add")]
+    SubscriptionAdd,
+    #[serde(rename = "subscription_remove")]
+    SubscriptionRemove,
+    #[serde(rename = "shape_add")]
+    ShapeAdd,
+    #[serde(rename = "shape_remove")]
+    ShapeRemove,
+    #[serde(rename = "timer_set")]
+    TimerSet,
+    #[serde(rename = "scheduler_set")]
+    SchedulerSet,
+    #[serde(rename = "style_set")]
+    StyleSet,
+    #[serde(rename = "media_set")]
+    MediaSet,
+    #[serde(rename = "menu_item_add")]
+    MenuItemAdd,
+    #[serde(rename = "menu_item_remove")]
+    MenuItemRemove,
+    #[serde(rename = "state_set")]
+    StateSet,
+}
+
+#[derive(Debug, Deserialize, JsonSchema, Serialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct EntityEditRequest {
+    /// What to change.
+    pub(crate) action: EntityEditAction,
+    /// The entity to change: its name, or Collection/Name.
+    pub(crate) entity: String,
+    /// The property or subscription name (property_*, subscription_*).
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) name: Absent<String>,
+    /// The property base type: required for property_add; for property_set a new type.
+    #[serde(default, rename = "type", skip_serializing_if = "Absent::is_absent")]
+    pub(crate) base_type: Absent<String>,
+    /// The property default value.
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) default: Absent<String>,
+    /// property_set: drop the default value.
+    #[serde(default)]
+    pub(crate) no_default: bool,
+    /// Whether the property is persistent; absent leaves it (property_set).
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) persistent: Absent<bool>,
+    /// Whether value changes are logged.
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) logged: Absent<bool>,
+    /// Whether the property is read-only.
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) read_only: Absent<bool>,
+    /// The property category.
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) category: Absent<String>,
+    /// The property units; empty clears them.
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) units: Absent<String>,
+    /// The DataShape of an INFOTABLE property.
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) data_shape: Absent<String>,
+    /// The property description.
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) description: Absent<String>,
+    /// Remove or retype a property something still uses; what uses it comes back as warnings.
+    #[serde(default)]
+    pub(crate) force: bool,
+    /// subscription_add: the event, such as DataChange, ThingStart, Timer or an event the source defines.
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) event: Absent<String>,
+    /// subscription_add: the Thing subscribed to; absent is the entity itself.
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) source: Absent<String>,
+    /// subscription_add: the property a DataChange subscription watches.
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) source_property: Absent<String>,
+    /// subscription_add: the script to run.
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) then: Absent<String>,
+    /// shape_add / shape_remove: the ThingShape.
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) shape: Absent<String>,
+    /// timer_set: the update rate, as milliseconds or with ms, s, m or h.
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) every: Absent<String>,
+    /// scheduler_set: a six- or seven-field Quartz cron string.
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) cron: Absent<String>,
+    /// timer_set / scheduler_set: the user its events run as.
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) run_as: Absent<String>,
+    /// timer_set / scheduler_set: enable or disable it on startup.
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) enabled: Absent<bool>,
+    /// style_set: a #rrggbb or rgba() color; empty clears it.
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) background: Absent<String>,
+    /// style_set: the text color.
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) foreground: Absent<String>,
+    /// style_set: the secondary background color.
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) secondary_background: Absent<String>,
+    /// style_set: the line color.
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) line_color: Absent<String>,
+    /// style_set: solid, dashed, dotted or none.
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) line_style: Absent<String>,
+    /// style_set: a non-negative number.
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) line_thickness: Absent<String>,
+    /// style_set: bold text on or off.
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) bold: Absent<bool>,
+    /// style_set: italic text on or off.
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) italic: Absent<bool>,
+    /// style_set: underline text on or off.
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) underline: Absent<bool>,
+    /// style_set: xsmall, small, normal, large, xlarge or xxlarge.
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) text_size: Absent<String>,
+    /// style_set: a MediaEntity; empty clears it.
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) image: Absent<String>,
+    /// style_set: the display string.
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) display_string: Absent<String>,
+    /// media_set: the PNG, JPEG, GIF or SVG file.
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) file: Absent<String>,
+    /// menu_item_add / menu_item_remove: the item title.
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) title: Absent<String>,
+    /// menu_item_add: the mashup the item opens.
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) mashup: Absent<String>,
+    /// menu_item_add: put the item before this title; absent is last.
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) before: Absent<String>,
+    /// state_set: numeric or string.
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) state_type: Absent<String>,
+    /// menu_item_add: make it the default item.
+    #[serde(default)]
+    pub(crate) is_default: bool,
+    /// state_set: the states in order, each `<comparator><value>=<label>[;style key:value...]`; the last may be `*=<label>`.
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) state: Absent<Vec<String>>,
+    #[serde(default = "default_true")]
+    pub(crate) dry_run: bool,
+}
+
+#[derive(Debug, Deserialize, JsonSchema, Serialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct MashupAddRequest {
+    /// The existing mashup's name.
+    pub(crate) mashup: String,
+    /// A catalogue widget type or alias.
+    pub(crate) widget: String,
+    /// Put the widget in this responsive container.
+    #[serde(default, rename = "in", skip_serializing_if = "Absent::is_absent")]
+    pub(crate) container: Absent<String>,
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) right_of: Absent<String>,
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) left_of: Absent<String>,
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) above: Absent<String>,
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) below: Absent<String>,
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) label: Absent<String>,
+    /// Simple catalogue default properties to set by exact property name.
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) properties: Absent<BTreeMap<String, String>>,
+    /// An expression's or validator's inputs as `name:TYPE`.
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) inputs: Absent<Vec<String>>,
+    #[serde(default = "default_true")]
+    pub(crate) dry_run: bool,
+}
+
+#[derive(Debug, Deserialize, JsonSchema, Serialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct MashupAddContainedRequest {
+    /// The mashup that will hold the contained child.
+    pub(crate) mashup: String,
+    /// The repository mashup the container shows.
+    pub(crate) child: String,
+    #[serde(default, rename = "in", skip_serializing_if = "Absent::is_absent")]
+    pub(crate) container: Absent<String>,
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) right_of: Absent<String>,
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) left_of: Absent<String>,
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) above: Absent<String>,
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) below: Absent<String>,
+    /// Static values for visible IN or BOTH child parameters.
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) set: Absent<BTreeMap<String, String>>,
+    #[serde(default = "default_true")]
+    pub(crate) dry_run: bool,
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, JsonSchema, PartialEq, Eq, Serialize)]
+pub(crate) enum MashupParameterAction {
+    #[serde(rename = "add")]
+    Add,
+    #[serde(rename = "set")]
+    Set,
+    #[serde(rename = "remove")]
+    Remove,
+}
+
+#[derive(Debug, Deserialize, JsonSchema, Serialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct MashupParameterRequest {
+    pub(crate) action: MashupParameterAction,
+    pub(crate) mashup: String,
+    pub(crate) name: String,
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) r#type: Absent<String>,
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) direction: Absent<String>,
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) description: Absent<String>,
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) default: Absent<String>,
+    #[serde(default)]
+    pub(crate) no_default: bool,
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) data_shape: Absent<String>,
+    #[serde(default)]
+    pub(crate) force: bool,
+    #[serde(default = "default_true")]
+    pub(crate) dry_run: bool,
+}
+
+#[derive(Debug, Deserialize, JsonSchema, Serialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct MashupRecipeRequest {
+    /// enable-when, show-when, text, message, confirm, popup, close-after, auto-refresh or validate.
+    pub(crate) recipe: String,
+    /// The mashup to write it in.
+    pub(crate) mashup: String,
+    /// The widget it is about, or the one whose click triggers it.
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) widget: Absent<String>,
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) condition: Absent<String>,
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) expression: Absent<String>,
+    /// `name=address` inputs of the condition or expression.
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) inputs: Absent<Vec<String>>,
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) after: Absent<String>,
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) say: Absent<String>,
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) from: Absent<String>,
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) kind: Absent<String>,
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) then: Absent<String>,
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) title: Absent<String>,
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) on: Absent<String>,
+    /// The mashup a popup opens.
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) target: Absent<String>,
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) window: Absent<String>,
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) size: Absent<String>,
+    /// `name=address` values a popup is given.
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) pass: Absent<Vec<String>>,
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) reload: Absent<String>,
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) every: Absent<u32>,
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) interval: Absent<String>,
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) else_say: Absent<String>,
+    /// The service result a chart, grid or picker shows.
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) data: Absent<String>,
+    /// A chart's category (pie: label) field, a picker's display field.
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) x: Absent<String>,
+    /// A pie's or picker's value field.
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) value: Absent<String>,
+    /// `field[:Title[:width]]` grid columns.
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) columns: Absent<Vec<String>>,
+    /// What a picker's selection is bound from.
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) selected: Absent<String>,
+    #[serde(default = "default_true")]
+    pub(crate) dry_run: bool,
+}
+
+#[derive(Debug, Deserialize, JsonSchema, Serialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct MashupEventRequest {
+    /// The mashup that fires the event.
+    pub(crate) mashup: String,
+    /// The event's name, which becomes a NUMBER parameter.
+    pub(crate) name: String,
+    /// The event in this mashup that fires it, as mashup_on's event takes it.
+    pub(crate) when: String,
+    #[serde(default = "default_true")]
+    pub(crate) dry_run: bool,
+}
+
+#[derive(Debug, Deserialize, JsonSchema, Serialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct MashupBindRequest {
+    /// The existing mashup's name.
+    pub(crate) mashup: String,
+    /// A source address as `mashup describe` prints it.
+    pub(crate) from: String,
+    /// A target address as `mashup describe` prints it.
+    pub(crate) to: String,
+    #[serde(default = "default_true")]
+    pub(crate) dry_run: bool,
+}
+
+#[derive(Debug, Deserialize, JsonSchema, Serialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct MashupOnRequest {
+    /// The existing mashup's name.
+    pub(crate) mashup: String,
+    /// A UI, mashup or existing data event address.
+    pub(crate) event: String,
+    /// A data call or widget service address.
+    pub(crate) invoke: String,
     #[serde(default = "default_true")]
     pub(crate) dry_run: bool,
 }

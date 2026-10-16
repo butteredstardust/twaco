@@ -94,6 +94,13 @@ impl Remote for Client {
     }
 }
 
+/// A Thing's dependency services run only while it is enabled; a disabled Thing answers
+/// `HTTP 503: Thing [...] is not enabled`, so its dependents are unknown rather than none.
+pub(super) fn is_disabled_thing(key: &EntityKey, error: &ServerError) -> bool {
+    key.collection() == "Things"
+        && matches!(error, ServerError::Http { status: 503, body, .. } if body.contains("is not enabled"))
+}
+
 fn dependency_collection(entity_type: &str) -> String {
     match entity_type {
         "DataShape" => "DataShapes",

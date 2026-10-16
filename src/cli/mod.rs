@@ -2,8 +2,11 @@ pub(crate) mod args;
 pub(crate) mod content;
 pub(crate) mod data;
 pub(crate) mod entity;
+pub(crate) mod entity_edit;
+pub(crate) mod entity_new;
 pub(crate) mod info;
 pub(crate) mod localization;
+pub(crate) mod mashup;
 pub(crate) mod progress;
 pub(crate) mod refactor;
 pub(crate) mod service_tests;
@@ -13,3 +16,4 @@ pub(crate) mod style;
 #[cfg(test)]
 mod tests;
 pub(crate) mod users;
+pub(crate) mod widgets;

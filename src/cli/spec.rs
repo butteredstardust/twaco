@@ -15,6 +15,8 @@ pub(crate) enum Takes {
     Switch,
     /// One value, named as help shows it.
     Value(&'static str),
+    /// One optional value. The command decides whether its spelling permits no value.
+    OptionalValue(&'static str),
     /// A value, and the flag may be given again.
     Repeated(&'static str),
 }
@@ -103,6 +105,14 @@ pub(crate) fn arguments(flags: &[&str], operands: bool) -> Vec<clap::Arg> {
                 .value_name(value)
                 .action(clap::ArgAction::Set)
                 .allow_hyphen_values(true),
+            Takes::OptionalValue(value) => arg
+                .value_name(value)
+                .num_args(0..=1)
+                .default_missing_value("")
+                .action(clap::ArgAction::Set)
+                // A value may be negative, but a flag after the bare form is the next flag,
+                // not this one's value (`--default --label Main`).
+                .allow_negative_numbers(true),
             Takes::Repeated(value) => arg
                 .value_name(value)
                 .action(clap::ArgAction::Append)
@@ -212,13 +222,31 @@ pub(crate) fn args_from(
                 match *name {
                     "--only" => args.only.extend(values),
                     "--entity" => args.entity_filters.extend(values),
+                    "--visibility" => args.visibility.extend(values),
+                    "--prop" | "--set" => args.props.extend(values),
+                    "--param" => args.params.extend(values),
+                    "--tab" => args.tabs.extend(values),
+                    "--input" => args.inputs.extend(values),
+                    "--pass" => args.pass.extend(values),
+                    "--column" => args.columns.extend(values),
+                    "--shape" => args.shapes.extend(values),
+                    "--field" => args.fields.extend(values),
+                    "--index" => args.indexes.extend(values),
+                    "--state" => args.states.extend(values),
+                    "--item" => args.items.extend(values),
                     other => unreachable!("{other} repeats but nothing reads it"),
                 }
             }
-            Takes::Value(_) => {
+            Takes::Value(_) | Takes::OptionalValue(_) => {
                 let Some(value) = matches.get_one::<String>(key).cloned() else {
                     continue;
                 };
+                if matches!(flag(name).takes, Takes::OptionalValue(_)) {
+                    args.flags.push(name.to_string());
+                    if value.is_empty() {
+                        continue;
+                    }
+                }
                 match *name {
                     "--project" => args.project = Some(value),
                     "--profile" => args.profile = Some(value),
@@ -349,6 +377,10 @@ fn dedent(text: &str) -> String {
 /// Every flag, and what it takes.
 pub(crate) const FLAGS: &[Flag] = &[
     Flag {
+        name: "--above",
+        takes: Takes::Value("widget"),
+    },
+    Flag {
         name: "--accept-loss",
         takes: Takes::Switch,
     },
@@ -405,6 +437,10 @@ pub(crate) const FLAGS: &[Flag] = &[
         takes: Takes::Value("file"),
     },
     Flag {
+        name: "--below",
+        takes: Takes::Value("widget"),
+    },
+    Flag {
         name: "--base-extension",
         takes: Takes::Value("value"),
     },
@@ -425,6 +461,10 @@ pub(crate) const FLAGS: &[Flag] = &[
         takes: Takes::Value("text"),
     },
     Flag {
+        name: "--disabled",
+        takes: Takes::Switch,
+    },
+    Flag {
         name: "--detail",
         takes: Takes::Switch,
     },
@@ -433,12 +473,192 @@ pub(crate) const FLAGS: &[Flag] = &[
         takes: Takes::Switch,
     },
     Flag {
+        name: "--field",
+        takes: Takes::Repeated("name:TYPE[:primary]"),
+    },
+    Flag {
+        name: "--index",
+        takes: Takes::Repeated("name=field1,field2"),
+    },
+    Flag {
+        name: "--file",
+        takes: Takes::Value("path"),
+    },
+    Flag {
+        name: "--background",
+        takes: Takes::Value("color"),
+    },
+    Flag {
+        name: "--foreground",
+        takes: Takes::Value("color"),
+    },
+    Flag {
+        name: "--secondary-background",
+        takes: Takes::Value("color"),
+    },
+    Flag {
+        name: "--line-color",
+        takes: Takes::Value("color"),
+    },
+    Flag {
+        name: "--line-style",
+        takes: Takes::Value("solid|dashed|dotted|none"),
+    },
+    Flag {
+        name: "--line-thickness",
+        takes: Takes::Value("n"),
+    },
+    Flag {
+        name: "--bold",
+        takes: Takes::Switch,
+    },
+    Flag {
+        name: "--italic",
+        takes: Takes::Switch,
+    },
+    Flag {
+        name: "--underline",
+        takes: Takes::Switch,
+    },
+    Flag {
+        name: "--text-size",
+        takes: Takes::Value("size"),
+    },
+    Flag {
+        name: "--image",
+        takes: Takes::Value("MediaEntity"),
+    },
+    Flag {
+        name: "--display-string",
+        takes: Takes::Value("text"),
+    },
+    Flag {
+        name: "--state",
+        takes: Takes::Repeated("spec"),
+    },
+    Flag {
+        name: "--item",
+        takes: Takes::Repeated("Title=Mashup"),
+    },
+    Flag {
         name: "--diff",
         takes: Takes::Switch,
     },
     Flag {
+        name: "--event",
+        takes: Takes::Value("address"),
+    },
+    Flag {
+        name: "--when",
+        takes: Takes::Value("address"),
+    },
+    Flag {
+        name: "--if",
+        takes: Takes::Value("condition"),
+    },
+    Flag {
+        name: "--expr",
+        takes: Takes::Value("expression"),
+    },
+    Flag {
+        name: "--after",
+        takes: Takes::Value("address"),
+    },
+    Flag {
+        name: "--say",
+        takes: Takes::Value("text"),
+    },
+    Flag {
+        name: "--kind",
+        takes: Takes::Value("info|warning|error"),
+    },
+    Flag {
+        name: "--then",
+        takes: Takes::Value("address"),
+    },
+    Flag {
+        name: "--title",
+        takes: Takes::Value("text"),
+    },
+    Flag {
+        name: "--on",
+        takes: Takes::Value("address"),
+    },
+    Flag {
+        name: "--mashup",
+        takes: Takes::Value("name"),
+    },
+    Flag {
+        name: "--window",
+        takes: Takes::Value("type"),
+    },
+    Flag {
+        name: "--size",
+        takes: Takes::Value("WxH"),
+    },
+    Flag {
+        name: "--reload",
+        takes: Takes::Value("address"),
+    },
+    Flag {
+        name: "--every",
+        takes: Takes::Value("seconds"),
+    },
+    Flag {
+        name: "--cron",
+        takes: Takes::Value("quartz expression"),
+    },
+    Flag {
+        name: "--run-as",
+        takes: Takes::Value("user"),
+    },
+    Flag {
+        name: "--script",
+        takes: Takes::Value("file.js"),
+    },
+    Flag {
+        name: "--shape",
+        takes: Takes::Repeated("ThingShape"),
+    },
+    Flag {
+        name: "--interval",
+        takes: Takes::Value("address"),
+    },
+    Flag {
+        name: "--else-say",
+        takes: Takes::Value("text"),
+    },
+    Flag {
+        name: "--pass",
+        takes: Takes::Repeated("name=address"),
+    },
+    Flag {
+        name: "--data",
+        takes: Takes::Value("address"),
+    },
+    Flag {
+        name: "--x",
+        takes: Takes::Value("field"),
+    },
+    Flag {
+        name: "--selected",
+        takes: Takes::Value("address"),
+    },
+    Flag {
+        name: "--column",
+        takes: Takes::Repeated("field[:Title[:width]]"),
+    },
+    Flag {
         name: "--display-name",
         takes: Takes::Value("text"),
+    },
+    Flag {
+        name: "--in",
+        takes: Takes::Value("widget"),
+    },
+    Flag {
+        name: "--invoke",
+        takes: Takes::Value("address"),
     },
     Flag {
         name: "--dot",
@@ -466,7 +686,7 @@ pub(crate) const FLAGS: &[Flag] = &[
     },
     Flag {
         name: "--from",
-        takes: Takes::Value("time"),
+        takes: Takes::Value("address"),
     },
     Flag {
         name: "--from-helper",
@@ -505,6 +725,18 @@ pub(crate) const FLAGS: &[Flag] = &[
         takes: Takes::Value("text"),
     },
     Flag {
+        name: "--layout",
+        takes: Takes::Value("layout"),
+    },
+    Flag {
+        name: "--label",
+        takes: Takes::Value("text"),
+    },
+    Flag {
+        name: "--left-of",
+        takes: Takes::Value("widget"),
+    },
+    Flag {
         name: "--limit",
         takes: Takes::Value("n"),
     },
@@ -519,6 +751,14 @@ pub(crate) const FLAGS: &[Flag] = &[
     Flag {
         name: "--live",
         takes: Takes::Switch,
+    },
+    Flag {
+        name: "--master",
+        takes: Takes::Switch,
+    },
+    Flag {
+        name: "--primary-menu",
+        takes: Takes::Value("address"),
     },
     Flag {
         name: "--map",
@@ -567,6 +807,42 @@ pub(crate) const FLAGS: &[Flag] = &[
     Flag {
         name: "--only",
         takes: Takes::Repeated("entity"),
+    },
+    Flag {
+        name: "--prop",
+        takes: Takes::Repeated("name=value"),
+    },
+    Flag {
+        name: "--set",
+        takes: Takes::Repeated("parameter=value"),
+    },
+    Flag {
+        name: "--direction",
+        takes: Takes::Value("IN|OUT|BOTH"),
+    },
+    Flag {
+        name: "--default",
+        takes: Takes::OptionalValue("value"),
+    },
+    Flag {
+        name: "--no-default",
+        takes: Takes::Switch,
+    },
+    Flag {
+        name: "--data-shape",
+        takes: Takes::Value("DataShape"),
+    },
+    Flag {
+        name: "--param",
+        takes: Takes::Repeated("name:TYPE[:DIRECTION]"),
+    },
+    Flag {
+        name: "--tab",
+        takes: Takes::Repeated("Label=Mashup"),
+    },
+    Flag {
+        name: "--input",
+        takes: Takes::Repeated("name:TYPE"),
     },
     Flag {
         name: "--take",
@@ -629,6 +905,10 @@ pub(crate) const FLAGS: &[Flag] = &[
         takes: Takes::Switch,
     },
     Flag {
+        name: "--right-of",
+        takes: Takes::Value("widget"),
+    },
+    Flag {
         name: "--refresh",
         takes: Takes::Switch,
     },
@@ -667,6 +947,10 @@ pub(crate) const FLAGS: &[Flag] = &[
     Flag {
         name: "--search",
         takes: Takes::Value("text"),
+    },
+    Flag {
+        name: "--secondary-menu",
+        takes: Takes::Value("address"),
     },
     Flag {
         name: "--section",
@@ -713,6 +997,18 @@ pub(crate) const FLAGS: &[Flag] = &[
         takes: Takes::Value("name"),
     },
     Flag {
+        name: "--theme",
+        takes: Takes::Value("theme"),
+    },
+    Flag {
+        name: "--template",
+        takes: Takes::Value("name"),
+    },
+    Flag {
+        name: "--value-stream",
+        takes: Takes::Value("ValueStream"),
+    },
+    Flag {
         name: "--thread",
         takes: Takes::Value("value"),
     },
@@ -722,7 +1018,7 @@ pub(crate) const FLAGS: &[Flag] = &[
     },
     Flag {
         name: "--to",
-        takes: Takes::Value("value"),
+        takes: Takes::Value("address"),
     },
     Flag {
         name: "--type",
@@ -741,8 +1037,72 @@ pub(crate) const FLAGS: &[Flag] = &[
         takes: Takes::Value("text"),
     },
     Flag {
+        name: "--no-persistent",
+        takes: Takes::Switch,
+    },
+    Flag {
+        name: "--no-logged",
+        takes: Takes::Switch,
+    },
+    Flag {
+        name: "--no-read-only",
+        takes: Takes::Switch,
+    },
+    Flag {
+        name: "--no-bold",
+        takes: Takes::Switch,
+    },
+    Flag {
+        name: "--no-italic",
+        takes: Takes::Switch,
+    },
+    Flag {
+        name: "--no-underline",
+        takes: Takes::Switch,
+    },
+    Flag {
+        name: "--enabled",
+        takes: Takes::Switch,
+    },
+    Flag {
+        name: "--source",
+        takes: Takes::Value("Thing"),
+    },
+    Flag {
+        name: "--source-property",
+        takes: Takes::Value("property"),
+    },
+    Flag {
+        name: "--before",
+        takes: Takes::Value("Title"),
+    },
+    Flag {
+        name: "--category",
+        takes: Takes::Value("text"),
+    },
+    Flag {
+        name: "--units",
+        takes: Takes::Value("text"),
+    },
+    Flag {
+        name: "--persistent",
+        takes: Takes::Switch,
+    },
+    Flag {
+        name: "--logged",
+        takes: Takes::Switch,
+    },
+    Flag {
+        name: "--read-only",
+        takes: Takes::Switch,
+    },
+    Flag {
         name: "--value",
         takes: Takes::Value("text"),
+    },
+    Flag {
+        name: "--visibility",
+        takes: Takes::Repeated("principal"),
     },
     Flag {
         name: "--version",
@@ -885,6 +1245,17 @@ pub(crate) const COMMANDS: &[Command] = &[
       --detail                list every dependent and the chain of references to each
       --json                  the report as JSON (chains with --detail)
       --dot                   the dependents as a Graphviz graph"#,
+    },
+    Command {
+        path: "trace",
+        group: 1,
+        operands: true,
+        flags: &["--param", "--json"],
+        text: r#"  trace <Entity>.<Service> [--param <name>] [--json]
+                              how each caller uses a service: what runs each mashup call, what sets
+                              each parameter, where each result field goes, the arguments each script
+                              passes and what it reads of the result, and what the service calls
+      --param <name>          only that parameter's sources"#,
     },
     Command {
         path: "unused",
@@ -1103,6 +1474,240 @@ pub(crate) const COMMANDS: &[Command] = &[
       --to <project>          the project they move to"#,
     },
     Command {
+        path: "widgets",
+        group: 1,
+        operands: true,
+        flags: &["--search", "--json"],
+        text: r#"  widgets [<widget>] [--search <text>] [--json]
+                              the embedded ThingWorx 10.2 widget catalogue: types, Composer labels,
+                              aliases, containers and bindable properties, events and services"#,
+    },
+    Command {
+        path: "mashup validate",
+        group: 1,
+        operands: true,
+        flags: &["--all", "--json"],
+        text: r#"  mashup validate <mashup>|--all [--json]
+                              what in a mashup ThingWorx would load but not honour, or the next edit would
+                              trip over: structure, ids, bindings and events that name what is not there,
+                              catalogue contracts, several property maps, contained-mashup drift;
+                              exit 1 when it finds any"#,
+    },
+    Command {
+        path: "mashup describe",
+        group: 1,
+        operands: true,
+        flags: &["--json"],
+        text: r#"  mashup describe <mashup> [--json]
+                              what a mashup holds and how it is wired, without its XML: the widget tree,
+                              each service it calls with what sets each parameter (or that nothing does),
+                              each binding and each event, in the addresses mashup bind and on take"#,
+    },
+    Command {
+        path: "mashup add",
+        group: 1,
+        operands: true,
+        flags: &[
+            "--in",
+            "--right-of",
+            "--left-of",
+            "--above",
+            "--below",
+            "--label",
+            "--prop",
+            "--input",
+            "--apply",
+            "--json",
+        ],
+        text: r#"  mashup add <mashup> <widget> [--in <container> | --right-of <widget> | --left-of <widget> | --above <widget> | --below <widget>]
+      [--label <text>] [--prop <name=value>]... [--input <name:TYPE>]... [--apply] [--json]
+                              add a catalogue widget to a mashup; plan unless --apply; a function widget
+                              (expression, validator, navigation...) goes beside the layout
+      --in <container>        add inside a responsive container (center when omitted)
+      --right-of/--left-of/--above/--below <widget>
+                              place beside an existing widget
+      --label <text>          set the widget's LabelText, Label, Text or Title property
+      --prop <name=value>     set one simple catalogue default property, repeatable
+      --input <name:TYPE>     an expression's or validator's input, repeatable"#,
+    },
+    Command {
+        path: "mashup add-contained",
+        group: 1,
+        operands: true,
+        flags: &[
+            "--in",
+            "--right-of",
+            "--left-of",
+            "--above",
+            "--below",
+            "--set",
+            "--apply",
+            "--json",
+        ],
+        text: r#"  mashup add-contained <parent> <child> [--in <container> | --right-of <widget> | --left-of <widget> | --above <widget> | --below <widget>]
+      [--set <parameter=value>]... [--apply] [--json]
+                              add a child mashup as a contained mashup; plan unless --apply
+      --in <container>        add inside a responsive container (center when omitted)
+      --right-of/--left-of/--above/--below <widget>
+                              place beside an existing widget
+      --set <parameter=value> set a visible input parameter on the child"#,
+    },
+    Command {
+        path: "mashup bind",
+        group: 1,
+        operands: true,
+        flags: &["--from", "--to", "--apply", "--json"],
+        text: r#"  mashup bind <mashup> --from <address> --to <address> [--apply] [--json]
+                              add one data binding to a mashup; plan unless --apply
+      --from <address>        source address from mashup describe
+      --to <address>          target address from mashup describe"#,
+    },
+    Command {
+        path: "mashup on",
+        group: 1,
+        operands: true,
+        flags: &["--event", "--invoke", "--apply", "--json"],
+        text: r#"  mashup on <mashup> --event <address> --invoke <address> [--apply] [--json]
+                              run a service or widget service when a mashup event fires; plan unless --apply
+      --event <address>       event address from mashup describe
+      --invoke <address>      data call or widget service to run"#,
+    },
+    Command {
+        path: "mashup param",
+        group: 1,
+        operands: true,
+        flags: &[
+            "--type",
+            "--direction",
+            "--description",
+            "--default",
+            "--no-default",
+            "--data-shape",
+            "--force",
+            "--apply",
+            "--json",
+        ],
+        text: r#"  mashup param <add|set|remove> <mashup> <name> [--type <BASETYPE>] [--direction <IN|OUT|BOTH>]
+      [--description <text>] [--default <value> | --no-default] [--data-shape <DataShape>] [--force] [--apply] [--json]
+                              change a mashup parameter and every contained-mashup cache; plan unless --apply
+      --type <BASETYPE>       required by add; ThingWorx base type
+      --direction              IN, OUT or BOTH (BOTH by default for add)
+      --default                a scalar default value
+      --no-default             clear the default on set
+      --data-shape             required for INFOTABLE
+      --force                  remove bindings when removing a parameter"#,
+    },
+    Command {
+        path: "mashup recipe",
+        group: 1,
+        operands: true,
+        flags: &[
+            "--if",
+            "--expr",
+            "--input",
+            "--after",
+            "--say",
+            "--from",
+            "--kind",
+            "--then",
+            "--title",
+            "--on",
+            "--mashup",
+            "--window",
+            "--size",
+            "--pass",
+            "--reload",
+            "--every",
+            "--interval",
+            "--else-say",
+            "--data",
+            "--x",
+            "--value",
+            "--column",
+            "--selected",
+            "--apply",
+            "--json",
+        ],
+        text: r#"  mashup recipe <recipe> <mashup> [<widget>] [recipe flags] [--apply] [--json]
+                              write the wiring real mashups repeat, in one edit; plan unless --apply
+      enable-when|show-when <widget> --if <condition> [--input name=<address>]...
+                              an expression into the widget's Disabled or Visible
+      text <label> --expr <expression> [--input name=<address>]...
+                              a label's text computed from its inputs
+      message --after <data call> (--say <text> | --from <address>) [--kind info|warning|error]
+                              a status message when the call completes
+      confirm <button> --then <handler> [--title <text>] [--say <text>]
+                              a confirmation before the click runs the handler
+      popup <widget>|--on <event> --mashup <name> [--window modal-popup|popup|replace|new]
+          [--size <WxH>] [--title <text>] [--pass name=<address>]... [--reload <handler>]
+                              open a mashup, pass it values, run the handler when it closes
+      close-after --after <data call>
+                              the popup closes itself when the call completes
+      auto-refresh --then <data call> (--every <seconds> | --interval <address>)
+                              run the call again every so often
+      validate <widget>|--on <event> --if <condition> [--input name=<address>]... --then <handler>
+          [--else-say <text>]   run the handler when the condition holds, else show the text
+      chart <chart> --data <data call> --x <field> [--value <field>] [--kind <chart type>]
+                              draw a service result: the category field (a pie: label and value)
+      columns <grid> --column field[:Title[:width]]... [--data <data call>]
+                              a grid's columns, rendered by each field's base type
+      picker <dropdown|list> --data <data call> --x <display field> [--value <field>]
+          [--selected <address>]   fill a dropdown or list from a service result"#,
+    },
+    Command {
+        path: "mashup event",
+        group: 1,
+        operands: true,
+        flags: &["--when", "--apply", "--json"],
+        text: r#"  mashup event add <mashup> <name> --when <address> [--apply] [--json]
+                              give a mashup an event its parents react to with mashup on --event
+                              ui:<container>.<name>: a NUMBER parameter set to the time when the
+                              event at --when fires; plan unless --apply
+      --when <address>        the event in this mashup that fires it, as mashup on --event takes it"#,
+    },
+    Command {
+        path: "mashup templates",
+        group: 1,
+        operands: true,
+        flags: &["--json"],
+        text: r#"  mashup templates [<name>] [--json]
+                              list the embedded responsive mashup templates and their slots"#,
+    },
+    Command {
+        path: "mashup new",
+        group: 1,
+        operands: true,
+        flags: &[
+            "--project",
+            "--template",
+            "--layout",
+            "--primary-menu",
+            "--secondary-menu",
+            "--theme",
+            "--master",
+            "--visibility",
+            "--param",
+            "--tab",
+            "--apply",
+            "--json",
+        ],
+        text: r#"  mashup new <name> [--project <name>] [--template <name>] [--primary-menu <address>]
+      [--secondary-menu <address>] [--theme <StyleTheme>] [--master]
+      [--visibility <principal>]... [--param <name:TYPE[:DIRECTION]>]... [--tab <Label=Mashup>]...
+      [--apply] [--json]
+                              create a ThingWorx 10.2 responsive mashup as Composer would: its entity file
+                              and its content sidecars; plan unless --apply
+      --template              layout template name or alias (default: blank); see mashup templates
+      --layout                compatibility alias for --template
+      --primary-menu          required INFOTABLE service result for a template's menu bar
+      --secondary-menu        optional INFOTABLE service result for a template's menu bar
+      --theme <StyleTheme>    a StyleTheme in the solution (default: PTC Convergence Theme)
+      --master                a master mashup, with a page container filling the center
+      --visibility            Organization/<name> or OrganizationalUnit/<organization>:<unit>, repeatable;
+                              none unless given
+      --tab                   with --template tabs: a tab's label and the mashup it shows, repeatable"#,
+    },
+    Command {
         path: "new building-block",
         group: 1,
         operands: true,
@@ -1129,6 +1734,386 @@ pub(crate) const COMMANDS: &[Command] = &[
       --no-management-shape   an implementation without its own Management_TS
       --root <dir>            the project's folder (default: the block's name)
       --base-extension        the PTC.Base extension version to depend on (default: what another project declares)"#,
+    },
+    Command {
+        path: "thing property",
+        group: 1,
+        operands: true,
+        flags: &[
+            "--default",
+            "--no-default",
+            "--persistent",
+            "--no-persistent",
+            "--logged",
+            "--no-logged",
+            "--read-only",
+            "--no-read-only",
+            "--category",
+            "--units",
+            "--data-shape",
+            "--description",
+            "--force",
+            "--apply",
+            "--json",
+        ],
+        text: r#"  thing property add <Entity> <name>:<TYPE> [--default <value>] [--persistent] [--logged]
+      [--read-only] [--category <text>] [--units <text>] [--data-shape <DataShape>]
+      [--description <text>] [--apply] [--json]
+  thing property set <Entity> <name>[:<TYPE>] [the add flags] [--no-default] [--no-persistent]
+      [--no-logged] [--no-read-only] [--force] [--apply] [--json]
+  thing property remove <Entity> <name> [--force] [--apply] [--json]
+                              add, change or remove a property of a Thing, ThingTemplate or
+                              ThingShape; a persistent one also writes the stored value of every
+                              Thing that has it; plan unless --apply
+      --force                 remove or retype a property something still uses (they are listed)"#,
+    },
+    Command {
+        path: "thing subscription",
+        group: 1,
+        operands: true,
+        flags: &[
+            "--event",
+            "--source",
+            "--source-property",
+            "--then",
+            "--script",
+            "--apply",
+            "--json",
+        ],
+        text: r#"  thing subscription add <Entity> <name> --event <Event> [--source <Thing>]
+      [--source-property <property>] (--then <code> | --script <file.js>) [--apply] [--json]
+  thing subscription remove <Entity> <name> [--apply] [--json]
+                              add or remove a script subscription; no --source is the entity
+                              itself; plan unless --apply"#,
+    },
+    Command {
+        path: "thing shape",
+        group: 1,
+        operands: true,
+        flags: &["--force", "--apply", "--json"],
+        text: r#"  thing shape <add|remove> <Thing|ThingTemplate> <ThingShape> [--force] [--apply] [--json]
+                              implement a ThingShape, or stop; refused when a member clashes, or
+                              when something still uses a member the entity loses; plan unless --apply
+      --force                 stop implementing it anyway (what uses its members is listed)"#,
+    },
+    Command {
+        path: "timer set",
+        group: 1,
+        operands: true,
+        flags: &[
+            "--every",
+            "--run-as",
+            "--enabled",
+            "--disabled",
+            "--apply",
+            "--json",
+        ],
+        text: r#"  timer set <Timer> [--every <duration>] [--run-as <user>] [--enabled|--disabled] [--apply]
+      [--json]
+                              change a Timer Thing's settings; plan unless --apply"#,
+    },
+    Command {
+        path: "scheduler set",
+        group: 1,
+        operands: true,
+        flags: &[
+            "--cron",
+            "--run-as",
+            "--enabled",
+            "--disabled",
+            "--apply",
+            "--json",
+        ],
+        text: r#"  scheduler set <Scheduler> [--cron <quartz cron>] [--run-as <user>] [--enabled|--disabled]
+      [--apply] [--json]
+                              change a Scheduler Thing's settings; plan unless --apply"#,
+    },
+    Command {
+        path: "style set",
+        group: 1,
+        operands: true,
+        flags: &[
+            "--background",
+            "--foreground",
+            "--secondary-background",
+            "--line-color",
+            "--line-style",
+            "--line-thickness",
+            "--bold",
+            "--no-bold",
+            "--italic",
+            "--no-italic",
+            "--underline",
+            "--no-underline",
+            "--text-size",
+            "--image",
+            "--display-string",
+            "--apply",
+            "--json",
+        ],
+        text: r#"  style set <StyleDefinition> [--background <color>] [--foreground <color>]
+      [--secondary-background <color>] [--line-color <color>] [--line-style <style>]
+      [--line-thickness <n>] [--bold|--no-bold] [--italic|--no-italic] [--underline|--no-underline]
+      [--text-size <size>] [--image <MediaEntity>] [--display-string <text>] [--apply] [--json]
+                              change only the given keys of a style; an empty color clears it;
+                              plan unless --apply"#,
+    },
+    Command {
+        path: "media set",
+        group: 1,
+        operands: true,
+        flags: &["--file", "--apply", "--json"],
+        text: r#"  media set <MediaEntity> --file <path> [--apply] [--json]
+                              replace a MediaEntity's image (PNG, JPEG, GIF or SVG, up to 10 MB);
+                              plan unless --apply"#,
+    },
+    Command {
+        path: "menu item",
+        group: 1,
+        operands: true,
+        flags: &["--default", "--before", "--apply", "--json"],
+        text: r#"  menu item add <Menu> <Title>=<Mashup> [--default] [--before <Title>] [--apply] [--json]
+  menu item remove <Menu> <Title> [--apply] [--json]
+                              add or remove a mashup item, keeping the effective menu in step;
+                              plan unless --apply"#,
+    },
+    Command {
+        path: "state set",
+        group: 1,
+        operands: true,
+        flags: &["--type", "--state", "--apply", "--json"],
+        text: r#"  state set <StateDefinition> --type numeric|string --state <spec>... [--apply] [--json]
+                              replace a StateDefinition's states (the specs of new state);
+                              plan unless --apply"#,
+    },
+    Command {
+        path: "new thing",
+        group: 1,
+        operands: true,
+        flags: &[
+            "--project",
+            "--description",
+            "--visibility",
+            "--template",
+            "--shape",
+            "--value-stream",
+            "--apply",
+            "--json",
+        ],
+        text: r#"  new thing <name> [--project <name>] [--description <text>] [--template <ThingTemplate>] [--shape <ThingShape>]...
+      [--value-stream <ValueStream>] [--visibility <principal>]... [--apply] [--json]
+                              create a ThingWorx Thing as a repository file; plan unless --apply"#,
+    },
+    Command {
+        path: "new thing-template",
+        group: 1,
+        operands: true,
+        flags: &[
+            "--project",
+            "--description",
+            "--visibility",
+            "--base",
+            "--shape",
+            "--apply",
+            "--json",
+        ],
+        text: r#"  new thing-template <name> [--project <name>] [--description <text>] [--base <ThingTemplate>] [--shape <ThingShape>]...
+      [--visibility <principal>]... [--apply] [--json]
+                              create a ThingWorx ThingTemplate as a repository file; plan unless --apply"#,
+    },
+    Command {
+        path: "new thing-shape",
+        group: 1,
+        operands: true,
+        flags: &[
+            "--project",
+            "--description",
+            "--visibility",
+            "--apply",
+            "--json",
+        ],
+        text: r#"  new thing-shape <name> [--project <name>] [--description <text>] [--visibility <principal>]... [--apply] [--json]
+                              create a ThingWorx ThingShape as a repository file; plan unless --apply"#,
+    },
+    Command {
+        path: "new data-shape",
+        group: 1,
+        operands: true,
+        flags: &[
+            "--project",
+            "--description",
+            "--visibility",
+            "--base",
+            "--field",
+            "--apply",
+            "--json",
+        ],
+        text: r#"  new data-shape <name> --field <name:TYPE[:primary]>... [--project <name>] [--description <text>] [--base <DataShape>]
+      [--visibility <principal>]... [--apply] [--json]
+                              create a DataShape and its fields.json sidecar; plan unless --apply"#,
+    },
+    Command {
+        path: "new timer",
+        group: 1,
+        operands: true,
+        flags: &[
+            "--project",
+            "--description",
+            "--visibility",
+            "--every",
+            "--run-as",
+            "--disabled",
+            "--then",
+            "--script",
+            "--apply",
+            "--json",
+        ],
+        text: r#"  new timer <name> --run-as <user> [--project <name>] [--every <duration>] [--disabled] [--then <code>|--script <file.js>]
+      [--description <text>] [--visibility <principal>]... [--apply] [--json]
+                              create a Timer Thing and optional Timer subscription; plan unless --apply"#,
+    },
+    Command {
+        path: "new scheduler",
+        group: 1,
+        operands: true,
+        flags: &[
+            "--project",
+            "--description",
+            "--visibility",
+            "--cron",
+            "--run-as",
+            "--disabled",
+            "--then",
+            "--script",
+            "--apply",
+            "--json",
+        ],
+        text: r#"  new scheduler <name> --run-as <user> [--project <name>] [--cron <quartz cron>] [--disabled] [--then <code>|--script <file.js>]
+      [--description <text>] [--visibility <principal>]... [--apply] [--json]
+                              create a Scheduler Thing and optional ScheduledEvent subscription; plan unless --apply"#,
+    },
+    Command {
+        path: "new data-table",
+        group: 1,
+        operands: true,
+        flags: &[
+            "--project",
+            "--description",
+            "--data-shape",
+            "--index",
+            "--apply",
+            "--json",
+        ],
+        text: r#"  new data-table <name> --data-shape <DataShape> [--project <name>] [--description <text>]
+      [--index name=field1,field2]... [--apply] [--json]
+                              create a persistent DataTable and datatable.json; plan unless --apply"#,
+    },
+    Command {
+        path: "new stream",
+        group: 1,
+        operands: true,
+        flags: &[
+            "--project",
+            "--description",
+            "--data-shape",
+            "--apply",
+            "--json",
+        ],
+        text: r#"  new stream <name> --data-shape <DataShape> [--project <name>] [--description <text>] [--apply] [--json]
+                              create a persistent Stream; plan unless --apply"#,
+    },
+    Command {
+        path: "new value-stream",
+        group: 1,
+        operands: true,
+        flags: &["--project", "--description", "--apply", "--json"],
+        text: r#"  new value-stream <name> [--project <name>] [--description <text>] [--apply] [--json]
+                              create a persistent ValueStream; plan unless --apply"#,
+    },
+    Command {
+        path: "new media",
+        group: 1,
+        operands: true,
+        flags: &["--project", "--description", "--file", "--apply", "--json"],
+        text: r#"  new media <name> --file <path> [--project <name>] [--description <text>] [--apply] [--json]
+                              create a PNG, JPEG, GIF, or SVG MediaEntity; plan unless --apply"#,
+    },
+    Command {
+        path: "new style",
+        group: 1,
+        operands: true,
+        flags: &[
+            "--project",
+            "--description",
+            "--background",
+            "--foreground",
+            "--secondary-background",
+            "--line-color",
+            "--line-style",
+            "--line-thickness",
+            "--bold",
+            "--italic",
+            "--underline",
+            "--text-size",
+            "--image",
+            "--display-string",
+            "--apply",
+            "--json",
+        ],
+        text: r#"  new style <name> [--project <name>] [--description <text>] [--background <color>] [--foreground <color>]
+      [--secondary-background <color>] [--line-color <color>] [--line-style solid|dashed|dotted|none]
+      [--line-thickness <n>] [--bold] [--italic] [--underline] [--text-size <size>]
+      [--image <MediaEntity>] [--display-string <text>] [--apply] [--json]
+                              create a StyleDefinition; plan unless --apply"#,
+    },
+    Command {
+        path: "new state",
+        group: 1,
+        operands: true,
+        flags: &[
+            "--project",
+            "--description",
+            "--type",
+            "--state",
+            "--apply",
+            "--json",
+        ],
+        text: r#"  new state <name> --type numeric|string --state <spec>... [--project <name>] [--description <text>]
+      [--apply] [--json]
+                              create a StateDefinition; plan unless --apply"#,
+    },
+    Command {
+        path: "new menu",
+        group: 1,
+        operands: true,
+        flags: &[
+            "--project",
+            "--description",
+            "--item",
+            "--default",
+            "--label",
+            "--apply",
+            "--json",
+        ],
+        text: r#"  new menu <name> --item <Title=Mashup>... [--project <name>] [--description <text>] [--default]
+      [--label <text>] [--apply] [--json]
+                              create a Menu; plan unless --apply"#,
+    },
+    Command {
+        path: "new theme",
+        group: 1,
+        operands: true,
+        flags: &[
+            "--project",
+            "--description",
+            "--from",
+            "--prop",
+            "--apply",
+            "--json",
+        ],
+        text: r#"  new theme <name> [--project <name>] [--description <text>] [--from <StyleTheme>]
+      [--prop name=value]... [--apply] [--json]
+                              create a StyleTheme; plan unless --apply"#,
     },
     Command {
         path: "entity status",
@@ -1382,10 +2367,12 @@ pub(crate) const COMMANDS: &[Command] = &[
         path: "call",
         group: 3,
         operands: true,
-        flags: &["--timeout", "--detail", "--profile", "--with-logs"],
-        text: r#"  call <target> <service> [<json>] [--timeout <seconds>] [--detail]
+        flags: &["--timeout", "--detail", "--profile", "--with-logs", "--as"],
+        text: r#"  call <target> <service> [<json>] [--timeout <seconds>] [--detail] [--as <test user>]
                               target: Collection/Name, or an entity by name or last segment
-      --with-logs             then what it wrote to ScriptLog and ApplicationLog (waits up to 3 s)"#,
+      --with-logs             then what it wrote to ScriptLog and ApplicationLog (waits up to 3 s)
+      --as <test user>        call as a [[test.user]] with the profile's test_password (the profile
+                              needs allow_test_users): 404 if the user cannot see it, 401 a bad password"#,
     },
     Command {
         path: "logs",

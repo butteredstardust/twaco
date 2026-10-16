@@ -1,0 +1,21 @@
+$ twaco mashup new Acme.Orders.Tabs_MU --template tabs --tab Orders --tab History
+exit: 0
+
+--- stdout
+would create mashup Acme.Orders.Tabs_MU in project Acme.Orders (tabs template, theme PTC Convergence Theme)
+  slots: title, tabs
+  Mashups/Acme.Orders.Tabs_MU.xml
+  src/Acme.Orders.Tabs_MU/mashup/content.json
+  src/Acme.Orders.Tabs_MU/mashup/custom.css
+  visible to: nobody yet (--visibility grants it)
+  widget flexcontainer-2 (flexcontainer, page)
+  widget flexcontainer-3 (flexcontainer, title)
+  widget flexcontainer-4 (flexcontainer, tabs)
+  widget ptcstabset-5 (ptcstabset, ptcs-tabset-5)
+  widget flexcontainer-6 (flexcontainer, ptcs-tabset-5 #1)
+  widget flexcontainer-7 (flexcontainer, ptcs-tabset-5 #2)
+  tab 1: Orders (empty)
+  tab 2: History (empty)
+run again with --apply to write it
+--- stderr
+

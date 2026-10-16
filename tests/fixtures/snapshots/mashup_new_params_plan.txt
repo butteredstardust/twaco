@@ -1,0 +1,15 @@
+$ twaco mashup new Acme.Orders.Card_MU --param orderId:LONG:IN --param title:STRING
+exit: 0
+
+--- stdout
+would create mashup Acme.Orders.Card_MU in project Acme.Orders (blank template, theme PTC Convergence Theme)
+  slots: center
+  parameters: orderId LONG (IN), title STRING (BOTH)
+  Mashups/Acme.Orders.Card_MU.xml
+  src/Acme.Orders.Card_MU/mashup/content.json
+  src/Acme.Orders.Card_MU/mashup/custom.css
+  visible to: nobody yet (--visibility grants it)
+  widget flexcontainer-2 (flexcontainer, center)
+run again with --apply to write it
+--- stderr
+

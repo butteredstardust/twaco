@@ -89,7 +89,9 @@ without it, each gate gives a summary.
 | code order | a service's main code is below its helper functions |
 | project | the entity files disagree with themselves or each other: a file named for another entity, two files for one entity, a misfiled or project-less entity, a service declared without its implementation or the reverse, a mashup whose JSON does not parse |
 | mashup bindings | a repository-resolved mashup service, result field or parameter is not declared; unresolved platform and inherited DataShape details are left unchecked |
+| contained mashups | a binding to a contained mashup's or navigation function's parameter that its copy of the parameters lacks (the value is dropped) or that the mashup it shows no longer declares; `twaco mashup param set <mashup> <parameter>` refreshes every copy; a stale copy nothing binds is only counted |
 | localization tokens | an entity names a `[[token]]` under one of the solution's token prefixes that no Default table file holds (the label would show the raw text), a language table holds a token Default lacks, a token is in one table twice, or a table file cannot be read. Tokens outside the prefixes are the platform's or an extension's and are not checked |
+| result shapes | a service's script builds its result with `CreateInfoTableFromDataShape` from another DataShape than its definition declares, named by a literal or a `const` holding one (a mashup bound to the declared shape finds other fields). A name computed at run time is not checked |
 | your hooks | a `[[check]]` command fails ([Configuration](CONFIGURATION.md#check-your-own-gates)) |
 | live parse | with `--live` or `[gates] live`: the server's own parser rejects a script |
 
@@ -188,6 +190,11 @@ uses the named `--base <file|handoff|git-rev>`, otherwise the most similar recor
 no base it uses git history to spot stale content and calls the rest unknown. The first report line
 names the selected base. Handoffs are local derived files under `.twaco/handoffs/`; pass a package
 with `--base` on another machine.
+
+A base type that changed on something both sides have (a mashup parameter, a binding, a service
+parameter, a field) is listed under its own heading, with the old and new type, whatever else
+changed: whoever passes the old type now sends a value the other side does not expect. `--json`
+and MCP `adopt_report` return them as `type_changes`.
 
 | State | Meaning | Apply |
 | --- | --- | --- |
@@ -374,7 +381,8 @@ while something outside the set still does, deletes dependents before what they 
 confirms each entity is gone afterwards. An entity that the repository still defines is refused,
 since the next deploy would create it again. Pass `--allow-repository-defined` to accept that
 specific condition, or `--allow-outside-dependents` to accept structural dependents outside the
-set. Deleting a FileRepository Thing deletes all its files and is refused until
+set. A disabled Thing cannot answer the dependency question, so its dependents are unknown: the
+plan refuses it until you enable it or pass `--allow-outside-dependents`, and then warns. Deleting a FileRepository Thing deletes all its files and is refused until
 `--allow-file-repository-data-loss` acknowledges that loss; when acknowledged, the plan still
 warns about it. `--force` is deprecated: it means the first two acknowledgements and never the
 FileRepository data-loss acknowledgement. The dependency answer sees structural dependents only,
@@ -421,6 +429,305 @@ and an organization, in the repository's layout, and appends the project to `twa
 matches what the framework itself produced (the tests hold it against server exports). Nothing that
 exists is overwritten. Not created: the component permission helper (the framework builds it on the
 server), and the `ui` and `test` types. Then `twaco check`, commit and `twaco deploy`.
+
+## Creating entities
+
+`twaco new` creates the common 10.1 entity exports in a project and plans unless `--apply` is
+given. Every kind accepts `--project`, one-line `--description`, and repeated
+`--visibility Organization/name` or `OrganizationalUnit/org:unit`.
+
+```sh
+twaco new thing Acme.Orders.Manager --template Acme.Orders.Manager_TT --shape Acme.Orders.Audit_TS
+twaco new thing-template Acme.Orders.Manager_TT --base GenericThing --shape Acme.Orders.Audit_TS
+twaco new thing-shape Acme.Orders.Audit_TS
+twaco new data-shape Acme.Orders.Order_DS --field id:STRING:primary --field created:DATETIME --apply
+twaco new timer Acme.Orders.Refresh_TM --every 30s --run-as Administrator --then "me.Refresh();" --apply
+twaco new scheduler Acme.Orders.Nightly_SC --cron "0 0 2 * * ?" --run-as Administrator --apply
+twaco new data-table Acme.Orders.Rows_DT --data-shape Acme.Orders.Row_DS --index byId=id --apply
+twaco new stream Acme.Orders.Events_ST --data-shape Acme.Orders.Event_DS --apply
+twaco new value-stream Acme.Orders.Values_VS --apply
+twaco new media Acme.Orders.Logo_MD --file logo.svg --apply
+twaco new style Acme.Orders.Good_SD --background '#66cc33' --foreground '#000000' --bold --apply
+twaco new state Acme.Orders.Speed_SD --type numeric --state '<2000=Normal;background:#66cc33' --state '*=Overload;background:#ff0000' --apply
+twaco new menu Acme.Orders.Main_MN --item Home=Acme.Orders.Home_MU --default --apply
+twaco new theme Acme.Orders.Theme_TH --prop e-button-primary-fontcolor=#ffffff --apply
+```
+
+Things default to `GenericThing`; `--template`, `--shape`, template `--base`, and DataShape
+`--base` must resolve in the solution (or the platform cache for templates and shapes). A Thing
+can set `--value-stream`. DataShapes require one or more ordered `--field name:TYPE[:primary]`
+arguments and write the matching `fields.json` sidecar. Timers accept `--every` as milliseconds,
+`ms`, `s`, `m`, or `h` (60 seconds by default); schedulers accept a six- or seven-field Quartz
+`--cron`. Both require `--run-as`, accept `--disabled`, and use either `--then <code>` or
+`--script <file.js>` to put a Script subscription directly in their entity XML. The entity XML and
+all managed sidecars are created together in one transaction.
+
+DataTables and Streams require a DataShape; DataTables write `datatable.json` and validate every
+indexed field. A DataTable's DataShape needs a primary key among its own fields: the server ignores
+an inherited one, and refuses the import. ValueStreams, Streams, and DataTables always set the persistence provider. Media
+accepts PNG, JPEG, GIF, or SVG content up to 10 MB. Styles use `#rrggbb` or `rgba(r,g,b,a)` colors.
+States take ordered comparator specifications; menus require one or more `Title=Mashup` items; and
+themes may copy a repository StyleTheme with `--from` before applying `--prop name=value` overrides.
+
+## Changing entities
+
+Each command plans until `--apply` and changes only the element it names.
+
+```sh
+twaco thing property add Acme.Orders.Machine_TT Speed:NUMBER --default 12.5 --persistent --apply
+twaco thing property set Acme.Orders.Machine_TT Speed --no-logged --category Motion --apply
+twaco thing property remove Acme.Orders.Machine_TT Speed --apply
+twaco thing subscription add Acme.Orders.Press OnSpeed --event DataChange --source-property Speed --then "me.Check();" --apply
+twaco thing shape add Acme.Orders.Machine_TT Acme.Orders.Audit_TS --apply
+twaco timer set Acme.Orders.Refresh_TM --every 5m --enabled --apply
+twaco scheduler set Acme.Orders.Nightly_SC --cron "0 0 3 * * ?" --apply
+twaco style set Acme.Orders.Good_SD --foreground '#000000' --bold --apply
+twaco media set Acme.Orders.Logo_MD --file logo.svg --apply
+twaco menu item add Acme.Orders.Main_MN Orders=Acme.Orders.Orders_MU --before Home --apply
+twaco state set Acme.Orders.Speed_SD --type numeric --state '<2000=Normal' --state '*=Overload' --apply
+```
+
+A property name must be new to the entity, to what it inherits, and to everything that inherits
+it (the server refuses that clash too). A persistent property has a stored value in every Thing
+that has it, and the server writes that value into each Thing's export. So adding, removing,
+retyping or implementing one also rewrites those Things' `ThingProperties`. Removing or retyping
+a property that a mashup binding, another entity's script or a `me.<name>` read still uses is
+refused, and so is stopping implementing a shape whose members are still used that way; `--force`
+does it anyway and lists the users. A persistent INFOTABLE property is
+refused: a 10.1 import re-stamps a stored infotable with the import time, so the repository could
+never match the server. MCP: `entity_edit`.
+
+## Creating mashups
+
+```sh
+twaco mashup new Acme.App.Orders_MU --project Acme.App                     # plan
+twaco mashup new Acme.App.Orders_MU --project Acme.App --apply
+twaco mashup new Acme.App.Main_MM --master --visibility Organization/Acme.App.Org --apply
+twaco mashup new Acme.App.Navigation_MU --template sidebar --primary-menu data:Acme.App.Nav.Manager.GetPrimaryMenu --apply
+```
+
+`mashup new` writes a ThingWorx 10.2 responsive mashup the way Composer makes one: the entity file
+under the project's `Mashups` folder, and its `content.json` and `custom.css` sidecars, written by the
+same sync as every other mashup, so a new mashup is already in sync. `--template` selects a named
+layout (and `--layout` remains a compatibility alias); `twaco mashup templates` lists the names,
+aliases and slots. Slots are responsive container names usable with `mashup add --in <slot>`.
+
+| Template | Slots | For |
+| --- | --- | --- |
+| blank | center | A free-form page |
+| sidebar | sidebar, center | Navigation beside content |
+| header-footer | header, center, footer | Framed application page |
+| header-sidebar | header, body, sidebar, center | Navigation page with a header |
+| sidebar-header | sidebar, main, header, center | Application shell: the menu the full height, a header above the page (the shape of the stock ThingWorx master templates) |
+| form-dialog | title, fields, actions | Form editing dialog |
+| confirm-dialog | close, message, actions | Confirmation dialog |
+| list-page | title, toolbar, body | List and toolbar page |
+| card | header, title, actions, body | Card content |
+| master-detail | list, detail | Master and detail panes |
+| kpi-tile | title, value | A compact KPI display |
+| filter-panel | filters, content | Filters beside results |
+| tabs | title, tabs | A tab set whose tabs each show a mashup (`--tab Label=Mashup`) |
+| dashboard | title, tiles, tile-1..tile-4, panels, side, main | Four KPI tiles above a side panel and a main panel (1:3) |
+
+`--template tabs` takes `--tab "Label=Mashup"` once per tab (up to 16; a label may be a `[[token]]`, and a
+bare `Label` leaves that tab empty). Each tab gets the container Composer gives it, holding the mashup in a
+contained mashup with its parameters cached, so `mashup bind` can reach them; without `--tab` the tab set
+has Composer's two empty tabs. A tabs page cannot be a master.
+
+`sidebar`, `header-sidebar` and `sidebar-header` require `--primary-menu`; their optional `--secondary-menu` values
+are INFOTABLE-returning services. Their menu-bar data bindings and page-loaded service events are
+exactly those `mashup bind` and `mashup on` would create. The menu bar shows a tree of `MenuEntry`
+rows: one root row (`linkType` `Menu`, a `menuId` such as `topMenu`) and items whose `parentMenuId` is
+that id, with `linkType` and `linkTarget` `Mashup` and the mashup in `linkDestination`. Rows without
+the root show nothing, and twaco cannot check that from the service definition. `--master` makes a master mashup instead,
+with a page container filling the template's master slot for the pages it shows. The theme is ThingWorx's default unless `--theme` names a
+StyleTheme in the solution; twaco never creates one. Nothing is granted visibility unless
+`--visibility` names an `Organization/<name>` or an `OrganizationalUnit/<organization>:<unit>`.
+`--project` may be left out when the solution has one project. A name that is already a mashup, or
+files already in the way, are refused.
+
+### Contained mashups and parameters
+
+A contained mashup receives only the parameters its container declares. Add one from a mashup in
+the repository with `twaco mashup add-contained Acme.App.Board_MU Acme.App.Card_MU --set id=7
+--apply`. It uses the same `--in`, `--right-of`, `--left-of`, `--above` and `--below` placement
+rules as `mashup add`; without one it goes in `center`. Its visible child parameters become
+container properties, so bind them as `ui:mashupcontainer-7.id`. IN parameters are binding
+targets, OUT parameters are sources, and BOTH parameters support both directions. `Name` is the
+MASHUPNAME target that selects the displayed child. A child cache that lacks a parameter is
+refreshed as part of a binding plan and the plan names the refreshed container.
+
+Composer stores one
+parameter in four places: the mashup entity's `ParameterDefinitions`, the content root's
+`_currentParameterDefs`, the base type on every binding property map that names it, and the
+`MashupParameters` cache on every `mashupcontainer` showing that mashup. A missing cache entry
+silently drops a binding.
+
+Use `mashup param add`, `mashup param set`, and `mashup param remove` to keep those stores in
+step. They plan by default, refresh every parent container in one transaction on `--apply`, and
+refuse removals that still have bindings unless `--force` removes those bindings too. New mashups
+may declare scalar parameters with repeatable `--param name:TYPE[:IN|OUT|BOTH]`; INFOTABLE
+parameters need a DataShape and are added with `mashup param add --data-shape`.
+
+### Adding widgets
+
+```sh
+twaco mashup add Acme.App.Orders_MU grid --apply
+twaco mashup add Acme.App.Orders_MU grid --right-of ptcschartbar-3 --apply
+twaco mashup add Acme.App.Orders_MU button --below ptcsgrid-7 --label Save --apply
+```
+
+`mashup add` plans a catalogue widget insertion until `--apply`. Without a placement it adds to
+`center`; `--in` names a responsive container, and the four beside flags name the widget to place
+next to. A matching row or column accepts the sibling directly. When its direction differs, twaco
+makes a row or column and gives both widgets their own containers; it also wraps existing leaf
+siblings where that is needed to preserve responsive layout. A widget that can fill fills only
+when alone in its container. `--label` selects the first available LabelText, Label, Text or Title
+property; `--prop Name=value` changes a simple catalogue default property with its expected type.
+Managed mashups update `content.json` and the entity in one transaction; unmanaged mashups update
+only their entity file. If sidecars and entity content disagree, resolve it first with `sync` or
+`extract`.
+
+### Binding
+
+```sh
+twaco mashup bind Acme.App.Orders_MU --from data:Acme.App.Orders.Manager.GetOrders --to ui:ptcsgrid-3.Data --apply
+twaco mashup bind Acme.App.Orders_MU --from ui:ptcstextfield-4.Text --to data:Acme.App.Orders.Manager.SaveOrder.note --apply
+twaco mashup bind Acme.App.Orders_MU --from mashup:OrderId --to data:Acme.App.Orders.Manager.SaveOrder.id --apply
+```
+
+`mashup bind` adds one binding until `--apply`. Addresses are the ones `mashup describe` shows:
+`ui:<widget-id>.<Property>`, `mashup:<Parameter>`, and `data:<Entity>.<Service>` for a result or
+`data:<Entity>.<Service>.<field-or-parameter>`. A mashup call with its own name is
+`data:<Entity>.<Service>[as <alias>]`, and a selected row field is
+`data:<Entity>.<Service>[SelectedRows].<field>` (`[as <alias>][SelectedRows]` for both). When the
+mashup calls a service more than once, the address must name the call with `[as <alias>]`; an
+alias another service's call already has is refused. Widgets are named by id, display name or a
+type word only one widget matches, never by a loose catalogue search. The command checks property
+direction and base types before it writes, and warns when the target already has another source. A missing call for a Thing is added to a `Things_<Entity>` data source;
+templates and shapes need the runtime entity binding Composer creates, so twaco asks you to add
+that call there once. The entity and managed content sidecar change in one transaction.
+
+### Events
+
+```sh
+twaco mashup on Acme.App.Orders_MU --event ui:ptcsbutton-6.Clicked --invoke data:Acme.App.Orders.Manager.SaveOrder --apply
+twaco mashup on Acme.App.Orders_MU --event mashup:Loaded --invoke data:Acme.App.Orders.Manager.GetOrders --apply
+twaco mashup on Acme.App.Orders_MU --event data:Acme.App.Orders.Manager.SaveOrder.ServiceInvokeCompleted --invoke data:Acme.App.Orders.Manager.GetOrders --apply
+```
+
+`mashup on` makes one event run a service, until `--apply` only a plan. The event is a widget's
+(`ui:<widget>.<Event>`, one its catalogue contract lists, such as a button's `Clicked`), the
+page's `mashup:Loaded`, or a call's `ServiceInvokeCompleted`, `AllDataChanged` or
+`SelectedRowsChanged` for a call the mashup already has. It runs a data service, added as a call
+when a Thing's service is not called yet, or a widget's own service such as a grid's `Reset`.
+Widgets whose contract the catalogue does not know are refused. `mashup describe` lists the
+result as `trigger -> handler`.
+
+### Events from a contained mashup
+
+```sh
+twaco mashup event add Acme.App.OrderCard_MU saved --when ui:ptcsbutton-6.Clicked --apply
+twaco mashup on Acme.App.Orders_MU --event ui:mashupcontainer-7.saved --invoke data:Acme.App.Orders.Manager.GetOrders --apply
+```
+
+ThingWorx gives a contained mashup no events of its own, so real mashups signal with a value:
+`mashup event add` adds a NUMBER parameter (BOTH, refreshed in every parent's copy) that an
+expression sets to the time whenever `--when` fires. A parent reacts with `mashup on --event
+ui:<container>.<name>`, which feeds the container's parameter into an events router (reused by a
+second handler) whose `Changed` runs the handler. Any BOTH or OUT parameter of the mashup can be
+reacted to the same way; an IN parameter cannot.
+
+### Function widgets
+
+```sh
+twaco mashup add Acme.App.Orders_MU expression --input note:STRING --prop "Expression=Output = note === '';" --prop OutputBaseType=BOOLEAN --apply
+twaco mashup bind Acme.App.Orders_MU --from ui:ptcstextfield-3.Text --to ui:expression2-7.note --apply
+twaco mashup bind Acme.App.Orders_MU --from ui:expression2-7.Output --to ui:ptcsbutton-6.Disabled --apply
+twaco mashup on Acme.App.Orders_MU --event ui:ptcstextfield-3.Changed --invoke ui:expression2-7.Evaluate --apply
+```
+
+Expressions, validators, events routers, navigation functions, status messages and auto-refresh
+draw nothing: `mashup add` puts them beside the layout, under the mashup itself, and refuses a place
+in it. An expression's or validator's inputs are declared with `--input name:TYPE` and become its
+bindable targets; an expression's `Output` has the base type its `OutputBaseType` says. An events
+router's inputs are `Input1` to `Input<NumberOfInputs>`, of its `DataType`. A navigation function's
+bindable properties include the parameters of the mashup it opens. The legacy `expression` and
+`validator` stay readable in existing mashups; adding either adds `expression2` or `validator2`.
+
+### Recipes
+
+```sh
+twaco mashup recipe enable-when Acme.App.Edit_MU ptcsbutton-6 --if "note !== ''" --input note=ui:ptcstextfield-3.Text --apply
+twaco mashup recipe popup Acme.App.Orders_MU ptcsbutton-6 --mashup Acme.App.EditOrder_MU --pass orderId=data:Acme.App.Orders.Manager.GetOrders[SelectedRows].id --reload data:Acme.App.Orders.Manager.GetOrders --apply
+twaco mashup recipe close-after Acme.App.EditOrder_MU --after data:Acme.App.Orders.Manager.SaveOrder --apply
+twaco mashup recipe validate Acme.App.Edit_MU ptcsbutton-6 --if "note !== ''" --input note=ui:ptcstextfield-3.Text --then data:Acme.App.Orders.Manager.SaveOrder --else-say "A note is required" --apply
+```
+
+`mashup recipe` writes, in one edit, the wiring real mashups repeat, from the same pieces `mashup add`,
+`bind` and `on` use:
+
+| Recipe | What it writes |
+|---|---|
+| enable-when, show-when | an expression of `--if`, fed by each `--input name=address`, into the widget's `Disabled` (negated) or `Visible`, evaluated on load and whenever an input changes |
+| text | a STRING expression (`--expr`) into a label's text |
+| message | a status message (`--say` or bound `--from`; `--kind info|warning|error`) when the `--after` call completes |
+| confirm | a confirmation (`--title`, `--say`) the click opens; its action runs `--then` |
+| popup | a navigation function opening `--mashup` (`--window`, `--size WxH`, `--title`), each `--pass name=address` into its parameters, `--reload` run when it closes |
+| close-after | the mashup closes itself (when it is a popup) once the `--after` call completes |
+| auto-refresh | `--then` run every `--every` seconds, or at a bound `--interval` |
+| validate | a validator of `--if` the click evaluates: true runs `--then`, false shows `--else-say` |
+| chart | `--data` bound into the chart and its category field `--x` named (a pie: `--x` label and `--value` fields); every other numeric column of the result becomes a series; `--kind` bar/column or linechart/areachart |
+| columns | the grid's `ColumnFormat`: each `--column field[:Title[:width]]` in order, rendered by the field's base type; `--data` also bound |
+| picker | a dropdown or list filled from `--data`, showing `--x`, valued by `--value`, its selection bound from `--selected` |
+
+### Validating mashups
+
+```sh
+twaco mashup validate Acme.App.Orders_MU
+twaco mashup validate --all --json
+```
+
+`mashup validate` reads the repository and reports what ThingWorx would load but not honour, or
+what the next edit would trip over: content that is not a mashup twaco can edit, a container holding
+both containers and widgets, bindings and events naming a widget, data source or call the mashup no
+longer has (Composer leaves these behind when a call is removed), a binding against a catalogue
+widget's contract (the wrong direction, a property it lacks, such as a misspelt expression input),
+an event or service a widget lacks, a binding with several property maps, and the contained-mashup
+drift `twaco check` also reports. What it cannot judge, extension and legacy widgets, properties and
+events a widget makes per configured action, a collection's cell parameters, it leaves alone. It
+exits 1 when it finds anything.
+
+### Finding widgets
+
+```sh
+twaco widgets --search chart
+twaco widgets grid
+```
+
+`widgets` reads the embedded ThingWorx 10.2 catalogue, so it needs neither a solution nor a
+server. Search by type, Composer label or alias; name one widget to see the properties that can
+bind, their base types and directions, and its events and services. `--json` gives the same data
+to automation. A container with no binding contract is marked so it can be placed without being
+mistaken for a bindable widget.
+
+### Reading a mashup's wiring
+
+```sh
+twaco mashup describe Acme.App.Orders_MU
+twaco mashup describe Acme.App.Orders_MU --json
+```
+
+`mashup describe` answers "which services drive this page, and is anything left unset" without the
+mashup's XML: the widget tree with each container's direction, the mashup's parameters, every
+service it calls with what sets each declared parameter (a binding's source, `static`, or
+`unbound`, which falls back to the service's default) and what runs it, then every binding and
+event. It reads the sidecar `content.json` when there is one. Addresses are written as
+`ui:<widget>.<Property>`, `data:<Entity>.<Service>[.<Parameter>]` and `mashup:<Parameter>`; a call
+the mashup names differently from its service is `data:<Entity>.<Service>[as <name>]`, a source of
+selected rows `data:<Entity>.<Service>[SelectedRows].<field>`, and the entity a shape's data source
+runs on `data:<Entity>[EntityName]`. A property map after a binding's first is listed as ignored,
+since the runtime applies only the first.
 
 ## Moving entities to another project
 
@@ -634,6 +941,10 @@ A case calls its service as written: one that creates something creates it, as t
 as. The cases run in file and case order, so a case can clean up after the one before it. `seed`
 needs the groups on the server, so deploy first; it never resets a password, and `users list`
 reports a user that cannot sign in with `test_password`.
+
+For one call by hand, `twaco call <target> <service> [<json>] --as <test user>` signs in as that
+`[[test.user]]` with `test_password` (the profile needs `allow_test_users`). A user in no group
+that can see the entity gets 404; a wrong password gets 401. No other account can be named.
 
 ## Copying DataTable rows
 

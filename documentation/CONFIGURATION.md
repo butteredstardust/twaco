@@ -161,7 +161,8 @@ layout once.
 
 `advisory` names built-in gates whose findings are reported (as `warn`) without failing
 `check` or blocking `deploy`: `line endings`, `sidecars`, `formatting`, `script traps`,
-`code order`, `project`, `mashup bindings`, `localization tokens`. The live parse is not among them: `deploy` always has the server
+`code order`, `project`, `mashup bindings`, `contained mashups`, `localization tokens`,
+`result shapes`. The live parse is not among them: `deploy` always has the server
 parse every script, and stops on a script it refuses. It is for a solution adopting twaco over code written
 before those gates existed; take a gate off the list once its findings are fixed. A gate that
 cannot run still fails, and a name that is not a gate is refused.
@@ -440,7 +441,7 @@ Commit `.twaco/baseline.json`. It records each entity's state at the last deploy
 what `entity status --record` adopted), so a later deploy can tell a teammate's server-side
 change from yours.
 
-Each recorded hash carries the version of the comparison form it was made with (`v5:...`). When a
+Each recorded hash carries the version of the comparison form it was made with (`v6:...`). When a
 new twaco compares differently, an entry from the old version counts as unrecorded rather than
 as a change on both sides: an entity whose two sides match reads `no-baseline-same` and is
 recorded again by its next deploy, and `twaco doctor` counts the old entries.

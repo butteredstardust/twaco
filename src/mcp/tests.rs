@@ -844,6 +844,20 @@ fn every_tool_is_listed_with_a_schema_and_honest_annotations() {
             "rename",
             "move_member",
             "new_building_block",
+            "entity_new",
+            "entity_edit",
+            "mashup_new",
+            "mashup_templates",
+            "mashup_add",
+            "mashup_add_contained",
+            "mashup_bind",
+            "mashup_on",
+            "widgets",
+            "mashup_param",
+            "mashup_recipe",
+            "mashup_event",
+            "mashup_validate",
+            "mashup_describe",
             "reproject",
             "retemplate",
             "config_table",
@@ -867,6 +881,7 @@ fn every_tool_is_listed_with_a_schema_and_honest_annotations() {
             "settings",
             "catalog",
             "impact",
+            "trace",
             "unused",
             "docs",
             "doctor",
@@ -892,6 +907,16 @@ fn every_tool_is_listed_with_a_schema_and_honest_annotations() {
         "rename",
         "move_member",
         "new_building_block",
+        "entity_new",
+        "entity_edit",
+        "mashup_new",
+        "mashup_add",
+        "mashup_add_contained",
+        "mashup_bind",
+        "mashup_on",
+        "mashup_param",
+        "mashup_recipe",
+        "mashup_event",
         "reproject",
         "retemplate",
         "config_table",
@@ -2169,4 +2194,316 @@ fn a_deploy_the_localization_tables_stop_says_whether_the_entities_were_imported
             "{note}"
         );
     }
+}
+
+#[test]
+fn mashup_new_plans_by_default_and_creates_the_files_when_asked() {
+    let (_dir, root) = solution_dir();
+    let arguments = json!({"name": "P.Orders_MU", "visibility": ["Organization/P.Org"]});
+    let planned = call(&root, "mashup_new", arguments.clone());
+    assert_eq!(planned["isError"], false, "{planned}");
+    let report = &planned["structuredContent"];
+    assert_eq!(report["applied"], false);
+    assert_eq!(report["dry_run"], true);
+    assert_eq!(report["visibility"], json!(["Organization/P.Org"]));
+    assert!(!root.join("Mashups/P.Orders_MU.xml").exists());
+
+    let mut apply = arguments;
+    apply["dry_run"] = json!(false);
+    let applied = call(&root, "mashup_new", apply.clone());
+    assert_eq!(applied["structuredContent"]["applied"], true, "{applied}");
+    assert!(root.join("Mashups/P.Orders_MU.xml").exists());
+    assert!(root.join("src/P.Orders_MU/mashup/content.json").exists());
+    // Again: the mashup exists now, and the refusal says so with its code.
+    let again = call(&root, "mashup_new", apply);
+    assert_eq!(again["isError"], true);
+    assert_eq!(
+        again["structuredContent"]["code"], "already_exists",
+        "{again}"
+    );
+}
+
+#[test]
+fn entity_new_timer_applies_and_writes_the_entity_file() {
+    let (_dir, root) = solution_dir();
+    let planned = call(
+        &root,
+        "entity_new",
+        json!({"kind": "timer", "name": "P.Refresh_TM", "run_as": "Administrator"}),
+    );
+    assert_eq!(planned["isError"], false, "{planned}");
+    assert_eq!(planned["structuredContent"]["applied"], false);
+    assert!(!root.join("Things/P.Refresh_TM.xml").exists());
+    let applied = call(
+        &root,
+        "entity_new",
+        json!({"kind": "timer", "name": "P.Refresh_TM", "run_as": "Administrator", "dry_run": false}),
+    );
+    assert_eq!(applied["isError"], false, "{applied}");
+    assert_eq!(applied["structuredContent"]["applied"], true);
+    assert!(root.join("Things/P.Refresh_TM.xml").exists());
+}
+
+#[test]
+fn entity_new_style_applies() {
+    let (_dir, root) = solution_dir();
+    let applied = call(
+        &root,
+        "entity_new",
+        json!({"kind": "style", "name": "P.Good_SD", "background": "#66cc33", "bold": true, "dry_run": false}),
+    );
+    assert_eq!(applied["isError"], false, "{applied}");
+    assert_eq!(applied["structuredContent"]["applied"], true);
+    assert!(root.join("StyleDefinitions/P.Good_SD.xml").exists());
+}
+
+#[test]
+fn entity_edit_property_add_plans_then_applies() {
+    let (_dir, root) = solution_dir();
+    let created = call(
+        &root,
+        "entity_new",
+        json!({"kind": "thing", "name": "P.Press", "dry_run": false}),
+    );
+    assert_eq!(created["isError"], false, "{created}");
+    let arguments = json!({
+        "action": "property_add", "entity": "P.Press", "name": "Speed", "type": "number",
+        "default": "5", "persistent": true
+    });
+    let planned = call(&root, "entity_edit", arguments.clone());
+    assert_eq!(planned["isError"], false, "{planned}");
+    assert_eq!(planned["structuredContent"]["applied"], false);
+    let path = root.join("Things/P.Press.xml");
+    assert!(!std::fs::read_to_string(&path).unwrap().contains("Speed"));
+    let mut apply = arguments;
+    apply["dry_run"] = json!(false);
+    let applied = call(&root, "entity_edit", apply);
+    assert_eq!(applied["isError"], false, "{applied}");
+    assert_eq!(
+        applied["structuredContent"]["summary"],
+        "add property Speed:NUMBER"
+    );
+    let xml = std::fs::read_to_string(&path).unwrap();
+    assert!(xml.contains("name=\"Speed\""));
+    assert!(xml.contains("<Speed><Value>5.0</Value>"));
+    let missing = call(
+        &root,
+        "entity_edit",
+        json!({"action": "property_add", "entity": "P.Press", "name": "Rate"}),
+    );
+    assert_eq!(missing["isError"], true, "{missing}");
+}
+
+#[test]
+fn trace_reports_a_service_and_refuses_an_unknown_one() {
+    let (_dir, root) = solution_dir();
+    let created = call(
+        &root,
+        "entity_new",
+        json!({"kind": "thing", "name": "P.Press", "dry_run": false}),
+    );
+    assert_eq!(created["isError"], false, "{created}");
+    std::fs::write(
+        root.join("Things/P.Report.xml"),
+        "<Entities><Things><Thing name=\"P.Report\" projectName=\"P\"><ThingShape>\
+         <ServiceDefinitions><ServiceDefinition name=\"Build\"><ResultType baseType=\"NUMBER\" \
+         name=\"result\"></ResultType><ParameterDefinitions><FieldDefinition baseType=\"STRING\" \
+         name=\"from\" aspect.defaultValue=\"today\"></FieldDefinition></ParameterDefinitions>\
+         </ServiceDefinition></ServiceDefinitions></ThingShape></Thing></Things></Entities>",
+    )
+    .unwrap();
+    let traced = call(&root, "trace", json!({"service": "P.Report.Build"}));
+    assert_eq!(traced["isError"], false, "{traced}");
+    let result = &traced["structuredContent"];
+    assert_eq!(result["service"], "Things/P.Report.Build");
+    assert_eq!(result["returns"], "NUMBER");
+    assert_eq!(result["parameters"][0]["default"], "today");
+    let unknown = call(&root, "trace", json!({"service": "P.Press.Nope"}));
+    assert_eq!(unknown["isError"], true, "{unknown}");
+    let bad = call(&root, "trace", json!({"service": "nodot"}));
+    assert_eq!(bad["isError"], true, "{bad}");
+}
+
+#[test]
+fn mashup_add_applies_a_widget_and_refuses_two_placements() {
+    let (_dir, root) = solution_dir();
+    let created = call(
+        &root,
+        "mashup_new",
+        json!({"name": "Acme.Orders_MU", "dry_run": false}),
+    );
+    assert_eq!(created["isError"], false, "{created}");
+    let grid = call(
+        &root,
+        "mashup_add",
+        json!({"mashup": "Acme.Orders_MU", "widget": "grid", "dry_run": false}),
+    );
+    assert_eq!(grid["isError"], false, "{grid}");
+    assert_eq!(grid["structuredContent"]["applied"], true);
+    assert_eq!(grid["structuredContent"]["id"], "ptcsgrid-3");
+    let label = call(
+        &root,
+        "mashup_add",
+        json!({"mashup": "Acme.Orders_MU", "widget": "label", "below": "ptcsgrid-3", "label": "Total", "dry_run": false}),
+    );
+    assert_eq!(label["isError"], false, "{label}");
+    assert_eq!(label["structuredContent"]["applied"], true);
+    assert_eq!(label["structuredContent"]["id"], "ptcslabel-4");
+    let invalid = call(
+        &root,
+        "mashup_add",
+        json!({"mashup": "Acme.Orders_MU", "widget": "label", "in": "center", "below": "ptcsgrid-3"}),
+    );
+    assert_eq!(invalid["isError"], true, "{invalid}");
+    assert!(
+        invalid
+            .to_string()
+            .contains("give one of in, right_of, left_of, above, below"),
+        "{invalid}"
+    );
+}
+
+#[test]
+fn mashup_add_contained_applies_a_repository_child() {
+    let (_dir, root) = solution_dir();
+    assert_eq!(
+        call(
+            &root,
+            "mashup_new",
+            json!({"name": "Acme.Card_MU", "params": ["id:LONG:IN"], "dry_run": false})
+        )["isError"],
+        false
+    );
+    assert_eq!(
+        call(
+            &root,
+            "mashup_new",
+            json!({"name": "Acme.Board_MU", "dry_run": false})
+        )["isError"],
+        false
+    );
+    let applied = call(
+        &root,
+        "mashup_add_contained",
+        json!({"mashup": "Acme.Board_MU", "child": "Acme.Card_MU", "set": {"id": "7"}, "dry_run": false}),
+    );
+    assert_eq!(applied["isError"], false, "{applied}");
+    assert_eq!(applied["structuredContent"]["applied"], true);
+    assert_eq!(applied["structuredContent"]["id"], "mashupcontainer-3");
+}
+
+#[test]
+fn mashup_bind_adds_a_thing_call_after_creating_a_grid() {
+    let (_dir, root) = solution_dir();
+    std::fs::write(
+        root.join("Things/Acme.Orders.Manager.xml"),
+        r#"<Entities><Things><Thing name="Acme.Orders.Manager" projectName="P"><ThingShape><ServiceDefinitions><ServiceDefinition name="GetOrders"><ResultType baseType="INFOTABLE"/></ServiceDefinition></ServiceDefinitions><ServiceImplementations/></ThingShape></Thing></Things></Entities>"#,
+    ).unwrap();
+    assert_eq!(
+        call(
+            &root,
+            "mashup_new",
+            json!({"name": "Acme.Orders_MU", "dry_run": false})
+        )["isError"],
+        false
+    );
+    assert_eq!(
+        call(
+            &root,
+            "mashup_add",
+            json!({"mashup": "Acme.Orders_MU", "widget": "grid", "dry_run": false})
+        )["isError"],
+        false
+    );
+    let bound = call(
+        &root,
+        "mashup_bind",
+        json!({
+            "mashup": "Acme.Orders_MU",
+            "from": "data:Acme.Orders.Manager.GetOrders",
+            "to": "ui:ptcsgrid-3.Data",
+            "dry_run": false
+        }),
+    );
+    assert_eq!(bound["isError"], false, "{bound}");
+    assert_eq!(bound["structuredContent"]["applied"], true);
+    assert_eq!(
+        bound["structuredContent"]["new_source"],
+        "Acme.Orders.Manager.GetOrders"
+    );
+}
+
+#[test]
+fn mashup_on_runs_a_service_after_creating_a_button() {
+    let (_dir, root) = solution_dir();
+    std::fs::write(
+        root.join("Things/Acme.Orders.Manager.xml"),
+        r#"<Entities><Things><Thing name="Acme.Orders.Manager" projectName="P"><ThingShape><ServiceDefinitions><ServiceDefinition name="SaveOrder"><ResultType baseType="NOTHING"/></ServiceDefinition></ServiceDefinitions><ServiceImplementations/></ThingShape></Thing></Things></Entities>"#,
+    ).unwrap();
+    assert_eq!(
+        call(
+            &root,
+            "mashup_new",
+            json!({"name": "Acme.Orders_MU", "dry_run": false})
+        )["isError"],
+        false
+    );
+    let button = call(
+        &root,
+        "mashup_add",
+        json!({"mashup": "Acme.Orders_MU", "widget": "button", "dry_run": false}),
+    );
+    assert_eq!(button["isError"], false, "{button}");
+    let on = call(
+        &root,
+        "mashup_on",
+        json!({"mashup": "Acme.Orders_MU", "event": "ui:ptcsbutton-3.Clicked", "invoke": "data:Acme.Orders.Manager.SaveOrder", "dry_run": false}),
+    );
+    assert_eq!(on["isError"], false, "{on}");
+    assert_eq!(on["structuredContent"]["applied"], true);
+    assert_eq!(
+        on["structuredContent"]["new_source"],
+        "Acme.Orders.Manager.SaveOrder"
+    );
+}
+
+#[test]
+fn widgets_returns_catalogue_details_and_refuses_two_selectors() {
+    let (_dir, root) = solution_dir();
+    let button = call(&root, "widgets", json!({"widget": "button"}));
+    assert_eq!(button["isError"], false, "{button}");
+    assert!(button["structuredContent"]["events"]
+        .as_array()
+        .is_some_and(|events| events.iter().any(|event| event == "Clicked")));
+    let listed = call(&root, "widgets", json!({"search": "list"}));
+    assert!(listed["structuredContent"]["widgets"]
+        .as_array()
+        .is_some_and(|widgets| !widgets.is_empty()));
+    let both = call(
+        &root,
+        "widgets",
+        json!({"widget": "button", "search": "list"}),
+    );
+    assert_eq!(both["isError"], true, "{both}");
+}
+
+#[test]
+fn mashup_templates_lists_every_template_and_new_uses_template() {
+    let (_dir, root) = solution_dir();
+    let listed = call(&root, "mashup_templates", json!({}));
+    assert_eq!(listed["isError"], false, "{listed}");
+    assert_eq!(
+        listed["structuredContent"]["templates"]
+            .as_array()
+            .unwrap()
+            .len(),
+        14
+    );
+    let created = call(
+        &root,
+        "mashup_new",
+        json!({"name": "Acme.Card_MU", "template": "card", "dry_run": false}),
+    );
+    assert_eq!(created["isError"], false, "{created}");
+    assert_eq!(created["structuredContent"]["template"], "card");
 }

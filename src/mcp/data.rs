@@ -428,6 +428,7 @@ pub(crate) fn call_service_tool(
         profile: arguments.profile.clone(),
         with_logs: arguments.with_logs,
         profile_before_target: false,
+        as_user: arguments.as_user.as_ref().cloned(),
     };
     let mut notices = commands::Notices::default();
     let outcome = commands::call::execute(solution, &request, server::Client::new, &mut notices)

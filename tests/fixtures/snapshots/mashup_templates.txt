@@ -1,0 +1,35 @@
+$ twaco mashup templates
+exit: 0
+
+--- stdout
+Mashup templates
+  blank           A single responsive center container
+                  slots: center
+  sidebar         Menu sidebar beside a center content area
+                  slots: sidebar, center
+  header-footer   Fixed header and footer around a center content area
+                  slots: header, center, footer
+  header-sidebar  Header above a menu sidebar and center content area
+                  slots: header, body, sidebar, center
+  sidebar-header  Menu sidebar the full height, a header and the page beside it (also app-shell)
+                  slots: sidebar, main, header, center
+  form-dialog     Title bar, fields, and a right-aligned action bar (also form, dialog)
+                  slots: title, fields, actions
+  confirm-dialog  Confirmation message with close and action areas (also confirm)
+                  slots: close, message, actions
+  list-page       Title and toolbar above a list body (also list)
+                  slots: title, toolbar, body
+  card            Card with a title, actions, and body
+                  slots: header, title, actions, body
+  master-detail   Side-by-side list and detail areas
+                  slots: list, detail
+  kpi-tile        Compact KPI title and centered value (also kpi)
+                  slots: title, value
+  filter-panel    Fixed filters beside flexible content (also filters)
+                  slots: filters, content
+  tabs            A title above a tab set; --tab Label=Mashup shows a mashup in each tab (also tab-page)
+                  slots: title, tabs
+  dashboard       A title, a row of four KPI tiles, and a side panel beside a main panel
+                  slots: title, tiles, tile-1, tile-2, tile-3, tile-4, panels, side, main
+--- stderr
+

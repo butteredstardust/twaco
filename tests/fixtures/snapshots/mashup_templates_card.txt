@@ -1,0 +1,13 @@
+$ twaco mashup templates card
+exit: 0
+
+--- stdout
+card: Card with a title, actions, and body
+  page       column
+    header     row, fixed 50px
+      title      row, fills
+      actions    row, flex-end, fixed 46px
+    body       column, fills
+with --master, the page mashup container goes in body
+--- stderr
+

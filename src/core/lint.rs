@@ -508,7 +508,8 @@ fn empty_declaration(stripped: &str) -> Option<String> {
     // being built, not an empty declaration waiting to be filled.
     let value = after.strip_prefix('=')?.trim();
     let value = value.strip_suffix(';')?.trim();
-    if value == "{}" || value == "[]" {
+    // A placeholder value is still waiting to be filled: reading it reads the placeholder.
+    if ["{}", "[]", "null", "undefined"].contains(&value) {
         return Some(name);
     }
     None
@@ -742,6 +743,60 @@ mod tests {
     fn a_statement_reading_a_name_assigned_later_is_reported() {
         let source = "let action;\nconst index = lookup(action);\naction = \"go\";\n";
         assert_eq!(rules(source), vec!["read-before-assign"]);
+    }
+
+    #[test]
+    fn a_read_above_the_try_that_assigns_is_reported() {
+        // The shape that shipped broken: the index is read before the try fills `action`.
+        let source = concat!(
+            "let action;\n",
+            "const sourceIdx = requiredIndex(action, \"source\");\n",
+            "try {\n",
+            "    action = JSON.parse(input);\n",
+            "} catch (error) {\n",
+            "    throw new Error(\"bad input\");\n",
+            "}\n",
+        );
+        assert_eq!(
+            rules(source),
+            vec!["read-before-assign"],
+            "{:?}",
+            lint(source)
+        );
+        // The same with a placeholder value: it still reads null.
+        let placeholder = source.replacen("let action;", "let action = null;", 1);
+        assert_eq!(
+            rules(&placeholder),
+            vec!["read-before-assign"],
+            "{:?}",
+            lint(&placeholder)
+        );
+        let undefined = source.replacen("let action;", "var action = undefined;", 1);
+        assert_eq!(
+            rules(&undefined),
+            vec!["read-before-assign"],
+            "{:?}",
+            lint(&undefined)
+        );
+        // And through a helper that reads it.
+        let helper = concat!(
+            "let action;\n",
+            "const sourceIdx = index();\n",
+            "try {\n",
+            "    action = JSON.parse(input);\n",
+            "} catch (error) {\n",
+            "    throw error;\n",
+            "}\n",
+            "function index() {\n",
+            "    return action.source;\n",
+            "}\n",
+        );
+        assert_eq!(
+            rules(helper),
+            vec!["read-before-assign"],
+            "{:?}",
+            lint(helper)
+        );
     }
 
     #[test]

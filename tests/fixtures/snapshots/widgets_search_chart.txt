@@ -1,0 +1,14 @@
+$ twaco widgets --search chart
+exit: 0
+
+--- stdout
+ThingWorx 10.2 widgets matching "chart"
+  ptcschartbar (Bar Chart)  aliases: bar-chart
+  ptcschartcombo (Combo Chart)  aliases: combo-chart
+  ptcschartline (Line Chart)  aliases: line-chart
+  ptcschartpareto (Pareto Chart)  aliases: pareto-chart
+  ptcschartpie (Pie Chart)  aliases: pie-chart
+  ptcschartschedule (Schedule Chart)  aliases: schedule-chart
+  ptcschartwaterfall (Waterfall Chart)  aliases: waterfall-chart
+--- stderr
+

@@ -18,7 +18,7 @@ pub use outcome::{
     check_summary, finding_json, refresh_after_write, CheckError, CheckOutcome, Outcome,
     PlatformOutcome, Refresh, TypeFinding,
 };
-pub(crate) use platform::{cached as cached_platform, Platform};
+pub(crate) use platform::{cached as cached_platform, Platform, PlatformMeta};
 pub use platform::{fetch_platform, fetch_platform_with_progress, Remote};
 pub use write::write;
 

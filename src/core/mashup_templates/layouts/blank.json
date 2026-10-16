@@ -1,0 +1,8 @@
+{
+  "name": "blank",
+  "summary": "A single responsive center container",
+  "aliases": [],
+  "page": {},
+  "master_slot": "center",
+  "children": []
+}

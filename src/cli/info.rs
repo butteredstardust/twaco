@@ -652,6 +652,36 @@ pub(crate) fn settings_cmd(solution: &Solution, args: &Args) -> u8 {
 /// `twaco catalog [<entity>] [--project P] [--search <text>] [--json]`.
 /// What changing an entity, or one service, property or field of it, would reach. Offline and
 /// read-only: it reads the solution into the index and asks it.
+/// `twaco trace <Entity>.<Service>`: how each caller uses a service. Read-only and offline.
+pub(crate) fn trace_cmd(solution: &Solution, args: &Args) -> u8 {
+    let [service] = args.names.as_slice() else {
+        eprintln!("{} trace needs one <Entity>.<Service>", style::prefix());
+        return FAILED;
+    };
+    if args.params.len() > 1 {
+        eprintln!("{} give --param once", style::prefix());
+        return FAILED;
+    }
+    let param = args.params.first().map(String::as_str);
+    match twaco::core::trace::run(solution, service, param) {
+        Ok(trace) if args.has("--json") => {
+            println!(
+                "{}",
+                serde_json::to_string_pretty(&trace).expect("a trace serialises")
+            );
+            OK
+        }
+        Ok(trace) => {
+            print!("{}", twaco::core::trace::render(&trace));
+            OK
+        }
+        Err(error) => {
+            eprintln!("{} {error}", style::prefix());
+            FAILED
+        }
+    }
+}
+
 pub(crate) fn impact_cmd(solution: &Solution, args: &Args) -> u8 {
     let [entity] = args.names.as_slice() else {
         eprintln!(

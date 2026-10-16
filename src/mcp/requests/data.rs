@@ -284,6 +284,9 @@ pub(crate) struct CallRequest {
     /// Return everything instead of the summary.
     #[serde(default)]
     pub(crate) detail: bool,
+    /// Call as this [[test.user]] of twaco.toml, with the profile's test_password; the profile must have allow_test_users. A user in no group that can see the entity gets 404; a wrong password 401.
+    #[serde(default, rename = "as", skip_serializing_if = "Absent::is_absent")]
+    pub(crate) as_user: Absent<String>,
 }
 
 fn default_call_timeout_seconds() -> u64 {

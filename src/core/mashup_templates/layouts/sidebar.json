@@ -1,0 +1,25 @@
+{
+  "name": "sidebar",
+  "summary": "Menu sidebar beside a center content area",
+  "aliases": [],
+  "page": {
+    "flex-direction": "row",
+    "align-items": "stretch"
+  },
+  "master_slot": "center",
+  "children": [
+    {
+      "slot": "sidebar",
+      "flex-direction": "row",
+      "flex-grow": 0,
+      "align-items": "stretch",
+      "widget": "ptcsmenubar"
+    },
+    {
+      "slot": "center",
+      "flex-direction": "column",
+      "flex-grow": 1,
+      "align-items": "stretch"
+    }
+  ]
+}

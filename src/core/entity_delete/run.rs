@@ -4,7 +4,7 @@ use super::super::scan::{self, Kind};
 use super::super::workspace;
 use super::guards::{Acknowledged, GuardCode, Refusal};
 use super::method::Method;
-use super::remote::{Dependent, Remote};
+use super::remote::{is_disabled_thing, Dependent, Remote};
 use super::report::{DeleteError, EntityResult, Report, Status};
 use super::targets::{order_targets, resolve_targets, Prepared, Target};
 use super::DEPENDENCY_LIMIT;
@@ -71,10 +71,16 @@ pub fn run(
             });
             continue;
         }
-        let dependents = remote.incoming(&key).map_err(|why| DeleteError::Remote {
-            entity: label.clone(),
-            why,
-        })?;
+        let (dependents, disabled) = match remote.incoming(&key) {
+            Ok(dependents) => (dependents, false),
+            Err(why) if is_disabled_thing(&key, &why) => (Vec::new(), true),
+            Err(why) => {
+                return Err(DeleteError::Remote {
+                    entity: label.clone(),
+                    why,
+                })
+            }
+        };
         let outside: Vec<&Dependent> = dependents
             .iter()
             .filter(|dependent| {
@@ -103,6 +109,19 @@ pub fn run(
             });
         }
         let mut warnings = Vec::new();
+        if disabled {
+            let message = "the Thing is disabled, so the server cannot list what depends on it";
+            if acknowledged.outside_dependents {
+                warnings.push(message.to_string());
+            } else {
+                refusals.push(Refusal {
+                    code: GuardCode::OutsideDependents,
+                    message: format!(
+                        "{message} (enable it to see them, or pass --allow-outside-dependents)"
+                    ),
+                });
+            }
+        }
         if key.collection() == "Things" {
             let bytes = remote
                 .fetch(&key)

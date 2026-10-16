@@ -1,0 +1,7 @@
+$ twaco mashup add-contained Acme.Orders.Dashboard Acme.Orders.Nope_MU
+exit: 2
+
+--- stdout
+
+--- stderr
+twaco: no mashup Acme.Orders.Nope_MU in the solution

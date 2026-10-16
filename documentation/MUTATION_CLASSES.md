@@ -77,6 +77,7 @@ when the command is asked to write. A local output named by an option is include
 | `settings` | read-only | read-only | none | Retry freely. | `cli/info.rs: settings_cmd` |
 | `catalog` | read-only | read-only | none | Retry freely. | `cli/info.rs: catalog_cmd` |
 | `impact` | read-only | read-only | none | Retry freely. | `core/impact.rs: run` |
+| `trace` | read-only | read-only | none | Retry freely. | `core/trace.rs: run` |
 | `unused` | read-only | read-only | none | Retry freely. | `core/unused.rs: run` |
 | `docs` | read-only | single-file atomic | named output file | The output is old or new; retry freely. | `cli/info.rs: docs_cmd` |
 | `ext list` | read-only | read-only | none | Retry freely. | `cli/content.rs: ext_cmd` |
@@ -116,7 +117,42 @@ when the command is asked to write. A local output named by an option is include
 | `copy service` | read-only | multi-file atomic | XML, sidecars | A crash is finished or undone by the next command that takes the workspace lock; if it refuses, follow its message. Otherwise retry. | `core/commands/relocate.rs: execute` |
 | `copy property` | read-only | multi-file atomic | XML, sidecars | A crash is finished or undone by the next command that takes the workspace lock; if it refuses, follow its message. Otherwise retry. | `core/commands/relocate.rs: execute` |
 | `new building-block` | read-only | multi-file atomic | project files, config | A crash is finished or undone by the next command that takes the workspace lock; if it refuses, follow its message. Otherwise retry. | `core/commands/newblock.rs: execute` |
+| `new thing` | read-only | multi-file atomic | entity XML | The entity XML is created in a journaled transaction; a file that appeared since the plan is refused. Retry. | `core/commands/entity_new.rs: execute` |
+| `new thing-template` | read-only | multi-file atomic | entity XML | The entity XML is created in a journaled transaction; a file that appeared since the plan is refused. Retry. | `core/commands/entity_new.rs: execute` |
+| `new thing-shape` | read-only | multi-file atomic | entity XML | The entity XML is created in a journaled transaction; a file that appeared since the plan is refused. Retry. | `core/commands/entity_new.rs: execute` |
+| `new data-shape` | read-only | multi-file atomic | entity XML, fields.json | The entity XML and sidecar are created in one journaled transaction, or none is; a file that appeared since the plan is refused. Retry. | `core/commands/entity_new.rs: execute` |
+| `new timer` | read-only | multi-file atomic | entity XML | The entity XML is created in a journaled transaction; a file that appeared since the plan is refused. Retry. | `core/commands/entity_new.rs: execute` |
+| `new scheduler` | read-only | multi-file atomic | entity XML | The entity XML is created in a journaled transaction; a file that appeared since the plan is refused. Retry. | `core/commands/entity_new.rs: execute` |
+| `new data-table` | read-only | multi-file atomic | entity XML, datatable.json | The entity XML and sidecar are created in one journaled transaction, or none is. Retry. | `core/commands/entity_new.rs: execute` |
+| `new stream` | read-only | multi-file atomic | entity XML | The entity XML is created in a journaled transaction; a file that appeared since the plan is refused. Retry. | `core/commands/entity_new.rs: execute` |
+| `new value-stream` | read-only | multi-file atomic | entity XML | The entity XML is created in a journaled transaction; a file that appeared since the plan is refused. Retry. | `core/commands/entity_new.rs: execute` |
+| `new media` | read-only | multi-file atomic | entity XML | The entity XML is created in a journaled transaction; a file that appeared since the plan is refused. Retry. | `core/commands/entity_new.rs: execute` |
+| `new style` | read-only | multi-file atomic | entity XML | The entity XML is created in a journaled transaction; a file that appeared since the plan is refused. Retry. | `core/commands/entity_new.rs: execute` |
+| `new state` | read-only | multi-file atomic | entity XML | The entity XML is created in a journaled transaction; a file that appeared since the plan is refused. Retry. | `core/commands/entity_new.rs: execute` |
+| `new menu` | read-only | multi-file atomic | entity XML | The entity XML is created in a journaled transaction; a file that appeared since the plan is refused. Retry. | `core/commands/entity_new.rs: execute` |
+| `new theme` | read-only | multi-file atomic | entity XML | The entity XML is created in a journaled transaction; a file that appeared since the plan is refused. Retry. | `core/commands/entity_new.rs: execute` |
+| `thing property` | read-only | multi-file atomic | entity XML, Things inheriting it | Every file is rewritten in one journaled transaction, or none is; a file edited since the plan read it is refused. Retry. | `core/commands/entity_edit.rs: execute` |
+| `thing subscription` | read-only | multi-file atomic | entity XML | Every file is rewritten in one journaled transaction, or none is; a file edited since the plan read it is refused. Retry. | `core/commands/entity_edit.rs: execute` |
+| `thing shape` | read-only | multi-file atomic | entity XML, Things inheriting it | Every file is rewritten in one journaled transaction, or none is; a file edited since the plan read it is refused. Retry. | `core/commands/entity_edit.rs: execute` |
+| `timer set` | read-only | multi-file atomic | entity XML | Every file is rewritten in one journaled transaction, or none is; a file edited since the plan read it is refused. Retry. | `core/commands/entity_edit.rs: execute` |
+| `scheduler set` | read-only | multi-file atomic | entity XML | Every file is rewritten in one journaled transaction, or none is; a file edited since the plan read it is refused. Retry. | `core/commands/entity_edit.rs: execute` |
+| `style set` | read-only | multi-file atomic | entity XML | Every file is rewritten in one journaled transaction, or none is; a file edited since the plan read it is refused. Retry. | `core/commands/entity_edit.rs: execute` |
+| `media set` | read-only | multi-file atomic | entity XML | Every file is rewritten in one journaled transaction, or none is; a file edited since the plan read it is refused. Retry. | `core/commands/entity_edit.rs: execute` |
+| `menu item` | read-only | multi-file atomic | entity XML | Every file is rewritten in one journaled transaction, or none is; a file edited since the plan read it is refused. Retry. | `core/commands/entity_edit.rs: execute` |
+| `state set` | read-only | multi-file atomic | entity XML | Every file is rewritten in one journaled transaction, or none is; a file edited since the plan read it is refused. Retry. | `core/commands/entity_edit.rs: execute` |
 | `retemplate` | read-only | single-file atomic | one entity XML | The entity is old or new; retry freely. | `core/commands/retemplate.rs: execute` |
+| `mashup describe` | read-only | read-only | none | Retry freely. | `core/mashup_describe.rs: describe` |
+| `mashup validate` | read-only | read-only | none | Retry freely. | `core/mashup_validate.rs: validate` |
+| `widgets` | read-only | read-only | none | Retry freely. | `core/widgets_view.rs: list` |
+| `mashup templates` | read-only | read-only | none | Retry freely. | `core/mashup_templates_view.rs: list` |
+| `mashup new` | read-only | multi-file atomic | new entity file, mashup sidecars | The entity file and its content.json and custom.css are created in one journaled transaction, or none is; a file that appeared since the plan is refused. Retry. | `core/commands/mashup.rs: new` |
+| `mashup add` | read-only | multi-file atomic | mashup entity file, content sidecar | The entity file and managed content.json are replaced in one journaled transaction, or neither is; a file edited since the plan read it is refused. Retry. | `core/commands/mashup.rs: add` |
+| `mashup add-contained` | read-only | multi-file atomic | mashup entity file, content sidecar | The entity file and managed content.json are replaced in one journaled transaction, or neither is; a file edited since the plan read it is refused. Retry. | `core/commands/mashup.rs: add_contained` |
+| `mashup bind` | read-only | multi-file atomic | mashup entity file, content sidecar | The entity file and managed content.json are replaced in one journaled transaction, or neither is; a file edited since the plan read it is refused. Retry. | `core/commands/mashup.rs: bind` |
+| `mashup recipe` | read-only | multi-file atomic | mashup entity file, content sidecar | The entity file and managed content.json are replaced in one journaled transaction, or neither is; a file edited since the plan read it is refused. Retry. | `core/commands/mashup.rs: recipe` |
+| `mashup on` | read-only | multi-file atomic | mashup entity file, content sidecar | The entity file and managed content.json are replaced in one journaled transaction, or neither is; a file edited since the plan read it is refused. Retry. | `core/commands/mashup.rs: on` |
+| `mashup param` | read-only | multi-file atomic | affected mashup entity files, content sidecars | Every child and parent container is replaced through one journaled transaction, or none is; a file edited since planning is refused. Retry. | `core/commands/mashup.rs: parameter` |
+| `mashup event` | read-only | multi-file atomic | affected mashup entity files, content sidecars | Every child and parent container is replaced through one journaled transaction, or none is; a file edited since planning is refused. Retry. | `core/commands/mashup.rs: event` |
 | `reproject` | read-only | multi-file atomic | entity files | Every moved file is rewritten and moved in one journaled transaction, or none is; a file edited since the plan read it is refused. Retry. | `core/commands/reproject.rs: execute` |
 | `entity restore` | read-only | server-partial | server entities | Read restored entities back before retrying. | `core/commands/restore.rs: execute` |
 | `entity carry` | read-only | server-partial | server permissions, ledger | Read permissions and ledger before retrying. | `core/commands/carry.rs: execute` |
@@ -163,7 +199,21 @@ when the command is asked to write. A local output named by an option is include
 | `rename` | read-only | multi-file atomic | XML, sidecars, ledger, SQL | A crash is finished or undone by the next command that takes the workspace lock; if it refuses, follow its message. Otherwise retry the reviewed plan. | `core/commands/rename.rs: execute` |
 | `move_member` | read-only | multi-file atomic | XML, sidecars | A crash is finished or undone by the next command that takes the workspace lock; if it refuses, follow its message. Otherwise retry. | `core/commands/relocate.rs: execute` |
 | `new_building_block` | read-only | multi-file atomic | project files, config | A crash is finished or undone by the next command that takes the workspace lock; if it refuses, follow its message. Otherwise retry. | `core/commands/newblock.rs: execute` |
+| `entity_new` | read-only | multi-file atomic | entity XML, DataShape sidecar | The entity XML and every managed sidecar are created in one journaled transaction, or none is; a file that appeared since the plan is refused. Retry. | `core/commands/entity_new.rs: execute` |
+| `entity_edit` | read-only | multi-file atomic | entity XML, Things inheriting it | Every file is rewritten in one journaled transaction, or none is; a file edited since the plan read it is refused. Retry. | `core/commands/entity_edit.rs: execute` |
 | `retemplate` | read-only | single-file atomic | one entity XML | The entity is old or new; retry freely. | `core/commands/retemplate.rs: execute` |
+| `mashup_describe` | read-only | read-only | none | Retry freely. | `core/mashup_describe.rs: describe` |
+| `mashup_validate` | read-only | read-only | none | Retry freely. | `core/mashup_validate.rs: validate` |
+| `widgets` | read-only | read-only | none | Retry freely. | `core/widgets_view.rs: list` |
+| `mashup_templates` | read-only | read-only | none | Retry freely. | `core/mashup_templates_view.rs: list` |
+| `mashup_new` | read-only | multi-file atomic | new entity file, mashup sidecars | The entity file and its content.json and custom.css are created in one journaled transaction, or none is; a file that appeared since the plan is refused. Retry. | `core/commands/mashup.rs: new` |
+| `mashup_add` | read-only | multi-file atomic | mashup entity file, content sidecar | The entity file and managed content.json are replaced in one journaled transaction, or neither is; a file edited since the plan read it is refused. Retry. | `core/commands/mashup.rs: add` |
+| `mashup_add_contained` | read-only | multi-file atomic | mashup entity file, content sidecar | The entity file and managed content.json are replaced in one journaled transaction, or neither is; a file edited since the plan read it is refused. Retry. | `core/commands/mashup.rs: add_contained` |
+| `mashup_bind` | read-only | multi-file atomic | mashup entity file, content sidecar | The entity file and managed content.json are replaced in one journaled transaction, or neither is; a file edited since the plan read it is refused. Retry. | `core/commands/mashup.rs: bind` |
+| `mashup_recipe` | read-only | multi-file atomic | mashup entity file, content sidecar | The entity file and managed content.json are replaced in one journaled transaction, or neither is; a file edited since the plan read it is refused. Retry. | `core/commands/mashup.rs: recipe` |
+| `mashup_on` | read-only | multi-file atomic | mashup entity file, content sidecar | The entity file and managed content.json are replaced in one journaled transaction, or neither is; a file edited since the plan read it is refused. Retry. | `core/commands/mashup.rs: on` |
+| `mashup_param` | read-only | multi-file atomic | affected mashup entity files, content sidecars | Every child and parent container is replaced through one journaled transaction, or none is; a file edited since planning is refused. Retry. | `core/commands/mashup.rs: parameter` |
+| `mashup_event` | read-only | multi-file atomic | affected mashup entity files, content sidecars | Every child and parent container is replaced through one journaled transaction, or none is; a file edited since planning is refused. Retry. | `core/commands/mashup.rs: event` |
 | `reproject` | read-only | multi-file atomic | entity files | Every moved file is rewritten and moved in one journaled transaction, or none is; a file edited since the plan read it is refused. Retry. | `core/commands/reproject.rs: execute` |
 | `config_table` | read-only | server-partial | server table, a named backup file | A backup is old or new; read the table back before retrying restore. | `core/commands/config_table.rs: execute` |
 | `logs` | read-only | read-only | none | Retry freely. | `mcp/data.rs: logs_tool` |
@@ -181,6 +231,7 @@ when the command is asked to write. A local output named by an option is include
 | `settings` | read-only | read-only | none | Retry freely. | `mcp/info.rs: settings_tool` |
 | `catalog` | read-only | read-only | none | Retry freely. | `mcp/info.rs: catalog_tool` |
 | `impact` | read-only | read-only | none | Retry freely. | `mcp/info.rs: impact_tool` |
+| `trace` | read-only | read-only | none | Retry freely. | `mcp/info.rs: trace_tool` |
 | `unused` | read-only | read-only | none | Retry freely. | `mcp/info.rs: unused_tool` |
 | `docs` | read-only | read-only | none | Retry freely. | `mcp/info.rs: docs_tool` |
 | `doctor` | read-only | read-only | none | Retry freely. | `mcp/info.rs: doctor_tool` |

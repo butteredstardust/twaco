@@ -6,6 +6,71 @@ All notable changes to twaco are recorded here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- `twaco trace <Entity>.<Service>` (MCP `trace`): how each caller uses a service. For each mashup,
+  what runs the call, what sets each parameter (or that it is unbound, and the default it gets) and
+  where each result field goes; for each script, the call, the variable and what it reads of the
+  result; and what the service itself calls.
+- `twaco adopt` lists base-type changes (a mashup parameter retyped from LONG to STRING, say) under
+  their own heading, and as `type_changes` in `--json` and MCP `adopt_report`; before, they were one
+  node in an entity's count unless `--detail` was given.
+- A `result shapes` check gate: a service whose script builds its result from another DataShape
+  than its definition declares. In 391 real services built this way it found 10, often a
+  same-named DataShape of another project.
+- `twaco call ... --as <test user>` (MCP `call` with `as`) makes one call as a declared
+  `[[test.user]]`, with the profile's `test_password`, on a profile that allows test users.
+- `twaco thing property|subscription|shape`, `timer set`, `scheduler set`, `style set`, `media set`,
+  `menu item` and `state set` (MCP `entity_edit`) change existing entities as Composer would, plan
+  until applied, and keep the stored values of persistent properties in every inheriting Thing.
+- `twaco new thing|thing-template|thing-shape|data-shape|timer|scheduler|data-table|stream|value-stream|media|style|state|menu|theme` (MCP `entity_new`)
+  plans or creates common ThingWorx 10.1 entity exports in the repository. DataShapes get their
+  `fields.json` sidecar and DataTables get `datatable.json`; timers and schedulers require a run-as
+  user and can carry an event script.
+
+- `twaco mashup add-contained` (MCP `mashup_add_contained`) adds a repository child mashup as a
+  Composer-compatible `mashupcontainer`, including its parameter cache and static input values.
+  Bindings and `mashup describe` now treat visible child parameters as the container's properties;
+  a binding repairs a stale container cache in the same edit.
+
+- `twaco mashup param add|set|remove` (MCP `mashup_param`) keeps mashup parameter definitions,
+  content metadata, binding base types and every containing mashupcontainer cache in step, planning
+  until applied in one transaction. `mashup new --param name:TYPE[:DIRECTION]` creates scalar
+  parameters with a new mashup, and `mashup describe` reports container cache health.
+- `twaco mashup templates` (MCP `mashup_templates`) lists the 14 embedded responsive mashup templates and their slots. `mashup new --template <name>` creates any one of them, accepts aliases, reports its slots, places master pages in the template's master slot, and finds menu bars from the generated document; `--layout` remains a compatibility alias.
+- `twaco mashup on <mashup> --event <address> --invoke <address>` (MCP `mashup_on`) makes a widget event (from its catalogue contract), the page's `mashup:Loaded` or a call's `ServiceInvokeCompleted` run a data service or a widget service, adding a Thing service call when needed. It plans until applied and updates the entity plus managed content sidecar atomically.
+- `twaco mashup bind <mashup> --from <address> --to <address>` (MCP `mashup_bind`) adds one checked mashup data binding, creating a Thing service call when needed. It plans until applied and updates the entity plus managed content sidecar atomically.
+- `twaco mashup add <mashup> <widget>` (MCP `mashup_add`) adds a catalogue widget to an existing responsive mashup, in a container or beside another widget, with simple label and property settings. It plans until applied and updates the entity plus managed content sidecar atomically.
+- `twaco widgets [<widget>] [--search <text>]` (MCP `widgets`) reads the embedded ThingWorx 10.2 widget catalogue without a solution or server: its types, Composer labels, aliases, containers and binding contracts; detail gives bindable properties with directions, events and services. `--json` returns the same data.
+- `twaco mashup describe <mashup>` (MCP `mashup_describe`) shows what a mashup holds and how it is wired, without its XML: the widget tree (row/column containers, which widget fills its container, text and `[[tokens]]`), its parameters, each service it calls with what sets each declared parameter (a binding, `static`, or `unbound`) and what runs it, each binding (one row per property map, with a warning when a binding has more than one, since the runtime applies only the first) and each event. `--json` for the same as data.
+- `twaco mashup validate <mashup>|--all` (MCP `mashup_validate`) reports what ThingWorx would load but not honour: bindings and events to widgets, sources or calls that are gone, bindings against a widget's contract, several property maps, contained-mashup drift. On two real solutions it found 110 orphaned bindings, a misspelt expression input and three stale popup caches, and nothing that was not a problem.
+- `mashup describe` says what each function widget does: what an expression computes and feeds, what a validator checks and runs, which mashup a navigation function opens and passes, what a status message shows and when.
+- `twaco mashup recipe <recipe> <mashup> ...` (MCP `mashup_recipe`) writes the wiring real mashups repeat in one edit: enable-when, show-when, text, message, confirm, popup, close-after, auto-refresh and validate, and chart, columns and picker, which configure a chart, a grid or a dropdown from a service result and check every field against its DataShape.
+- `twaco mashup event add <mashup> <name> --when <event>` (MCP `mashup_event`) gives a mashup an event its parents can react to: a NUMBER parameter set to the time when the event fires, the way real mashups signal since ThingWorx has no contained-mashup events. `mashup on --event ui:<container>.<name>` in a parent reacts through an events router.
+- The widget catalogue knows the function widgets ThingWorx 10.2 offers: expressions, validators, events routers, navigation functions, status messages and auto-refresh, with their events and services. `mashup add` puts one beside the layout (`--input name:TYPE` declares an expression's or validator's inputs), and `mashup bind` / `mashup on` wire their inputs, outputs, events and services.
+- `twaco check` has a `contained mashups` gate: a binding to a parameter that a contained mashup's or navigation function's copy of the parameters lacks, or that the mashup it shows no longer declares. ThingWorx drops those values without a word; three real popups in a shipped product had them. `mashup param set <mashup> <parameter>` with no other change refreshes every copy and leaves the bindings alone.
+- `mashup new --template tabs --tab "Label=Mashup"...` (MCP `mashup_new` with `template: "tabs"` and `tabs`) makes a page whose tab set shows a mashup in each tab, each in the tab container Composer gives it with the mashup's parameters cached; two more templates: `sidebar-header` (the stock ThingWorx master shape) and `dashboard`.
+- `twaco mashup new <name>` (MCP `mashup_new`) creates a ThingWorx 10.2 responsive mashup in the repository as Composer would: the entity file from the 10.2 template and its `content.json` / `custom.css` sidecars, written by the same sync as any mashup, in one transaction. `--layout sidebar` binds required `--primary-menu` and optional `--secondary-menu` INFOTABLE services to its menu bar and loads them with the page; `--layout header-footer` creates fixed header and footer regions. `--master` makes a master mashup with a page container filling the center; `--theme` takes a StyleTheme in the solution (default PTC Convergence Theme); `--visibility Organization/<name>` or `OrganizationalUnit/<org>:<unit>` grants visibility, and nothing is granted unless asked. Plans until `--apply`.
+
+### Changed
+
+- Entity hashes are version 6: a Thing's stored values (`ThingProperties`) compare in any order and
+  without their timestamp and quality, because a 10.1 export reorders them and an import re-stamps a
+  value whose property changed. Baselines from v5 count as unrecorded until the next deploy
+  or `entity status --all --record`.
+
+### Fixed
+
+- `twaco deploy` and `entity status` handle a MediaEntity the server does not have yet: the
+  export route answers it with an empty collection and HTTP 200, which read as malformed XML and
+  stopped the deploy. It is now absent, like any other missing entity.
+- A flag with an optional value, given bare, no longer takes the next flag as its value
+  (`--default --label Main`); a negative value still works.
+- `twaco entity delete` no longer fails on a disabled Thing, whose dependency service answers
+  HTTP 503: its dependents are reported as unknown, refused under `outside_dependents` until
+  acknowledged, and warned about when they are.
+- `twaco impact <entity> --member <service>` narrows mashups to those that bind that service. An exported mashup lists a data source's services as `Services: [{Name, Target}]`, which the index did not read, so every mashup binding any service of the entity was reported as a dependent of each of them.
+
 ## [0.1.9] - 2026-10-15
 
 ### Added

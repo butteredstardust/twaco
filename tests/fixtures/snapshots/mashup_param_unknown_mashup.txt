@@ -1,0 +1,7 @@
+$ twaco mashup param add Acme.Orders.Nope_MU orderId --type LONG
+exit: 2
+
+--- stdout
+
+--- stderr
+twaco: no mashup Acme.Orders.Nope_MU in the solution

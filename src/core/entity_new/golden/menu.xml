@@ -1,0 +1,93 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Entities
+ majorVersion="10"
+ minorVersion="1"
+ universal="password">
+    <Menus>
+        <Menu
+         description=""
+         documentationContent=""
+         homeMashup=""
+         imageURL=""
+         menuLabel=""
+         name="Acme.Orders.Main_MN"
+         projectName="Acme.Orders"
+         tags="">
+            <avatar></avatar>
+            <DesignTimePermissions>
+                <Create></Create>
+                <Read></Read>
+                <Update></Update>
+                <Delete></Delete>
+                <Metadata></Metadata>
+            </DesignTimePermissions>
+            <RunTimePermissions></RunTimePermissions>
+            <VisibilityPermissions>
+                <Visibility></Visibility>
+            </VisibilityPermissions>
+            <ConfigurationTableDefinitions></ConfigurationTableDefinitions>
+            <ConfigurationTables></ConfigurationTables>
+            <MenuItems>
+                <MenuItem description="" imageURL="" isDefault="true" linkDestination="Acme.Orders.Home_MU" linkTarget="Self" linkType="Mashup" title="Home">
+                    <GroupReferences><Members></Members></GroupReferences>
+                </MenuItem>
+                <MenuItem description="" imageURL="" isDefault="false" linkDestination="Acme.Orders.Orders_MU" linkTarget="Self" linkType="Mashup" title="Orders">
+                    <GroupReferences><Members></Members></GroupReferences>
+                </MenuItem>
+            </MenuItems>
+            <GroupReferences><Members></Members></GroupReferences>
+            <effectiveMenu>
+                <DataShape>
+                    <FieldDefinitions>
+                        <FieldDefinition baseType="STRING" description="Description for tooltip" name="description" ordinal="0"></FieldDefinition>
+                        <FieldDefinition baseType="IMAGELINK" description="Optional image URL" name="imageURL" ordinal="0"></FieldDefinition>
+                        <FieldDefinition aspect.defaultValue="false" baseType="BOOLEAN" description="Is a default menu item" name="isDefault" ordinal="0"></FieldDefinition>
+                        <FieldDefinition aspect.defaultValue="false" baseType="BOOLEAN" description="Is disabled" name="isDisabled" ordinal="0"></FieldDefinition>
+                        <FieldDefinition aspect.defaultValue="false" baseType="BOOLEAN" description="Is hidden" name="isHidden" ordinal="0"></FieldDefinition>
+                        <FieldDefinition aspect.isPrimaryKey="true" baseType="STRING" description="Link destination" name="linkDestination" ordinal="0"></FieldDefinition>
+                        <FieldDefinition baseType="STRING" description="Link target (Popup, Mashup, New)" name="linkTarget" ordinal="0"></FieldDefinition>
+                        <FieldDefinition aspect.isPrimaryKey="true" baseType="STRING" description="Link type (Mashup, Hyperlink, Logout, or Menu)" name="linkType" ordinal="0"></FieldDefinition>
+                        <FieldDefinition baseType="STRING" description="Menu entry id" name="menuId" ordinal="0"></FieldDefinition>
+                        <FieldDefinition baseType="STRING" description="Menu entry parent id" name="parentMenuId" ordinal="0"></FieldDefinition>
+                        <FieldDefinition baseType="STRING" description="Menu entry title" name="title" ordinal="0"></FieldDefinition>
+                        <FieldDefinition baseType="STRING" description="An optional field that specifies the tooltip text for the menu item" name="tooltip" ordinal="0"></FieldDefinition>
+                        <FieldDefinition baseType="IMAGELINK" description="An optional field that specifies the tooltip icon for the menu item" name="tooltipIcon" ordinal="0"></FieldDefinition>
+                    </FieldDefinitions>
+                </DataShape>
+                <Rows>
+                    <Row>
+                        <description></description>
+                        <imageURL></imageURL>
+                        <linkPriority>0.0</linkPriority>
+                        <linkType><![CDATA[Menu]]></linkType>
+                        <menuId><![CDATA[Acme.Orders.Main_MN]]></menuId>
+                        <parentMenuId></parentMenuId>
+                        <title></title>
+                    </Row>
+                    <Row>
+                        <description></description>
+                        <imageURL></imageURL>
+                        <isDefault>true</isDefault>
+                        <linkDestination><![CDATA[Acme.Orders.Home_MU]]></linkDestination>
+                        <linkTarget><![CDATA[Self]]></linkTarget>
+                        <linkType><![CDATA[Mashup]]></linkType>
+                        <menuId><![CDATA[Acme.Orders.Main_MN_0]]></menuId>
+                        <parentMenuId><![CDATA[Acme.Orders.Main_MN]]></parentMenuId>
+                        <title><![CDATA[Home]]></title>
+                    </Row>
+                    <Row>
+                        <description></description>
+                        <imageURL></imageURL>
+                        <isDefault>false</isDefault>
+                        <linkDestination><![CDATA[Acme.Orders.Orders_MU]]></linkDestination>
+                        <linkTarget><![CDATA[Self]]></linkTarget>
+                        <linkType><![CDATA[Mashup]]></linkType>
+                        <menuId><![CDATA[Acme.Orders.Main_MN_1]]></menuId>
+                        <parentMenuId><![CDATA[Acme.Orders.Main_MN]]></parentMenuId>
+                        <title><![CDATA[Orders]]></title>
+                    </Row>
+                </Rows>
+            </effectiveMenu>
+        </Menu>
+    </Menus>
+</Entities>

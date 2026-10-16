@@ -113,6 +113,16 @@ pub(crate) fn docs_tool(
     }))
 }
 
+pub(crate) fn trace_tool(
+    solution: &Solution,
+    arguments: tool::TraceRequest,
+) -> Result<Value, ToolError> {
+    let service = nonempty(&arguments.service, "service")?;
+    let trace = crate::core::trace::run(solution, service, arguments.param.as_deref())
+        .map_err(ToolError::coded)?;
+    serde_json::to_value(&trace).map_err(|error| ToolError::invalid(error.to_string()))
+}
+
 pub(crate) fn impact_tool(
     solution: &Solution,
     arguments: tool::ImpactRequest,

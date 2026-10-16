@@ -1,0 +1,40 @@
+{
+  "name": "header-sidebar",
+  "summary": "Header above a menu sidebar and center content area",
+  "aliases": [],
+  "page": {
+    "flex-direction": "column",
+    "align-items": "stretch"
+  },
+  "master_slot": "center",
+  "children": [
+    {
+      "slot": "header",
+      "flex-direction": "row",
+      "align-items": "center",
+      "justify-content": "space-between",
+      "fixed": "50px"
+    },
+    {
+      "slot": "body",
+      "flex-direction": "row",
+      "flex-grow": 1,
+      "align-items": "stretch",
+      "children": [
+        {
+          "slot": "sidebar",
+          "flex-direction": "row",
+          "flex-grow": 0,
+          "align-items": "stretch",
+          "widget": "ptcsmenubar"
+        },
+        {
+          "slot": "center",
+          "flex-direction": "column",
+          "flex-grow": 1,
+          "align-items": "stretch"
+        }
+      ]
+    }
+  ]
+}

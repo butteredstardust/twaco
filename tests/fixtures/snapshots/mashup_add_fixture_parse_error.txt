@@ -1,0 +1,7 @@
+$ twaco mashup add Acme.Orders.Dashboard grid
+exit: 2
+
+--- stdout
+
+--- stderr
+twaco: Acme.Orders.Dashboard: UI has no Properties object

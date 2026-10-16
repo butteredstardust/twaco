@@ -1,0 +1,9 @@
+$ twaco new data-shape Acme.Orders.NewOrder_DS --field id:STRING:primary --field created:DATETIME
+exit: 0
+
+--- stdout
+would create data-shape Acme.Orders.NewOrder_DS in project Acme.Orders
+  files: DataShapes/Acme.Orders.NewOrder_DS.xml, src/Acme.Orders.NewOrder_DS/fields.json
+run again with --apply to write it
+--- stderr
+

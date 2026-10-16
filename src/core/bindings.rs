@@ -306,15 +306,17 @@ fn analyse(solution: &Solution) -> (Report, FieldUsage) {
     (report, usage)
 }
 
-struct Section {
-    entity: String,
-    collection: String,
-    services: Vec<Call>,
+pub(crate) struct Section {
+    pub(crate) entity: String,
+    pub(crate) collection: String,
+    pub(crate) services: Vec<Call>,
 }
-struct Call {
-    instance: String,
-    target: String,
-    static_parameters: Vec<String>,
+pub(crate) struct Call {
+    /// The mashup's name for the call (`Name`), which bindings and events address.
+    pub(crate) instance: String,
+    /// The service it calls (`Target`).
+    pub(crate) target: String,
+    pub(crate) static_parameters: Vec<String>,
 }
 
 struct Site<'a> {
@@ -324,7 +326,7 @@ struct Site<'a> {
     service: &'a str,
 }
 
-fn data_sections(content: &Value) -> BTreeMap<String, Section> {
+pub(crate) fn data_sections(content: &Value) -> BTreeMap<String, Section> {
     let mut out = BTreeMap::new();
     let Some(data) = content.get("Data").and_then(Value::as_object) else {
         return out;
@@ -406,7 +408,7 @@ fn service_at<'a>(
 
 /// The model indexed by name, and each service looked up once: a large solution binds the same
 /// few services from hundreds of mashups.
-struct Resolver<'a> {
+pub(crate) struct Resolver<'a> {
     model: &'a Model,
     platform: Option<&'a types::Platform>,
     entities: HashMap<(&'a str, &'a str), &'a Entity>,
@@ -415,7 +417,7 @@ struct Resolver<'a> {
 }
 
 impl<'a> Resolver<'a> {
-    fn new(model: &'a Model, platform: Option<&'a types::Platform>) -> Self {
+    pub(crate) fn new(model: &'a Model, platform: Option<&'a types::Platform>) -> Self {
         let mut entities = HashMap::new();
         for entity in &model.entities {
             // The first of two same-named entities, as a search through the list finds it.
@@ -436,7 +438,7 @@ impl<'a> Resolver<'a> {
         }
     }
 
-    fn service(&self, section: &Section, service: &str) -> catalog::ServiceLookup {
+    pub(crate) fn service(&self, section: &Section, service: &str) -> catalog::ServiceLookup {
         let key = (
             section.collection.clone(),
             section.entity.clone(),

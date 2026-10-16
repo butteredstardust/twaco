@@ -35,6 +35,11 @@ usage: twaco <command>
       --detail                list every dependent and the chain of references to each
       --json                  the report as JSON (chains with --detail)
       --dot                   the dependents as a Graphviz graph
+  trace <Entity>.<Service> [--param <name>] [--json]
+                              how each caller uses a service: what runs each mashup call, what sets
+                              each parameter, where each result field goes, the arguments each script
+                              passes and what it reads of the result, and what the service calls
+      --param <name>          only that parameter's sources
   unused [--min-confidence structural|resolved|review] [--collection <name>] [--fields]
                               entities no entry point reaches; advisory, deletes nothing
       --fields                result fields mashups bind, which no mashup binds or names
@@ -99,6 +104,99 @@ usage: twaco <command>
                               under that project's root; the plan names each reference the move puts
                               outside the deploy order, with the depends_on that allows it
       --to <project>          the project they move to
+  widgets [<widget>] [--search <text>] [--json]
+                              the embedded ThingWorx 10.2 widget catalogue: types, Composer labels,
+                              aliases, containers and bindable properties, events and services
+  mashup validate <mashup>|--all [--json]
+                              what in a mashup ThingWorx would load but not honour, or the next edit would
+                              trip over: structure, ids, bindings and events that name what is not there,
+                              catalogue contracts, several property maps, contained-mashup drift;
+                              exit 1 when it finds any
+  mashup describe <mashup> [--json]
+                              what a mashup holds and how it is wired, without its XML: the widget tree,
+                              each service it calls with what sets each parameter (or that nothing does),
+                              each binding and each event, in the addresses mashup bind and on take
+  mashup add <mashup> <widget> [--in <container> | --right-of <widget> | --left-of <widget> | --above <widget> | --below <widget>]
+      [--label <text>] [--prop <name=value>]... [--input <name:TYPE>]... [--apply] [--json]
+                              add a catalogue widget to a mashup; plan unless --apply; a function widget
+                              (expression, validator, navigation...) goes beside the layout
+      --in <container>        add inside a responsive container (center when omitted)
+      --right-of/--left-of/--above/--below <widget>
+                              place beside an existing widget
+      --label <text>          set the widget's LabelText, Label, Text or Title property
+      --prop <name=value>     set one simple catalogue default property, repeatable
+      --input <name:TYPE>     an expression's or validator's input, repeatable
+  mashup add-contained <parent> <child> [--in <container> | --right-of <widget> | --left-of <widget> | --above <widget> | --below <widget>]
+      [--set <parameter=value>]... [--apply] [--json]
+                              add a child mashup as a contained mashup; plan unless --apply
+      --in <container>        add inside a responsive container (center when omitted)
+      --right-of/--left-of/--above/--below <widget>
+                              place beside an existing widget
+      --set <parameter=value> set a visible input parameter on the child
+  mashup bind <mashup> --from <address> --to <address> [--apply] [--json]
+                              add one data binding to a mashup; plan unless --apply
+      --from <address>        source address from mashup describe
+      --to <address>          target address from mashup describe
+  mashup on <mashup> --event <address> --invoke <address> [--apply] [--json]
+                              run a service or widget service when a mashup event fires; plan unless --apply
+      --event <address>       event address from mashup describe
+      --invoke <address>      data call or widget service to run
+  mashup param <add|set|remove> <mashup> <name> [--type <BASETYPE>] [--direction <IN|OUT|BOTH>]
+      [--description <text>] [--default <value> | --no-default] [--data-shape <DataShape>] [--force] [--apply] [--json]
+                              change a mashup parameter and every contained-mashup cache; plan unless --apply
+      --type <BASETYPE>       required by add; ThingWorx base type
+      --direction              IN, OUT or BOTH (BOTH by default for add)
+      --default                a scalar default value
+      --no-default             clear the default on set
+      --data-shape             required for INFOTABLE
+      --force                  remove bindings when removing a parameter
+  mashup recipe <recipe> <mashup> [<widget>] [recipe flags] [--apply] [--json]
+                              write the wiring real mashups repeat, in one edit; plan unless --apply
+      enable-when|show-when <widget> --if <condition> [--input name=<address>]...
+                              an expression into the widget's Disabled or Visible
+      text <label> --expr <expression> [--input name=<address>]...
+                              a label's text computed from its inputs
+      message --after <data call> (--say <text> | --from <address>) [--kind info|warning|error]
+                              a status message when the call completes
+      confirm <button> --then <handler> [--title <text>] [--say <text>]
+                              a confirmation before the click runs the handler
+      popup <widget>|--on <event> --mashup <name> [--window modal-popup|popup|replace|new]
+          [--size <WxH>] [--title <text>] [--pass name=<address>]... [--reload <handler>]
+                              open a mashup, pass it values, run the handler when it closes
+      close-after --after <data call>
+                              the popup closes itself when the call completes
+      auto-refresh --then <data call> (--every <seconds> | --interval <address>)
+                              run the call again every so often
+      validate <widget>|--on <event> --if <condition> [--input name=<address>]... --then <handler>
+          [--else-say <text>]   run the handler when the condition holds, else show the text
+      chart <chart> --data <data call> --x <field> [--value <field>] [--kind <chart type>]
+                              draw a service result: the category field (a pie: label and value)
+      columns <grid> --column field[:Title[:width]]... [--data <data call>]
+                              a grid's columns, rendered by each field's base type
+      picker <dropdown|list> --data <data call> --x <display field> [--value <field>]
+          [--selected <address>]   fill a dropdown or list from a service result
+  mashup event add <mashup> <name> --when <address> [--apply] [--json]
+                              give a mashup an event its parents react to with mashup on --event
+                              ui:<container>.<name>: a NUMBER parameter set to the time when the
+                              event at --when fires; plan unless --apply
+      --when <address>        the event in this mashup that fires it, as mashup on --event takes it
+  mashup templates [<name>] [--json]
+                              list the embedded responsive mashup templates and their slots
+  mashup new <name> [--project <name>] [--template <name>] [--primary-menu <address>]
+      [--secondary-menu <address>] [--theme <StyleTheme>] [--master]
+      [--visibility <principal>]... [--param <name:TYPE[:DIRECTION]>]... [--tab <Label=Mashup>]...
+      [--apply] [--json]
+                              create a ThingWorx 10.2 responsive mashup as Composer would: its entity file
+                              and its content sidecars; plan unless --apply
+      --template              layout template name or alias (default: blank); see mashup templates
+      --layout                compatibility alias for --template
+      --primary-menu          required INFOTABLE service result for a template's menu bar
+      --secondary-menu        optional INFOTABLE service result for a template's menu bar
+      --theme <StyleTheme>    a StyleTheme in the solution (default: PTC Convergence Theme)
+      --master                a master mashup, with a page container filling the center
+      --visibility            Organization/<name> or OrganizationalUnit/<organization>:<unit>, repeatable;
+                              none unless given
+      --tab                   with --template tabs: a tab's label and the mashup it shows, repeatable
   new building-block <name> [--type standard|abstract|implementation] [--display-name <text>] [--description <text>]
       [--parent <block>] [--model-logic] [--no-management-shape] [--root <dir>] [--base-extension PTC.Base:<version>]
       [--apply] [--json]
@@ -110,6 +208,87 @@ usage: twaco <command>
       --no-management-shape   an implementation without its own Management_TS
       --root <dir>            the project's folder (default: the block's name)
       --base-extension        the PTC.Base extension version to depend on (default: what another project declares)
+  thing property add <Entity> <name>:<TYPE> [--default <value>] [--persistent] [--logged]
+      [--read-only] [--category <text>] [--units <text>] [--data-shape <DataShape>]
+      [--description <text>] [--apply] [--json]
+  thing property set <Entity> <name>[:<TYPE>] [the add flags] [--no-default] [--no-persistent]
+      [--no-logged] [--no-read-only] [--force] [--apply] [--json]
+  thing property remove <Entity> <name> [--force] [--apply] [--json]
+                              add, change or remove a property of a Thing, ThingTemplate or
+                              ThingShape; a persistent one also writes the stored value of every
+                              Thing that has it; plan unless --apply
+      --force                 remove or retype a property something still uses (they are listed)
+  thing subscription add <Entity> <name> --event <Event> [--source <Thing>]
+      [--source-property <property>] (--then <code> | --script <file.js>) [--apply] [--json]
+  thing subscription remove <Entity> <name> [--apply] [--json]
+                              add or remove a script subscription; no --source is the entity
+                              itself; plan unless --apply
+  thing shape <add|remove> <Thing|ThingTemplate> <ThingShape> [--force] [--apply] [--json]
+                              implement a ThingShape, or stop; refused when a member clashes, or
+                              when something still uses a member the entity loses; plan unless --apply
+      --force                 stop implementing it anyway (what uses its members is listed)
+  timer set <Timer> [--every <duration>] [--run-as <user>] [--enabled|--disabled] [--apply]
+      [--json]
+                              change a Timer Thing's settings; plan unless --apply
+  scheduler set <Scheduler> [--cron <quartz cron>] [--run-as <user>] [--enabled|--disabled]
+      [--apply] [--json]
+                              change a Scheduler Thing's settings; plan unless --apply
+  style set <StyleDefinition> [--background <color>] [--foreground <color>]
+      [--secondary-background <color>] [--line-color <color>] [--line-style <style>]
+      [--line-thickness <n>] [--bold|--no-bold] [--italic|--no-italic] [--underline|--no-underline]
+      [--text-size <size>] [--image <MediaEntity>] [--display-string <text>] [--apply] [--json]
+                              change only the given keys of a style; an empty color clears it;
+                              plan unless --apply
+  media set <MediaEntity> --file <path> [--apply] [--json]
+                              replace a MediaEntity's image (PNG, JPEG, GIF or SVG, up to 10 MB);
+                              plan unless --apply
+  menu item add <Menu> <Title>=<Mashup> [--default] [--before <Title>] [--apply] [--json]
+  menu item remove <Menu> <Title> [--apply] [--json]
+                              add or remove a mashup item, keeping the effective menu in step;
+                              plan unless --apply
+  state set <StateDefinition> --type numeric|string --state <spec>... [--apply] [--json]
+                              replace a StateDefinition's states (the specs of new state);
+                              plan unless --apply
+  new thing <name> [--project <name>] [--description <text>] [--template <ThingTemplate>] [--shape <ThingShape>]...
+      [--value-stream <ValueStream>] [--visibility <principal>]... [--apply] [--json]
+                              create a ThingWorx Thing as a repository file; plan unless --apply
+  new thing-template <name> [--project <name>] [--description <text>] [--base <ThingTemplate>] [--shape <ThingShape>]...
+      [--visibility <principal>]... [--apply] [--json]
+                              create a ThingWorx ThingTemplate as a repository file; plan unless --apply
+  new thing-shape <name> [--project <name>] [--description <text>] [--visibility <principal>]... [--apply] [--json]
+                              create a ThingWorx ThingShape as a repository file; plan unless --apply
+  new data-shape <name> --field <name:TYPE[:primary]>... [--project <name>] [--description <text>] [--base <DataShape>]
+      [--visibility <principal>]... [--apply] [--json]
+                              create a DataShape and its fields.json sidecar; plan unless --apply
+  new timer <name> --run-as <user> [--project <name>] [--every <duration>] [--disabled] [--then <code>|--script <file.js>]
+      [--description <text>] [--visibility <principal>]... [--apply] [--json]
+                              create a Timer Thing and optional Timer subscription; plan unless --apply
+  new scheduler <name> --run-as <user> [--project <name>] [--cron <quartz cron>] [--disabled] [--then <code>|--script <file.js>]
+      [--description <text>] [--visibility <principal>]... [--apply] [--json]
+                              create a Scheduler Thing and optional ScheduledEvent subscription; plan unless --apply
+  new data-table <name> --data-shape <DataShape> [--project <name>] [--description <text>]
+      [--index name=field1,field2]... [--apply] [--json]
+                              create a persistent DataTable and datatable.json; plan unless --apply
+  new stream <name> --data-shape <DataShape> [--project <name>] [--description <text>] [--apply] [--json]
+                              create a persistent Stream; plan unless --apply
+  new value-stream <name> [--project <name>] [--description <text>] [--apply] [--json]
+                              create a persistent ValueStream; plan unless --apply
+  new media <name> --file <path> [--project <name>] [--description <text>] [--apply] [--json]
+                              create a PNG, JPEG, GIF, or SVG MediaEntity; plan unless --apply
+  new style <name> [--project <name>] [--description <text>] [--background <color>] [--foreground <color>]
+      [--secondary-background <color>] [--line-color <color>] [--line-style solid|dashed|dotted|none]
+      [--line-thickness <n>] [--bold] [--italic] [--underline] [--text-size <size>]
+      [--image <MediaEntity>] [--display-string <text>] [--apply] [--json]
+                              create a StyleDefinition; plan unless --apply
+  new state <name> --type numeric|string --state <spec>... [--project <name>] [--description <text>]
+      [--apply] [--json]
+                              create a StateDefinition; plan unless --apply
+  new menu <name> --item <Title=Mashup>... [--project <name>] [--description <text>] [--default]
+      [--label <text>] [--apply] [--json]
+                              create a Menu; plan unless --apply
+  new theme <name> [--project <name>] [--description <text>] [--from <StyleTheme>]
+      [--prop name=value]... [--apply] [--json]
+                              create a StyleTheme; plan unless --apply
   entity status [<entity>|--all] [--detail] [--record]
       --record                 record matching working/server hashes as baseline
   entity get <entity>         fetch raw server XML to stdout or --out <path>
@@ -194,9 +373,11 @@ usage: twaco <command>
   db query <file.sql>|-q <sql> [--thing <name>] [--max-rows <n>] [--timeout <seconds>] [--detail] [--json]
                               run a read-only SQLQuery; summary shows columns and first 20 rows
   db clean [--apply] [--json] delete temporary ZZ.Twaco.Sql.* Things an interrupted db run left; plan unless --apply
-  call <target> <service> [<json>] [--timeout <seconds>] [--detail]
+  call <target> <service> [<json>] [--timeout <seconds>] [--detail] [--as <test user>]
                               target: Collection/Name, or an entity by name or last segment
       --with-logs             then what it wrote to ScriptLog and ApplicationLog (waits up to 3 s)
+      --as <test user>        call as a [[test.user]] with the profile's test_password (the profile
+                              needs allow_test_users): 404 if the user cannot see it, 401 a bad password
   logs <log>                  read a server log: ApplicationLog, ScriptLog, CommunicationLog,
                               ConfigurationLog, SecurityLog (newest first; times are local)
       --since <n><s|m|h|d>    how far back (default 1h); or --from <time> --to <time>

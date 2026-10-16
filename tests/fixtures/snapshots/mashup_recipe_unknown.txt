@@ -1,0 +1,7 @@
+$ twaco mashup recipe sparkle Acme.Orders.Dashboard
+exit: 2
+
+--- stdout
+
+--- stderr
+twaco: unknown recipe sparkle; the recipes are enable-when, show-when, text, message, confirm, popup, close-after, auto-refresh, validate, chart, columns, picker

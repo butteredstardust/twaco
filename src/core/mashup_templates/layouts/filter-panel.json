@@ -1,0 +1,29 @@
+{
+  "name": "filter-panel",
+  "summary": "Fixed filters beside flexible content",
+  "aliases": [
+    "filters"
+  ],
+  "page": {
+    "flex-direction": "row",
+    "align-items": "stretch"
+  },
+  "master_slot": "content",
+  "children": [
+    {
+      "slot": "filters",
+      "flex-direction": "column",
+      "align-items": "stretch",
+      "fixed": "290px"
+    },
+    {
+      "divider": true
+    },
+    {
+      "slot": "content",
+      "flex-direction": "column",
+      "flex-grow": 1,
+      "align-items": "stretch"
+    }
+  ]
+}

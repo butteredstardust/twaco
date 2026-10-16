@@ -32,11 +32,18 @@ use cli::entity::{
     entity_status, permissions_apply_cmd, permissions_audit_cmd, permissions_cmd,
     permissions_init_cmd,
 };
+use cli::entity_edit::entity_edit_cmd;
+use cli::entity_new::entity_new_cmd;
 use cli::info::{
     catalog_cmd, docs_cmd, guide_cmd, help_cmd, impact_cmd, javadoc_cmd, settings_cmd, unused_cmd,
     update_cmd, write_agent_files,
 };
 use cli::localization::localization_cmd;
+use cli::mashup::{
+    mashup_add_cmd, mashup_add_contained_cmd, mashup_bind_cmd, mashup_describe_cmd,
+    mashup_event_cmd, mashup_new_cmd, mashup_on_cmd, mashup_param_cmd, mashup_recipe_cmd,
+    mashup_templates_cmd, mashup_validate_cmd,
+};
 use cli::refactor::{
     adopt_cmd, handoff_cmd, new_building_block_cmd, relocate_cmd, rename_cmd, reproject_cmd,
     retemplate_cmd,
@@ -44,6 +51,7 @@ use cli::refactor::{
 use cli::service_tests::test_cmd;
 use cli::source::{bundle, check, deploy_cmd, extract, fmt, sync_cmd, types_cmd};
 use cli::users::users_cmd;
+use cli::widgets::widgets_cmd;
 
 /// Success.
 const OK: u8 = 0;
@@ -162,6 +170,8 @@ fn dispatch(route: &str, parsed: &Args) -> u8 {
         // doctor diagnoses a missing solution rather than failing on it.
         "doctor" => return doctor_cmd(parsed),
         "mcp" => return mcp_cmd(),
+        "widgets" => return widgets_cmd(parsed),
+        "mashup templates" => return mashup_templates_cmd(parsed),
         _ => {}
     }
 
@@ -193,6 +203,7 @@ fn dispatch(route: &str, parsed: &Args) -> u8 {
             "settings" => settings_cmd(solution, parsed),
             "catalog" => catalog_cmd(solution, parsed),
             "impact" => impact_cmd(solution, parsed),
+            "trace" => cli::info::trace_cmd(solution, parsed),
             "unused" => unused_cmd(solution, parsed),
             "docs" => docs_cmd(solution, parsed),
             "package" => package_cmd(solution, parsed),
@@ -211,7 +222,25 @@ fn dispatch(route: &str, parsed: &Args) -> u8 {
             }
             "retemplate" => retemplate_cmd(solution, parsed),
             "reproject" => reproject_cmd(solution, parsed),
+            "mashup add" => mashup_add_cmd(solution, parsed),
+            "mashup add-contained" => mashup_add_contained_cmd(solution, parsed),
+            "mashup bind" => mashup_bind_cmd(solution, parsed),
+            "mashup on" => mashup_on_cmd(solution, parsed),
+            "mashup param" => mashup_param_cmd(solution, parsed),
+            "mashup event" => mashup_event_cmd(solution, parsed),
+            "mashup recipe" => mashup_recipe_cmd(solution, parsed),
+            "mashup new" => mashup_new_cmd(solution, parsed),
+            "mashup describe" => mashup_describe_cmd(solution, parsed),
+            "mashup validate" => mashup_validate_cmd(solution, parsed),
             "new building-block" => new_building_block_cmd(solution, parsed),
+            "new thing" | "new thing-template" | "new thing-shape" | "new data-shape"
+            | "new timer" | "new scheduler" | "new data-table" | "new stream"
+            | "new value-stream" | "new media" | "new style" | "new state" | "new menu"
+            | "new theme" => entity_new_cmd(solution, route, parsed),
+            "thing property" | "thing subscription" | "thing shape" | "timer set"
+            | "scheduler set" | "style set" | "media set" | "menu item" | "state set" => {
+                entity_edit_cmd(solution, route, parsed)
+            }
             "config-table" => config_table(solution, parsed),
             "entity get" => entity_get(solution, parsed),
             "entity status" => entity_status(solution, parsed),

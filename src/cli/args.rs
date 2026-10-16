@@ -22,6 +22,27 @@ pub(crate) struct Args {
     pub(crate) restore: Option<PathBuf>,
     /// `adopt --entity`: name fragments, repeatable.
     pub(crate) entity_filters: Vec<String>,
+    /// `mashup new --visibility`: principals, repeatable.
+    pub(crate) visibility: Vec<String>,
+    /// `mashup add --prop`: properties, repeatable.
+    pub(crate) props: Vec<String>,
+    /// `mashup new --param`, repeatable.
+    pub(crate) params: Vec<String>,
+    /// `mashup new --tab`, repeatable.
+    pub(crate) tabs: Vec<String>,
+    /// `mashup add --input`, repeatable.
+    pub(crate) inputs: Vec<String>,
+    /// `mashup recipe --pass`, repeatable.
+    pub(crate) pass: Vec<String>,
+    /// `mashup recipe --column`, repeatable.
+    pub(crate) columns: Vec<String>,
+    /// `new --shape`, repeatable.
+    pub(crate) shapes: Vec<String>,
+    /// `new data-shape --field`, repeatable.
+    pub(crate) fields: Vec<String>,
+    pub(crate) indexes: Vec<String>,
+    pub(crate) states: Vec<String>,
+    pub(crate) items: Vec<String>,
     /// Flags that take one value and need no parsing here, such as `logs --since`.
     pub(crate) values: std::collections::BTreeMap<String, String>,
 }

@@ -1,0 +1,17 @@
+$ twaco mashup new Acme.Orders.Board_MU --layout header-footer
+exit: 0
+
+--- stdout
+would create mashup Acme.Orders.Board_MU in project Acme.Orders (header-footer template, theme PTC Convergence Theme)
+  slots: header, center, footer
+  Mashups/Acme.Orders.Board_MU.xml
+  src/Acme.Orders.Board_MU/mashup/content.json
+  src/Acme.Orders.Board_MU/mashup/custom.css
+  visible to: nobody yet (--visibility grants it)
+  widget flexcontainer-2 (flexcontainer, page)
+  widget flexcontainer-3 (flexcontainer, header)
+  widget flexcontainer-4 (flexcontainer, center)
+  widget flexcontainer-5 (flexcontainer, footer)
+run again with --apply to write it
+--- stderr
+

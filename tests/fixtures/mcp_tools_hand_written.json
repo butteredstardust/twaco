@@ -1102,6 +1102,615 @@
     }
   },
   {
+    "name": "entity_new",
+    "description": "Create a ThingWorx entity as a repository XML file: common Things, data Things, media, styles, states, menus, and themes. DataShape and DataTable creation also writes their managed sidecar. A dry run unless dry_run is false; apply takes the workspace lock and writes every file or none.",
+    "inputSchema": {
+      "required": ["kind", "name"],
+      "additionalProperties": false,
+      "type": "object",
+      "properties": {
+        "kind": {"description": "`thing`, `thing-template`, `thing-shape`, `data-shape`, `timer`, `scheduler`, `data-table`, `stream`, `value-stream`, `media`, `style`, `state`, `menu`, or `theme`.", "type": "string"},
+        "name": {"description": "The entity name.", "type": "string"},
+        "project": {"type": "string"},
+        "description": {"type": "string"},
+        "visibility": {"type": "array", "items": {"type": "string"}},
+        "template": {"type": "string"},
+        "shape": {"type": "array", "items": {"type": "string"}},
+        "value_stream": {"type": "string"},
+        "base": {"type": "string"},
+        "field": {"type": "array", "items": {"type": "string"}},
+        "every": {"type": "string"},
+        "cron": {"type": "string"},
+        "run_as": {"type": "string"},
+        "disabled": {"type": "boolean", "default": false},
+        "then": {"type": "string"},
+        "script": {"type": "string"},
+        "data_shape": {"type": "string"}, "index": {"type": "array", "items": {"type": "string"}}, "file": {"type": "string"},
+        "background": {"type": "string"}, "foreground": {"type": "string"}, "secondary_background": {"type": "string"}, "line_color": {"type": "string"}, "line_style": {"type": "string"}, "line_thickness": {"type": "string"},
+        "bold": {"type": "boolean", "default": false}, "italic": {"type": "boolean", "default": false}, "underline": {"type": "boolean", "default": false},
+        "text_size": {"type": "string"}, "image": {"type": "string"}, "display_string": {"type": "string"}, "type": {"type": "string"},
+        "state": {"type": "array", "items": {"type": "string"}}, "item": {"type": "array", "items": {"type": "string"}}, "default": {"type": "boolean", "default": false}, "label": {"type": "string"}, "from": {"type": "string"}, "prop": {"type": "array", "items": {"type": "string"}},
+        "dry_run": {"type": "boolean", "default": true}
+      }
+    },
+    "annotations": {"readOnlyHint": false, "destructiveHint": true, "openWorldHint": false}
+  },
+  {
+    "name": "entity_edit",
+    "description": "Change an existing entity in the repository, as Composer would: add, change or remove a property of a Thing, ThingTemplate or ThingShape (a persistent one also writes the stored value of every Thing that has it), add or remove a script subscription, implement or stop implementing a ThingShape, change a timer's or scheduler's settings, given keys of a style, a MediaEntity's image, a menu's items, or a StateDefinition's states. Removing or retyping a property something still uses is refused unless force. A dry run unless dry_run is false; apply takes the workspace lock and writes every file or none.",
+    "inputSchema": {
+      "required": [
+        "action",
+        "entity"
+      ],
+      "additionalProperties": false,
+      "type": "object",
+      "properties": {
+        "action": {
+          "description": "What to change.",
+          "type": "string",
+          "enum": [
+            "property_add",
+            "property_remove",
+            "property_set",
+            "subscription_add",
+            "subscription_remove",
+            "shape_add",
+            "shape_remove",
+            "timer_set",
+            "scheduler_set",
+            "style_set",
+            "media_set",
+            "menu_item_add",
+            "menu_item_remove",
+            "state_set"
+          ]
+        },
+        "entity": {
+          "description": "The entity to change: its name, or Collection/Name.",
+          "type": "string"
+        },
+        "name": {
+          "description": "The property or subscription name (property_*, subscription_*).",
+          "type": "string"
+        },
+        "type": {
+          "description": "The property base type: required for property_add; for property_set a new type.",
+          "type": "string"
+        },
+        "default": {
+          "description": "The property default value.",
+          "type": "string"
+        },
+        "no_default": {
+          "description": "property_set: drop the default value.",
+          "type": "boolean",
+          "default": false
+        },
+        "persistent": {
+          "description": "Whether the property is persistent; absent leaves it (property_set).",
+          "type": "boolean"
+        },
+        "logged": {
+          "description": "Whether value changes are logged.",
+          "type": "boolean"
+        },
+        "read_only": {
+          "description": "Whether the property is read-only.",
+          "type": "boolean"
+        },
+        "category": {
+          "description": "The property category.",
+          "type": "string"
+        },
+        "units": {
+          "description": "The property units; empty clears them.",
+          "type": "string"
+        },
+        "data_shape": {
+          "description": "The DataShape of an INFOTABLE property.",
+          "type": "string"
+        },
+        "description": {
+          "description": "The property description.",
+          "type": "string"
+        },
+        "force": {
+          "description": "Remove or retype a property something still uses; what uses it comes back as warnings.",
+          "type": "boolean",
+          "default": false
+        },
+        "event": {
+          "description": "subscription_add: the event, such as DataChange, ThingStart, Timer or an event the source defines.",
+          "type": "string"
+        },
+        "source": {
+          "description": "subscription_add: the Thing subscribed to; absent is the entity itself.",
+          "type": "string"
+        },
+        "source_property": {
+          "description": "subscription_add: the property a DataChange subscription watches.",
+          "type": "string"
+        },
+        "then": {
+          "description": "subscription_add: the script to run.",
+          "type": "string"
+        },
+        "shape": {
+          "description": "shape_add / shape_remove: the ThingShape.",
+          "type": "string"
+        },
+        "every": {
+          "description": "timer_set: the update rate, as milliseconds or with ms, s, m or h.",
+          "type": "string"
+        },
+        "cron": {
+          "description": "scheduler_set: a six- or seven-field Quartz cron string.",
+          "type": "string"
+        },
+        "run_as": {
+          "description": "timer_set / scheduler_set: the user its events run as.",
+          "type": "string"
+        },
+        "enabled": {
+          "description": "timer_set / scheduler_set: enable or disable it on startup.",
+          "type": "boolean"
+        },
+        "background": {
+          "description": "style_set: a #rrggbb or rgba() color; empty clears it.",
+          "type": "string"
+        },
+        "foreground": {
+          "description": "style_set: the text color.",
+          "type": "string"
+        },
+        "secondary_background": {
+          "description": "style_set: the secondary background color.",
+          "type": "string"
+        },
+        "line_color": {
+          "description": "style_set: the line color.",
+          "type": "string"
+        },
+        "line_style": {
+          "description": "style_set: solid, dashed, dotted or none.",
+          "type": "string"
+        },
+        "line_thickness": {
+          "description": "style_set: a non-negative number.",
+          "type": "string"
+        },
+        "bold": {
+          "description": "style_set: bold text on or off.",
+          "type": "boolean"
+        },
+        "italic": {
+          "description": "style_set: italic text on or off.",
+          "type": "boolean"
+        },
+        "underline": {
+          "description": "style_set: underline text on or off.",
+          "type": "boolean"
+        },
+        "text_size": {
+          "description": "style_set: xsmall, small, normal, large, xlarge or xxlarge.",
+          "type": "string"
+        },
+        "image": {
+          "description": "style_set: a MediaEntity; empty clears it.",
+          "type": "string"
+        },
+        "display_string": {
+          "description": "style_set: the display string.",
+          "type": "string"
+        },
+        "file": {
+          "description": "media_set: the PNG, JPEG, GIF or SVG file.",
+          "type": "string"
+        },
+        "title": {
+          "description": "menu_item_add / menu_item_remove: the item title.",
+          "type": "string"
+        },
+        "mashup": {
+          "description": "menu_item_add: the mashup the item opens.",
+          "type": "string"
+        },
+        "before": {
+          "description": "menu_item_add: put the item before this title; absent is last.",
+          "type": "string"
+        },
+        "state_type": {
+          "description": "state_set: numeric or string.",
+          "type": "string"
+        },
+        "is_default": {
+          "description": "menu_item_add: make it the default item.",
+          "type": "boolean",
+          "default": false
+        },
+        "state": {
+          "description": "state_set: the states in order, each `<comparator><value>=<label>[;style key:value...]`; the last may be `*=<label>`.",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "dry_run": {
+          "type": "boolean",
+          "default": true
+        }
+      }
+    },
+    "annotations": {
+      "readOnlyHint": false,
+      "destructiveHint": true,
+      "openWorldHint": false
+    }
+  },
+  {
+    "name": "mashup_new",
+    "description": "Create a ThingWorx 10.2 responsive mashup from an embedded layout template, with its entity file and managed content.json and custom.css sidecars. template is a name or alias (blank by default); mashup_templates lists the slots where mashup_add can place widgets. Menu templates require primary_menu and may use secondary_menu. master puts its page container in the template's master slot. A dry run unless dry_run is false; an apply takes the workspace lock and writes every file or none.",
+    "inputSchema": {
+      "required": [
+        "name"
+      ],
+      "additionalProperties": false,
+      "type": "object",
+      "properties": {
+        "name": {
+          "description": "The new mashup's name.",
+          "type": "string"
+        },
+        "project": {
+          "description": "The project it belongs to; may be left out when the solution has one project.",
+          "type": "string"
+        },
+        "template": {
+          "description": "An embedded layout template name or alias; default `blank`.",
+          "type": "string"
+        },
+        "layout": {
+          "description": "Compatibility alias for template.",
+          "type": "string"
+        },
+        "primary_menu": {
+          "description": "The INFOTABLE service result used as a sidebar's primary menu.",
+          "type": "string"
+        },
+        "secondary_menu": {
+          "description": "The INFOTABLE service result used as a sidebar's secondary menu.",
+          "type": "string"
+        },
+        "theme": {
+          "description": "A StyleTheme in the solution; default PTC Convergence Theme.",
+          "type": "string"
+        },
+        "master": {
+          "description": "A master mashup, with a page container filling the center.",
+          "type": "boolean",
+          "default": false
+        },
+        "visibility": {
+          "description": "`Organization/<name>` or `OrganizationalUnit/<organization>:<unit>`; none unless given.",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "params": {
+          "description": "Parameter declarations as `name:TYPE[:DIRECTION]`; INFOTABLE is not supported here.",
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "tabs": {
+          "description": "For template tabs: `Label=Mashup` (or `Label`) per tab.",
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "dry_run": {
+          "type": "boolean",
+          "default": true
+        }
+      }
+    },
+    "annotations": {
+      "readOnlyHint": false,
+      "destructiveHint": true,
+      "openWorldHint": false
+    }
+  },
+  {
+    "name": "mashup_templates",
+    "description": "List embedded responsive mashup templates, or with name one template's slot tree. Read-only; no server.",
+    "inputSchema": {
+      "additionalProperties": false,
+      "type": "object",
+      "properties": {
+        "name": {
+          "description": "One template name or alias; omit to list every embedded template.",
+          "type": "string"
+        }
+      }
+    },
+    "annotations": {
+      "readOnlyHint": true,
+      "destructiveHint": false,
+      "openWorldHint": false
+    }
+  },
+  {
+    "name": "mashup_add",
+    "description": "Add a catalogue widget to an existing responsive mashup. With no placement it goes in center. A widget beside another goes in the same row or column when that container runs that way; otherwise both get containers of their own in a new row or column. A widget that can fill fills only a container it is alone in. A dry run unless dry_run is false; an apply takes the workspace lock and writes the entity and managed content sidecar together.",
+    "inputSchema": {
+      "required": [
+        "mashup",
+        "widget"
+      ],
+      "additionalProperties": false,
+      "type": "object",
+      "properties": {
+        "mashup": {
+          "description": "The existing mashup's name.",
+          "type": "string"
+        },
+        "widget": {
+          "description": "A catalogue widget type or alias.",
+          "type": "string"
+        },
+        "in": {
+          "description": "Put the widget in this responsive container.",
+          "type": "string"
+        },
+        "right_of": { "type": "string" },
+        "left_of": { "type": "string" },
+        "above": { "type": "string" },
+        "below": { "type": "string" },
+        "label": { "type": "string" },
+        "properties": {
+          "description": "Simple catalogue default properties to set by exact property name.",
+          "type": "object",
+          "additionalProperties": { "type": "string" }
+        },
+        "inputs": {
+          "description": "An expression's or validator's inputs as `name:TYPE`.",
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "dry_run": {
+          "type": "boolean",
+          "default": true
+        }
+      }
+    },
+    "annotations": {
+      "readOnlyHint": false,
+      "destructiveHint": true,
+      "openWorldHint": false
+    }
+  },
+  {
+    "name": "mashup_add_contained",
+    "description": "Add a repository mashup as a contained mashup. Its visible child parameters become container properties; set supplies static values for visible input parameters. With no placement it goes in center. A dry run unless dry_run is false; an apply takes the workspace lock and writes the entity and managed content sidecar together.",
+    "inputSchema": {
+      "required": ["mashup", "child"],
+      "additionalProperties": false,
+      "type": "object",
+      "properties": {
+        "mashup": { "description": "The mashup that will hold the contained child.", "type": "string" },
+        "child": { "description": "The repository mashup the container shows.", "type": "string" },
+        "in": { "type": "string" },
+        "right_of": { "type": "string" },
+        "left_of": { "type": "string" },
+        "above": { "type": "string" },
+        "below": { "type": "string" },
+        "set": {
+          "description": "Static values for visible IN or BOTH child parameters.",
+          "type": "object",
+          "additionalProperties": { "type": "string" }
+        },
+        "dry_run": { "type": "boolean", "default": true }
+      }
+    },
+    "annotations": {
+      "readOnlyHint": false,
+      "destructiveHint": true,
+      "openWorldHint": false
+    }
+  },
+  {
+    "name": "mashup_bind",
+    "description": "Add one data binding to an existing mashup. Addresses are exactly those mashup describe prints: ui:<widget>.<Property>, mashup:<Parameter>, and data:<Entity>.<Service> with an optional [as alias], [SelectedRows], field or parameter. A missing Thing call is created; templates and shapes need an existing call. A dry run unless dry_run is false; an apply takes the workspace lock and writes the entity and managed content sidecar together.",
+    "inputSchema": {
+      "required": ["mashup", "from", "to"],
+      "additionalProperties": false,
+      "type": "object",
+      "properties": {
+        "mashup": { "description": "The existing mashup's name.", "type": "string" },
+        "from": { "description": "A source address as `mashup describe` prints it.", "type": "string" },
+        "to": { "description": "A target address as `mashup describe` prints it.", "type": "string" },
+        "dry_run": { "type": "boolean", "default": true }
+      }
+    },
+    "annotations": {
+      "readOnlyHint": false,
+      "destructiveHint": true,
+      "openWorldHint": false
+    }
+  },
+  {
+    "name": "mashup_on",
+    "description": "Run a data call or widget service when one mashup event fires. Triggers are ui:<widget>.<Event>, mashup:Loaded, or an existing data:<Entity>.<Service>[as alias].ServiceInvokeCompleted, AllDataChanged or SelectedRowsChanged; handlers are data calls or widget services. A missing Thing handler call is created; templates and shapes need an existing call. A dry run unless dry_run is false; an apply takes the workspace lock and writes the entity and managed content sidecar together.",
+    "inputSchema": {
+      "required": [
+        "mashup",
+        "event",
+        "invoke"
+      ],
+      "additionalProperties": false,
+      "type": "object",
+      "properties": {
+        "mashup": {
+          "description": "The existing mashup's name.",
+          "type": "string"
+        },
+        "event": {
+          "description": "A UI, mashup or existing data event address.",
+          "type": "string"
+        },
+        "invoke": {
+          "description": "A data call or widget service address.",
+          "type": "string"
+        },
+        "dry_run": {
+          "type": "boolean",
+          "default": true
+        }
+      }
+    },
+    "annotations": {
+      "readOnlyHint": false,
+      "destructiveHint": true,
+      "openWorldHint": false
+    }
+  },
+  {
+    "name": "widgets",
+    "description": "List or search the embedded ThingWorx 10.2 widget catalogue (type, Composer label, aliases, container, whether bindable), or with widget, one widget's bindable properties with base type and direction (in, out, in/out), its events and services. Read-only; no server.",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "widget": {
+          "description": "One widget type or alias; omit to list the catalogue.",
+          "type": "string"
+        },
+        "search": {
+          "description": "Narrow the list by type, Composer label or alias.",
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "annotations": {
+      "readOnlyHint": true,
+      "destructiveHint": false,
+      "openWorldHint": false
+    }
+  },
+  {
+    "name": "mashup_param",
+    "description": "Add, change or remove a mashup parameter. It keeps the entity definition, content parameter definitions, parameter property maps and every containing mashupcontainer cache in step. A dry run unless dry_run is false; apply writes all affected mashups in one transaction.",
+    "inputSchema": {
+      "required": ["action", "mashup", "name"],
+      "additionalProperties": false,
+      "type": "object",
+      "properties": {
+        "action": { "type": "string", "enum": ["add", "set", "remove"] },
+        "mashup": { "type": "string" },
+        "name": { "type": "string" },
+        "type": { "type": "string" },
+        "direction": { "type": "string" },
+        "description": { "type": "string" },
+        "default": { "type": "string" },
+        "no_default": { "type": "boolean", "default": false },
+        "data_shape": { "type": "string" },
+        "force": { "type": "boolean", "default": false },
+        "dry_run": { "type": "boolean", "default": true }
+      }
+    },
+    "annotations": { "readOnlyHint": false, "destructiveHint": true, "openWorldHint": false }
+  },
+  {
+    "name": "mashup_recipe",
+    "description": "Write one recipe: the wiring real mashups repeat, in one edit. enable-when/show-when (widget, condition, inputs name=address: an expression into Disabled/Visible), text (widget, expression, inputs: a label's computed text), message (after a data call: say or from, kind info|warning|error), confirm (widget, then, title, say), popup (widget or on, target mashup, window modal-popup|popup|replace|new, size WxH, title, pass name=address, reload handler on close), close-after (after a data call the popup closes itself), auto-refresh (then data call, every seconds or interval address), validate (widget or on, condition, inputs, then, else_say), chart (widget, data, x, value for a pie, kind), columns (widget, columns field[:Title[:width]], data), picker (widget, data, x display field, value, selected). A dry run unless dry_run is false; an apply takes the workspace lock and writes the entity and managed content sidecar together.",
+    "inputSchema": {
+      "required": ["recipe", "mashup"],
+      "additionalProperties": false,
+      "type": "object",
+      "properties": {
+        "recipe": { "description": "enable-when, show-when, text, message, confirm, popup, close-after, auto-refresh or validate.", "type": "string" },
+        "mashup": { "description": "The mashup to write it in.", "type": "string" },
+        "widget": { "description": "The widget it is about, or the one whose click triggers it.", "type": "string" },
+        "condition": { "type": "string" },
+        "expression": { "type": "string" },
+        "inputs": { "description": "`name=address` inputs of the condition or expression.", "type": "array", "items": { "type": "string" } },
+        "after": { "type": "string" },
+        "say": { "type": "string" },
+        "from": { "type": "string" },
+        "kind": { "type": "string" },
+        "then": { "type": "string" },
+        "title": { "type": "string" },
+        "on": { "type": "string" },
+        "target": { "description": "The mashup a popup opens.", "type": "string" },
+        "window": { "type": "string" },
+        "size": { "type": "string" },
+        "pass": { "description": "`name=address` values a popup is given.", "type": "array", "items": { "type": "string" } },
+        "reload": { "type": "string" },
+        "every": { "type": "integer", "minimum": 0 },
+        "interval": { "type": "string" },
+        "else_say": { "type": "string" },
+        "data": { "description": "The service result a chart, grid or picker shows.", "type": "string" },
+        "x": { "description": "A chart's category (pie: label) field, a picker's display field.", "type": "string" },
+        "value": { "description": "A pie's or picker's value field.", "type": "string" },
+        "columns": { "description": "`field[:Title[:width]]` grid columns.", "type": "array", "items": { "type": "string" } },
+        "selected": { "description": "What a picker's selection is bound from.", "type": "string" },
+        "dry_run": { "type": "boolean", "default": true }
+      }
+    },
+    "annotations": { "readOnlyHint": false, "destructiveHint": true, "openWorldHint": false }
+  },
+  {
+    "name": "mashup_event",
+    "description": "Give a mashup an event its parents can react to. ThingWorx has no contained-mashup events, so, as real mashups do, it adds a NUMBER parameter (BOTH; every parent's copy refreshed) set to the time by an expression the given trigger evaluates. A parent reacts with mashup_on and event ui:<container>.<name>, which wires an events router. A dry run unless dry_run is false; apply writes all affected mashups in one transaction.",
+    "inputSchema": {
+      "required": ["mashup", "name", "when"],
+      "additionalProperties": false,
+      "type": "object",
+      "properties": {
+        "mashup": { "description": "The mashup that fires the event.", "type": "string" },
+        "name": { "description": "The event's name, which becomes a NUMBER parameter.", "type": "string" },
+        "when": { "description": "The event in this mashup that fires it, as mashup_on's event takes it.", "type": "string" },
+        "dry_run": { "type": "boolean", "default": true }
+      }
+    },
+    "annotations": { "readOnlyHint": false, "destructiveHint": true, "openWorldHint": false }
+  },
+  {
+    "name": "mashup_validate",
+    "description": "Validate mashups in the repository without the server: structure, containers that hold both containers and widgets, an id_index below the widgets' numbers, bindings and events naming a widget, data source or call the mashup lacks, bindings against a catalogue widget's contract (direction, unknown property), events naming an event or service the widget lacks, bindings with several property maps, and contained-mashup parameter drift. Give mashup, or all. Read-only.",
+    "inputSchema": {
+      "additionalProperties": false,
+      "type": "object",
+      "properties": {
+        "mashup": { "description": "One mashup's name; omit it with all.", "type": "string" },
+        "all": { "description": "Every mashup of the solution.", "type": "boolean", "default": false }
+      }
+    },
+    "annotations": { "readOnlyHint": true, "destructiveHint": false, "openWorldHint": false }
+  },
+  {
+    "name": "mashup_describe",
+    "description": "Describe a mashup in the repository without its XML: the widget tree (ids, types, row/column containers, which widget fills its container, text and [[tokens]]); each service it calls, with what sets each declared parameter (a binding's source, static, or unbound); each binding, one row per property map, warning when a binding has more than one (the runtime applies only the first); and each event. Addresses are those mashup bind and on take: ui:<widget>.<Property>, data:<Entity>.<Service>[.<Parameter>], mashup:<Parameter>. Read-only.",
+    "inputSchema": {
+      "required": [
+        "mashup"
+      ],
+      "additionalProperties": false,
+      "type": "object",
+      "properties": {
+        "mashup": {
+          "description": "The mashup's name.",
+          "type": "string"
+        }
+      }
+    },
+    "annotations": {
+      "readOnlyHint": true,
+      "destructiveHint": false,
+      "openWorldHint": false
+    }
+  },
+  {
     "name": "reproject",
     "description": "Move entities to another project of the solution: their projectName, and their files under that project's root (sidecars stay). The plan names each reference the move puts outside the deploy order, with the depends_on that allows it. A dry run unless dry_run is false; an apply takes the workspace lock and writes every file or none.",
     "inputSchema": {
@@ -2097,6 +2706,32 @@
     }
   },
   {
+    "name": "trace",
+    "description": "How each caller uses one service, where impact says only who: for each mashup, what runs the call, what sets each parameter (or that it is unbound, with the default it then gets) and where each result field goes; for each script, the call as written, the variable the result goes in and what the script reads of it (Things[\"X\"].Service() from anywhere, me.Service() from the entity and what inherits it); and what the service itself calls. Offline and read-only; names built at run time are not seen.",
+    "inputSchema": {
+      "required": [
+        "service"
+      ],
+      "additionalProperties": false,
+      "type": "object",
+      "properties": {
+        "service": {
+          "description": "`<Entity>.<Service>`, the entity as Collection/Name, a full name, or its last segment.",
+          "type": "string"
+        },
+        "param": {
+          "description": "Only this parameter's sources.",
+          "type": "string"
+        }
+      }
+    },
+    "annotations": {
+      "readOnlyHint": true,
+      "destructiveHint": false,
+      "openWorldHint": false
+    }
+  },
+  {
     "name": "unused",
     "description": "Entities nothing reaches: Things, templates, shapes and DataShapes with no chain of references from an entry point (what twaco.toml deploys, every mashup, anything that runs on events, and what `[unused] keep` names). Advisory and read-only: it deletes nothing, and an entity used only from outside the repository (a REST client, a connected system) looks unused, so list those under `[unused] keep`. `complete` says whether every input was read; `keep_unmatched` lists keep patterns that match nothing. With `fields`, instead the fields of service results that mashups bind field by field which no mashup binds or names; a result bound whole is not judged, and a field read by a script, another service or a REST client looks unused.",
     "inputSchema": {
@@ -2358,6 +2993,7 @@
     "inputSchema": {
       "type": "object",
       "properties": {
+        "as": {"description": "Call as this [[test.user]] of twaco.toml, with the profile's test_password; the profile must have allow_test_users. A user in no group that can see the entity gets 404; a wrong password 401.", "type": "string"},
         "target": {
           "type": "string",
           "description": "Collection/Name, or an entity of the solution by full or last-segment name (Manager), or a platform Thing's name."

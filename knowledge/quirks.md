@@ -1152,3 +1152,55 @@ Every entity has `Get` and `Set` services `RunTimePermissionsAsJSON`, `DesignTim
 `permissions` parameter (a run-time one is `{"permissions": [...]}`). A visibility principal is an organization or
 an organizational unit; a group there is an HTTP 500. `GetDifferencesAsJSON({ otherEntity })` returns
 `{"rows": [...]}` of what differs between two entities, and it always counts the name itself.
+
+## A menu bar shows nothing unless its data has a root row
+
+A `ptcsmenubar` bound to a `MenuEntry` service result draws an empty bar when the rows are a flat
+list. It needs one root row (`linkType` `Menu`, a `menuId` such as `topMenu`) and items whose
+`parentMenuId` is that id, with `linkType` and `linkTarget` `Mashup` and the mashup name in
+`linkDestination`. The service runs and returns rows either way, so the symptom is only an empty bar.
+
+## A lone widget fills a row container's height, not a column's
+
+A widget alone in a responsive container (`ResponsiveLayout` true) takes the container's height when
+the container is a row, and only its width when it is a column. A menu bar in a column-direction
+sidebar is 68px tall; in a row it fills the page. The stock master templates use a row.
+
+## A responsive container keeps no margin
+
+The 10.2 widget defaults give a flex container `Margin` 5, but Composer clears it when it drops one:
+of about 6,100 containers in real mashups only 12 keep 5. With 5, every fixed band renders 10px short
+(a 50px header is 40px) and a 1px divider disappears. Leaf widgets do keep 5.
+
+## The server reorders what it imports in a mashup
+
+A mashup's `ParameterDefinitions` come back sorted by name, ignoring case, and the root
+`UI.Properties` keys come back sorted (`_currentParameterDefs` before `id_index`). A tool that appends
+either writes a file the server's copy never matches, so the read-back reports it as changed.
+
+## Containers and navigation functions keep their own copy of a mashup's parameters
+
+Besides the container's `MashupParameters`, a navigation function keeps the parameters of the mashup
+it opens in `MashupParameters` and again in its own `_currentParameterDefs`
+(`bindingDirection` `Target`, `Source` or `Both`). A binding to a parameter a copy lacks reaches
+nothing at runtime, with no error. Removing a call in Composer also leaves the bindings and events
+that named it behind, pointing at nothing; `twaco mashup validate` lists both.
+
+## A contained mashup has no events of its own; a timestamp parameter stands in
+
+ThingWorx gives a contained mashup no custom events. Real mashups set a BOTH parameter to
+`Date.now()` from an expression the child's trigger evaluates; the parent binds the container's
+parameter into an events router and reacts to its `Changed`. `twaco mashup event add` writes both
+halves.
+
+## A persistent property's value lives in every Thing that has it
+
+A 10.1 export of a Thing holds a `<ThingProperties>` value for each persistent property it has,
+its own or inherited from a template or shape: the default, or the type's own (`0.0`, empty,
+`false`, `1970-01-01T00:00:00.000Z`, `{}` for JSON). Adding a persistent property to a template
+changes every Thing using it, and removing a shape takes its values away. The values come out
+grouped by where each property comes from, in hash order, not as imported, so twaco compares them
+in any order. An import also re-stamps a stored value (import time, `GOOD`) when its property's
+definition changed, so twaco compares the value without its timestamp and quality. An imported
+infotable value is re-stamped with the import time on every import, so a
+persistent INFOTABLE property can never match the repository; `twaco thing property` refuses one.
