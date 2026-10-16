@@ -935,6 +935,10 @@ as. The cases run in file and case order, so a case can clean up after the one b
 needs the groups on the server, so deploy first; it never resets a password, and `users list`
 reports a user that cannot sign in with `test_password`.
 
+For one call by hand, `twaco call <target> <service> [<json>] --as <test user>` signs in as that
+`[[test.user]]` with `test_password` (the profile needs `allow_test_users`). A user in no group
+that can see the entity gets 404; a wrong password gets 401. No other account can be named.
+
 ## Copying DataTable rows
 
 Renaming a DataTable creates a new, empty one: its rows live on the server, not in the XML.

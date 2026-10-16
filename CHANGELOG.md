@@ -8,6 +8,8 @@ All notable changes to twaco are recorded here. The format follows
 
 ### Added
 
+- `twaco call ... --as <test user>` (MCP `call` with `as`) makes one call as a declared
+  `[[test.user]]`, with the profile's `test_password`, on a profile that allows test users.
 - `twaco thing property|subscription|shape`, `timer set`, `scheduler set`, `style set`, `media set`,
   `menu item` and `state set` (MCP `entity_edit`) change existing entities as Composer would, plan
   until applied, and keep the stored values of persistent properties in every inheriting Thing.

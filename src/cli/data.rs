@@ -228,6 +228,7 @@ pub(crate) fn call(solution: &Solution, args: &Args) -> u8 {
         profile: args.profile.as_deref().unwrap_or("default").to_string(),
         with_logs: args.has("--with-logs"),
         profile_before_target: true,
+        as_user: args.values.get("--as").cloned(),
     };
     let mut notices = commands::Notices::default();
     let outcome =

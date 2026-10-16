@@ -2355,10 +2355,12 @@ pub(crate) const COMMANDS: &[Command] = &[
         path: "call",
         group: 3,
         operands: true,
-        flags: &["--timeout", "--detail", "--profile", "--with-logs"],
-        text: r#"  call <target> <service> [<json>] [--timeout <seconds>] [--detail]
+        flags: &["--timeout", "--detail", "--profile", "--with-logs", "--as"],
+        text: r#"  call <target> <service> [<json>] [--timeout <seconds>] [--detail] [--as <test user>]
                               target: Collection/Name, or an entity by name or last segment
-      --with-logs             then what it wrote to ScriptLog and ApplicationLog (waits up to 3 s)"#,
+      --with-logs             then what it wrote to ScriptLog and ApplicationLog (waits up to 3 s)
+      --as <test user>        call as a [[test.user]] with the profile's test_password (the profile
+                              needs allow_test_users): 404 if the user cannot see it, 401 a bad password"#,
     },
     Command {
         path: "logs",

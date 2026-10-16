@@ -392,9 +392,11 @@ db clean [--apply] [--json] delete temporary ZZ.Twaco.Sql.* Things an interrupte
 Call services and read what the server says.
 
 ```text
-call <target> <service> [<json>] [--timeout <seconds>] [--detail]
+call <target> <service> [<json>] [--timeout <seconds>] [--detail] [--as <test user>]
                             target: Collection/Name, or an entity by name or last segment
     --with-logs             then what it wrote to ScriptLog and ApplicationLog (waits up to 3 s)
+    --as <test user>        call as a [[test.user]] with the profile's test_password (the profile
+                            needs allow_test_users): 404 if the user cannot see it, 401 a bad password
 logs <log>                  read a server log: ApplicationLog, ScriptLog, CommunicationLog,
                             ConfigurationLog, SecurityLog (newest first; times are local)
     --since <n><s|m|h|d>    how far back (default 1h); or --from <time> --to <time>
