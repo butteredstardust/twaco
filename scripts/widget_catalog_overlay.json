@@ -7,7 +7,7 @@
     }
   },
   "dropped": {
-    "comment": "Properties Composer writes on a widget it drops, after the 10.2 defaults: ptcs on every PTCS widget, flexcontainer on a container. A container gets Margin "" (the 10.2 default is 5, which nearly no real container keeps and which shrinks fixed bands and hides 1px dividers). ResponsiveLayout is set by the editor (a widget that supports auto-resize fills its container when it is alone in it).",
+    "comment": "Properties Composer writes on a widget it drops, after the 10.2 defaults: ptcs on every PTCS widget, flexcontainer on a container. A container gets an empty Margin (the 10.2 default is 5, which nearly no real container keeps and which shrinks fixed bands and hides 1px dividers). ResponsiveLayout is set by the editor (a widget that supports auto-resize fills its container when it is alone in it).",
     "ptcs": {
       "UseTheme": true
     },
