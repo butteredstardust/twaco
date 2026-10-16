@@ -247,21 +247,49 @@ fn a_caller_through_thing_templates_is_found_and_a_rebound_variable_is_not_follo
     let (dir, solution) = fixture();
     let nothing = "<ResultType baseType=\"NOTHING\" description=\"\" name=\"result\" \
                    ordinal=\"0\"></ResultType>";
+    // A template with a service, and a Thing of the same name as the traced Thing's template
+    // namesake: only the right collection counts.
+    std::fs::create_dir_all(dir.path().join("ThingTemplates")).unwrap();
+    let template = thing(
+        "Acme.Orders.Base_TT",
+        &[("Describe", "", nothing, "result = 1;")],
+    )
+    .replace("<Things>", "<ThingTemplates>")
+    .replace("</Things>", "</ThingTemplates>")
+    .replace("<Thing ", "<ThingTemplate ")
+    .replace("</Thing>", "</ThingTemplate>")
+    .replace(
+        " thingTemplate=\"GenericThing\"",
+        " baseThingTemplate=\"GenericThing\"",
+    );
+    std::fs::write(
+        dir.path().join("ThingTemplates/Acme.Orders.Base_TT.xml"),
+        template,
+    )
+    .unwrap();
     let caller = thing(
         "Acme.Orders.Batch",
-        &[(
-            "Run",
-            "",
-            nothing,
-            "var rows = ThingTemplates[\"Acme.Orders.Manager\"].GetOrders();\n\
-             function helper(rows) { return rows.Secret; }\n\
-             rows = other();\n\
-             var total = rows.rows[0].Total;",
-        )],
+        &[
+            (
+                "Run",
+                "",
+                nothing,
+                "var rows = ThingTemplates[\"Acme.Orders.Base_TT\"].Describe();\n\
+                 function helper(rows) { return rows.Secret; }\n\
+                 rows = other();\n\
+                 var total = rows.rows[0].Total;",
+            ),
+            (
+                "Elsewhere",
+                "",
+                nothing,
+                "var r = ThingTemplates[\"Acme.Orders.Manager\"].GetOrders();",
+            ),
+        ],
     );
     std::fs::write(dir.path().join("Things/Acme.Orders.Batch.xml"), caller).unwrap();
     let solution = Solution::load(&solution.root.join("twaco.toml")).unwrap();
-    let trace = run(&solution, "Acme.Orders.Manager.GetOrders", None).unwrap();
+    let trace = run(&solution, "Acme.Orders.Base_TT.Describe", None).unwrap();
     let batch = trace
         .scripts
         .iter()
@@ -270,4 +298,10 @@ fn a_caller_through_thing_templates_is_found_and_a_rebound_variable_is_not_follo
     assert!(!batch.reads_followed);
     assert!(batch.reads.is_empty());
     assert!(render(&trace).contains("reads not followed"));
+    // ThingTemplates["Acme.Orders.Manager"] names no template: not a caller of the Thing.
+    let orders = run(&solution, "Acme.Orders.Manager.GetOrders", None).unwrap();
+    assert!(!orders
+        .scripts
+        .iter()
+        .any(|call| call.caller == "Things/Acme.Orders.Batch.Elsewhere"));
 }

@@ -231,7 +231,11 @@ pub fn run(solution: &Solution, given: &str, param: Option<&str>) -> Result<Trac
     // Script callers: `Things|ThingTemplates|ThingShapes["X"].Service()` from anywhere, and
     // `me.Service()` from the holders. Read from the scripts themselves: the index records only
     // `Things[...]` receivers.
-    let targets: BTreeSet<String> = holders.iter().map(|h| h.name().to_string()).collect();
+    // Collection and name both: a template and a Thing may share a name.
+    let targets: BTreeSet<(String, String)> = holders
+        .iter()
+        .map(|h| (h.collection().to_string(), h.name().to_string()))
+        .collect();
     let needle = format!(".{service}");
     let mut scripts = Vec::new();
     let mut parse_failures = Vec::new();
@@ -377,7 +381,7 @@ struct Site {
 fn call_sites(
     script: &str,
     service: &str,
-    targets: &BTreeSet<String>,
+    targets: &BTreeSet<(String, String)>,
     own: bool,
 ) -> Option<Vec<Site>> {
     let ast = parse(script)?;
@@ -494,7 +498,7 @@ fn parse(script: &str) -> Option<swc_ecma_ast::Script> {
 struct Finder<'a> {
     src: &'a str,
     service: &'a str,
-    targets: &'a BTreeSet<String>,
+    targets: &'a BTreeSet<(String, String)>,
     own: bool,
     sites: Vec<Site>,
     /// What is read off each variable: `v.X`, `v.rows[i].X`, `v.getRow(i).X`.
@@ -537,7 +541,7 @@ impl Finder<'_> {
 
     /// `Things["T"]`, `ThingTemplates.T`... with `T` a target.
     fn things_target(&self, member: &MemberExpr) -> bool {
-        collection_target(member).is_some_and(|(_, name)| self.targets.contains(&name))
+        collection_target(member).is_some_and(|target| self.targets.contains(&target))
     }
 
     fn record(&mut self, expr: &Expr, into: Option<String>) {

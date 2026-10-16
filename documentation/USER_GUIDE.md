@@ -534,7 +534,7 @@ bare `Label` leaves that tab empty). Each tab gets the container Composer gives 
 contained mashup with its parameters cached, so `mashup bind` can reach them; without `--tab` the tab set
 has Composer's two empty tabs. A tabs page cannot be a master.
 
-`sidebar` and `header-sidebar` require `--primary-menu`; their optional `--secondary-menu` values
+`sidebar`, `header-sidebar` and `sidebar-header` require `--primary-menu`; their optional `--secondary-menu` values
 are INFOTABLE-returning services. Their menu-bar data bindings and page-loaded service events are
 exactly those `mashup bind` and `mashup on` would create. The menu bar shows a tree of `MenuEntry`
 rows: one root row (`linkType` `Menu`, a `menuId` such as `topMenu`) and items whose `parentMenuId` is
