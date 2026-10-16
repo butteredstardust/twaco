@@ -1,0 +1,7 @@
+$ twaco mashup new Acme.Orders.Board_MU --layout sidebar
+exit: 2
+
+--- stdout
+
+--- stderr
+twaco: --primary-menu is required for --layout sidebar

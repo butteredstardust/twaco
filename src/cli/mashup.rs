@@ -25,6 +25,8 @@ pub(crate) fn mashup_new_cmd(solution: &Solution, args: &Args) -> u8 {
             name: name.clone(),
             project: args.project.clone(),
             layout,
+            primary_menu: args.values.get("--primary-menu").cloned(),
+            secondary_menu: args.values.get("--secondary-menu").cloned(),
             theme: args.values.get("--theme").cloned(),
             master: args.has("--master"),
             visibility: args.visibility.clone(),
@@ -83,6 +85,9 @@ pub(crate) fn mashup_new_cmd(solution: &Solution, args: &Args) -> u8 {
             "  widget {} ({}, {})",
             widget.id, widget.type_id, widget.display_name
         );
+    }
+    for (service, property) in &plan.menus {
+        println!("  menu: {service} -> {property}, loaded with the page");
     }
     if !outcome.applied {
         println!("run again with --apply to write it");

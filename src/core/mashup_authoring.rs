@@ -27,12 +27,18 @@ pub const DEFAULT_THEME: &str = "PTC Convergence Theme";
 pub enum Layout {
     /// One `center` container.
     Blank,
+    /// A menu sidebar beside a center container.
+    Sidebar,
+    /// Fixed header and footer around a center container.
+    HeaderFooter,
 }
 
 impl Layout {
     pub fn from_word(word: &str) -> Option<Self> {
         match word {
             "blank" => Some(Self::Blank),
+            "sidebar" => Some(Self::Sidebar),
+            "header-footer" => Some(Self::HeaderFooter),
             _ => None,
         }
     }
@@ -40,6 +46,8 @@ impl Layout {
     pub const fn word(self) -> &'static str {
         match self {
             Self::Blank => "blank",
+            Self::Sidebar => "sidebar",
+            Self::HeaderFooter => "header-footer",
         }
     }
 }
@@ -50,6 +58,10 @@ pub struct NewRequest {
     /// The project it belongs to; may be left out when the solution has one project.
     pub project: Option<String>,
     pub layout: Layout,
+    /// The required primary menu service for a sidebar layout.
+    pub primary_menu: Option<String>,
+    /// The optional secondary menu service for a sidebar layout.
+    pub secondary_menu: Option<String>,
     /// A StyleTheme in the solution, or 10.2's default.
     pub theme: Option<String>,
     /// A master mashup: pages open inside it.
@@ -73,6 +85,8 @@ pub struct NewPlan {
     pub assets: mashup::Assets,
     /// The widgets the new mashup holds, root first.
     pub widgets: Vec<mashup_edit::WidgetRef>,
+    /// Menu service calls wired while creating a sidebar.
+    pub menus: Vec<(String, String)>,
 }
 
 #[derive(Clone, Debug)]
@@ -218,6 +232,20 @@ pub fn parse_visibility(text: &str) -> Result<Visibility, AuthoringError> {
 
 /// What creating the mashup would write. Nothing is written.
 pub fn plan_new(solution: &Solution, request: &NewRequest) -> Result<NewPlan, AuthoringError> {
+    match request.layout {
+        Layout::Sidebar if request.primary_menu.is_none() => {
+            return Err(AuthoringError::Invalid(
+                "--primary-menu is required for --layout sidebar".into(),
+            ));
+        }
+        Layout::Sidebar => {}
+        _ if request.primary_menu.is_some() || request.secondary_menu.is_some() => {
+            return Err(AuthoringError::Invalid(
+                "menus are for --layout sidebar".into(),
+            ));
+        }
+        _ => {}
+    }
     EntityKey::new("Mashups", request.name.as_str())
         .map_err(|error| AuthoringError::Invalid(format!("not a mashup name: {error}")))?;
     // The name is a file name twice over (the entity file, the sidecar folder), on every platform.
@@ -309,7 +337,34 @@ pub fn plan_new(solution: &Solution, request: &NewRequest) -> Result<NewPlan, Au
         }
     }
 
-    let document = new_document(request.layout, request.master, &theme)?;
+    let mut document = new_document(request.layout, request.master, &theme)?;
+    let mut menus = Vec::new();
+    if let Some(primary_menu) = &request.primary_menu {
+        let (model, _) = types::load_model(solution);
+        let platform = types::cached_platform(solution);
+        let parameters = Vec::new();
+        let context = AuthoringContext {
+            parameters: &parameters,
+            model: &model,
+            platform: platform.as_ref(),
+        };
+        for (service, property) in std::iter::once((primary_menu, "PrimaryNavData")).chain(
+            request
+                .secondary_menu
+                .as_ref()
+                .map(|service| (service, "SecondaryNavData")),
+        ) {
+            menu_service(&document, &context, service)?;
+            bind_in(
+                &mut document,
+                &context,
+                service,
+                &format!("ui:ptcsmenubar-4.{property}"),
+            )?;
+            on_in(&mut document, &context, "mashup:Loaded", service)?;
+            menus.push((service.clone(), property.to_string()));
+        }
+    }
     let kind = if request.master {
         MashupKind::Master
     } else {
@@ -332,6 +387,7 @@ pub fn plan_new(solution: &Solution, request: &NewRequest) -> Result<NewPlan, Au
         entity,
         assets,
         widgets: document.widgets(),
+        menus,
     })
 }
 
@@ -341,11 +397,87 @@ fn new_document(
     master: bool,
     theme: &str,
 ) -> Result<MashupDocument, AuthoringError> {
-    let mut document = match layout {
-        Layout::Blank => {
-            mashup_edit::parse(mashup_templates::BLANK).map_err(AuthoringError::Edit)?
+    let mut document = mashup_edit::parse(mashup_templates::BLANK).map_err(AuthoringError::Edit)?;
+    let root = document.find("center").map_err(AuthoringError::Edit)?;
+    match layout {
+        Layout::Blank => {}
+        Layout::Sidebar => {
+            document.set_property(&root.path, "DisplayName", json!("page"));
+            document.set_property(&root.path, "flex-direction", json!("row"));
+            document.set_property(&root.path, "align-items", json!("stretch"));
+            let container = widgets::catalog()
+                .by_type("flexcontainer")
+                .expect("the catalogue has the flex container; a test checks it");
+            let sidebar_number = document.allocate();
+            let mut sidebar = mashup_edit::new_widget(container, sidebar_number, true);
+            let menu = widgets::catalog()
+                .by_type("ptcsmenubar")
+                .expect("the catalogue has the menu bar; a test checks it");
+            let menu_number = document.allocate();
+            sidebar["Widgets"] = json!([mashup_edit::new_widget(menu, menu_number, true)]);
+            document.push_child(&root.path, sidebar);
+            let sidebar = document
+                .find(&format!("flexcontainer-{sidebar_number}"))
+                .map_err(AuthoringError::Edit)?;
+            document.set_property(&sidebar.path, "DisplayName", json!("sidebar"));
+            document.set_property(&sidebar.path, "flex-direction", json!("column"));
+            document.set_property(&sidebar.path, "flex-grow", json!(0));
+            document.set_property(&sidebar.path, "align-items", json!("stretch"));
+            let center_number = document.allocate();
+            let center = mashup_edit::new_widget(container, center_number, true);
+            document.push_child(&root.path, center);
+            let center = document
+                .find("flexcontainer-5")
+                .map_err(AuthoringError::Edit)?;
+            document.set_property(&center.path, "DisplayName", json!("center"));
+            document.set_property(&center.path, "flex-direction", json!("column"));
+            document.set_property(&center.path, "flex-grow", json!(1));
+            document.set_property(&center.path, "align-items", json!("stretch"));
         }
-    };
+        Layout::HeaderFooter => {
+            document.set_property(&root.path, "DisplayName", json!("page"));
+            document.set_property(&root.path, "flex-direction", json!("column"));
+            document.set_property(&root.path, "align-items", json!("stretch"));
+            let container = widgets::catalog()
+                .by_type("flexcontainer")
+                .expect("the catalogue has the flex container; a test checks it");
+            for (name, height) in [("header", "50px"), ("center", ""), ("footer", "40px")] {
+                let number = document.allocate();
+                let child = mashup_edit::new_widget(container, number, true);
+                document.push_child(&root.path, child);
+                let child = document
+                    .find(&format!("flexcontainer-{number}"))
+                    .map_err(AuthoringError::Edit)?;
+                document.set_property(&child.path, "DisplayName", json!(name));
+                document.set_property(
+                    &child.path,
+                    "flex-direction",
+                    json!(if name == "center" { "column" } else { "row" }),
+                );
+                document.set_property(
+                    &child.path,
+                    "align-items",
+                    json!(if name == "center" {
+                        "stretch"
+                    } else {
+                        "center"
+                    }),
+                );
+                if name == "center" {
+                    document.set_property(&child.path, "flex-grow", json!(1));
+                } else {
+                    document.set_property(&child.path, "flex-size", json!("fixed"));
+                    document.set_property(
+                        &child.path,
+                        "iconClass",
+                        json!("widgets-flexcontainer-fixed"),
+                    );
+                    document.set_property(&child.path, "flex-min-height", json!(height));
+                    document.set_property(&child.path, "flex-max-height", json!(height));
+                }
+            }
+        }
+    }
     if master {
         let index = document.root_properties_mut()["id_index"].clone();
         let Value::Object(mut root) = mashup_templates::master_root() else {
@@ -407,6 +539,10 @@ pub fn new_plan_json(solution: &Solution, plan: &NewPlan, applied: bool) -> Valu
             "id": w.id,
             "type": w.type_id,
             "display_name": w.display_name,
+        })).collect::<Vec<_>>(),
+        "menus": plan.menus.iter().map(|(service, property)| json!({
+            "service": service,
+            "property": property,
         })).collect::<Vec<_>>(),
     })
 }
@@ -617,34 +753,67 @@ enum End {
 pub fn plan_bind(solution: &Solution, request: &BindRequest) -> Result<BindPlan, AuthoringError> {
     let loaded = load_existing(solution, &request.mashup)?;
     let mut document = parse_loaded(&loaded)?;
-    let from_address =
-        parse_address(&request.from).map_err(|e| AuthoringError::Invalid(e.to_string()))?;
-    let to_address =
-        parse_address(&request.to).map_err(|e| AuthoringError::Invalid(e.to_string()))?;
     let parameters =
         mashup_parameters(&loaded.entity_before).map_err(AuthoringError::Unreadable)?;
     let (model, _) = types::load_model(solution);
     let platform = types::cached_platform(solution);
+    let context = AuthoringContext {
+        parameters: &parameters,
+        model: &model,
+        platform: platform.as_ref(),
+    };
+    let result = bind_in(&mut document, &context, &request.from, &request.to)?;
+    let edit = finish_edit(loaded, document, "mashup bind")?;
+    Ok(BindPlan {
+        edit,
+        from: request.from.clone(),
+        to: request.to.clone(),
+        new_source: result.new_source,
+        warnings: result.warnings,
+    })
+}
+
+struct AuthoringContext<'a> {
+    parameters: &'a [crate::core::mashup_describe::MashupParameter],
+    model: &'a types::Model,
+    platform: Option<&'a types::Platform>,
+}
+
+struct BindIn {
+    new_source: Option<String>,
+    warnings: Vec<String>,
+}
+
+/// Add one checked binding to an already loaded document.
+fn bind_in(
+    document: &mut MashupDocument,
+    context: &AuthoringContext<'_>,
+    from_raw: &str,
+    to_raw: &str,
+) -> Result<BindIn, AuthoringError> {
+    let from_address =
+        parse_address(from_raw).map_err(|e| AuthoringError::Invalid(e.to_string()))?;
+    let to_address = parse_address(to_raw).map_err(|e| AuthoringError::Invalid(e.to_string()))?;
     let from = resolve_end(
-        &document,
-        &parameters,
-        &model,
-        platform.as_ref(),
+        document,
+        context.parameters,
+        context.model,
+        context.platform,
         from_address,
         true,
     )?;
     let to = resolve_end(
-        &document,
-        &parameters,
-        &model,
-        platform.as_ref(),
+        document,
+        context.parameters,
+        context.model,
+        context.platform,
         to_address,
         false,
     )?;
     if !allowed(&from, &to) {
         return Err(AuthoringError::Invalid(format!(
             "{} cannot bind to {}",
-            request.from, request.to
+            from_raw, to_raw
         )));
     }
     let from_base = base(&from);
@@ -652,13 +821,13 @@ pub fn plan_bind(solution: &Solution, request: &BindRequest) -> Result<BindPlan,
     if from_base != to_base && to_base != "STRING" {
         return Err(AuthoringError::Refused(format!(
             "{} is {} but {} is {}",
-            request.from, from_base, request.to, to_base
+            from_raw, from_base, to_raw, to_base
         )));
     }
-    let (source_section, source_id, source_added) = data_call(&mut document, &from)?;
-    let (target_section, target_id, target_added) = data_call(&mut document, &to)?;
+    let (source_section, source_id, source_added) = data_call(document, &from)?;
+    let (target_section, target_id, target_added) = data_call(document, &to)?;
     if binding_exists(
-        &document,
+        document,
         &from,
         &to,
         &source_section,
@@ -668,13 +837,13 @@ pub fn plan_bind(solution: &Solution, request: &BindRequest) -> Result<BindPlan,
     ) {
         return Err(AuthoringError::Exists(format!(
             "{} is already bound to {}",
-            request.from, request.to
+            from_raw, to_raw
         )));
     }
-    let warnings = if has_source(&document, &to, &target_section, &target_id) {
+    let warnings = if has_source(document, &to, &target_section, &target_id) {
         vec![format!(
             "{} already has another source; ThingWorx applies whichever value arrives last",
-            request.to
+            to_raw
         )]
     } else {
         Vec::new()
@@ -746,11 +915,7 @@ pub fn plan_bind(solution: &Solution, request: &BindRequest) -> Result<BindPlan,
         .expect("checked: bindings array")
         .push(Value::Object(binding));
     let new_source = source_added.or(target_added);
-    let edit = finish_edit(loaded, document, "mashup bind")?;
-    Ok(BindPlan {
-        edit,
-        from: request.from.clone(),
-        to: request.to.clone(),
+    Ok(BindIn {
         new_source,
         warnings,
     })
@@ -762,9 +927,32 @@ pub fn plan_on(solution: &Solution, request: &OnRequest) -> Result<OnPlan, Autho
     let mut document = parse_loaded(&loaded)?;
     let (model, _) = types::load_model(solution);
     let platform = types::cached_platform(solution);
-    let trigger = resolve_trigger(&document, &model, platform.as_ref(), &request.event)?;
-    let handler = resolve_handler(&document, &model, platform.as_ref(), &request.invoke)?;
-    let (handler_section, handler_id, new_source) = data_call(&mut document, &handler)?;
+    let parameters = Vec::new();
+    let context = AuthoringContext {
+        parameters: &parameters,
+        model: &model,
+        platform: platform.as_ref(),
+    };
+    let new_source = on_in(&mut document, &context, &request.event, &request.invoke)?;
+    let edit = finish_edit(loaded, document, "mashup on")?;
+    Ok(OnPlan {
+        edit,
+        event: request.event.clone(),
+        invoke: request.invoke.clone(),
+        new_source,
+    })
+}
+
+/// Add one checked event handler to an already loaded document.
+fn on_in(
+    document: &mut MashupDocument,
+    context: &AuthoringContext<'_>,
+    event_raw: &str,
+    invoke_raw: &str,
+) -> Result<Option<String>, AuthoringError> {
+    let trigger = resolve_trigger(document, context.model, context.platform, event_raw)?;
+    let handler = resolve_handler(document, context.model, context.platform, invoke_raw)?;
+    let (handler_section, handler_id, new_source) = data_call(document, &handler)?;
     // A data handler is addressed by its section and the call's alias; a widget handler by the
     // widget's id and the widget's own service.
     let (handler_section, handler_service) = if matches!(handler, End::Data { .. }) {
@@ -773,7 +961,7 @@ pub fn plan_on(solution: &Solution, request: &OnRequest) -> Result<OnPlan, Autho
         (handler_id.clone(), handler_service(&handler).to_string())
     };
     if event_exists(
-        &document,
+        document,
         &trigger,
         area(&handler),
         &handler_section,
@@ -781,7 +969,7 @@ pub fn plan_on(solution: &Solution, request: &OnRequest) -> Result<OnPlan, Autho
     ) {
         return Err(AuthoringError::Exists(format!(
             "{} already invokes {}",
-            request.event, request.invoke
+            event_raw, invoke_raw
         )));
     }
     let mut event = Map::new();
@@ -827,13 +1015,7 @@ pub fn plan_on(solution: &Solution, request: &OnRequest) -> Result<OnPlan, Autho
         .as_array_mut()
         .expect("checked: events array")
         .push(Value::Object(event));
-    let edit = finish_edit(loaded, document, "mashup on")?;
-    Ok(OnPlan {
-        edit,
-        event: request.event.clone(),
-        invoke: request.invoke.clone(),
-        new_source,
-    })
+    Ok(new_source)
 }
 
 struct Trigger {
@@ -1215,6 +1397,44 @@ fn base(end: &End) -> &str {
         End::Ui { base, .. } | End::Mashup { base, .. } | End::Data { base, .. } => base,
     }
 }
+
+/// Sidebar menus receive a complete service result, never a parameter or selected rows.
+fn menu_service(
+    document: &MashupDocument,
+    context: &AuthoringContext<'_>,
+    raw: &str,
+) -> Result<(), AuthoringError> {
+    let address = parse_address(raw).map_err(|error| AuthoringError::Invalid(error.to_string()))?;
+    let Address::Data {
+        selected_rows,
+        member,
+        ..
+    } = &address
+    else {
+        return Err(AuthoringError::Invalid(
+            "a menu address names a data service result".into(),
+        ));
+    };
+    if *selected_rows || member.is_some() {
+        return Err(AuthoringError::Invalid(
+            "a menu address names a service result, not a parameter or SelectedRows".into(),
+        ));
+    }
+    let end = resolve_end(
+        document,
+        context.parameters,
+        context.model,
+        context.platform,
+        address,
+        true,
+    )?;
+    if base(&end) != "INFOTABLE" {
+        return Err(AuthoringError::Refused(
+            "the menu service must return an INFOTABLE".into(),
+        ));
+    }
+    Ok(())
+}
 fn property(end: &End) -> &str {
     match end {
         End::Ui { property, .. } => property,
@@ -1548,6 +1768,8 @@ mod tests {
             name: name.to_string(),
             project: None,
             layout: Layout::Blank,
+            primary_menu: None,
+            secondary_menu: None,
             theme: None,
             master: false,
             visibility: Vec::new(),
@@ -1621,6 +1843,233 @@ mod tests {
             true
         );
         assert_eq!(page.path, [0, 0], "inside center");
+    }
+
+    #[test]
+    fn layouts_have_the_composer_tree_and_masters_put_pages_in_center() {
+        for (layout, expected) in [
+            (
+                Layout::Sidebar,
+                vec![
+                    ("flexcontainer-2", "flexcontainer", "page", "row"),
+                    ("flexcontainer-3", "flexcontainer", "sidebar", "column"),
+                    ("ptcsmenubar-4", "ptcsmenubar", "ptcs-menubar-4", ""),
+                    ("flexcontainer-5", "flexcontainer", "center", "column"),
+                ],
+            ),
+            (
+                Layout::HeaderFooter,
+                vec![
+                    ("flexcontainer-2", "flexcontainer", "page", "column"),
+                    ("flexcontainer-3", "flexcontainer", "header", "row"),
+                    ("flexcontainer-4", "flexcontainer", "center", "column"),
+                    ("flexcontainer-5", "flexcontainer", "footer", "row"),
+                ],
+            ),
+        ] {
+            for master in [false, true] {
+                let document = new_document(layout, master, DEFAULT_THEME).unwrap();
+                let tree: Vec<(String, String, String, String)> = document
+                    .widgets()
+                    .into_iter()
+                    .skip(1)
+                    .map(|widget| {
+                        let properties = &document.at(&widget.path)["Properties"];
+                        (
+                            widget.id,
+                            widget.type_id,
+                            properties["DisplayName"].as_str().unwrap().into(),
+                            properties["flex-direction"].as_str().unwrap_or("").into(),
+                        )
+                    })
+                    .collect();
+                let mut expected: Vec<(String, String, String, String)> = expected
+                    .iter()
+                    .map(|(id, type_id, name, direction)| {
+                        (
+                            (*id).into(),
+                            (*type_id).into(),
+                            (*name).into(),
+                            (*direction).into(),
+                        )
+                    })
+                    .collect();
+                if master {
+                    let at = if layout == Layout::Sidebar { 4 } else { 3 };
+                    expected.insert(
+                        at,
+                        (
+                            "pagemashupcontainer-6".into(),
+                            "pagemashupcontainer".into(),
+                            "Page Mashup".into(),
+                            "".into(),
+                        ),
+                    );
+                    let page = document.find("Page Mashup").unwrap();
+                    assert_eq!(page.path[..page.path.len() - 1], [0, 1]);
+                }
+                assert_eq!(tree, expected);
+            }
+        }
+    }
+
+    #[test]
+    fn sidebar_menus_are_service_calls_bound_and_loaded_like_bind_and_on() {
+        let (dir, solution) = one_project();
+        write(
+            dir.path(),
+            "acme/Things/Acme.Nav.Manager.xml",
+            r#"<Entities><Things><Thing name="Acme.Nav.Manager" projectName="Acme"><ThingShape><ServiceDefinitions>
+            <ServiceDefinition name="GetPrimaryMenu"><ResultType baseType="INFOTABLE" aspect.dataShape="Acme.Nav.Menu_DS"/></ServiceDefinition>
+            <ServiceDefinition name="GetSecondaryMenu"><ResultType baseType="INFOTABLE" aspect.dataShape="Acme.Nav.Menu_DS"/></ServiceDefinition>
+            </ServiceDefinitions><ServiceImplementations/></ThingShape></Thing></Things></Entities>"#,
+        );
+        write(
+            dir.path(),
+            "acme/DataShapes/Acme.Nav.Menu_DS.xml",
+            r#"<Entities><DataShapes><DataShape name="Acme.Nav.Menu_DS" projectName="Acme"><FieldDefinitions><FieldDefinition name="title" baseType="STRING"/></FieldDefinitions></DataShape></DataShapes></Entities>"#,
+        );
+        let plan = plan_new(
+            &solution,
+            &NewRequest {
+                layout: Layout::Sidebar,
+                primary_menu: Some("data:Acme.Nav.Manager.GetPrimaryMenu".into()),
+                secondary_menu: Some("data:Acme.Nav.Manager.GetSecondaryMenu".into()),
+                ..request("Acme.Nav_MU")
+            },
+        )
+        .unwrap();
+        assert_eq!(
+            plan.menus,
+            [
+                (
+                    "data:Acme.Nav.Manager.GetPrimaryMenu".into(),
+                    "PrimaryNavData".into()
+                ),
+                (
+                    "data:Acme.Nav.Manager.GetSecondaryMenu".into(),
+                    "SecondaryNavData".into()
+                ),
+            ]
+        );
+        apply_new(&solution, &plan, &lock(&solution)).unwrap();
+        let content: Value = serde_json::from_str(&plan.assets.content).unwrap();
+        assert_eq!(
+            content["Data"]["Things_Acme.Nav.Manager"]["Services"]
+                .as_array()
+                .unwrap()
+                .len(),
+            2
+        );
+        let bindings: Vec<&str> = content["DataBindings"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|binding| {
+                binding["PropertyMaps"][0]["TargetProperty"]
+                    .as_str()
+                    .unwrap()
+            })
+            .collect();
+        assert_eq!(bindings, ["PrimaryNavData", "SecondaryNavData"]);
+        assert_eq!(content["Events"].as_array().unwrap().len(), 2);
+        let report = crate::core::check::run(&solution);
+        let failing: Vec<_> = report
+            .gates
+            .iter()
+            // The fixture declares service definitions only, which the project gate reports.
+            .filter(|gate| !gate.ok() && gate.name != "project")
+            .collect();
+        assert!(failing.is_empty(), "{failing:?}");
+        let description = crate::core::mashup_describe::describe(&solution, "Acme.Nav_MU").unwrap();
+        assert_eq!(
+            description
+                .bindings
+                .iter()
+                .map(|binding| (binding.from.as_str(), binding.to.as_str()))
+                .collect::<Vec<_>>(),
+            [
+                (
+                    "data:Acme.Nav.Manager.GetPrimaryMenu",
+                    "ui:ptcsmenubar-4.PrimaryNavData",
+                ),
+                (
+                    "data:Acme.Nav.Manager.GetSecondaryMenu",
+                    "ui:ptcsmenubar-4.SecondaryNavData",
+                ),
+            ]
+        );
+        assert_eq!(
+            description
+                .events
+                .iter()
+                .map(|event| (event.trigger.as_str(), event.handler.as_str()))
+                .collect::<Vec<_>>(),
+            [
+                ("mashup:Loaded", "data:Acme.Nav.Manager.GetPrimaryMenu"),
+                ("mashup:Loaded", "data:Acme.Nav.Manager.GetSecondaryMenu"),
+            ]
+        );
+    }
+
+    #[test]
+    fn sidebar_menu_requests_refuse_missing_wrong_or_non_sidebar_menus() {
+        let (dir, solution) = one_project();
+        write(
+            dir.path(),
+            "acme/Things/Acme.Nav.Manager.xml",
+            r#"<Entities><Things><Thing name="Acme.Nav.Manager" projectName="Acme"><ThingShape><ServiceDefinitions>
+            <ServiceDefinition name="GetMenu"><ResultType baseType="STRING"/></ServiceDefinition>
+            <ServiceDefinition name="GetTable"><ParameterDefinitions><FieldDefinition name="filter" baseType="STRING"/></ParameterDefinitions><ResultType baseType="INFOTABLE" aspect.dataShape="Acme.Nav.Menu_DS"/></ServiceDefinition>
+            </ServiceDefinitions><ServiceImplementations/></ThingShape></Thing></Things></Entities>"#,
+        );
+        write(
+            dir.path(),
+            "acme/DataShapes/Acme.Nav.Menu_DS.xml",
+            r#"<Entities><DataShapes><DataShape name="Acme.Nav.Menu_DS" projectName="Acme"><FieldDefinitions><FieldDefinition name="title" baseType="STRING"/></FieldDefinitions></DataShape></DataShapes></Entities>"#,
+        );
+        let error = plan_new(
+            &solution,
+            &NewRequest {
+                layout: Layout::Sidebar,
+                ..request("Acme.Nav_MU")
+            },
+        )
+        .unwrap_err();
+        assert_eq!(error.code(), ErrorCode::InvalidArguments);
+        let invalid = |primary_menu: &str| {
+            plan_new(
+                &solution,
+                &NewRequest {
+                    layout: Layout::Sidebar,
+                    primary_menu: Some(primary_menu.into()),
+                    ..request("Acme.Nav_MU")
+                },
+            )
+            .unwrap_err()
+        };
+        assert!(invalid("data:Acme.Nav.Manager.GetMenu")
+            .to_string()
+            .contains("menu service must return an INFOTABLE"));
+        assert_eq!(
+            invalid("data:Acme.Nav.Manager.GetTable.filter").code(),
+            ErrorCode::InvalidArguments
+        );
+        assert_eq!(
+            invalid("data:Acme.Nav.Manager.GetTable[SelectedRows]").code(),
+            ErrorCode::InvalidArguments
+        );
+        let error = plan_new(
+            &solution,
+            &NewRequest {
+                layout: Layout::HeaderFooter,
+                primary_menu: Some("data:Acme.Nav.Manager.GetTable".into()),
+                ..request("Acme.Nav_MU")
+            },
+        )
+        .unwrap_err();
+        assert_eq!(error.code(), ErrorCode::InvalidArguments);
+        assert_eq!(Layout::from_word("stacked"), None);
     }
 
     #[test]

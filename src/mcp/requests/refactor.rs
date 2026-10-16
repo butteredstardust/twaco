@@ -294,9 +294,15 @@ pub(crate) struct MashupNewRequest {
     /// The project it belongs to; may be left out when the solution has one project.
     #[serde(default, skip_serializing_if = "Absent::is_absent")]
     pub(crate) project: Absent<String>,
-    /// `blank`: one center container (the default).
+    /// `blank`: one center container (the default); `sidebar` or `header-footer` add page regions.
     #[serde(default, skip_serializing_if = "Absent::is_absent")]
     pub(crate) layout: Absent<String>,
+    /// The INFOTABLE service result used as a sidebar's primary menu.
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) primary_menu: Absent<String>,
+    /// The INFOTABLE service result used as a sidebar's secondary menu.
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) secondary_menu: Absent<String>,
     /// A StyleTheme in the solution; default PTC Convergence Theme.
     #[serde(default, skip_serializing_if = "Absent::is_absent")]
     pub(crate) theme: Absent<String>,

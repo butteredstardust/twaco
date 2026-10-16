@@ -1883,7 +1883,7 @@
   },
   {
     "name": "mashup_new",
-    "description": "Create a ThingWorx 10.2 responsive mashup in the repository as Composer would: its entity file (from the 10.2 template, no permissions) and its content.json and custom.css sidecars, written by the same sync as any mashup. layout blank is one center container; master makes a master mashup with a page container filling the center; theme must be a StyleTheme in the solution (default PTC Convergence Theme); visibility grants only the principals given. Refuses a name already used or files already there. A dry run unless dry_run is false; an apply takes the workspace lock and writes every file or none.",
+    "description": "Create a ThingWorx 10.2 responsive mashup in the repository as Composer would: its entity file (from the 10.2 template, no permissions) and its content.json and custom.css sidecars, written by the same sync as any mashup. layout blank is one center container; sidebar adds a menu and center, with a required primary_menu and optional secondary_menu INFOTABLE service bound and loaded like mashup bind and mashup on; header-footer adds fixed header and footer regions. master makes a master mashup with a page container filling the center; theme must be a StyleTheme in the solution (default PTC Convergence Theme); visibility grants only the principals given. Refuses a name already used or files already there. A dry run unless dry_run is false; an apply takes the workspace lock and writes every file or none.",
     "inputSchema": {
       "required": [
         "name"
@@ -1900,7 +1900,15 @@
           "type": "string"
         },
         "layout": {
-          "description": "`blank`: one center container (the default).",
+          "description": "`blank`: one center container (the default); `sidebar` or `header-footer` add page regions.",
+          "type": "string"
+        },
+        "primary_menu": {
+          "description": "The INFOTABLE service result used as a sidebar's primary menu.",
+          "type": "string"
+        },
+        "secondary_menu": {
+          "description": "The INFOTABLE service result used as a sidebar's secondary menu.",
           "type": "string"
         },
         "theme": {

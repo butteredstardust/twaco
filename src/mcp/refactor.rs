@@ -177,14 +177,19 @@ pub(crate) fn mashup_new_tool(
     let dry_run = arguments.dry_run;
     let layout = match arguments.layout.as_ref().map(String::as_str) {
         None => crate::core::mashup_authoring::Layout::Blank,
-        Some(word) => crate::core::mashup_authoring::Layout::from_word(word)
-            .ok_or_else(|| ToolError::invalid(format!("unknown layout `{word}`; use `blank`")))?,
+        Some(word) => crate::core::mashup_authoring::Layout::from_word(word).ok_or_else(|| {
+            ToolError::invalid(format!(
+                "unknown layout `{word}`; use `blank`, `sidebar` or `header-footer`"
+            ))
+        })?,
     };
     let request = commands::mashup::MashupNewRequest {
         request: crate::core::mashup_authoring::NewRequest {
             name: nonempty(&arguments.name, "name")?.to_string(),
             project: arguments.project.as_ref().cloned(),
             layout,
+            primary_menu: arguments.primary_menu.as_ref().cloned(),
+            secondary_menu: arguments.secondary_menu.as_ref().cloned(),
             theme: arguments.theme.as_ref().cloned(),
             master: arguments.master,
             visibility: arguments.visibility.items().to_vec(),

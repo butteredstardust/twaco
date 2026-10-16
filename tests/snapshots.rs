@@ -119,6 +119,26 @@ const SCENARIOS: &[(&str, &[&str])] = &[
         &["mashup", "new", "Acme.Orders.Board_MU", "--master"],
     ),
     (
+        "mashup_new_header_footer_plan",
+        &[
+            "mashup",
+            "new",
+            "Acme.Orders.Board_MU",
+            "--layout",
+            "header-footer",
+        ],
+    ),
+    (
+        "mashup_new_sidebar_needs_menu",
+        &[
+            "mashup",
+            "new",
+            "Acme.Orders.Board_MU",
+            "--layout",
+            "sidebar",
+        ],
+    ),
+    (
         "mashup_new_bad_visibility",
         &[
             "mashup",

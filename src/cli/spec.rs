@@ -559,6 +559,10 @@ pub(crate) const FLAGS: &[Flag] = &[
         takes: Takes::Switch,
     },
     Flag {
+        name: "--primary-menu",
+        takes: Takes::Value("address"),
+    },
+    Flag {
         name: "--map",
         takes: Takes::Value("value"),
     },
@@ -713,6 +717,10 @@ pub(crate) const FLAGS: &[Flag] = &[
     Flag {
         name: "--search",
         takes: Takes::Value("text"),
+    },
+    Flag {
+        name: "--secondary-menu",
+        takes: Takes::Value("address"),
     },
     Flag {
         name: "--section",
@@ -1226,17 +1234,22 @@ pub(crate) const COMMANDS: &[Command] = &[
         flags: &[
             "--project",
             "--layout",
+            "--primary-menu",
+            "--secondary-menu",
             "--theme",
             "--master",
             "--visibility",
             "--apply",
             "--json",
         ],
-        text: r#"  mashup new <name> [--project <name>] [--layout blank] [--theme <StyleTheme>] [--master]
+        text: r#"  mashup new <name> [--project <name>] [--layout blank|sidebar|header-footer] [--primary-menu <address>]
+      [--secondary-menu <address>] [--theme <StyleTheme>] [--master]
       [--visibility <principal>]... [--apply] [--json]
                               create a ThingWorx 10.2 responsive mashup as Composer would: its entity file
                               and its content sidecars; plan unless --apply
-      --layout blank          one center container (the default)
+      --layout                blank has one center container; sidebar has a menu and center; header-footer has three regions
+      --primary-menu          required INFOTABLE service result for a sidebar's primary menu
+      --secondary-menu        optional INFOTABLE service result for a sidebar's secondary menu
       --theme <StyleTheme>    a StyleTheme in the solution (default: PTC Convergence Theme)
       --master                a master mashup, with a page container filling the center
       --visibility            Organization/<name> or OrganizationalUnit/<organization>:<unit>, repeatable;
