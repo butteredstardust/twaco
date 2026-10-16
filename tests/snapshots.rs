@@ -143,6 +143,20 @@ const SCENARIOS: &[(&str, &[&str])] = &[
         ],
     ),
     ("mashup_templates", &["mashup", "templates"]),
+    (
+        "mashup_new_tabs_plan",
+        &[
+            "mashup",
+            "new",
+            "Acme.Orders.Tabs_MU",
+            "--template",
+            "tabs",
+            "--tab",
+            "Orders",
+            "--tab",
+            "History",
+        ],
+    ),
     ("mashup_templates_card", &["mashup", "templates", "card"]),
     (
         "mashup_new_form_dialog_plan",

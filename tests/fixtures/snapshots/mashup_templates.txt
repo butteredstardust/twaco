@@ -27,6 +27,8 @@ Mashup templates
                   slots: title, value
   filter-panel    Fixed filters beside flexible content (also filters)
                   slots: filters, content
+  tabs            A title above a tab set; --tab Label=Mashup shows a mashup in each tab (also tab-page)
+                  slots: title, tabs
   dashboard       A title, a row of four KPI tiles, and a side panel beside a main panel
                   slots: title, tiles, tile-1, tile-2, tile-3, tile-4, panels, side, main
 --- stderr

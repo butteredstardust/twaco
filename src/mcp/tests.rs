@@ -2386,7 +2386,7 @@ fn mashup_templates_lists_every_template_and_new_uses_template() {
             .as_array()
             .unwrap()
             .len(),
-        13
+        14
     );
     let created = call(
         &root,

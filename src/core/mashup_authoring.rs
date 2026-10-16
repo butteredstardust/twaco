@@ -42,6 +42,8 @@ pub struct NewRequest {
     pub visibility: Vec<String>,
     /// `name:TYPE[:DIRECTION]` declarations to create with the mashup.
     pub params: Vec<String>,
+    /// `Label=Mashup` (or `Label` for an empty tab), one per tab, for a template with a tab set.
+    pub tabs: Vec<String>,
 }
 
 /// One edit to a mashup parameter definition.
@@ -102,6 +104,8 @@ pub struct NewPlan {
     pub widgets: Vec<mashup_edit::WidgetRef>,
     /// Menu service calls wired while creating a sidebar.
     pub menus: Vec<(String, String)>,
+    /// Each tab's label and the mashup it shows, for a template with a tab set.
+    pub tabs: Vec<(String, Option<String>)>,
 }
 
 #[derive(Clone, Debug)]
@@ -371,6 +375,12 @@ pub fn plan_new(solution: &Solution, request: &NewRequest) -> Result<NewPlan, Au
         }
     }
 
+    if request.master && template.master_slot.is_none() && !template.children.is_empty() {
+        return Err(AuthoringError::Invalid(format!(
+            "template {} has no place for a page container, so it cannot be a master",
+            template.name
+        )));
+    }
     let mut document = new_document(&template, request.master, &theme)?;
     let parameters: Vec<ParameterDefinition> = request
         .params
@@ -405,6 +415,7 @@ pub fn plan_new(solution: &Solution, request: &NewRequest) -> Result<NewPlan, Au
         }
         _ => {}
     }
+    let tabs = build_tabs(solution, &request.name, &mut document, &request.tabs)?;
     let mut menus = Vec::new();
     if let Some(primary_menu) = &request.primary_menu {
         let (model, _) = types::load_model(solution);
@@ -461,6 +472,7 @@ pub fn plan_new(solution: &Solution, request: &NewRequest) -> Result<NewPlan, Au
         assets,
         widgets: document.widgets(),
         menus,
+        tabs,
     })
 }
 
@@ -1490,11 +1502,11 @@ pub fn validate_template(
         Ok(())
     }
     walk(&template.children, &template.name, &mut slots)?;
-    if !template.children.is_empty()
-        && !template
-            .master_slot
-            .as_ref()
-            .is_some_and(|slot| slots.contains(slot))
+    // A template with no master slot cannot be a master mashup; one it names must exist.
+    if template
+        .master_slot
+        .as_ref()
+        .is_some_and(|slot| !template.children.is_empty() && !slots.contains(slot))
     {
         return Err(AuthoringError::Invalid(format!(
             "template {}: master_slot must name a slot",
@@ -1584,6 +1596,119 @@ pub fn template_slots(template: &mashup_templates::LayoutTemplate) -> Vec<String
         slots.push("center".into());
     }
     slots
+}
+
+/// Fill a template's tab set: one container per tab, holding the mashup the tab shows in a
+/// contained mashup with its parameters cached, and the tab set's labels and `Items` as Composer
+/// keeps them. No `--tab` leaves the two empty tabs a dropped tab set has.
+fn build_tabs(
+    solution: &Solution,
+    mashup: &str,
+    document: &mut MashupDocument,
+    requested: &[String],
+) -> Result<Vec<(String, Option<String>)>, AuthoringError> {
+    let Some(tabset) = document
+        .widgets()
+        .into_iter()
+        .find(|widget| widget.type_id == "ptcstabset")
+    else {
+        if requested.is_empty() {
+            return Ok(Vec::new());
+        }
+        return Err(AuthoringError::Invalid(
+            "--tab is for a template with a tab set (tabs)".into(),
+        ));
+    };
+    let mut tabs = Vec::new();
+    for text in requested {
+        let (label, child) = match text.split_once('=') {
+            Some((label, child)) => (label.trim(), Some(child.trim())),
+            None => (text.trim(), None),
+        };
+        if label.is_empty() || child.is_some_and(str::is_empty) {
+            return Err(AuthoringError::Invalid(format!(
+                "--tab {text:?} must be Label=Mashup or Label"
+            )));
+        }
+        tabs.push((label.to_string(), child.map(str::to_string)));
+    }
+    if tabs.is_empty() {
+        tabs = (1..=2).map(|n| (format!("Tab Name {n}"), None)).collect();
+    }
+    if tabs.len() > 16 {
+        return Err(AuthoringError::Invalid(
+            "a tab set has at most 16 tabs".into(),
+        ));
+    }
+    let catalog = widgets::catalog();
+    let container = catalog
+        .by_type("flexcontainer")
+        .expect("the catalogue has the flex container; a test checks it");
+    let contained = catalog
+        .by_type("mashupcontainer")
+        .expect("the catalogue has the contained mashup; a test checks it");
+    let tabset_name = document.at(&tabset.path)["Properties"]["DisplayName"]
+        .as_str()
+        .unwrap_or_default()
+        .to_string();
+    for (index, (_, child)) in tabs.iter().enumerate() {
+        let number = document.allocate();
+        let mut tab = mashup_edit::new_widget(container, number, true);
+        tab["Properties"]["DisplayName"] = json!(format!("{tabset_name} #{}", index + 1));
+        mashup_edit::insert_sorted(
+            tab["Properties"]
+                .as_object_mut()
+                .expect("a widget has properties"),
+            "userCannotRemove",
+            json!(true),
+        );
+        if let Some(child) = child {
+            if child == mashup {
+                return Err(AuthoringError::Refused(
+                    "a mashup cannot contain itself".into(),
+                ));
+            }
+            let loaded = load_existing(solution, child)?;
+            let child_document = parse_loaded(&loaded)?;
+            if child_document.value()["mashupType"] == "targetmashup" {
+                return Err(AuthoringError::Refused(format!(
+                    "{child} is a master mashup, shown by a page container, not contained"
+                )));
+            }
+            let definitions = contained_parameters(&loaded, &child_document)?;
+            let mut widget = mashup_edit::new_widget(contained, document.allocate(), true);
+            let properties = widget["Properties"]
+                .as_object_mut()
+                .expect("a widget has properties");
+            mashup_edit::insert_sorted(properties, "Name", json!(child));
+            mashup_edit::insert_sorted(
+                properties,
+                "MashupParameters",
+                Value::Array(
+                    definitions
+                        .iter()
+                        .map(|def| cache_entry(def, def.default.clone()))
+                        .collect(),
+                ),
+            );
+            tab["Widgets"] = json!([widget]);
+        }
+        document.push_child(&tabset.path, tab);
+    }
+    document.set_property(&tabset.path, "NumberOfTabs", json!(tabs.len()));
+    let mut items = Vec::new();
+    for (index, (label, _)) in tabs.iter().enumerate() {
+        let n = index + 1;
+        document.set_property(&tabset.path, &format!("Tab{n}Name"), json!(label));
+        document.set_property(
+            &tabset.path,
+            &format!("Tab{n}Value"),
+            json!(format!("TabValue{n}")),
+        );
+        items.push(json!({"disabled": false, "name": label, "value": format!("TabValue{n}"), "visible": true}));
+    }
+    document.set_property(&tabset.path, "Items", Value::Array(items));
+    Ok(tabs)
 }
 
 /// Plan adding one catalogue widget to an existing mashup. Nothing is written.
@@ -3108,6 +3233,7 @@ mod tests {
             master: false,
             visibility: Vec::new(),
             params: Vec::new(),
+            tabs: Vec::new(),
         }
     }
 
@@ -5365,6 +5491,9 @@ mod tests {
         // by 10px and hides a 1px divider; Composer clears it on a container it drops.
         for template in mashup_templates::layouts().unwrap() {
             for master in [false, true] {
+                if master && template.master_slot.is_none() && !template.children.is_empty() {
+                    continue;
+                }
                 let document = new_document(&template, master, DEFAULT_THEME).unwrap();
                 for widget in document.widgets().into_iter().skip(1) {
                     let margin = &document.at(&widget.path)["Properties"]["Margin"];
@@ -5594,5 +5723,155 @@ mod tests {
         let document = new_document(&template, false, DEFAULT_THEME).unwrap();
         let main = document.find("main").unwrap();
         assert_eq!(document.at(&main.path)["Properties"]["flex-grow"], 3);
+    }
+
+    fn tabs_request(name: &str, tabs: &[&str]) -> NewRequest {
+        NewRequest {
+            template: "tabs".into(),
+            tabs: tabs.iter().map(|tab| tab.to_string()).collect(),
+            ..request(name)
+        }
+    }
+
+    #[test]
+    fn a_tabs_page_shows_a_mashup_in_each_tab_as_composer_lays_them_out() {
+        let (_dir, solution) = parent_and_child();
+        let plan = plan_new(
+            &solution,
+            &tabs_request(
+                "Acme.Tabs_MU",
+                &["Card=Acme.Card_MU", "[[Acme.Board]]=Acme.Board_MU", "Notes"],
+            ),
+        )
+        .unwrap();
+        assert_eq!(
+            plan.tabs,
+            [
+                ("Card".to_string(), Some("Acme.Card_MU".to_string())),
+                (
+                    "[[Acme.Board]]".to_string(),
+                    Some("Acme.Board_MU".to_string())
+                ),
+                ("Notes".to_string(), None),
+            ]
+        );
+        let document = mashup_edit::parse(&plan.assets.content).unwrap();
+        let tabset = document.find("ptcstabset-5").unwrap();
+        let properties = &document.at(&tabset.path)["Properties"];
+        assert_eq!(properties["NumberOfTabs"], 3);
+        assert_eq!(properties["Tab2Name"], "[[Acme.Board]]");
+        assert_eq!(properties["Tab3Value"], "TabValue3");
+        assert_eq!(
+            serde_json::to_string(&properties["Items"]).unwrap(),
+            r#"[{"disabled":false,"name":"Card","value":"TabValue1","visible":true},{"disabled":false,"name":"[[Acme.Board]]","value":"TabValue2","visible":true},{"disabled":false,"name":"Notes","value":"TabValue3","visible":true}]"#
+        );
+        // One container per tab, named after the tab set, holding the mashup the tab shows.
+        let tabs = document.at(&tabset.path)["Widgets"].as_array().unwrap();
+        assert_eq!(tabs.len(), 3);
+        let first = &tabs[0]["Properties"];
+        assert_eq!(first["DisplayName"], "ptcs-tabset-5 #1");
+        assert_eq!(first["userCannotRemove"], true);
+        assert_eq!(first["Margin"], "");
+        let card = &tabs[0]["Widgets"][0]["Properties"];
+        assert_eq!(card["Type"], "mashupcontainer");
+        assert_eq!(card["Name"], "Acme.Card_MU");
+        assert_eq!(card["ResponsiveLayout"], true);
+        assert_eq!(card["MashupParameters"][0]["ParameterName"], "id");
+        assert_eq!(tabs[1]["Widgets"][0]["Properties"]["Name"], "Acme.Board_MU");
+        assert!(tabs[2]["Widgets"].as_array().unwrap().is_empty());
+        apply_new(&solution, &plan, &lock(&solution)).unwrap();
+        let failing: Vec<_> = crate::core::check::run(&solution)
+            .gates
+            .into_iter()
+            .filter(|gate| !gate.ok() && gate.name != "project")
+            .collect();
+        // The one finding is the made-up label token, which the solution's table does not have.
+        assert_eq!(failing.len(), 1, "{failing:?}");
+        assert_eq!(failing[0].name, "localization tokens");
+        assert!(failing[0].findings[0].message.starts_with("[[Acme.Board]]"));
+        let described = crate::core::mashup_describe::describe(&solution, "Acme.Tabs_MU").unwrap();
+        assert_eq!(described.containers.len(), 2);
+        assert!(described.containers[0]
+            .parameters
+            .iter()
+            .all(|parameter| parameter.status == "ok"));
+    }
+
+    #[test]
+    fn a_tabs_page_without_tabs_has_the_two_empty_tabs_a_dropped_tab_set_has() {
+        let (_dir, solution) = one_project();
+        let plan = plan_new(&solution, &tabs_request("Acme.Tabs_MU", &[])).unwrap();
+        assert_eq!(
+            plan.tabs,
+            [
+                ("Tab Name 1".to_string(), None),
+                ("Tab Name 2".to_string(), None)
+            ]
+        );
+        let document = mashup_edit::parse(&plan.assets.content).unwrap();
+        let tabset = document.find("ptcstabset-5").unwrap();
+        assert_eq!(document.at(&tabset.path)["Properties"]["NumberOfTabs"], 2);
+        assert_eq!(
+            document.at(&tabset.path)["Widgets"]
+                .as_array()
+                .unwrap()
+                .len(),
+            2
+        );
+    }
+
+    #[test]
+    fn tab_requests_twaco_cannot_stand_behind_are_refused() {
+        let (dir, solution) = parent_and_child();
+        let master = NewRequest {
+            master: true,
+            ..request("Acme.Shell_MM")
+        };
+        apply_new(
+            &solution,
+            &plan_new(&solution, &master).unwrap(),
+            &lock(&solution),
+        )
+        .unwrap();
+        let code = |request: NewRequest| plan_new(&solution, &request).unwrap_err().code();
+        assert_eq!(
+            code(NewRequest {
+                template: "card".into(),
+                tabs: vec!["A=Acme.Card_MU".into()],
+                ..request("Acme.X_MU")
+            }),
+            ErrorCode::InvalidArguments
+        );
+        assert_eq!(
+            code(NewRequest {
+                master: true,
+                ..tabs_request("Acme.X_MU", &[])
+            }),
+            ErrorCode::InvalidArguments
+        );
+        assert_eq!(
+            code(tabs_request("Acme.X_MU", &["A=Acme.Nope_MU"])),
+            ErrorCode::UnknownEntity
+        );
+        assert_eq!(
+            code(tabs_request("Acme.X_MU", &["A=Acme.Shell_MM"])),
+            ErrorCode::GuardRefused
+        );
+        assert_eq!(
+            code(tabs_request("Acme.X_MU", &["=Acme.Card_MU"])),
+            ErrorCode::InvalidArguments
+        );
+        assert_eq!(
+            code(tabs_request("Acme.X_MU", &["A="])),
+            ErrorCode::InvalidArguments
+        );
+        let many: Vec<String> = (1..=17).map(|n| format!("T{n}")).collect();
+        let many: Vec<&str> = many.iter().map(String::as_str).collect();
+        assert_eq!(
+            code(tabs_request("Acme.X_MU", &many)),
+            ErrorCode::InvalidArguments
+        );
+        // Nothing was written for any of them.
+        assert!(!dir.path().join("acme/Mashups/Acme.X_MU.xml").exists());
     }
 }

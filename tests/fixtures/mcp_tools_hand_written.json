@@ -1156,6 +1156,11 @@
           "type": "array",
           "items": { "type": "string" }
         },
+        "tabs": {
+          "description": "For template tabs: `Label=Mashup` (or `Label`) per tab.",
+          "type": "array",
+          "items": { "type": "string" }
+        },
         "dry_run": {
           "type": "boolean",
           "default": true

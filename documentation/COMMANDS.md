@@ -153,7 +153,8 @@ mashup templates [<name>] [--json]
                             list the embedded responsive mashup templates and their slots
 mashup new <name> [--project <name>] [--template <name>] [--primary-menu <address>]
     [--secondary-menu <address>] [--theme <StyleTheme>] [--master]
-    [--visibility <principal>]... [--param <name:TYPE[:DIRECTION]>]... [--apply] [--json]
+    [--visibility <principal>]... [--param <name:TYPE[:DIRECTION]>]... [--tab <Label=Mashup>]...
+    [--apply] [--json]
                             create a ThingWorx 10.2 responsive mashup as Composer would: its entity file
                             and its content sidecars; plan unless --apply
     --template              layout template name or alias (default: blank); see mashup templates
@@ -164,6 +165,7 @@ mashup new <name> [--project <name>] [--template <name>] [--primary-menu <addres
     --master                a master mashup, with a page container filling the center
     --visibility            Organization/<name> or OrganizationalUnit/<organization>:<unit>, repeatable;
                             none unless given
+    --tab                   with --template tabs: a tab's label and the mashup it shows, repeatable
 new building-block <name> [--type standard|abstract|implementation] [--display-name <text>] [--description <text>]
     [--parent <block>] [--model-logic] [--no-management-shape] [--root <dir>] [--base-extension PTC.Base:<version>]
     [--apply] [--json]

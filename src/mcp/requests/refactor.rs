@@ -326,6 +326,9 @@ pub(crate) struct MashupNewRequest {
     /// Parameter declarations as `name:TYPE[:DIRECTION]`; INFOTABLE is not supported here.
     #[serde(default, skip_serializing_if = "Absent::is_absent")]
     pub(crate) params: Absent<Vec<String>>,
+    /// For template tabs: `Label=Mashup` (or `Label`) per tab.
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) tabs: Absent<Vec<String>>,
     #[serde(default = "default_true")]
     pub(crate) dry_run: bool,
 }

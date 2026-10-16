@@ -451,7 +451,13 @@ aliases and slots. Slots are responsive container names usable with `mashup add 
 | master-detail | list, detail | Master and detail panes |
 | kpi-tile | title, value | A compact KPI display |
 | filter-panel | filters, content | Filters beside results |
+| tabs | title, tabs | A tab set whose tabs each show a mashup (`--tab Label=Mashup`) |
 | dashboard | title, tiles, tile-1..tile-4, panels, side, main | Four KPI tiles above a side panel and a main panel (1:3) |
+
+`--template tabs` takes `--tab "Label=Mashup"` once per tab (up to 16; a label may be a `[[token]]`, and a
+bare `Label` leaves that tab empty). Each tab gets the container Composer gives it, holding the mashup in a
+contained mashup with its parameters cached, so `mashup bind` can reach them; without `--tab` the tab set
+has Composer's two empty tabs. A tabs page cannot be a master.
 
 `sidebar` and `header-sidebar` require `--primary-menu`; their optional `--secondary-menu` values
 are INFOTABLE-returning services. Their menu-bar data bindings and page-loaded service events are

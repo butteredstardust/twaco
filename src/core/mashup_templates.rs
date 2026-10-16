@@ -28,6 +28,7 @@ const LAYOUTS: &[&str] = &[
     include_str!("mashup_templates/layouts/master-detail.json"),
     include_str!("mashup_templates/layouts/kpi-tile.json"),
     include_str!("mashup_templates/layouts/filter-panel.json"),
+    include_str!("mashup_templates/layouts/tabs.json"),
     include_str!("mashup_templates/layouts/dashboard.json"),
 ];
 

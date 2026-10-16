@@ -196,6 +196,7 @@ pub(crate) fn mashup_new_tool(
             master: arguments.master,
             visibility: arguments.visibility.items().to_vec(),
             params: arguments.params.items().to_vec(),
+            tabs: arguments.tabs.items().to_vec(),
         },
         mode: if dry_run { Mode::Plan } else { Mode::Apply },
         lock_label: "mcp mashup_new",

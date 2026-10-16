@@ -1,0 +1,26 @@
+{
+  "name": "tabs",
+  "summary": "A title above a tab set; --tab Label=Mashup shows a mashup in each tab",
+  "aliases": [
+    "tab-page"
+  ],
+  "page": {
+    "flex-direction": "column",
+    "align-items": "stretch"
+  },
+  "children": [
+    {
+      "slot": "title",
+      "flex-direction": "row",
+      "align-items": "center",
+      "fixed": "70px"
+    },
+    {
+      "slot": "tabs",
+      "flex-direction": "column",
+      "flex-grow": 1,
+      "align-items": "stretch",
+      "widget": "ptcstabset"
+    }
+  ]
+}

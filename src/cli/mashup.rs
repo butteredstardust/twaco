@@ -31,6 +31,7 @@ pub(crate) fn mashup_new_cmd(solution: &Solution, args: &Args) -> u8 {
             master: args.has("--master"),
             visibility: args.visibility.clone(),
             params: args.params.clone(),
+            tabs: args.tabs.clone(),
         },
         mode: if apply { Mode::Apply } else { Mode::Plan },
         lock_label: "mashup new",
@@ -102,6 +103,12 @@ pub(crate) fn mashup_new_cmd(solution: &Solution, args: &Args) -> u8 {
             "  widget {} ({}, {})",
             widget.id, widget.type_id, widget.display_name
         );
+    }
+    for (index, (label, child)) in plan.tabs.iter().enumerate() {
+        match child {
+            Some(child) => println!("  tab {}: {label} shows {child}", index + 1),
+            None => println!("  tab {}: {label} (empty)", index + 1),
+        }
     }
     for (service, property) in &plan.menus {
         println!("  menu: {service} -> {property}, loaded with the page");

@@ -215,6 +215,7 @@ pub(crate) fn args_from(
                     "--visibility" => args.visibility.extend(values),
                     "--prop" | "--set" => args.props.extend(values),
                     "--param" => args.params.extend(values),
+                    "--tab" => args.tabs.extend(values),
                     other => unreachable!("{other} repeats but nothing reads it"),
                 }
             }
@@ -638,6 +639,10 @@ pub(crate) const FLAGS: &[Flag] = &[
     Flag {
         name: "--param",
         takes: Takes::Repeated("name:TYPE[:DIRECTION]"),
+    },
+    Flag {
+        name: "--tab",
+        takes: Takes::Repeated("Label=Mashup"),
     },
     Flag {
         name: "--take",
@@ -1325,12 +1330,14 @@ pub(crate) const COMMANDS: &[Command] = &[
             "--master",
             "--visibility",
             "--param",
+            "--tab",
             "--apply",
             "--json",
         ],
         text: r#"  mashup new <name> [--project <name>] [--template <name>] [--primary-menu <address>]
       [--secondary-menu <address>] [--theme <StyleTheme>] [--master]
-      [--visibility <principal>]... [--param <name:TYPE[:DIRECTION]>]... [--apply] [--json]
+      [--visibility <principal>]... [--param <name:TYPE[:DIRECTION]>]... [--tab <Label=Mashup>]...
+      [--apply] [--json]
                               create a ThingWorx 10.2 responsive mashup as Composer would: its entity file
                               and its content sidecars; plan unless --apply
       --template              layout template name or alias (default: blank); see mashup templates
@@ -1340,7 +1347,8 @@ pub(crate) const COMMANDS: &[Command] = &[
       --theme <StyleTheme>    a StyleTheme in the solution (default: PTC Convergence Theme)
       --master                a master mashup, with a page container filling the center
       --visibility            Organization/<name> or OrganizationalUnit/<organization>:<unit>, repeatable;
-                              none unless given"#,
+                              none unless given
+      --tab                   with --template tabs: a tab's label and the mashup it shows, repeatable"#,
     },
     Command {
         path: "new building-block",
