@@ -423,6 +423,59 @@ pub(crate) struct MashupParameterRequest {
 
 #[derive(Debug, Deserialize, JsonSchema, Serialize)]
 #[serde(deny_unknown_fields)]
+pub(crate) struct MashupRecipeRequest {
+    /// enable-when, show-when, text, message, confirm, popup, close-after, auto-refresh or validate.
+    pub(crate) recipe: String,
+    /// The mashup to write it in.
+    pub(crate) mashup: String,
+    /// The widget it is about, or the one whose click triggers it.
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) widget: Absent<String>,
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) condition: Absent<String>,
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) expression: Absent<String>,
+    /// `name=address` inputs of the condition or expression.
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) inputs: Absent<Vec<String>>,
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) after: Absent<String>,
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) say: Absent<String>,
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) from: Absent<String>,
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) kind: Absent<String>,
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) then: Absent<String>,
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) title: Absent<String>,
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) on: Absent<String>,
+    /// The mashup a popup opens.
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) target: Absent<String>,
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) window: Absent<String>,
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) size: Absent<String>,
+    /// `name=address` values a popup is given.
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) pass: Absent<Vec<String>>,
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) reload: Absent<String>,
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) every: Absent<u32>,
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) interval: Absent<String>,
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) else_say: Absent<String>,
+    #[serde(default = "default_true")]
+    pub(crate) dry_run: bool,
+}
+
+#[derive(Debug, Deserialize, JsonSchema, Serialize)]
+#[serde(deny_unknown_fields)]
 pub(crate) struct MashupEventRequest {
     /// The mashup that fires the event.
     pub(crate) mashup: String,

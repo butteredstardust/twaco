@@ -390,6 +390,12 @@ static TOOLS: LazyLock<Vec<Tool>> = LazyLock::new(|| {
             false,
             refactor::mashup_parameter_tool,
         ),
+        solution_tool::<refactor_requests::MashupRecipeRequest>(
+            "mashup_recipe",
+            "Write one recipe: the wiring real mashups repeat, in one edit. enable-when/show-when (widget, condition, inputs name=address: an expression into Disabled/Visible), text (widget, expression, inputs: a label's computed text), message (after a data call: say or from, kind info|warning|error), confirm (widget, then, title, say), popup (widget or on, target mashup, window modal-popup|popup|replace|new, size WxH, title, pass name=address, reload handler on close), close-after (after a data call the popup closes itself), auto-refresh (then data call, every seconds or interval address), validate (widget or on, condition, inputs, then, else_say). A dry run unless dry_run is false; an apply takes the workspace lock and writes the entity and managed content sidecar together.",
+            false,
+            refactor::mashup_recipe_tool,
+        ),
         solution_tool::<refactor_requests::MashupEventRequest>(
             "mashup_event",
             "Give a mashup an event its parents can react to. ThingWorx has no contained-mashup events, so, as real mashups do, it adds a NUMBER parameter (BOTH; every parent's copy refreshed) set to the time by an expression the given trigger evaluates. A parent reacts with mashup_on and event ui:<container>.<name>, which wires an events router. A dry run unless dry_run is false; apply writes all affected mashups in one transaction.",

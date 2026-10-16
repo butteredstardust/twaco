@@ -17,6 +17,11 @@ use crate::core::mashup_templates::{self, MashupKind, Visibility};
 use crate::core::transaction::{Transaction, TransactionError};
 use crate::core::{bindings, catalog, scan, splice, types, widgets, workspace};
 use serde_json::{json, Map, Value};
+
+mod recipes;
+pub use recipes::{
+    plan_recipe, recipe_plan_json, Recipe, RecipeArgs, RecipePlan, RecipeRequest, RECIPES,
+};
 use std::path::{Path, PathBuf};
 use uuid::Uuid;
 
@@ -2820,6 +2825,18 @@ fn resolve_handler(
     platform: Option<&types::Platform>,
     raw: &str,
 ) -> Result<End, AuthoringError> {
+    // The mashup's own services: a popup closing itself, a page reloading its data.
+    if let Some(service) = raw.strip_prefix("mashup:") {
+        if matches!(service, "CloseIfPopup" | "Refresh") {
+            return Ok(End::Mashup {
+                parameter: service.into(),
+                base: String::new(),
+            });
+        }
+        return Err(AuthoringError::Invalid(format!(
+            "a mashup's own services are mashup:CloseIfPopup and mashup:Refresh, not {raw}"
+        )));
+    }
     if let Some(rest) = raw.strip_prefix("ui:") {
         let (widget, service) = rest
             .rsplit_once('.')
@@ -2906,7 +2923,7 @@ fn handler_service(end: &End) -> &str {
             ..
         } => requested_alias.as_deref().unwrap_or(service),
         End::Ui { property, .. } => property,
-        End::Mashup { .. } => unreachable!("mashup is not an event handler"),
+        End::Mashup { parameter, .. } => parameter,
     }
 }
 
@@ -6698,5 +6715,467 @@ mod tests {
             },
         )?;
         apply_edit(solution, &plan.edit, &lock(solution))
+    }
+
+    #[test]
+    fn a_popup_closes_itself_with_the_mashups_own_service() {
+        let (_dir, solution) = bind_fixture();
+        let plan = on(&solution, "mashup:Loaded", "mashup:CloseIfPopup").unwrap();
+        let value: Value =
+            serde_json::from_slice(&plan.edit.sidecars.as_ref().unwrap().content_after).unwrap();
+        let event = &value["Events"][0];
+        assert_eq!(event["EventHandlerArea"], "Mashup");
+        assert_eq!(event["EventHandlerId"], "mashup-root");
+        assert_eq!(event["EventHandlerService"], "CloseIfPopup");
+        assert_eq!(
+            on(&solution, "mashup:Loaded", "mashup:Destroy")
+                .unwrap_err()
+                .code(),
+            ErrorCode::InvalidArguments
+        );
+    }
+
+    fn recipe(
+        solution: &Solution,
+        name: &str,
+        args: RecipeArgs,
+    ) -> Result<RecipePlan, AuthoringError> {
+        let plan = plan_recipe(
+            solution,
+            &RecipeRequest {
+                mashup: "Acme.Orders_MU".into(),
+                recipe: Recipe::from_args(name, &args)?,
+            },
+        )?;
+        apply_edit(solution, &plan.edit, &lock(solution))?;
+        Ok(plan)
+    }
+
+    /// The bind fixture plus a button (ptcsbutton-6), a SaveOrder call it runs, and a mashup
+    /// Acme.Detail_MU with a STRING parameter note to open as a popup.
+    fn recipe_fixture() -> (tempfile::TempDir, Solution) {
+        let (dir, solution) = bind_fixture();
+        let button = plan_add(&solution, &add_request("Acme.Orders_MU", "button")).unwrap();
+        apply_edit(&solution, &button.edit, &lock(&solution)).unwrap();
+        let plan = on(
+            &solution,
+            "ui:ptcsbutton-6.Clicked",
+            "data:Acme.Orders.Manager.SaveOrder",
+        )
+        .unwrap();
+        apply_edit(&solution, &plan.edit, &lock(&solution)).unwrap();
+        let detail = NewRequest {
+            params: vec!["note:STRING".into()],
+            ..request("Acme.Detail_MU")
+        };
+        apply_new(
+            &solution,
+            &plan_new(&solution, &detail).unwrap(),
+            &lock(&solution),
+        )
+        .unwrap();
+        (dir, solution)
+    }
+
+    fn widget_of<'a>(value: &'a Value, id: &str) -> &'a Value {
+        value["UI"]["Widgets"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|w| &w["Properties"])
+            .find(|p| p["Id"] == id)
+            .unwrap_or_else(|| panic!("{id} under the root"))
+    }
+
+    fn has_event(value: &Value, trigger: &str, event: &str, handler: &str, service: &str) -> bool {
+        value["Events"].as_array().unwrap().iter().any(|e| {
+            e["EventTriggerId"] == trigger
+                && e["EventTriggerEvent"] == event
+                && e["EventHandlerId"] == handler
+                && e["EventHandlerService"] == service
+        })
+    }
+
+    fn has_binding(value: &Value, source: &str, from: &str, target: &str, to: &str) -> bool {
+        value["DataBindings"].as_array().unwrap().iter().any(|b| {
+            b["SourceId"] == source
+                && b["PropertyMaps"][0]["SourceProperty"] == from
+                && b["TargetId"] == target
+                && b["PropertyMaps"][0]["TargetProperty"] == to
+        })
+    }
+
+    #[test]
+    fn each_recipe_writes_the_wiring_real_mashups_use() {
+        let (_dir, solution) = recipe_fixture();
+        let input = || vec!["note=ui:ptcstextfield-3.Text".to_string()];
+        // enable-when: an expression into Disabled, evaluated on load and as its input changes.
+        let plan = recipe(
+            &solution,
+            "enable-when",
+            RecipeArgs {
+                widget: Some("ptcsbutton-6".into()),
+                condition: Some("note !== ''".into()),
+                inputs: input(),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        let enable = plan.added[0].clone();
+        let value: Value = serde_json::from_str(&sidecar_content(&solution)).unwrap();
+        let expression = widget_of(&value, &enable);
+        assert_eq!(expression["Type"], "expression2");
+        assert_eq!(expression["Expression"], "Output = !(note !== '');");
+        assert_eq!(expression["OutputBaseType"], "BOOLEAN");
+        assert_eq!(expression["AutoEvaluate"], true);
+        assert_eq!(expression["_currentParameterDefs"][0]["BaseType"], "STRING");
+        assert!(has_binding(
+            &value,
+            "ptcstextfield-3",
+            "Text",
+            &enable,
+            "note"
+        ));
+        assert!(has_binding(
+            &value,
+            &enable,
+            "Output",
+            "ptcsbutton-6",
+            "Disabled"
+        ));
+        assert!(has_event(
+            &value,
+            "mashup-root",
+            "Loaded",
+            &enable,
+            "Evaluate"
+        ));
+        // show-when: into Visible.
+        let plan = recipe(
+            &solution,
+            "show-when",
+            RecipeArgs {
+                widget: Some("ptcslabel-4".into()),
+                condition: Some("note.length > 3".into()),
+                inputs: input(),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        let value: Value = serde_json::from_str(&sidecar_content(&solution)).unwrap();
+        assert!(has_binding(
+            &value,
+            &plan.added[0],
+            "Output",
+            "ptcslabel-4",
+            "Visible"
+        ));
+        // text: a STRING expression into the label's text.
+        let plan = recipe(
+            &solution,
+            "text",
+            RecipeArgs {
+                widget: Some("ptcslabel-4".into()),
+                expression: Some("'Note: ' + note".into()),
+                inputs: input(),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        let value: Value = serde_json::from_str(&sidecar_content(&solution)).unwrap();
+        assert_eq!(
+            widget_of(&value, &plan.added[0])["Expression"],
+            "Output = ('Note: ' + note);"
+        );
+        assert!(has_binding(
+            &value,
+            &plan.added[0],
+            "Output",
+            "ptcslabel-4",
+            "LabelText"
+        ));
+        // message: a status message when SaveOrder completes.
+        let plan = recipe(
+            &solution,
+            "message",
+            RecipeArgs {
+                after: Some("data:Acme.Orders.Manager.SaveOrder".into()),
+                say: Some("Saved".into()),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        let value: Value = serde_json::from_str(&sidecar_content(&solution)).unwrap();
+        let message = widget_of(&value, &plan.added[0]);
+        assert_eq!(
+            (
+                message["Type"].as_str(),
+                message["Message"].as_str(),
+                message["MessageType"].as_str()
+            ),
+            (Some("statusmessage"), Some("Saved"), Some("info"))
+        );
+        assert!(has_event(
+            &value,
+            "SaveOrder",
+            "ServiceInvokeCompleted",
+            &plan.added[0],
+            "ShowMessage"
+        ));
+        // confirm: the click opens a confirmation whose action runs the handler.
+        let plan = recipe(
+            &solution,
+            "confirm",
+            RecipeArgs {
+                widget: Some("ptcsbutton-6".into()),
+                then: Some("data:Acme.Orders.Manager.GetOrders".into()),
+                title: Some("Reload?".into()),
+                say: Some("Reload the orders?".into()),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        let value: Value = serde_json::from_str(&sidecar_content(&solution)).unwrap();
+        let confirmation = &plan.added[0];
+        assert_eq!(widget_of(&value, confirmation)["TitleText"], "Reload?");
+        assert!(has_event(
+            &value,
+            "ptcsbutton-6",
+            "Clicked",
+            confirmation,
+            "OpenConfirmation"
+        ));
+        assert!(has_event(
+            &value,
+            confirmation,
+            "ActionClick",
+            "Things_Acme.Orders.Manager",
+            "GetOrders"
+        ));
+        // popup: a navigation function opening Acme.Detail_MU with note passed and a reload on close.
+        let plan = recipe(
+            &solution,
+            "popup",
+            RecipeArgs {
+                widget: Some("ptcsbutton-6".into()),
+                target: Some("Acme.Detail_MU".into()),
+                size: Some("600x400".into()),
+                pass: input(),
+                reload: Some("data:Acme.Orders.Manager.GetOrders".into()),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        let value: Value = serde_json::from_str(&sidecar_content(&solution)).unwrap();
+        let navigation = widget_of(&value, &plan.added[0]);
+        assert_eq!(navigation["TargetMashup"], "Acme.Detail_MU");
+        assert_eq!(navigation["TargetWindowType"], "modal-popup");
+        assert_eq!(
+            (
+                navigation["PopupWidth"].as_u64(),
+                navigation["PopupHeight"].as_u64()
+            ),
+            (Some(600), Some(400))
+        );
+        assert_eq!(navigation["MashupParameters"][0]["ParameterName"], "note");
+        assert_eq!(
+            navigation["_currentParameterDefs"][0]["bindingDirection"],
+            "Both"
+        );
+        assert!(has_binding(
+            &value,
+            "ptcstextfield-3",
+            "Text",
+            &plan.added[0],
+            "note"
+        ));
+        assert!(has_event(
+            &value,
+            "ptcsbutton-6",
+            "Clicked",
+            &plan.added[0],
+            "Navigate"
+        ));
+        assert!(has_event(
+            &value,
+            &plan.added[0],
+            "WindowClosed",
+            "Things_Acme.Orders.Manager",
+            "GetOrders"
+        ));
+        // close-after: the mashup closes itself when SaveOrder completes.
+        recipe(
+            &solution,
+            "close-after",
+            RecipeArgs {
+                after: Some("data:Acme.Orders.Manager.SaveOrder".into()),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        let value: Value = serde_json::from_str(&sidecar_content(&solution)).unwrap();
+        assert!(has_event(
+            &value,
+            "SaveOrder",
+            "ServiceInvokeCompleted",
+            "mashup-root",
+            "CloseIfPopup"
+        ));
+        // auto-refresh: GetOrders every 30 seconds.
+        let plan = recipe(
+            &solution,
+            "auto-refresh",
+            RecipeArgs {
+                then: Some("data:Acme.Orders.Manager.GetOrders".into()),
+                every: Some(30),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        let value: Value = serde_json::from_str(&sidecar_content(&solution)).unwrap();
+        assert_eq!(widget_of(&value, &plan.added[0])["RefreshInterval"], 30);
+        assert!(has_event(
+            &value,
+            &plan.added[0],
+            "Refresh",
+            "Things_Acme.Orders.Manager",
+            "GetOrders"
+        ));
+        // validate: the click checks; true runs the handler, false shows the message.
+        let plan = recipe(
+            &solution,
+            "validate",
+            RecipeArgs {
+                widget: Some("ptcsbutton-6".into()),
+                condition: Some("note !== ''".into()),
+                inputs: input(),
+                then: Some("data:Acme.Orders.Manager.SaveOrder".into()),
+                else_say: Some("A note is required".into()),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        let value: Value = serde_json::from_str(&sidecar_content(&solution)).unwrap();
+        let (validator, message) = (&plan.added[0], &plan.added[1]);
+        assert_eq!(widget_of(&value, validator)["Type"], "validator2");
+        assert!(has_event(
+            &value,
+            "ptcsbutton-6",
+            "Clicked",
+            validator,
+            "Evaluate"
+        ));
+        assert!(has_event(
+            &value,
+            validator,
+            "True",
+            "Things_Acme.Orders.Manager",
+            "SaveOrder"
+        ));
+        assert!(has_event(
+            &value,
+            validator,
+            "False",
+            message,
+            "ShowMessage"
+        ));
+        assert_eq!(widget_of(&value, message)["MessageType"], "error");
+        let failing: Vec<_> = crate::core::check::run(&solution)
+            .gates
+            .into_iter()
+            .filter(|gate| !gate.ok() && gate.name != "project")
+            .collect();
+        assert!(failing.is_empty(), "{failing:?}");
+    }
+
+    #[test]
+    fn recipe_requests_twaco_cannot_stand_behind_are_refused() {
+        let (_dir, solution) = recipe_fixture();
+        let code = |name: &str, args: RecipeArgs| recipe(&solution, name, args).unwrap_err().code();
+        assert_eq!(
+            code("sparkle", RecipeArgs::default()),
+            ErrorCode::InvalidArguments
+        );
+        assert_eq!(
+            code(
+                "enable-when",
+                RecipeArgs {
+                    widget: Some("ptcsbutton-6".into()),
+                    ..Default::default()
+                }
+            ),
+            ErrorCode::InvalidArguments
+        );
+        assert_eq!(
+            code(
+                "message",
+                RecipeArgs {
+                    after: Some("data:Acme.Orders.Manager.SaveOrder".into()),
+                    say: Some("x".into()),
+                    from: Some("ui:ptcstextfield-3.Text".into()),
+                    ..Default::default()
+                }
+            ),
+            ErrorCode::InvalidArguments
+        );
+        assert_eq!(
+            code(
+                "message",
+                RecipeArgs {
+                    after: Some("ui:ptcsbutton-6".into()),
+                    say: Some("x".into()),
+                    ..Default::default()
+                }
+            ),
+            ErrorCode::InvalidArguments
+        );
+        assert_eq!(
+            code(
+                "popup",
+                RecipeArgs {
+                    widget: Some("ptcsbutton-6".into()),
+                    target: Some("Acme.Orders_MU".into()),
+                    ..Default::default()
+                }
+            ),
+            ErrorCode::GuardRefused
+        );
+        assert_eq!(
+            code(
+                "popup",
+                RecipeArgs {
+                    widget: Some("ptcsbutton-6".into()),
+                    target: Some("Acme.Detail_MU".into()),
+                    window: Some("sideways".into()),
+                    ..Default::default()
+                }
+            ),
+            ErrorCode::InvalidArguments
+        );
+        assert_eq!(
+            code(
+                "auto-refresh",
+                RecipeArgs {
+                    then: Some("data:Acme.Orders.Manager.GetOrders".into()),
+                    ..Default::default()
+                }
+            ),
+            ErrorCode::InvalidArguments
+        );
+        assert_eq!(
+            code(
+                "enable-when",
+                RecipeArgs {
+                    widget: Some("ptcsbutton-6".into()),
+                    condition: Some("x".into()),
+                    inputs: vec!["x".into()],
+                    ..Default::default()
+                }
+            ),
+            ErrorCode::InvalidArguments
+        );
+        // Nothing was written by any of them.
+        let value: Value = serde_json::from_str(&sidecar_content(&solution)).unwrap();
+        assert_eq!(value["UI"]["Widgets"].as_array().unwrap().len(), 1);
     }
 }

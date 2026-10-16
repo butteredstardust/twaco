@@ -1374,6 +1374,40 @@
     "annotations": { "readOnlyHint": false, "destructiveHint": true, "openWorldHint": false }
   },
   {
+    "name": "mashup_recipe",
+    "description": "Write one recipe: the wiring real mashups repeat, in one edit. enable-when/show-when (widget, condition, inputs name=address: an expression into Disabled/Visible), text (widget, expression, inputs: a label's computed text), message (after a data call: say or from, kind info|warning|error), confirm (widget, then, title, say), popup (widget or on, target mashup, window modal-popup|popup|replace|new, size WxH, title, pass name=address, reload handler on close), close-after (after a data call the popup closes itself), auto-refresh (then data call, every seconds or interval address), validate (widget or on, condition, inputs, then, else_say). A dry run unless dry_run is false; an apply takes the workspace lock and writes the entity and managed content sidecar together.",
+    "inputSchema": {
+      "required": ["recipe", "mashup"],
+      "additionalProperties": false,
+      "type": "object",
+      "properties": {
+        "recipe": { "description": "enable-when, show-when, text, message, confirm, popup, close-after, auto-refresh or validate.", "type": "string" },
+        "mashup": { "description": "The mashup to write it in.", "type": "string" },
+        "widget": { "description": "The widget it is about, or the one whose click triggers it.", "type": "string" },
+        "condition": { "type": "string" },
+        "expression": { "type": "string" },
+        "inputs": { "description": "`name=address` inputs of the condition or expression.", "type": "array", "items": { "type": "string" } },
+        "after": { "type": "string" },
+        "say": { "type": "string" },
+        "from": { "type": "string" },
+        "kind": { "type": "string" },
+        "then": { "type": "string" },
+        "title": { "type": "string" },
+        "on": { "type": "string" },
+        "target": { "description": "The mashup a popup opens.", "type": "string" },
+        "window": { "type": "string" },
+        "size": { "type": "string" },
+        "pass": { "description": "`name=address` values a popup is given.", "type": "array", "items": { "type": "string" } },
+        "reload": { "type": "string" },
+        "every": { "type": "integer", "minimum": 0 },
+        "interval": { "type": "string" },
+        "else_say": { "type": "string" },
+        "dry_run": { "type": "boolean", "default": true }
+      }
+    },
+    "annotations": { "readOnlyHint": false, "destructiveHint": true, "openWorldHint": false }
+  },
+  {
     "name": "mashup_event",
     "description": "Give a mashup an event its parents can react to. ThingWorx has no contained-mashup events, so, as real mashups do, it adds a NUMBER parameter (BOTH; every parent's copy refreshed) set to the time by an expression the given trigger evaluates. A parent reacts with mashup_on and event ui:<container>.<name>, which wires an events router. A dry run unless dry_run is false; apply writes all affected mashups in one transaction.",
     "inputSchema": {

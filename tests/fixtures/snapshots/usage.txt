@@ -140,6 +140,25 @@ usage: twaco <command>
       --no-default             clear the default on set
       --data-shape             required for INFOTABLE
       --force                  remove bindings when removing a parameter
+  mashup recipe <recipe> <mashup> [<widget>] [recipe flags] [--apply] [--json]
+                              write the wiring real mashups repeat, in one edit; plan unless --apply
+      enable-when|show-when <widget> --if <condition> [--input name=<address>]...
+                              an expression into the widget's Disabled or Visible
+      text <label> --expr <expression> [--input name=<address>]...
+                              a label's text computed from its inputs
+      message --after <data call> (--say <text> | --from <address>) [--kind info|warning|error]
+                              a status message when the call completes
+      confirm <button> --then <handler> [--title <text>] [--say <text>]
+                              a confirmation before the click runs the handler
+      popup <widget>|--on <event> --mashup <name> [--window modal-popup|popup|replace|new]
+          [--size <WxH>] [--title <text>] [--pass name=<address>]... [--reload <handler>]
+                              open a mashup, pass it values, run the handler when it closes
+      close-after --after <data call>
+                              the popup closes itself when the call completes
+      auto-refresh --then <data call> (--every <seconds> | --interval <address>)
+                              run the call again every so often
+      validate <widget>|--on <event> --if <condition> [--input name=<address>]... --then <handler>
+          [--else-say <text>]   run the handler when the condition holds, else show the text
   mashup event add <mashup> <name> --when <address> [--apply] [--json]
                               give a mashup an event its parents react to with mashup on --event
                               ui:<container>.<name>: a NUMBER parameter set to the time when the

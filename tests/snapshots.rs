@@ -146,6 +146,10 @@ const SCENARIOS: &[(&str, &[&str])] = &[
         "mashup_event_needs_when",
         &["mashup", "event", "add", "Acme.Orders.Dashboard", "saved"],
     ),
+    (
+        "mashup_recipe_unknown",
+        &["mashup", "recipe", "sparkle", "Acme.Orders.Dashboard"],
+    ),
     ("mashup_templates", &["mashup", "templates"]),
     (
         "mashup_new_tabs_plan",

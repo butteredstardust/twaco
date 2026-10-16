@@ -581,6 +581,29 @@ router's inputs are `Input1` to `Input<NumberOfInputs>`, of its `DataType`. A na
 bindable properties include the parameters of the mashup it opens. The legacy `expression` and
 `validator` stay readable in existing mashups; adding either adds `expression2` or `validator2`.
 
+### Recipes
+
+```sh
+twaco mashup recipe enable-when Acme.App.Edit_MU ptcsbutton-6 --if "note !== ''" --input note=ui:ptcstextfield-3.Text --apply
+twaco mashup recipe popup Acme.App.Orders_MU ptcsbutton-6 --mashup Acme.App.EditOrder_MU --pass orderId=data:Acme.App.Orders.Manager.GetOrders[SelectedRows].id --reload data:Acme.App.Orders.Manager.GetOrders --apply
+twaco mashup recipe close-after Acme.App.EditOrder_MU --after data:Acme.App.Orders.Manager.SaveOrder --apply
+twaco mashup recipe validate Acme.App.Edit_MU ptcsbutton-6 --if "note !== ''" --input note=ui:ptcstextfield-3.Text --then data:Acme.App.Orders.Manager.SaveOrder --else-say "A note is required" --apply
+```
+
+`mashup recipe` writes, in one edit, the wiring real mashups repeat, from the same pieces `mashup add`,
+`bind` and `on` use:
+
+| Recipe | What it writes |
+|---|---|
+| enable-when, show-when | an expression of `--if`, fed by each `--input name=address`, into the widget's `Disabled` (negated) or `Visible`, evaluated on load and whenever an input changes |
+| text | a STRING expression (`--expr`) into a label's text |
+| message | a status message (`--say` or bound `--from`; `--kind info|warning|error`) when the `--after` call completes |
+| confirm | a confirmation (`--title`, `--say`) the click opens; its action runs `--then` |
+| popup | a navigation function opening `--mashup` (`--window`, `--size WxH`, `--title`), each `--pass name=address` into its parameters, `--reload` run when it closes |
+| close-after | the mashup closes itself (when it is a popup) once the `--after` call completes |
+| auto-refresh | `--then` run every `--every` seconds, or at a bound `--interval` |
+| validate | a validator of `--if` the click evaluates: true runs `--then`, false shows `--else-say` |
+
 ### Finding widgets
 
 ```sh

@@ -120,6 +120,109 @@ pub(crate) fn mashup_new_cmd(solution: &Solution, args: &Args) -> u8 {
 }
 
 /// `twaco mashup param add|set|remove`: keep Composer's four parameter stores together.
+/// `twaco mashup recipe <recipe> <mashup> [<widget>] ...`: plan one recipe, or apply it.
+pub(crate) fn mashup_recipe_cmd(solution: &Solution, args: &Args) -> u8 {
+    let (name, mashup, widget) = match args.names.as_slice() {
+        [name, mashup] => (name, mashup, None),
+        [name, mashup, widget] => (name, mashup, Some(widget.clone())),
+        _ => {
+            eprintln!(
+                "{} mashup recipe needs <recipe> <mashup> [<widget>]; the recipes are {}",
+                style::prefix(),
+                mashup_authoring::RECIPES.join(", ")
+            );
+            return FAILED;
+        }
+    };
+    let value = |flag: &str| args.values.get(flag).cloned();
+    let every = match value("--every").map(|text| text.parse::<u32>()) {
+        None => None,
+        Some(Ok(seconds)) => Some(seconds),
+        Some(Err(_)) => {
+            eprintln!("{} --every takes whole seconds", style::prefix());
+            return FAILED;
+        }
+    };
+    let recipe_args = mashup_authoring::RecipeArgs {
+        widget,
+        condition: value("--if"),
+        expression: value("--expr"),
+        inputs: args.inputs.clone(),
+        after: value("--after"),
+        say: value("--say"),
+        from: value("--from"),
+        kind: value("--kind"),
+        then: value("--then"),
+        title: value("--title"),
+        on: value("--on"),
+        target: value("--mashup"),
+        window: value("--window"),
+        size: value("--size"),
+        pass: args.pass.clone(),
+        reload: value("--reload"),
+        every,
+        interval: value("--interval"),
+        else_say: value("--else-say"),
+    };
+    let recipe = match mashup_authoring::Recipe::from_args(name, &recipe_args) {
+        Ok(recipe) => recipe,
+        Err(error) => {
+            eprintln!("{} {error}", style::prefix());
+            return FAILED;
+        }
+    };
+    let request = commands::mashup::MashupRecipeRequest {
+        request: mashup_authoring::RecipeRequest {
+            mashup: mashup.clone(),
+            recipe,
+        },
+        mode: if args.has("--apply") {
+            Mode::Apply
+        } else {
+            Mode::Plan
+        },
+        lock_label: "mashup recipe",
+    };
+    let mut notices = commands::Notices::default();
+    let outcome = match commands::mashup::recipe(solution, &request, &mut notices) {
+        Ok(outcome) => outcome,
+        Err(error) => {
+            print_notices(&notices);
+            eprintln!("{} {error}", style::prefix());
+            return FAILED;
+        }
+    };
+    print_notices(&notices);
+    let report = mashup_authoring::recipe_plan_json(solution, &outcome.plan, outcome.applied);
+    if args.has("--json") {
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&report).expect("a recipe plan serialises")
+        );
+        return OK;
+    }
+    println!(
+        "{} recipe {} in {}",
+        if outcome.applied {
+            "wrote"
+        } else {
+            "would write"
+        },
+        outcome.plan.name,
+        mashup
+    );
+    for id in &outcome.plan.added {
+        println!("  added {id}");
+    }
+    for line in &outcome.plan.wired {
+        println!("  {line}");
+    }
+    if !outcome.applied {
+        println!("run again with --apply to write it");
+    }
+    OK
+}
+
 /// `twaco mashup event add <mashup> <name> --when <address>`: plan a child event, or apply it.
 pub(crate) fn mashup_event_cmd(solution: &Solution, args: &Args) -> u8 {
     let [action, mashup, name] = args.names.as_slice() else {

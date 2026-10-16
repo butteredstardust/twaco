@@ -217,6 +217,7 @@ pub(crate) fn args_from(
                     "--param" => args.params.extend(values),
                     "--tab" => args.tabs.extend(values),
                     "--input" => args.inputs.extend(values),
+                    "--pass" => args.pass.extend(values),
                     other => unreachable!("{other} repeats but nothing reads it"),
                 }
             }
@@ -456,6 +457,70 @@ pub(crate) const FLAGS: &[Flag] = &[
     Flag {
         name: "--when",
         takes: Takes::Value("address"),
+    },
+    Flag {
+        name: "--if",
+        takes: Takes::Value("condition"),
+    },
+    Flag {
+        name: "--expr",
+        takes: Takes::Value("expression"),
+    },
+    Flag {
+        name: "--after",
+        takes: Takes::Value("address"),
+    },
+    Flag {
+        name: "--say",
+        takes: Takes::Value("text"),
+    },
+    Flag {
+        name: "--kind",
+        takes: Takes::Value("info|warning|error"),
+    },
+    Flag {
+        name: "--then",
+        takes: Takes::Value("address"),
+    },
+    Flag {
+        name: "--title",
+        takes: Takes::Value("text"),
+    },
+    Flag {
+        name: "--on",
+        takes: Takes::Value("address"),
+    },
+    Flag {
+        name: "--mashup",
+        takes: Takes::Value("name"),
+    },
+    Flag {
+        name: "--window",
+        takes: Takes::Value("type"),
+    },
+    Flag {
+        name: "--size",
+        takes: Takes::Value("WxH"),
+    },
+    Flag {
+        name: "--reload",
+        takes: Takes::Value("address"),
+    },
+    Flag {
+        name: "--every",
+        takes: Takes::Value("seconds"),
+    },
+    Flag {
+        name: "--interval",
+        takes: Takes::Value("address"),
+    },
+    Flag {
+        name: "--else-say",
+        takes: Takes::Value("text"),
+    },
+    Flag {
+        name: "--pass",
+        takes: Takes::Repeated("name=address"),
     },
     Flag {
         name: "--display-name",
@@ -1319,6 +1384,52 @@ pub(crate) const COMMANDS: &[Command] = &[
       --no-default             clear the default on set
       --data-shape             required for INFOTABLE
       --force                  remove bindings when removing a parameter"#,
+    },
+    Command {
+        path: "mashup recipe",
+        group: 1,
+        operands: true,
+        flags: &[
+            "--if",
+            "--expr",
+            "--input",
+            "--after",
+            "--say",
+            "--from",
+            "--kind",
+            "--then",
+            "--title",
+            "--on",
+            "--mashup",
+            "--window",
+            "--size",
+            "--pass",
+            "--reload",
+            "--every",
+            "--interval",
+            "--else-say",
+            "--apply",
+            "--json",
+        ],
+        text: r#"  mashup recipe <recipe> <mashup> [<widget>] [recipe flags] [--apply] [--json]
+                              write the wiring real mashups repeat, in one edit; plan unless --apply
+      enable-when|show-when <widget> --if <condition> [--input name=<address>]...
+                              an expression into the widget's Disabled or Visible
+      text <label> --expr <expression> [--input name=<address>]...
+                              a label's text computed from its inputs
+      message --after <data call> (--say <text> | --from <address>) [--kind info|warning|error]
+                              a status message when the call completes
+      confirm <button> --then <handler> [--title <text>] [--say <text>]
+                              a confirmation before the click runs the handler
+      popup <widget>|--on <event> --mashup <name> [--window modal-popup|popup|replace|new]
+          [--size <WxH>] [--title <text>] [--pass name=<address>]... [--reload <handler>]
+                              open a mashup, pass it values, run the handler when it closes
+      close-after --after <data call>
+                              the popup closes itself when the call completes
+      auto-refresh --then <data call> (--every <seconds> | --interval <address>)
+                              run the call again every so often
+      validate <widget>|--on <event> --if <condition> [--input name=<address>]... --then <handler>
+          [--else-say <text>]   run the handler when the condition holds, else show the text"#,
     },
     Command {
         path: "mashup event",

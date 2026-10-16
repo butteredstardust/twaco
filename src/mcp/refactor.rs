@@ -2,8 +2,8 @@ use super::requests::refactor::{
     AdoptApplyRequest, AdoptKind, AdoptReportRequest, AdoptTakeSide, HandoffAction, HandoffRequest,
     MashupAddContainedRequest, MashupAddRequest, MashupBindRequest, MashupDescribeRequest,
     MashupEventRequest, MashupNewRequest, MashupOnRequest, MashupParameterAction,
-    MashupParameterRequest, MashupTemplatesRequest, MoveMemberRequest, NewBuildingBlockRequest,
-    RenameRequest, ReprojectRequest, RetemplateRequest, WidgetsRequest,
+    MashupParameterRequest, MashupRecipeRequest, MashupTemplatesRequest, MoveMemberRequest,
+    NewBuildingBlockRequest, RenameRequest, ReprojectRequest, RetemplateRequest, WidgetsRequest,
 };
 use super::source::add_types_refresh;
 use super::*;
@@ -399,6 +399,53 @@ pub(crate) fn mashup_parameter_tool(
         &outcome.plan,
         outcome.applied,
     );
+    result["dry_run"] = json!(dry_run);
+    add_notices(&mut result, &notices);
+    Ok(result)
+}
+
+pub(crate) fn mashup_recipe_tool(
+    solution: &Solution,
+    arguments: MashupRecipeRequest,
+) -> Result<Value, ToolError> {
+    use crate::core::mashup_authoring::{Recipe, RecipeArgs, RecipeRequest};
+    let dry_run = arguments.dry_run;
+    let recipe_args = RecipeArgs {
+        widget: arguments.widget.as_ref().cloned(),
+        condition: arguments.condition.as_ref().cloned(),
+        expression: arguments.expression.as_ref().cloned(),
+        inputs: arguments.inputs.items().to_vec(),
+        after: arguments.after.as_ref().cloned(),
+        say: arguments.say.as_ref().cloned(),
+        from: arguments.from.as_ref().cloned(),
+        kind: arguments.kind.as_ref().cloned(),
+        then: arguments.then.as_ref().cloned(),
+        title: arguments.title.as_ref().cloned(),
+        on: arguments.on.as_ref().cloned(),
+        target: arguments.target.as_ref().cloned(),
+        window: arguments.window.as_ref().cloned(),
+        size: arguments.size.as_ref().cloned(),
+        pass: arguments.pass.items().to_vec(),
+        reload: arguments.reload.as_ref().cloned(),
+        every: arguments.every.as_ref().copied(),
+        interval: arguments.interval.as_ref().cloned(),
+        else_say: arguments.else_say.as_ref().cloned(),
+    };
+    let recipe = Recipe::from_args(nonempty(&arguments.recipe, "recipe")?, &recipe_args)
+        .map_err(ToolError::coded)?;
+    let request = commands::mashup::MashupRecipeRequest {
+        request: RecipeRequest {
+            mashup: nonempty(&arguments.mashup, "mashup")?.into(),
+            recipe,
+        },
+        mode: if dry_run { Mode::Plan } else { Mode::Apply },
+        lock_label: "mcp mashup_recipe",
+    };
+    let mut notices = commands::Notices::default();
+    let outcome =
+        commands::mashup::recipe(solution, &request, &mut notices).map_err(ToolError::coded)?;
+    let mut result =
+        crate::core::mashup_authoring::recipe_plan_json(solution, &outcome.plan, outcome.applied);
     result["dry_run"] = json!(dry_run);
     add_notices(&mut result, &notices);
     Ok(result)
