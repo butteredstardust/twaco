@@ -390,6 +390,12 @@ static TOOLS: LazyLock<Vec<Tool>> = LazyLock::new(|| {
             false,
             refactor::mashup_parameter_tool,
         ),
+        solution_tool::<refactor_requests::MashupEventRequest>(
+            "mashup_event",
+            "Give a mashup an event its parents can react to. ThingWorx has no contained-mashup events, so, as real mashups do, it adds a NUMBER parameter (BOTH; every parent's copy refreshed) set to the time by an expression the given trigger evaluates. A parent reacts with mashup_on and event ui:<container>.<name>, which wires an events router. A dry run unless dry_run is false; apply writes all affected mashups in one transaction.",
+            false,
+            refactor::mashup_event_tool,
+        ),
         solution_tool::<refactor_requests::MashupDescribeRequest>(
             "mashup_describe",
             "Describe a mashup in the repository without its XML: the widget tree (ids, types, row/column containers, which widget fills its container, text and [[tokens]]); each service it calls, with what sets each declared parameter (a binding's source, static, or unbound); each binding, one row per property map, warning when a binding has more than one (the runtime applies only the first); and each event. Addresses are those mashup bind and on take: ui:<widget>.<Property>, data:<Entity>.<Service>[.<Parameter>], mashup:<Parameter>. Read-only.",

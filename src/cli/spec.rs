@@ -454,6 +454,10 @@ pub(crate) const FLAGS: &[Flag] = &[
         takes: Takes::Value("address"),
     },
     Flag {
+        name: "--when",
+        takes: Takes::Value("address"),
+    },
+    Flag {
         name: "--display-name",
         takes: Takes::Value("text"),
     },
@@ -1315,6 +1319,17 @@ pub(crate) const COMMANDS: &[Command] = &[
       --no-default             clear the default on set
       --data-shape             required for INFOTABLE
       --force                  remove bindings when removing a parameter"#,
+    },
+    Command {
+        path: "mashup event",
+        group: 1,
+        operands: true,
+        flags: &["--when", "--apply", "--json"],
+        text: r#"  mashup event add <mashup> <name> --when <address> [--apply] [--json]
+                              give a mashup an event its parents react to with mashup on --event
+                              ui:<container>.<name>: a NUMBER parameter set to the time when the
+                              event at --when fires; plan unless --apply
+      --when <address>        the event in this mashup that fires it, as mashup on --event takes it"#,
     },
     Command {
         path: "mashup templates",

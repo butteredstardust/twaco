@@ -265,6 +265,44 @@ pub fn on(
 }
 
 /// Plan without a lock; to apply, lock first and plan again from what is on disk then.
+#[derive(Clone, Debug)]
+pub struct MashupEventRequest {
+    pub request: mashup_authoring::EventRequest,
+    pub mode: Mode,
+    pub lock_label: &'static str,
+}
+
+/// Plan without a lock; to apply, lock first and plan again from what is on disk then.
+pub fn event(
+    solution: &Solution,
+    request: &MashupEventRequest,
+    notices: &mut Notices,
+) -> Result<MashupParameterOutcome, MashupCommandError> {
+    match request.mode {
+        Mode::Plan => Ok(MashupParameterOutcome {
+            plan: mashup_authoring::plan_event(solution, &request.request)
+                .map_err(MashupCommandError::Authoring)?,
+            applied: false,
+            effects: Effects::new(Access::Read, Access::None),
+        }),
+        Mode::Apply => {
+            let lock = lock_workspace(solution, request.lock_label, notices)
+                .map_err(MashupCommandError::Lock)?;
+            let reloaded = Solution::load(&solution.root.join(config::CONFIG_FILE))
+                .map_err(MashupCommandError::Config)?;
+            let plan = mashup_authoring::plan_event(&reloaded, &request.request)
+                .map_err(MashupCommandError::Authoring)?;
+            mashup_authoring::apply_parameter(&reloaded, &plan, &lock)
+                .map_err(MashupCommandError::Authoring)?;
+            Ok(MashupParameterOutcome {
+                plan,
+                applied: true,
+                effects: Effects::new(Access::Write, Access::None),
+            })
+        }
+    }
+}
+
 pub fn parameter(
     solution: &Solution,
     request: &MashupParameterRequest,

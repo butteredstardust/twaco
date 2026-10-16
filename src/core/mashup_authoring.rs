@@ -936,6 +936,221 @@ fn shows_mashup(properties: &Value, child: &str) -> bool {
     }
 }
 
+/// A child mashup's event is a BOTH or OUT parameter whose value it changes (to a timestamp, see
+/// `mashup event add`). ThingWorx has no contained-mashup events, so the parent reacts the way real
+/// mashups do: the container's parameter feeds an events router whose `Changed` runs the handler.
+/// Returns the router's `Changed` address when `event_raw` names such a parameter.
+fn route_child_event(
+    document: &mut MashupDocument,
+    event_raw: &str,
+) -> Result<Option<String>, AuthoringError> {
+    let Some((widget, name)) = event_raw
+        .strip_prefix("ui:")
+        .and_then(|rest| rest.rsplit_once('.'))
+    else {
+        return Ok(None);
+    };
+    let Ok(found) = document.find_exact(widget) else {
+        return Ok(None);
+    };
+    if found.type_id != "mashupcontainer" {
+        return Ok(None);
+    }
+    let container = &document.at(&found.path)["Properties"];
+    let child = container["Name"].as_str().unwrap_or_default().to_string();
+    let entries = container["MashupParameters"]
+        .as_array()
+        .cloned()
+        .unwrap_or_default();
+    let entry = entries
+        .iter()
+        .find(|entry| entry["ParameterName"] == name)
+        .ok_or_else(|| {
+            let events: Vec<&str> = entries
+                .iter()
+                .filter(|entry| entry["ParmDef"]["aspects"]["bindingDirection"] != "IN")
+                .filter_map(|entry| entry["ParameterName"].as_str())
+                .collect();
+            AuthoringError::Unknown(format!(
+                "{} shows {child}, which has no parameter {name}; its events are its BOTH or OUT parameters: {}",
+                found.id,
+                if events.is_empty() { "none".to_string() } else { events.join(", ") }
+            ))
+        })?;
+    if entry["ParmDef"]["aspects"]["bindingDirection"] == "IN" {
+        return Err(AuthoringError::Refused(format!(
+            "{name} is an input of {child}; an event is a BOTH or OUT parameter"
+        )));
+    }
+    let base = entry["BaseType"].as_str().unwrap_or("STRING").to_string();
+    // Reuse a router this parameter already feeds.
+    let existing = document.value()["DataBindings"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .find(|binding| {
+            binding["SourceId"] == found.id
+                && binding["PropertyMaps"][0]["SourceProperty"] == name
+                && binding["TargetId"]
+                    .as_str()
+                    .is_some_and(|id| id.starts_with("eventsrouter-"))
+        })
+        .and_then(|binding| binding["TargetId"].as_str().map(str::to_string));
+    if let Some(router) = existing {
+        return Ok(Some(format!("ui:{router}.Changed")));
+    }
+    let catalog = widgets::catalog()
+        .by_type("eventsrouter")
+        .expect("the catalogue has the events router; a test checks it");
+    let number = document.allocate();
+    let mut router = mashup_edit::new_widget(catalog, number, false);
+    let properties = router["Properties"]
+        .as_object_mut()
+        .expect("a widget has properties");
+    mashup_edit::insert_sorted(properties, "DataType", json!(base));
+    mashup_edit::insert_sorted(properties, "NumberOfInputs", json!("1"));
+    let router_id = properties["Id"].as_str().unwrap_or_default().to_string();
+    document.push_child(&[], router);
+    let mut map = Map::new();
+    insert(&mut map, "SourceProperty", json!(name));
+    insert(&mut map, "SourcePropertyBaseType", json!(base));
+    insert(&mut map, "SourcePropertyType", json!("Property"));
+    insert(&mut map, "TargetProperty", json!("Input1"));
+    insert(&mut map, "TargetPropertyBaseType", json!(base));
+    insert(&mut map, "TargetPropertyType", json!("property"));
+    let mut binding = Map::new();
+    insert(&mut binding, "Id", json!(Uuid::new_v4().to_string()));
+    insert(&mut binding, "PropertyMaps", json!([Value::Object(map)]));
+    insert(&mut binding, "SourceArea", json!("UI"));
+    insert(&mut binding, "SourceDetails", json!(""));
+    insert(&mut binding, "SourceId", json!(found.id));
+    insert(&mut binding, "SourceSection", json!(""));
+    insert(&mut binding, "TargetArea", json!("UI"));
+    insert(&mut binding, "TargetId", json!(router_id));
+    insert(&mut binding, "TargetSection", json!(""));
+    document
+        .value_mut()
+        .as_object_mut()
+        .expect("checked: root object")
+        .entry("DataBindings")
+        .or_insert_with(|| Value::Array(Vec::new()))
+        .as_array_mut()
+        .expect("checked: bindings array")
+        .push(Value::Object(binding));
+    Ok(Some(format!("ui:{router_id}.Changed")))
+}
+
+/// A request to give a mashup an event its parents can react to.
+#[derive(Clone, Debug)]
+pub struct EventRequest {
+    pub mashup: String,
+    pub name: String,
+    /// The event in this mashup that fires it, as `mashup on --event` takes it.
+    pub when: String,
+}
+
+/// Plan a child event: a NUMBER parameter (BOTH), refreshed in every parent's copy, set to the
+/// time by an expression that `when` evaluates. Real mashups do it this way because ThingWorx has
+/// no events of its own for a contained mashup: a changed value is the signal.
+pub fn plan_event(
+    solution: &Solution,
+    request: &EventRequest,
+) -> Result<ParameterPlan, AuthoringError> {
+    let mut plan = plan_parameter(
+        solution,
+        &ParameterRequest {
+            mashup: request.mashup.clone(),
+            action: ParameterAction::Add,
+            name: request.name.clone(),
+            base_type: Some("NUMBER".into()),
+            direction: Some("BOTH".into()),
+            description: Some(format!("fired on {}", request.when)),
+            default: ParameterDefault::Unchanged,
+            data_shape: None,
+            force: false,
+        },
+    )?;
+    let child = plan
+        .edits
+        .first_mut()
+        .expect("the mashup's own edit comes first");
+    let content = match &child.sidecars {
+        Some(sidecars) => String::from_utf8(sidecars.content_after.clone())
+            .map_err(|error| AuthoringError::Invalid(error.to_string()))?,
+        None => {
+            mashup::extract(&child.entity_after)
+                .map_err(AuthoringError::Mashup)?
+                .content
+        }
+    };
+    let mut document = mashup_edit::parse(&content).map_err(AuthoringError::Edit)?;
+    let catalog = widgets::catalog()
+        .by_type("expression2")
+        .expect("the catalogue has the expression; a test checks it");
+    let number = document.allocate();
+    let mut expression = mashup_edit::new_widget(catalog, number, false);
+    let id = expression["Properties"]["Id"]
+        .as_str()
+        .unwrap_or_default()
+        .to_string();
+    let properties = expression["Properties"]
+        .as_object_mut()
+        .expect("a widget has properties");
+    mashup_edit::insert_sorted(
+        properties,
+        "DisplayName",
+        json!(format!("{}Event", request.name)),
+    );
+    mashup_edit::insert_sorted(properties, "Expression", json!("Output = Date.now();"));
+    mashup_edit::insert_sorted(properties, "OutputBaseType", json!("NUMBER"));
+    mashup_edit::insert_sorted(properties, "DataChangeType", json!("ALWAYS"));
+    mashup_edit::insert_sorted(properties, "_currentParameterDefs", json!([]));
+    document.push_child(&[], expression);
+    let parameters = mashup_parameters(&child.entity_after).map_err(AuthoringError::Unreadable)?;
+    let (model, _) = types::load_model(solution);
+    let platform = types::cached_platform(solution);
+    let context = AuthoringContext {
+        parameters: &parameters,
+        model: &model,
+        platform: platform.as_ref(),
+    };
+    on_in(
+        &mut document,
+        &context,
+        &request.when,
+        &format!("ui:{id}.Evaluate"),
+    )?;
+    bind_in(
+        &mut document,
+        Some(solution),
+        &context,
+        &format!("ui:{id}.Output"),
+        &format!("mashup:{}", request.name),
+    )?;
+    let content = document.to_content();
+    let css = match &child.sidecars {
+        Some(sidecars) => sidecars.css.clone(),
+        None => {
+            mashup::extract(&child.entity_after)
+                .map_err(AuthoringError::Mashup)?
+                .css
+        }
+    };
+    let (entity_after, _) = mashup::sync(
+        &child.entity_after,
+        &mashup::Assets {
+            content: content.clone(),
+            css,
+        },
+    )
+    .map_err(AuthoringError::Mashup)?;
+    child.entity_after = entity_after;
+    if let Some(sidecars) = &mut child.sidecars {
+        sidecars.content_after = content.into_bytes();
+    }
+    Ok(plan)
+}
+
 /// A navigation function's own copy of the target's parameters, in its own shape.
 fn navigation_definition(def: &ParameterDefinition, value: Option<&Value>) -> Value {
     let (direction, source, target) = match def.direction.as_str() {
@@ -2448,6 +2663,8 @@ fn on_in(
     event_raw: &str,
     invoke_raw: &str,
 ) -> Result<Option<String>, AuthoringError> {
+    let routed = route_child_event(document, event_raw)?;
+    let event_raw = routed.as_deref().unwrap_or(event_raw);
     let trigger = resolve_trigger(document, context.model, context.platform, event_raw)?;
     let handler = resolve_handler(document, context.model, context.platform, invoke_raw)?;
     let (handler_section, handler_id, new_source) = data_call(document, &handler)?;
@@ -2547,7 +2764,8 @@ fn resolve_trigger(
         let found = document.find_exact(widget).map_err(AuthoringError::Edit)?;
         if found.type_id == "mashupcontainer" {
             return Err(AuthoringError::Invalid(
-                "a contained mashup has no events; see twaco mashup event (planned)".into(),
+                "a contained mashup's events are its BOTH or OUT parameters (see mashup event add)"
+                    .into(),
             ));
         }
         let catalog = event_contract(&found.id, &found.type_id)?;
@@ -5346,7 +5564,8 @@ mod tests {
             )
             .unwrap_err()
             .code(),
-            ErrorCode::InvalidArguments
+            // A contained mashup's events are its BOTH/OUT parameters; it has no Anything.
+            ErrorCode::UnknownEntity
         );
     }
 
@@ -6309,5 +6528,175 @@ mod tests {
             }),
             ErrorCode::InvalidArguments
         );
+    }
+
+    #[test]
+    fn a_child_event_is_a_timestamped_parameter_and_a_parent_reacts_through_an_events_router() {
+        let (_dir, solution) = parent_and_child();
+        let button = plan_add(&solution, &add_request("Acme.Card_MU", "button")).unwrap();
+        apply_edit(&solution, &button.edit, &lock(&solution)).unwrap();
+        let clicked = format!("ui:{}.Clicked", button.placed.id);
+        let plan = plan_event(
+            &solution,
+            &EventRequest {
+                mashup: "Acme.Card_MU".into(),
+                name: "saved".into(),
+                when: clicked.clone(),
+            },
+        )
+        .unwrap();
+        assert!(plan
+            .refreshed
+            .contains(&("mashupcontainer-9".to_string(), "Acme.Board_MU".to_string())));
+        apply_parameter(&solution, &plan, &lock(&solution)).unwrap();
+        // The child: the parameter, the expression that sets it to the time, the trigger, the binding.
+        let entity = std::fs::read(solution.root.join("acme/Mashups/Acme.Card_MU.xml")).unwrap();
+        let saved = mashup_parameters(&entity)
+            .unwrap()
+            .into_iter()
+            .find(|p| p.name == "saved")
+            .unwrap();
+        assert_eq!(
+            (saved.base_type.as_str(), saved.direction.as_str()),
+            ("NUMBER", "BOTH")
+        );
+        let child = content_of(&solution, "Acme.Card_MU");
+        let expression = child["UI"]["Widgets"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|w| &w["Properties"])
+            .find(|p| p["Type"] == "expression2")
+            .unwrap();
+        assert_eq!(expression["Expression"], "Output = Date.now();");
+        assert_eq!(expression["DataChangeType"], "ALWAYS");
+        assert_eq!(expression["OutputBaseType"], "NUMBER");
+        let id = expression["Id"].as_str().unwrap();
+        let fires = child["Events"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|e| e["EventHandlerId"] == id)
+            .unwrap();
+        assert_eq!(fires["EventTriggerEvent"], "Clicked");
+        assert_eq!(fires["EventHandlerService"], "Evaluate");
+        let sets = child["DataBindings"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|b| b["SourceId"] == id)
+            .unwrap();
+        assert_eq!(sets["TargetArea"], "Mashup");
+        assert_eq!(sets["PropertyMaps"][0]["TargetProperty"], "saved");
+        // The parent: its copy knows the event.
+        let parent = content_of(&solution, "Acme.Board_MU");
+        assert!(container(&parent)["MashupParameters"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|entry| entry["ParameterName"] == "saved"));
+        // The parent reacts: an events router fed by the container's parameter runs the handler.
+        let parent_on = |invoke: &str| {
+            on_in_mashup(
+                &solution,
+                "Acme.Board_MU",
+                "ui:mashupcontainer-9.saved",
+                invoke,
+            )
+        };
+        parent_on("ui:mashupcontainer-9.Refresh").unwrap();
+        let parent = content_of(&solution, "Acme.Board_MU");
+        let routers: Vec<&Value> = parent["UI"]["Widgets"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|w| &w["Properties"])
+            .filter(|p| p["Type"] == "eventsrouter")
+            .collect();
+        assert_eq!(routers.len(), 1);
+        assert_eq!(routers[0]["DataType"], "NUMBER");
+        assert_eq!(routers[0]["NumberOfInputs"], "1");
+        let router = routers[0]["Id"].as_str().unwrap().to_string();
+        let feed = parent["DataBindings"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|b| b["TargetId"] == router)
+            .unwrap();
+        assert_eq!(feed["SourceId"], "mashupcontainer-9");
+        assert_eq!(feed["PropertyMaps"][0]["SourceProperty"], "saved");
+        assert_eq!(feed["PropertyMaps"][0]["TargetProperty"], "Input1");
+        let reacts = parent["Events"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|e| e["EventTriggerId"] == router)
+            .unwrap();
+        assert_eq!(reacts["EventTriggerEvent"], "Changed");
+        assert_eq!(reacts["EventHandlerService"], "Refresh");
+        // A second handler for the same event reuses the router.
+        let label = plan_add(&solution, &add_request("Acme.Board_MU", "button")).unwrap();
+        apply_edit(&solution, &label.edit, &lock(&solution)).unwrap();
+        parent_on(&format!("ui:{}.TriggerClick", label.placed.id)).ok();
+        let parent = content_of(&solution, "Acme.Board_MU");
+        let count = parent["UI"]["Widgets"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter(|w| w["Properties"]["Type"] == "eventsrouter")
+            .count();
+        assert_eq!(count, 1);
+        let failing: Vec<_> = crate::core::check::run(&solution)
+            .gates
+            .into_iter()
+            .filter(|gate| !gate.ok() && gate.name != "project")
+            .collect();
+        assert!(failing.is_empty(), "{failing:?}");
+        // An input is not an event, and neither is a name the child lacks.
+        let code = |event: &str| {
+            plan_on(
+                &solution,
+                &OnRequest {
+                    mashup: "Acme.Board_MU".into(),
+                    event: event.into(),
+                    invoke: "ui:mashupcontainer-9.Refresh".into(),
+                },
+            )
+            .unwrap_err()
+            .code()
+        };
+        assert_eq!(code("ui:mashupcontainer-9.id"), ErrorCode::GuardRefused);
+        assert_eq!(code("ui:mashupcontainer-9.nope"), ErrorCode::UnknownEntity);
+        // An event name that is already a parameter is refused.
+        assert_eq!(
+            plan_event(
+                &solution,
+                &EventRequest {
+                    mashup: "Acme.Card_MU".into(),
+                    name: "saved".into(),
+                    when: clicked,
+                },
+            )
+            .unwrap_err()
+            .code(),
+            ErrorCode::AlreadyExists
+        );
+    }
+
+    fn on_in_mashup(
+        solution: &Solution,
+        mashup: &str,
+        event: &str,
+        invoke: &str,
+    ) -> Result<(), AuthoringError> {
+        let plan = plan_on(
+            solution,
+            &OnRequest {
+                mashup: mashup.into(),
+                event: event.into(),
+                invoke: invoke.into(),
+            },
+        )?;
+        apply_edit(solution, &plan.edit, &lock(solution))
     }
 }

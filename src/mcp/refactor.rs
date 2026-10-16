@@ -1,9 +1,9 @@
 use super::requests::refactor::{
     AdoptApplyRequest, AdoptKind, AdoptReportRequest, AdoptTakeSide, HandoffAction, HandoffRequest,
     MashupAddContainedRequest, MashupAddRequest, MashupBindRequest, MashupDescribeRequest,
-    MashupNewRequest, MashupOnRequest, MashupParameterAction, MashupParameterRequest,
-    MashupTemplatesRequest, MoveMemberRequest, NewBuildingBlockRequest, RenameRequest,
-    ReprojectRequest, RetemplateRequest, WidgetsRequest,
+    MashupEventRequest, MashupNewRequest, MashupOnRequest, MashupParameterAction,
+    MashupParameterRequest, MashupTemplatesRequest, MoveMemberRequest, NewBuildingBlockRequest,
+    RenameRequest, ReprojectRequest, RetemplateRequest, WidgetsRequest,
 };
 use super::source::add_types_refresh;
 use super::*;
@@ -394,6 +394,33 @@ pub(crate) fn mashup_parameter_tool(
     let mut notices = commands::Notices::default();
     let outcome =
         commands::mashup::parameter(solution, &request, &mut notices).map_err(ToolError::coded)?;
+    let mut result = crate::core::mashup_authoring::parameter_plan_json(
+        solution,
+        &outcome.plan,
+        outcome.applied,
+    );
+    result["dry_run"] = json!(dry_run);
+    add_notices(&mut result, &notices);
+    Ok(result)
+}
+
+pub(crate) fn mashup_event_tool(
+    solution: &Solution,
+    arguments: MashupEventRequest,
+) -> Result<Value, ToolError> {
+    let dry_run = arguments.dry_run;
+    let request = commands::mashup::MashupEventRequest {
+        request: crate::core::mashup_authoring::EventRequest {
+            mashup: nonempty(&arguments.mashup, "mashup")?.into(),
+            name: nonempty(&arguments.name, "name")?.into(),
+            when: nonempty(&arguments.when, "when")?.into(),
+        },
+        mode: if dry_run { Mode::Plan } else { Mode::Apply },
+        lock_label: "mcp mashup_event",
+    };
+    let mut notices = commands::Notices::default();
+    let outcome =
+        commands::mashup::event(solution, &request, &mut notices).map_err(ToolError::coded)?;
     let mut result = crate::core::mashup_authoring::parameter_plan_json(
         solution,
         &outcome.plan,

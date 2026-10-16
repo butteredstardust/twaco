@@ -1374,6 +1374,22 @@
     "annotations": { "readOnlyHint": false, "destructiveHint": true, "openWorldHint": false }
   },
   {
+    "name": "mashup_event",
+    "description": "Give a mashup an event its parents can react to. ThingWorx has no contained-mashup events, so, as real mashups do, it adds a NUMBER parameter (BOTH; every parent's copy refreshed) set to the time by an expression the given trigger evaluates. A parent reacts with mashup_on and event ui:<container>.<name>, which wires an events router. A dry run unless dry_run is false; apply writes all affected mashups in one transaction.",
+    "inputSchema": {
+      "required": ["mashup", "name", "when"],
+      "additionalProperties": false,
+      "type": "object",
+      "properties": {
+        "mashup": { "description": "The mashup that fires the event.", "type": "string" },
+        "name": { "description": "The event's name, which becomes a NUMBER parameter.", "type": "string" },
+        "when": { "description": "The event in this mashup that fires it, as mashup_on's event takes it.", "type": "string" },
+        "dry_run": { "type": "boolean", "default": true }
+      }
+    },
+    "annotations": { "readOnlyHint": false, "destructiveHint": true, "openWorldHint": false }
+  },
+  {
     "name": "mashup_describe",
     "description": "Describe a mashup in the repository without its XML: the widget tree (ids, types, row/column containers, which widget fills its container, text and [[tokens]]); each service it calls, with what sets each declared parameter (a binding's source, static, or unbound); each binding, one row per property map, warning when a binding has more than one (the runtime applies only the first); and each event. Addresses are those mashup bind and on take: ui:<widget>.<Property>, data:<Entity>.<Service>[.<Parameter>], mashup:<Parameter>. Read-only.",
     "inputSchema": {

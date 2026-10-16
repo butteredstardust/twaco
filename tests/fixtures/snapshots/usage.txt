@@ -140,6 +140,11 @@ usage: twaco <command>
       --no-default             clear the default on set
       --data-shape             required for INFOTABLE
       --force                  remove bindings when removing a parameter
+  mashup event add <mashup> <name> --when <address> [--apply] [--json]
+                              give a mashup an event its parents react to with mashup on --event
+                              ui:<container>.<name>: a NUMBER parameter set to the time when the
+                              event at --when fires; plan unless --apply
+      --when <address>        the event in this mashup that fires it, as mashup on --event takes it
   mashup templates [<name>] [--json]
                               list the embedded responsive mashup templates and their slots
   mashup new <name> [--project <name>] [--template <name>] [--primary-menu <address>]

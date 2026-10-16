@@ -1,0 +1,7 @@
+$ twaco mashup event add Acme.Orders.Dashboard saved
+exit: 2
+
+--- stdout
+
+--- stderr
+twaco: mashup event add needs --when <address>: the event in Acme.Orders.Dashboard that fires it

@@ -423,6 +423,19 @@ pub(crate) struct MashupParameterRequest {
 
 #[derive(Debug, Deserialize, JsonSchema, Serialize)]
 #[serde(deny_unknown_fields)]
+pub(crate) struct MashupEventRequest {
+    /// The mashup that fires the event.
+    pub(crate) mashup: String,
+    /// The event's name, which becomes a NUMBER parameter.
+    pub(crate) name: String,
+    /// The event in this mashup that fires it, as mashup_on's event takes it.
+    pub(crate) when: String,
+    #[serde(default = "default_true")]
+    pub(crate) dry_run: bool,
+}
+
+#[derive(Debug, Deserialize, JsonSchema, Serialize)]
+#[serde(deny_unknown_fields)]
 pub(crate) struct MashupBindRequest {
     /// The existing mashup's name.
     pub(crate) mashup: String,

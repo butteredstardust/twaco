@@ -120,6 +120,87 @@ pub(crate) fn mashup_new_cmd(solution: &Solution, args: &Args) -> u8 {
 }
 
 /// `twaco mashup param add|set|remove`: keep Composer's four parameter stores together.
+/// `twaco mashup event add <mashup> <name> --when <address>`: plan a child event, or apply it.
+pub(crate) fn mashup_event_cmd(solution: &Solution, args: &Args) -> u8 {
+    let [action, mashup, name] = args.names.as_slice() else {
+        eprintln!(
+            "{} mashup event needs add <mashup> <name> --when <address>",
+            style::prefix()
+        );
+        return FAILED;
+    };
+    if action != "add" {
+        eprintln!("{} mashup event takes add", style::prefix());
+        return FAILED;
+    }
+    let Some(when) = args.values.get("--when") else {
+        eprintln!(
+            "{} mashup event add needs --when <address>: the event in {mashup} that fires it",
+            style::prefix()
+        );
+        return FAILED;
+    };
+    let request = commands::mashup::MashupEventRequest {
+        request: mashup_authoring::EventRequest {
+            mashup: mashup.clone(),
+            name: name.clone(),
+            when: when.clone(),
+        },
+        mode: if args.has("--apply") {
+            Mode::Apply
+        } else {
+            Mode::Plan
+        },
+        lock_label: "mashup event",
+    };
+    let mut notices = commands::Notices::default();
+    let outcome = match commands::mashup::event(solution, &request, &mut notices) {
+        Ok(outcome) => outcome,
+        Err(error) => {
+            print_notices(&notices);
+            eprintln!("{} {error}", style::prefix());
+            return FAILED;
+        }
+    };
+    print_notices(&notices);
+    let report = mashup_authoring::parameter_plan_json(solution, &outcome.plan, outcome.applied);
+    if args.has("--json") {
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&report).expect("event plan serialises")
+        );
+        return OK;
+    }
+    println!(
+        "{} event {name} in {mashup}, fired on {when}",
+        if outcome.applied {
+            "added"
+        } else {
+            "would add"
+        }
+    );
+    for (widget, parent) in &outcome.plan.refreshed {
+        println!("  copy of the parameters refreshed: {widget} in {parent}");
+    }
+    println!(
+        "  a parent reacts with: twaco mashup on <parent> --event ui:<container>.{name} --invoke <handler>"
+    );
+    println!(
+        "  files: {}",
+        report["files"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .filter_map(|v| v.as_str())
+            .collect::<Vec<_>>()
+            .join(", ")
+    );
+    if !outcome.applied {
+        println!("run again with --apply to write it");
+    }
+    OK
+}
+
 pub(crate) fn mashup_param_cmd(solution: &Solution, args: &Args) -> u8 {
     let [action, mashup, name] = args.names.as_slice() else {
         eprintln!(

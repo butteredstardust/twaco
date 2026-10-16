@@ -38,8 +38,8 @@ use cli::info::{
 };
 use cli::localization::localization_cmd;
 use cli::mashup::{
-    mashup_add_cmd, mashup_add_contained_cmd, mashup_bind_cmd, mashup_describe_cmd, mashup_new_cmd,
-    mashup_on_cmd, mashup_param_cmd, mashup_templates_cmd,
+    mashup_add_cmd, mashup_add_contained_cmd, mashup_bind_cmd, mashup_describe_cmd,
+    mashup_event_cmd, mashup_new_cmd, mashup_on_cmd, mashup_param_cmd, mashup_templates_cmd,
 };
 use cli::refactor::{
     adopt_cmd, handoff_cmd, new_building_block_cmd, relocate_cmd, rename_cmd, reproject_cmd,
@@ -223,6 +223,7 @@ fn dispatch(route: &str, parsed: &Args) -> u8 {
             "mashup bind" => mashup_bind_cmd(solution, parsed),
             "mashup on" => mashup_on_cmd(solution, parsed),
             "mashup param" => mashup_param_cmd(solution, parsed),
+            "mashup event" => mashup_event_cmd(solution, parsed),
             "mashup new" => mashup_new_cmd(solution, parsed),
             "mashup describe" => mashup_describe_cmd(solution, parsed),
             "new building-block" => new_building_block_cmd(solution, parsed),

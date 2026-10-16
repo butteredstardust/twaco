@@ -550,6 +550,20 @@ when a Thing's service is not called yet, or a widget's own service such as a gr
 Widgets whose contract the catalogue does not know are refused. `mashup describe` lists the
 result as `trigger -> handler`.
 
+### Events from a contained mashup
+
+```sh
+twaco mashup event add Acme.App.OrderCard_MU saved --when ui:ptcsbutton-6.Clicked --apply
+twaco mashup on Acme.App.Orders_MU --event ui:mashupcontainer-7.saved --invoke data:Acme.App.Orders.Manager.GetOrders --apply
+```
+
+ThingWorx gives a contained mashup no events of its own, so real mashups signal with a value:
+`mashup event add` adds a NUMBER parameter (BOTH, refreshed in every parent's copy) that an
+expression sets to the time whenever `--when` fires. A parent reacts with `mashup on --event
+ui:<container>.<name>`, which feeds the container's parameter into an events router (reused by a
+second handler) whose `Changed` runs the handler. Any BOTH or OUT parameter of the mashup can be
+reacted to the same way; an IN parameter cannot.
+
 ### Function widgets
 
 ```sh
