@@ -198,29 +198,7 @@ fn mutation_classes_hold_cli_plans_and_workspace_writes() {
             }
         }
     }
-    for (command, args, generic_lock) in [
-        ("bundle", vec![], false),
-        ("deploy", vec!["--apply"], false),
-        ("entity status", vec!["--record"], false),
-        ("repo pull", vec!["pull", "--apply"], false),
-    ] {
-        let route_args: Vec<String> = command.split_whitespace().map(str::to_string).collect();
-        let (route_name, _, flags) = route(&route_args).unwrap();
-        let parsed = Args::parse(
-            &args.into_iter().map(str::to_string).collect::<Vec<_>>(),
-            flags,
-        )
-        .unwrap();
-        assert_eq!(
-            writes_workspace(route_name, &parsed),
-            generic_lock,
-            "{command} must {} the generic workspace lock",
-            if generic_lock {
-                "take"
-            } else {
-                "leave to its executor"
-            }
-        );
+    for command in ["bundle", "deploy", "entity status", "repo pull"] {
         let row = rows
             .iter()
             .find(|row| row.name == command)
@@ -479,19 +457,6 @@ fn an_unknown_command_has_no_route() {
 }
 
 #[test]
-fn entity_delete_takes_no_generic_workspace_lock() {
-    let args = Args::parse(
-        &["Things/T".to_string(), "--apply".to_string()],
-        &["--apply"],
-    )
-    .unwrap();
-    assert!(
-        !writes_workspace("entity delete", &args),
-        "only a pending rename ledger is a workspace write"
-    );
-}
-
-#[test]
 fn entity_delete_acknowledgement_flags_are_scoped_to_entity_delete() {
     let delete = ["entity".to_string(), "delete".to_string()];
     let (_, _, flags) = route(&delete).unwrap();
@@ -520,121 +485,11 @@ fn entity_delete_acknowledgement_flags_are_scoped_to_entity_delete() {
 }
 
 #[test]
-fn entity_push_takes_no_generic_workspace_lock() {
-    let args = Args::parse(&["P.T".to_string(), "--apply".to_string()], &["--apply"]).unwrap();
-    assert!(
-        !writes_workspace("entity push", &args),
-        "the command executor takes the lock before it discovers the entity"
-    );
-}
-
-#[test]
-fn facade_commands_take_no_generic_workspace_lock() {
-    for (route, args) in [
-        (
-            "extract",
-            Args::parse(&["--all".to_string()], &["--all"]).unwrap(),
-        ),
-        (
-            "types",
-            Args::parse(&[], &["--check", "--platform"]).unwrap(),
-        ),
-        (
-            "sync",
-            Args::parse(&["--all".to_string()], &["--all"]).unwrap(),
-        ),
-        ("fmt", Args::parse(&[], &["--check"]).unwrap()),
-        (
-            "adopt",
-            Args::parse(
-                &["export.xml".to_string(), "--apply".to_string()],
-                &["--apply"],
-            )
-            .unwrap(),
-        ),
-        (
-            "rename entity",
-            Args::parse(
-                &["Old".to_string(), "New".to_string(), "--apply".to_string()],
-                &["--apply"],
-            )
-            .unwrap(),
-        ),
-        (
-            "move service",
-            Args::parse(
-                &[
-                    "From".to_string(),
-                    "To".to_string(),
-                    "Name".to_string(),
-                    "--apply".to_string(),
-                ],
-                &["--apply"],
-            )
-            .unwrap(),
-        ),
-        (
-            "copy property",
-            Args::parse(
-                &[
-                    "From".to_string(),
-                    "To".to_string(),
-                    "Name".to_string(),
-                    "--apply".to_string(),
-                ],
-                &["--apply"],
-            )
-            .unwrap(),
-        ),
-        (
-            "retemplate",
-            Args::parse(&["Thing".to_string(), "--apply".to_string()], &["--apply"]).unwrap(),
-        ),
-        (
-            "new building-block",
-            Args::parse(
-                &["Acme.Block".to_string(), "--apply".to_string()],
-                &["--apply"],
-            )
-            .unwrap(),
-        ),
-    ] {
-        assert!(
-            !writes_workspace(route, &args),
-            "the {route} executor takes its own workspace lock"
-        );
-    }
-}
-
-#[test]
 fn entity_delete_force_deprecation_text_is_stable() {
     assert_eq!(
             entity_delete_force_deprecation(),
             "--force is deprecated for entity delete; it now means --allow-repository-defined --allow-outside-dependents and never covers FileRepository data loss"
         );
-}
-
-#[test]
-fn entity_carry_takes_no_generic_workspace_lock() {
-    let args = Args::parse(
-        &["--renamed".to_string(), "--apply".to_string()],
-        &["--apply", "--renamed"],
-    )
-    .unwrap();
-    assert!(
-        !writes_workspace("entity carry", &args),
-        "the command takes its own lock, only when it marks the ledger"
-    );
-}
-
-#[test]
-fn db_run_apply_takes_no_workspace_lock() {
-    let args = Args::parse(
-        &["migration.sql".to_string(), "--apply".to_string()],
-        &["--apply"],
-    )
-    .unwrap();
-    assert!(!writes_workspace("db run", &args));
 }
 
 /// `documentation/COMMANDS.md` is the command table written out. `TWACO_BLESS=1` rewrites it.

@@ -1,6 +1,6 @@
 //! twaco: a portable ThingWorx sidecar toolchain.
 //!
-//! This is an adapter. Every decision lives in `twaco::core`, so the MCP server added later
+//! This is an adapter. Every decision lives in `twaco::core`, so the MCP server (`twaco::mcp`)
 //! answers the same questions the same way rather than growing its own opinions.
 //!
 //! **Exit codes are three, not two.** 0 is success, 1 is "there is work to do" from a `--check`,
@@ -18,8 +18,8 @@ use twaco::core::config::Solution;
 use twaco::core::index::Confidence;
 use twaco::core::{
     adopt, backup, catalog, config_table, datatable_copy, db, deploy, docs, entity_carry,
-    entity_delete, impact, lock, newblock, profile, push, relocate, rename, retemplate, server,
-    status, types, unused, workflow, workspace,
+    entity_delete, impact, newblock, profile, push, relocate, rename, retemplate, server, status,
+    types, unused, workflow, workspace,
 };
 
 mod cli;
@@ -175,88 +175,78 @@ fn dispatch(route: &str, parsed: &Args) -> u8 {
         _ => {}
     }
 
-    run(|solution| {
-        // Held until this closure returns, so for the whole command. See core::lock.
-        let _lock = if writes_workspace(route, parsed) {
-            match take_lock(solution, route) {
-                Ok(lock) => Some(lock),
-                Err(code) => return code,
-            }
-        } else {
-            None
-        };
-        match route {
-            "projects" => projects(solution),
-            "types" => types_cmd(solution, parsed),
-            "extract" => extract(solution, parsed),
-            "sync" => sync_cmd(solution, parsed),
-            "fmt" => fmt(solution, parsed),
-            "check" => check(solution, parsed),
-            "bundle" => bundle(solution, parsed),
-            "deploy" => deploy_cmd(solution, parsed),
-            "call" => call(solution, parsed),
-            "repo" => repo_cmd(solution, parsed),
-            "localization" => localization_cmd(solution, parsed),
-            "users" => users_cmd(solution, parsed),
-            "test" => test_cmd(solution, parsed),
-            "ext" => ext_cmd(solution, parsed),
-            "settings" => settings_cmd(solution, parsed),
-            "catalog" => catalog_cmd(solution, parsed),
-            "impact" => impact_cmd(solution, parsed),
-            "trace" => cli::info::trace_cmd(solution, parsed),
-            "unused" => unused_cmd(solution, parsed),
-            "docs" => docs_cmd(solution, parsed),
-            "package" => package_cmd(solution, parsed),
-            "search" => search_cmd(solution, parsed),
-            "export" => export_cmd(solution, parsed),
-            "import" => import_cmd(solution, parsed),
-            "logs" => logs_cmd(solution, parsed),
-            "adopt" => adopt_cmd(solution, parsed),
-            "handoff" => handoff_cmd(solution, parsed),
-            "rename entity" | "rename prefix" | "rename field" | "rename service"
-            | "rename param" | "rename table" | "rename property" => {
-                rename_cmd(solution, route, parsed)
-            }
-            "move service" | "move property" | "copy service" | "copy property" => {
-                relocate_cmd(solution, route, parsed)
-            }
-            "retemplate" => retemplate_cmd(solution, parsed),
-            "reproject" => reproject_cmd(solution, parsed),
-            "mashup add" => mashup_add_cmd(solution, parsed),
-            "mashup add-contained" => mashup_add_contained_cmd(solution, parsed),
-            "mashup bind" => mashup_bind_cmd(solution, parsed),
-            "mashup on" => mashup_on_cmd(solution, parsed),
-            "mashup param" => mashup_param_cmd(solution, parsed),
-            "mashup event" => mashup_event_cmd(solution, parsed),
-            "mashup recipe" => mashup_recipe_cmd(solution, parsed),
-            "mashup new" => mashup_new_cmd(solution, parsed),
-            "mashup describe" => mashup_describe_cmd(solution, parsed),
-            "mashup validate" => mashup_validate_cmd(solution, parsed),
-            "new building-block" => new_building_block_cmd(solution, parsed),
-            "new thing" | "new thing-template" | "new thing-shape" | "new data-shape"
-            | "new timer" | "new scheduler" | "new data-table" | "new stream"
-            | "new value-stream" | "new media" | "new style" | "new state" | "new menu"
-            | "new theme" => entity_new_cmd(solution, route, parsed),
-            "thing property" | "thing subscription" | "thing shape" | "timer set"
-            | "scheduler set" | "style set" | "media set" | "menu item" | "state set" => {
-                entity_edit_cmd(solution, route, parsed)
-            }
-            "config-table" => config_table(solution, parsed),
-            "entity get" => entity_get(solution, parsed),
-            "entity status" => entity_status(solution, parsed),
-            "entity push" => entity_push(solution, parsed),
-            "entity delete" => entity_delete_cmd(solution, parsed),
-            "entity carry" => entity_carry_cmd(solution, parsed),
-            "permissions diff" | "permissions push" => permissions_cmd(solution, route, parsed),
-            "permissions audit" => permissions_audit_cmd(solution, parsed),
-            "permissions apply" => permissions_apply_cmd(solution, parsed),
-            "permissions init" => permissions_init_cmd(solution, parsed),
-            "entity restore" => entity_restore_cmd(solution, parsed),
-            "db run" | "db query" => db_cmd(solution, route, parsed),
-            "db clean" => db_clean_cmd(solution, parsed),
-            "datatable copy" => datatable_copy_cmd(solution, parsed),
-            other => unreachable!("{other} is in COMMANDS but has no handler"),
+    // Commands that change the workspace take its lock in their executor (core::commands), so
+    // the lock covers exactly what they change and both front ends take it the same way.
+    run(|solution| match route {
+        "projects" => projects(solution),
+        "types" => types_cmd(solution, parsed),
+        "extract" => extract(solution, parsed),
+        "sync" => sync_cmd(solution, parsed),
+        "fmt" => fmt(solution, parsed),
+        "check" => check(solution, parsed),
+        "bundle" => bundle(solution, parsed),
+        "deploy" => deploy_cmd(solution, parsed),
+        "call" => call(solution, parsed),
+        "repo" => repo_cmd(solution, parsed),
+        "localization" => localization_cmd(solution, parsed),
+        "users" => users_cmd(solution, parsed),
+        "test" => test_cmd(solution, parsed),
+        "ext" => ext_cmd(solution, parsed),
+        "settings" => settings_cmd(solution, parsed),
+        "catalog" => catalog_cmd(solution, parsed),
+        "impact" => impact_cmd(solution, parsed),
+        "trace" => cli::info::trace_cmd(solution, parsed),
+        "unused" => unused_cmd(solution, parsed),
+        "docs" => docs_cmd(solution, parsed),
+        "package" => package_cmd(solution, parsed),
+        "search" => search_cmd(solution, parsed),
+        "export" => export_cmd(solution, parsed),
+        "import" => import_cmd(solution, parsed),
+        "logs" => logs_cmd(solution, parsed),
+        "adopt" => adopt_cmd(solution, parsed),
+        "handoff" => handoff_cmd(solution, parsed),
+        "rename entity" | "rename prefix" | "rename field" | "rename service" | "rename param"
+        | "rename table" | "rename property" => rename_cmd(solution, route, parsed),
+        "move service" | "move property" | "copy service" | "copy property" => {
+            relocate_cmd(solution, route, parsed)
         }
+        "retemplate" => retemplate_cmd(solution, parsed),
+        "reproject" => reproject_cmd(solution, parsed),
+        "mashup add" => mashup_add_cmd(solution, parsed),
+        "mashup add-contained" => mashup_add_contained_cmd(solution, parsed),
+        "mashup bind" => mashup_bind_cmd(solution, parsed),
+        "mashup on" => mashup_on_cmd(solution, parsed),
+        "mashup param" => mashup_param_cmd(solution, parsed),
+        "mashup event" => mashup_event_cmd(solution, parsed),
+        "mashup recipe" => mashup_recipe_cmd(solution, parsed),
+        "mashup new" => mashup_new_cmd(solution, parsed),
+        "mashup describe" => mashup_describe_cmd(solution, parsed),
+        "mashup validate" => mashup_validate_cmd(solution, parsed),
+        "new building-block" => new_building_block_cmd(solution, parsed),
+        "new thing" | "new thing-template" | "new thing-shape" | "new data-shape" | "new timer"
+        | "new scheduler" | "new data-table" | "new stream" | "new value-stream" | "new media"
+        | "new style" | "new state" | "new menu" | "new theme" => {
+            entity_new_cmd(solution, route, parsed)
+        }
+        "thing property" | "thing subscription" | "thing shape" | "timer set" | "scheduler set"
+        | "style set" | "media set" | "menu item" | "state set" => {
+            entity_edit_cmd(solution, route, parsed)
+        }
+        "config-table" => config_table(solution, parsed),
+        "entity get" => entity_get(solution, parsed),
+        "entity status" => entity_status(solution, parsed),
+        "entity push" => entity_push(solution, parsed),
+        "entity delete" => entity_delete_cmd(solution, parsed),
+        "entity carry" => entity_carry_cmd(solution, parsed),
+        "permissions diff" | "permissions push" => permissions_cmd(solution, route, parsed),
+        "permissions audit" => permissions_audit_cmd(solution, parsed),
+        "permissions apply" => permissions_apply_cmd(solution, parsed),
+        "permissions init" => permissions_init_cmd(solution, parsed),
+        "entity restore" => entity_restore_cmd(solution, parsed),
+        "db run" | "db query" => db_cmd(solution, route, parsed),
+        "db clean" => db_clean_cmd(solution, parsed),
+        "datatable copy" => datatable_copy_cmd(solution, parsed),
+        other => unreachable!("{other} is in COMMANDS but has no handler"),
     })
 }
 
@@ -423,54 +413,15 @@ fn quiet_when_the_reader_leaves() {
     }));
 }
 
-/// Load the solution once, then hand it to a command.
-/// Whether a command changes the workspace: its entity files, sidecars, bundle or baseline.
-///
-/// Those take the workspace lock. Everything else runs alongside them, so `entity status` can
-/// watch a deploy in progress. `config-table` writes only to the server and to a backup file of
-/// the user's choosing, and `entity get --out` writes a file the user named, so neither does.
-fn writes_workspace(route: &str, _args: &Args) -> bool {
-    match route {
-        // Even with --apply, db run writes only a throwaway server Thing and needs no workspace lock.
-        "db run" => false,
-        // `repo pull` takes its own lock before discovering the tree it will write.
-        "repo" => false,
-        // `localization` takes its own lock before discovering the table files it will write.
-        "localization" => false,
-        _ => false,
-    }
-}
-
-/// Take the lock, sweeping stale temporaries from everywhere twaco writes through one.
-fn take_lock(solution: &Solution, route: &str) -> Result<lock::WorkspaceLock, u8> {
-    match lock::acquire_for(solution, route) {
-        Ok(lock) => {
-            for path in &lock.recovered {
-                eprintln!(
-                    "{} removed {}, left by an interrupted write",
-                    cli::style::prefix(),
-                    path.display()
-                );
-            }
-            for line in &lock.recovery {
-                eprintln!("{} {line}", cli::style::prefix());
-            }
-            Ok(lock)
-        }
-        Err(error) => {
-            eprintln!("{} {error}", cli::style::prefix());
-            Err(FAILED)
-        }
-    }
-}
-
-/// What an executor reported about taking the workspace lock, as the lines `take_lock` prints.
+/// What an executor reported about taking the workspace lock: files it swept and operations it
+/// recovered, one line each on stderr.
 fn print_notices(notices: &commands::Notices) {
     for line in notices.lines() {
         eprintln!("{} {line}", cli::style::prefix());
     }
 }
 
+/// Load the solution once, then hand it to a command.
 fn run(command: impl FnOnce(&Solution) -> u8) -> u8 {
     let here = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
     match Solution::discover(&here) {
