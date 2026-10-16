@@ -83,6 +83,7 @@ pub enum Action {
     },
     ShapeRemove {
         shape: String,
+        force: bool,
     },
     TimerSet {
         every: Option<String>,
@@ -275,7 +276,7 @@ pub fn plan(solution: &Solution, request: &Request) -> Result<Plan, EditError> {
         }
         Action::SubscriptionRemove { name } => subscription_remove(&doc, name, &mut plan)?,
         Action::ShapeAdd { shape } => edit.shape_add(shape, &mut plan)?,
-        Action::ShapeRemove { shape } => edit.shape_remove(shape, &mut plan)?,
+        Action::ShapeRemove { shape, force } => edit.shape_remove(shape, *force, &mut plan)?,
         Action::TimerSet {
             every,
             run_as,
@@ -468,6 +469,19 @@ impl Doc {
             self.tokens[element].span.end,
             self.tokens[end].span.start,
         ))
+    }
+
+    /// An edit that makes `written` the element's content. A self-closing `<X/>` is opened up
+    /// to `<X>written</X>`, its attributes kept.
+    fn inner_edit(&self, element: usize, written: String) -> Result<Edit, EditError> {
+        let tag = &self.tokens[element];
+        if tag.kind != TokenKind::Empty {
+            return Ok(Edit::new(self.inner(element)?, written.into_bytes()));
+        }
+        let name = String::from_utf8_lossy(tag.name.of(&self.src));
+        let open = String::from_utf8_lossy(&self.src[tag.span.start..tag.span.end - 2]);
+        let element = format!("{}>{written}</{name}>", open.trim_end());
+        Ok(Edit::new(tag.span, element.into_bytes()))
     }
 
     /// An element's text: its CDATA payload, or its decoded text.
@@ -828,6 +842,14 @@ impl Definition {
         if let Some(description) = &property.description {
             self.description = description.clone();
         }
+        // The server writes a NUMBER default as Java writes a double: `5` comes back `5.0`.
+        if self.base_type == "NUMBER" {
+            if let Some(default) = &self.default {
+                if default.parse::<f64>().is_ok_and(f64::is_finite) {
+                    self.default = Some(java_double(default));
+                }
+            }
+        }
     }
 
     /// Refuse what the server would refuse or misread; warn about what cannot be checked.
@@ -910,6 +932,114 @@ impl Definition {
         };
         Ok(Some(value))
     }
+}
+
+/// The edits that take a definition's attributes from `old` to `new`, and only those: a value
+/// changed in place, a missing aspect added before `baseType` on a line of its own, a cleared one
+/// removed. Every other attribute, those twaco does not model included, is left as written.
+fn attribute_edits(
+    doc: &Doc,
+    element: usize,
+    old: &Definition,
+    new: &Definition,
+) -> Result<Vec<Edit>, EditError> {
+    let flag = |value: bool| Some(value.to_string());
+    let pairs: [(&str, Option<String>, Option<String>); 9] = [
+        ("aspect.isLogged", flag(old.logged), flag(new.logged)),
+        (
+            "aspect.isPersistent",
+            flag(old.persistent),
+            flag(new.persistent),
+        ),
+        (
+            "aspect.isReadOnly",
+            flag(old.read_only),
+            flag(new.read_only),
+        ),
+        ("aspect.units", old.units.clone(), new.units.clone()),
+        (
+            "aspect.defaultValue",
+            old.default.clone(),
+            new.default.clone(),
+        ),
+        (
+            "aspect.dataShape",
+            old.data_shape.clone(),
+            new.data_shape.clone(),
+        ),
+        (
+            "baseType",
+            Some(old.base_type.clone()),
+            Some(new.base_type.clone()),
+        ),
+        (
+            "category",
+            Some(old.category.clone()),
+            Some(new.category.clone()),
+        ),
+        (
+            "description",
+            Some(old.description.clone()),
+            Some(new.description.clone()),
+        ),
+    ];
+    let tag = &doc.tokens[element];
+    let attributes = scan::attributes(&doc.src, tag).map_err(invalid)?;
+    let find = |name: &str| {
+        attributes
+            .iter()
+            .find(|attribute| attribute.name.of(&doc.src) == name.as_bytes())
+    };
+    let anchor =
+        find("baseType").ok_or_else(|| invalid("a property definition has no baseType"))?;
+    // The whitespace before an attribute: what a new one goes after, and what a removed one takes.
+    let gap_start = |at: usize| {
+        doc.src[..at]
+            .iter()
+            .rposition(|byte| !byte.is_ascii_whitespace())
+            .map_or(at, |end| end + 1)
+    };
+    let anchor_gap = gap_start(anchor.name.start);
+    let gap = String::from_utf8_lossy(&doc.src[anchor_gap..anchor.name.start]).into_owned();
+    let mut inserted = String::new();
+    let mut edits = Vec::new();
+    for (name, before, after) in pairs {
+        if before == after {
+            continue;
+        }
+        match (find(name), after) {
+            (Some(attribute), Some(value)) => {
+                edits.push(Edit::new(
+                    attribute.value,
+                    scan::escape_attribute(&value).into_bytes(),
+                ));
+            }
+            (Some(attribute), None) => {
+                let start = gap_start(attribute.name.start);
+                edits.push(Edit::new(
+                    Span::new(start, attribute.value.end + 1),
+                    Vec::new(),
+                ));
+            }
+            // An aspect a server's minimal form leaves out because it is false: absent and false
+            // say the same.
+            (None, Some(value)) if value == "false" => {}
+            (None, Some(value)) => {
+                inserted.push_str(&format!(
+                    "{gap}{name}=\"{}\"",
+                    scan::escape_attribute(&value)
+                ));
+            }
+            (None, None) => {}
+        }
+    }
+    if !inserted.is_empty() {
+        edits.push(Edit::new(
+            Span::new(anchor_gap, anchor_gap),
+            inserted.into_bytes(),
+        ));
+    }
+    Ok(edits)
 }
 
 /// Java's `Double.toString` for a number given as text.
@@ -1011,8 +1141,7 @@ impl Edit2<'_> {
             self.guard_users(&property.name, force, "retype", plan)?;
         }
         let stored = definition.stored_value()?;
-        let xml = reindent(&definition.xml(), 20, &doc.indent_of(element));
-        let after = splice_one(&doc.src, doc.span(element)?, xml.trim_start().to_string())?;
+        let after = splice_all(&doc.src, attribute_edits(doc, element, &old, &definition)?)?;
         plan.summary = format!("set property {}", property.name);
         let model = Model::build(self.solution, self.found)?;
         let mut files = Files::new(doc, after);
@@ -1242,7 +1371,7 @@ impl Edit2<'_> {
 }
 
 impl Edit2<'_> {
-    fn shape_remove(&self, shape: &str, plan: &mut Plan) -> Result<(), EditError> {
+    fn shape_remove(&self, shape: &str, force: bool, plan: &mut Plan) -> Result<(), EditError> {
         let doc = self.doc;
         let what = "a ThingShape is implemented by a Thing or ThingTemplate";
         doc.require(&["Things", "ThingTemplates"], what)?;
@@ -1266,6 +1395,17 @@ impl Edit2<'_> {
             }
         }
         let shape_doc = Doc::read(shape_file)?;
+        // What the entity loses, unless its template brings the shape too, must be unused.
+        if !still_implements(&model, doc, &doc.file, shape)? {
+            for member in own_members(&shape_doc)? {
+                self.guard_users(
+                    &member,
+                    force,
+                    "stop implementing the shape that brings",
+                    plan,
+                )?;
+            }
+        }
         let names = shape_doc.names_in(
             shape_doc.members()?,
             "PropertyDefinitions",
@@ -1756,7 +1896,7 @@ fn style_set(
     }
     let written = entity_new::cdata(&entity_new::jackson_pretty(&value));
     plan.summary = format!("set {}", changed.join(", "));
-    let after = splice_one(&doc.src, doc.inner(element)?, written)?;
+    let after = splice_all(&doc.src, vec![doc.inner_edit(element, written)?])?;
     plan.changes.push(doc.change(after));
     Ok(())
 }
@@ -1766,7 +1906,7 @@ fn media_set(doc: &Doc, file: &Path, plan: &mut Plan) -> Result<(), EditError> {
     let written = entity_new::cdata(&entity_new::media_content(file)?);
     let element = content(doc)?;
     plan.summary = format!("replace the content with {}", file.display());
-    let after = splice_one(&doc.src, doc.inner(element)?, written)?;
+    let after = splice_all(&doc.src, vec![doc.inner_edit(element, written)?])?;
     plan.changes.push(doc.change(after));
     Ok(())
 }
@@ -1785,7 +1925,7 @@ fn state_set(
     let written = entity_new::cdata(&entity_new::render_state_content(&request));
     let element = content(doc)?;
     plan.summary = format!("set {} {state_type} states", states.len());
-    let after = splice_one(&doc.src, doc.inner(element)?, written)?;
+    let after = splice_all(&doc.src, vec![doc.inner_edit(element, written)?])?;
     plan.changes.push(doc.change(after));
     Ok(())
 }
@@ -1793,132 +1933,174 @@ fn state_set(
 // ---------------------------------------------------------------------------------------------
 // Menus
 
-/// A menu item: its title, target mashup, and whether it is the default.
-type Item = (String, String, bool);
+/// A menu item as its attributes say, and where it is.
+struct Entry {
+    element: usize,
+    title: String,
+    target: String,
+    is_default: bool,
+    description: String,
+    image_url: String,
+    link_target: String,
+}
 
-fn menu_items(doc: &Doc) -> Result<Vec<Item>, EditError> {
+/// The `<MenuItems>` element and its items. Only mashup items: a submenu or hyperlink item has
+/// rows of its own shape.
+fn menu_entries(doc: &Doc) -> Result<(usize, Vec<Entry>), EditError> {
     let list = doc.only_child(doc.entity, "MenuItems")?;
-    let mut items = Vec::new();
-    for item in scan::child_tags(&doc.tokens, &doc.src, "MenuItem", list) {
-        let kind = doc.attr(item, "linkType").unwrap_or_default();
+    let mut entries = Vec::new();
+    for element in scan::child_tags(&doc.tokens, &doc.src, "MenuItem", list) {
+        let get = |name: &str| doc.attr(element, name).unwrap_or_default();
+        let kind = get("linkType");
         if kind != "Mashup" {
             return Err(invalid(format!(
                 "{} has a {kind} item; twaco edits menus of mashup items only",
                 doc.label()
             )));
         }
-        items.push((
-            doc.attr(item, "title").unwrap_or_default(),
-            doc.attr(item, "linkDestination").unwrap_or_default(),
-            doc.attr(item, "isDefault").as_deref() == Some("true"),
-        ));
+        entries.push(Entry {
+            element,
+            title: get("title"),
+            target: get("linkDestination"),
+            is_default: get("isDefault") == "true",
+            description: get("description"),
+            image_url: get("imageURL"),
+            link_target: get("linkTarget"),
+        });
     }
-    Ok(items)
+    Ok((list, entries))
 }
 
+/// Add one item; every other item stays as it is written, but for `isDefault` when the new
+/// one becomes the default.
 fn menu_item_add(
     found: &[EntityFile],
     doc: &Doc,
-    item: Item,
+    item: (String, String, bool),
     before: Option<&str>,
     plan: &mut Plan,
 ) -> Result<(), EditError> {
     doc.require(&["Menus"], "menu item add changes a Menu")?;
-    let (title, mashup, default) = &item;
+    let (title, mashup, default) = item;
     let bad = |text: &str| text.is_empty() || text.contains("]]>");
-    if bad(title) || bad(mashup) {
+    if bad(&title) || bad(&mashup) {
         return Err(invalid(
             "a menu item is <Title>=<Mashup>, neither empty nor holding `]]>`",
         ));
     }
     let known = found
         .iter()
-        .any(|file| file.info.collection == "Mashups" && &file.info.name == mashup);
+        .any(|file| file.info.collection == "Mashups" && file.info.name == mashup);
     if !known {
         plan.warnings.push(format!(
             "mashup {mashup} is not in the solution; it must exist on the server"
         ));
     }
-    let mut items = menu_items(doc)?;
-    if items.iter().any(|(known, _, _)| known == title) {
+    let (list, entries) = menu_entries(doc)?;
+    if entries.iter().any(|entry| entry.title == title) {
         return Err(EditError::Exists(format!(
             "{} already has an item {title}",
             doc.label()
         )));
     }
-    let at = match before {
-        None => items.len(),
-        Some(anchor) => items
-            .iter()
-            .position(|(known, _, _)| known == anchor)
-            .ok_or_else(|| EditError::Unknown(format!("{} has no item {anchor}", doc.label())))?,
+    let anchor = match before {
+        None => None,
+        Some(anchor) => Some(
+            entries
+                .iter()
+                .find(|entry| entry.title == anchor)
+                .ok_or_else(|| {
+                    EditError::Unknown(format!("{} has no item {anchor}", doc.label()))
+                })?,
+        ),
     };
-    if *default {
-        for item in &mut items {
-            item.2 = false;
+    let mut edits = Vec::new();
+    if default {
+        for entry in entries.iter().filter(|entry| entry.is_default) {
+            let value = scan::attribute(&doc.src, &doc.tokens[entry.element], "isDefault")
+                .map_err(invalid)?
+                .ok_or_else(|| invalid("a default item has no isDefault"))?;
+            edits.push(Edit::new(value, b"false".to_vec()));
         }
     }
+    let indent = format!("{}    ", doc.indent_of(list));
+    let xml = reindent_block(
+        &entity_new::menu_item_xml(&title, &mashup, default),
+        16,
+        &indent,
+    );
+    let insert = match (anchor, entries.last()) {
+        (Some(anchor), _) => {
+            let start = doc.tokens[anchor.element].span.start;
+            let line = doc.src[..start]
+                .iter()
+                .rposition(|byte| *byte == b'\n')
+                .map_or(start, |at| at + 1);
+            Edit::new(
+                Span::new(line, line),
+                format!("{}\n", &xml[1..]).into_bytes(),
+            )
+        }
+        (None, Some(last)) => {
+            let end = doc.span(last.element)?.end;
+            Edit::new(Span::new(end, end), xml.into_bytes())
+        }
+        (None, None) => doc.inner_edit(list, format!("{xml}\n{}", doc.indent_of(list)))?,
+    };
+    edits.push(insert);
+    let after = splice_all(&doc.src, edits)?;
     plan.summary = format!("add menu item {title} -> {mashup}");
-    items.insert(at, item);
-    plan.changes.push(doc.change(write_menu(doc, &items)?));
+    plan.changes.push(doc.change(with_rows(doc, after)?));
     Ok(())
 }
 
 fn menu_item_remove(doc: &Doc, title: &str, plan: &mut Plan) -> Result<(), EditError> {
     doc.require(&["Menus"], "menu item remove changes a Menu")?;
-    let mut items = menu_items(doc)?;
-    let count = items.len();
-    items.retain(|(known, _, _)| known != title);
-    if items.len() == count {
-        return Err(EditError::Unknown(format!(
-            "{} has no item {title}",
-            doc.label()
-        )));
-    }
+    let (list, entries) = menu_entries(doc)?;
+    let entry = entries
+        .iter()
+        .find(|entry| entry.title == title)
+        .ok_or_else(|| EditError::Unknown(format!("{} has no item {title}", doc.label())))?;
+    let after = remove_child(doc, list, entry.element)?;
     plan.summary = format!("remove menu item {title}");
-    plan.changes.push(doc.change(write_menu(doc, &items)?));
+    plan.changes.push(doc.change(with_rows(doc, after)?));
     Ok(())
 }
 
-/// Rewrite `<MenuItems>` and the item rows of `<effectiveMenu>` (its root row stays) with the
-/// writers `twaco new menu` uses, so ids and order stay in step.
-fn write_menu(doc: &Doc, items: &[Item]) -> Result<Vec<u8>, EditError> {
-    let list = doc.only_child(doc.entity, "MenuItems")?;
+/// `after` (the menu with its items edited) with the item rows of `<effectiveMenu>` written
+/// again from the items, in order and numbered; the root row stays.
+fn with_rows(doc: &Doc, after: Vec<u8>) -> Result<Vec<u8>, EditError> {
+    let doc = Doc::parse(doc.file.clone(), after)?;
+    let (_, entries) = menu_entries(&doc)?;
     let effective = doc.only_child(doc.entity, "effectiveMenu")?;
     let rows = doc.only_child(effective, "Rows")?;
     let root = *scan::child_tags(&doc.tokens, &doc.src, "Row", rows)
         .first()
         .ok_or_else(|| invalid(format!("{} effectiveMenu has no root row", doc.label())))?;
-    let list_indent = doc.indent_of(list);
     let rows_indent = doc.indent_of(rows);
-    let item_xml: String = items
-        .iter()
-        .map(|(title, target, default)| entity_new::menu_item_xml(title, target, *default))
-        .collect();
-    let row_xml: String = items
+    let row_xml: String = entries
         .iter()
         .enumerate()
-        .map(|(at, (title, target, default))| {
-            entity_new::menu_row_xml(doc.name(), at, title, target, *default)
+        .map(|(at, entry)| {
+            let row = entity_new::MenuRow {
+                title: &entry.title,
+                target: &entry.target,
+                is_default: entry.is_default,
+                description: &entry.description,
+                image_url: &entry.image_url,
+                link_target: &entry.link_target,
+            };
+            entity_new::menu_row_xml(doc.name(), at, &row)
         })
         .collect();
-    let item_xml = reindent_block(&item_xml, 16, &format!("{list_indent}    "));
     let row_xml = reindent_block(&row_xml, 20, &format!("{rows_indent}    "));
-    let items_body = if items.is_empty() {
-        String::new()
-    } else {
-        format!("{item_xml}\n{list_indent}")
-    };
     let root_end = doc.span(root)?.end;
     let rows_end = doc.inner(rows)?.end;
-    let edits = vec![
-        Edit::new(doc.inner(list)?, items_body.into_bytes()),
-        Edit::new(
-            Span::new(root_end, rows_end),
-            format!("{row_xml}\n{rows_indent}").into_bytes(),
-        ),
-    ];
-    splice_all(&doc.src, edits)
+    let edit = Edit::new(
+        Span::new(root_end, rows_end),
+        format!("{row_xml}\n{rows_indent}").into_bytes(),
+    );
+    splice_all(&doc.src, vec![edit])
 }
 
 /// Reindent a block of lines that each begin with a newline (the menu writers' shape).

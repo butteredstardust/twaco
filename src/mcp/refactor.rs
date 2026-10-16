@@ -229,6 +229,7 @@ pub(crate) fn entity_edit_tool(
         },
         EntityEditAction::ShapeRemove => Action::ShapeRemove {
             shape: need(&arguments.shape, "shape")?,
+            force: arguments.force,
         },
         EntityEditAction::TimerSet => Action::TimerSet {
             every: text(&arguments.every),

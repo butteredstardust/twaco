@@ -25,9 +25,11 @@
 //! - sort element children by `name` (canonical bytes break ties) only in `FieldDefinitions`,
 //!   `ParameterDefinitions`, `ServiceDefinitions`, `ServiceImplementations`, `ConfigurationTables`,
 //!   and `ConfigurationTableDefinitions`; some live exports reorder these named sections;
-//! - sort the entries of a direct-child `ThingProperties` by element name: a 10.1 export orders
-//!   a Thing's stored values by where each property comes from and by hash, not as imported
-//!   (observed 2026-10-16; version 6);
+//! - sort the entries of a direct-child `ThingProperties` by element name, and drop each entry's
+//!   `Timestamp` and `Quality`: a 10.1 export orders a Thing's stored values by where each property
+//!   comes from and by hash, not as imported, and an import re-stamps a value whose definition
+//!   changed with the import time; the value itself is what the repository says (observed
+//!   2026-10-16; version 6);
 //! - inside `DesignTimePermissions`, `RunTimePermissions` and `VisibilityPermissions`, and the
 //!   `Instance...` forms of the three on a ThingShape or ThingTemplate, treat every list as the
 //!   set it is: drop a permission kind or a `Permissions` resource that grants no principal, and
@@ -489,7 +491,14 @@ fn sort_thing_properties(entity: &mut Element) {
         let mut values: Vec<Element> = slots
             .iter()
             .map(|index| match &block.children[*index] {
-                Node::Element(value) => value.clone(),
+                Node::Element(value) => {
+                    let mut value = value.clone();
+                    value.children.retain(|part| {
+                        !matches!(part, Node::Element(part)
+                            if part.name == b"Timestamp" || part.name == b"Quality")
+                    });
+                    value
+                }
                 _ => unreachable!("slots contain only elements"),
             })
             .collect();
@@ -907,6 +916,9 @@ mod tests {
         let other = br#"<Thing name="T"><ThingProperties><Label><Value><![CDATA[hi]]></Value><Quality>UNKNOWN</Quality></Label><Speed><Value>13.0</Value><Quality>UNKNOWN</Quality></Speed></ThingProperties></Thing>"#;
         assert_eq!(hash(sent).unwrap(), hash(read_back).unwrap());
         assert_ne!(hash(read_back).unwrap(), hash(other).unwrap());
+        // Re-stamped by an import: the same stored value.
+        let restamped = br#"<Thing name="T"><ThingProperties><Label><Value><![CDATA[hi]]></Value><Timestamp>2026-10-16T16:57:57.455Z</Timestamp><Quality>GOOD</Quality></Label><Speed><Value>12.5</Value><Quality>UNKNOWN</Quality></Speed></ThingProperties></Thing>"#;
+        assert_eq!(hash(read_back).unwrap(), hash(restamped).unwrap());
         // Only the entity's own stored values: elsewhere order still counts.
         let rows = br#"<Thing name="T"><X><B/><A/></X></Thing>"#;
         let swapped = br#"<Thing name="T"><X><A/><B/></X></Thing>"#;

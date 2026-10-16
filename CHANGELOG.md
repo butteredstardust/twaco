@@ -50,8 +50,9 @@ All notable changes to twaco are recorded here. The format follows
 
 ### Changed
 
-- Entity hashes are version 6: a Thing's stored values (`ThingProperties`) compare in any order,
-  because a 10.1 export reorders them. Baselines from v5 count as unrecorded until the next deploy
+- Entity hashes are version 6: a Thing's stored values (`ThingProperties`) compare in any order and
+  without their timestamp and quality, because a 10.1 export reorders them and an import re-stamps a
+  value whose property changed. Baselines from v5 count as unrecorded until the next deploy
   or `entity status --all --record`.
 
 ### Fixed

@@ -10,7 +10,7 @@
 
 use super::scan;
 use std::collections::BTreeMap;
-use swc_common::{BytePos, Spanned};
+use swc_common::BytePos;
 use swc_ecma_ast::{
     AssignExpr, AssignTarget, CallExpr, Callee, Expr, Lit, MemberProp, Pat, Prop, PropName,
     PropOrSpread, SimpleAssignTarget, VarDeclarator,
@@ -94,8 +94,7 @@ struct Found {
     into_result: Vec<String>,
 }
 
-struct Collector<'a> {
-    src: &'a str,
+struct Collector {
     found: Found,
 }
 
@@ -112,22 +111,19 @@ fn builds(script: &str) -> Option<Found> {
     );
     let ast = Parser::new_from(lexer).parse_script().ok()?;
     let mut collector = Collector {
-        src: script,
         found: Found::default(),
     };
     ast.visit_with(&mut collector);
     Some(collector.found)
 }
 
-impl Collector<'_> {
-    /// A string literal's text, from the source: DataShape names need no unescaping.
+impl Collector {
+    /// A string literal's value, its escapes decoded as the engine reads them.
     fn string(&self, expr: &Expr) -> Option<String> {
         let Expr::Lit(Lit::Str(string)) = expr else {
             return None;
         };
-        let span = string.span;
-        let text = self.src.get(span.lo.0 as usize..span.hi.0 as usize)?;
-        Some(text.get(1..text.len().checked_sub(1)?)?.to_string())
+        Some(string.value.to_atom_lossy().to_string())
     }
 
     /// The shape a `CreateInfoTableFromDataShape({dataShapeName: ...})` call names.
@@ -162,10 +158,7 @@ impl Collector<'_> {
             };
             let key = match &pair.key {
                 PropName::Ident(ident) => ident.sym.to_string(),
-                PropName::Str(_) => self
-                    .src
-                    .get(pair.key.span().lo.0 as usize + 1..pair.key.span().hi.0 as usize - 1)?
-                    .to_string(),
+                PropName::Str(key) => key.value.to_atom_lossy().to_string(),
                 _ => continue,
             };
             if key != "dataShapeName" {
@@ -182,7 +175,7 @@ impl Collector<'_> {
     }
 }
 
-impl Visit for Collector<'_> {
+impl Visit for Collector {
     fn visit_var_declarator(&mut self, declarator: &VarDeclarator) {
         if let (Pat::Ident(name), Some(init)) = (&declarator.name, &declarator.init) {
             let name = name.id.sym.to_string();
@@ -271,6 +264,21 @@ mod tests {
         // `var result = ...` is the same as assigning it.
         let declared = format!("var result = {CREATE}({{ 'dataShapeName': 'Acme.Other_DS' }});\n");
         assert_eq!(check(&definition("Acme.Rows_DS"), &declared).len(), 1);
+    }
+
+    #[test]
+    fn an_escaped_name_is_read_as_the_engine_reads_it() {
+        let script =
+            format!("result = {CREATE}({{ \"data\\u0053hapeName\": \"Acme\\u002eRows_DS\" }});\n");
+        assert!(
+            check(&definition("Acme.Rows_DS"), &script).is_empty(),
+            "{script}"
+        );
+        assert_eq!(
+            check(&definition("Acme.Other_DS"), &script).len(),
+            1,
+            "{script}"
+        );
     }
 
     #[test]

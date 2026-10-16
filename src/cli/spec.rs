@@ -1779,10 +1779,11 @@ pub(crate) const COMMANDS: &[Command] = &[
         path: "thing shape",
         group: 1,
         operands: true,
-        flags: &["--apply", "--json"],
-        text: r#"  thing shape <add|remove> <Thing|ThingTemplate> <ThingShape> [--apply] [--json]
-                              implement a ThingShape, or stop; refused when a member clashes;
-                              plan unless --apply"#,
+        flags: &["--force", "--apply", "--json"],
+        text: r#"  thing shape <add|remove> <Thing|ThingTemplate> <ThingShape> [--force] [--apply] [--json]
+                              implement a ThingShape, or stop; refused when a member clashes, or
+                              when something still uses a member the entity loses; plan unless --apply
+      --force                 stop implementing it anyway (what uses its members is listed)"#,
     },
     Command {
         path: "timer set",

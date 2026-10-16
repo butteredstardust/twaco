@@ -163,7 +163,10 @@ fn edit_action(route: &str, args: &Args) -> Result<(String, Action), String> {
             let shape = shape.clone();
             let action = match action.as_str() {
                 "add" => Action::ShapeAdd { shape },
-                "remove" => Action::ShapeRemove { shape },
+                "remove" => Action::ShapeRemove {
+                    shape,
+                    force: args.has("--force"),
+                },
                 other => return Err(format!("thing shape {other}: say add or remove")),
             };
             Ok((entity.clone(), action))

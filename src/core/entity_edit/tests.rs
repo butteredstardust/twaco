@@ -260,6 +260,7 @@ fn a_property_of_a_template_or_shape_gives_every_thing_that_has_it_a_stored_valu
         "Acme.Orders.Machine_TT",
         Action::ShapeRemove {
             shape: "Acme.Orders.Audit_TS".into(),
+            force: false,
         },
     );
     assert!(!file(&solution, "Things", "Acme.Orders.Saw").contains("<Label>"));
@@ -569,7 +570,7 @@ fn property_set_changes_only_what_it_is_given() {
     );
     let press = file(&solution, "Things", "Acme.Orders.Press");
     assert!(press.contains("aspect.isLogged=\"false\""));
-    assert!(press.contains("aspect.defaultValue=\"5\""));
+    assert!(press.contains("aspect.defaultValue=\"5.0\""));
     assert!(press.contains("category=\"Motion\""));
     assert!(
         !press.contains("<Speed>"),
@@ -738,6 +739,7 @@ fn shape_add_and_remove_with_their_refusals() {
         "Acme.Orders.Press",
         Action::ShapeRemove {
             shape: "Acme.Orders.Audit_TS".into(),
+            force: false,
         },
     );
     assert_eq!(file(&solution, "Things", "Acme.Orders.Press"), before);
@@ -777,6 +779,7 @@ fn shape_add_and_remove_with_their_refusals() {
         "Acme.Orders.Saw",
         Action::ShapeRemove {
             shape: "Acme.Orders.Audit_TS".into(),
+            force: false,
         },
     );
     assert_eq!(
@@ -1034,6 +1037,228 @@ fn style_media_menu_and_state_edits_match_what_new_writes() {
         ErrorCode::InvalidArguments
     );
     assert_in_step(&solution);
+}
+
+#[test]
+fn a_self_closing_content_element_is_opened_up() {
+    let (_dir, solution) = fixture();
+    new(&solution, Kind::Style, "Acme.Orders.Good_SD", |_| {});
+    let path = workspace::entities(&solution)
+        .into_iter()
+        .find(|file| file.info.name == "Acme.Orders.Good_SD")
+        .unwrap()
+        .path;
+    let xml = std::fs::read_to_string(&path).unwrap();
+    let start = xml.find("<content>").unwrap();
+    let end = xml.find("</content>").unwrap() + "</content>".len();
+    let empty = format!("{}<content/>{}", &xml[..start], &xml[end..]);
+    std::fs::write(&path, &empty).unwrap();
+    // An empty content holds no JSON to merge into: refused, never written broken.
+    let change = StyleChange {
+        bold: Some(true),
+        ..StyleChange::default()
+    };
+    assert_eq!(
+        code(plan_of(
+            &solution,
+            "Acme.Orders.Good_SD",
+            Action::StyleSet(change)
+        )),
+        ErrorCode::InvalidArguments
+    );
+    // A state set replaces the content outright, so it opens the element.
+    new(&solution, Kind::State, "Acme.Orders.Level_SD", |request| {
+        request.state_type = Some("numeric".into());
+        request.states = vec!["*=Any".into()];
+    });
+    let path = workspace::entities(&solution)
+        .into_iter()
+        .find(|file| file.info.name == "Acme.Orders.Level_SD")
+        .unwrap()
+        .path;
+    let xml = std::fs::read_to_string(&path).unwrap();
+    let start = xml.find("<content>").unwrap();
+    let end = xml.find("</content>").unwrap() + "</content>".len();
+    std::fs::write(&path, format!("{}<content/>{}", &xml[..start], &xml[end..])).unwrap();
+    run(
+        &solution,
+        "Acme.Orders.Level_SD",
+        Action::StateSet {
+            state_type: "numeric".into(),
+            states: vec!["*=Any".into()],
+        },
+    );
+    assert_eq!(std::fs::read_to_string(&path).unwrap(), xml);
+}
+
+#[test]
+fn a_menu_item_edit_keeps_every_other_item_as_it_is() {
+    let (_dir, solution) = fixture();
+    std::fs::create_dir_all(solution.root.join("app/Mashups")).unwrap();
+    new(&solution, Kind::Menu, "Acme.Orders.Main_MN", |request| {
+        request.items = vec!["Home=Acme.Orders.Home_MU".into()];
+        request.default = true;
+    });
+    let path = workspace::entities(&solution)
+        .into_iter()
+        .find(|file| file.info.name == "Acme.Orders.Main_MN")
+        .unwrap()
+        .path;
+    // An item with its own settings and a group, as Composer writes one.
+    let xml = std::fs::read_to_string(&path).unwrap();
+    let custom = xml
+        .replacen("description=\"\" imageURL=\"\" isDefault=\"true\"", "description=\"Start\" imageURL=\"/home.png\" isDefault=\"true\"", 1)
+        .replacen("linkTarget=\"Self\" linkType=\"Mashup\" title=\"Home\"", "linkTarget=\"Popup\" linkType=\"Mashup\" title=\"Home\"", 1)
+        .replacen(
+            "<GroupReferences><Members></Members></GroupReferences>\n                </MenuItem>",
+            "<GroupReferences><Members><Member name=\"Acme.Users_UG\" type=\"Group\"></Member></Members></GroupReferences>\n                </MenuItem>",
+            1,
+        );
+    assert_ne!(custom, xml);
+    std::fs::write(&path, &custom).unwrap();
+    let home_item = |text: &str| {
+        let start = text.find("<MenuItem ").unwrap();
+        let end = text.find("</MenuItem>").unwrap();
+        text[start..end].to_string()
+    };
+    run(
+        &solution,
+        "Acme.Orders.Main_MN",
+        Action::MenuItemAdd {
+            title: "Orders".into(),
+            mashup: "Acme.Orders.Orders_MU".into(),
+            default: true,
+            before: None,
+        },
+    );
+    let after = std::fs::read_to_string(&path).unwrap();
+    // Home keeps its settings and its group; only isDefault moves to the new item.
+    assert_eq!(
+        home_item(&after),
+        home_item(&custom).replace("isDefault=\"true\"", "isDefault=\"false\"")
+    );
+    assert!(after.contains("isDefault=\"true\" linkDestination=\"Acme.Orders.Orders_MU\""));
+    // Home's row repeats its settings.
+    assert!(
+        after.contains("<description><![CDATA[Start]]></description>"),
+        "{after}"
+    );
+    assert!(after.contains("<imageURL><![CDATA[/home.png]]></imageURL>"));
+    assert!(after.contains("<linkTarget><![CDATA[Popup]]></linkTarget>"));
+    assert!(after.contains("<menuId><![CDATA[Acme.Orders.Main_MN_1]]></menuId>"));
+    run(
+        &solution,
+        "Acme.Orders.Main_MN",
+        Action::MenuItemRemove {
+            title: "Orders".into(),
+        },
+    );
+    let back = std::fs::read_to_string(&path).unwrap();
+    assert_eq!(home_item(&back), home_item(&after));
+}
+
+#[test]
+fn property_set_leaves_aspects_it_does_not_model_alone() {
+    let (_dir, solution) = fixture();
+    family(&solution);
+    run(
+        &solution,
+        "Acme.Orders.Press",
+        Action::PropertyAdd(property("Speed", "NUMBER")),
+    );
+    let path = workspace::entities(&solution)
+        .into_iter()
+        .find(|file| file.info.name == "Acme.Orders.Press")
+        .unwrap()
+        .path;
+    // An aspect twaco does not model, as a remote property carries.
+    let xml = std::fs::read_to_string(&path).unwrap().replacen(
+        "aspect.dataChangeType=\"VALUE\"",
+        "aspect.dataChangeType=\"VALUE\"\n                     aspect.pushType=\"ALWAYS\"",
+        1,
+    );
+    std::fs::write(&path, &xml).unwrap();
+    let set = Property {
+        name: "Speed".into(),
+        description: Some("How fast".into()),
+        default: Some("3".into()),
+        ..Property::default()
+    };
+    run(
+        &solution,
+        "Acme.Orders.Press",
+        Action::PropertySet {
+            property: set,
+            force: false,
+        },
+    );
+    let after = std::fs::read_to_string(&path).unwrap();
+    let expected = xml
+        .replacen("description=\"\"\n                     isLocalOnly=\"false\"\n                     name=\"Speed\"", "description=\"How fast\"\n                     isLocalOnly=\"false\"\n                     name=\"Speed\"", 1)
+        .replacen("aspect.isReadOnly=\"false\"\n                     baseType=\"NUMBER\"", "aspect.isReadOnly=\"false\"\n                     aspect.defaultValue=\"3.0\"\n                     baseType=\"NUMBER\"", 1);
+    assert_eq!(after, expected);
+    // Clearing the default removes just that attribute.
+    let clear = Property {
+        name: "Speed".into(),
+        no_default: true,
+        ..Property::default()
+    };
+    run(
+        &solution,
+        "Acme.Orders.Press",
+        Action::PropertySet {
+            property: clear,
+            force: false,
+        },
+    );
+    let cleared = std::fs::read_to_string(&path).unwrap();
+    assert_eq!(
+        cleared,
+        expected.replacen("\n                     aspect.defaultValue=\"3.0\"", "", 1)
+    );
+}
+
+#[test]
+fn a_shape_whose_members_are_used_is_not_removed_unless_forced() {
+    let (_dir, solution) = fixture();
+    family(&solution);
+    run(
+        &solution,
+        "Acme.Orders.Audit_TS",
+        Action::PropertyAdd(property("Checked", "BOOLEAN")),
+    );
+    run(
+        &solution,
+        "Acme.Orders.Press",
+        Action::ShapeAdd {
+            shape: "Acme.Orders.Audit_TS".into(),
+        },
+    );
+    add_service(
+        &solution,
+        "Things",
+        "Acme.Orders.Press",
+        "var done = me.Checked;",
+    );
+    let remove = |force: bool| {
+        plan_of(
+            &solution,
+            "Acme.Orders.Press",
+            Action::ShapeRemove {
+                shape: "Acme.Orders.Audit_TS".into(),
+                force,
+            },
+        )
+    };
+    let refused = remove(false).unwrap_err();
+    assert_eq!(refused.code(), ErrorCode::GuardRefused);
+    assert!(refused.to_string().contains("me.Checked"), "{refused}");
+    let forced = remove(true).unwrap();
+    assert!(
+        forced.warnings[0].contains("Checked"),
+        "{:?}",
+        forced.warnings
+    );
 }
 
 #[test]

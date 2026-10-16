@@ -787,6 +787,11 @@ pub(crate) fn validate_state_request(request: &NewRequest) -> Result<(), NewErro
     if !["numeric", "string"].contains(&state_type) {
         return Err(NewError::Invalid("--type must be numeric or string".into()));
     }
+    if request.states.is_empty() {
+        return Err(NewError::Invalid(
+            "a state definition needs one or more --state".into(),
+        ));
+    }
     let mut catch_all = false;
     for spec in &request.states {
         let head = spec.split(';').next().unwrap();
@@ -938,15 +943,29 @@ pub(crate) fn menu_item_xml(title: &str, target: &str, is_default: bool) -> Stri
 }
 
 /// One effectiveMenu `<Row>` for item `index` of `menu`, preceded by its newline, at 20 spaces.
-pub(crate) fn menu_row_xml(
-    menu: &str,
-    index: usize,
-    title: &str,
-    target: &str,
-    is_default: bool,
-) -> String {
-    let (target, title) = (cdata(target), cdata(title));
-    format!("\n                    <Row>\n                        <description></description>\n                        <imageURL></imageURL>\n                        <isDefault>{is_default}</isDefault>\n                        <linkDestination>{target}</linkDestination>\n                        <linkTarget><![CDATA[Self]]></linkTarget>\n                        <linkType><![CDATA[Mashup]]></linkType>\n                        <menuId><![CDATA[{menu}_{index}]]></menuId>\n                        <parentMenuId><![CDATA[{menu}]]></parentMenuId>\n                        <title>{title}</title>\n                    </Row>")
+/// What an effectiveMenu row repeats of its menu item.
+pub(crate) struct MenuRow<'a> {
+    pub(crate) title: &'a str,
+    pub(crate) target: &'a str,
+    pub(crate) is_default: bool,
+    pub(crate) description: &'a str,
+    pub(crate) image_url: &'a str,
+    pub(crate) link_target: &'a str,
+}
+
+pub(crate) fn menu_row_xml(menu: &str, index: usize, row: &MenuRow<'_>) -> String {
+    // An empty string is an empty element; any other is CDATA, as exports write them.
+    let text = |value: &str| {
+        if value.is_empty() {
+            String::new()
+        } else {
+            cdata(value)
+        }
+    };
+    let (target, title) = (cdata(row.target), cdata(row.title));
+    let (description, image) = (text(row.description), text(row.image_url));
+    let (is_default, link_target) = (row.is_default, cdata(row.link_target));
+    format!("\n                    <Row>\n                        <description>{description}</description>\n                        <imageURL>{image}</imageURL>\n                        <isDefault>{is_default}</isDefault>\n                        <linkDestination>{target}</linkDestination>\n                        <linkTarget>{link_target}</linkTarget>\n                        <linkType><![CDATA[Mashup]]></linkType>\n                        <menuId><![CDATA[{menu}_{index}]]></menuId>\n                        <parentMenuId><![CDATA[{menu}]]></parentMenuId>\n                        <title>{title}</title>\n                    </Row>")
 }
 
 fn menu_xml(request: &NewRequest, project: &str) -> String {
@@ -971,13 +990,15 @@ fn menu_xml(request: &NewRequest, project: &str) -> String {
         .enumerate()
         .map(|(index, item)| {
             let (title, target) = item.split_once('=').expect("validated menu item");
-            menu_row_xml(
-                &request.name,
-                index,
+            let row = MenuRow {
                 title,
                 target,
-                request.default && index == 0,
-            )
+                is_default: request.default && index == 0,
+                description: "",
+                image_url: "",
+                link_target: "Self",
+            };
+            menu_row_xml(&request.name, index, &row)
         })
         .collect();
     format!("{}        <Menu\n         description=\"{}\"\n         documentationContent=\"\"\n         homeMashup=\"\"\n         imageURL=\"\"\n         menuLabel=\"{}\"\n         name=\"{}\"\n         projectName=\"{project}\"\n         tags=\"\">\n{}\n            <MenuItems>{items}\n            </MenuItems>\n            <GroupReferences><Members></Members></GroupReferences>\n            <effectiveMenu>\n                <DataShape>\n                    <FieldDefinitions>\n                        <FieldDefinition baseType=\"STRING\" description=\"Description for tooltip\" name=\"description\" ordinal=\"0\"></FieldDefinition>\n                        <FieldDefinition baseType=\"IMAGELINK\" description=\"Optional image URL\" name=\"imageURL\" ordinal=\"0\"></FieldDefinition>\n                        <FieldDefinition aspect.defaultValue=\"false\" baseType=\"BOOLEAN\" description=\"Is a default menu item\" name=\"isDefault\" ordinal=\"0\"></FieldDefinition>
@@ -1688,6 +1709,9 @@ mod tests {
         state.state_type = Some("string".into());
         state.states = vec![">3=bad".into()];
         assert_eq!(code(state), ErrorCode::InvalidArguments);
+        let mut stateless = request(Kind::State, "Acme.Orders.Empty_SD");
+        stateless.state_type = Some("numeric".into());
+        assert_eq!(code(stateless), ErrorCode::InvalidArguments);
         let mut non_numeric = request(Kind::State, "Acme.Orders.NonNumeric_SD");
         non_numeric.state_type = Some("numeric".into());
         non_numeric.states = vec!["<slow=bad".into()];

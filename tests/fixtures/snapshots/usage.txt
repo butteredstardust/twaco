@@ -218,9 +218,10 @@ usage: twaco <command>
   thing subscription remove <Entity> <name> [--apply] [--json]
                               add or remove a script subscription; no --source is the entity
                               itself; plan unless --apply
-  thing shape <add|remove> <Thing|ThingTemplate> <ThingShape> [--apply] [--json]
-                              implement a ThingShape, or stop; refused when a member clashes;
-                              plan unless --apply
+  thing shape <add|remove> <Thing|ThingTemplate> <ThingShape> [--force] [--apply] [--json]
+                              implement a ThingShape, or stop; refused when a member clashes, or
+                              when something still uses a member the entity loses; plan unless --apply
+      --force                 stop implementing it anyway (what uses its members is listed)
   timer set <Timer> [--every <duration>] [--run-as <user>] [--enabled|--disabled] [--apply]
       [--json]
                               change a Timer Thing's settings; plan unless --apply
