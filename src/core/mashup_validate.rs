@@ -130,6 +130,13 @@ pub(crate) fn check_content(content: &str, problems: &mut Vec<Problem>) {
     for binding in value["DataBindings"].as_array().into_iter().flatten() {
         let id = binding["Id"].as_str().unwrap_or("a binding");
         let maps = binding["PropertyMaps"].as_array().map_or(0, Vec::len);
+        if maps == 0 {
+            problems.push(problem(
+                "no-property-map",
+                format!("binding {id} has no property map, so it carries nothing"),
+            ));
+            continue;
+        }
         if maps > 1 {
             problems.push(problem(
                 "several-property-maps",
@@ -464,6 +471,14 @@ mod tests {
             );
         }
         assert!(rules("{not json").contains(&"structure".to_string()));
+        let empty = content(
+            json!([widget("ptcsgrid", "ptcsgrid-3")]),
+            json!([{"Id": "b", "PropertyMaps": [], "SourceArea": "Data", "SourceSection": "Things_Acme.M",
+                "SourceId": "Get", "TargetArea": "UI", "TargetId": "ptcsgrid-3"}]),
+            json!([]),
+            3,
+        );
+        assert_eq!(rules(&empty), ["no-property-map"]);
         // Not problems: dynamic sources with no entity, numbered properties, action events, resets.
         let allowed = json!({
             "UI": {"Properties": {"Id": "mashup-root", "Type": "mashup", "id_index": 2},

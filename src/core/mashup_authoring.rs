@@ -1310,27 +1310,21 @@ fn change_parameter_bindings(
                 continue;
             }
             let new_type = new_type.unwrap();
-            let other = if source {
-                map["TargetPropertyBaseType"].as_str()
-            } else {
-                map["SourcePropertyBaseType"].as_str()
-            };
-            // The rule `mashup bind` applies: the same base type, or a STRING target.
-            let compatible = match other {
-                None => true,
-                Some(other) if source => other == new_type || other == "STRING",
-                Some(other) => other == new_type || new_type == "STRING",
-            };
-            if !compatible {
-                return Err(AuthoringError::Refused(format!(
-                    "binding {id} would join {new_type} with {}; change or remove it first",
-                    other.unwrap_or_default()
-                )));
-            }
-            if source {
+            // Each side naming the parameter takes the new type (both, when the binding joins
+            // two widgets showing the same mashup); then the pair must still be one bind allows.
+            if source && map["SourceProperty"] == name {
                 map["SourcePropertyBaseType"] = json!(new_type);
-            } else {
+            }
+            if target && map["TargetProperty"] == name {
                 map["TargetPropertyBaseType"] = json!(new_type);
+            }
+            let from = map["SourcePropertyBaseType"].as_str().unwrap_or_default();
+            let to = map["TargetPropertyBaseType"].as_str().unwrap_or_default();
+            // The rule `mashup bind` applies: the same base type, or a STRING target.
+            if !(from.is_empty() || to.is_empty() || from == to || to == "STRING") {
+                return Err(AuthoringError::Refused(format!(
+                    "binding {id} would join {from} with {to}; change or remove it first"
+                )));
             }
             labels.push(id.clone());
         }
@@ -2970,6 +2964,13 @@ fn resolve_end(
                     document, solution, found, property, source, refreshed,
                 );
             }
+            if found.type_id == "navigationfunction" {
+                if let Some(end) = resolve_navigation_end(
+                    document, solution, &found, &property, source, refreshed,
+                )? {
+                    return Ok(end);
+                }
+            }
             let catalog = widgets::catalog().by_type(&found.type_id).filter(|w| w.has_contract()).ok_or_else(|| AuthoringError::Refused(format!("widget `{}` has type `{}`, whose contract is not in the embedded ThingWorx 10.2 catalogue; twaco will not create a binding for it", found.id, found.type_id)))?;
             if catalog.function {
                 if let Some((can_source, can_target, base)) =
@@ -3208,27 +3209,102 @@ fn resolve_container_end(
             "{property} is an output of {child}"
         )));
     }
-    let cached = document.at(&found.path)["Properties"]["MashupParameters"]
+    ensure_cached(
+        document,
+        &found,
+        &child,
+        &definitions,
+        definition,
+        refreshed,
+    );
+    Ok(End::Ui {
+        id: found.id,
+        property,
+        base: definition.base_type.clone(),
+    })
+}
+
+/// When the widget's copy lacks the parameter, or has it with another type, refresh every copy
+/// of `child`'s parameters in the document before the binding is written against it.
+fn ensure_cached(
+    document: &mut MashupDocument,
+    found: &mashup_edit::WidgetRef,
+    child: &str,
+    definitions: &[ParameterDefinition],
+    definition: &ParameterDefinition,
+    refreshed: &mut Vec<String>,
+) {
+    let current = document.at(&found.path)["Properties"]["MashupParameters"]
         .as_array()
         .is_some_and(|entries| {
-            entries
-                .iter()
-                .any(|entry| entry["ParameterName"] == property)
+            entries.iter().any(|entry| {
+                entry["ParameterName"] == definition.name.as_str()
+                    && entry["BaseType"] == definition.base_type.as_str()
+            })
         });
-    if !cached {
+    if !current {
         let mut entries = Vec::new();
-        refresh_containers(document.value_mut(), &child, &definitions, &mut entries);
+        refresh_containers(document.value_mut(), child, definitions, &mut entries);
         for (id, _) in entries {
             if !refreshed.contains(&id) {
                 refreshed.push(id);
             }
         }
     }
-    Ok(End::Ui {
-        id: found.id,
-        property,
+}
+
+/// A navigation function's property that is a parameter of the mashup it opens, when that mashup
+/// is in the repository: resolved from the mashup's own definition, its copies refreshed. `None`
+/// for the function's own properties and for a target outside the repository.
+fn resolve_navigation_end(
+    document: &mut MashupDocument,
+    solution: Option<&Solution>,
+    found: &mashup_edit::WidgetRef,
+    property: &str,
+    source: bool,
+    refreshed: &mut Vec<String>,
+) -> Result<Option<End>, AuthoringError> {
+    let target = document.at(&found.path)["Properties"]["TargetMashup"]
+        .as_str()
+        .unwrap_or_default()
+        .to_string();
+    let (Some(solution), false) = (solution, target.is_empty()) else {
+        return Ok(None);
+    };
+    let Ok(loaded) = load_existing(solution, &target) else {
+        return Ok(None);
+    };
+    let child_document = parse_loaded(&loaded)?;
+    let definitions = contained_parameters(&loaded, &child_document)?;
+    let Some(definition) = definitions
+        .iter()
+        .find(|definition| definition.name == property && definition.visible)
+    else {
+        return Ok(None);
+    };
+    if source && definition.direction == "IN" {
+        return Err(AuthoringError::Refused(format!(
+            "{property} is an input of {target}"
+        )));
+    }
+    if !source && definition.direction == "OUT" {
+        return Err(AuthoringError::Refused(format!(
+            "{property} is an output of {target}"
+        )));
+    }
+    ensure_cached(
+        document,
+        found,
+        &target,
+        &definitions,
+        definition,
+        refreshed,
+    );
+    Ok(Some(End::Ui {
+        id: found.id.clone(),
+        property: property.to_string(),
         base: definition.base_type.clone(),
-    })
+    }))
 }
 
 fn resolve_service<'a>(
@@ -6654,7 +6730,7 @@ mod tests {
         // A second handler for the same event reuses the router.
         let label = plan_add(&solution, &add_request("Acme.Board_MU", "button")).unwrap();
         apply_edit(&solution, &label.edit, &lock(&solution)).unwrap();
-        parent_on(&format!("ui:{}.TriggerClick", label.placed.id)).ok();
+        parent_on(&format!("ui:{}.TriggerClick", label.placed.id)).unwrap();
         let parent = content_of(&solution, "Acme.Board_MU");
         let count = parent["UI"]["Widgets"]
             .as_array()
@@ -6663,6 +6739,14 @@ mod tests {
             .filter(|w| w["Properties"]["Type"] == "eventsrouter")
             .count();
         assert_eq!(count, 1);
+        let second = parent["Events"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|e| e["EventHandlerId"] == label.placed.id.as_str())
+            .expect("the second handler was added");
+        assert_eq!(second["EventTriggerId"], router.as_str());
+        assert_eq!(second["EventTriggerEvent"], "Changed");
         let failing: Vec<_> = crate::core::check::run(&solution)
             .gates
             .into_iter()
@@ -7394,6 +7478,105 @@ mod tests {
                 }
             ),
             ErrorCode::UnknownEntity
+        );
+    }
+
+    #[test]
+    fn a_retype_changes_both_sides_of_a_binding_between_two_copies_of_the_same_mashup() {
+        let (dir, solution) = parent_and_child();
+        // A second container of Acme.Card_MU, and a binding from one container's id to the other's.
+        rewrite_mashup(dir.path(), "Acme.Board_MU", |value| {
+            let first = value["UI"]["Widgets"][0]["Widgets"][1].clone();
+            let mut second = first.clone();
+            second["Properties"]["Id"] = json!("mashupcontainer-10");
+            second["Properties"]["DisplayName"] = json!("mashupcontainer-10");
+            value["UI"]["Widgets"][0]["Widgets"]
+                .as_array_mut()
+                .unwrap()
+                .push(second);
+            value["DataBindings"] = json!([{
+                "Id": "between",
+                "PropertyMaps": [{"SourceProperty": "id", "SourcePropertyBaseType": "LONG",
+                    "SourcePropertyType": "property", "TargetProperty": "id",
+                    "TargetPropertyBaseType": "LONG", "TargetPropertyType": "property"}],
+                "SourceArea": "UI", "SourceDetails": "", "SourceId": "mashupcontainer-9", "SourceSection": "",
+                "TargetArea": "UI", "TargetId": "mashupcontainer-10", "TargetSection": ""
+            }]);
+        });
+        let mut set = param_request("Acme.Card_MU", ParameterAction::Set, "id");
+        set.base_type = Some("STRING".into());
+        param(&solution, &set).unwrap();
+        let parent = content_of(&solution, "Acme.Board_MU");
+        let map = &parent["DataBindings"][0]["PropertyMaps"][0];
+        assert_eq!(map["SourcePropertyBaseType"], "STRING");
+        assert_eq!(map["TargetPropertyBaseType"], "STRING");
+    }
+
+    #[test]
+    fn binding_into_a_navigation_function_refreshes_a_missing_or_stale_copy_first() {
+        let (dir, solution) = recipe_fixture();
+        let plan = recipe(
+            &solution,
+            "popup",
+            RecipeArgs {
+                widget: Some("ptcsbutton-6".into()),
+                target: Some("Acme.Detail_MU".into()),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        let navigation = plan.added[0].clone();
+        // Make the copy stale: note cached as LONG; a new parameter count missing from it.
+        let mut add = param_request("Acme.Detail_MU", ParameterAction::Add, "count");
+        add.base_type = Some("NUMBER".into());
+        let detail = plan_parameter(&solution, &add).unwrap();
+        // Apply only the child's own edit, so the parent's copy stays stale.
+        apply_edit(&solution, &detail.edits[0], &lock(&solution)).unwrap();
+        rewrite_mashup(dir.path(), "Acme.Orders_MU", |value| {
+            let widgets = value["UI"]["Widgets"].as_array_mut().unwrap();
+            let nav = widgets
+                .iter_mut()
+                .find(|w| w["Properties"]["Id"] == navigation.as_str())
+                .unwrap();
+            nav["Properties"]["MashupParameters"][0]["BaseType"] = json!("LONG");
+        });
+        let plan = bind(
+            &solution,
+            "ui:ptcstextfield-3.Text",
+            &format!("ui:{navigation}.count"),
+        );
+        assert!(
+            plan.is_err(),
+            "STRING into the NUMBER count is refused by type, not as unknown"
+        );
+        assert_eq!(plan.unwrap_err().code(), ErrorCode::GuardRefused);
+        let plan = bind(
+            &solution,
+            "ui:ptcstextfield-3.Text",
+            &format!("ui:{navigation}.note"),
+        )
+        .unwrap();
+        assert!(plan.refreshed.contains(&navigation), "{:?}", plan.refreshed);
+        let value: Value =
+            serde_json::from_slice(&plan.edit.sidecars.as_ref().unwrap().content_after).unwrap();
+        let nav = widget_of(&value, &navigation);
+        let names: Vec<(&str, &str)> = nav["MashupParameters"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|e| {
+                (
+                    e["ParameterName"].as_str().unwrap(),
+                    e["BaseType"].as_str().unwrap(),
+                )
+            })
+            .collect();
+        assert_eq!(names, [("note", "STRING"), ("count", "NUMBER")]);
+        assert_eq!(nav["_currentParameterDefs"][1]["ParameterName"], "count");
+        let binding = value["DataBindings"].as_array().unwrap().last().unwrap();
+        assert_eq!(
+            binding["PropertyMaps"][0]["TargetPropertyBaseType"],
+            "STRING"
         );
     }
 }
