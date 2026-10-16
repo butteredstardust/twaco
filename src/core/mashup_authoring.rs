@@ -747,16 +747,7 @@ fn parameter_entry(def: &ParameterDefinition) -> Value {
 }
 
 fn set_content_parameter(document: &mut MashupDocument, def: &ParameterDefinition, remove: bool) {
-    let root = document
-        .value_mut()
-        .as_object_mut()
-        .expect("checked document");
-    let properties = root
-        .get_mut("UI")
-        .and_then(Value::as_object_mut)
-        .and_then(|ui| ui.get_mut("Properties"))
-        .and_then(Value::as_object_mut)
-        .expect("checked root properties");
+    let properties = document.root_properties_mut();
     // The server keeps these keys sorted; appended, the read-back differs from what was sent.
     if !properties.contains_key("_currentParameterDefs") {
         mashup_edit::insert_sorted(
@@ -1009,9 +1000,7 @@ fn route_child_event(
         .expect("the catalogue has the events router; a test checks it");
     let number = document.allocate();
     let mut router = mashup_edit::new_widget(catalog, number, false);
-    let properties = router["Properties"]
-        .as_object_mut()
-        .expect("a widget has properties");
+    let properties = mashup_edit::properties_mut(&mut router);
     mashup_edit::insert_sorted(properties, "DataType", json!(base));
     mashup_edit::insert_sorted(properties, "NumberOfInputs", json!("1"));
     let router_id = properties["Id"].as_str().unwrap_or_default().to_string();
@@ -1033,15 +1022,7 @@ fn route_child_event(
     insert(&mut binding, "TargetArea", json!("UI"));
     insert(&mut binding, "TargetId", json!(router_id));
     insert(&mut binding, "TargetSection", json!(""));
-    document
-        .value_mut()
-        .as_object_mut()
-        .expect("checked: root object")
-        .entry("DataBindings")
-        .or_insert_with(|| Value::Array(Vec::new()))
-        .as_array_mut()
-        .expect("checked: bindings array")
-        .push(Value::Object(binding));
+    document.bindings_mut().push(Value::Object(binding));
     Ok(Some(format!("ui:{router_id}.Changed")))
 }
 
@@ -1098,9 +1079,7 @@ pub fn plan_event(
         .as_str()
         .unwrap_or_default()
         .to_string();
-    let properties = expression["Properties"]
-        .as_object_mut()
-        .expect("a widget has properties");
+    let properties = mashup_edit::properties_mut(&mut expression);
     mashup_edit::insert_sorted(
         properties,
         "DisplayName",
@@ -1878,9 +1857,7 @@ fn build_tabs(
         let mut tab = mashup_edit::new_widget(container, number, true);
         tab["Properties"]["DisplayName"] = json!(format!("{tabset_name} #{}", index + 1));
         mashup_edit::insert_sorted(
-            tab["Properties"]
-                .as_object_mut()
-                .expect("a widget has properties"),
+            mashup_edit::properties_mut(&mut tab),
             "userCannotRemove",
             json!(true),
         );
@@ -1899,9 +1876,7 @@ fn build_tabs(
             }
             let definitions = contained_parameters(&loaded, &child_document)?;
             let mut widget = mashup_edit::new_widget(contained, document.allocate(), true);
-            let properties = widget["Properties"]
-                .as_object_mut()
-                .expect("a widget has properties");
+            let properties = mashup_edit::properties_mut(&mut widget);
             mashup_edit::insert_sorted(properties, "Name", json!(child));
             mashup_edit::insert_sorted(
                 properties,
@@ -1988,9 +1963,7 @@ fn add_function_widget(
             .map(|def| navigation_definition(def, None))
             .collect();
         mashup_edit::insert_sorted(
-            value["Properties"]
-                .as_object_mut()
-                .expect("a widget has properties"),
+            mashup_edit::properties_mut(&mut value),
             "_currentParameterDefs",
             Value::Array(entries),
         );
@@ -2240,9 +2213,7 @@ pub fn plan_add_contained(
         }
         let value = default_value(&definition.base_type, text)?;
         document.set_property(&path, name, value.clone());
-        let properties = document.at_mut(&path)["Properties"]
-            .as_object_mut()
-            .expect("a placed widget has properties");
+        let properties = mashup_edit::properties_mut(document.at_mut(&path));
         if let Some(entry) = properties["MashupParameters"]
             .as_array_mut()
             .and_then(|entries| {
@@ -2606,15 +2577,7 @@ fn bind_in(
     insert(&mut binding, "TargetArea", Value::String(area(&to).into()));
     insert(&mut binding, "TargetId", Value::String(target_id));
     insert(&mut binding, "TargetSection", Value::String(target_section));
-    let root = document
-        .value_mut()
-        .as_object_mut()
-        .expect("checked: root object");
-    root.entry("DataBindings")
-        .or_insert_with(|| Value::Array(Vec::new()))
-        .as_array_mut()
-        .expect("checked: bindings array")
-        .push(Value::Object(binding));
+    document.bindings_mut().push(Value::Object(binding));
     let new_source = source_added.or(target_added);
     Ok(BindIn {
         new_source,
@@ -2710,15 +2673,7 @@ fn on_in(
         Value::String(trigger.section),
     );
     insert(&mut event, "Id", Value::String(Uuid::new_v4().to_string()));
-    let root = document
-        .value_mut()
-        .as_object_mut()
-        .expect("checked: root object");
-    root.entry("Events")
-        .or_insert_with(|| Value::Array(Vec::new()))
-        .as_array_mut()
-        .expect("checked: events array")
-        .push(Value::Object(event));
+    document.events_mut().push(Value::Object(event));
     Ok(new_source)
 }
 
@@ -3449,14 +3404,7 @@ fn data_call(
         return Err(AuthoringError::Refused(format!("{entity} is a template/shape: its data source needs the entity it runs on bound first (twaco does not create that yet); add the call in Composer once")));
     }
     let key = format!("Things_{entity}");
-    let root = document
-        .value_mut()
-        .as_object_mut()
-        .expect("checked: root object");
-    if !root.contains_key("Data") {
-        insert(root, "Data", Value::Object(Map::new()));
-    }
-    let data = root["Data"].as_object_mut().expect("checked: Data object");
+    let data = document.data_mut();
     if !data.contains_key(&key) {
         let mut value = Map::new();
         insert(&mut value, "DataName", Value::String(key.clone()));

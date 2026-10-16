@@ -6,6 +6,15 @@ All notable changes to twaco are recorded here. The format follows
 
 ## [Unreleased]
 
+### Changed
+
+- MCP `entity_new` lists its kinds in its schema, so a client can offer them and a wrong one is
+  refused before the tool runs.
+- Parallel server reads hand each worker the next entity as it frees up, so one slow request no
+  longer holds back a fixed share of the others.
+- A profile file other users can read gets a warning on Unix, as ssh gives; passwords and app
+  keys are zeroed in memory once used.
+
 ## [0.1.13] - 2026-10-16
 
 ### Fixed
