@@ -10,7 +10,7 @@
   "children": [
     {
       "slot": "sidebar",
-      "flex-direction": "column",
+      "flex-direction": "row",
       "flex-grow": 0,
       "align-items": "stretch",
       "widget": "ptcsmenubar"

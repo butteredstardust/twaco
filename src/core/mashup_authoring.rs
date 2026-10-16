@@ -2814,7 +2814,7 @@ mod tests {
                 "sidebar",
                 vec![
                     ("flexcontainer-2", "flexcontainer", "page", "row"),
-                    ("flexcontainer-3", "flexcontainer", "sidebar", "column"),
+                    ("flexcontainer-3", "flexcontainer", "sidebar", "row"),
                     ("ptcsmenubar-4", "ptcsmenubar", "ptcs-menubar-4", ""),
                     ("flexcontainer-5", "flexcontainer", "center", "column"),
                 ],
@@ -4593,5 +4593,38 @@ mod tests {
             .map(|entry| entry["ParameterName"].as_str().unwrap().to_string())
             .collect();
         assert_eq!(names, ["id", "title"]);
+    }
+
+    #[test]
+    fn template_containers_have_no_margin_and_their_widgets_keep_composers() {
+        // A 5px margin, the 10.2 default nearly no real container keeps, shrinks every fixed band
+        // by 10px and hides a 1px divider; Composer clears it on a container it drops.
+        for template in mashup_templates::layouts().unwrap() {
+            for master in [false, true] {
+                let document = new_document(&template, master, DEFAULT_THEME).unwrap();
+                for widget in document.widgets().into_iter().skip(1) {
+                    let margin = &document.at(&widget.path)["Properties"]["Margin"];
+                    if widget.type_id == "flexcontainer" {
+                        assert_eq!(margin, "", "{} {}", template.name, widget.id);
+                    } else {
+                        assert_eq!(margin, "5", "{} {}", template.name, widget.id);
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn a_menu_bar_sits_in_a_row_so_it_fills_the_sidebar_height() {
+        for name in ["sidebar", "header-sidebar"] {
+            let template = mashup_templates::layout(name).unwrap().unwrap();
+            let document = new_document(&template, false, DEFAULT_THEME).unwrap();
+            let sidebar = document.find("sidebar").unwrap();
+            assert_eq!(
+                document.at(&sidebar.path)["Properties"]["flex-direction"],
+                "row",
+                "{name}"
+            );
+        }
     }
 }

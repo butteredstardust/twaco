@@ -25,7 +25,8 @@
       "UseTheme": true,
       "iconClass": "widgets-flexcontainer",
       "isLocked": false,
-      "ShowVerticalScrollbar": false
+      "ShowVerticalScrollbar": false,
+      "Margin": ""
     }
   },
   "widgets": [

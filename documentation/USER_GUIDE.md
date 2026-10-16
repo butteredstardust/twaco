@@ -453,7 +453,10 @@ aliases and slots. Slots are responsive container names usable with `mashup add 
 
 `sidebar` and `header-sidebar` require `--primary-menu`; their optional `--secondary-menu` values
 are INFOTABLE-returning services. Their menu-bar data bindings and page-loaded service events are
-exactly those `mashup bind` and `mashup on` would create. `--master` makes a master mashup instead,
+exactly those `mashup bind` and `mashup on` would create. The menu bar shows a tree of `MenuEntry`
+rows: one root row (`linkType` `Menu`, a `menuId` such as `topMenu`) and items whose `parentMenuId` is
+that id, with `linkType` and `linkTarget` `Mashup` and the mashup in `linkDestination`. Rows without
+the root show nothing, and twaco cannot check that from the service definition. `--master` makes a master mashup instead,
 with a page container filling the template's master slot for the pages it shows. The theme is ThingWorx's default unless `--theme` names a
 StyleTheme in the solution; twaco never creates one. Nothing is granted visibility unless
 `--visibility` names an `Organization/<name>` or an `OrganizationalUnit/<organization>:<unit>`.
