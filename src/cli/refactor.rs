@@ -85,6 +85,7 @@ pub(crate) fn adopt_cmd(solution: &Solution, args: &Args) -> u8 {
             "new": report.with_status(adopt::Status::New).map(|e| e.entity.path()).collect::<Vec<_>>(),
             "absent": report.absent.iter().map(adopt::EntityRef::path).collect::<Vec<_>>(),
             "changed": changed,
+            "type_changes": report.type_changes().iter().map(|(entity, d)| serde_json::json!({ "entity": entity.path(), "path": d.path, "export": d.export, "repo": d.repo })).collect::<Vec<_>>(),
             "identical": report.with_status(adopt::Status::Identical).count(),
             "base": report.base,
             "entities": report.entities.iter().map(|e| serde_json::json!({ "entity": e.entity.path(), "change": change_word(e.change), "kind": kind_word(e.kind) })).collect::<Vec<_>>(),
@@ -598,6 +599,21 @@ fn print_adopt_report(solution: &Solution, report: &adopt::Report, detail: bool)
                 println!("      export: {}", side(&difference.export));
                 println!("      repo  : {}", side(&difference.repo));
             }
+        }
+    }
+
+    let retyped = report.type_changes();
+    if !retyped.is_empty() {
+        println!("\n=== base-type changes ({}) ===", retyped.len());
+        println!("  A caller of the old type now sends what the other side does not expect.");
+        for (entity, difference) in &retyped {
+            println!(
+                "  {}  {}: {} -> {}",
+                entity.path(),
+                difference.path,
+                difference.repo.as_deref().unwrap_or_default(),
+                difference.export.as_deref().unwrap_or_default()
+            );
         }
     }
 

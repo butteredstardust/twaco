@@ -78,6 +78,18 @@ pub struct Difference {
     pub repo: Option<String>,
 }
 
+/// A base type (an XML `baseType` attribute or a mashup JSON `BaseType`) that differs, present
+/// on both sides.
+fn is_type_change(difference: &Difference) -> bool {
+    let path = difference.path.as_str();
+    let typed =
+        path.ends_with("@baseType") || path.ends_with(".BaseType") || path.ends_with(".baseType");
+    match (&difference.export, &difference.repo) {
+        (Some(export), Some(repo)) => typed && export != repo,
+        _ => false,
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Status {
     New,
@@ -129,6 +141,21 @@ pub struct Report {
 }
 
 impl Report {
+    /// Differences that retype something both sides have: a mashup parameter, a binding, a
+    /// service parameter or a field. Whoever passes the old type now sends a value the other
+    /// side does not expect, so these are shown whatever else changed.
+    pub fn type_changes(&self) -> Vec<(&EntityRef, &Difference)> {
+        self.with_status(Status::Changed)
+            .flat_map(|entry| {
+                entry
+                    .differences
+                    .iter()
+                    .filter(|difference| is_type_change(difference))
+                    .map(move |difference| (&entry.entity, difference))
+            })
+            .collect()
+    }
+
     pub fn with_status(&self, status: Status) -> impl Iterator<Item = &EntityReport> {
         self.entities
             .iter()
@@ -1861,6 +1888,50 @@ fn media_content(path: &Path, encoded: &str) -> Result<Option<String>, AdoptErro
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn a_base_type_changed_on_both_sides_is_a_type_change() {
+        let change = |path: &str, export: Option<&str>, repo: Option<&str>| Difference {
+            path: path.into(),
+            export: export.map(Into::into),
+            repo: repo.map(Into::into),
+        };
+        let entry = |collection: &str, differences: Vec<Difference>| EntityReport {
+            entity: EntityRef {
+                collection: collection.into(),
+                name: "Acme.Board_MU".into(),
+            },
+            project: "Acme".into(),
+            status: Status::Changed,
+            differences,
+            volatile_ids: 0,
+            ignored: 0,
+            kind: classify::Kind::Ui,
+            change: classify::Change::Theirs,
+        };
+        let report = Report {
+            entities: vec![entry(
+                "Mashups",
+                vec![
+                    // As a Composer export retyped a mashup parameter and its binding.
+                    change("/ParameterDefinitions/FieldDefinition[cardUid]@baseType", Some("STRING"), Some("LONG")),
+                    change("/mashupContent#json.Data.Things_Acme.Manager.Services[0].Parameters[0].BaseType", Some("STRING"), Some("LONG")),
+                    change("/ParameterDefinitions/FieldDefinition[cardUid]@description", Some("b"), Some("a")),
+                    change("/ParameterDefinitions/FieldDefinition[added]@baseType", Some("STRING"), None),
+                ],
+            )],
+            ..Report::default()
+        };
+        let found: Vec<&str> = report
+            .type_changes()
+            .iter()
+            .map(|(_, difference)| difference.path.as_str())
+            .collect();
+        assert_eq!(found.len(), 2, "{found:?}");
+        assert!(found
+            .iter()
+            .all(|path| path.to_lowercase().ends_with("basetype")));
+    }
+
     use super::*;
 
     fn element(src: &str) -> Element {

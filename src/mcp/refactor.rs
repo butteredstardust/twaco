@@ -915,6 +915,7 @@ pub(crate) fn adopt_tool(
         "new": report.with_status(adopt::Status::New).map(|e| json!({ "entity": e.entity.path(), "project": e.project })).collect::<Vec<_>>(),
         "absent": report.absent.iter().map(adopt::EntityRef::path).collect::<Vec<_>>(),
         "changed": changed,
+        "type_changes": report.type_changes().iter().map(|(entity, d)| json!({ "entity": entity.path(), "path": d.path, "export": d.export, "repo": d.repo })).collect::<Vec<_>>(),
         "identical": report.with_status(adopt::Status::Identical).count(),
         "base": report.base,
         "entities": report.entities.iter().map(adopt_entity_json).collect::<Vec<_>>(),

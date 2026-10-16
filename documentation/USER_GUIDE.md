@@ -191,6 +191,11 @@ no base it uses git history to spot stale content and calls the rest unknown. Th
 names the selected base. Handoffs are local derived files under `.twaco/handoffs/`; pass a package
 with `--base` on another machine.
 
+A base type that changed on something both sides have (a mashup parameter, a binding, a service
+parameter, a field) is listed under its own heading, with the old and new type, whatever else
+changed: whoever passes the old type now sends a value the other side does not expect. `--json`
+and MCP `adopt_report` return them as `type_changes`.
+
 | State | Meaning | Apply |
 | --- | --- | --- |
 | same | both sides already agree | does nothing |

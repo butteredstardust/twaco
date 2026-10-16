@@ -8,6 +8,9 @@ All notable changes to twaco are recorded here. The format follows
 
 ### Added
 
+- `twaco adopt` lists base-type changes (a mashup parameter retyped from LONG to STRING, say) under
+  their own heading, and as `type_changes` in `--json` and MCP `adopt_report`; before, they were one
+  node in an entity's count unless `--detail` was given.
 - A `result shapes` check gate: a service whose script builds its result from another DataShape
   than its definition declares. In 391 real services built this way it found 10, often a
   same-named DataShape of another project.
