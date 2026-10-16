@@ -6,11 +6,16 @@ All notable changes to twaco are recorded here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- `twaco new thing|thing-template|thing-shape|data-shape|timer|scheduler` (MCP `entity_new`)
+  plans or creates common ThingWorx 10.1 entity exports in the repository. DataShapes get their
+  `fields.json` sidecar; timers and schedulers require a run-as user and can carry an event script.
+
 - `twaco mashup add-contained` (MCP `mashup_add_contained`) adds a repository child mashup as a
   Composer-compatible `mashupcontainer`, including its parameter cache and static input values.
   Bindings and `mashup describe` now treat visible child parameters as the container's properties;
   a binding repairs a stale container cache in the same edit.
-### Added
 
 - `twaco mashup param add|set|remove` (MCP `mashup_param`) keeps mashup parameter definitions,
   content metadata, binding base types and every containing mashupcontainer cache in step, planning
@@ -33,6 +38,9 @@ All notable changes to twaco are recorded here. The format follows
 
 ### Fixed
 
+- `twaco entity delete` no longer fails on a disabled Thing, whose dependency service answers
+  HTTP 503: its dependents are reported as unknown, refused under `outside_dependents` until
+  acknowledged, and warned about when they are.
 - `twaco impact <entity> --member <service>` narrows mashups to those that bind that service. An exported mashup lists a data source's services as `Services: [{Name, Target}]`, which the index did not read, so every mashup binding any service of the entity was reported as a dependent of each of them.
 
 ## [0.1.9] - 2026-10-15

@@ -1,0 +1,7 @@
+$ twaco new timer Acme.Orders.Refresh_TM
+exit: 2
+
+--- stdout
+
+--- stderr
+twaco: timer needs --run-as; an empty runAsUser runs events as nobody

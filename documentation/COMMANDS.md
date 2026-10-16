@@ -214,6 +214,23 @@ new building-block <name> [--type standard|abstract|implementation] [--display-n
     --no-management-shape   an implementation without its own Management_TS
     --root <dir>            the project's folder (default: the block's name)
     --base-extension        the PTC.Base extension version to depend on (default: what another project declares)
+new thing <name> [--project <name>] [--description <text>] [--template <ThingTemplate>] [--shape <ThingShape>]...
+    [--value-stream <ValueStream>] [--visibility <principal>]... [--apply] [--json]
+                            create a ThingWorx Thing as a repository file; plan unless --apply
+new thing-template <name> [--project <name>] [--description <text>] [--base <ThingTemplate>] [--shape <ThingShape>]...
+    [--visibility <principal>]... [--apply] [--json]
+                            create a ThingWorx ThingTemplate as a repository file; plan unless --apply
+new thing-shape <name> [--project <name>] [--description <text>] [--visibility <principal>]... [--apply] [--json]
+                            create a ThingWorx ThingShape as a repository file; plan unless --apply
+new data-shape <name> --field <name:TYPE[:primary]>... [--project <name>] [--description <text>] [--base <DataShape>]
+    [--visibility <principal>]... [--apply] [--json]
+                            create a DataShape and its fields.json sidecar; plan unless --apply
+new timer <name> --run-as <user> [--project <name>] [--every <duration>] [--disabled] [--then <code>|--script <file.js>]
+    [--description <text>] [--visibility <principal>]... [--apply] [--json]
+                            create a Timer Thing and optional Timer subscription; plan unless --apply
+new scheduler <name> --run-as <user> [--project <name>] [--cron <quartz cron>] [--disabled] [--then <code>|--script <file.js>]
+    [--description <text>] [--visibility <principal>]... [--apply] [--json]
+                            create a Scheduler Thing and optional ScheduledEvent subscription; plan unless --apply
 ```
 
 ## Deploy and compare

@@ -1,0 +1,92 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Entities
+ majorVersion="10"
+ minorVersion="1"
+ universal="password">
+    <Things>
+        <Thing
+         aspect.isSystemObject="false"
+         description=""
+         documentationContent=""
+         effectiveThingPackage="SchedulerThing"
+         enabled="true"
+         homeMashup=""
+         identifier=""
+         inheritedValueStream=""
+         name="Acme.Orders.Nightly_SC"
+         projectName="Acme.Orders"
+         published="false"
+         tags=""
+         thingTemplate="Scheduler"
+         valueStream="">
+            <avatar></avatar>
+            <DesignTimePermissions>
+                <Create></Create>
+                <Read></Read>
+                <Update></Update>
+                <Delete></Delete>
+                <Metadata></Metadata>
+            </DesignTimePermissions>
+            <RunTimePermissions></RunTimePermissions>
+            <VisibilityPermissions>
+                <Visibility></Visibility>
+            </VisibilityPermissions>
+            <ConfigurationTableDefinitions></ConfigurationTableDefinitions>
+            <ConfigurationTables>
+                <ConfigurationTable
+                 dataShapeName=""
+                 description="General Settings"
+                 isHidden="true"
+                 isMultiRow="false"
+                 name="Settings"
+                 ordinal="0">
+                    <DataShape>
+                        <FieldDefinitions>
+                            <FieldDefinition
+                             aspect.defaultValue="true"
+                             baseType="BOOLEAN"
+                             description="Automatically enable scheduler on startup"
+                             name="enabled"
+                             ordinal="0"></FieldDefinition>
+                            <FieldDefinition
+                             baseType="USERNAME"
+                             description="User context in which to run event handlers"
+                             name="runAsUser"
+                             ordinal="0"></FieldDefinition>
+                            <FieldDefinition
+                             aspect.defaultValue="0 0/1 * * * ?"
+                             baseType="SCHEDULE"
+                             description="Execution Schedule (Cron String)"
+                             name="schedule"
+                             ordinal="0"></FieldDefinition>
+                        </FieldDefinitions>
+                    </DataShape>
+                    <Rows>
+                        <Row>
+                            <enabled>true</enabled>
+                            <runAsUser><![CDATA[Administrator]]></runAsUser>
+                            <schedule><![CDATA[0 0 2 * * ?]]></schedule>
+                        </Row>
+                    </Rows>
+                </ConfigurationTable>
+            </ConfigurationTables>
+            <ThingShape>
+                <PropertyDefinitions></PropertyDefinitions>
+                <ServiceDefinitions></ServiceDefinitions>
+                <EventDefinitions></EventDefinitions>
+                <ServiceMappings></ServiceMappings>
+                <ServiceImplementations></ServiceImplementations>
+                <Subscriptions>
+                </Subscriptions>
+            </ThingShape>
+            <PropertyBindings></PropertyBindings>
+            <RemotePropertyBindings></RemotePropertyBindings>
+            <RemoteServiceBindings></RemoteServiceBindings>
+            <RemoteEventBindings></RemoteEventBindings>
+            <AlertConfigurations></AlertConfigurations>
+            <ImplementedShapes>
+            </ImplementedShapes>
+            <ThingProperties></ThingProperties>
+        </Thing>
+    </Things>
+</Entities>

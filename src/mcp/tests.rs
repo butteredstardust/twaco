@@ -844,6 +844,7 @@ fn every_tool_is_listed_with_a_schema_and_honest_annotations() {
             "rename",
             "move_member",
             "new_building_block",
+            "entity_new",
             "mashup_new",
             "mashup_templates",
             "mashup_add",
@@ -904,6 +905,7 @@ fn every_tool_is_listed_with_a_schema_and_honest_annotations() {
         "rename",
         "move_member",
         "new_building_block",
+        "entity_new",
         "mashup_new",
         "mashup_add",
         "mashup_add_contained",
@@ -2216,6 +2218,27 @@ fn mashup_new_plans_by_default_and_creates_the_files_when_asked() {
         again["structuredContent"]["code"], "already_exists",
         "{again}"
     );
+}
+
+#[test]
+fn entity_new_timer_applies_and_writes_the_entity_file() {
+    let (_dir, root) = solution_dir();
+    let planned = call(
+        &root,
+        "entity_new",
+        json!({"kind": "timer", "name": "P.Refresh_TM", "run_as": "Administrator"}),
+    );
+    assert_eq!(planned["isError"], false, "{planned}");
+    assert_eq!(planned["structuredContent"]["applied"], false);
+    assert!(!root.join("Things/P.Refresh_TM.xml").exists());
+    let applied = call(
+        &root,
+        "entity_new",
+        json!({"kind": "timer", "name": "P.Refresh_TM", "run_as": "Administrator", "dry_run": false}),
+    );
+    assert_eq!(applied["isError"], false, "{applied}");
+    assert_eq!(applied["structuredContent"]["applied"], true);
+    assert!(root.join("Things/P.Refresh_TM.xml").exists());
 }
 
 #[test]

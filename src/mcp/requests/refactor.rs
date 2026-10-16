@@ -346,6 +346,45 @@ pub(crate) struct MashupNewRequest {
 
 #[derive(Debug, Deserialize, JsonSchema, Serialize)]
 #[serde(deny_unknown_fields)]
+pub(crate) struct EntityNewRequest {
+    /// `thing`, `thing-template`, `thing-shape`, `data-shape`, `timer`, or `scheduler`.
+    pub(crate) kind: String,
+    /// The entity name.
+    pub(crate) name: String,
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) project: Absent<String>,
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) description: Absent<String>,
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) visibility: Absent<Vec<String>>,
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) template: Absent<String>,
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) shape: Absent<Vec<String>>,
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) value_stream: Absent<String>,
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) base: Absent<String>,
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) field: Absent<Vec<String>>,
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) every: Absent<String>,
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) cron: Absent<String>,
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) run_as: Absent<String>,
+    #[serde(default)]
+    pub(crate) disabled: bool,
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) then: Absent<String>,
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) script: Absent<String>,
+    #[serde(default = "default_true")]
+    pub(crate) dry_run: bool,
+}
+
+#[derive(Debug, Deserialize, JsonSchema, Serialize)]
+#[serde(deny_unknown_fields)]
 pub(crate) struct MashupAddRequest {
     /// The existing mashup's name.
     pub(crate) mashup: String,

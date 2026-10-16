@@ -32,6 +32,7 @@ use cli::entity::{
     entity_status, permissions_apply_cmd, permissions_audit_cmd, permissions_cmd,
     permissions_init_cmd,
 };
+use cli::entity_new::entity_new_cmd;
 use cli::info::{
     catalog_cmd, docs_cmd, guide_cmd, help_cmd, impact_cmd, javadoc_cmd, settings_cmd, unused_cmd,
     update_cmd, write_agent_files,
@@ -230,6 +231,8 @@ fn dispatch(route: &str, parsed: &Args) -> u8 {
             "mashup describe" => mashup_describe_cmd(solution, parsed),
             "mashup validate" => mashup_validate_cmd(solution, parsed),
             "new building-block" => new_building_block_cmd(solution, parsed),
+            "new thing" | "new thing-template" | "new thing-shape" | "new data-shape"
+            | "new timer" | "new scheduler" => entity_new_cmd(solution, route, parsed),
             "config-table" => config_table(solution, parsed),
             "entity get" => entity_get(solution, parsed),
             "entity status" => entity_status(solution, parsed),

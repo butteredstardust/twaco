@@ -375,7 +375,8 @@ while something outside the set still does, deletes dependents before what they 
 confirms each entity is gone afterwards. An entity that the repository still defines is refused,
 since the next deploy would create it again. Pass `--allow-repository-defined` to accept that
 specific condition, or `--allow-outside-dependents` to accept structural dependents outside the
-set. Deleting a FileRepository Thing deletes all its files and is refused until
+set. A disabled Thing cannot answer the dependency question, so its dependents are unknown: the
+plan refuses it until you enable it or pass `--allow-outside-dependents`, and then warns. Deleting a FileRepository Thing deletes all its files and is refused until
 `--allow-file-repository-data-loss` acknowledges that loss; when acknowledged, the plan still
 warns about it. `--force` is deprecated: it means the first two acknowledgements and never the
 FileRepository data-loss acknowledgement. The dependency answer sees structural dependents only,
@@ -422,6 +423,30 @@ and an organization, in the repository's layout, and appends the project to `twa
 matches what the framework itself produced (the tests hold it against server exports). Nothing that
 exists is overwritten. Not created: the component permission helper (the framework builds it on the
 server), and the `ui` and `test` types. Then `twaco check`, commit and `twaco deploy`.
+
+## Creating entities
+
+`twaco new` creates the common 10.1 entity exports in a project and plans unless `--apply` is
+given. Every kind accepts `--project`, one-line `--description`, and repeated
+`--visibility Organization/name` or `OrganizationalUnit/org:unit`.
+
+```sh
+twaco new thing Acme.Orders.Manager --template Acme.Orders.Manager_TT --shape Acme.Orders.Audit_TS
+twaco new thing-template Acme.Orders.Manager_TT --base GenericThing --shape Acme.Orders.Audit_TS
+twaco new thing-shape Acme.Orders.Audit_TS
+twaco new data-shape Acme.Orders.Order_DS --field id:STRING:primary --field created:DATETIME --apply
+twaco new timer Acme.Orders.Refresh_TM --every 30s --run-as Administrator --then "me.Refresh();" --apply
+twaco new scheduler Acme.Orders.Nightly_SC --cron "0 0 2 * * ?" --run-as Administrator --apply
+```
+
+Things default to `GenericThing`; `--template`, `--shape`, template `--base`, and DataShape
+`--base` must resolve in the solution (or the platform cache for templates and shapes). A Thing
+can set `--value-stream`. DataShapes require one or more ordered `--field name:TYPE[:primary]`
+arguments and write the matching `fields.json` sidecar. Timers accept `--every` as milliseconds,
+`ms`, `s`, `m`, or `h` (60 seconds by default); schedulers accept a six- or seven-field Quartz
+`--cron`. Both require `--run-as`, accept `--disabled`, and use either `--then <code>` or
+`--script <file.js>` to put a Script subscription directly in their entity XML. The entity XML and
+all managed sidecars are created together in one transaction.
 
 ## Creating mashups
 

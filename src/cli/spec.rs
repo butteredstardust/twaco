@@ -219,6 +219,8 @@ pub(crate) fn args_from(
                     "--input" => args.inputs.extend(values),
                     "--pass" => args.pass.extend(values),
                     "--column" => args.columns.extend(values),
+                    "--shape" => args.shapes.extend(values),
+                    "--field" => args.fields.extend(values),
                     other => unreachable!("{other} repeats but nothing reads it"),
                 }
             }
@@ -440,12 +442,20 @@ pub(crate) const FLAGS: &[Flag] = &[
         takes: Takes::Value("text"),
     },
     Flag {
+        name: "--disabled",
+        takes: Takes::Switch,
+    },
+    Flag {
         name: "--detail",
         takes: Takes::Switch,
     },
     Flag {
         name: "--fields",
         takes: Takes::Switch,
+    },
+    Flag {
+        name: "--field",
+        takes: Takes::Repeated("name:TYPE[:primary]"),
     },
     Flag {
         name: "--diff",
@@ -510,6 +520,22 @@ pub(crate) const FLAGS: &[Flag] = &[
     Flag {
         name: "--every",
         takes: Takes::Value("seconds"),
+    },
+    Flag {
+        name: "--cron",
+        takes: Takes::Value("quartz expression"),
+    },
+    Flag {
+        name: "--run-as",
+        takes: Takes::Value("user"),
+    },
+    Flag {
+        name: "--script",
+        takes: Takes::Value("file.js"),
+    },
+    Flag {
+        name: "--shape",
+        takes: Takes::Repeated("ThingShape"),
     },
     Flag {
         name: "--interval",
@@ -894,6 +920,10 @@ pub(crate) const FLAGS: &[Flag] = &[
     Flag {
         name: "--template",
         takes: Takes::Value("name"),
+    },
+    Flag {
+        name: "--value-stream",
+        takes: Takes::Value("ValueStream"),
     },
     Flag {
         name: "--thread",
@@ -1550,6 +1580,112 @@ pub(crate) const COMMANDS: &[Command] = &[
       --no-management-shape   an implementation without its own Management_TS
       --root <dir>            the project's folder (default: the block's name)
       --base-extension        the PTC.Base extension version to depend on (default: what another project declares)"#,
+    },
+    Command {
+        path: "new thing",
+        group: 1,
+        operands: true,
+        flags: &[
+            "--project",
+            "--description",
+            "--visibility",
+            "--template",
+            "--shape",
+            "--value-stream",
+            "--apply",
+            "--json",
+        ],
+        text: r#"  new thing <name> [--project <name>] [--description <text>] [--template <ThingTemplate>] [--shape <ThingShape>]...
+      [--value-stream <ValueStream>] [--visibility <principal>]... [--apply] [--json]
+                              create a ThingWorx Thing as a repository file; plan unless --apply"#,
+    },
+    Command {
+        path: "new thing-template",
+        group: 1,
+        operands: true,
+        flags: &[
+            "--project",
+            "--description",
+            "--visibility",
+            "--base",
+            "--shape",
+            "--apply",
+            "--json",
+        ],
+        text: r#"  new thing-template <name> [--project <name>] [--description <text>] [--base <ThingTemplate>] [--shape <ThingShape>]...
+      [--visibility <principal>]... [--apply] [--json]
+                              create a ThingWorx ThingTemplate as a repository file; plan unless --apply"#,
+    },
+    Command {
+        path: "new thing-shape",
+        group: 1,
+        operands: true,
+        flags: &[
+            "--project",
+            "--description",
+            "--visibility",
+            "--apply",
+            "--json",
+        ],
+        text: r#"  new thing-shape <name> [--project <name>] [--description <text>] [--visibility <principal>]... [--apply] [--json]
+                              create a ThingWorx ThingShape as a repository file; plan unless --apply"#,
+    },
+    Command {
+        path: "new data-shape",
+        group: 1,
+        operands: true,
+        flags: &[
+            "--project",
+            "--description",
+            "--visibility",
+            "--base",
+            "--field",
+            "--apply",
+            "--json",
+        ],
+        text: r#"  new data-shape <name> --field <name:TYPE[:primary]>... [--project <name>] [--description <text>] [--base <DataShape>]
+      [--visibility <principal>]... [--apply] [--json]
+                              create a DataShape and its fields.json sidecar; plan unless --apply"#,
+    },
+    Command {
+        path: "new timer",
+        group: 1,
+        operands: true,
+        flags: &[
+            "--project",
+            "--description",
+            "--visibility",
+            "--every",
+            "--run-as",
+            "--disabled",
+            "--then",
+            "--script",
+            "--apply",
+            "--json",
+        ],
+        text: r#"  new timer <name> --run-as <user> [--project <name>] [--every <duration>] [--disabled] [--then <code>|--script <file.js>]
+      [--description <text>] [--visibility <principal>]... [--apply] [--json]
+                              create a Timer Thing and optional Timer subscription; plan unless --apply"#,
+    },
+    Command {
+        path: "new scheduler",
+        group: 1,
+        operands: true,
+        flags: &[
+            "--project",
+            "--description",
+            "--visibility",
+            "--cron",
+            "--run-as",
+            "--disabled",
+            "--then",
+            "--script",
+            "--apply",
+            "--json",
+        ],
+        text: r#"  new scheduler <name> --run-as <user> [--project <name>] [--cron <quartz cron>] [--disabled] [--then <code>|--script <file.js>]
+      [--description <text>] [--visibility <principal>]... [--apply] [--json]
+                              create a Scheduler Thing and optional ScheduledEvent subscription; plan unless --apply"#,
     },
     Command {
         path: "entity status",

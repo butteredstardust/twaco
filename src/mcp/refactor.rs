@@ -1,10 +1,10 @@
 use super::requests::refactor::{
-    AdoptApplyRequest, AdoptKind, AdoptReportRequest, AdoptTakeSide, HandoffAction, HandoffRequest,
-    MashupAddContainedRequest, MashupAddRequest, MashupBindRequest, MashupDescribeRequest,
-    MashupEventRequest, MashupNewRequest, MashupOnRequest, MashupParameterAction,
-    MashupParameterRequest, MashupRecipeRequest, MashupTemplatesRequest, MashupValidateRequest,
-    MoveMemberRequest, NewBuildingBlockRequest, RenameRequest, ReprojectRequest, RetemplateRequest,
-    WidgetsRequest,
+    AdoptApplyRequest, AdoptKind, AdoptReportRequest, AdoptTakeSide, EntityNewRequest,
+    HandoffAction, HandoffRequest, MashupAddContainedRequest, MashupAddRequest, MashupBindRequest,
+    MashupDescribeRequest, MashupEventRequest, MashupNewRequest, MashupOnRequest,
+    MashupParameterAction, MashupParameterRequest, MashupRecipeRequest, MashupTemplatesRequest,
+    MashupValidateRequest, MoveMemberRequest, NewBuildingBlockRequest, RenameRequest,
+    ReprojectRequest, RetemplateRequest, WidgetsRequest,
 };
 use super::source::add_types_refresh;
 use super::*;
@@ -105,6 +105,48 @@ pub(crate) fn new_building_block_tool(
         "files": files, "twaco_toml": plan.config_addition, "notes": plan.notes,
     });
     result[if dry_run { "plan" } else { "applied" }] = json!(true);
+    add_notices(&mut result, &notices);
+    Ok(result)
+}
+
+pub(crate) fn entity_new_tool(
+    solution: &Solution,
+    arguments: EntityNewRequest,
+) -> Result<Value, ToolError> {
+    let kind = crate::core::entity_new::Kind::parse(&arguments.kind).ok_or_else(|| {
+        ToolError::invalid(
+            "kind must be thing, thing-template, thing-shape, data-shape, timer, or scheduler",
+        )
+    })?;
+    let request = crate::core::entity_new::NewRequest {
+        kind,
+        name: nonempty(&arguments.name, "name")?.to_string(),
+        project: arguments.project.as_ref().cloned(),
+        description: arguments.description.as_ref().cloned().unwrap_or_default(),
+        visibility: arguments.visibility.items().to_vec(),
+        template: arguments.template.as_ref().cloned(),
+        shapes: arguments.shape.items().to_vec(),
+        value_stream: arguments.value_stream.as_ref().cloned(),
+        base: arguments.base.as_ref().cloned(),
+        fields: arguments.field.items().to_vec(),
+        every: arguments.every.as_ref().cloned(),
+        cron: arguments.cron.as_ref().cloned(),
+        run_as: arguments.run_as.as_ref().cloned(),
+        disabled: arguments.disabled,
+        then: arguments.then.as_ref().cloned(),
+        script: arguments.script.as_ref().map(Into::into),
+    };
+    let dry_run = arguments.dry_run;
+    let request = commands::entity_new::Request {
+        request,
+        mode: if dry_run { Mode::Plan } else { Mode::Apply },
+        lock_label: "mcp entity_new",
+    };
+    let mut notices = commands::Notices::default();
+    let outcome = commands::entity_new::execute(solution, &request, &mut notices)
+        .map_err(ToolError::coded)?;
+    let mut result = crate::core::entity_new::plan_json(solution, &outcome.plan, outcome.applied);
+    result["dry_run"] = json!(dry_run);
     add_notices(&mut result, &notices);
     Ok(result)
 }

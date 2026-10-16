@@ -26,6 +26,7 @@ pub mod entity_carry;
 pub mod entity_delete;
 pub mod entity_get;
 pub mod entity_key;
+pub mod entity_new;
 pub mod export;
 pub mod extensions;
 pub mod fmt;

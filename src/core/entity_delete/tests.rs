@@ -15,6 +15,7 @@ struct Fake {
     calls: RefCell<Vec<String>>,
     keep_after_delete: BTreeSet<(String, String)>,
     backup_fails: bool,
+    disabled: BTreeSet<String>,
 }
 
 impl Fake {
@@ -30,6 +31,7 @@ impl Fake {
             calls: RefCell::new(Vec::new()),
             keep_after_delete: BTreeSet::new(),
             backup_fails: false,
+            disabled: BTreeSet::new(),
         }
     }
 }
@@ -44,6 +46,14 @@ impl Remote for Fake {
     }
     fn incoming(&self, key: &EntityKey) -> Result<Vec<Dependent>, ServerError> {
         self.calls.borrow_mut().push(format!("DEPS {key}"));
+        if self.disabled.contains(key.name()) {
+            return Err(ServerError::Http {
+                method: crate::core::server::Method::Post,
+                status: 503,
+                url: format!("{key}/Services/GetIncomingDependencies"),
+                body: format!("Thing [{}] is not enabled", key.name()),
+            });
+        }
         Ok(self
             .dependencies
             .get(&(key.collection().to_string(), key.name().to_string()))
@@ -221,6 +231,46 @@ fn outside_dependents_and_repository_definitions_refuse_unless_forced() {
     assert_eq!(refused.entities[0].refusals().count(), 2);
     let forced = execute(&fake, &solution, &["Things/T"], true, true);
     assert_eq!(forced.entities[0].status, Status::Deleted);
+}
+
+#[test]
+fn a_disabled_thing_has_unknown_dependents_that_need_acknowledging() {
+    let (_dir, _root, solution) = solution();
+    let mut fake = Fake::new(&[("Things", "Off"), ("ThingShapes", "Off_TS")]);
+    fake.disabled.insert("Off".into());
+    let refused = execute(&fake, &solution, &["Things/Off"], true, false);
+    let entity = &refused.entities[0];
+    assert_eq!(entity.status, Status::Refused);
+    assert_eq!(
+        entity.refusal_codes().collect::<Vec<_>>(),
+        vec![GuardCode::OutsideDependents]
+    );
+    assert!(entity.refusals().next().unwrap().contains("disabled"));
+    let acknowledged = execute_ack(
+        &fake,
+        &solution,
+        &["Things/Off"],
+        true,
+        Acknowledged {
+            outside_dependents: true,
+            ..Acknowledged::default()
+        },
+    );
+    assert_eq!(acknowledged.entities[0].status, Status::Deleted);
+    assert_eq!(acknowledged.entities[0].warnings.len(), 1);
+    // Only a Thing answers this way; the same error from anything else is still an error.
+    fake.disabled.insert("Off_TS".into());
+    let names = vec!["ThingShapes/Off_TS".to_string()];
+    let prepared = prepare(&solution, &names, false).unwrap();
+    assert!(run(
+        &fake,
+        &solution,
+        prepared,
+        false,
+        Acknowledged::default(),
+        "2026-10-16"
+    )
+    .is_err());
 }
 
 #[test]

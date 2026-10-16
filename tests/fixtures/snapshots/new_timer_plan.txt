@@ -1,0 +1,9 @@
+$ twaco new timer Acme.Orders.Refresh_TM --every 30s --run-as Administrator
+exit: 0
+
+--- stdout
+would create timer Acme.Orders.Refresh_TM in project Acme.Orders (every 30s as Administrator)
+  files: Things/Acme.Orders.Refresh_TM.xml
+run again with --apply to write it
+--- stderr
+

@@ -342,6 +342,12 @@ static TOOLS: LazyLock<Vec<Tool>> = LazyLock::new(|| {
             false,
             refactor::new_building_block_tool,
         ),
+        solution_tool::<refactor_requests::EntityNewRequest>(
+            "entity_new",
+            "Create a common ThingWorx entity (thing, thing-template, thing-shape, data-shape, timer, or scheduler) as a repository XML file. data-shape also creates fields.json. Timer and scheduler require run_as and can add a Script subscription with then or script. A dry run unless dry_run is false; apply takes the workspace lock and writes every file or none.",
+            false,
+            refactor::entity_new_tool,
+        ),
         solution_tool::<refactor_requests::MashupNewRequest>(
             "mashup_new",
             "Create a ThingWorx 10.2 responsive mashup from an embedded layout template, with its entity file and managed content.json and custom.css sidecars. template is a name or alias (blank by default); mashup_templates lists the slots where mashup_add can place widgets. Menu templates require primary_menu and may use secondary_menu. master puts its page container in the template's master slot. A dry run unless dry_run is false; an apply takes the workspace lock and writes every file or none.",

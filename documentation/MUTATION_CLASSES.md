@@ -116,6 +116,12 @@ when the command is asked to write. A local output named by an option is include
 | `copy service` | read-only | multi-file atomic | XML, sidecars | A crash is finished or undone by the next command that takes the workspace lock; if it refuses, follow its message. Otherwise retry. | `core/commands/relocate.rs: execute` |
 | `copy property` | read-only | multi-file atomic | XML, sidecars | A crash is finished or undone by the next command that takes the workspace lock; if it refuses, follow its message. Otherwise retry. | `core/commands/relocate.rs: execute` |
 | `new building-block` | read-only | multi-file atomic | project files, config | A crash is finished or undone by the next command that takes the workspace lock; if it refuses, follow its message. Otherwise retry. | `core/commands/newblock.rs: execute` |
+| `new thing` | read-only | multi-file atomic | entity XML | The entity XML is created in a journaled transaction; a file that appeared since the plan is refused. Retry. | `core/commands/entity_new.rs: execute` |
+| `new thing-template` | read-only | multi-file atomic | entity XML | The entity XML is created in a journaled transaction; a file that appeared since the plan is refused. Retry. | `core/commands/entity_new.rs: execute` |
+| `new thing-shape` | read-only | multi-file atomic | entity XML | The entity XML is created in a journaled transaction; a file that appeared since the plan is refused. Retry. | `core/commands/entity_new.rs: execute` |
+| `new data-shape` | read-only | multi-file atomic | entity XML, fields.json | The entity XML and sidecar are created in one journaled transaction, or none is; a file that appeared since the plan is refused. Retry. | `core/commands/entity_new.rs: execute` |
+| `new timer` | read-only | multi-file atomic | entity XML | The entity XML is created in a journaled transaction; a file that appeared since the plan is refused. Retry. | `core/commands/entity_new.rs: execute` |
+| `new scheduler` | read-only | multi-file atomic | entity XML | The entity XML is created in a journaled transaction; a file that appeared since the plan is refused. Retry. | `core/commands/entity_new.rs: execute` |
 | `retemplate` | read-only | single-file atomic | one entity XML | The entity is old or new; retry freely. | `core/commands/retemplate.rs: execute` |
 | `mashup describe` | read-only | read-only | none | Retry freely. | `core/mashup_describe.rs: describe` |
 | `mashup validate` | read-only | read-only | none | Retry freely. | `core/mashup_validate.rs: validate` |
@@ -175,6 +181,7 @@ when the command is asked to write. A local output named by an option is include
 | `rename` | read-only | multi-file atomic | XML, sidecars, ledger, SQL | A crash is finished or undone by the next command that takes the workspace lock; if it refuses, follow its message. Otherwise retry the reviewed plan. | `core/commands/rename.rs: execute` |
 | `move_member` | read-only | multi-file atomic | XML, sidecars | A crash is finished or undone by the next command that takes the workspace lock; if it refuses, follow its message. Otherwise retry. | `core/commands/relocate.rs: execute` |
 | `new_building_block` | read-only | multi-file atomic | project files, config | A crash is finished or undone by the next command that takes the workspace lock; if it refuses, follow its message. Otherwise retry. | `core/commands/newblock.rs: execute` |
+| `entity_new` | read-only | multi-file atomic | entity XML, DataShape sidecar | The entity XML and every managed sidecar are created in one journaled transaction, or none is; a file that appeared since the plan is refused. Retry. | `core/commands/entity_new.rs: execute` |
 | `retemplate` | read-only | single-file atomic | one entity XML | The entity is old or new; retry freely. | `core/commands/retemplate.rs: execute` |
 | `mashup_describe` | read-only | read-only | none | Retry freely. | `core/mashup_describe.rs: describe` |
 | `mashup_validate` | read-only | read-only | none | Retry freely. | `core/mashup_validate.rs: validate` |

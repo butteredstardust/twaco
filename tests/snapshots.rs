@@ -168,6 +168,34 @@ const SCENARIOS: &[(&str, &[&str])] = &[
     ),
     ("mashup_templates_card", &["mashup", "templates", "card"]),
     (
+        "new_timer_plan",
+        &[
+            "new",
+            "timer",
+            "Acme.Orders.Refresh_TM",
+            "--every",
+            "30s",
+            "--run-as",
+            "Administrator",
+        ],
+    ),
+    (
+        "new_timer_missing_run_as",
+        &["new", "timer", "Acme.Orders.Refresh_TM"],
+    ),
+    (
+        "new_data_shape_plan",
+        &[
+            "new",
+            "data-shape",
+            "Acme.Orders.NewOrder_DS",
+            "--field",
+            "id:STRING:primary",
+            "--field",
+            "created:DATETIME",
+        ],
+    ),
+    (
         "mashup_new_form_dialog_plan",
         &[
             "mashup",

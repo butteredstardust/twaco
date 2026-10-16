@@ -2,6 +2,7 @@ pub(crate) mod args;
 pub(crate) mod content;
 pub(crate) mod data;
 pub(crate) mod entity;
+pub(crate) mod entity_new;
 pub(crate) mod info;
 pub(crate) mod localization;
 pub(crate) mod mashup;
