@@ -11,6 +11,7 @@
 //! observe on the server.
 
 use super::baseline::{Baseline, BaselineError};
+use super::codes::{Coded, ErrorCode};
 use super::entity_key::EntityKey;
 use super::normalise::{self, NormaliseError};
 use super::server::{Client, ServerError};
@@ -230,6 +231,27 @@ fn record(root: &Path, target: &Target, local: String, server: String) -> Result
     let mut baseline = Baseline::load(root).map_err(PushError::Baseline)?;
     baseline.set(target.key.collection(), target.key.name(), local, server);
     baseline.write(root).map_err(PushError::Baseline)
+}
+
+impl Coded for Refusal {
+    fn code(&self) -> ErrorCode {
+        match self {
+            Self::DeletedOnServer { .. } | Self::UnknownAncestor { .. } | Self::Conflict { .. } => {
+                ErrorCode::ServerConflict
+            }
+        }
+    }
+}
+
+impl Coded for PushError {
+    fn code(&self) -> ErrorCode {
+        match self {
+            Self::Working(_) | Self::Server(_) => ErrorCode::InvalidData,
+            Self::Remote(e) => e.code(),
+            Self::Unverified(_) | Self::NotKept { .. } => ErrorCode::NotVerified,
+            Self::Baseline(e) => e.code(),
+        }
+    }
 }
 
 #[cfg(test)]

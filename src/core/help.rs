@@ -9,6 +9,7 @@
 //! The content is PTC's. It is fetched on demand, as a browser would, and cached in the
 //! user's cache folder; nothing of it is shipped with twaco or written to a repository.
 
+use super::codes::{Coded, ErrorCode};
 use serde_json::Value;
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -699,6 +700,17 @@ pub(crate) fn absolute_links(markdown: &str, source: &str) -> String {
     }
     out.push_str(rest);
     out
+}
+
+impl Coded for HelpError {
+    fn code(&self) -> ErrorCode {
+        match self {
+            Self::Fetch { .. } => ErrorCode::ServerUnreachable,
+            Self::Cache { .. } => ErrorCode::IoError,
+            Self::Index(_) => ErrorCode::InvalidData,
+            Self::Invalid(_) => ErrorCode::InvalidArguments,
+        }
+    }
 }
 
 #[cfg(test)]

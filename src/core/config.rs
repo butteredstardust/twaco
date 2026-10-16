@@ -5,6 +5,7 @@
 //! a single project is useless the day that happens. So the unit here is a *solution*, and a
 //! one-project repository is the one-element case rather than a separate mode.
 
+use super::codes::{Coded, ErrorCode};
 use serde::Deserialize;
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
@@ -582,6 +583,25 @@ impl Solution {
             }
         }
         Ok(order)
+    }
+}
+
+impl Coded for ConfigError {
+    fn code(&self) -> ErrorCode {
+        match self {
+            Self::NotFound { .. }
+            | Self::NoProjects { .. }
+            | Self::DuplicateProject { .. }
+            | Self::BlankProjectName
+            | Self::BlankCheckName
+            | Self::EmptyCheckCommand { .. }
+            | Self::EmptyTypesCompiler
+            | Self::EscapingPath { .. }
+            | Self::UnknownDependency { .. }
+            | Self::DependencyCycle { .. }
+            | Self::Invalid { .. } => ErrorCode::InvalidData,
+            Self::Unreadable { .. } => ErrorCode::IoError,
+        }
     }
 }
 

@@ -18,6 +18,7 @@
 //! write interrupted between creating its temporary and renaming it into place, are safe to
 //! remove. That is the stale-temp recovery half of 8.8.
 
+use super::codes::{Coded, ErrorCode};
 use std::fs::{File, OpenOptions, TryLockError};
 use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -264,6 +265,16 @@ fn remove_temporaries(directory: &Path, recovered: &mut Vec<PathBuf>) {
         {
             tracing::warn!(path = %path.display(), "removed a stale temporary left by an interrupted write");
             recovered.push(path);
+        }
+    }
+}
+
+impl Coded for LockError {
+    fn code(&self) -> ErrorCode {
+        match self {
+            Self::Held { .. } => ErrorCode::WorkspaceLocked,
+            Self::Io { .. } => ErrorCode::IoError,
+            Self::Recovery { .. } => ErrorCode::RollbackFailed,
         }
     }
 }

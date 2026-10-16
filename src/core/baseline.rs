@@ -3,6 +3,7 @@
 //! This is intentionally not a cache. `.twaco/baseline.json` is reviewable project state, and
 //! its nested sorted maps make the collection/name identity explicit and diffs deterministic.
 
+use super::codes::{Coded, ErrorCode};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
@@ -172,6 +173,16 @@ pub enum BaselineError {
     Invalid { path: PathBuf, why: String },
     #[error("no baseline entry for {collection}/{name}")]
     Missing { collection: String, name: String },
+}
+
+impl Coded for BaselineError {
+    fn code(&self) -> ErrorCode {
+        match self {
+            Self::Io { .. } => ErrorCode::IoError,
+            Self::Invalid { .. } => ErrorCode::InvalidData,
+            Self::Missing { .. } => ErrorCode::InvalidData,
+        }
+    }
 }
 
 #[cfg(test)]

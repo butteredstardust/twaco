@@ -13,6 +13,7 @@
 //! `ImplementedShape` elements, made in place; nothing else in the document moves.
 
 use super::catalog;
+use super::codes::{Coded, ErrorCode};
 use super::config::Solution;
 use super::relocate::{indent_at, line_bounds, starts_line};
 use super::rename::{self, Kind as RenameKind, Spec};
@@ -732,6 +733,18 @@ pub fn apply(plan: &Plan) -> Result<(), RetemplateError> {
         path: plan.file.clone(),
         why: error.to_string(),
     })
+}
+
+impl Coded for RetemplateError {
+    fn code(&self) -> ErrorCode {
+        match self {
+            Self::Invalid(_) => ErrorCode::InvalidArguments,
+            Self::Unknown { .. } => ErrorCode::UnknownEntity,
+            Self::Unreadable { .. } | Self::Xml { .. } => ErrorCode::InvalidData,
+            Self::Loss { .. } => ErrorCode::GuardRefused,
+            Self::Apply { .. } => ErrorCode::IoError,
+        }
+    }
 }
 
 #[cfg(test)]

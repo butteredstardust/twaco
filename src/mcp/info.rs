@@ -397,13 +397,13 @@ pub(crate) fn javadoc_tool(arguments: tool::JavadocRequest) -> Result<Value, Too
     let cache = javadoc::cache_root().map_err(|why| ToolError::with(ErrorCode::IoError, why))?;
     let web = help::Web::new(javadoc::BASE);
     let fetch = |path: &str| javadoc::cached(&web, &cache, path, refresh);
-    let types = fetch(javadoc::TYPE_INDEX)?;
+    let types = fetch(javadoc::TYPE_INDEX).map_err(ToolError::coded)?;
     let result = match action {
         tool::JavadocAction::Search => {
             if arguments.member.is_some() {
                 return Err(ToolError::invalid("`member` is only for action class"));
             }
-            let members = fetch(javadoc::MEMBER_INDEX)?;
+            let members = fetch(javadoc::MEMBER_INDEX).map_err(ToolError::coded)?;
             let index = javadoc::Index::parse(
                 &String::from_utf8_lossy(&types),
                 &String::from_utf8_lossy(&members),
@@ -431,8 +431,9 @@ pub(crate) fn javadoc_tool(arguments: tool::JavadocRequest) -> Result<Value, Too
                 .map_err(|why| ToolError::with(ErrorCode::InvalidArguments, why))?;
             let path = javadoc::class_path(&class)
                 .map_err(|why| ToolError::with(ErrorCode::InvalidData, why))?;
-            let html = fetch(&path)?;
-            let read = javadoc::read(&html, &class, arguments.member.as_deref())?;
+            let html = fetch(&path).map_err(ToolError::coded)?;
+            let read = javadoc::read(&html, &class, arguments.member.as_deref())
+                .map_err(ToolError::coded)?;
             json!({
                 "ok": true,
                 "summary": format!("{} method overload(s) documented for {}", read.methods, read.title),

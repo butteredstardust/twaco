@@ -9,6 +9,7 @@
 //! write stamps the caller and the time). Nothing is written without `apply`, a non-empty target is
 //! refused unless `append`, and the result is read back and compared.
 
+use super::codes::{Coded, ErrorCode};
 use super::config::Solution;
 use super::entity_key::{EntityKey, ServiceTarget};
 use super::server::{Client, ServerError};
@@ -422,6 +423,17 @@ pub fn run(
     }
     report.verified = true;
     Ok(report)
+}
+
+impl Coded for CopyError {
+    fn code(&self) -> ErrorCode {
+        match self {
+            Self::Arguments(_) => ErrorCode::InvalidArguments,
+            Self::Ledger(_) => ErrorCode::InvalidData,
+            Self::Refused(_) => ErrorCode::GuardRefused,
+            Self::Server(error) => error.code(),
+        }
+    }
 }
 
 #[cfg(test)]

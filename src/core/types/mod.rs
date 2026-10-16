@@ -2,6 +2,8 @@
 //!
 //! Repository declarations can be completed by the deliberately small, offline platform cache.
 
+use super::codes::{Coded, ErrorCode};
+
 mod compiler;
 mod model;
 mod outcome;
@@ -44,6 +46,23 @@ impl From<workspace::WorkspaceError> for TypesError {
 impl From<ServerError> for TypesError {
     fn from(value: ServerError) -> Self {
         Self::Remote(value)
+    }
+}
+
+impl Coded for TypesError {
+    fn code(&self) -> ErrorCode {
+        match self {
+            Self::Workspace(error) => error.code(),
+            Self::Remote(error) => error.code(),
+            Self::Platform(_) => ErrorCode::InvalidData,
+        }
+    }
+}
+
+// Every failure of the type check is about running the compiler or writing its scratch files.
+impl Coded for CheckError {
+    fn code(&self) -> ErrorCode {
+        ErrorCode::IoError
     }
 }
 

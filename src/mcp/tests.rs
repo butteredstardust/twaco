@@ -542,7 +542,10 @@ fn tool_errors_include_stable_codes() {
     );
     assert_eq!(value["code"], "invalid_arguments");
 
-    let unclassified = tool_result(Err(ToolError::from("free text")), LATEST);
+    let unclassified = tool_result(
+        Err(ToolError::with(ErrorCode::Unclassified, "free text")),
+        LATEST,
+    );
     let value: Value =
         serde_json::from_str(unclassified["content"][0]["text"].as_str().unwrap()).unwrap();
     assert_eq!(

@@ -10,6 +10,7 @@
 //! - the window must span at least five seconds;
 //! - reaching `maxItems` truncates silently, so it is reported here.
 
+use super::codes::{Coded, ErrorCode};
 use super::entity_key::ServiceTarget;
 use super::server::{Client, ServerError};
 use jiff::civil::DateTime;
@@ -708,6 +709,16 @@ pub fn summary(log: &str, outcome: &Outcome, detail: bool) -> Value {
         result["newest"] = Value::Array(newest.iter().take(10).map(|e| entry_json(e)).collect());
     }
     result
+}
+
+impl Coded for LogsError {
+    fn code(&self) -> ErrorCode {
+        match self {
+            Self::Remote(error) => error.code(),
+            Self::Shape(_) => ErrorCode::InvalidData,
+            Self::Invalid(_) => ErrorCode::InvalidArguments,
+        }
+    }
 }
 
 #[cfg(test)]

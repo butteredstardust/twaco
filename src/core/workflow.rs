@@ -667,7 +667,14 @@ pub struct FmtOutcome {
 pub fn fmt(solution: &Solution, check: bool) -> FmtOutcome {
     let mut outcome = FmtOutcome::default();
     let style = super::fmt::Style::default();
-    let files = super::workspace::script_files(solution);
+    let tree = super::workspace::script_files(solution);
+    for why in &tree.unreadable {
+        outcome
+            .log
+            .error(format!("not formatted, could not be read: {why}"));
+        outcome.failed += 1;
+    }
+    let files = tree.files;
     outcome.files = files.len();
     for path in &files {
         let source = match std::fs::read_to_string(path) {

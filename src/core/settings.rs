@@ -5,6 +5,7 @@
 //! fields are described, so a setting can be found by name or by what it does. A setting is
 //! the whole server's, so twaco only reads them; a PASSWORD field's value is never shown.
 
+use super::codes::{Coded, ErrorCode};
 use super::entity_key::ServiceTarget;
 use super::server::{Client, ServerError};
 use serde_json::{json, Value};
@@ -348,6 +349,16 @@ pub fn shown(value: &Value) -> String {
         Value::String(s) => s.clone(),
         Value::Null => String::new(),
         other => other.to_string(),
+    }
+}
+
+impl Coded for SettingsError {
+    fn code(&self) -> ErrorCode {
+        match self {
+            Self::Remote(error) => error.code(),
+            Self::Shape(_) => ErrorCode::InvalidData,
+            Self::Invalid(_) => ErrorCode::InvalidArguments,
+        }
     }
 }
 

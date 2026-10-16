@@ -341,11 +341,31 @@ pub fn cached(
     cache: &Path,
     path: &str,
     refresh: bool,
-) -> Result<Vec<u8>, String> {
+) -> Result<Vec<u8>, help::HelpError> {
     let local = cache
         .join(VERSION)
         .join(path.replace('/', std::path::MAIN_SEPARATOR_STR));
-    help::cached_file(fetch, &local, &document_url(path), refresh).map_err(|e| e.to_string())
+    help::cached_file(fetch, &local, &document_url(path), refresh)
+}
+
+/// Why a class page could not be read.
+#[derive(Debug, thiserror::Error)]
+pub enum ReadError {
+    /// The page, or the class's path, is not what the Javadoc generator writes.
+    #[error("{0}")]
+    NotAPage(String),
+    /// The class has no member of the name asked for.
+    #[error("{0}")]
+    UnknownMember(String),
+}
+
+impl super::codes::Coded for ReadError {
+    fn code(&self) -> super::codes::ErrorCode {
+        match self {
+            Self::NotAPage(_) => super::codes::ErrorCode::InvalidData,
+            Self::UnknownMember(_) => super::codes::ErrorCode::InvalidArguments,
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -370,8 +390,8 @@ pub struct Reading {
 }
 
 /// Render a class overview, or every overload of one member, from generated Javadoc HTML.
-pub fn read(html: &[u8], class: &Class, member: Option<&str>) -> Result<Reading, String> {
-    let path = class_path(class)?;
+pub fn read(html: &[u8], class: &Class, member: Option<&str>) -> Result<Reading, ReadError> {
+    let path = class_path(class).map_err(ReadError::NotAPage)?;
     let source = document_url(&path);
     let document = Html::parse_document(&String::from_utf8_lossy(html));
     let description_selector =
@@ -392,7 +412,9 @@ pub fn read(html: &[u8], class: &Class, member: Option<&str>) -> Result<Reading,
         .filter_map(parse_detail)
         .collect();
     if details.is_empty() && description.is_empty() {
-        return Err(format!("{path} does not look like a Javadoc class page"));
+        return Err(ReadError::NotAPage(format!(
+            "{path} does not look like a Javadoc class page"
+        )));
     }
     let title = class.qualified();
     let mut methods = details.len();
@@ -423,14 +445,14 @@ pub fn read(html: &[u8], class: &Class, member: Option<&str>) -> Result<Reading,
                 }
                 close.sort_by_key(|(name, rank)| (*rank, name.to_lowercase()));
                 close.truncate(5);
-                return Err(format!(
+                return Err(ReadError::UnknownMember(format!(
                     "unknown member {wanted:?} of {title}; close matches: {}",
                     close
                         .into_iter()
                         .map(|(name, _)| name)
                         .collect::<Vec<_>>()
                         .join(", ")
-                ));
+                )));
             }
             methods = selected.len();
             member_markdown(&title, &selected)

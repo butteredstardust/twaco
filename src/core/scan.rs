@@ -41,9 +41,22 @@ impl Span {
         }
     }
 
-    /// The bytes this span covers, empty when the span does not fit the document.
+    /// The bytes this span covers.
+    ///
+    /// A span that does not fit is a span of another document, which is a bug in the caller: a
+    /// debug build (every test) panics on it, so the bug is found rather than read as empty
+    /// bytes. A release build still answers empty rather than crash a long-lived MCP server, and
+    /// every write goes through [`super::splice`], which refuses such a span.
     pub fn of<'a>(&self, src: &'a [u8]) -> &'a [u8] {
-        self.try_of(src).unwrap_or(&[])
+        let bytes = self.try_of(src);
+        debug_assert!(
+            bytes.is_some(),
+            "span {}..{} does not fit a document of {} bytes",
+            self.start,
+            self.end,
+            src.len()
+        );
+        bytes.unwrap_or(&[])
     }
 }
 
@@ -821,8 +834,12 @@ mod tests {
     }
 
     #[test]
-    fn an_out_of_range_span_yields_nothing_rather_than_panicking() {
+    fn an_out_of_range_span_is_none_when_asked_and_a_bug_when_read() {
         assert_eq!(Span::new(0, 99).try_of(b"short"), None);
-        assert_eq!(Span::new(0, 99).of(b"short"), b"");
+        let read = std::panic::catch_unwind(|| Span::new(0, 99).of(b"short").to_vec());
+        assert!(
+            read.is_err(),
+            "a debug build refuses a span of another document"
+        );
     }
 }

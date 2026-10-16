@@ -6,6 +6,7 @@
 //! affected: names built at run time and anything outside the repository are invisible, and the
 //! report lists the inputs it could not read so the caller can see what it left out.
 
+use super::codes::{Coded, ErrorCode};
 use super::config::Solution;
 use super::entity_key::EntityKey;
 use super::index::{Confidence, Dependent, DependentOptions, Index, Unreadable};
@@ -395,6 +396,14 @@ pub fn render_dot(report: &Report) -> String {
     }
     out.push_str("}\n");
     out
+}
+
+impl Coded for ImpactError {
+    fn code(&self) -> ErrorCode {
+        match self {
+            Self::Entity(error) => error.code(),
+        }
+    }
 }
 
 #[cfg(test)]

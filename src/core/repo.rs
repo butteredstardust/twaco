@@ -6,6 +6,7 @@
 //! repository's content under `filerepository/<repo>/`, so the useful
 //! question is how that tree and the server's differ.
 
+use super::codes::{Coded, ErrorCode};
 use super::entity_key::ServiceTarget;
 use super::lock::WorkspaceLock;
 use super::progress::{self, Progress, NONE};
@@ -884,6 +885,17 @@ pub fn local_root(solution_root: &Path, configured: Option<&str>, repository: &s
     solution_root
         .join(configured.unwrap_or(DEFAULT_ROOT))
         .join(repository)
+}
+
+impl Coded for RepoError {
+    fn code(&self) -> ErrorCode {
+        match self {
+            Self::Remote(error) => error.code(),
+            Self::Shape(_) => ErrorCode::InvalidData,
+            Self::Invalid(_) => ErrorCode::InvalidArguments,
+            Self::Local { .. } => ErrorCode::IoError,
+        }
+    }
 }
 
 #[cfg(test)]

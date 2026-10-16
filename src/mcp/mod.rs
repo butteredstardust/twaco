@@ -428,8 +428,8 @@ fn error_response(id: Value, code: i64, message: &str) -> Value {
     json!({ "jsonrpc": "2.0", "id": id, "error": { "code": code, "message": message } })
 }
 
-/// A tool's JSON as MCP content. `structuredContent` exists from 2025-06-18; the text block
-/// carries the same JSON for clients that predate it.
+/// A tool's failure. Every conversion names its code: there is no `From<String>`, so a `?` on
+/// a string error does not compile rather than silently reporting `unclassified`.
 #[derive(Clone, Debug)]
 pub(crate) struct ToolError {
     code: ErrorCode,
@@ -463,20 +463,8 @@ impl ToolError {
     }
 }
 
-impl From<String> for ToolError {
-    fn from(message: String) -> Self {
-        Self {
-            code: ErrorCode::Unclassified,
-            message,
-        }
-    }
-}
-impl From<&str> for ToolError {
-    fn from(message: &str) -> Self {
-        message.to_string().into()
-    }
-}
-
+/// A tool's JSON as MCP content. `structuredContent` exists from 2025-06-18; the text block
+/// carries the same JSON for clients that predate it.
 pub(crate) fn tool_result(outcome: Result<Value, ToolError>, protocol: Protocol) -> Value {
     let (value, is_error) = match outcome {
         Ok(value) => (value, false),

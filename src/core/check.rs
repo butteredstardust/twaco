@@ -308,9 +308,22 @@ fn without_embedded_position(message: &str) -> String {
 /// a newline finds nothing.
 fn line_endings(solution: &Solution) -> GateResult {
     let mut result = GateResult::passed("line endings", 0);
-    for path in text_files(solution) {
-        let Ok(bytes) = std::fs::read(&path) else {
-            continue;
+    let (files, missed) = text_files(solution);
+    for why in missed {
+        result
+            .findings
+            .push(unreadable("line endings", ".".to_string(), why));
+    }
+    for path in files {
+        let bytes = match std::fs::read(&path) {
+            Ok(bytes) => bytes,
+            Err(error) => {
+                let file = relative(solution, &path);
+                result
+                    .findings
+                    .push(unreadable("line endings", file, error));
+                continue;
+            }
         };
         result.examined += 1;
         let crlf = bytes.windows(2).filter(|w| w == b"\r\n").count();
@@ -332,12 +345,14 @@ fn line_endings(solution: &Solution) -> GateResult {
 
 /// Text files worth checking, by extension, skipping generated and foreign trees, and whatever
 /// git ignores: a file nobody commits is not the repository's to fix.
-fn text_files(solution: &Solution) -> Vec<PathBuf> {
+/// What the walk could not read comes second.
+fn text_files(solution: &Solution) -> (Vec<PathBuf>, Vec<String>) {
     const SUFFIXES: &[&str] = &[
         "xml", "js", "json", "md", "toml", "css", "txt", "yml", "yaml",
     ];
+    let tree = workspace::walk_repository(&solution.root);
     let mut out = Vec::new();
-    for path in walk_files(solution) {
+    for path in tree.files {
         let name = path
             .file_name()
             .map(|n| n.to_string_lossy().into_owned())
@@ -356,114 +371,29 @@ fn text_files(solution: &Solution) -> Vec<PathBuf> {
             out.push(path);
         }
     }
-    out
+    (out, tree.unreadable)
 }
 
-/// Every repository file considered by source checks, in stable order.
-///
-/// The walk honours the solution's `.gitignore` and `.ignore`, skips generated and foreign
-/// directory trees, and never follows links.
+/// Every repository file considered by source checks, in stable order: see
+/// [`workspace::walk_repository`].
 pub(crate) fn walk_files(solution: &Solution) -> Vec<PathBuf> {
-    const SKIP: &[&str] = &[
-        ".git",
-        ".hg",
-        ".svn",
-        ".venv",
-        "venv",
-        "__pycache__",
-        ".mypy_cache",
-        ".pytest_cache",
-        ".idea",
-        ".vscode",
-        "target",
-        "dist",
-        "build",
-        "out",
-        "coverage",
-        "vendor",
-        "node_modules",
-        "distribution-backend",
-        // twaco's own state: the baseline, profiles and generated types, among them copies of
-        // every script made for `types --check`, which would report a script's endings twice.
-        ".twaco",
-    ];
-    // Symlinks are not followed (the walker's default): one can point out of the solution, or
-    // at an ancestor, and the walk would never end. Hidden files are checked like any other.
-    let walker = ignore::WalkBuilder::new(&solution.root)
-        .hidden(false)
-        // .gitignore is honoured before `git init` too, as a later commit would honour it. Only
-        // the solution's own ignore files count: not a parent folder's, not the user's global
-        // excludes, not .git/info/exclude, none of which travel with the repository.
-        .require_git(false)
-        .parents(false)
-        .git_global(false)
-        .git_exclude(false)
-        .filter_entry(|entry| {
-            let is_dir = entry.file_type().is_some_and(|t| t.is_dir());
-            !(is_dir
-                && entry.depth() > 0
-                && SKIP.contains(&entry.file_name().to_string_lossy().as_ref()))
-        })
-        .build();
-    let mut out = Vec::new();
-    for entry in walker.flatten() {
-        if !entry.file_type().is_some_and(|t| t.is_file()) {
-            continue;
-        }
-        out.push(entry.into_path());
-    }
-    out.sort();
-    out
+    workspace::walk_repository(&solution.root).files
 }
 
-/// Every repository directory considered by source checks, in stable order.
-///
-/// This has the same ignore, foreign-tree and link rules as [`walk_files`], and omits the
-/// solution root itself.
+/// Every repository directory considered by source checks, in stable order, without the root.
 pub(crate) fn walk_dirs(solution: &Solution) -> Vec<PathBuf> {
-    const SKIP: &[&str] = &[
-        ".git",
-        ".hg",
-        ".svn",
-        ".venv",
-        "venv",
-        "__pycache__",
-        ".mypy_cache",
-        ".pytest_cache",
-        ".idea",
-        ".vscode",
-        "target",
-        "dist",
-        "build",
-        "out",
-        "coverage",
-        "vendor",
-        "node_modules",
-        "distribution-backend",
-        ".twaco",
-    ];
-    let walker = ignore::WalkBuilder::new(&solution.root)
-        .hidden(false)
-        .require_git(false)
-        .parents(false)
-        .git_global(false)
-        .git_exclude(false)
-        .filter_entry(|entry| {
-            let is_dir = entry.file_type().is_some_and(|t| t.is_dir());
-            !(is_dir
-                && entry.depth() > 0
-                && SKIP.contains(&entry.file_name().to_string_lossy().as_ref()))
-        })
-        .build();
-    let mut out = Vec::new();
-    for entry in walker.flatten() {
-        if entry.depth() == 0 || !entry.file_type().is_some_and(|t| t.is_dir()) {
-            continue;
-        }
-        out.push(entry.into_path());
+    workspace::walk_repository(&solution.root).dirs
+}
+
+/// A gate cannot pass on files it could not read: each is a finding, so the gate fails closed.
+fn unreadable(gate: &str, file: String, why: impl fmt::Display) -> Finding {
+    Finding {
+        gate: gate.to_string(),
+        file,
+        line: 0,
+        rule: "unreadable".to_string(),
+        message: format!("could not be read, so it was not checked: {why}"),
     }
-    out.sort();
-    out
 }
 
 /// Entity documents that disagree with their sidecars.
@@ -712,14 +642,32 @@ fn sidecars_in_sync(solution: &Solution) -> GateResult {
     result
 }
 
+/// Every service script with its text, for a script gate. What cannot be read is a finding of
+/// that gate, so the gate fails rather than passes on the scripts it could read.
+fn scripts(solution: &Solution, result: &mut GateResult) -> Vec<(PathBuf, String)> {
+    let tree = workspace::script_files(solution);
+    let mut read = Vec::new();
+    for why in tree.unreadable {
+        let file = relative(solution, &solution.src_root());
+        result.findings.push(unreadable(&result.name, file, why));
+    }
+    for path in tree.files {
+        match std::fs::read_to_string(&path) {
+            Ok(source) => read.push((path, source)),
+            Err(error) => {
+                let file = relative(solution, &path);
+                result.findings.push(unreadable(&result.name, file, error));
+            }
+        }
+    }
+    read
+}
+
 /// Service scripts that the formatter would change.
 fn formatting(solution: &Solution) -> GateResult {
     let mut result = GateResult::passed("formatting", 0);
     let style = format_js::Style::default();
-    for path in workspace::script_files(solution) {
-        let Ok(source) = std::fs::read_to_string(&path) else {
-            continue;
-        };
+    for (path, source) in scripts(solution, &mut result) {
         result.examined += 1;
         match format_js::format(&source.replace("\r\n", "\n"), &style) {
             Ok(None) => {}
@@ -749,10 +697,7 @@ const OUTPUT_CAP: usize = 1024 * 1024;
 /// Traps in the script engine that compile cleanly and then misbehave at runtime.
 fn script_traps(solution: &Solution) -> GateResult {
     let mut result = GateResult::passed("script traps", 0);
-    for path in workspace::script_files(solution) {
-        let Ok(source) = std::fs::read_to_string(&path) else {
-            continue;
-        };
+    for (path, source) in scripts(solution, &mut result) {
         result.examined += 1;
         for trap in super::lint::lint(&source.replace("\r\n", "\n")) {
             result.findings.push(Finding {
@@ -770,14 +715,12 @@ fn script_traps(solution: &Solution) -> GateResult {
 /// A service whose script builds its result from another DataShape than it declares.
 fn result_shapes(solution: &Solution) -> GateResult {
     let mut result = GateResult::passed("result shapes", 0);
-    for path in workspace::script_files(solution) {
+    for (path, source) in scripts(solution, &mut result) {
+        // A script without a definition is the sidecars gate's to report.
         let Some(definition) = path
             .parent()
             .and_then(|dir| std::fs::read_to_string(dir.join("definition.xml")).ok())
         else {
-            continue;
-        };
-        let Ok(source) = std::fs::read_to_string(&path) else {
             continue;
         };
         result.examined += 1;
@@ -801,10 +744,7 @@ fn result_shapes(solution: &Solution) -> GateResult {
 /// Main code above its helpers, so a service reads in the order it runs.
 fn code_order(solution: &Solution) -> GateResult {
     let mut result = GateResult::passed("code order", 0);
-    for path in workspace::script_files(solution) {
-        let Ok(source) = std::fs::read_to_string(&path) else {
-            continue;
-        };
+    for (path, source) in scripts(solution, &mut result) {
         result.examined += 1;
         for misplaced in super::order::check(&source.replace("\r\n", "\n")) {
             result.findings.push(Finding {
@@ -1250,6 +1190,45 @@ mod tests {
         std::fs::write(bad.join("script.js"), "var a = 1;\nvar b = ;").unwrap();
         let solution = Solution::load(&root.join("twaco.toml")).unwrap();
         (root_guard, root, solution)
+    }
+
+    #[test]
+    fn a_script_gate_fails_on_a_script_it_cannot_read_and_finds_one_named_like_a_build_folder() {
+        let (_dir, root, solution) = live_solution();
+        // A service may be called `build`; the repository walk would skip such a folder.
+        let build = root.join("src/P.T/services/build");
+        std::fs::create_dir_all(&build).unwrap();
+        std::fs::write(build.join("script.js"), "var  x = 1;\n").unwrap();
+        let bad = root.join("src/P.T/services/Bad/script.js");
+        std::fs::write(&bad, [0xff, 0xfe, b'x']).unwrap();
+        let formatting = formatting(&solution);
+        assert!(
+            formatting
+                .findings
+                .iter()
+                .any(|f| f.rule == "unreadable" && f.file.ends_with("Bad/script.js")),
+            "{:?}",
+            formatting.findings
+        );
+        assert!(
+            formatting
+                .findings
+                .iter()
+                .any(|f| f.rule == "unformatted" && f.file.ends_with("build/script.js")),
+            "{:?}",
+            formatting.findings
+        );
+        assert!(script_traps(&solution).blocks());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_linked_folder_of_scripts_is_not_walked_twice() {
+        let (_dir, root, solution) = live_solution();
+        std::os::unix::fs::symlink(root.join("src/P.T"), root.join("src/Again")).unwrap();
+        let scripts = workspace::script_files(&solution);
+        assert_eq!(scripts.files.len(), 1, "{:?}", scripts.files);
+        assert!(scripts.unreadable.is_empty(), "{:?}", scripts.unreadable);
     }
 
     /// A declared check is third-party code run from the repository, so what it can read from the

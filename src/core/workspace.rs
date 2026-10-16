@@ -5,6 +5,7 @@
 //! "sync Management_TS" without knowing which of a solution's projects holds it or which
 //! collection folder it sits in.
 
+use super::codes::{Coded, ErrorCode};
 use super::config::{Project, Solution};
 use super::entity::{self, EntityInfo};
 use super::entity_key::ServiceTarget;
@@ -504,29 +505,135 @@ pub fn atomic_replace(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
         });
     if result.is_err() {
         let _ = std::fs::remove_file(&temporary);
+    } else {
+        sync_directory(parent);
     }
     result
 }
 
-/// Every `script.js` under the sidecar root, for the formatter to work on.
-pub fn script_files(solution: &Solution) -> Vec<PathBuf> {
-    fn walk(dir: &Path, out: &mut Vec<PathBuf>) {
-        let Ok(entries) = std::fs::read_dir(dir) else {
-            return;
-        };
-        for entry in entries.flatten() {
-            let path = entry.path();
-            if path.is_dir() {
-                walk(&path, out);
-            } else if path.file_name().is_some_and(|n| n == "script.js") {
-                out.push(path);
-            }
+/// Make a rename in `directory` durable. On Unix the new name is only on disk once the directory
+/// is, so a power loss right after a write could otherwise bring back the old file. Best effort:
+/// some filesystems refuse to sync a directory, and the file itself is already synced. Windows
+/// has no such step.
+fn sync_directory(directory: &Path) {
+    #[cfg(unix)]
+    if let Ok(handle) = std::fs::File::open(directory) {
+        let _ = handle.sync_all();
+    }
+    #[cfg(not(unix))]
+    let _ = directory;
+}
+
+/// Directories a walk of the repository never enters: version control, editors, generated and
+/// foreign trees, and twaco's own state (the baseline, profiles and generated types, among them
+/// copies of every script made for `types --check`, which would report a script twice).
+const SKIPPED_DIRS: &[&str] = &[
+    ".git",
+    ".hg",
+    ".svn",
+    ".venv",
+    "venv",
+    "__pycache__",
+    ".mypy_cache",
+    ".pytest_cache",
+    ".idea",
+    ".vscode",
+    "target",
+    "dist",
+    "build",
+    "out",
+    "coverage",
+    "vendor",
+    "node_modules",
+    "distribution-backend",
+    ".twaco",
+];
+
+/// What a walk found, each list in stable order. `unreadable` names what it could not read, so
+/// a caller that must see everything (a gate) can say so rather than pass on part of the tree.
+#[derive(Debug, Default)]
+pub struct Tree {
+    pub files: Vec<PathBuf>,
+    pub dirs: Vec<PathBuf>,
+    pub unreadable: Vec<String>,
+}
+
+/// Every file and directory of the repository at `root` that twaco's source checks consider.
+///
+/// The walk honours the repository's own `.gitignore` and `.ignore` (before `git init` too, as a
+/// later commit would; not a parent folder's, the user's global excludes or `.git/info/exclude`,
+/// none of which travel with the repository), skips [`SKIPPED_DIRS`], and never follows a link:
+/// one can point out of the solution, or at an ancestor, and the walk would never end.
+pub fn walk_repository(root: &Path) -> Tree {
+    walk(
+        ignore::WalkBuilder::new(root)
+            .hidden(false)
+            .require_git(false)
+            .parents(false)
+            .git_global(false)
+            .git_exclude(false)
+            .filter_entry(|entry| {
+                let is_dir = entry.file_type().is_some_and(|t| t.is_dir());
+                !(is_dir
+                    && entry.depth() > 0
+                    && SKIPPED_DIRS.contains(&entry.file_name().to_string_lossy().as_ref()))
+            }),
+    )
+}
+
+/// Every file and directory under the sidecar tree at `root`. Nothing is skipped by name or by
+/// an ignore file: sidecar folders are named for services, and a service may well be called
+/// `build` or `out`. Links are not followed, as in [`walk_repository`].
+fn walk_sidecars(root: &Path) -> Tree {
+    walk(
+        ignore::WalkBuilder::new(root)
+            .standard_filters(false)
+            .hidden(false),
+    )
+}
+
+fn walk(builder: &mut ignore::WalkBuilder) -> Tree {
+    let mut tree = Tree::default();
+    for entry in builder.build() {
+        match entry {
+            Ok(entry) if entry.depth() == 0 => {}
+            Ok(entry) => match entry.file_type() {
+                Some(kind) if kind.is_file() => tree.files.push(entry.into_path()),
+                Some(kind) if kind.is_dir() => tree.dirs.push(entry.into_path()),
+                // A link, or something that is neither: not followed, not read.
+                _ => {}
+            },
+            Err(error) => tree.unreadable.push(error.to_string()),
         }
     }
-    let mut out = Vec::new();
-    walk(&solution.src_root(), &mut out);
-    out.sort();
-    out
+    tree.files.sort();
+    tree.dirs.sort();
+    tree
+}
+
+/// Every `script.js` under the sidecar root, for the formatter and the script gates, and what
+/// could not be read there. An absent sidecar root holds no scripts and is not a failure.
+pub fn script_files(solution: &Solution) -> Tree {
+    let root = solution.src_root();
+    if !root.exists() {
+        return Tree::default();
+    }
+    let mut tree = walk_sidecars(&root);
+    tree.files
+        .retain(|path| path.file_name().is_some_and(|name| name == "script.js"));
+    tree.dirs.clear();
+    tree
+}
+
+impl Coded for WorkspaceError {
+    fn code(&self) -> ErrorCode {
+        match self {
+            Self::UnknownEntity { .. } => ErrorCode::UnknownEntity,
+            Self::Ambiguous { .. } => ErrorCode::Ambiguous,
+            Self::InvalidCallTarget { .. } => ErrorCode::InvalidArguments,
+            Self::Io { .. } => ErrorCode::IoError,
+        }
+    }
 }
 
 #[cfg(test)]
