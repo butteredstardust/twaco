@@ -6,6 +6,16 @@ All notable changes to twaco are recorded here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- `twaco mcp --tools <groups>` (or `TWACO_MCP_TOOLS`) serves only the named tool groups: `core`,
+  `entity`, `refactor`, `mashup`, `permissions`, `data`, `server` and `reference`. All 73 tool
+  definitions come to about 89 KB of an agent's context; `core` is about 25 KB. The default is
+  still every tool.
+- The MCP server answers `ping` and `tools/list` while a tool call runs, and honours
+  `notifications/cancelled`: a queued call that is cancelled never runs, and a running one sends
+  no further progress and no response. Calls still run one at a time, in order.
+
 ## [0.1.11] - 2026-10-16
 
 ### Changed

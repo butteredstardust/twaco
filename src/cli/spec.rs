@@ -1017,6 +1017,10 @@ pub(crate) const FLAGS: &[Flag] = &[
         takes: Takes::Value("seconds"),
     },
     Flag {
+        name: "--tools",
+        takes: Takes::Value("groups"),
+    },
+    Flag {
         name: "--to",
         takes: Takes::Value("address"),
     },
@@ -1160,8 +1164,11 @@ pub(crate) const COMMANDS: &[Command] = &[
         path: "mcp",
         group: 0,
         operands: false,
-        flags: &[],
-        text: r#"  mcp                         serve the tools over MCP on stdio (TWACO_ROOT: the solution)"#,
+        flags: &["--tools"],
+        text: r#"  mcp [--tools <groups>]      serve the tools over MCP on stdio (TWACO_ROOT: the solution)
+      --tools <groups>        only these tool groups, comma-separated (TWACO_MCP_TOOLS): core,
+                              entity, refactor, mashup, permissions, data, server, reference;
+                              default all"#,
     },
     Command {
         path: "update",

@@ -23,9 +23,11 @@ use crate::core::{
     relocate, rename, repo, retemplate, server, settings, status, types, unused, workspace,
 };
 use serde_json::{json, Map, Value};
+use std::collections::HashMap;
 use std::io::{BufRead, Write};
 use std::path::{Path, PathBuf};
-use std::sync::Mutex;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 mod content;
 pub use content::localization_status_json;
@@ -36,6 +38,7 @@ mod outputs;
 mod progress;
 mod refactor;
 mod registry;
+pub use registry::Selection;
 mod requests;
 mod schema;
 mod source;
@@ -103,20 +106,65 @@ they would do; pass dry_run: false to act. Use `catalog` for the repository's ca
 `extensions` for extension packages. \
 Start with `projects`, then `check`, then `status` with `all: true` (or one `entity`).";
 
-/// Serve until stdin closes. `root` is where the solution is looked for, on every call, so an
-/// edit to `twaco.toml` takes effect without a restart.
+/// Serve every tool until stdin closes. See [`serve_tools`].
+pub fn serve(root: &Path, input: impl BufRead, output: impl Write + Send) -> std::io::Result<()> {
+    serve_tools(root, &Selection::ALL, input, output)
+}
+
+/// Serve the selected tools until stdin closes. `root` is where the solution is looked for, on
+/// every call, so an edit to `twaco.toml` takes effect without a restart.
+///
+/// Tool calls run one at a time on a worker, in the order they arrived, as they always have: two
+/// at once would only meet at the workspace lock, which refuses rather than waits. This thread
+/// keeps reading meanwhile, so `ping`, `tools/list` and `notifications/cancelled` are answered
+/// while a long call runs. A cancelled call that has not started never starts; one that has
+/// runs to its end, because stopping a server write halfway leaves the server partly changed,
+/// but sends no further progress and no response, as the protocol asks.
 ///
 /// Progress notifications and responses share `output` under one lock, so each is a whole line.
-pub fn serve(root: &Path, input: impl BufRead, output: impl Write + Send) -> std::io::Result<()> {
+pub fn serve_tools(
+    root: &Path,
+    selection: &Selection,
+    input: impl BufRead,
+    output: impl Write + Send,
+) -> std::io::Result<()> {
     let output = Mutex::new(output);
     let sink: &progress::Sink<'_> = &output;
+    let pending = Pending::default();
+    std::thread::scope(|scope| {
+        let (queue, calls) = std::sync::mpsc::channel::<Call>();
+        let worker = scope.spawn(|| -> std::io::Result<()> {
+            for call in calls {
+                if let Some(response) = run_call(root, selection, &call, sink) {
+                    write_line(sink, &response)?;
+                }
+                pending.finish(&call.id);
+            }
+            Ok(())
+        });
+        let read = read_messages(selection, input, sink, &pending, &queue);
+        // Closing the queue lets the worker finish what is queued, then stop.
+        drop(queue);
+        let worked = worker
+            .join()
+            .unwrap_or_else(|panic| std::panic::resume_unwind(panic));
+        read.and(worked)
+    })
+}
+
+fn read_messages(
+    selection: &Selection,
+    mut input: impl BufRead,
+    sink: &progress::Sink<'_>,
+    pending: &Pending,
+    queue: &std::sync::mpsc::Sender<Call>,
+) -> std::io::Result<()> {
     let mut protocol = LATEST;
-    let mut input = input;
     let mut bytes = Vec::new();
     loop {
         bytes.clear();
         if input.read_until(b'\n', &mut bytes)? == 0 {
-            break;
+            return Ok(());
         }
         // A line that is not UTF-8 is one bad message, answered as such; the server reads on.
         let response = match std::str::from_utf8(&bytes) {
@@ -127,7 +175,16 @@ pub fn serve(root: &Path, input: impl BufRead, output: impl Write + Send) -> std
             )),
             Ok(line) if line.trim().is_empty() => None,
             Ok(line) => match serde_json::from_str::<Value>(line) {
-                Ok(message) => handle(root, &message, &mut protocol, sink),
+                Ok(message) => match handle(selection, &message, &mut protocol, pending) {
+                    Handled::Respond(response) => response,
+                    Handled::Queue(call) => {
+                        // The worker stops early only when it cannot write; joining it reports why.
+                        if queue.send(call).is_err() {
+                            return Ok(());
+                        }
+                        None
+                    }
+                },
                 Err(error) => Some(error_response(
                     Value::Null,
                     -32700,
@@ -136,29 +193,137 @@ pub fn serve(root: &Path, input: impl BufRead, output: impl Write + Send) -> std
             },
         };
         if let Some(response) = response {
-            let mut line = serde_json::to_string(&response).expect("JSON values serialise");
-            line.push('\n');
-            let mut output = sink.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
-            output.write_all(line.as_bytes())?;
-            output.flush()?;
+            write_line(sink, &response)?;
         }
     }
-    Ok(())
 }
 
-/// One message in, at most one response out. A notification (no `id`) never gets a response.
-fn handle(
+fn write_line(sink: &progress::Sink<'_>, message: &Value) -> std::io::Result<()> {
+    let mut line = serde_json::to_string(message).expect("JSON values serialise");
+    line.push('\n');
+    let mut output = sink.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+    output.write_all(line.as_bytes())?;
+    output.flush()
+}
+
+/// What the reader does with one message: answer it now, or queue a tool call for the worker.
+enum Handled {
+    Respond(Option<Value>),
+    Queue(Call),
+}
+
+/// A `tools/call` waiting for, or running on, the worker.
+struct Call {
+    id: Value,
+    params: Value,
+    protocol: Protocol,
+    cancelled: Arc<AtomicBool>,
+    /// Log fields the reader already made safe: see [`handle`].
+    logged_id: String,
+    tool: &'static str,
+    dry_run: Option<bool>,
+}
+
+/// The calls queued or running, by request id, so a cancellation finds its call.
+#[derive(Default)]
+struct Pending(Mutex<HashMap<String, Arc<AtomicBool>>>);
+
+impl Pending {
+    fn calls(&self) -> std::sync::MutexGuard<'_, HashMap<String, Arc<AtomicBool>>> {
+        self.0
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+    }
+
+    fn start(&self, id: &Value) -> Arc<AtomicBool> {
+        let flag = Arc::new(AtomicBool::new(false));
+        self.calls().insert(id.to_string(), Arc::clone(&flag));
+        flag
+    }
+
+    /// Mark the call with this id cancelled. An id that is not pending (finished, unknown, or
+    /// never a call) is ignored, as the protocol allows.
+    fn cancel(&self, id: &Value) -> bool {
+        match self.calls().get(&id.to_string()) {
+            Some(flag) => {
+                flag.store(true, Ordering::SeqCst);
+                true
+            }
+            None => false,
+        }
+    }
+
+    fn finish(&self, id: &Value) {
+        self.calls().remove(&id.to_string());
+    }
+}
+
+/// Run one queued call on the worker. `None` when it was cancelled: no response is sent.
+fn run_call(
     root: &Path,
-    message: &Value,
-    protocol: &mut Protocol,
+    selection: &Selection,
+    call: &Call,
     sink: &progress::Sink<'_>,
 ) -> Option<Value> {
+    let span = tracing::info_span!(
+        "mcp",
+        method = "tools/call",
+        id = %call.logged_id,
+        tool = call.tool,
+        dry_run = call.dry_run
+    );
+    let _entered = span.enter();
+    if call.cancelled.load(Ordering::SeqCst) {
+        tracing::info!("cancelled before it started");
+        return None;
+    }
+    let name = call
+        .params
+        .get("name")
+        .and_then(Value::as_str)
+        .unwrap_or("");
+    let arguments = call
+        .params
+        .get("arguments")
+        .cloned()
+        .unwrap_or_else(|| json!({}));
+    // Only a call that carries a token reports progress.
+    let notifier = progress::token_of(&call.params)
+        .map(|token| progress::Notifier::new(sink, token).until(Arc::clone(&call.cancelled)));
+    let reporter: &dyn Progress = match &notifier {
+        Some(notifier) => notifier,
+        None => &core_progress::NONE,
+    };
+    let response = match call_tool(root, selection, name, &arguments, reporter) {
+        Some(outcome) => {
+            if let Err(error) = &outcome {
+                tracing::info!(code = error.code.as_str(), "tool failed");
+            }
+            json!({ "jsonrpc": "2.0", "id": call.id, "result": tool_result(outcome, call.protocol) })
+        }
+        None => error_response(call.id.clone(), -32602, &format!("unknown tool {name:?}")),
+    };
+    if call.cancelled.load(Ordering::SeqCst) {
+        tracing::info!("cancelled while it ran; its response is dropped");
+        return None;
+    }
+    Some(response)
+}
+
+/// One message in: at most one response now, or a call for the worker. A notification (no `id`)
+/// never gets a response.
+fn handle(
+    selection: &Selection,
+    message: &Value,
+    protocol: &mut Protocol,
+    pending: &Pending,
+) -> Handled {
     let invalid = |id: Value, why: &str| {
-        Some(error_response(
+        Handled::Respond(Some(error_response(
             id,
             -32600,
             &format!("invalid request: {why}"),
-        ))
+        )))
     };
     let Some(object) = message.as_object() else {
         return invalid(
@@ -176,7 +341,7 @@ fn handle(
     let Some(method) = object.get("method").and_then(Value::as_str) else {
         // This server sends no requests, so a response from the client answers nothing of ours.
         if object.contains_key("result") || object.contains_key("error") {
-            return None;
+            return Handled::Respond(None);
         }
         return invalid(id.unwrap_or(Value::Null), "no method");
     };
@@ -185,11 +350,17 @@ fn handle(
     }
     let params = object.get("params").cloned().unwrap_or(Value::Null);
     let Some(id) = id else {
-        // notifications/initialized, notifications/cancelled and the rest: nothing to answer.
-        return None;
+        if method == "notifications/cancelled" {
+            if let Some(request) = params.get("requestId") {
+                let found = pending.cancel(request);
+                tracing::info!(found, "cancellation received");
+            }
+        }
+        // notifications/initialized and the rest: nothing to answer.
+        return Handled::Respond(None);
     };
     if !(params.is_null() || params.is_object()) {
-        return Some(error_response(id, -32602, "params must be an object"));
+        return Handled::Respond(Some(error_response(id, -32602, "params must be an object")));
     }
     // Fields never include `arguments`: a tool's parameters can hold anything, secrets included.
     // The method and the tool name come from the caller too, so only names this server knows
@@ -229,36 +400,27 @@ fn handle(
             }))
         }
         "ping" => Ok(json!({})),
-        "tools/list" => Ok(json!({ "tools": registry::definitions(*protocol) })),
+        "tools/list" => Ok(json!({
+            "tools": registry::selected_definitions(*protocol, selection)
+        })),
         "tools/call" => {
-            let name = params.get("name").and_then(Value::as_str).unwrap_or("");
-            let arguments = params
-                .get("arguments")
-                .cloned()
-                .unwrap_or_else(|| json!({}));
-            // Only a call that carries a token reports progress.
-            let notifier =
-                progress::token_of(&params).map(|token| progress::Notifier::new(sink, token));
-            let reporter: &dyn Progress = match &notifier {
-                Some(notifier) => notifier,
-                None => &core_progress::NONE,
-            };
-            match call_tool(root, name, &arguments, reporter) {
-                Some(outcome) => {
-                    if let Err(error) = &outcome {
-                        tracing::info!(code = error.code.as_str(), "tool failed");
-                    }
-                    Ok(tool_result(outcome, *protocol))
-                }
-                None => Err((-32602, format!("unknown tool {name:?}"))),
-            }
+            let cancelled = pending.start(&id);
+            return Handled::Queue(Call {
+                id,
+                params,
+                protocol: *protocol,
+                cancelled,
+                logged_id,
+                tool,
+                dry_run,
+            });
         }
         other => Err((-32601, format!("method not found: {other}"))),
     };
-    Some(match result {
+    Handled::Respond(Some(match result {
         Ok(result) => json!({ "jsonrpc": "2.0", "id": id, "result": result }),
         Err((code, message)) => error_response(id, code, &message),
-    })
+    }))
 }
 
 fn error_response(id: Value, code: i64, message: &str) -> Value {
@@ -337,12 +499,13 @@ pub(crate) fn tool_result(outcome: Result<Value, ToolError>, protocol: Protocol)
 
 fn call_tool(
     root: &Path,
+    selection: &Selection,
     name: &str,
     arguments: &Value,
     progress: &dyn Progress,
 ) -> Option<Result<Value, ToolError>> {
     let started = Instant::now();
-    let outcome = registry::call(root, name, arguments, progress)?;
+    let outcome = registry::call(root, selection, name, arguments, progress)?;
     Some(outcome.map(|mut value| {
         if let Some(object) = value.as_object_mut() {
             object.insert(

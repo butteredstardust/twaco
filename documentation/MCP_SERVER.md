@@ -50,6 +50,26 @@ line per message and one per server request. It never holds a tool's `arguments`
 Server tools use the same [profiles](CONFIGURATION.md#server-profiles) as the command line;
 pass `profile` to choose one.
 
+**Fewer tools.** A client keeps every listed tool's definition in the agent's context on every
+turn, and all 73 come to about 89 KB. `--tools` (or `TWACO_MCP_TOOLS`) lists and runs only the
+groups named, comma-separated; any other tool is unknown to that server. `core` alone is about
+25 KB.
+
+| Group | Tools |
+| --- | --- |
+| `core` | projects, types, check, status, sync, extract, fmt, push, deploy, bundle, catalog, impact, trace, unused, search, entity_get, docs, doctor, guide |
+| `entity` | entity_delete, entity_restore, entity_carry, entity_new, entity_edit, new_building_block, export, import, package |
+| `refactor` | rename, move_member, reproject, retemplate, adopt_report, adopt_apply, handoff |
+| `mashup` | mashup_new, mashup_templates, mashup_add, mashup_add_contained, mashup_bind, mashup_on, widgets, mashup_param, mashup_recipe, mashup_event, mashup_validate, mashup_describe |
+| `permissions` | permissions, permissions_init, permissions_audit, permissions_apply, permissions_push |
+| `data` | db_run, db_query, datatable_copy, db_clean, config_table, call, test |
+| `server` | logs, log_level, repo, repo_write, localization, localization_write, users, users_write, extensions, extension_write, settings |
+| `reference` | help_search, help_page, javadoc |
+
+```sh
+claude mcp add twaco -- twaco mcp --tools core,mashup
+```
+
 ## How the tools behave
 
 - **Dry runs by default.** Every tool that changes a server takes `dry_run`, which defaults to
@@ -74,6 +94,11 @@ pass `profile` to choose one.
   done, always rising), `total` (when known) and `message` (a phase name or an entity name).
   Twaco sends at most about ten per second, and one at the end of each phase. Without a token,
   twaco sends none.
+- **One call at a time, and cancellation.** Tool calls run in the order they arrive, one after
+  another, while the server keeps answering `ping` and `tools/list`. A
+  `notifications/cancelled` for a call that has not started means it never runs. A call
+  already running finishes, since stopping a server write halfway would leave the server
+  partly changed, but it sends no more progress and no response.
 
 ## Errors and codes
 

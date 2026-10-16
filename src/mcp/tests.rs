@@ -2585,3 +2585,232 @@ fn mashup_templates_lists_every_template_and_new_uses_template() {
     assert_eq!(created["isError"], false, "{created}");
     assert_eq!(created["structuredContent"]["template"], "card");
 }
+
+/// Input fed line by line while the server runs, so a test decides when each message arrives.
+struct LiveInput {
+    lines: std::sync::mpsc::Receiver<String>,
+    buffer: std::io::Cursor<Vec<u8>>,
+}
+
+impl std::io::Read for LiveInput {
+    fn read(&mut self, out: &mut [u8]) -> std::io::Result<usize> {
+        use std::io::BufRead;
+        let available = self.fill_buf()?;
+        let n = available.len().min(out.len());
+        out[..n].copy_from_slice(&available[..n]);
+        self.consume(n);
+        Ok(n)
+    }
+}
+
+impl std::io::BufRead for LiveInput {
+    fn fill_buf(&mut self) -> std::io::Result<&[u8]> {
+        if self.buffer.position() as usize >= self.buffer.get_ref().len() {
+            // A closed channel is the end of input.
+            let line = self.lines.recv().unwrap_or_default();
+            self.buffer = std::io::Cursor::new(line.into_bytes());
+        }
+        let position = self.buffer.position() as usize;
+        Ok(&self.buffer.get_ref()[position..])
+    }
+
+    fn consume(&mut self, n: usize) {
+        let position = self.buffer.position();
+        self.buffer.set_position(position + n as u64);
+    }
+}
+
+/// Output the test can read while the server still writes it.
+#[derive(Clone, Default)]
+struct SharedOutput(Arc<Mutex<Vec<u8>>>);
+
+impl std::io::Write for SharedOutput {
+    fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
+        self.0.lock().unwrap().extend_from_slice(bytes);
+        Ok(bytes.len())
+    }
+
+    fn flush(&mut self) -> std::io::Result<()> {
+        Ok(())
+    }
+}
+
+impl SharedOutput {
+    fn lines(&self) -> Vec<Value> {
+        String::from_utf8(self.0.lock().unwrap().clone())
+            .unwrap()
+            .lines()
+            .map(|line| serde_json::from_str(line).unwrap())
+            .collect()
+    }
+
+    /// Wait until a response with this id has been written.
+    fn wait_for(&self, id: u64) -> Value {
+        let deadline = Instant::now() + Duration::from_secs(20);
+        loop {
+            if let Some(line) = self.lines().into_iter().find(|line| line["id"] == id) {
+                return line;
+            }
+            assert!(Instant::now() < deadline, "no response to {id}");
+            std::thread::sleep(Duration::from_millis(5));
+        }
+    }
+}
+
+/// A server that holds every request until the test releases it.
+fn gated_entity_server() -> (
+    std::net::SocketAddr,
+    std::sync::mpsc::Receiver<()>,
+    std::sync::mpsc::Sender<()>,
+) {
+    use std::io::{Read, Write};
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let address = listener.local_addr().unwrap();
+    let (arrived, requests) = std::sync::mpsc::channel();
+    let (release, released) = std::sync::mpsc::channel::<()>();
+    std::thread::spawn(move || {
+        // Released once, the server answers every later request at once.
+        let mut open = false;
+        for stream in listener.incoming() {
+            let Ok(mut stream) = stream else { return };
+            let mut buffer = [0u8; 8192];
+            let _ = stream.read(&mut buffer);
+            let _ = arrived.send(());
+            if !open {
+                if released.recv().is_err() {
+                    return;
+                }
+                open = true;
+            }
+            let body = "<Entities><Things><Thing name=\"P.T\" projectName=\"P\"></Thing></Things></Entities>";
+            let _ = write!(
+                stream,
+                "HTTP/1.1 200 OK\r\nContent-Type: text/xml\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+                body.len()
+            );
+        }
+    });
+    (address, requests, release)
+}
+
+#[test]
+fn ping_is_answered_and_cancellation_honoured_while_a_call_runs() {
+    let (_dir, root) = solution_dir();
+    let (address, requests, release) = gated_entity_server();
+    std::fs::create_dir_all(root.join(".twaco/profiles")).unwrap();
+    std::fs::write(
+        root.join(".twaco/profiles/default.toml"),
+        format!(
+            "url = \"http://{address}/Thingworx/\"\nusername = \"user\"\npassword = \"pass\"\n"
+        ),
+    )
+    .unwrap();
+    let (send, lines) = std::sync::mpsc::channel::<String>();
+    let output = SharedOutput::default();
+    let server = {
+        let root = root.clone();
+        let output = output.clone();
+        std::thread::spawn(move || {
+            let input = LiveInput {
+                lines,
+                buffer: std::io::Cursor::new(Vec::new()),
+            };
+            serve(&root, input, output).unwrap();
+        })
+    };
+    let say = |message: Value| send.send(format!("{message}\n")).unwrap();
+
+    // Call 1 reaches the server and waits there.
+    say(status_call(1, None));
+    requests.recv_timeout(Duration::from_secs(20)).unwrap();
+    // The server still answers.
+    say(json!({"jsonrpc":"2.0","id":2,"method":"ping"}));
+    assert_eq!(output.wait_for(2)["result"], json!({}));
+    assert!(
+        output.lines().iter().all(|line| line["id"] != 1),
+        "call 1 is still running"
+    );
+    // Call 3 queues behind it and is cancelled before it starts: it never runs.
+    say(
+        json!({"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"projects","arguments":{}}}),
+    );
+    say(json!({"jsonrpc":"2.0","method":"notifications/cancelled","params":{"requestId":3}}));
+    // Call 4 is not cancelled and runs once call 1 is done.
+    say(
+        json!({"jsonrpc":"2.0","id":4,"method":"tools/call","params":{"name":"projects","arguments":{}}}),
+    );
+    // Call 1 is cancelled while it runs: it finishes, but sends no response.
+    say(json!({"jsonrpc":"2.0","method":"notifications/cancelled","params":{"requestId":1}}));
+    say(json!({"jsonrpc":"2.0","id":5,"method":"ping"}));
+    output.wait_for(5);
+    release.send(()).unwrap();
+    assert_eq!(output.wait_for(4)["result"]["isError"], false);
+    drop(send);
+    server.join().unwrap();
+    let ids: Vec<Value> = output
+        .lines()
+        .iter()
+        .map(|line| line["id"].clone())
+        .collect();
+    assert_eq!(
+        ids,
+        [json!(2), json!(5), json!(4)],
+        "no response for 1 or 3"
+    );
+}
+
+#[test]
+fn a_tool_group_lists_and_runs_only_its_tools() {
+    let mut grouped: Vec<&str> = registry::GROUPS
+        .iter()
+        .flat_map(|(_, tools)| tools.iter().copied())
+        .collect();
+    grouped.sort_unstable();
+    let mut registered: Vec<String> = tool_definitions()
+        .iter()
+        .map(|tool| tool["name"].as_str().unwrap().to_string())
+        .collect();
+    registered.sort_unstable();
+    assert_eq!(grouped, registered, "every tool is in exactly one group");
+
+    let core = Selection::parse("core").unwrap();
+    let listed = registry::selected_definitions(LATEST, &core);
+    assert!(listed.iter().any(|tool| tool["name"] == "deploy"));
+    assert!(listed.iter().all(|tool| tool["name"] != "mashup_add"));
+    // The point of a group: a client that needs the everyday loop pays for it alone.
+    let bytes = |tools: &[Value]| serde_json::to_string(tools).unwrap().len();
+    assert!(
+        bytes(&listed) * 3 < bytes(&tool_definitions()),
+        "core is {} of {} bytes",
+        bytes(&listed),
+        bytes(&tool_definitions())
+    );
+    assert_eq!(Selection::parse("all").unwrap(), Selection::ALL);
+    assert_eq!(
+        Selection::parse("core, mashup").unwrap(),
+        Selection::parse("core,mashup").unwrap()
+    );
+    let error = Selection::parse("core,mashups").unwrap_err();
+    assert!(
+        error.contains("`mashups`") && error.contains("reference"),
+        "{error}"
+    );
+    assert!(Selection::parse(" , ").is_err());
+
+    // A tool outside the group is unknown to this server.
+    let (_dir, root) = solution_dir();
+    let input = format!(
+        "{}\n{}\n",
+        json!({"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"widgets","arguments":{}}}),
+        json!({"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"projects","arguments":{}}}),
+    );
+    let mut output = Vec::new();
+    serve_tools(&root, &core, input.as_bytes(), &mut output).unwrap();
+    let lines: Vec<Value> = String::from_utf8(output)
+        .unwrap()
+        .lines()
+        .map(|line| serde_json::from_str(line).unwrap())
+        .collect();
+    assert_eq!(lines[0]["error"]["code"], -32602, "{}", lines[0]);
+    assert_eq!(lines[1]["result"]["isError"], false, "{}", lines[1]);
+}
