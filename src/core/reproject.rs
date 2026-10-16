@@ -260,12 +260,7 @@ fn order_warnings(solution: &Solution, moves: &[Move], to: &str) -> Vec<String> 
 
 /// The plan as JSON, the same for the command line and MCP.
 pub fn plan_json(solution: &Solution, plan: &Plan, applied: bool) -> serde_json::Value {
-    let relative = |path: &std::path::Path| {
-        path.strip_prefix(&solution.root)
-            .unwrap_or(path)
-            .to_string_lossy()
-            .replace('\\', "/")
-    };
+    let relative = |path: &std::path::Path| solution.relative(path);
     serde_json::json!({
         "applied": applied,
         "to": plan.to,

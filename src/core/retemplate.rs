@@ -497,12 +497,7 @@ pub fn plan(solution: &Solution, request: &Request) -> Result<Plan, RetemplateEr
                     if in_affected || names_affected {
                         change.references.push(format!(
                             "{}:{}  {}",
-                            item.path
-                                .strip_prefix(&solution.root)
-                                .unwrap_or(&item.path)
-                                .display()
-                                .to_string()
-                                .replace('\\', "/"),
+                            solution.relative(&item.path),
                             finding.line,
                             finding.excerpt
                         ));
@@ -703,12 +698,7 @@ fn edit_document(src: &[u8], file: &EntityFile, request: &Request) -> Result<Vec
 
 impl Plan {
     pub fn file_relative(&self, solution: &Solution) -> String {
-        self.file
-            .strip_prefix(&solution.root)
-            .unwrap_or(&self.file)
-            .display()
-            .to_string()
-            .replace('\\', "/")
+        solution.relative(&self.file)
     }
 }
 

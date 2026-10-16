@@ -8,7 +8,7 @@
 
 use super::codes::{Coded, ErrorCode};
 use super::entity_key::{EntityKey, ServiceTarget};
-use super::profile::Profile;
+use super::profile::{Profile, Secret};
 use super::scan;
 use serde::Deserialize;
 use std::fmt;
@@ -485,7 +485,14 @@ impl Client {
     fn authorization(&self) -> String {
         format!(
             "Basic {}",
-            base64(format!("{}:{}", self.profile.username, self.profile.password).as_bytes())
+            base64(
+                format!(
+                    "{}:{}",
+                    self.profile.username,
+                    self.profile.password.expose()
+                )
+                .as_bytes()
+            )
         )
     }
 }
@@ -713,13 +720,13 @@ fn checked_bytes(
 /// percent-encoded, and `user:password` and the Basic token twaco sends. Longest first, so a long
 /// form is replaced before a shorter one it contains.
 fn secrets_of(profile: &Profile) -> Vec<String> {
-    let mut raw: Vec<&str> = vec![profile.password.as_str()];
+    let mut raw: Vec<&str> = vec![profile.password.expose()];
     // An address may carry its own `user:secret`; the server can echo it in a reply.
     if let Some(credentials) = super::profile::url_credentials(&profile.url) {
         raw.push(credentials);
         raw.extend(credentials.split_once(':').map(|(_, secret)| secret));
     }
-    raw.extend(profile.app_key.as_deref());
+    raw.extend(profile.app_key.as_ref().map(Secret::expose));
     for (key, value) in &profile.extra {
         let key = key.to_ascii_lowercase();
         if ["password", "secret", "key", "token"]
@@ -737,7 +744,7 @@ fn secrets_of(profile: &Profile) -> Vec<String> {
         forms.push(encode_path_segment(secret));
     }
     if !profile.password.is_empty() {
-        let pair = format!("{}:{}", profile.username, profile.password);
+        let pair = format!("{}:{}", profile.username, profile.password.expose());
         forms.push(base64(pair.as_bytes()));
         forms.push(pair);
     }
@@ -1048,8 +1055,8 @@ mod tests {
         let profile_for = |url: String| Profile {
             url,
             username: "user".to_string(),
-            password: password.to_string(),
-            app_key: Some(app_key.to_string()),
+            password: password.into(),
+            app_key: Some(app_key.into()),
             extra: Default::default(),
         };
         let secrets = secrets_of(&profile_for(String::new()));
@@ -1154,7 +1161,7 @@ mod tests {
         let profile = Profile {
             url: "https://alice:s3cretToken@twx.example/Thingworx/".to_string(),
             username: "u".to_string(),
-            password: "p".to_string(),
+            password: "p".into(),
             app_key: None,
             extra: Default::default(),
         };
@@ -1225,7 +1232,7 @@ mod tests {
         let client = Client::new(Profile {
             url: format!("http://{address}/Thingworx/"),
             username: "user".to_string(),
-            password: "pass".to_string(),
+            password: "pass".into(),
             app_key: None,
             extra: Default::default(),
         });
@@ -1261,7 +1268,7 @@ mod tests {
         let client = Client::new(Profile {
             url: format!("http://{address}/Thingworx/"),
             username: "user".to_string(),
-            password: "pass".to_string(),
+            password: "pass".into(),
             app_key: None,
             extra: Default::default(),
         });
@@ -1323,7 +1330,7 @@ mod tests {
         Client::new(Profile {
             url,
             username: "user".to_string(),
-            password: "pass".to_string(),
+            password: "pass".into(),
             app_key: None,
             extra: Default::default(),
         })
@@ -1333,8 +1340,8 @@ mod tests {
         Profile {
             url: "http://127.0.0.1:1/Thingworx".to_string(),
             username: "user".to_string(),
-            password: password.to_string(),
-            app_key: app_key.map(str::to_string),
+            password: password.into(),
+            app_key: app_key.map(Secret::from),
             extra: Default::default(),
         }
     }
@@ -1454,8 +1461,8 @@ mod tests {
         let client = Client::new(Profile {
             url,
             username: "user".to_string(),
-            password: password.to_string(),
-            app_key: Some(app_key.to_string()),
+            password: password.into(),
+            app_key: Some(app_key.into()),
             extra: Default::default(),
         });
         let error = client

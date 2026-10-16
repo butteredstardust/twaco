@@ -449,6 +449,15 @@ fn check_contained(what: &'static str, value: &str) -> Result<(), ConfigError> {
 }
 
 impl Solution {
+    /// `path` as `/`-separated text, relative to the solution root when it is under it: the
+    /// form every report and tool result shows.
+    pub fn relative(&self, path: &Path) -> String {
+        path.strip_prefix(&self.root)
+            .unwrap_or(path)
+            .to_string_lossy()
+            .replace('\\', "/")
+    }
+
     /// Find and load the solution containing `start`, searching upwards for `twaco.toml`.
     pub fn discover(start: &Path) -> Result<Solution, ConfigError> {
         let mut dir = Some(start);

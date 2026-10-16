@@ -1909,7 +1909,23 @@
       "properties": {
         "kind": {
           "description": "`thing`, `thing-template`, `thing-shape`, `data-shape`, `timer`, `scheduler`, `data-table`, `stream`, `value-stream`, `media`, `style`, `state`, `menu`, or `theme`.",
-          "type": "string"
+          "type": "string",
+          "enum": [
+            "thing",
+            "thing-template",
+            "thing-shape",
+            "data-shape",
+            "timer",
+            "scheduler",
+            "data-table",
+            "stream",
+            "value-stream",
+            "media",
+            "style",
+            "state",
+            "menu",
+            "theme"
+          ]
         },
         "name": {
           "description": "The entity name.",

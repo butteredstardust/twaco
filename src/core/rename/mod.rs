@@ -823,13 +823,7 @@ pub fn summary_json(
             "review": value.review,
         })
     };
-    let relative = |path: &Path| {
-        path.strip_prefix(&solution.root)
-            .unwrap_or(path)
-            .display()
-            .to_string()
-            .replace('\\', "/")
-    };
+    let relative = |path: &Path| solution.relative(path);
     let review = plan
         .changes
         .iter()

@@ -28,7 +28,7 @@ pub(crate) fn datatable_copy_tool(
         | commands::datatable_copy::DataTableCopyOutcome::Applied { report, .. } => report,
     };
     let mut result = json!({ "ok": true, "report": report });
-    result[if dry_run { "plan" } else { "applied" }] = json!(true);
+    result[outcome_key(dry_run)] = json!(true);
     add_notices(&mut result, &notices);
     Ok(result)
 }
@@ -53,7 +53,7 @@ pub(crate) fn db_clean_tool(
         .iter()
         .any(|thing| thing.status == db::SweepStatus::Failed);
     let mut result = json!({ "ok": !failed, "things": swept });
-    result[if dry_run { "plan" } else { "applied" }] = json!(true);
+    result[outcome_key(dry_run)] = json!(true);
     add_notices(&mut result, &notices);
     Ok(result)
 }

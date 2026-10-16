@@ -50,7 +50,7 @@ pub fn as_user(profile: &Profile, user: &str) -> Result<Profile, TestError> {
     Ok(Profile {
         url: profile.url.clone(),
         username: user.to_string(),
-        password: test_password(profile)?.to_string(),
+        password: test_password(profile)?.into(),
         app_key: None,
         // Kept so the client scrubs the test password (and the rest) from every message.
         extra: profile.extra.clone(),

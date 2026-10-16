@@ -17,12 +17,56 @@ pub struct Profile {
     #[serde(alias = "server_url")]
     pub url: String,
     pub username: String,
-    pub password: String,
+    pub password: Secret,
     #[serde(default, alias = "appKey")]
-    pub app_key: Option<String>,
+    pub app_key: Option<Secret>,
     /// Project-specific secrets and values. They remain outside committed solution config.
     #[serde(flatten)]
     pub extra: BTreeMap<String, toml::Value>,
+}
+
+/// A credential. It has no `Display` and its `Debug` is redacted, so it is read only through
+/// [`Secret::expose`], and its memory is zeroed when it is dropped.
+#[derive(Clone, Default, Deserialize, PartialEq, Eq)]
+#[serde(transparent)]
+pub struct Secret(String);
+
+impl Secret {
+    pub fn new(value: impl Into<String>) -> Self {
+        Self(value.into())
+    }
+
+    pub fn expose(&self) -> &str {
+        &self.0
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.0.is_empty()
+    }
+}
+
+impl From<&str> for Secret {
+    fn from(value: &str) -> Self {
+        Self(value.to_string())
+    }
+}
+
+impl From<String> for Secret {
+    fn from(value: String) -> Self {
+        Self(value)
+    }
+}
+
+impl fmt::Debug for Secret {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str("<redacted>")
+    }
+}
+
+impl Drop for Secret {
+    fn drop(&mut self) {
+        zeroize::Zeroize::zeroize(&mut self.0);
+    }
 }
 
 /// Never expose credentials or free-form profile values through diagnostic formatting.
@@ -44,8 +88,11 @@ impl Profile {
         match key {
             "url" | "server_url" => Some(toml::Value::String(self.url.clone())),
             "username" => Some(toml::Value::String(self.username.clone())),
-            "password" => Some(toml::Value::String(self.password.clone())),
-            "app_key" | "appKey" => self.app_key.clone().map(toml::Value::String),
+            "password" => Some(toml::Value::String(self.password.expose().to_string())),
+            "app_key" | "appKey" => self
+                .app_key
+                .as_ref()
+                .map(|key| toml::Value::String(key.expose().to_string())),
             _ => self.extra.get(key).cloned(),
         }
     }
@@ -117,10 +164,42 @@ pub fn load(solution_root: &Path, name: &str) -> Result<Profile, ProfileError> {
     let environment: BTreeMap<String, String> = std::env::vars()
         .filter(|(key, _)| key.starts_with("TWACO_") || key.starts_with("TWX_"))
         .collect();
-    let home = std::env::var_os("USERPROFILE")
-        .or_else(|| std::env::var_os("HOME"))
-        .map(PathBuf::from);
+    let home = home();
     load_from(solution_root, home.as_deref(), name, &environment)
+}
+
+/// The user's home: `USERPROFILE`, then `HOME`, and none when neither is set. Not
+/// `dirs::home_dir`, which falls back to the password database, so that clearing both
+/// variables really means "no user profiles" (as the snapshot tests do).
+fn home() -> Option<PathBuf> {
+    std::env::var_os("USERPROFILE")
+        .or_else(|| std::env::var_os("HOME"))
+        .map(PathBuf::from)
+}
+
+/// Warn, as ssh does, when a profile file that holds a password can be read by other users.
+/// It is a warning, not a refusal: the file may sit on a share whose modes mean nothing.
+fn warn_if_shared(path: &Path) {
+    if let Some(mode) = shared_mode(path) {
+        tracing::warn!(
+            path = %path.display(),
+            mode = format_args!("{mode:o}"),
+            "profile file can be read by other users; run chmod 600 on it"
+        );
+    }
+}
+
+/// The file's permission bits when group or others may read or write it.
+#[cfg(unix)]
+fn shared_mode(path: &Path) -> Option<u32> {
+    use std::os::unix::fs::PermissionsExt;
+    let mode = std::fs::metadata(path).ok()?.permissions().mode() & 0o777;
+    (mode & 0o077 != 0).then_some(mode)
+}
+
+#[cfg(not(unix))]
+fn shared_mode(_path: &Path) -> Option<u32> {
+    None
 }
 
 /// A server address fit to show: credentials written into it (`https://user:token@host/`) are
@@ -173,9 +252,7 @@ pub fn url_credentials(url: &str) -> Option<&str> {
 /// workspace's, then the user's), else the environment, and whether environment variables
 /// override any of its fields. Mirrors [`load`]'s selection; it never reads a secret.
 pub fn source(solution_root: &Path, name: &str) -> String {
-    let home = std::env::var_os("USERPROFILE")
-        .or_else(|| std::env::var_os("HOME"))
-        .map(PathBuf::from);
+    let home = home();
     let file = format!("{name}.toml");
     let local = solution_root.join(".twaco").join("profiles").join(&file);
     let global = home.map(|home| home.join(".twaco").join("profiles").join(&file));
@@ -246,21 +323,26 @@ fn load_from(
     let mut extra = BTreeMap::<String, toml::Value>::new();
     let mut source = "environment".to_string();
     if let Some(path) = selected {
-        let text = std::fs::read_to_string(path).map_err(|e| ProfileError::Unreadable {
-            path: path.to_path_buf(),
-            why: e.to_string(),
-        })?;
-        let profile: Profile = toml::from_str(&text).map_err(|e| ProfileError::Invalid {
-            path: path.to_path_buf(),
-            why: e.to_string(),
-        })?;
-        values.insert("url", profile.url);
-        values.insert("username", profile.username);
-        values.insert("password", profile.password);
-        if let Some(app_key) = profile.app_key {
-            values.insert("app_key", app_key);
+        warn_if_shared(path);
+        let text =
+            Secret::new(
+                std::fs::read_to_string(path).map_err(|e| ProfileError::Unreadable {
+                    path: path.to_path_buf(),
+                    why: e.to_string(),
+                })?,
+            );
+        let mut profile: Profile =
+            toml::from_str(text.expose()).map_err(|e| ProfileError::Invalid {
+                path: path.to_path_buf(),
+                why: e.to_string(),
+            })?;
+        values.insert("url", std::mem::take(&mut profile.url));
+        values.insert("username", std::mem::take(&mut profile.username));
+        values.insert("password", std::mem::take(&mut profile.password.0));
+        if let Some(mut app_key) = profile.app_key.take() {
+            values.insert("app_key", std::mem::take(&mut app_key.0));
         }
-        extra = profile.extra;
+        extra = std::mem::take(&mut profile.extra);
         source = path.display().to_string();
     }
 
@@ -314,8 +396,8 @@ fn load_from(
     Ok(Profile {
         url: values.remove("url").expect("checked above"),
         username: values.remove("username").expect("checked above"),
-        password: values.remove("password").expect("checked above"),
-        app_key: values.remove("app_key"),
+        password: Secret(values.remove("password").expect("checked above")),
+        app_key: values.remove("app_key").map(Secret),
         extra,
     })
 }
@@ -335,6 +417,27 @@ impl Coded for ProfileError {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_secret_is_redacted_in_debug_and_read_only_by_name() {
+        let secret = Secret::from("hunter2");
+        assert_eq!(format!("{secret:?}"), "<redacted>");
+        assert_eq!(format!("{:?}", Some(&secret)), "Some(<redacted>)");
+        assert_eq!(secret.expose(), "hunter2");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_profile_others_can_read_is_reported_and_a_private_one_is_not() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("dev.toml");
+        std::fs::write(&path, "password = 'p'\n").unwrap();
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o644)).unwrap();
+        assert_eq!(shared_mode(&path), Some(0o644));
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600)).unwrap();
+        assert_eq!(shared_mode(&path), None);
+    }
 
     #[test]
     fn a_shown_url_never_holds_the_credentials_written_into_it() {
@@ -391,8 +494,8 @@ mod tests {
             let profile = Profile {
                 url: format!("https://twx.example.test/{password}"),
                 username: format!("user-{password}"),
-                password: password.to_string(),
-                app_key: Some(format!("key-{password}")),
+                password: password.into(),
+                app_key: Some(format!("key-{password}").into()),
                 extra,
             };
             for shown in [format!("{profile:?}"), format!("{profile:#?}")] {
@@ -447,7 +550,7 @@ mod tests {
         let profile = load_from(&root.join("repo"), Some(&home), "default", &env).unwrap();
         assert_eq!(profile.url, "https://local/");
         assert_eq!(profile.username, "override-user");
-        assert_eq!(profile.password, "local-pass");
+        assert_eq!(profile.password.expose(), "local-pass");
 
         std::fs::remove_file(local).unwrap();
         let profile =

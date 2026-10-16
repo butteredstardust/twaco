@@ -1730,11 +1730,7 @@ fn is_base64(encoded: &str) -> bool {
 }
 
 fn relative_to(solution: &Solution, path: &Path) -> String {
-    path.strip_prefix(&solution.root)
-        .unwrap_or(path)
-        .display()
-        .to_string()
-        .replace('\\', "/")
+    solution.relative(path)
 }
 
 fn io_error(path: &Path, error: impl fmt::Display) -> AdoptError {

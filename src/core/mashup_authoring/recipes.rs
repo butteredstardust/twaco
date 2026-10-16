@@ -936,12 +936,7 @@ impl Recipe {
 
 /// The plan as data, for `--json` and MCP.
 pub fn recipe_plan_json(solution: &Solution, plan: &RecipePlan, applied: bool) -> Value {
-    let relative = |path: &std::path::Path| {
-        path.strip_prefix(&solution.root)
-            .unwrap_or(path)
-            .to_string_lossy()
-            .replace('\\', "/")
-    };
+    let relative = |path: &std::path::Path| solution.relative(path);
     let mut files = vec![relative(&plan.edit.entity_path)];
     if let Some(sidecars) = &plan.edit.sidecars {
         files.push(relative(&sidecars.content_path));

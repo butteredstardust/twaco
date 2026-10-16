@@ -1582,12 +1582,7 @@ pub fn parameter_plan_json(solution: &Solution, plan: &ParameterPlan, applied: b
             std::iter::once(&edit.entity_path)
                 .chain(edit.sidecars.iter().map(|sidecar| &sidecar.content_path))
         })
-        .map(|path| {
-            path.strip_prefix(&solution.root)
-                .unwrap_or(path)
-                .to_string_lossy()
-                .replace('\\', "/")
-        })
+        .map(|path| solution.relative(path))
         .collect::<Vec<_>>();
     json!({ "applied": applied, "action": format!("{:?}", plan.action).to_ascii_lowercase(), "mashup": plan.mashup, "name": plan.name, "base_type": plan.base_type, "direction": plan.direction, "containers_refreshed": plan.refreshed, "bindings_retyped": plan.retyped, "bindings_removed": plan.removed, "files": files })
 }
@@ -1783,12 +1778,7 @@ pub fn apply_new(
 
 /// The plan as `--json` and MCP report it.
 pub fn new_plan_json(solution: &Solution, plan: &NewPlan, applied: bool) -> Value {
-    let relative = |path: &Path| {
-        path.strip_prefix(&solution.root)
-            .unwrap_or(path)
-            .to_string_lossy()
-            .replace('\\', "/")
-    };
+    let relative = |path: &Path| solution.relative(path);
     json!({
         "applied": applied,
         "mashup": plan.name,
@@ -3668,12 +3658,7 @@ pub fn apply_edit(
 
 /// The add plan as `--json` and MCP report it.
 pub fn add_plan_json(solution: &Solution, plan: &AddPlan, applied: bool) -> Value {
-    let relative = |path: &Path| {
-        path.strip_prefix(&solution.root)
-            .unwrap_or(path)
-            .to_string_lossy()
-            .replace('\\', "/")
-    };
+    let relative = |path: &Path| solution.relative(path);
     let mut files = vec![relative(&plan.edit.entity_path)];
     if let Some(sidecars) = &plan.edit.sidecars {
         files.push(relative(&sidecars.content_path));
@@ -3696,12 +3681,7 @@ pub fn add_contained_plan_json(
     plan: &AddContainedPlan,
     applied: bool,
 ) -> Value {
-    let relative = |path: &Path| {
-        path.strip_prefix(&solution.root)
-            .unwrap_or(path)
-            .to_string_lossy()
-            .replace('\\', "/")
-    };
+    let relative = |path: &Path| solution.relative(path);
     let mut files = vec![relative(&plan.edit.entity_path)];
     if let Some(sidecars) = &plan.edit.sidecars {
         files.push(relative(&sidecars.content_path));

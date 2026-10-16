@@ -341,7 +341,7 @@ pub fn plan_json(solution: &Solution, plan: &Plan, applied: bool) -> Value {
     let files: Vec<String> = plan
         .changes
         .iter()
-        .map(|change| relative(solution, &change.path))
+        .map(|change| solution.relative(&change.path))
         .collect();
     json!({
         "entity": plan.entity,
@@ -350,14 +350,6 @@ pub fn plan_json(solution: &Solution, plan: &Plan, applied: bool) -> Value {
         "files": files,
         "warnings": plan.warnings,
     })
-}
-
-/// A path relative to the solution, with forward slashes.
-pub fn relative(solution: &Solution, path: &Path) -> String {
-    path.strip_prefix(&solution.root)
-        .unwrap_or(path)
-        .to_string_lossy()
-        .replace('\\', "/")
 }
 
 // ---------------------------------------------------------------------------------------------

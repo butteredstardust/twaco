@@ -311,12 +311,7 @@ pub fn localization_status_json(
     detail: bool,
 ) -> Value {
     use crate::core::localization::{Problem, State};
-    let path = |p: &std::path::Path| {
-        p.strip_prefix(&solution.root)
-            .unwrap_or(p)
-            .to_string_lossy()
-            .replace('\\', "/")
-    };
+    let path = |p: &std::path::Path| solution.relative(p);
     let label = |state| match state {
         State::Same => "same",
         State::Differs => "differs",
@@ -472,7 +467,7 @@ pub(crate) fn localization_write_tool(
         }
         command::LocalizationOutcome::Pushed { pushed, .. } => {
             let tables: Vec<_> = pushed.tables.iter().map(|table| {
-                let mut item = serde_json::json!({"table":table.table,"files":table.files.iter().map(|p|p.strip_prefix(&solution.root).unwrap_or(p).to_string_lossy().replace('\\', "/")).collect::<Vec<_>>(),"create":table.create,"set_count":table.set.len(),"delete_count":table.delete.len()});
+                let mut item = serde_json::json!({"table":table.table,"files":table.files.iter().map(|p|solution.relative(p)).collect::<Vec<_>>(),"create":table.create,"set_count":table.set.len(),"delete_count":table.delete.len()});
                 if arguments.detail { item["set"] = serde_json::json!(table.set); item["delete"] = serde_json::json!(table.delete); }
                 item
             }).collect();
@@ -491,7 +486,7 @@ fn localization_files_json(
     detail: bool,
 ) -> Value {
     let files: Vec<_> = changes.iter().map(|file| {
-        let mut item = serde_json::json!({"path": file.path.strip_prefix(&solution.root).unwrap_or(&file.path).to_string_lossy().replace('\\', "/"), "created": file.created, "set_count": file.set.len(), "removed_count": file.removed.len()});
+        let mut item = serde_json::json!({"path": solution.relative(&file.path), "created": file.created, "set_count": file.set.len(), "removed_count": file.removed.len()});
         if detail { item["set"] = serde_json::json!(file.set); item["removed"] = serde_json::json!(file.removed); }
         item
     }).collect();

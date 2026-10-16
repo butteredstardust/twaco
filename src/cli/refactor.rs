@@ -683,14 +683,7 @@ pub(crate) fn new_building_block_cmd(solution: &Solution, args: &Args) -> u8 {
     let files: Vec<String> = plan
         .files
         .iter()
-        .map(|file| {
-            file.path
-                .strip_prefix(&solution.root)
-                .unwrap_or(&file.path)
-                .display()
-                .to_string()
-                .replace('\\', "/")
-        })
+        .map(|file| solution.relative(&file.path))
         .collect();
     if args.has("--json") {
         let value = serde_json::json!({
@@ -770,12 +763,7 @@ pub(crate) fn reproject_cmd(solution: &Solution, args: &Args) -> u8 {
         );
         return OK;
     }
-    let relative = |path: &std::path::Path| {
-        path.strip_prefix(&solution.root)
-            .unwrap_or(path)
-            .to_string_lossy()
-            .replace('\\', "/")
-    };
+    let relative = |path: &std::path::Path| solution.relative(path);
     for item in &plan.moves {
         let verb = if apply { "moved" } else { "would move" };
         if item.new_path == item.old_path {

@@ -414,8 +414,5 @@ pub(super) fn map_finding(
 }
 
 fn relative_path(solution: &Solution, path: &Path) -> String {
-    path.strip_prefix(&solution.root)
-        .unwrap_or(path)
-        .to_string_lossy()
-        .replace('\\', "/")
+    solution.relative(path)
 }

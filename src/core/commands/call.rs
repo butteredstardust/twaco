@@ -305,7 +305,7 @@ mod tests {
         let allowed = profile("allow_test_users = true\ntest_password = \"secret\"\n");
         let signed = as_test_user(&solution, &allowed, "vera.viewer").unwrap();
         assert_eq!(signed.username, "vera.viewer");
-        assert_eq!(signed.password, "secret");
+        assert_eq!(signed.password.expose(), "secret");
         assert!(signed.app_key.is_none());
         // Any other account would receive the test password: refused.
         let stranger = as_test_user(&solution, &allowed, "Administrator").unwrap_err();

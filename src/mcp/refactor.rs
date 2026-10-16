@@ -3,8 +3,9 @@ use super::requests::refactor::{
     EntityEditRequest, EntityNewRequest, HandoffAction, HandoffRequest, MashupAddContainedRequest,
     MashupAddRequest, MashupBindRequest, MashupDescribeRequest, MashupEventRequest,
     MashupNewRequest, MashupOnRequest, MashupParameterAction, MashupParameterRequest,
-    MashupRecipeRequest, MashupTemplatesRequest, MashupValidateRequest, MoveMemberRequest,
-    NewBuildingBlockRequest, RenameRequest, ReprojectRequest, RetemplateRequest, WidgetsRequest,
+    MashupRecipeRequest, MashupTemplatesRequest, MashupValidateRequest, MoveMemberAction,
+    MoveMemberRequest, NewBuildingBlockRequest, RenameRequest, ReprojectRequest, RetemplateRequest,
+    WidgetsRequest,
 };
 use super::source::add_types_refresh;
 use super::*;
@@ -14,21 +15,9 @@ pub(crate) fn move_member_tool(
     arguments: MoveMemberRequest,
 ) -> Result<Value, ToolError> {
     let dry_run = arguments.dry_run;
-    let action = arguments.action.as_str();
-    if !matches!(action, "move" | "copy") {
-        return Err(ToolError::invalid(format!(
-            "unknown action `{action}`; use `move` or `copy`"
-        )));
-    }
-    let kind = arguments.kind.as_str();
-    let member = relocate::Member::from_word(kind).ok_or_else(|| {
-        ToolError::invalid(format!(
-            "unknown kind `{kind}`; use `service` or `property`"
-        ))
-    })?;
     let request = relocate::Request {
-        member,
-        copy: action == "copy",
+        member: arguments.kind.into(),
+        copy: arguments.action == MoveMemberAction::Copy,
         from: nonempty(&arguments.from, "from")?.to_string(),
         to: nonempty(&arguments.to, "to")?.to_string(),
         name: nonempty(&arguments.name, "name")?.to_string(),
@@ -46,11 +35,11 @@ pub(crate) fn move_member_tool(
     let plan = outcome.plan();
     let problems = outcome.problems();
     let mut result = json!({
-        "ok": problems.is_empty(), "action": action, "member": kind, "from": plan.request.from, "to": plan.request.to,
+        "ok": problems.is_empty(), "action": arguments.action, "member": arguments.kind, "from": plan.request.from, "to": plan.request.to,
         "name": plan.request.name, "as": plan.final_name, "files": plan.files(solution),
         "callers": plan.callers, "notes": plan.notes, "out_of_step": problems,
     });
-    result[if dry_run { "plan" } else { "applied" }] = json!(true);
+    result[outcome_key(dry_run)] = json!(true);
     add_notices(&mut result, &notices);
     Ok(result)
 }
@@ -60,15 +49,9 @@ pub(crate) fn new_building_block_tool(
     arguments: NewBuildingBlockRequest,
 ) -> Result<Value, ToolError> {
     let dry_run = arguments.dry_run;
-    let kind_word = arguments.r#type.as_str();
-    let kind = newblock::BlockType::from_word(kind_word).ok_or_else(|| {
-        ToolError::invalid(format!(
-            "unknown type `{kind_word}`; use standard, abstract or implementation"
-        ))
-    })?;
     let request = newblock::Request {
         name: nonempty(&arguments.name, "name")?.to_string(),
-        kind,
+        kind: arguments.r#type.into(),
         display_name: arguments.display_name.as_ref().cloned(),
         description: arguments.description.as_ref().cloned().unwrap_or_default(),
         parent: arguments.parent.as_ref().cloned(),
@@ -91,20 +74,13 @@ pub(crate) fn new_building_block_tool(
     let files: Vec<String> = plan
         .files
         .iter()
-        .map(|file| {
-            file.path
-                .strip_prefix(&solution.root)
-                .unwrap_or(&file.path)
-                .display()
-                .to_string()
-                .replace('\\', "/")
-        })
+        .map(|file| solution.relative(&file.path))
         .collect();
     let mut result = json!({
         "ok": true, "name": result_name, "type": result_kind.word(), "root": plan.root,
         "files": files, "twaco_toml": plan.config_addition, "notes": plan.notes,
     });
-    result[if dry_run { "plan" } else { "applied" }] = json!(true);
+    result[outcome_key(dry_run)] = json!(true);
     add_notices(&mut result, &notices);
     Ok(result)
 }
@@ -113,10 +89,8 @@ pub(crate) fn entity_new_tool(
     solution: &Solution,
     arguments: EntityNewRequest,
 ) -> Result<Value, ToolError> {
-    let kind = crate::core::entity_new::Kind::parse(&arguments.kind)
-        .ok_or_else(|| ToolError::invalid("kind must be a supported entity kind"))?;
     let request = crate::core::entity_new::NewRequest {
-        kind,
+        kind: arguments.kind.into(),
         name: nonempty(&arguments.name, "name")?.to_string(),
         project: arguments.project.as_ref().cloned(),
         description: arguments.description.as_ref().cloned().unwrap_or_default(),
@@ -316,7 +290,7 @@ pub(crate) fn retemplate_tool(
         "affected": plan.affected, "gained": plan.gained, "lost": plan.lost,
         "needs_accept_loss": plan.blocked, "notes": plan.notes,
     });
-    result[if dry_run { "plan" } else { "applied" }] = json!(true);
+    result[outcome_key(dry_run)] = json!(true);
     add_notices(&mut result, &notices);
     Ok(result)
 }
@@ -701,12 +675,7 @@ pub(crate) fn mashup_bind_tool(
     let mut notices = commands::Notices::default();
     let outcome =
         commands::mashup::bind(solution, &request, &mut notices).map_err(ToolError::coded)?;
-    let relative = |path: &std::path::Path| {
-        path.strip_prefix(&solution.root)
-            .unwrap_or(path)
-            .to_string_lossy()
-            .replace('\\', "/")
-    };
+    let relative = |path: &std::path::Path| solution.relative(path);
     let mut files = vec![relative(&outcome.plan.edit.entity_path)];
     if let Some(sidecars) = &outcome.plan.edit.sidecars {
         files.push(relative(&sidecars.content_path));
@@ -743,12 +712,7 @@ pub(crate) fn mashup_on_tool(
     let mut notices = commands::Notices::default();
     let outcome =
         commands::mashup::on(solution, &request, &mut notices).map_err(ToolError::coded)?;
-    let relative = |path: &std::path::Path| {
-        path.strip_prefix(&solution.root)
-            .unwrap_or(path)
-            .to_string_lossy()
-            .replace('\\', "/")
-    };
+    let relative = |path: &std::path::Path| solution.relative(path);
     let mut files = vec![relative(&outcome.plan.edit.entity_path)];
     if let Some(sidecars) = &outcome.plan.edit.sidecars {
         files.push(relative(&sidecars.content_path));
@@ -1011,16 +975,9 @@ pub(crate) fn rename_tool(
     solution: &Solution,
     arguments: RenameRequest,
 ) -> Result<Value, ToolError> {
-    let word = arguments.kind.as_str();
-    let kind = rename::Kind::from_word(word).ok_or_else(|| {
-        ToolError::invalid(format!(
-            "unknown rename kind `{word}`; use {}",
-            rename::Kind::list_words()
-        ))
-    })?;
     let dry_run = arguments.dry_run;
     let request = rename::Request {
-        kind,
+        kind: arguments.kind.into(),
         scope: arguments.scope.as_ref().cloned(),
         service: arguments.service.as_ref().cloned(),
         old: nonempty(&arguments.old, "old")?.to_string(),
