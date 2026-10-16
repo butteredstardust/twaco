@@ -8,6 +8,7 @@
 
 use super::entity_key::{EntityKey, ServiceTarget};
 use super::profile::Profile;
+use super::scan;
 use serde::Deserialize;
 use std::fmt;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
@@ -84,7 +85,18 @@ impl Client {
             &headers,
             None,
         )?;
-        checked(&self.secrets, Method::Get, url, response)
+        let body = checked(&self.secrets, Method::Get, url.clone(), response)?;
+        // The Exporter answers a missing entity with an empty collection and HTTP 200, where the
+        // ordinary route says 404; report it the same way so callers see it as absent.
+        if !exporter.is_empty() && !holds_media_entity(&body) {
+            return Err(ServerError::Http {
+                method: Method::Get,
+                status: 404,
+                url: scrub(&self.secrets, &url),
+                body: format!("Entity Not Found : [{}]", key.name()),
+            });
+        }
+        Ok(body)
     }
 
     /// Fetch the ordinary REST representation of an entity as JSON. This is distinct from
@@ -640,6 +652,12 @@ struct Response {
 
 /// Validate a response's encoding, and turn a non-2xx into an error carrying the server's own
 /// explanation, which is where ThingWorx puts the useful part of a failure.
+/// Whether an Exporter answer holds a MediaEntity element rather than only the empty collection.
+fn holds_media_entity(body: &[u8]) -> bool {
+    scan::tokenize(body)
+        .is_ok_and(|tokens| scan::find_tag(&tokens, body, "MediaEntity", 0, tokens.len()).is_some())
+}
+
 fn checked(
     secrets: &[String],
     method: Method,
@@ -997,6 +1015,15 @@ fn send(
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn an_empty_exporter_collection_holds_no_media_entity() {
+        let empty =
+            b"<?xml version=\"1.0\"?><Entities majorVersion=\"10\"><MediaEntities/></Entities>";
+        assert!(!super::holds_media_entity(empty));
+        let one = b"<Entities><MediaEntities><MediaEntity name=\"Acme.Logo_MD\"><content/></MediaEntity></MediaEntities></Entities>";
+        assert!(super::holds_media_entity(one));
+    }
+
     use super::*;
 
     /// A request URL carries an entity name, and a person can type a secret into one. Each error

@@ -2242,6 +2242,19 @@ fn entity_new_timer_applies_and_writes_the_entity_file() {
 }
 
 #[test]
+fn entity_new_style_applies() {
+    let (_dir, root) = solution_dir();
+    let applied = call(
+        &root,
+        "entity_new",
+        json!({"kind": "style", "name": "P.Good_SD", "background": "#66cc33", "bold": true, "dry_run": false}),
+    );
+    assert_eq!(applied["isError"], false, "{applied}");
+    assert_eq!(applied["structuredContent"]["applied"], true);
+    assert!(root.join("StyleDefinitions/P.Good_SD.xml").exists());
+}
+
+#[test]
 fn mashup_add_applies_a_widget_and_refuses_two_placements() {
     let (_dir, root) = solution_dir();
     let created = call(

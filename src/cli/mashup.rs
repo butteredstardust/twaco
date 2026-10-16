@@ -326,6 +326,10 @@ pub(crate) fn mashup_param_cmd(solution: &Solution, args: &Args) -> u8 {
             return FAILED;
         }
     };
+    if args.has("--default") && !args.values.contains_key("--default") {
+        eprintln!("{} --default needs a value", style::prefix());
+        return FAILED;
+    }
     let default = if args.has("--no-default") {
         mashup_authoring::ParameterDefault::Clear
     } else if let Some(value) = args.values.get("--default") {

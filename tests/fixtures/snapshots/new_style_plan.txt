@@ -1,0 +1,9 @@
+$ twaco new style Acme.Orders.NewGood_SD --background #66cc33 --bold
+exit: 0
+
+--- stdout
+would create style Acme.Orders.NewGood_SD in project Acme.Orders
+  files: StyleDefinitions/Acme.Orders.NewGood_SD.xml
+run again with --apply to write it
+--- stderr
+

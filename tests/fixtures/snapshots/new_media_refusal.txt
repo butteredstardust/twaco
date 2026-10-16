@@ -1,0 +1,7 @@
+$ twaco new media Acme.Orders.Bad_MD --file twaco.toml
+exit: 2
+
+--- stdout
+
+--- stderr
+twaco: --file must contain a PNG, JPEG, GIF, or SVG image

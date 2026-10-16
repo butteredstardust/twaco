@@ -430,6 +430,36 @@ fn values_reach_the_fields_the_commands_read() {
     // `--flag=value` works too.
     let profile = parse(&["doctor", "--profile=prod"]).unwrap();
     assert_eq!(profile.profile.as_deref(), Some("prod"));
+    // An optional value given bare is followed by the next flag, never takes it as its value.
+    let menu = parse(&[
+        "new",
+        "menu",
+        "Acme.Main_MN",
+        "--item",
+        "Home=Acme.Home_MU",
+        "--default",
+        "--label",
+        "Main",
+    ])
+    .unwrap();
+    assert_eq!(menu.names, ["Acme.Main_MN"]);
+    assert!(menu.has("--default") && !menu.values.contains_key("--default"));
+    assert_eq!(menu.values.get("--label").map(String::as_str), Some("Main"));
+    // It may still be negative.
+    let param = parse(&[
+        "mashup",
+        "param",
+        "set",
+        "Acme.Home_MU",
+        "Count",
+        "--default",
+        "-1",
+    ])
+    .unwrap();
+    assert_eq!(
+        param.values.get("--default").map(String::as_str),
+        Some("-1")
+    );
 }
 
 #[test]

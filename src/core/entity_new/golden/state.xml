@@ -1,0 +1,93 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Entities
+ majorVersion="10"
+ minorVersion="1"
+ universal="password">
+    <StateDefinitions>
+        <StateDefinition
+         description=""
+         documentationContent=""
+         homeMashup=""
+         name="Acme.Orders.Speed_SD"
+         projectName="Acme.Orders"
+         tags="">
+            <avatar></avatar>
+            <DesignTimePermissions>
+                <Create></Create>
+                <Read></Read>
+                <Update></Update>
+                <Delete></Delete>
+                <Metadata></Metadata>
+            </DesignTimePermissions>
+            <RunTimePermissions></RunTimePermissions>
+            <VisibilityPermissions>
+                <Visibility></Visibility>
+            </VisibilityPermissions>
+            <ConfigurationTableDefinitions></ConfigurationTableDefinitions>
+            <ConfigurationTables></ConfigurationTables>
+            <content><![CDATA[{
+  "stateDefinitions" : [ {
+    "comparator" : "<",
+    "defaultStyleDefinition" : {
+      "backgroundColor" : "rgba(102,204,51,1)",
+      "displayString" : "",
+      "fontEmphasisBold" : false,
+      "fontEmphasisItalic" : false,
+      "fontEmphasisUnderline" : false,
+      "foregroundColor" : "",
+      "image" : "",
+      "lineColor" : "",
+      "lineStyle" : "solid",
+      "lineThickness" : 1,
+      "secondaryBackgroundColor" : "",
+      "textSize" : "normal"
+    },
+    "defaultValue" : "2000",
+    "description" : "",
+    "displayString" : "Normal",
+    "name" : "Normal"
+  }, {
+    "comparator" : "<",
+    "defaultStyleDefinition" : {
+      "backgroundColor" : "rgba(249,239,107,1)",
+      "displayString" : "",
+      "fontEmphasisBold" : false,
+      "fontEmphasisItalic" : false,
+      "fontEmphasisUnderline" : false,
+      "foregroundColor" : "",
+      "image" : "",
+      "lineColor" : "",
+      "lineStyle" : "solid",
+      "lineThickness" : 1,
+      "secondaryBackgroundColor" : "",
+      "textSize" : "normal"
+    },
+    "defaultValue" : "3000",
+    "description" : "",
+    "displayString" : "Fast",
+    "name" : "Fast"
+  }, {
+    "defaultStyleDefinition" : {
+      "backgroundColor" : "rgba(255,0,0,1)",
+      "displayString" : "",
+      "fontEmphasisBold" : false,
+      "fontEmphasisItalic" : false,
+      "fontEmphasisUnderline" : false,
+      "foregroundColor" : "",
+      "image" : "",
+      "lineColor" : "",
+      "lineStyle" : "solid",
+      "lineThickness" : 1,
+      "secondaryBackgroundColor" : "",
+      "textSize" : "normal"
+    },
+    "defaultValue" : "",
+    "description" : "",
+    "displayString" : "Overload",
+    "name" : "Overload"
+  } ],
+  "stateType" : "numeric"
+}]]></content>
+        </StateDefinition>
+    </StateDefinitions>
+</Entities>

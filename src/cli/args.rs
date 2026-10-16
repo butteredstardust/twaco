@@ -40,6 +40,9 @@ pub(crate) struct Args {
     pub(crate) shapes: Vec<String>,
     /// `new data-shape --field`, repeatable.
     pub(crate) fields: Vec<String>,
+    pub(crate) indexes: Vec<String>,
+    pub(crate) states: Vec<String>,
+    pub(crate) items: Vec<String>,
     /// Flags that take one value and need no parsing here, such as `logs --since`.
     pub(crate) values: std::collections::BTreeMap<String, String>,
 }

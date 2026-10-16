@@ -8,9 +8,10 @@ All notable changes to twaco are recorded here. The format follows
 
 ### Added
 
-- `twaco new thing|thing-template|thing-shape|data-shape|timer|scheduler` (MCP `entity_new`)
+- `twaco new thing|thing-template|thing-shape|data-shape|timer|scheduler|data-table|stream|value-stream|media|style|state|menu|theme` (MCP `entity_new`)
   plans or creates common ThingWorx 10.1 entity exports in the repository. DataShapes get their
-  `fields.json` sidecar; timers and schedulers require a run-as user and can carry an event script.
+  `fields.json` sidecar and DataTables get `datatable.json`; timers and schedulers require a run-as
+  user and can carry an event script.
 
 - `twaco mashup add-contained` (MCP `mashup_add_contained`) adds a repository child mashup as a
   Composer-compatible `mashupcontainer`, including its parameter cache and static input values.
@@ -38,6 +39,11 @@ All notable changes to twaco are recorded here. The format follows
 
 ### Fixed
 
+- `twaco deploy` and `entity status` handle a MediaEntity the server does not have yet: the
+  export route answers it with an empty collection and HTTP 200, which read as malformed XML and
+  stopped the deploy. It is now absent, like any other missing entity.
+- A flag with an optional value, given bare, no longer takes the next flag as its value
+  (`--default --label Main`); a negative value still works.
 - `twaco entity delete` no longer fails on a disabled Thing, whose dependency service answers
   HTTP 503: its dependents are reported as unknown, refused under `outside_dependents` until
   acknowledged, and warned about when they are.

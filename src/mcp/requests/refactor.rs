@@ -347,7 +347,7 @@ pub(crate) struct MashupNewRequest {
 #[derive(Debug, Deserialize, JsonSchema, Serialize)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct EntityNewRequest {
-    /// `thing`, `thing-template`, `thing-shape`, `data-shape`, `timer`, or `scheduler`.
+    /// `thing`, `thing-template`, `thing-shape`, `data-shape`, `timer`, `scheduler`, `data-table`, `stream`, `value-stream`, `media`, `style`, `state`, `menu`, or `theme`.
     pub(crate) kind: String,
     /// The entity name.
     pub(crate) name: String,
@@ -379,6 +379,50 @@ pub(crate) struct EntityNewRequest {
     pub(crate) then: Absent<String>,
     #[serde(default, skip_serializing_if = "Absent::is_absent")]
     pub(crate) script: Absent<String>,
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) data_shape: Absent<String>,
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) index: Absent<Vec<String>>,
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) file: Absent<String>,
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) background: Absent<String>,
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) foreground: Absent<String>,
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) secondary_background: Absent<String>,
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) line_color: Absent<String>,
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) line_style: Absent<String>,
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) line_thickness: Absent<String>,
+    #[serde(default)]
+    pub(crate) bold: bool,
+    #[serde(default)]
+    pub(crate) italic: bool,
+    #[serde(default)]
+    pub(crate) underline: bool,
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) text_size: Absent<String>,
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) image: Absent<String>,
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) display_string: Absent<String>,
+    #[serde(default, rename = "type", skip_serializing_if = "Absent::is_absent")]
+    pub(crate) state_type: Absent<String>,
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) state: Absent<Vec<String>>,
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) item: Absent<Vec<String>>,
+    #[serde(default)]
+    pub(crate) default: bool,
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) label: Absent<String>,
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) from: Absent<String>,
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) prop: Absent<Vec<String>>,
     #[serde(default = "default_true")]
     pub(crate) dry_run: bool,
 }

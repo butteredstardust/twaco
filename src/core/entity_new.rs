@@ -6,6 +6,7 @@
 use crate::core::codes::{Coded, ErrorCode};
 use crate::core::config::{Project, Solution};
 use crate::core::datashape::{self, Aspect, Field};
+use crate::core::datatable;
 use crate::core::lock::WorkspaceLock;
 use crate::core::mashup_authoring::parse_visibility;
 use crate::core::mashup_templates::Visibility;
@@ -13,6 +14,7 @@ use crate::core::refs;
 use crate::core::transaction::{Transaction, TransactionError};
 use crate::core::types;
 use crate::core::workspace;
+use base64::Engine;
 use serde_json::{json, Value};
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
@@ -25,6 +27,14 @@ pub enum Kind {
     DataShape,
     Timer,
     Scheduler,
+    DataTable,
+    Stream,
+    ValueStream,
+    Media,
+    Style,
+    State,
+    Menu,
+    Theme,
 }
 
 impl Kind {
@@ -36,6 +46,14 @@ impl Kind {
             "data-shape" => Self::DataShape,
             "timer" => Self::Timer,
             "scheduler" => Self::Scheduler,
+            "data-table" => Self::DataTable,
+            "stream" => Self::Stream,
+            "value-stream" => Self::ValueStream,
+            "media" => Self::Media,
+            "style" => Self::Style,
+            "state" => Self::State,
+            "menu" => Self::Menu,
+            "theme" => Self::Theme,
             _ => return None,
         })
     }
@@ -48,15 +66,33 @@ impl Kind {
             Self::DataShape => "data-shape",
             Self::Timer => "timer",
             Self::Scheduler => "scheduler",
+            Self::DataTable => "data-table",
+            Self::Stream => "stream",
+            Self::ValueStream => "value-stream",
+            Self::Media => "media",
+            Self::Style => "style",
+            Self::State => "state",
+            Self::Menu => "menu",
+            Self::Theme => "theme",
         }
     }
 
     pub fn collection(self) -> &'static str {
         match self {
-            Self::Thing | Self::Timer | Self::Scheduler => "Things",
+            Self::Thing
+            | Self::Timer
+            | Self::Scheduler
+            | Self::DataTable
+            | Self::Stream
+            | Self::ValueStream => "Things",
             Self::ThingTemplate => "ThingTemplates",
             Self::ThingShape => "ThingShapes",
             Self::DataShape => "DataShapes",
+            Self::Media => "MediaEntities",
+            Self::Style => "StyleDefinitions",
+            Self::State => "StateDefinitions",
+            Self::Menu => "Menus",
+            Self::Theme => "StyleThemes",
         }
     }
 }
@@ -79,6 +115,29 @@ pub struct NewRequest {
     pub disabled: bool,
     pub then: Option<String>,
     pub script: Option<PathBuf>,
+    pub data_shape: Option<String>,
+    pub indexes: Vec<String>,
+    pub file: Option<PathBuf>,
+    pub background: Option<String>,
+    pub foreground: Option<String>,
+    pub secondary_background: Option<String>,
+    pub line_color: Option<String>,
+    pub line_style: Option<String>,
+    pub line_thickness: Option<String>,
+    pub bold: bool,
+    pub italic: bool,
+    pub underline: bool,
+    pub text_size: Option<String>,
+    pub image: Option<String>,
+    pub display_string: Option<String>,
+    pub state_type: Option<String>,
+    pub states: Vec<String>,
+    pub items: Vec<String>,
+    pub default: bool,
+    pub label: Option<String>,
+    pub from: Option<String>,
+    pub props: Vec<String>,
+    pub theme_content: Option<String>,
 }
 
 #[derive(Debug)]
@@ -170,6 +229,32 @@ fn known_entity(solution: &Solution, collection: &str, name: &str) -> bool {
     (collection == "ThingTemplates" && name == "GenericThing")
         || entity_exists(solution, collection, name)
         || platform_has(solution, collection, name)
+}
+
+fn entity_file(solution: &Solution, collection: &str, name: &str) -> Option<workspace::EntityFile> {
+    workspace::entities(solution)
+        .into_iter()
+        .find(|entry| entry.info.collection == collection && entry.info.name == name)
+}
+
+fn entity_content(path: &Path) -> Result<String, NewError> {
+    let source = std::fs::read_to_string(path)
+        .map_err(|error| NewError::Invalid(format!("{}: {error}", path.display())))?;
+    let start = source
+        .find("<content>")
+        .ok_or_else(|| NewError::Invalid(format!("{} has no content", path.display())))?
+        + "<content>".len();
+    let end = source[start..]
+        .find("</content>")
+        .map(|end| start + end)
+        .ok_or_else(|| NewError::Invalid(format!("{} has unclosed content", path.display())))?;
+    Ok(source[start..end]
+        .trim()
+        .strip_prefix("<![CDATA[")
+        .and_then(|value| value.strip_suffix("]]>"))
+        .unwrap_or(&source[start..end])
+        .trim()
+        .to_string())
 }
 
 fn refuse_file_on_the_way(root: &Path, path: &Path) -> Result<(), NewError> {
@@ -323,6 +408,466 @@ fn scheduler_settings(kind: Kind, enabled: bool, run_as: &str, value: &str) -> S
     format!("            <ConfigurationTables>\n                <ConfigurationTable\n                 dataShapeName=\"\"\n                 description=\"General Settings\"\n                 isHidden=\"true\"\n                 isMultiRow=\"false\"\n                 name=\"Settings\"\n                 ordinal=\"0\">\n                    <DataShape>\n                        <FieldDefinitions>\n                            <FieldDefinition\n                             aspect.defaultValue=\"true\"\n                             baseType=\"BOOLEAN\"\n                             description=\"Automatically enable {} on startup\"\n                             name=\"enabled\"\n                             ordinal=\"0\"></FieldDefinition>\n                            <FieldDefinition\n                             baseType=\"USERNAME\"\n                             description=\"User context in which to run event handlers\"\n                             name=\"runAsUser\"\n                             ordinal=\"0\"></FieldDefinition>\n                            <FieldDefinition\n                             aspect.defaultValue=\"{}\"\n                             baseType=\"{}\"\n                             description=\"{}\"\n                             name=\"{}\"\n                             ordinal=\"0\"></FieldDefinition>\n                        </FieldDefinitions>\n                    </DataShape>\n                    <Rows>\n                        <Row>\n                            <enabled>{enabled}</enabled>\n                            <runAsUser><![CDATA[{}]]></runAsUser>\n                            <{}>{value}</{}>\n                        </Row>\n                    </Rows>\n                </ConfigurationTable>\n            </ConfigurationTables>", kind.word(), default, element, description, field, run_as, field, field)
 }
 
+fn cdata(value: &str) -> String {
+    format!("<![CDATA[{value}]]>")
+}
+
+fn plain_entity(kind: &str, tag: &str, request: &NewRequest, project: &str, body: &str) -> String {
+    format!("{}        <{tag}\n         description=\"{}\"\n         documentationContent=\"\"\n         homeMashup=\"\"\n         name=\"{}\"\n         projectName=\"{project}\"\n         tags=\"\">\n{}\n{body}\n        </{tag}>\n{}", header(kind), escape(&request.description), escape(&request.name), common_tail(&[]), footer(kind))
+}
+
+fn data_thing_settings(
+    provider: &str,
+    data_shape: Option<&str>,
+    fields: &[Field],
+    indexes: &[(String, String)],
+) -> String {
+    let settings = data_shape.map(|shape| format!("\n                <ConfigurationTable\n                 dataShapeName=\"\"\n                 description=\"Data Shape Configuration\"\n                 isMultiRow=\"false\"\n                 name=\"Settings\"\n                 ordinal=\"0\">\n                    <DataShape><FieldDefinitions><FieldDefinition\n                     aspect.friendlyName=\"Data Shape\"\n                     baseType=\"DATASHAPENAME\"\n                     description=\"Data shape\"\n                     name=\"dataShape\"\n                     ordinal=\"0\"></FieldDefinition></FieldDefinitions></DataShape>\n                    <Rows><Row><accumulatedDataShape><json>{}</json></accumulatedDataShape><dataShape>{}</dataShape></Row></Rows>\n                </ConfigurationTable>", cdata(&accumulated_json(fields)), cdata(shape))).unwrap_or_default();
+    let index_table = if provider == "DataTable" {
+        let rows: String = indexes.iter().map(|(name, fields)| format!("\n                        <Row><fieldNames>{}</fieldNames><name>{}</name></Row>", cdata(fields), cdata(name))).collect();
+        format!("\n                <ConfigurationTable\n                 dataShapeName=\"\"\n                 description=\"Index Settings\"\n                 isMultiRow=\"true\"\n                 name=\"Indexes\"\n                 ordinal=\"1\">\n                    <DataShape><FieldDefinitions><FieldDefinition\n                     aspect.friendlyName=\"Index Field Names\"\n                     baseType=\"STRING\"\n                     description=\"Index fields\"\n                     name=\"fieldNames\"\n                     ordinal=\"1\"></FieldDefinition><FieldDefinition\n                     aspect.friendlyName=\"Index Name\"\n                     baseType=\"STRING\"\n                     description=\"Index name\"\n                     name=\"name\"\n                     ordinal=\"0\"></FieldDefinition></FieldDefinitions></DataShape>\n                    <Rows>{rows}\n                    </Rows>\n                </ConfigurationTable>")
+    } else {
+        String::new()
+    };
+    let performance = match provider {
+        "DataTable" => "Data Table",
+        "Stream" => "Stream",
+        _ => "Value Stream",
+    };
+    format!("            <ConfigurationTables>\n                <ConfigurationTable\n                 dataShapeName=\"\"\n                 description=\"Data Thing Configuration\"\n                 isMultiRow=\"false\"\n                 name=\"DataThingSettings\"\n                 ordinal=\"0\">\n                    <DataShape><FieldDefinitions><FieldDefinition\n                     baseType=\"STRING\"\n                     description=\"Persistence Provider Name\"\n                     name=\"persistenceProvider\"\n                     ordinal=\"0\"></FieldDefinition></FieldDefinitions></DataShape>\n                    <Rows><Row><persistenceProvider><![CDATA[ThingworxPersistenceProvider]]></persistenceProvider></Row></Rows>\n                </ConfigurationTable>{settings}{index_table}\n                <ConfigurationTable\n                 dataShapeName=\"\"\n                 description=\"Configurable options to tune {performance} performance\"\n                 isMultiRow=\"false\"\n                 name=\"PersistenceProviderCustomSettings\"\n                 ordinal=\"2\">\n                    <DataShape><FieldDefinitions><FieldDefinition\n                     aspect.friendlyName=\"Persistence Provider Custom Settings Table\"\n                     baseType=\"INFOTABLE\"\n                     description=\"Persistence Provider Custom Config Table\"\n                     name=\"customConfigTable\"\n                     ordinal=\"0\"></FieldDefinition></FieldDefinitions></DataShape>\n                    <Rows><Row><customConfigTable><infoTable><DataShape><FieldDefinitions></FieldDefinitions></DataShape><Rows></Rows></infoTable></customConfigTable></Row></Rows>\n                </ConfigurationTable>\n            </ConfigurationTables>")
+}
+
+fn shape_fields(solution: &Solution, shape: &str) -> Result<Vec<Field>, NewError> {
+    let file = entity_file(solution, "DataShapes", shape)
+        .ok_or_else(|| NewError::Unknown(format!("no DataShape {shape} in the solution")))?;
+    let src = std::fs::read(&file.path)
+        .map_err(|error| NewError::Invalid(format!("{}: {error}", file.path.display())))?;
+    datashape::extract(&src).map_err(|error| NewError::Invalid(error.to_string()))
+}
+
+/// The `accumulatedDataShape` JSON a 10.1 server writes for a data table or stream. It is a
+/// Java HashMap serialised as it iterates: ordinals number the fields in case-insensitive name
+/// order, the fields go in in that order, and the keys come out in hash-bucket order. The rule
+/// reproduces all 132 accumulated shapes found in real repositories.
+fn accumulated_json(fields: &[Field]) -> String {
+    let mut sorted: Vec<&Field> = fields.iter().collect();
+    sorted.sort_by(|a, b| (a.name.to_lowercase(), &a.name).cmp(&(b.name.to_lowercase(), &b.name)));
+    let entries: Vec<(String, String)> = sorted
+        .iter()
+        .enumerate()
+        .map(|(ordinal, field)| {
+            let aspects: Vec<(String, String)> = field
+                .aspects
+                .iter()
+                .map(|(key, value)| (key.clone(), aspect_json(key, value, &field.base_type)))
+                .collect();
+            let value = format!(
+                "{{\"name\":{},\"aspects\":{},\"description\":{},\"baseType\":{},\"ordinal\":{ordinal}}}",
+                json_string(&field.name),
+                java_hash_map(aspects),
+                json_string(&field.description),
+                json_string(&field.base_type),
+            );
+            (field.name.clone(), value)
+        })
+        .collect();
+    format!("{{\"fieldDefinitions\":{}}}", java_hash_map(entries))
+}
+
+fn aspect_json(key: &str, value: &Aspect, base_type: &str) -> String {
+    match value {
+        Aspect::Bool(flag) => flag.to_string(),
+        Aspect::Text(text) if key == "defaultValue" => match base_type {
+            "NUMBER" => match text.parse::<f64>() {
+                // Java's Double.toString: an integral value keeps its ".0".
+                Ok(number) if number.is_finite() && number.fract() == 0.0 && number.abs() < 1e7 => {
+                    format!("{number:.1}")
+                }
+                Ok(number) if number.is_finite() => number.to_string(),
+                _ => json_string(text),
+            },
+            "INTEGER" | "LONG" => text
+                .parse::<i64>()
+                .map_or_else(|_| json_string(text), |number| number.to_string()),
+            _ => json_string(text),
+        },
+        Aspect::Text(text) => json_string(text),
+    }
+}
+
+fn json_string(text: &str) -> String {
+    Value::String(text.to_string()).to_string()
+}
+
+/// A JSON object whose keys are in the order a `java.util.HashMap<String, _>` built by
+/// inserting `entries` in order iterates them: by bucket, then by insertion within a bucket.
+fn java_hash_map(entries: Vec<(String, String)>) -> String {
+    let mut capacity = 16usize;
+    while entries.len() * 4 > capacity * 3 {
+        capacity *= 2;
+    }
+    let bucket = |key: &str| {
+        let hash = key.encode_utf16().fold(0u32, |hash, unit| {
+            hash.wrapping_mul(31).wrapping_add(u32::from(unit))
+        });
+        ((hash ^ (hash >> 16)) as usize) & (capacity - 1)
+    };
+    let mut ordered: Vec<(usize, usize, &(String, String))> = entries
+        .iter()
+        .enumerate()
+        .map(|(at, entry)| (bucket(&entry.0), at, entry))
+        .collect();
+    ordered.sort_by_key(|(bucket, at, _)| (*bucket, *at));
+    let body: Vec<String> = ordered
+        .iter()
+        .map(|(_, _, (key, value))| format!("{}:{value}", json_string(key)))
+        .collect();
+    format!("{{{}}}", body.join(","))
+}
+
+fn data_thing(request: &NewRequest, project: &str, template: &str, settings: String) -> String {
+    format!("{}        <Thing\n         aspect.isSystemObject=\"false\"\n         description=\"{}\"\n         documentationContent=\"\"\n         effectiveThingPackage=\"{}Thing\"\n         enabled=\"true\"\n         homeMashup=\"\"\n         identifier=\"\"\n         inheritedValueStream=\"\"\n         name=\"{}\"\n         projectName=\"{project}\"\n         published=\"false\"\n         tags=\"\"\n         thingTemplate=\"{template}\"\n         valueStream=\"\">\n{}\n{settings}\n{}\n            <PropertyBindings></PropertyBindings>\n            <RemotePropertyBindings></RemotePropertyBindings>\n            <RemoteServiceBindings></RemoteServiceBindings>\n            <RemoteEventBindings></RemoteEventBindings>\n            <AlertConfigurations></AlertConfigurations>\n            <ImplementedShapes></ImplementedShapes>\n            <ThingProperties></ThingProperties>\n        </Thing>\n{}", header("Things"), escape(&request.description), template, escape(&request.name), common_tail(&[]).strip_suffix("\n            <ConfigurationTables></ConfigurationTables>").unwrap(), local_shape(None), footer("Things"))
+}
+
+fn media_xml(request: &NewRequest, project: &str) -> String {
+    let tables = "            <ConfigurationTables>\n                <ConfigurationTable dataShapeName=\"\" description=\"Use Existing Flow Configuration\" isMultiRow=\"false\" name=\"UseExistingFlowConfiguration\" ordinal=\"0\"><DataShape><FieldDefinitions><FieldDefinition aspect.friendlyName=\"Connector Name\" baseType=\"STRING\" description=\"Connector Name\" name=\"connectorName\" ordinal=\"0\"></FieldDefinition><FieldDefinition aspect.friendlyName=\"Ignore SSL Errors\" baseType=\"BOOLEAN\" description=\"Ignore SSL errors\" name=\"ignoreSSLErrors\" ordinal=\"1\"></FieldDefinition></FieldDefinitions></DataShape><Rows><Row><connectorName></connectorName><ignoreSSLErrors>false</ignoreSSLErrors></Row></Rows></ConfigurationTable>\n                <ConfigurationTable dataShapeName=\"\" description=\"Content Source Connection information\" isMultiRow=\"false\" name=\"ContentSourceConnectionInformation\" ordinal=\"1\"><DataShape><FieldDefinitions><FieldDefinition aspect.defaultValue=\"none\" aspect.friendlyName=\"AuthenticationType\" aspect.selectOptions=\"none:none|basic:basic|SSO:SSO|OAuthM2M:OAuthM2M|SessionUser:SessionUser\" baseType=\"STRING\" description=\"Authentication type\" name=\"authenticationType\" ordinal=\"4\"></FieldDefinition><FieldDefinition aspect.friendlyName=\"AuthorizationServerID\" baseType=\"STRING\" description=\"Authorization Server ID\" name=\"authorizationServerId\" ordinal=\"7\"></FieldDefinition><FieldDefinition aspect.friendlyName=\"Dynamic Content\" baseType=\"BOOLEAN\" description=\"Display dynamic content from external URL\" name=\"dynamicContent\" ordinal=\"0\"></FieldDefinition><FieldDefinition aspect.friendlyName=\"Headers To Forward on POSTs\" baseType=\"STRING\" description=\"Headers to forward on dynamic content using POST\" name=\"HeadersToForward\" ordinal=\"9\"></FieldDefinition><FieldDefinition aspect.friendlyName=\"Ignore SSL Errors\" baseType=\"BOOLEAN\" description=\"Ignore SSL errors\" name=\"ignoreSSLErrors\" ordinal=\"2\"></FieldDefinition><FieldDefinition aspect.friendlyName=\"DoNotCache-CacheControl-ResponseHeader\" baseType=\"BOOLEAN\" description=\"enable No-Cache Header to initiate a clean load dynamic content\" name=\"noCacheHeaderCheckbox\" ordinal=\"10\"></FieldDefinition><FieldDefinition aspect.friendlyName=\"AuthPassword\" baseType=\"PASSWORD\" description=\"Password for basic authentication\" name=\"password\" ordinal=\"6\"></FieldDefinition><FieldDefinition aspect.friendlyName=\"TestConnectionURL\" baseType=\"STRING\" description=\"The URL to test the connection\" name=\"testUrl\" ordinal=\"8\"></FieldDefinition><FieldDefinition aspect.defaultValue=\"60.0\" aspect.friendlyName=\"Timeout\" baseType=\"NUMBER\" description=\"Timeout\" name=\"timeout\" ordinal=\"3\"></FieldDefinition><FieldDefinition aspect.friendlyName=\"URL\" baseType=\"STRING\" description=\"The URL to the content source\" name=\"url\" ordinal=\"1\"></FieldDefinition><FieldDefinition aspect.friendlyName=\"AuthUsername\" baseType=\"STRING\" description=\"Username for basic authentication\" name=\"userId\" ordinal=\"5\"></FieldDefinition></FieldDefinitions></DataShape><Rows><Row><HeadersToForward></HeadersToForward><authenticationType><![CDATA[none]]></authenticationType><authorizationServerId></authorizationServerId><dynamicContent>false</dynamicContent><ignoreSSLErrors>false</ignoreSSLErrors><noCacheHeaderCheckbox>false</noCacheHeaderCheckbox><password></password><testUrl></testUrl><timeout>60.0</timeout><url></url><userId></userId></Row></Rows></ConfigurationTable>\n                <ConfigurationTable dataShapeName=\"\" description=\"List of authorization server scopes\" isMultiRow=\"true\" name=\"AuthorizationServerScopesSettings\" ordinal=\"2\"><DataShape><FieldDefinitions><FieldDefinition baseType=\"STRING\" description=\"A single scope for the authorization server.\" name=\"scope\" ordinal=\"0\"></FieldDefinition></FieldDefinitions></DataShape><Rows></Rows></ConfigurationTable>\n                <ConfigurationTable dataShapeName=\"\" description=\"SSL Connection Configuration\" isMultiRow=\"false\" name=\"SSLConnectionConfiguration\" ordinal=\"3\"><DataShape><FieldDefinitions><FieldDefinition aspect.friendlyName=\"SSLKeyStorePassword\" baseType=\"PASSWORD\" description=\"SSL Keystore Password\" name=\"SSLKeyStorePassword\" ordinal=\"2\"></FieldDefinition><FieldDefinition aspect.friendlyName=\"SSLKeyStorePath\" baseType=\"STRING\" description=\"Absolute path to the client SSL keystore\" name=\"SSLKeyStorePath\" ordinal=\"1\"></FieldDefinition><FieldDefinition aspect.friendlyName=\"SSLTrustStorePassword\" baseType=\"PASSWORD\" description=\"SSL Truststore Password\" name=\"SSLTrustStorePassword\" ordinal=\"4\"></FieldDefinition><FieldDefinition aspect.friendlyName=\"SSLTrustStorePath\" baseType=\"STRING\" description=\"Absolute path to the SSL client truststore\" name=\"SSLTrustStorePath\" ordinal=\"3\"></FieldDefinition></FieldDefinitions></DataShape><Rows><Row><SSLKeyStorePassword></SSLKeyStorePassword><SSLKeyStorePath></SSLKeyStorePath><SSLTrustStorePassword></SSLTrustStorePassword><SSLTrustStorePath></SSLTrustStorePath></Row></Rows></ConfigurationTable>\n                <ConfigurationTable dataShapeName=\"\" description=\"Session User Configuration\" isMultiRow=\"false\" name=\"SessionUserConfigurationTable\" ordinal=\"4\"><DataShape><FieldDefinitions><FieldDefinition aspect.friendlyName=\"SessionUserQueryParameter\" baseType=\"STRING\" description=\"Session User Query Parameter\" name=\"SessionUserQueryParameter\" ordinal=\"1\"></FieldDefinition></FieldDefinitions></DataShape><Rows><Row><SessionUserQueryParameter></SessionUserQueryParameter></Row></Rows></ConfigurationTable>\n            </ConfigurationTables>";
+    let common_tail = common_tail(&[]);
+    let common = common_tail
+        .strip_suffix("\n            <ConfigurationTables></ConfigurationTables>")
+        .unwrap();
+    format!("{}        <MediaEntity description=\"{}\" documentationContent=\"\" homeMashup=\"\" name=\"{}\" projectName=\"{project}\" tags=\"\">\n{common}\n{tables}\n            <content>{}</content>\n        </MediaEntity>\n{}", header("MediaEntities"), escape(&request.description), escape(&request.name), cdata(&media_content(request.file.as_ref().expect("validated media")).expect("validated media")), footer("MediaEntities"))
+}
+
+fn style_content(request: &NewRequest) -> String {
+    jackson_pretty(&style_value(request))
+}
+
+fn style_value(request: &NewRequest) -> Value {
+    let value = |option: &Option<String>| {
+        option
+            .as_deref()
+            .map(|item| color(item).expect("validated color"))
+            .unwrap_or_default()
+    };
+    json!({
+        "backgroundColor": value(&request.background),
+        "displayString": request.display_string.as_deref().unwrap_or(""),
+        "fontEmphasisBold": request.bold,
+        "fontEmphasisItalic": request.italic,
+        "fontEmphasisUnderline": request.underline,
+        "foregroundColor": value(&request.foreground),
+        "image": request.image.as_deref().unwrap_or(""),
+        "lineColor": value(&request.line_color),
+        "lineStyle": request.line_style.as_deref().unwrap_or("solid"),
+        "lineThickness": serde_json::from_str::<Value>(
+            request.line_thickness.as_deref().unwrap_or("1"),
+        )
+        .expect("validated line thickness"),
+        "secondaryBackgroundColor": value(&request.secondary_background),
+        "textSize": request.text_size.as_deref().unwrap_or("normal"),
+    })
+}
+
+/// Render JSON as the layout written by ThingWorx's Jackson exporter.
+///
+/// `serde_json` preserves object insertion order here, retaining a source theme's custom keys.
+fn jackson_pretty(value: &Value) -> String {
+    fn write(value: &Value, level: usize, out: &mut String) {
+        match value {
+            Value::Object(object) => {
+                out.push('{');
+                if !object.is_empty() {
+                    out.push('\n');
+                    for (index, (key, value)) in object.iter().enumerate() {
+                        out.push_str(&"  ".repeat(level + 1));
+                        out.push_str(&serde_json::to_string(key).unwrap());
+                        out.push_str(" : ");
+                        write(value, level + 1, out);
+                        if index + 1 != object.len() {
+                            out.push(',');
+                        }
+                        out.push('\n');
+                    }
+                    out.push_str(&"  ".repeat(level));
+                }
+                out.push('}');
+            }
+            Value::Array(array) if array.is_empty() => out.push_str("[ ]"),
+            Value::Array(array) => {
+                out.push_str("[ ");
+                for (index, value) in array.iter().enumerate() {
+                    write(value, level, out);
+                    if index + 1 != array.len() {
+                        out.push_str(", ");
+                    }
+                }
+                out.push_str(" ]");
+            }
+            value => out.push_str(&serde_json::to_string(value).unwrap()),
+        }
+    }
+
+    let mut out = String::new();
+    write(value, 0, &mut out);
+    out
+}
+
+fn color(value: &str) -> Result<String, NewError> {
+    if let Some(hex) = value.strip_prefix('#') {
+        if hex.len() == 6 && hex.bytes().all(|byte| byte.is_ascii_hexdigit()) {
+            return Ok(format!(
+                "rgba({},{},{},1)",
+                u8::from_str_radix(&hex[0..2], 16).unwrap(),
+                u8::from_str_radix(&hex[2..4], 16).unwrap(),
+                u8::from_str_radix(&hex[4..6], 16).unwrap()
+            ));
+        }
+    }
+    let parts: Vec<_> = value
+        .strip_prefix("rgba(")
+        .and_then(|v| v.strip_suffix(')'))
+        .map(|v| v.split(',').collect())
+        .unwrap_or_default();
+    if parts.len() == 4 && parts.iter().all(|v| v.trim().parse::<f64>().is_ok()) {
+        return Ok(value.to_string());
+    }
+    Err(NewError::Invalid(format!(
+        "{value:?} is not a #rrggbb or rgba(r,g,b,a) color"
+    )))
+}
+
+fn media_content(path: &Path) -> Result<String, NewError> {
+    let bytes = std::fs::read(path)
+        .map_err(|error| NewError::Invalid(format!("{}: {error}", path.display())))?;
+    if bytes.len() > 10 * 1024 * 1024 {
+        return Err(NewError::Invalid(
+            "--file is over the 10 MB media limit".into(),
+        ));
+    }
+    let svg = bytes
+        .iter()
+        .skip_while(|b| b.is_ascii_whitespace())
+        .copied()
+        .collect::<Vec<_>>()
+        .starts_with(b"<svg");
+    let image = bytes.starts_with(b"\x89PNG\r\n\x1a\n")
+        || bytes.starts_with(b"\xff\xd8\xff")
+        || bytes.starts_with(b"GIF87a")
+        || bytes.starts_with(b"GIF89a")
+        || svg;
+    if !image {
+        return Err(NewError::Invalid(
+            "--file must contain a PNG, JPEG, GIF, or SVG image".into(),
+        ));
+    }
+    Ok(base64::engine::general_purpose::STANDARD.encode(bytes))
+}
+
+fn validate_states(request: &NewRequest) -> Result<(), NewError> {
+    let state_type = request
+        .state_type
+        .as_deref()
+        .ok_or_else(|| NewError::Invalid("state needs --type numeric|string".into()))?;
+    if !["numeric", "string"].contains(&state_type) {
+        return Err(NewError::Invalid("--type must be numeric or string".into()));
+    }
+    let mut catch_all = false;
+    for spec in &request.states {
+        let head = spec.split(';').next().unwrap();
+        let comparator = ["<=", ">=", "==", "<", ">", "*"]
+            .into_iter()
+            .find(|prefix| head.starts_with(prefix))
+            .ok_or_else(|| NewError::Invalid(format!("--state {spec:?} has no comparator")))?;
+        if state_type == "string" && !["==", "*"].contains(&comparator) {
+            return Err(NewError::Invalid(format!(
+                "{comparator} is not allowed for string states"
+            )));
+        }
+        if comparator == "*" {
+            if catch_all {
+                return Err(NewError::Invalid(
+                    "a state definition has more than one catch-all".into(),
+                ));
+            }
+            catch_all = true;
+            if !head.starts_with("*=") {
+                return Err(NewError::Invalid(
+                    "a catch-all state must be *=label".into(),
+                ));
+            }
+        } else {
+            let (value, label) = head[comparator.len()..]
+                .split_once('=')
+                .ok_or_else(|| NewError::Invalid(format!("--state {spec:?} must have =label")))?;
+            if value.is_empty() || label.is_empty() {
+                return Err(NewError::Invalid(format!(
+                    "--state {spec:?} must have a value and label"
+                )));
+            }
+            if state_type == "numeric" && value.parse::<f64>().is_err() {
+                return Err(NewError::Invalid(format!(
+                    "numeric state value {value:?} is not a number"
+                )));
+            }
+        }
+        for style in spec.split(';').skip(1) {
+            let (key, value) = style.split_once(':').ok_or_else(|| {
+                NewError::Invalid(format!("state style {style:?} must be key:value"))
+            })?;
+            match key {
+                "background" | "foreground" | "secondary-background" | "line-color" => {
+                    color(value)?;
+                }
+                "line-style" => {
+                    if !["solid", "dashed", "dotted", "none"].contains(&value) {
+                        return Err(NewError::Invalid(
+                            "state line-style must be solid, dashed, dotted, or none".into(),
+                        ));
+                    }
+                }
+                "line-thickness" => {
+                    value.parse::<f64>().map_err(|_| {
+                        NewError::Invalid("state line-thickness must be a number".into())
+                    })?;
+                }
+                "bold" | "italic" | "underline" => {
+                    if !["true", "false"].contains(&value) {
+                        return Err(NewError::Invalid(format!(
+                            "state {key} must be true or false"
+                        )));
+                    }
+                }
+                "text-size" => {
+                    if !["xsmall", "small", "normal", "large", "xlarge", "xxlarge"].contains(&value)
+                    {
+                        return Err(NewError::Invalid("state text-size is not known".into()));
+                    }
+                }
+                "image" => {}
+                _ => return Err(NewError::Invalid(format!("unknown state style {key}"))),
+            }
+        }
+    }
+    Ok(())
+}
+
+fn state_comparator(head: &str) -> (&str, &str) {
+    for comparator in ["<=", ">=", "==", "<", ">"] {
+        if let Some(rest) = head.strip_prefix(comparator) {
+            return (comparator, rest);
+        }
+    }
+    ("*", "")
+}
+
+fn apply_state_style(style: &mut NewRequest, key: &str, value: &str) {
+    match key {
+        "background" => style.background = Some(value.into()),
+        "foreground" => style.foreground = Some(value.into()),
+        "secondary-background" => style.secondary_background = Some(value.into()),
+        "line-color" => style.line_color = Some(value.into()),
+        "line-style" => style.line_style = Some(value.into()),
+        "line-thickness" => style.line_thickness = Some(value.into()),
+        "bold" => style.bold = value == "true",
+        "italic" => style.italic = value == "true",
+        "underline" => style.underline = value == "true",
+        "text-size" => style.text_size = Some(value.into()),
+        "image" => style.image = Some(value.into()),
+        _ => unreachable!("state styles are validated before rendering"),
+    }
+}
+
+fn state_content(request: &NewRequest) -> String {
+    let definitions: Vec<Value> = request
+        .states
+        .iter()
+        .map(|spec| {
+            let (head, styles) = spec.split_once(';').unwrap_or((spec, ""));
+            let (comparator, rest) = state_comparator(head);
+            let (value, label) = if comparator == "*" {
+                (
+                    "",
+                    head.strip_prefix("*=").expect("validated catch-all state"),
+                )
+            } else {
+                rest.split_once('=').expect("validated state")
+            };
+            let mut style = request.clone();
+            for item in styles.split(';').filter(|item| !item.is_empty()) {
+                let (key, value) = item.split_once(':').expect("validated state style");
+                apply_state_style(&mut style, key, value);
+            }
+            let mut definition = serde_json::Map::new();
+            if request.state_type.as_deref() == Some("numeric") && comparator != "*" {
+                definition.insert("comparator".into(), Value::String(comparator.into()));
+            }
+            definition.insert("defaultStyleDefinition".into(), style_value(&style));
+            definition.insert("defaultValue".into(), Value::String(value.into()));
+            definition.insert("description".into(), Value::String(String::new()));
+            definition.insert("displayString".into(), Value::String(label.into()));
+            definition.insert("name".into(), Value::String(label.into()));
+            Value::Object(definition)
+        })
+        .collect();
+    jackson_pretty(&json!({
+        "stateDefinitions": definitions,
+        "stateType": request.state_type.as_deref().unwrap(),
+    }))
+}
+
+fn menu_xml(request: &NewRequest, project: &str) -> String {
+    let label = request.label.as_deref().unwrap_or("");
+    let root_title = if label.is_empty() {
+        String::new()
+    } else {
+        cdata(label)
+    };
+    let items: String = request
+        .items
+        .iter()
+        .enumerate()
+        .map(|(index, item)| {
+            let (title, target) = item.split_once('=').expect("validated menu item");
+            format!("\n                <MenuItem description=\"\" imageURL=\"\" isDefault=\"{}\" linkDestination=\"{}\" linkTarget=\"Self\" linkType=\"Mashup\" title=\"{}\">\n                    <GroupReferences><Members></Members></GroupReferences>\n                </MenuItem>", request.default && index == 0, escape(target), escape(title))
+        })
+        .collect();
+    let rows: String = request
+        .items
+        .iter()
+        .enumerate()
+        .map(|(index, item)| {
+            let (title, target) = item.split_once('=').expect("validated menu item");
+            format!("\n                    <Row>\n                        <description></description>\n                        <imageURL></imageURL>\n                        <isDefault>{}</isDefault>\n                        <linkDestination>{}</linkDestination>\n                        <linkTarget><![CDATA[Self]]></linkTarget>\n                        <linkType><![CDATA[Mashup]]></linkType>\n                        <menuId><![CDATA[{}_{}]]></menuId>\n                        <parentMenuId><![CDATA[{}]]></parentMenuId>\n                        <title>{}</title>\n                    </Row>", request.default && index == 0, cdata(target), request.name, index, request.name, cdata(title))
+        })
+        .collect();
+    format!("{}        <Menu\n         description=\"{}\"\n         documentationContent=\"\"\n         homeMashup=\"\"\n         imageURL=\"\"\n         menuLabel=\"{}\"\n         name=\"{}\"\n         projectName=\"{project}\"\n         tags=\"\">\n{}\n            <MenuItems>{items}\n            </MenuItems>\n            <GroupReferences><Members></Members></GroupReferences>\n            <effectiveMenu>\n                <DataShape>\n                    <FieldDefinitions>\n                        <FieldDefinition baseType=\"STRING\" description=\"Description for tooltip\" name=\"description\" ordinal=\"0\"></FieldDefinition>\n                        <FieldDefinition baseType=\"IMAGELINK\" description=\"Optional image URL\" name=\"imageURL\" ordinal=\"0\"></FieldDefinition>\n                        <FieldDefinition aspect.defaultValue=\"false\" baseType=\"BOOLEAN\" description=\"Is a default menu item\" name=\"isDefault\" ordinal=\"0\"></FieldDefinition>
+                        <FieldDefinition aspect.defaultValue=\"false\" baseType=\"BOOLEAN\" description=\"Is disabled\" name=\"isDisabled\" ordinal=\"0\"></FieldDefinition>
+                        <FieldDefinition aspect.defaultValue=\"false\" baseType=\"BOOLEAN\" description=\"Is hidden\" name=\"isHidden\" ordinal=\"0\"></FieldDefinition>\n                        <FieldDefinition aspect.isPrimaryKey=\"true\" baseType=\"STRING\" description=\"Link destination\" name=\"linkDestination\" ordinal=\"0\"></FieldDefinition>\n                        <FieldDefinition baseType=\"STRING\" description=\"Link target (Popup, Mashup, New)\" name=\"linkTarget\" ordinal=\"0\"></FieldDefinition>\n                        <FieldDefinition aspect.isPrimaryKey=\"true\" baseType=\"STRING\" description=\"Link type (Mashup, Hyperlink, Logout, or Menu)\" name=\"linkType\" ordinal=\"0\"></FieldDefinition>\n                        <FieldDefinition baseType=\"STRING\" description=\"Menu entry id\" name=\"menuId\" ordinal=\"0\"></FieldDefinition>\n                        <FieldDefinition baseType=\"STRING\" description=\"Menu entry parent id\" name=\"parentMenuId\" ordinal=\"0\"></FieldDefinition>\n                        <FieldDefinition baseType=\"STRING\" description=\"Menu entry title\" name=\"title\" ordinal=\"0\"></FieldDefinition>
+                        <FieldDefinition baseType=\"STRING\" description=\"An optional field that specifies the tooltip text for the menu item\" name=\"tooltip\" ordinal=\"0\"></FieldDefinition>
+                        <FieldDefinition baseType=\"IMAGELINK\" description=\"An optional field that specifies the tooltip icon for the menu item\" name=\"tooltipIcon\" ordinal=\"0\"></FieldDefinition>\n                    </FieldDefinitions>\n                </DataShape>\n                <Rows>\n                    <Row>\n                        <description></description>\n                        <imageURL></imageURL>\n                        <linkPriority>0.0</linkPriority>\n                        <linkType><![CDATA[Menu]]></linkType>\n                        <menuId><![CDATA[{}]]></menuId>\n                        <parentMenuId></parentMenuId>\n                        <title>{}</title>\n                    </Row>{rows}\n                </Rows>\n            </effectiveMenu>\n        </Menu>\n{}", header("Menus"), escape(&request.description), escape(label), escape(&request.name), common_tail(&[]), request.name, root_title, footer("Menus"))
+}
+
+fn theme_content(request: &NewRequest) -> String {
+    let content = request
+        .theme_content
+        .clone()
+        .unwrap_or_else(|| "{\"props\": [], \"version\": \"0.1\"}".into());
+    let mut value: Value = serde_json::from_str(&content).expect("validated theme JSON");
+    let props = value["props"].as_array_mut().expect("theme props");
+    for prop in &request.props {
+        let (name, value) = prop.split_once('=').expect("validated theme property");
+        if let Some(existing) = props
+            .iter_mut()
+            .find(|item| item.get("name").and_then(Value::as_str) == Some(name))
+        {
+            existing["value"] = Value::String(value.into());
+        } else {
+            props.push(json!({"name": name, "value": value}));
+        }
+    }
+    jackson_pretty(&value)
+}
+
 fn make_xml(
     request: &NewRequest,
     project: &str,
@@ -336,6 +881,59 @@ fn make_xml(
     let name = escape(&request.name);
     let common = common_tail(visibility);
     match request.kind {
+        Kind::DataTable => data_thing(
+            request,
+            project,
+            "DataTable",
+            data_thing_settings(
+                "DataTable",
+                request.data_shape.as_deref(),
+                fields,
+                &request
+                    .indexes
+                    .iter()
+                    .map(|value| {
+                        let (name, fields) = value.split_once('=').expect("validated index");
+                        (name.to_string(), fields.to_string())
+                    })
+                    .collect::<Vec<_>>(),
+            ),
+        ),
+        Kind::Stream => data_thing(
+            request,
+            project,
+            "Stream",
+            data_thing_settings("Stream", request.data_shape.as_deref(), fields, &[]),
+        ),
+        Kind::ValueStream => data_thing(
+            request,
+            project,
+            "ValueStream",
+            data_thing_settings("ValueStream", None, &[], &[]),
+        ),
+        Kind::Media => media_xml(request, project),
+        Kind::Style => plain_entity(
+            "StyleDefinitions",
+            "StyleDefinition",
+            request,
+            project,
+            &format!("            <content>{}</content>", cdata(&style_content(request))),
+        ),
+        Kind::State => plain_entity(
+            "StateDefinitions",
+            "StateDefinition",
+            request,
+            project,
+            &format!("            <content>{}</content>", cdata(&state_content(request))),
+        ),
+        Kind::Menu => menu_xml(request, project),
+        Kind::Theme => plain_entity(
+            "StyleThemes",
+            "StyleTheme",
+            request,
+            project,
+            &format!("            <content>{}</content>\n            <preview></preview>", cdata(&theme_content(request))),
+        ),
         Kind::ThingShape => format!("{}        <ThingShape\n         aspect.isSystemObject=\"false\"\n         className=\"\"\n         description=\"{desc}\"\n         documentationContent=\"\"\n         homeMashup=\"\"\n         name=\"{name}\"\n         projectName=\"{project}\"\n         tags=\"\">\n            <PropertyDefinitions></PropertyDefinitions>\n            <ServiceDefinitions></ServiceDefinitions>\n            <EventDefinitions></EventDefinitions>\n            <ServiceMappings></ServiceMappings>\n            <ServiceImplementations></ServiceImplementations>\n            <Subscriptions></Subscriptions>\n{common}\n            <PropertyBindings></PropertyBindings>\n            <RemotePropertyBindings></RemotePropertyBindings>\n            <RemoteServiceBindings></RemoteServiceBindings>\n            <RemoteEventBindings></RemoteEventBindings>\n            <AlertConfigurations></AlertConfigurations>\n            <InstanceRunTimePermissions></InstanceRunTimePermissions>\n        </ThingShape>\n{}", header("ThingShapes"), footer("ThingShapes")),
         Kind::DataShape => {
             let field_xml: String = fields.iter().map(|field| format!("                <FieldDefinition\n                 aspect.isPrimaryKey=\"{}\"\n                 baseType=\"{}\"\n                 description=\"{}\"\n                 name=\"{}\"\n                 ordinal=\"{}\"></FieldDefinition>\n", if field.aspects.get("isPrimaryKey") == Some(&Aspect::Bool(true)) { "true" } else { "false" }, field.base_type, escape(&field.description), escape(&field.name), field.ordinal)).collect();
@@ -416,10 +1014,143 @@ pub fn plan(solution: &Solution, request: &NewRequest) -> Result<Plan, NewError>
             )));
         }
     }
-    let fields = if request.kind == Kind::DataShape {
-        parse_fields(&request.fields)?
-    } else {
-        Vec::new()
+    if matches!(request.kind, Kind::DataTable | Kind::Stream) {
+        let shape = request
+            .data_shape
+            .as_deref()
+            .filter(|value| !value.is_empty())
+            .ok_or_else(|| {
+                NewError::Invalid(format!("{} needs --data-shape", request.kind.word()))
+            })?;
+        let shape_file = entity_file(solution, "DataShapes", shape)
+            .ok_or_else(|| NewError::Unknown(format!("no DataShape {shape} in the solution")))?;
+        let fields = datashape::extract(&std::fs::read(&shape_file.path).map_err(|error| {
+            NewError::Invalid(format!("{}: {error}", shape_file.path.display()))
+        })?)
+        .map_err(|error| NewError::Invalid(error.to_string()))?;
+        let names: BTreeSet<_> = fields.iter().map(|field| field.name.as_str()).collect();
+        let mut index_names = BTreeSet::new();
+        for index in &request.indexes {
+            let (name, values) = index
+                .split_once('=')
+                .filter(|(name, values)| !name.is_empty() && !values.is_empty())
+                .ok_or_else(|| {
+                    NewError::Invalid(format!("--index {index:?} must be name=field1,field2"))
+                })?;
+            if !index_names.insert(name) {
+                return Err(NewError::Invalid(format!(
+                    "index {name} is listed more than once"
+                )));
+            }
+            for field in values.split(',') {
+                if !names.contains(field) {
+                    return Err(NewError::Unknown(format!(
+                        "DataShape {shape} has no field {field} for index {name}"
+                    )));
+                }
+            }
+        }
+    } else if !request.indexes.is_empty() {
+        return Err(NewError::Invalid("--index is only for data-table".into()));
+    }
+    if request.kind == Kind::Media {
+        let path = request
+            .file
+            .as_deref()
+            .ok_or_else(|| NewError::Invalid("media needs --file".into()))?;
+        media_content(path)?;
+    }
+    if matches!(request.kind, Kind::Style | Kind::State) {
+        for value in [
+            &request.background,
+            &request.foreground,
+            &request.secondary_background,
+            &request.line_color,
+        ]
+        .into_iter()
+        .flatten()
+        {
+            color(value)?;
+        }
+        if let Some(value) = &request.line_style {
+            if !["solid", "dashed", "dotted", "none"].contains(&value.as_str()) {
+                return Err(NewError::Invalid(
+                    "--line-style must be solid, dashed, dotted, or none".into(),
+                ));
+            }
+        }
+        if let Some(value) = &request.line_thickness {
+            value
+                .parse::<f64>()
+                .ok()
+                .filter(|value| *value >= 0.0)
+                .ok_or_else(|| {
+                    NewError::Invalid("--line-thickness must be a non-negative number".into())
+                })?;
+        }
+        if let Some(value) = &request.text_size {
+            if !["xsmall", "small", "normal", "large", "xlarge", "xxlarge"]
+                .contains(&value.as_str())
+            {
+                return Err(NewError::Invalid(
+                    "--text-size must be xsmall, small, normal, large, xlarge, or xxlarge".into(),
+                ));
+            }
+        }
+        if let Some(image) = &request.image {
+            if !entity_exists(solution, "MediaEntities", image) {
+                return Err(NewError::Unknown(format!(
+                    "no MediaEntity {image} in the solution or platform cache"
+                )));
+            }
+        }
+    }
+    if request.kind == Kind::State {
+        validate_states(request)?;
+    }
+    if request.kind == Kind::Menu && request.items.is_empty() {
+        return Err(NewError::Invalid(
+            "menu needs at least one --item Title=Mashup".into(),
+        ));
+    }
+    for item in &request.items {
+        if item
+            .split_once('=')
+            .is_none_or(|(title, target)| title.is_empty() || target.is_empty())
+        {
+            return Err(NewError::Invalid(format!(
+                "--item {item:?} must be Title=Mashup"
+            )));
+        }
+    }
+    if request.kind == Kind::Theme {
+        for prop in &request.props {
+            if prop.split_once('=').is_none_or(|(name, _)| name.is_empty()) {
+                return Err(NewError::Invalid(format!(
+                    "--prop {prop:?} must be name=value"
+                )));
+            }
+        }
+    }
+    let fields = match request.kind {
+        Kind::DataShape => parse_fields(&request.fields)?,
+        // A data table or stream carries its DataShape's own fields; the server leaves out
+        // inherited ones, and so does its primary-key check.
+        Kind::DataTable | Kind::Stream => {
+            let shape = request.data_shape.as_deref().unwrap_or("");
+            let fields = shape_fields(solution, shape)?;
+            if request.kind == Kind::DataTable
+                && !fields
+                    .iter()
+                    .any(|field| field.aspects.get("isPrimaryKey") == Some(&Aspect::Bool(true)))
+            {
+                return Err(NewError::Invalid(format!(
+                    "DataShape {shape} has no primary key of its own, which a data table needs (an inherited one does not count)"
+                )));
+            }
+            fields
+        }
+        _ => Vec::new(),
     };
     let duration = if request.kind == Kind::Timer {
         Some(parse_duration(request.every.as_deref().unwrap_or("60s"))?)
@@ -460,8 +1191,51 @@ pub fn plan(solution: &Solution, request: &NewRequest) -> Result<Plan, NewError>
             ));
         }
     }
+    let mut rendered = request.clone();
+    if request.kind == Kind::Theme {
+        if let Some(from) = &request.from {
+            let source = entity_file(solution, "StyleThemes", from).ok_or_else(|| {
+                NewError::Unknown(format!("no StyleTheme {from} in the solution"))
+            })?;
+            rendered.theme_content = Some(entity_content(&source.path)?);
+            serde_json::from_str::<Value>(rendered.theme_content.as_deref().unwrap()).map_err(
+                |error| {
+                    NewError::Invalid(format!("StyleTheme {from} content is not JSON: {error}"))
+                },
+            )?;
+        }
+    }
+    for value in [
+        rendered.run_as.as_ref(),
+        script.as_ref(),
+        rendered.data_shape.as_ref(),
+        rendered.display_string.as_ref(),
+        rendered.label.as_ref(),
+        rendered.theme_content.as_ref(),
+    ]
+    .into_iter()
+    .flatten()
+    {
+        if value.contains("]]>") {
+            return Err(NewError::Invalid(
+                "CDATA-bound values cannot contain `]]>`".into(),
+            ));
+        }
+    }
+    for value in rendered
+        .states
+        .iter()
+        .chain(rendered.items.iter())
+        .chain(rendered.props.iter())
+    {
+        if value.contains("]]>") {
+            return Err(NewError::Invalid(
+                "CDATA-bound values cannot contain `]]>`".into(),
+            ));
+        }
+    }
     let entity = make_xml(
-        request,
+        &rendered,
         &project.name,
         &visibility,
         &fields,
@@ -474,6 +1248,19 @@ pub fn plan(solution: &Solution, request: &NewRequest) -> Result<Plan, NewError>
         vec![(
             solution.src_root().join(&request.name).join("fields.json"),
             datashape::to_sidecar(&fields).into_bytes(),
+        )]
+    } else if request.kind == Kind::DataTable {
+        vec![(
+            solution
+                .src_root()
+                .join(&request.name)
+                .join("datatable.json"),
+            datatable::to_sidecar(
+                &datatable::extract(&entity)
+                    .map_err(|error| NewError::Invalid(error.to_string()))?,
+            )
+            .map_err(|error| NewError::Invalid(error.to_string()))?
+            .into_bytes(),
         )]
     } else {
         Vec::new()
@@ -566,6 +1353,29 @@ mod tests {
             disabled: false,
             then: None,
             script: None,
+            data_shape: None,
+            indexes: Vec::new(),
+            file: None,
+            background: None,
+            foreground: None,
+            secondary_background: None,
+            line_color: None,
+            line_style: None,
+            line_thickness: None,
+            bold: false,
+            italic: false,
+            underline: false,
+            text_size: None,
+            image: None,
+            display_string: None,
+            state_type: None,
+            states: Vec::new(),
+            items: Vec::new(),
+            default: false,
+            label: None,
+            from: None,
+            props: Vec::new(),
+            theme_content: None,
         }
     }
 
@@ -656,6 +1466,278 @@ mod tests {
         assert!(std::str::from_utf8(&plans[5].entity)
             .unwrap()
             .contains("<![CDATA[0 0 2 * * ?]]>"));
+    }
+
+    #[test]
+    fn new_kind_plans_have_101_export_goldens() {
+        let (_dir, solution) = fixture();
+        std::fs::write(solution.root.join("app/DataShapes/Acme.Orders.Row_DS.xml"), "<Entities><DataShapes><DataShape name=\"Acme.Orders.Row_DS\"><FieldDefinitions><FieldDefinition aspect.isPrimaryKey=\"true\" name=\"id\" baseType=\"STRING\"/></FieldDefinitions></DataShape></DataShapes></Entities>").unwrap();
+        let image = solution.root.join("pixel.png");
+        std::fs::write(
+            &image,
+            base64::engine::general_purpose::STANDARD
+                .decode("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGNg+A8AAAEBAQBcDQotAAAAAElFTkSuQmCC")
+                .unwrap(),
+        )
+        .unwrap();
+        let encoded = media_content(&image).unwrap();
+        assert!(base64::engine::general_purpose::STANDARD
+            .decode(encoded)
+            .unwrap()
+            .starts_with(b"\x89PNG\r\n\x1a\n"));
+        let mut table = request(Kind::DataTable, "Acme.Orders.Rows_DT");
+        table.data_shape = Some("Acme.Orders.Row_DS".into());
+        table.indexes.push("byId=id".into());
+        let mut stream = request(Kind::Stream, "Acme.Orders.Events_ST");
+        stream.data_shape = Some("Acme.Orders.Row_DS".into());
+        let value_stream = request(Kind::ValueStream, "Acme.Orders.Values_VS");
+        let mut media = request(Kind::Media, "Acme.Orders.Pixel_MD");
+        media.file = Some(image);
+        let mut style = request(Kind::Style, "Acme.Orders.Good_SD");
+        style.background = Some("#66cc33".into());
+        style.foreground = Some("#000000".into());
+        style.bold = true;
+        let mut state = request(Kind::State, "Acme.Orders.Speed_SD");
+        state.state_type = Some("numeric".into());
+        state.states = vec![
+            "<2000=Normal;background:#66cc33".into(),
+            "<3000=Fast;background:#f9ef6b".into(),
+            "*=Overload;background:#ff0000".into(),
+        ];
+        let mut menu = request(Kind::Menu, "Acme.Orders.Main_MN");
+        menu.items = vec![
+            "Home=Acme.Orders.Home_MU".into(),
+            "Orders=Acme.Orders.Orders_MU".into(),
+        ];
+        menu.default = true;
+        let mut theme = request(Kind::Theme, "Acme.Orders.Theme_TH");
+        theme
+            .props
+            .push("e-button-primary-fontcolor=#ffffff".into());
+        for (name, request) in [
+            ("data-table", table),
+            ("stream", stream),
+            ("value-stream", value_stream),
+            ("media", media),
+            ("style", style),
+            ("state", state),
+            ("menu", menu),
+            ("theme", theme),
+        ] {
+            assert_golden(name, &plan(&solution, &request).unwrap().entity);
+        }
+    }
+
+    #[test]
+    fn state_and_theme_content_use_the_exporter_layout() {
+        let mut state = request(Kind::State, "Acme.Orders.Status_SD");
+        state.state_type = Some("string".into());
+        state.states = vec!["==Open=Open".into(), "*=Other".into()];
+        let content = state_content(&state);
+        let definitions = serde_json::from_str::<Value>(&content).unwrap();
+        assert_eq!(definitions["stateDefinitions"][0]["defaultValue"], "Open");
+        assert!(definitions["stateDefinitions"][0]
+            .get("comparator")
+            .is_none());
+        assert!(definitions["stateDefinitions"][1]
+            .get("comparator")
+            .is_none());
+        assert!(content.contains("\"stateDefinitions\" : [ {"));
+        assert!(content.contains("      \"backgroundColor\" : \"\""));
+
+        let (_dir, solution) = fixture();
+        std::fs::create_dir_all(solution.root.join("app/StyleThemes")).unwrap();
+        std::fs::write(
+            solution
+                .root
+                .join("app/StyleThemes/Acme.Orders.Source_TH.xml"),
+            "<Entities><StyleThemes><StyleTheme name=\"Acme.Orders.Source_TH\" projectName=\"Acme.Orders\"><content><![CDATA[{\"CustomCss\":\".acme{}\",\"props\":[],\"version\":\"0.1\"}]]></content></StyleTheme></StyleThemes></Entities>",
+        )
+        .unwrap();
+        let mut theme = request(Kind::Theme, "Acme.Orders.Copy_TH");
+        theme.from = Some("Acme.Orders.Source_TH".into());
+        let entity = String::from_utf8(plan(&solution, &theme).unwrap().entity).unwrap();
+        assert!(entity
+            .contains("\"CustomCss\" : \".acme{}\",\n  \"props\" : [ ],\n  \"version\" : \"0.1\""));
+    }
+
+    #[test]
+    fn new_kind_refusals_have_promised_codes() {
+        let (_dir, solution) = fixture();
+        let code = |request| plan(&solution, &request).unwrap_err().code();
+        assert_eq!(
+            code(request(Kind::DataTable, "Acme.Orders.Rows_DT")),
+            ErrorCode::InvalidArguments
+        );
+        let mut unknown = request(Kind::Stream, "Acme.Orders.Events_ST");
+        unknown.data_shape = Some("Acme.Orders.Missing_DS".into());
+        assert_eq!(code(unknown), ErrorCode::UnknownEntity);
+        let mut text = request(Kind::Media, "Acme.Orders.Text_MD");
+        let path = solution.root.join("not-image.txt");
+        std::fs::write(&path, "text").unwrap();
+        text.file = Some(path);
+        assert_eq!(code(text), ErrorCode::InvalidArguments);
+        let mut style = request(Kind::Style, "Acme.Orders.Bad_SD");
+        style.background = Some("green".into());
+        assert_eq!(code(style), ErrorCode::InvalidArguments);
+        let mut bad_text_size = request(Kind::Style, "Acme.Orders.TextSize_SD");
+        bad_text_size.text_size = Some("huge".into());
+        assert_eq!(code(bad_text_size), ErrorCode::InvalidArguments);
+        let mut unknown_image = request(Kind::Style, "Acme.Orders.Image_SD");
+        unknown_image.image = Some("Acme.Orders.Missing_MD".into());
+        assert_eq!(code(unknown_image), ErrorCode::UnknownEntity);
+        let mut state = request(Kind::State, "Acme.Orders.BadState_SD");
+        state.state_type = Some("string".into());
+        state.states = vec![">3=bad".into()];
+        assert_eq!(code(state), ErrorCode::InvalidArguments);
+        let mut non_numeric = request(Kind::State, "Acme.Orders.NonNumeric_SD");
+        non_numeric.state_type = Some("numeric".into());
+        non_numeric.states = vec!["<slow=bad".into()];
+        assert_eq!(code(non_numeric), ErrorCode::InvalidArguments);
+        let mut two_catch_alls = request(Kind::State, "Acme.Orders.CatchAll_SD");
+        two_catch_alls.state_type = Some("numeric".into());
+        two_catch_alls.states = vec!["*=first".into(), "*=second".into()];
+        assert_eq!(code(two_catch_alls), ErrorCode::InvalidArguments);
+        let mut numeric_catch_all_value = request(Kind::State, "Acme.Orders.Value_SD");
+        numeric_catch_all_value.state_type = Some("numeric".into());
+        numeric_catch_all_value.states = vec!["*3=bad".into()];
+        assert_eq!(code(numeric_catch_all_value), ErrorCode::InvalidArguments);
+        assert_eq!(
+            code(request(Kind::Menu, "Acme.Orders.Empty_MN")),
+            ErrorCode::InvalidArguments
+        );
+        let mut theme = request(Kind::Theme, "Acme.Orders.Theme_TH");
+        theme.from = Some("Acme.Orders.Missing_TH".into());
+        assert_eq!(code(theme), ErrorCode::UnknownEntity);
+
+        let mut keyless = request(Kind::DataShape, "Acme.Orders.Keyless_DS");
+        keyless.fields = vec!["id:STRING".into()];
+        apply(&solution, keyless);
+        let mut keyless_table = request(Kind::DataTable, "Acme.Orders.Keyless_DT");
+        keyless_table.data_shape = Some("Acme.Orders.Keyless_DS".into());
+        assert_eq!(code(keyless_table), ErrorCode::InvalidArguments);
+        let mut keyless_stream = request(Kind::Stream, "Acme.Orders.Keyless_ST");
+        keyless_stream.data_shape = Some("Acme.Orders.Keyless_DS".into());
+        assert!(
+            plan(&solution, &keyless_stream).is_ok(),
+            "a stream needs no primary key"
+        );
+
+        let mut shape = request(Kind::DataShape, "Acme.Orders.Row_DS");
+        shape.fields = vec!["id:STRING:primary".into()];
+        apply(&solution, shape);
+        let mut missing_index_field = request(Kind::DataTable, "Acme.Orders.Rows_DT");
+        missing_index_field.data_shape = Some("Acme.Orders.Row_DS".into());
+        missing_index_field.indexes = vec!["byMissing=missing".into()];
+        assert_eq!(code(missing_index_field), ErrorCode::UnknownEntity);
+
+        let large_media = solution.root.join("large.png");
+        std::fs::write(&large_media, vec![0; 10 * 1024 * 1024 + 1]).unwrap();
+        let mut media = request(Kind::Media, "Acme.Orders.Large_MD");
+        media.file = Some(large_media);
+        assert_eq!(code(media), ErrorCode::InvalidArguments);
+
+        let mut style_cdata = request(Kind::Style, "Acme.Orders.CdataStyle_SD");
+        style_cdata.display_string = Some("bad]]>value".into());
+        assert_eq!(code(style_cdata), ErrorCode::InvalidArguments);
+        let mut state_cdata = request(Kind::State, "Acme.Orders.CdataState_SD");
+        state_cdata.state_type = Some("numeric".into());
+        state_cdata.states = vec!["<3=bad]]>value".into()];
+        assert_eq!(code(state_cdata), ErrorCode::InvalidArguments);
+        let mut theme_cdata = request(Kind::Theme, "Acme.Orders.CdataTheme_TH");
+        theme_cdata.props = vec!["color=bad]]>value".into()];
+        assert_eq!(code(theme_cdata), ErrorCode::InvalidArguments);
+        let mut menu_cdata = request(Kind::Menu, "Acme.Orders.CdataMenu_MN");
+        menu_cdata.items = vec!["bad]]>value=Acme.Orders.Home_MU".into()];
+        assert_eq!(code(menu_cdata), ErrorCode::InvalidArguments);
+    }
+
+    #[test]
+    fn applies_every_new_kind_with_no_drift() {
+        let (_dir, solution) = fixture();
+        let image = solution.root.join("pixel.png");
+        std::fs::write(
+            &image,
+            base64::engine::general_purpose::STANDARD
+                .decode("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGNg+A8AAAEBAQBcDQotAAAAAElFTkSuQmCC")
+                .unwrap(),
+        )
+        .unwrap();
+
+        let mut shape = request(Kind::DataShape, "Acme.Orders.Row_DS");
+        shape.fields = vec!["id:STRING:primary".into()];
+        apply(&solution, shape);
+
+        let mut table = request(Kind::DataTable, "Acme.Orders.Rows_DT");
+        table.data_shape = Some("Acme.Orders.Row_DS".into());
+        table.indexes = vec!["byId=id".into()];
+        let mut stream = request(Kind::Stream, "Acme.Orders.Events_ST");
+        stream.data_shape = Some("Acme.Orders.Row_DS".into());
+        let mut media = request(Kind::Media, "Acme.Orders.Pixel_MD");
+        media.file = Some(image);
+        let mut style = request(Kind::Style, "Acme.Orders.Good_SD");
+        style.image = Some("Acme.Orders.Pixel_MD".into());
+        let mut state = request(Kind::State, "Acme.Orders.Speed_SD");
+        state.state_type = Some("numeric".into());
+        state.states = vec!["<3=Normal".into(), "*=Overload".into()];
+        let mut menu = request(Kind::Menu, "Acme.Orders.Main_MN");
+        menu.items = vec!["Home=Acme.Orders.Home_MU".into()];
+        menu.default = true;
+        let mut theme = request(Kind::Theme, "Acme.Orders.Theme_TH");
+        theme.props = vec!["e-button-primary-fontcolor=#ffffff".into()];
+
+        for request in [
+            table,
+            stream,
+            request(Kind::ValueStream, "Acme.Orders.Values_VS"),
+            media,
+            style,
+            state,
+            menu,
+            theme,
+        ] {
+            apply(&solution, request);
+        }
+
+        let table = workspace::entities(&solution)
+            .into_iter()
+            .find(|entity| entity.info.name == "Acme.Orders.Rows_DT")
+            .expect("the new DataTable is discoverable");
+        let xml = std::fs::read(&table.path).unwrap();
+        assert_eq!(
+            datatable::extract(&xml).unwrap(),
+            datatable::from_sidecar(
+                &std::fs::read_to_string(workspace::datatable_path(&solution, &table)).unwrap()
+            )
+            .unwrap()
+        );
+
+        let sync = crate::core::commands::sync::execute(
+            &solution,
+            &crate::core::commands::sync::SyncRequest {
+                target: crate::core::commands::sync::SyncTarget {
+                    project: None,
+                    entities: Vec::new(),
+                    all: true,
+                    reject_entities_with_all: false,
+                    missing_target: "name an entity, or pass --all",
+                },
+                mode: Mode::Plan,
+                allow_structural: false,
+                relayout: false,
+                lock_label: "test sync",
+            },
+            &mut Notices::default(),
+        )
+        .unwrap();
+        assert_eq!(sync.report.changed, 0, "{:?}", sync.report.log.lines);
+        assert_eq!(sync.report.failed, 0, "{:?}", sync.report.log.lines);
+        let failing: Vec<_> = crate::core::check::run(&solution)
+            .gates
+            .into_iter()
+            .filter(|gate| !gate.ok())
+            .collect();
+        assert!(failing.is_empty(), "{failing:?}");
     }
 
     #[test]
@@ -851,6 +1933,64 @@ mod tests {
     }
 
     #[test]
+    fn accumulated_data_shape_json_is_in_java_hash_map_order() {
+        let field = |name: &str, base_type: &str, aspects: &[(&str, Aspect)]| Field {
+            name: name.into(),
+            base_type: base_type.into(),
+            ordinal: "9".into(),
+            description: String::new(),
+            aspects: aspects
+                .iter()
+                .map(|(key, value)| ((*key).to_string(), value.clone()))
+                .collect(),
+        };
+        // Orders read back from real exports: keys by bucket, ordinals by name ignoring case.
+        let json = accumulated_json(&[
+            field("xdata", "NUMBER", &[]),
+            field("guid", "STRING", &[]),
+            field("zdata", "NUMBER", &[]),
+            field("ydata", "NUMBER", &[]),
+        ]);
+        let value: Value = serde_json::from_str(&json).unwrap();
+        let keys: Vec<(&String, i64)> = value["fieldDefinitions"]
+            .as_object()
+            .unwrap()
+            .iter()
+            .map(|(key, field)| (key, field["ordinal"].as_i64().unwrap()))
+            .collect();
+        let expected = [("zdata", 3), ("guid", 0), ("xdata", 1), ("ydata", 2)];
+        assert_eq!(
+            keys.iter()
+                .map(|(k, o)| (k.as_str(), *o))
+                .collect::<Vec<_>>(),
+            expected
+        );
+        let steps = accumulated_json(&[
+            field("stepNumber", "INTEGER", &[]),
+            field("stepName", "STRING", &[]),
+            field("stepInstruction", "STRING", &[]),
+            field("jobOrder", "INTEGER", &[]),
+        ]);
+        assert!(steps.starts_with("{\"fieldDefinitions\":{\"stepName\":"));
+        assert!(steps.contains("\"jobOrder\":{\"name\":\"jobOrder\",\"aspects\":{},\"description\":\"\",\"baseType\":\"INTEGER\",\"ordinal\":0}"));
+        // As the live server wrote it for a two-field shape; a default is typed by base type.
+        let live = accumulated_json(&[
+            field("id", "STRING", &[("isPrimaryKey", Aspect::Bool(true))]),
+            field("n", "INTEGER", &[("isPrimaryKey", Aspect::Bool(false))]),
+        ]);
+        assert_eq!(live, "{\"fieldDefinitions\":{\"id\":{\"name\":\"id\",\"aspects\":{\"isPrimaryKey\":true},\"description\":\"\",\"baseType\":\"STRING\",\"ordinal\":0},\"n\":{\"name\":\"n\",\"aspects\":{\"isPrimaryKey\":false},\"description\":\"\",\"baseType\":\"INTEGER\",\"ordinal\":1}}}");
+        let rate = accumulated_json(&[field(
+            "rate",
+            "NUMBER",
+            &[
+                ("defaultValue", Aspect::Text("500".into())),
+                ("isPrimaryKey", Aspect::Bool(false)),
+            ],
+        )]);
+        assert!(rate.contains("\"aspects\":{\"defaultValue\":500.0,\"isPrimaryKey\":false}"));
+    }
+
+    #[test]
     fn every_golden_entity_has_each_section_once() {
         // The goldens are blessed from twaco's own output, so check their structure independently:
         // a section written twice (two ConfigurationTables) would lose one on import.
@@ -861,6 +2001,7 @@ mod tests {
             "VisibilityPermissions",
             "ConfigurationTableDefinitions",
             "ConfigurationTables",
+            "GroupReferences",
             "ThingShape",
             "ImplementedShapes",
             "FieldDefinitions",

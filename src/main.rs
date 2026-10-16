@@ -232,7 +232,9 @@ fn dispatch(route: &str, parsed: &Args) -> u8 {
             "mashup validate" => mashup_validate_cmd(solution, parsed),
             "new building-block" => new_building_block_cmd(solution, parsed),
             "new thing" | "new thing-template" | "new thing-shape" | "new data-shape"
-            | "new timer" | "new scheduler" => entity_new_cmd(solution, route, parsed),
+            | "new timer" | "new scheduler" | "new data-table" | "new stream"
+            | "new value-stream" | "new media" | "new style" | "new state" | "new menu"
+            | "new theme" => entity_new_cmd(solution, route, parsed),
             "config-table" => config_table(solution, parsed),
             "entity get" => entity_get(solution, parsed),
             "entity status" => entity_status(solution, parsed),

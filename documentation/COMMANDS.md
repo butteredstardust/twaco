@@ -231,6 +231,29 @@ new timer <name> --run-as <user> [--project <name>] [--every <duration>] [--disa
 new scheduler <name> --run-as <user> [--project <name>] [--cron <quartz cron>] [--disabled] [--then <code>|--script <file.js>]
     [--description <text>] [--visibility <principal>]... [--apply] [--json]
                             create a Scheduler Thing and optional ScheduledEvent subscription; plan unless --apply
+new data-table <name> --data-shape <DataShape> [--project <name>] [--description <text>]
+    [--index name=field1,field2]... [--apply] [--json]
+                            create a persistent DataTable and datatable.json; plan unless --apply
+new stream <name> --data-shape <DataShape> [--project <name>] [--description <text>] [--apply] [--json]
+                            create a persistent Stream; plan unless --apply
+new value-stream <name> [--project <name>] [--description <text>] [--apply] [--json]
+                            create a persistent ValueStream; plan unless --apply
+new media <name> --file <path> [--project <name>] [--description <text>] [--apply] [--json]
+                            create a PNG, JPEG, GIF, or SVG MediaEntity; plan unless --apply
+new style <name> [--project <name>] [--description <text>] [--background <color>] [--foreground <color>]
+    [--secondary-background <color>] [--line-color <color>] [--line-style solid|dashed|dotted|none]
+    [--line-thickness <n>] [--bold] [--italic] [--underline] [--text-size <size>]
+    [--image <MediaEntity>] [--display-string <text>] [--apply] [--json]
+                            create a StyleDefinition; plan unless --apply
+new state <name> --type numeric|string --state <spec>... [--project <name>] [--description <text>]
+    [--apply] [--json]
+                            create a StateDefinition; plan unless --apply
+new menu <name> --item <Title=Mashup>... [--project <name>] [--description <text>] [--default]
+    [--label <text>] [--apply] [--json]
+                            create a Menu; plan unless --apply
+new theme <name> [--project <name>] [--description <text>] [--from <StyleTheme>]
+    [--prop name=value]... [--apply] [--json]
+                            create a StyleTheme; plan unless --apply
 ```
 
 ## Deploy and compare

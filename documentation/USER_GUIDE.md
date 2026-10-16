@@ -437,6 +437,14 @@ twaco new thing-shape Acme.Orders.Audit_TS
 twaco new data-shape Acme.Orders.Order_DS --field id:STRING:primary --field created:DATETIME --apply
 twaco new timer Acme.Orders.Refresh_TM --every 30s --run-as Administrator --then "me.Refresh();" --apply
 twaco new scheduler Acme.Orders.Nightly_SC --cron "0 0 2 * * ?" --run-as Administrator --apply
+twaco new data-table Acme.Orders.Rows_DT --data-shape Acme.Orders.Row_DS --index byId=id --apply
+twaco new stream Acme.Orders.Events_ST --data-shape Acme.Orders.Event_DS --apply
+twaco new value-stream Acme.Orders.Values_VS --apply
+twaco new media Acme.Orders.Logo_MD --file logo.svg --apply
+twaco new style Acme.Orders.Good_SD --background '#66cc33' --foreground '#000000' --bold --apply
+twaco new state Acme.Orders.Speed_SD --type numeric --state '<2000=Normal;background:#66cc33' --state '*=Overload;background:#ff0000' --apply
+twaco new menu Acme.Orders.Main_MN --item Home=Acme.Orders.Home_MU --default --apply
+twaco new theme Acme.Orders.Theme_TH --prop e-button-primary-fontcolor=#ffffff --apply
 ```
 
 Things default to `GenericThing`; `--template`, `--shape`, template `--base`, and DataShape
@@ -447,6 +455,13 @@ arguments and write the matching `fields.json` sidecar. Timers accept `--every` 
 `--cron`. Both require `--run-as`, accept `--disabled`, and use either `--then <code>` or
 `--script <file.js>` to put a Script subscription directly in their entity XML. The entity XML and
 all managed sidecars are created together in one transaction.
+
+DataTables and Streams require a DataShape; DataTables write `datatable.json` and validate every
+indexed field. A DataTable's DataShape needs a primary key among its own fields: the server ignores
+an inherited one, and refuses the import. ValueStreams, Streams, and DataTables always set the persistence provider. Media
+accepts PNG, JPEG, GIF, or SVG content up to 10 MB. Styles use `#rrggbb` or `rgba(r,g,b,a)` colors.
+States take ordered comparator specifications; menus require one or more `Title=Mashup` items; and
+themes may copy a repository StyleTheme with `--from` before applying `--prop name=value` overrides.
 
 ## Creating mashups
 

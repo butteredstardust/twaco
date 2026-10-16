@@ -15,6 +15,8 @@ pub(crate) enum Takes {
     Switch,
     /// One value, named as help shows it.
     Value(&'static str),
+    /// One optional value. The command decides whether its spelling permits no value.
+    OptionalValue(&'static str),
     /// A value, and the flag may be given again.
     Repeated(&'static str),
 }
@@ -103,6 +105,14 @@ pub(crate) fn arguments(flags: &[&str], operands: bool) -> Vec<clap::Arg> {
                 .value_name(value)
                 .action(clap::ArgAction::Set)
                 .allow_hyphen_values(true),
+            Takes::OptionalValue(value) => arg
+                .value_name(value)
+                .num_args(0..=1)
+                .default_missing_value("")
+                .action(clap::ArgAction::Set)
+                // A value may be negative, but a flag after the bare form is the next flag,
+                // not this one's value (`--default --label Main`).
+                .allow_negative_numbers(true),
             Takes::Repeated(value) => arg
                 .value_name(value)
                 .action(clap::ArgAction::Append)
@@ -221,13 +231,22 @@ pub(crate) fn args_from(
                     "--column" => args.columns.extend(values),
                     "--shape" => args.shapes.extend(values),
                     "--field" => args.fields.extend(values),
+                    "--index" => args.indexes.extend(values),
+                    "--state" => args.states.extend(values),
+                    "--item" => args.items.extend(values),
                     other => unreachable!("{other} repeats but nothing reads it"),
                 }
             }
-            Takes::Value(_) => {
+            Takes::Value(_) | Takes::OptionalValue(_) => {
                 let Some(value) = matches.get_one::<String>(key).cloned() else {
                     continue;
                 };
+                if matches!(flag(name).takes, Takes::OptionalValue(_)) {
+                    args.flags.push(name.to_string());
+                    if value.is_empty() {
+                        continue;
+                    }
+                }
                 match *name {
                     "--project" => args.project = Some(value),
                     "--profile" => args.profile = Some(value),
@@ -456,6 +475,70 @@ pub(crate) const FLAGS: &[Flag] = &[
     Flag {
         name: "--field",
         takes: Takes::Repeated("name:TYPE[:primary]"),
+    },
+    Flag {
+        name: "--index",
+        takes: Takes::Repeated("name=field1,field2"),
+    },
+    Flag {
+        name: "--file",
+        takes: Takes::Value("path"),
+    },
+    Flag {
+        name: "--background",
+        takes: Takes::Value("color"),
+    },
+    Flag {
+        name: "--foreground",
+        takes: Takes::Value("color"),
+    },
+    Flag {
+        name: "--secondary-background",
+        takes: Takes::Value("color"),
+    },
+    Flag {
+        name: "--line-color",
+        takes: Takes::Value("color"),
+    },
+    Flag {
+        name: "--line-style",
+        takes: Takes::Value("solid|dashed|dotted|none"),
+    },
+    Flag {
+        name: "--line-thickness",
+        takes: Takes::Value("n"),
+    },
+    Flag {
+        name: "--bold",
+        takes: Takes::Switch,
+    },
+    Flag {
+        name: "--italic",
+        takes: Takes::Switch,
+    },
+    Flag {
+        name: "--underline",
+        takes: Takes::Switch,
+    },
+    Flag {
+        name: "--text-size",
+        takes: Takes::Value("size"),
+    },
+    Flag {
+        name: "--image",
+        takes: Takes::Value("MediaEntity"),
+    },
+    Flag {
+        name: "--display-string",
+        takes: Takes::Value("text"),
+    },
+    Flag {
+        name: "--state",
+        takes: Takes::Repeated("spec"),
+    },
+    Flag {
+        name: "--item",
+        takes: Takes::Repeated("Title=Mashup"),
     },
     Flag {
         name: "--diff",
@@ -739,7 +822,7 @@ pub(crate) const FLAGS: &[Flag] = &[
     },
     Flag {
         name: "--default",
-        takes: Takes::Value("value"),
+        takes: Takes::OptionalValue("value"),
     },
     Flag {
         name: "--no-default",
@@ -1686,6 +1769,129 @@ pub(crate) const COMMANDS: &[Command] = &[
         text: r#"  new scheduler <name> --run-as <user> [--project <name>] [--cron <quartz cron>] [--disabled] [--then <code>|--script <file.js>]
       [--description <text>] [--visibility <principal>]... [--apply] [--json]
                               create a Scheduler Thing and optional ScheduledEvent subscription; plan unless --apply"#,
+    },
+    Command {
+        path: "new data-table",
+        group: 1,
+        operands: true,
+        flags: &[
+            "--project",
+            "--description",
+            "--data-shape",
+            "--index",
+            "--apply",
+            "--json",
+        ],
+        text: r#"  new data-table <name> --data-shape <DataShape> [--project <name>] [--description <text>]
+      [--index name=field1,field2]... [--apply] [--json]
+                              create a persistent DataTable and datatable.json; plan unless --apply"#,
+    },
+    Command {
+        path: "new stream",
+        group: 1,
+        operands: true,
+        flags: &[
+            "--project",
+            "--description",
+            "--data-shape",
+            "--apply",
+            "--json",
+        ],
+        text: r#"  new stream <name> --data-shape <DataShape> [--project <name>] [--description <text>] [--apply] [--json]
+                              create a persistent Stream; plan unless --apply"#,
+    },
+    Command {
+        path: "new value-stream",
+        group: 1,
+        operands: true,
+        flags: &["--project", "--description", "--apply", "--json"],
+        text: r#"  new value-stream <name> [--project <name>] [--description <text>] [--apply] [--json]
+                              create a persistent ValueStream; plan unless --apply"#,
+    },
+    Command {
+        path: "new media",
+        group: 1,
+        operands: true,
+        flags: &["--project", "--description", "--file", "--apply", "--json"],
+        text: r#"  new media <name> --file <path> [--project <name>] [--description <text>] [--apply] [--json]
+                              create a PNG, JPEG, GIF, or SVG MediaEntity; plan unless --apply"#,
+    },
+    Command {
+        path: "new style",
+        group: 1,
+        operands: true,
+        flags: &[
+            "--project",
+            "--description",
+            "--background",
+            "--foreground",
+            "--secondary-background",
+            "--line-color",
+            "--line-style",
+            "--line-thickness",
+            "--bold",
+            "--italic",
+            "--underline",
+            "--text-size",
+            "--image",
+            "--display-string",
+            "--apply",
+            "--json",
+        ],
+        text: r#"  new style <name> [--project <name>] [--description <text>] [--background <color>] [--foreground <color>]
+      [--secondary-background <color>] [--line-color <color>] [--line-style solid|dashed|dotted|none]
+      [--line-thickness <n>] [--bold] [--italic] [--underline] [--text-size <size>]
+      [--image <MediaEntity>] [--display-string <text>] [--apply] [--json]
+                              create a StyleDefinition; plan unless --apply"#,
+    },
+    Command {
+        path: "new state",
+        group: 1,
+        operands: true,
+        flags: &[
+            "--project",
+            "--description",
+            "--type",
+            "--state",
+            "--apply",
+            "--json",
+        ],
+        text: r#"  new state <name> --type numeric|string --state <spec>... [--project <name>] [--description <text>]
+      [--apply] [--json]
+                              create a StateDefinition; plan unless --apply"#,
+    },
+    Command {
+        path: "new menu",
+        group: 1,
+        operands: true,
+        flags: &[
+            "--project",
+            "--description",
+            "--item",
+            "--default",
+            "--label",
+            "--apply",
+            "--json",
+        ],
+        text: r#"  new menu <name> --item <Title=Mashup>... [--project <name>] [--description <text>] [--default]
+      [--label <text>] [--apply] [--json]
+                              create a Menu; plan unless --apply"#,
+    },
+    Command {
+        path: "new theme",
+        group: 1,
+        operands: true,
+        flags: &[
+            "--project",
+            "--description",
+            "--from",
+            "--prop",
+            "--apply",
+            "--json",
+        ],
+        text: r#"  new theme <name> [--project <name>] [--description <text>] [--from <StyleTheme>]
+      [--prop name=value]... [--apply] [--json]
+                              create a StyleTheme; plan unless --apply"#,
     },
     Command {
         path: "entity status",

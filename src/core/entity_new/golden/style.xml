@@ -1,0 +1,44 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Entities
+ majorVersion="10"
+ minorVersion="1"
+ universal="password">
+    <StyleDefinitions>
+        <StyleDefinition
+         description=""
+         documentationContent=""
+         homeMashup=""
+         name="Acme.Orders.Good_SD"
+         projectName="Acme.Orders"
+         tags="">
+            <avatar></avatar>
+            <DesignTimePermissions>
+                <Create></Create>
+                <Read></Read>
+                <Update></Update>
+                <Delete></Delete>
+                <Metadata></Metadata>
+            </DesignTimePermissions>
+            <RunTimePermissions></RunTimePermissions>
+            <VisibilityPermissions>
+                <Visibility></Visibility>
+            </VisibilityPermissions>
+            <ConfigurationTableDefinitions></ConfigurationTableDefinitions>
+            <ConfigurationTables></ConfigurationTables>
+            <content><![CDATA[{
+  "backgroundColor" : "rgba(102,204,51,1)",
+  "displayString" : "",
+  "fontEmphasisBold" : true,
+  "fontEmphasisItalic" : false,
+  "fontEmphasisUnderline" : false,
+  "foregroundColor" : "rgba(0,0,0,1)",
+  "image" : "",
+  "lineColor" : "",
+  "lineStyle" : "solid",
+  "lineThickness" : 1,
+  "secondaryBackgroundColor" : "",
+  "textSize" : "normal"
+}]]></content>
+        </StyleDefinition>
+    </StyleDefinitions>
+</Entities>

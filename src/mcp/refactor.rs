@@ -113,11 +113,8 @@ pub(crate) fn entity_new_tool(
     solution: &Solution,
     arguments: EntityNewRequest,
 ) -> Result<Value, ToolError> {
-    let kind = crate::core::entity_new::Kind::parse(&arguments.kind).ok_or_else(|| {
-        ToolError::invalid(
-            "kind must be thing, thing-template, thing-shape, data-shape, timer, or scheduler",
-        )
-    })?;
+    let kind = crate::core::entity_new::Kind::parse(&arguments.kind)
+        .ok_or_else(|| ToolError::invalid("kind must be a supported entity kind"))?;
     let request = crate::core::entity_new::NewRequest {
         kind,
         name: nonempty(&arguments.name, "name")?.to_string(),
@@ -135,6 +132,29 @@ pub(crate) fn entity_new_tool(
         disabled: arguments.disabled,
         then: arguments.then.as_ref().cloned(),
         script: arguments.script.as_ref().map(Into::into),
+        data_shape: arguments.data_shape.as_ref().cloned(),
+        indexes: arguments.index.items().to_vec(),
+        file: arguments.file.as_ref().map(Into::into),
+        background: arguments.background.as_ref().cloned(),
+        foreground: arguments.foreground.as_ref().cloned(),
+        secondary_background: arguments.secondary_background.as_ref().cloned(),
+        line_color: arguments.line_color.as_ref().cloned(),
+        line_style: arguments.line_style.as_ref().cloned(),
+        line_thickness: arguments.line_thickness.as_ref().cloned(),
+        bold: arguments.bold,
+        italic: arguments.italic,
+        underline: arguments.underline,
+        text_size: arguments.text_size.as_ref().cloned(),
+        image: arguments.image.as_ref().cloned(),
+        display_string: arguments.display_string.as_ref().cloned(),
+        state_type: arguments.state_type.as_ref().cloned(),
+        states: arguments.state.items().to_vec(),
+        items: arguments.item.items().to_vec(),
+        default: arguments.default,
+        label: arguments.label.as_ref().cloned(),
+        from: arguments.from.as_ref().cloned(),
+        props: arguments.prop.items().to_vec(),
+        theme_content: None,
     };
     let dry_run = arguments.dry_run;
     let request = commands::entity_new::Request {

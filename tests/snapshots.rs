@@ -196,6 +196,44 @@ const SCENARIOS: &[(&str, &[&str])] = &[
         ],
     ),
     (
+        "new_style_plan",
+        &[
+            "new",
+            "style",
+            "Acme.Orders.NewGood_SD",
+            "--background",
+            "#66cc33",
+            "--bold",
+        ],
+    ),
+    (
+        "new_state_plan",
+        &[
+            "new",
+            "state",
+            "Acme.Orders.NewSpeed_SD",
+            "--type",
+            "numeric",
+            "--state",
+            "<2000=Normal;background:#66cc33",
+        ],
+    ),
+    (
+        "new_media_refusal",
+        &["new", "media", "Acme.Orders.Bad_MD", "--file", "twaco.toml"],
+    ),
+    (
+        "new_menu_plan",
+        &[
+            "new",
+            "menu",
+            "Acme.Orders.Main_MN",
+            "--item",
+            "Home=Acme.Orders.Home_MU",
+            "--default",
+        ],
+    ),
+    (
         "mashup_new_form_dialog_plan",
         &[
             "mashup",

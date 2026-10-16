@@ -344,7 +344,7 @@ static TOOLS: LazyLock<Vec<Tool>> = LazyLock::new(|| {
         ),
         solution_tool::<refactor_requests::EntityNewRequest>(
             "entity_new",
-            "Create a common ThingWorx entity (thing, thing-template, thing-shape, data-shape, timer, or scheduler) as a repository XML file. data-shape also creates fields.json. Timer and scheduler require run_as and can add a Script subscription with then or script. A dry run unless dry_run is false; apply takes the workspace lock and writes every file or none.",
+            "Create a ThingWorx entity as a repository XML file: common Things, data Things, media, styles, states, menus, and themes. DataShape and DataTable creation also writes their managed sidecar. A dry run unless dry_run is false; apply takes the workspace lock and writes every file or none.",
             false,
             refactor::entity_new_tool,
         ),

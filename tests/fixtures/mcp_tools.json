@@ -1883,7 +1883,7 @@
   },
   {
     "name": "entity_new",
-    "description": "Create a common ThingWorx entity (thing, thing-template, thing-shape, data-shape, timer, or scheduler) as a repository XML file. data-shape also creates fields.json. Timer and scheduler require run_as and can add a Script subscription with then or script. A dry run unless dry_run is false; apply takes the workspace lock and writes every file or none.",
+    "description": "Create a ThingWorx entity as a repository XML file: common Things, data Things, media, styles, states, menus, and themes. DataShape and DataTable creation also writes their managed sidecar. A dry run unless dry_run is false; apply takes the workspace lock and writes every file or none.",
     "inputSchema": {
       "required": [
         "kind",
@@ -1893,7 +1893,7 @@
       "type": "object",
       "properties": {
         "kind": {
-          "description": "`thing`, `thing-template`, `thing-shape`, `data-shape`, `timer`, or `scheduler`.",
+          "description": "`thing`, `thing-template`, `thing-shape`, `data-shape`, `timer`, `scheduler`, `data-table`, `stream`, `value-stream`, `media`, `style`, `state`, `menu`, or `theme`.",
           "type": "string"
         },
         "name": {
@@ -1951,6 +1951,88 @@
         },
         "script": {
           "type": "string"
+        },
+        "data_shape": {
+          "type": "string"
+        },
+        "index": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "file": {
+          "type": "string"
+        },
+        "background": {
+          "type": "string"
+        },
+        "foreground": {
+          "type": "string"
+        },
+        "secondary_background": {
+          "type": "string"
+        },
+        "line_color": {
+          "type": "string"
+        },
+        "line_style": {
+          "type": "string"
+        },
+        "line_thickness": {
+          "type": "string"
+        },
+        "bold": {
+          "type": "boolean",
+          "default": false
+        },
+        "italic": {
+          "type": "boolean",
+          "default": false
+        },
+        "underline": {
+          "type": "boolean",
+          "default": false
+        },
+        "text_size": {
+          "type": "string"
+        },
+        "image": {
+          "type": "string"
+        },
+        "display_string": {
+          "type": "string"
+        },
+        "type": {
+          "type": "string"
+        },
+        "state": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "item": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "default": {
+          "type": "boolean",
+          "default": false
+        },
+        "label": {
+          "type": "string"
+        },
+        "from": {
+          "type": "string"
+        },
+        "prop": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
         },
         "dry_run": {
           "type": "boolean",
