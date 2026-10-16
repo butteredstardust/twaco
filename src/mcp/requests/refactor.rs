@@ -427,6 +427,171 @@ pub(crate) struct EntityNewRequest {
     pub(crate) dry_run: bool,
 }
 
+/// One local entity edit. `property_add` and its sibling actions share one schema so agents can
+/// plan and apply all Composer-style changes through one dry-run-by-default tool.
+#[derive(Clone, Copy, Debug, Deserialize, JsonSchema, PartialEq, Eq, Serialize)]
+pub(crate) enum EntityEditAction {
+    #[serde(rename = "property_add")]
+    PropertyAdd,
+    #[serde(rename = "property_remove")]
+    PropertyRemove,
+    #[serde(rename = "property_set")]
+    PropertySet,
+    #[serde(rename = "subscription_add")]
+    SubscriptionAdd,
+    #[serde(rename = "subscription_remove")]
+    SubscriptionRemove,
+    #[serde(rename = "shape_add")]
+    ShapeAdd,
+    #[serde(rename = "shape_remove")]
+    ShapeRemove,
+    #[serde(rename = "timer_set")]
+    TimerSet,
+    #[serde(rename = "scheduler_set")]
+    SchedulerSet,
+    #[serde(rename = "style_set")]
+    StyleSet,
+    #[serde(rename = "media_set")]
+    MediaSet,
+    #[serde(rename = "menu_item_add")]
+    MenuItemAdd,
+    #[serde(rename = "menu_item_remove")]
+    MenuItemRemove,
+    #[serde(rename = "state_set")]
+    StateSet,
+}
+
+#[derive(Debug, Deserialize, JsonSchema, Serialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct EntityEditRequest {
+    /// What to change.
+    pub(crate) action: EntityEditAction,
+    /// The entity to change: its name, or Collection/Name.
+    pub(crate) entity: String,
+    /// The property or subscription name (property_*, subscription_*).
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) name: Absent<String>,
+    /// The property base type: required for property_add; for property_set a new type.
+    #[serde(default, rename = "type", skip_serializing_if = "Absent::is_absent")]
+    pub(crate) base_type: Absent<String>,
+    /// The property default value.
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) default: Absent<String>,
+    /// property_set: drop the default value.
+    #[serde(default)]
+    pub(crate) no_default: bool,
+    /// Whether the property is persistent; absent leaves it (property_set).
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) persistent: Absent<bool>,
+    /// Whether value changes are logged.
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) logged: Absent<bool>,
+    /// Whether the property is read-only.
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) read_only: Absent<bool>,
+    /// The property category.
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) category: Absent<String>,
+    /// The property units; empty clears them.
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) units: Absent<String>,
+    /// The DataShape of an INFOTABLE property.
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) data_shape: Absent<String>,
+    /// The property description.
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) description: Absent<String>,
+    /// Remove or retype a property something still uses; what uses it comes back as warnings.
+    #[serde(default)]
+    pub(crate) force: bool,
+    /// subscription_add: the event, such as DataChange, ThingStart, Timer or an event the source defines.
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) event: Absent<String>,
+    /// subscription_add: the Thing subscribed to; absent is the entity itself.
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) source: Absent<String>,
+    /// subscription_add: the property a DataChange subscription watches.
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) source_property: Absent<String>,
+    /// subscription_add: the script to run.
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) then: Absent<String>,
+    /// shape_add / shape_remove: the ThingShape.
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) shape: Absent<String>,
+    /// timer_set: the update rate, as milliseconds or with ms, s, m or h.
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) every: Absent<String>,
+    /// scheduler_set: a six- or seven-field Quartz cron string.
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) cron: Absent<String>,
+    /// timer_set / scheduler_set: the user its events run as.
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) run_as: Absent<String>,
+    /// timer_set / scheduler_set: enable or disable it on startup.
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) enabled: Absent<bool>,
+    /// style_set: a #rrggbb or rgba() color; empty clears it.
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) background: Absent<String>,
+    /// style_set: the text color.
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) foreground: Absent<String>,
+    /// style_set: the secondary background color.
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) secondary_background: Absent<String>,
+    /// style_set: the line color.
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) line_color: Absent<String>,
+    /// style_set: solid, dashed, dotted or none.
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) line_style: Absent<String>,
+    /// style_set: a non-negative number.
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) line_thickness: Absent<String>,
+    /// style_set: bold text on or off.
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) bold: Absent<bool>,
+    /// style_set: italic text on or off.
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) italic: Absent<bool>,
+    /// style_set: underline text on or off.
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) underline: Absent<bool>,
+    /// style_set: xsmall, small, normal, large, xlarge or xxlarge.
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) text_size: Absent<String>,
+    /// style_set: a MediaEntity; empty clears it.
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) image: Absent<String>,
+    /// style_set: the display string.
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) display_string: Absent<String>,
+    /// media_set: the PNG, JPEG, GIF or SVG file.
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) file: Absent<String>,
+    /// menu_item_add / menu_item_remove: the item title.
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) title: Absent<String>,
+    /// menu_item_add: the mashup the item opens.
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) mashup: Absent<String>,
+    /// menu_item_add: put the item before this title; absent is last.
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) before: Absent<String>,
+    /// state_set: numeric or string.
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) state_type: Absent<String>,
+    /// menu_item_add: make it the default item.
+    #[serde(default)]
+    pub(crate) is_default: bool,
+    /// state_set: the states in order, each `<comparator><value>=<label>[;style key:value...]`; the last may be `*=<label>`.
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) state: Absent<Vec<String>>,
+    #[serde(default = "default_true")]
+    pub(crate) dry_run: bool,
+}
+
 #[derive(Debug, Deserialize, JsonSchema, Serialize)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct MashupAddRequest {

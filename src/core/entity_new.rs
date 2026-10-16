@@ -140,6 +140,53 @@ pub struct NewRequest {
     pub theme_content: Option<String>,
 }
 
+impl NewRequest {
+    /// A request for `kind` named `name` with nothing else set.
+    pub fn blank(kind: Kind, name: &str) -> Self {
+        NewRequest {
+            kind,
+            name: name.into(),
+            project: None,
+            description: String::new(),
+            visibility: Vec::new(),
+            template: None,
+            shapes: Vec::new(),
+            value_stream: None,
+            base: None,
+            fields: Vec::new(),
+            every: None,
+            cron: None,
+            run_as: None,
+            disabled: false,
+            then: None,
+            script: None,
+            data_shape: None,
+            indexes: Vec::new(),
+            file: None,
+            background: None,
+            foreground: None,
+            secondary_background: None,
+            line_color: None,
+            line_style: None,
+            line_thickness: None,
+            bold: false,
+            italic: false,
+            underline: false,
+            text_size: None,
+            image: None,
+            display_string: None,
+            state_type: None,
+            states: Vec::new(),
+            items: Vec::new(),
+            default: false,
+            label: None,
+            from: None,
+            props: Vec::new(),
+            theme_content: None,
+        }
+    }
+}
+
 #[derive(Debug)]
 pub struct Plan {
     pub request: NewRequest,
@@ -371,19 +418,42 @@ fn footer(collection: &str) -> String {
     format!("    </{collection}>\n</Entities>\n")
 }
 
+/// One `<ImplementedShape>`, as written at 16 spaces.
+pub(crate) fn implemented_shape_xml(shape: &str) -> String {
+    format!(
+        "                <ImplementedShape\n                 name=\"{}\"\n                 type=\"ThingShape\"></ImplementedShape>",
+        escape(shape)
+    )
+}
+
 fn shapes(shapes: &[String]) -> String {
     let mut out = String::from("            <ImplementedShapes>");
     for shape in shapes {
-        out.push_str(&format!("\n                <ImplementedShape\n                 name=\"{}\"\n                 type=\"ThingShape\"></ImplementedShape>", escape(shape)));
+        out.push('\n');
+        out.push_str(&implemented_shape_xml(shape));
     }
     out.push_str("\n            </ImplementedShapes>");
     out
 }
 
+/// One script `<Subscription>`, as written at 20 spaces. `source` empty is the entity itself.
+pub(crate) fn subscription_xml(
+    name: &str,
+    event: &str,
+    source: &str,
+    source_property: &str,
+    code: &str,
+) -> String {
+    let (name, event) = (escape(name), escape(event));
+    let (source, source_property) = (escape(source), escape(source_property));
+    format!("                    <Subscription\n                     description=\"\"\n                     enabled=\"true\"\n                     eventName=\"{event}\"\n                     name=\"{name}\"\n                     source=\"{source}\"\n                     sourceProperty=\"{source_property}\"\n                     sourceType=\"Thing\">\n                        <ServiceImplementation\n                         description=\"\"\n                         handlerName=\"Script\"\n                         name=\"{name}\">\n                            <ConfigurationTables>\n                                <ConfigurationTable\n                                 dataShapeName=\"\"\n                                 description=\"\"\n                                 isMultiRow=\"false\"\n                                 name=\"Script\"\n                                 ordinal=\"0\">\n                                    <DataShape>\n                                        <FieldDefinitions>\n                                            <FieldDefinition\n                                             baseType=\"STRING\"\n                                             description=\"code\"\n                                             name=\"code\"\n                                             ordinal=\"0\"></FieldDefinition>\n                                        </FieldDefinitions>\n                                    </DataShape>\n                                    <Rows>\n                                        <Row>\n                                            <code><![CDATA[{code}]]></code>\n                                        </Row>\n                                    </Rows>\n                                </ConfigurationTable>\n                            </ConfigurationTables>\n                        </ServiceImplementation>\n                    </Subscription>")
+}
+
 fn local_shape(subscription: Option<(&str, &str, &str)>) -> String {
     let mut out = String::from("            <ThingShape>\n                <PropertyDefinitions></PropertyDefinitions>\n                <ServiceDefinitions></ServiceDefinitions>\n                <EventDefinitions></EventDefinitions>\n                <ServiceMappings></ServiceMappings>\n                <ServiceImplementations></ServiceImplementations>\n                <Subscriptions>");
     if let Some((event, name, code)) = subscription {
-        out.push_str(&format!("\n                    <Subscription\n                     description=\"\"\n                     enabled=\"true\"\n                     eventName=\"{event}\"\n                     name=\"{name}\"\n                     source=\"\"\n                     sourceProperty=\"\"\n                     sourceType=\"Thing\">\n                        <ServiceImplementation\n                         description=\"\"\n                         handlerName=\"Script\"\n                         name=\"{name}\">\n                            <ConfigurationTables>\n                                <ConfigurationTable\n                                 dataShapeName=\"\"\n                                 description=\"\"\n                                 isMultiRow=\"false\"\n                                 name=\"Script\"\n                                 ordinal=\"0\">\n                                    <DataShape>\n                                        <FieldDefinitions>\n                                            <FieldDefinition\n                                             baseType=\"STRING\"\n                                             description=\"code\"\n                                             name=\"code\"\n                                             ordinal=\"0\"></FieldDefinition>\n                                        </FieldDefinitions>\n                                    </DataShape>\n                                    <Rows>\n                                        <Row>\n                                            <code><![CDATA[{code}]]></code>\n                                        </Row>\n                                    </Rows>\n                                </ConfigurationTable>\n                            </ConfigurationTables>\n                        </ServiceImplementation>\n                    </Subscription>"));
+        out.push('\n');
+        out.push_str(&subscription_xml(name, event, "", "", code));
     }
     out.push_str("\n                </Subscriptions>\n            </ThingShape>");
     out
@@ -408,7 +478,7 @@ fn scheduler_settings(kind: Kind, enabled: bool, run_as: &str, value: &str) -> S
     format!("            <ConfigurationTables>\n                <ConfigurationTable\n                 dataShapeName=\"\"\n                 description=\"General Settings\"\n                 isHidden=\"true\"\n                 isMultiRow=\"false\"\n                 name=\"Settings\"\n                 ordinal=\"0\">\n                    <DataShape>\n                        <FieldDefinitions>\n                            <FieldDefinition\n                             aspect.defaultValue=\"true\"\n                             baseType=\"BOOLEAN\"\n                             description=\"Automatically enable {} on startup\"\n                             name=\"enabled\"\n                             ordinal=\"0\"></FieldDefinition>\n                            <FieldDefinition\n                             baseType=\"USERNAME\"\n                             description=\"User context in which to run event handlers\"\n                             name=\"runAsUser\"\n                             ordinal=\"0\"></FieldDefinition>\n                            <FieldDefinition\n                             aspect.defaultValue=\"{}\"\n                             baseType=\"{}\"\n                             description=\"{}\"\n                             name=\"{}\"\n                             ordinal=\"0\"></FieldDefinition>\n                        </FieldDefinitions>\n                    </DataShape>\n                    <Rows>\n                        <Row>\n                            <enabled>{enabled}</enabled>\n                            <runAsUser><![CDATA[{}]]></runAsUser>\n                            <{}>{value}</{}>\n                        </Row>\n                    </Rows>\n                </ConfigurationTable>\n            </ConfigurationTables>", kind.word(), default, element, description, field, run_as, field, field)
 }
 
-fn cdata(value: &str) -> String {
+pub(crate) fn cdata(value: &str) -> String {
     format!("<![CDATA[{value}]]>")
 }
 
@@ -571,7 +641,7 @@ fn style_value(request: &NewRequest) -> Value {
 /// Render JSON as the layout written by ThingWorx's Jackson exporter.
 ///
 /// `serde_json` preserves object insertion order here, retaining a source theme's custom keys.
-fn jackson_pretty(value: &Value) -> String {
+pub(crate) fn jackson_pretty(value: &Value) -> String {
     fn write(value: &Value, level: usize, out: &mut String) {
         match value {
             Value::Object(object) => {
@@ -612,7 +682,7 @@ fn jackson_pretty(value: &Value) -> String {
     out
 }
 
-fn color(value: &str) -> Result<String, NewError> {
+pub(crate) fn color(value: &str) -> Result<String, NewError> {
     if let Some(hex) = value.strip_prefix('#') {
         if hex.len() == 6 && hex.bytes().all(|byte| byte.is_ascii_hexdigit()) {
             return Ok(format!(
@@ -636,7 +706,7 @@ fn color(value: &str) -> Result<String, NewError> {
     )))
 }
 
-fn media_content(path: &Path) -> Result<String, NewError> {
+pub(crate) fn media_content(path: &Path) -> Result<String, NewError> {
     let bytes = std::fs::read(path)
         .map_err(|error| NewError::Invalid(format!("{}: {error}", path.display())))?;
     if bytes.len() > 10 * 1024 * 1024 {
@@ -663,7 +733,53 @@ fn media_content(path: &Path) -> Result<String, NewError> {
     Ok(base64::engine::general_purpose::STANDARD.encode(bytes))
 }
 
-fn validate_states(request: &NewRequest) -> Result<(), NewError> {
+/// The style flags of `request`: colours, line style and thickness, text size and image.
+pub(crate) fn validate_style(solution: &Solution, request: &NewRequest) -> Result<(), NewError> {
+    for value in [
+        &request.background,
+        &request.foreground,
+        &request.secondary_background,
+        &request.line_color,
+    ]
+    .into_iter()
+    .flatten()
+    {
+        color(value)?;
+    }
+    if let Some(value) = &request.line_style {
+        if !["solid", "dashed", "dotted", "none"].contains(&value.as_str()) {
+            return Err(NewError::Invalid(
+                "--line-style must be solid, dashed, dotted, or none".into(),
+            ));
+        }
+    }
+    if let Some(value) = &request.line_thickness {
+        value
+            .parse::<f64>()
+            .ok()
+            .filter(|value| *value >= 0.0)
+            .ok_or_else(|| {
+                NewError::Invalid("--line-thickness must be a non-negative number".into())
+            })?;
+    }
+    if let Some(value) = &request.text_size {
+        if !["xsmall", "small", "normal", "large", "xlarge", "xxlarge"].contains(&value.as_str()) {
+            return Err(NewError::Invalid(
+                "--text-size must be xsmall, small, normal, large, xlarge, or xxlarge".into(),
+            ));
+        }
+    }
+    if let Some(image) = &request.image {
+        if !entity_exists(solution, "MediaEntities", image) {
+            return Err(NewError::Unknown(format!(
+                "no MediaEntity {image} in the solution or platform cache"
+            )));
+        }
+    }
+    Ok(())
+}
+
+pub(crate) fn validate_state_request(request: &NewRequest) -> Result<(), NewError> {
     let state_type = request
         .state_type
         .as_deref()
@@ -777,7 +893,7 @@ fn apply_state_style(style: &mut NewRequest, key: &str, value: &str) {
     }
 }
 
-fn state_content(request: &NewRequest) -> String {
+pub(crate) fn render_state_content(request: &NewRequest) -> String {
     let definitions: Vec<Value> = request
         .states
         .iter()
@@ -815,6 +931,24 @@ fn state_content(request: &NewRequest) -> String {
     }))
 }
 
+/// One `<MenuItem>`, preceded by its newline, as written at 16 spaces.
+pub(crate) fn menu_item_xml(title: &str, target: &str, is_default: bool) -> String {
+    let (target, title) = (escape(target), escape(title));
+    format!("\n                <MenuItem description=\"\" imageURL=\"\" isDefault=\"{is_default}\" linkDestination=\"{target}\" linkTarget=\"Self\" linkType=\"Mashup\" title=\"{title}\">\n                    <GroupReferences><Members></Members></GroupReferences>\n                </MenuItem>")
+}
+
+/// One effectiveMenu `<Row>` for item `index` of `menu`, preceded by its newline, at 20 spaces.
+pub(crate) fn menu_row_xml(
+    menu: &str,
+    index: usize,
+    title: &str,
+    target: &str,
+    is_default: bool,
+) -> String {
+    let (target, title) = (cdata(target), cdata(title));
+    format!("\n                    <Row>\n                        <description></description>\n                        <imageURL></imageURL>\n                        <isDefault>{is_default}</isDefault>\n                        <linkDestination>{target}</linkDestination>\n                        <linkTarget><![CDATA[Self]]></linkTarget>\n                        <linkType><![CDATA[Mashup]]></linkType>\n                        <menuId><![CDATA[{menu}_{index}]]></menuId>\n                        <parentMenuId><![CDATA[{menu}]]></parentMenuId>\n                        <title>{title}</title>\n                    </Row>")
+}
+
 fn menu_xml(request: &NewRequest, project: &str) -> String {
     let label = request.label.as_deref().unwrap_or("");
     let root_title = if label.is_empty() {
@@ -828,7 +962,7 @@ fn menu_xml(request: &NewRequest, project: &str) -> String {
         .enumerate()
         .map(|(index, item)| {
             let (title, target) = item.split_once('=').expect("validated menu item");
-            format!("\n                <MenuItem description=\"\" imageURL=\"\" isDefault=\"{}\" linkDestination=\"{}\" linkTarget=\"Self\" linkType=\"Mashup\" title=\"{}\">\n                    <GroupReferences><Members></Members></GroupReferences>\n                </MenuItem>", request.default && index == 0, escape(target), escape(title))
+            menu_item_xml(title, target, request.default && index == 0)
         })
         .collect();
     let rows: String = request
@@ -837,7 +971,13 @@ fn menu_xml(request: &NewRequest, project: &str) -> String {
         .enumerate()
         .map(|(index, item)| {
             let (title, target) = item.split_once('=').expect("validated menu item");
-            format!("\n                    <Row>\n                        <description></description>\n                        <imageURL></imageURL>\n                        <isDefault>{}</isDefault>\n                        <linkDestination>{}</linkDestination>\n                        <linkTarget><![CDATA[Self]]></linkTarget>\n                        <linkType><![CDATA[Mashup]]></linkType>\n                        <menuId><![CDATA[{}_{}]]></menuId>\n                        <parentMenuId><![CDATA[{}]]></parentMenuId>\n                        <title>{}</title>\n                    </Row>", request.default && index == 0, cdata(target), request.name, index, request.name, cdata(title))
+            menu_row_xml(
+                &request.name,
+                index,
+                title,
+                target,
+                request.default && index == 0,
+            )
         })
         .collect();
     format!("{}        <Menu\n         description=\"{}\"\n         documentationContent=\"\"\n         homeMashup=\"\"\n         imageURL=\"\"\n         menuLabel=\"{}\"\n         name=\"{}\"\n         projectName=\"{project}\"\n         tags=\"\">\n{}\n            <MenuItems>{items}\n            </MenuItems>\n            <GroupReferences><Members></Members></GroupReferences>\n            <effectiveMenu>\n                <DataShape>\n                    <FieldDefinitions>\n                        <FieldDefinition baseType=\"STRING\" description=\"Description for tooltip\" name=\"description\" ordinal=\"0\"></FieldDefinition>\n                        <FieldDefinition baseType=\"IMAGELINK\" description=\"Optional image URL\" name=\"imageURL\" ordinal=\"0\"></FieldDefinition>\n                        <FieldDefinition aspect.defaultValue=\"false\" baseType=\"BOOLEAN\" description=\"Is a default menu item\" name=\"isDefault\" ordinal=\"0\"></FieldDefinition>
@@ -924,7 +1064,7 @@ fn make_xml(
             "StateDefinition",
             request,
             project,
-            &format!("            <content>{}</content>", cdata(&state_content(request))),
+            &format!("            <content>{}</content>", cdata(&render_state_content(request))),
         ),
         Kind::Menu => menu_xml(request, project),
         Kind::Theme => plain_entity(
@@ -1061,52 +1201,10 @@ pub fn plan(solution: &Solution, request: &NewRequest) -> Result<Plan, NewError>
         media_content(path)?;
     }
     if matches!(request.kind, Kind::Style | Kind::State) {
-        for value in [
-            &request.background,
-            &request.foreground,
-            &request.secondary_background,
-            &request.line_color,
-        ]
-        .into_iter()
-        .flatten()
-        {
-            color(value)?;
-        }
-        if let Some(value) = &request.line_style {
-            if !["solid", "dashed", "dotted", "none"].contains(&value.as_str()) {
-                return Err(NewError::Invalid(
-                    "--line-style must be solid, dashed, dotted, or none".into(),
-                ));
-            }
-        }
-        if let Some(value) = &request.line_thickness {
-            value
-                .parse::<f64>()
-                .ok()
-                .filter(|value| *value >= 0.0)
-                .ok_or_else(|| {
-                    NewError::Invalid("--line-thickness must be a non-negative number".into())
-                })?;
-        }
-        if let Some(value) = &request.text_size {
-            if !["xsmall", "small", "normal", "large", "xlarge", "xxlarge"]
-                .contains(&value.as_str())
-            {
-                return Err(NewError::Invalid(
-                    "--text-size must be xsmall, small, normal, large, xlarge, or xxlarge".into(),
-                ));
-            }
-        }
-        if let Some(image) = &request.image {
-            if !entity_exists(solution, "MediaEntities", image) {
-                return Err(NewError::Unknown(format!(
-                    "no MediaEntity {image} in the solution or platform cache"
-                )));
-            }
-        }
+        validate_style(solution, request)?;
     }
     if request.kind == Kind::State {
-        validate_states(request)?;
+        validate_state_request(request)?;
     }
     if request.kind == Kind::Menu && request.items.is_empty() {
         return Err(NewError::Invalid(
@@ -1533,7 +1631,7 @@ mod tests {
         let mut state = request(Kind::State, "Acme.Orders.Status_SD");
         state.state_type = Some("string".into());
         state.states = vec!["==Open=Open".into(), "*=Other".into()];
-        let content = state_content(&state);
+        let content = render_state_content(&state);
         let definitions = serde_json::from_str::<Value>(&content).unwrap();
         assert_eq!(definitions["stateDefinitions"][0]["defaultValue"], "Open");
         assert!(definitions["stateDefinitions"][0]

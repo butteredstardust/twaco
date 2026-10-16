@@ -1,0 +1,9 @@
+$ twaco thing property add Acme.Orders.Manager Speed:NUMBER --persistent --default 5
+exit: 0
+
+--- stdout
+would change Things/Acme.Orders.Manager: add property Speed:NUMBER
+  Things/Acme.Orders.Manager.xml
+run again with --apply to write it
+--- stderr
+

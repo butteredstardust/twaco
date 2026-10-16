@@ -234,6 +234,29 @@ const SCENARIOS: &[(&str, &[&str])] = &[
         ],
     ),
     (
+        "thing_property_add_plan",
+        &[
+            "thing",
+            "property",
+            "add",
+            "Acme.Orders.Manager",
+            "Speed:NUMBER",
+            "--persistent",
+            "--default",
+            "5",
+        ],
+    ),
+    (
+        "thing_property_add_unknown_type",
+        &[
+            "thing",
+            "property",
+            "add",
+            "Acme.Orders.Manager",
+            "Odd:WIDGET",
+        ],
+    ),
+    (
         "mashup_new_form_dialog_plan",
         &[
             "mashup",

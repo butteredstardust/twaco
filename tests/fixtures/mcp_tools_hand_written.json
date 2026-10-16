@@ -1136,6 +1136,219 @@
     "annotations": {"readOnlyHint": false, "destructiveHint": true, "openWorldHint": false}
   },
   {
+    "name": "entity_edit",
+    "description": "Change an existing entity in the repository, as Composer would: add, change or remove a property of a Thing, ThingTemplate or ThingShape (a persistent one also writes the stored value of every Thing that has it), add or remove a script subscription, implement or stop implementing a ThingShape, change a timer's or scheduler's settings, given keys of a style, a MediaEntity's image, a menu's items, or a StateDefinition's states. Removing or retyping a property something still uses is refused unless force. A dry run unless dry_run is false; apply takes the workspace lock and writes every file or none.",
+    "inputSchema": {
+      "required": [
+        "action",
+        "entity"
+      ],
+      "additionalProperties": false,
+      "type": "object",
+      "properties": {
+        "action": {
+          "description": "What to change.",
+          "type": "string",
+          "enum": [
+            "property_add",
+            "property_remove",
+            "property_set",
+            "subscription_add",
+            "subscription_remove",
+            "shape_add",
+            "shape_remove",
+            "timer_set",
+            "scheduler_set",
+            "style_set",
+            "media_set",
+            "menu_item_add",
+            "menu_item_remove",
+            "state_set"
+          ]
+        },
+        "entity": {
+          "description": "The entity to change: its name, or Collection/Name.",
+          "type": "string"
+        },
+        "name": {
+          "description": "The property or subscription name (property_*, subscription_*).",
+          "type": "string"
+        },
+        "type": {
+          "description": "The property base type: required for property_add; for property_set a new type.",
+          "type": "string"
+        },
+        "default": {
+          "description": "The property default value.",
+          "type": "string"
+        },
+        "no_default": {
+          "description": "property_set: drop the default value.",
+          "type": "boolean",
+          "default": false
+        },
+        "persistent": {
+          "description": "Whether the property is persistent; absent leaves it (property_set).",
+          "type": "boolean"
+        },
+        "logged": {
+          "description": "Whether value changes are logged.",
+          "type": "boolean"
+        },
+        "read_only": {
+          "description": "Whether the property is read-only.",
+          "type": "boolean"
+        },
+        "category": {
+          "description": "The property category.",
+          "type": "string"
+        },
+        "units": {
+          "description": "The property units; empty clears them.",
+          "type": "string"
+        },
+        "data_shape": {
+          "description": "The DataShape of an INFOTABLE property.",
+          "type": "string"
+        },
+        "description": {
+          "description": "The property description.",
+          "type": "string"
+        },
+        "force": {
+          "description": "Remove or retype a property something still uses; what uses it comes back as warnings.",
+          "type": "boolean",
+          "default": false
+        },
+        "event": {
+          "description": "subscription_add: the event, such as DataChange, ThingStart, Timer or an event the source defines.",
+          "type": "string"
+        },
+        "source": {
+          "description": "subscription_add: the Thing subscribed to; absent is the entity itself.",
+          "type": "string"
+        },
+        "source_property": {
+          "description": "subscription_add: the property a DataChange subscription watches.",
+          "type": "string"
+        },
+        "then": {
+          "description": "subscription_add: the script to run.",
+          "type": "string"
+        },
+        "shape": {
+          "description": "shape_add / shape_remove: the ThingShape.",
+          "type": "string"
+        },
+        "every": {
+          "description": "timer_set: the update rate, as milliseconds or with ms, s, m or h.",
+          "type": "string"
+        },
+        "cron": {
+          "description": "scheduler_set: a six- or seven-field Quartz cron string.",
+          "type": "string"
+        },
+        "run_as": {
+          "description": "timer_set / scheduler_set: the user its events run as.",
+          "type": "string"
+        },
+        "enabled": {
+          "description": "timer_set / scheduler_set: enable or disable it on startup.",
+          "type": "boolean"
+        },
+        "background": {
+          "description": "style_set: a #rrggbb or rgba() color; empty clears it.",
+          "type": "string"
+        },
+        "foreground": {
+          "description": "style_set: the text color.",
+          "type": "string"
+        },
+        "secondary_background": {
+          "description": "style_set: the secondary background color.",
+          "type": "string"
+        },
+        "line_color": {
+          "description": "style_set: the line color.",
+          "type": "string"
+        },
+        "line_style": {
+          "description": "style_set: solid, dashed, dotted or none.",
+          "type": "string"
+        },
+        "line_thickness": {
+          "description": "style_set: a non-negative number.",
+          "type": "string"
+        },
+        "bold": {
+          "description": "style_set: bold text on or off.",
+          "type": "boolean"
+        },
+        "italic": {
+          "description": "style_set: italic text on or off.",
+          "type": "boolean"
+        },
+        "underline": {
+          "description": "style_set: underline text on or off.",
+          "type": "boolean"
+        },
+        "text_size": {
+          "description": "style_set: xsmall, small, normal, large, xlarge or xxlarge.",
+          "type": "string"
+        },
+        "image": {
+          "description": "style_set: a MediaEntity; empty clears it.",
+          "type": "string"
+        },
+        "display_string": {
+          "description": "style_set: the display string.",
+          "type": "string"
+        },
+        "file": {
+          "description": "media_set: the PNG, JPEG, GIF or SVG file.",
+          "type": "string"
+        },
+        "title": {
+          "description": "menu_item_add / menu_item_remove: the item title.",
+          "type": "string"
+        },
+        "mashup": {
+          "description": "menu_item_add: the mashup the item opens.",
+          "type": "string"
+        },
+        "before": {
+          "description": "menu_item_add: put the item before this title; absent is last.",
+          "type": "string"
+        },
+        "state_type": {
+          "description": "state_set: numeric or string.",
+          "type": "string"
+        },
+        "is_default": {
+          "description": "menu_item_add: make it the default item.",
+          "type": "boolean",
+          "default": false
+        },
+        "state": {
+          "description": "state_set: the states in order, each `<comparator><value>=<label>[;style key:value...]`; the last may be `*=<label>`.",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "dry_run": {
+          "type": "boolean",
+          "default": true
+        }
+      }
+    },
+    "annotations": {
+      "readOnlyHint": false,
+      "destructiveHint": true,
+      "openWorldHint": false
+    }
+  },
+  {
     "name": "mashup_new",
     "description": "Create a ThingWorx 10.2 responsive mashup from an embedded layout template, with its entity file and managed content.json and custom.css sidecars. template is a name or alias (blank by default); mashup_templates lists the slots where mashup_add can place widgets. Menu templates require primary_menu and may use secondary_menu. master puts its page container in the template's master slot. A dry run unless dry_run is false; an apply takes the workspace lock and writes every file or none.",
     "inputSchema": {

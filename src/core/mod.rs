@@ -24,6 +24,7 @@ pub mod doctor;
 pub mod entity;
 pub mod entity_carry;
 pub mod entity_delete;
+pub mod entity_edit;
 pub mod entity_get;
 pub mod entity_key;
 pub mod entity_new;

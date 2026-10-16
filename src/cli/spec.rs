@@ -1037,6 +1037,66 @@ pub(crate) const FLAGS: &[Flag] = &[
         takes: Takes::Value("text"),
     },
     Flag {
+        name: "--no-persistent",
+        takes: Takes::Switch,
+    },
+    Flag {
+        name: "--no-logged",
+        takes: Takes::Switch,
+    },
+    Flag {
+        name: "--no-read-only",
+        takes: Takes::Switch,
+    },
+    Flag {
+        name: "--no-bold",
+        takes: Takes::Switch,
+    },
+    Flag {
+        name: "--no-italic",
+        takes: Takes::Switch,
+    },
+    Flag {
+        name: "--no-underline",
+        takes: Takes::Switch,
+    },
+    Flag {
+        name: "--enabled",
+        takes: Takes::Switch,
+    },
+    Flag {
+        name: "--source",
+        takes: Takes::Value("Thing"),
+    },
+    Flag {
+        name: "--source-property",
+        takes: Takes::Value("property"),
+    },
+    Flag {
+        name: "--before",
+        takes: Takes::Value("Title"),
+    },
+    Flag {
+        name: "--category",
+        takes: Takes::Value("text"),
+    },
+    Flag {
+        name: "--units",
+        takes: Takes::Value("text"),
+    },
+    Flag {
+        name: "--persistent",
+        takes: Takes::Switch,
+    },
+    Flag {
+        name: "--logged",
+        takes: Takes::Switch,
+    },
+    Flag {
+        name: "--read-only",
+        takes: Takes::Switch,
+    },
+    Flag {
         name: "--value",
         takes: Takes::Value("text"),
     },
@@ -1663,6 +1723,156 @@ pub(crate) const COMMANDS: &[Command] = &[
       --no-management-shape   an implementation without its own Management_TS
       --root <dir>            the project's folder (default: the block's name)
       --base-extension        the PTC.Base extension version to depend on (default: what another project declares)"#,
+    },
+    Command {
+        path: "thing property",
+        group: 1,
+        operands: true,
+        flags: &[
+            "--default",
+            "--no-default",
+            "--persistent",
+            "--no-persistent",
+            "--logged",
+            "--no-logged",
+            "--read-only",
+            "--no-read-only",
+            "--category",
+            "--units",
+            "--data-shape",
+            "--description",
+            "--force",
+            "--apply",
+            "--json",
+        ],
+        text: r#"  thing property add <Entity> <name>:<TYPE> [--default <value>] [--persistent] [--logged]
+      [--read-only] [--category <text>] [--units <text>] [--data-shape <DataShape>]
+      [--description <text>] [--apply] [--json]
+  thing property set <Entity> <name>[:<TYPE>] [the add flags] [--no-default] [--no-persistent]
+      [--no-logged] [--no-read-only] [--force] [--apply] [--json]
+  thing property remove <Entity> <name> [--force] [--apply] [--json]
+                              add, change or remove a property of a Thing, ThingTemplate or
+                              ThingShape; a persistent one also writes the stored value of every
+                              Thing that has it; plan unless --apply
+      --force                 remove or retype a property something still uses (they are listed)"#,
+    },
+    Command {
+        path: "thing subscription",
+        group: 1,
+        operands: true,
+        flags: &[
+            "--event",
+            "--source",
+            "--source-property",
+            "--then",
+            "--script",
+            "--apply",
+            "--json",
+        ],
+        text: r#"  thing subscription add <Entity> <name> --event <Event> [--source <Thing>]
+      [--source-property <property>] (--then <code> | --script <file.js>) [--apply] [--json]
+  thing subscription remove <Entity> <name> [--apply] [--json]
+                              add or remove a script subscription; no --source is the entity
+                              itself; plan unless --apply"#,
+    },
+    Command {
+        path: "thing shape",
+        group: 1,
+        operands: true,
+        flags: &["--apply", "--json"],
+        text: r#"  thing shape <add|remove> <Thing|ThingTemplate> <ThingShape> [--apply] [--json]
+                              implement a ThingShape, or stop; refused when a member clashes;
+                              plan unless --apply"#,
+    },
+    Command {
+        path: "timer set",
+        group: 1,
+        operands: true,
+        flags: &[
+            "--every",
+            "--run-as",
+            "--enabled",
+            "--disabled",
+            "--apply",
+            "--json",
+        ],
+        text: r#"  timer set <Timer> [--every <duration>] [--run-as <user>] [--enabled|--disabled] [--apply]
+      [--json]
+                              change a Timer Thing's settings; plan unless --apply"#,
+    },
+    Command {
+        path: "scheduler set",
+        group: 1,
+        operands: true,
+        flags: &[
+            "--cron",
+            "--run-as",
+            "--enabled",
+            "--disabled",
+            "--apply",
+            "--json",
+        ],
+        text: r#"  scheduler set <Scheduler> [--cron <quartz cron>] [--run-as <user>] [--enabled|--disabled]
+      [--apply] [--json]
+                              change a Scheduler Thing's settings; plan unless --apply"#,
+    },
+    Command {
+        path: "style set",
+        group: 1,
+        operands: true,
+        flags: &[
+            "--background",
+            "--foreground",
+            "--secondary-background",
+            "--line-color",
+            "--line-style",
+            "--line-thickness",
+            "--bold",
+            "--no-bold",
+            "--italic",
+            "--no-italic",
+            "--underline",
+            "--no-underline",
+            "--text-size",
+            "--image",
+            "--display-string",
+            "--apply",
+            "--json",
+        ],
+        text: r#"  style set <StyleDefinition> [--background <color>] [--foreground <color>]
+      [--secondary-background <color>] [--line-color <color>] [--line-style <style>]
+      [--line-thickness <n>] [--bold|--no-bold] [--italic|--no-italic] [--underline|--no-underline]
+      [--text-size <size>] [--image <MediaEntity>] [--display-string <text>] [--apply] [--json]
+                              change only the given keys of a style; an empty color clears it;
+                              plan unless --apply"#,
+    },
+    Command {
+        path: "media set",
+        group: 1,
+        operands: true,
+        flags: &["--file", "--apply", "--json"],
+        text: r#"  media set <MediaEntity> --file <path> [--apply] [--json]
+                              replace a MediaEntity's image (PNG, JPEG, GIF or SVG, up to 10 MB);
+                              plan unless --apply"#,
+    },
+    Command {
+        path: "menu item",
+        group: 1,
+        operands: true,
+        flags: &["--default", "--before", "--apply", "--json"],
+        text: r#"  menu item add <Menu> <Title>=<Mashup> [--default] [--before <Title>] [--apply] [--json]
+  menu item remove <Menu> <Title> [--apply] [--json]
+                              add or remove a mashup item, keeping the effective menu in step;
+                              plan unless --apply"#,
+    },
+    Command {
+        path: "state set",
+        group: 1,
+        operands: true,
+        flags: &["--type", "--state", "--apply", "--json"],
+        text: r#"  state set <StateDefinition> --type numeric|string --state <spec>... [--apply] [--json]
+                              replace a StateDefinition's states (the specs of new state);
+                              plan unless --apply"#,
     },
     Command {
         path: "new thing",

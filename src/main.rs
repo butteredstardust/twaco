@@ -32,6 +32,7 @@ use cli::entity::{
     entity_status, permissions_apply_cmd, permissions_audit_cmd, permissions_cmd,
     permissions_init_cmd,
 };
+use cli::entity_edit::entity_edit_cmd;
 use cli::entity_new::entity_new_cmd;
 use cli::info::{
     catalog_cmd, docs_cmd, guide_cmd, help_cmd, impact_cmd, javadoc_cmd, settings_cmd, unused_cmd,
@@ -235,6 +236,10 @@ fn dispatch(route: &str, parsed: &Args) -> u8 {
             | "new timer" | "new scheduler" | "new data-table" | "new stream"
             | "new value-stream" | "new media" | "new style" | "new state" | "new menu"
             | "new theme" => entity_new_cmd(solution, route, parsed),
+            "thing property" | "thing subscription" | "thing shape" | "timer set"
+            | "scheduler set" | "style set" | "media set" | "menu item" | "state set" => {
+                entity_edit_cmd(solution, route, parsed)
+            }
             "config-table" => config_table(solution, parsed),
             "entity get" => entity_get(solution, parsed),
             "entity status" => entity_status(solution, parsed),

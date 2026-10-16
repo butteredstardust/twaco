@@ -845,6 +845,7 @@ fn every_tool_is_listed_with_a_schema_and_honest_annotations() {
             "move_member",
             "new_building_block",
             "entity_new",
+            "entity_edit",
             "mashup_new",
             "mashup_templates",
             "mashup_add",
@@ -906,6 +907,7 @@ fn every_tool_is_listed_with_a_schema_and_honest_annotations() {
         "move_member",
         "new_building_block",
         "entity_new",
+        "entity_edit",
         "mashup_new",
         "mashup_add",
         "mashup_add_contained",
@@ -2252,6 +2254,43 @@ fn entity_new_style_applies() {
     assert_eq!(applied["isError"], false, "{applied}");
     assert_eq!(applied["structuredContent"]["applied"], true);
     assert!(root.join("StyleDefinitions/P.Good_SD.xml").exists());
+}
+
+#[test]
+fn entity_edit_property_add_plans_then_applies() {
+    let (_dir, root) = solution_dir();
+    let created = call(
+        &root,
+        "entity_new",
+        json!({"kind": "thing", "name": "P.Press", "dry_run": false}),
+    );
+    assert_eq!(created["isError"], false, "{created}");
+    let arguments = json!({
+        "action": "property_add", "entity": "P.Press", "name": "Speed", "type": "number",
+        "default": "5", "persistent": true
+    });
+    let planned = call(&root, "entity_edit", arguments.clone());
+    assert_eq!(planned["isError"], false, "{planned}");
+    assert_eq!(planned["structuredContent"]["applied"], false);
+    let path = root.join("Things/P.Press.xml");
+    assert!(!std::fs::read_to_string(&path).unwrap().contains("Speed"));
+    let mut apply = arguments;
+    apply["dry_run"] = json!(false);
+    let applied = call(&root, "entity_edit", apply);
+    assert_eq!(applied["isError"], false, "{applied}");
+    assert_eq!(
+        applied["structuredContent"]["summary"],
+        "add property Speed:NUMBER"
+    );
+    let xml = std::fs::read_to_string(&path).unwrap();
+    assert!(xml.contains("name=\"Speed\""));
+    assert!(xml.contains("<Speed><Value>5.0</Value>"));
+    let missing = call(
+        &root,
+        "entity_edit",
+        json!({"action": "property_add", "entity": "P.Press", "name": "Rate"}),
+    );
+    assert_eq!(missing["isError"], true, "{missing}");
 }
 
 #[test]

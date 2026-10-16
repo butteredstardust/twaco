@@ -9,6 +9,7 @@ pub mod datatable_copy;
 pub mod db;
 pub mod delete;
 pub mod deploy;
+pub mod entity_edit;
 pub mod entity_new;
 pub mod export;
 pub mod extensions;

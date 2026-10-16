@@ -218,9 +218,9 @@ mod tests {
         }
 
         let statuses = [
-            status("Same", "v5:same", Some("v5:same")),
-            status("Different", "v5:working", Some("v5:server")),
-            status("Missing", "v5:working", None),
+            status("Same", "v6:same", Some("v6:same")),
+            status("Different", "v6:working", Some("v6:server")),
+            status("Missing", "v6:working", None),
         ];
         let mut baseline = Baseline::default();
         assert_eq!(record_matching(&mut baseline, &statuses), 1);
@@ -228,13 +228,13 @@ mod tests {
             baseline
                 .get("Things", "Same")
                 .map(|entry| entry.local.as_str()),
-            Some("v5:same")
+            Some("v6:same")
         );
         assert_eq!(
             baseline
                 .get("Things", "Same")
                 .map(|entry| entry.server.as_str()),
-            Some("v5:same")
+            Some("v6:same")
         );
         assert_eq!(baseline.get("Things", "Different"), None);
         assert_eq!(baseline.get("Things", "Missing"), None);

@@ -4,7 +4,7 @@
 //! they are hash input, never an export. Length-prefixing makes element, attribute, text and
 //! CDATA boundaries unambiguous without choosing an escaping style.
 //!
-//! Normalisation version 5 has exactly these non-semantic rules:
+//! Normalisation version 6 has exactly these non-semantic rules:
 //!
 //! - apply XML 1.0 line-end and CDATA-attribute whitespace normalisation to literal XML input
 //!   before unescaping character references or applying payload-specific rules;
@@ -25,6 +25,9 @@
 //! - sort element children by `name` (canonical bytes break ties) only in `FieldDefinitions`,
 //!   `ParameterDefinitions`, `ServiceDefinitions`, `ServiceImplementations`, `ConfigurationTables`,
 //!   and `ConfigurationTableDefinitions`; some live exports reorder these named sections;
+//! - sort the entries of a direct-child `ThingProperties` by element name: a 10.1 export orders
+//!   a Thing's stored values by where each property comes from and by hash, not as imported
+//!   (observed 2026-10-16; version 6);
 //! - inside `DesignTimePermissions`, `RunTimePermissions` and `VisibilityPermissions`, and the
 //!   `Instance...` forms of the three on a ThingShape or ThingTemplate, treat every list as the
 //!   set it is: drop a permission kind or a `Permissions` resource that grants no principal, and
@@ -46,7 +49,7 @@ use super::scan::{self, Kind, ScanError, Token};
 use sha2::{Digest, Sha256};
 
 /// The normalisation version every hash carries; a baseline from another one says nothing.
-pub(crate) const HASH_VERSION: &str = "v5";
+pub(crate) const HASH_VERSION: &str = "v6";
 const LIVE_ONLY_ELEMENTS: [&[u8]; 9] = [
     b"effectiveShape",
     b"Owner",
@@ -142,6 +145,7 @@ fn canonical(src: &[u8], with_permissions: bool) -> Result<Vec<u8>, NormaliseErr
     normalise_special_payloads(&mut entity);
     clean_indentation(&mut entity);
     sort_name_keyed_containers(&mut entity);
+    sort_thing_properties(&mut entity);
     if with_permissions {
         normalise_permissions(&mut entity);
     } else {
@@ -150,7 +154,7 @@ fn canonical(src: &[u8], with_permissions: bool) -> Result<Vec<u8>, NormaliseErr
                 if PERMISSION_BLOCKS.contains(&element.name.as_slice()))
         });
     }
-    let mut out = b"twaco-entity-normalise-v5\0".to_vec();
+    let mut out = b"twaco-entity-normalise-v6\0".to_vec();
     write_element(&entity, &mut out);
     Ok(out)
 }
@@ -463,6 +467,39 @@ fn clean_indentation(element: &mut Element) {
     for child in &mut element.children {
         if let Node::Element(child) = child {
             clean_indentation(child);
+        }
+    }
+}
+
+/// The entity's stored property values, in element-name order.
+fn sort_thing_properties(entity: &mut Element) {
+    for child in &mut entity.children {
+        let Node::Element(block) = child else {
+            continue;
+        };
+        if block.name != b"ThingProperties" {
+            continue;
+        }
+        let slots: Vec<usize> = block
+            .children
+            .iter()
+            .enumerate()
+            .filter_map(|(index, node)| matches!(node, Node::Element(_)).then_some(index))
+            .collect();
+        let mut values: Vec<Element> = slots
+            .iter()
+            .map(|index| match &block.children[*index] {
+                Node::Element(value) => value.clone(),
+                _ => unreachable!("slots contain only elements"),
+            })
+            .collect();
+        values.sort_by(|left, right| {
+            left.name
+                .cmp(&right.name)
+                .then_with(|| canonical_element_bytes(left).cmp(&canonical_element_bytes(right)))
+        });
+        for (index, value) in slots.into_iter().zip(values) {
+            block.children[index] = Node::Element(value);
         }
     }
 }
@@ -855,11 +892,25 @@ mod tests {
     }
 
     #[test]
-    fn hash_and_framing_are_version_four() {
-        assert!(hash(b"<Thing/>").unwrap().starts_with("v5:"));
+    fn hash_and_framing_are_version_six() {
+        assert!(hash(b"<Thing/>").unwrap().starts_with("v6:"));
         assert!(normalise(b"<Thing/>")
             .unwrap()
-            .starts_with(b"twaco-entity-normalise-v5\0"));
+            .starts_with(b"twaco-entity-normalise-v6\0"));
+    }
+
+    #[test]
+    fn stored_values_compare_in_any_order_but_not_with_other_values() {
+        // As written, and as a 10.1 server exported the same Thing (2026-10-16).
+        let sent = br#"<Thing name="T"><ThingProperties><Speed><Value>12.5</Value><Quality>UNKNOWN</Quality></Speed><Label><Value><![CDATA[hi]]></Value><Quality>UNKNOWN</Quality></Label></ThingProperties></Thing>"#;
+        let read_back = br#"<Thing name="T"><ThingProperties><Label><Value><![CDATA[hi]]></Value><Quality>UNKNOWN</Quality></Label><Speed><Value>12.5</Value><Quality>UNKNOWN</Quality></Speed></ThingProperties></Thing>"#;
+        let other = br#"<Thing name="T"><ThingProperties><Label><Value><![CDATA[hi]]></Value><Quality>UNKNOWN</Quality></Label><Speed><Value>13.0</Value><Quality>UNKNOWN</Quality></Speed></ThingProperties></Thing>"#;
+        assert_eq!(hash(sent).unwrap(), hash(read_back).unwrap());
+        assert_ne!(hash(read_back).unwrap(), hash(other).unwrap());
+        // Only the entity's own stored values: elsewhere order still counts.
+        let rows = br#"<Thing name="T"><X><B/><A/></X></Thing>"#;
+        let swapped = br#"<Thing name="T"><X><A/><B/></X></Thing>"#;
+        assert_ne!(hash(rows).unwrap(), hash(swapped).unwrap());
     }
 
     /// What was sent, and what a 10.1 server read back after importing it (2026-10-07).

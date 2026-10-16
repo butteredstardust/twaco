@@ -8,6 +8,9 @@ All notable changes to twaco are recorded here. The format follows
 
 ### Added
 
+- `twaco thing property|subscription|shape`, `timer set`, `scheduler set`, `style set`, `media set`,
+  `menu item` and `state set` (MCP `entity_edit`) change existing entities as Composer would, plan
+  until applied, and keep the stored values of persistent properties in every inheriting Thing.
 - `twaco new thing|thing-template|thing-shape|data-shape|timer|scheduler|data-table|stream|value-stream|media|style|state|menu|theme` (MCP `entity_new`)
   plans or creates common ThingWorx 10.1 entity exports in the repository. DataShapes get their
   `fields.json` sidecar and DataTables get `datatable.json`; timers and schedulers require a run-as
@@ -36,6 +39,12 @@ All notable changes to twaco are recorded here. The format follows
 - `twaco check` has a `contained mashups` gate: a binding to a parameter that a contained mashup's or navigation function's copy of the parameters lacks, or that the mashup it shows no longer declares. ThingWorx drops those values without a word; three real popups in a shipped product had them. `mashup param set <mashup> <parameter>` with no other change refreshes every copy and leaves the bindings alone.
 - `mashup new --template tabs --tab "Label=Mashup"...` (MCP `tabs`) makes a page whose tab set shows a mashup in each tab, each in the tab container Composer gives it with the mashup's parameters cached; two more templates: `sidebar-header` (the stock ThingWorx master shape) and `dashboard`.
 - `twaco mashup new <name>` (MCP `mashup_new`) creates a ThingWorx 10.2 responsive mashup in the repository as Composer would: the entity file from the 10.2 template and its `content.json` / `custom.css` sidecars, written by the same sync as any mashup, in one transaction. `--layout sidebar` binds required `--primary-menu` and optional `--secondary-menu` INFOTABLE services to its menu bar and loads them with the page; `--layout header-footer` creates fixed header and footer regions. `--master` makes a master mashup with a page container filling the center; `--theme` takes a StyleTheme in the solution (default PTC Convergence Theme); `--visibility Organization/<name>` or `OrganizationalUnit/<org>:<unit>` grants visibility, and nothing is granted unless asked. Plans until `--apply`.
+
+### Changed
+
+- Entity hashes are version 6: a Thing's stored values (`ThingProperties`) compare in any order,
+  because a 10.1 export reorders them. Baselines from v5 count as unrecorded until the next deploy
+  or `entity status --all --record`.
 
 ### Fixed
 

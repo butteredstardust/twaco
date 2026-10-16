@@ -1,10 +1,10 @@
 use super::requests::refactor::{
-    AdoptApplyRequest, AdoptKind, AdoptReportRequest, AdoptTakeSide, EntityNewRequest,
-    HandoffAction, HandoffRequest, MashupAddContainedRequest, MashupAddRequest, MashupBindRequest,
-    MashupDescribeRequest, MashupEventRequest, MashupNewRequest, MashupOnRequest,
-    MashupParameterAction, MashupParameterRequest, MashupRecipeRequest, MashupTemplatesRequest,
-    MashupValidateRequest, MoveMemberRequest, NewBuildingBlockRequest, RenameRequest,
-    ReprojectRequest, RetemplateRequest, WidgetsRequest,
+    AdoptApplyRequest, AdoptKind, AdoptReportRequest, AdoptTakeSide, EntityEditAction,
+    EntityEditRequest, EntityNewRequest, HandoffAction, HandoffRequest, MashupAddContainedRequest,
+    MashupAddRequest, MashupBindRequest, MashupDescribeRequest, MashupEventRequest,
+    MashupNewRequest, MashupOnRequest, MashupParameterAction, MashupParameterRequest,
+    MashupRecipeRequest, MashupTemplatesRequest, MashupValidateRequest, MoveMemberRequest,
+    NewBuildingBlockRequest, RenameRequest, ReprojectRequest, RetemplateRequest, WidgetsRequest,
 };
 use super::source::add_types_refresh;
 use super::*;
@@ -166,6 +166,124 @@ pub(crate) fn entity_new_tool(
     let outcome = commands::entity_new::execute(solution, &request, &mut notices)
         .map_err(ToolError::coded)?;
     let mut result = crate::core::entity_new::plan_json(solution, &outcome.plan, outcome.applied);
+    result["dry_run"] = json!(dry_run);
+    add_notices(&mut result, &notices);
+    Ok(result)
+}
+
+pub(crate) fn entity_edit_tool(
+    solution: &Solution,
+    arguments: EntityEditRequest,
+) -> Result<Value, ToolError> {
+    use crate::core::entity_edit::{Action, Property, Request, StyleChange};
+    use crate::mcp::requests::common::Absent;
+    let text = |value: &Absent<String>| value.as_ref().cloned();
+    let need = |value: &Absent<String>, what: &str| -> Result<String, ToolError> {
+        value
+            .as_ref()
+            .filter(|value| !value.is_empty())
+            .cloned()
+            .ok_or_else(|| ToolError::invalid(format!("this action needs {what}")))
+    };
+    let flag = |value: &Absent<bool>| value.as_ref().copied();
+    let property = || -> Result<Property, ToolError> {
+        Ok(Property {
+            name: need(&arguments.name, "name")?,
+            base_type: text(&arguments.base_type).map(|value| value.to_uppercase()),
+            default: text(&arguments.default),
+            no_default: arguments.no_default,
+            persistent: flag(&arguments.persistent),
+            logged: flag(&arguments.logged),
+            read_only: flag(&arguments.read_only),
+            category: text(&arguments.category),
+            units: text(&arguments.units),
+            data_shape: text(&arguments.data_shape),
+            description: text(&arguments.description),
+        })
+    };
+    let action = match arguments.action {
+        EntityEditAction::PropertyAdd => {
+            need(&arguments.base_type, "type")?;
+            Action::PropertyAdd(property()?)
+        }
+        EntityEditAction::PropertySet => Action::PropertySet {
+            property: property()?,
+            force: arguments.force,
+        },
+        EntityEditAction::PropertyRemove => Action::PropertyRemove {
+            name: need(&arguments.name, "name")?,
+            force: arguments.force,
+        },
+        EntityEditAction::SubscriptionAdd => Action::SubscriptionAdd {
+            name: need(&arguments.name, "name")?,
+            event: need(&arguments.event, "event")?,
+            source: text(&arguments.source),
+            source_property: text(&arguments.source_property),
+            code: need(&arguments.then, "then (the script)")?,
+        },
+        EntityEditAction::SubscriptionRemove => Action::SubscriptionRemove {
+            name: need(&arguments.name, "name")?,
+        },
+        EntityEditAction::ShapeAdd => Action::ShapeAdd {
+            shape: need(&arguments.shape, "shape")?,
+        },
+        EntityEditAction::ShapeRemove => Action::ShapeRemove {
+            shape: need(&arguments.shape, "shape")?,
+        },
+        EntityEditAction::TimerSet => Action::TimerSet {
+            every: text(&arguments.every),
+            run_as: text(&arguments.run_as),
+            enabled: flag(&arguments.enabled),
+        },
+        EntityEditAction::SchedulerSet => Action::SchedulerSet {
+            cron: text(&arguments.cron),
+            run_as: text(&arguments.run_as),
+            enabled: flag(&arguments.enabled),
+        },
+        EntityEditAction::StyleSet => Action::StyleSet(StyleChange {
+            background: text(&arguments.background),
+            foreground: text(&arguments.foreground),
+            secondary_background: text(&arguments.secondary_background),
+            line_color: text(&arguments.line_color),
+            line_style: text(&arguments.line_style),
+            line_thickness: text(&arguments.line_thickness),
+            bold: flag(&arguments.bold),
+            italic: flag(&arguments.italic),
+            underline: flag(&arguments.underline),
+            text_size: text(&arguments.text_size),
+            image: text(&arguments.image),
+            display_string: text(&arguments.display_string),
+        }),
+        EntityEditAction::MediaSet => Action::MediaSet {
+            file: need(&arguments.file, "file")?.into(),
+        },
+        EntityEditAction::MenuItemAdd => Action::MenuItemAdd {
+            title: need(&arguments.title, "title")?,
+            mashup: need(&arguments.mashup, "mashup")?,
+            default: arguments.is_default,
+            before: text(&arguments.before),
+        },
+        EntityEditAction::MenuItemRemove => Action::MenuItemRemove {
+            title: need(&arguments.title, "title")?,
+        },
+        EntityEditAction::StateSet => Action::StateSet {
+            state_type: need(&arguments.state_type, "state_type")?,
+            states: arguments.state.items().to_vec(),
+        },
+    };
+    let dry_run = arguments.dry_run;
+    let request = commands::entity_edit::EditRequest {
+        request: Request {
+            entity: nonempty(&arguments.entity, "entity")?.to_string(),
+            action,
+        },
+        mode: if dry_run { Mode::Plan } else { Mode::Apply },
+        lock_label: "mcp entity_edit",
+    };
+    let mut notices = commands::Notices::default();
+    let outcome = commands::entity_edit::execute(solution, &request, &mut notices)
+        .map_err(ToolError::coded)?;
+    let mut result = crate::core::entity_edit::plan_json(solution, &outcome.plan, outcome.applied);
     result["dry_run"] = json!(dry_run);
     add_notices(&mut result, &notices);
     Ok(result)

@@ -463,6 +463,32 @@ accepts PNG, JPEG, GIF, or SVG content up to 10 MB. Styles use `#rrggbb` or `rgb
 States take ordered comparator specifications; menus require one or more `Title=Mashup` items; and
 themes may copy a repository StyleTheme with `--from` before applying `--prop name=value` overrides.
 
+## Changing entities
+
+Each command plans until `--apply` and changes only the element it names.
+
+```sh
+twaco thing property add Acme.Orders.Machine_TT Speed:NUMBER --default 12.5 --persistent --apply
+twaco thing property set Acme.Orders.Machine_TT Speed --no-logged --category Motion --apply
+twaco thing property remove Acme.Orders.Machine_TT Speed --apply
+twaco thing subscription add Acme.Orders.Press OnSpeed --event DataChange --source-property Speed --then "me.Check();" --apply
+twaco thing shape add Acme.Orders.Machine_TT Acme.Orders.Audit_TS --apply
+twaco timer set Acme.Orders.Refresh_TM --every 5m --enabled --apply
+twaco scheduler set Acme.Orders.Nightly_SC --cron "0 0 3 * * ?" --apply
+twaco style set Acme.Orders.Good_SD --foreground '#000000' --bold --apply
+twaco media set Acme.Orders.Logo_MD --file logo.svg --apply
+twaco menu item add Acme.Orders.Main_MN Orders=Acme.Orders.Orders_MU --before Home --apply
+twaco state set Acme.Orders.Speed_SD --type numeric --state '<2000=Normal' --state '*=Overload' --apply
+```
+
+A property name must be new to the entity, to what it inherits, and to everything that inherits
+it (the server refuses that clash too). A persistent property has a stored value in every Thing
+that has it, and the server writes that value into each Thing's export. So adding, removing,
+retyping or implementing one also rewrites those Things' `ThingProperties`. Removing or retyping
+a property that a mashup binding, another entity's script or a `me.<name>` read still uses is
+refused; `--force` does it anyway and lists the users. A persistent INFOTABLE property is not
+written yet. MCP: `entity_edit`.
+
 ## Creating mashups
 
 ```sh
