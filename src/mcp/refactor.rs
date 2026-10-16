@@ -301,6 +301,7 @@ pub(crate) fn mashup_bind_tool(
         "from": outcome.plan.from,
         "to": outcome.plan.to,
         "new_source": outcome.plan.new_source,
+        "warnings": outcome.plan.warnings,
         "files": files,
     });
     add_notices(&mut result, &notices);

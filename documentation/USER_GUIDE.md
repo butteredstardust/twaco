@@ -471,8 +471,11 @@ twaco mashup bind Acme.App.Orders_MU --from mashup:OrderId --to data:Acme.App.Or
 `ui:<widget-id>.<Property>`, `mashup:<Parameter>`, and `data:<Entity>.<Service>` for a result or
 `data:<Entity>.<Service>.<field-or-parameter>`. A mashup call with its own name is
 `data:<Entity>.<Service>[as <alias>]`, and a selected row field is
-`data:<Entity>.<Service>[SelectedRows].<field>`. The command checks property direction and base
-types before it writes. A missing call for a Thing is added to a `Things_<Entity>` data source;
+`data:<Entity>.<Service>[SelectedRows].<field>` (`[as <alias>][SelectedRows]` for both). When the
+mashup calls a service more than once, the address must name the call with `[as <alias>]`; an
+alias another service's call already has is refused. Widgets are named by id, display name or a
+type word only one widget matches, never by a loose catalogue search. The command checks property
+direction and base types before it writes, and warns when the target already has another source. A missing call for a Thing is added to a `Things_<Entity>` data source;
 templates and shapes need the runtime entity binding Composer creates, so twaco asks you to add
 that call there once. The entity and managed content sidecar change in one transaction.
 

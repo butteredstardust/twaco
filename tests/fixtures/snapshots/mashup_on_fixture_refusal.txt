@@ -4,4 +4,4 @@ exit: 2
 --- stdout
 
 --- stderr
-twaco: UI has no Properties object
+twaco: Acme.Orders.Dashboard: UI has no Properties object

@@ -60,38 +60,39 @@ pub fn parse_address(text: &str) -> Result<Address, AddressError> {
 }
 
 fn data(rest: &str) -> Option<Address> {
-    let (head, tail) = match rest.split_once('[') {
-        Some((head, rest)) => {
-            let (bracket, after) = rest.split_once(']')?;
-            if after.contains(['[', ']']) {
-                return None;
-            }
-            let (alias, selected_rows) = if let Some(alias) = bracket.strip_prefix("as ") {
-                if alias.is_empty() || alias.trim() != alias {
-                    return None;
-                }
-                (Some(alias.to_string()), false)
-            } else if bracket == "SelectedRows" {
-                (None, true)
-            } else {
-                return None;
-            };
-            (head, (alias, selected_rows, after))
-        }
-        None => (rest, (None, false, "")),
+    // `head[as alias][SelectedRows].member`: either bracket may be left out, in that order.
+    let (head, mut tail) = match rest.find('[') {
+        Some(at) => (&rest[..at], &rest[at..]),
+        None => (rest, ""),
     };
+    let mut alias = None;
+    let mut selected_rows = false;
+    if let Some(after) = tail.strip_prefix("[as ") {
+        let (name, after) = after.split_once(']')?;
+        if name.is_empty() || name.trim() != name || name.contains('[') {
+            return None;
+        }
+        alias = Some(name.to_string());
+        tail = after;
+    }
+    if let Some(after) = tail.strip_prefix("[SelectedRows]") {
+        selected_rows = true;
+        tail = after;
+    }
     if head.is_empty() || !head.contains('.') || head.split('.').any(str::is_empty) {
         return None;
     }
-    let member = match tail.2 {
+    let member = match tail {
         "" => None,
-        after if after.starts_with('.') && after.len() > 1 => Some(after[1..].to_string()),
+        after if after.starts_with('.') && after.len() > 1 && !after.contains(['[', ']']) => {
+            Some(after[1..].to_string())
+        }
         _ => return None,
     };
     Some(Address::Data {
         entity_service: head.to_string(),
-        alias: tail.0,
-        selected_rows: tail.1,
+        alias,
+        selected_rows,
         member,
     })
 }
@@ -151,6 +152,17 @@ mod tests {
                 member: Some("note".into())
             }
         );
+        // Selected rows of a call with its own name, as `mashup describe` prints them.
+        assert_eq!(
+            parse_address("data:Acme.Orders.Manager.GetOrders[as orders][SelectedRows].note")
+                .unwrap(),
+            Address::Data {
+                entity_service: "Acme.Orders.Manager.GetOrders".into(),
+                alias: Some("orders".into()),
+                selected_rows: true,
+                member: Some("note".into())
+            }
+        );
     }
 
     #[test]
@@ -169,7 +181,8 @@ mod tests {
             "data:E.S[]",
             "data:E.S[SelectedRows]x",
             "data:E.S[a]",
-            "data:E.S[as a][SelectedRows]",
+            "data:E.S[SelectedRows][as a]",
+            "data:E.S[as a][as b]",
         ] {
             assert!(parse_address(address).is_err(), "{address}");
         }

@@ -275,7 +275,7 @@ pub(crate) fn mashup_bind_cmd(solution: &Solution, args: &Args) -> u8 {
                 .replace('\\', "/"),
         );
     }
-    let report = serde_json::json!({ "applied": outcome.applied, "mashup": outcome.plan.edit.mashup, "from": outcome.plan.from, "to": outcome.plan.to, "new_source": outcome.plan.new_source, "files": files });
+    let report = serde_json::json!({ "applied": outcome.applied, "mashup": outcome.plan.edit.mashup, "from": outcome.plan.from, "to": outcome.plan.to, "new_source": outcome.plan.new_source, "warnings": outcome.plan.warnings, "files": files });
     if args.has("--json") {
         println!(
             "{}",
@@ -296,6 +296,9 @@ pub(crate) fn mashup_bind_cmd(solution: &Solution, args: &Args) -> u8 {
     );
     if let Some(source) = &outcome.plan.new_source {
         println!("  new data source {source}");
+    }
+    for warning in &outcome.plan.warnings {
+        println!("  warning: {warning}");
     }
     println!(
         "  files: {}",

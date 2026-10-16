@@ -181,8 +181,19 @@ impl MashupDocument {
     }
 
     /// The widget a person names: an exact `Id`, else a unique `DisplayName`, else the only
-    /// widget of a type the catalogue resolves the word to.
+    /// widget of a type the catalogue resolves the word to, else the only widget whose type a
+    /// catalogue search for the word finds ("the chart").
     pub fn find(&self, word: &str) -> Result<WidgetRef, EditError> {
+        self.find_widget(word, true)
+    }
+
+    /// As [`Self::find`] without the catalogue search, for wiring, where a loose guess could
+    /// bind the wrong widget.
+    pub fn find_exact(&self, word: &str) -> Result<WidgetRef, EditError> {
+        self.find_widget(word, false)
+    }
+
+    fn find_widget(&self, word: &str, search: bool) -> Result<WidgetRef, EditError> {
         let all = self.widgets();
         if let Some(found) = all.iter().find(|w| w.id == word) {
             return Ok(found.clone());
@@ -211,7 +222,7 @@ impl MashupDocument {
             .into_iter()
             .map(|widget| widget.type_id.as_str())
             .collect();
-        if !word.trim().is_empty() {
+        if search && !word.trim().is_empty() {
             if let Some(found) = one(all
                 .iter()
                 .filter(|w| kinds.contains(&w.type_id.as_str()))
@@ -1285,6 +1296,66 @@ mod tests {
         );
         assert_eq!(child_ids(&document, "flexcontainer-7"), ["ptcslabel-5"]);
         assert!(document.problems().is_empty());
+    }
+
+    #[test]
+    fn left_of_and_above_put_the_new_widget_first_in_the_split() {
+        let leaves = [
+            filling_widget("ptcschartbar", "ptcschartbar-3", "chart"),
+            widget("ptcslabel", "ptcslabel-4", "label", ""),
+        ]
+        .join(",");
+        let column = container("flexcontainer-2", "column", "column", &leaves);
+        let mut left = document(&column, 4);
+        left.place(
+            catalogue_widget("ptcsbutton"),
+            &Placement::Beside {
+                anchor: "ptcschartbar-3".into(),
+                side: Side::Left,
+            },
+        )
+        .unwrap();
+        assert_eq!(
+            child_ids(&left, "flexcontainer-2"),
+            ["flexcontainer-6", "flexcontainer-9"]
+        );
+        assert_eq!(
+            child_ids(&left, "flexcontainer-6"),
+            ["flexcontainer-8", "flexcontainer-7"]
+        );
+        assert_eq!(child_ids(&left, "flexcontainer-8"), ["ptcsbutton-5"]);
+        assert_eq!(child_ids(&left, "flexcontainer-7"), ["ptcschartbar-3"]);
+        assert!(left.problems().is_empty());
+
+        let children = [
+            container("flexcontainer-3", "container-3", "column", ""),
+            container("flexcontainer-4", "container-4", "column", ""),
+        ]
+        .join(",");
+        let row = container("flexcontainer-2", "row", "row", &children);
+        let mut above = document(&row, 4);
+        above
+            .place(
+                catalogue_widget("ptcslabel"),
+                &Placement::Beside {
+                    anchor: "flexcontainer-3".into(),
+                    side: Side::Above,
+                },
+            )
+            .unwrap();
+        assert_eq!(
+            child_ids(&above, "flexcontainer-2"),
+            ["flexcontainer-6", "flexcontainer-4"]
+        );
+        assert_eq!(
+            child_ids(&above, "flexcontainer-6"),
+            ["flexcontainer-7", "flexcontainer-3"]
+        );
+        assert_eq!(
+            above.at(&above.find("flexcontainer-6").unwrap().path)["Properties"]["flex-direction"],
+            "column"
+        );
+        assert!(above.problems().is_empty());
     }
 
     #[test]

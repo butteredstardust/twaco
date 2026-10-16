@@ -2236,9 +2236,15 @@ fn mashup_add_applies_a_widget_and_refuses_two_placements() {
     let invalid = call(
         &root,
         "mashup_add",
-        json!({"mashup": "Acme.Orders_MU", "widget": "label", "in": "x", "below": "y"}),
+        json!({"mashup": "Acme.Orders_MU", "widget": "label", "in": "center", "below": "ptcsgrid-3"}),
     );
     assert_eq!(invalid["isError"], true, "{invalid}");
+    assert!(
+        invalid
+            .to_string()
+            .contains("give one of in, right_of, left_of, above, below"),
+        "{invalid}"
+    );
 }
 
 #[test]
