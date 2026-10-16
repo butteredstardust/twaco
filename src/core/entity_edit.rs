@@ -899,8 +899,9 @@ impl Definition {
             ),
             "INFOTABLE" => {
                 return Err(invalid(
-                    "a persistent INFOTABLE property needs a stored infotable that twaco does \
-                     not write yet; make it in Composer, or leave it not persistent",
+                    "a persistent INFOTABLE property cannot match the server: a 10.1 import \
+                     re-stamps a stored infotable with the import time, every time; leave it \
+                     not persistent, or make it in Composer and pull it",
                 ))
             }
             _ => given

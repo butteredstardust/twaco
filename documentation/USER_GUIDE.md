@@ -486,8 +486,9 @@ it (the server refuses that clash too). A persistent property has a stored value
 that has it, and the server writes that value into each Thing's export. So adding, removing,
 retyping or implementing one also rewrites those Things' `ThingProperties`. Removing or retyping
 a property that a mashup binding, another entity's script or a `me.<name>` read still uses is
-refused; `--force` does it anyway and lists the users. A persistent INFOTABLE property is not
-written yet. MCP: `entity_edit`.
+refused; `--force` does it anyway and lists the users. A persistent INFOTABLE property is
+refused: a 10.1 import re-stamps a stored infotable with the import time, so the repository could
+never match the server. MCP: `entity_edit`.
 
 ## Creating mashups
 

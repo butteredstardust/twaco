@@ -1192,3 +1192,13 @@ ThingWorx gives a contained mashup no custom events. Real mashups set a BOTH par
 `Date.now()` from an expression the child's trigger evaluates; the parent binds the container's
 parameter into an events router and reacts to its `Changed`. `twaco mashup event add` writes both
 halves.
+
+## A persistent property's value lives in every Thing that has it
+
+A 10.1 export of a Thing holds a `<ThingProperties>` value for each persistent property it has,
+its own or inherited from a template or shape: the default, or the type's own (`0.0`, empty,
+`false`, `1970-01-01T00:00:00.000Z`, `{}` for JSON). Adding a persistent property to a template
+changes every Thing using it, and removing a shape takes its values away. The values come out
+grouped by where each property comes from, in hash order, not as imported, so twaco compares them
+in any order. An imported infotable value is re-stamped with the import time on every import, so a
+persistent INFOTABLE property can never match the repository; `twaco thing property` refuses one.
