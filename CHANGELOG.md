@@ -14,6 +14,8 @@ All notable changes to twaco are recorded here. The format follows
   longer holds back a fixed share of the others.
 - A profile file other users can read gets a warning on Unix, as ssh gives; passwords and app
   keys are zeroed in memory once used.
+- Every MCP tool, all 73, now publishes an `outputSchema` describing its successful result (it
+  was 9); clients on the `2025-06-18` revision or later see them.
 
 ## [0.1.13] - 2026-10-16
 

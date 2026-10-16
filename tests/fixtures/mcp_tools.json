@@ -920,6 +920,68 @@
       "openWorldHint": true,
       "destructiveHint": true,
       "idempotentHint": false
+    },
+    "outputSchema": {
+      "required": [
+        "ok",
+        "entities",
+        "dependency_limit"
+      ],
+      "properties": {
+        "ok": {
+          "type": "boolean"
+        },
+        "entities": {
+          "type": "array",
+          "items": true
+        },
+        "dependency_limit": {
+          "type": "string"
+        },
+        "plan": {
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "applied": {
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "backup": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "ledger_marked": {
+          "description": "The date the rename ledger was marked with, when an applied delete changed it.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "deprecated": {
+          "description": "Present when the deprecated `force` was used.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "notices": {
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "description": "A plan and an applied delete share every member; `plan` or `applied` says which it was.",
+      "type": "object"
     }
   },
   {
@@ -956,6 +1018,84 @@
       "openWorldHint": true,
       "destructiveHint": true,
       "idempotentHint": false
+    },
+    "outputSchema": {
+      "required": [
+        "ok"
+      ],
+      "properties": {
+        "ok": {
+          "type": "boolean"
+        },
+        "sets": {
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string"
+              },
+              "created": {
+                "type": "string"
+              },
+              "reason": {
+                "type": "string"
+              },
+              "entities": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              }
+            },
+            "required": [
+              "id",
+              "created",
+              "reason",
+              "entities"
+            ]
+          }
+        },
+        "set": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "entities": {
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": true
+        },
+        "plan": {
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "applied": {
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "notices": {
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "description": "With no set: the backup sets. With one: what restoring it does, or did.",
+      "type": "object"
     }
   },
   {
@@ -997,6 +1137,49 @@
       "openWorldHint": true,
       "destructiveHint": true,
       "idempotentHint": false
+    },
+    "outputSchema": {
+      "required": [
+        "ok",
+        "entities"
+      ],
+      "properties": {
+        "ok": {
+          "type": "boolean"
+        },
+        "entities": {
+          "type": "array",
+          "items": true
+        },
+        "plan": {
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "applied": {
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "ledger_marked": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "notices": {
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "type": "object"
     }
   },
   {
@@ -1032,6 +1215,40 @@
     "annotations": {
       "readOnlyHint": true,
       "openWorldHint": true
+    },
+    "outputSchema": {
+      "required": [
+        "ok",
+        "applied",
+        "differs",
+        "entities"
+      ],
+      "properties": {
+        "ok": {
+          "type": "boolean"
+        },
+        "applied": {
+          "type": "boolean"
+        },
+        "differs": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "entities": {
+          "type": "array",
+          "items": true
+        },
+        "notices": {
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "type": "object"
     }
   },
   {
@@ -1061,6 +1278,72 @@
       "openWorldHint": false,
       "destructiveHint": false,
       "idempotentHint": false
+    },
+    "outputSchema": {
+      "required": [
+        "ok",
+        "drafts"
+      ],
+      "properties": {
+        "ok": {
+          "type": "boolean"
+        },
+        "drafts": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "project": {
+                "type": "string"
+              },
+              "path": {
+                "type": "string"
+              },
+              "source": {
+                "type": "string"
+              },
+              "text": {
+                "type": "string"
+              },
+              "notes": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              }
+            },
+            "required": [
+              "project",
+              "path",
+              "source",
+              "text",
+              "notes"
+            ]
+          }
+        },
+        "plan": {
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "applied": {
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "notices": {
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "type": "object"
     }
   },
   {
@@ -1094,6 +1377,43 @@
     "annotations": {
       "readOnlyHint": true,
       "openWorldHint": true
+    },
+    "outputSchema": {
+      "required": [
+        "ok",
+        "server",
+        "errors",
+        "warnings",
+        "projects",
+        "without_policy"
+      ],
+      "properties": {
+        "ok": {
+          "type": "boolean"
+        },
+        "server": {
+          "type": "boolean"
+        },
+        "errors": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "warnings": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "projects": {
+          "type": "array",
+          "items": true
+        },
+        "without_policy": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "type": "object"
     }
   },
   {
@@ -1123,6 +1443,60 @@
       "openWorldHint": false,
       "destructiveHint": true,
       "idempotentHint": false
+    },
+    "outputSchema": {
+      "required": [
+        "ok",
+        "remaining_errors",
+        "files",
+        "projects",
+        "without_policy"
+      ],
+      "properties": {
+        "ok": {
+          "type": "boolean"
+        },
+        "remaining_errors": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "files": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "projects": {
+          "type": "array",
+          "items": true
+        },
+        "without_policy": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "plan": {
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "applied": {
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "notices": {
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "type": "object"
     }
   },
   {
@@ -1169,6 +1543,69 @@
       "openWorldHint": true,
       "destructiveHint": true,
       "idempotentHint": false
+    },
+    "outputSchema": {
+      "required": [
+        "ok",
+        "applied"
+      ],
+      "properties": {
+        "ok": {
+          "type": "boolean"
+        },
+        "applied": {
+          "type": "boolean"
+        },
+        "differs": {
+          "description": "entities",
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 0
+        },
+        "entities": {
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": true
+        },
+        "recorded": {
+          "description": "How many baselines an applied push recorded.",
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 0
+        },
+        "missing": {
+          "description": "platform",
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 0
+        },
+        "items": {
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": true
+        },
+        "notices": {
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "description": "Entities and the platform grants answer with different members; `ok` and `applied` are shared.",
+      "type": "object"
     }
   },
   {
@@ -1216,6 +1653,59 @@
       "openWorldHint": true,
       "destructiveHint": true,
       "idempotentHint": false
+    },
+    "outputSchema": {
+      "required": [
+        "applied",
+        "mode",
+        "thing",
+        "jdbc_url",
+        "user",
+        "bytes",
+        "sql"
+      ],
+      "properties": {
+        "applied": {
+          "type": "boolean"
+        },
+        "mode": true,
+        "thing": {
+          "type": "string"
+        },
+        "jdbc_url": {
+          "type": "string"
+        },
+        "user": {
+          "type": "string"
+        },
+        "bytes": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "sql": {
+          "type": "string"
+        },
+        "temporary_thing": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "result": {
+          "description": "The server's reply; a query adds `total_rows` and `columns` to it."
+        },
+        "notices": {
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "description": "What `db_run` and `db_query` report: the SQL, where it ran and, once run, what it returned.",
+      "type": "object"
     }
   },
   {
@@ -1262,6 +1752,59 @@
     "annotations": {
       "readOnlyHint": true,
       "openWorldHint": true
+    },
+    "outputSchema": {
+      "required": [
+        "applied",
+        "mode",
+        "thing",
+        "jdbc_url",
+        "user",
+        "bytes",
+        "sql"
+      ],
+      "properties": {
+        "applied": {
+          "type": "boolean"
+        },
+        "mode": true,
+        "thing": {
+          "type": "string"
+        },
+        "jdbc_url": {
+          "type": "string"
+        },
+        "user": {
+          "type": "string"
+        },
+        "bytes": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "sql": {
+          "type": "string"
+        },
+        "temporary_thing": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "result": {
+          "description": "The server's reply; a query adds `total_rows` and `columns` to it."
+        },
+        "notices": {
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "description": "What `db_run` and `db_query` report: the SQL, where it ran and, once run, what it returned.",
+      "type": "object"
     }
   },
   {
@@ -1319,6 +1862,40 @@
       "openWorldHint": true,
       "destructiveHint": true,
       "idempotentHint": false
+    },
+    "outputSchema": {
+      "required": [
+        "ok",
+        "report"
+      ],
+      "properties": {
+        "ok": {
+          "type": "boolean"
+        },
+        "report": true,
+        "plan": {
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "applied": {
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "notices": {
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "type": "object"
     }
   },
   {
@@ -1344,6 +1921,43 @@
       "openWorldHint": true,
       "destructiveHint": true,
       "idempotentHint": false
+    },
+    "outputSchema": {
+      "required": [
+        "ok",
+        "things"
+      ],
+      "properties": {
+        "ok": {
+          "type": "boolean"
+        },
+        "things": {
+          "type": "array",
+          "items": true
+        },
+        "plan": {
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "applied": {
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "notices": {
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "type": "object"
     }
   },
   {
@@ -1586,6 +2200,71 @@
     "annotations": {
       "readOnlyHint": true,
       "openWorldHint": false
+    },
+    "outputSchema": {
+      "required": [
+        "reverts",
+        "services",
+        "unmatched_services",
+        "new",
+        "absent",
+        "changed",
+        "type_changes",
+        "identical",
+        "base",
+        "entities"
+      ],
+      "properties": {
+        "reverts": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "services": {
+          "type": "array",
+          "items": true
+        },
+        "unmatched_services": {
+          "type": "array",
+          "items": true
+        },
+        "new": {
+          "type": "array",
+          "items": true
+        },
+        "absent": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "changed": {
+          "type": "array",
+          "items": true
+        },
+        "type_changes": {
+          "type": "array",
+          "items": true
+        },
+        "identical": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "base": true,
+        "entities": {
+          "type": "array",
+          "items": true
+        },
+        "notices": {
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "type": "object"
     }
   },
   {
@@ -1652,6 +2331,64 @@
       "openWorldHint": false,
       "destructiveHint": true,
       "idempotentHint": false
+    },
+    "outputSchema": {
+      "required": [
+        "applied",
+        "reverts_not_applied",
+        "base",
+        "entities",
+        "services",
+        "next"
+      ],
+      "properties": {
+        "applied": {
+          "description": "What was written, one line each.",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "reverts_not_applied": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "base": true,
+        "entities": {
+          "type": "array",
+          "items": true
+        },
+        "services": {
+          "type": "array",
+          "items": true
+        },
+        "next": {
+          "type": "string"
+        },
+        "types_refreshed": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 0
+        },
+        "types_warning": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "notices": {
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "type": "object"
     }
   },
   {
@@ -1694,6 +2431,56 @@
       "openWorldHint": false,
       "destructiveHint": false,
       "idempotentHint": false
+    },
+    "outputSchema": {
+      "required": [
+        "ok"
+      ],
+      "properties": {
+        "ok": {
+          "type": "boolean"
+        },
+        "handoffs": {
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": true
+        },
+        "plan": {
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "name": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "files": {
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": {
+            "type": "string"
+          }
+        },
+        "recorded": true,
+        "notices": {
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "description": "list answers with `handoffs`; record with its plan, or the handoff it recorded.",
+      "type": "object"
     }
   },
   {
@@ -1771,6 +2558,59 @@
       "openWorldHint": false,
       "destructiveHint": true,
       "idempotentHint": false
+    },
+    "outputSchema": {
+      "required": [
+        "spec",
+        "plan_digest",
+        "moves",
+        "tables",
+        "counts",
+        "review",
+        "named",
+        "outside_applied",
+        "applied",
+        "follow_up",
+        "skipped"
+      ],
+      "properties": {
+        "spec": true,
+        "plan_digest": {
+          "description": "Pass it back with dry_run false to apply exactly this plan.",
+          "type": "string"
+        },
+        "moves": true,
+        "tables": true,
+        "counts": true,
+        "review": {
+          "type": "array",
+          "items": true
+        },
+        "named": true,
+        "outside_applied": {
+          "type": "boolean"
+        },
+        "applied": {
+          "type": "boolean"
+        },
+        "verification": true,
+        "follow_up": true,
+        "sql": true,
+        "skipped": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "notices": {
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "type": "object"
     }
   },
   {
@@ -1831,6 +2671,81 @@
       "openWorldHint": false,
       "destructiveHint": true,
       "idempotentHint": false
+    },
+    "outputSchema": {
+      "required": [
+        "ok",
+        "action",
+        "member",
+        "from",
+        "to",
+        "name",
+        "as",
+        "files",
+        "callers",
+        "notes",
+        "out_of_step"
+      ],
+      "properties": {
+        "ok": {
+          "type": "boolean"
+        },
+        "action": true,
+        "member": true,
+        "from": {
+          "type": "string"
+        },
+        "to": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        },
+        "as": {
+          "description": "The member's name where it lands."
+        },
+        "files": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "callers": {
+          "description": "The references that stop resolving: how many, and the first few."
+        },
+        "notes": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "out_of_step": {
+          "type": "array",
+          "items": true
+        },
+        "plan": {
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "applied": {
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "notices": {
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "type": "object"
     }
   },
   {
@@ -1894,6 +2809,62 @@
       "openWorldHint": false,
       "destructiveHint": false,
       "idempotentHint": false
+    },
+    "outputSchema": {
+      "required": [
+        "ok",
+        "name",
+        "type",
+        "root",
+        "files",
+        "twaco_toml",
+        "notes"
+      ],
+      "properties": {
+        "ok": {
+          "type": "boolean"
+        },
+        "name": {
+          "type": "string"
+        },
+        "type": {
+          "type": "string"
+        },
+        "root": true,
+        "files": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "twaco_toml": true,
+        "notes": {
+          "type": "array",
+          "items": true
+        },
+        "plan": {
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "applied": {
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "notices": {
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "type": "object"
     }
   },
   {
@@ -2076,6 +3047,71 @@
       "openWorldHint": false,
       "destructiveHint": false,
       "idempotentHint": false
+    },
+    "outputSchema": {
+      "required": [
+        "applied",
+        "dry_run",
+        "kind",
+        "name",
+        "project",
+        "files"
+      ],
+      "properties": {
+        "applied": {
+          "type": "boolean"
+        },
+        "dry_run": {
+          "type": "boolean"
+        },
+        "kind": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        },
+        "project": {
+          "type": "string"
+        },
+        "files": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "every_ms": {
+          "description": "A timer's period.",
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 0
+        },
+        "cron": {
+          "description": "A scheduler's schedule.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "runs": {
+          "description": "The first line of the script it runs.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "notices": {
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "type": "object"
     }
   },
   {
@@ -2290,6 +3326,52 @@
       "openWorldHint": false,
       "destructiveHint": true,
       "idempotentHint": false
+    },
+    "outputSchema": {
+      "required": [
+        "entity",
+        "summary",
+        "applied",
+        "dry_run",
+        "files",
+        "warnings"
+      ],
+      "properties": {
+        "entity": {
+          "type": "string"
+        },
+        "summary": {
+          "type": "string"
+        },
+        "applied": {
+          "type": "boolean"
+        },
+        "dry_run": {
+          "type": "boolean"
+        },
+        "files": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "warnings": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "notices": {
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "type": "object"
     }
   },
   {
@@ -2367,6 +3449,87 @@
       "openWorldHint": false,
       "destructiveHint": false,
       "idempotentHint": false
+    },
+    "outputSchema": {
+      "required": [
+        "applied",
+        "dry_run",
+        "mashup",
+        "project",
+        "template",
+        "layout",
+        "slots",
+        "master",
+        "visibility",
+        "files",
+        "widgets",
+        "menus"
+      ],
+      "properties": {
+        "applied": {
+          "type": "boolean"
+        },
+        "dry_run": {
+          "type": "boolean"
+        },
+        "mashup": {
+          "type": "string"
+        },
+        "project": {
+          "type": "string"
+        },
+        "template": {
+          "type": "string"
+        },
+        "layout": {
+          "type": "string"
+        },
+        "slots": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "master": {
+          "type": "boolean"
+        },
+        "theme": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "visibility": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "files": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "widgets": {
+          "type": "array",
+          "items": true
+        },
+        "menus": {
+          "type": "array",
+          "items": true
+        },
+        "notices": {
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "type": "object"
     }
   },
   {
@@ -2385,6 +3548,63 @@
     "annotations": {
       "readOnlyHint": true,
       "openWorldHint": false
+    },
+    "outputSchema": {
+      "properties": {
+        "templates": {
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": true
+        },
+        "name": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "aliases": {
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": {
+            "type": "string"
+          }
+        },
+        "summary": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "slots": {
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": {
+            "type": "string"
+          }
+        },
+        "page": true,
+        "master_slot": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "children": {
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": true
+        }
+      },
+      "type": "object",
+      "description": "The templates, or with a name one template's slot tree."
     }
   },
   {
@@ -2450,6 +3670,75 @@
       "openWorldHint": false,
       "destructiveHint": true,
       "idempotentHint": false
+    },
+    "outputSchema": {
+      "required": [
+        "applied",
+        "dry_run",
+        "mashup",
+        "widget",
+        "id",
+        "containers",
+        "wrapped",
+        "files"
+      ],
+      "properties": {
+        "applied": {
+          "type": "boolean"
+        },
+        "dry_run": {
+          "type": "boolean"
+        },
+        "mashup": {
+          "type": "string"
+        },
+        "widget": {
+          "type": "string"
+        },
+        "id": {
+          "type": "string"
+        },
+        "containers": {
+          "type": "array",
+          "items": true
+        },
+        "flipped": true,
+        "wrapped": {
+          "type": "array",
+          "items": true
+        },
+        "child": {
+          "description": "A contained mashup: the child and its visible parameters.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "parameters": {
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": true
+        },
+        "files": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "notices": {
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "description": "What `mashup_add` and `mashup_add_contained` report: the widget placed and where.",
+      "type": "object"
     }
   },
   {
@@ -2504,6 +3793,75 @@
       "openWorldHint": false,
       "destructiveHint": true,
       "idempotentHint": false
+    },
+    "outputSchema": {
+      "required": [
+        "applied",
+        "dry_run",
+        "mashup",
+        "widget",
+        "id",
+        "containers",
+        "wrapped",
+        "files"
+      ],
+      "properties": {
+        "applied": {
+          "type": "boolean"
+        },
+        "dry_run": {
+          "type": "boolean"
+        },
+        "mashup": {
+          "type": "string"
+        },
+        "widget": {
+          "type": "string"
+        },
+        "id": {
+          "type": "string"
+        },
+        "containers": {
+          "type": "array",
+          "items": true
+        },
+        "flipped": true,
+        "wrapped": {
+          "type": "array",
+          "items": true
+        },
+        "child": {
+          "description": "A contained mashup: the child and its visible parameters.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "parameters": {
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": true
+        },
+        "files": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "notices": {
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "description": "What `mashup_add` and `mashup_add_contained` report: the widget placed and where.",
+      "type": "object"
     }
   },
   {
@@ -2541,6 +3899,68 @@
       "openWorldHint": false,
       "destructiveHint": true,
       "idempotentHint": false
+    },
+    "outputSchema": {
+      "required": [
+        "applied",
+        "dry_run",
+        "mashup",
+        "from",
+        "to",
+        "warnings",
+        "refreshed",
+        "files"
+      ],
+      "properties": {
+        "applied": {
+          "type": "boolean"
+        },
+        "dry_run": {
+          "type": "boolean"
+        },
+        "mashup": {
+          "type": "string"
+        },
+        "from": {
+          "type": "string"
+        },
+        "to": {
+          "type": "string"
+        },
+        "new_source": {
+          "description": "The data call the binding created, when it created one.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "warnings": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "refreshed": {
+          "type": "array",
+          "items": true
+        },
+        "files": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "notices": {
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "type": "object"
     }
   },
   {
@@ -2578,6 +3998,55 @@
       "openWorldHint": false,
       "destructiveHint": true,
       "idempotentHint": false
+    },
+    "outputSchema": {
+      "required": [
+        "applied",
+        "dry_run",
+        "mashup",
+        "event",
+        "invoke",
+        "files"
+      ],
+      "properties": {
+        "applied": {
+          "type": "boolean"
+        },
+        "dry_run": {
+          "type": "boolean"
+        },
+        "mashup": {
+          "type": "string"
+        },
+        "event": {
+          "type": "string"
+        },
+        "invoke": {
+          "type": "string"
+        },
+        "new_source": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "files": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "notices": {
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "type": "object"
     }
   },
   {
@@ -2600,6 +4069,96 @@
     "annotations": {
       "readOnlyHint": true,
       "openWorldHint": false
+    },
+    "outputSchema": {
+      "properties": {
+        "widgets": {
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": true
+        },
+        "type": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "type_display_name": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "aliases": {
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": {
+            "type": "string"
+          }
+        },
+        "container": {
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "bindable": {
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "auto_resize": {
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "properties": {
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": true
+        },
+        "events": {
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": {
+            "type": "string"
+          }
+        },
+        "services": {
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": {
+            "type": "string"
+          }
+        },
+        "defaults_count": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 0
+        },
+        "note": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "type": "object",
+      "description": "The catalogue, or with a widget that widget's contract."
     }
   },
   {
@@ -2662,6 +4221,77 @@
       "openWorldHint": false,
       "destructiveHint": true,
       "idempotentHint": false
+    },
+    "outputSchema": {
+      "required": [
+        "applied",
+        "dry_run",
+        "action",
+        "mashup",
+        "name",
+        "base_type",
+        "direction",
+        "containers_refreshed",
+        "bindings_retyped",
+        "bindings_removed",
+        "files"
+      ],
+      "properties": {
+        "applied": {
+          "type": "boolean"
+        },
+        "dry_run": {
+          "type": "boolean"
+        },
+        "action": {
+          "type": "string"
+        },
+        "mashup": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        },
+        "base_type": {
+          "type": "string"
+        },
+        "direction": {
+          "type": "string"
+        },
+        "containers_refreshed": {
+          "type": "array",
+          "items": true
+        },
+        "bindings_retyped": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "bindings_removed": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "files": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "notices": {
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "description": "What `mashup_param` and `mashup_event` report: a parameter and every mashup it touched.",
+      "type": "object"
     }
   },
   {
@@ -2785,6 +4415,59 @@
       "openWorldHint": false,
       "destructiveHint": true,
       "idempotentHint": false
+    },
+    "outputSchema": {
+      "required": [
+        "applied",
+        "dry_run",
+        "mashup",
+        "recipe",
+        "added",
+        "wired",
+        "files"
+      ],
+      "properties": {
+        "applied": {
+          "type": "boolean"
+        },
+        "dry_run": {
+          "type": "boolean"
+        },
+        "mashup": {
+          "type": "string"
+        },
+        "recipe": {
+          "type": "string"
+        },
+        "added": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "wired": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "files": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "notices": {
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "type": "object"
     }
   },
   {
@@ -2822,6 +4505,77 @@
       "openWorldHint": false,
       "destructiveHint": true,
       "idempotentHint": false
+    },
+    "outputSchema": {
+      "required": [
+        "applied",
+        "dry_run",
+        "action",
+        "mashup",
+        "name",
+        "base_type",
+        "direction",
+        "containers_refreshed",
+        "bindings_retyped",
+        "bindings_removed",
+        "files"
+      ],
+      "properties": {
+        "applied": {
+          "type": "boolean"
+        },
+        "dry_run": {
+          "type": "boolean"
+        },
+        "action": {
+          "type": "string"
+        },
+        "mashup": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        },
+        "base_type": {
+          "type": "string"
+        },
+        "direction": {
+          "type": "string"
+        },
+        "containers_refreshed": {
+          "type": "array",
+          "items": true
+        },
+        "bindings_retyped": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "bindings_removed": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "files": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "notices": {
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "description": "What `mashup_param` and `mashup_event` report: a parameter and every mashup it touched.",
+      "type": "object"
     }
   },
   {
@@ -2845,6 +4599,42 @@
     "annotations": {
       "readOnlyHint": true,
       "openWorldHint": false
+    },
+    "outputSchema": {
+      "required": [
+        "problems",
+        "mashups"
+      ],
+      "properties": {
+        "problems": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "mashups": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "mashup": {
+                "type": "string"
+              },
+              "file": {
+                "type": "string"
+              },
+              "problems": {
+                "type": "array",
+                "items": true
+              }
+            },
+            "required": [
+              "mashup",
+              "file",
+              "problems"
+            ]
+          }
+        }
+      },
+      "type": "object"
     }
   },
   {
@@ -2866,6 +4656,71 @@
     "annotations": {
       "readOnlyHint": true,
       "openWorldHint": false
+    },
+    "outputSchema": {
+      "required": [
+        "mashup",
+        "file",
+        "mashup_type",
+        "parameters",
+        "widgets",
+        "services",
+        "bindings",
+        "events",
+        "warnings"
+      ],
+      "properties": {
+        "mashup": {
+          "type": "string"
+        },
+        "file": {
+          "type": "string"
+        },
+        "mashup_type": {
+          "type": "string"
+        },
+        "parameters": {
+          "type": "array",
+          "items": true
+        },
+        "containers": {
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": true
+        },
+        "functions": {
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": true
+        },
+        "widgets": {
+          "type": "array",
+          "items": true
+        },
+        "services": {
+          "type": "array",
+          "items": true
+        },
+        "bindings": {
+          "type": "array",
+          "items": true
+        },
+        "events": {
+          "type": "array",
+          "items": true
+        },
+        "warnings": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "type": "object"
     }
   },
   {
@@ -2901,6 +4756,47 @@
       "openWorldHint": false,
       "destructiveHint": true,
       "idempotentHint": false
+    },
+    "outputSchema": {
+      "required": [
+        "applied",
+        "dry_run",
+        "to",
+        "moves",
+        "deploy_order"
+      ],
+      "properties": {
+        "applied": {
+          "type": "boolean"
+        },
+        "dry_run": {
+          "type": "boolean"
+        },
+        "to": {
+          "type": "string"
+        },
+        "moves": {
+          "type": "array",
+          "items": true
+        },
+        "deploy_order": {
+          "description": "References the move puts outside the deploy order.",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "notices": {
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "type": "object"
     }
   },
   {
@@ -2948,6 +4844,82 @@
       "openWorldHint": false,
       "destructiveHint": true,
       "idempotentHint": false
+    },
+    "outputSchema": {
+      "required": [
+        "ok",
+        "entity",
+        "collection",
+        "file",
+        "affected",
+        "gained",
+        "lost",
+        "needs_accept_loss",
+        "notes"
+      ],
+      "properties": {
+        "ok": {
+          "type": "boolean"
+        },
+        "entity": {
+          "type": "string"
+        },
+        "collection": {
+          "type": "string"
+        },
+        "file": {
+          "type": "string"
+        },
+        "affected": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "gained": {
+          "type": "array",
+          "items": true
+        },
+        "lost": {
+          "type": "array",
+          "items": true
+        },
+        "needs_accept_loss": {
+          "description": "The losses that refuse the change unless accept_loss is true.",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "notes": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "plan": {
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "applied": {
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "notices": {
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "type": "object"
     }
   },
   {
@@ -3002,6 +4974,98 @@
       "openWorldHint": true,
       "destructiveHint": true,
       "idempotentHint": false
+    },
+    "outputSchema": {
+      "required": [
+        "thing",
+        "table"
+      ],
+      "properties": {
+        "thing": {
+          "type": "string"
+        },
+        "table": {
+          "type": "string"
+        },
+        "rows": {
+          "description": "read, diff, backup",
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 0
+        },
+        "primary_key": {
+          "description": "read"
+        },
+        "first_rows": {
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": true
+        },
+        "values": {
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": true
+        },
+        "identical": {
+          "description": "diff",
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "differences": {
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": true
+        },
+        "backup": {
+          "description": "backup",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "next": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "dry_run": {
+          "description": "restore",
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "rows_written": true,
+        "rows_removed": true,
+        "note": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "notices": {
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "description": "Each action answers with different members; `thing` and `table` are shared.",
+      "type": "object"
     }
   },
   {
@@ -3083,6 +5147,84 @@
     "annotations": {
       "readOnlyHint": true,
       "openWorldHint": true
+    },
+    "outputSchema": {
+      "required": [
+        "ok",
+        "log",
+        "from",
+        "to",
+        "entries",
+        "truncated",
+        "by_level",
+        "top_origins",
+        "repeated"
+      ],
+      "properties": {
+        "ok": {
+          "type": "boolean"
+        },
+        "log": {
+          "type": "string"
+        },
+        "from": {
+          "type": "string"
+        },
+        "to": {
+          "type": "string"
+        },
+        "entries": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "truncated": {
+          "type": "boolean"
+        },
+        "by_level": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "integer",
+            "minimum": 0
+          }
+        },
+        "top_origins": {
+          "type": "array",
+          "items": true
+        },
+        "repeated": {
+          "type": "array",
+          "items": true
+        },
+        "note": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "truncated_note": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "newest": {
+          "description": "Without detail: the newest entries.",
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": true
+        },
+        "entries_list": {
+          "description": "With detail: every entry.",
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": true
+        }
+      },
+      "type": "object"
     }
   },
   {
@@ -3135,6 +5277,48 @@
       "openWorldHint": true,
       "destructiveHint": true,
       "idempotentHint": false
+    },
+    "outputSchema": {
+      "required": [
+        "ok",
+        "log"
+      ],
+      "properties": {
+        "ok": {
+          "type": "boolean"
+        },
+        "log": {
+          "type": "string"
+        },
+        "levels": true,
+        "dry_run": {
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "change": true,
+        "before": true,
+        "after": true,
+        "undo": true,
+        "note": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "notices": {
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "description": "A read answers with `levels`; a change with what it does, or did, and how to undo it.",
+      "type": "object"
     }
   },
   {
@@ -3187,6 +5371,137 @@
     "annotations": {
       "readOnlyHint": true,
       "openWorldHint": true
+    },
+    "outputSchema": {
+      "required": [
+        "ok"
+      ],
+      "properties": {
+        "ok": {
+          "type": "boolean"
+        },
+        "repositories": {
+          "description": "list",
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": true
+        },
+        "repository": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "folders": {
+          "description": "ls",
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": true
+        },
+        "files": {
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": true
+        },
+        "file_count": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 0
+        },
+        "path": {
+          "description": "get",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "size": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 0
+        },
+        "sha256": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "text": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "truncated": {
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "binary": {
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "local": {
+          "description": "status",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "counts": {
+          "type": [
+            "object",
+            "null"
+          ],
+          "additionalProperties": {
+            "type": "integer",
+            "minimum": 0
+          }
+        },
+        "in_sync": {
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "attention": {
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": true
+        },
+        "note": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "notices": {
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "description": "Each action answers with different members; `ok` is the one they share.",
+      "type": "object"
     }
   },
   {
@@ -3255,6 +5570,59 @@
       "openWorldHint": true,
       "destructiveHint": true,
       "idempotentHint": false
+    },
+    "outputSchema": {
+      "required": [
+        "ok",
+        "repository",
+        "dry_run"
+      ],
+      "properties": {
+        "ok": {
+          "type": "boolean"
+        },
+        "repository": {
+          "type": "string"
+        },
+        "dry_run": {
+          "type": "boolean"
+        },
+        "local": {
+          "description": "push, pull",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "copied": true,
+        "same": true,
+        "left_alone": true,
+        "change": {
+          "description": "put, mkdir, rm, mv"
+        },
+        "applied": {
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "note": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "notices": {
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "type": "object"
     }
   },
   {
@@ -3283,6 +5651,54 @@
     "annotations": {
       "readOnlyHint": true,
       "openWorldHint": true
+    },
+    "outputSchema": {
+      "required": [
+        "root",
+        "tables",
+        "problem_counts",
+        "unreadable"
+      ],
+      "properties": {
+        "root": {
+          "type": "string"
+        },
+        "tables": {
+          "type": "array",
+          "items": true
+        },
+        "problem_counts": true,
+        "unreadable": {
+          "type": "array",
+          "items": true
+        },
+        "compared": {
+          "description": "With detail: the tokens that are not the same.",
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": true
+        },
+        "problems": {
+          "description": "With detail: each problem.",
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": true
+        },
+        "notices": {
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "type": "object"
     }
   },
   {
@@ -3358,6 +5774,41 @@
       "openWorldHint": true,
       "destructiveHint": true,
       "idempotentHint": false
+    },
+    "outputSchema": {
+      "required": [
+        "dry_run"
+      ],
+      "properties": {
+        "dry_run": {
+          "type": "boolean"
+        },
+        "files": {
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": true
+        },
+        "tables": {
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": true
+        },
+        "notices": {
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "description": "Pull and the local edits answer with `files`; push with `tables`.",
+      "type": "object"
     }
   },
   {
@@ -3377,6 +5828,22 @@
     "annotations": {
       "readOnlyHint": true,
       "openWorldHint": true
+    },
+    "outputSchema": {
+      "required": [
+        "ready",
+        "users"
+      ],
+      "properties": {
+        "ready": {
+          "type": "boolean"
+        },
+        "users": {
+          "type": "array",
+          "items": true
+        }
+      },
+      "type": "object"
     }
   },
   {
@@ -3412,6 +5879,29 @@
       "openWorldHint": true,
       "destructiveHint": true,
       "idempotentHint": false
+    },
+    "outputSchema": {
+      "required": [
+        "dry_run",
+        "steps",
+        "users"
+      ],
+      "properties": {
+        "dry_run": {
+          "type": "boolean"
+        },
+        "steps": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "users": {
+          "type": "array",
+          "items": true
+        }
+      },
+      "type": "object"
     }
   },
   {
@@ -3446,6 +5936,46 @@
       "openWorldHint": true,
       "destructiveHint": true,
       "idempotentHint": false
+    },
+    "outputSchema": {
+      "required": [
+        "dry_run"
+      ],
+      "properties": {
+        "dry_run": {
+          "type": "boolean"
+        },
+        "cases": {
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": true
+        },
+        "passed": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 0
+        },
+        "failed": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 0
+        },
+        "calls": {
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": true
+        }
+      },
+      "description": "A dry run lists the cases; a run answers with counts and each call.",
+      "type": "object"
     }
   },
   {
@@ -3477,6 +6007,37 @@
     "annotations": {
       "readOnlyHint": true,
       "openWorldHint": true
+    },
+    "outputSchema": {
+      "required": [
+        "ok"
+      ],
+      "properties": {
+        "ok": {
+          "type": "boolean"
+        },
+        "packages": {
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": true
+        },
+        "package": true,
+        "extensions": true,
+        "in_use": true,
+        "notices": {
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "description": "list answers with `packages`; show with one package and its extensions.",
+      "type": "object"
     }
   },
   {
@@ -3520,6 +6081,42 @@
       "openWorldHint": true,
       "destructiveHint": true,
       "idempotentHint": false
+    },
+    "outputSchema": {
+      "required": [
+        "ok",
+        "dry_run",
+        "change",
+        "applied"
+      ],
+      "properties": {
+        "ok": {
+          "type": "boolean"
+        },
+        "dry_run": {
+          "type": "boolean"
+        },
+        "change": true,
+        "applied": {
+          "type": "boolean"
+        },
+        "note": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "notices": {
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "type": "object"
     }
   },
   {
@@ -3546,6 +6143,63 @@
       "openWorldHint": false,
       "destructiveHint": false,
       "idempotentHint": true
+    },
+    "outputSchema": {
+      "required": [
+        "ok",
+        "state",
+        "bundle"
+      ],
+      "properties": {
+        "ok": {
+          "type": "boolean"
+        },
+        "state": {
+          "description": "current, out_of_date, missing or written.",
+          "type": "string"
+        },
+        "bundle": {
+          "type": "string"
+        },
+        "entities": {
+          "description": "When the bundle was built: current or written.",
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 0
+        },
+        "files": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 0
+        },
+        "next": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "notes": {
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": true
+        },
+        "notices": {
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "type": "object"
     }
   },
   {
@@ -3585,6 +6239,38 @@
     "annotations": {
       "readOnlyHint": true,
       "openWorldHint": true
+    },
+    "outputSchema": {
+      "required": [
+        "ok",
+        "count",
+        "more",
+        "entities"
+      ],
+      "properties": {
+        "ok": {
+          "type": "boolean"
+        },
+        "count": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "more": {
+          "type": "boolean"
+        },
+        "entities": {
+          "type": "array",
+          "items": true
+        },
+        "expression": true,
+        "note": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "type": "object"
     }
   },
   {
@@ -3617,6 +6303,42 @@
     "annotations": {
       "readOnlyHint": true,
       "openWorldHint": true
+    },
+    "outputSchema": {
+      "required": [
+        "ok",
+        "entity",
+        "bytes",
+        "xml"
+      ],
+      "properties": {
+        "ok": {
+          "type": "boolean"
+        },
+        "entity": {
+          "type": "string"
+        },
+        "bytes": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "xml": {
+          "type": "string"
+        },
+        "truncated": {
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "note": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "type": "object"
     }
   },
   {
@@ -3691,6 +6413,57 @@
       "openWorldHint": true,
       "destructiveHint": true,
       "idempotentHint": false
+    },
+    "outputSchema": {
+      "required": [
+        "ok"
+      ],
+      "properties": {
+        "ok": {
+          "type": "boolean"
+        },
+        "out": {
+          "description": "XML",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "bytes": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 0
+        },
+        "entities": {
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": true
+        },
+        "dry_run": {
+          "description": "source control",
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "change": true,
+        "download": true,
+        "notices": {
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "description": "An XML export answers with the file it wrote; a source-control export with its plan.",
+      "type": "object"
     }
   },
   {
@@ -3746,6 +6519,67 @@
       "openWorldHint": false,
       "destructiveHint": true,
       "idempotentHint": false
+    },
+    "outputSchema": {
+      "required": [
+        "ok",
+        "out",
+        "bytes",
+        "detail"
+      ],
+      "properties": {
+        "ok": {
+          "type": "boolean"
+        },
+        "out": {
+          "type": "string"
+        },
+        "bytes": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "detail": {
+          "description": "What the package holds; which members it has depends on the action.",
+          "type": "object",
+          "properties": {
+            "entities": {
+              "type": [
+                "integer",
+                "null"
+              ],
+              "minimum": 0
+            },
+            "files": {
+              "type": [
+                "integer",
+                "null"
+              ],
+              "minimum": 0
+            },
+            "editable": {
+              "type": [
+                "boolean",
+                "null"
+              ]
+            },
+            "version": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "projects": {
+              "description": "A solution's extension: each project's package.",
+              "type": [
+                "array",
+                "null"
+              ],
+              "items": true
+            }
+          }
+        }
+      },
+      "type": "object"
     }
   },
   {
@@ -3801,6 +6635,73 @@
       "openWorldHint": true,
       "destructiveHint": true,
       "idempotentHint": false
+    },
+    "outputSchema": {
+      "required": [
+        "ok",
+        "dry_run"
+      ],
+      "properties": {
+        "ok": {
+          "type": "boolean"
+        },
+        "dry_run": {
+          "type": "boolean"
+        },
+        "adds": {
+          "description": "file",
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": {
+            "type": "string"
+          }
+        },
+        "replaces": {
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": {
+            "type": "string"
+          }
+        },
+        "applied": {
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "entities": {
+          "description": "source control"
+        },
+        "differ": {
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": true
+        },
+        "still_differ": {
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": true
+        },
+        "notices": {
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "description": "A file's import answers with what it adds and replaces; a source-control one with the\nserver's diff.",
+      "type": "object"
     }
   },
   {
@@ -3841,6 +6742,49 @@
     "annotations": {
       "readOnlyHint": true,
       "openWorldHint": true
+    },
+    "outputSchema": {
+      "required": [
+        "ok"
+      ],
+      "properties": {
+        "ok": {
+          "type": "boolean"
+        },
+        "subsystems": {
+          "description": "list",
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": true
+        },
+        "subsystem": {
+          "description": "show",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "running": true,
+        "tables": {
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": true
+        },
+        "matches": {
+          "description": "search",
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": true
+        }
+      },
+      "description": "Each action answers with different members; `ok` is the one they share.",
+      "type": "object"
     }
   },
   {
@@ -3872,6 +6816,45 @@
     "annotations": {
       "readOnlyHint": true,
       "openWorldHint": false
+    },
+    "outputSchema": {
+      "required": [
+        "ok",
+        "service_count",
+        "entity_count",
+        "services"
+      ],
+      "properties": {
+        "ok": {
+          "type": "boolean"
+        },
+        "service_count": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "entity_count": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "services": {
+          "type": "array",
+          "items": true
+        },
+        "note": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "skipped": {
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": true
+        }
+      },
+      "type": "object"
     }
   },
   {
@@ -3926,6 +6909,111 @@
     "annotations": {
       "readOnlyHint": true,
       "openWorldHint": false
+    },
+    "outputSchema": {
+      "required": [
+        "entity",
+        "complete",
+        "unreadable",
+        "unparsed_scripts",
+        "limits"
+      ],
+      "properties": {
+        "entity": {
+          "type": "string"
+        },
+        "complete": {
+          "type": "boolean"
+        },
+        "unreadable": {
+          "type": "array",
+          "items": true
+        },
+        "unparsed_scripts": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "limits": {
+          "type": "string"
+        },
+        "dot": {
+          "description": "format dot",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "project": {
+          "description": "format json",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "member": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "min_confidence": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "depth": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 0
+        },
+        "dependents": {
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": true
+        },
+        "counts": {
+          "type": [
+            "object",
+            "null"
+          ],
+          "additionalProperties": {
+            "type": "integer",
+            "minimum": 0
+          }
+        },
+        "inherited_by": {
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": true
+        },
+        "projects": {
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": true
+        },
+        "notes": {
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "description": "The JSON form and the Graphviz form share the subject and how complete the reading was.",
+      "type": "object"
     }
   },
   {
@@ -3951,6 +7039,57 @@
     "annotations": {
       "readOnlyHint": true,
       "openWorldHint": false
+    },
+    "outputSchema": {
+      "required": [
+        "service",
+        "parameters",
+        "returns",
+        "mashups",
+        "scripts",
+        "calls",
+        "notes"
+      ],
+      "properties": {
+        "service": {
+          "type": "string"
+        },
+        "defined_in": {
+          "description": "Where the definition was read, when it is inherited.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "parameters": {
+          "type": "array",
+          "items": true
+        },
+        "returns": {
+          "type": "string"
+        },
+        "mashups": {
+          "type": "array",
+          "items": true
+        },
+        "scripts": {
+          "type": "array",
+          "items": true
+        },
+        "calls": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "notes": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "type": "object"
     }
   },
   {
@@ -3995,6 +7134,97 @@
     "annotations": {
       "readOnlyHint": true,
       "openWorldHint": false
+    },
+    "outputSchema": {
+      "required": [
+        "judged",
+        "limits"
+      ],
+      "properties": {
+        "judged": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "limits": {
+          "type": "string"
+        },
+        "min_confidence": {
+          "description": "entities",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "roots": {
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": true
+        },
+        "reachable": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 0
+        },
+        "unused": {
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": true
+        },
+        "keep_unmatched": {
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": {
+            "type": "string"
+          }
+        },
+        "complete": {
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "unreadable": {
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": true
+        },
+        "unparsed_scripts": {
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": {
+            "type": "string"
+          }
+        },
+        "bound_whole": {
+          "description": "fields",
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 0
+        },
+        "data_shapes": {
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": true
+        }
+      },
+      "description": "Unused entities, or with `fields` unused DataShape fields; `judged` and `limits` are shared.",
+      "type": "object"
     }
   },
   {
@@ -4014,6 +7244,19 @@
     "annotations": {
       "readOnlyHint": true,
       "openWorldHint": false
+    },
+    "outputSchema": {
+      "required": [
+        "document",
+        "markdown"
+      ],
+      "properties": {
+        "document": true,
+        "markdown": {
+          "type": "string"
+        }
+      },
+      "type": "object"
     }
   },
   {
@@ -4033,6 +7276,46 @@
     "annotations": {
       "readOnlyHint": true,
       "openWorldHint": true
+    },
+    "outputSchema": {
+      "required": [
+        "ok",
+        "failed",
+        "items"
+      ],
+      "properties": {
+        "ok": {
+          "type": "boolean"
+        },
+        "failed": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "items": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "health": {
+                "description": "ok, warn or fail.",
+                "type": "string"
+              },
+              "subject": {
+                "type": "string"
+              },
+              "detail": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "health",
+              "subject",
+              "detail"
+            ]
+          }
+        }
+      },
+      "type": "object"
     }
   },
   {
@@ -4073,6 +7356,81 @@
     "annotations": {
       "readOnlyHint": true,
       "openWorldHint": false
+    },
+    "outputSchema": {
+      "required": [
+        "ok"
+      ],
+      "properties": {
+        "ok": {
+          "type": "boolean"
+        },
+        "topics": {
+          "description": "list",
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": true
+        },
+        "results": {
+          "description": "search",
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": true
+        },
+        "next": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "topic": {
+          "description": "read",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "markdown": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "title": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "sections": {
+          "description": "A topic too long to read whole: its headings.",
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": true
+        },
+        "note": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "problems": {
+          "description": "Topics of the solution that could not be read.",
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": true
+        }
+      },
+      "description": "Each action answers with different members; `ok` is the one they share.",
+      "type": "object"
     }
   },
   {
@@ -4113,6 +7471,55 @@
     "annotations": {
       "readOnlyHint": true,
       "openWorldHint": true
+    },
+    "outputSchema": {
+      "required": [
+        "ok",
+        "version",
+        "matched",
+        "results"
+      ],
+      "properties": {
+        "ok": {
+          "type": "boolean"
+        },
+        "version": {
+          "type": "string"
+        },
+        "matched": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "results": {
+          "type": "array",
+          "items": true
+        },
+        "unknown_words": {
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": {
+            "type": "string"
+          }
+        },
+        "note": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "notes": {
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "type": "object"
     }
   },
   {
@@ -4156,6 +7563,61 @@
     "annotations": {
       "readOnlyHint": true,
       "openWorldHint": true
+    },
+    "outputSchema": {
+      "required": [
+        "ok",
+        "version",
+        "title",
+        "url",
+        "headings",
+        "markdown"
+      ],
+      "properties": {
+        "ok": {
+          "type": "boolean"
+        },
+        "version": {
+          "type": "string"
+        },
+        "title": {
+          "type": "string"
+        },
+        "url": {
+          "type": "string"
+        },
+        "headings": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "markdown": {
+          "type": "string"
+        },
+        "truncated": {
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "note": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "notes": {
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "type": "object"
     }
   },
   {
@@ -4198,6 +7660,57 @@
     "annotations": {
       "readOnlyHint": true,
       "openWorldHint": true
+    },
+    "outputSchema": {
+      "required": [
+        "ok",
+        "summary",
+        "version"
+      ],
+      "properties": {
+        "ok": {
+          "type": "boolean"
+        },
+        "summary": {
+          "type": "string"
+        },
+        "version": {
+          "type": "string"
+        },
+        "results": {
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": true
+        },
+        "title": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "path": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "url": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "markdown": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "description": "search answers with `results`; class with the class's page.",
+      "type": "object"
     }
   },
   {
@@ -4257,6 +7770,78 @@
       "openWorldHint": true,
       "destructiveHint": true,
       "idempotentHint": false
+    },
+    "outputSchema": {
+      "required": [
+        "dry_run"
+      ],
+      "properties": {
+        "dry_run": {
+          "type": "boolean"
+        },
+        "would_call": true,
+        "note": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "result": {
+          "description": "A reply that is not an InfoTable, whole, or `void`."
+        },
+        "rows": {
+          "description": "An InfoTable reply, without detail.",
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 0
+        },
+        "fields": {
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": {
+            "type": "string"
+          }
+        },
+        "first_rows": {
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": true
+        },
+        "result_bytes": {
+          "description": "A long reply, without detail.",
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 0
+        },
+        "result_head": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "logs": {
+          "description": "With with_logs: the entries logged during the call, or why they could not be read."
+        },
+        "notices": {
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "description": "A plan names the call; a call that ran answers with its result, summarised by shape.",
+      "type": "object"
     }
   }
 ]
