@@ -26,7 +26,7 @@ use cli::data::{call, config_table, datatable_copy_cmd, db_clean_cmd, db_cmd, lo
 use cli::entity::{
     entity_carry_cmd, entity_delete_cmd, entity_get, entity_push, entity_restore_cmd,
     entity_status, permissions_apply_cmd, permissions_audit_cmd, permissions_cmd,
-    permissions_init_cmd,
+    permissions_init_cmd, Entity, Permissions,
 };
 use cli::entity_edit::entity_edit_cmd;
 use cli::entity_new::{entity_new_cmd, New};
@@ -262,6 +262,21 @@ fn dispatch_typed(typed: Typed) -> u8 {
         }),
         Typed::Retemplate(retemplate) => run(|solution| retemplate_cmd(solution, &retemplate)),
         Typed::Reproject(reproject) => run(|solution| reproject_cmd(solution, &reproject)),
+        Typed::Entity(entity) => run(|solution| match &entity {
+            Entity::Get(get) => entity_get(solution, get),
+            Entity::Status(status) => entity_status(solution, status),
+            Entity::Push(push) => entity_push(solution, push),
+            Entity::Delete(delete) => entity_delete_cmd(solution, delete),
+            Entity::Carry(carry) => entity_carry_cmd(solution, carry),
+            Entity::Restore(restore) => entity_restore_cmd(solution, restore),
+        }),
+        Typed::Permissions(permissions) => run(|solution| match &permissions {
+            Permissions::Diff(diff) => permissions_cmd(solution, diff, None),
+            Permissions::Push(push) => permissions_cmd(solution, &push.diff, Some(push)),
+            Permissions::Audit(audit) => permissions_audit_cmd(solution, audit),
+            Permissions::Apply(apply) => permissions_apply_cmd(solution, apply),
+            Permissions::Init(init) => permissions_init_cmd(solution, init),
+        }),
     }
 }
 
@@ -273,16 +288,6 @@ fn dispatch(route: &str, parsed: &Args) -> u8 {
         "bundle" => bundle(solution, parsed),
         "deploy" => deploy_cmd(solution, parsed),
         "config-table" => config_table(solution, parsed),
-        "entity get" => entity_get(solution, parsed),
-        "entity status" => entity_status(solution, parsed),
-        "entity push" => entity_push(solution, parsed),
-        "entity delete" => entity_delete_cmd(solution, parsed),
-        "entity carry" => entity_carry_cmd(solution, parsed),
-        "permissions diff" | "permissions push" => permissions_cmd(solution, route, parsed),
-        "permissions audit" => permissions_audit_cmd(solution, parsed),
-        "permissions apply" => permissions_apply_cmd(solution, parsed),
-        "permissions init" => permissions_init_cmd(solution, parsed),
-        "entity restore" => entity_restore_cmd(solution, parsed),
         "db run" | "db query" => db_cmd(solution, route, parsed),
         "db clean" => db_clean_cmd(solution, parsed),
         "datatable copy" => datatable_copy_cmd(solution, parsed),

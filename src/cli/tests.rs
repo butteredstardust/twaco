@@ -1,6 +1,7 @@
 use super::super::*;
 use super::command::Typed;
 use super::entity::entity_delete_force_deprecation;
+use super::entity::{Entity, Permissions, PermissionsDiff};
 use super::entity_edit::{Media, Menu, Scheduler, State, Style, Thing, Timer};
 use super::entity_new::{New, NewEntity};
 use super::mashup::{Mashup, Place};
@@ -646,11 +647,11 @@ fn entity_delete_acknowledgement_flags_are_scoped_to_entity_delete() {
         "--allow-file-repository-data-loss",
     ] {
         assert!(
-            parse(&["entity", "delete", "Things/T", flag]).is_ok(),
+            parse_typed(&["entity", "delete", "Things/T", flag]).is_ok(),
             "{flag}"
         );
         assert!(
-            parse(&["entity", "push", "Things/T", flag]).is_err(),
+            parse_typed(&["entity", "push", "Things/T", flag]).is_err(),
             "{flag}"
         );
     }
@@ -1357,6 +1358,8 @@ fn projection(typed: Typed) -> Projection {
                 ("--remove-shapes", retemplate.remove_shapes),
             ]),
         ),
+        Typed::Entity(entity) => entity_projection(entity),
+        Typed::Permissions(permissions) => permissions_projection(permissions),
         Typed::Reproject(reproject) => (
             reproject.operands,
             switches(&[
@@ -1790,6 +1793,139 @@ fn relocated(relocate: Relocate) -> Projection {
         ]),
         values(&[("--as", relocate.new_name)]),
     )
+}
+
+/// What an `entity` command read.
+fn entity_projection(entity: Entity) -> Projection {
+    match entity {
+        Entity::Get(get) => (
+            get.operands,
+            Vec::new(),
+            values(&[
+                ("--out", shown(get.out.as_ref())),
+                ("--profile", get.profile.profile),
+            ]),
+        ),
+        Entity::Status(status) => (
+            status.selection.operands,
+            switches(&[
+                ("--all", status.selection.all),
+                ("--detail", status.detail.detail),
+                ("--record", status.record),
+            ]),
+            values(&[
+                ("--project", status.project.project),
+                ("--profile", status.profile.profile),
+            ]),
+        ),
+        Entity::Push(push) => (
+            push.operands,
+            switches(&[
+                ("--apply", push.apply.apply),
+                ("--force", push.force),
+                ("--no-backup", push.no_backup),
+            ]),
+            values(&[("--profile", push.profile.profile)]),
+        ),
+        Entity::Delete(delete) => (
+            delete.operands,
+            switches(&[
+                ("--renamed", delete.renamed),
+                ("--force", delete.force),
+                (
+                    "--allow-repository-defined",
+                    delete.allow_repository_defined,
+                ),
+                (
+                    "--allow-outside-dependents",
+                    delete.allow_outside_dependents,
+                ),
+                (
+                    "--allow-file-repository-data-loss",
+                    delete.allow_file_repository_data_loss,
+                ),
+                ("--apply", delete.apply.apply),
+                ("--no-backup", delete.no_backup),
+                ("--json", delete.json.json),
+            ]),
+            values(&[("--profile", delete.profile.profile)]),
+        ),
+        Entity::Carry(carry) => (
+            carry.operands,
+            switches(&[
+                ("--renamed", carry.renamed),
+                ("--apply", carry.apply.apply),
+                ("--detail", carry.detail.detail),
+                ("--json", carry.json.json),
+            ]),
+            values(&[("--profile", carry.profile.profile)]),
+        ),
+        Entity::Restore(restore) => (
+            restore.operands,
+            switches(&[
+                ("--apply", restore.apply.apply),
+                ("--json", restore.json.json),
+            ]),
+            values(&[("--profile", restore.profile.profile)]),
+        ),
+    }
+}
+
+/// What `permissions diff` reads, and `permissions push` with it.
+fn diffed(diff: PermissionsDiff) -> Projection {
+    (
+        diff.selection.operands,
+        switches(&[("--all", diff.selection.all), ("--json", diff.json.json)]),
+        values(&[
+            ("--project", diff.project.project),
+            ("--profile", diff.profile.profile),
+        ]),
+    )
+}
+
+/// What a `permissions` command read.
+fn permissions_projection(permissions: Permissions) -> Projection {
+    match permissions {
+        Permissions::Init(init) => (
+            Vec::new(),
+            switches(&[
+                ("--from-helper", init.from_helper),
+                ("--apply", init.apply.apply),
+                ("--json", init.json.json),
+            ]),
+            values(&[("--project", init.project.project)]),
+        ),
+        Permissions::Audit(audit) => (
+            Vec::new(),
+            switches(&[
+                ("--server", audit.server),
+                ("--detail", audit.detail.detail),
+                ("--json", audit.json.json),
+            ]),
+            values(&[
+                ("--project", audit.project.project),
+                ("--profile", audit.profile.profile),
+            ]),
+        ),
+        Permissions::Apply(apply) => (
+            Vec::new(),
+            switches(&[
+                ("--apply", apply.apply.apply),
+                ("--detail", apply.detail.detail),
+                ("--json", apply.json.json),
+            ]),
+            values(&[("--project", apply.project.project)]),
+        ),
+        Permissions::Diff(diff) => diffed(diff),
+        Permissions::Push(push) => {
+            let (names, mut on, given) = diffed(push.diff);
+            on.extend(switches(&[
+                ("--platform", push.platform),
+                ("--apply", push.apply.apply),
+            ]));
+            (names, on, given)
+        }
+    }
 }
 
 /// While commands move from GRAMMAR rows to structs: each moved command line, read by the
@@ -2492,6 +2628,70 @@ fn derived_commands_read_what_their_grammar_rows_read() {
             ],
         ),
         ("reproject", true, &["--to", "--apply", "--json"]),
+        (
+            "entity status",
+            true,
+            &["--all", "--project", "--profile", "--detail", "--record"],
+        ),
+        ("entity get", true, &["--out", "--profile"]),
+        (
+            "entity push",
+            true,
+            &["--apply", "--force", "--no-backup", "--profile"],
+        ),
+        (
+            "entity delete",
+            true,
+            &[
+                "--renamed",
+                "--force",
+                "--allow-repository-defined",
+                "--allow-outside-dependents",
+                "--allow-file-repository-data-loss",
+                "--apply",
+                "--no-backup",
+                "--profile",
+                "--json",
+            ],
+        ),
+        (
+            "entity carry",
+            true,
+            &["--renamed", "--apply", "--detail", "--profile", "--json"],
+        ),
+        ("entity restore", true, &["--apply", "--profile", "--json"]),
+        (
+            "permissions init",
+            false,
+            &["--project", "--from-helper", "--apply", "--json"],
+        ),
+        (
+            "permissions audit",
+            false,
+            &["--project", "--server", "--profile", "--detail", "--json"],
+        ),
+        (
+            "permissions apply",
+            false,
+            &["--project", "--apply", "--detail", "--json"],
+        ),
+        (
+            "permissions diff",
+            true,
+            &["--all", "--project", "--profile", "--json"],
+        ),
+        (
+            "permissions push",
+            true,
+            &[
+                "--all",
+                "--platform",
+                "--project",
+                "--apply",
+                "--profile",
+                "--json",
+            ],
+        ),
     ];
     let lines: &[&[&str]] = &[
         &["init"],
@@ -3456,6 +3656,129 @@ fn derived_commands_read_what_their_grammar_rows_read() {
             "--apply",
             "--json",
         ],
+        &[
+            "entity",
+            "get",
+            "Things/Acme.T",
+            "--out",
+            "t.xml",
+            "--profile",
+            "qa",
+        ],
+        &["entity", "get", "Things/Acme.T"],
+        &[
+            "entity",
+            "status",
+            "--all",
+            "--project",
+            "Acme",
+            "--profile",
+            "qa",
+            "--detail",
+            "--record",
+        ],
+        &["entity", "status", "Acme.T"],
+        &["entity", "status", "--all", "Acme.T"],
+        &[
+            "entity",
+            "push",
+            "Things/Acme.T",
+            "--apply",
+            "--force",
+            "--no-backup",
+            "--profile",
+            "qa",
+        ],
+        &[
+            "entity",
+            "delete",
+            "Things/Acme.T",
+            "Things/Acme.U",
+            "--force",
+            "--allow-repository-defined",
+            "--allow-outside-dependents",
+            "--allow-file-repository-data-loss",
+            "--apply",
+            "--no-backup",
+            "--profile",
+            "qa",
+            "--json",
+        ],
+        &["entity", "delete", "--renamed", "--force", "--force"],
+        &[
+            "entity",
+            "carry",
+            "Acme.A",
+            "Acme.B",
+            "--apply",
+            "--detail",
+            "--profile",
+            "qa",
+            "--json",
+        ],
+        &["entity", "carry", "--renamed"],
+        &["entity", "restore"],
+        &[
+            "entity",
+            "restore",
+            "2026-10-01",
+            "Things/Acme.T",
+            "--apply",
+            "--profile",
+            "qa",
+            "--json",
+        ],
+        &[
+            "permissions",
+            "init",
+            "--project",
+            "Acme",
+            "--from-helper",
+            "--apply",
+            "--json",
+        ],
+        &[
+            "permissions",
+            "audit",
+            "--project",
+            "Acme",
+            "--server",
+            "--profile",
+            "qa",
+            "--detail",
+            "--json",
+        ],
+        &[
+            "permissions",
+            "apply",
+            "--project",
+            "Acme",
+            "--apply",
+            "--detail",
+        ],
+        &[
+            "permissions",
+            "diff",
+            "--all",
+            "--project",
+            "Acme",
+            "--json",
+        ],
+        &["permissions", "diff", "Acme.T", "--profile", "qa"],
+        &["permissions", "diff", "--all", "Acme.T"],
+        &[
+            "permissions",
+            "push",
+            "--all",
+            "--project",
+            "Acme",
+            "--apply",
+            "--profile",
+            "qa",
+            "--json",
+        ],
+        &["permissions", "push", "--platform", "--apply"],
+        &["permissions", "push", "--all", "Acme.T", "--platform"],
     ];
     for line in lines {
         let mut all = vec!["twaco"];

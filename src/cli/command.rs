@@ -72,6 +72,10 @@ pub(crate) enum Typed {
     Copy(super::refactor::CopyMember),
     Retemplate(super::refactor::Retemplate),
     Reproject(super::refactor::Reproject),
+    #[command(subcommand)]
+    Entity(super::entity::Entity),
+    #[command(subcommand)]
+    Permissions(super::entity::Permissions),
 }
 
 impl Typed {
@@ -130,6 +134,8 @@ impl Typed {
             Typed::Copy(relocate) => relocate.path(),
             Typed::Retemplate(_) => "retemplate",
             Typed::Reproject(_) => "reproject",
+            Typed::Entity(entity) => entity.path(),
+            Typed::Permissions(permissions) => permissions.path(),
         }
     }
 
@@ -142,6 +148,11 @@ impl Typed {
             Typed::Call(call) => call.timeout.duration().map(|_| ()),
             Typed::Mashup(super::mashup::Mashup::Validate(validate)) => {
                 validate.selection.validate()
+            }
+            Typed::Entity(super::entity::Entity::Status(status)) => status.selection.validate(),
+            Typed::Permissions(super::entity::Permissions::Diff(diff)) => diff.selection.validate(),
+            Typed::Permissions(super::entity::Permissions::Push(push)) => {
+                push.diff.selection.validate()
             }
             Typed::Init(_)
             | Typed::Doctor(_)
@@ -186,7 +197,9 @@ impl Typed {
             | Typed::Move(_)
             | Typed::Copy(_)
             | Typed::Retemplate(_)
-            | Typed::Reproject(_) => Ok(()),
+            | Typed::Reproject(_)
+            | Typed::Entity(_)
+            | Typed::Permissions(_) => Ok(()),
         }
     }
 }
