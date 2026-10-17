@@ -1105,12 +1105,18 @@ mod tests {
             }
         };
 
-        // Transport: nothing listens on the port.
-        let closed = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
-        let address = closed.local_addr().unwrap();
-        drop(closed);
+        // Transport: the server hangs up without answering, both times the read is tried. The
+        // port stays held, so no other test's server can take it and answer the retry.
+        let hangs_up = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let address = hangs_up.local_addr().unwrap();
+        let server = std::thread::spawn(move || {
+            for _ in 0..2 {
+                drop(hangs_up.accept().unwrap());
+            }
+        });
         let client = Client::new(profile_for(format!("http://{address}/Thingworx/")));
         let error = client.fetch_entity(&key).unwrap_err();
+        server.join().unwrap();
         assert!(matches!(error, ServerError::Transport { .. }), "{error}");
         assert_clean(error);
 
