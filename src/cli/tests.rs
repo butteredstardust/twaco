@@ -1,6 +1,12 @@
 use super::super::*;
 use super::command::Typed;
+use super::data::{Datatable, Db};
 use super::entity::entity_delete_force_deprecation;
+use super::entity::{Entity, Permissions, PermissionsDiff};
+use super::entity_edit::{Media, Menu, Scheduler, State, Style, Thing, Timer};
+use super::entity_new::{New, NewEntity};
+use super::mashup::{Mashup, Place};
+use super::refactor::{CopyMember, MoveMember, Relocate, Rename};
 use super::spec::{self, GRAMMAR, USAGE};
 use clap::{FromArgMatches as _, Subcommand as _};
 
@@ -45,18 +51,6 @@ fn flags_of(path: &str) -> Vec<String> {
         .filter_map(flag_name)
         .filter(|name| !spec::GLOBAL_FLAGS.contains(&name.as_str()))
         .collect()
-}
-
-/// Parse a table command's line (the words after `twaco`) as `twaco` does, up to what the
-/// command reads.
-fn parse(words: &[&str]) -> Result<Args, String> {
-    let mut all = vec!["twaco"];
-    all.extend(words);
-    let matches = spec::tree()
-        .try_get_matches_from(all)
-        .map_err(|e| e.to_string())?;
-    let (path, matched) = spec::matched(&matches);
-    spec::args_of(path, matched)
 }
 
 /// Parse a derived command's line as `twaco` does, up to what the command reads.
@@ -514,7 +508,7 @@ fn a_flag_typo_is_refused_with_a_suggestion_and_exit_2() {
 
 #[test]
 fn values_reach_the_fields_the_commands_read() {
-    let deploy = parse(&[
+    let Typed::Deploy(deploy) = parse_typed(&[
         "deploy",
         "--only",
         "A",
@@ -525,10 +519,15 @@ fn values_reach_the_fields_the_commands_read() {
         "--profile",
         "x",
     ])
-    .unwrap();
+    .unwrap() else {
+        panic!("deploy parses as deploy");
+    };
     assert_eq!(deploy.only, ["A", "B"]);
-    assert_eq!(deploy.only_projects, ["P", "Q"]);
-    assert_eq!(deploy.profile.as_deref(), Some("x"));
+    assert_eq!(
+        deploy.only_projects.projects(),
+        Ok(vec!["P".into(), "Q".into()])
+    );
+    assert_eq!(deploy.profile.name(), "x");
     let Typed::Logs(logs) =
         parse_typed(&["logs", "ScriptLog", "--since", "10m", "--json"]).unwrap()
     else {
@@ -537,9 +536,13 @@ fn values_reach_the_fields_the_commands_read() {
     assert_eq!(logs.operands, ["ScriptLog"]);
     assert_eq!(logs.since.as_deref(), Some("10m"));
     assert!(logs.json.json);
-    let query = parse(&["db", "query", "-q", "select 1", "--timeout", "30"]).unwrap();
-    assert_eq!(query.values.get("-q").map(String::as_str), Some("select 1"));
-    assert_eq!(query.timeout, Some(Duration::from_secs(30)));
+    let Typed::Db(Db::Query(query)) =
+        parse_typed(&["db", "query", "-q", "select 1", "--timeout", "30"]).unwrap()
+    else {
+        panic!("db query parses as db query");
+    };
+    assert_eq!(query.sql.as_deref(), Some("select 1"));
+    assert_eq!(query.timeout.duration(), Ok(Some(Duration::from_secs(30))));
     assert_eq!(
         parse_typed(&["call", "T", "S", "--timeout", "0"]).map(|_| ()),
         Err("--timeout needs a positive whole number of seconds".to_string())
@@ -548,7 +551,10 @@ fn values_reach_the_fields_the_commands_read() {
         panic!("call parses as call");
     };
     assert_eq!(call.timeout.duration(), Ok(Some(Duration::from_secs(30))));
-    assert!(parse(&["deploy", "--only-projects", " , "]).is_err());
+    assert_eq!(
+        parse_typed(&["deploy", "--only-projects", " , "]).map(|_| ()),
+        Err("--only-projects needs at least one project".to_string())
+    );
     assert_eq!(
         parse_typed(&["sync", "--all", "Acme.T"]).map(|_| ()),
         Err("--all and [\"Acme.T\"] say different things; pass one or the other".to_string())
@@ -565,16 +571,22 @@ fn values_reach_the_fields_the_commands_read() {
     assert_eq!(call.operands, ["T", "S", "-5"]);
     assert!(parse_typed(&["sync", "Acme.T", "--cehck"]).is_err());
     // A file named with a leading dash goes after `--`.
-    let file = parse(&["db", "run", "--", "-migration.sql"]).unwrap();
-    assert_eq!(file.names, ["-migration.sql"]);
+    let Typed::Db(Db::Run(file)) = parse_typed(&["db", "run", "--", "-migration.sql"]).unwrap()
+    else {
+        panic!("db run parses as db run");
+    };
+    assert_eq!(file.operands, ["-migration.sql"]);
     // A switch said twice is said once; a value given twice is refused, as before.
-    assert!(parse(&["deploy", "--force", "--force"])
-        .unwrap()
-        .has("--force"));
-    assert!(parse(&["deploy", "--profile", "a", "--profile", "b"]).is_err());
+    let Typed::Deploy(deploy) = parse_typed(&["deploy", "--force", "--force"]).unwrap() else {
+        panic!("deploy parses as deploy");
+    };
+    assert!(deploy.force);
+    assert!(parse_typed(&["deploy", "--profile", "a", "--profile", "b"]).is_err());
     // `--flag=value` works too.
-    let profile = parse(&["deploy", "--profile=prod"]).unwrap();
-    assert_eq!(profile.profile.as_deref(), Some("prod"));
+    let Typed::Deploy(deploy) = parse_typed(&["deploy", "--profile=prod"]).unwrap() else {
+        panic!("deploy parses as deploy");
+    };
+    assert_eq!(deploy.profile.name(), "prod");
     let Typed::Doctor(doctor) = parse_typed(&["doctor", "--profile=prod"]).unwrap() else {
         panic!("doctor parses as doctor");
     };
@@ -593,7 +605,7 @@ fn values_reach_the_fields_the_commands_read() {
     };
     assert_eq!(mcp.tools.as_deref(), Some("-core"));
     // An optional value given bare is followed by the next flag, never takes it as its value.
-    let menu = parse(&[
+    let Typed::New(New::Entity(NewEntity::Menu(menu))) = parse_typed(&[
         "new",
         "menu",
         "Acme.Main_MN",
@@ -603,12 +615,14 @@ fn values_reach_the_fields_the_commands_read() {
         "--label",
         "Main",
     ])
-    .unwrap();
-    assert_eq!(menu.names, ["Acme.Main_MN"]);
-    assert!(menu.has("--default") && !menu.values.contains_key("--default"));
-    assert_eq!(menu.values.get("--label").map(String::as_str), Some("Main"));
+    .unwrap() else {
+        panic!("new menu parses as new menu");
+    };
+    assert_eq!(menu.base.operands, ["Acme.Main_MN"]);
+    assert_eq!(menu.default.as_deref(), Some(""));
+    assert_eq!(menu.label.as_deref(), Some("Main"));
     // It may still be negative.
-    let param = parse(&[
+    let Typed::Mashup(Mashup::Param(param)) = parse_typed(&[
         "mashup",
         "param",
         "set",
@@ -617,11 +631,10 @@ fn values_reach_the_fields_the_commands_read() {
         "--default",
         "-1",
     ])
-    .unwrap();
-    assert_eq!(
-        param.values.get("--default").map(String::as_str),
-        Some("-1")
-    );
+    .unwrap() else {
+        panic!("mashup param parses as mashup param");
+    };
+    assert_eq!(param.default.as_deref(), Some("-1"));
 }
 
 #[test]
@@ -641,11 +654,11 @@ fn entity_delete_acknowledgement_flags_are_scoped_to_entity_delete() {
         "--allow-file-repository-data-loss",
     ] {
         assert!(
-            parse(&["entity", "delete", "Things/T", flag]).is_ok(),
+            parse_typed(&["entity", "delete", "Things/T", flag]).is_ok(),
             "{flag}"
         );
         assert!(
-            parse(&["entity", "push", "Things/T", flag]).is_err(),
+            parse_typed(&["entity", "push", "Things/T", flag]).is_err(),
             "{flag}"
         );
     }
@@ -969,6 +982,20 @@ fn values(pairs: &[(&str, Option<String>)]) -> Vec<(String, String)> {
         .collect()
 }
 
+/// Each value of a repeated flag, once per time it was given.
+fn repeated(name: &str, given: Vec<String>) -> Vec<(String, String)> {
+    given
+        .into_iter()
+        .map(|value| (name.to_string(), value))
+        .collect()
+}
+
+/// A value that may be given bare (`--default`), as the builder read it: given, it is a switch,
+/// and its value is a value unless empty.
+fn bare(value: Option<String>) -> Option<String> {
+    value.filter(|value| !value.is_empty())
+}
+
 /// A path value as text.
 fn shown(path: Option<&std::path::PathBuf>) -> Option<String> {
     path.map(|path| path.display().to_string())
@@ -1271,6 +1298,748 @@ fn projection(typed: Typed) -> Projection {
                 ("--profile", settings.profile.profile),
             ]),
         ),
+        Typed::Thing(thing) => thing_projection(thing),
+        Typed::New(new) => new_projection(new),
+        Typed::Mashup(mashup) => mashup_projection(mashup),
+        Typed::Adopt(adopt) => {
+            let mut given = values(&[("--base", adopt.base), ("--take", adopt.take)]);
+            given.extend(repeated("--entity", adopt.entity_filters));
+            given.extend(repeated("--only", adopt.only));
+            (
+                adopt.operands,
+                switches(&[
+                    ("--detail", adopt.detail.detail),
+                    ("--json", adopt.json.json),
+                    ("--fail-on-revert", adopt.fail_on_revert),
+                    ("--apply", adopt.apply.apply),
+                ]),
+                given,
+            )
+        }
+        Typed::Handoff(handoff) => (
+            handoff.operands,
+            switches(&[("--apply", handoff.apply.apply)]),
+            values(&[("--name", handoff.name)]),
+        ),
+        Typed::Rename(rename) => {
+            let (args, mut on, given) = match rename {
+                Rename::Entity(data) | Rename::Prefix(data) | Rename::Field(data) => (
+                    data.args,
+                    switches(&[("--sql", data.sql), ("--no-sql", data.no_sql)]),
+                    values(&[("--sql-dir", data.sql_dir)]),
+                ),
+                Rename::Service(args)
+                | Rename::Param(args)
+                | Rename::Table(args)
+                | Rename::Property(args) => (args, Vec::new(), Vec::new()),
+            };
+            on.extend(switches(&[
+                ("--apply", args.apply.apply),
+                ("--text", args.text),
+                ("--detail", args.detail.detail),
+                ("--json", args.json.json),
+                ("--skip-checks", args.skip_checks),
+            ]));
+            (args.operands, on, given)
+        }
+        Typed::Move(MoveMember::Service(service)) => {
+            let (names, mut on, given) = relocated(service.relocate);
+            on.extend(switches(&[("--leave-delegate", service.leave_delegate)]));
+            (names, on, given)
+        }
+        Typed::Move(MoveMember::Property(relocate))
+        | Typed::Copy(CopyMember::Service(relocate) | CopyMember::Property(relocate)) => {
+            relocated(relocate)
+        }
+        Typed::Retemplate(retemplate) => (
+            retemplate.operands,
+            switches(&[
+                ("--accept-loss", retemplate.accept_loss),
+                ("--apply", retemplate.apply.apply),
+                ("--detail", retemplate.detail.detail),
+                ("--json", retemplate.json.json),
+            ]),
+            values(&[
+                ("--to", retemplate.to),
+                ("--add-shapes", retemplate.add_shapes),
+                ("--remove-shapes", retemplate.remove_shapes),
+            ]),
+        ),
+        Typed::Entity(entity) => entity_projection(entity),
+        Typed::Bundle(bundle) => (
+            Vec::new(),
+            switches(&[
+                ("--backend-only", bundle.backend_only),
+                ("--check", bundle.check),
+                ("--apply", bundle.apply.apply),
+            ]),
+            values(&[("--handoff", bundle.handoff)]),
+        ),
+        Typed::Deploy(deploy) => {
+            let mut given = values(&[
+                // args_from split it; its projects joined are what it named.
+                (
+                    "--only-projects",
+                    deploy
+                        .only_projects
+                        .projects()
+                        .ok()
+                        .filter(|projects| !projects.is_empty())
+                        .map(|projects| projects.join(",")),
+                ),
+                ("--profile", deploy.profile.profile),
+            ]);
+            given.extend(repeated("--only", deploy.only));
+            (
+                Vec::new(),
+                switches(&[
+                    ("--apply", deploy.apply.apply),
+                    ("--force", deploy.force),
+                    ("--backend-only", deploy.backend_only),
+                    ("--skip-checks", deploy.skip_checks),
+                    ("--no-backup", deploy.no_backup),
+                ]),
+                given,
+            )
+        }
+        Typed::ConfigTable(table) => (
+            table.operands,
+            switches(&[
+                ("--apply", table.apply.apply),
+                ("--diff", table.diff),
+                ("--detail", table.detail.detail),
+            ]),
+            values(&[
+                ("--backup", shown(table.backup.as_ref())),
+                ("--restore", shown(table.restore.as_ref())),
+                ("--profile", table.profile.profile),
+            ]),
+        ),
+        Typed::Datatable(Datatable::Copy(copy)) => (
+            copy.operands,
+            switches(&[
+                ("--drop-unmapped", copy.drop_unmapped),
+                ("--append", copy.append),
+                ("--apply", copy.apply.apply),
+                ("--json", copy.json.json),
+            ]),
+            values(&[
+                ("--map", copy.map),
+                ("--max-rows", copy.max_rows),
+                ("--profile", copy.profile.profile),
+            ]),
+        ),
+        Typed::Db(Db::Run(run)) => (
+            run.operands,
+            switches(&[
+                ("--no-transaction", run.no_transaction),
+                ("--apply", run.apply.apply),
+                ("--json", run.json.json),
+            ]),
+            values(&[
+                ("--thing", run.thing),
+                (
+                    "--timeout",
+                    run.timeout
+                        .duration()
+                        .unwrap()
+                        .map(|timeout| timeout.as_secs().to_string()),
+                ),
+                ("--profile", run.profile.profile),
+            ]),
+        ),
+        Typed::Db(Db::Query(query)) => (
+            query.operands,
+            switches(&[
+                ("--detail", query.detail.detail),
+                ("--json", query.json.json),
+            ]),
+            values(&[
+                ("-q", query.sql),
+                ("--thing", query.thing),
+                ("--max-rows", query.max_rows),
+                (
+                    "--timeout",
+                    query
+                        .timeout
+                        .duration()
+                        .unwrap()
+                        .map(|timeout| timeout.as_secs().to_string()),
+                ),
+                ("--profile", query.profile.profile),
+            ]),
+        ),
+        Typed::Db(Db::Clean(clean)) => (
+            Vec::new(),
+            switches(&[("--apply", clean.apply.apply), ("--json", clean.json.json)]),
+            values(&[("--profile", clean.profile.profile)]),
+        ),
+        Typed::Permissions(permissions) => permissions_projection(permissions),
+        Typed::Reproject(reproject) => (
+            reproject.operands,
+            switches(&[
+                ("--apply", reproject.apply.apply),
+                ("--json", reproject.json.json),
+            ]),
+            values(&[("--to", reproject.to)]),
+        ),
+        Typed::Timer(Timer::Set(set)) => (
+            set.operands,
+            switches(&[
+                ("--enabled", set.enabled),
+                ("--disabled", set.disabled),
+                ("--apply", set.apply.apply),
+                ("--json", set.json.json),
+            ]),
+            values(&[("--every", set.every), ("--run-as", set.run_as)]),
+        ),
+        Typed::Scheduler(Scheduler::Set(set)) => (
+            set.operands,
+            switches(&[
+                ("--enabled", set.enabled),
+                ("--disabled", set.disabled),
+                ("--apply", set.apply.apply),
+                ("--json", set.json.json),
+            ]),
+            values(&[("--cron", set.cron), ("--run-as", set.run_as)]),
+        ),
+        Typed::Style(Style::Set(set)) => (
+            set.operands,
+            switches(&[
+                ("--bold", set.bold),
+                ("--no-bold", set.no_bold),
+                ("--italic", set.italic),
+                ("--no-italic", set.no_italic),
+                ("--underline", set.underline),
+                ("--no-underline", set.no_underline),
+                ("--apply", set.apply.apply),
+                ("--json", set.json.json),
+            ]),
+            values(&[
+                ("--background", set.background),
+                ("--foreground", set.foreground),
+                ("--secondary-background", set.secondary_background),
+                ("--line-color", set.line_color),
+                ("--line-style", set.line_style),
+                ("--line-thickness", set.line_thickness),
+                ("--text-size", set.text_size),
+                ("--image", set.image),
+                ("--display-string", set.display_string),
+            ]),
+        ),
+        Typed::Media(Media::Set(set)) => (
+            set.operands,
+            switches(&[("--apply", set.apply.apply), ("--json", set.json.json)]),
+            values(&[("--file", shown(set.file.as_ref()))]),
+        ),
+        Typed::Menu(Menu::Item(item)) => (
+            item.operands,
+            switches(&[
+                ("--default", item.default.is_some()),
+                ("--apply", item.apply.apply),
+                ("--json", item.json.json),
+            ]),
+            values(&[("--default", bare(item.default)), ("--before", item.before)]),
+        ),
+        Typed::State(State::Set(set)) => {
+            let mut given = values(&[("--type", set.kind)]);
+            given.extend(repeated("--state", set.states));
+            (
+                set.operands,
+                switches(&[("--apply", set.apply.apply), ("--json", set.json.json)]),
+                given,
+            )
+        }
+    }
+}
+
+/// What a `thing` command read.
+fn thing_projection(thing: Thing) -> Projection {
+    match thing {
+        Thing::Property(property) => (
+            property.operands,
+            switches(&[
+                ("--default", property.default.is_some()),
+                ("--no-default", property.no_default),
+                ("--persistent", property.persistent),
+                ("--no-persistent", property.no_persistent),
+                ("--logged", property.logged),
+                ("--no-logged", property.no_logged),
+                ("--read-only", property.read_only),
+                ("--no-read-only", property.no_read_only),
+                ("--force", property.force),
+                ("--apply", property.apply.apply),
+                ("--json", property.json.json),
+            ]),
+            values(&[
+                ("--default", bare(property.default)),
+                ("--category", property.category),
+                ("--units", property.units),
+                ("--data-shape", property.data_shape),
+                ("--description", property.description),
+            ]),
+        ),
+        Thing::Subscription(subscription) => (
+            subscription.operands,
+            switches(&[
+                ("--apply", subscription.apply.apply),
+                ("--json", subscription.json.json),
+            ]),
+            values(&[
+                ("--event", subscription.event),
+                ("--source", subscription.source),
+                ("--source-property", subscription.source_property),
+                ("--then", subscription.then),
+                ("--script", shown(subscription.script.as_ref())),
+            ]),
+        ),
+        Thing::Shape(shape) => (
+            shape.operands,
+            switches(&[
+                ("--force", shape.force),
+                ("--apply", shape.apply.apply),
+                ("--json", shape.json.json),
+            ]),
+            Vec::new(),
+        ),
+    }
+}
+
+/// What a `new` command read.
+fn new_projection(new: New) -> Projection {
+    let new = match new {
+        New::BuildingBlock(block) => {
+            return (
+                block.operands,
+                switches(&[
+                    ("--model-logic", block.model_logic),
+                    ("--no-management-shape", block.no_management_shape),
+                    ("--apply", block.apply.apply),
+                    ("--json", block.json.json),
+                ]),
+                values(&[
+                    ("--type", block.kind),
+                    ("--display-name", block.display_name),
+                    ("--description", block.description),
+                    ("--parent", block.parent),
+                    ("--root", block.root),
+                    ("--base-extension", block.base_extension),
+                ]),
+            )
+        }
+        New::Entity(new) => new,
+    };
+    let (base, mut on, mut given) = match new {
+        NewEntity::Thing(new) => {
+            let mut given = values(&[
+                ("--template", new.template),
+                ("--value-stream", new.value_stream),
+            ]);
+            given.extend(repeated("--visibility", new.visibility));
+            given.extend(repeated("--shape", new.shapes));
+            (new.base, Vec::new(), given)
+        }
+        NewEntity::ThingTemplate(new) => {
+            let mut given = values(&[("--base", new.parent)]);
+            given.extend(repeated("--visibility", new.visibility));
+            given.extend(repeated("--shape", new.shapes));
+            (new.base, Vec::new(), given)
+        }
+        NewEntity::ThingShape(new) => (
+            new.base,
+            Vec::new(),
+            repeated("--visibility", new.visibility),
+        ),
+        NewEntity::DataShape(new) => {
+            let mut given = values(&[("--base", new.parent)]);
+            given.extend(repeated("--visibility", new.visibility));
+            given.extend(repeated("--field", new.fields));
+            (new.base, Vec::new(), given)
+        }
+        NewEntity::Timer(new) => {
+            let mut given = values(&[
+                ("--every", new.every),
+                ("--run-as", new.event.run_as),
+                ("--then", new.event.then),
+                ("--script", shown(new.event.script.as_ref())),
+            ]);
+            given.extend(repeated("--visibility", new.visibility));
+            (
+                new.base,
+                switches(&[("--disabled", new.event.disabled)]),
+                given,
+            )
+        }
+        NewEntity::Scheduler(new) => {
+            let mut given = values(&[
+                ("--cron", new.cron),
+                ("--run-as", new.event.run_as),
+                ("--then", new.event.then),
+                ("--script", shown(new.event.script.as_ref())),
+            ]);
+            given.extend(repeated("--visibility", new.visibility));
+            (
+                new.base,
+                switches(&[("--disabled", new.event.disabled)]),
+                given,
+            )
+        }
+        NewEntity::DataTable(new) => {
+            let mut given = values(&[("--data-shape", new.data_shape)]);
+            given.extend(repeated("--index", new.indexes));
+            (new.base, Vec::new(), given)
+        }
+        NewEntity::Stream(new) => (
+            new.base,
+            Vec::new(),
+            values(&[("--data-shape", new.data_shape)]),
+        ),
+        NewEntity::ValueStream(new) => (new.base, Vec::new(), Vec::new()),
+        NewEntity::Media(new) => (
+            new.base,
+            Vec::new(),
+            values(&[("--file", shown(new.file.as_ref()))]),
+        ),
+        NewEntity::Style(new) => (
+            new.base,
+            switches(&[
+                ("--bold", new.bold),
+                ("--italic", new.italic),
+                ("--underline", new.underline),
+            ]),
+            values(&[
+                ("--background", new.background),
+                ("--foreground", new.foreground),
+                ("--secondary-background", new.secondary_background),
+                ("--line-color", new.line_color),
+                ("--line-style", new.line_style),
+                ("--line-thickness", new.line_thickness),
+                ("--text-size", new.text_size),
+                ("--image", new.image),
+                ("--display-string", new.display_string),
+            ]),
+        ),
+        NewEntity::State(new) => {
+            let mut given = values(&[("--type", new.kind)]);
+            given.extend(repeated("--state", new.states));
+            (new.base, Vec::new(), given)
+        }
+        NewEntity::Menu(new) => {
+            let mut given = values(&[
+                ("--default", bare(new.default.clone())),
+                ("--label", new.label),
+            ]);
+            given.extend(repeated("--item", new.items));
+            (
+                new.base,
+                switches(&[("--default", new.default.is_some())]),
+                given,
+            )
+        }
+        NewEntity::Theme(new) => {
+            let mut given = values(&[("--from", new.from)]);
+            given.extend(repeated("--prop", new.props));
+            (new.base, Vec::new(), given)
+        }
+    };
+    on.extend(switches(&[
+        ("--apply", base.apply.apply),
+        ("--json", base.json.json),
+    ]));
+    given.extend(values(&[
+        ("--project", base.project.project),
+        ("--description", base.description),
+    ]));
+    (base.operands, on, given)
+}
+
+/// Where a mashup command places what it adds.
+fn placed(place: Place) -> Vec<(String, String)> {
+    values(&[
+        ("--in", place.inside),
+        ("--right-of", place.right_of),
+        ("--left-of", place.left_of),
+        ("--above", place.above),
+        ("--below", place.below),
+    ])
+}
+
+/// What a `mashup` command read.
+fn mashup_projection(mashup: Mashup) -> Projection {
+    match mashup {
+        Mashup::Validate(validate) => (
+            validate.selection.operands,
+            switches(&[
+                ("--all", validate.selection.all),
+                ("--json", validate.json.json),
+            ]),
+            Vec::new(),
+        ),
+        Mashup::Describe(describe) => (
+            describe.operands,
+            switches(&[("--json", describe.json.json)]),
+            Vec::new(),
+        ),
+        Mashup::Add(add) => {
+            let mut given = placed(add.place);
+            given.extend(values(&[("--label", add.label)]));
+            given.extend(repeated("--prop", add.props));
+            given.extend(repeated("--input", add.inputs));
+            (
+                add.operands,
+                switches(&[("--apply", add.apply.apply), ("--json", add.json.json)]),
+                given,
+            )
+        }
+        Mashup::AddContained(add) => {
+            let mut given = placed(add.place);
+            given.extend(repeated("--set", add.props));
+            (
+                add.operands,
+                switches(&[("--apply", add.apply.apply), ("--json", add.json.json)]),
+                given,
+            )
+        }
+        Mashup::Bind(bind) => (
+            bind.operands,
+            switches(&[("--apply", bind.apply.apply), ("--json", bind.json.json)]),
+            values(&[("--from", bind.from), ("--to", bind.to)]),
+        ),
+        Mashup::On(on) => (
+            on.operands,
+            switches(&[("--apply", on.apply.apply), ("--json", on.json.json)]),
+            values(&[("--event", on.event), ("--invoke", on.invoke)]),
+        ),
+        Mashup::Param(param) => (
+            param.operands,
+            switches(&[
+                ("--default", param.default.is_some()),
+                ("--no-default", param.no_default),
+                ("--force", param.force),
+                ("--apply", param.apply.apply),
+                ("--json", param.json.json),
+            ]),
+            values(&[
+                ("--type", param.kind),
+                ("--direction", param.direction),
+                ("--description", param.description),
+                ("--default", bare(param.default)),
+                ("--data-shape", param.data_shape),
+            ]),
+        ),
+        Mashup::Recipe(recipe) => {
+            let mut given = values(&[
+                ("--if", recipe.condition),
+                ("--expr", recipe.expression),
+                ("--after", recipe.after),
+                ("--say", recipe.say),
+                ("--from", recipe.from),
+                ("--kind", recipe.kind),
+                ("--then", recipe.then),
+                ("--title", recipe.title),
+                ("--on", recipe.on),
+                ("--mashup", recipe.mashup),
+                ("--window", recipe.window),
+                ("--size", recipe.size),
+                ("--reload", recipe.reload),
+                ("--every", recipe.every),
+                ("--interval", recipe.interval),
+                ("--else-say", recipe.else_say),
+                ("--data", recipe.data),
+                ("--x", recipe.x),
+                ("--value", recipe.value),
+                ("--selected", recipe.selected),
+            ]);
+            given.extend(repeated("--input", recipe.inputs));
+            given.extend(repeated("--pass", recipe.pass));
+            given.extend(repeated("--column", recipe.columns));
+            (
+                recipe.operands,
+                switches(&[
+                    ("--apply", recipe.apply.apply),
+                    ("--json", recipe.json.json),
+                ]),
+                given,
+            )
+        }
+        Mashup::Event(event) => (
+            event.operands,
+            switches(&[("--apply", event.apply.apply), ("--json", event.json.json)]),
+            values(&[("--when", event.when)]),
+        ),
+        Mashup::Templates(templates) => (
+            templates.operands,
+            switches(&[("--json", templates.json.json)]),
+            Vec::new(),
+        ),
+        Mashup::New(new) => {
+            let mut given = values(&[
+                ("--project", new.project.project),
+                ("--template", new.template),
+                ("--layout", new.layout),
+                ("--primary-menu", new.primary_menu),
+                ("--secondary-menu", new.secondary_menu),
+                ("--theme", new.theme),
+            ]);
+            given.extend(repeated("--visibility", new.visibility));
+            given.extend(repeated("--param", new.params));
+            given.extend(repeated("--tab", new.tabs));
+            (
+                new.operands,
+                switches(&[
+                    ("--master", new.master),
+                    ("--apply", new.apply.apply),
+                    ("--json", new.json.json),
+                ]),
+                given,
+            )
+        }
+    }
+}
+
+/// What a `move` or `copy` command read.
+fn relocated(relocate: Relocate) -> Projection {
+    (
+        relocate.operands,
+        switches(&[
+            ("--apply", relocate.apply.apply),
+            ("--detail", relocate.detail.detail),
+            ("--json", relocate.json.json),
+        ]),
+        values(&[("--as", relocate.new_name)]),
+    )
+}
+
+/// What an `entity` command read.
+fn entity_projection(entity: Entity) -> Projection {
+    match entity {
+        Entity::Get(get) => (
+            get.operands,
+            Vec::new(),
+            values(&[
+                ("--out", shown(get.out.as_ref())),
+                ("--profile", get.profile.profile),
+            ]),
+        ),
+        Entity::Status(status) => (
+            status.selection.operands,
+            switches(&[
+                ("--all", status.selection.all),
+                ("--detail", status.detail.detail),
+                ("--record", status.record),
+            ]),
+            values(&[
+                ("--project", status.project.project),
+                ("--profile", status.profile.profile),
+            ]),
+        ),
+        Entity::Push(push) => (
+            push.operands,
+            switches(&[
+                ("--apply", push.apply.apply),
+                ("--force", push.force),
+                ("--no-backup", push.no_backup),
+            ]),
+            values(&[("--profile", push.profile.profile)]),
+        ),
+        Entity::Delete(delete) => (
+            delete.operands,
+            switches(&[
+                ("--renamed", delete.renamed),
+                ("--force", delete.force),
+                (
+                    "--allow-repository-defined",
+                    delete.allow_repository_defined,
+                ),
+                (
+                    "--allow-outside-dependents",
+                    delete.allow_outside_dependents,
+                ),
+                (
+                    "--allow-file-repository-data-loss",
+                    delete.allow_file_repository_data_loss,
+                ),
+                ("--apply", delete.apply.apply),
+                ("--no-backup", delete.no_backup),
+                ("--json", delete.json.json),
+            ]),
+            values(&[("--profile", delete.profile.profile)]),
+        ),
+        Entity::Carry(carry) => (
+            carry.operands,
+            switches(&[
+                ("--renamed", carry.renamed),
+                ("--apply", carry.apply.apply),
+                ("--detail", carry.detail.detail),
+                ("--json", carry.json.json),
+            ]),
+            values(&[("--profile", carry.profile.profile)]),
+        ),
+        Entity::Restore(restore) => (
+            restore.operands,
+            switches(&[
+                ("--apply", restore.apply.apply),
+                ("--json", restore.json.json),
+            ]),
+            values(&[("--profile", restore.profile.profile)]),
+        ),
+    }
+}
+
+/// What `permissions diff` reads, and `permissions push` with it.
+fn diffed(diff: PermissionsDiff) -> Projection {
+    (
+        diff.selection.operands,
+        switches(&[("--all", diff.selection.all), ("--json", diff.json.json)]),
+        values(&[
+            ("--project", diff.project.project),
+            ("--profile", diff.profile.profile),
+        ]),
+    )
+}
+
+/// What a `permissions` command read.
+fn permissions_projection(permissions: Permissions) -> Projection {
+    match permissions {
+        Permissions::Init(init) => (
+            Vec::new(),
+            switches(&[
+                ("--from-helper", init.from_helper),
+                ("--apply", init.apply.apply),
+                ("--json", init.json.json),
+            ]),
+            values(&[("--project", init.project.project)]),
+        ),
+        Permissions::Audit(audit) => (
+            Vec::new(),
+            switches(&[
+                ("--server", audit.server),
+                ("--detail", audit.detail.detail),
+                ("--json", audit.json.json),
+            ]),
+            values(&[
+                ("--project", audit.project.project),
+                ("--profile", audit.profile.profile),
+            ]),
+        ),
+        Permissions::Apply(apply) => (
+            Vec::new(),
+            switches(&[
+                ("--apply", apply.apply.apply),
+                ("--detail", apply.detail.detail),
+                ("--json", apply.json.json),
+            ]),
+            values(&[("--project", apply.project.project)]),
+        ),
+        Permissions::Diff(diff) => diffed(diff),
+        Permissions::Push(push) => {
+            let (names, mut on, given) = diffed(push.diff);
+            on.extend(switches(&[
+                ("--platform", push.platform),
+                ("--apply", push.apply.apply),
+            ]));
+            (names, on, given)
+        }
     }
 }
 
@@ -1471,6 +2240,643 @@ fn derived_commands_read_what_their_grammar_rows_read() {
             ],
         ),
         ("settings", true, &["--search", "--json", "--profile"]),
+        (
+            "thing property",
+            true,
+            &[
+                "--default",
+                "--no-default",
+                "--persistent",
+                "--no-persistent",
+                "--logged",
+                "--no-logged",
+                "--read-only",
+                "--no-read-only",
+                "--category",
+                "--units",
+                "--data-shape",
+                "--description",
+                "--force",
+                "--apply",
+                "--json",
+            ],
+        ),
+        (
+            "thing subscription",
+            true,
+            &[
+                "--event",
+                "--source",
+                "--source-property",
+                "--then",
+                "--script",
+                "--apply",
+                "--json",
+            ],
+        ),
+        ("thing shape", true, &["--force", "--apply", "--json"]),
+        (
+            "timer set",
+            true,
+            &[
+                "--every",
+                "--run-as",
+                "--enabled",
+                "--disabled",
+                "--apply",
+                "--json",
+            ],
+        ),
+        (
+            "scheduler set",
+            true,
+            &[
+                "--cron",
+                "--run-as",
+                "--enabled",
+                "--disabled",
+                "--apply",
+                "--json",
+            ],
+        ),
+        (
+            "style set",
+            true,
+            &[
+                "--background",
+                "--foreground",
+                "--secondary-background",
+                "--line-color",
+                "--line-style",
+                "--line-thickness",
+                "--bold",
+                "--no-bold",
+                "--italic",
+                "--no-italic",
+                "--underline",
+                "--no-underline",
+                "--text-size",
+                "--image",
+                "--display-string",
+                "--apply",
+                "--json",
+            ],
+        ),
+        ("media set", true, &["--file", "--apply", "--json"]),
+        (
+            "menu item",
+            true,
+            &["--default", "--before", "--apply", "--json"],
+        ),
+        (
+            "state set",
+            true,
+            &["--type", "--state", "--apply", "--json"],
+        ),
+        (
+            "new building-block",
+            true,
+            &[
+                "--type",
+                "--display-name",
+                "--description",
+                "--parent",
+                "--root",
+                "--base-extension",
+                "--model-logic",
+                "--no-management-shape",
+                "--apply",
+                "--json",
+            ],
+        ),
+        (
+            "new thing",
+            true,
+            &[
+                "--project",
+                "--description",
+                "--visibility",
+                "--template",
+                "--shape",
+                "--value-stream",
+                "--apply",
+                "--json",
+            ],
+        ),
+        (
+            "new thing-template",
+            true,
+            &[
+                "--project",
+                "--description",
+                "--visibility",
+                "--base",
+                "--shape",
+                "--apply",
+                "--json",
+            ],
+        ),
+        (
+            "new thing-shape",
+            true,
+            &[
+                "--project",
+                "--description",
+                "--visibility",
+                "--apply",
+                "--json",
+            ],
+        ),
+        (
+            "new data-shape",
+            true,
+            &[
+                "--project",
+                "--description",
+                "--visibility",
+                "--base",
+                "--field",
+                "--apply",
+                "--json",
+            ],
+        ),
+        (
+            "new timer",
+            true,
+            &[
+                "--project",
+                "--description",
+                "--visibility",
+                "--every",
+                "--run-as",
+                "--disabled",
+                "--then",
+                "--script",
+                "--apply",
+                "--json",
+            ],
+        ),
+        (
+            "new scheduler",
+            true,
+            &[
+                "--project",
+                "--description",
+                "--visibility",
+                "--cron",
+                "--run-as",
+                "--disabled",
+                "--then",
+                "--script",
+                "--apply",
+                "--json",
+            ],
+        ),
+        (
+            "new data-table",
+            true,
+            &[
+                "--project",
+                "--description",
+                "--data-shape",
+                "--index",
+                "--apply",
+                "--json",
+            ],
+        ),
+        (
+            "new stream",
+            true,
+            &[
+                "--project",
+                "--description",
+                "--data-shape",
+                "--apply",
+                "--json",
+            ],
+        ),
+        (
+            "new value-stream",
+            true,
+            &["--project", "--description", "--apply", "--json"],
+        ),
+        (
+            "new media",
+            true,
+            &["--project", "--description", "--file", "--apply", "--json"],
+        ),
+        (
+            "new style",
+            true,
+            &[
+                "--project",
+                "--description",
+                "--background",
+                "--foreground",
+                "--secondary-background",
+                "--line-color",
+                "--line-style",
+                "--line-thickness",
+                "--bold",
+                "--italic",
+                "--underline",
+                "--text-size",
+                "--image",
+                "--display-string",
+                "--apply",
+                "--json",
+            ],
+        ),
+        (
+            "new state",
+            true,
+            &[
+                "--project",
+                "--description",
+                "--type",
+                "--state",
+                "--apply",
+                "--json",
+            ],
+        ),
+        (
+            "new menu",
+            true,
+            &[
+                "--project",
+                "--description",
+                "--item",
+                "--default",
+                "--label",
+                "--apply",
+                "--json",
+            ],
+        ),
+        (
+            "new theme",
+            true,
+            &[
+                "--project",
+                "--description",
+                "--from",
+                "--prop",
+                "--apply",
+                "--json",
+            ],
+        ),
+        ("mashup validate", true, &["--all", "--json"]),
+        ("mashup describe", true, &["--json"]),
+        (
+            "mashup add",
+            true,
+            &[
+                "--in",
+                "--right-of",
+                "--left-of",
+                "--above",
+                "--below",
+                "--label",
+                "--prop",
+                "--input",
+                "--apply",
+                "--json",
+            ],
+        ),
+        (
+            "mashup add-contained",
+            true,
+            &[
+                "--in",
+                "--right-of",
+                "--left-of",
+                "--above",
+                "--below",
+                "--set",
+                "--apply",
+                "--json",
+            ],
+        ),
+        (
+            "mashup bind",
+            true,
+            &["--from", "--to", "--apply", "--json"],
+        ),
+        (
+            "mashup on",
+            true,
+            &["--event", "--invoke", "--apply", "--json"],
+        ),
+        (
+            "mashup param",
+            true,
+            &[
+                "--type",
+                "--direction",
+                "--description",
+                "--default",
+                "--no-default",
+                "--data-shape",
+                "--force",
+                "--apply",
+                "--json",
+            ],
+        ),
+        (
+            "mashup recipe",
+            true,
+            &[
+                "--if",
+                "--expr",
+                "--input",
+                "--after",
+                "--say",
+                "--from",
+                "--kind",
+                "--then",
+                "--title",
+                "--on",
+                "--mashup",
+                "--window",
+                "--size",
+                "--pass",
+                "--reload",
+                "--every",
+                "--interval",
+                "--else-say",
+                "--data",
+                "--x",
+                "--value",
+                "--column",
+                "--selected",
+                "--apply",
+                "--json",
+            ],
+        ),
+        ("mashup event", true, &["--when", "--apply", "--json"]),
+        ("mashup templates", true, &["--json"]),
+        (
+            "mashup new",
+            true,
+            &[
+                "--project",
+                "--template",
+                "--layout",
+                "--primary-menu",
+                "--secondary-menu",
+                "--theme",
+                "--master",
+                "--visibility",
+                "--param",
+                "--tab",
+                "--apply",
+                "--json",
+            ],
+        ),
+        (
+            "adopt",
+            true,
+            &[
+                "--entity",
+                "--base",
+                "--only",
+                "--take",
+                "--detail",
+                "--json",
+                "--fail-on-revert",
+                "--apply",
+            ],
+        ),
+        ("handoff", true, &["--name", "--apply"]),
+        (
+            "rename entity",
+            true,
+            &[
+                "--apply",
+                "--text",
+                "--detail",
+                "--json",
+                "--skip-checks",
+                "--sql",
+                "--sql-dir",
+                "--no-sql",
+            ],
+        ),
+        (
+            "rename prefix",
+            true,
+            &[
+                "--apply",
+                "--text",
+                "--detail",
+                "--json",
+                "--skip-checks",
+                "--sql",
+                "--sql-dir",
+                "--no-sql",
+            ],
+        ),
+        (
+            "rename field",
+            true,
+            &[
+                "--apply",
+                "--text",
+                "--detail",
+                "--json",
+                "--skip-checks",
+                "--sql",
+                "--sql-dir",
+                "--no-sql",
+            ],
+        ),
+        (
+            "rename service",
+            true,
+            &["--apply", "--text", "--detail", "--json", "--skip-checks"],
+        ),
+        (
+            "rename param",
+            true,
+            &["--apply", "--text", "--detail", "--json", "--skip-checks"],
+        ),
+        (
+            "rename table",
+            true,
+            &["--apply", "--text", "--detail", "--json", "--skip-checks"],
+        ),
+        (
+            "rename property",
+            true,
+            &["--apply", "--text", "--detail", "--json", "--skip-checks"],
+        ),
+        (
+            "move service",
+            true,
+            &["--as", "--leave-delegate", "--apply", "--detail", "--json"],
+        ),
+        (
+            "move property",
+            true,
+            &["--as", "--apply", "--detail", "--json"],
+        ),
+        (
+            "copy service",
+            true,
+            &["--as", "--apply", "--detail", "--json"],
+        ),
+        (
+            "copy property",
+            true,
+            &["--as", "--apply", "--detail", "--json"],
+        ),
+        (
+            "retemplate",
+            true,
+            &[
+                "--to",
+                "--add-shapes",
+                "--remove-shapes",
+                "--accept-loss",
+                "--apply",
+                "--detail",
+                "--json",
+            ],
+        ),
+        ("reproject", true, &["--to", "--apply", "--json"]),
+        (
+            "entity status",
+            true,
+            &["--all", "--project", "--profile", "--detail", "--record"],
+        ),
+        ("entity get", true, &["--out", "--profile"]),
+        (
+            "entity push",
+            true,
+            &["--apply", "--force", "--no-backup", "--profile"],
+        ),
+        (
+            "entity delete",
+            true,
+            &[
+                "--renamed",
+                "--force",
+                "--allow-repository-defined",
+                "--allow-outside-dependents",
+                "--allow-file-repository-data-loss",
+                "--apply",
+                "--no-backup",
+                "--profile",
+                "--json",
+            ],
+        ),
+        (
+            "entity carry",
+            true,
+            &["--renamed", "--apply", "--detail", "--profile", "--json"],
+        ),
+        ("entity restore", true, &["--apply", "--profile", "--json"]),
+        (
+            "permissions init",
+            false,
+            &["--project", "--from-helper", "--apply", "--json"],
+        ),
+        (
+            "permissions audit",
+            false,
+            &["--project", "--server", "--profile", "--detail", "--json"],
+        ),
+        (
+            "permissions apply",
+            false,
+            &["--project", "--apply", "--detail", "--json"],
+        ),
+        (
+            "permissions diff",
+            true,
+            &["--all", "--project", "--profile", "--json"],
+        ),
+        (
+            "permissions push",
+            true,
+            &[
+                "--all",
+                "--platform",
+                "--project",
+                "--apply",
+                "--profile",
+                "--json",
+            ],
+        ),
+        (
+            "datatable copy",
+            true,
+            &[
+                "--map",
+                "--drop-unmapped",
+                "--append",
+                "--max-rows",
+                "--apply",
+                "--profile",
+                "--json",
+            ],
+        ),
+        (
+            "bundle",
+            false,
+            &["--backend-only", "--check", "--handoff", "--apply"],
+        ),
+        (
+            "deploy",
+            false,
+            &[
+                "--apply",
+                "--force",
+                "--backend-only",
+                "--only",
+                "--only-projects",
+                "--skip-checks",
+                "--no-backup",
+                "--profile",
+            ],
+        ),
+        (
+            "config-table",
+            true,
+            &[
+                "--backup",
+                "--restore",
+                "--apply",
+                "--diff",
+                "--detail",
+                "--profile",
+            ],
+        ),
+        (
+            "db run",
+            true,
+            &[
+                "--thing",
+                "--no-transaction",
+                "--timeout",
+                "--apply",
+                "--profile",
+                "--json",
+            ],
+        ),
+        (
+            "db query",
+            true,
+            &[
+                "-q",
+                "--thing",
+                "--max-rows",
+                "--timeout",
+                "--profile",
+                "--detail",
+                "--json",
+            ],
+        ),
+        ("db clean", false, &["--apply", "--profile", "--json"]),
     ];
     let lines: &[&[&str]] = &[
         &["init"],
@@ -1798,6 +3204,865 @@ fn derived_commands_read_what_their_grammar_rows_read() {
         &["settings"],
         &["settings", "Subsystem", "Table", "--json"],
         &["settings", "--search", "-timeout", "--profile", "qa"],
+        &[
+            "thing",
+            "property",
+            "add",
+            "Acme.T",
+            "Count:INTEGER",
+            "--default",
+            "-1",
+            "--persistent",
+            "--no-logged",
+            "--read-only",
+            "--category",
+            "c",
+            "--units",
+            "u",
+            "--data-shape",
+            "Acme.DS",
+            "--description",
+            "-d",
+            "--apply",
+            "--json",
+        ],
+        &["thing", "property", "set", "Acme.T", "Count", "--default"],
+        &[
+            "thing",
+            "property",
+            "set",
+            "Acme.T",
+            "Count",
+            "--default",
+            "",
+        ],
+        &[
+            "thing",
+            "property",
+            "set",
+            "Acme.T",
+            "Count",
+            "--default",
+            "--no-default",
+            "--no-persistent",
+            "--logged",
+            "--no-read-only",
+            "--force",
+        ],
+        &["thing", "property", "remove", "Acme.T", "Count", "--force"],
+        &[
+            "thing",
+            "subscription",
+            "add",
+            "Acme.T",
+            "OnChange",
+            "--event",
+            "DataChange",
+            "--source",
+            "Acme.S",
+            "--source-property",
+            "p",
+            "--then",
+            "me.x = -1;",
+        ],
+        &[
+            "thing",
+            "subscription",
+            "add",
+            "Acme.T",
+            "OnChange",
+            "--script",
+            "on.js",
+            "--apply",
+            "--json",
+        ],
+        &[
+            "thing", "shape", "add", "Acme.T", "Acme.S", "--force", "--apply",
+        ],
+        &["thing", "shape"],
+        &[
+            "timer",
+            "set",
+            "Acme.Timer",
+            "--every",
+            "60",
+            "--run-as",
+            "Admin",
+            "--enabled",
+            "--apply",
+        ],
+        &["timer", "set", "Acme.Timer", "--disabled", "--json"],
+        &[
+            "scheduler",
+            "set",
+            "Acme.S",
+            "--cron",
+            "0 0 * * * ?",
+            "--run-as",
+            "Admin",
+            "--disabled",
+            "--enabled",
+        ],
+        &[
+            "style",
+            "set",
+            "Acme.Style",
+            "--background",
+            "#fff",
+            "--foreground",
+            "#000",
+            "--secondary-background",
+            "#eee",
+            "--line-color",
+            "#111",
+            "--line-style",
+            "dashed",
+            "--line-thickness",
+            "2",
+            "--bold",
+            "--no-italic",
+            "--underline",
+            "--text-size",
+            "large",
+            "--image",
+            "Acme.M",
+            "--display-string",
+            "-",
+            "--apply",
+            "--json",
+        ],
+        &[
+            "style",
+            "set",
+            "Acme.Style",
+            "--no-bold",
+            "--italic",
+            "--no-underline",
+        ],
+        &[
+            "media", "set", "Acme.M", "--file", "logo.png", "--apply", "--json",
+        ],
+        &["media", "set", "Acme.M", "--file", ""],
+        &[
+            "menu",
+            "item",
+            "add",
+            "Acme.Main_MN",
+            "Home=Acme.Home_MU",
+            "--default",
+            "--before",
+            "About",
+            "--apply",
+        ],
+        &[
+            "menu",
+            "item",
+            "add",
+            "Acme.Main_MN",
+            "Home=H",
+            "--default",
+            "x",
+        ],
+        &["menu", "item", "remove", "Acme.Main_MN", "Home", "--json"],
+        &[
+            "state", "set", "Acme.SD", "--type", "numeric", "--state", "a", "--state", "-b",
+            "--apply", "--json",
+        ],
+        &["state", "set", "Acme.SD"],
+        &[
+            "new",
+            "building-block",
+            "Acme.Orders",
+            "--type",
+            "abstract",
+            "--display-name",
+            "Orders",
+            "--description",
+            "-",
+            "--parent",
+            "Acme.Base",
+            "--root",
+            "blocks/orders",
+            "--base-extension",
+            "x",
+            "--model-logic",
+            "--no-management-shape",
+            "--apply",
+            "--json",
+        ],
+        &["new", "building-block"],
+        &[
+            "new",
+            "thing",
+            "Acme.T",
+            "--project",
+            "Acme",
+            "--description",
+            "d",
+            "--visibility",
+            "Org:Acme",
+            "--visibility",
+            "-x",
+            "--template",
+            "GenericThing",
+            "--shape",
+            "A",
+            "--shape",
+            "B",
+            "--value-stream",
+            "Acme.VS",
+            "--apply",
+            "--json",
+        ],
+        &[
+            "new",
+            "thing-template",
+            "Acme.TT",
+            "--base",
+            "GenericThing",
+            "--shape",
+            "A",
+            "--visibility",
+            "v",
+        ],
+        &[
+            "new",
+            "thing-shape",
+            "Acme.TS",
+            "--visibility",
+            "v",
+            "--json",
+        ],
+        &[
+            "new",
+            "data-shape",
+            "Acme.DS",
+            "--base",
+            "Acme.Base",
+            "--field",
+            "id:STRING:primary",
+            "--field",
+            "n:NUMBER",
+            "--visibility",
+            "v",
+        ],
+        &[
+            "new",
+            "timer",
+            "Acme.Timer",
+            "--every",
+            "60s",
+            "--run-as",
+            "Admin",
+            "--disabled",
+            "--then",
+            "me.x = 1;",
+            "--visibility",
+            "v",
+            "--project",
+            "Acme",
+        ],
+        &[
+            "new",
+            "scheduler",
+            "Acme.S",
+            "--cron",
+            "0 0 * * * ?",
+            "--script",
+            "run.js",
+            "--run-as",
+            "Admin",
+        ],
+        &[
+            "new",
+            "data-table",
+            "Acme.DT",
+            "--data-shape",
+            "Acme.DS",
+            "--index",
+            "byName=name",
+            "--index",
+            "byId=id",
+        ],
+        &["new", "stream", "Acme.St", "--data-shape", "Acme.DS"],
+        &["new", "value-stream", "Acme.VS", "--description", ""],
+        &["new", "media", "Acme.M", "--file", "logo.png", "--apply"],
+        &[
+            "new",
+            "style",
+            "Acme.Style",
+            "--background",
+            "#fff",
+            "--foreground",
+            "#000",
+            "--secondary-background",
+            "#eee",
+            "--line-color",
+            "#111",
+            "--line-style",
+            "solid",
+            "--line-thickness",
+            "1",
+            "--bold",
+            "--italic",
+            "--underline",
+            "--text-size",
+            "large",
+            "--image",
+            "Acme.M",
+            "--display-string",
+            "x",
+        ],
+        &[
+            "new", "state", "Acme.SD", "--type", "string", "--state", "a", "--state", "b",
+        ],
+        &[
+            "new",
+            "menu",
+            "Acme.Main_MN",
+            "--item",
+            "Home=Acme.Home_MU",
+            "--item",
+            "About=Acme.About_MU",
+            "--default",
+            "--label",
+            "Main",
+        ],
+        &["new", "menu", "Acme.Main_MN", "--default", "x"],
+        &["new", "menu", "Acme.Main_MN", "--default", "-1"],
+        &[
+            "new",
+            "theme",
+            "Acme.Theme",
+            "--from",
+            "Acme.Base",
+            "--prop",
+            "a=1",
+            "--prop",
+            "b=-2",
+        ],
+        &["new", "theme"],
+        &["mashup", "validate", "Acme.Home_MU", "--json"],
+        &["mashup", "validate", "--all"],
+        &["mashup", "validate", "--all", "Acme.Home_MU"],
+        &["mashup", "describe", "Acme.Home_MU", "--json"],
+        &[
+            "mashup",
+            "add",
+            "Acme.Home_MU",
+            "ptcsbutton",
+            "--right-of",
+            "Title",
+            "--label",
+            "Go",
+            "--prop",
+            "Width=-1",
+            "--prop",
+            "Text=Go",
+            "--input",
+            "a:STRING",
+            "--apply",
+            "--json",
+        ],
+        &[
+            "mashup",
+            "add",
+            "Acme.Home_MU",
+            "ptcsgrid",
+            "--in",
+            "Main",
+            "--above",
+            "Title",
+        ],
+        &[
+            "mashup",
+            "add-contained",
+            "Acme.Home_MU",
+            "Acme.Child_MU",
+            "--below",
+            "Title",
+            "--left-of",
+            "Grid",
+            "--set",
+            "Count=1",
+            "--set",
+            "Name=x",
+            "--apply",
+        ],
+        &[
+            "mashup",
+            "bind",
+            "Acme.Home_MU",
+            "--from",
+            "Get.Result",
+            "--to",
+            "Grid.Data",
+            "--json",
+        ],
+        &[
+            "mashup",
+            "on",
+            "Acme.Home_MU",
+            "--event",
+            "Button.Clicked",
+            "--invoke",
+            "Get",
+            "--apply",
+        ],
+        &[
+            "mashup",
+            "param",
+            "add",
+            "Acme.Home_MU",
+            "Count",
+            "--type",
+            "INTEGER",
+            "--direction",
+            "IN",
+            "--description",
+            "-",
+            "--default",
+            "-1",
+            "--data-shape",
+            "Acme.DS",
+            "--force",
+            "--apply",
+            "--json",
+        ],
+        &[
+            "mashup",
+            "param",
+            "set",
+            "Acme.Home_MU",
+            "Count",
+            "--default",
+        ],
+        &[
+            "mashup",
+            "param",
+            "set",
+            "Acme.Home_MU",
+            "Count",
+            "--no-default",
+            "--default",
+            "",
+        ],
+        &[
+            "mashup",
+            "recipe",
+            "toast",
+            "Acme.Home_MU",
+            "Button",
+            "--if",
+            "x > 1",
+            "--expr",
+            "-x",
+            "--input",
+            "a:STRING",
+            "--input",
+            "b:NUMBER",
+            "--after",
+            "Get.Done",
+            "--say",
+            "hi",
+            "--from",
+            "Get",
+            "--kind",
+            "info",
+            "--then",
+            "Next",
+            "--title",
+            "T",
+            "--on",
+            "Button.Clicked",
+            "--mashup",
+            "Acme.Other_MU",
+            "--window",
+            "popup",
+            "--size",
+            "300x200",
+        ],
+        &[
+            "mashup",
+            "recipe",
+            "grid",
+            "Acme.Home_MU",
+            "--pass",
+            "a=Get.A",
+            "--pass",
+            "b=Get.B",
+            "--reload",
+            "Get",
+            "--every",
+            "5",
+            "--interval",
+            "Timer",
+            "--else-say",
+            "no",
+            "--data",
+            "Get.Result",
+            "--x",
+            "time",
+            "--value",
+            "v",
+            "--column",
+            "a:A:100",
+            "--column",
+            "b",
+            "--selected",
+            "Grid.Selected",
+            "--apply",
+            "--json",
+        ],
+        &[
+            "mashup",
+            "event",
+            "add",
+            "Acme.Home_MU",
+            "Done",
+            "--when",
+            "Get.Done",
+            "--apply",
+            "--json",
+        ],
+        &["mashup", "templates"],
+        &["mashup", "templates", "two-column", "--json"],
+        &[
+            "mashup",
+            "new",
+            "Acme.Home_MU",
+            "--project",
+            "Acme",
+            "--template",
+            "header",
+            "--layout",
+            "rows",
+            "--primary-menu",
+            "Acme.Main_MN",
+            "--secondary-menu",
+            "Acme.Side_MN",
+            "--theme",
+            "Acme.Theme",
+            "--master",
+            "--visibility",
+            "Org:Acme",
+            "--param",
+            "Count:INTEGER",
+            "--param",
+            "Name:STRING:IN",
+            "--tab",
+            "Home=Acme.A_MU",
+            "--tab",
+            "About=Acme.B_MU",
+            "--apply",
+            "--json",
+        ],
+        &[
+            "adopt",
+            "export.xml",
+            "--entity",
+            "Orders",
+            "--entity",
+            "-x",
+            "--base",
+            "HEAD~1",
+            "--only",
+            "ui",
+            "--take",
+            "export:Acme.T",
+            "--detail",
+            "--json",
+            "--fail-on-revert",
+            "--apply",
+        ],
+        &["adopt"],
+        &["handoff", "list"],
+        &[
+            "handoff", "record", "a.xml", "b.xml", "--name", "sprint-1", "--apply",
+        ],
+        &[
+            "rename",
+            "entity",
+            "Acme.A",
+            "Acme.B",
+            "--apply",
+            "--text",
+            "--detail",
+            "--json",
+            "--skip-checks",
+            "--sql",
+            "--sql-dir",
+            "sql",
+        ],
+        &["rename", "prefix", "Acme.", "Corp.", "--no-sql"],
+        &["rename", "field", "Acme.DS", "a", "b", "--sql-dir="],
+        &["rename", "service", "Acme.T", "A", "B", "--apply", "--json"],
+        &["rename", "param", "Acme.T", "A", "x", "y", "--text"],
+        &["rename", "table", "a", "b", "--detail", "--skip-checks"],
+        &["rename", "property", "Acme.T", "a", "b"],
+        &[
+            "move",
+            "service",
+            "Acme.A",
+            "Acme.B",
+            "Run",
+            "--as",
+            "Go",
+            "--leave-delegate",
+            "--apply",
+            "--detail",
+            "--json",
+        ],
+        &["move", "property", "Acme.A", "Acme.B", "p", "--as", "-q"],
+        &["copy", "service", "Acme.A", "Acme.B", "Run", "--detail"],
+        &[
+            "copy", "property", "Acme.A", "Acme.B", "p", "--apply", "--json",
+        ],
+        &[
+            "retemplate",
+            "Acme.T",
+            "--to",
+            "Acme.TT",
+            "--add-shapes",
+            "A,B",
+            "--remove-shapes",
+            "C",
+            "--accept-loss",
+            "--apply",
+            "--detail",
+            "--json",
+        ],
+        &[
+            "reproject",
+            "Acme.A",
+            "Acme.B",
+            "--to",
+            "Other",
+            "--apply",
+            "--json",
+        ],
+        &[
+            "entity",
+            "get",
+            "Things/Acme.T",
+            "--out",
+            "t.xml",
+            "--profile",
+            "qa",
+        ],
+        &["entity", "get", "Things/Acme.T"],
+        &[
+            "entity",
+            "status",
+            "--all",
+            "--project",
+            "Acme",
+            "--profile",
+            "qa",
+            "--detail",
+            "--record",
+        ],
+        &["entity", "status", "Acme.T"],
+        &["entity", "status", "--all", "Acme.T"],
+        &[
+            "entity",
+            "push",
+            "Things/Acme.T",
+            "--apply",
+            "--force",
+            "--no-backup",
+            "--profile",
+            "qa",
+        ],
+        &[
+            "entity",
+            "delete",
+            "Things/Acme.T",
+            "Things/Acme.U",
+            "--force",
+            "--allow-repository-defined",
+            "--allow-outside-dependents",
+            "--allow-file-repository-data-loss",
+            "--apply",
+            "--no-backup",
+            "--profile",
+            "qa",
+            "--json",
+        ],
+        &["entity", "delete", "--renamed", "--force", "--force"],
+        &[
+            "entity",
+            "carry",
+            "Acme.A",
+            "Acme.B",
+            "--apply",
+            "--detail",
+            "--profile",
+            "qa",
+            "--json",
+        ],
+        &["entity", "carry", "--renamed"],
+        &["entity", "restore"],
+        &[
+            "entity",
+            "restore",
+            "2026-10-01",
+            "Things/Acme.T",
+            "--apply",
+            "--profile",
+            "qa",
+            "--json",
+        ],
+        &[
+            "permissions",
+            "init",
+            "--project",
+            "Acme",
+            "--from-helper",
+            "--apply",
+            "--json",
+        ],
+        &[
+            "permissions",
+            "audit",
+            "--project",
+            "Acme",
+            "--server",
+            "--profile",
+            "qa",
+            "--detail",
+            "--json",
+        ],
+        &[
+            "permissions",
+            "apply",
+            "--project",
+            "Acme",
+            "--apply",
+            "--detail",
+        ],
+        &[
+            "permissions",
+            "diff",
+            "--all",
+            "--project",
+            "Acme",
+            "--json",
+        ],
+        &["permissions", "diff", "Acme.T", "--profile", "qa"],
+        &["permissions", "diff", "--all", "Acme.T"],
+        &[
+            "permissions",
+            "push",
+            "--all",
+            "--project",
+            "Acme",
+            "--apply",
+            "--profile",
+            "qa",
+            "--json",
+        ],
+        &["permissions", "push", "--platform", "--apply"],
+        &["permissions", "push", "--all", "Acme.T", "--platform"],
+        &["bundle"],
+        &[
+            "bundle",
+            "--backend-only",
+            "--check",
+            "--handoff",
+            "sprint-1",
+            "--apply",
+        ],
+        &["deploy"],
+        &[
+            "deploy",
+            "--apply",
+            "--force",
+            "--backend-only",
+            "--only",
+            "Things/Acme.T",
+            "--only",
+            "-x",
+            "--only-projects",
+            "A, B,,",
+            "--skip-checks",
+            "--no-backup",
+            "--profile",
+            "qa",
+        ],
+        &["deploy", "--only-projects", " , "],
+        &["deploy", "--only-projects", ""],
+        &["deploy", "--force", "--force", "--profile=prod"],
+        &[
+            "config-table",
+            "Acme.T",
+            "Settings",
+            "--backup",
+            "s.json",
+            "--profile",
+            "qa",
+        ],
+        &[
+            "config-table",
+            "Acme.T",
+            "Settings",
+            "--restore",
+            "s.json",
+            "--apply",
+            "--detail",
+        ],
+        &["config-table", "Acme.T", "Settings", "--diff", "--backup="],
+        &[
+            "datatable",
+            "copy",
+            "Acme.Old",
+            "Acme.New",
+            "--map",
+            "a=b,c=d",
+            "--drop-unmapped",
+            "--append",
+            "--max-rows",
+            "-1",
+            "--apply",
+            "--profile",
+            "qa",
+            "--json",
+        ],
+        &[
+            "db",
+            "run",
+            "migrate.sql",
+            "--thing",
+            "Acme.DB",
+            "--no-transaction",
+            "--timeout",
+            "60",
+            "--apply",
+            "--profile",
+            "qa",
+            "--json",
+        ],
+        &["db", "run", "--", "-migration.sql"],
+        &["db", "run", "a.sql", "--timeout", "0"],
+        &[
+            "db",
+            "query",
+            "-q",
+            "select -1",
+            "--thing",
+            "Acme.DB",
+            "--max-rows",
+            "10",
+            "--timeout",
+            "30",
+            "--profile",
+            "qa",
+            "--detail",
+            "--json",
+        ],
+        &["db", "query", "q.sql", "--timeout", "soon"],
+        &["db", "clean"],
+        &["db", "clean", "--apply", "--profile", "qa", "--json"],
     ];
     for line in lines {
         let mut all = vec!["twaco"];
@@ -1809,10 +4074,12 @@ fn derived_commands_read_what_their_grammar_rows_read() {
         // The builder's command, from the row it had (its argument ids are the flag names, the
         // derived ones are the field names), under the same policy.
         let (_, operands, flags) = ROWS.iter().find(|(row, _, _)| *row == path).unwrap();
-        let built = spec::decorate(
-            clap::Command::new("twaco")
-                .subcommand(clap::Command::new(path).args(spec::arguments(flags, *operands))),
-        );
+        let command = match path.split_once(' ') {
+            Some((family, word)) => clap::Command::new(family)
+                .subcommand(clap::Command::new(word).args(spec::arguments(flags, *operands))),
+            None => clap::Command::new(path).args(spec::arguments(flags, *operands)),
+        };
+        let built = spec::decorate(clap::Command::new("twaco").subcommand(command));
         let old_matches = built
             .try_get_matches_from(&all)
             .unwrap_or_else(|e| panic!("{line:?}: {e}"));
@@ -1841,8 +4108,36 @@ fn derived_commands_read_what_their_grammar_rows_read() {
         add("--project", old.project.clone());
         add("--out", shown(old.out.as_ref()));
         add("--timeout", old.timeout.map(|t| t.as_secs().to_string()));
-        for param in &old.params {
-            add("--param", Some(param.clone()));
+        if !old.only_projects.is_empty() {
+            add("--only-projects", Some(old.only_projects.join(",")));
+        }
+        add("--backup", shown(old.backup.as_ref()));
+        add("--restore", shown(old.restore.as_ref()));
+        // `--prop` and `--set` both fill props; a command takes one of them.
+        let props = if flags.contains(&"--set") {
+            "--set"
+        } else {
+            "--prop"
+        };
+        for (name, repeated) in [
+            ("--only", &old.only),
+            ("--entity", &old.entity_filters),
+            ("--visibility", &old.visibility),
+            (props, &old.props),
+            ("--param", &old.params),
+            ("--tab", &old.tabs),
+            ("--input", &old.inputs),
+            ("--pass", &old.pass),
+            ("--column", &old.columns),
+            ("--shape", &old.shapes),
+            ("--field", &old.fields),
+            ("--index", &old.indexes),
+            ("--state", &old.states),
+            ("--item", &old.items),
+        ] {
+            for value in repeated {
+                add(name, Some(value.clone()));
+            }
         }
         let (names, mut on, mut given) = projection(typed);
         let mut old_flags = old.flags.clone();

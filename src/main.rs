@@ -22,14 +22,16 @@ use clap::{FromArgMatches as _, Subcommand as _};
 use cli::args::Args;
 use cli::command::Typed;
 use cli::content::{export_cmd, ext_cmd, import_cmd, package_cmd, repo_cmd, search_cmd};
-use cli::data::{call, config_table, datatable_copy_cmd, db_clean_cmd, db_cmd, logs_cmd};
+use cli::data::{
+    call, config_table, datatable_copy_cmd, db_clean_cmd, db_cmd, logs_cmd, Datatable, Db,
+};
 use cli::entity::{
     entity_carry_cmd, entity_delete_cmd, entity_get, entity_push, entity_restore_cmd,
     entity_status, permissions_apply_cmd, permissions_audit_cmd, permissions_cmd,
-    permissions_init_cmd,
+    permissions_init_cmd, Entity, Permissions,
 };
 use cli::entity_edit::entity_edit_cmd;
-use cli::entity_new::entity_new_cmd;
+use cli::entity_new::{entity_new_cmd, New};
 use cli::info::{
     catalog_cmd, docs_cmd, guide_cmd, help_cmd, impact_cmd, javadoc_cmd, settings_cmd, unused_cmd,
     update_cmd, write_agent_files,
@@ -38,11 +40,11 @@ use cli::localization::localization_cmd;
 use cli::mashup::{
     mashup_add_cmd, mashup_add_contained_cmd, mashup_bind_cmd, mashup_describe_cmd,
     mashup_event_cmd, mashup_new_cmd, mashup_on_cmd, mashup_param_cmd, mashup_recipe_cmd,
-    mashup_templates_cmd, mashup_validate_cmd,
+    mashup_templates_cmd, mashup_validate_cmd, Mashup,
 };
 use cli::refactor::{
     adopt_cmd, handoff_cmd, new_building_block_cmd, relocate_cmd, rename_cmd, reproject_cmd,
-    retemplate_cmd,
+    retemplate_cmd, CopyMember, MoveMember,
 };
 use cli::service_tests::test_cmd;
 use cli::source::{bundle, check, deploy_cmd, extract, fmt, sync_cmd, types_cmd};
@@ -215,66 +217,86 @@ fn dispatch_typed(typed: Typed) -> u8 {
         Typed::Call(command) => run(|solution| call(solution, &command)),
         Typed::Logs(logs) => run(|solution| logs_cmd(solution, &logs)),
         Typed::Settings(settings) => run(|solution| settings_cmd(solution, &settings)),
+        Typed::Thing(thing) => run(|solution| entity_edit_cmd(solution, thing.edit())),
+        Typed::Timer(timer) => run(|solution| entity_edit_cmd(solution, timer.edit())),
+        Typed::Scheduler(scheduler) => run(|solution| entity_edit_cmd(solution, scheduler.edit())),
+        Typed::Style(style) => run(|solution| entity_edit_cmd(solution, style.edit())),
+        Typed::Media(media) => run(|solution| entity_edit_cmd(solution, media.edit())),
+        Typed::Menu(menu) => run(|solution| entity_edit_cmd(solution, menu.edit())),
+        Typed::State(state) => run(|solution| entity_edit_cmd(solution, state.edit())),
+        Typed::New(New::BuildingBlock(block)) => {
+            run(|solution| new_building_block_cmd(solution, &block))
+        }
+        Typed::New(New::Entity(new)) => run(|solution| entity_new_cmd(solution, &new)),
+        // The templates are built in, so they need no solution.
+        Typed::Mashup(Mashup::Templates(templates)) => mashup_templates_cmd(&templates),
+        Typed::Mashup(mashup) => run(|solution| match &mashup {
+            Mashup::Add(add) => mashup_add_cmd(solution, add),
+            Mashup::AddContained(add) => mashup_add_contained_cmd(solution, add),
+            Mashup::Bind(bind) => mashup_bind_cmd(solution, bind),
+            Mashup::On(on) => mashup_on_cmd(solution, on),
+            Mashup::Param(param) => mashup_param_cmd(solution, param),
+            Mashup::Event(event) => mashup_event_cmd(solution, event),
+            Mashup::Recipe(recipe) => mashup_recipe_cmd(solution, recipe),
+            Mashup::New(new) => mashup_new_cmd(solution, new),
+            Mashup::Describe(describe) => mashup_describe_cmd(solution, describe),
+            Mashup::Validate(validate) => mashup_validate_cmd(solution, validate),
+            Mashup::Templates(_) => unreachable!("the templates need no solution"),
+        }),
+        Typed::Adopt(adopt) => run(|solution| adopt_cmd(solution, &adopt)),
+        Typed::Handoff(handoff) => run(|solution| handoff_cmd(solution, &handoff)),
+        Typed::Rename(rename) => run(|solution| rename_cmd(solution, &rename)),
+        Typed::Move(relocate) => run(|solution| match &relocate {
+            MoveMember::Service(service) => relocate_cmd(
+                solution,
+                relocate.path(),
+                &service.relocate,
+                service.leave_delegate,
+            ),
+            MoveMember::Property(property) => {
+                relocate_cmd(solution, relocate.path(), property, false)
+            }
+        }),
+        Typed::Copy(relocate) => run(|solution| match &relocate {
+            CopyMember::Service(member) | CopyMember::Property(member) => {
+                relocate_cmd(solution, relocate.path(), member, false)
+            }
+        }),
+        Typed::Retemplate(retemplate) => run(|solution| retemplate_cmd(solution, &retemplate)),
+        Typed::Reproject(reproject) => run(|solution| reproject_cmd(solution, &reproject)),
+        Typed::Entity(entity) => run(|solution| match &entity {
+            Entity::Get(get) => entity_get(solution, get),
+            Entity::Status(status) => entity_status(solution, status),
+            Entity::Push(push) => entity_push(solution, push),
+            Entity::Delete(delete) => entity_delete_cmd(solution, delete),
+            Entity::Carry(carry) => entity_carry_cmd(solution, carry),
+            Entity::Restore(restore) => entity_restore_cmd(solution, restore),
+        }),
+        Typed::Permissions(permissions) => run(|solution| match &permissions {
+            Permissions::Diff(diff) => permissions_cmd(solution, diff, None),
+            Permissions::Push(push) => permissions_cmd(solution, &push.diff, Some(push)),
+            Permissions::Audit(audit) => permissions_audit_cmd(solution, audit),
+            Permissions::Apply(apply) => permissions_apply_cmd(solution, apply),
+            Permissions::Init(init) => permissions_init_cmd(solution, init),
+        }),
+        Typed::Bundle(command) => run(|solution| bundle(solution, &command)),
+        Typed::Deploy(deploy) => run(|solution| deploy_cmd(solution, &deploy)),
+        Typed::ConfigTable(table) => run(|solution| config_table(solution, &table)),
+        Typed::Datatable(Datatable::Copy(copy)) => {
+            run(|solution| datatable_copy_cmd(solution, &copy))
+        }
+        Typed::Db(db) => run(|solution| match &db {
+            Db::Run(run) => db_cmd(solution, &run.line()),
+            Db::Query(query) => db_cmd(solution, &query.line()),
+            Db::Clean(clean) => db_clean_cmd(solution, clean),
+        }),
     }
 }
 
-/// Run one table command and return its exit code.
-fn dispatch(route: &str, parsed: &Args) -> u8 {
-    // The templates are built in, so they need no solution.
-    if route == "mashup templates" {
-        return mashup_templates_cmd(parsed);
-    }
-
-    // Commands that change the workspace take its lock in their executor (core::commands), so
-    // the lock covers exactly what they change and both front ends take it the same way.
-    run(|solution| match route {
-        "bundle" => bundle(solution, parsed),
-        "deploy" => deploy_cmd(solution, parsed),
-        "adopt" => adopt_cmd(solution, parsed),
-        "handoff" => handoff_cmd(solution, parsed),
-        "rename entity" | "rename prefix" | "rename field" | "rename service" | "rename param"
-        | "rename table" | "rename property" => rename_cmd(solution, route, parsed),
-        "move service" | "move property" | "copy service" | "copy property" => {
-            relocate_cmd(solution, route, parsed)
-        }
-        "retemplate" => retemplate_cmd(solution, parsed),
-        "reproject" => reproject_cmd(solution, parsed),
-        "mashup add" => mashup_add_cmd(solution, parsed),
-        "mashup add-contained" => mashup_add_contained_cmd(solution, parsed),
-        "mashup bind" => mashup_bind_cmd(solution, parsed),
-        "mashup on" => mashup_on_cmd(solution, parsed),
-        "mashup param" => mashup_param_cmd(solution, parsed),
-        "mashup event" => mashup_event_cmd(solution, parsed),
-        "mashup recipe" => mashup_recipe_cmd(solution, parsed),
-        "mashup new" => mashup_new_cmd(solution, parsed),
-        "mashup describe" => mashup_describe_cmd(solution, parsed),
-        "mashup validate" => mashup_validate_cmd(solution, parsed),
-        "new building-block" => new_building_block_cmd(solution, parsed),
-        "new thing" | "new thing-template" | "new thing-shape" | "new data-shape" | "new timer"
-        | "new scheduler" | "new data-table" | "new stream" | "new value-stream" | "new media"
-        | "new style" | "new state" | "new menu" | "new theme" => {
-            entity_new_cmd(solution, route, parsed)
-        }
-        "thing property" | "thing subscription" | "thing shape" | "timer set" | "scheduler set"
-        | "style set" | "media set" | "menu item" | "state set" => {
-            entity_edit_cmd(solution, route, parsed)
-        }
-        "config-table" => config_table(solution, parsed),
-        "entity get" => entity_get(solution, parsed),
-        "entity status" => entity_status(solution, parsed),
-        "entity push" => entity_push(solution, parsed),
-        "entity delete" => entity_delete_cmd(solution, parsed),
-        "entity carry" => entity_carry_cmd(solution, parsed),
-        "permissions diff" | "permissions push" => permissions_cmd(solution, route, parsed),
-        "permissions audit" => permissions_audit_cmd(solution, parsed),
-        "permissions apply" => permissions_apply_cmd(solution, parsed),
-        "permissions init" => permissions_init_cmd(solution, parsed),
-        "entity restore" => entity_restore_cmd(solution, parsed),
-        "db run" | "db query" => db_cmd(solution, route, parsed),
-        "db clean" => db_clean_cmd(solution, parsed),
-        "datatable copy" => datatable_copy_cmd(solution, parsed),
-        other => unreachable!("{other} is in GRAMMAR but has no handler"),
-    })
+/// Run one table command and return its exit code. Every command is derived now, so none is
+/// left to run here; the table goes in the cleanup that follows.
+fn dispatch(route: &str, _parsed: &Args) -> u8 {
+    unreachable!("{route} is in GRAMMAR but has no handler")
 }
 
 /// `twaco init [--write|--agents]`.

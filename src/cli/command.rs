@@ -44,6 +44,45 @@ pub(crate) enum Typed {
     Call(super::data::Call),
     Logs(super::data::Logs),
     Settings(super::info::Settings),
+    #[command(subcommand)]
+    Thing(super::entity_edit::Thing),
+    #[command(subcommand)]
+    Timer(super::entity_edit::Timer),
+    #[command(subcommand)]
+    Scheduler(super::entity_edit::Scheduler),
+    #[command(subcommand)]
+    Style(super::entity_edit::Style),
+    #[command(subcommand)]
+    Media(super::entity_edit::Media),
+    #[command(subcommand)]
+    Menu(super::entity_edit::Menu),
+    #[command(subcommand)]
+    State(super::entity_edit::State),
+    #[command(subcommand)]
+    New(super::entity_new::New),
+    #[command(subcommand)]
+    Mashup(super::mashup::Mashup),
+    Adopt(super::refactor::Adopt),
+    Handoff(super::refactor::Handoff),
+    #[command(subcommand)]
+    Rename(super::refactor::Rename),
+    #[command(subcommand)]
+    Move(super::refactor::MoveMember),
+    #[command(subcommand)]
+    Copy(super::refactor::CopyMember),
+    Retemplate(super::refactor::Retemplate),
+    Reproject(super::refactor::Reproject),
+    #[command(subcommand)]
+    Entity(super::entity::Entity),
+    #[command(subcommand)]
+    Permissions(super::entity::Permissions),
+    Bundle(super::source::Bundle),
+    Deploy(super::source::Deploy),
+    ConfigTable(super::data::ConfigTable),
+    #[command(subcommand)]
+    Datatable(super::data::Datatable),
+    #[command(subcommand)]
+    Db(super::data::Db),
 }
 
 impl Typed {
@@ -81,6 +120,34 @@ impl Typed {
             Typed::Call(_) => "call",
             Typed::Logs(_) => "logs",
             Typed::Settings(_) => "settings",
+            Typed::Thing(thing) => match thing {
+                super::entity_edit::Thing::Property(_) => "thing property",
+                super::entity_edit::Thing::Subscription(_) => "thing subscription",
+                super::entity_edit::Thing::Shape(_) => "thing shape",
+            },
+            Typed::Timer(_) => "timer set",
+            Typed::Scheduler(_) => "scheduler set",
+            Typed::Style(_) => "style set",
+            Typed::Media(_) => "media set",
+            Typed::Menu(_) => "menu item",
+            Typed::State(_) => "state set",
+            Typed::New(super::entity_new::New::BuildingBlock(_)) => "new building-block",
+            Typed::New(super::entity_new::New::Entity(new)) => new.path(),
+            Typed::Mashup(mashup) => mashup.path(),
+            Typed::Adopt(_) => "adopt",
+            Typed::Handoff(_) => "handoff",
+            Typed::Rename(rename) => rename.path(),
+            Typed::Move(relocate) => relocate.path(),
+            Typed::Copy(relocate) => relocate.path(),
+            Typed::Retemplate(_) => "retemplate",
+            Typed::Reproject(_) => "reproject",
+            Typed::Entity(entity) => entity.path(),
+            Typed::Permissions(permissions) => permissions.path(),
+            Typed::Bundle(_) => "bundle",
+            Typed::Deploy(_) => "deploy",
+            Typed::ConfigTable(_) => "config-table",
+            Typed::Datatable(_) => "datatable copy",
+            Typed::Db(db) => db.path(),
         }
     }
 
@@ -91,6 +158,17 @@ impl Typed {
             Typed::Extract(extract) => extract.selection.validate(),
             Typed::Sync(sync) => sync.selection.validate(),
             Typed::Call(call) => call.timeout.duration().map(|_| ()),
+            Typed::Deploy(deploy) => deploy.only_projects.projects().map(|_| ()),
+            Typed::Db(super::data::Db::Run(run)) => run.timeout.duration().map(|_| ()),
+            Typed::Db(super::data::Db::Query(query)) => query.timeout.duration().map(|_| ()),
+            Typed::Mashup(super::mashup::Mashup::Validate(validate)) => {
+                validate.selection.validate()
+            }
+            Typed::Entity(super::entity::Entity::Status(status)) => status.selection.validate(),
+            Typed::Permissions(super::entity::Permissions::Diff(diff)) => diff.selection.validate(),
+            Typed::Permissions(super::entity::Permissions::Push(push)) => {
+                push.diff.selection.validate()
+            }
             Typed::Init(_)
             | Typed::Doctor(_)
             | Typed::Projects
@@ -118,7 +196,29 @@ impl Typed {
             | Typed::Export(_)
             | Typed::Import(_)
             | Typed::Logs(_)
-            | Typed::Settings(_) => Ok(()),
+            | Typed::Settings(_)
+            | Typed::Thing(_)
+            | Typed::Timer(_)
+            | Typed::Scheduler(_)
+            | Typed::Style(_)
+            | Typed::Media(_)
+            | Typed::Menu(_)
+            | Typed::State(_)
+            | Typed::New(_)
+            | Typed::Mashup(_)
+            | Typed::Adopt(_)
+            | Typed::Handoff(_)
+            | Typed::Rename(_)
+            | Typed::Move(_)
+            | Typed::Copy(_)
+            | Typed::Retemplate(_)
+            | Typed::Reproject(_)
+            | Typed::Entity(_)
+            | Typed::Permissions(_)
+            | Typed::Bundle(_)
+            | Typed::ConfigTable(_)
+            | Typed::Datatable(_)
+            | Typed::Db(super::data::Db::Clean(_)) => Ok(()),
         }
     }
 }

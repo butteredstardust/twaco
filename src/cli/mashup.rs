@@ -1,4 +1,4 @@
-use super::args::Args;
+use super::flags::{Apply, Json, Project, Selection};
 use super::style;
 use crate::{print_notices, DRIFT, FAILED, OK};
 use twaco::core::commands::{self, Mode};
@@ -6,32 +6,312 @@ use twaco::core::config::Solution;
 use twaco::core::mashup_authoring;
 use twaco::core::mashup_edit::{Placement, Side};
 
+/// `twaco mashup <command>`.
+#[derive(Debug, clap::Subcommand)]
+pub(crate) enum Mashup {
+    Validate(MashupValidate),
+    Describe(MashupDescribe),
+    Add(MashupAdd),
+    AddContained(MashupAddContained),
+    Bind(MashupBind),
+    On(MashupOn),
+    Param(MashupParam),
+    Recipe(Box<MashupRecipe>),
+    Event(MashupEvent),
+    Templates(MashupTemplates),
+    New(MashupNew),
+}
+
+impl Mashup {
+    /// The command's [`USAGE`](super::spec::USAGE) path.
+    pub(crate) fn path(&self) -> &'static str {
+        match self {
+            Mashup::Validate(_) => "mashup validate",
+            Mashup::Describe(_) => "mashup describe",
+            Mashup::Add(_) => "mashup add",
+            Mashup::AddContained(_) => "mashup add-contained",
+            Mashup::Bind(_) => "mashup bind",
+            Mashup::On(_) => "mashup on",
+            Mashup::Param(_) => "mashup param",
+            Mashup::Recipe(_) => "mashup recipe",
+            Mashup::Event(_) => "mashup event",
+            Mashup::Templates(_) => "mashup templates",
+            Mashup::New(_) => "mashup new",
+        }
+    }
+}
+
+/// `twaco mashup validate <mashup>|--all`.
+#[derive(Debug, clap::Args)]
+#[group(skip)]
+pub(crate) struct MashupValidate {
+    #[command(flatten)]
+    pub(crate) selection: Selection,
+    #[command(flatten)]
+    pub(crate) json: Json,
+}
+
+/// `twaco mashup describe <mashup>`.
+#[derive(Debug, clap::Args)]
+#[group(skip)]
+pub(crate) struct MashupDescribe {
+    #[command(flatten)]
+    pub(crate) json: Json,
+    #[arg(id = "operands", value_name = "operand")]
+    pub(crate) operands: Vec<String>,
+}
+
+/// Where a widget or a contained mashup goes: at most one of these.
+#[derive(Debug, clap::Args)]
+#[group(skip)]
+pub(crate) struct Place {
+    #[arg(long = "in", value_name = "widget")]
+    pub(crate) inside: Option<String>,
+    #[arg(long = "right-of", value_name = "widget")]
+    pub(crate) right_of: Option<String>,
+    #[arg(long = "left-of", value_name = "widget")]
+    pub(crate) left_of: Option<String>,
+    #[arg(long = "above", value_name = "widget")]
+    pub(crate) above: Option<String>,
+    #[arg(long = "below", value_name = "widget")]
+    pub(crate) below: Option<String>,
+}
+
+/// `twaco mashup add <mashup> <widget>`.
+#[derive(Debug, clap::Args)]
+#[group(skip)]
+pub(crate) struct MashupAdd {
+    #[command(flatten)]
+    pub(crate) place: Place,
+    #[arg(long = "label", value_name = "text")]
+    pub(crate) label: Option<String>,
+    #[arg(long = "prop", value_name = "name=value")]
+    pub(crate) props: Vec<String>,
+    #[arg(long = "input", value_name = "name:TYPE")]
+    pub(crate) inputs: Vec<String>,
+    #[command(flatten)]
+    pub(crate) apply: Apply,
+    #[command(flatten)]
+    pub(crate) json: Json,
+    #[arg(id = "operands", value_name = "operand")]
+    pub(crate) operands: Vec<String>,
+}
+
+/// `twaco mashup add-contained <parent> <child>`.
+#[derive(Debug, clap::Args)]
+#[group(skip)]
+pub(crate) struct MashupAddContained {
+    #[command(flatten)]
+    pub(crate) place: Place,
+    #[arg(long = "set", value_name = "parameter=value")]
+    pub(crate) props: Vec<String>,
+    #[command(flatten)]
+    pub(crate) apply: Apply,
+    #[command(flatten)]
+    pub(crate) json: Json,
+    #[arg(id = "operands", value_name = "operand")]
+    pub(crate) operands: Vec<String>,
+}
+
+/// `twaco mashup bind <mashup> --from <address> --to <address>`.
+#[derive(Debug, clap::Args)]
+#[group(skip)]
+pub(crate) struct MashupBind {
+    #[arg(long = "from", value_name = "address")]
+    pub(crate) from: Option<String>,
+    #[arg(long = "to", value_name = "address")]
+    pub(crate) to: Option<String>,
+    #[command(flatten)]
+    pub(crate) apply: Apply,
+    #[command(flatten)]
+    pub(crate) json: Json,
+    #[arg(id = "operands", value_name = "operand")]
+    pub(crate) operands: Vec<String>,
+}
+
+/// `twaco mashup on <mashup> --event <address> --invoke <address>`.
+#[derive(Debug, clap::Args)]
+#[group(skip)]
+pub(crate) struct MashupOn {
+    #[arg(long = "event", value_name = "address")]
+    pub(crate) event: Option<String>,
+    #[arg(long = "invoke", value_name = "address")]
+    pub(crate) invoke: Option<String>,
+    #[command(flatten)]
+    pub(crate) apply: Apply,
+    #[command(flatten)]
+    pub(crate) json: Json,
+    #[arg(id = "operands", value_name = "operand")]
+    pub(crate) operands: Vec<String>,
+}
+
+/// `twaco mashup param add|set|remove <mashup> <name>`.
+#[derive(Debug, clap::Args)]
+#[group(skip)]
+pub(crate) struct MashupParam {
+    #[arg(long = "type", value_name = "value")]
+    pub(crate) kind: Option<String>,
+    #[arg(long = "direction", value_name = "IN|OUT|BOTH")]
+    pub(crate) direction: Option<String>,
+    #[arg(long = "description", value_name = "text")]
+    pub(crate) description: Option<String>,
+    /// Empty when given bare, which the command refuses.
+    #[arg(long = "default", value_name = "value", num_args = 0..=1)]
+    pub(crate) default: Option<String>,
+    #[arg(long = "no-default")]
+    pub(crate) no_default: bool,
+    #[arg(long = "data-shape", value_name = "DataShape")]
+    pub(crate) data_shape: Option<String>,
+    #[arg(long = "force")]
+    pub(crate) force: bool,
+    #[command(flatten)]
+    pub(crate) apply: Apply,
+    #[command(flatten)]
+    pub(crate) json: Json,
+    #[arg(id = "operands", value_name = "operand")]
+    pub(crate) operands: Vec<String>,
+}
+
+/// `twaco mashup recipe <recipe> <mashup> [<widget>]`: each recipe reads the flags it needs.
+#[derive(Debug, clap::Args)]
+#[group(skip)]
+pub(crate) struct MashupRecipe {
+    #[arg(long = "if", value_name = "condition")]
+    pub(crate) condition: Option<String>,
+    #[arg(long = "expr", value_name = "expression")]
+    pub(crate) expression: Option<String>,
+    #[arg(long = "input", value_name = "name:TYPE")]
+    pub(crate) inputs: Vec<String>,
+    #[arg(long = "after", value_name = "address")]
+    pub(crate) after: Option<String>,
+    #[arg(long = "say", value_name = "text")]
+    pub(crate) say: Option<String>,
+    #[arg(long = "from", value_name = "address")]
+    pub(crate) from: Option<String>,
+    #[arg(long = "kind", value_name = "info|warning|error")]
+    pub(crate) kind: Option<String>,
+    #[arg(long = "then", value_name = "address")]
+    pub(crate) then: Option<String>,
+    #[arg(long = "title", value_name = "text")]
+    pub(crate) title: Option<String>,
+    #[arg(long = "on", value_name = "address")]
+    pub(crate) on: Option<String>,
+    #[arg(long = "mashup", value_name = "name")]
+    pub(crate) mashup: Option<String>,
+    #[arg(long = "window", value_name = "type")]
+    pub(crate) window: Option<String>,
+    #[arg(long = "size", value_name = "WxH")]
+    pub(crate) size: Option<String>,
+    #[arg(long = "pass", value_name = "name=address")]
+    pub(crate) pass: Vec<String>,
+    #[arg(long = "reload", value_name = "address")]
+    pub(crate) reload: Option<String>,
+    #[arg(long = "every", value_name = "seconds")]
+    pub(crate) every: Option<String>,
+    #[arg(long = "interval", value_name = "address")]
+    pub(crate) interval: Option<String>,
+    #[arg(long = "else-say", value_name = "text")]
+    pub(crate) else_say: Option<String>,
+    #[arg(long = "data", value_name = "address")]
+    pub(crate) data: Option<String>,
+    #[arg(long = "x", value_name = "field")]
+    pub(crate) x: Option<String>,
+    #[arg(long = "value", value_name = "text")]
+    pub(crate) value: Option<String>,
+    #[arg(long = "column", value_name = "field[:Title[:width]]")]
+    pub(crate) columns: Vec<String>,
+    #[arg(long = "selected", value_name = "address")]
+    pub(crate) selected: Option<String>,
+    #[command(flatten)]
+    pub(crate) apply: Apply,
+    #[command(flatten)]
+    pub(crate) json: Json,
+    #[arg(id = "operands", value_name = "operand")]
+    pub(crate) operands: Vec<String>,
+}
+
+/// `twaco mashup event add <mashup> <name> --when <address>`.
+#[derive(Debug, clap::Args)]
+#[group(skip)]
+pub(crate) struct MashupEvent {
+    #[arg(long = "when", value_name = "address")]
+    pub(crate) when: Option<String>,
+    #[command(flatten)]
+    pub(crate) apply: Apply,
+    #[command(flatten)]
+    pub(crate) json: Json,
+    #[arg(id = "operands", value_name = "operand")]
+    pub(crate) operands: Vec<String>,
+}
+
+/// `twaco mashup templates [<name>]`.
+#[derive(Debug, clap::Args)]
+#[group(skip)]
+pub(crate) struct MashupTemplates {
+    #[command(flatten)]
+    pub(crate) json: Json,
+    #[arg(id = "operands", value_name = "operand")]
+    pub(crate) operands: Vec<String>,
+}
+
+/// `twaco mashup new <name>`.
+#[derive(Debug, clap::Args)]
+#[group(skip)]
+pub(crate) struct MashupNew {
+    #[command(flatten)]
+    pub(crate) project: Project,
+    #[arg(long = "template", value_name = "name")]
+    pub(crate) template: Option<String>,
+    #[arg(long = "layout", value_name = "layout")]
+    pub(crate) layout: Option<String>,
+    #[arg(long = "primary-menu", value_name = "address")]
+    pub(crate) primary_menu: Option<String>,
+    #[arg(long = "secondary-menu", value_name = "address")]
+    pub(crate) secondary_menu: Option<String>,
+    #[arg(long = "theme", value_name = "theme")]
+    pub(crate) theme: Option<String>,
+    #[arg(long = "master")]
+    pub(crate) master: bool,
+    #[arg(long = "visibility", value_name = "principal")]
+    pub(crate) visibility: Vec<String>,
+    #[arg(long = "param", value_name = "name:TYPE[:DIRECTION]")]
+    pub(crate) params: Vec<String>,
+    #[arg(long = "tab", value_name = "Label=Mashup")]
+    pub(crate) tabs: Vec<String>,
+    #[command(flatten)]
+    pub(crate) apply: Apply,
+    #[command(flatten)]
+    pub(crate) json: Json,
+    #[arg(id = "operands", value_name = "operand")]
+    pub(crate) operands: Vec<String>,
+}
+
 /// `twaco mashup new <name>`: plan a new mashup, or create it with `--apply`.
-pub(crate) fn mashup_new_cmd(solution: &Solution, args: &Args) -> u8 {
-    let [name] = args.names.as_slice() else {
+pub(crate) fn mashup_new_cmd(solution: &Solution, args: &MashupNew) -> u8 {
+    let [name] = args.operands.as_slice() else {
         eprintln!("{} mashup new needs one <name>", style::prefix());
         return FAILED;
     };
-    if args.values.contains_key("--template") && args.values.contains_key("--layout") {
+    if args.template.is_some() && args.layout.is_some() {
         eprintln!("{} give --template or --layout, not both", style::prefix());
         return FAILED;
     }
     let template = args
-        .values
-        .get("--template")
-        .or_else(|| args.values.get("--layout"))
+        .template
+        .as_ref()
+        .or(args.layout.as_ref())
         .cloned()
         .unwrap_or_else(|| "blank".into());
-    let apply = args.has("--apply");
+    let apply = args.apply.apply;
     let request = commands::mashup::MashupNewRequest {
         request: mashup_authoring::NewRequest {
             name: name.clone(),
-            project: args.project.clone(),
+            project: args.project.project.clone(),
             template,
-            primary_menu: args.values.get("--primary-menu").cloned(),
-            secondary_menu: args.values.get("--secondary-menu").cloned(),
-            theme: args.values.get("--theme").cloned(),
-            master: args.has("--master"),
+            primary_menu: args.primary_menu.clone(),
+            secondary_menu: args.secondary_menu.clone(),
+            theme: args.theme.clone(),
+            master: args.master,
             visibility: args.visibility.clone(),
             params: args.params.clone(),
             tabs: args.tabs.clone(),
@@ -50,7 +330,7 @@ pub(crate) fn mashup_new_cmd(solution: &Solution, args: &Args) -> u8 {
     };
     print_notices(&notices);
     let report = mashup_authoring::new_plan_json(solution, &outcome.plan, outcome.applied);
-    if args.has("--json") {
+    if args.json.json {
         println!(
             "{}",
             serde_json::to_string_pretty(&report).expect("a plan serialises")
@@ -124,8 +404,8 @@ pub(crate) fn mashup_new_cmd(solution: &Solution, args: &Args) -> u8 {
 
 /// `twaco mashup param add|set|remove`: keep Composer's four parameter stores together.
 /// `twaco mashup recipe <recipe> <mashup> [<widget>] ...`: plan one recipe, or apply it.
-pub(crate) fn mashup_recipe_cmd(solution: &Solution, args: &Args) -> u8 {
-    let (name, mashup, widget) = match args.names.as_slice() {
+pub(crate) fn mashup_recipe_cmd(solution: &Solution, args: &MashupRecipe) -> u8 {
+    let (name, mashup, widget) = match args.operands.as_slice() {
         [name, mashup] => (name, mashup, None),
         [name, mashup, widget] => (name, mashup, Some(widget.clone())),
         _ => {
@@ -137,8 +417,7 @@ pub(crate) fn mashup_recipe_cmd(solution: &Solution, args: &Args) -> u8 {
             return FAILED;
         }
     };
-    let value = |flag: &str| args.values.get(flag).cloned();
-    let every = match value("--every").map(|text| text.parse::<u32>()) {
+    let every = match args.every.clone().map(|text| text.parse::<u32>()) {
         None => None,
         Some(Ok(seconds)) => Some(seconds),
         Some(Err(_)) => {
@@ -148,29 +427,29 @@ pub(crate) fn mashup_recipe_cmd(solution: &Solution, args: &Args) -> u8 {
     };
     let recipe_args = mashup_authoring::RecipeArgs {
         widget,
-        condition: value("--if"),
-        expression: value("--expr"),
+        condition: args.condition.clone(),
+        expression: args.expression.clone(),
         inputs: args.inputs.clone(),
-        after: value("--after"),
-        say: value("--say"),
-        from: value("--from"),
-        kind: value("--kind"),
-        then: value("--then"),
-        title: value("--title"),
-        on: value("--on"),
-        target: value("--mashup"),
-        window: value("--window"),
-        size: value("--size"),
+        after: args.after.clone(),
+        say: args.say.clone(),
+        from: args.from.clone(),
+        kind: args.kind.clone(),
+        then: args.then.clone(),
+        title: args.title.clone(),
+        on: args.on.clone(),
+        target: args.mashup.clone(),
+        window: args.window.clone(),
+        size: args.size.clone(),
         pass: args.pass.clone(),
-        reload: value("--reload"),
+        reload: args.reload.clone(),
         every,
-        interval: value("--interval"),
-        else_say: value("--else-say"),
-        data: value("--data"),
-        x: value("--x"),
-        value: value("--value"),
+        interval: args.interval.clone(),
+        else_say: args.else_say.clone(),
+        data: args.data.clone(),
+        x: args.x.clone(),
+        value: args.value.clone(),
         columns: args.columns.clone(),
-        selected: value("--selected"),
+        selected: args.selected.clone(),
     };
     let recipe = match mashup_authoring::Recipe::from_args(name, &recipe_args) {
         Ok(recipe) => recipe,
@@ -184,7 +463,7 @@ pub(crate) fn mashup_recipe_cmd(solution: &Solution, args: &Args) -> u8 {
             mashup: mashup.clone(),
             recipe,
         },
-        mode: if args.has("--apply") {
+        mode: if args.apply.apply {
             Mode::Apply
         } else {
             Mode::Plan
@@ -202,7 +481,7 @@ pub(crate) fn mashup_recipe_cmd(solution: &Solution, args: &Args) -> u8 {
     };
     print_notices(&notices);
     let report = mashup_authoring::recipe_plan_json(solution, &outcome.plan, outcome.applied);
-    if args.has("--json") {
+    if args.json.json {
         println!(
             "{}",
             serde_json::to_string_pretty(&report).expect("a recipe plan serialises")
@@ -232,8 +511,8 @@ pub(crate) fn mashup_recipe_cmd(solution: &Solution, args: &Args) -> u8 {
 }
 
 /// `twaco mashup event add <mashup> <name> --when <address>`: plan a child event, or apply it.
-pub(crate) fn mashup_event_cmd(solution: &Solution, args: &Args) -> u8 {
-    let [action, mashup, name] = args.names.as_slice() else {
+pub(crate) fn mashup_event_cmd(solution: &Solution, args: &MashupEvent) -> u8 {
+    let [action, mashup, name] = args.operands.as_slice() else {
         eprintln!(
             "{} mashup event needs add <mashup> <name> --when <address>",
             style::prefix()
@@ -244,7 +523,7 @@ pub(crate) fn mashup_event_cmd(solution: &Solution, args: &Args) -> u8 {
         eprintln!("{} mashup event takes add", style::prefix());
         return FAILED;
     }
-    let Some(when) = args.values.get("--when") else {
+    let Some(when) = args.when.as_ref() else {
         eprintln!(
             "{} mashup event add needs --when <address>: the event in {mashup} that fires it",
             style::prefix()
@@ -257,7 +536,7 @@ pub(crate) fn mashup_event_cmd(solution: &Solution, args: &Args) -> u8 {
             name: name.clone(),
             when: when.clone(),
         },
-        mode: if args.has("--apply") {
+        mode: if args.apply.apply {
             Mode::Apply
         } else {
             Mode::Plan
@@ -275,7 +554,7 @@ pub(crate) fn mashup_event_cmd(solution: &Solution, args: &Args) -> u8 {
     };
     print_notices(&notices);
     let report = mashup_authoring::parameter_plan_json(solution, &outcome.plan, outcome.applied);
-    if args.has("--json") {
+    if args.json.json {
         println!(
             "{}",
             serde_json::to_string_pretty(&report).expect("event plan serialises")
@@ -312,8 +591,8 @@ pub(crate) fn mashup_event_cmd(solution: &Solution, args: &Args) -> u8 {
     OK
 }
 
-pub(crate) fn mashup_param_cmd(solution: &Solution, args: &Args) -> u8 {
-    let [action, mashup, name] = args.names.as_slice() else {
+pub(crate) fn mashup_param_cmd(solution: &Solution, args: &MashupParam) -> u8 {
+    let [action, mashup, name] = args.operands.as_slice() else {
         eprintln!(
             "{} mashup param needs add|set|remove <mashup> <name>",
             style::prefix()
@@ -329,18 +608,20 @@ pub(crate) fn mashup_param_cmd(solution: &Solution, args: &Args) -> u8 {
             return FAILED;
         }
     };
-    if args.has("--default") && !args.values.contains_key("--default") {
+    // Given bare, `--default` is empty.
+    let given = args.default.as_ref().filter(|value| !value.is_empty());
+    if args.default.is_some() && given.is_none() {
         eprintln!("{} --default needs a value", style::prefix());
         return FAILED;
     }
-    let default = if args.has("--no-default") {
+    let default = if args.no_default {
         mashup_authoring::ParameterDefault::Clear
-    } else if let Some(value) = args.values.get("--default") {
+    } else if let Some(value) = given {
         mashup_authoring::ParameterDefault::Set(value.clone())
     } else {
         mashup_authoring::ParameterDefault::Unchanged
     };
-    if args.has("--no-default") && args.values.contains_key("--default") {
+    if args.no_default && given.is_some() {
         eprintln!(
             "{} give --default or --no-default, not both",
             style::prefix()
@@ -352,14 +633,14 @@ pub(crate) fn mashup_param_cmd(solution: &Solution, args: &Args) -> u8 {
             mashup: mashup.clone(),
             action,
             name: name.clone(),
-            base_type: args.values.get("--type").cloned(),
-            direction: args.values.get("--direction").cloned(),
-            description: args.values.get("--description").cloned(),
+            base_type: args.kind.clone(),
+            direction: args.direction.clone(),
+            description: args.description.clone(),
             default,
-            data_shape: args.values.get("--data-shape").cloned(),
-            force: args.has("--force"),
+            data_shape: args.data_shape.clone(),
+            force: args.force,
         },
-        mode: if args.has("--apply") {
+        mode: if args.apply.apply {
             Mode::Apply
         } else {
             Mode::Plan
@@ -377,7 +658,7 @@ pub(crate) fn mashup_param_cmd(solution: &Solution, args: &Args) -> u8 {
     };
     print_notices(&notices);
     let report = mashup_authoring::parameter_plan_json(solution, &outcome.plan, outcome.applied);
-    if args.has("--json") {
+    if args.json.json {
         println!(
             "{}",
             serde_json::to_string_pretty(&report).expect("parameter plan serialises")
@@ -430,8 +711,8 @@ pub(crate) fn mashup_param_cmd(solution: &Solution, args: &Args) -> u8 {
 }
 
 /// `twaco mashup templates [<name>]`: read the embedded layout templates.
-pub(crate) fn mashup_templates_cmd(args: &Args) -> u8 {
-    let detail = match args.names.as_slice() {
+pub(crate) fn mashup_templates_cmd(args: &MashupTemplates) -> u8 {
+    let detail = match args.operands.as_slice() {
         [] => None,
         [name] => Some(name),
         _ => {
@@ -445,7 +726,7 @@ pub(crate) fn mashup_templates_cmd(args: &Args) -> u8 {
     match detail {
         Some(name) => match twaco::core::mashup_templates_view::detail(name) {
             Ok(Some(template)) => {
-                if args.has("--json") {
+                if args.json.json {
                     println!(
                         "{}",
                         serde_json::to_string_pretty(&template).expect("template serialises")
@@ -486,7 +767,7 @@ pub(crate) fn mashup_templates_cmd(args: &Args) -> u8 {
         },
         None => match twaco::core::mashup_templates_view::list() {
             Ok(templates) => {
-                if args.has("--json") {
+                if args.json.json {
                     println!(
                         "{}",
                         serde_json::to_string_pretty(&templates).expect("templates serialise")
@@ -514,17 +795,17 @@ pub(crate) fn mashup_templates_cmd(args: &Args) -> u8 {
 }
 
 /// `twaco mashup add <mashup> <widget>`: plan a catalogue widget insertion, or apply it.
-pub(crate) fn mashup_add_cmd(solution: &Solution, args: &Args) -> u8 {
-    let [mashup, widget] = args.names.as_slice() else {
+pub(crate) fn mashup_add_cmd(solution: &Solution, args: &MashupAdd) -> u8 {
+    let [mashup, widget] = args.operands.as_slice() else {
         eprintln!("{} mashup add needs <mashup> and <widget>", style::prefix());
         return FAILED;
     };
     let placements: Vec<(&str, &String)> = [
-        ("--in", args.values.get("--in")),
-        ("--right-of", args.values.get("--right-of")),
-        ("--left-of", args.values.get("--left-of")),
-        ("--above", args.values.get("--above")),
-        ("--below", args.values.get("--below")),
+        ("--in", args.place.inside.as_ref()),
+        ("--right-of", args.place.right_of.as_ref()),
+        ("--left-of", args.place.left_of.as_ref()),
+        ("--above", args.place.above.as_ref()),
+        ("--below", args.place.below.as_ref()),
     ]
     .into_iter()
     .filter_map(|(flag, value)| value.map(|value| (flag, value)))
@@ -566,10 +847,10 @@ pub(crate) fn mashup_add_cmd(solution: &Solution, args: &Args) -> u8 {
             widget: widget.clone(),
             inputs: args.inputs.clone(),
             placement,
-            label: args.values.get("--label").cloned(),
+            label: args.label.clone(),
             properties,
         },
-        mode: if args.has("--apply") {
+        mode: if args.apply.apply {
             Mode::Apply
         } else {
             Mode::Plan
@@ -587,7 +868,7 @@ pub(crate) fn mashup_add_cmd(solution: &Solution, args: &Args) -> u8 {
     };
     print_notices(&notices);
     let report = mashup_authoring::add_plan_json(solution, &outcome.plan, outcome.applied);
-    if args.has("--json") {
+    if args.json.json {
         println!(
             "{}",
             serde_json::to_string_pretty(&report).expect("an add plan serialises")
@@ -646,8 +927,8 @@ pub(crate) fn mashup_add_cmd(solution: &Solution, args: &Args) -> u8 {
 }
 
 /// `twaco mashup add-contained <parent> <child>`: place a child mashup as a container.
-pub(crate) fn mashup_add_contained_cmd(solution: &Solution, args: &Args) -> u8 {
-    let [mashup, child] = args.names.as_slice() else {
+pub(crate) fn mashup_add_contained_cmd(solution: &Solution, args: &MashupAddContained) -> u8 {
+    let [mashup, child] = args.operands.as_slice() else {
         eprintln!(
             "{} mashup add-contained needs <parent> and <child>",
             style::prefix()
@@ -655,11 +936,11 @@ pub(crate) fn mashup_add_contained_cmd(solution: &Solution, args: &Args) -> u8 {
         return FAILED;
     };
     let placements: Vec<(&str, &String)> = [
-        ("--in", args.values.get("--in")),
-        ("--right-of", args.values.get("--right-of")),
-        ("--left-of", args.values.get("--left-of")),
-        ("--above", args.values.get("--above")),
-        ("--below", args.values.get("--below")),
+        ("--in", args.place.inside.as_ref()),
+        ("--right-of", args.place.right_of.as_ref()),
+        ("--left-of", args.place.left_of.as_ref()),
+        ("--above", args.place.above.as_ref()),
+        ("--below", args.place.below.as_ref()),
     ]
     .into_iter()
     .filter_map(|(flag, value)| value.map(|value| (flag, value)))
@@ -702,7 +983,7 @@ pub(crate) fn mashup_add_contained_cmd(solution: &Solution, args: &Args) -> u8 {
             placement,
             settings: settings.clone(),
         },
-        mode: if args.has("--apply") {
+        mode: if args.apply.apply {
             Mode::Apply
         } else {
             Mode::Plan
@@ -721,7 +1002,7 @@ pub(crate) fn mashup_add_contained_cmd(solution: &Solution, args: &Args) -> u8 {
     print_notices(&notices);
     let report =
         mashup_authoring::add_contained_plan_json(solution, &outcome.plan, outcome.applied);
-    if args.has("--json") {
+    if args.json.json {
         println!(
             "{}",
             serde_json::to_string_pretty(&report).expect("a contained plan serialises")
@@ -784,12 +1065,12 @@ pub(crate) fn mashup_add_contained_cmd(solution: &Solution, args: &Args) -> u8 {
 }
 
 /// `twaco mashup bind <mashup> --from <address> --to <address>`: plan a data binding or apply it.
-pub(crate) fn mashup_bind_cmd(solution: &Solution, args: &Args) -> u8 {
-    let [mashup] = args.names.as_slice() else {
+pub(crate) fn mashup_bind_cmd(solution: &Solution, args: &MashupBind) -> u8 {
+    let [mashup] = args.operands.as_slice() else {
         eprintln!("{} mashup bind needs one <mashup>", style::prefix());
         return FAILED;
     };
-    let (Some(from), Some(to)) = (args.values.get("--from"), args.values.get("--to")) else {
+    let (Some(from), Some(to)) = (args.from.as_ref(), args.to.as_ref()) else {
         eprintln!(
             "{} mashup bind needs --from <address> and --to <address>",
             style::prefix()
@@ -802,7 +1083,7 @@ pub(crate) fn mashup_bind_cmd(solution: &Solution, args: &Args) -> u8 {
             from: from.clone(),
             to: to.clone(),
         },
-        mode: if args.has("--apply") {
+        mode: if args.apply.apply {
             Mode::Apply
         } else {
             Mode::Plan
@@ -838,7 +1119,7 @@ pub(crate) fn mashup_bind_cmd(solution: &Solution, args: &Args) -> u8 {
         );
     }
     let report = serde_json::json!({ "applied": outcome.applied, "mashup": outcome.plan.edit.mashup, "from": outcome.plan.from, "to": outcome.plan.to, "new_source": outcome.plan.new_source, "warnings": outcome.plan.warnings, "refreshed": outcome.plan.refreshed, "files": files });
-    if args.has("--json") {
+    if args.json.json {
         println!(
             "{}",
             serde_json::to_string_pretty(&report).expect("a bind plan serialises")
@@ -882,13 +1163,12 @@ pub(crate) fn mashup_bind_cmd(solution: &Solution, args: &Args) -> u8 {
 }
 
 /// `twaco mashup on <mashup> --event <address> --invoke <address>`: plan an event handler or apply it.
-pub(crate) fn mashup_on_cmd(solution: &Solution, args: &Args) -> u8 {
-    let [mashup] = args.names.as_slice() else {
+pub(crate) fn mashup_on_cmd(solution: &Solution, args: &MashupOn) -> u8 {
+    let [mashup] = args.operands.as_slice() else {
         eprintln!("{} mashup on needs one <mashup>", style::prefix());
         return FAILED;
     };
-    let (Some(event), Some(invoke)) = (args.values.get("--event"), args.values.get("--invoke"))
-    else {
+    let (Some(event), Some(invoke)) = (args.event.as_ref(), args.invoke.as_ref()) else {
         eprintln!(
             "{} mashup on needs --event <address> and --invoke <address>",
             style::prefix()
@@ -901,7 +1181,7 @@ pub(crate) fn mashup_on_cmd(solution: &Solution, args: &Args) -> u8 {
             event: event.clone(),
             invoke: invoke.clone(),
         },
-        mode: if args.has("--apply") {
+        mode: if args.apply.apply {
             Mode::Apply
         } else {
             Mode::Plan
@@ -937,7 +1217,7 @@ pub(crate) fn mashup_on_cmd(solution: &Solution, args: &Args) -> u8 {
         );
     }
     let report = serde_json::json!({ "applied": outcome.applied, "mashup": outcome.plan.edit.mashup, "event": outcome.plan.event, "invoke": outcome.plan.invoke, "new_source": outcome.plan.new_source, "files": files });
-    if args.has("--json") {
+    if args.json.json {
         println!(
             "{}",
             serde_json::to_string_pretty(&report).expect("an event plan serialises")
@@ -978,14 +1258,14 @@ fn beside(anchor: &str, side: Side) -> Placement {
 }
 
 /// `twaco mashup describe <mashup>`: read-only.
-pub(crate) fn mashup_describe_cmd(solution: &Solution, args: &Args) -> u8 {
-    let [name] = args.names.as_slice() else {
+pub(crate) fn mashup_describe_cmd(solution: &Solution, args: &MashupDescribe) -> u8 {
+    let [name] = args.operands.as_slice() else {
         eprintln!("{} mashup describe needs one <mashup>", style::prefix());
         return FAILED;
     };
     match twaco::core::mashup_describe::describe(solution, name) {
         Ok(description) => {
-            if args.has("--json") {
+            if args.json.json {
                 println!(
                     "{}",
                     serde_json::to_string_pretty(&description).expect("a description serialises")
@@ -1003,8 +1283,8 @@ pub(crate) fn mashup_describe_cmd(solution: &Solution, args: &Args) -> u8 {
 }
 
 /// `twaco mashup validate <mashup>|--all`: report problems; exit 1 when there are any.
-pub(crate) fn mashup_validate_cmd(solution: &Solution, args: &Args) -> u8 {
-    let name = match (args.names.as_slice(), args.has("--all")) {
+pub(crate) fn mashup_validate_cmd(solution: &Solution, args: &MashupValidate) -> u8 {
+    let name = match (args.selection.operands.as_slice(), args.selection.all) {
         ([name], false) => Some(name.as_str()),
         ([], true) => None,
         _ => {
@@ -1023,7 +1303,7 @@ pub(crate) fn mashup_validate_cmd(solution: &Solution, args: &Args) -> u8 {
         }
     };
     let problems: usize = reports.iter().map(|report| report.problems.len()).sum();
-    if args.has("--json") {
+    if args.json.json {
         println!(
             "{}",
             serde_json::to_string_pretty(

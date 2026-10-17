@@ -1,15 +1,53 @@
-use super::args::Args;
+use super::flags::{Apply, Detail, Json, Profile, Project, Selection};
 use super::refactor::same_path;
 use super::style;
 use crate::{print_notices, DRIFT, FAILED, OK};
 use std::io::Write;
+use std::path::PathBuf;
 use twaco::core::commands::{self, Mode};
 use twaco::core::config::Solution;
 use twaco::core::{backup, entity_carry, entity_delete, profile, push, server, status, workspace};
 
+/// `twaco entity <command>`.
+#[derive(Debug, clap::Subcommand)]
+pub(crate) enum Entity {
+    Status(EntityStatus),
+    Get(EntityGet),
+    Push(EntityPush),
+    Delete(EntityDelete),
+    Carry(EntityCarry),
+    Restore(EntityRestore),
+}
+
+impl Entity {
+    /// The command's [`USAGE`](super::spec::USAGE) path.
+    pub(crate) fn path(&self) -> &'static str {
+        match self {
+            Entity::Status(_) => "entity status",
+            Entity::Get(_) => "entity get",
+            Entity::Push(_) => "entity push",
+            Entity::Delete(_) => "entity delete",
+            Entity::Carry(_) => "entity carry",
+            Entity::Restore(_) => "entity restore",
+        }
+    }
+}
+
+/// `twaco entity get <Collection/Name> [--out <path>]`.
+#[derive(Debug, clap::Args)]
+#[group(skip)]
+pub(crate) struct EntityGet {
+    #[arg(long = "out", value_name = "path", value_parser = super::flags::path())]
+    pub(crate) out: Option<PathBuf>,
+    #[command(flatten)]
+    pub(crate) profile: Profile,
+    #[arg(id = "operands", value_name = "operand")]
+    pub(crate) operands: Vec<String>,
+}
+
 /// Fetch one raw export without ever replacing a file that belongs to the solution.
-pub(crate) fn entity_get(solution: &Solution, args: &Args) -> u8 {
-    if args.names.len() != 1 {
+pub(crate) fn entity_get(solution: &Solution, args: &EntityGet) -> u8 {
+    if args.operands.len() != 1 {
         eprintln!(
             "{} entity get needs exactly one entity name",
             style::prefix()
@@ -17,7 +55,7 @@ pub(crate) fn entity_get(solution: &Solution, args: &Args) -> u8 {
         return FAILED;
     }
     use twaco::core::entity_get;
-    let key = match entity_get::target(solution, &args.names[0]) {
+    let key = match entity_get::target(solution, &args.operands[0]) {
         Ok(key) => key,
         Err(error) => {
             eprintln!("{} {error}", style::prefix());
@@ -39,7 +77,7 @@ pub(crate) fn entity_get(solution: &Solution, args: &Args) -> u8 {
         }
     }
 
-    let profile_name = args.profile.as_deref().unwrap_or("default");
+    let profile_name = args.profile.name();
     let profile = match profile::load(&solution.root, profile_name) {
         Ok(profile) => profile,
         Err(error) => {
@@ -68,9 +106,25 @@ pub(crate) fn entity_get(solution: &Solution, args: &Args) -> u8 {
     OK
 }
 
+/// `twaco entity status <name>|--all`.
+#[derive(Debug, clap::Args)]
+#[group(skip)]
+pub(crate) struct EntityStatus {
+    #[command(flatten)]
+    pub(crate) selection: Selection,
+    #[command(flatten)]
+    pub(crate) project: Project,
+    #[command(flatten)]
+    pub(crate) profile: Profile,
+    #[command(flatten)]
+    pub(crate) detail: Detail,
+    #[arg(long = "record")]
+    pub(crate) record: bool,
+}
+
 /// Compare working, server and tracked ancestor, optionally recording matching hashes once.
-pub(crate) fn entity_status(solution: &Solution, args: &Args) -> u8 {
-    if args.names.len() > 1 {
+pub(crate) fn entity_status(solution: &Solution, args: &EntityStatus) -> u8 {
+    if args.selection.operands.len() > 1 {
         eprintln!(
             "{} entity status accepts one entity name, or --all",
             style::prefix()
@@ -78,17 +132,14 @@ pub(crate) fn entity_status(solution: &Solution, args: &Args) -> u8 {
         return FAILED;
     }
     let request = commands::status::StatusRequest {
-        target: if args.has("--all") {
+        target: if args.selection.all {
             commands::status::StatusTarget::All
         } else {
-            commands::status::StatusTarget::Names(args.names.clone())
+            commands::status::StatusTarget::Names(args.selection.operands.clone())
         },
-        project: args.project.clone(),
-        record: args.has("--record"),
-        profile: args
-            .profile
-            .clone()
-            .unwrap_or_else(|| "default".to_string()),
+        project: args.project.project.clone(),
+        record: args.record,
+        profile: args.profile.name().to_string(),
         lock_label: "entity status",
         refuse_unreadable: true,
         refuse_record_failures: false,
@@ -143,7 +194,7 @@ pub(crate) fn entity_status(solution: &Solution, args: &Args) -> u8 {
         };
         println!("  {label} {count}");
     }
-    if args.has("--detail") {
+    if args.detail.detail {
         println!();
         for status in &outcome.statuses {
             println!(
@@ -175,9 +226,25 @@ pub(crate) fn entity_status(solution: &Solution, args: &Args) -> u8 {
     }
 }
 
+/// `twaco entity push <name>`.
+#[derive(Debug, clap::Args)]
+#[group(skip)]
+pub(crate) struct EntityPush {
+    #[command(flatten)]
+    pub(crate) apply: Apply,
+    #[arg(long = "force")]
+    pub(crate) force: bool,
+    #[arg(long = "no-backup")]
+    pub(crate) no_backup: bool,
+    #[command(flatten)]
+    pub(crate) profile: Profile,
+    #[arg(id = "operands", value_name = "operand")]
+    pub(crate) operands: Vec<String>,
+}
+
 /// Push one entity. A dry run unless `--apply`: the blast radius is a server.
-pub(crate) fn entity_push(solution: &Solution, args: &Args) -> u8 {
-    if args.names.len() != 1 || args.has("--all") {
+pub(crate) fn entity_push(solution: &Solution, args: &EntityPush) -> u8 {
+    if args.operands.len() != 1 {
         eprintln!(
             "{} entity push takes exactly one entity name",
             style::prefix()
@@ -185,18 +252,15 @@ pub(crate) fn entity_push(solution: &Solution, args: &Args) -> u8 {
         return FAILED;
     }
     let request = commands::push::PushRequest {
-        entity: args.names[0].clone(),
-        mode: if args.has("--apply") {
+        entity: args.operands[0].clone(),
+        mode: if args.apply.apply {
             Mode::Apply
         } else {
             Mode::Plan
         },
-        force: args.has("--force"),
-        backup: !args.has("--no-backup"),
-        profile: args
-            .profile
-            .clone()
-            .unwrap_or_else(|| "default".to_string()),
+        force: args.force,
+        backup: !args.no_backup,
+        profile: args.profile.name().to_string(),
     };
     let mut notices = commands::Notices::default();
     let progress = super::progress::reporter();
@@ -288,34 +352,58 @@ pub(crate) fn entity_push(solution: &Solution, args: &Args) -> u8 {
     }
 }
 
+/// `twaco entity delete <name>...|--renamed`.
+#[derive(Debug, clap::Args)]
+#[group(skip)]
+pub(crate) struct EntityDelete {
+    #[arg(long = "renamed")]
+    pub(crate) renamed: bool,
+    /// Deprecated: the two acknowledgements below, with a warning.
+    #[arg(long = "force")]
+    pub(crate) force: bool,
+    #[arg(long = "allow-repository-defined")]
+    pub(crate) allow_repository_defined: bool,
+    #[arg(long = "allow-outside-dependents")]
+    pub(crate) allow_outside_dependents: bool,
+    #[arg(long = "allow-file-repository-data-loss")]
+    pub(crate) allow_file_repository_data_loss: bool,
+    #[command(flatten)]
+    pub(crate) apply: Apply,
+    #[arg(long = "no-backup")]
+    pub(crate) no_backup: bool,
+    #[command(flatten)]
+    pub(crate) profile: Profile,
+    #[command(flatten)]
+    pub(crate) json: Json,
+    #[arg(id = "operands", value_name = "operand")]
+    pub(crate) operands: Vec<String>,
+}
+
 /// Delete server entities in dependency-safe order. Planning is read-only and always succeeds
 /// even when it reports guarded refusals; an apply reports any refusal or failed confirmation as
 /// exit 2 after attempting the rest.
-pub(crate) fn entity_delete_cmd(solution: &Solution, args: &Args) -> u8 {
+pub(crate) fn entity_delete_cmd(solution: &Solution, args: &EntityDelete) -> u8 {
     let (acknowledged, force_used) = entity_delete::Acknowledged {
-        repository_defined: args.has("--allow-repository-defined"),
-        outside_dependents: args.has("--allow-outside-dependents"),
-        file_repository_data_loss: args.has("--allow-file-repository-data-loss"),
+        repository_defined: args.allow_repository_defined,
+        outside_dependents: args.allow_outside_dependents,
+        file_repository_data_loss: args.allow_file_repository_data_loss,
     }
-    .with_force(args.has("--force"));
+    .with_force(args.force);
     if force_used {
         eprintln!("{} {}", style::prefix(), entity_delete_force_deprecation());
     }
     let request = commands::delete::EntityDeleteRequest {
-        entities: args.names.clone(),
-        renamed: args.has("--renamed"),
-        mode: if args.has("--apply") {
+        entities: args.operands.clone(),
+        renamed: args.renamed,
+        mode: if args.apply.apply {
             Mode::Apply
         } else {
             Mode::Plan
         },
         acknowledgements: acknowledged,
         legacy_force_used: force_used,
-        backup: !args.has("--no-backup"),
-        profile: args
-            .profile
-            .clone()
-            .unwrap_or_else(|| "default".to_string()),
+        backup: !args.no_backup,
+        profile: args.profile.name().to_string(),
     };
     let mut notices = commands::Notices::default();
     let result = commands::delete::execute(solution, &request, server::Client::new, &mut notices);
@@ -333,7 +421,7 @@ pub(crate) fn entity_delete_cmd(solution: &Solution, args: &Args) -> u8 {
             (report, Some(date), true)
         }
     };
-    if args.has("--json") {
+    if args.json.json {
         let key = if apply { "applied" } else { "plan" };
         let value = serde_json::json!({ (key): true, "entities": report.entities, "backup": report.backup });
         println!(
@@ -391,21 +479,32 @@ pub(crate) fn entity_delete_force_deprecation() -> &'static str {
     entity_delete::FORCE_DEPRECATION
 }
 
+/// `twaco entity restore [<set> [<entity>...]]`.
+#[derive(Debug, clap::Args)]
+#[group(skip)]
+pub(crate) struct EntityRestore {
+    #[command(flatten)]
+    pub(crate) apply: Apply,
+    #[command(flatten)]
+    pub(crate) profile: Profile,
+    #[command(flatten)]
+    pub(crate) json: Json,
+    #[arg(id = "operands", value_name = "operand")]
+    pub(crate) operands: Vec<String>,
+}
+
 /// List backup sets, or plan (and with --apply perform) importing one back.
-pub(crate) fn entity_restore_cmd(solution: &Solution, args: &Args) -> u8 {
-    let json = args.has("--json");
+pub(crate) fn entity_restore_cmd(solution: &Solution, args: &EntityRestore) -> u8 {
+    let json = args.json.json;
     let request = commands::restore::RestoreRequest {
-        set: args.names.first().cloned(),
-        only: args.names.iter().skip(1).cloned().collect(),
-        mode: if args.has("--apply") {
+        set: args.operands.first().cloned(),
+        only: args.operands.iter().skip(1).cloned().collect(),
+        mode: if args.apply.apply {
             Mode::Apply
         } else {
             Mode::Plan
         },
-        profile: args
-            .profile
-            .clone()
-            .unwrap_or_else(|| "default".to_string()),
+        profile: args.profile.name().to_string(),
     };
     let mut notices = commands::Notices::default();
     let outcome =
@@ -478,11 +577,29 @@ pub(crate) fn entity_restore_cmd(solution: &Solution, args: &Args) -> u8 {
     }
 }
 
+/// `twaco entity carry <old> <new>...|--renamed`.
+#[derive(Debug, clap::Args)]
+#[group(skip)]
+pub(crate) struct EntityCarry {
+    #[arg(long = "renamed")]
+    pub(crate) renamed: bool,
+    #[command(flatten)]
+    pub(crate) apply: Apply,
+    #[command(flatten)]
+    pub(crate) detail: Detail,
+    #[command(flatten)]
+    pub(crate) profile: Profile,
+    #[command(flatten)]
+    pub(crate) json: Json,
+    #[arg(id = "operands", value_name = "operand")]
+    pub(crate) operands: Vec<String>,
+}
+
 /// Copy permissions from old entities to the ones that replaced them. A plan only reads; an apply
 /// writes what differs and reports any failure as exit 2 after attempting the rest. Only an apply
 /// that reads the ledger's pending entries writes the workspace, and so takes its lock.
-pub(crate) fn entity_carry_cmd(solution: &Solution, args: &Args) -> u8 {
-    let pairs = match entity_carry::pairs_from_names(&args.names) {
+pub(crate) fn entity_carry_cmd(solution: &Solution, args: &EntityCarry) -> u8 {
+    let pairs = match entity_carry::pairs_from_names(&args.operands) {
         Ok(pairs) => pairs,
         Err(error) => {
             eprintln!("{} {error}", style::prefix());
@@ -491,17 +608,14 @@ pub(crate) fn entity_carry_cmd(solution: &Solution, args: &Args) -> u8 {
     };
     let request = commands::carry::CarryRequest {
         pairs,
-        renamed: args.has("--renamed"),
-        mode: if args.has("--apply") {
+        renamed: args.renamed,
+        mode: if args.apply.apply {
             Mode::Apply
         } else {
             Mode::Plan
         },
-        detail: args.has("--detail"),
-        profile: args
-            .profile
-            .clone()
-            .unwrap_or_else(|| "default".to_string()),
+        detail: args.detail.detail,
+        profile: args.profile.name().to_string(),
         lock_label: "entity carry",
     };
     let mut notices = commands::Notices::default();
@@ -519,7 +633,7 @@ pub(crate) fn entity_carry_cmd(solution: &Solution, args: &Args) -> u8 {
         commands::carry::CarryOutcome::Plan { report, .. } => (report, false, None),
         commands::carry::CarryOutcome::Applied { report, date, .. } => (report, true, Some(date)),
     };
-    if args.has("--json") {
+    if args.json.json {
         let key = if apply { "applied" } else { "plan" };
         let value = serde_json::json!({ (key): true, "entities": report.entities });
         println!(
@@ -566,37 +680,128 @@ pub(crate) fn entity_carry_cmd(solution: &Solution, args: &Args) -> u8 {
     }
 }
 
+/// `twaco permissions <command>`.
+#[derive(Debug, clap::Subcommand)]
+pub(crate) enum Permissions {
+    Init(PermissionsInit),
+    Audit(PermissionsAudit),
+    Apply(PermissionsApply),
+    Diff(PermissionsDiff),
+    Push(PermissionsPush),
+}
+
+impl Permissions {
+    /// The command's [`USAGE`](super::spec::USAGE) path.
+    pub(crate) fn path(&self) -> &'static str {
+        match self {
+            Permissions::Init(_) => "permissions init",
+            Permissions::Audit(_) => "permissions audit",
+            Permissions::Apply(_) => "permissions apply",
+            Permissions::Diff(_) => "permissions diff",
+            Permissions::Push(_) => "permissions push",
+        }
+    }
+}
+
+/// `twaco permissions diff <name>...|--all`.
+#[derive(Debug, clap::Args)]
+#[group(skip)]
+pub(crate) struct PermissionsDiff {
+    #[command(flatten)]
+    pub(crate) selection: Selection,
+    #[command(flatten)]
+    pub(crate) project: Project,
+    #[command(flatten)]
+    pub(crate) profile: Profile,
+    #[command(flatten)]
+    pub(crate) json: Json,
+}
+
+/// `twaco permissions push <name>...|--all|--platform`: what diff takes, and how to push.
+#[derive(Debug, clap::Args)]
+#[group(skip)]
+pub(crate) struct PermissionsPush {
+    #[command(flatten)]
+    pub(crate) diff: PermissionsDiff,
+    #[arg(long = "platform")]
+    pub(crate) platform: bool,
+    #[command(flatten)]
+    pub(crate) apply: Apply,
+}
+
+/// `twaco permissions audit [--server]`.
+#[derive(Debug, clap::Args)]
+#[group(skip)]
+pub(crate) struct PermissionsAudit {
+    #[command(flatten)]
+    pub(crate) project: Project,
+    #[arg(long = "server")]
+    pub(crate) server: bool,
+    #[command(flatten)]
+    pub(crate) profile: Profile,
+    #[command(flatten)]
+    pub(crate) detail: Detail,
+    #[command(flatten)]
+    pub(crate) json: Json,
+}
+
+/// `twaco permissions apply`.
+#[derive(Debug, clap::Args)]
+#[group(skip)]
+pub(crate) struct PermissionsApply {
+    #[command(flatten)]
+    pub(crate) project: Project,
+    #[command(flatten)]
+    pub(crate) apply: Apply,
+    #[command(flatten)]
+    pub(crate) detail: Detail,
+    #[command(flatten)]
+    pub(crate) json: Json,
+}
+
+/// `twaco permissions init [--from-helper]`.
+#[derive(Debug, clap::Args)]
+#[group(skip)]
+pub(crate) struct PermissionsInit {
+    #[command(flatten)]
+    pub(crate) project: Project,
+    #[arg(long = "from-helper")]
+    pub(crate) from_helper: bool,
+    #[command(flatten)]
+    pub(crate) apply: Apply,
+    #[command(flatten)]
+    pub(crate) json: Json,
+}
+
 /// Compare entity permissions with the server's (`permissions diff`), or make them the
 /// repository's (`permissions push`). A diff exits 1 when any entity differs, like a check; a push
 /// is a plan without `--apply`, and an applied push that fails anywhere exits 2.
-pub(crate) fn permissions_cmd(solution: &Solution, route: &str, args: &Args) -> u8 {
-    let push = route == "permissions push";
-    if push && args.has("--platform") {
-        if args.has("--all") || !args.names.is_empty() {
+pub(crate) fn permissions_cmd(
+    solution: &Solution,
+    args: &PermissionsDiff,
+    push_args: Option<&PermissionsPush>,
+) -> u8 {
+    let push = push_args.is_some();
+    let apply = push_args.is_some_and(|push| push.apply.apply);
+    if push_args.is_some_and(|push| push.platform) {
+        if args.selection.all || !args.selection.operands.is_empty() {
             eprintln!(
                 "{} --platform pushes the policy's platform entries; push entities separately",
                 style::prefix()
             );
             return FAILED;
         }
-        return permissions_platform_cmd(solution, args);
+        return permissions_platform_cmd(solution, args, apply);
     }
     let request = commands::permissions::PermissionsRequest {
-        target: if args.has("--all") {
+        target: if args.selection.all {
             commands::status::StatusTarget::All
         } else {
-            commands::status::StatusTarget::Names(args.names.clone())
+            commands::status::StatusTarget::Names(args.selection.operands.clone())
         },
-        project: args.project.clone(),
-        mode: if push && args.has("--apply") {
-            Mode::Apply
-        } else {
-            Mode::Plan
-        },
-        profile: args
-            .profile
-            .clone()
-            .unwrap_or_else(|| "default".to_string()),
+        project: args.project.project.clone(),
+        mode: if apply { Mode::Apply } else { Mode::Plan },
+        profile: args.profile.name().to_string(),
         lock_label: "permissions push",
     };
     let mut notices = commands::Notices::default();
@@ -616,7 +821,7 @@ pub(crate) fn permissions_cmd(solution: &Solution, route: &str, args: &Args) -> 
     };
     print_notices(&notices);
     let report = &outcome.report;
-    if args.has("--json") {
+    if args.json.json {
         let value = serde_json::json!({
             "applied": report.applied,
             "entities": report.entities,
@@ -697,15 +902,11 @@ pub(crate) fn permissions_cmd(solution: &Solution, route: &str, args: &Args) -> 
 
 /// Audit each project's permission policy against its entity XML (`permissions audit`). Exits 1
 /// when any finding is an error, like a check.
-pub(crate) fn permissions_audit_cmd(solution: &Solution, args: &Args) -> u8 {
+pub(crate) fn permissions_audit_cmd(solution: &Solution, args: &PermissionsAudit) -> u8 {
     use twaco::core::permissions::audit::Severity;
     let request = commands::permissions::AuditRequest {
-        project: args.project.clone(),
-        server: args.has("--server").then(|| {
-            args.profile
-                .clone()
-                .unwrap_or_else(|| "default".to_string())
-        }),
+        project: args.project.project.clone(),
+        server: args.server.then(|| args.profile.name().to_string()),
     };
     let report = match commands::permissions::execute_audit_with_progress(
         solution,
@@ -719,8 +920,8 @@ pub(crate) fn permissions_audit_cmd(solution: &Solution, args: &Args) -> u8 {
             return FAILED;
         }
     };
-    let detail = args.has("--detail");
-    if args.has("--json") {
+    let detail = args.detail.detail;
+    if args.json.json {
         let mut value = serde_json::to_value(&report).expect("audit report serialises");
         if !detail {
             for project in value["projects"].as_array_mut().into_iter().flatten() {
@@ -795,10 +996,10 @@ pub(crate) fn permissions_audit_cmd(solution: &Solution, args: &Args) -> u8 {
 
 /// Write each project's permission policy into its entity XML (`permissions apply`); a plan
 /// unless `--apply`.
-pub(crate) fn permissions_apply_cmd(solution: &Solution, args: &Args) -> u8 {
+pub(crate) fn permissions_apply_cmd(solution: &Solution, args: &PermissionsApply) -> u8 {
     let request = commands::permissions::ApplyRequest {
-        project: args.project.clone(),
-        mode: if args.has("--apply") {
+        project: args.project.project.clone(),
+        mode: if args.apply.apply {
             Mode::Apply
         } else {
             Mode::Plan
@@ -820,9 +1021,9 @@ pub(crate) fn permissions_apply_cmd(solution: &Solution, args: &Args) -> u8 {
         }
     };
     print_notices(&notices);
-    let detail = args.has("--detail");
+    let detail = args.detail.detail;
     let plan = &outcome.plan;
-    if args.has("--json") {
+    if args.json.json {
         let mut value = serde_json::to_value(plan).expect("apply plan serialises");
         if !detail {
             for project in value["projects"].as_array_mut().into_iter().flatten() {
@@ -921,19 +1122,12 @@ pub(crate) fn permissions_apply_cmd(solution: &Solution, args: &Args) -> u8 {
 
 /// Add the policies' platform grants and memberships the server lacks (`permissions push
 /// --platform`); a plan unless `--apply`. Exits 2 when anything failed.
-fn permissions_platform_cmd(solution: &Solution, args: &Args) -> u8 {
+fn permissions_platform_cmd(solution: &Solution, args: &PermissionsDiff, apply: bool) -> u8 {
     use twaco::core::permissions::platform::State;
     let request = commands::permissions::PlatformRequest {
-        project: args.project.clone(),
-        mode: if args.has("--apply") {
-            Mode::Apply
-        } else {
-            Mode::Plan
-        },
-        profile: args
-            .profile
-            .clone()
-            .unwrap_or_else(|| "default".to_string()),
+        project: args.project.project.clone(),
+        mode: if apply { Mode::Apply } else { Mode::Plan },
+        profile: args.profile.name().to_string(),
     };
     let report = match commands::permissions::execute_platform_with_progress(
         solution,
@@ -947,7 +1141,7 @@ fn permissions_platform_cmd(solution: &Solution, args: &Args) -> u8 {
             return FAILED;
         }
     };
-    if args.has("--json") {
+    if args.json.json {
         println!(
             "{}",
             serde_json::to_string_pretty(&report).expect("platform report serialises")
@@ -1002,11 +1196,11 @@ fn permissions_platform_cmd(solution: &Solution, args: &Args) -> u8 {
 
 /// Draft a permissions.toml for each project without one (`permissions init`); prints the drafts
 /// unless `--apply` writes them.
-pub(crate) fn permissions_init_cmd(solution: &Solution, args: &Args) -> u8 {
+pub(crate) fn permissions_init_cmd(solution: &Solution, args: &PermissionsInit) -> u8 {
     let request = commands::permissions::InitRequest {
-        project: args.project.clone(),
-        from_helper: args.has("--from-helper"),
-        mode: if args.has("--apply") {
+        project: args.project.project.clone(),
+        from_helper: args.from_helper,
+        mode: if args.apply.apply {
             Mode::Apply
         } else {
             Mode::Plan
@@ -1023,7 +1217,7 @@ pub(crate) fn permissions_init_cmd(solution: &Solution, args: &Args) -> u8 {
         }
     };
     print_notices(&notices);
-    if args.has("--json") {
+    if args.json.json {
         let drafts: Vec<serde_json::Value> = outcome
             .drafts
             .iter()
