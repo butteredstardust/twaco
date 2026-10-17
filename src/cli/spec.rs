@@ -2793,59 +2793,6 @@ pub(crate) const GRAMMAR: &[Grammar] = &[
         operands: true,
         flags: &["--search", "--json", "--profile"],
     },
-    Grammar {
-        path: "repo",
-        operands: true,
-        flags: &[
-            "--recursive",
-            "--out",
-            "--json",
-            "--profile",
-            "--force",
-            "--overwrite",
-            "--apply",
-        ],
-    },
-    Grammar {
-        path: "ext",
-        operands: true,
-        flags: &["--apply", "--json", "--profile"],
-    },
-    Grammar {
-        path: "search",
-        operands: true,
-        flags: &["--type", "--project", "--limit", "--json", "--profile"],
-    },
-    Grammar {
-        path: "export",
-        operands: true,
-        flags: &[
-            "--out",
-            "--force",
-            "--project",
-            "--profile",
-            "--repository",
-            "--path",
-            "--collection",
-            "--tags",
-            "--zip",
-            "--with-dependents",
-            "--apply",
-        ],
-    },
-    Grammar {
-        path: "import",
-        operands: true,
-        flags: &[
-            "--apply",
-            "--overwrite-properties",
-            "--overwrite-tables",
-            "--repository",
-            "--path",
-            "--profile",
-            "--detail",
-        ],
-    },
 ];
 
 /// The sections of the listing and of COMMANDS.md: a title and one line about them.

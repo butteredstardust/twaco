@@ -207,6 +207,11 @@ fn dispatch_typed(typed: Typed) -> u8 {
         Typed::Localization(localization) => {
             run(|solution| localization_cmd(solution, &localization))
         }
+        Typed::Repo(repo) => run(|solution| repo_cmd(solution, &repo)),
+        Typed::Ext(ext) => run(|solution| ext_cmd(solution, &ext)),
+        Typed::Search(search) => run(|solution| search_cmd(solution, &search)),
+        Typed::Export(export) => run(|solution| export_cmd(solution, &export)),
+        Typed::Import(import) => run(|solution| import_cmd(solution, &import)),
     }
 }
 
@@ -223,12 +228,7 @@ fn dispatch(route: &str, parsed: &Args) -> u8 {
         "bundle" => bundle(solution, parsed),
         "deploy" => deploy_cmd(solution, parsed),
         "call" => call(solution, parsed),
-        "repo" => repo_cmd(solution, parsed),
-        "ext" => ext_cmd(solution, parsed),
         "settings" => settings_cmd(solution, parsed),
-        "search" => search_cmd(solution, parsed),
-        "export" => export_cmd(solution, parsed),
-        "import" => import_cmd(solution, parsed),
         "logs" => logs_cmd(solution, parsed),
         "adopt" => adopt_cmd(solution, parsed),
         "handoff" => handoff_cmd(solution, parsed),

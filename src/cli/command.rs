@@ -36,6 +36,11 @@ pub(crate) enum Typed {
     Users(super::users::Users),
     Test(super::service_tests::Test),
     Localization(super::localization::Localization),
+    Repo(super::content::Repo),
+    Ext(super::content::Ext),
+    Search(super::content::Search),
+    Export(super::content::Export),
+    Import(super::content::Import),
 }
 
 impl Typed {
@@ -65,6 +70,11 @@ impl Typed {
             Typed::Users(_) => "users",
             Typed::Test(_) => "test",
             Typed::Localization(_) => "localization",
+            Typed::Repo(_) => "repo",
+            Typed::Ext(_) => "ext",
+            Typed::Search(_) => "search",
+            Typed::Export(_) => "export",
+            Typed::Import(_) => "import",
         }
     }
 
@@ -94,7 +104,12 @@ impl Typed {
             | Typed::Types(_)
             | Typed::Users(_)
             | Typed::Test(_)
-            | Typed::Localization(_) => Ok(()),
+            | Typed::Localization(_)
+            | Typed::Repo(_)
+            | Typed::Ext(_)
+            | Typed::Search(_)
+            | Typed::Export(_)
+            | Typed::Import(_) => Ok(()),
         }
     }
 }
