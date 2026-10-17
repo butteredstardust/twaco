@@ -6,9 +6,6 @@ use twaco::core::commands::{self, Mode};
 use twaco::core::config::Solution;
 use twaco::core::{config_table, datatable_copy, db, profile, server, workspace};
 
-/// Execute exactly the named opaque service. There is no dry run because twaco cannot infer
-/// whether an arbitrary ThingWorx service writes. The MCP surface must decide separately
-/// whether and how to expose this capability.
 /// Read, back up, restore or diff one Thing's configuration table on the server.
 ///
 /// `--restore` is a plan unless `--apply`, as every command that writes to a server is. It
@@ -199,15 +196,36 @@ pub(crate) fn config_table(solution: &Solution, args: &Args) -> u8 {
     }
 }
 
-pub(crate) fn call(solution: &Solution, args: &Args) -> u8 {
-    if !(2..=3).contains(&args.names.len()) {
+/// `twaco call <target> <service> [<json>] [--timeout <seconds>] [--detail] [--as <test user>]`.
+#[derive(Debug, clap::Args)]
+#[group(skip)]
+pub(crate) struct Call {
+    #[command(flatten)]
+    pub(crate) timeout: super::flags::Timeout,
+    #[command(flatten)]
+    pub(crate) detail: super::flags::Detail,
+    #[command(flatten)]
+    pub(crate) profile: super::flags::Profile,
+    #[arg(long = "with-logs")]
+    pub(crate) with_logs: bool,
+    #[arg(long = "as", value_name = "new")]
+    pub(crate) user: Option<String>,
+    #[arg(id = "operands", value_name = "operand")]
+    pub(crate) operands: Vec<String>,
+}
+
+/// Execute exactly the named opaque service. There is no dry run because twaco cannot infer
+/// whether an arbitrary ThingWorx service writes. The MCP surface must decide separately
+/// whether and how to expose this capability.
+pub(crate) fn call(solution: &Solution, args: &Call) -> u8 {
+    if !(2..=3).contains(&args.operands.len()) {
         eprintln!(
             "{} call needs <target> <service> and an optional JSON object",
             style::prefix()
         );
         return FAILED;
     }
-    let parameters = match args.names.get(2) {
+    let parameters = match args.operands.get(2) {
         Some(text) => match serde_json::from_str::<serde_json::Value>(text) {
             Ok(value) if value.is_object() => value,
             Ok(_) => {
@@ -225,15 +243,21 @@ pub(crate) fn call(solution: &Solution, args: &Args) -> u8 {
         None => serde_json::json!({}),
     };
     let request = commands::call::CallRequest {
-        target: args.names[0].clone(),
-        service: args.names[1].clone(),
+        target: args.operands[0].clone(),
+        service: args.operands[1].clone(),
         parameters,
-        timeout: args.timeout.unwrap_or(Duration::from_secs(120)),
+        // validate() refused a timeout that does not read.
+        timeout: args
+            .timeout
+            .duration()
+            .ok()
+            .flatten()
+            .unwrap_or(Duration::from_secs(120)),
         mode: Mode::Apply,
-        profile: args.profile.as_deref().unwrap_or("default").to_string(),
-        with_logs: args.has("--with-logs"),
+        profile: args.profile.name().to_string(),
+        with_logs: args.with_logs,
         profile_before_target: true,
-        as_user: args.values.get("--as").cloned(),
+        as_user: args.user.clone(),
     };
     let mut notices = commands::Notices::default();
     let outcome =
@@ -248,7 +272,7 @@ pub(crate) fn call(solution: &Solution, args: &Args) -> u8 {
                 } = &error
                 {
                     if let Some(logged) = &**logs {
-                        if target.to_string() != args.names[0] {
+                        if target.to_string() != args.operands[0] {
                             eprintln!("{} calling {target}", style::prefix());
                         }
                         use twaco::core::logs;
@@ -289,7 +313,7 @@ pub(crate) fn call(solution: &Solution, args: &Args) -> u8 {
     else {
         unreachable!("the command line always calls")
     };
-    if target.to_string() != args.names[0] {
+    if target.to_string() != args.operands[0] {
         eprintln!("{} calling {target}", style::prefix());
     }
     if let Some(logged) = logs {
@@ -314,7 +338,7 @@ pub(crate) fn call(solution: &Solution, args: &Args) -> u8 {
     }
     match reply {
         None => println!("done"),
-        Some(value) if args.has("--detail") || !is_info_table(&value) => {
+        Some(value) if args.detail.detail || !is_info_table(&value) => {
             println!(
                 "{}",
                 serde_json::to_string_pretty(&value).expect("JSON value serialises")
@@ -325,15 +349,58 @@ pub(crate) fn call(solution: &Solution, args: &Args) -> u8 {
     OK
 }
 
+/// `twaco logs <log> [...]` and `twaco logs level <log> [<LEVEL>] [...]`.
+#[derive(Debug, clap::Args)]
+#[group(skip)]
+pub(crate) struct Logs {
+    #[arg(long = "since", value_name = "duration")]
+    pub(crate) since: Option<String>,
+    #[arg(long = "from", value_name = "address")]
+    pub(crate) from: Option<String>,
+    #[arg(long = "to", value_name = "address")]
+    pub(crate) to: Option<String>,
+    #[arg(long = "level", value_name = "level")]
+    pub(crate) level: Option<String>,
+    #[arg(long = "grep", value_name = "text")]
+    pub(crate) grep: Option<String>,
+    #[arg(long = "regex", value_name = "re")]
+    pub(crate) regex: Option<String>,
+    #[arg(long = "user", value_name = "value")]
+    pub(crate) user: Option<String>,
+    #[arg(long = "thread", value_name = "value")]
+    pub(crate) thread: Option<String>,
+    #[arg(long = "origin", value_name = "value")]
+    pub(crate) origin: Option<String>,
+    #[arg(long = "limit", value_name = "n")]
+    pub(crate) limit: Option<String>,
+    #[arg(long = "oldest-first")]
+    pub(crate) oldest_first: bool,
+    #[command(flatten)]
+    pub(crate) json: super::flags::Json,
+    #[command(flatten)]
+    pub(crate) profile: super::flags::Profile,
+    #[arg(long = "sublogger", value_name = "name")]
+    pub(crate) sublogger: Option<String>,
+    #[arg(long = "reset")]
+    pub(crate) reset: bool,
+    #[command(flatten)]
+    pub(crate) apply: super::flags::Apply,
+    #[arg(id = "operands", value_name = "operand")]
+    pub(crate) operands: Vec<String>,
+}
+
 /// Read one of the server's logs. Read-only, so it takes no lock.
-pub(crate) fn logs_cmd(solution: &Solution, args: &Args) -> u8 {
+pub(crate) fn logs_cmd(solution: &Solution, args: &Logs) -> u8 {
     use twaco::core::logs;
-    if args.names.first().map(String::as_str) == Some("level") {
+    if args.operands.first().map(String::as_str) == Some("level") {
         return log_level_cmd(solution, args);
     }
-    let value = |flag: &str| args.values.get(flag).map(String::as_str);
-    for only_for_levels in ["--sublogger", "--reset", "--apply"] {
-        if args.has(only_for_levels) || args.values.contains_key(only_for_levels) {
+    for (only_for_levels, given) in [
+        ("--sublogger", args.sublogger.is_some()),
+        ("--reset", args.reset),
+        ("--apply", args.apply.apply),
+    ] {
+        if given {
             eprintln!(
                 "{} logs: {only_for_levels} belongs to `twaco logs level`",
                 style::prefix()
@@ -342,14 +409,18 @@ pub(crate) fn logs_cmd(solution: &Solution, args: &Args) -> u8 {
         }
     }
     let built = (|| -> Result<logs::Query, String> {
-        let [log] = args.names.as_slice() else {
+        let [log] = args.operands.as_slice() else {
             return Err(format!(
                 "logs needs one log name: {}",
                 logs::LOGS.join(", ")
             ));
         };
         let now = logs::now_ms();
-        let (from_ms, to_ms) = match (value("--since"), value("--from"), value("--to")) {
+        let (from_ms, to_ms) = match (
+            args.since.as_deref(),
+            args.from.as_deref(),
+            args.to.as_deref(),
+        ) {
             (Some(_), Some(_), _) | (Some(_), _, Some(_)) => {
                 return Err(
                     "--since is a window ending now; give it, or --from and --to, not both"
@@ -370,7 +441,7 @@ pub(crate) fn logs_cmd(solution: &Solution, args: &Args) -> u8 {
                 (from_ms, to_ms)
             }
         };
-        let search = match (value("--grep"), value("--regex")) {
+        let search = match (args.grep.as_deref(), args.regex.as_deref()) {
             (Some(_), Some(_)) => {
                 return Err("--grep and --regex are two ways to search; give one".to_string())
             }
@@ -378,7 +449,7 @@ pub(crate) fn logs_cmd(solution: &Solution, args: &Args) -> u8 {
             (None, Some(expression)) => Some(logs::Search::Regex(expression.to_string())),
             (None, None) => None,
         };
-        let limit = match value("--limit") {
+        let limit = match args.limit.as_deref() {
             Some(text) => text
                 .parse::<u64>()
                 .map_err(|_| format!("--limit needs a whole number, not {text:?}"))?,
@@ -388,16 +459,18 @@ pub(crate) fn logs_cmd(solution: &Solution, args: &Args) -> u8 {
             log: log.clone(),
             from_ms,
             to_ms,
-            level: value("--level")
+            level: args
+                .level
+                .as_deref()
                 .map(logs::level)
                 .transpose()
                 .map_err(|e| e.to_string())?,
             search,
-            user: value("--user").map(str::to_string),
-            thread: value("--thread").map(str::to_string),
-            origin: value("--origin").map(str::to_string),
+            user: args.user.as_deref().map(str::to_string),
+            thread: args.thread.as_deref().map(str::to_string),
+            origin: args.origin.as_deref().map(str::to_string),
             limit,
-            oldest_first: args.has("--oldest-first"),
+            oldest_first: args.oldest_first,
         })
     })();
     let query = match built {
@@ -407,7 +480,7 @@ pub(crate) fn logs_cmd(solution: &Solution, args: &Args) -> u8 {
             return FAILED;
         }
     };
-    let profile_name = args.profile.as_deref().unwrap_or("default");
+    let profile_name = args.profile.name();
     let client = match profile::load(&solution.root, profile_name) {
         Ok(profile) => server::Client::new(profile),
         Err(error) => {
@@ -423,7 +496,7 @@ pub(crate) fn logs_cmd(solution: &Solution, args: &Args) -> u8 {
         }
     };
     for entry in &outcome.entries {
-        if args.has("--json") {
+        if args.json.json {
             println!("{}", logs::entry_json(entry));
         } else {
             println!("{}", logs::line(entry));
@@ -443,7 +516,7 @@ pub(crate) fn logs_cmd(solution: &Solution, args: &Args) -> u8 {
     if outcome.truncated {
         summary.push_str(" (limit reached; there may be more)");
     }
-    if args.has("--json") {
+    if args.json.json {
         eprintln!("{summary}");
     } else {
         println!("{summary}");
@@ -453,11 +526,11 @@ pub(crate) fn logs_cmd(solution: &Solution, args: &Args) -> u8 {
 
 /// `twaco logs level <log> [<LEVEL>] [--sublogger S] [--reset] [--apply]`. Reading is the default;
 /// a change is a plan unless --apply, as for every server write. It writes no workspace file.
-fn log_level_cmd(solution: &Solution, args: &Args) -> u8 {
+fn log_level_cmd(solution: &Solution, args: &Logs) -> u8 {
     use twaco::core::logs;
     let request = (|| -> Result<(String, Option<logs::Change>), String> {
-        let rest = &args.names[1..];
-        let sublogger = args.values.get("--sublogger").cloned();
+        let rest = &args.operands[1..];
+        let sublogger = args.sublogger.clone();
         let (log, level) = match rest {
             [log] => (log.clone(), None),
             [log, level] => (
@@ -466,7 +539,7 @@ fn log_level_cmd(solution: &Solution, args: &Args) -> u8 {
             ),
             _ => return Err("logs level needs a log name and, to change it, a level".to_string()),
         };
-        let change = match (level, args.has("--reset")) {
+        let change = match (level, args.reset) {
             (Some(_), true) => return Err("give a level or --reset, not both".to_string()),
             (Some(level), false) => Some(logs::Change::Set { level, sublogger }),
             (None, true) => Some(logs::Change::Reset { sublogger }),
@@ -475,7 +548,7 @@ fn log_level_cmd(solution: &Solution, args: &Args) -> u8 {
             }
             (None, false) => None,
         };
-        if change.is_none() && args.has("--apply") {
+        if change.is_none() && args.apply.apply {
             return Err("--apply needs a level to set, or --reset".to_string());
         }
         Ok((log, change))
@@ -490,12 +563,12 @@ fn log_level_cmd(solution: &Solution, args: &Args) -> u8 {
     let request = commands::logs::LogLevelRequest {
         log: log.clone(),
         change,
-        mode: if args.has("--apply") {
+        mode: if args.apply.apply {
             Mode::Apply
         } else {
             Mode::Plan
         },
-        profile: args.profile.as_deref().unwrap_or("default").to_string(),
+        profile: args.profile.name().to_string(),
     };
     let mut notices = commands::Notices::default();
     let outcome =
@@ -518,7 +591,7 @@ fn log_level_cmd(solution: &Solution, args: &Args) -> u8 {
         }
         commands::logs::LogLevelOutcome::Plan { report, .. }
         | commands::logs::LogLevelOutcome::Applied { report, .. } => {
-            let apply = args.has("--apply");
+            let apply = args.apply.apply;
             if apply {
                 println!("changed {}", report.plan);
             } else {

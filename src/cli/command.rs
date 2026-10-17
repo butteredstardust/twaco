@@ -18,6 +18,32 @@ pub(crate) enum Typed {
     Projects,
     Mcp(crate::Mcp),
     Update(super::info::Update),
+    Guide(super::info::Guide),
+    Help(super::info::Help),
+    Javadoc(super::info::Javadoc),
+    Package(super::content::Package),
+    Catalog(super::info::Catalog),
+    Impact(super::info::Impact),
+    Trace(super::info::Trace),
+    Unused(super::info::Unused),
+    Docs(super::info::Docs),
+    Widgets(super::widgets::Widgets),
+    Extract(super::source::Extract),
+    Sync(super::source::Sync),
+    Fmt(super::source::Fmt),
+    Check(super::source::Check),
+    Types(super::source::Types),
+    Users(super::users::Users),
+    Test(super::service_tests::Test),
+    Localization(super::localization::Localization),
+    Repo(super::content::Repo),
+    Ext(super::content::Ext),
+    Search(super::content::Search),
+    Export(super::content::Export),
+    Import(super::content::Import),
+    Call(super::data::Call),
+    Logs(super::data::Logs),
+    Settings(super::info::Settings),
 }
 
 impl Typed {
@@ -29,6 +55,32 @@ impl Typed {
             Typed::Projects => "projects",
             Typed::Mcp(_) => "mcp",
             Typed::Update(_) => "update",
+            Typed::Guide(_) => "guide",
+            Typed::Help(_) => "help",
+            Typed::Javadoc(_) => "javadoc",
+            Typed::Package(_) => "package",
+            Typed::Catalog(_) => "catalog",
+            Typed::Impact(_) => "impact",
+            Typed::Trace(_) => "trace",
+            Typed::Unused(_) => "unused",
+            Typed::Docs(_) => "docs",
+            Typed::Widgets(_) => "widgets",
+            Typed::Extract(_) => "extract",
+            Typed::Sync(_) => "sync",
+            Typed::Fmt(_) => "fmt",
+            Typed::Check(_) => "check",
+            Typed::Types(_) => "types",
+            Typed::Users(_) => "users",
+            Typed::Test(_) => "test",
+            Typed::Localization(_) => "localization",
+            Typed::Repo(_) => "repo",
+            Typed::Ext(_) => "ext",
+            Typed::Search(_) => "search",
+            Typed::Export(_) => "export",
+            Typed::Import(_) => "import",
+            Typed::Call(_) => "call",
+            Typed::Logs(_) => "logs",
+            Typed::Settings(_) => "settings",
         }
     }
 
@@ -36,11 +88,37 @@ impl Typed {
     /// builder's commands refuse it in [`args_of`](super::spec::args_of) and in its words.
     pub(crate) fn validate(&self) -> Result<(), String> {
         match self {
+            Typed::Extract(extract) => extract.selection.validate(),
+            Typed::Sync(sync) => sync.selection.validate(),
+            Typed::Call(call) => call.timeout.duration().map(|_| ()),
             Typed::Init(_)
             | Typed::Doctor(_)
             | Typed::Projects
             | Typed::Mcp(_)
-            | Typed::Update(_) => Ok(()),
+            | Typed::Update(_)
+            | Typed::Guide(_)
+            | Typed::Help(_)
+            | Typed::Javadoc(_)
+            | Typed::Package(_)
+            | Typed::Catalog(_)
+            | Typed::Impact(_)
+            | Typed::Trace(_)
+            | Typed::Unused(_)
+            | Typed::Docs(_)
+            | Typed::Widgets(_)
+            | Typed::Fmt(_)
+            | Typed::Check(_)
+            | Typed::Types(_)
+            | Typed::Users(_)
+            | Typed::Test(_)
+            | Typed::Localization(_)
+            | Typed::Repo(_)
+            | Typed::Ext(_)
+            | Typed::Search(_)
+            | Typed::Export(_)
+            | Typed::Import(_)
+            | Typed::Logs(_)
+            | Typed::Settings(_) => Ok(()),
         }
     }
 }

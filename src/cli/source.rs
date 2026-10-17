@@ -5,26 +5,37 @@ use twaco::core::commands::{self, Mode};
 use twaco::core::config::Solution;
 use twaco::core::{deploy, profile, push, server, types, workflow};
 
-pub(crate) fn types_cmd(solution: &Solution, args: &Args) -> u8 {
-    let action = if args.has("--check") && args.has("--platform") {
+/// `twaco types [--platform | --check [--json]]`.
+#[derive(Debug, clap::Args)]
+#[group(skip)]
+pub(crate) struct Types {
+    #[arg(long = "platform")]
+    pub(crate) platform: bool,
+    #[arg(long = "check")]
+    pub(crate) check: bool,
+    #[command(flatten)]
+    pub(crate) json: super::flags::Json,
+    #[command(flatten)]
+    pub(crate) profile: super::flags::Profile,
+}
+
+pub(crate) fn types_cmd(solution: &Solution, args: &Types) -> u8 {
+    let action = if args.check && args.platform {
         commands::types::TypesAction::Invalid(
             "--check and --platform cannot be used together".to_string(),
         )
-    } else if args.has("--json") && !args.has("--check") {
+    } else if args.json.json && !args.check {
         commands::types::TypesAction::Invalid("--json requires --check".to_string())
-    } else if args.has("--platform") {
+    } else if args.platform {
         commands::types::TypesAction::Platform
-    } else if args.has("--check") {
+    } else if args.check {
         commands::types::TypesAction::Check
     } else {
         commands::types::TypesAction::Generate
     };
     let request = commands::types::TypesRequest {
         action,
-        profile: args
-            .profile
-            .clone()
-            .unwrap_or_else(|| "default".to_string()),
+        profile: args.profile.name().to_string(),
         lock_label: "types",
     };
     let mut notices = commands::Notices::default();
@@ -54,7 +65,7 @@ pub(crate) fn types_cmd(solution: &Solution, args: &Args) -> u8 {
                 eprintln!("{} skipped {skipped}", style::prefix());
             }
             for finding in &outcome.findings {
-                if args.has("--json") {
+                if args.json.json {
                     println!("{}", types::finding_json(finding));
                 } else {
                     println!(
@@ -63,7 +74,7 @@ pub(crate) fn types_cmd(solution: &Solution, args: &Args) -> u8 {
                     );
                 }
             }
-            if args.has("--json") {
+            if args.json.json {
                 eprintln!("{}", types::check_summary(&outcome));
             } else {
                 println!("{}", types::check_summary(&outcome));
@@ -107,12 +118,22 @@ pub(crate) fn print_types_refresh(refresh: &types::Refresh) {
     }
 }
 
-pub(crate) fn extract(solution: &Solution, args: &Args) -> u8 {
+/// `twaco extract (<entity>... | --all) [--project <name>]`.
+#[derive(Debug, clap::Args)]
+#[group(skip)]
+pub(crate) struct Extract {
+    #[command(flatten)]
+    pub(crate) selection: super::flags::Selection,
+    #[command(flatten)]
+    pub(crate) project: super::flags::Project,
+}
+
+pub(crate) fn extract(solution: &Solution, args: &Extract) -> u8 {
     let request = commands::extract::ExtractRequest {
         target: commands::extract::ExtractTarget {
-            project: args.project.clone(),
-            entities: args.names.clone(),
-            all: args.has("--all"),
+            project: args.project.project.clone(),
+            entities: args.selection.operands.clone(),
+            all: args.selection.all,
             reject_entities_with_all: false,
             missing_target: "name an entity, or pass --all",
         },
@@ -143,19 +164,35 @@ pub(crate) fn extract(solution: &Solution, args: &Args) -> u8 {
     OK
 }
 
-pub(crate) fn sync_cmd(solution: &Solution, args: &Args) -> u8 {
-    let check = args.has("--check");
+/// `twaco sync (<entity>... | --all) [--check] [--allow-add-remove] [--relayout]`.
+#[derive(Debug, clap::Args)]
+#[group(skip)]
+pub(crate) struct Sync {
+    #[command(flatten)]
+    pub(crate) selection: super::flags::Selection,
+    #[arg(long = "check")]
+    pub(crate) check: bool,
+    #[arg(long = "allow-add-remove")]
+    pub(crate) allow_add_remove: bool,
+    #[arg(long = "relayout")]
+    pub(crate) relayout: bool,
+    #[command(flatten)]
+    pub(crate) project: super::flags::Project,
+}
+
+pub(crate) fn sync_cmd(solution: &Solution, args: &Sync) -> u8 {
+    let check = args.check;
     let request = commands::sync::SyncRequest {
         target: commands::sync::SyncTarget {
-            project: args.project.clone(),
-            entities: args.names.clone(),
-            all: args.has("--all"),
+            project: args.project.project.clone(),
+            entities: args.selection.operands.clone(),
+            all: args.selection.all,
             reject_entities_with_all: false,
             missing_target: "name an entity, or pass --all",
         },
         mode: if check { Mode::Plan } else { Mode::Apply },
-        allow_structural: args.has("--allow-add-remove"),
-        relayout: args.has("--relayout"),
+        allow_structural: args.allow_add_remove,
+        relayout: args.relayout,
         lock_label: "sync",
     };
     let mut notices = commands::Notices::default();
@@ -204,8 +241,16 @@ fn print_log(log: &workflow::Log) {
     }
 }
 
-pub(crate) fn fmt(solution: &Solution, args: &Args) -> u8 {
-    let check = args.has("--check");
+/// `twaco fmt [--check]`.
+#[derive(Debug, clap::Args)]
+#[group(skip)]
+pub(crate) struct Fmt {
+    #[arg(long = "check")]
+    pub(crate) check: bool,
+}
+
+pub(crate) fn fmt(solution: &Solution, args: &Fmt) -> u8 {
+    let check = args.check;
     let request = commands::fmt::FmtRequest {
         mode: if check { Mode::Plan } else { Mode::Apply },
         lock_label: "fmt",
@@ -294,12 +339,24 @@ fn print_gate_line(gate: &twaco::core::check::GateResult) {
     }
 }
 
+/// `twaco check [--detail] [--live]`.
+#[derive(Debug, clap::Args)]
+#[group(skip)]
+pub(crate) struct Check {
+    #[command(flatten)]
+    pub(crate) detail: super::flags::Detail,
+    #[arg(long = "live")]
+    pub(crate) live: bool,
+    #[command(flatten)]
+    pub(crate) profile: super::flags::Profile,
+}
+
 /// The gate: every built-in check, then every one the solution declares.
-pub(crate) fn check(solution: &Solution, args: &Args) -> u8 {
+pub(crate) fn check(solution: &Solution, args: &Check) -> u8 {
     let mut report = twaco::core::check::run(solution);
-    if args.has("--live") || solution.gates.live {
+    if args.live || solution.gates.live {
         // Credentials are read only here, so the offline gates never need a profile.
-        let profile_name = args.profile.as_deref().unwrap_or("default");
+        let profile_name = args.profile.name();
         let client = profile::load(&solution.root, profile_name)
             .map(server::Client::new)
             .map_err(|error| error.to_string());
@@ -316,7 +373,7 @@ pub(crate) fn check(solution: &Solution, args: &Args) -> u8 {
             ));
     }
     // Summary by default, detail on request.
-    let detail = args.has("--detail");
+    let detail = args.detail.detail;
 
     for gate in &report.gates {
         print_gate_line(gate);

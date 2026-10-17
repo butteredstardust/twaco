@@ -529,23 +529,41 @@ fn values_reach_the_fields_the_commands_read() {
     assert_eq!(deploy.only, ["A", "B"]);
     assert_eq!(deploy.only_projects, ["P", "Q"]);
     assert_eq!(deploy.profile.as_deref(), Some("x"));
-    let logs = parse(&["logs", "ScriptLog", "--since", "10m", "--json"]).unwrap();
-    assert_eq!(logs.names, ["ScriptLog"]);
-    assert_eq!(logs.values.get("--since").map(String::as_str), Some("10m"));
-    assert!(logs.has("--json"));
+    let Typed::Logs(logs) =
+        parse_typed(&["logs", "ScriptLog", "--since", "10m", "--json"]).unwrap()
+    else {
+        panic!("logs parses as logs");
+    };
+    assert_eq!(logs.operands, ["ScriptLog"]);
+    assert_eq!(logs.since.as_deref(), Some("10m"));
+    assert!(logs.json.json);
     let query = parse(&["db", "query", "-q", "select 1", "--timeout", "30"]).unwrap();
     assert_eq!(query.values.get("-q").map(String::as_str), Some("select 1"));
     assert_eq!(query.timeout, Some(Duration::from_secs(30)));
-    assert!(parse(&["call", "T", "S", "--timeout", "0"]).is_err());
+    assert_eq!(
+        parse_typed(&["call", "T", "S", "--timeout", "0"]).map(|_| ()),
+        Err("--timeout needs a positive whole number of seconds".to_string())
+    );
+    let Typed::Call(call) = parse_typed(&["call", "T", "S", "--timeout", "30"]).unwrap() else {
+        panic!("call parses as call");
+    };
+    assert_eq!(call.timeout.duration(), Ok(Some(Duration::from_secs(30))));
     assert!(parse(&["deploy", "--only-projects", " , "]).is_err());
-    assert!(parse(&["sync", "--all", "Acme.T"]).is_err());
+    assert_eq!(
+        parse_typed(&["sync", "--all", "Acme.T"]).map(|_| ()),
+        Err("--all and [\"Acme.T\"] say different things; pass one or the other".to_string())
+    );
     // A value may begin with a dash, as a log filter can.
-    let grep = parse(&["logs", "ScriptLog", "--grep", "-x"]).unwrap();
-    assert_eq!(grep.values.get("--grep").map(String::as_str), Some("-x"));
+    let Typed::Logs(grep) = parse_typed(&["logs", "ScriptLog", "--grep", "-x"]).unwrap() else {
+        panic!("logs parses as logs");
+    };
+    assert_eq!(grep.grep.as_deref(), Some("-x"));
     // A negative number is an operand; a mistyped flag after operands is still refused.
-    let call = parse(&["call", "T", "S", "-5"]).unwrap();
-    assert_eq!(call.names, ["T", "S", "-5"]);
-    assert!(parse(&["sync", "Acme.T", "--cehck"]).is_err());
+    let Typed::Call(call) = parse_typed(&["call", "T", "S", "-5"]).unwrap() else {
+        panic!("call parses as call");
+    };
+    assert_eq!(call.operands, ["T", "S", "-5"]);
+    assert!(parse_typed(&["sync", "Acme.T", "--cehck"]).is_err());
     // A file named with a leading dash goes after `--`.
     let file = parse(&["db", "run", "--", "-migration.sql"]).unwrap();
     assert_eq!(file.names, ["-migration.sql"]);
@@ -930,18 +948,529 @@ fn arg_fields(
     fields
 }
 
+/// What a command line says, for [`derived_commands_read_what_their_grammar_rows_read`]: its
+/// operands, the switches given and the values given, each value once per time it was given.
+type Projection = (Vec<String>, Vec<String>, Vec<(String, String)>);
+
+/// The switches of a derived command that are on.
+fn switches(pairs: &[(&str, bool)]) -> Vec<String> {
+    pairs
+        .iter()
+        .filter(|(_, on)| *on)
+        .map(|(name, _)| (*name).to_string())
+        .collect()
+}
+
+/// The values of a derived command that were given.
+fn values(pairs: &[(&str, Option<String>)]) -> Vec<(String, String)> {
+    pairs
+        .iter()
+        .filter_map(|(name, value)| value.clone().map(|value| ((*name).to_string(), value)))
+        .collect()
+}
+
+/// A path value as text.
+fn shown(path: Option<&std::path::PathBuf>) -> Option<String> {
+    path.map(|path| path.display().to_string())
+}
+
+/// What a derived command read.
+fn projection(typed: Typed) -> Projection {
+    match typed {
+        Typed::Init(init) => (
+            Vec::new(),
+            switches(&[("--write", init.write), ("--agents", init.agents)]),
+            Vec::new(),
+        ),
+        Typed::Doctor(doctor) => (
+            Vec::new(),
+            Vec::new(),
+            values(&[("--profile", doctor.profile.profile)]),
+        ),
+        Typed::Projects => (Vec::new(), Vec::new(), Vec::new()),
+        Typed::Mcp(mcp) => (Vec::new(), Vec::new(), values(&[("--tools", mcp.tools)])),
+        Typed::Update(update) => (
+            Vec::new(),
+            switches(&[("--apply", update.apply.apply)]),
+            Vec::new(),
+        ),
+        Typed::Guide(guide) => (
+            guide.operands,
+            switches(&[("--json", guide.json.json)]),
+            values(&[
+                ("--section", guide.section),
+                ("--search", guide.search),
+                ("--limit", guide.limit),
+            ]),
+        ),
+        Typed::Help(help) => (
+            help.operands,
+            switches(&[("--refresh", help.refresh), ("--json", help.json.json)]),
+            values(&[
+                ("--version", help.version),
+                ("--limit", help.limit),
+                ("--section", help.section),
+                ("--profile", help.profile.profile),
+            ]),
+        ),
+        Typed::Javadoc(javadoc) => (
+            javadoc.operands,
+            switches(&[
+                ("--refresh", javadoc.refresh),
+                ("--json", javadoc.json.json),
+            ]),
+            values(&[("--member", javadoc.member), ("--limit", javadoc.limit)]),
+        ),
+        Typed::Package(package) => (
+            package.operands,
+            switches(&[
+                ("--backend-only", package.backend_only),
+                ("--frontend-only", package.frontend_only),
+                ("--editable", package.editable),
+                ("--force", package.force),
+            ]),
+            values(&[
+                ("--project", package.project.project),
+                ("--out", shown(package.out.as_ref())),
+            ]),
+        ),
+
+        Typed::Catalog(catalog) => (
+            catalog.operands,
+            switches(&[("--json", catalog.json.json)]),
+            values(&[
+                ("--project", catalog.project.project),
+                ("--search", catalog.search),
+            ]),
+        ),
+        Typed::Impact(impact) => (
+            impact.operands,
+            switches(&[
+                ("--detail", impact.detail.detail),
+                ("--json", impact.json.json),
+                ("--dot", impact.dot),
+            ]),
+            values(&[
+                ("--member", impact.member),
+                ("--min-confidence", impact.min_confidence),
+                ("--depth", impact.depth),
+            ]),
+        ),
+        Typed::Trace(trace) => (
+            trace.operands,
+            switches(&[("--json", trace.json.json)]),
+            trace
+                .params
+                .into_iter()
+                .map(|param| ("--param".to_string(), param))
+                .collect(),
+        ),
+        Typed::Unused(unused) => (
+            Vec::new(),
+            switches(&[
+                ("--fields", unused.fields),
+                ("--detail", unused.detail.detail),
+                ("--json", unused.json.json),
+            ]),
+            values(&[
+                ("--min-confidence", unused.min_confidence),
+                ("--collection", unused.collection),
+            ]),
+        ),
+        Typed::Docs(docs) => (
+            Vec::new(),
+            switches(&[
+                ("--detail", docs.detail.detail),
+                ("--json", docs.json.json),
+                ("--force", docs.force),
+                ("--check", docs.check),
+            ]),
+            values(&[("--out", shown(docs.out.as_ref()))]),
+        ),
+        Typed::Widgets(widgets) => (
+            widgets.operands,
+            switches(&[("--json", widgets.json.json)]),
+            values(&[("--search", widgets.search)]),
+        ),
+
+        Typed::Extract(extract) => (
+            extract.selection.operands,
+            switches(&[("--all", extract.selection.all)]),
+            values(&[("--project", extract.project.project)]),
+        ),
+        Typed::Sync(sync) => (
+            sync.selection.operands,
+            switches(&[
+                ("--all", sync.selection.all),
+                ("--check", sync.check),
+                ("--allow-add-remove", sync.allow_add_remove),
+                ("--relayout", sync.relayout),
+            ]),
+            values(&[("--project", sync.project.project)]),
+        ),
+        Typed::Fmt(fmt) => (Vec::new(), switches(&[("--check", fmt.check)]), Vec::new()),
+        Typed::Check(check) => (
+            Vec::new(),
+            switches(&[("--detail", check.detail.detail), ("--live", check.live)]),
+            values(&[("--profile", check.profile.profile)]),
+        ),
+        Typed::Types(types) => (
+            Vec::new(),
+            switches(&[
+                ("--platform", types.platform),
+                ("--check", types.check),
+                ("--json", types.json.json),
+            ]),
+            values(&[("--profile", types.profile.profile)]),
+        ),
+
+        Typed::Users(users) => (
+            users.operands,
+            switches(&[("--apply", users.apply.apply), ("--json", users.json.json)]),
+            values(&[("--profile", users.profile.profile)]),
+        ),
+        Typed::Test(test) => (
+            test.operands,
+            switches(&[
+                ("--apply", test.apply.apply),
+                ("--json", test.json.json),
+                ("--detail", test.detail.detail),
+            ]),
+            values(&[("--profile", test.profile.profile)]),
+        ),
+        Typed::Localization(localization) => (
+            localization.operands,
+            switches(&[
+                ("--prune", localization.prune),
+                ("--json", localization.json.json),
+                ("--detail", localization.detail.detail),
+                ("--apply", localization.apply.apply),
+            ]),
+            values(&[
+                ("--table", localization.table),
+                ("--project", localization.project.project),
+                ("--language-common", localization.language_common),
+                ("--language-native", localization.language_native),
+                ("--description", localization.description),
+                ("--value", localization.value),
+                ("--usage", localization.usage),
+                ("--context", localization.context),
+                ("--profile", localization.profile.profile),
+            ]),
+        ),
+
+        Typed::Repo(repo) => (
+            repo.operands,
+            switches(&[
+                ("--recursive", repo.recursive),
+                ("--json", repo.json.json),
+                ("--force", repo.force),
+                ("--overwrite", repo.overwrite),
+                ("--apply", repo.apply.apply),
+            ]),
+            values(&[
+                ("--out", shown(repo.out.as_ref())),
+                ("--profile", repo.profile.profile),
+            ]),
+        ),
+        Typed::Ext(ext) => (
+            ext.operands,
+            switches(&[("--apply", ext.apply.apply), ("--json", ext.json.json)]),
+            values(&[("--profile", ext.profile.profile)]),
+        ),
+        Typed::Search(search) => (
+            search.operands,
+            switches(&[("--json", search.json.json)]),
+            values(&[
+                ("--type", search.kind),
+                ("--project", search.project.project),
+                ("--limit", search.limit),
+                ("--profile", search.profile.profile),
+            ]),
+        ),
+        Typed::Export(export) => (
+            export.operands,
+            switches(&[
+                ("--force", export.force),
+                ("--with-dependents", export.with_dependents),
+                ("--apply", export.apply.apply),
+            ]),
+            values(&[
+                ("--out", shown(export.out.as_ref())),
+                ("--project", export.project.project),
+                ("--profile", export.profile.profile),
+                ("--repository", export.repository),
+                ("--path", export.path),
+                ("--collection", export.collection),
+                ("--tags", export.tags),
+                ("--zip", export.zip),
+            ]),
+        ),
+        Typed::Import(import) => (
+            import.operands,
+            switches(&[
+                ("--apply", import.apply.apply),
+                ("--overwrite-properties", import.overwrite_properties),
+                ("--overwrite-tables", import.overwrite_tables),
+                ("--detail", import.detail.detail),
+            ]),
+            values(&[
+                ("--repository", import.repository),
+                ("--path", import.path),
+                ("--profile", import.profile.profile),
+            ]),
+        ),
+
+        Typed::Call(call) => (
+            call.operands,
+            switches(&[
+                ("--detail", call.detail.detail),
+                ("--with-logs", call.with_logs),
+            ]),
+            values(&[
+                // args_from read it into a Duration; its seconds are what was given.
+                (
+                    "--timeout",
+                    call.timeout
+                        .duration()
+                        .unwrap()
+                        .map(|timeout| timeout.as_secs().to_string()),
+                ),
+                ("--profile", call.profile.profile),
+                ("--as", call.user),
+            ]),
+        ),
+        Typed::Logs(logs) => (
+            logs.operands,
+            switches(&[
+                ("--oldest-first", logs.oldest_first),
+                ("--json", logs.json.json),
+                ("--reset", logs.reset),
+                ("--apply", logs.apply.apply),
+            ]),
+            values(&[
+                ("--since", logs.since),
+                ("--from", logs.from),
+                ("--to", logs.to),
+                ("--level", logs.level),
+                ("--grep", logs.grep),
+                ("--regex", logs.regex),
+                ("--user", logs.user),
+                ("--thread", logs.thread),
+                ("--origin", logs.origin),
+                ("--limit", logs.limit),
+                ("--profile", logs.profile.profile),
+                ("--sublogger", logs.sublogger),
+            ]),
+        ),
+        Typed::Settings(settings) => (
+            settings.operands,
+            switches(&[("--json", settings.json.json)]),
+            values(&[
+                ("--search", settings.search),
+                ("--profile", settings.profile.profile),
+            ]),
+        ),
+    }
+}
+
 /// While commands move from GRAMMAR rows to structs: each moved command line, read by the
 /// builder's [`spec::args_from`] with the row the command had and by its struct, says the same
 /// (operands, switches, values). Remove a group's rows here when the builder is deleted.
 #[test]
 fn derived_commands_read_what_their_grammar_rows_read() {
-    type Projection = (Vec<String>, Vec<String>, Vec<(String, String)>);
-    const ROWS: &[(&str, &[&str])] = &[
-        ("init", &["--write", "--agents"]),
-        ("doctor", &["--profile"]),
-        ("projects", &[]),
-        ("mcp", &["--tools"]),
-        ("update", &["--apply"]),
+    const ROWS: &[(&str, bool, &[&str])] = &[
+        ("init", false, &["--write", "--agents"]),
+        ("doctor", false, &["--profile"]),
+        ("projects", false, &[]),
+        ("mcp", false, &["--tools"]),
+        ("update", false, &["--apply"]),
+        (
+            "guide",
+            true,
+            &["--section", "--search", "--limit", "--json"],
+        ),
+        (
+            "help",
+            true,
+            &[
+                "--version",
+                "--limit",
+                "--section",
+                "--refresh",
+                "--json",
+                "--profile",
+            ],
+        ),
+        (
+            "javadoc",
+            true,
+            &["--member", "--limit", "--refresh", "--json"],
+        ),
+        (
+            "package",
+            true,
+            &[
+                "--project",
+                "--backend-only",
+                "--frontend-only",
+                "--editable",
+                "--out",
+                "--force",
+            ],
+        ),
+        ("catalog", true, &["--project", "--search", "--json"]),
+        (
+            "impact",
+            true,
+            &[
+                "--member",
+                "--min-confidence",
+                "--depth",
+                "--detail",
+                "--json",
+                "--dot",
+            ],
+        ),
+        ("trace", true, &["--param", "--json"]),
+        (
+            "unused",
+            false,
+            &[
+                "--min-confidence",
+                "--collection",
+                "--fields",
+                "--detail",
+                "--json",
+            ],
+        ),
+        (
+            "docs",
+            false,
+            &["--detail", "--json", "--out", "--force", "--check"],
+        ),
+        ("widgets", true, &["--search", "--json"]),
+        ("extract", true, &["--all", "--project"]),
+        (
+            "sync",
+            true,
+            &[
+                "--all",
+                "--check",
+                "--allow-add-remove",
+                "--relayout",
+                "--project",
+            ],
+        ),
+        ("fmt", false, &["--check"]),
+        ("check", false, &["--detail", "--live", "--profile"]),
+        (
+            "types",
+            false,
+            &["--platform", "--check", "--json", "--profile"],
+        ),
+        ("users", true, &["--apply", "--json", "--profile"]),
+        (
+            "test",
+            true,
+            &["--apply", "--json", "--detail", "--profile"],
+        ),
+        (
+            "localization",
+            true,
+            &[
+                "--table",
+                "--project",
+                "--prune",
+                "--language-common",
+                "--language-native",
+                "--description",
+                "--value",
+                "--usage",
+                "--context",
+                "--json",
+                "--detail",
+                "--profile",
+                "--apply",
+            ],
+        ),
+        (
+            "repo",
+            true,
+            &[
+                "--recursive",
+                "--out",
+                "--json",
+                "--profile",
+                "--force",
+                "--overwrite",
+                "--apply",
+            ],
+        ),
+        ("ext", true, &["--apply", "--json", "--profile"]),
+        (
+            "search",
+            true,
+            &["--type", "--project", "--limit", "--json", "--profile"],
+        ),
+        (
+            "export",
+            true,
+            &[
+                "--out",
+                "--force",
+                "--project",
+                "--profile",
+                "--repository",
+                "--path",
+                "--collection",
+                "--tags",
+                "--zip",
+                "--with-dependents",
+                "--apply",
+            ],
+        ),
+        (
+            "import",
+            true,
+            &[
+                "--apply",
+                "--overwrite-properties",
+                "--overwrite-tables",
+                "--repository",
+                "--path",
+                "--profile",
+                "--detail",
+            ],
+        ),
+        (
+            "call",
+            true,
+            &["--timeout", "--detail", "--profile", "--with-logs", "--as"],
+        ),
+        (
+            "logs",
+            true,
+            &[
+                "--since",
+                "--from",
+                "--to",
+                "--level",
+                "--grep",
+                "--regex",
+                "--user",
+                "--thread",
+                "--origin",
+                "--limit",
+                "--oldest-first",
+                "--json",
+                "--profile",
+                "--sublogger",
+                "--reset",
+                "--apply",
+            ],
+        ),
+        ("settings", true, &["--search", "--json", "--profile"]),
     ];
     let lines: &[&[&str]] = &[
         &["init"],
@@ -957,59 +1486,374 @@ fn derived_commands_read_what_their_grammar_rows_read() {
         &["mcp", "--tools", ""],
         &["update"],
         &["update", "--apply"],
+        &["guide"],
+        &["guide", "workflow", "--section", "Deploy", "--json"],
+        &["guide", "--search", "-x y", "--limit", "3"],
+        &["guide", "a", "b", "-1"],
+        &["help", "search", "mashup", "binding", "--limit", "5"],
+        &[
+            "help",
+            "page",
+            "ThingWorx/Welcome.html",
+            "--version",
+            "9.6",
+            "--section",
+            "Intro",
+            "--refresh",
+            "--json",
+            "--profile",
+            "prod",
+        ],
+        &["help"],
+        &["javadoc", "search", "Thing", "--limit", "2", "--json"],
+        &[
+            "javadoc",
+            "class",
+            "Thing",
+            "--member",
+            "getName",
+            "--refresh",
+        ],
+        &["package", "bundle", "--out", "dist/a.zip", "--backend-only"],
+        &[
+            "package",
+            "extension",
+            "--out=x.zip",
+            "--editable",
+            "--force",
+            "--project",
+            "Acme",
+            "--frontend-only",
+        ],
+        &["package", "source-control", "--out", ""],
+        &["package", "--", "-weird"],
+        &["catalog"],
+        &[
+            "catalog",
+            "Acme.T",
+            "--project",
+            "Acme",
+            "--search",
+            "-get",
+            "--json",
+        ],
+        &[
+            "impact",
+            "Acme.T",
+            "--member",
+            "Run",
+            "--min-confidence",
+            "resolved",
+            "--depth",
+            "-1",
+            "--detail",
+            "--json",
+            "--dot",
+        ],
+        &["impact", "a", "b"],
+        &["trace", "Acme.T.Run"],
+        &[
+            "trace",
+            "Acme.T.Run",
+            "--param",
+            "a:STRING",
+            "--param",
+            "b",
+            "--json",
+        ],
+        &["unused"],
+        &[
+            "unused",
+            "--min-confidence",
+            "review",
+            "--collection",
+            "Things",
+            "--detail",
+            "--json",
+            "--json",
+        ],
+        &["unused", "--fields"],
+        &["docs"],
+        &[
+            "docs",
+            "--out",
+            "SOLUTION.md",
+            "--check",
+            "--detail",
+            "--json",
+        ],
+        &["docs", "--out=", "--force"],
+        &["widgets"],
+        &["widgets", "ptcsbutton", "--json"],
+        &["widgets", "--search", "grid"],
+        &["extract"],
+        &["extract", "--all", "--project", "Acme"],
+        &["extract", "Acme.A", "Acme.B"],
+        &["extract", "--all", "Acme.A"],
+        &[
+            "sync",
+            "--all",
+            "--check",
+            "--allow-add-remove",
+            "--relayout",
+            "--check",
+        ],
+        &["sync", "Acme.A", "--project=Acme"],
+        &["sync", "Acme.A", "--all"],
+        &["fmt"],
+        &["fmt", "--check"],
+        &["check"],
+        &["check", "--detail", "--live", "--profile", "qa"],
+        &["types"],
+        &["types", "--platform", "--profile", "qa"],
+        &["types", "--check", "--json"],
+        &["users", "list", "--json"],
+        &["users", "seed", "--apply", "--profile", "qa"],
+        &["users"],
+        &["test"],
+        &[
+            "test",
+            "Orders",
+            "Users",
+            "--apply",
+            "--json",
+            "--detail",
+            "--profile=qa",
+        ],
+        &[
+            "localization",
+            "status",
+            "--table",
+            "Acme",
+            "--json",
+            "--detail",
+        ],
+        &[
+            "localization",
+            "pull",
+            "--prune",
+            "--apply",
+            "--profile",
+            "qa",
+        ],
+        &[
+            "localization",
+            "new",
+            "Acme",
+            "--project",
+            "Acme",
+            "--language-common",
+            "German",
+            "--language-native",
+            "Deutsch",
+            "--description",
+            "-",
+        ],
+        &[
+            "localization",
+            "set",
+            "Acme",
+            "key",
+            "--value",
+            "-1",
+            "--usage",
+            "label",
+            "--context",
+            "",
+        ],
+        &["repo", "list", "--json"],
+        &["repo", "ls", "Acme", "/", "--recursive", "--profile", "qa"],
+        &["repo", "get", "Acme", "a.txt", "--out", "b.txt", "--force"],
+        &[
+            "repo",
+            "put",
+            "Acme",
+            "a.txt",
+            "/a.txt",
+            "--overwrite",
+            "--apply",
+        ],
+        &["ext", "list", "--json"],
+        &["ext", "import", "x.zip", "--apply", "--profile", "qa"],
+        &["search"],
+        &[
+            "search",
+            "Orders",
+            "Manager",
+            "--type",
+            "Thing,DataShape",
+            "--project",
+            "Acme",
+            "--limit",
+            "5",
+            "--json",
+        ],
+        &[
+            "export",
+            "entity",
+            "Things/Acme.T",
+            "--out",
+            "t.xml",
+            "--force",
+            "--profile",
+            "qa",
+        ],
+        &[
+            "export",
+            "source-control",
+            "--repository",
+            "SystemRepository",
+            "--path",
+            "/out",
+            "--project",
+            "Acme",
+            "--collection",
+            "Things",
+            "--tags",
+            "Acme:v1",
+            "--zip",
+            "out.zip",
+            "--with-dependents",
+            "--apply",
+        ],
+        &[
+            "import",
+            "a.xml",
+            "--apply",
+            "--overwrite-properties",
+            "--overwrite-tables",
+            "--detail",
+        ],
+        &[
+            "import",
+            "source-control",
+            "--repository",
+            "R",
+            "--path",
+            "-p",
+            "--profile",
+            "qa",
+        ],
+        &["call", "Acme.T", "Run"],
+        &[
+            "call",
+            "Acme.T",
+            "Run",
+            "{\"a\": -1}",
+            "--timeout",
+            "30",
+            "--detail",
+            "--with-logs",
+            "--as",
+            "tester",
+            "--profile",
+            "qa",
+        ],
+        &["call", "Acme.T", "Run", "-5"],
+        &["call", "Acme.T", "Run", "--timeout", "0"],
+        &["call", "Acme.T", "Run", "--timeout", "-3"],
+        &["call", "Acme.T", "Run", "--timeout", "soon"],
+        &[
+            "logs",
+            "ScriptLog",
+            "--since",
+            "10m",
+            "--level",
+            "WARN",
+            "--grep",
+            "-x",
+            "--user",
+            "Admin",
+            "--json",
+        ],
+        &[
+            "logs",
+            "ScriptLog",
+            "--from",
+            "-2h",
+            "--to",
+            "now",
+            "--regex",
+            "^-",
+            "--thread",
+            "t",
+            "--origin",
+            "o",
+            "--limit",
+            "-1",
+            "--oldest-first",
+        ],
+        &[
+            "logs",
+            "level",
+            "ScriptLog",
+            "DEBUG",
+            "--sublogger",
+            "Acme",
+            "--apply",
+            "--profile",
+            "qa",
+        ],
+        &["logs", "level", "ScriptLog", "--reset"],
+        &["settings"],
+        &["settings", "Subsystem", "Table", "--json"],
+        &["settings", "--search", "-timeout", "--profile", "qa"],
     ];
-    let value = |pairs: &[(&str, Option<&String>)]| -> Vec<(String, String)> {
-        pairs
-            .iter()
-            .filter_map(|(name, value)| value.map(|value| ((*name).to_string(), value.clone())))
-            .collect()
-    };
-    let switches = |pairs: &[(&str, bool)]| -> Vec<String> {
-        pairs
-            .iter()
-            .filter(|(_, on)| *on)
-            .map(|(name, _)| (*name).to_string())
-            .collect()
-    };
     for line in lines {
         let mut all = vec!["twaco"];
         all.extend(*line);
-        let matches = spec::tree().try_get_matches_from(&all).unwrap();
-        let (path, matched) = spec::matched(&matches);
-        let (_, flags) = ROWS.iter().find(|(row, _)| *row == path).unwrap();
-        let old = spec::args_from(flags, false, matched).unwrap();
+        let matches = spec::tree()
+            .try_get_matches_from(&all)
+            .unwrap_or_else(|e| panic!("{line:?}: {e}"));
+        let (path, _) = spec::matched(&matches);
+        // The builder's command, from the row it had (its argument ids are the flag names, the
+        // derived ones are the field names), under the same policy.
+        let (_, operands, flags) = ROWS.iter().find(|(row, _, _)| *row == path).unwrap();
+        let built = spec::decorate(
+            clap::Command::new("twaco")
+                .subcommand(clap::Command::new(path).args(spec::arguments(flags, *operands))),
+        );
+        let old_matches = built
+            .try_get_matches_from(&all)
+            .unwrap_or_else(|e| panic!("{line:?}: {e}"));
+        let (_, matched) = spec::matched(&old_matches);
+        let typed = Typed::from_arg_matches(&matches).unwrap();
+        // What the builder refused, validate() refuses in the same words.
+        let old = match spec::args_from(flags, *operands, matched) {
+            Ok(old) => old,
+            Err(why) => {
+                assert_eq!(typed.validate(), Err(why), "{line:?}");
+                continue;
+            }
+        };
+        assert_eq!(typed.validate(), Ok(()), "{line:?}");
         let mut old_values: Vec<(String, String)> = old
             .values
             .iter()
             .map(|(name, value)| (name.clone(), value.clone()))
             .collect();
-        if let Some(profile) = &old.profile {
-            old_values.push(("--profile".to_string(), profile.clone()));
-        }
-        let expected: Projection = (old.names.clone(), old.flags.clone(), old_values);
-        let new: Projection = match Typed::from_arg_matches(&matches).unwrap() {
-            Typed::Init(init) => (
-                Vec::new(),
-                switches(&[("--write", init.write), ("--agents", init.agents)]),
-                Vec::new(),
-            ),
-            Typed::Doctor(doctor) => (
-                Vec::new(),
-                Vec::new(),
-                value(&[("--profile", doctor.profile.profile.as_ref())]),
-            ),
-            Typed::Projects => (Vec::new(), Vec::new(), Vec::new()),
-            Typed::Mcp(mcp) => (
-                Vec::new(),
-                Vec::new(),
-                value(&[("--tools", mcp.tools.as_ref())]),
-            ),
-            Typed::Update(update) => (
-                Vec::new(),
-                switches(&[("--apply", update.apply.apply)]),
-                Vec::new(),
-            ),
+        let mut add = |name: &str, value: Option<String>| {
+            if let Some(value) = value {
+                old_values.push((name.to_string(), value));
+            }
         };
-        assert_eq!(new, expected, "{line:?}");
+        add("--profile", old.profile.clone());
+        add("--project", old.project.clone());
+        add("--out", shown(old.out.as_ref()));
+        add("--timeout", old.timeout.map(|t| t.as_secs().to_string()));
+        for param in &old.params {
+            add("--param", Some(param.clone()));
+        }
+        let (names, mut on, mut given) = projection(typed);
+        let mut old_flags = old.flags.clone();
+        old_flags.sort();
+        old_values.sort();
+        on.sort();
+        given.sort();
+        assert_eq!(
+            (names, on, given),
+            (old.names.clone(), old_flags, old_values),
+            "{line:?}"
+        );
     }
 }

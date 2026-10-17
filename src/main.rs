@@ -132,7 +132,7 @@ fn run_command(args: &[String]) -> ExitCode {
     let parsed = if Typed::has_subcommand(first) {
         Typed::from_arg_matches(&matches)
             .map_err(|error| error.to_string())
-            .and_then(|typed| typed.validate().map(|()| Parsed::Typed(typed)))
+            .and_then(|typed| typed.validate().map(|()| Parsed::Typed(Box::new(typed))))
     } else {
         cli::spec::args_of(route, matched).map(|args| Parsed::Legacy(route, Box::new(args)))
     };
@@ -155,7 +155,7 @@ fn run_command(args: &[String]) -> ExitCode {
     let _entered = span.enter();
     let started = std::time::Instant::now();
     let code = match parsed {
-        Parsed::Typed(typed) => dispatch_typed(typed),
+        Parsed::Typed(typed) => dispatch_typed(*typed),
         Parsed::Legacy(route, args) => dispatch(route, &args),
     };
     tracing::info!(
@@ -169,7 +169,7 @@ fn run_command(args: &[String]) -> ExitCode {
 /// A command line as the command reads it: a derived command's struct, or a table command's path
 /// and [`Args`].
 enum Parsed {
-    Typed(Typed),
+    Typed(Box<Typed>),
     Legacy(&'static str, Box<Args>),
 }
 
@@ -184,50 +184,52 @@ fn dispatch_typed(typed: Typed) -> u8 {
         Typed::Doctor(doctor) => doctor_cmd(&doctor),
         Typed::Mcp(mcp) => mcp_cmd(&mcp),
         Typed::Projects => run(projects),
+        // The help center needs no solution, so it runs before discovery and uses one if found.
+        Typed::Help(help) => help_cmd(&help),
+        // The public Java API documentation also needs no solution.
+        Typed::Javadoc(javadoc) => javadoc_cmd(&javadoc),
+        // So does the guide: its built-in topics are the same everywhere.
+        Typed::Guide(guide) => guide_cmd(&guide),
+        Typed::Package(package) => run(|solution| package_cmd(solution, &package)),
+        Typed::Widgets(widgets) => widgets_cmd(&widgets),
+        Typed::Catalog(catalog) => run(|solution| catalog_cmd(solution, &catalog)),
+        Typed::Impact(impact) => run(|solution| impact_cmd(solution, &impact)),
+        Typed::Trace(trace) => run(|solution| cli::info::trace_cmd(solution, &trace)),
+        Typed::Unused(unused) => run(|solution| unused_cmd(solution, &unused)),
+        Typed::Docs(docs) => run(|solution| docs_cmd(solution, &docs)),
+        Typed::Types(types) => run(|solution| types_cmd(solution, &types)),
+        Typed::Extract(command) => run(|solution| extract(solution, &command)),
+        Typed::Sync(sync) => run(|solution| sync_cmd(solution, &sync)),
+        Typed::Fmt(command) => run(|solution| fmt(solution, &command)),
+        Typed::Check(command) => run(|solution| check(solution, &command)),
+        Typed::Users(users) => run(|solution| users_cmd(solution, &users)),
+        Typed::Test(test) => run(|solution| test_cmd(solution, &test)),
+        Typed::Localization(localization) => {
+            run(|solution| localization_cmd(solution, &localization))
+        }
+        Typed::Repo(repo) => run(|solution| repo_cmd(solution, &repo)),
+        Typed::Ext(ext) => run(|solution| ext_cmd(solution, &ext)),
+        Typed::Search(search) => run(|solution| search_cmd(solution, &search)),
+        Typed::Export(export) => run(|solution| export_cmd(solution, &export)),
+        Typed::Import(import) => run(|solution| import_cmd(solution, &import)),
+        Typed::Call(command) => run(|solution| call(solution, &command)),
+        Typed::Logs(logs) => run(|solution| logs_cmd(solution, &logs)),
+        Typed::Settings(settings) => run(|solution| settings_cmd(solution, &settings)),
     }
 }
 
 /// Run one table command and return its exit code.
 fn dispatch(route: &str, parsed: &Args) -> u8 {
-    match route {
-        // The help center needs no solution, so it runs before discovery and uses one if found.
-        "help" => return help_cmd(parsed),
-        // The public Java API documentation also needs no solution.
-        "javadoc" => return javadoc_cmd(parsed),
-        // So does the guide: its built-in topics are the same everywhere.
-        "guide" => return guide_cmd(parsed),
-        "widgets" => return widgets_cmd(parsed),
-        "mashup templates" => return mashup_templates_cmd(parsed),
-        _ => {}
+    // The templates are built in, so they need no solution.
+    if route == "mashup templates" {
+        return mashup_templates_cmd(parsed);
     }
 
     // Commands that change the workspace take its lock in their executor (core::commands), so
     // the lock covers exactly what they change and both front ends take it the same way.
     run(|solution| match route {
-        "types" => types_cmd(solution, parsed),
-        "extract" => extract(solution, parsed),
-        "sync" => sync_cmd(solution, parsed),
-        "fmt" => fmt(solution, parsed),
-        "check" => check(solution, parsed),
         "bundle" => bundle(solution, parsed),
         "deploy" => deploy_cmd(solution, parsed),
-        "call" => call(solution, parsed),
-        "repo" => repo_cmd(solution, parsed),
-        "localization" => localization_cmd(solution, parsed),
-        "users" => users_cmd(solution, parsed),
-        "test" => test_cmd(solution, parsed),
-        "ext" => ext_cmd(solution, parsed),
-        "settings" => settings_cmd(solution, parsed),
-        "catalog" => catalog_cmd(solution, parsed),
-        "impact" => impact_cmd(solution, parsed),
-        "trace" => cli::info::trace_cmd(solution, parsed),
-        "unused" => unused_cmd(solution, parsed),
-        "docs" => docs_cmd(solution, parsed),
-        "package" => package_cmd(solution, parsed),
-        "search" => search_cmd(solution, parsed),
-        "export" => export_cmd(solution, parsed),
-        "import" => import_cmd(solution, parsed),
-        "logs" => logs_cmd(solution, parsed),
         "adopt" => adopt_cmd(solution, parsed),
         "handoff" => handoff_cmd(solution, parsed),
         "rename entity" | "rename prefix" | "rename field" | "rename service" | "rename param"

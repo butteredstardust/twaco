@@ -1,4 +1,3 @@
-use super::args::Args;
 use super::style;
 use crate::{DRIFT, FAILED, OK};
 use std::path::PathBuf;
@@ -131,9 +130,25 @@ pub(crate) fn update_cmd(parsed: &Update) -> u8 {
     }
 }
 
+/// `twaco guide [<topic> [--section <heading>]] [--search <words>]`.
+#[derive(Debug, clap::Args)]
+#[group(skip)]
+pub(crate) struct Guide {
+    #[arg(long = "section", value_name = "heading")]
+    pub(crate) section: Option<String>,
+    #[arg(long = "search", value_name = "text")]
+    pub(crate) search: Option<String>,
+    #[arg(long = "limit", value_name = "n")]
+    pub(crate) limit: Option<String>,
+    #[command(flatten)]
+    pub(crate) json: super::flags::Json,
+    #[arg(id = "operands", value_name = "operand")]
+    pub(crate) operands: Vec<String>,
+}
+
 /// `twaco guide [<topic> [--section <heading>]] [--search <words>]`: the knowledge an agent needs
 /// besides the CLI, built in and the solution's own. Works outside a solution too.
-pub(crate) fn guide_cmd(parsed: &Args) -> u8 {
+pub(crate) fn guide_cmd(parsed: &Guide) -> u8 {
     use twaco::core::guide;
     let here = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
     let solution = match Solution::discover(&here) {
@@ -149,11 +164,11 @@ pub(crate) fn guide_cmd(parsed: &Args) -> u8 {
         eprintln!("{} guide: {problem}", style::prefix());
     }
     let result: Result<(), String> = (|| {
-        if let Some(query) = parsed.values.get("--search") {
-            if !parsed.names.is_empty() {
+        if let Some(query) = parsed.search.as_ref() {
+            if !parsed.operands.is_empty() {
                 return Err("--search searches every topic; pass no topic with it".to_string());
             }
-            let limit = match parsed.values.get("--limit") {
+            let limit = match parsed.limit.as_ref() {
                 Some(n) => n
                     .parse::<usize>()
                     .ok()
@@ -163,7 +178,7 @@ pub(crate) fn guide_cmd(parsed: &Args) -> u8 {
             };
             let hits = guide::search(&topics, query, limit);
             for hit in &hits {
-                if parsed.has("--json") {
+                if parsed.json.json {
                     println!(
                         "{}",
                         serde_json::json!({ "topic": hit.topic, "section": hit.heading, "matched": hit.matched, "of": hit.of, "line": hit.line })
@@ -185,12 +200,12 @@ pub(crate) fn guide_cmd(parsed: &Args) -> u8 {
             }
             if hits.is_empty() {
                 eprintln!("nothing matches {query:?}");
-            } else if !parsed.has("--json") {
+            } else if !parsed.json.json {
                 eprintln!("read one: twaco guide <topic> --section \"<heading>\"");
             }
             return Ok(());
         }
-        match parsed.names.as_slice() {
+        match parsed.operands.as_slice() {
             [] => {
                 for topic in &topics {
                     let origin = if topic.file.is_some() {
@@ -213,9 +228,7 @@ pub(crate) fn guide_cmd(parsed: &Args) -> u8 {
             }
             [wanted] => {
                 let topic = guide::find(&topics, wanted).map_err(|e| e.to_string())?;
-                match guide::read(topic, parsed.values.get("--section").map(String::as_str))
-                    .map_err(|e| e.to_string())?
-                {
+                match guide::read(topic, parsed.section.as_deref()).map_err(|e| e.to_string())? {
                     guide::Reading::Text(text) => print!("{text}"),
                     guide::Reading::Outline { title, headings } => {
                         println!("# {title}\n");
@@ -239,11 +252,31 @@ pub(crate) fn guide_cmd(parsed: &Args) -> u8 {
     }
 }
 
-pub(crate) fn help_cmd(parsed: &Args) -> u8 {
+/// `twaco help search <words> | page <page>`.
+#[derive(Debug, clap::Args)]
+#[group(skip)]
+pub(crate) struct Help {
+    #[arg(long = "version", value_name = "release")]
+    pub(crate) version: Option<String>,
+    #[arg(long = "limit", value_name = "n")]
+    pub(crate) limit: Option<String>,
+    #[arg(long = "section", value_name = "heading")]
+    pub(crate) section: Option<String>,
+    #[arg(long = "refresh")]
+    pub(crate) refresh: bool,
+    #[command(flatten)]
+    pub(crate) json: super::flags::Json,
+    #[command(flatten)]
+    pub(crate) profile: super::flags::Profile,
+    #[arg(id = "operands", value_name = "operand")]
+    pub(crate) operands: Vec<String>,
+}
+
+pub(crate) fn help_cmd(parsed: &Help) -> u8 {
     use twaco::core::help;
     let (Some(action), rest) = (
-        parsed.names.first().map(String::as_str),
-        parsed.names.get(1..).unwrap_or_default(),
+        parsed.operands.first().map(String::as_str),
+        parsed.operands.get(1..).unwrap_or_default(),
     ) else {
         eprintln!(
             "{} help needs `search <words>` or `page <page>`",
@@ -280,10 +313,10 @@ pub(crate) fn help_cmd(parsed: &Args) -> u8 {
         _ => None,
     };
     let version = match help::choose_version(
-        parsed.values.get("--version").map(String::as_str),
+        parsed.version.as_deref(),
         named,
         solution.as_ref(),
-        parsed.profile.as_deref().unwrap_or("default"),
+        parsed.profile.name(),
         &mut notes,
     ) {
         Ok(version) => version,
@@ -303,14 +336,14 @@ pub(crate) fn help_cmd(parsed: &Args) -> u8 {
         }
     };
     let web = help::Web::default();
-    let refresh = parsed.has("--refresh");
+    let refresh = parsed.refresh;
     match action {
         "search" => {
             if rest.is_empty() {
                 eprintln!("{} help search needs words", style::prefix());
                 return FAILED;
             }
-            let limit = match parsed.values.get("--limit").map(|n| n.parse::<usize>()) {
+            let limit = match parsed.limit.as_ref().map(|n| n.parse::<usize>()) {
                 None => 10,
                 Some(Ok(n)) if n > 0 => n,
                 Some(_) => {
@@ -331,7 +364,7 @@ pub(crate) fn help_cmd(parsed: &Args) -> u8 {
                 }
             };
             let found = help::search(&index, &version, &rest.join(" "), limit);
-            if parsed.has("--json") {
+            if parsed.json.json {
                 for hit in &found.hits {
                     println!(
                         "{}",
@@ -364,7 +397,7 @@ pub(crate) fn help_cmd(parsed: &Args) -> u8 {
             OK
         }
         "page" => {
-            let section = parsed.values.get("--section").map(String::as_str);
+            let section = parsed.section.as_deref();
             let (_, path) = help::page_path(&rest[0]).expect("checked above");
             match help::cached(&web, &cache, &version, &path, refresh)
                 .and_then(|html| help::read(&html, &version, &path, section))
@@ -390,13 +423,29 @@ pub(crate) fn help_cmd(parsed: &Args) -> u8 {
     }
 }
 
+/// `twaco javadoc search <name> | class <Name>`.
+#[derive(Debug, clap::Args)]
+#[group(skip)]
+pub(crate) struct Javadoc {
+    #[arg(long = "member", value_name = "name")]
+    pub(crate) member: Option<String>,
+    #[arg(long = "limit", value_name = "n")]
+    pub(crate) limit: Option<String>,
+    #[arg(long = "refresh")]
+    pub(crate) refresh: bool,
+    #[command(flatten)]
+    pub(crate) json: super::flags::Json,
+    #[arg(id = "operands", value_name = "operand")]
+    pub(crate) operands: Vec<String>,
+}
+
 /// `twaco javadoc search <name> | class <Name>`: the public ThingWorx Java API docs.
 /// Read-only and usable outside a solution; downloads go to the user's cache.
-pub(crate) fn javadoc_cmd(parsed: &Args) -> u8 {
+pub(crate) fn javadoc_cmd(parsed: &Javadoc) -> u8 {
     use twaco::core::{help, javadoc};
     let (Some(action), rest) = (
-        parsed.names.first().map(String::as_str),
-        parsed.names.get(1..).unwrap_or_default(),
+        parsed.operands.first().map(String::as_str),
+        parsed.operands.get(1..).unwrap_or_default(),
     ) else {
         eprintln!(
             "{} javadoc needs `search <name>` or `class <Name>`",
@@ -430,7 +479,7 @@ pub(crate) fn javadoc_cmd(parsed: &Args) -> u8 {
         }
     };
     let web = help::Web::new(javadoc::BASE);
-    let refresh = parsed.has("--refresh");
+    let refresh = parsed.refresh;
     let fetch = |path: &str| javadoc::cached(&web, &cache, path, refresh);
     let types = match fetch(javadoc::TYPE_INDEX) {
         Ok(bytes) => bytes,
@@ -441,11 +490,11 @@ pub(crate) fn javadoc_cmd(parsed: &Args) -> u8 {
     };
     match action {
         "search" => {
-            if parsed.values.contains_key("--member") {
+            if parsed.member.is_some() {
                 eprintln!("{} javadoc: --member is only for `class`", style::prefix());
                 return FAILED;
             }
-            let limit = match parsed.values.get("--limit").map(|n| n.parse::<usize>()) {
+            let limit = match parsed.limit.as_ref().map(|n| n.parse::<usize>()) {
                 None => 10,
                 Some(Ok(n)) if n > 0 => n,
                 Some(_) => {
@@ -475,7 +524,7 @@ pub(crate) fn javadoc_cmd(parsed: &Args) -> u8 {
             };
             let hits = javadoc::search(&index, &rest.join(" "), limit);
             for hit in &hits {
-                if parsed.has("--json") {
+                if parsed.json.json {
                     println!(
                         "{}",
                         serde_json::json!({
@@ -521,15 +570,10 @@ pub(crate) fn javadoc_cmd(parsed: &Args) -> u8 {
                 }
             };
             match fetch(&path).map_err(|e| e.to_string()).and_then(|html| {
-                javadoc::read(
-                    &html,
-                    &class,
-                    parsed.values.get("--member").map(String::as_str),
-                )
-                .map_err(|e| e.to_string())
+                javadoc::read(&html, &class, parsed.member.as_deref()).map_err(|e| e.to_string())
             }) {
                 Ok(read) => {
-                    if parsed.has("--json") {
+                    if parsed.json.json {
                         println!(
                             "{}",
                             serde_json::json!({
@@ -553,11 +597,25 @@ pub(crate) fn javadoc_cmd(parsed: &Args) -> u8 {
     }
 }
 
+/// `twaco settings [<Subsystem> [<Table>]] [--search <text>] [--json]`.
+#[derive(Debug, clap::Args)]
+#[group(skip)]
+pub(crate) struct Settings {
+    #[arg(long = "search", value_name = "text")]
+    pub(crate) search: Option<String>,
+    #[command(flatten)]
+    pub(crate) json: super::flags::Json,
+    #[command(flatten)]
+    pub(crate) profile: super::flags::Profile,
+    #[arg(id = "operands", value_name = "operand")]
+    pub(crate) operands: Vec<String>,
+}
+
 /// `twaco settings [<Subsystem> [<Table>]] [--search <text>]`: the server's subsystem
 /// settings, read-only.
-pub(crate) fn settings_cmd(solution: &Solution, args: &Args) -> u8 {
+pub(crate) fn settings_cmd(solution: &Solution, args: &Settings) -> u8 {
     use twaco::core::settings;
-    let profile_name = args.profile.as_deref().unwrap_or("default");
+    let profile_name = args.profile.name();
     let client = match profile::load(&solution.root, profile_name) {
         Ok(profile) => server::Client::new(profile),
         Err(error) => {
@@ -584,12 +642,12 @@ pub(crate) fn settings_cmd(solution: &Solution, args: &Args) -> u8 {
         }
     };
     let result: Result<(), String> = (|| {
-        if let Some(text) = args.values.get("--search") {
+        if let Some(text) = args.search.as_ref() {
             let all = settings::read_all(&client).map_err(|e| e.to_string())?;
             let found = settings::search(&all, text);
             for f in &found {
                 let values: Vec<String> = f.values.iter().map(settings::shown).collect();
-                if args.has("--json") {
+                if args.json.json {
                     println!(
                         "{}",
                         serde_json::json!({ "subsystem": f.subsystem, "table": f.table, "setting": f.field.name, "type": f.field.base_type, "values": f.values, "description": f.field.description })
@@ -609,7 +667,7 @@ pub(crate) fn settings_cmd(solution: &Solution, args: &Args) -> u8 {
             return Ok(());
         }
         let names = settings::Remote::subsystems(&client).map_err(|e| e.to_string())?;
-        match args.names.as_slice() {
+        match args.operands.as_slice() {
             [] => {
                 let all = settings::summaries(&client).map_err(|e| e.to_string())?;
                 for settings::Summary {
@@ -618,7 +676,7 @@ pub(crate) fn settings_cmd(solution: &Solution, args: &Args) -> u8 {
                     tables,
                 } in &all
                 {
-                    if args.has("--json") {
+                    if args.json.json {
                         println!(
                             "{}",
                             serde_json::json!({ "subsystem": name, "running": running, "tables": tables })
@@ -640,7 +698,7 @@ pub(crate) fn settings_cmd(solution: &Solution, args: &Args) -> u8 {
                 let chosen = settings::tables(&read, rest.first().map(String::as_str))
                     .map_err(|e| e.to_string())?;
                 for table in chosen {
-                    if args.has("--json") {
+                    if args.json.json {
                         println!("{}", settings::table_json(&read.name, table));
                     } else {
                         print_table(&read.name, table);
@@ -660,12 +718,21 @@ pub(crate) fn settings_cmd(solution: &Solution, args: &Args) -> u8 {
     }
 }
 
-/// `twaco catalog [<entity>] [--project P] [--search <text>] [--json]`.
-/// What changing an entity, or one service, property or field of it, would reach. Offline and
-/// read-only: it reads the solution into the index and asks it.
+/// `twaco trace <Entity>.<Service> [--param <name>] [--json]`.
+#[derive(Debug, clap::Args)]
+#[group(skip)]
+pub(crate) struct Trace {
+    #[arg(long = "param", value_name = "name:TYPE[:DIRECTION]")]
+    pub(crate) params: Vec<String>,
+    #[command(flatten)]
+    pub(crate) json: super::flags::Json,
+    #[arg(id = "operands", value_name = "operand")]
+    pub(crate) operands: Vec<String>,
+}
+
 /// `twaco trace <Entity>.<Service>`: how each caller uses a service. Read-only and offline.
-pub(crate) fn trace_cmd(solution: &Solution, args: &Args) -> u8 {
-    let [service] = args.names.as_slice() else {
+pub(crate) fn trace_cmd(solution: &Solution, args: &Trace) -> u8 {
+    let [service] = args.operands.as_slice() else {
         eprintln!("{} trace needs one <Entity>.<Service>", style::prefix());
         return FAILED;
     };
@@ -675,7 +742,7 @@ pub(crate) fn trace_cmd(solution: &Solution, args: &Args) -> u8 {
     }
     let param = args.params.first().map(String::as_str);
     match twaco::core::trace::run(solution, service, param) {
-        Ok(trace) if args.has("--json") => {
+        Ok(trace) if args.json.json => {
             println!(
                 "{}",
                 serde_json::to_string_pretty(&trace).expect("a trace serialises")
@@ -693,22 +760,44 @@ pub(crate) fn trace_cmd(solution: &Solution, args: &Args) -> u8 {
     }
 }
 
-pub(crate) fn impact_cmd(solution: &Solution, args: &Args) -> u8 {
-    let [entity] = args.names.as_slice() else {
+/// `twaco impact <entity> [--member <name>] [--min-confidence <value>] [--depth <n>]`.
+#[derive(Debug, clap::Args)]
+#[group(skip)]
+pub(crate) struct Impact {
+    #[arg(long = "member", value_name = "name")]
+    pub(crate) member: Option<String>,
+    #[arg(long = "min-confidence", value_name = "value")]
+    pub(crate) min_confidence: Option<String>,
+    #[arg(long = "depth", value_name = "n")]
+    pub(crate) depth: Option<String>,
+    #[command(flatten)]
+    pub(crate) detail: super::flags::Detail,
+    #[command(flatten)]
+    pub(crate) json: super::flags::Json,
+    #[arg(long = "dot")]
+    pub(crate) dot: bool,
+    #[arg(id = "operands", value_name = "operand")]
+    pub(crate) operands: Vec<String>,
+}
+
+/// What changing an entity, or one service, property or field of it, would reach. Offline and
+/// read-only: it reads the solution into the index and asks it.
+pub(crate) fn impact_cmd(solution: &Solution, args: &Impact) -> u8 {
+    let [entity] = args.operands.as_slice() else {
         eprintln!(
             "{} impact needs one <entity>, such as Acme.Orders.Manager",
             style::prefix()
         );
         return FAILED;
     };
-    if args.has("--json") && args.has("--dot") {
+    if args.json.json && args.dot {
         eprintln!(
             "{} --json and --dot are different outputs; pick one",
             style::prefix()
         );
         return FAILED;
     }
-    let min = match args.values.get("--min-confidence") {
+    let min = match args.min_confidence.as_ref() {
         None => Confidence::Review,
         Some(word) => match Confidence::parse(word) {
             Some(confidence) => confidence,
@@ -721,7 +810,7 @@ pub(crate) fn impact_cmd(solution: &Solution, args: &Args) -> u8 {
             }
         },
     };
-    let depth = match args.values.get("--depth") {
+    let depth = match args.depth.as_ref() {
         None => None,
         Some(text) => match text.parse::<usize>() {
             Ok(depth) if depth > 0 => Some(depth),
@@ -736,7 +825,7 @@ pub(crate) fn impact_cmd(solution: &Solution, args: &Args) -> u8 {
     };
     let request = impact::Request {
         entity: entity.clone(),
-        member: args.values.get("--member").cloned(),
+        member: args.member.clone(),
         min,
         depth,
     };
@@ -747,34 +836,40 @@ pub(crate) fn impact_cmd(solution: &Solution, args: &Args) -> u8 {
             return FAILED;
         }
     };
-    if args.has("--json") {
-        let value = report.to_json(args.has("--detail"));
+    if args.json.json {
+        let value = report.to_json(args.detail.detail);
         println!(
             "{}",
             serde_json::to_string_pretty(&value).expect("a report serialises")
         );
-    } else if args.has("--dot") {
+    } else if args.dot {
         print!("{}", impact::render_dot(&report));
     } else {
-        print!("{}", impact::render_text(&report, args.has("--detail")));
+        print!("{}", impact::render_text(&report, args.detail.detail));
     }
     OK
 }
 
+/// `twaco unused [--min-confidence <value>] [--collection <name>] [--fields]`.
+#[derive(Debug, clap::Args)]
+#[group(skip)]
+pub(crate) struct Unused {
+    #[arg(long = "min-confidence", value_name = "value")]
+    pub(crate) min_confidence: Option<String>,
+    #[arg(long = "collection", value_name = "name")]
+    pub(crate) collection: Option<String>,
+    #[arg(long = "fields")]
+    pub(crate) fields: bool,
+    #[command(flatten)]
+    pub(crate) detail: super::flags::Detail,
+    #[command(flatten)]
+    pub(crate) json: super::flags::Json,
+}
+
 /// Entities no entry point reaches. Offline, advisory and read-only: it deletes nothing.
-pub(crate) fn unused_cmd(solution: &Solution, args: &Args) -> u8 {
-    if !args.names.is_empty() {
-        eprintln!(
-            "{} unused takes no entity; use --collection to narrow it",
-            style::prefix()
-        );
-        return FAILED;
-    }
-    let fields = args.has("--fields");
-    if fields
-        && (args.values.contains_key("--min-confidence")
-            || args.values.contains_key("--collection"))
-    {
+pub(crate) fn unused_cmd(solution: &Solution, args: &Unused) -> u8 {
+    let fields = args.fields;
+    if fields && (args.min_confidence.is_some() || args.collection.is_some()) {
         eprintln!(
             "{} --fields cannot be used with --collection or --min-confidence",
             style::prefix()
@@ -783,7 +878,7 @@ pub(crate) fn unused_cmd(solution: &Solution, args: &Args) -> u8 {
     }
     if fields {
         let report = unused::fields(solution);
-        if args.has("--json") {
+        if args.json.json {
             println!(
                 "{}",
                 serde_json::to_string_pretty(&report).expect("a report serialises")
@@ -793,7 +888,7 @@ pub(crate) fn unused_cmd(solution: &Solution, args: &Args) -> u8 {
         }
         return OK;
     }
-    let min = match args.values.get("--min-confidence") {
+    let min = match args.min_confidence.as_ref() {
         None => Confidence::Review,
         Some(word) => match Confidence::parse(word) {
             Some(confidence) => confidence,
@@ -806,7 +901,7 @@ pub(crate) fn unused_cmd(solution: &Solution, args: &Args) -> u8 {
             }
         },
     };
-    let collection = args.values.get("--collection").cloned();
+    let collection = args.collection.clone();
     if let Some(name) = &collection {
         if !unused::JUDGED.contains(&name.as_str()) {
             eprintln!(
@@ -818,36 +913,48 @@ pub(crate) fn unused_cmd(solution: &Solution, args: &Args) -> u8 {
         }
     }
     let report = unused::run(solution, &unused::Request { min, collection });
-    if args.has("--json") {
-        let value = report.to_json(args.has("--detail"));
+    if args.json.json {
+        let value = report.to_json(args.detail.detail);
         println!(
             "{}",
             serde_json::to_string_pretty(&value).expect("a report serialises")
         );
     } else {
-        print!("{}", unused::render_text(&report, args.has("--detail")));
+        print!("{}", unused::render_text(&report, args.detail.detail));
     }
     OK
 }
 
+/// `twaco docs [--detail] [--json] [--out <file> [--force|--check]]`.
+#[derive(Debug, clap::Args)]
+#[group(skip)]
+pub(crate) struct Docs {
+    #[command(flatten)]
+    pub(crate) detail: super::flags::Detail,
+    #[command(flatten)]
+    pub(crate) json: super::flags::Json,
+    #[arg(long = "out", value_name = "path", value_parser = super::flags::path())]
+    pub(crate) out: Option<std::path::PathBuf>,
+    #[arg(long = "force")]
+    pub(crate) force: bool,
+    #[arg(long = "check")]
+    pub(crate) check: bool,
+}
+
 /// The solution written down. Offline; with `--out` it writes exactly one file.
-pub(crate) fn docs_cmd(solution: &Solution, args: &Args) -> u8 {
-    if !args.names.is_empty() {
-        eprintln!("{} docs takes no entity name", style::prefix());
-        return FAILED;
-    }
-    if args.has("--force") && args.out.is_none() {
+pub(crate) fn docs_cmd(solution: &Solution, args: &Docs) -> u8 {
+    if args.force && args.out.is_none() {
         eprintln!("{} --force only applies to --out", style::prefix());
         return FAILED;
     }
-    if args.has("--check") && args.out.is_none() {
+    if args.check && args.out.is_none() {
         eprintln!(
             "{} --check needs --out <file>: the document to compare",
             style::prefix()
         );
         return FAILED;
     }
-    if args.has("--check") && args.has("--force") {
+    if args.check && args.force {
         eprintln!(
             "{} --check writes nothing; leave out --force",
             style::prefix()
@@ -855,8 +962,8 @@ pub(crate) fn docs_cmd(solution: &Solution, args: &Args) -> u8 {
         return FAILED;
     }
     let document = docs::build(solution);
-    let detail = args.has("--detail");
-    let text = if args.has("--json") {
+    let detail = args.detail.detail;
+    let text = if args.json.json {
         let mut json =
             serde_json::to_string_pretty(&document.to_json(detail)).expect("a document serialises");
         json.push('\n');
@@ -866,8 +973,8 @@ pub(crate) fn docs_cmd(solution: &Solution, args: &Args) -> u8 {
     };
     match &args.out {
         None => print!("{text}"),
-        Some(path) if args.has("--check") => {
-            let format = if args.has("--json") { " --json" } else { "" };
+        Some(path) if args.check => {
+            let format = if args.json.json { " --json" } else { "" };
             let detail = if detail { " --detail" } else { "" };
             match docs::is_current(path, &text) {
                 Ok(true) => println!("{} is up to date", path.display()),
@@ -894,7 +1001,7 @@ pub(crate) fn docs_cmd(solution: &Solution, args: &Args) -> u8 {
             }
         }
         Some(path) => {
-            if let Err(error) = docs::write(path, &text, args.has("--force")) {
+            if let Err(error) = docs::write(path, &text, args.force) {
                 eprintln!("{} docs: {error}", style::prefix());
                 return FAILED;
             }
@@ -904,15 +1011,29 @@ pub(crate) fn docs_cmd(solution: &Solution, args: &Args) -> u8 {
     OK
 }
 
-pub(crate) fn catalog_cmd(solution: &Solution, args: &Args) -> u8 {
-    if args.names.len() > 1 {
+/// `twaco catalog [<entity>] [--project P] [--search <text>] [--json]`.
+#[derive(Debug, clap::Args)]
+#[group(skip)]
+pub(crate) struct Catalog {
+    #[command(flatten)]
+    pub(crate) project: super::flags::Project,
+    #[arg(long = "search", value_name = "text")]
+    pub(crate) search: Option<String>,
+    #[command(flatten)]
+    pub(crate) json: super::flags::Json,
+    #[arg(id = "operands", value_name = "operand")]
+    pub(crate) operands: Vec<String>,
+}
+
+pub(crate) fn catalog_cmd(solution: &Solution, args: &Catalog) -> u8 {
+    if args.operands.len() > 1 {
         eprintln!("{} catalog takes at most one entity name", style::prefix());
         return FAILED;
     }
     let query = catalog::Query {
-        project: args.project.as_deref(),
-        entity: args.names.first().map(String::as_str),
-        text: args.values.get("--search").map(String::as_str),
+        project: args.project.project.as_deref(),
+        entity: args.operands.first().map(String::as_str),
+        text: args.search.as_deref(),
     };
     let result = match catalog::build(solution, query) {
         Ok(result) => result,
@@ -925,7 +1046,7 @@ pub(crate) fn catalog_cmd(solution: &Solution, args: &Args) -> u8 {
         eprintln!("{} skipped {skipped}", style::prefix());
     }
     for entity in &result.entities {
-        if !args.has("--json") {
+        if !args.json.json {
             let mut notes = Vec::new();
             if !entity.inherits.is_empty() {
                 notes.push(format!("inherits {}", entity.inherits.join(", ")));
@@ -944,7 +1065,7 @@ pub(crate) fn catalog_cmd(solution: &Solution, args: &Args) -> u8 {
             println!("{}/{}{}", entity.collection, entity.name, notes);
         }
         for service in &entity.services {
-            if args.has("--json") {
+            if args.json.json {
                 println!(
                     "{}",
                     serde_json::json!({

@@ -27,3 +27,84 @@ pub(crate) struct Apply {
     #[arg(long = "apply")]
     pub(crate) apply: bool,
 }
+
+/// `--json`: results as JSON on stdout instead of text.
+#[derive(Debug, Default, clap::Args)]
+#[group(skip)]
+pub(crate) struct Json {
+    #[arg(long = "json")]
+    pub(crate) json: bool,
+}
+
+/// `--detail`: the whole result, not only its summary.
+#[derive(Debug, Default, clap::Args)]
+#[group(skip)]
+pub(crate) struct Detail {
+    #[arg(long = "detail")]
+    pub(crate) detail: bool,
+}
+
+/// `--project <name>`: narrow to one project of the solution.
+#[derive(Debug, Default, clap::Args)]
+#[group(skip)]
+pub(crate) struct Project {
+    #[arg(long = "project", value_name = "name")]
+    pub(crate) project: Option<String>,
+}
+
+/// `--all` or the entities named: what a command works on.
+#[derive(Debug, Default, clap::Args)]
+#[group(skip)]
+pub(crate) struct Selection {
+    #[arg(long = "all")]
+    pub(crate) all: bool,
+    #[arg(id = "operands", value_name = "operand")]
+    pub(crate) operands: Vec<String>,
+}
+
+impl Selection {
+    /// `--all` with names says two things; refused before the command runs, in the builder's
+    /// words.
+    pub(crate) fn validate(&self) -> Result<(), String> {
+        if self.all && !self.operands.is_empty() {
+            return Err(format!(
+                "--all and {:?} say different things; pass one or the other",
+                self.operands
+            ));
+        }
+        Ok(())
+    }
+}
+
+/// `--timeout <seconds>`: how long one request may take. Read as text and checked by
+/// [`Timeout::duration`] from `validate()`, as `args_from` checked it, so the message is the
+/// builder's.
+#[derive(Debug, Default, clap::Args)]
+#[group(skip)]
+pub(crate) struct Timeout {
+    #[arg(long = "timeout", value_name = "seconds")]
+    pub(crate) timeout: Option<String>,
+}
+
+impl Timeout {
+    /// The timeout given, if any; refused unless a positive whole number of seconds.
+    pub(crate) fn duration(&self) -> Result<Option<std::time::Duration>, String> {
+        let Some(value) = &self.timeout else {
+            return Ok(None);
+        };
+        value
+            .parse::<u64>()
+            .ok()
+            .filter(|seconds| *seconds > 0)
+            .map(|seconds| Some(std::time::Duration::from_secs(seconds)))
+            .ok_or_else(|| "--timeout needs a positive whole number of seconds".to_string())
+    }
+}
+
+/// The parser for a value that names a file (`value_parser = super::flags::path()`): any
+/// string, as the builder took it, read as a path. clap's own path parser refuses an empty value
+/// and accepts one that is not UTF-8, which the builder did the other way round.
+pub(crate) fn path() -> impl clap::builder::TypedValueParser<Value = std::path::PathBuf> {
+    use clap::builder::TypedValueParser as _;
+    clap::builder::StringValueParser::new().map(std::path::PathBuf::from)
+}

@@ -1,15 +1,31 @@
-use super::args::Args;
 use super::style;
 use crate::{print_notices, FAILED, OK};
 use twaco::core::commands;
 use twaco::core::config::Solution;
 use twaco::core::{profile, server};
 
-/// `twaco export entity | collection | project | source-control`.
+/// `twaco search [<text>] [--type <T>[,<T>]] [--project P] [--limit <n>] [--json]`.
+#[derive(Debug, clap::Args)]
+#[group(skip)]
+pub(crate) struct Search {
+    #[arg(long = "type", value_name = "value")]
+    pub(crate) kind: Option<String>,
+    #[command(flatten)]
+    pub(crate) project: super::flags::Project,
+    #[arg(long = "limit", value_name = "n")]
+    pub(crate) limit: Option<String>,
+    #[command(flatten)]
+    pub(crate) json: super::flags::Json,
+    #[command(flatten)]
+    pub(crate) profile: super::flags::Profile,
+    #[arg(id = "operands", value_name = "operand")]
+    pub(crate) operands: Vec<String>,
+}
+
 /// Search the server's entities, as Composer's Spotlight box does.
-pub(crate) fn search_cmd(solution: &Solution, args: &Args) -> u8 {
+pub(crate) fn search_cmd(solution: &Solution, args: &Search) -> u8 {
     use twaco::core::search;
-    let limit = match args.values.get("--limit").map(|text| text.parse::<usize>()) {
+    let limit = match args.limit.as_ref().map(|text| text.parse::<usize>()) {
         None => search::DEFAULT_LIMIT,
         Some(Ok(limit)) => limit,
         Some(Err(_)) => {
@@ -17,15 +33,15 @@ pub(crate) fn search_cmd(solution: &Solution, args: &Args) -> u8 {
             return FAILED;
         }
     };
-    let text = args.names.join(" ");
-    let types: Vec<String> = args.values.get("--type").cloned().into_iter().collect();
+    let text = args.operands.join(" ");
+    let types: Vec<String> = args.kind.clone().into_iter().collect();
     let query = search::Query {
         text: Some(text.as_str()),
         types: &types,
-        project: args.project.as_deref(),
+        project: args.project.project.as_deref(),
         limit,
     };
-    let profile_name = args.profile.as_deref().unwrap_or("default");
+    let profile_name = args.profile.name();
     let profile = match profile::load(&solution.root, profile_name) {
         Ok(profile) => profile,
         Err(error) => {
@@ -40,7 +56,7 @@ pub(crate) fn search_cmd(solution: &Solution, args: &Args) -> u8 {
             return FAILED;
         }
     };
-    if args.has("--json") {
+    if args.json.json {
         let mut value = serde_json::json!({
             "ok": true,
             "count": outcome.entities.len(),
@@ -96,13 +112,42 @@ pub(crate) fn search_cmd(solution: &Solution, args: &Args) -> u8 {
     OK
 }
 
-pub(crate) fn export_cmd(solution: &Solution, args: &Args) -> u8 {
+/// `twaco export entity | collection | project | source-control`.
+#[derive(Debug, clap::Args)]
+#[group(skip)]
+pub(crate) struct Export {
+    #[arg(long = "out", value_name = "path", value_parser = super::flags::path())]
+    pub(crate) out: Option<std::path::PathBuf>,
+    #[arg(long = "force")]
+    pub(crate) force: bool,
+    #[command(flatten)]
+    pub(crate) project: super::flags::Project,
+    #[command(flatten)]
+    pub(crate) profile: super::flags::Profile,
+    #[arg(long = "repository", value_name = "repository")]
+    pub(crate) repository: Option<String>,
+    #[arg(long = "path", value_name = "path")]
+    pub(crate) path: Option<String>,
+    #[arg(long = "collection", value_name = "name")]
+    pub(crate) collection: Option<String>,
+    #[arg(long = "tags", value_name = "value")]
+    pub(crate) tags: Option<String>,
+    #[arg(long = "zip", value_name = "name")]
+    pub(crate) zip: Option<String>,
+    #[arg(long = "with-dependents")]
+    pub(crate) with_dependents: bool,
+    #[command(flatten)]
+    pub(crate) apply: super::flags::Apply,
+    #[arg(id = "operands", value_name = "operand")]
+    pub(crate) operands: Vec<String>,
+}
+
+pub(crate) fn export_cmd(solution: &Solution, args: &Export) -> u8 {
     use twaco::core::commands::export::{self as command, ExportAction, ExportRequest};
     let progress = super::progress::reporter();
     use twaco::core::export;
-    let profile_name = args.profile.as_deref().unwrap_or("default");
-    let value = |flag: &str| args.values.get(flag).cloned();
-    let names: Vec<&str> = args.names.iter().map(String::as_str).collect();
+    let profile_name = args.profile.name();
+    let names: Vec<&str> = args.operands.iter().map(String::as_str).collect();
     let result: Result<(), String> = (|| {
         let action = match names.as_slice() {
             ["entity", entity] => ExportAction::Xml {
@@ -111,18 +156,18 @@ pub(crate) fn export_cmd(solution: &Solution, args: &Args) -> u8 {
                     .out
                     .clone()
                     .ok_or("an export needs --out <file>")?,
-                force: args.has("--force"),
+                force: args.force,
             },
             ["collection", collection] => ExportAction::Xml {
                 what: export::What::Collection {
                     collection: collection.to_string(),
-                    project: args.project.clone(),
+                    project: args.project.project.clone(),
                 },
                 out: args
                     .out
                     .clone()
                     .ok_or("an export needs --out <file>")?,
-                force: args.has("--force"),
+                force: args.force,
             },
             ["project", project] => ExportAction::Xml {
                 what: export::What::Project {
@@ -132,19 +177,19 @@ pub(crate) fn export_cmd(solution: &Solution, args: &Args) -> u8 {
                     .out
                     .clone()
                     .ok_or("an export needs --out <file>")?,
-                force: args.has("--force"),
+                force: args.force,
             },
             ["source-control"] => {
-                let repository = value("--repository").ok_or("source-control needs --repository")?;
-                let path = value("--path").ok_or("source-control needs --path, a folder of the repository")?;
+                let repository = args.repository.clone().ok_or("source-control needs --repository")?;
+                let path = args.path.clone().ok_or("source-control needs --path, a folder of the repository")?;
                 let filters = export::Filters {
-                    project: args.project.clone(),
-                    collection: value("--collection"),
-                    tags: value("--tags"),
-                    include_dependents: args.has("--with-dependents"),
+                    project: args.project.project.clone(),
+                    collection: args.collection.clone(),
+                    tags: args.tags.clone(),
+                    include_dependents: args.with_dependents,
                 };
-                let zip = value("--zip");
-                let apply = args.has("--apply");
+                let zip = args.zip.clone();
+                let apply = args.apply.apply;
                 let request = ExportRequest {
                     action: ExportAction::SourceControl {
                         repository,
@@ -221,29 +266,48 @@ pub(crate) fn export_cmd(solution: &Solution, args: &Args) -> u8 {
     }
 }
 
+/// `twaco import <file> | import source-control`.
+#[derive(Debug, clap::Args)]
+#[group(skip)]
+pub(crate) struct Import {
+    #[command(flatten)]
+    pub(crate) apply: super::flags::Apply,
+    #[arg(long = "overwrite-properties")]
+    pub(crate) overwrite_properties: bool,
+    #[arg(long = "overwrite-tables")]
+    pub(crate) overwrite_tables: bool,
+    #[arg(long = "repository", value_name = "repository")]
+    pub(crate) repository: Option<String>,
+    #[arg(long = "path", value_name = "path")]
+    pub(crate) path: Option<String>,
+    #[command(flatten)]
+    pub(crate) profile: super::flags::Profile,
+    #[command(flatten)]
+    pub(crate) detail: super::flags::Detail,
+    #[arg(id = "operands", value_name = "operand")]
+    pub(crate) operands: Vec<String>,
+}
+
 /// `twaco import <file> | import source-control`: into the server, as plans unless applied.
-pub(crate) fn import_cmd(solution: &Solution, args: &Args) -> u8 {
+pub(crate) fn import_cmd(solution: &Solution, args: &Import) -> u8 {
     use twaco::core::commands::imports::{self as command, ImportAction, ImportRequest};
     let progress = super::progress::reporter();
     use twaco::core::imports;
-    let profile_name = args.profile.as_deref().unwrap_or("default");
-    let apply = args.has("--apply");
-    let (properties, tables) = (
-        args.has("--overwrite-properties"),
-        args.has("--overwrite-tables"),
-    );
+    let profile_name = args.profile.name();
+    let apply = args.apply.apply;
+    let (properties, tables) = (args.overwrite_properties, args.overwrite_tables);
     let differs_line =
         |d: &imports::Differs| format!("{} {}: {}", d.entity_type, d.name, d.what.join("; "));
-    let names: Vec<&str> = args.names.iter().map(String::as_str).collect();
+    let names: Vec<&str> = args.operands.iter().map(String::as_str).collect();
     let result: Result<(), String> = (|| match names.as_slice() {
         ["source-control"] => {
             let repository = args
-                .values
-                .get("--repository")
+                .repository
+                .as_ref()
                 .ok_or("import source-control needs --repository")?;
             let path = args
-                .values
-                .get("--path")
+                .path
+                .as_ref()
                 .ok_or("import source-control needs --path")?;
             let request = ImportRequest {
                 action: ImportAction::SourceControl {
@@ -276,7 +340,7 @@ pub(crate) fn import_cmd(solution: &Solution, args: &Args) -> u8 {
                 unreachable!()
             };
             let (total, before, after) = (imported.total, imported.differ, imported.still_differ);
-            let shown = if args.has("--detail") { usize::MAX } else { 20 };
+            let shown = if args.detail.detail { usize::MAX } else { 20 };
             println!(
                 "{total} entities in {repository}:{path}; {} differ from the server",
                 before.len()
@@ -329,7 +393,7 @@ pub(crate) fn import_cmd(solution: &Solution, args: &Args) -> u8 {
             let command::ImportOutcome::File { plan, .. } = outcome else {
                 unreachable!()
             };
-            let shown = if args.has("--detail") { usize::MAX } else { 20 };
+            let shown = if args.detail.detail { usize::MAX } else { 20 };
             for key in plan.replaced.iter().take(shown) {
                 println!("  replaces {key}");
             }
@@ -366,38 +430,56 @@ pub(crate) fn import_cmd(solution: &Solution, args: &Args) -> u8 {
     }
 }
 
+/// `twaco package bundle | source-control | extension --out <file>`.
+#[derive(Debug, clap::Args)]
+#[group(skip)]
+pub(crate) struct Package {
+    #[command(flatten)]
+    pub(crate) project: super::flags::Project,
+    #[arg(long = "backend-only")]
+    pub(crate) backend_only: bool,
+    #[arg(long = "frontend-only")]
+    pub(crate) frontend_only: bool,
+    #[arg(long = "editable")]
+    pub(crate) editable: bool,
+    #[arg(long = "out", value_name = "path", value_parser = super::flags::path())]
+    pub(crate) out: Option<std::path::PathBuf>,
+    #[arg(long = "force")]
+    pub(crate) force: bool,
+    #[arg(id = "operands", value_name = "operand")]
+    pub(crate) operands: Vec<String>,
+}
+
 /// `twaco package bundle | source-control | extension`: the repository packaged for release,
 /// offline. Never replaces an existing `--out` file without `--force`.
-pub(crate) fn package_cmd(solution: &Solution, args: &Args) -> u8 {
+pub(crate) fn package_cmd(solution: &Solution, args: &Package) -> u8 {
     use twaco::core::commands::package::{self, PackageAction, PackageRequest};
     let Some(out) = args.out.clone() else {
         eprintln!("{} package: package needs --out <file>", style::prefix());
         return FAILED;
     };
-    let action = match args.names.as_slice() {
-        [name] if name == "bundle" => {
-            match (args.has("--backend-only"), args.has("--frontend-only")) {
-                (true, true) => {
-                    eprintln!(
-                        "{} package: --backend-only and --frontend-only say different things",
-                        style::prefix()
-                    );
-                    return FAILED;
-                }
-                (true, false) => PackageAction::Bundle {
-                    part: twaco::core::package::Part::Backend,
-                },
-                (false, true) => PackageAction::Bundle {
-                    part: twaco::core::package::Part::Frontend,
-                },
-                (false, false) => PackageAction::Bundle {
-                    part: twaco::core::package::Part::All,
-                },
+    let action = match args.operands.as_slice() {
+        [name] if name == "bundle" => match (args.backend_only, args.frontend_only) {
+            (true, true) => {
+                eprintln!(
+                    "{} package: --backend-only and --frontend-only say different things",
+                    style::prefix()
+                );
+                return FAILED;
             }
-        }
+            (true, false) => PackageAction::Bundle {
+                part: twaco::core::package::Part::Backend,
+            },
+            (false, true) => PackageAction::Bundle {
+                part: twaco::core::package::Part::Frontend,
+            },
+            (false, false) => PackageAction::Bundle {
+                part: twaco::core::package::Part::All,
+            },
+        },
         [name] if name == "source-control" => PackageAction::SourceControl,
         [name] if name == "extension" => PackageAction::Extension {
-            editable: args.has("--editable"),
+            editable: args.editable,
         },
         _ => {
             eprintln!(
@@ -411,9 +493,9 @@ pub(crate) fn package_cmd(solution: &Solution, args: &Args) -> u8 {
         solution,
         &PackageRequest {
             action,
-            project: args.project.clone(),
+            project: args.project.project.clone(),
             out,
-            force: args.has("--force"),
+            force: args.force,
         },
     ) {
         Ok(outcome) => {
@@ -432,12 +514,26 @@ pub(crate) fn package_cmd(solution: &Solution, args: &Args) -> u8 {
     }
 }
 
+/// `twaco ext list | show | import | remove`.
+#[derive(Debug, clap::Args)]
+#[group(skip)]
+pub(crate) struct Ext {
+    #[command(flatten)]
+    pub(crate) apply: super::flags::Apply,
+    #[command(flatten)]
+    pub(crate) json: super::flags::Json,
+    #[command(flatten)]
+    pub(crate) profile: super::flags::Profile,
+    #[arg(id = "operands", value_name = "operand")]
+    pub(crate) operands: Vec<String>,
+}
+
 /// `twaco ext list | show | import | remove`: the server's extension packages.
-pub(crate) fn ext_cmd(solution: &Solution, args: &Args) -> u8 {
+pub(crate) fn ext_cmd(solution: &Solution, args: &Ext) -> u8 {
     use twaco::core::commands::extensions::{self as command, ExtensionAction, ExtensionRequest};
     let progress = super::progress::reporter();
-    let profile_name = args.profile.as_deref().unwrap_or("default");
-    let names: Vec<&str> = args.names.iter().map(String::as_str).collect();
+    let profile_name = args.profile.name();
+    let names: Vec<&str> = args.operands.iter().map(String::as_str).collect();
     let result: Result<(), String> = (|| match names.as_slice() {
         ["list"] => {
             let request = ExtensionRequest {
@@ -458,7 +554,7 @@ pub(crate) fn ext_cmd(solution: &Solution, args: &Args) -> u8 {
                 unreachable!()
             };
             for p in &packages {
-                if args.has("--json") {
+                if args.json.json {
                     println!(
                         "{}",
                         serde_json::json!({ "name": p.name, "version": p.version, "vendor": p.vendor, "minimumThingWorxVersion": p.minimum_thingworx, "group": p.group, "artifact": p.artifact })
@@ -527,7 +623,7 @@ pub(crate) fn ext_cmd(solution: &Solution, args: &Args) -> u8 {
                 action: ExtensionAction::Import {
                     file_name,
                     zip,
-                    mode: if args.has("--apply") {
+                    mode: if args.apply.apply {
                         commands::Mode::Apply
                     } else {
                         commands::Mode::Plan
@@ -562,7 +658,7 @@ pub(crate) fn ext_cmd(solution: &Solution, args: &Args) -> u8 {
             let request = ExtensionRequest {
                 action: ExtensionAction::Remove {
                     name: name.to_string(),
-                    mode: if args.has("--apply") {
+                    mode: if args.apply.apply {
                         commands::Mode::Apply
                     } else {
                         commands::Mode::Plan
@@ -583,7 +679,7 @@ pub(crate) fn ext_cmd(solution: &Solution, args: &Args) -> u8 {
             let command::ExtensionOutcome::Removed { plan, .. } = outcome else {
                 unreachable!()
             };
-            if args.has("--apply") {
+            if args.apply.apply {
                 println!("done: {plan}; it is gone from the package list");
             } else {
                 println!("would {plan}; nothing sent (pass --apply)");
@@ -601,13 +697,35 @@ pub(crate) fn ext_cmd(solution: &Solution, args: &Args) -> u8 {
     }
 }
 
+/// `twaco repo list | ls | get | status | put | mkdir | rm | mv | push | pull`.
+#[derive(Debug, clap::Args)]
+#[group(skip)]
+pub(crate) struct Repo {
+    #[arg(long = "recursive")]
+    pub(crate) recursive: bool,
+    #[arg(long = "out", value_name = "path", value_parser = super::flags::path())]
+    pub(crate) out: Option<std::path::PathBuf>,
+    #[command(flatten)]
+    pub(crate) json: super::flags::Json,
+    #[command(flatten)]
+    pub(crate) profile: super::flags::Profile,
+    #[arg(long = "force")]
+    pub(crate) force: bool,
+    #[arg(long = "overwrite")]
+    pub(crate) overwrite: bool,
+    #[command(flatten)]
+    pub(crate) apply: super::flags::Apply,
+    #[arg(id = "operands", value_name = "operand")]
+    pub(crate) operands: Vec<String>,
+}
+
 /// `twaco repo list | ls | get | status`: the server's file repositories, read-only.
-pub(crate) fn repo_cmd(solution: &Solution, args: &Args) -> u8 {
+pub(crate) fn repo_cmd(solution: &Solution, args: &Repo) -> u8 {
     let progress = super::progress::reporter();
     use twaco::core::commands::repo::{self as command, RepoAction, RepoRequest};
     use twaco::core::repo;
-    let profile_name = args.profile.as_deref().unwrap_or("default");
-    let names: Vec<&str> = args.names.iter().map(String::as_str).collect();
+    let profile_name = args.profile.name();
+    let names: Vec<&str> = args.operands.iter().map(String::as_str).collect();
     let result: Result<(), String> = (|| {
         match names.as_slice() {
         ["list"] => {
@@ -639,7 +757,7 @@ pub(crate) fn repo_cmd(solution: &Solution, args: &Args) -> u8 {
                 action: RepoAction::Ls {
                     repository: repository.to_string(),
                     path: folder.to_string(),
-                    recursive: args.has("--recursive"),
+                    recursive: args.recursive,
                 },
                 profile: profile_name.to_string(),
             };
@@ -656,7 +774,7 @@ pub(crate) fn repo_cmd(solution: &Solution, args: &Args) -> u8 {
             let command::RepoOutcome::Ls { listing, .. } = outcome else {
                 unreachable!()
             };
-            if args.has("--json") {
+            if args.json.json {
                 for folder in &listing.folders {
                     println!("{}", serde_json::json!({ "path": folder, "type": "folder" }));
                 }
@@ -680,7 +798,7 @@ pub(crate) fn repo_cmd(solution: &Solution, args: &Args) -> u8 {
                     repository: repository.to_string(),
                     path: path.to_string(),
                     out: args.out.clone(),
-                    force: args.has("--force"),
+                    force: args.force,
                 },
                 profile: profile_name.to_string(),
             };
@@ -731,7 +849,7 @@ pub(crate) fn repo_cmd(solution: &Solution, args: &Args) -> u8 {
             let mut counts = std::collections::BTreeMap::new();
             for item in &compared {
                 *counts.entry(item.state.label()).or_insert(0usize) += 1;
-                if args.has("--json") {
+                if args.json.json {
                     println!(
                         "{}",
                         serde_json::json!({ "path": item.path, "state": item.state.label(), "local_size": item.local_size, "remote_size": item.remote_size })
@@ -752,7 +870,7 @@ pub(crate) fn repo_cmd(solution: &Solution, args: &Args) -> u8 {
         ["put", repository, file, path] => {
             let bytes = std::fs::read(file).map_err(|e| format!("{file}: {e}"))?;
             let path = repo::remote_path(path).map_err(|e| e.to_string())?;
-            repo_change(solution, repository, repo::Change::Put { path, bytes, overwrite: args.has("--overwrite") }, profile_name, args)
+            repo_change(solution, repository, repo::Change::Put { path, bytes, overwrite: args.overwrite }, profile_name, args)
         }
         ["mkdir", repository, path] => {
             let path = repo::remote_path(path).map_err(|e| e.to_string())?;
@@ -763,14 +881,14 @@ pub(crate) fn repo_cmd(solution: &Solution, args: &Args) -> u8 {
             if path == "/" {
                 return Err("the repository root cannot be deleted".to_string());
             }
-            repo_change(solution, repository, repo::Change::Remove { path, recursive: args.has("--recursive") }, profile_name, args)
+            repo_change(solution, repository, repo::Change::Remove { path, recursive: args.recursive }, profile_name, args)
         }
         [direction @ ("push" | "pull"), repository] => {
             let way = if *direction == "push" { repo::Direction::Push } else { repo::Direction::Pull };
-            let apply = args.has("--apply");
+            let apply = args.apply.apply;
             let request = RepoRequest {
                 action: RepoAction::Sync {
-                    repository: (*repository).to_string(), direction: way, overwrite: args.has("--overwrite"),
+                    repository: (*repository).to_string(), direction: way, overwrite: args.overwrite,
                     mode: if apply { commands::Mode::Apply } else { commands::Mode::Plan },
                 },
                 profile: profile_name.to_string(),
@@ -810,7 +928,7 @@ pub(crate) fn repo_cmd(solution: &Solution, args: &Args) -> u8 {
         ["mv", repository, from, to] => {
             let from = repo::remote_path(from).map_err(|e| e.to_string())?;
             let to = repo::remote_path(to).map_err(|e| e.to_string())?;
-            repo_change(solution, repository, repo::Change::Move { from, to, overwrite: args.has("--overwrite") }, profile_name, args)
+            repo_change(solution, repository, repo::Change::Move { from, to, overwrite: args.overwrite }, profile_name, args)
         }
         _ => Err("repo takes: list | ls <repo> [<path>] | get <repo> <path> | status <repo> | put <repo> <file> <path> | mkdir <repo> <path> | rm <repo> <path> | mv <repo> <from> <to>".to_string()),
     }
@@ -830,7 +948,7 @@ fn repo_change(
     repository: &str,
     change: twaco::core::repo::Change,
     profile: &str,
-    args: &Args,
+    args: &Repo,
 ) -> Result<(), String> {
     use twaco::core::commands::repo::{self as command, RepoAction, RepoRequest};
     let progress = super::progress::reporter();
@@ -838,7 +956,7 @@ fn repo_change(
         action: RepoAction::Change {
             repository: repository.to_string(),
             change,
-            mode: if args.has("--apply") {
+            mode: if args.apply.apply {
                 commands::Mode::Apply
             } else {
                 commands::Mode::Plan
