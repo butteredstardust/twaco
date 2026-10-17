@@ -396,11 +396,11 @@ pub(super) fn rename_data_table(
             }) {
                 return Err(format!("the DataTable already has a field named {new}"));
             }
-            if definitions.contains_key(old) {
-                if let Some(merged) = super::super::accumulated::merge(text, fields) {
-                    renamed.accumulated = merged;
-                    changed = true;
-                }
+            // The import merges whether or not the table ever recorded the old field (a table that
+            // missed an earlier change has not), so the new field is added either way.
+            if let Some(merged) = super::super::accumulated::merge(text, fields) {
+                renamed.accumulated = merged;
+                changed = true;
             }
         }
     }

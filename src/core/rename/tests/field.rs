@@ -427,3 +427,33 @@ fn the_stored_values_note_comes_only_when_a_table_uses_the_shape() {
         outcome.follow_up
     );
 }
+
+#[test]
+fn a_field_rename_adds_the_new_field_to_a_table_that_never_recorded_the_old_one() {
+    let fixture = data_table_fixture("missed");
+    let path = fixture.root.join("Things/P.Rows_DT.xml");
+    let table = std::fs::read_to_string(&path)
+        .unwrap()
+        .replace(r#","Period":{"name":"Period","baseType":"STRING"}"#, "");
+    assert!(!table.contains("\"Period\":{"), "{table}");
+    std::fs::write(&path, &table).unwrap();
+    write(
+        &fixture.root,
+        "src/P.Rows_DT/datatable.json",
+        &datatable::to_sidecar(&datatable::extract(table.as_bytes()).unwrap()).unwrap(),
+    );
+    let planned = plan(&fixture.solution, &field_spec("P.D", "Period", "PeriodKey")).unwrap();
+    apply(
+        &fixture.solution,
+        &planned,
+        &options(false),
+        &locked(&fixture),
+    )
+    .unwrap();
+    let after = std::fs::read_to_string(&path).unwrap();
+    assert!(
+        after.contains("\"PeriodKey\":{\"name\":\"PeriodKey\""),
+        "{after}"
+    );
+    assert!(after.contains("Name,PeriodKey"), "{after}");
+}

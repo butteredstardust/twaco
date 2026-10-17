@@ -194,17 +194,17 @@ pub(crate) fn sync(
                 options.check,
             ));
         }
+        // A DataTable whose own datatable.json is refused is left alone: the merge would write
+        // both files, overwriting the sidecar the person still has to correct.
+        let mut table_refused = false;
         if super::datatable::is_data_table(&src) {
-            tally.record(sync_datatable(
-                log,
-                solution,
-                entity,
-                &mut current,
-                options.check,
-            ));
+            let synced = sync_datatable(log, solution, entity, &mut current, options.check);
+            table_refused = synced.is_err();
+            tally.record(synced);
         }
         let mut accumulated_sidecar = None;
         if let Some(fields) = super::datatable::shape_and_accumulated(&current)
+            .filter(|_| !table_refused)
             .and_then(|(shape, _)| shapes.get(&shape))
         {
             if sync_accumulated(log, entity, &mut current, fields, options.check) {
@@ -1074,6 +1074,60 @@ mod tests {
         assert_eq!(read(&root, "Things/P.Rows.xml"), rows);
         assert!(!read(&root, "Things/P.Log.xml").contains("extra"));
         assert!(!read(&root, "src/P.Rows/datatable.json").contains("extra"));
+    }
+
+    #[test]
+    fn a_table_whose_own_sidecar_is_refused_is_not_written() {
+        let (_dir, root, solution) = shape_fixture("broken-sidecar");
+        let broken = read(&root, "src/P.Rows/datatable.json").replace("\"indexes\"", "\"indexez\"");
+        std::fs::write(root.join("src/P.Rows/datatable.json"), &broken).unwrap();
+        let rows = read(&root, "Things/P.Rows.xml");
+        add_extra_field(&root);
+        let outcome = sync(
+            &solution,
+            &entities(&solution),
+            &[],
+            SyncOptions {
+                allow_structural: true,
+                ..SyncOptions::default()
+            },
+        );
+        assert_eq!(outcome.failed, 1, "{:?}", outcome.log);
+        assert_eq!(read(&root, "src/P.Rows/datatable.json"), broken);
+        assert_eq!(read(&root, "Things/P.Rows.xml"), rows);
+        // The Stream on the same shape is not held back by the DataTable's sidecar.
+        assert!(read(&root, "Things/P.Log.xml").contains(EXTRA));
+    }
+
+    #[test]
+    fn a_datashape_reaches_tables_of_another_project() {
+        let (_dir, root, _) = shape_fixture("projects");
+        std::fs::write(
+            root.join("twaco.toml"),
+            "[[project]]\nname = \"P\"\n\n[[project]]\nname = \"Q\"\n",
+        )
+        .unwrap();
+        let log = read(&root, "Things/P.Log.xml").replace("projectName=\"P\"", "projectName=\"Q\"");
+        std::fs::write(root.join("Things/P.Log.xml"), log).unwrap();
+        let solution = Solution::load(&root.join("twaco.toml")).unwrap();
+        add_extra_field(&root);
+        // What `sync --project P P.D` chooses: the DataShape alone.
+        let chosen: Vec<EntityFile> = named(&solution, &["P.D"])
+            .into_iter()
+            .filter(|entity| entity.found_under == "P")
+            .collect();
+        assert_eq!(chosen.len(), 1);
+        sync(
+            &solution,
+            &chosen,
+            &[],
+            SyncOptions {
+                allow_structural: true,
+                named: true,
+                ..SyncOptions::default()
+            },
+        );
+        assert!(read(&root, "Things/P.Log.xml").contains(EXTRA));
     }
 
     #[test]
