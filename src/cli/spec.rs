@@ -747,6 +747,20 @@ pub(crate) const USAGE: &[Usage] = &[
       --force                 remove or retype a property something still uses (they are listed)"#,
     },
     Usage {
+        path: "thing service",
+        group: 1,
+        text: r#"  thing service add <Entity> <Name> [--param <name>:<TYPE>[:<DataShape>]]...
+      [--returns <TYPE>[:<DataShape>]] [--description <text>] [--category <text>] [--private]
+      [--then <address> | --script <file.js>] [--apply] [--json]
+  thing service remove <Entity> <Name> [--force] [--apply] [--json]
+                              add or remove an own script service and its managed sidecars; an
+                              absent script is empty; plan unless --apply
+      --param                 a parameter in declaration order
+      --returns               result type, NOTHING by default
+      --private               make the service private
+      --force                 remove it even when callers still use it (they are listed)"#,
+    },
+    Usage {
         path: "thing subscription",
         group: 1,
         text: r#"  thing subscription add <Entity> <name> --event <Event> [--source <Thing>]

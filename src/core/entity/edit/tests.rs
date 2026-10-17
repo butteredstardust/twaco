@@ -71,8 +71,294 @@ fn property(name: &str, base_type: &str) -> Property {
     }
 }
 
+fn service(name: &str, code: &str) -> Service {
+    Service {
+        name: name.into(),
+        code: code.into(),
+        ..Service::default()
+    }
+}
+
 fn code(result: Result<Plan, EditError>) -> ErrorCode {
     result.expect_err("refused").code()
+}
+
+#[test]
+fn service_add_and_remove_keep_the_entity_and_sidecars_in_step() {
+    let (_dir, solution) = fixture();
+    family(&solution);
+    let mut add = service("ReadRows", "return rows;");
+    add.parameters = vec![
+        "limit:INTEGER".into(),
+        "rows:INFOTABLE:Acme.Orders.Row_DS".into(),
+    ];
+    add.returns = Some("INFOTABLE:Acme.Orders.Row_DS".into());
+    add.description = Some("Read rows".into());
+    add.category = Some("Query".into());
+    add.private = true;
+    let planned = plan_of(
+        &solution,
+        "Acme.Orders.Press",
+        Action::ServiceAdd(add.clone()),
+    )
+    .unwrap();
+    assert_eq!(planned.changes.len(), 3);
+    assert!(!file(&solution, "Things", "Acme.Orders.Press").contains("ReadRows"));
+    run(&solution, "Acme.Orders.Press", Action::ServiceAdd(add));
+    let folder = solution
+        .src_root()
+        .join("Acme.Orders.Press/services/ReadRows");
+    let definition = std::fs::read_to_string(folder.join("definition.xml")).unwrap();
+    assert!(definition.contains("aspect.dataShape=\"Acme.Orders.Row_DS\""));
+    assert!(definition.contains("isPrivate=\"true\""));
+    let extracted =
+        sidecar::extract_services(file(&solution, "Things", "Acme.Orders.Press").as_bytes())
+            .unwrap();
+    assert_eq!(extracted[0].definition, definition);
+    assert_eq!(
+        std::fs::read_to_string(folder.join("script.js")).unwrap(),
+        "return rows;"
+    );
+    assert_in_step(&solution);
+
+    run(
+        &solution,
+        "Acme.Orders.Press",
+        Action::ServiceRemove {
+            name: "ReadRows".into(),
+            force: false,
+        },
+    );
+    assert!(!folder.exists());
+    assert!(!file(&solution, "Things", "Acme.Orders.Press").contains("ReadRows"));
+}
+
+#[test]
+fn service_add_works_on_a_template_and_a_shape() {
+    let (_dir, solution) = fixture();
+    family(&solution);
+    run(
+        &solution,
+        "Acme.Orders.Machine_TT",
+        Action::ServiceAdd(service("Describe", "result = me.name;")),
+    );
+    run(
+        &solution,
+        "Acme.Orders.Audit_TS",
+        Action::ServiceAdd(service("Record", "")),
+    );
+    assert!(
+        file(&solution, "ThingTemplates", "Acme.Orders.Machine_TT").contains("name=\"Describe\"")
+    );
+    assert!(file(&solution, "ThingShapes", "Acme.Orders.Audit_TS").contains("name=\"Record\""));
+    // An absent script is an empty body, and it stays one through extract and sync.
+    let script = solution
+        .src_root()
+        .join("Acme.Orders.Audit_TS/services/Record/script.js");
+    assert_eq!(std::fs::read_to_string(script).unwrap(), "");
+    assert_in_step(&solution);
+}
+
+#[test]
+fn service_add_formats_the_script_as_fmt_would() {
+    let (_dir, solution) = fixture();
+    family(&solution);
+    run(
+        &solution,
+        "Acme.Orders.Press",
+        Action::ServiceAdd(service("Greet", "result='hi '+who")),
+    );
+    let script = solution
+        .src_root()
+        .join("Acme.Orders.Press/services/Greet/script.js");
+    assert_eq!(
+        std::fs::read_to_string(script).unwrap(),
+        "result = \"hi \" + who;"
+    );
+    assert!(file(&solution, "Things", "Acme.Orders.Press").contains("result = \"hi \" + who;"));
+    assert_in_step(&solution);
+}
+
+#[test]
+fn service_add_refuses_clashes_bad_types_and_hosts() {
+    let (_dir, solution) = fixture();
+    family(&solution);
+    run(
+        &solution,
+        "Acme.Orders.Machine_TT",
+        Action::ServiceAdd(service("Describe", "")),
+    );
+    run(
+        &solution,
+        "Acme.Orders.Saw",
+        Action::ServiceAdd(service("Cut", "")),
+    );
+    let add =
+        |entity: &str, service: Service| plan_of(&solution, entity, Action::ServiceAdd(service));
+    // Its own, an inherited and an inheriting entity's member of that name.
+    assert_eq!(
+        code(add("Acme.Orders.Machine_TT", service("Describe", ""))),
+        ErrorCode::AlreadyExists
+    );
+    assert_eq!(
+        code(add("Acme.Orders.Press", service("Describe", ""))),
+        ErrorCode::AlreadyExists
+    );
+    assert_eq!(
+        code(add("Acme.Orders.Machine_TT", service("Cut", ""))),
+        ErrorCode::AlreadyExists
+    );
+    let with = |parameters: &[&str], returns: Option<&str>| Service {
+        parameters: parameters.iter().map(ToString::to_string).collect(),
+        returns: returns.map(str::to_string),
+        ..service("Ok", "")
+    };
+    for bad in [
+        with(&["n:WHOLE"], None),
+        with(&["n:STRING:Acme.Orders.Row_DS"], None),
+        with(&["n:NOTHING"], None),
+        with(&["n"], None),
+        with(&["n:STRING", "n:NUMBER"], None),
+        with(&[], Some("NUMBER:Acme.Orders.Row_DS")),
+        service("Ok", "x = ']]>';"),
+    ] {
+        assert!(add("Acme.Orders.Press", bad.clone()).is_err(), "{bad:?}");
+    }
+    assert!(add("Acme.Orders.Row_DS", service("Ok", "")).is_err());
+    // An untyped INFOTABLE is legal; one on a DataShape outside the solution is a warning.
+    let planned = add(
+        "Acme.Orders.Press",
+        with(&["rows:INFOTABLE"], Some("INFOTABLE")),
+    )
+    .unwrap();
+    assert!(planned.warnings.is_empty(), "{:?}", planned.warnings);
+    let planned = add(
+        "Acme.Orders.Press",
+        with(&[], Some("INFOTABLE:Elsewhere.Row_DS")),
+    )
+    .unwrap();
+    assert!(planned
+        .warnings
+        .iter()
+        .any(|warning| warning.contains("Elsewhere.Row_DS")));
+}
+
+#[test]
+fn service_add_and_remove_leave_other_unsynced_services_to_sync() {
+    let (_dir, solution) = fixture();
+    family(&solution);
+    run(
+        &solution,
+        "Acme.Orders.Press",
+        Action::ServiceAdd(service("First", "first();")),
+    );
+    let first = solution
+        .src_root()
+        .join("Acme.Orders.Press/services/First/script.js");
+    std::fs::write(&first, "edited();").unwrap();
+    run(
+        &solution,
+        "Acme.Orders.Press",
+        Action::ServiceAdd(service("Second", "second();")),
+    );
+    let thing = file(&solution, "Things", "Acme.Orders.Press");
+    assert!(
+        thing.contains("first();") && !thing.contains("edited();"),
+        "{thing}"
+    );
+    run(
+        &solution,
+        "Acme.Orders.Press",
+        Action::ServiceRemove {
+            name: "Second".into(),
+            force: false,
+        },
+    );
+    let thing = file(&solution, "Things", "Acme.Orders.Press");
+    assert!(
+        thing.contains("first();") && !thing.contains("edited();"),
+        "{thing}"
+    );
+    assert_eq!(std::fs::read_to_string(&first).unwrap(), "edited();");
+}
+
+#[test]
+fn service_remove_takes_the_last_service_and_guards_callers() {
+    let (_dir, solution) = fixture();
+    family(&solution);
+    run(
+        &solution,
+        "Acme.Orders.Press",
+        Action::ServiceAdd(service("Ping", "result = 1;")),
+    );
+    run(
+        &solution,
+        "Acme.Orders.Saw",
+        Action::ServiceAdd(service("Caller", "Things[\"Acme.Orders.Press\"].Ping();")),
+    );
+    let remove = |entity: &str, name: &str, force: bool| {
+        plan_of(
+            &solution,
+            entity,
+            Action::ServiceRemove {
+                name: name.into(),
+                force,
+            },
+        )
+    };
+    let refused = remove("Acme.Orders.Press", "Ping", false).unwrap_err();
+    assert_eq!(refused.code(), ErrorCode::GuardRefused, "{refused}");
+    assert!(refused.to_string().contains("Acme.Orders.Saw"), "{refused}");
+    let forced = remove("Acme.Orders.Press", "Ping", true).unwrap();
+    assert!(forced
+        .warnings
+        .iter()
+        .any(|warning| warning.contains("Acme.Orders.Saw")));
+    // Declared nowhere on the entity.
+    assert!(remove("Acme.Orders.Press", "Caller", false).is_err());
+
+    // Saw's only service: the case a deleted sidecar folder could not handle.
+    run(
+        &solution,
+        "Acme.Orders.Saw",
+        Action::ServiceRemove {
+            name: "Caller".into(),
+            force: false,
+        },
+    );
+    assert!(!file(&solution, "Things", "Acme.Orders.Saw").contains("name=\"Caller\""));
+    assert!(!solution
+        .src_root()
+        .join("Acme.Orders.Saw/services/Caller")
+        .exists());
+    assert_in_step(&solution);
+}
+
+#[test]
+fn an_empty_services_folder_is_a_sidecar_finding_while_the_xml_has_a_service() {
+    let (_dir, solution) = fixture();
+    family(&solution);
+    run(
+        &solution,
+        "Acme.Orders.Press",
+        Action::ServiceAdd(service("Ping", "")),
+    );
+    let folder = solution.src_root().join("Acme.Orders.Press/services/Ping");
+    std::fs::remove_dir_all(&folder).unwrap();
+    let report = crate::core::check::run(&solution);
+    let sidecars = report
+        .gates
+        .iter()
+        .find(|gate| gate.name == "sidecars")
+        .unwrap();
+    assert!(
+        sidecars
+            .findings
+            .iter()
+            .any(|finding| finding.file.contains("Acme.Orders.Press")),
+        "{:?}",
+        sidecars.findings
+    );
 }
 
 /// A template and two Things using it, plus a shape and a DataShape.

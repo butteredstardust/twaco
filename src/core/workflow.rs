@@ -224,7 +224,10 @@ pub(crate) fn sync(
 
         let dir = super::workspace::services_dir(solution, entity);
         let sidecars = super::workspace::read_sidecars(&dir);
-        if !sidecars.is_empty() {
+        // An existing empty services directory is deliberate management of zero services. This
+        // matters before Git drops the empty directory: it lets sync report (or, when allowed,
+        // remove) the last script service instead of silently treating the entity as unmanaged.
+        if !sidecars.is_empty() || dir.is_dir() {
             tally.record(sync_services(
                 log,
                 entity,
@@ -921,6 +924,27 @@ mod tests {
 
     fn entities(solution: &Solution) -> Vec<EntityFile> {
         workspace::discover(solution).entities
+    }
+
+    #[test]
+    fn an_empty_services_directory_manages_the_last_service() {
+        let (_dir, root, solution) = service_fixture("empty-services");
+        std::fs::remove_dir_all(root.join("src/T/services/Run")).unwrap();
+        std::fs::create_dir_all(root.join("src/T/services")).unwrap();
+        let refused = sync(&solution, &entities(&solution), &[], SyncOptions::default());
+        assert_eq!(refused.failed, 1, "{:?}", refused.log);
+        assert!(read(&root, "Things/T.xml").contains("name=\"Run\""));
+        let applied = sync(
+            &solution,
+            &entities(&solution),
+            &[],
+            SyncOptions {
+                allow_structural: true,
+                ..SyncOptions::default()
+            },
+        );
+        assert_eq!(applied.failed, 0, "{:?}", applied.log);
+        assert!(!read(&root, "Things/T.xml").contains("name=\"Run\""));
     }
 
     /// A DataShape P.D (id, n) with its fields.json, a DataTable P.Rows with its datatable.json,

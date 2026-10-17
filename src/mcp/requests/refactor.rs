@@ -485,6 +485,10 @@ pub(crate) enum EntityEditAction {
     SubscriptionAdd,
     #[serde(rename = "subscription_remove")]
     SubscriptionRemove,
+    #[serde(rename = "service_add")]
+    ServiceAdd,
+    #[serde(rename = "service_remove")]
+    ServiceRemove,
     #[serde(rename = "shape_add")]
     ShapeAdd,
     #[serde(rename = "shape_remove")]
@@ -512,7 +516,7 @@ pub(crate) struct EntityEditRequest {
     pub(crate) action: EntityEditAction,
     /// The entity to change: its name, or Collection/Name.
     pub(crate) entity: String,
-    /// The property or subscription name (property_*, subscription_*).
+    /// The property, subscription or service name.
     #[serde(default, skip_serializing_if = "Absent::is_absent")]
     pub(crate) name: Absent<String>,
     /// The property base type: required for property_add; for property_set a new type.
@@ -557,9 +561,18 @@ pub(crate) struct EntityEditRequest {
     /// subscription_add: the property a DataChange subscription watches.
     #[serde(default, skip_serializing_if = "Absent::is_absent")]
     pub(crate) source_property: Absent<String>,
-    /// subscription_add: the script to run.
+    /// subscription_add / service_add: the script (service_add: absent means an empty body).
     #[serde(default, skip_serializing_if = "Absent::is_absent")]
     pub(crate) then: Absent<String>,
+    /// service_add: parameters in declaration order, each `name:TYPE[:DataShape]`.
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) params: Absent<Vec<String>>,
+    /// service_add: the result `TYPE[:DataShape]`; absent means NOTHING.
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) returns: Absent<String>,
+    /// service_add: whether Composer hides the service from normal callers.
+    #[serde(default)]
+    pub(crate) private: bool,
     /// shape_add / shape_remove: the ThingShape.
     #[serde(default, skip_serializing_if = "Absent::is_absent")]
     pub(crate) shape: Absent<String>,

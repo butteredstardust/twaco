@@ -242,6 +242,16 @@ help:
 |                               ThingShape; a persistent one also writes the stored value of every
 |                               Thing that has it; plan unless --apply
 |       --force                 remove or retype a property something still uses (they are listed)
+|   thing service add <Entity> <Name> [--param <name>:<TYPE>[:<DataShape>]]...
+|       [--returns <TYPE>[:<DataShape>]] [--description <text>] [--category <text>] [--private]
+|       [--then <address> | --script <file.js>] [--apply] [--json]
+|   thing service remove <Entity> <Name> [--force] [--apply] [--json]
+|                               add or remove an own script service and its managed sidecars; an
+|                               absent script is empty; plan unless --apply
+|       --param                 a parameter in declaration order
+|       --returns               result type, NOTHING by default
+|       --private               make the service private
+|       --force                 remove it even when callers still use it (they are listed)
 |   thing subscription add <Entity> <name> --event <Event> [--source <Thing>]
 |       [--source-property <property>] (--then <code> | --script <file.js>) [--apply] [--json]
 |   thing subscription remove <Entity> <name> [--apply] [--json]
@@ -5449,7 +5459,7 @@ arg --master
     given twice: accepted
 arg --param
     action: Append
-    value_name: name:TYPE[:DIRECTION]
+    value_name: name:TYPE[:...]
     num_args: 1
     allow_hyphen_values: yes
     allow_negative_numbers: no
@@ -12233,7 +12243,7 @@ help:
 == twaco thing
 usage: twaco thing <command>
 settings: disable-version-flag disable-help-subcommand subcommand-required arg-required-else-help
-subcommands: property shape subscription
+subcommands: property service shape subscription
 arg --help
     action: Help
     value_name: -
@@ -12257,6 +12267,16 @@ help:
 |                               ThingShape; a persistent one also writes the stored value of every
 |                               Thing that has it; plan unless --apply
 |       --force                 remove or retype a property something still uses (they are listed)
+|   thing service add <Entity> <Name> [--param <name>:<TYPE>[:<DataShape>]]...
+|       [--returns <TYPE>[:<DataShape>]] [--description <text>] [--category <text>] [--private]
+|       [--then <address> | --script <file.js>] [--apply] [--json]
+|   thing service remove <Entity> <Name> [--force] [--apply] [--json]
+|                               add or remove an own script service and its managed sidecars; an
+|                               absent script is empty; plan unless --apply
+|       --param                 a parameter in declaration order
+|       --returns               result type, NOTHING by default
+|       --private               make the service private
+|       --force                 remove it even when callers still use it (they are listed)
 |   thing subscription add <Entity> <name> --event <Event> [--source <Thing>]
 |       [--source-property <property>] (--then <code> | --script <file.js>) [--apply] [--json]
 |   thing subscription remove <Entity> <name> [--apply] [--json]
@@ -12501,6 +12521,185 @@ help:
 |                               ThingShape; a persistent one also writes the stored value of every
 |                               Thing that has it; plan unless --apply
 |       --force                 remove or retype a property something still uses (they are listed)
+| 
+|   --log <filter>              write diagnostic logs to stderr (or TWACO_LOG)
+|   --log-file <path>           append diagnostic logs to a file (or TWACO_LOG_FILE)
+
+== twaco thing service
+usage: twaco thing service add <Entity> <Name> [--param <name>:<TYPE>[:<DataShape>]]...
+settings: disable-version-flag disable-help-subcommand
+subcommands: 
+arg --apply
+    action: SetTrue
+    value_name: -
+    num_args: 0
+    allow_hyphen_values: no
+    allow_negative_numbers: no
+    required: no
+    default: "false"
+    index: -
+    other: -
+    given twice: accepted
+arg --category
+    action: Set
+    value_name: text
+    num_args: 1
+    allow_hyphen_values: yes
+    allow_negative_numbers: no
+    required: no
+    default: -
+    index: -
+    other: -
+    given twice: ArgumentConflict
+    given bare: InvalidValue
+arg --description
+    action: Set
+    value_name: text
+    num_args: 1
+    allow_hyphen_values: yes
+    allow_negative_numbers: no
+    required: no
+    default: -
+    index: -
+    other: -
+    given twice: ArgumentConflict
+    given bare: InvalidValue
+arg --force
+    action: SetTrue
+    value_name: -
+    num_args: 0
+    allow_hyphen_values: no
+    allow_negative_numbers: no
+    required: no
+    default: "false"
+    index: -
+    other: -
+    given twice: accepted
+arg --help
+    action: Help
+    value_name: -
+    num_args: 0
+    allow_hyphen_values: no
+    allow_negative_numbers: no
+    required: no
+    default: -
+    index: -
+    other: -
+arg --json
+    action: SetTrue
+    value_name: -
+    num_args: 0
+    allow_hyphen_values: no
+    allow_negative_numbers: no
+    required: no
+    default: "false"
+    index: -
+    other: -
+    given twice: accepted
+arg --log
+    action: Set
+    value_name: filter
+    num_args: 1
+    allow_hyphen_values: yes
+    allow_negative_numbers: no
+    required: no
+    default: -
+    index: -
+    other: -
+    given twice: ArgumentConflict
+    given bare: InvalidValue
+arg --log-file
+    action: Set
+    value_name: path
+    num_args: 1
+    allow_hyphen_values: yes
+    allow_negative_numbers: no
+    required: no
+    default: -
+    index: -
+    other: -
+    given twice: ArgumentConflict
+    given bare: InvalidValue
+arg --param
+    action: Append
+    value_name: name:TYPE[:...]
+    num_args: 1
+    allow_hyphen_values: yes
+    allow_negative_numbers: no
+    required: no
+    default: -
+    index: -
+    other: -
+    given twice: accepted
+    given bare: InvalidValue
+arg --private
+    action: SetTrue
+    value_name: -
+    num_args: 0
+    allow_hyphen_values: no
+    allow_negative_numbers: no
+    required: no
+    default: "false"
+    index: -
+    other: -
+    given twice: accepted
+arg --returns
+    action: Set
+    value_name: TYPE[:DataShape]
+    num_args: 1
+    allow_hyphen_values: yes
+    allow_negative_numbers: no
+    required: no
+    default: -
+    index: -
+    other: -
+    given twice: ArgumentConflict
+    given bare: InvalidValue
+arg --script
+    action: Set
+    value_name: file.js
+    num_args: 1
+    allow_hyphen_values: yes
+    allow_negative_numbers: no
+    required: no
+    default: -
+    index: -
+    other: -
+    given twice: ArgumentConflict
+    given bare: InvalidValue
+arg --then
+    action: Set
+    value_name: address
+    num_args: 1
+    allow_hyphen_values: yes
+    allow_negative_numbers: no
+    required: no
+    default: -
+    index: -
+    other: -
+    given twice: ArgumentConflict
+    given bare: InvalidValue
+arg <operands>
+    action: Append
+    value_name: operand
+    num_args: 0..
+    allow_hyphen_values: no
+    allow_negative_numbers: yes
+    required: no
+    default: -
+    index: 1
+    other: -
+help:
+|   thing service add <Entity> <Name> [--param <name>:<TYPE>[:<DataShape>]]...
+|       [--returns <TYPE>[:<DataShape>]] [--description <text>] [--category <text>] [--private]
+|       [--then <address> | --script <file.js>] [--apply] [--json]
+|   thing service remove <Entity> <Name> [--force] [--apply] [--json]
+|                               add or remove an own script service and its managed sidecars; an
+|                               absent script is empty; plan unless --apply
+|       --param                 a parameter in declaration order
+|       --returns               result type, NOTHING by default
+|       --private               make the service private
+|       --force                 remove it even when callers still use it (they are listed)
 | 
 |   --log <filter>              write diagnostic logs to stderr (or TWACO_LOG)
 |   --log-file <path>           append diagnostic logs to a file (or TWACO_LOG_FILE)
@@ -12936,7 +13135,7 @@ arg --log-file
     given bare: InvalidValue
 arg --param
     action: Append
-    value_name: name:TYPE[:DIRECTION]
+    value_name: name:TYPE[:...]
     num_args: 1
     allow_hyphen_values: yes
     allow_negative_numbers: no

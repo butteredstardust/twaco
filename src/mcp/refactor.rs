@@ -152,7 +152,7 @@ pub(crate) fn entity_edit_tool(
     solution: &Solution,
     arguments: EntityEditRequest,
 ) -> Result<Value, ToolError> {
-    use crate::core::entity::edit::{Action, Property, Request, StyleChange};
+    use crate::core::entity::edit::{Action, Property, Request, Service, StyleChange};
     use crate::mcp::requests::common::Absent;
     let text = |value: &Absent<String>| value.as_ref().cloned();
     let need = |value: &Absent<String>, what: &str| -> Result<String, ToolError> {
@@ -200,6 +200,19 @@ pub(crate) fn entity_edit_tool(
         },
         EntityEditAction::SubscriptionRemove => Action::SubscriptionRemove {
             name: need(&arguments.name, "name")?,
+        },
+        EntityEditAction::ServiceAdd => Action::ServiceAdd(Service {
+            name: need(&arguments.name, "name")?,
+            parameters: arguments.params.items().to_vec(),
+            returns: text(&arguments.returns),
+            description: text(&arguments.description),
+            category: text(&arguments.category),
+            private: arguments.private,
+            code: text(&arguments.then).unwrap_or_default(),
+        }),
+        EntityEditAction::ServiceRemove => Action::ServiceRemove {
+            name: need(&arguments.name, "name")?,
+            force: arguments.force,
         },
         EntityEditAction::ShapeAdd => Action::ShapeAdd {
             shape: need(&arguments.shape, "shape")?,

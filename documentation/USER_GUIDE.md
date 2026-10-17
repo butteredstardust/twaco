@@ -61,6 +61,11 @@ permissions for it. The folder's name and the `name` in its `definition.xml` mus
 sidecar naming a SQL service, or a service the entity only overrides, is refused: those are not
 added from sidecars.
 
+An existing but empty `services/` directory means that the entity deliberately manages zero
+services: `sync --allow-add-remove` removes its last script service, and without the flag reports
+the removal. An entity with no `services/` directory remains unmanaged. Git does not retain empty
+directories, so use `thing service remove` for a durable last-service removal.
+
 ## The change loop
 
 ```sh
@@ -481,6 +486,8 @@ Each command plans until `--apply` and changes only the element it names.
 twaco thing property add Acme.Orders.Machine_TT Speed:NUMBER --default 12.5 --persistent --apply
 twaco thing property set Acme.Orders.Machine_TT Speed --no-logged --category Motion --apply
 twaco thing property remove Acme.Orders.Machine_TT Speed --apply
+twaco thing service add Acme.Orders.Machine_TT ReadSpeed --returns NUMBER --then "result = me.Speed;" --apply
+twaco thing service remove Acme.Orders.Machine_TT ReadSpeed --apply
 twaco thing subscription add Acme.Orders.Press OnSpeed --event DataChange --source-property Speed --then "me.Check();" --apply
 twaco thing shape add Acme.Orders.Machine_TT Acme.Orders.Audit_TS --apply
 twaco timer set Acme.Orders.Refresh_TM --every 5m --enabled --apply
@@ -500,6 +507,13 @@ refused, and so is stopping implementing a shape whose members are still used th
 does it anyway and lists the users. A persistent INFOTABLE property is
 refused: a 10.1 import re-stamps a stored infotable with the import time, so the repository could
 never match the server. MCP: `entity_edit`.
+
+`thing service add` writes the exported service signature and script sidecars, then folds them
+into the entity through the same synchronizer as sidecar changes. Parameters are repeated
+`--param name:TYPE[:DataShape]`; `--returns` defaults to `NOTHING`. `thing service remove` removes
+an own script service, its run-time permission and sidecar folder. Both refuse inherited clashes;
+remove also refuses callers unless `--force` lists and accepts them. MCP exposes the same work as
+`entity_edit` actions `service_add` and `service_remove`.
 
 ## Creating mashups
 

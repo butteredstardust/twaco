@@ -6,14 +6,34 @@ All notable changes to twaco are recorded here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- `twaco thing service add <Entity> <Name>` (MCP `entity_edit` action `service_add`) creates a
+  script service on a Thing, ThingTemplate or ThingShape: its definition from `--param
+  name:TYPE[:DataShape]` and `--returns`, its script, and both sidecars, written as `sync` would.
+  `thing service remove` (`service_remove`) removes one with its run-time permissions and sidecar
+  folder, and refuses while something still calls it unless `--force`.
+
 ### Changed
 
+- The value name of `--param` in clap's messages and shell completions is `name:TYPE[:...]` for
+  `trace`, `mashup new` and `thing service add` alike (it was `name:TYPE[:DIRECTION]`); the help
+  text still gives each command's own form.
 - The library's modules are nested by domain (`core::mashup::*`, `core::rename::*`,
   `core::entity::*`) and most of its items are now crate-private, so the `twaco` library API is
   smaller. The CLI and MCP server are unchanged.
 
 ### Fixed
 
+- A number default in a DataShape's `fields.json` (and a property's `--default`) goes into the
+  XML as the server stores it, Java's `Double.toString` for NUMBER (`3` -> `3.0`, `10000000` ->
+  `1.0E7`, `0.0001` -> `1.0E-4`) and the plain integer for INTEGER and LONG (`07` -> `7`). Before,
+  the deploy read-back reported such a DataShape "not kept", and property defaults of 10^7 and up
+  or below 10^-3 were written in a form the server rewrote.
+- Removing an entity's last service: deleting its sidecar folder used to leave the service in
+  the XML without a word (`sync` treated the entity as unmanaged and `check` passed). An existing
+  empty `services/` folder now manages zero services, so `sync --allow-add-remove` removes it and
+  `check` reports it; `thing service remove` does it in one step.
 - `sync` keeps the `accumulatedDataShape` of the DataTables and Streams on a DataShape in step
   with it, as the server does on import: a removed field is kept and marked deleted, a new one gets
   the next ordinal. Before, the repository's tables drifted from the server after every DataShape

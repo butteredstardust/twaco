@@ -722,7 +722,7 @@ pub(crate) fn settings_cmd(solution: &Solution, args: &Settings) -> u8 {
 #[derive(Debug, clap::Args)]
 #[group(skip)]
 pub(crate) struct Trace {
-    #[arg(long = "param", value_name = "name:TYPE[:DIRECTION]")]
+    #[arg(long = "param", value_name = "name:TYPE[:...]")]
     pub(crate) params: Vec<String>,
     #[command(flatten)]
     pub(crate) json: Json,

@@ -143,7 +143,7 @@ fn render_field(value: &Value) -> String {
                         java_hash_map(
                             aspects
                                 .iter()
-                                .map(|(key, value)| (key.clone(), value.to_string()))
+                                .map(|(key, value)| (key.clone(), aspect_text(value)))
                                 .collect(),
                         )
                     })
@@ -155,6 +155,17 @@ fn render_field(value: &Value) -> String {
         }
     }
     format!("{{{}}}", parts.join(","))
+}
+
+/// An aspect value as the server writes it: a decimal in Java's `Double.toString` form (`3.0`,
+/// `1.0E7`, both valid JSON), anything else as JSON.
+fn aspect_text(value: &Value) -> String {
+    match value.as_number() {
+        Some(number) if number.is_f64() => number
+            .as_f64()
+            .map_or_else(|| value.to_string(), super::number::java_double),
+        _ => value.to_string(),
+    }
 }
 
 fn json_string(text: &str) -> String {
@@ -240,6 +251,18 @@ mod tests {
                 .into_iter()
                 .collect(),
         }
+    }
+
+    #[test]
+    fn decimal_defaults_are_written_as_java_writes_them() {
+        let old = r#"{"fieldDefinitions":{"big":{"name":"big","aspects":{"defaultValue":1.0E7,"isPrimaryKey":false},"description":"","baseType":"NUMBER","ordinal":0}}}"#;
+        let mut small = field("small", "NUMBER");
+        small
+            .aspects
+            .insert("defaultValue".into(), Aspect::Text("0.0001".into()));
+        let merged = merge(old, &[field("big", "NUMBER"), small]).unwrap();
+        assert!(merged.contains(r#""defaultValue":1.0E7"#), "{merged}");
+        assert!(merged.contains(r#""defaultValue":1.0E-4"#), "{merged}");
     }
 
     #[test]

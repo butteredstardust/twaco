@@ -125,6 +125,7 @@ impl Command {
             Command::Settings(_) => "settings",
             Command::Thing(thing) => match thing {
                 super::entity_edit::Thing::Property(_) => "thing property",
+                super::entity_edit::Thing::Service(_) => "thing service",
                 super::entity_edit::Thing::Subscription(_) => "thing subscription",
                 super::entity_edit::Thing::Shape(_) => "thing shape",
             },

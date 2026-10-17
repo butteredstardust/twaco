@@ -285,7 +285,7 @@ pub(crate) struct MashupNew {
     pub(crate) master: bool,
     #[arg(long = "visibility", value_name = "principal")]
     pub(crate) visibility: Vec<String>,
-    #[arg(long = "param", value_name = "name:TYPE[:DIRECTION]")]
+    #[arg(long = "param", value_name = "name:TYPE[:...]")]
     pub(crate) params: Vec<String>,
     #[arg(long = "tab", value_name = "Label=Mashup")]
     pub(crate) tabs: Vec<String>,

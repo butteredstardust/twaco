@@ -16,6 +16,7 @@ use crate::core::entity::new::{Kind, NewError, NewRequest};
 use crate::core::index::{Confidence, DependentOptions, Index};
 use crate::core::lock::WorkspaceLock;
 use crate::core::scan::{self, Kind as TokenKind, Span, Token};
+use crate::core::sidecar::{self, ServiceSidecar};
 use crate::core::splice::{self, Edit};
 use crate::core::transaction::{Transaction, TransactionError};
 use crate::core::types;
@@ -39,6 +40,20 @@ pub struct Property {
     pub units: Option<String>,
     pub data_shape: Option<String>,
     pub description: Option<String>,
+}
+
+/// A service signature as `thing service add` gives it.
+#[derive(Clone, Debug, Default)]
+pub struct Service {
+    pub name: String,
+    /// `name:TYPE[:DataShape]`, in declaration order.
+    pub parameters: Vec<String>,
+    /// `TYPE[:DataShape]`; absent means `NOTHING`.
+    pub returns: Option<String>,
+    pub description: Option<String>,
+    pub category: Option<String>,
+    pub private: bool,
+    pub code: String,
 }
 
 /// The style keys `style set` changes; `None` leaves a key as it is.
@@ -78,6 +93,11 @@ pub enum Action {
     },
     SubscriptionRemove {
         name: String,
+    },
+    ServiceAdd(Service),
+    ServiceRemove {
+        name: String,
+        force: bool,
     },
     ShapeAdd {
         shape: String,
@@ -133,6 +153,14 @@ pub struct FileChange {
     pub(crate) entity: String,
     pub(crate) before: Vec<u8>,
     pub(crate) after: Vec<u8>,
+    kind: FileChangeKind,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum FileChangeKind {
+    Replace,
+    Create,
+    Delete,
 }
 
 #[derive(Debug)]
@@ -144,6 +172,9 @@ pub struct Plan {
     pub changes: Vec<FileChange>,
     /// What `--force` overrode, or what the edit could not check.
     pub warnings: Vec<String>,
+    /// Empty sidecar directories left after their files were deleted. They carry no repository
+    /// state, so the transaction owns the files and cleanup follows a successful commit.
+    cleanup_dirs: Vec<PathBuf>,
 }
 
 impl Plan {
@@ -153,6 +184,7 @@ impl Plan {
             summary: String::new(),
             changes: Vec::new(),
             warnings: Vec::new(),
+            cleanup_dirs: Vec::new(),
         }
     }
 }
@@ -280,6 +312,8 @@ pub(crate) fn plan(solution: &Solution, request: &Request) -> Result<Plan, EditE
             edit.subscription_add(name, event, &source, code, &mut plan)?
         }
         Action::SubscriptionRemove { name } => subscription_remove(&doc, name, &mut plan)?,
+        Action::ServiceAdd(service) => edit.service_add(service, &mut plan)?,
+        Action::ServiceRemove { name, force } => edit.service_remove(name, *force, &mut plan)?,
         Action::ShapeAdd { shape } => edit.shape_add(shape, &mut plan)?,
         Action::ShapeRemove { shape, force } => edit.shape_remove(shape, *force, &mut plan)?,
         Action::TimerSet {
@@ -340,11 +374,21 @@ pub(crate) fn apply(
 ) -> Result<(), EditError> {
     let mut transaction = Transaction::new(&solution.root, "entity edit");
     for change in &plan.changes {
-        transaction
-            .replace_file(&change.path, &change.before, change.after.clone())
-            .map_err(EditError::Write)?;
+        match change.kind {
+            FileChangeKind::Replace => {
+                transaction.replace_file(&change.path, &change.before, change.after.clone())
+            }
+            FileChangeKind::Create => transaction.create_file(&change.path, change.after.clone()),
+            FileChangeKind::Delete => transaction.delete_file(&change.path, &change.before),
+        }
+        .map_err(EditError::Write)?;
     }
     transaction.apply(lock).map_err(EditError::Write)?;
+    for dir in &plan.cleanup_dirs {
+        // A service folder holds only generated or managed files. It is intentionally harmless
+        // if another tool placed a file there after the plan: leave that directory alone.
+        let _ = std::fs::remove_dir(dir);
+    }
     Ok(())
 }
 
@@ -517,6 +561,7 @@ impl Doc {
             entity: self.label(),
             before: self.src.clone(),
             after,
+            kind: FileChangeKind::Replace,
         }
     }
 }
@@ -938,6 +983,220 @@ impl Definition {
     }
 }
 
+#[derive(Clone, Debug)]
+struct ServiceField {
+    name: String,
+    base_type: String,
+    data_shape: Option<String>,
+    ordinal: usize,
+}
+
+#[derive(Clone, Debug)]
+struct ServiceDefinition {
+    name: String,
+    description: String,
+    category: String,
+    private: bool,
+    result: ServiceField,
+    parameters: Vec<ServiceField>,
+}
+
+impl ServiceDefinition {
+    fn from_request(
+        request: &Service,
+        found: &[EntityFile],
+        warnings: &mut Vec<String>,
+    ) -> Result<Self, EditError> {
+        let result = service_field(
+            request.returns.as_deref().unwrap_or("NOTHING"),
+            "result",
+            0,
+            found,
+            warnings,
+        )?;
+        let mut parameters = Vec::new();
+        for (at, parameter) in request.parameters.iter().enumerate() {
+            let (name, signature) = parameter.split_once(':').ok_or_else(|| {
+                invalid(format!(
+                    "--param {parameter:?} needs <name>:<TYPE>[:<DataShape>]"
+                ))
+            })?;
+            validate_member_name(name)?;
+            if parameters
+                .iter()
+                .any(|field: &ServiceField| field.name == name)
+            {
+                return Err(EditError::Exists(format!(
+                    "service {} has parameter {name} more than once",
+                    request.name
+                )));
+            }
+            parameters.push(service_field(signature, name, at + 1, found, warnings)?);
+        }
+        Ok(ServiceDefinition {
+            name: request.name.clone(),
+            description: request.description.clone().unwrap_or_default(),
+            category: request.category.clone().unwrap_or_default(),
+            private: request.private,
+            result,
+            parameters,
+        })
+    }
+
+    /// The normalized sidecar text extracted from 10.1 exports. `sync` supplies only the outer
+    /// indentation, leaving this exact attribute order and inner layout intact.
+    fn xml(&self) -> String {
+        let attribute = |name: &str, value: &str| {
+            format!(
+                "\n                 {name}=\"{}\"",
+                scan::escape_attribute(value)
+            )
+        };
+        let mut out = String::from("<ServiceDefinition");
+        for (name, value) in [
+            ("aspect.isAsync", "false".to_string()),
+            ("category", self.category.clone()),
+            ("description", self.description.clone()),
+            ("isAllowOverride", "false".to_string()),
+            ("isLocalOnly", "false".to_string()),
+            ("isOpen", "false".to_string()),
+            ("isPrivate", self.private.to_string()),
+            ("name", self.name.clone()),
+        ] {
+            out.push_str(&attribute(name, &value));
+        }
+        out.push_str(">\n                    <ResultType");
+        service_field_xml(&mut out, &self.result, 21);
+        out.push_str("></ResultType>\n                    <ParameterDefinitions>");
+        for field in &self.parameters {
+            out.push_str("\n                        <FieldDefinition");
+            service_field_xml(&mut out, field, 25);
+            out.push_str("></FieldDefinition>");
+        }
+        out.push_str(
+            "\n                    </ParameterDefinitions>\n                </ServiceDefinition>\n",
+        );
+        out
+    }
+}
+
+fn service_field_xml(out: &mut String, field: &ServiceField, spaces: usize) {
+    let attribute = |out: &mut String, name: &str, value: &str| {
+        out.push_str(&format!(
+            "\n{} {name}=\"{}\"",
+            " ".repeat(spaces),
+            scan::escape_attribute(value)
+        ));
+    };
+    if let Some(shape) = &field.data_shape {
+        attribute(out, "aspect.dataShape", shape);
+    }
+    attribute(out, "baseType", &field.base_type);
+    attribute(out, "description", "");
+    attribute(out, "name", &field.name);
+    attribute(out, "ordinal", &field.ordinal.to_string());
+}
+
+fn service_field(
+    text: &str,
+    name: &str,
+    ordinal: usize,
+    found: &[EntityFile],
+    warnings: &mut Vec<String>,
+) -> Result<ServiceField, EditError> {
+    let mut parts = text.split(':');
+    let base_type = parts.next().unwrap_or_default().to_ascii_uppercase();
+    let data_shape = parts
+        .next()
+        .map(str::to_string)
+        .filter(|value| !value.is_empty());
+    if parts.next().is_some() || base_type.is_empty() {
+        return Err(invalid(format!("{text:?} needs <TYPE>[:<DataShape>]")));
+    }
+    if !BASE_TYPES.contains(&base_type.as_str()) && base_type != "NOTHING" {
+        return Err(invalid(format!(
+            "{base_type} is not a service base type; known: NOTHING, {}",
+            BASE_TYPES.join(", ")
+        )));
+    }
+    if base_type == "INFOTABLE" {
+        // An INFOTABLE without a DataShape is legal: an untyped table.
+        if let Some(shape) = data_shape.as_deref().filter(|shape| {
+            !found
+                .iter()
+                .any(|file| file.info.collection == "DataShapes" && file.info.name == *shape)
+        }) {
+            warnings.push(format!(
+                "DataShape {shape} is not in the solution; it must exist on the server"
+            ));
+        }
+    } else if data_shape.is_some() {
+        return Err(invalid(format!(
+            "a DataShape is only for an INFOTABLE {name}"
+        )));
+    }
+    if base_type == "NOTHING" && name != "result" {
+        return Err(invalid("a service parameter cannot have type NOTHING"));
+    }
+    Ok(ServiceField {
+        name: name.to_string(),
+        base_type,
+        data_shape,
+        ordinal,
+    })
+}
+
+/// The entity's script services as its XML holds them. An add or remove folds only its own
+/// service in: an unsynced edit to another service's sidecar stays for `sync` to report, rather
+/// than reaching the XML as a side effect.
+fn service_sidecars(doc: &Doc) -> Result<BTreeMap<String, ServiceSidecar>, EditError> {
+    Ok(sidecar::extract_services(&doc.src)
+        .map_err(invalid)?
+        .into_iter()
+        .map(|service| (service.name.clone(), service))
+        .collect())
+}
+
+fn created_sidecar(path: PathBuf, entity: String, after: Vec<u8>) -> FileChange {
+    FileChange {
+        path,
+        entity,
+        before: Vec::new(),
+        after,
+        kind: FileChangeKind::Create,
+    }
+}
+
+/// The managed and generated files in one service folder. Refuse links so cleanup cannot reach
+/// outside the workspace; directories are removed only after the journal has deleted every file.
+fn service_files(folder: &Path) -> Result<Vec<PathBuf>, EditError> {
+    if !folder.exists() {
+        return Ok(Vec::new());
+    }
+    let mut files = Vec::new();
+    for entry in std::fs::read_dir(folder)
+        .map_err(|error| invalid(format!("{}: {error}", folder.display())))?
+    {
+        let entry = entry.map_err(|error| invalid(format!("{}: {error}", folder.display())))?;
+        let path = entry.path();
+        let metadata = std::fs::symlink_metadata(&path)
+            .map_err(|error| invalid(format!("{}: {error}", path.display())))?;
+        if metadata.file_type().is_symlink() {
+            return Err(invalid(format!("{} is a link", path.display())));
+        }
+        if metadata.is_file() {
+            files.push(path);
+        } else if metadata.is_dir() {
+            return Err(invalid(format!(
+                "{} has a nested directory; remove it before removing the service",
+                folder.display()
+            )));
+        }
+    }
+    files.sort();
+    Ok(files)
+}
+
 /// The edits that take a definition's attributes from `old` to `new`, and only those: a value
 /// changed in place, a missing aspect added before `baseType` on a line of its own, a cleared one
 /// removed. Every other attribute, those twaco does not model included, is left as written.
@@ -1048,11 +1307,7 @@ fn attribute_edits(
 
 /// Java's `Double.toString` for a number given as text.
 fn java_double(text: &str) -> String {
-    match text.parse::<f64>() {
-        Ok(number) if number.fract() == 0.0 && number.abs() < 1e7 => format!("{number:.1}"),
-        Ok(number) => number.to_string(),
-        Err(_) => text.to_string(),
-    }
+    crate::core::number::java_text("NUMBER", text).unwrap_or_else(|| text.to_string())
 }
 
 fn validate_member_name(name: &str) -> Result<(), EditError> {
@@ -1300,6 +1555,121 @@ impl Edit2<'_> {
         Ok(())
     }
 
+    /// Add a script service through the sidecar synchronizer. Keeping that one writer means a
+    /// service made here has the same implementation layout as a service added by `sync`.
+    fn service_add(&self, service: &Service, plan: &mut Plan) -> Result<(), EditError> {
+        let doc = self.doc;
+        doc.require(
+            &MEMBER_HOSTS,
+            "services belong to a Thing, ThingTemplate or ThingShape",
+        )?;
+        validate_member_name(&service.name)?;
+        if service.code.contains("]]>") {
+            return Err(invalid("the service script cannot contain `]]>`"));
+        }
+        let model = Model::build(self.solution, self.found)?;
+        refuse_clash(&model, doc, std::slice::from_ref(&service.name))?;
+        let definition = ServiceDefinition::from_request(service, self.found, &mut plan.warnings)?;
+        // Formatted as `twaco fmt` would, so the formatting gate passes straight away; code that
+        // does not parse is kept as given for the gates to report.
+        let code =
+            match crate::core::fmt::format(&service.code, &crate::core::fmt::Style::default()) {
+                Ok(Some(formatted)) => formatted,
+                Ok(None) | Err(_) => service.code.clone(),
+            };
+        let mut sidecars = service_sidecars(doc)?;
+        sidecars.insert(
+            service.name.clone(),
+            ServiceSidecar {
+                name: service.name.clone(),
+                definition: definition.xml(),
+                script: code.clone(),
+            },
+        );
+        let (after, _) = crate::core::sync::sync(
+            &doc.src,
+            &sidecars,
+            true,
+            self.solution.format.indent_cdata_payload,
+            false,
+        )
+        .map_err(invalid)?;
+        plan.summary = format!("add service {}", service.name);
+        plan.changes.push(doc.change(after));
+        let folder = workspace::services_dir(self.solution, &doc.file).join(&service.name);
+        plan.changes.extend([
+            created_sidecar(
+                folder.join("definition.xml"),
+                doc.label(),
+                definition.xml().into_bytes(),
+            ),
+            created_sidecar(folder.join("script.js"), doc.label(), code.into_bytes()),
+        ]);
+        Ok(())
+    }
+
+    fn service_remove(&self, name: &str, force: bool, plan: &mut Plan) -> Result<(), EditError> {
+        let doc = self.doc;
+        doc.require(
+            &MEMBER_HOSTS,
+            "services belong to a Thing, ThingTemplate or ThingShape",
+        )?;
+        let extraction = sidecar::extract(&doc.src).map_err(invalid)?;
+        if extraction.inherited.iter().any(|service| service == name) {
+            return Err(EditError::Unknown(format!(
+                "{} only implements inherited service {name}; it is declared by an ancestor",
+                doc.label()
+            )));
+        }
+        if extraction.non_script.iter().any(|service| service == name)
+            || extraction
+                .without_script
+                .iter()
+                .any(|service| service == name)
+        {
+            return Err(EditError::Unknown(format!(
+                "{} has no own script service {name}",
+                doc.label()
+            )));
+        }
+        if !extraction
+            .services
+            .iter()
+            .any(|service| service.name == name)
+        {
+            return Err(EditError::Unknown(format!(
+                "{} has no service {name}",
+                doc.label()
+            )));
+        }
+        self.guard_users(name, force, "remove", plan)?;
+        let mut sidecars = service_sidecars(doc)?;
+        sidecars.remove(name);
+        let (after, _) = crate::core::sync::sync(
+            &doc.src,
+            &sidecars,
+            true,
+            self.solution.format.indent_cdata_payload,
+            false,
+        )
+        .map_err(invalid)?;
+        plan.summary = format!("remove service {name}");
+        plan.changes.push(doc.change(after));
+        let folder = workspace::services_dir(self.solution, &doc.file).join(name);
+        for path in service_files(&folder)? {
+            let before = read_file(&path)?;
+            plan.changes.push(FileChange {
+                path,
+                entity: doc.label(),
+                before,
+                after: Vec::new(),
+                kind: FileChangeKind::Delete,
+            });
+        }
+        plan.cleanup_dirs.push(folder);
+        Ok(())
+    }
+
     fn shape_add(&self, shape: &str, plan: &mut Plan) -> Result<(), EditError> {
         let doc = self.doc;
         let what = "a ThingShape is implemented by a Thing or ThingTemplate";
@@ -1485,6 +1855,7 @@ impl Files {
                 entity: format!("{}/{}", file.info.collection, file.info.name),
                 before: src.clone(),
                 after: src,
+                kind: FileChangeKind::Replace,
             };
             self.order.push(file.path.clone());
             self.by_path.insert(file.path.clone(), change);

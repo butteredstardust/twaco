@@ -1151,7 +1151,7 @@
   },
   {
     "name": "entity_edit",
-    "description": "Change an existing entity in the repository, as Composer would: add, change or remove a property of a Thing, ThingTemplate or ThingShape (a persistent one also writes the stored value of every Thing that has it), add or remove a script subscription, implement or stop implementing a ThingShape, change a timer's or scheduler's settings, given keys of a style, a MediaEntity's image, a menu's items, or a StateDefinition's states. Removing or retyping a property something still uses is refused unless force. A dry run unless dry_run is false; apply takes the workspace lock and writes every file or none.",
+    "description": "Change an existing entity in the repository, as Composer would: add, change or remove a property of a Thing, ThingTemplate or ThingShape (a persistent one also writes the stored value of every Thing that has it), add a script service (a definition and its sidecars, as sync would) or remove one with its sidecars and run-time permissions, add or remove a script subscription, implement or stop implementing a ThingShape, change a timer's or scheduler's settings, given keys of a style, a MediaEntity's image, a menu's items, or a StateDefinition's states. Removing or retyping a property, or removing a service, something still uses is refused unless force. A dry run unless dry_run is false; apply takes the workspace lock and writes every file or none.",
     "inputSchema": {
       "required": [
         "action",
@@ -1169,6 +1169,8 @@
             "property_set",
             "subscription_add",
             "subscription_remove",
+            "service_add",
+            "service_remove",
             "shape_add",
             "shape_remove",
             "timer_set",
@@ -1185,7 +1187,7 @@
           "type": "string"
         },
         "name": {
-          "description": "The property or subscription name (property_*, subscription_*).",
+          "description": "The property, subscription or service name.",
           "type": "string"
         },
         "type": {
@@ -1247,8 +1249,22 @@
           "type": "string"
         },
         "then": {
-          "description": "subscription_add: the script to run.",
+          "description": "subscription_add / service_add: the script (service_add: absent means an empty body).",
           "type": "string"
+        },
+        "params": {
+          "description": "service_add: parameters in declaration order, each `name:TYPE[:DataShape]`.",
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "returns": {
+          "description": "service_add: the result `TYPE[:DataShape]`; absent means NOTHING.",
+          "type": "string"
+        },
+        "private": {
+          "description": "service_add: whether Composer hides the service from normal callers.",
+          "type": "boolean",
+          "default": false
         },
         "shape": {
           "description": "shape_add / shape_remove: the ThingShape.",

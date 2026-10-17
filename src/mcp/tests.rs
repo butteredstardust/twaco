@@ -2670,6 +2670,37 @@ fn entity_edit_property_add_plans_then_applies() {
 }
 
 #[test]
+fn entity_edit_service_add_plans_then_removes() {
+    let (_dir, root) = solution_dir();
+    let created = call(
+        &root,
+        "entity_new",
+        json!({"kind": "thing", "name": "P.Press", "dry_run": false}),
+    );
+    assert_eq!(created["isError"], false, "{created}");
+    let arguments = json!({
+        "action": "service_add", "entity": "P.Press", "name": "ReadRows",
+        "params": ["limit:INTEGER"], "returns": "NUMBER", "then": "return 1;"
+    });
+    let planned = call(&root, "entity_edit", arguments.clone());
+    assert_eq!(planned["isError"], false, "{planned}");
+    assert_eq!(planned["structuredContent"]["applied"], false);
+    let mut apply = arguments;
+    apply["dry_run"] = json!(false);
+    let applied = call(&root, "entity_edit", apply);
+    assert_eq!(applied["isError"], false, "{applied}");
+    let folder = root.join("src/P.Press/services/ReadRows");
+    assert!(folder.join("definition.xml").is_file());
+    let removed = call(
+        &root,
+        "entity_edit",
+        json!({"action": "service_remove", "entity": "P.Press", "name": "ReadRows", "dry_run": false}),
+    );
+    assert_eq!(removed["isError"], false, "{removed}");
+    assert!(!folder.exists());
+}
+
+#[test]
 fn trace_reports_a_service_and_refuses_an_unknown_one() {
     let (_dir, root) = solution_dir();
     let created = call(

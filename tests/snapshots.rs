@@ -300,6 +300,32 @@ const SCENARIOS: &[(&str, &[&str])] = &[
         ],
     ),
     (
+        "thing_service_add_plan",
+        &[
+            "thing",
+            "service",
+            "add",
+            "Acme.Orders.Manager",
+            "Ping",
+            "--param",
+            "count:INTEGER",
+            "--returns",
+            "STRING",
+            "--then",
+            "result = 'pong';",
+        ],
+    ),
+    (
+        "thing_service_remove_in_use",
+        &[
+            "thing",
+            "service",
+            "remove",
+            "Acme.Orders.Manager",
+            "GetOrder",
+        ],
+    ),
+    (
         "mashup_new_form_dialog_plan",
         &[
             "mashup",

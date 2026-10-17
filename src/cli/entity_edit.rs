@@ -5,14 +5,43 @@ use std::path::PathBuf;
 use twaco::core::commands::{self, Mode};
 use twaco::core::config::Solution;
 use twaco::core::entity;
-use twaco::core::entity::edit::{Action, Property, Request, StyleChange};
+use twaco::core::entity::edit::{Action, Property, Request, Service, StyleChange};
 
-/// `twaco thing property|subscription|shape`.
+/// `twaco thing property|service|subscription|shape`.
 #[derive(Debug, clap::Subcommand)]
 pub(crate) enum Thing {
     Property(ThingProperty),
+    Service(ThingService),
     Subscription(ThingSubscription),
     Shape(ThingShape),
+}
+
+/// `twaco thing service add|remove <Entity> <name>`.
+#[derive(Debug, clap::Args)]
+#[group(skip)]
+pub(crate) struct ThingService {
+    #[arg(long = "param", value_name = "name:TYPE[:...]")]
+    pub(crate) parameters: Vec<String>,
+    #[arg(long = "returns", value_name = "TYPE[:DataShape]")]
+    pub(crate) returns: Option<String>,
+    #[arg(long = "description", value_name = "text")]
+    pub(crate) description: Option<String>,
+    #[arg(long = "category", value_name = "text")]
+    pub(crate) category: Option<String>,
+    #[arg(long = "private")]
+    pub(crate) private: bool,
+    #[arg(long = "then", value_name = "address")]
+    pub(crate) then: Option<String>,
+    #[arg(long = "script", value_name = "file.js", value_parser = super::flags::path())]
+    pub(crate) script: Option<PathBuf>,
+    #[arg(long = "force")]
+    pub(crate) force: bool,
+    #[command(flatten)]
+    pub(crate) apply: Apply,
+    #[command(flatten)]
+    pub(crate) json: Json,
+    #[arg(id = "operands", value_name = "operand")]
+    pub(crate) operands: Vec<String>,
 }
 
 /// `twaco thing property add|set|remove <Entity> <name[:TYPE]>`.
@@ -279,10 +308,44 @@ impl Thing {
     pub(crate) fn edit(&self) -> Edit {
         match self {
             Thing::Property(args) => Edit::new(property(args), &args.apply, &args.json),
+            Thing::Service(args) => Edit::new(service(args), &args.apply, &args.json),
             Thing::Subscription(args) => Edit::new(subscription(args), &args.apply, &args.json),
             Thing::Shape(args) => Edit::new(shape(args), &args.apply, &args.json),
         }
     }
+}
+
+/// `thing service add|remove`.
+fn service(args: &ThingService) -> Result<(String, Action), String> {
+    let [action, entity, name] = args.operands.as_slice() else {
+        return Err("thing service needs <add|remove> <Entity> <name>".into());
+    };
+    let action = match action.as_str() {
+        "add" => {
+            let code = match (&args.then, &args.script) {
+                (Some(code), None) => code.clone(),
+                (None, Some(path)) => std::fs::read_to_string(path)
+                    .map_err(|error| format!("{}: {error}", path.display()))?,
+                (None, None) => String::new(),
+                _ => return Err("give the script as --then <code> or --script <file>".into()),
+            };
+            Action::ServiceAdd(Service {
+                name: name.clone(),
+                parameters: args.parameters.clone(),
+                returns: args.returns.clone(),
+                description: args.description.clone(),
+                category: args.category.clone(),
+                private: args.private,
+                code,
+            })
+        }
+        "remove" => Action::ServiceRemove {
+            name: name.clone(),
+            force: args.force,
+        },
+        other => return Err(format!("thing service {other}: say add or remove")),
+    };
+    Ok((entity.clone(), action))
 }
 
 impl Timer {

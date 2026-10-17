@@ -221,6 +221,16 @@ usage: twaco <command>
                               ThingShape; a persistent one also writes the stored value of every
                               Thing that has it; plan unless --apply
       --force                 remove or retype a property something still uses (they are listed)
+  thing service add <Entity> <Name> [--param <name>:<TYPE>[:<DataShape>]]...
+      [--returns <TYPE>[:<DataShape>]] [--description <text>] [--category <text>] [--private]
+      [--then <address> | --script <file.js>] [--apply] [--json]
+  thing service remove <Entity> <Name> [--force] [--apply] [--json]
+                              add or remove an own script service and its managed sidecars; an
+                              absent script is empty; plan unless --apply
+      --param                 a parameter in declaration order
+      --returns               result type, NOTHING by default
+      --private               make the service private
+      --force                 remove it even when callers still use it (they are listed)
   thing subscription add <Entity> <name> --event <Event> [--source <Thing>]
       [--source-property <property>] (--then <code> | --script <file.js>) [--apply] [--json]
   thing subscription remove <Entity> <name> [--apply] [--json]

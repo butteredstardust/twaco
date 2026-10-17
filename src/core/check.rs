@@ -439,7 +439,9 @@ fn sidecars_in_sync(solution: &Solution) -> GateResult {
             }
         }
         let sidecars = workspace::read_sidecars(&dir);
-        if sidecars.is_empty() {
+        // The directory itself is the opt-in for a zero-service managed entity. Without it an
+        // entity remains unmanaged, which preserves the old behaviour for exports never pulled.
+        if sidecars.is_empty() && !dir.is_dir() {
             continue;
         }
         let Ok(src) = std::fs::read(&entity.path) else {

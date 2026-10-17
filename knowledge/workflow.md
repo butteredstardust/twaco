@@ -43,10 +43,13 @@ which of its parts are fragile.
 ## Change a service
 
 1. **Edit the sidecar script.** For a signature change (parameters, result, DataShape), edit the
-   service definition in the entity XML too. To add a service, create
-   `src/<Entity>/services/<Name>/` with a `definition.xml` (a sibling's, renamed) and a
-   `script.js`; `twaco sync <entity> --allow-add-remove` adds it to the entity. Deleting the
-   folder and syncing with the flag removes the service.
+   service definition in the entity XML too. To create a service, prefer `twaco thing service add
+   <Entity> <Name> --param name:TYPE --returns TYPE --then '<code>' --apply`: it writes the
+   exported signature and both sidecars correctly. `twaco thing service remove <Entity> <Name>
+   --apply` removes an own service, its permissions and sidecars. A manual service folder can
+   still be added or deleted with `twaco sync <entity> --allow-add-remove`; an empty `services/`
+   directory means zero managed services until Git drops it, so the command is safer for removing
+   the last one.
 2. `twaco sync <entity> --check` shows what would change; `twaco sync <entity>` writes it.
 3. **Run the gates:** `twaco check`. `twaco types --check` type-checks every service against the
    entities' declarations; `twaco check --live` also has the server parse each script.
