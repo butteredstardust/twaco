@@ -6,6 +6,8 @@ All notable changes to twaco are recorded here. The format follows
 
 ## [Unreleased]
 
+## [0.1.15] - 2026-10-17
+
 ### Fixed
 
 - `datatable copy` refuses a row count the server sends negative, fractional or out of range,
@@ -586,6 +588,7 @@ The first public release.
 - `mcp` serves 39 tools over stdio to MCP clients, with compact summaries, validated arguments
   and dry runs by default for tools that can write to a server.
 
+[0.1.15]: https://github.com/butteredstardust/twaco/releases/tag/v0.1.15
 [0.1.14]: https://github.com/butteredstardust/twaco/releases/tag/v0.1.14
 [0.1.13]: https://github.com/butteredstardust/twaco/releases/tag/v0.1.13
 [0.1.12]: https://github.com/butteredstardust/twaco/releases/tag/v0.1.12
