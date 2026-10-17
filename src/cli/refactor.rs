@@ -1,4 +1,4 @@
-use super::args::Args;
+use super::flags::{Apply, Detail, Json};
 use super::source::print_types_refresh;
 use super::style;
 use crate::{print_notices, DRIFT, FAILED, OK};
@@ -8,12 +8,36 @@ use twaco::core::commands::{self, Mode};
 use twaco::core::config::Solution;
 use twaco::core::{adopt, newblock, relocate, rename, retemplate};
 
+/// `twaco adopt <export> [--entity <name>]... [--base <file|handoff|git rev>] ...`.
+#[derive(Debug, clap::Args)]
+#[group(skip)]
+pub(crate) struct Adopt {
+    #[arg(long = "entity", value_name = "name")]
+    pub(crate) entity_filters: Vec<String>,
+    #[arg(long = "base", value_name = "file|handoff|git rev")]
+    pub(crate) base: Option<String>,
+    #[arg(long = "only", value_name = "entity")]
+    pub(crate) only: Vec<String>,
+    #[arg(long = "take", value_name = "side:name,...")]
+    pub(crate) take: Option<String>,
+    #[command(flatten)]
+    pub(crate) detail: Detail,
+    #[command(flatten)]
+    pub(crate) json: Json,
+    #[arg(long = "fail-on-revert")]
+    pub(crate) fail_on_revert: bool,
+    #[command(flatten)]
+    pub(crate) apply: Apply,
+    #[arg(id = "operands", value_name = "operand")]
+    pub(crate) operands: Vec<String>,
+}
+
 /// Compare a designer's export with the solution: what it would revert, and what it would change.
 ///
 /// Read-only. Summary by default; `--detail` lists every differing node, and
 /// `--json` gives the same summary as JSON.
-pub(crate) fn adopt_cmd(solution: &Solution, args: &Args) -> u8 {
-    if args.names.len() != 1 {
+pub(crate) fn adopt_cmd(solution: &Solution, args: &Adopt) -> u8 {
+    if args.operands.len() != 1 {
         eprintln!(
             "{} adopt needs the path of one <Entities> export",
             style::prefix()
@@ -38,7 +62,7 @@ pub(crate) fn adopt_cmd(solution: &Solution, args: &Args) -> u8 {
             return FAILED;
         }
     };
-    let takes = match parse_takes(args.values.get("--take").map(String::as_str)) {
+    let takes = match parse_takes(args.take.as_deref()) {
         Ok(takes) => takes,
         Err(error) => {
             eprintln!("{} {error}", style::prefix());
@@ -46,12 +70,12 @@ pub(crate) fn adopt_cmd(solution: &Solution, args: &Args) -> u8 {
         }
     };
     let request = commands::adopt::AdoptRequest {
-        export: PathBuf::from(&args.names[0]),
+        export: PathBuf::from(&args.operands[0]),
         only: args.entity_filters.clone(),
-        base: args.values.get("--base").cloned(),
+        base: args.base.clone(),
         only_kind,
         takes,
-        mode: if args.has("--apply") {
+        mode: if args.apply.apply {
             Mode::Apply
         } else {
             Mode::Plan
@@ -76,7 +100,7 @@ pub(crate) fn adopt_cmd(solution: &Solution, args: &Args) -> u8 {
     };
     let reverts = report.reverts().count();
 
-    if args.has("--json") {
+    if args.json.json {
         let services: Vec<serde_json::Value> = report
             .services
             .iter()
@@ -101,7 +125,7 @@ pub(crate) fn adopt_cmd(solution: &Solution, args: &Args) -> u8 {
             serde_json::to_string_pretty(&summary).expect("JSON values serialise")
         );
     } else {
-        print_adopt_report(solution, &report, args.has("--detail"));
+        print_adopt_report(solution, &report, args.detail.detail);
     }
     if let Some(outcome) = applied {
         println!("\n=== applied ({}) ===", outcome.lines.len());
@@ -127,7 +151,7 @@ pub(crate) fn adopt_cmd(solution: &Solution, args: &Args) -> u8 {
             );
         }
     }
-    if args.has("--fail-on-revert") && reverts > 0 {
+    if args.fail_on_revert && reverts > 0 {
         DRIFT
     } else {
         OK
@@ -176,8 +200,20 @@ fn kind_word(kind: adopt::Kind) -> &'static str {
     }
 }
 
-pub(crate) fn handoff_cmd(solution: &Solution, args: &Args) -> u8 {
-    let Some(action) = args.names.first().map(String::as_str) else {
+/// `twaco handoff list|record <file.xml>... --name <name>`.
+#[derive(Debug, clap::Args)]
+#[group(skip)]
+pub(crate) struct Handoff {
+    #[arg(long = "name", value_name = "name")]
+    pub(crate) name: Option<String>,
+    #[command(flatten)]
+    pub(crate) apply: Apply,
+    #[arg(id = "operands", value_name = "operand")]
+    pub(crate) operands: Vec<String>,
+}
+
+pub(crate) fn handoff_cmd(solution: &Solution, args: &Handoff) -> u8 {
+    let Some(action) = args.operands.first().map(String::as_str) else {
         eprintln!(
             "{} handoff needs `list` or `record <file.xml>... --name <name>`",
             style::prefix()
@@ -185,13 +221,13 @@ pub(crate) fn handoff_cmd(solution: &Solution, args: &Args) -> u8 {
         return FAILED;
     };
     let request = match action {
-        "list" if args.names.len() == 1 => commands::handoff::HandoffRequest::List,
+        "list" if args.operands.len() == 1 => commands::handoff::HandoffRequest::List,
         "record" => {
-            let Some(name) = args.values.get("--name") else {
+            let Some(name) = args.name.as_ref() else {
                 eprintln!("{} handoff record needs --name <name>", style::prefix());
                 return FAILED;
             };
-            let files = args.names[1..].iter().map(PathBuf::from).collect();
+            let files = args.operands[1..].iter().map(PathBuf::from).collect();
             commands::handoff::HandoffRequest::Record {
                 name: name.clone(),
                 files,
@@ -205,7 +241,7 @@ pub(crate) fn handoff_cmd(solution: &Solution, args: &Args) -> u8 {
             return FAILED;
         }
     };
-    let mode = if args.has("--apply") {
+    let mode = if args.apply.apply {
         Mode::Apply
     } else {
         Mode::Plan
@@ -256,26 +292,110 @@ pub(crate) fn handoff_cmd(solution: &Solution, args: &Args) -> u8 {
     OK
 }
 
-pub(crate) fn rename_cmd(solution: &Solution, route: &str, args: &Args) -> u8 {
+/// `twaco rename <kind> ...`.
+#[derive(Debug, clap::Subcommand)]
+pub(crate) enum Rename {
+    Entity(RenameData),
+    Prefix(RenameData),
+    Field(RenameData),
+    Service(RenameArgs),
+    Param(RenameArgs),
+    Table(RenameArgs),
+    Property(RenameArgs),
+}
+
+/// What every rename takes.
+#[derive(Debug, clap::Args)]
+#[group(skip)]
+pub(crate) struct RenameArgs {
+    #[command(flatten)]
+    pub(crate) apply: Apply,
+    #[arg(long = "text")]
+    pub(crate) text: bool,
+    #[command(flatten)]
+    pub(crate) detail: Detail,
+    #[command(flatten)]
+    pub(crate) json: Json,
+    #[arg(long = "skip-checks")]
+    pub(crate) skip_checks: bool,
+    #[arg(id = "operands", value_name = "operand")]
+    pub(crate) operands: Vec<String>,
+}
+
+/// A rename that can reach stored data: what every rename takes, and the migration script.
+#[derive(Debug, clap::Args)]
+#[group(skip)]
+pub(crate) struct RenameData {
+    #[command(flatten)]
+    pub(crate) args: RenameArgs,
+    #[arg(long = "sql")]
+    pub(crate) sql: bool,
+    #[arg(long = "sql-dir", value_name = "dir")]
+    pub(crate) sql_dir: Option<String>,
+    #[arg(long = "no-sql")]
+    pub(crate) no_sql: bool,
+}
+
+impl Rename {
+    /// The command's [`USAGE`](super::spec::USAGE) path, which is also its lock label.
+    pub(crate) fn path(&self) -> &'static str {
+        match self {
+            Rename::Entity(_) => "rename entity",
+            Rename::Prefix(_) => "rename prefix",
+            Rename::Field(_) => "rename field",
+            Rename::Service(_) => "rename service",
+            Rename::Param(_) => "rename param",
+            Rename::Table(_) => "rename table",
+            Rename::Property(_) => "rename property",
+        }
+    }
+
+    /// What every rename takes.
+    pub(crate) fn args(&self) -> &RenameArgs {
+        match self {
+            Rename::Entity(data) | Rename::Prefix(data) | Rename::Field(data) => &data.args,
+            Rename::Service(args)
+            | Rename::Param(args)
+            | Rename::Table(args)
+            | Rename::Property(args) => args,
+        }
+    }
+
+    /// The migration script flags, for the renames that take them.
+    fn database(&self) -> Option<&RenameData> {
+        match self {
+            Rename::Entity(data) | Rename::Prefix(data) | Rename::Field(data) => Some(data),
+            Rename::Service(_) | Rename::Param(_) | Rename::Table(_) | Rename::Property(_) => None,
+        }
+    }
+}
+
+pub(crate) fn rename_cmd(solution: &Solution, command: &Rename) -> u8 {
+    let route = command.path();
+    let args = command.args();
     let word = route.strip_prefix("rename ").unwrap_or(route);
     let kind = rename::Kind::from_word(word).expect("the route names a rename kind");
-    let mut request = match rename::Request::from_names(kind, &args.names) {
+    let mut request = match rename::Request::from_names(kind, &args.operands) {
         Ok(request) => request,
         Err(error) => {
             eprintln!("{} {error}", style::prefix());
             return FAILED;
         }
     };
-    request.apply = args.has("--apply");
-    request.include_outside = args.has("--text");
-    request.skip_checks = args.has("--skip-checks");
-    request.database = rename::DatabaseFlags {
-        sql: args.has("--sql"),
-        no_sql: args.has("--no-sql"),
-        dir: args.values.get("--sql-dir").cloned(),
-    };
+    request.apply = args.apply.apply;
+    request.include_outside = args.text;
+    request.skip_checks = args.skip_checks;
+    request.database = command
+        .database()
+        .map_or_else(rename::DatabaseFlags::default, |database| {
+            rename::DatabaseFlags {
+                sql: database.sql,
+                no_sql: database.no_sql,
+                dir: database.sql_dir.clone(),
+            }
+        });
     let request = commands::rename::RenameRequest {
-        mode: if args.has("--apply") {
+        mode: if args.apply.apply {
             Mode::Apply
         } else {
             Mode::Plan
@@ -295,10 +415,10 @@ pub(crate) fn rename_cmd(solution: &Solution, route: &str, args: &Args) -> u8 {
     };
     print_notices(&notices);
     let outcome = outcome.outcome();
-    if args.has("--json") {
-        print_rename_json(solution, outcome, args.has("--text"));
+    if args.json.json {
+        print_rename_json(solution, outcome, args.text);
     } else {
-        print_rename_outcome(solution, outcome, args.has("--text"), args.has("--detail"));
+        print_rename_outcome(solution, outcome, args.text, args.detail.detail);
     }
     let verification_failed = outcome.verification.as_ref().is_some_and(|verification| {
         !verification.sync_problems.is_empty() || !verification.blocking_gates.is_empty()
@@ -654,9 +774,9 @@ pub(crate) struct NewBuildingBlock {
     #[arg(long = "no-management-shape")]
     pub(crate) no_management_shape: bool,
     #[command(flatten)]
-    pub(crate) apply: super::flags::Apply,
+    pub(crate) apply: Apply,
     #[command(flatten)]
-    pub(crate) json: super::flags::Json,
+    pub(crate) json: Json,
     #[arg(id = "operands", value_name = "operand")]
     pub(crate) operands: Vec<String>,
 }
@@ -753,22 +873,34 @@ pub(crate) fn new_building_block_cmd(solution: &Solution, args: &NewBuildingBloc
     OK
 }
 
-/// Change a template or implemented shapes. Plans unless --apply; a loss that holds data or is
-/// still referenced is refused unless --accept-loss.
+/// `twaco reproject <entity>... --to <project>`.
+#[derive(Debug, clap::Args)]
+#[group(skip)]
+pub(crate) struct Reproject {
+    #[arg(long = "to", value_name = "address")]
+    pub(crate) to: Option<String>,
+    #[command(flatten)]
+    pub(crate) apply: Apply,
+    #[command(flatten)]
+    pub(crate) json: Json,
+    #[arg(id = "operands", value_name = "operand")]
+    pub(crate) operands: Vec<String>,
+}
+
 /// `twaco reproject <entity>... --to <project>`: move entities to another project.
-pub(crate) fn reproject_cmd(solution: &Solution, args: &Args) -> u8 {
-    let Some(to) = args.values.get("--to") else {
+pub(crate) fn reproject_cmd(solution: &Solution, args: &Reproject) -> u8 {
+    let Some(to) = args.to.as_ref() else {
         eprintln!("{} reproject needs --to <project>", style::prefix());
         return FAILED;
     };
-    if args.names.is_empty() {
+    if args.operands.is_empty() {
         eprintln!("{} reproject needs at least one <entity>", style::prefix());
         return FAILED;
     }
-    let apply = args.has("--apply");
+    let apply = args.apply.apply;
     let request = commands::reproject::ReprojectRequest {
         request: twaco::core::reproject::Request {
-            entities: args.names.clone(),
+            entities: args.operands.clone(),
             to: to.clone(),
         },
         mode: if apply { Mode::Apply } else { Mode::Plan },
@@ -785,7 +917,7 @@ pub(crate) fn reproject_cmd(solution: &Solution, args: &Args) -> u8 {
     };
     print_notices(&notices);
     let plan = outcome.plan();
-    if args.has("--json") {
+    if args.json.json {
         println!(
             "{}",
             serde_json::to_string_pretty(&twaco::core::reproject::plan_json(solution, plan, apply))
@@ -822,14 +954,38 @@ pub(crate) fn reproject_cmd(solution: &Solution, args: &Args) -> u8 {
     OK
 }
 
-pub(crate) fn retemplate_cmd(solution: &Solution, args: &Args) -> u8 {
-    let [entity] = args.names.as_slice() else {
+/// `twaco retemplate <entity> [--to <template>] [--add-shapes <a,b>] [--remove-shapes <a,b>]`.
+#[derive(Debug, clap::Args)]
+#[group(skip)]
+pub(crate) struct Retemplate {
+    #[arg(long = "to", value_name = "address")]
+    pub(crate) to: Option<String>,
+    #[arg(long = "add-shapes", value_name = "value")]
+    pub(crate) add_shapes: Option<String>,
+    #[arg(long = "remove-shapes", value_name = "value")]
+    pub(crate) remove_shapes: Option<String>,
+    #[arg(long = "accept-loss")]
+    pub(crate) accept_loss: bool,
+    #[command(flatten)]
+    pub(crate) apply: Apply,
+    #[command(flatten)]
+    pub(crate) detail: Detail,
+    #[command(flatten)]
+    pub(crate) json: Json,
+    #[arg(id = "operands", value_name = "operand")]
+    pub(crate) operands: Vec<String>,
+}
+
+/// Change a template or implemented shapes. Plans unless --apply; a loss that holds data or is
+/// still referenced is refused unless --accept-loss.
+pub(crate) fn retemplate_cmd(solution: &Solution, args: &Retemplate) -> u8 {
+    let [entity] = args.operands.as_slice() else {
         eprintln!("{} retemplate needs one <entity>", style::prefix());
         return FAILED;
     };
-    let list = |flag: &str| -> Vec<String> {
-        args.values
-            .get(flag)
+    let list = |value: &Option<String>| -> Vec<String> {
+        value
+            .as_ref()
             .map(|text| {
                 text.split(',')
                     .map(str::trim)
@@ -841,12 +997,12 @@ pub(crate) fn retemplate_cmd(solution: &Solution, args: &Args) -> u8 {
     };
     let request = retemplate::Request {
         entity: entity.clone(),
-        template: args.values.get("--to").cloned(),
-        add_shapes: list("--add-shapes"),
-        remove_shapes: list("--remove-shapes"),
-        accept_loss: args.has("--accept-loss"),
+        template: args.to.clone(),
+        add_shapes: list(&args.add_shapes),
+        remove_shapes: list(&args.remove_shapes),
+        accept_loss: args.accept_loss,
     };
-    let apply = args.has("--apply");
+    let apply = args.apply.apply;
     let facade = commands::retemplate::RetemplateRequest {
         request,
         mode: if apply { Mode::Apply } else { Mode::Plan },
@@ -863,7 +1019,7 @@ pub(crate) fn retemplate_cmd(solution: &Solution, args: &Args) -> u8 {
     };
     print_notices(&notices);
     let plan = outcome.plan();
-    if args.has("--json") {
+    if args.json.json {
         let value = serde_json::json!({
             (if apply { "applied" } else { "plan" }): true,
             "entity": plan.request.entity, "collection": plan.collection, "file": plan.file_relative(solution),
@@ -886,7 +1042,7 @@ pub(crate) fn retemplate_cmd(solution: &Solution, args: &Args) -> u8 {
         }
     );
     println!("  {}", plan.file_relative(solution));
-    let detail = args.has("--detail");
+    let detail = args.detail.detail;
     let shown = |items: &[retemplate::Change]| -> String {
         if items.is_empty() {
             return "nothing".to_string();
@@ -967,14 +1123,79 @@ pub(crate) fn retemplate_cmd(solution: &Solution, args: &Args) -> u8 {
     OK
 }
 
+/// `twaco move service|property <from> <to> <name>`.
+#[derive(Debug, clap::Subcommand)]
+pub(crate) enum MoveMember {
+    Service(MoveService),
+    Property(Relocate),
+}
+
+/// `twaco copy service|property <from> <to> <name>`.
+#[derive(Debug, clap::Subcommand)]
+pub(crate) enum CopyMember {
+    Service(Relocate),
+    Property(Relocate),
+}
+
+/// What every move and copy takes.
+#[derive(Debug, clap::Args)]
+#[group(skip)]
+pub(crate) struct Relocate {
+    #[arg(long = "as", value_name = "new")]
+    pub(crate) new_name: Option<String>,
+    #[command(flatten)]
+    pub(crate) apply: Apply,
+    #[command(flatten)]
+    pub(crate) detail: Detail,
+    #[command(flatten)]
+    pub(crate) json: Json,
+    #[arg(id = "operands", value_name = "operand")]
+    pub(crate) operands: Vec<String>,
+}
+
+/// `twaco move service`, which can leave a delegate behind.
+#[derive(Debug, clap::Args)]
+#[group(skip)]
+pub(crate) struct MoveService {
+    #[command(flatten)]
+    pub(crate) relocate: Relocate,
+    #[arg(long = "leave-delegate")]
+    pub(crate) leave_delegate: bool,
+}
+
+impl MoveMember {
+    /// The command's [`USAGE`](super::spec::USAGE) path, which is also its lock label.
+    pub(crate) fn path(&self) -> &'static str {
+        match self {
+            MoveMember::Service(_) => "move service",
+            MoveMember::Property(_) => "move property",
+        }
+    }
+}
+
+impl CopyMember {
+    /// The command's [`USAGE`](super::spec::USAGE) path, which is also its lock label.
+    pub(crate) fn path(&self) -> &'static str {
+        match self {
+            CopyMember::Service(_) => "copy service",
+            CopyMember::Property(_) => "copy property",
+        }
+    }
+}
+
 /// Move or copy a service or property between entities. Plans unless --apply; an apply checks the
 /// sidecars still match the XML and exits 2 if they do not.
-pub(crate) fn relocate_cmd(solution: &Solution, route: &str, args: &Args) -> u8 {
+pub(crate) fn relocate_cmd(
+    solution: &Solution,
+    route: &str,
+    args: &Relocate,
+    leave_delegate: bool,
+) -> u8 {
     let (verb, word) = route
         .split_once(' ')
         .expect("the route has a verb and a member");
     let member = relocate::Member::from_word(word).expect("the route names a member");
-    let [from, to, name] = args.names.as_slice() else {
+    let [from, to, name] = args.operands.as_slice() else {
         eprintln!("{} {route} needs <from> <to> <name>", style::prefix());
         return FAILED;
     };
@@ -984,10 +1205,10 @@ pub(crate) fn relocate_cmd(solution: &Solution, route: &str, args: &Args) -> u8 
         from: from.clone(),
         to: to.clone(),
         name: name.clone(),
-        new_name: args.values.get("--as").cloned(),
-        leave_delegate: args.has("--leave-delegate"),
+        new_name: args.new_name.clone(),
+        leave_delegate,
     };
-    let apply = args.has("--apply");
+    let apply = args.apply.apply;
     let facade = commands::relocate::RelocateRequest {
         request,
         mode: if apply { Mode::Apply } else { Mode::Plan },
@@ -1005,7 +1226,7 @@ pub(crate) fn relocate_cmd(solution: &Solution, route: &str, args: &Args) -> u8 
     print_notices(&notices);
     let plan = outcome.plan();
     let problems = outcome.problems();
-    if args.has("--json") {
+    if args.json.json {
         let value = serde_json::json!({
             (if apply { "applied" } else { "plan" }): true,
             "action": verb, "member": word, "from": plan.request.from, "to": plan.request.to,
@@ -1036,7 +1257,7 @@ pub(crate) fn relocate_cmd(solution: &Solution, route: &str, args: &Args) -> u8 
         for note in &plan.notes {
             println!("  note: {note}");
         }
-        let shown = if args.has("--detail") {
+        let shown = if args.detail.detail {
             plan.callers.first.len()
         } else {
             plan.callers.first.len().min(3)

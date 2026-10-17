@@ -62,6 +62,16 @@ pub(crate) enum Typed {
     New(super::entity_new::New),
     #[command(subcommand)]
     Mashup(super::mashup::Mashup),
+    Adopt(super::refactor::Adopt),
+    Handoff(super::refactor::Handoff),
+    #[command(subcommand)]
+    Rename(super::refactor::Rename),
+    #[command(subcommand)]
+    Move(super::refactor::MoveMember),
+    #[command(subcommand)]
+    Copy(super::refactor::CopyMember),
+    Retemplate(super::refactor::Retemplate),
+    Reproject(super::refactor::Reproject),
 }
 
 impl Typed {
@@ -113,6 +123,13 @@ impl Typed {
             Typed::New(super::entity_new::New::BuildingBlock(_)) => "new building-block",
             Typed::New(super::entity_new::New::Entity(new)) => new.path(),
             Typed::Mashup(mashup) => mashup.path(),
+            Typed::Adopt(_) => "adopt",
+            Typed::Handoff(_) => "handoff",
+            Typed::Rename(rename) => rename.path(),
+            Typed::Move(relocate) => relocate.path(),
+            Typed::Copy(relocate) => relocate.path(),
+            Typed::Retemplate(_) => "retemplate",
+            Typed::Reproject(_) => "reproject",
         }
     }
 
@@ -162,7 +179,14 @@ impl Typed {
             | Typed::Menu(_)
             | Typed::State(_)
             | Typed::New(_)
-            | Typed::Mashup(_) => Ok(()),
+            | Typed::Mashup(_)
+            | Typed::Adopt(_)
+            | Typed::Handoff(_)
+            | Typed::Rename(_)
+            | Typed::Move(_)
+            | Typed::Copy(_)
+            | Typed::Retemplate(_)
+            | Typed::Reproject(_) => Ok(()),
         }
     }
 }

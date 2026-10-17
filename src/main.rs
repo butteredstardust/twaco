@@ -42,7 +42,7 @@ use cli::mashup::{
 };
 use cli::refactor::{
     adopt_cmd, handoff_cmd, new_building_block_cmd, relocate_cmd, rename_cmd, reproject_cmd,
-    retemplate_cmd,
+    retemplate_cmd, CopyMember, MoveMember,
 };
 use cli::service_tests::test_cmd;
 use cli::source::{bundle, check, deploy_cmd, extract, fmt, sync_cmd, types_cmd};
@@ -241,6 +241,27 @@ fn dispatch_typed(typed: Typed) -> u8 {
             Mashup::Validate(validate) => mashup_validate_cmd(solution, validate),
             Mashup::Templates(_) => unreachable!("the templates need no solution"),
         }),
+        Typed::Adopt(adopt) => run(|solution| adopt_cmd(solution, &adopt)),
+        Typed::Handoff(handoff) => run(|solution| handoff_cmd(solution, &handoff)),
+        Typed::Rename(rename) => run(|solution| rename_cmd(solution, &rename)),
+        Typed::Move(relocate) => run(|solution| match &relocate {
+            MoveMember::Service(service) => relocate_cmd(
+                solution,
+                relocate.path(),
+                &service.relocate,
+                service.leave_delegate,
+            ),
+            MoveMember::Property(property) => {
+                relocate_cmd(solution, relocate.path(), property, false)
+            }
+        }),
+        Typed::Copy(relocate) => run(|solution| match &relocate {
+            CopyMember::Service(member) | CopyMember::Property(member) => {
+                relocate_cmd(solution, relocate.path(), member, false)
+            }
+        }),
+        Typed::Retemplate(retemplate) => run(|solution| retemplate_cmd(solution, &retemplate)),
+        Typed::Reproject(reproject) => run(|solution| reproject_cmd(solution, &reproject)),
     }
 }
 
@@ -251,15 +272,6 @@ fn dispatch(route: &str, parsed: &Args) -> u8 {
     run(|solution| match route {
         "bundle" => bundle(solution, parsed),
         "deploy" => deploy_cmd(solution, parsed),
-        "adopt" => adopt_cmd(solution, parsed),
-        "handoff" => handoff_cmd(solution, parsed),
-        "rename entity" | "rename prefix" | "rename field" | "rename service" | "rename param"
-        | "rename table" | "rename property" => rename_cmd(solution, route, parsed),
-        "move service" | "move property" | "copy service" | "copy property" => {
-            relocate_cmd(solution, route, parsed)
-        }
-        "retemplate" => retemplate_cmd(solution, parsed),
-        "reproject" => reproject_cmd(solution, parsed),
         "config-table" => config_table(solution, parsed),
         "entity get" => entity_get(solution, parsed),
         "entity status" => entity_status(solution, parsed),

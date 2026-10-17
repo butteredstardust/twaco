@@ -4,6 +4,7 @@ use super::entity::entity_delete_force_deprecation;
 use super::entity_edit::{Media, Menu, Scheduler, State, Style, Thing, Timer};
 use super::entity_new::{New, NewEntity};
 use super::mashup::{Mashup, Place};
+use super::refactor::{CopyMember, MoveMember, Relocate, Rename};
 use super::spec::{self, GRAMMAR, USAGE};
 use clap::{FromArgMatches as _, Subcommand as _};
 
@@ -1292,6 +1293,78 @@ fn projection(typed: Typed) -> Projection {
         Typed::Thing(thing) => thing_projection(thing),
         Typed::New(new) => new_projection(new),
         Typed::Mashup(mashup) => mashup_projection(mashup),
+        Typed::Adopt(adopt) => {
+            let mut given = values(&[("--base", adopt.base), ("--take", adopt.take)]);
+            given.extend(repeated("--entity", adopt.entity_filters));
+            given.extend(repeated("--only", adopt.only));
+            (
+                adopt.operands,
+                switches(&[
+                    ("--detail", adopt.detail.detail),
+                    ("--json", adopt.json.json),
+                    ("--fail-on-revert", adopt.fail_on_revert),
+                    ("--apply", adopt.apply.apply),
+                ]),
+                given,
+            )
+        }
+        Typed::Handoff(handoff) => (
+            handoff.operands,
+            switches(&[("--apply", handoff.apply.apply)]),
+            values(&[("--name", handoff.name)]),
+        ),
+        Typed::Rename(rename) => {
+            let (args, mut on, given) = match rename {
+                Rename::Entity(data) | Rename::Prefix(data) | Rename::Field(data) => (
+                    data.args,
+                    switches(&[("--sql", data.sql), ("--no-sql", data.no_sql)]),
+                    values(&[("--sql-dir", data.sql_dir)]),
+                ),
+                Rename::Service(args)
+                | Rename::Param(args)
+                | Rename::Table(args)
+                | Rename::Property(args) => (args, Vec::new(), Vec::new()),
+            };
+            on.extend(switches(&[
+                ("--apply", args.apply.apply),
+                ("--text", args.text),
+                ("--detail", args.detail.detail),
+                ("--json", args.json.json),
+                ("--skip-checks", args.skip_checks),
+            ]));
+            (args.operands, on, given)
+        }
+        Typed::Move(MoveMember::Service(service)) => {
+            let (names, mut on, given) = relocated(service.relocate);
+            on.extend(switches(&[("--leave-delegate", service.leave_delegate)]));
+            (names, on, given)
+        }
+        Typed::Move(MoveMember::Property(relocate))
+        | Typed::Copy(CopyMember::Service(relocate) | CopyMember::Property(relocate)) => {
+            relocated(relocate)
+        }
+        Typed::Retemplate(retemplate) => (
+            retemplate.operands,
+            switches(&[
+                ("--accept-loss", retemplate.accept_loss),
+                ("--apply", retemplate.apply.apply),
+                ("--detail", retemplate.detail.detail),
+                ("--json", retemplate.json.json),
+            ]),
+            values(&[
+                ("--to", retemplate.to),
+                ("--add-shapes", retemplate.add_shapes),
+                ("--remove-shapes", retemplate.remove_shapes),
+            ]),
+        ),
+        Typed::Reproject(reproject) => (
+            reproject.operands,
+            switches(&[
+                ("--apply", reproject.apply.apply),
+                ("--json", reproject.json.json),
+            ]),
+            values(&[("--to", reproject.to)]),
+        ),
         Typed::Timer(Timer::Set(set)) => (
             set.operands,
             switches(&[
@@ -1704,6 +1777,19 @@ fn mashup_projection(mashup: Mashup) -> Projection {
             )
         }
     }
+}
+
+/// What a `move` or `copy` command read.
+fn relocated(relocate: Relocate) -> Projection {
+    (
+        relocate.operands,
+        switches(&[
+            ("--apply", relocate.apply.apply),
+            ("--detail", relocate.detail.detail),
+            ("--json", relocate.json.json),
+        ]),
+        values(&[("--as", relocate.new_name)]),
+    )
 }
 
 /// While commands move from GRAMMAR rows to structs: each moved command line, read by the
@@ -2295,6 +2381,117 @@ fn derived_commands_read_what_their_grammar_rows_read() {
                 "--json",
             ],
         ),
+        (
+            "adopt",
+            true,
+            &[
+                "--entity",
+                "--base",
+                "--only",
+                "--take",
+                "--detail",
+                "--json",
+                "--fail-on-revert",
+                "--apply",
+            ],
+        ),
+        ("handoff", true, &["--name", "--apply"]),
+        (
+            "rename entity",
+            true,
+            &[
+                "--apply",
+                "--text",
+                "--detail",
+                "--json",
+                "--skip-checks",
+                "--sql",
+                "--sql-dir",
+                "--no-sql",
+            ],
+        ),
+        (
+            "rename prefix",
+            true,
+            &[
+                "--apply",
+                "--text",
+                "--detail",
+                "--json",
+                "--skip-checks",
+                "--sql",
+                "--sql-dir",
+                "--no-sql",
+            ],
+        ),
+        (
+            "rename field",
+            true,
+            &[
+                "--apply",
+                "--text",
+                "--detail",
+                "--json",
+                "--skip-checks",
+                "--sql",
+                "--sql-dir",
+                "--no-sql",
+            ],
+        ),
+        (
+            "rename service",
+            true,
+            &["--apply", "--text", "--detail", "--json", "--skip-checks"],
+        ),
+        (
+            "rename param",
+            true,
+            &["--apply", "--text", "--detail", "--json", "--skip-checks"],
+        ),
+        (
+            "rename table",
+            true,
+            &["--apply", "--text", "--detail", "--json", "--skip-checks"],
+        ),
+        (
+            "rename property",
+            true,
+            &["--apply", "--text", "--detail", "--json", "--skip-checks"],
+        ),
+        (
+            "move service",
+            true,
+            &["--as", "--leave-delegate", "--apply", "--detail", "--json"],
+        ),
+        (
+            "move property",
+            true,
+            &["--as", "--apply", "--detail", "--json"],
+        ),
+        (
+            "copy service",
+            true,
+            &["--as", "--apply", "--detail", "--json"],
+        ),
+        (
+            "copy property",
+            true,
+            &["--as", "--apply", "--detail", "--json"],
+        ),
+        (
+            "retemplate",
+            true,
+            &[
+                "--to",
+                "--add-shapes",
+                "--remove-shapes",
+                "--accept-loss",
+                "--apply",
+                "--detail",
+                "--json",
+            ],
+        ),
+        ("reproject", true, &["--to", "--apply", "--json"]),
     ];
     let lines: &[&[&str]] = &[
         &["init"],
@@ -3172,6 +3369,90 @@ fn derived_commands_read_what_their_grammar_rows_read() {
             "Home=Acme.A_MU",
             "--tab",
             "About=Acme.B_MU",
+            "--apply",
+            "--json",
+        ],
+        &[
+            "adopt",
+            "export.xml",
+            "--entity",
+            "Orders",
+            "--entity",
+            "-x",
+            "--base",
+            "HEAD~1",
+            "--only",
+            "ui",
+            "--take",
+            "export:Acme.T",
+            "--detail",
+            "--json",
+            "--fail-on-revert",
+            "--apply",
+        ],
+        &["adopt"],
+        &["handoff", "list"],
+        &[
+            "handoff", "record", "a.xml", "b.xml", "--name", "sprint-1", "--apply",
+        ],
+        &[
+            "rename",
+            "entity",
+            "Acme.A",
+            "Acme.B",
+            "--apply",
+            "--text",
+            "--detail",
+            "--json",
+            "--skip-checks",
+            "--sql",
+            "--sql-dir",
+            "sql",
+        ],
+        &["rename", "prefix", "Acme.", "Corp.", "--no-sql"],
+        &["rename", "field", "Acme.DS", "a", "b", "--sql-dir="],
+        &["rename", "service", "Acme.T", "A", "B", "--apply", "--json"],
+        &["rename", "param", "Acme.T", "A", "x", "y", "--text"],
+        &["rename", "table", "a", "b", "--detail", "--skip-checks"],
+        &["rename", "property", "Acme.T", "a", "b"],
+        &[
+            "move",
+            "service",
+            "Acme.A",
+            "Acme.B",
+            "Run",
+            "--as",
+            "Go",
+            "--leave-delegate",
+            "--apply",
+            "--detail",
+            "--json",
+        ],
+        &["move", "property", "Acme.A", "Acme.B", "p", "--as", "-q"],
+        &["copy", "service", "Acme.A", "Acme.B", "Run", "--detail"],
+        &[
+            "copy", "property", "Acme.A", "Acme.B", "p", "--apply", "--json",
+        ],
+        &[
+            "retemplate",
+            "Acme.T",
+            "--to",
+            "Acme.TT",
+            "--add-shapes",
+            "A,B",
+            "--remove-shapes",
+            "C",
+            "--accept-loss",
+            "--apply",
+            "--detail",
+            "--json",
+        ],
+        &[
+            "reproject",
+            "Acme.A",
+            "Acme.B",
+            "--to",
+            "Other",
             "--apply",
             "--json",
         ],
