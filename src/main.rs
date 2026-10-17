@@ -22,7 +22,9 @@ use clap::{FromArgMatches as _, Subcommand as _};
 use cli::args::Args;
 use cli::command::Typed;
 use cli::content::{export_cmd, ext_cmd, import_cmd, package_cmd, repo_cmd, search_cmd};
-use cli::data::{call, config_table, datatable_copy_cmd, db_clean_cmd, db_cmd, logs_cmd};
+use cli::data::{
+    call, config_table, datatable_copy_cmd, db_clean_cmd, db_cmd, logs_cmd, Datatable, Db,
+};
 use cli::entity::{
     entity_carry_cmd, entity_delete_cmd, entity_get, entity_push, entity_restore_cmd,
     entity_status, permissions_apply_cmd, permissions_audit_cmd, permissions_cmd,
@@ -277,22 +279,24 @@ fn dispatch_typed(typed: Typed) -> u8 {
             Permissions::Apply(apply) => permissions_apply_cmd(solution, apply),
             Permissions::Init(init) => permissions_init_cmd(solution, init),
         }),
+        Typed::Bundle(command) => run(|solution| bundle(solution, &command)),
+        Typed::Deploy(deploy) => run(|solution| deploy_cmd(solution, &deploy)),
+        Typed::ConfigTable(table) => run(|solution| config_table(solution, &table)),
+        Typed::Datatable(Datatable::Copy(copy)) => {
+            run(|solution| datatable_copy_cmd(solution, &copy))
+        }
+        Typed::Db(db) => run(|solution| match &db {
+            Db::Run(run) => db_cmd(solution, &run.line()),
+            Db::Query(query) => db_cmd(solution, &query.line()),
+            Db::Clean(clean) => db_clean_cmd(solution, clean),
+        }),
     }
 }
 
-/// Run one table command and return its exit code.
-fn dispatch(route: &str, parsed: &Args) -> u8 {
-    // Commands that change the workspace take its lock in their executor (core::commands), so
-    // the lock covers exactly what they change and both front ends take it the same way.
-    run(|solution| match route {
-        "bundle" => bundle(solution, parsed),
-        "deploy" => deploy_cmd(solution, parsed),
-        "config-table" => config_table(solution, parsed),
-        "db run" | "db query" => db_cmd(solution, route, parsed),
-        "db clean" => db_clean_cmd(solution, parsed),
-        "datatable copy" => datatable_copy_cmd(solution, parsed),
-        other => unreachable!("{other} is in GRAMMAR but has no handler"),
-    })
+/// Run one table command and return its exit code. Every command is derived now, so none is
+/// left to run here; the table goes in the cleanup that follows.
+fn dispatch(route: &str, _parsed: &Args) -> u8 {
+    unreachable!("{route} is in GRAMMAR but has no handler")
 }
 
 /// `twaco init [--write|--agents]`.

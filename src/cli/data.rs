@@ -1,25 +1,42 @@
-use super::args::Args;
+use super::flags::{Apply, Detail, Json, Profile, Timeout};
 use super::style;
 use crate::{print_notices, DRIFT, FAILED, OK};
+use std::path::PathBuf;
 use std::time::Duration;
 use twaco::core::commands::{self, Mode};
 use twaco::core::config::Solution;
 use twaco::core::{config_table, datatable_copy, db, profile, server, workspace};
 
+/// `twaco config-table <thing> <table> [--backup <file>|--restore <file>|--diff]`.
+#[derive(Debug, clap::Args)]
+#[group(skip)]
+pub(crate) struct ConfigTable {
+    #[arg(long = "backup", value_name = "file", value_parser = super::flags::path())]
+    pub(crate) backup: Option<PathBuf>,
+    #[arg(long = "restore", value_name = "file", value_parser = super::flags::path())]
+    pub(crate) restore: Option<PathBuf>,
+    #[command(flatten)]
+    pub(crate) apply: Apply,
+    #[arg(long = "diff")]
+    pub(crate) diff: bool,
+    #[command(flatten)]
+    pub(crate) detail: Detail,
+    #[command(flatten)]
+    pub(crate) profile: Profile,
+    #[arg(id = "operands", value_name = "operand")]
+    pub(crate) operands: Vec<String>,
+}
+
 /// Read, back up, restore or diff one Thing's configuration table on the server.
 ///
 /// `--restore` is a plan unless `--apply`, as every command that writes to a server is. It
 /// refuses a backup made from another Thing or table, and reads the table back afterwards.
-pub(crate) fn config_table(solution: &Solution, args: &Args) -> u8 {
-    if args.names.len() != 2 {
+pub(crate) fn config_table(solution: &Solution, args: &ConfigTable) -> u8 {
+    if args.operands.len() != 2 {
         eprintln!("{} config-table needs <thing> <table>", style::prefix());
         return FAILED;
     }
-    let modes = [
-        args.backup.is_some(),
-        args.restore.is_some(),
-        args.has("--diff"),
-    ];
+    let modes = [args.backup.is_some(), args.restore.is_some(), args.diff];
     if modes.iter().filter(|m| **m).count() > 1 {
         eprintln!(
             "{} --backup, --restore and --diff are separate actions; pass one",
@@ -27,7 +44,7 @@ pub(crate) fn config_table(solution: &Solution, args: &Args) -> u8 {
         );
         return FAILED;
     }
-    if args.has("--apply") && args.restore.is_none() {
+    if args.apply.apply && args.restore.is_none() {
         eprintln!(
             "{} --apply only means something with --restore",
             style::prefix()
@@ -37,7 +54,7 @@ pub(crate) fn config_table(solution: &Solution, args: &Args) -> u8 {
     // A Thing in the solution may be named by its last segment, as elsewhere. One that is not in
     // the solution is taken as given, except by --diff, which needs the repository's copy.
     let found = workspace::discover(solution).entities;
-    let (thing, entity_file) = match workspace::resolve(&found, &args.names[0]) {
+    let (thing, entity_file) = match workspace::resolve(&found, &args.operands[0]) {
         Ok(entity) if entity.info.collection == "Things" => {
             (entity.info.name.clone(), Some(entity.path.clone()))
         }
@@ -50,20 +67,20 @@ pub(crate) fn config_table(solution: &Solution, args: &Args) -> u8 {
             );
             return FAILED;
         }
-        Err(workspace::WorkspaceError::UnknownEntity { .. }) if !args.has("--diff") => {
-            (args.names[0].clone(), None)
+        Err(workspace::WorkspaceError::UnknownEntity { .. }) if !args.diff => {
+            (args.operands[0].clone(), None)
         }
         Err(error) => {
             eprintln!("{} {error}", style::prefix());
             return FAILED;
         }
     };
-    let table = &args.names[1];
+    let table = &args.operands[1];
     let label = format!("{thing}.{table}");
     let action = if let Some(path) = &args.restore {
         commands::config_table::ConfigTableAction::Restore {
             path: path.clone(),
-            mode: if args.has("--apply") {
+            mode: if args.apply.apply {
                 Mode::Apply
             } else {
                 Mode::Plan
@@ -71,7 +88,7 @@ pub(crate) fn config_table(solution: &Solution, args: &Args) -> u8 {
         }
     } else if let Some(path) = &args.backup {
         commands::config_table::ConfigTableAction::Backup { path: path.clone() }
-    } else if args.has("--diff") {
+    } else if args.diff {
         commands::config_table::ConfigTableAction::Diff {
             entity: entity_file.expect("--diff resolved the Thing in the solution"),
         }
@@ -82,7 +99,7 @@ pub(crate) fn config_table(solution: &Solution, args: &Args) -> u8 {
         thing,
         table: table.to_string(),
         action,
-        profile: args.profile.as_deref().unwrap_or("default").to_string(),
+        profile: args.profile.name().to_string(),
     };
     let mut notices = commands::Notices::default();
     let outcome = match commands::config_table::execute(
@@ -108,7 +125,7 @@ pub(crate) fn config_table(solution: &Solution, args: &Args) -> u8 {
     print_notices(&notices);
     match outcome {
         commands::config_table::ConfigTableOutcome::Restored { plan, .. } => {
-            let apply = args.has("--apply");
+            let apply = args.apply.apply;
             match Ok::<_, config_table::TableError>(plan) {
                 Ok(plan) if plan.writes == 0 && plan.deletes.is_empty() => {
                     println!("{label}: already matches the backup; nothing to restore");
@@ -180,7 +197,7 @@ pub(crate) fn config_table(solution: &Solution, args: &Args) -> u8 {
                     key.join(", ")
                 }
             );
-            if args.has("--detail") {
+            if args.detail.detail {
                 println!(
                     "{}",
                     serde_json::to_string_pretty(&live.rows).expect("JSON values serialise")
@@ -201,11 +218,11 @@ pub(crate) fn config_table(solution: &Solution, args: &Args) -> u8 {
 #[group(skip)]
 pub(crate) struct Call {
     #[command(flatten)]
-    pub(crate) timeout: super::flags::Timeout,
+    pub(crate) timeout: Timeout,
     #[command(flatten)]
-    pub(crate) detail: super::flags::Detail,
+    pub(crate) detail: Detail,
     #[command(flatten)]
-    pub(crate) profile: super::flags::Profile,
+    pub(crate) profile: Profile,
     #[arg(long = "with-logs")]
     pub(crate) with_logs: bool,
     #[arg(long = "as", value_name = "new")]
@@ -376,15 +393,15 @@ pub(crate) struct Logs {
     #[arg(long = "oldest-first")]
     pub(crate) oldest_first: bool,
     #[command(flatten)]
-    pub(crate) json: super::flags::Json,
+    pub(crate) json: Json,
     #[command(flatten)]
-    pub(crate) profile: super::flags::Profile,
+    pub(crate) profile: Profile,
     #[arg(long = "sublogger", value_name = "name")]
     pub(crate) sublogger: Option<String>,
     #[arg(long = "reset")]
     pub(crate) reset: bool,
     #[command(flatten)]
-    pub(crate) apply: super::flags::Apply,
+    pub(crate) apply: Apply,
     #[arg(id = "operands", value_name = "operand")]
     pub(crate) operands: Vec<String>,
 }
@@ -608,10 +625,38 @@ fn log_level_cmd(solution: &Solution, args: &Logs) -> u8 {
     }
 }
 
+/// `twaco datatable copy`.
+#[derive(Debug, clap::Subcommand)]
+pub(crate) enum Datatable {
+    Copy(DatatableCopy),
+}
+
+/// `twaco datatable copy <old> <new> [--map <old=new,...>] ...`.
+#[derive(Debug, clap::Args)]
+#[group(skip)]
+pub(crate) struct DatatableCopy {
+    #[arg(long = "map", value_name = "value")]
+    pub(crate) map: Option<String>,
+    #[arg(long = "drop-unmapped")]
+    pub(crate) drop_unmapped: bool,
+    #[arg(long = "append")]
+    pub(crate) append: bool,
+    #[arg(long = "max-rows", value_name = "n")]
+    pub(crate) max_rows: Option<String>,
+    #[command(flatten)]
+    pub(crate) apply: Apply,
+    #[command(flatten)]
+    pub(crate) profile: Profile,
+    #[command(flatten)]
+    pub(crate) json: Json,
+    #[arg(id = "operands", value_name = "operand")]
+    pub(crate) operands: Vec<String>,
+}
+
 /// Copy a DataTable's rows into the one that replaced it. A plan reads; an apply writes, then
 /// reads the target back and compares.
-pub(crate) fn datatable_copy_cmd(solution: &Solution, args: &Args) -> u8 {
-    let [old, new] = args.names.as_slice() else {
+pub(crate) fn datatable_copy_cmd(solution: &Solution, args: &DatatableCopy) -> u8 {
+    let [old, new] = args.operands.as_slice() else {
         eprintln!(
             "{} datatable copy needs <old> <new> DataTable names",
             style::prefix()
@@ -619,8 +664,8 @@ pub(crate) fn datatable_copy_cmd(solution: &Solution, args: &Args) -> u8 {
         return FAILED;
     };
     let map = match args
-        .values
-        .get("--map")
+        .map
+        .as_ref()
         .map(|text| datatable_copy::parse_map(text))
         .transpose()
     {
@@ -630,11 +675,7 @@ pub(crate) fn datatable_copy_cmd(solution: &Solution, args: &Args) -> u8 {
             return FAILED;
         }
     };
-    let max_rows = match args
-        .values
-        .get("--max-rows")
-        .map(|value| value.parse::<u64>())
-    {
+    let max_rows = match args.max_rows.as_ref().map(|value| value.parse::<u64>()) {
         None => 100_000,
         Some(Ok(value)) if value > 0 => value,
         Some(_) => {
@@ -649,18 +690,15 @@ pub(crate) fn datatable_copy_cmd(solution: &Solution, args: &Args) -> u8 {
         old: old.clone(),
         new: new.clone(),
         map,
-        drop_unmapped: args.has("--drop-unmapped"),
-        append: args.has("--append"),
+        drop_unmapped: args.drop_unmapped,
+        append: args.append,
         max_rows,
-        mode: if args.has("--apply") {
+        mode: if args.apply.apply {
             Mode::Apply
         } else {
             Mode::Plan
         },
-        profile: args
-            .profile
-            .clone()
-            .unwrap_or_else(|| "default".to_string()),
+        profile: args.profile.name().to_string(),
     };
     let mut notices = commands::Notices::default();
     let outcome = match commands::datatable_copy::execute(
@@ -681,7 +719,7 @@ pub(crate) fn datatable_copy_cmd(solution: &Solution, args: &Args) -> u8 {
         commands::datatable_copy::DataTableCopyOutcome::Plan { report, .. } => (report, false),
         commands::datatable_copy::DataTableCopyOutcome::Applied { report, .. } => (report, true),
     };
-    if args.has("--json") {
+    if args.json.json {
         let value = serde_json::to_value(&report).expect("copy report serialises");
         println!(
             "{}",
@@ -720,13 +758,140 @@ pub(crate) fn datatable_copy_cmd(solution: &Solution, args: &Args) -> u8 {
     OK
 }
 
+/// `twaco db run|query|clean`.
+#[derive(Debug, clap::Subcommand)]
+pub(crate) enum Db {
+    Run(DbRun),
+    Query(DbQuery),
+    Clean(DbClean),
+}
+
+impl Db {
+    /// The command's [`USAGE`](super::spec::USAGE) path.
+    pub(crate) fn path(&self) -> &'static str {
+        match self {
+            Db::Run(_) => "db run",
+            Db::Query(_) => "db query",
+            Db::Clean(_) => "db clean",
+        }
+    }
+}
+
+/// `twaco db run <file.sql> [--thing <name>] [--no-transaction] [--timeout <seconds>]`.
+#[derive(Debug, clap::Args)]
+#[group(skip)]
+pub(crate) struct DbRun {
+    #[arg(long = "thing", value_name = "name")]
+    pub(crate) thing: Option<String>,
+    #[arg(long = "no-transaction")]
+    pub(crate) no_transaction: bool,
+    #[command(flatten)]
+    pub(crate) timeout: Timeout,
+    #[command(flatten)]
+    pub(crate) apply: Apply,
+    #[command(flatten)]
+    pub(crate) profile: Profile,
+    #[command(flatten)]
+    pub(crate) json: Json,
+    #[arg(id = "operands", value_name = "operand")]
+    pub(crate) operands: Vec<String>,
+}
+
+/// `twaco db query <file.sql>|-q <sql> [--thing <name>] [--max-rows <n>] [--timeout <seconds>]`.
+#[derive(Debug, clap::Args)]
+#[group(skip)]
+pub(crate) struct DbQuery {
+    #[arg(short = 'q', value_name = "sql")]
+    pub(crate) sql: Option<String>,
+    #[arg(long = "thing", value_name = "name")]
+    pub(crate) thing: Option<String>,
+    #[arg(long = "max-rows", value_name = "n")]
+    pub(crate) max_rows: Option<String>,
+    #[command(flatten)]
+    pub(crate) timeout: Timeout,
+    #[command(flatten)]
+    pub(crate) profile: Profile,
+    #[command(flatten)]
+    pub(crate) detail: Detail,
+    #[command(flatten)]
+    pub(crate) json: Json,
+    #[arg(id = "operands", value_name = "operand")]
+    pub(crate) operands: Vec<String>,
+}
+
+/// `twaco db clean`.
+#[derive(Debug, clap::Args)]
+#[group(skip)]
+pub(crate) struct DbClean {
+    #[command(flatten)]
+    pub(crate) apply: Apply,
+    #[command(flatten)]
+    pub(crate) profile: Profile,
+    #[command(flatten)]
+    pub(crate) json: Json,
+}
+
+/// A `db run` or `db query` line as [`db_cmd`] reads it; what one of them does not take reads
+/// as not given.
+pub(crate) struct DbLine<'a> {
+    mode: db::Mode,
+    operands: &'a [String],
+    sql: Option<&'a String>,
+    thing: Option<&'a String>,
+    max_rows: Option<&'a String>,
+    timeout: &'a Timeout,
+    apply: bool,
+    no_transaction: bool,
+    detail: bool,
+    json: bool,
+    profile: &'a Profile,
+}
+
+impl DbRun {
+    /// The line as `db_cmd` reads it.
+    pub(crate) fn line(&self) -> DbLine<'_> {
+        DbLine {
+            mode: db::Mode::Run,
+            operands: &self.operands,
+            sql: None,
+            thing: self.thing.as_ref(),
+            max_rows: None,
+            timeout: &self.timeout,
+            apply: self.apply.apply,
+            no_transaction: self.no_transaction,
+            detail: false,
+            json: self.json.json,
+            profile: &self.profile,
+        }
+    }
+}
+
+impl DbQuery {
+    /// The line as `db_cmd` reads it.
+    pub(crate) fn line(&self) -> DbLine<'_> {
+        DbLine {
+            mode: db::Mode::Query,
+            operands: &self.operands,
+            sql: self.sql.as_ref(),
+            thing: self.thing.as_ref(),
+            max_rows: self.max_rows.as_ref(),
+            timeout: &self.timeout,
+            apply: false,
+            no_transaction: false,
+            detail: self.detail.detail,
+            json: self.json.json,
+            profile: &self.profile,
+        }
+    }
+}
+
 /// Delete the temporary Things an interrupted `db run` or `db query` left on the server. Plans by
 /// default; touches only names twaco generates, on `Database` Things.
-pub(crate) fn db_clean_cmd(solution: &Solution, args: &Args) -> u8 {
-    let apply = args.has("--apply");
+pub(crate) fn db_clean_cmd(solution: &Solution, args: &DbClean) -> u8 {
+    let apply = args.apply.apply;
     let request = commands::db::DbRequest::Clean {
         mode: if apply { Mode::Apply } else { Mode::Plan },
-        profile: args.profile.as_deref().unwrap_or("default").to_string(),
+        profile: args.profile.name().to_string(),
     };
     let mut notices = commands::Notices::default();
     let swept = match commands::db::execute(solution, &request, server::Client::new, &mut notices) {
@@ -739,7 +904,7 @@ pub(crate) fn db_clean_cmd(solution: &Solution, args: &Args) -> u8 {
         }
     };
     print_notices(&notices);
-    if args.has("--json") {
+    if args.json.json {
         let key = if apply { "applied" } else { "plan" };
         let value = serde_json::json!({ (key): true, "things": swept });
         println!(
@@ -772,14 +937,10 @@ pub(crate) fn db_clean_cmd(solution: &Solution, args: &Args) -> u8 {
     }
 }
 
-pub(crate) fn db_cmd(solution: &Solution, route: &str, args: &Args) -> u8 {
-    let mode = if route == "db run" {
-        db::Mode::Run
-    } else {
-        db::Mode::Query
-    };
-    let inline = args.values.get("-q");
-    let sql = match (mode, args.names.as_slice(), inline) {
+pub(crate) fn db_cmd(solution: &Solution, args: &DbLine) -> u8 {
+    let mode = args.mode;
+    let inline = args.sql;
+    let sql = match (mode, args.operands, inline) {
         (db::Mode::Run, [file], None) | (db::Mode::Query, [file], None) => {
             match std::fs::read_to_string(file) {
                 Ok(sql) => sql,
@@ -809,7 +970,7 @@ pub(crate) fn db_cmd(solution: &Solution, route: &str, args: &Args) -> u8 {
             return FAILED;
         }
     };
-    let max_rows = match args.values.get("--max-rows") {
+    let max_rows = match args.max_rows {
         Some(value) => match value.parse::<u64>() {
             Ok(value) if value > 0 => value,
             _ => {
@@ -824,16 +985,22 @@ pub(crate) fn db_cmd(solution: &Solution, route: &str, args: &Args) -> u8 {
     };
     let options = db::Options {
         mode,
-        thing: args.values.get("--thing").cloned(),
-        apply: mode == db::Mode::Query || args.has("--apply"),
-        no_transaction: args.has("--no-transaction"),
+        thing: args.thing.cloned(),
+        apply: mode == db::Mode::Query || args.apply,
+        no_transaction: args.no_transaction,
         max_rows,
-        timeout: args.timeout.unwrap_or(Duration::from_secs(120)),
+        // validate() refused a timeout that does not read.
+        timeout: args
+            .timeout
+            .duration()
+            .ok()
+            .flatten()
+            .unwrap_or(Duration::from_secs(120)),
     };
     let request = commands::db::DbRequest::Execute {
         sql,
         options,
-        profile: args.profile.as_deref().unwrap_or("default").to_string(),
+        profile: args.profile.name().to_string(),
     };
     let mut notices = commands::Notices::default();
     let report = match commands::db::execute(solution, &request, server::Client::new, &mut notices)
@@ -847,10 +1014,10 @@ pub(crate) fn db_cmd(solution: &Solution, route: &str, args: &Args) -> u8 {
         }
     };
     print_notices(&notices);
-    if args.has("--json") {
+    if args.json {
         let mut value = serde_json::to_value(&report).expect("db report serialises");
         if mode == db::Mode::Query {
-            summarise_db_json(&mut value, args.has("--detail"));
+            summarise_db_json(&mut value, args.detail);
         }
         println!(
             "{}",
@@ -879,7 +1046,7 @@ pub(crate) fn db_cmd(solution: &Solution, route: &str, args: &Args) -> u8 {
     );
     match report.result {
         None => println!("done"),
-        Some(value) if mode == db::Mode::Query => print_db_rows(&value, args.has("--detail")),
+        Some(value) if mode == db::Mode::Query => print_db_rows(&value, args.detail),
         Some(value) => println!(
             "{}",
             serde_json::to_string_pretty(&value).expect("db result serialises")

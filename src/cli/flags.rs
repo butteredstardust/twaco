@@ -108,3 +108,32 @@ pub(crate) fn path() -> impl clap::builder::TypedValueParser<Value = std::path::
     use clap::builder::TypedValueParser as _;
     clap::builder::StringValueParser::new().map(std::path::PathBuf::from)
 }
+
+/// `--only-projects <a,b>`: the projects to work on, separated by commas. Read as text and
+/// split by [`OnlyProjects::projects`] from `validate()`, as `args_from` split it, so the
+/// message for a list that names none is the builder's.
+#[derive(Debug, Default, clap::Args)]
+#[group(skip)]
+pub(crate) struct OnlyProjects {
+    #[arg(long = "only-projects", value_name = "a,b")]
+    pub(crate) only_projects: Option<String>,
+}
+
+impl OnlyProjects {
+    /// The projects named, trimmed, empty names dropped; refused when given but naming none.
+    pub(crate) fn projects(&self) -> Result<Vec<String>, String> {
+        let Some(value) = &self.only_projects else {
+            return Ok(Vec::new());
+        };
+        let selected: Vec<String> = value
+            .split(',')
+            .map(str::trim)
+            .filter(|name| !name.is_empty())
+            .map(str::to_string)
+            .collect();
+        if selected.is_empty() {
+            return Err("--only-projects needs at least one project".to_string());
+        }
+        Ok(selected)
+    }
+}

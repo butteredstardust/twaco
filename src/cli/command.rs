@@ -76,6 +76,13 @@ pub(crate) enum Typed {
     Entity(super::entity::Entity),
     #[command(subcommand)]
     Permissions(super::entity::Permissions),
+    Bundle(super::source::Bundle),
+    Deploy(super::source::Deploy),
+    ConfigTable(super::data::ConfigTable),
+    #[command(subcommand)]
+    Datatable(super::data::Datatable),
+    #[command(subcommand)]
+    Db(super::data::Db),
 }
 
 impl Typed {
@@ -136,6 +143,11 @@ impl Typed {
             Typed::Reproject(_) => "reproject",
             Typed::Entity(entity) => entity.path(),
             Typed::Permissions(permissions) => permissions.path(),
+            Typed::Bundle(_) => "bundle",
+            Typed::Deploy(_) => "deploy",
+            Typed::ConfigTable(_) => "config-table",
+            Typed::Datatable(_) => "datatable copy",
+            Typed::Db(db) => db.path(),
         }
     }
 
@@ -146,6 +158,9 @@ impl Typed {
             Typed::Extract(extract) => extract.selection.validate(),
             Typed::Sync(sync) => sync.selection.validate(),
             Typed::Call(call) => call.timeout.duration().map(|_| ()),
+            Typed::Deploy(deploy) => deploy.only_projects.projects().map(|_| ()),
+            Typed::Db(super::data::Db::Run(run)) => run.timeout.duration().map(|_| ()),
+            Typed::Db(super::data::Db::Query(query)) => query.timeout.duration().map(|_| ()),
             Typed::Mashup(super::mashup::Mashup::Validate(validate)) => {
                 validate.selection.validate()
             }
@@ -199,7 +214,11 @@ impl Typed {
             | Typed::Retemplate(_)
             | Typed::Reproject(_)
             | Typed::Entity(_)
-            | Typed::Permissions(_) => Ok(()),
+            | Typed::Permissions(_)
+            | Typed::Bundle(_)
+            | Typed::ConfigTable(_)
+            | Typed::Datatable(_)
+            | Typed::Db(super::data::Db::Clean(_)) => Ok(()),
         }
     }
 }

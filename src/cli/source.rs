@@ -1,4 +1,3 @@
-use super::args::Args;
 use super::style;
 use crate::{print_notices, DRIFT, FAILED, OK};
 use twaco::core::commands::{self, Mode};
@@ -459,17 +458,28 @@ fn print_check_report(report: &twaco::core::check::CheckReport, detail: bool) {
     }
 }
 
+/// `twaco bundle [--backend-only] [--handoff <name>] [--check]`.
+#[derive(Debug, clap::Args)]
+#[group(skip)]
+pub(crate) struct Bundle {
+    #[arg(long = "backend-only")]
+    pub(crate) backend_only: bool,
+    #[arg(long = "check")]
+    pub(crate) check: bool,
+    #[arg(long = "handoff", value_name = "name")]
+    pub(crate) handoff: Option<String>,
+    /// Accepted, and changes nothing: the bundle is a local file, written unless `--check`.
+    #[command(flatten)]
+    pub(crate) apply: super::flags::Apply,
+}
+
 /// Assemble one importable document from the split entity files.
-pub(crate) fn bundle(solution: &Solution, args: &Args) -> u8 {
-    let backend_only = args.has("--backend-only");
+pub(crate) fn bundle(solution: &Solution, args: &Bundle) -> u8 {
+    let backend_only = args.backend_only;
     let request = commands::bundle::BundleRequest {
         backend_only,
-        handoff: args.values.get("--handoff").cloned(),
-        mode: if args.has("--check") {
-            Mode::Plan
-        } else {
-            Mode::Apply
-        },
+        handoff: args.handoff.clone(),
+        mode: if args.check { Mode::Plan } else { Mode::Apply },
         lock_label: "bundle",
     };
     let mut notices = commands::Notices::default();
@@ -521,30 +531,42 @@ pub(crate) fn bundle(solution: &Solution, args: &Args) -> u8 {
     }
 }
 
-/// Deploy through import, read-back, configured service calls, and a post-service re-read.
-pub(crate) fn deploy_cmd(solution: &Solution, args: &Args) -> u8 {
-    if !args.names.is_empty() {
-        eprintln!(
-            "{} deploy takes no positional names; use --only <entity>",
-            style::prefix()
-        );
-        return FAILED;
-    }
+/// `twaco deploy [--apply] [--force] [--only <entity>]... [--only-projects <a,b>] ...`.
+#[derive(Debug, clap::Args)]
+#[group(skip)]
+pub(crate) struct Deploy {
+    #[command(flatten)]
+    pub(crate) apply: super::flags::Apply,
+    #[arg(long = "force")]
+    pub(crate) force: bool,
+    #[arg(long = "backend-only")]
+    pub(crate) backend_only: bool,
+    #[arg(long = "only", value_name = "entity")]
+    pub(crate) only: Vec<String>,
+    #[command(flatten)]
+    pub(crate) only_projects: super::flags::OnlyProjects,
+    #[arg(long = "skip-checks")]
+    pub(crate) skip_checks: bool,
+    #[arg(long = "no-backup")]
+    pub(crate) no_backup: bool,
+    #[command(flatten)]
+    pub(crate) profile: super::flags::Profile,
+}
 
-    let apply = args.has("--apply");
-    let force = args.has("--force");
+/// Deploy through import, read-back, configured service calls, and a post-service re-read.
+pub(crate) fn deploy_cmd(solution: &Solution, args: &Deploy) -> u8 {
+    let apply = args.apply.apply;
+    let force = args.force;
     let request = commands::deploy::DeployRequest {
         mode: if apply { Mode::Apply } else { Mode::Plan },
         force,
-        backup: !args.has("--no-backup"),
-        skip_checks: args.has("--skip-checks"),
-        only_projects: args.only_projects.clone(),
+        backup: !args.no_backup,
+        skip_checks: args.skip_checks,
+        // validate() refused a list that names no project.
+        only_projects: args.only_projects.projects().unwrap_or_default(),
         only: args.only.clone(),
-        backend_only: args.has("--backend-only"),
-        profile: args
-            .profile
-            .clone()
-            .unwrap_or_else(|| "default".to_string()),
+        backend_only: args.backend_only,
+        profile: args.profile.name().to_string(),
         lock_label: "deploy",
     };
     let mut notices = commands::Notices::default();
@@ -561,7 +583,7 @@ pub(crate) fn deploy_cmd(solution: &Solution, args: &Args) -> u8 {
             print_notices(&notices);
             if let Some(gates) = error.gates() {
                 println!("offline gates:");
-                print_check_report(gates, args.has("--detail"));
+                print_check_report(gates, false);
                 println!();
             }
             if matches!(error, commands::deploy::DeployCommandError::Backup { .. }) {
@@ -654,7 +676,7 @@ pub(crate) fn deploy_cmd(solution: &Solution, args: &Args) -> u8 {
     match outcome {
         commands::deploy::DeployOutcome::GatesBlocked { report, .. } => {
             println!("offline gates:");
-            print_check_report(&report, args.has("--detail"));
+            print_check_report(&report, false);
             eprintln!("{} offline gates block deploy", style::prefix());
             if report.broken() > 0 {
                 FAILED
@@ -672,7 +694,7 @@ pub(crate) fn deploy_cmd(solution: &Solution, args: &Args) -> u8 {
         } => {
             if let Some(gates) = gates {
                 println!("offline gates:");
-                print_check_report(&gates, args.has("--detail"));
+                print_check_report(&gates, false);
                 println!();
             }
             for note in notes {

@@ -1,5 +1,6 @@
 use super::super::*;
 use super::command::Typed;
+use super::data::{Datatable, Db};
 use super::entity::entity_delete_force_deprecation;
 use super::entity::{Entity, Permissions, PermissionsDiff};
 use super::entity_edit::{Media, Menu, Scheduler, State, Style, Thing, Timer};
@@ -50,18 +51,6 @@ fn flags_of(path: &str) -> Vec<String> {
         .filter_map(flag_name)
         .filter(|name| !spec::GLOBAL_FLAGS.contains(&name.as_str()))
         .collect()
-}
-
-/// Parse a table command's line (the words after `twaco`) as `twaco` does, up to what the
-/// command reads.
-fn parse(words: &[&str]) -> Result<Args, String> {
-    let mut all = vec!["twaco"];
-    all.extend(words);
-    let matches = spec::tree()
-        .try_get_matches_from(all)
-        .map_err(|e| e.to_string())?;
-    let (path, matched) = spec::matched(&matches);
-    spec::args_of(path, matched)
 }
 
 /// Parse a derived command's line as `twaco` does, up to what the command reads.
@@ -519,7 +508,7 @@ fn a_flag_typo_is_refused_with_a_suggestion_and_exit_2() {
 
 #[test]
 fn values_reach_the_fields_the_commands_read() {
-    let deploy = parse(&[
+    let Typed::Deploy(deploy) = parse_typed(&[
         "deploy",
         "--only",
         "A",
@@ -530,10 +519,15 @@ fn values_reach_the_fields_the_commands_read() {
         "--profile",
         "x",
     ])
-    .unwrap();
+    .unwrap() else {
+        panic!("deploy parses as deploy");
+    };
     assert_eq!(deploy.only, ["A", "B"]);
-    assert_eq!(deploy.only_projects, ["P", "Q"]);
-    assert_eq!(deploy.profile.as_deref(), Some("x"));
+    assert_eq!(
+        deploy.only_projects.projects(),
+        Ok(vec!["P".into(), "Q".into()])
+    );
+    assert_eq!(deploy.profile.name(), "x");
     let Typed::Logs(logs) =
         parse_typed(&["logs", "ScriptLog", "--since", "10m", "--json"]).unwrap()
     else {
@@ -542,9 +536,13 @@ fn values_reach_the_fields_the_commands_read() {
     assert_eq!(logs.operands, ["ScriptLog"]);
     assert_eq!(logs.since.as_deref(), Some("10m"));
     assert!(logs.json.json);
-    let query = parse(&["db", "query", "-q", "select 1", "--timeout", "30"]).unwrap();
-    assert_eq!(query.values.get("-q").map(String::as_str), Some("select 1"));
-    assert_eq!(query.timeout, Some(Duration::from_secs(30)));
+    let Typed::Db(Db::Query(query)) =
+        parse_typed(&["db", "query", "-q", "select 1", "--timeout", "30"]).unwrap()
+    else {
+        panic!("db query parses as db query");
+    };
+    assert_eq!(query.sql.as_deref(), Some("select 1"));
+    assert_eq!(query.timeout.duration(), Ok(Some(Duration::from_secs(30))));
     assert_eq!(
         parse_typed(&["call", "T", "S", "--timeout", "0"]).map(|_| ()),
         Err("--timeout needs a positive whole number of seconds".to_string())
@@ -553,7 +551,10 @@ fn values_reach_the_fields_the_commands_read() {
         panic!("call parses as call");
     };
     assert_eq!(call.timeout.duration(), Ok(Some(Duration::from_secs(30))));
-    assert!(parse(&["deploy", "--only-projects", " , "]).is_err());
+    assert_eq!(
+        parse_typed(&["deploy", "--only-projects", " , "]).map(|_| ()),
+        Err("--only-projects needs at least one project".to_string())
+    );
     assert_eq!(
         parse_typed(&["sync", "--all", "Acme.T"]).map(|_| ()),
         Err("--all and [\"Acme.T\"] say different things; pass one or the other".to_string())
@@ -570,16 +571,22 @@ fn values_reach_the_fields_the_commands_read() {
     assert_eq!(call.operands, ["T", "S", "-5"]);
     assert!(parse_typed(&["sync", "Acme.T", "--cehck"]).is_err());
     // A file named with a leading dash goes after `--`.
-    let file = parse(&["db", "run", "--", "-migration.sql"]).unwrap();
-    assert_eq!(file.names, ["-migration.sql"]);
+    let Typed::Db(Db::Run(file)) = parse_typed(&["db", "run", "--", "-migration.sql"]).unwrap()
+    else {
+        panic!("db run parses as db run");
+    };
+    assert_eq!(file.operands, ["-migration.sql"]);
     // A switch said twice is said once; a value given twice is refused, as before.
-    assert!(parse(&["deploy", "--force", "--force"])
-        .unwrap()
-        .has("--force"));
-    assert!(parse(&["deploy", "--profile", "a", "--profile", "b"]).is_err());
+    let Typed::Deploy(deploy) = parse_typed(&["deploy", "--force", "--force"]).unwrap() else {
+        panic!("deploy parses as deploy");
+    };
+    assert!(deploy.force);
+    assert!(parse_typed(&["deploy", "--profile", "a", "--profile", "b"]).is_err());
     // `--flag=value` works too.
-    let profile = parse(&["deploy", "--profile=prod"]).unwrap();
-    assert_eq!(profile.profile.as_deref(), Some("prod"));
+    let Typed::Deploy(deploy) = parse_typed(&["deploy", "--profile=prod"]).unwrap() else {
+        panic!("deploy parses as deploy");
+    };
+    assert_eq!(deploy.profile.name(), "prod");
     let Typed::Doctor(doctor) = parse_typed(&["doctor", "--profile=prod"]).unwrap() else {
         panic!("doctor parses as doctor");
     };
@@ -1359,6 +1366,114 @@ fn projection(typed: Typed) -> Projection {
             ]),
         ),
         Typed::Entity(entity) => entity_projection(entity),
+        Typed::Bundle(bundle) => (
+            Vec::new(),
+            switches(&[
+                ("--backend-only", bundle.backend_only),
+                ("--check", bundle.check),
+                ("--apply", bundle.apply.apply),
+            ]),
+            values(&[("--handoff", bundle.handoff)]),
+        ),
+        Typed::Deploy(deploy) => {
+            let mut given = values(&[
+                // args_from split it; its projects joined are what it named.
+                (
+                    "--only-projects",
+                    deploy
+                        .only_projects
+                        .projects()
+                        .ok()
+                        .filter(|projects| !projects.is_empty())
+                        .map(|projects| projects.join(",")),
+                ),
+                ("--profile", deploy.profile.profile),
+            ]);
+            given.extend(repeated("--only", deploy.only));
+            (
+                Vec::new(),
+                switches(&[
+                    ("--apply", deploy.apply.apply),
+                    ("--force", deploy.force),
+                    ("--backend-only", deploy.backend_only),
+                    ("--skip-checks", deploy.skip_checks),
+                    ("--no-backup", deploy.no_backup),
+                ]),
+                given,
+            )
+        }
+        Typed::ConfigTable(table) => (
+            table.operands,
+            switches(&[
+                ("--apply", table.apply.apply),
+                ("--diff", table.diff),
+                ("--detail", table.detail.detail),
+            ]),
+            values(&[
+                ("--backup", shown(table.backup.as_ref())),
+                ("--restore", shown(table.restore.as_ref())),
+                ("--profile", table.profile.profile),
+            ]),
+        ),
+        Typed::Datatable(Datatable::Copy(copy)) => (
+            copy.operands,
+            switches(&[
+                ("--drop-unmapped", copy.drop_unmapped),
+                ("--append", copy.append),
+                ("--apply", copy.apply.apply),
+                ("--json", copy.json.json),
+            ]),
+            values(&[
+                ("--map", copy.map),
+                ("--max-rows", copy.max_rows),
+                ("--profile", copy.profile.profile),
+            ]),
+        ),
+        Typed::Db(Db::Run(run)) => (
+            run.operands,
+            switches(&[
+                ("--no-transaction", run.no_transaction),
+                ("--apply", run.apply.apply),
+                ("--json", run.json.json),
+            ]),
+            values(&[
+                ("--thing", run.thing),
+                (
+                    "--timeout",
+                    run.timeout
+                        .duration()
+                        .unwrap()
+                        .map(|timeout| timeout.as_secs().to_string()),
+                ),
+                ("--profile", run.profile.profile),
+            ]),
+        ),
+        Typed::Db(Db::Query(query)) => (
+            query.operands,
+            switches(&[
+                ("--detail", query.detail.detail),
+                ("--json", query.json.json),
+            ]),
+            values(&[
+                ("-q", query.sql),
+                ("--thing", query.thing),
+                ("--max-rows", query.max_rows),
+                (
+                    "--timeout",
+                    query
+                        .timeout
+                        .duration()
+                        .unwrap()
+                        .map(|timeout| timeout.as_secs().to_string()),
+                ),
+                ("--profile", query.profile.profile),
+            ]),
+        ),
+        Typed::Db(Db::Clean(clean)) => (
+            Vec::new(),
+            switches(&[("--apply", clean.apply.apply), ("--json", clean.json.json)]),
+            values(&[("--profile", clean.profile.profile)]),
+        ),
         Typed::Permissions(permissions) => permissions_projection(permissions),
         Typed::Reproject(reproject) => (
             reproject.operands,
@@ -2692,6 +2807,76 @@ fn derived_commands_read_what_their_grammar_rows_read() {
                 "--json",
             ],
         ),
+        (
+            "datatable copy",
+            true,
+            &[
+                "--map",
+                "--drop-unmapped",
+                "--append",
+                "--max-rows",
+                "--apply",
+                "--profile",
+                "--json",
+            ],
+        ),
+        (
+            "bundle",
+            false,
+            &["--backend-only", "--check", "--handoff", "--apply"],
+        ),
+        (
+            "deploy",
+            false,
+            &[
+                "--apply",
+                "--force",
+                "--backend-only",
+                "--only",
+                "--only-projects",
+                "--skip-checks",
+                "--no-backup",
+                "--profile",
+            ],
+        ),
+        (
+            "config-table",
+            true,
+            &[
+                "--backup",
+                "--restore",
+                "--apply",
+                "--diff",
+                "--detail",
+                "--profile",
+            ],
+        ),
+        (
+            "db run",
+            true,
+            &[
+                "--thing",
+                "--no-transaction",
+                "--timeout",
+                "--apply",
+                "--profile",
+                "--json",
+            ],
+        ),
+        (
+            "db query",
+            true,
+            &[
+                "-q",
+                "--thing",
+                "--max-rows",
+                "--timeout",
+                "--profile",
+                "--detail",
+                "--json",
+            ],
+        ),
+        ("db clean", false, &["--apply", "--profile", "--json"]),
     ];
     let lines: &[&[&str]] = &[
         &["init"],
@@ -3779,6 +3964,105 @@ fn derived_commands_read_what_their_grammar_rows_read() {
         ],
         &["permissions", "push", "--platform", "--apply"],
         &["permissions", "push", "--all", "Acme.T", "--platform"],
+        &["bundle"],
+        &[
+            "bundle",
+            "--backend-only",
+            "--check",
+            "--handoff",
+            "sprint-1",
+            "--apply",
+        ],
+        &["deploy"],
+        &[
+            "deploy",
+            "--apply",
+            "--force",
+            "--backend-only",
+            "--only",
+            "Things/Acme.T",
+            "--only",
+            "-x",
+            "--only-projects",
+            "A, B,,",
+            "--skip-checks",
+            "--no-backup",
+            "--profile",
+            "qa",
+        ],
+        &["deploy", "--only-projects", " , "],
+        &["deploy", "--only-projects", ""],
+        &["deploy", "--force", "--force", "--profile=prod"],
+        &[
+            "config-table",
+            "Acme.T",
+            "Settings",
+            "--backup",
+            "s.json",
+            "--profile",
+            "qa",
+        ],
+        &[
+            "config-table",
+            "Acme.T",
+            "Settings",
+            "--restore",
+            "s.json",
+            "--apply",
+            "--detail",
+        ],
+        &["config-table", "Acme.T", "Settings", "--diff", "--backup="],
+        &[
+            "datatable",
+            "copy",
+            "Acme.Old",
+            "Acme.New",
+            "--map",
+            "a=b,c=d",
+            "--drop-unmapped",
+            "--append",
+            "--max-rows",
+            "-1",
+            "--apply",
+            "--profile",
+            "qa",
+            "--json",
+        ],
+        &[
+            "db",
+            "run",
+            "migrate.sql",
+            "--thing",
+            "Acme.DB",
+            "--no-transaction",
+            "--timeout",
+            "60",
+            "--apply",
+            "--profile",
+            "qa",
+            "--json",
+        ],
+        &["db", "run", "--", "-migration.sql"],
+        &["db", "run", "a.sql", "--timeout", "0"],
+        &[
+            "db",
+            "query",
+            "-q",
+            "select -1",
+            "--thing",
+            "Acme.DB",
+            "--max-rows",
+            "10",
+            "--timeout",
+            "30",
+            "--profile",
+            "qa",
+            "--detail",
+            "--json",
+        ],
+        &["db", "query", "q.sql", "--timeout", "soon"],
+        &["db", "clean"],
+        &["db", "clean", "--apply", "--profile", "qa", "--json"],
     ];
     for line in lines {
         let mut all = vec!["twaco"];
@@ -3824,6 +4108,9 @@ fn derived_commands_read_what_their_grammar_rows_read() {
         add("--project", old.project.clone());
         add("--out", shown(old.out.as_ref()));
         add("--timeout", old.timeout.map(|t| t.as_secs().to_string()));
+        if !old.only_projects.is_empty() {
+            add("--only-projects", Some(old.only_projects.join(",")));
+        }
         add("--backup", shown(old.backup.as_ref()));
         add("--restore", shown(old.restore.as_ref()));
         // `--prop` and `--set` both fill props; a command takes one of them.
