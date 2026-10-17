@@ -209,6 +209,11 @@ fn described(text: &str, flag: &str) -> Option<String> {
             });
         own.then(|| joined(first, lines[at + 1..].iter().copied()))
             .flatten()
+            // `another release; --limit <n>; --json` describes this flag up to the next one.
+            .map(|text| match text.split_once("; -") {
+                Some((own, _)) => own.to_string(),
+                None => text,
+            })
     })
 }
 

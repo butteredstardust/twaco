@@ -1475,6 +1475,25 @@ fn completions_write_the_script_to_stdout_and_logs_to_stderr_outside_a_solution(
     assert!(stdout.contains("complete -F _twaco"), "{stdout}");
     assert!(!stdout.contains("command finished"), "a log line on stdout");
     assert!(stderr.contains("command finished"), "{stderr}");
+}
+
+#[test]
+fn zsh_completions_escape_the_colons_in_value_names() {
+    let output = Command::new(env!("CARGO_BIN_EXE_twaco"))
+        .args(["completions", "zsh"])
+        .env_clear()
+        .output()
+        .unwrap();
+    assert!(output.status.success(), "{output:?}");
+    let script = String::from_utf8_lossy(&output.stdout);
+    // `_arguments` reads `--param=[help]:message:action`; a bare colon in the message splits it.
+    let param = script
+        .lines()
+        .find(|line| line.contains("'*--param=[") && line.contains("TYPE"))
+        .expect("a --param spec");
+    assert!(param.contains(r":name\:TYPE[\:DIRECTION]:"), "{param}");
+    assert!(!script.contains(":name:TYPE"), "an unescaped value name");
+}
 
 #[cfg(unix)]
 #[test]

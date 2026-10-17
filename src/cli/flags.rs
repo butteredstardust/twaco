@@ -1,7 +1,8 @@
 //! Flags several commands take, each declared once and flattened into the commands
 //! (`#[command(flatten)]`). A group declares only what a flag is called and the name of its
-//! value; how it behaves on the command line is [`super::spec::decorate`]'s. `#[group(skip)]` keeps clap from adding an argument group per
-//! struct, which the grammar dump would show and nothing reads.
+//! value; how it behaves on the command line is [`super::spec::decorate`]'s. `#[group(skip)]`
+//! keeps clap from adding an argument group per struct, which the grammar dump would show and
+//! nothing reads.
 
 /// `--profile <name>`: the server profile. Its default is applied here, not by clap, so a parse
 /// can tell it was not given.

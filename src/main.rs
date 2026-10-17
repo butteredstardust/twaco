@@ -468,10 +468,40 @@ fn completions_cmd(parsed: &Completions) -> u8 {
         return FAILED;
     };
     // Written whole through print!, so a reader that leaves early is quiet, as for any output.
+    let mut tree = cli::spec::tree();
+    if shell == clap_complete::Shell::Zsh {
+        tree = escape_colons_for_zsh(tree);
+    }
     let mut script = Vec::new();
-    clap_complete::generate(shell, &mut cli::spec::tree(), "twaco", &mut script);
+    clap_complete::generate(shell, &mut tree, "twaco", &mut script);
     print!("{}", String::from_utf8_lossy(&script));
     OK
+}
+
+/// zsh's `_arguments` splits a spec at `:`, and clap_complete escapes it in help text but not in
+/// value names such as `name:TYPE[:DIRECTION]`, so those would break completion of the flag.
+fn escape_colons_for_zsh(command: clap::Command) -> clap::Command {
+    let command = command.mut_subcommands(escape_colons_for_zsh);
+    let ids: Vec<clap::Id> = command
+        .get_arguments()
+        .filter(|arg| {
+            arg.get_value_names()
+                .is_some_and(|names| names.iter().any(|name| name.contains(':')))
+        })
+        .map(|arg| arg.get_id().clone())
+        .collect();
+    ids.iter().fold(command, |command, id| {
+        command.mut_arg(id, |arg| {
+            // Leaked: clap takes `'static` names, and this runs once before the process ends.
+            let names: Vec<&'static str> = arg
+                .get_value_names()
+                .unwrap_or_default()
+                .iter()
+                .map(|name| &*Box::leak(name.replace(':', "\\:").into_boxed_str()))
+                .collect();
+            arg.value_names(names)
+        })
+    })
 }
 
 /// Exit quietly when stdout's reader has gone, as `twaco projects | head` does once it has its
