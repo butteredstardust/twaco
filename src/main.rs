@@ -29,7 +29,7 @@ use cli::entity::{
     permissions_init_cmd,
 };
 use cli::entity_edit::entity_edit_cmd;
-use cli::entity_new::entity_new_cmd;
+use cli::entity_new::{entity_new_cmd, New};
 use cli::info::{
     catalog_cmd, docs_cmd, guide_cmd, help_cmd, impact_cmd, javadoc_cmd, settings_cmd, unused_cmd,
     update_cmd, write_agent_files,
@@ -222,6 +222,10 @@ fn dispatch_typed(typed: Typed) -> u8 {
         Typed::Media(media) => run(|solution| entity_edit_cmd(solution, media.edit())),
         Typed::Menu(menu) => run(|solution| entity_edit_cmd(solution, menu.edit())),
         Typed::State(state) => run(|solution| entity_edit_cmd(solution, state.edit())),
+        Typed::New(New::BuildingBlock(block)) => {
+            run(|solution| new_building_block_cmd(solution, &block))
+        }
+        Typed::New(New::Entity(new)) => run(|solution| entity_new_cmd(solution, &new)),
     }
 }
 
@@ -256,12 +260,6 @@ fn dispatch(route: &str, parsed: &Args) -> u8 {
         "mashup new" => mashup_new_cmd(solution, parsed),
         "mashup describe" => mashup_describe_cmd(solution, parsed),
         "mashup validate" => mashup_validate_cmd(solution, parsed),
-        "new building-block" => new_building_block_cmd(solution, parsed),
-        "new thing" | "new thing-template" | "new thing-shape" | "new data-shape" | "new timer"
-        | "new scheduler" | "new data-table" | "new stream" | "new value-stream" | "new media"
-        | "new style" | "new state" | "new menu" | "new theme" => {
-            entity_new_cmd(solution, route, parsed)
-        }
         "config-table" => config_table(solution, parsed),
         "entity get" => entity_get(solution, parsed),
         "entity status" => entity_status(solution, parsed),

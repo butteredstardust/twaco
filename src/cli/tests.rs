@@ -2,6 +2,7 @@ use super::super::*;
 use super::command::Typed;
 use super::entity::entity_delete_force_deprecation;
 use super::entity_edit::{Media, Menu, Scheduler, State, Style, Thing, Timer};
+use super::entity_new::{New, NewEntity};
 use super::spec::{self, GRAMMAR, USAGE};
 use clap::{FromArgMatches as _, Subcommand as _};
 
@@ -594,7 +595,7 @@ fn values_reach_the_fields_the_commands_read() {
     };
     assert_eq!(mcp.tools.as_deref(), Some("-core"));
     // An optional value given bare is followed by the next flag, never takes it as its value.
-    let menu = parse(&[
+    let Typed::New(New::Entity(NewEntity::Menu(menu))) = parse_typed(&[
         "new",
         "menu",
         "Acme.Main_MN",
@@ -604,10 +605,12 @@ fn values_reach_the_fields_the_commands_read() {
         "--label",
         "Main",
     ])
-    .unwrap();
-    assert_eq!(menu.names, ["Acme.Main_MN"]);
-    assert!(menu.has("--default") && !menu.values.contains_key("--default"));
-    assert_eq!(menu.values.get("--label").map(String::as_str), Some("Main"));
+    .unwrap() else {
+        panic!("new menu parses as new menu");
+    };
+    assert_eq!(menu.base.operands, ["Acme.Main_MN"]);
+    assert_eq!(menu.default.as_deref(), Some(""));
+    assert_eq!(menu.label.as_deref(), Some("Main"));
     // It may still be negative.
     let param = parse(&[
         "mashup",
@@ -1287,6 +1290,7 @@ fn projection(typed: Typed) -> Projection {
             ]),
         ),
         Typed::Thing(thing) => thing_projection(thing),
+        Typed::New(new) => new_projection(new),
         Typed::Timer(Timer::Set(set)) => (
             set.operands,
             switches(&[
@@ -1407,6 +1411,154 @@ fn thing_projection(thing: Thing) -> Projection {
             Vec::new(),
         ),
     }
+}
+
+/// What a `new` command read.
+fn new_projection(new: New) -> Projection {
+    let new = match new {
+        New::BuildingBlock(block) => {
+            return (
+                block.operands,
+                switches(&[
+                    ("--model-logic", block.model_logic),
+                    ("--no-management-shape", block.no_management_shape),
+                    ("--apply", block.apply.apply),
+                    ("--json", block.json.json),
+                ]),
+                values(&[
+                    ("--type", block.kind),
+                    ("--display-name", block.display_name),
+                    ("--description", block.description),
+                    ("--parent", block.parent),
+                    ("--root", block.root),
+                    ("--base-extension", block.base_extension),
+                ]),
+            )
+        }
+        New::Entity(new) => new,
+    };
+    let (base, mut on, mut given) = match new {
+        NewEntity::Thing(new) => {
+            let mut given = values(&[
+                ("--template", new.template),
+                ("--value-stream", new.value_stream),
+            ]);
+            given.extend(repeated("--visibility", new.visibility));
+            given.extend(repeated("--shape", new.shapes));
+            (new.base, Vec::new(), given)
+        }
+        NewEntity::ThingTemplate(new) => {
+            let mut given = values(&[("--base", new.parent)]);
+            given.extend(repeated("--visibility", new.visibility));
+            given.extend(repeated("--shape", new.shapes));
+            (new.base, Vec::new(), given)
+        }
+        NewEntity::ThingShape(new) => (
+            new.base,
+            Vec::new(),
+            repeated("--visibility", new.visibility),
+        ),
+        NewEntity::DataShape(new) => {
+            let mut given = values(&[("--base", new.parent)]);
+            given.extend(repeated("--visibility", new.visibility));
+            given.extend(repeated("--field", new.fields));
+            (new.base, Vec::new(), given)
+        }
+        NewEntity::Timer(new) => {
+            let mut given = values(&[
+                ("--every", new.every),
+                ("--run-as", new.event.run_as),
+                ("--then", new.event.then),
+                ("--script", shown(new.event.script.as_ref())),
+            ]);
+            given.extend(repeated("--visibility", new.visibility));
+            (
+                new.base,
+                switches(&[("--disabled", new.event.disabled)]),
+                given,
+            )
+        }
+        NewEntity::Scheduler(new) => {
+            let mut given = values(&[
+                ("--cron", new.cron),
+                ("--run-as", new.event.run_as),
+                ("--then", new.event.then),
+                ("--script", shown(new.event.script.as_ref())),
+            ]);
+            given.extend(repeated("--visibility", new.visibility));
+            (
+                new.base,
+                switches(&[("--disabled", new.event.disabled)]),
+                given,
+            )
+        }
+        NewEntity::DataTable(new) => {
+            let mut given = values(&[("--data-shape", new.data_shape)]);
+            given.extend(repeated("--index", new.indexes));
+            (new.base, Vec::new(), given)
+        }
+        NewEntity::Stream(new) => (
+            new.base,
+            Vec::new(),
+            values(&[("--data-shape", new.data_shape)]),
+        ),
+        NewEntity::ValueStream(new) => (new.base, Vec::new(), Vec::new()),
+        NewEntity::Media(new) => (
+            new.base,
+            Vec::new(),
+            values(&[("--file", shown(new.file.as_ref()))]),
+        ),
+        NewEntity::Style(new) => (
+            new.base,
+            switches(&[
+                ("--bold", new.bold),
+                ("--italic", new.italic),
+                ("--underline", new.underline),
+            ]),
+            values(&[
+                ("--background", new.background),
+                ("--foreground", new.foreground),
+                ("--secondary-background", new.secondary_background),
+                ("--line-color", new.line_color),
+                ("--line-style", new.line_style),
+                ("--line-thickness", new.line_thickness),
+                ("--text-size", new.text_size),
+                ("--image", new.image),
+                ("--display-string", new.display_string),
+            ]),
+        ),
+        NewEntity::State(new) => {
+            let mut given = values(&[("--type", new.kind)]);
+            given.extend(repeated("--state", new.states));
+            (new.base, Vec::new(), given)
+        }
+        NewEntity::Menu(new) => {
+            let mut given = values(&[
+                ("--default", bare(new.default.clone())),
+                ("--label", new.label),
+            ]);
+            given.extend(repeated("--item", new.items));
+            (
+                new.base,
+                switches(&[("--default", new.default.is_some())]),
+                given,
+            )
+        }
+        NewEntity::Theme(new) => {
+            let mut given = values(&[("--from", new.from)]);
+            given.extend(repeated("--prop", new.props));
+            (new.base, Vec::new(), given)
+        }
+    };
+    on.extend(switches(&[
+        ("--apply", base.apply.apply),
+        ("--json", base.json.json),
+    ]));
+    given.extend(values(&[
+        ("--project", base.project.project),
+        ("--description", base.description),
+    ]));
+    (base.operands, on, given)
 }
 
 /// While commands move from GRAMMAR rows to structs: each moved command line, read by the
@@ -1698,6 +1850,197 @@ fn derived_commands_read_what_their_grammar_rows_read() {
             "state set",
             true,
             &["--type", "--state", "--apply", "--json"],
+        ),
+        (
+            "new building-block",
+            true,
+            &[
+                "--type",
+                "--display-name",
+                "--description",
+                "--parent",
+                "--root",
+                "--base-extension",
+                "--model-logic",
+                "--no-management-shape",
+                "--apply",
+                "--json",
+            ],
+        ),
+        (
+            "new thing",
+            true,
+            &[
+                "--project",
+                "--description",
+                "--visibility",
+                "--template",
+                "--shape",
+                "--value-stream",
+                "--apply",
+                "--json",
+            ],
+        ),
+        (
+            "new thing-template",
+            true,
+            &[
+                "--project",
+                "--description",
+                "--visibility",
+                "--base",
+                "--shape",
+                "--apply",
+                "--json",
+            ],
+        ),
+        (
+            "new thing-shape",
+            true,
+            &[
+                "--project",
+                "--description",
+                "--visibility",
+                "--apply",
+                "--json",
+            ],
+        ),
+        (
+            "new data-shape",
+            true,
+            &[
+                "--project",
+                "--description",
+                "--visibility",
+                "--base",
+                "--field",
+                "--apply",
+                "--json",
+            ],
+        ),
+        (
+            "new timer",
+            true,
+            &[
+                "--project",
+                "--description",
+                "--visibility",
+                "--every",
+                "--run-as",
+                "--disabled",
+                "--then",
+                "--script",
+                "--apply",
+                "--json",
+            ],
+        ),
+        (
+            "new scheduler",
+            true,
+            &[
+                "--project",
+                "--description",
+                "--visibility",
+                "--cron",
+                "--run-as",
+                "--disabled",
+                "--then",
+                "--script",
+                "--apply",
+                "--json",
+            ],
+        ),
+        (
+            "new data-table",
+            true,
+            &[
+                "--project",
+                "--description",
+                "--data-shape",
+                "--index",
+                "--apply",
+                "--json",
+            ],
+        ),
+        (
+            "new stream",
+            true,
+            &[
+                "--project",
+                "--description",
+                "--data-shape",
+                "--apply",
+                "--json",
+            ],
+        ),
+        (
+            "new value-stream",
+            true,
+            &["--project", "--description", "--apply", "--json"],
+        ),
+        (
+            "new media",
+            true,
+            &["--project", "--description", "--file", "--apply", "--json"],
+        ),
+        (
+            "new style",
+            true,
+            &[
+                "--project",
+                "--description",
+                "--background",
+                "--foreground",
+                "--secondary-background",
+                "--line-color",
+                "--line-style",
+                "--line-thickness",
+                "--bold",
+                "--italic",
+                "--underline",
+                "--text-size",
+                "--image",
+                "--display-string",
+                "--apply",
+                "--json",
+            ],
+        ),
+        (
+            "new state",
+            true,
+            &[
+                "--project",
+                "--description",
+                "--type",
+                "--state",
+                "--apply",
+                "--json",
+            ],
+        ),
+        (
+            "new menu",
+            true,
+            &[
+                "--project",
+                "--description",
+                "--item",
+                "--default",
+                "--label",
+                "--apply",
+                "--json",
+            ],
+        ),
+        (
+            "new theme",
+            true,
+            &[
+                "--project",
+                "--description",
+                "--from",
+                "--prop",
+                "--apply",
+                "--json",
+            ],
         ),
     ];
     let lines: &[&[&str]] = &[
@@ -2191,6 +2534,179 @@ fn derived_commands_read_what_their_grammar_rows_read() {
             "--apply", "--json",
         ],
         &["state", "set", "Acme.SD"],
+        &[
+            "new",
+            "building-block",
+            "Acme.Orders",
+            "--type",
+            "abstract",
+            "--display-name",
+            "Orders",
+            "--description",
+            "-",
+            "--parent",
+            "Acme.Base",
+            "--root",
+            "blocks/orders",
+            "--base-extension",
+            "x",
+            "--model-logic",
+            "--no-management-shape",
+            "--apply",
+            "--json",
+        ],
+        &["new", "building-block"],
+        &[
+            "new",
+            "thing",
+            "Acme.T",
+            "--project",
+            "Acme",
+            "--description",
+            "d",
+            "--visibility",
+            "Org:Acme",
+            "--visibility",
+            "-x",
+            "--template",
+            "GenericThing",
+            "--shape",
+            "A",
+            "--shape",
+            "B",
+            "--value-stream",
+            "Acme.VS",
+            "--apply",
+            "--json",
+        ],
+        &[
+            "new",
+            "thing-template",
+            "Acme.TT",
+            "--base",
+            "GenericThing",
+            "--shape",
+            "A",
+            "--visibility",
+            "v",
+        ],
+        &[
+            "new",
+            "thing-shape",
+            "Acme.TS",
+            "--visibility",
+            "v",
+            "--json",
+        ],
+        &[
+            "new",
+            "data-shape",
+            "Acme.DS",
+            "--base",
+            "Acme.Base",
+            "--field",
+            "id:STRING:primary",
+            "--field",
+            "n:NUMBER",
+            "--visibility",
+            "v",
+        ],
+        &[
+            "new",
+            "timer",
+            "Acme.Timer",
+            "--every",
+            "60s",
+            "--run-as",
+            "Admin",
+            "--disabled",
+            "--then",
+            "me.x = 1;",
+            "--visibility",
+            "v",
+            "--project",
+            "Acme",
+        ],
+        &[
+            "new",
+            "scheduler",
+            "Acme.S",
+            "--cron",
+            "0 0 * * * ?",
+            "--script",
+            "run.js",
+            "--run-as",
+            "Admin",
+        ],
+        &[
+            "new",
+            "data-table",
+            "Acme.DT",
+            "--data-shape",
+            "Acme.DS",
+            "--index",
+            "byName=name",
+            "--index",
+            "byId=id",
+        ],
+        &["new", "stream", "Acme.St", "--data-shape", "Acme.DS"],
+        &["new", "value-stream", "Acme.VS", "--description", ""],
+        &["new", "media", "Acme.M", "--file", "logo.png", "--apply"],
+        &[
+            "new",
+            "style",
+            "Acme.Style",
+            "--background",
+            "#fff",
+            "--foreground",
+            "#000",
+            "--secondary-background",
+            "#eee",
+            "--line-color",
+            "#111",
+            "--line-style",
+            "solid",
+            "--line-thickness",
+            "1",
+            "--bold",
+            "--italic",
+            "--underline",
+            "--text-size",
+            "large",
+            "--image",
+            "Acme.M",
+            "--display-string",
+            "x",
+        ],
+        &[
+            "new", "state", "Acme.SD", "--type", "string", "--state", "a", "--state", "b",
+        ],
+        &[
+            "new",
+            "menu",
+            "Acme.Main_MN",
+            "--item",
+            "Home=Acme.Home_MU",
+            "--item",
+            "About=Acme.About_MU",
+            "--default",
+            "--label",
+            "Main",
+        ],
+        &["new", "menu", "Acme.Main_MN", "--default", "x"],
+        &["new", "menu", "Acme.Main_MN", "--default", "-1"],
+        &[
+            "new",
+            "theme",
+            "Acme.Theme",
+            "--from",
+            "Acme.Base",
+            "--prop",
+            "a=1",
+            "--prop",
+            "b=-2",
+        ],
+        &["new", "theme"],
     ];
     for line in lines {
         let mut all = vec!["twaco"];

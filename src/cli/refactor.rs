@@ -633,16 +633,44 @@ fn print_adopt_report(solution: &Solution, report: &adopt::Report, detail: bool)
     }
 }
 
+/// `twaco new building-block <name>`.
+#[derive(Debug, clap::Args)]
+#[group(skip)]
+pub(crate) struct NewBuildingBlock {
+    #[arg(long = "type", value_name = "value")]
+    pub(crate) kind: Option<String>,
+    #[arg(long = "display-name", value_name = "text")]
+    pub(crate) display_name: Option<String>,
+    #[arg(long = "description", value_name = "text")]
+    pub(crate) description: Option<String>,
+    #[arg(long = "parent", value_name = "block")]
+    pub(crate) parent: Option<String>,
+    #[arg(long = "root", value_name = "dir")]
+    pub(crate) root: Option<String>,
+    #[arg(long = "base-extension", value_name = "value")]
+    pub(crate) base_extension: Option<String>,
+    #[arg(long = "model-logic")]
+    pub(crate) model_logic: bool,
+    #[arg(long = "no-management-shape")]
+    pub(crate) no_management_shape: bool,
+    #[command(flatten)]
+    pub(crate) apply: super::flags::Apply,
+    #[command(flatten)]
+    pub(crate) json: super::flags::Json,
+    #[arg(id = "operands", value_name = "operand")]
+    pub(crate) operands: Vec<String>,
+}
+
 /// Create a building block as files and register its project. Plans unless --apply.
-pub(crate) fn new_building_block_cmd(solution: &Solution, args: &Args) -> u8 {
-    let [name] = args.names.as_slice() else {
+pub(crate) fn new_building_block_cmd(solution: &Solution, args: &NewBuildingBlock) -> u8 {
+    let [name] = args.operands.as_slice() else {
         eprintln!(
             "{} new building-block needs one <name>, such as Acme.Orders",
             style::prefix()
         );
         return FAILED;
     };
-    let kind = match args.values.get("--type") {
+    let kind = match &args.kind {
         None => newblock::BlockType::Standard,
         Some(word) => match newblock::BlockType::from_word(word) {
             Some(kind) => kind,
@@ -655,19 +683,15 @@ pub(crate) fn new_building_block_cmd(solution: &Solution, args: &Args) -> u8 {
     let request = newblock::Request {
         name: name.clone(),
         kind,
-        display_name: args.values.get("--display-name").cloned(),
-        description: args
-            .values
-            .get("--description")
-            .cloned()
-            .unwrap_or_default(),
-        parent: args.values.get("--parent").cloned(),
-        model_logic: args.has("--model-logic"),
-        management_shape: !args.has("--no-management-shape"),
-        root: args.values.get("--root").cloned(),
-        base_extension: args.values.get("--base-extension").cloned(),
+        display_name: args.display_name.clone(),
+        description: args.description.clone().unwrap_or_default(),
+        parent: args.parent.clone(),
+        model_logic: args.model_logic,
+        management_shape: !args.no_management_shape,
+        root: args.root.clone(),
+        base_extension: args.base_extension.clone(),
     };
-    let apply = args.has("--apply");
+    let apply = args.apply.apply;
     let request_name = request.name.clone();
     let request_kind = request.kind;
     let facade = commands::newblock::NewBlockRequest {
@@ -691,7 +715,7 @@ pub(crate) fn new_building_block_cmd(solution: &Solution, args: &Args) -> u8 {
         .iter()
         .map(|file| solution.relative(&file.path))
         .collect();
-    if args.has("--json") {
+    if args.json.json {
         let value = serde_json::json!({
             (if apply { "applied" } else { "plan" }): true,
             "name": request_name, "type": request_kind.word(), "root": plan.root,

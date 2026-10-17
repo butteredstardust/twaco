@@ -58,6 +58,8 @@ pub(crate) enum Typed {
     Menu(super::entity_edit::Menu),
     #[command(subcommand)]
     State(super::entity_edit::State),
+    #[command(subcommand)]
+    New(super::entity_new::New),
 }
 
 impl Typed {
@@ -106,6 +108,8 @@ impl Typed {
             Typed::Media(_) => "media set",
             Typed::Menu(_) => "menu item",
             Typed::State(_) => "state set",
+            Typed::New(super::entity_new::New::BuildingBlock(_)) => "new building-block",
+            Typed::New(super::entity_new::New::Entity(new)) => new.path(),
         }
     }
 
@@ -150,7 +154,8 @@ impl Typed {
             | Typed::Style(_)
             | Typed::Media(_)
             | Typed::Menu(_)
-            | Typed::State(_) => Ok(()),
+            | Typed::State(_)
+            | Typed::New(_) => Ok(()),
         }
     }
 }
