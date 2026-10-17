@@ -418,9 +418,10 @@ fn every_flag_means_the_same_in_every_command() {
                 .iter()
                 .map(ToString::to_string)
                 .collect();
-            // Operands, and before them a sub-action that takes only the words it names.
-            if arg.is_positional() && arg.get_id() == "action" {
-                assert_eq!(value_names, ["action"], "{}", command.path);
+            // Operands, and before them a word that takes only the words it names: a sub-action
+            // (`users list`) or a shell.
+            if arg.is_positional() && arg.get_id() != "operands" {
+                assert_eq!(value_names, [arg.get_id().as_str()], "{}", command.path);
                 assert!(
                     !arg.get_possible_values().is_empty(),
                     "{}: an action names its words",
@@ -719,6 +720,98 @@ fn entity_delete_force_deprecation_text_is_stable() {
             entity_delete_force_deprecation(),
             "--force is deprecated for entity delete; it now means --allow-repository-defined --allow-outside-dependents and never covers FileRepository data loss"
         );
+}
+
+/// Shell completions describe each command and each flag that has a line of its own in the help
+/// text, in the help text's words, and offer a sub-action's words.
+#[test]
+fn completions_describe_commands_and_flags_from_the_help_text() {
+    let tree = spec::tree();
+    let help = |path: &str, flag: &str| {
+        node(&tree, path)
+            .get_arguments()
+            .find(|arg| flag_name(arg).as_deref() == Some(flag))
+            .and_then(|arg| arg.get_help().map(ToString::to_string))
+    };
+    assert_eq!(
+        help("sync", "--check").as_deref(),
+        Some("report what would change, write nothing")
+    );
+    // A description continued on the lines below is one line.
+    assert_eq!(
+        help("mcp", "--tools").as_deref(),
+        Some(
+            "only these tool groups, comma-separated (TWACO_MCP_TOOLS): core, entity, refactor, mashup, permissions, data, server, reference; default all"
+        )
+    );
+    // The shared flags are described where the listing describes them.
+    assert_eq!(
+        help("doctor", "--profile").as_deref(),
+        Some("the server profile (default: default)")
+    );
+    assert_eq!(
+        help("check", "--log").as_deref(),
+        Some("write diagnostic logs to stderr (or TWACO_LOG)")
+    );
+    // Several flags on one line share it; a flag named only in a synopsis has no description.
+    assert_eq!(help("logs", "--thread").as_deref(), Some("exact matches"));
+    assert_eq!(help("init", "--write"), None);
+    // `--only` is not `--only-projects`.
+    assert_ne!(help("deploy", "--only"), help("deploy", "--only-projects"));
+    for command in USAGE {
+        let about = node(&tree, command.path)
+            .get_about()
+            .map(ToString::to_string);
+        let first = command.text.lines().next().unwrap_or_default();
+        // A command whose synopsis line says what it does, or whose next line does, has it.
+        let says = first.trim().contains("  ")
+            || command
+                .text
+                .lines()
+                .nth(1)
+                .is_some_and(|line| line.starts_with(&" ".repeat(30)));
+        assert_eq!(
+            about.is_some_and(|about| !about.is_empty()),
+            says,
+            "{}: its description",
+            command.path
+        );
+    }
+    assert_eq!(
+        node(&tree, "sync").get_about().map(ToString::to_string),
+        Some("sidecars -> entity XML".to_string())
+    );
+    for shell in [
+        clap_complete::Shell::Bash,
+        clap_complete::Shell::Elvish,
+        clap_complete::Shell::Fish,
+        clap_complete::Shell::PowerShell,
+        clap_complete::Shell::Zsh,
+    ] {
+        let mut script = Vec::new();
+        clap_complete::generate(shell, &mut spec::tree(), "twaco", &mut script);
+        let script = String::from_utf8(script).unwrap();
+        for word in ["permissions", "only-projects"] {
+            assert!(script.contains(word), "{shell}: {word}");
+        }
+        // Bash and zsh offer an action's words too; the others complete commands and flags.
+        let values = matches!(
+            shell,
+            clap_complete::Shell::Bash | clap_complete::Shell::Zsh
+        );
+        assert_eq!(script.contains("seed"), values, "{shell}: seed");
+        if shell != clap_complete::Shell::Bash {
+            assert!(
+                script.contains("report what would change, write nothing"),
+                "{shell} describes flags"
+            );
+        }
+    }
+    let Command::Completions(completions) = parse(&["completions", "zsh"]).unwrap() else {
+        panic!("completions parses as completions");
+    };
+    assert_eq!(completions.shell, Some(clap_complete::Shell::Zsh));
+    assert!(parse(&["completions", "tcsh"]).is_err());
 }
 
 /// `documentation/COMMANDS.md` is the command table written out. `TWACO_BLESS=1` rewrites it.

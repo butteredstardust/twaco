@@ -127,7 +127,9 @@ See [Testing](TESTING.md) for commands.
 
    `decorate()` in `cli/spec.rs` gives every command the same grammar policy (a switch said
    twice, a value starting with a dash, negative operands, `--log`/`--log-file`, the usage line
-   and help), so a struct declares only names. `tests/fixtures/cli_grammar.txt` records the
+   and help), so a struct declares only names. It also takes the one-line descriptions that
+   `twaco completions` shows from the help text (a flag with a line of its own is described),
+   never from doc comments, which are for the code. `tests/fixtures/cli_grammar.txt` records the
    whole grammar; review its diff and bless it with `TWACO_BLESS=1 cargo test --bin twaco
    grammar`.
 3. Add the MCP tool: a request object in `mcp/requests/`, its adapter in the family file, and one

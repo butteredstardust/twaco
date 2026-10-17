@@ -42,6 +42,8 @@ tar = { version = "0.4.46", default-features = false }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", default-features = false, features = ["std", "fmt", "env-filter"] }
 clap = { version = "4.6.7", default-features = false, features = ["std", "derive", "help", "usage", "error-context", "suggestions"] }
+# `twaco completions <shell>`: shell completion scripts from the same command tree.
+clap_complete = "4.6.11"
 indicatif = "0.18.6"
 owo-colors = { version = "4.4.0", features = ["supports-colors"] }
 tempfile = "3"

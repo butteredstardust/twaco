@@ -6,6 +6,13 @@ All notable changes to twaco are recorded here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- `twaco completions <shell>` writes a shell completion script (bash, elvish, fish, powershell or
+  zsh) on stdout, built from the same command tree twaco parses with: every command, flag and
+  action, described in the words `twaco` lists. It needs no solution and never prints the update
+  notice.
+
 ### Changed
 
 - The command-line parser is now typed clap derive structs, one beside each command's handler,

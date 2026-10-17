@@ -118,6 +118,8 @@ const SCENARIOS: &[(&str, &[&str])] = &[
     ),
     ("users_list_takes_no_apply", &["users", "list", "--apply"]),
     ("users_unknown_action", &["users", "frob"]),
+    ("completions_needs_shell", &["completions"]),
+    ("completions_unknown_shell", &["completions", "tcsh"]),
     (
         "mashup_param_needs_action",
         &["mashup", "param", "Acme.Home_MU", "Count"],

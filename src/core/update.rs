@@ -411,7 +411,7 @@ pub fn cache_file() -> Option<PathBuf> {
 }
 
 /// Whether a command may print the notice. It never runs where its output reaches a program:
-/// the MCP server's stdio, CI, or a redirected stderr.
+/// the MCP server's stdio, a shell reading a completion script, CI, or a redirected stderr.
 pub fn notice_wanted(
     command: &str,
     var: &dyn Fn(&str) -> Option<String>,
@@ -419,7 +419,10 @@ pub fn notice_wanted(
 ) -> bool {
     let set = |name: &str| var(name).is_some_and(|value| !value.is_empty() && value != "0");
     stderr_is_terminal
-        && !matches!(command, "mcp" | "update" | "--version" | "-V")
+        && !matches!(
+            command,
+            "mcp" | "update" | "completions" | "--version" | "-V"
+        )
         && !set(OPT_OUT)
         && !set("CI")
 }
@@ -696,6 +699,8 @@ mod tests {
         assert!(!notice_wanted("check", &none, false));
         assert!(!notice_wanted("mcp", &none, true));
         assert!(!notice_wanted("update", &none, true));
+        // A completion script is read by a shell at start-up, which is no place for a notice.
+        assert!(!notice_wanted("completions", &none, true));
         let ci = |name: &str| (name == "CI").then(|| "true".to_string());
         assert!(!notice_wanted("check", &ci, true));
         let off = |name: &str| (name == OPT_OUT).then(|| "1".to_string());

@@ -1,0 +1,7 @@
+$ twaco completions
+exit: 2
+
+--- stdout
+
+--- stderr
+twaco: completions needs a shell: bash, elvish, fish, powershell or zsh

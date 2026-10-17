@@ -107,8 +107,16 @@ fn decorate_node(node: clap::Command, path: &str) -> clap::Command {
     if let Some(command) = command(path) {
         return leaf(node, command);
     }
+    // What shell completions say a family is: its commands. Not the doc comment clap derive
+    // would take, which is written for the code.
+    let members: Vec<&str> = USAGE
+        .iter()
+        .filter_map(|c| c.path.strip_prefix(path)?.strip_prefix(' '))
+        .collect();
     node.override_usage(format!("twaco {path} <command>"))
         .override_help(family_listing(path))
+        .about(members.join(", "))
+        .long_about(None::<&str>)
         .subcommand_required(true)
         .arg_required_else_help(true)
         .disable_help_subcommand(true)
@@ -120,21 +128,94 @@ fn decorate_node(node: clap::Command, path: &str) -> clap::Command {
 }
 
 /// A command: its usage line and help from [`USAGE`], the diagnostic flags, and the policy for
-/// every argument.
+/// every argument. `--help` shows the text as written; the one-line descriptions of the command
+/// and of each flag are taken from it too, for shell completions.
 fn leaf(node: clap::Command, command: &'static Usage) -> clap::Command {
     let takes = |long: &str| node.get_arguments().any(|arg| arg.get_long() == Some(long));
     let help = help_of(command, &|name| takes(id(name)));
+    // clap derive takes a struct's doc comment for its description; completions show the help
+    // text's instead, or none.
+    let node = match summary(command.text) {
+        Some(about) => node.about(about),
+        None => node.about(None::<&str>),
+    }
+    .long_about(None::<&str>);
     node.override_usage(synopsis(command))
         .override_help(help)
         .disable_version_flag(true)
         .args(log_arguments())
-        .mut_args(behaviour)
+        .mut_args(|arg| {
+            let name = arg
+                .get_long()
+                .map(|long| format!("--{long}"))
+                .or_else(|| arg.get_short().map(|short| format!("-{short}")));
+            let help = name.and_then(|name| {
+                [command.text, SHARED, LOGGING]
+                    .into_iter()
+                    .find_map(|text| described(text, &name))
+            });
+            let arg = behaviour(arg).long_help(None::<&str>);
+            match help {
+                Some(help) => arg.help(help),
+                None => arg.help(None::<&str>),
+            }
+        })
+}
+
+/// Where a description starts in the help text: column 31.
+const DESCRIPTION_COLUMN: &str = "                              ";
+
+/// A synopsis or flag entry split into what it names and what it says it does: they are parted by
+/// the first run of two spaces.
+fn entry(line: &str) -> (&str, &str) {
+    let line = line.trim_start();
+    match line.find("  ") {
+        Some(at) => (&line[..at], line[at..].trim()),
+        None => (line, ""),
+    }
+}
+
+/// A description and the lines that continue it at [`DESCRIPTION_COLUMN`], as one line.
+fn joined<'a>(first: &'a str, rest: impl Iterator<Item = &'a str>) -> Option<String> {
+    let words: Vec<&str> = std::iter::once(first)
+        .chain(
+            rest.take_while(|line| line.starts_with(DESCRIPTION_COLUMN) && !line.trim().is_empty()),
+        )
+        .flat_map(str::split_whitespace)
+        .collect();
+    (!words.is_empty()).then(|| words.join(" "))
+}
+
+/// What a command's text says the command does: its first entry's description.
+fn summary(text: &str) -> Option<String> {
+    let mut lines = text.lines();
+    let (_, first) = entry(lines.next()?);
+    joined(first, lines)
+}
+
+/// What a help text says a flag does, when the flag has a line of its own
+/// (`      --when <address>        the event...`); a flag named only in passing has none.
+fn described(text: &str, flag: &str) -> Option<String> {
+    let lines: Vec<&str> = text.lines().collect();
+    lines.iter().enumerate().find_map(|(at, line)| {
+        let (head, first) = entry(line);
+        let own = head.starts_with('-')
+            && head.match_indices(flag).any(|(start, _)| {
+                let before = head[..start].chars().next_back();
+                let after = head[start + flag.len()..].chars().next();
+                let word =
+                    |c: Option<char>| c.is_some_and(|c| c.is_ascii_alphanumeric() || c == '-');
+                !word(before) && !word(after)
+            });
+        own.then(|| joined(first, lines[at + 1..].iter().copied()))
+            .flatten()
+    })
 }
 
 /// How an argument behaves, decided by what it takes.
 fn behaviour(arg: clap::Arg) -> clap::Arg {
     if arg.is_positional() && arg.get_id() != "operands" {
-        // A sub-action (`users list`): one word of those it takes.
+        // A sub-action (`users list`) or a shell: one word of those it takes.
         return arg;
     }
     if arg.is_positional() {
@@ -294,6 +375,12 @@ pub(crate) const USAGE: &[Usage] = &[
         group: 0,
         text: r#"  update [--apply]            compare with the latest release; --apply verifies its signature
                               and replaces this binary (TWACO_NO_UPDATE_CHECK=1: no daily notice)"#,
+    },
+    Usage {
+        path: "completions",
+        group: 0,
+        text: r#"  completions <shell>         a completion script on stdout for bash, elvish, fish, powershell
+                              or zsh: every command, flag and action, with descriptions"#,
     },
     Usage {
         path: "extract",

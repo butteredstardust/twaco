@@ -102,8 +102,8 @@ cargo install --git https://github.com/butteredstardust/twaco
 ### Updates
 
 Once a day, a command run in a terminal checks for a newer release. When one exists, twaco
-writes one line on stderr after the command's own output. `twaco mcp`, CI and a redirected
-stderr never check. Set `TWACO_NO_UPDATE_CHECK=1` to turn the check off.
+writes one line on stderr after the command's own output. `twaco mcp`, `twaco completions`, CI
+and a redirected stderr never check. Set `TWACO_NO_UPDATE_CHECK=1` to turn the check off.
 
 ```sh
 twaco update           # compare with the latest release
@@ -114,6 +114,17 @@ twaco update --apply   # download it, verify its signature, and replace this bin
   For `/usr/local/bin/twaco`, run it with `sudo`.
 - `twaco update` does not replace a `.deb` install or an AppImage. Install the next release's
   `.deb` or AppImage instead.
+
+### Shell completions
+
+`twaco completions <shell>` writes a completion script for bash, elvish, fish, powershell or zsh
+on stdout: every command, flag and action, with the descriptions `twaco` lists.
+
+```sh
+twaco completions bash > ~/.local/share/bash-completion/completions/twaco
+twaco completions zsh > "${fpath[1]}/_twaco"
+twaco completions fish > ~/.config/fish/completions/twaco.fish
+```
 
 ## Quick start
 

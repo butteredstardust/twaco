@@ -165,6 +165,8 @@ fn dispatch(command: Command) -> u8 {
         // doctor diagnoses a missing solution rather than failing on it.
         Command::Doctor(doctor) => doctor_cmd(&doctor),
         Command::Mcp(mcp) => mcp_cmd(&mcp),
+        // Completions describe the command line, not a solution.
+        Command::Completions(completions) => completions_cmd(&completions),
         Command::Projects => run(projects),
         // The help center needs no solution, so it runs before discovery and uses one if found.
         Command::Help(help) => help_cmd(&help),
@@ -431,6 +433,32 @@ fn mcp_cmd(parsed: &Mcp) -> u8 {
             FAILED
         }
     }
+}
+
+/// `twaco completions <shell>`.
+#[derive(Debug, clap::Args)]
+#[group(skip)]
+struct Completions {
+    /// The shell to write the script for.
+    #[arg(id = "shell", value_name = "shell", value_enum)]
+    shell: Option<clap_complete::Shell>,
+}
+
+/// `twaco completions <shell>`: the completion script for one shell, on stdout, from the tree
+/// twaco parses with, so it offers exactly the commands, flags and actions twaco takes.
+fn completions_cmd(parsed: &Completions) -> u8 {
+    let Some(shell) = parsed.shell else {
+        eprintln!(
+            "{} completions needs a shell: bash, elvish, fish, powershell or zsh",
+            cli::style::prefix()
+        );
+        return FAILED;
+    };
+    // Written whole through print!, so a reader that leaves early is quiet, as for any output.
+    let mut script = Vec::new();
+    clap_complete::generate(shell, &mut cli::spec::tree(), "twaco", &mut script);
+    print!("{}", String::from_utf8_lossy(&script));
+    OK
 }
 
 /// Exit quietly when stdout's reader has gone, as `twaco projects | head` does once it has its

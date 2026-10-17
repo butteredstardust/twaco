@@ -19,6 +19,7 @@ pub(crate) enum Command {
     Projects,
     Mcp(crate::Mcp),
     Update(super::info::Update),
+    Completions(crate::Completions),
     Guide(super::info::Guide),
     Help(super::info::Help),
     Javadoc(super::info::Javadoc),
@@ -95,6 +96,7 @@ impl Command {
             Command::Projects => "projects",
             Command::Mcp(_) => "mcp",
             Command::Update(_) => "update",
+            Command::Completions(_) => "completions",
             Command::Guide(_) => "guide",
             Command::Help(_) => "help",
             Command::Javadoc(_) => "javadoc",
@@ -173,6 +175,7 @@ impl Command {
             | Command::Projects
             | Command::Mcp(_)
             | Command::Update(_)
+            | Command::Completions(_)
             | Command::Guide(_)
             | Command::Help(_)
             | Command::Javadoc(_)
