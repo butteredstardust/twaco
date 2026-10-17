@@ -33,6 +33,9 @@ pub(crate) enum Typed {
     Fmt(super::source::Fmt),
     Check(super::source::Check),
     Types(super::source::Types),
+    Users(super::users::Users),
+    Test(super::service_tests::Test),
+    Localization(super::localization::Localization),
 }
 
 impl Typed {
@@ -59,6 +62,9 @@ impl Typed {
             Typed::Fmt(_) => "fmt",
             Typed::Check(_) => "check",
             Typed::Types(_) => "types",
+            Typed::Users(_) => "users",
+            Typed::Test(_) => "test",
+            Typed::Localization(_) => "localization",
         }
     }
 
@@ -85,7 +91,10 @@ impl Typed {
             | Typed::Widgets(_)
             | Typed::Fmt(_)
             | Typed::Check(_)
-            | Typed::Types(_) => Ok(()),
+            | Typed::Types(_)
+            | Typed::Users(_)
+            | Typed::Test(_)
+            | Typed::Localization(_) => Ok(()),
         }
     }
 }

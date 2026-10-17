@@ -1,4 +1,3 @@
-use super::args::Args;
 use super::style;
 use crate::{DRIFT, FAILED, OK};
 use twaco::core::commands::service_tests::{self as command, TestOutcome, TestRequest};
@@ -7,19 +6,35 @@ use twaco::core::config::Solution;
 use twaco::core::server;
 use twaco::core::testing::cases::{outcomes_json, plan_json, Case};
 
+/// `twaco test [<filter>...] [--apply] [--json] [--detail]`.
+#[derive(Debug, clap::Args)]
+#[group(skip)]
+pub(crate) struct Test {
+    #[command(flatten)]
+    pub(crate) apply: super::flags::Apply,
+    #[command(flatten)]
+    pub(crate) json: super::flags::Json,
+    #[command(flatten)]
+    pub(crate) detail: super::flags::Detail,
+    #[command(flatten)]
+    pub(crate) profile: super::flags::Profile,
+    #[arg(id = "operands", value_name = "operand")]
+    pub(crate) operands: Vec<String>,
+}
+
 /// `twaco test [<filter>...]`: the service cases of `tests/*.toml`, called as the test users.
-pub(crate) fn test_cmd(solution: &Solution, args: &Args) -> u8 {
+pub(crate) fn test_cmd(solution: &Solution, args: &Test) -> u8 {
     let request = TestRequest {
-        filters: args.names.clone(),
-        mode: if args.has("--apply") {
+        filters: args.operands.clone(),
+        mode: if args.apply.apply {
             Mode::Apply
         } else {
             Mode::Plan
         },
-        profile: args.profile.as_deref().unwrap_or("default").to_string(),
+        profile: args.profile.name().to_string(),
     };
     match command::execute(solution, &request, server::Client::new) {
-        Ok(TestOutcome::Plan { cases, .. }) if args.has("--json") => {
+        Ok(TestOutcome::Plan { cases, .. }) if args.json.json => {
             println!(
                 "{}",
                 serde_json::to_string_pretty(&plan_json(&cases)).expect("a plan serialises")
@@ -47,14 +62,14 @@ pub(crate) fn test_cmd(solution: &Solution, args: &Args) -> u8 {
         Ok(TestOutcome::Ran {
             cases, outcomes, ..
         }) => {
-            if args.has("--json") {
+            if args.json.json {
                 println!(
                     "{}",
                     serde_json::to_string_pretty(&outcomes_json(&cases, &outcomes))
                         .expect("a result serialises")
                 );
             } else {
-                print_outcomes(&cases, &outcomes, args.has("--detail"));
+                print_outcomes(&cases, &outcomes, args.detail.detail);
             }
             if outcomes.iter().all(|outcome| outcome.failure.is_none()) {
                 OK

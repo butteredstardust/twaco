@@ -1,4 +1,3 @@
-use super::args::Args;
 use super::style;
 use crate::{print_notices, DRIFT, FAILED, OK};
 use std::collections::BTreeMap;
@@ -11,51 +10,85 @@ use twaco::core::config::Solution;
 use twaco::core::localization::{self, Problem, State};
 use twaco::core::server;
 
+/// `twaco localization status|pull|push|new|set ...`.
+#[derive(Debug, clap::Args)]
+#[group(skip)]
+pub(crate) struct Localization {
+    #[arg(long = "table", value_name = "name")]
+    pub(crate) table: Option<String>,
+    #[command(flatten)]
+    pub(crate) project: super::flags::Project,
+    #[arg(long = "prune")]
+    pub(crate) prune: bool,
+    #[arg(long = "language-common", value_name = "text")]
+    pub(crate) language_common: Option<String>,
+    #[arg(long = "language-native", value_name = "text")]
+    pub(crate) language_native: Option<String>,
+    #[arg(long = "description", value_name = "text")]
+    pub(crate) description: Option<String>,
+    #[arg(long = "value", value_name = "text")]
+    pub(crate) value: Option<String>,
+    #[arg(long = "usage", value_name = "text")]
+    pub(crate) usage: Option<String>,
+    #[arg(long = "context", value_name = "text")]
+    pub(crate) context: Option<String>,
+    #[command(flatten)]
+    pub(crate) json: super::flags::Json,
+    #[command(flatten)]
+    pub(crate) detail: super::flags::Detail,
+    #[command(flatten)]
+    pub(crate) profile: super::flags::Profile,
+    #[command(flatten)]
+    pub(crate) apply: super::flags::Apply,
+    #[arg(id = "operands", value_name = "operand")]
+    pub(crate) operands: Vec<String>,
+}
+
 /// `twaco localization`: compare, synchronize, and edit localization tables.
-pub(crate) fn localization_cmd(solution: &Solution, args: &Args) -> u8 {
-    let profile = args.profile.as_deref().unwrap_or("default").to_string();
-    let table = args.values.get("--table").cloned();
-    let mode = if args.has("--apply") {
+pub(crate) fn localization_cmd(solution: &Solution, args: &Localization) -> u8 {
+    let profile = args.profile.name().to_string();
+    let table = args.table.clone();
+    let mode = if args.apply.apply {
         Mode::Apply
     } else {
         Mode::Plan
     };
-    let request = match args.names.as_slice() {
+    let request = match args.operands.as_slice() {
         [action] if action == "status" => LocalizationRequest {
             action: LocalizationAction::Status { table },
             profile,
         },
         [action] if action == "pull" => LocalizationRequest {
-            action: LocalizationAction::Pull { table, prune: args.has("--prune"), mode },
+            action: LocalizationAction::Pull { table, prune: args.prune, mode },
             profile,
         },
         [action] if action == "push" => LocalizationRequest {
-            action: LocalizationAction::Push { table, prune: args.has("--prune"), mode },
+            action: LocalizationAction::Push { table, prune: args.prune, mode },
             profile,
         },
         [action, table] if action == "new" => LocalizationRequest {
             action: LocalizationAction::New {
                 table: table.clone(),
-                project: args.project.clone(),
+                project: args.project.project.clone(),
                 header: localization::Header {
-                    description: args.values.get("--description").cloned(),
-                    language_common: args.values.get("--language-common").cloned(),
-                    language_native: args.values.get("--language-native").cloned(),
+                    description: args.description.clone(),
+                    language_common: args.language_common.clone(),
+                    language_native: args.language_native.clone(),
                 },
                 mode,
             },
             profile,
         },
         [action, name] if action == "set" => {
-            let Some(value) = args.values.get("--value") else {
+            let Some(value) = args.value.as_ref() else {
                 return usage("localization set needs --value <text>");
             };
             LocalizationRequest {
                 action: LocalizationAction::Set {
                     name: name.clone(), value: value.clone(), table,
-                    usage: args.values.get("--usage").cloned(),
-                    context: args.values.get("--context").cloned(),
-                    project: args.project.clone(), mode,
+                    usage: args.usage.clone(),
+                    context: args.context.clone(),
+                    project: args.project.project.clone(), mode,
                 },
                 profile,
             }
@@ -80,30 +113,15 @@ pub(crate) fn localization_cmd(solution: &Solution, args: &Args) -> u8 {
     match result {
         Ok(LocalizationOutcome::Status { status, .. }) => print_status(solution, &status, args),
         Ok(LocalizationOutcome::Pulled { pulled, .. }) => {
-            print_files(
-                solution,
-                &pulled.files,
-                pulled.applied,
-                args.has("--detail"),
-            );
+            print_files(solution, &pulled.files, pulled.applied, args.detail.detail);
             OK
         }
         Ok(LocalizationOutcome::Pushed { pushed, .. }) => {
-            print_push(
-                solution,
-                &pushed.tables,
-                pushed.applied,
-                args.has("--detail"),
-            );
+            print_push(solution, &pushed.tables, pushed.applied, args.detail.detail);
             OK
         }
         Ok(LocalizationOutcome::Edited { edited, .. }) => {
-            print_files(
-                solution,
-                &edited.files,
-                edited.applied,
-                args.has("--detail"),
-            );
+            print_files(solution, &edited.files, edited.applied, args.detail.detail);
             OK
         }
         Err(error) => {
@@ -134,8 +152,8 @@ fn state_name(state: State) -> &'static str {
     }
 }
 
-fn print_status(solution: &Solution, status: &localization::Status, args: &Args) -> u8 {
-    if args.has("--json") {
+fn print_status(solution: &Solution, status: &localization::Status, args: &Localization) -> u8 {
+    if args.json.json {
         println!(
             "{}",
             twaco::mcp::localization_status_json(solution, status, true)
@@ -188,7 +206,7 @@ fn print_status(solution: &Solution, status: &localization::Status, args: &Args)
                     ""
                 }
             );
-            if args.has("--detail") {
+            if args.detail.detail {
                 for item in status
                     .compared
                     .iter()
@@ -210,7 +228,7 @@ fn print_status(solution: &Solution, status: &localization::Status, args: &Args)
             "problems: {} untranslated, {} not in Default, {} duplicates",
             kinds[0], kinds[1], kinds[2]
         );
-        if args.has("--detail") {
+        if args.detail.detail {
             for problem in &status.problems {
                 print_problem(solution, problem);
             }
@@ -218,7 +236,7 @@ fn print_status(solution: &Solution, status: &localization::Status, args: &Args)
         for (path, why) in &status.unreadable {
             println!("unreadable: {}: {why}", relative(solution, path));
         }
-        if !args.has("--detail") && status.compared.iter().any(|x| x.state != State::Same) {
+        if !args.detail.detail && status.compared.iter().any(|x| x.state != State::Same) {
             println!("--detail lists every token");
         }
     }

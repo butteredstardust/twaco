@@ -132,7 +132,7 @@ fn run_command(args: &[String]) -> ExitCode {
     let parsed = if Typed::has_subcommand(first) {
         Typed::from_arg_matches(&matches)
             .map_err(|error| error.to_string())
-            .and_then(|typed| typed.validate().map(|()| Parsed::Typed(typed)))
+            .and_then(|typed| typed.validate().map(|()| Parsed::Typed(Box::new(typed))))
     } else {
         cli::spec::args_of(route, matched).map(|args| Parsed::Legacy(route, Box::new(args)))
     };
@@ -155,7 +155,7 @@ fn run_command(args: &[String]) -> ExitCode {
     let _entered = span.enter();
     let started = std::time::Instant::now();
     let code = match parsed {
-        Parsed::Typed(typed) => dispatch_typed(typed),
+        Parsed::Typed(typed) => dispatch_typed(*typed),
         Parsed::Legacy(route, args) => dispatch(route, &args),
     };
     tracing::info!(
@@ -169,7 +169,7 @@ fn run_command(args: &[String]) -> ExitCode {
 /// A command line as the command reads it: a derived command's struct, or a table command's path
 /// and [`Args`].
 enum Parsed {
-    Typed(Typed),
+    Typed(Box<Typed>),
     Legacy(&'static str, Box<Args>),
 }
 
@@ -202,6 +202,11 @@ fn dispatch_typed(typed: Typed) -> u8 {
         Typed::Sync(sync) => run(|solution| sync_cmd(solution, &sync)),
         Typed::Fmt(command) => run(|solution| fmt(solution, &command)),
         Typed::Check(command) => run(|solution| check(solution, &command)),
+        Typed::Users(users) => run(|solution| users_cmd(solution, &users)),
+        Typed::Test(test) => run(|solution| test_cmd(solution, &test)),
+        Typed::Localization(localization) => {
+            run(|solution| localization_cmd(solution, &localization))
+        }
     }
 }
 
@@ -219,9 +224,6 @@ fn dispatch(route: &str, parsed: &Args) -> u8 {
         "deploy" => deploy_cmd(solution, parsed),
         "call" => call(solution, parsed),
         "repo" => repo_cmd(solution, parsed),
-        "localization" => localization_cmd(solution, parsed),
-        "users" => users_cmd(solution, parsed),
-        "test" => test_cmd(solution, parsed),
         "ext" => ext_cmd(solution, parsed),
         "settings" => settings_cmd(solution, parsed),
         "search" => search_cmd(solution, parsed),

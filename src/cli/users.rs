@@ -1,4 +1,3 @@
-use super::args::Args;
 use super::style;
 use crate::{DRIFT, FAILED, OK};
 use twaco::core::commands::users::{self as command, UsersAction, UsersOutcome, UsersRequest};
@@ -7,14 +6,28 @@ use twaco::core::config::Solution;
 use twaco::core::server;
 use twaco::core::testing::users::{users_json, Membership, UserState};
 
+/// `twaco users list|seed|delete [--apply] [--json]`.
+#[derive(Debug, clap::Args)]
+#[group(skip)]
+pub(crate) struct Users {
+    #[command(flatten)]
+    pub(crate) apply: super::flags::Apply,
+    #[command(flatten)]
+    pub(crate) json: super::flags::Json,
+    #[command(flatten)]
+    pub(crate) profile: super::flags::Profile,
+    #[arg(id = "operands", value_name = "operand")]
+    pub(crate) operands: Vec<String>,
+}
+
 /// `twaco users list|seed|delete`: the test users of `[[test.user]]` on the profile's server.
-pub(crate) fn users_cmd(solution: &Solution, args: &Args) -> u8 {
-    let mode = if args.has("--apply") {
+pub(crate) fn users_cmd(solution: &Solution, args: &Users) -> u8 {
+    let mode = if args.apply.apply {
         Mode::Apply
     } else {
         Mode::Plan
     };
-    let action = match args.names.as_slice() {
+    let action = match args.operands.as_slice() {
         [action] if action == "list" => UsersAction::List,
         [action] if action == "seed" => UsersAction::Seed { mode },
         [action] if action == "delete" => UsersAction::Delete { mode },
@@ -23,7 +36,7 @@ pub(crate) fn users_cmd(solution: &Solution, args: &Args) -> u8 {
             return FAILED;
         }
     };
-    if action == UsersAction::List && args.has("--apply") {
+    if action == UsersAction::List && args.apply.apply {
         eprintln!(
             "{} users list changes nothing; leave out --apply",
             style::prefix()
@@ -32,11 +45,11 @@ pub(crate) fn users_cmd(solution: &Solution, args: &Args) -> u8 {
     }
     let request = UsersRequest {
         action,
-        profile: args.profile.as_deref().unwrap_or("default").to_string(),
+        profile: args.profile.name().to_string(),
     };
     match command::execute(solution, &request, server::Client::new) {
         Ok(UsersOutcome::Listed { users, .. }) => {
-            if args.has("--json") {
+            if args.json.json {
                 println!("{}", json(&users));
             } else {
                 print_users(&users);
