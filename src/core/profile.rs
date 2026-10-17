@@ -378,14 +378,10 @@ fn save_app_key_in(
             why: "app_key did not read back as written".to_string(),
         });
     }
-    let permissions = std::fs::metadata(&path)
-        .map_err(|e| unreadable(e.to_string()))?
-        .permissions();
+    // The replacement keeps the old file's permissions, which for a profile are usually
+    // owner-only, from before it holds any byte (see `atomic_replace`).
     super::workspace::atomic_replace(&path, out.expose().as_bytes())
         .map_err(|e| unreadable(format!("could not write it: {e}")))?;
-    // The replacement is a new file; it keeps the old one's permissions, which for a profile are
-    // usually owner-only.
-    std::fs::set_permissions(&path, permissions).map_err(|e| unreadable(e.to_string()))?;
     Ok(path)
 }
 

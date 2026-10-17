@@ -436,6 +436,8 @@ mod tests {
         account: String,
         log: std::rc::Rc<std::cell::RefCell<Vec<String>>>,
         fail: Vec<&'static str>,
+        /// The test user's stored language.
+        previous: &'static str,
     }
 
     impl logs::Remote for Fake {
@@ -468,7 +470,7 @@ mod tests {
                 });
             }
             Ok(Some(match service {
-                "GetPropertyValues" => serde_json::json!({"rows": [{"language": "en"}]}),
+                "GetPropertyValues" => serde_json::json!({"rows": [{"language": self.previous}]}),
                 _ => serde_json::json!({"rows": [{"result": "ok"}]}),
             }))
         }
@@ -498,6 +500,16 @@ mod tests {
         lang: &str,
         fail: Vec<&'static str>,
     ) -> (Result<CallOutcome, CallCommandError>, Vec<String>) {
+        language_call_from(solution, as_user, lang, fail, "en")
+    }
+
+    fn language_call_from(
+        solution: &Solution,
+        as_user: Option<&str>,
+        lang: &str,
+        fail: Vec<&'static str>,
+        previous: &'static str,
+    ) -> (Result<CallOutcome, CallCommandError>, Vec<String>) {
         let request = CallRequest {
             target: "Things/Acme.Manager".to_string(),
             service: "Read".to_string(),
@@ -519,6 +531,7 @@ mod tests {
                 account: profile.username.clone(),
                 log: opened.clone(),
                 fail: fail.clone(),
+                previous,
             },
             &mut Notices::default(),
         );
@@ -590,6 +603,20 @@ mod tests {
             "{error:?}"
         );
         assert!(error.to_string().contains(r#"put it back with `twaco call Users/vera.viewer SetLanguagePreferences '{"preferences":"en"}'`"#), "{error}");
+    }
+
+    #[test]
+    fn lang_puts_back_an_unset_preference_as_unset() {
+        // A user nobody gave a language: restored with an empty preference, which 10.1 takes
+        // as "none" (verified live).
+        let (_dir, solution) = language_solution();
+        let (outcome, calls) =
+            language_call_from(&solution, Some("vera.viewer"), "de", Vec::new(), "");
+        assert!(outcome.is_ok(), "{outcome:?}");
+        assert_eq!(
+            calls.last().unwrap(),
+            r#"Administrator: Users/vera.viewer.SetLanguagePreferences {"preferences":""}"#
+        );
     }
 
     #[test]

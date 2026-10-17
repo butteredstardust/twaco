@@ -498,6 +498,12 @@ pub(crate) fn atomic_replace(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
         .create_new(true)
         .open(&temporary)
         .and_then(|mut file| {
+            // On Unix the temporary takes the old file's mode before it holds any byte: a
+            // profile's password must never sit in a file others could read, even briefly.
+            #[cfg(unix)]
+            if let Ok(metadata) = std::fs::metadata(path) {
+                file.set_permissions(metadata.permissions())?;
+            }
             std::io::Write::write_all(&mut file, bytes).and_then(|()| file.sync_all())
         })
         .and_then(|()| {

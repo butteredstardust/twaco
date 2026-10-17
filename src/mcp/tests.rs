@@ -1842,6 +1842,26 @@ fn a_service_call_is_a_dry_run_unless_asked_and_needs_no_server_to_be_one() {
     let text: Value = serde_json::from_str(result["content"][0]["text"].as_str().unwrap()).unwrap();
     assert_eq!(text["dry_run"], true);
     assert_eq!(text["would_call"]["service"], "Reset");
+    // A dry run with a language says that a user's preference would change.
+    let responses = converse(
+        &root,
+        &[
+            json!({"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"call","arguments":{"target":"T","service":"Reset","as":"vera.viewer","lang":"de"}}}),
+        ],
+    );
+    let text: Value = serde_json::from_str(
+        responses[0]["result"]["content"][0]["text"]
+            .as_str()
+            .unwrap(),
+    )
+    .unwrap();
+    assert!(
+        text["note"]
+            .as_str()
+            .unwrap()
+            .contains("vera.viewer, whose language preference is set to de"),
+        "{text}"
+    );
 }
 
 /// The `outputSchema` a tool publishes to the newest protocol revision.

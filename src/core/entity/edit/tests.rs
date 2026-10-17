@@ -335,6 +335,61 @@ fn service_remove_takes_the_last_service_and_guards_callers() {
 }
 
 #[test]
+fn service_add_on_a_never_extracted_entity_gives_its_other_services_sidecars_too() {
+    let (_dir, solution) = fixture();
+    family(&solution);
+    run(
+        &solution,
+        "Acme.Orders.Press",
+        Action::ServiceAdd(service("Old", "old();")),
+    );
+    // As if the entity came from an export nobody extracted: its service, no sidecar folder.
+    std::fs::remove_dir_all(solution.src_root().join("Acme.Orders.Press")).unwrap();
+    run(
+        &solution,
+        "Acme.Orders.Press",
+        Action::ServiceAdd(service("New", "fresh();")),
+    );
+    let old = solution.src_root().join("Acme.Orders.Press/services/Old");
+    assert_eq!(
+        std::fs::read_to_string(old.join("script.js")).unwrap(),
+        "old();"
+    );
+    assert!(old.join("definition.xml").is_file());
+    // Nothing reads as removed: the sidecars and the XML agree, with or without --allow-add-remove.
+    assert_in_step(&solution);
+    assert!(file(&solution, "Things", "Acme.Orders.Press").contains("old();"));
+}
+
+#[test]
+fn service_remove_names_a_file_twaco_did_not_make() {
+    let (_dir, solution) = fixture();
+    family(&solution);
+    run(
+        &solution,
+        "Acme.Orders.Press",
+        Action::ServiceAdd(service("Ping", "")),
+    );
+    let folder = solution.src_root().join("Acme.Orders.Press/services/Ping");
+    std::fs::write(folder.join("notes.md"), "keep me?").unwrap();
+    let planned = plan_of(
+        &solution,
+        "Acme.Orders.Press",
+        Action::ServiceRemove {
+            name: "Ping".into(),
+            force: false,
+        },
+    )
+    .unwrap();
+    assert_eq!(planned.warnings.len(), 1, "{:?}", planned.warnings);
+    assert!(
+        planned.warnings[0].contains("notes.md"),
+        "{:?}",
+        planned.warnings
+    );
+}
+
+#[test]
 fn an_empty_services_folder_is_a_sidecar_finding_while_the_xml_has_a_service() {
     let (_dir, solution) = fixture();
     family(&solution);

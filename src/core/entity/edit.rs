@@ -1596,7 +1596,29 @@ impl Edit2<'_> {
         .map_err(invalid)?;
         plan.summary = format!("add service {}", service.name);
         plan.changes.push(doc.change(after));
-        let folder = workspace::services_dir(self.solution, &doc.file).join(&service.name);
+        // Once the services folder exists, the entity's services are managed through it: a
+        // service of the XML with no folder there reads as removed. So the entity's other script
+        // services get their sidecars too, as `extract` writes them, when they have none.
+        let services = workspace::services_dir(self.solution, &doc.file);
+        for existing in sidecars.values().filter(|other| other.name != service.name) {
+            let folder = services.join(&existing.name);
+            if folder.exists() {
+                continue;
+            }
+            plan.changes.extend([
+                created_sidecar(
+                    folder.join("definition.xml"),
+                    doc.label(),
+                    existing.definition.replace("\r\n", "\n").into_bytes(),
+                ),
+                created_sidecar(
+                    folder.join("script.js"),
+                    doc.label(),
+                    existing.script.replace("\r\n", "\n").into_bytes(),
+                ),
+            ]);
+        }
+        let folder = services.join(&service.name);
         plan.changes.extend([
             created_sidecar(
                 folder.join("definition.xml"),
@@ -1656,7 +1678,24 @@ impl Edit2<'_> {
         plan.summary = format!("remove service {name}");
         plan.changes.push(doc.change(after));
         let folder = workspace::services_dir(self.solution, &doc.file).join(name);
+        // The sidecars and what `twaco types` generates there; anything else someone put in the
+        // folder goes with it, so the plan names it.
+        const MANAGED: [&str; 4] = [
+            "definition.xml",
+            "script.js",
+            "jsconfig.json",
+            "twaco-globals.d.ts",
+        ];
         for path in service_files(&folder)? {
+            if !path
+                .file_name()
+                .is_some_and(|file| MANAGED.iter().any(|managed| file == *managed))
+            {
+                plan.warnings.push(format!(
+                    "{} is not a file twaco made; it is deleted with the service",
+                    path.display()
+                ));
+            }
             let before = read_file(&path)?;
             plan.changes.push(FileChange {
                 path,

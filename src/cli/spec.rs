@@ -1158,8 +1158,8 @@ pub(crate) const USAGE: &[Usage] = &[
         path: "appkey",
         group: 4,
         text: r#"  appkey create <name> --user <user> [--expires <30d|12h|date>] [--project <name>]
-      [--description <text>] [--whitelist <ip,...>] [--save <profile> | --show] [--apply] [--json]
-  appkey show <name> [--save <profile> | --show] [--json]
+      [--description <text>] [--whitelist <ip,...>] [--save <profile>] [--show] [--apply] [--json]
+  appkey show <name> [--save <profile>] [--show] [--json]
   appkey delete <name> [--apply]   as entity delete ApplicationKeys/<name>
                               an application key on the server, acting as a user; create plans
                               until --apply; the key is printed only with --show

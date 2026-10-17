@@ -280,6 +280,10 @@ fn resolve_service<'a>(
             .any(|member| matches!(member, Member::Service(own) if own.name == service))
     };
     if let Some((entity_name, service)) = name.rsplit_once('.') {
+        // An entity part that names several entities is that, not a missing service.
+        if let Err(CatalogError::Ambiguous(why)) = resolve(pool, entity_name) {
+            return Err(CatalogError::Ambiguous(why));
+        }
         if let Ok(entity) = resolve(pool, entity_name) {
             // A service the entity calls: its own, a shape's or a template's.
             let mut chain = vec![entity];
@@ -846,6 +850,20 @@ mod tests {
                 .contains("P.Other.OwnService, P.Thing.OwnService"),
             "{error}"
         );
+        // An entity part two entities end in is ambiguous, not a missing service.
+        std::fs::write(
+            root.join("Things/Q.Thing.xml"),
+            entity(
+                "Things",
+                "Thing",
+                "Q.Thing",
+                "",
+                "<ThingShape><ServiceDefinitions/></ThingShape>",
+            ),
+        )
+        .unwrap();
+        let error = one(&solution, "Thing.OwnService", false).unwrap_err();
+        assert!(matches!(error, CatalogError::Ambiguous(_)), "{error}");
     }
 
     #[test]

@@ -476,8 +476,8 @@ users seed                  create the missing users, the [test] project and gro
 users delete                delete the test users; both need allow_test_users = true in the
                             profile and plan until --apply
 appkey create <name> --user <user> [--expires <30d|12h|date>] [--project <name>]
-    [--description <text>] [--whitelist <ip,...>] [--save <profile> | --show] [--apply] [--json]
-appkey show <name> [--save <profile> | --show] [--json]
+    [--description <text>] [--whitelist <ip,...>] [--save <profile>] [--show] [--apply] [--json]
+appkey show <name> [--save <profile>] [--show] [--json]
 appkey delete <name> [--apply]   as entity delete ApplicationKeys/<name>
                             an application key on the server, acting as a user; create plans
                             until --apply; the key is printed only with --show
