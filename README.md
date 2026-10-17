@@ -29,30 +29,67 @@ twaco is a single command-line binary that makes the repository the source of tr
 - **Scripts become files.** `twaco extract` writes every service script, DataShape, mashup and
   DataTable configuration out to sidecar files. `twaco sync` writes them back byte for byte,
   touching nothing else in the XML.
+- **Build without Composer.** `twaco new` creates Things, templates, shapes, DataShapes,
+  DataTables, streams, timers, schedulers, styles, themes, state definitions, menus and media.
+  `twaco thing service|property|subscription|shape` adds, changes and removes what they hold, and
+  `twaco mashup` builds responsive mashups from templates: widgets, bindings, events, parameters,
+  contained mashups and ready-made wiring. Every one plans until `--apply` and writes the XML as
+  Composer would.
+- **Refactors that follow every reference.** `twaco rename` renames an entity, a prefix, a
+  DataShape field, a service, a parameter, a configuration table or a property, through entity
+  XML, sidecars, mashup JSON and `twaco.toml`. `move` and `copy` lift a service or property to
+  another entity; `retemplate` and `reproject` change what an entity inherits and where it
+  belongs. Each plans first and says what the server will not carry over.
+- **Know before you change.** `twaco catalog Entity.Service --body` shows a service's signature,
+  origin and script; `impact` lists what a change reaches, `trace` how each caller uses a
+  service, `unused` what nothing reaches, and `mashup describe` a mashup's wiring without its XML.
 - **Checks before the server sees it.** `twaco check` runs every gate in one pass: sidecars in
-  sync, formatting, script traps the Rhino engine punishes, project validation and your own
-  hooks. `twaco types --check` type-checks every service against the entities' declarations
-  with TypeScript.
+  sync, line endings, formatting, script traps the Rhino engine punishes, code order, project
+  validation, mashup bindings against their services' DataShapes, contained mashups,
+  localization tokens, result shapes and your own hooks. `twaco types --check` type-checks every
+  service against the entities' declarations with TypeScript.
 - **Deploys that refuse to clobber.** `twaco deploy` bundles per project in dependency order,
   has the server parse every script, and refuses when someone changed the server since your
   last deploy. Every command that writes to a server only plans unless you add `--apply`,
   except `twaco call`, which runs the service you name.
 - **A designer's Composer work, adopted cleanly.** `twaco adopt` compares a Composer export
   with the repository and shows what really changed, ignoring Composer's noise.
-- **Renames that follow every reference.** `twaco rename entity|prefix` rewrites an entity's or
-  a building block's name in the entity XML, sidecars, mashup JSON and `twaco.toml`, moves the
-  files, and says what the server will not carry over. Plans by default, restores on failure.
-  `twaco rename field` renames a DataShape field and every configuration table row of it.
-- **The server, from the terminal:** logs, log levels, service calls with the logs they wrote,
-  file repositories, extensions, exports, imports, configuration tables and subsystem
-  settings.
-- **Knowledge for agents:** verified-live platform quirks, a service catalog derived from your
-  entities, and the ThingWorx help center and Java API docs, searchable from the CLI.
-- **An MCP server.** `twaco mcp` serves its commands as tools to Claude Code, Codex, Cursor or any MCP
-  client. Server writes are dry runs unless the agent says otherwise.
+- **The server, from the terminal:** service calls (as a test user, in another language) with
+  the logs they wrote, logs and log levels, SQL through a Database Thing, DataTable row copies,
+  permissions as policy, localization tables, test users and service tests, application keys,
+  file repositories, extensions, exports, imports, configuration tables and subsystem settings.
+- **Knowledge for agents:** verified-live platform quirks, the service catalog, and the
+  ThingWorx help center and Java API docs, searchable from the CLI.
+- **An MCP server.** `twaco mcp` serves its commands as tools to Claude Code, Codex, Cursor or any
+  MCP client, in groups an agent can load on their own. Server writes are dry runs unless
+  the agent says otherwise.
 
 twaco runs on Windows, Linux and macOS, needs no runtime, and works offline for everything
 that does not need a server.
+
+## Create, read, change, delete
+
+What twaco can do to each part of a solution, without opening Composer. Repository changes plan
+until `--apply`; `sync` and `deploy` take them to the server.
+
+| Part | Create | Read | Change | Delete |
+| --- | --- | --- | --- | --- |
+| Service | `thing service add` | `catalog <Entity>.<Service> --body`, `trace` | edit `script.js` + `sync`; `rename service`, `rename param`, `move service`, `copy service` | `thing service remove` |
+| Property | `thing property add` | `catalog <entity>`, `impact --member` | `thing property set`; `rename property`, `move property`, `copy property` | `thing property remove` |
+| Subscription | `thing subscription add` | the entity's XML | remove and add | `thing subscription remove` |
+| Thing, ThingTemplate, ThingShape | `new thing`, `new thing-template`, `new thing-shape` | `catalog`, `impact`, `entity get` | `thing shape add\|remove`, `retemplate`, `reproject`, `rename entity` | `entity delete` |
+| DataShape | `new data-shape` | `src/<DataShape>/fields.json` | edit `fields.json` + `sync` (its DataTables and Streams follow); `rename field` | `entity delete` |
+| DataTable, Stream, ValueStream | `new data-table`, `new stream`, `new value-stream` | `datatable.json`, `db query` | `datatable.json` + `sync`; `datatable copy` for rows | `entity delete` |
+| Mashup | `mashup new` (14 templates), `mashup add-contained` | `mashup describe`, `mashup validate` | `mashup add`, `bind`, `on`, `param`, `event`, `recipe` | `entity delete` |
+| Timer, Scheduler | `new timer`, `new scheduler` | the entity's XML | `timer set`, `scheduler set` | `entity delete` |
+| Style, theme, state, menu, media | `new style`, `new theme`, `new state`, `new menu`, `new media` | the entity's XML | `style set`, `state set`, `menu item add\|remove`, `media set` | `entity delete` |
+| Building block | `new building-block` | `projects`, `docs` | `rename prefix` | `entity delete` of its entities |
+| Permissions | `permissions init` (drafts `permissions.toml` from the entities) | `permissions audit`, `permissions diff` | `permissions apply`, then `permissions push` | drop it from the policy, then `apply` and `push` |
+| Localization token | `localization new`, `localization set` | `localization status` | `localization set`, `localization push` | `localization remove` |
+| Test user | `users seed` | `users list` | | `users delete` |
+| Application key | `appkey create` | `appkey show` | | `appkey delete` |
+| File repository | `repo put`, `repo mkdir` | `repo ls`, `repo get`, `repo status` | `repo mv`, `repo push`, `repo pull` | `repo rm` |
+| Server entity | `entity push`, `deploy`, `import` | `entity status`, `entity get`, `search`, `export` | `entity push`, `entity carry` (permissions after a rename) | `entity delete`, then `entity restore` to undo |
 
 ## No server needed
 
@@ -170,23 +207,27 @@ claude mcp add twaco -- twaco mcp           # Claude Code, from the solution's r
 Any MCP client works: run `twaco mcp` with the solution as its working directory, or set
 `TWACO_ROOT`. Tools that write to the server default to `dry_run: true`, and results are
 summaries unless the agent asks for detail, so a large solution stays affordable in context.
-See [MCP server](documentation/MCP_SERVER.md).
+Every tool definition together takes about 90 KB of an agent's context; `twaco mcp --tools core,entity`
+(or `TWACO_MCP_TOOLS`) serves only the groups it needs (`core`, `entity`, `refactor`, `mashup`,
+`permissions`, `data`, `server`, `reference`). See [MCP server](documentation/MCP_SERVER.md).
 
 `twaco init --write` also writes an `AGENTS.md` and a `CLAUDE.md` that point an agent at
-`twaco guide`, the workflow, the platform's quirks and the service catalog.
+`twaco guide`, the workflow, the platform's quirks, and the commands to run before grepping:
+`catalog <Entity>.<Service> --body`, `impact`, `trace`, `mashup describe` and `entity status`.
 
 ## Documentation
 
 | Document | What it covers |
 | --- | --- |
 | [Quick start](documentation/QUICK_START.md) | From a folder of exports to a first deploy |
-| [User guide](documentation/USER_GUIDE.md) | The repository layout, the change loop, deploys, adopting a designer's work, releases |
+| [User guide](documentation/USER_GUIDE.md) | The repository layout, the change loop, creating and changing entities and mashups, refactors, deploys, adopting a designer's work, permissions, localization, testing as users, releases |
 | [Commands](documentation/COMMANDS.md) | Every command and flag |
 | [Configuration](documentation/CONFIGURATION.md) | `twaco.toml` and server profiles |
 | [MCP server](documentation/MCP_SERVER.md) | Setup and the tools an agent gets |
 | [Knowledge](documentation/KNOWLEDGE.md) | `guide`, `catalog`, `help`, `javadoc` and `types` |
 | [Architecture](documentation/ARCHITECTURE.md) | How twaco works inside, for contributors |
 | [Mutation classes](documentation/MUTATION_CLASSES.md) | What may have changed after each command or tool fails |
+| [Transactions](documentation/TRANSACTIONS.md) | How multi-file changes are journaled and recovered after a crash |
 
 ## Safety
 
@@ -203,7 +244,14 @@ twaco is built to be run against servers people depend on:
   written over. twaco's managed outputs (entity XML, sidecars, the bundle) are rewritten by
   the commands that own them, and so is the file you give `entity get --out`.
 - **Credentials stay out of the repository.** Profiles live under `.twaco/profiles/` or your
-  home folder, are never printed, and checks only receive them when they ask.
+  home folder, are never printed, and checks only receive them when they ask. An application
+  key is printed only with `--show`.
+- **Multi-file changes are all or nothing.** Renames, entity and mashup edits, adopt and the
+  other commands that change several files write them in one journaled transaction; after a
+  crash the next command finishes or undoes it.
+- **Deletes are guarded.** `entity delete` plans, refuses while something on the server still
+  depends on the entity or the repository still defines it, and backs it up so `entity restore`
+  can bring it back.
 
 ## Contributing
 
