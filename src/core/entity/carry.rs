@@ -38,7 +38,7 @@ pub enum Kind {
 
 impl Kind {
     /// The sets every entity has; carrying a rename copies these.
-    pub const ALL: [Kind; 3] = [Kind::RunTime, Kind::DesignTime, Kind::Visibility];
+    pub(crate) const ALL: [Kind; 3] = [Kind::RunTime, Kind::DesignTime, Kind::Visibility];
 
     pub fn label(self) -> &'static str {
         match self {
@@ -52,7 +52,7 @@ impl Kind {
     }
 
     /// The element that holds this set in entity XML.
-    pub fn element(self) -> &'static str {
+    pub(crate) fn element(self) -> &'static str {
         match self {
             Kind::RunTime => "RunTimePermissions",
             Kind::DesignTime => "DesignTimePermissions",
@@ -64,7 +64,7 @@ impl Kind {
     }
 
     /// The set an entity XML element holds, if it is one.
-    pub fn of_element(name: &[u8]) -> Option<Kind> {
+    pub(crate) fn of_element(name: &[u8]) -> Option<Kind> {
         [
             Kind::RunTime,
             Kind::DesignTime,
@@ -78,11 +78,11 @@ impl Kind {
     }
 
     /// Run-time sets list grants per resource.
-    pub fn is_run_time(self) -> bool {
+    pub(crate) fn is_run_time(self) -> bool {
         matches!(self, Kind::RunTime | Kind::InstanceRunTime)
     }
 
-    pub fn is_design_time(self) -> bool {
+    pub(crate) fn is_design_time(self) -> bool {
         matches!(self, Kind::DesignTime | Kind::InstanceDesignTime)
     }
 
@@ -174,28 +174,28 @@ pub struct Pair {
 
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 #[error("{} and {} are in different collections", .old, .new)]
-pub struct PairError {
+pub(crate) struct PairError {
     old: EntityKey,
     new: EntityKey,
 }
 
 impl Pair {
-    pub fn new(old: EntityKey, new: EntityKey) -> Result<Self, PairError> {
+    pub(crate) fn new(old: EntityKey, new: EntityKey) -> Result<Self, PairError> {
         if old.collection() != new.collection() {
             return Err(PairError { old, new });
         }
         Ok(Self { old, new })
     }
 
-    pub fn collection(&self) -> &str {
+    pub(crate) fn collection(&self) -> &str {
         self.old.collection()
     }
 
-    pub fn old(&self) -> &str {
+    pub(crate) fn old(&self) -> &str {
         self.old.name()
     }
 
-    pub fn new_name(&self) -> &str {
+    pub(crate) fn new_name(&self) -> &str {
         self.new.name()
     }
 }
@@ -210,13 +210,13 @@ pub enum CarryError {
 
 /// Every old name that a rename in the ledger replaced, to map a permission's principals.
 #[derive(Debug, Default, Clone)]
-pub struct Mapping {
+pub(crate) struct Mapping {
     entities: Vec<(String, String)>,
     prefixes: Vec<(String, String)>,
 }
 
 impl Mapping {
-    pub fn from_ledger(ledger: &Ledger) -> Mapping {
+    pub(crate) fn from_ledger(ledger: &Ledger) -> Mapping {
         let mut mapping = Mapping::default();
         for record in ledger
             .0
@@ -239,7 +239,7 @@ impl Mapping {
 
     /// A string with every renamed name in it replaced; compound names (`Org:Group`) and URLs work
     /// because the matching is by whole token.
-    pub fn map_text(&self, text: &str) -> String {
+    pub(crate) fn map_text(&self, text: &str) -> String {
         let mut out = text.to_string();
         for (old, new) in &self.entities {
             let hits = refs::find(&out, old, refs::Mode::Entity);
@@ -253,7 +253,7 @@ impl Mapping {
     }
 
     /// The JSON with every string value mapped; keys and everything else are left as they are.
-    pub fn map_value(&self, value: &Value) -> Value {
+    pub(crate) fn map_value(&self, value: &Value) -> Value {
         match value {
             Value::String(text) => Value::String(self.map_text(text)),
             Value::Array(items) => {
@@ -271,7 +271,7 @@ impl Mapping {
 
 /// A comparison form: arrays sorted, keys ordered, so the order the platform lists things in
 /// never makes two equal permission sets differ.
-pub fn canonical(value: &Value) -> Value {
+pub(crate) fn canonical(value: &Value) -> Value {
     match value {
         Value::Array(items) => {
             let mut canon: Vec<Value> = items.iter().map(canonical).collect();
@@ -327,12 +327,12 @@ pub struct Report {
 }
 
 #[derive(Debug, Clone, Default)]
-pub struct Request {
-    pub pairs: Vec<Pair>,
+pub(crate) struct Request {
+    pub(crate) pairs: Vec<Pair>,
     /// Also every entity of the ledger's entity and prefix renames not yet carried or deleted.
-    pub renamed: bool,
-    pub apply: bool,
-    pub detail: bool,
+    pub(crate) renamed: bool,
+    pub(crate) apply: bool,
+    pub(crate) detail: bool,
 }
 
 /// Parse `Collection/Old Collection/New ...` into pairs.
@@ -360,7 +360,7 @@ pub fn pairs_from_names(names: &[String]) -> Result<Vec<Pair>, CarryError> {
 }
 
 /// Plan, or apply, the carrying of permissions.
-pub fn run(
+pub(crate) fn run(
     remote: &dyn Remote,
     solution: &Solution,
     request: &Request,

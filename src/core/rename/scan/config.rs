@@ -42,7 +42,7 @@ struct RenameValidate {
 }
 
 /// Renames service selectors in deploy configuration and qualified inherited overrides.
-pub fn scan_service_config(
+pub(crate) fn scan_service_config(
     src: &[u8],
     old: &str,
     new: &str,
@@ -118,13 +118,13 @@ pub fn scan_service_config(
 
 /// Result of scanning configured calls for one renamed parameter.
 #[derive(Debug)]
-pub struct ParamConfigPass {
-    pub pass: XmlPass,
-    pub conflicts: Vec<String>,
+pub(crate) struct ParamConfigPass {
+    pub(crate) pass: XmlPass,
+    pub(crate) conflicts: Vec<String>,
 }
 
 /// Renames direct parameter keys for configured calls to the selected service.
-pub fn scan_param_config(
+pub(crate) fn scan_param_config(
     src: &[u8],
     service: &str,
     old: &str,

@@ -34,7 +34,10 @@ pub struct BindPlan {
 
 /// Plan one Composer-format data binding.  Calls and sections are created only when an address
 /// needs one; the entity content and managed sidecar then travel through the usual edit path.
-pub fn plan_bind(solution: &Solution, request: &BindRequest) -> Result<BindPlan, AuthoringError> {
+pub(crate) fn plan_bind(
+    solution: &Solution,
+    request: &BindRequest,
+) -> Result<BindPlan, AuthoringError> {
     let loaded = load_existing(solution, &request.mashup)?;
     let mut document = parse_loaded(&loaded)?;
     let parameters =

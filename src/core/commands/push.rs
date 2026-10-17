@@ -39,7 +39,8 @@ pub enum PushOutcome {
 
 impl PushOutcome {
     /// The access this specific outcome implies.
-    pub const fn effects(&self) -> Effects {
+    #[cfg(test)]
+    pub(crate) const fn effects(&self) -> Effects {
         match self {
             Self::Plan { effects, .. } | Self::Applied { effects, .. } => *effects,
         }
@@ -136,9 +137,9 @@ impl Coded for PushCommandError {
     }
 }
 
-/// Execute one push. Applying takes the workspace lock before discovery because recording the
-/// baseline is a workspace write; planning reads without taking it.
-pub fn execute<R, F>(
+/// [`execute_with_progress`] without a progress reporter.
+#[cfg(test)]
+pub(crate) fn execute<R, F>(
     solution: &Solution,
     request: &PushRequest,
     open: F,
@@ -151,8 +152,10 @@ where
     execute_with_progress(solution, request, open, notices, &progress::NONE)
 }
 
-/// Like [`execute`], and report the one entity pushed as one step. The message is the entity's
-/// collection and name.
+/// Execute one push. Applying takes the workspace lock before discovery because recording the
+/// baseline is a workspace write; planning reads without taking it.
+///
+/// It reports the one entity pushed as one step. The message is the entity's collection and name.
 pub fn execute_with_progress<R, F>(
     solution: &Solution,
     request: &PushRequest,

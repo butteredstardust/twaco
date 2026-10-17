@@ -36,17 +36,17 @@ impl Remote for Client {
 }
 
 /// Baseline persistence is a seam for proving that a multi-entity deploy writes exactly once.
-pub trait BaselineStore {
+pub(crate) trait BaselineStore {
     fn load(&self) -> Result<Baseline, BaselineError>;
     fn write(&self, baseline: &Baseline) -> Result<(), BaselineError>;
 }
 
-pub struct DiskBaseline {
+pub(crate) struct DiskBaseline {
     root: PathBuf,
 }
 
 impl DiskBaseline {
-    pub fn new(root: &Path) -> Self {
+    pub(crate) fn new(root: &Path) -> Self {
         Self {
             root: root.to_path_buf(),
         }

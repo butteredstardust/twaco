@@ -21,7 +21,7 @@ pub struct EventRequest {
 /// Plan a child event: a NUMBER parameter (BOTH), refreshed in every parent's copy, set to the
 /// time by an expression that `when` evaluates. Real mashups do it this way because ThingWorx has
 /// no events of its own for a contained mashup: a changed value is the signal.
-pub fn plan_event(
+pub(crate) fn plan_event(
     solution: &Solution,
     request: &EventRequest,
 ) -> Result<ParameterPlan, AuthoringError> {

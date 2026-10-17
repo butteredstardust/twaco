@@ -8,7 +8,7 @@ use super::{
 
 /// Plans a rename, optionally applies it, and verifies the resulting workspace. Applying needs
 /// the workspace lock, which the caller holds for the whole command.
-pub fn run(
+pub(crate) fn run(
     solution: &Solution,
     spec: &Spec,
     options: &RunOptions,
@@ -311,20 +311,20 @@ fn verify_before_writing(
 
 /// What a rename does to DBConnection tables: the script it would need, and why a decision is wanted.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
-pub struct DbEffects {
+pub(crate) struct DbEffects {
     /// Backed DataShapes the rename touches (full old names).
-    pub shapes: Vec<String>,
-    pub migration: sql::Migration,
+    pub(crate) shapes: Vec<String>,
+    pub(crate) migration: sql::Migration,
     /// `GetDBInfo` scripts that could not be read completely.
-    pub unsure: Vec<String>,
+    pub(crate) unsure: Vec<String>,
     /// Part of the script's file name.
-    pub label: String,
+    pub(crate) label: String,
     affected: bool,
 }
 
 impl DbEffects {
     /// Whether the caller must say what to do about the database.
-    pub fn needs_decision(&self) -> bool {
+    pub(crate) fn needs_decision(&self) -> bool {
         self.affected
     }
 }
@@ -332,7 +332,7 @@ impl DbEffects {
 /// Compute the database half of a rename from the solution's `GetDBInfo` scripts. Only the
 /// DataShapes those scripts declare are DBConnection tables; a service, a parameter and a
 /// configuration table never are.
-pub fn db_effects(solution: &Solution, plan: &Plan, date: &str) -> DbEffects {
+pub(crate) fn db_effects(solution: &Solution, plan: &Plan, date: &str) -> DbEffects {
     let info = dbinfo::load(solution);
     let mut effects = DbEffects {
         unsure: info.unsure.clone(),
@@ -444,7 +444,7 @@ pub fn db_effects(solution: &Solution, plan: &Plan, date: &str) -> DbEffects {
 }
 
 /// Warnings for state and references that a repository rename cannot carry.
-pub fn follow_up(plan: &Plan, outside_included: bool) -> Vec<String> {
+pub(crate) fn follow_up(plan: &Plan, outside_included: bool) -> Vec<String> {
     if plan.spec.kind == Kind::Param {
         let review = plan
             .changes

@@ -12,20 +12,20 @@ use std::process::Command;
 /// service name.
 #[derive(Clone, Debug, Default)]
 #[allow(private_interfaces)] // Element deliberately remains an internal parsed representation.
-pub struct Side {
-    pub entities: BTreeMap<EntityRef, Element>,
-    pub services: BTreeMap<(String, String), String>,
+pub(crate) struct Side {
+    pub(crate) entities: BTreeMap<EntityRef, Element>,
+    pub(crate) services: BTreeMap<(String, String), String>,
 }
 
 impl Side {
-    pub fn from_export(path: &Path) -> Result<Self, AdoptError> {
+    pub(crate) fn from_export(path: &Path) -> Result<Self, AdoptError> {
         let entities = export_entities(path)?;
         let services = services_from(&entities);
         Ok(Self { entities, services })
     }
 
     /// Reads the entity XML, then lets an existing service sidecar be authoritative.
-    pub fn from_solution(solution: &Solution) -> Result<Self, AdoptError> {
+    pub(crate) fn from_solution(solution: &Solution) -> Result<Self, AdoptError> {
         let found = repository_entities(solution)?;
         let entities = found
             .iter()
@@ -80,19 +80,11 @@ fn services_from(entities: &BTreeMap<EntityRef, Element>) -> BTreeMap<(String, S
     services
 }
 
-/// Where a selected base was obtained.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub enum BaseSource {
-    File(PathBuf),
-    Revision(String),
-    Handoff(String),
-}
-
 /// A comparison base and an explanation suitable for presenting in a report.
 #[derive(Clone, Debug)]
-pub struct Base {
-    pub side: Side,
-    pub label: String,
+pub(crate) struct Base {
+    pub(crate) side: Side,
+    pub(crate) label: String,
 }
 
 /// Durable metadata beside a recorded handoff's delivered XML files.
@@ -111,7 +103,7 @@ fn handoff_root(solution: &Solution) -> PathBuf {
 
 /// Copy delivered `<Entities>` documents under the solution so a later export can identify the
 /// collaborator's starting point.  Names are directory components only, never paths.
-pub fn record_handoff(
+pub(crate) fn record_handoff(
     solution: &Solution,
     name: &str,
     files: &[PathBuf],
@@ -157,7 +149,7 @@ pub fn record_handoff(
 
 /// Everything `record_handoff` refuses, without writing anything: a plan of a recording runs it,
 /// so a plan that passes can be recorded. Returns the file names the handoff will hold.
-pub fn check_handoff(
+pub(crate) fn check_handoff(
     solution: &Solution,
     name: &str,
     files: &[PathBuf],
@@ -205,7 +197,7 @@ pub fn check_handoff(
 }
 
 /// Recorded handoffs, newest first. Invalid entries are refused rather than silently ignored.
-pub fn handoffs(solution: &Solution) -> Result<Vec<Handoff>, AdoptError> {
+pub(crate) fn handoffs(solution: &Solution) -> Result<Vec<Handoff>, AdoptError> {
     let root = handoff_root(solution);
     if !root.is_dir() {
         return Ok(Vec::new());
@@ -251,7 +243,7 @@ pub fn handoffs(solution: &Solution) -> Result<Vec<Handoff>, AdoptError> {
 
 /// Resolve an explicit base, or choose the recorded handoff with the most entities equal to the
 /// export. A tie keeps `handoffs`' newest-first ordering.
-pub fn resolve(
+pub(crate) fn resolve(
     solution: &Solution,
     source: Option<&str>,
     export: &Side,
@@ -392,7 +384,7 @@ fn revision(solution: &Solution, revision: &str) -> Result<Base, String> {
 }
 
 /// Committed versions of one tracked repository file, newest first.
-pub fn history_versions(solution: &Solution, path: &Path, limit: usize) -> Vec<Vec<u8>> {
+pub(crate) fn history_versions(solution: &Solution, path: &Path, limit: usize) -> Vec<Vec<u8>> {
     let Some(root) = git_root(&solution.root) else {
         return Vec::new();
     };

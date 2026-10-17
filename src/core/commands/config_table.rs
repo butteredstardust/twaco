@@ -48,7 +48,8 @@ pub enum ConfigTableOutcome {
 
 impl ConfigTableOutcome {
     /// The access this operation used or may have used.
-    pub const fn effects(&self) -> Effects {
+    #[cfg(test)]
+    pub(crate) const fn effects(&self) -> Effects {
         match self {
             Self::Read { effects, .. }
             | Self::BackedUp { effects, .. }

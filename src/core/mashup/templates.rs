@@ -12,7 +12,7 @@ use serde_json::{Map, Value};
 use std::collections::BTreeMap;
 
 const ENTITY_XML: &str = include_str!("templates/mashup.xml");
-pub const BLANK: &str = include_str!("templates/blank.content.json");
+pub(crate) const BLANK: &str = include_str!("templates/blank.content.json");
 const MASTER_ROOT: &str = include_str!("templates/master_root.json");
 
 const LAYOUTS: &[&str] = &[
@@ -36,36 +36,36 @@ const LAYOUTS: &[&str] = &[
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct LayoutTemplate {
     pub name: String,
-    pub summary: String,
+    pub(crate) summary: String,
     #[serde(default)]
-    pub aliases: Vec<String>,
-    pub page: Map<String, Value>,
+    pub(crate) aliases: Vec<String>,
+    pub(crate) page: Map<String, Value>,
     #[serde(default)]
-    pub master_slot: Option<String>,
+    pub(crate) master_slot: Option<String>,
     #[serde(default)]
-    pub children: Vec<LayoutNode>,
+    pub(crate) children: Vec<LayoutNode>,
 }
 
 /// A slot container in a layout template. Properties not part of the layout vocabulary are
 /// Composer properties and are copied without interpretation.
 #[derive(Clone, Debug, Deserialize, Serialize)]
-pub struct LayoutNode {
+pub(crate) struct LayoutNode {
     #[serde(default)]
-    pub slot: Option<String>,
+    pub(crate) slot: Option<String>,
     #[serde(default)]
-    pub children: Vec<LayoutNode>,
+    pub(crate) children: Vec<LayoutNode>,
     #[serde(default)]
-    pub widget: Option<String>,
+    pub(crate) widget: Option<String>,
     #[serde(default)]
-    pub fixed: Option<String>,
+    pub(crate) fixed: Option<String>,
     #[serde(default)]
-    pub divider: bool,
+    pub(crate) divider: bool,
     #[serde(flatten)]
-    pub properties: Map<String, Value>,
+    pub(crate) properties: Map<String, Value>,
 }
 
 /// Parse the fixed, ordered set of templates embedded in this binary.
-pub fn layouts() -> Result<Vec<LayoutTemplate>, String> {
+pub(crate) fn layouts() -> Result<Vec<LayoutTemplate>, String> {
     LAYOUTS
         .iter()
         .map(|text| {
@@ -75,7 +75,7 @@ pub fn layouts() -> Result<Vec<LayoutTemplate>, String> {
 }
 
 /// One template by canonical name or alias.
-pub fn layout(word: &str) -> Result<Option<LayoutTemplate>, String> {
+pub(crate) fn layout(word: &str) -> Result<Option<LayoutTemplate>, String> {
     Ok(layouts()?.into_iter().find(|template| {
         template.name == word || template.aliases.iter().any(|alias| alias == word)
     }))
@@ -83,14 +83,14 @@ pub fn layout(word: &str) -> Result<Option<LayoutTemplate>, String> {
 
 /// What kind of mashup the entity says it is.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum MashupKind {
+pub(crate) enum MashupKind {
     Mashup,
     Master,
 }
 
 impl MashupKind {
     /// The entity's `aspect.mashupType`.
-    pub const fn aspect(self) -> &'static str {
+    pub(crate) const fn aspect(self) -> &'static str {
         match self {
             Self::Mashup => "mashup",
             Self::Master => "target",
@@ -98,7 +98,7 @@ impl MashupKind {
     }
 
     /// The content's `mashupType` and the root widget's `Type`.
-    pub const fn content_type(self) -> &'static str {
+    pub(crate) const fn content_type(self) -> &'static str {
         match self {
             Self::Mashup => "mashup",
             Self::Master => "targetmashup",
@@ -116,7 +116,7 @@ pub struct Visibility {
 }
 
 /// The entity file for a new mashup, its content still empty.
-pub fn entity_xml(
+pub(crate) fn entity_xml(
     name: &str,
     project: &str,
     kind: MashupKind,
@@ -147,7 +147,7 @@ pub fn entity_xml(
 }
 
 /// The root widget's properties for a master mashup.
-pub fn master_root() -> Value {
+pub(crate) fn master_root() -> Value {
     serde_json::from_str(MASTER_ROOT).expect("the embedded master root is JSON; a test checks it")
 }
 

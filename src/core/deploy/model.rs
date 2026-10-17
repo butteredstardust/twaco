@@ -3,37 +3,37 @@ use serde_json::Value;
 use std::fmt;
 
 #[derive(Clone, Debug)]
-pub struct Script {
-    pub entity: String,
-    pub service: String,
-    pub source: String,
+pub(crate) struct Script {
+    pub(crate) entity: String,
+    pub(crate) service: String,
+    pub(crate) source: String,
 }
 
 #[derive(Clone, Debug)]
-pub struct Entity {
-    pub collection: String,
-    pub name: String,
+pub(crate) struct Entity {
+    pub(crate) collection: String,
+    pub(crate) name: String,
     /// The one-entity source document whose body is present in the bundle.
-    pub bytes: Vec<u8>,
+    pub(crate) bytes: Vec<u8>,
 }
 
 #[derive(Clone, Debug)]
-pub struct ProjectBundle {
-    pub project: String,
-    pub file_name: String,
-    pub bytes: Vec<u8>,
-    pub entities: Vec<Entity>,
-    pub scripts: Vec<Script>,
-    pub deploy: Option<ServiceCall>,
-    pub post_import: Vec<ServiceCall>,
+pub(crate) struct ProjectBundle {
+    pub(crate) project: String,
+    pub(crate) file_name: String,
+    pub(crate) bytes: Vec<u8>,
+    pub(crate) entities: Vec<Entity>,
+    pub(crate) scripts: Vec<Script>,
+    pub(crate) deploy: Option<ServiceCall>,
+    pub(crate) post_import: Vec<ServiceCall>,
 }
 
 /// A configured call as it may safely appear in plans: parameters still contain placeholders.
 #[derive(Clone, Debug, PartialEq)]
 pub struct ServiceCall {
-    pub target: String,
-    pub service: String,
-    pub parameters: Value,
+    pub(crate) target: String,
+    pub(crate) service: String,
+    pub(crate) parameters: Value,
 }
 
 impl fmt::Display for ServiceCall {
@@ -46,7 +46,11 @@ impl fmt::Display for ServiceCall {
 
 #[derive(Clone, Debug)]
 pub struct EntityPlan {
-    pub project: String,
+    #[allow(
+        dead_code,
+        reason = "read only by Debug; the plan keeps the project it was planned for"
+    )]
+    pub(crate) project: String,
     pub collection: String,
     pub name: String,
     pub decision: Decision,
@@ -81,7 +85,7 @@ pub struct Report {
 pub struct PlannedCall {
     pub project: String,
     pub call: ServiceCall,
-    pub post_import: bool,
+    pub(crate) post_import: bool,
     pub skipped: bool,
 }
 
@@ -96,8 +100,8 @@ pub struct ParseFailure {
 
 /// What to deploy: which projects, which entities, and whether to leave out UI collections.
 #[derive(Debug, Default, Clone, Copy)]
-pub struct PlanOptions<'a> {
-    pub only_projects: &'a [String],
-    pub only: &'a [String],
-    pub backend_only: bool,
+pub(crate) struct PlanOptions<'a> {
+    pub(crate) only_projects: &'a [String],
+    pub(crate) only: &'a [String],
+    pub(crate) backend_only: bool,
 }

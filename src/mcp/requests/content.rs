@@ -18,7 +18,7 @@ pub(crate) enum RepoAction {
 #[serde(deny_unknown_fields)]
 pub(crate) struct RepoRequest {
     #[serde(default = "default_repo_action")]
-    pub(crate) action: RepoAction,
+    pub action: RepoAction,
     /// A FileRepository Thing, such as SystemRepository. Not for list.
     #[serde(default, skip_serializing_if = "Absent::is_absent")]
     pub(crate) repository: Absent<String>,
@@ -33,7 +33,7 @@ pub(crate) struct RepoRequest {
     pub(crate) max_chars: u64,
     /// Server profile name.
     #[serde(default = "default_profile")]
-    pub(crate) profile: String,
+    pub profile: String,
     /// Return everything instead of the summary.
     #[serde(default)]
     pub(crate) detail: bool,
@@ -114,7 +114,7 @@ pub(crate) struct LocalizationRequest {
     pub(crate) table: Absent<String>,
     /// Server profile name.
     #[serde(default = "default_profile")]
-    pub(crate) profile: String,
+    pub profile: String,
     /// Include each differing token and problem rather than only counts.
     #[serde(default)]
     pub(crate) detail: bool,
@@ -160,7 +160,7 @@ pub(crate) struct LocalizationWriteRequest {
 pub(crate) struct UsersRequest {
     /// Server profile name.
     #[serde(default = "default_profile")]
-    pub(crate) profile: String,
+    pub profile: String,
 }
 
 #[derive(Clone, Copy, Debug, Deserialize, JsonSchema, PartialEq, Eq, Serialize)]
@@ -187,10 +187,10 @@ pub(crate) struct UsersWriteRequest {
 pub(crate) struct TestRequest {
     /// Keep the cases whose name, service or file contains one of these.
     #[serde(default)]
-    pub(crate) filters: Vec<String>,
+    pub filters: Vec<String>,
     /// Server profile name. It must say `allow_test_users = true` to run the cases.
     #[serde(default = "default_profile")]
-    pub(crate) profile: String,
+    pub profile: String,
     /// True lists and checks the cases; false calls them, which may change the server.
     #[serde(default = "default_true")]
     pub(crate) dry_run: bool,
@@ -263,7 +263,7 @@ pub(crate) enum ExportAction {
 pub(crate) struct BundleRequest {
     /// Leave out the collections [bundle] ui_collections names (a designer's mashups and media).
     #[serde(default)]
-    pub(crate) backend_only: bool,
+    pub backend_only: bool,
     /// Only say whether the configured bundle is current, as `twaco bundle --check` does.
     #[serde(default = "default_true")]
     pub(crate) dry_run: bool,
@@ -314,7 +314,7 @@ fn default_entity_get_max_chars() -> u64 {
 #[derive(Debug, Deserialize, JsonSchema, Serialize)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct ExportRequest {
-    pub(crate) action: ExportAction,
+    pub action: ExportAction,
     /// entity: Collection/Name, such as Things/My.Thing.
     #[serde(default, skip_serializing_if = "Absent::is_absent")]
     pub(crate) entity: Absent<String>,
@@ -344,7 +344,7 @@ pub(crate) struct ExportRequest {
     pub(crate) dry_run: bool,
     /// Server profile name.
     #[serde(default = "default_profile")]
-    pub(crate) profile: String,
+    pub profile: String,
 }
 
 #[derive(Clone, Copy, Debug, Deserialize, JsonSchema, PartialEq, Eq, Serialize)]
@@ -370,10 +370,10 @@ pub(crate) enum PackagePart {
 #[derive(Debug, Deserialize, JsonSchema, Serialize)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct PackageRequest {
-    pub(crate) action: PackageAction,
+    pub action: PackageAction,
     /// Only this project; the whole solution when omitted.
     #[serde(default, skip_serializing_if = "Absent::is_absent")]
-    pub(crate) project: Absent<String>,
+    pub project: Absent<String>,
     /// bundle: which collections.
     #[serde(default = "default_package_part")]
     pub(crate) part: PackagePart,
@@ -381,7 +381,7 @@ pub(crate) struct PackageRequest {
     #[serde(default)]
     pub(crate) editable: bool,
     /// The file to write, relative to the solution root.
-    pub(crate) out: String,
+    pub out: String,
     #[serde(default)]
     pub(crate) overwrite: bool,
 }
@@ -401,7 +401,7 @@ pub(crate) enum ImportAction {
 #[derive(Debug, Deserialize, JsonSchema, Serialize)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct ImportRequest {
-    pub(crate) action: ImportAction,
+    pub action: ImportAction,
     /// file: relative to the solution root.
     #[serde(default, skip_serializing_if = "Absent::is_absent")]
     pub(crate) file: Absent<String>,
@@ -412,12 +412,12 @@ pub(crate) struct ImportRequest {
     #[serde(default, skip_serializing_if = "Absent::is_absent")]
     pub(crate) path: Absent<String>,
     #[serde(default)]
-    pub(crate) overwrite_properties: bool,
+    pub overwrite_properties: bool,
     #[serde(default)]
-    pub(crate) overwrite_tables: bool,
+    pub overwrite_tables: bool,
     #[serde(default = "default_true")]
     pub(crate) dry_run: bool,
     /// Server profile name.
     #[serde(default = "default_profile")]
-    pub(crate) profile: String,
+    pub profile: String,
 }

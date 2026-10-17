@@ -107,7 +107,7 @@ pub struct RecipeRequest {
 
 #[derive(Debug)]
 pub struct RecipePlan {
-    pub edit: EditPlan,
+    pub(crate) edit: EditPlan,
     pub name: &'static str,
     /// The widgets the recipe added.
     pub added: Vec<String>,
@@ -116,7 +116,7 @@ pub struct RecipePlan {
 }
 
 impl Recipe {
-    pub fn name(&self) -> &'static str {
+    pub(crate) fn name(&self) -> &'static str {
         match self {
             Self::EnableWhen { .. } => "enable-when",
             Self::ShowWhen { .. } => "show-when",
@@ -362,7 +362,7 @@ fn widget_id(
 }
 
 /// Plan one recipe in one mashup. Nothing is written.
-pub fn plan_recipe(
+pub(crate) fn plan_recipe(
     solution: &Solution,
     request: &RecipeRequest,
 ) -> Result<RecipePlan, AuthoringError> {

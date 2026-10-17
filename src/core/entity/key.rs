@@ -53,7 +53,10 @@ pub struct EntityKey {
 }
 
 impl EntityKey {
-    pub fn new(collection: impl Into<String>, name: impl Into<String>) -> Result<Self, KeyError> {
+    pub(crate) fn new(
+        collection: impl Into<String>,
+        name: impl Into<String>,
+    ) -> Result<Self, KeyError> {
         let collection = collection.into();
         let name = name.into();
         segment(&collection)?;
@@ -64,7 +67,7 @@ impl EntityKey {
     /// A key for a name read from a file, a reply or the repository, at the point it is about to
     /// address the server: a malformed one is refused as an invalid URL rather than resolved as
     /// another route.
-    pub fn address(collection: &str, name: &str) -> Result<Self, ServerError> {
+    pub(crate) fn address(collection: &str, name: &str) -> Result<Self, ServerError> {
         Self::new(collection, name).map_err(|error| {
             ServerError::InvalidUrl(format!(
                 "{collection}/{name} is not an entity address: {}",
@@ -73,7 +76,7 @@ impl EntityKey {
         })
     }
 
-    pub fn parse(text: &str) -> Result<Self, KeyError> {
+    pub(crate) fn parse(text: &str) -> Result<Self, KeyError> {
         let Some((collection, name)) = text.split_once('/') else {
             return Err(KeyError::new(text, "an entity key needs Collection/Name"));
         };
@@ -87,15 +90,15 @@ impl EntityKey {
             .map_err(|_| KeyError::new(text, "an entity key has an invalid segment"))
     }
 
-    pub fn collection(&self) -> &str {
+    pub(crate) fn collection(&self) -> &str {
         &self.collection
     }
 
-    pub fn name(&self) -> &str {
+    pub(crate) fn name(&self) -> &str {
         &self.name
     }
 
-    pub fn url_path(&self) -> String {
+    pub(crate) fn url_path(&self) -> String {
         format!(
             "{}/{}",
             encode_path_segment(&self.collection),
@@ -131,7 +134,7 @@ pub enum ServiceTarget {
 }
 
 impl ServiceTarget {
-    pub fn parse(text: &str) -> Result<Self, KeyError> {
+    pub(crate) fn parse(text: &str) -> Result<Self, KeyError> {
         if text.contains('/') {
             EntityKey::parse(text).map(Self::Entity)
         } else {
@@ -140,7 +143,7 @@ impl ServiceTarget {
         }
     }
 
-    pub fn entity(
+    pub(crate) fn entity(
         collection: impl Into<String>,
         name: impl Into<String>,
     ) -> Result<Self, KeyError> {
@@ -157,11 +160,11 @@ impl ServiceTarget {
     }
 
     /// Name a fixed platform entity whose literal address is validated with the binary.
-    pub fn platform(collection: &str, name: &str) -> Self {
+    pub(crate) fn platform(collection: &str, name: &str) -> Self {
         Self::entity(collection, name).expect("platform target literals are valid")
     }
 
-    pub fn url_path(&self) -> String {
+    pub(crate) fn url_path(&self) -> String {
         match self {
             ServiceTarget::Thing(name) => format!("Things/{}", encode_path_segment(name)),
             ServiceTarget::Entity(key) => key.url_path(),

@@ -21,7 +21,7 @@ pub(super) struct LedgerLocation {
     pub(super) entity: usize,
 }
 
-pub struct Prepared {
+pub(crate) struct Prepared {
     pub(super) ledger_path: PathBuf,
     pub(super) ledger: Ledger,
     pub(super) requested: Vec<String>,
@@ -33,12 +33,12 @@ pub struct Prepared {
 impl Prepared {
     /// Save the server's copy of everything this will delete under `.twaco/backups/<stamp>`
     /// first. A backup that cannot be taken stops the delete.
-    pub fn with_backup(mut self, stamp: &str) -> Self {
+    pub(crate) fn with_backup(mut self, stamp: &str) -> Self {
         self.backup_stamp = Some(stamp.to_string());
         self
     }
 
-    pub fn ledger_will_be_written(&self, apply: bool) -> bool {
+    pub(crate) fn ledger_will_be_written(&self, apply: bool) -> bool {
         apply
             && !self
                 .ledger
@@ -54,7 +54,7 @@ impl Prepared {
     }
 }
 
-pub fn prepare(
+pub(crate) fn prepare(
     solution: &Solution,
     requested: &[String],
     renamed: bool,

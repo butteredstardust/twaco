@@ -22,14 +22,14 @@ pub struct Options {
 #[derive(Clone, Debug, Serialize)]
 pub struct Report {
     pub applied: bool,
-    pub mode: Mode,
+    pub(crate) mode: Mode,
     pub thing: String,
     pub jdbc_url: String,
     pub user: String,
     pub bytes: usize,
     pub sql: String,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub temporary_thing: Option<String>,
+    pub(crate) temporary_thing: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub result: Option<Value>,
 }

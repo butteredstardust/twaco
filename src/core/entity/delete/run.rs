@@ -10,7 +10,7 @@ use crate::core::scan::{self, Kind};
 use crate::core::workspace;
 use std::collections::BTreeSet;
 
-pub fn run(
+pub(crate) fn run(
     remote: &dyn Remote,
     solution: &Solution,
     mut prepared: Prepared,

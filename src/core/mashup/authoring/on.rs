@@ -121,7 +121,7 @@ fn route_child_event(
 }
 
 /// Plan one event handler, adding a Thing service call for a data handler when needed.
-pub fn plan_on(solution: &Solution, request: &OnRequest) -> Result<OnPlan, AuthoringError> {
+pub(crate) fn plan_on(solution: &Solution, request: &OnRequest) -> Result<OnPlan, AuthoringError> {
     let loaded = load_existing(solution, &request.mashup)?;
     let mut document = parse_loaded(&loaded)?;
     let (model, _) = types::load_model(solution);

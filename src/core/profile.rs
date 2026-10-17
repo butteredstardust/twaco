@@ -15,32 +15,32 @@ use std::path::{Path, PathBuf};
 #[derive(Clone, Deserialize, PartialEq)]
 pub struct Profile {
     #[serde(alias = "server_url")]
-    pub url: String,
-    pub username: String,
-    pub password: Secret,
+    pub(crate) url: String,
+    pub(crate) username: String,
+    pub(crate) password: Secret,
     #[serde(default, alias = "appKey")]
-    pub app_key: Option<Secret>,
+    pub(crate) app_key: Option<Secret>,
     /// Project-specific secrets and values. They remain outside committed solution config.
     #[serde(flatten)]
-    pub extra: BTreeMap<String, toml::Value>,
+    pub(crate) extra: BTreeMap<String, toml::Value>,
 }
 
 /// A credential. It has no `Display` and its `Debug` is redacted, so it is read only through
 /// [`Secret::expose`], and its memory is zeroed when it is dropped.
 #[derive(Clone, Default, Deserialize, PartialEq, Eq)]
 #[serde(transparent)]
-pub struct Secret(String);
+pub(crate) struct Secret(String);
 
 impl Secret {
-    pub fn new(value: impl Into<String>) -> Self {
+    pub(crate) fn new(value: impl Into<String>) -> Self {
         Self(value.into())
     }
 
-    pub fn expose(&self) -> &str {
+    pub(crate) fn expose(&self) -> &str {
         &self.0
     }
 
-    pub fn is_empty(&self) -> bool {
+    pub(crate) fn is_empty(&self) -> bool {
         self.0.is_empty()
     }
 }
@@ -84,7 +84,7 @@ impl fmt::Debug for Profile {
 
 impl Profile {
     /// Look up a placeholder value, including the standard profile fields.
-    pub fn value(&self, key: &str) -> Option<toml::Value> {
+    pub(crate) fn value(&self, key: &str) -> Option<toml::Value> {
         match key {
             "url" | "server_url" => Some(toml::Value::String(self.url.clone())),
             "username" => Some(toml::Value::String(self.username.clone())),
@@ -98,7 +98,7 @@ impl Profile {
     }
 
     /// The database login override kept in the uncommitted server profile.
-    pub fn database_user(&self) -> Option<&str> {
+    pub(crate) fn database_user(&self) -> Option<&str> {
         self.extra
             .get("database_user")
             .and_then(toml::Value::as_str)
@@ -106,7 +106,7 @@ impl Profile {
     }
 
     /// The database secret kept in the uncommitted server profile.
-    pub fn database_password(&self) -> Option<&str> {
+    pub(crate) fn database_password(&self) -> Option<&str> {
         self.extra
             .get("database_password")
             .and_then(toml::Value::as_str)
@@ -204,13 +204,13 @@ fn shared_mode(_path: &Path) -> Option<u32> {
 
 /// A server address fit to show: credentials written into it (`https://user:token@host/`) are
 /// replaced by `***`, whatever the profile's own fields hold.
-pub fn shown_url(url: &str) -> String {
+pub(crate) fn shown_url(url: &str) -> String {
     hide_url_credentials(url)
 }
 
 /// `text` with the credentials of every address in it (`scheme://user:secret@host`) replaced by
 /// `***`: for messages that quote a URL, such as a server error, wherever it came from.
-pub fn hide_url_credentials(text: &str) -> String {
+pub(crate) fn hide_url_credentials(text: &str) -> String {
     let mut out = String::with_capacity(text.len());
     let mut rest = text;
     while let Some(at) = rest.find("://") {
@@ -242,7 +242,7 @@ pub fn hide_url_credentials(text: &str) -> String {
 }
 
 /// The `user:secret` written into an address, if any.
-pub fn url_credentials(url: &str) -> Option<&str> {
+pub(crate) fn url_credentials(url: &str) -> Option<&str> {
     let (_, rest) = url.split_once("://")?;
     let authority = &rest[..rest.find(['/', '?', '#']).unwrap_or(rest.len())];
     authority.rfind('@').map(|at| &authority[..at])
@@ -251,7 +251,7 @@ pub fn url_credentials(url: &str) -> Option<&str> {
 /// Where `name` would be read from, for `doctor`: the first profile file that exists (the
 /// workspace's, then the user's), else the environment, and whether environment variables
 /// override any of its fields. Mirrors [`load`]'s selection; it never reads a secret.
-pub fn source(solution_root: &Path, name: &str) -> String {
+pub(crate) fn source(solution_root: &Path, name: &str) -> String {
     let home = home();
     let file = format!("{name}.toml");
     let local = solution_root.join(".twaco").join("profiles").join(&file);

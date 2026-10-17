@@ -2,7 +2,7 @@ use crate::core::{refs, scan, splice};
 
 /// The XML location containing a name occurrence.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub enum Place {
+pub(crate) enum Place {
     /// A hit in a non-XML file scanned as one text blob.
     File,
     /// A raw quoted attribute value on a start or empty tag.
@@ -137,7 +137,7 @@ pub(crate) fn add_review(src: &[u8], span: scan::Span, place: Place, pass: &mut 
 
 /// Every whole-token mention of `old` in a script or JSON file as a Review finding, with no edit:
 /// what a person must look at after a field rename, because the field is read by name.
-pub fn review_mentions(src: &[u8], old: &str) -> Result<XmlPass, std::str::Utf8Error> {
+pub(crate) fn review_mentions(src: &[u8], old: &str) -> Result<XmlPass, std::str::Utf8Error> {
     let text = std::str::from_utf8(src)?;
     let mut pass = XmlPass::new(src);
     // A field is read as `row.old`, `{ old: 1 }`, `["old"]` and `'old'`: unlike an entity name, a
@@ -155,7 +155,7 @@ pub fn review_mentions(src: &[u8], old: &str) -> Result<XmlPass, std::str::Utf8E
 }
 
 /// Represents a generated sidecar replacement as one exact finding and one whole-file edit.
-pub fn replace_file(src: &[u8], replacement: Vec<u8>, excerpt: &str) -> XmlPass {
+pub(crate) fn replace_file(src: &[u8], replacement: Vec<u8>, excerpt: &str) -> XmlPass {
     // A regenerated sidecar is written with LF; a file that was committed with CRLF keeps its
     // style, so renaming a field does not rewrite every line ending in it.
     let replacement = if src.windows(2).any(|pair| pair == [13, 10]) && !replacement.contains(&13) {
@@ -206,14 +206,14 @@ pub(crate) fn add_field_edit(
 /// One occurrence reported by the XML pass.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Finding {
-    pub place: Place,
+    pub(crate) place: Place,
     pub tier: refs::Tier,
     /// One-based source line containing the first byte of the hit.
     pub line: usize,
     /// A trimmed value or CDATA line around the hit, limited to 120 characters.
     pub excerpt: String,
     /// Whether this tier produced an edit.
-    pub applied: bool,
+    pub(crate) applied: bool,
 }
 
 /// Ordered byte edits and all applied-or-review findings for one document.

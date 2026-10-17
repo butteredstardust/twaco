@@ -5,17 +5,17 @@ use serde::{Deserialize, Serialize};
 #[derive(Debug, Deserialize, JsonSchema, Serialize)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct PushRequest {
-    pub(crate) entity: String,
+    pub entity: String,
     #[serde(default = "default_true")]
     pub(crate) dry_run: bool,
     #[serde(default)]
     pub(crate) force: bool,
     /// With force, save the server's copy under .twaco/backups first (default true); false skips it.
     #[serde(default = "default_true")]
-    pub(crate) backup: bool,
+    pub backup: bool,
     /// Server profile name.
     #[serde(default = "default_profile")]
-    pub(crate) profile: String,
+    pub profile: String,
 }
 
 #[derive(Debug, Deserialize, JsonSchema, Serialize)]
@@ -29,13 +29,13 @@ pub(crate) struct StatusRequest {
     pub(crate) all: bool,
     /// Narrow to one project of the solution.
     #[serde(default, skip_serializing_if = "Absent::is_absent")]
-    pub(crate) project: Absent<String>,
+    pub project: Absent<String>,
     /// Record a baseline for every entity whose two sides agree. Writes .twaco/baseline.json under the workspace lock.
     #[serde(default)]
-    pub(crate) record: bool,
+    pub record: bool,
     /// Server profile name.
     #[serde(default = "default_profile")]
-    pub(crate) profile: String,
+    pub profile: String,
     /// Return everything instead of the summary.
     #[serde(default)]
     pub(crate) detail: bool,
@@ -46,9 +46,9 @@ pub(crate) struct StatusRequest {
 pub(crate) struct EntityDeleteRequest {
     /// Entities to delete; may be empty when renamed is true.
     #[serde(default, skip_serializing_if = "Absent::is_absent")]
-    pub(crate) entities: Absent<Vec<String>>,
+    pub entities: Absent<Vec<String>>,
     #[serde(default)]
-    pub(crate) renamed: bool,
+    pub renamed: bool,
     #[serde(default)]
     pub(crate) allow_repository_defined: bool,
     #[serde(default)]
@@ -62,10 +62,10 @@ pub(crate) struct EntityDeleteRequest {
     pub(crate) dry_run: bool,
     /// Save the server's copy of every entity under .twaco/backups before deleting (default true); a failed backup deletes nothing.
     #[serde(default = "default_true")]
-    pub(crate) backup: bool,
+    pub backup: bool,
     /// Server profile name.
     #[serde(default = "default_profile")]
-    pub(crate) profile: String,
+    pub profile: String,
 }
 
 #[derive(Debug, Deserialize, JsonSchema, Serialize)]
@@ -113,10 +113,10 @@ pub(crate) struct PermissionsRequest {
     pub(crate) all: bool,
     /// Narrow to one project of the solution.
     #[serde(default, skip_serializing_if = "Absent::is_absent")]
-    pub(crate) project: Absent<String>,
+    pub project: Absent<String>,
     /// Server profile name.
     #[serde(default = "default_profile")]
-    pub(crate) profile: String,
+    pub profile: String,
 }
 
 #[derive(Debug, Deserialize, JsonSchema, Serialize)]

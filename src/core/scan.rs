@@ -33,7 +33,7 @@ impl Span {
     ///
     /// Spans are public and can be constructed by a caller, so this cannot assume it is in
     /// range. Indexing directly would panic on a span built against a different document.
-    pub fn try_of<'a>(&self, src: &'a [u8]) -> Option<&'a [u8]> {
+    pub(crate) fn try_of<'a>(&self, src: &'a [u8]) -> Option<&'a [u8]> {
         if self.start <= self.end && self.end <= src.len() {
             Some(&src[self.start..self.end])
         } else {
@@ -485,7 +485,7 @@ pub fn attributes(src: &[u8], tag: &Token) -> Result<Vec<Attribute>, ScanError> 
 
 /// `value` written inside a double-quoted attribute: `&`, `<`, `>` and `"` escaped, so the value
 /// is read back as given and cannot end the attribute.
-pub fn escape_attribute(value: &str) -> String {
+pub(crate) fn escape_attribute(value: &str) -> String {
     value
         .replace('&', "&amp;")
         .replace('<', "&lt;")
@@ -496,7 +496,7 @@ pub fn escape_attribute(value: &str) -> String {
 /// Whether `span` holds only CDATA sections and text, the text only whitespace when
 /// `whitespace_only`: nothing that writing the whole span would silently drop. A comment, a
 /// processing instruction or an element between two CDATA sections fails it.
-pub fn only_cdata_and_text(
+pub(crate) fn only_cdata_and_text(
     tokens: &[Token],
     src: &[u8],
     span: Span,
@@ -538,7 +538,7 @@ pub fn render_cdata(payload: &[u8]) -> Vec<u8> {
 /// The index of the token that closes the element opening at `start`.
 ///
 /// An empty element closes itself. Anything that is not a tag has no range.
-pub fn element_end(tokens: &[Token], start: usize) -> Option<usize> {
+pub(crate) fn element_end(tokens: &[Token], start: usize) -> Option<usize> {
     element_end_in(tokens, &[], start)
 }
 
@@ -581,7 +581,7 @@ pub fn element_span(tokens: &[Token], start: usize) -> Option<Span> {
 }
 
 /// The index of the first tag named `name` at or after `from`, within `limit`.
-pub fn find_tag(
+pub(crate) fn find_tag(
     tokens: &[Token],
     src: &[u8],
     name: &str,
@@ -595,7 +595,7 @@ pub fn find_tag(
 }
 
 /// Every tag named `name` strictly inside the element opening at `parent`.
-pub fn tags_within(tokens: &[Token], src: &[u8], name: &str, parent: usize) -> Vec<usize> {
+pub(crate) fn tags_within(tokens: &[Token], src: &[u8], name: &str, parent: usize) -> Vec<usize> {
     let Some(end) = element_end(tokens, parent) else {
         return Vec::new();
     };
@@ -612,7 +612,7 @@ pub fn tags_within(tokens: &[Token], src: &[u8], name: &str, parent: usize) -> V
 /// Unlike `tags_within`, this does not descend. A ThingTemplate can carry an inline ThingShape
 /// with its own `ServiceDefinitions`, and treating that as the template's own merges two
 /// entities' services into one sidecar tree.
-pub fn child_tags(tokens: &[Token], src: &[u8], name: &str, parent: usize) -> Vec<usize> {
+pub(crate) fn child_tags(tokens: &[Token], src: &[u8], name: &str, parent: usize) -> Vec<usize> {
     let Some(end) = element_end(tokens, parent) else {
         return Vec::new();
     };

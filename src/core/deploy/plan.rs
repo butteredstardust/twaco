@@ -10,7 +10,7 @@ use super::{
 
 /// What deploying each entity of the bundles would do: the working copy, the server's copy and the
 /// baseline through the push decision table. Reads from the server; changes nothing.
-pub fn decide_all(
+pub(crate) fn decide_all(
     remote: &dyn Remote,
     baseline: &Baseline,
     projects: &[ProjectBundle],
@@ -19,7 +19,7 @@ pub fn decide_all(
 }
 
 /// Like [`decide_all`], and report one step per entity. The caller starts the phase.
-pub fn decide_all_with_progress(
+pub(crate) fn decide_all_with_progress(
     remote: &dyn Remote,
     baseline: &Baseline,
     projects: &[ProjectBundle],
@@ -70,7 +70,7 @@ pub fn decide_all_with_progress(
 /// The per-project bundles a deploy would import, in dependency order, each with the entities it
 /// carries, the scripts to parse and the calls to make afterwards. Also a note per project.
 /// Shared by the CLI and the MCP server, so both deploy exactly the same thing.
-pub fn plan_bundles(
+pub(crate) fn plan_bundles(
     solution: &super::config::Solution,
     options: PlanOptions,
 ) -> Result<(Vec<ProjectBundle>, Vec<String>), String> {
@@ -258,7 +258,7 @@ pub fn plan_bundles(
     Ok((projects, notes))
 }
 
-pub fn toml_parameters(table: Option<&toml::Table>) -> serde_json::Value {
+pub(crate) fn toml_parameters(table: Option<&toml::Table>) -> serde_json::Value {
     table
         .map(|table| serde_json::to_value(table).expect("TOML tables serialize as JSON"))
         .unwrap_or_else(|| serde_json::json!({}))

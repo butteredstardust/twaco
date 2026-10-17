@@ -143,7 +143,7 @@ fn thing_target(thing: &str) -> Result<ServiceTarget, ServerError> {
 }
 
 /// Read a table from the server.
-pub fn fetch(remote: &dyn Remote, thing: &str, table: &str) -> Result<Table, TableError> {
+pub(crate) fn fetch(remote: &dyn Remote, thing: &str, table: &str) -> Result<Table, TableError> {
     let reply = remote
         .call(
             &thing_target(thing).map_err(TableError::Remote)?,
@@ -290,7 +290,7 @@ fn key_of(row: &Map<String, Value>, key: &[String], cell: Cell) -> String {
 /// Differences between two sets of rows, keyed by primary key, or by position when there is none.
 ///
 /// Cells are compared by meaning, so the entity XML's text agrees with the server's typed values.
-pub fn differences(
+pub(crate) fn differences(
     left_name: &str,
     left: &[Map<String, Value>],
     right_name: &str,
@@ -364,7 +364,7 @@ fn differences_by(
 /// Write a backup in the established JSON format, retained for compatibility. It never
 /// overwrites an existing file:
 /// a backup written over the one taken before a test is the backup that was needed.
-pub fn write_backup(
+pub(crate) fn write_backup(
     path: &Path,
     thing: &str,
     table_name: &str,
@@ -408,7 +408,7 @@ pub fn write_backup(
 }
 
 /// Read a backup and check it is of this Thing's table.
-pub fn read_backup(path: &Path, thing: &str, table_name: &str) -> Result<Table, TableError> {
+pub(crate) fn read_backup(path: &Path, thing: &str, table_name: &str) -> Result<Table, TableError> {
     let bad = |why: String| TableError::Backup {
         path: path.display().to_string(),
         why,
@@ -481,7 +481,7 @@ fn restore_key(current: &Table, saved: &Table) -> Result<Vec<String>, TableError
     Ok(key)
 }
 
-pub fn plan_restore(current: &Table, saved: &Table) -> Result<RestorePlan, TableError> {
+pub(crate) fn plan_restore(current: &Table, saved: &Table) -> Result<RestorePlan, TableError> {
     let key = restore_key(current, saved)?;
     if key.is_empty() {
         let same =
@@ -552,7 +552,7 @@ fn left_over(after: &Table, saved: &Table, key: &[String]) -> Vec<String> {
 ///
 /// `apply` false stops after the plan. Writing the saved rows before deleting the extras keeps
 /// the table populated throughout.
-pub fn restore(
+pub(crate) fn restore(
     remote: &dyn Remote,
     thing: &str,
     table_name: &str,
@@ -627,7 +627,7 @@ pub fn restore(
 ///
 /// Only the entity's own `ConfigurationTables` count: a service implementation carries a
 /// `ConfigurationTables` of its own (its `Script` table), which is not the Thing's.
-pub fn repository_rows(
+pub(crate) fn repository_rows(
     src: &[u8],
     table_name: &str,
 ) -> Result<Vec<Map<String, Value>>, TableError> {

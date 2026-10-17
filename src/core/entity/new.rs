@@ -77,7 +77,7 @@ impl Kind {
         }
     }
 
-    pub fn collection(self) -> &'static str {
+    pub(crate) fn collection(self) -> &'static str {
         match self {
             Self::Thing
             | Self::Timer
@@ -137,7 +137,7 @@ pub struct NewRequest {
     pub label: Option<String>,
     pub from: Option<String>,
     pub props: Vec<String>,
-    pub theme_content: Option<String>,
+    pub(crate) theme_content: Option<String>,
 }
 
 impl NewRequest {
@@ -191,10 +191,10 @@ impl NewRequest {
 pub struct Plan {
     pub request: NewRequest,
     pub project: String,
-    pub entity_path: PathBuf,
-    pub entity: Vec<u8>,
-    pub sidecars: Vec<(PathBuf, Vec<u8>)>,
-    pub duration_ms: Option<u64>,
+    pub(crate) entity_path: PathBuf,
+    pub(crate) entity: Vec<u8>,
+    pub(crate) sidecars: Vec<(PathBuf, Vec<u8>)>,
+    pub(crate) duration_ms: Option<u64>,
     pub cron: Option<String>,
     pub script: Option<String>,
 }
@@ -322,7 +322,7 @@ fn refuse_file_on_the_way(root: &Path, path: &Path) -> Result<(), NewError> {
     Ok(())
 }
 
-pub fn parse_duration(text: &str) -> Result<u64, NewError> {
+pub(crate) fn parse_duration(text: &str) -> Result<u64, NewError> {
     let text = text.trim();
     let (number, multiplier) = if let Some(number) = text.strip_suffix("ms") {
         (number, 1)
@@ -349,7 +349,7 @@ pub fn parse_duration(text: &str) -> Result<u64, NewError> {
         .ok_or_else(|| NewError::Invalid("--every is too large".into()))
 }
 
-pub fn validate_cron(text: &str) -> Result<String, NewError> {
+pub(crate) fn validate_cron(text: &str) -> Result<String, NewError> {
     let fields = text.split_whitespace().count();
     if !(fields == 6 || fields == 7) {
         return Err(NewError::Invalid(
@@ -1116,7 +1116,7 @@ fn make_xml(
     }
 }
 
-pub fn plan(solution: &Solution, request: &NewRequest) -> Result<Plan, NewError> {
+pub(crate) fn plan(solution: &Solution, request: &NewRequest) -> Result<Plan, NewError> {
     refs::validate_new_name(&request.name).map_err(NewError::Invalid)?;
     if request.description.contains(['\n', '\r']) {
         return Err(NewError::Invalid("--description must be one line".into()));
@@ -1407,7 +1407,11 @@ pub fn plan(solution: &Solution, request: &NewRequest) -> Result<Plan, NewError>
     })
 }
 
-pub fn apply(solution: &Solution, plan: &Plan, lock: &WorkspaceLock) -> Result<(), NewError> {
+pub(crate) fn apply(
+    solution: &Solution,
+    plan: &Plan,
+    lock: &WorkspaceLock,
+) -> Result<(), NewError> {
     let mut transaction = Transaction::new(&solution.root, "new entity");
     transaction
         .create_file(&plan.entity_path, plan.entity.clone())

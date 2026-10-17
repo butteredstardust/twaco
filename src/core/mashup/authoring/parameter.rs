@@ -40,8 +40,8 @@ pub enum ParameterDefault {
 
 #[derive(Debug)]
 pub struct ParameterPlan {
-    pub edits: Vec<EditPlan>,
-    pub action: ParameterAction,
+    pub(crate) edits: Vec<EditPlan>,
+    pub(crate) action: ParameterAction,
     pub mashup: String,
     pub name: String,
     pub base_type: String,
@@ -682,7 +682,7 @@ fn document_parameters(document: &MashupDocument) -> Vec<ParameterDefinition> {
 
 /// Plan a parameter addition, definition change or deletion, including every container that
 /// displays the child mashup. Nothing is written.
-pub fn plan_parameter(
+pub(crate) fn plan_parameter(
     solution: &Solution,
     request: &ParameterRequest,
 ) -> Result<ParameterPlan, AuthoringError> {
@@ -855,7 +855,7 @@ fn has_container(value: &Value, name: &str) -> bool {
 }
 
 /// Apply every affected mashup in one transaction.
-pub fn apply_parameter(
+pub(crate) fn apply_parameter(
     solution: &Solution,
     plan: &ParameterPlan,
     lock: &WorkspaceLock,

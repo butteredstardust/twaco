@@ -37,7 +37,8 @@ pub enum ImportOutcome {
 }
 
 impl ImportOutcome {
-    pub const fn effects(&self) -> Effects {
+    #[cfg(test)]
+    pub(crate) const fn effects(&self) -> Effects {
         match self {
             Self::File { effects, .. } | Self::SourceControl { effects, .. } => *effects,
         }

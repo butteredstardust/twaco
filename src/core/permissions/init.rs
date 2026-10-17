@@ -98,7 +98,7 @@ struct DraftRole {
 }
 
 /// Draft a policy for each project without one (or the one named).
-pub fn draft(
+pub(crate) fn draft(
     solution: &Solution,
     project: Option<&str>,
     from_helper: bool,

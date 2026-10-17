@@ -101,7 +101,7 @@ fn server_tokens<R: Remote + ?Sized>(
 }
 
 /// Compare local files with the server without changing either side.
-pub fn status<R: Remote + ?Sized>(
+pub(crate) fn status<R: Remote + ?Sized>(
     solution: &Solution,
     remote: &R,
     table: Option<&str>,
@@ -296,7 +296,7 @@ pub(super) fn write_plans(
 }
 
 /// Pull server values into the files that own their token namespaces.
-pub fn pull<R: Remote + ?Sized>(
+pub(crate) fn pull<R: Remote + ?Sized>(
     solution: &Solution,
     remote: &R,
     table: Option<&str>,
@@ -452,7 +452,7 @@ pub fn pull<R: Remote + ?Sized>(
 }
 
 /// Import local table files and optionally remove remote tokens absent locally.
-pub fn push<R: Remote>(
+pub(crate) fn push<R: Remote>(
     solution: &Solution,
     remote: &R,
     table: Option<&str>,
@@ -754,7 +754,7 @@ fn project<'a>(
 }
 
 /// Create a table file for one project, seeded from its Default tokens.
-pub fn new(
+pub(crate) fn new(
     solution: &Solution,
     table: &str,
     project_name: Option<&str>,
@@ -826,7 +826,7 @@ pub fn new(
 
 /// Set a token in a local table.
 #[allow(clippy::too_many_arguments)] // Public command inputs are deliberately explicit.
-pub fn set(
+pub(crate) fn set(
     solution: &Solution,
     name: &str,
     value: &str,
@@ -929,7 +929,7 @@ pub fn set(
 }
 
 /// Remove a token from its local table files.
-pub fn remove(
+pub(crate) fn remove(
     solution: &Solution,
     name: &str,
     table: Option<&str>,

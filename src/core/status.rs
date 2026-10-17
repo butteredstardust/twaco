@@ -7,7 +7,7 @@ use super::baseline::Baseline;
 use super::entity::key::EntityKey;
 use super::normalise;
 use super::parallel;
-use super::progress::{self, Progress, NONE};
+use super::progress::{self, Progress};
 use super::push::Remote;
 use super::workspace::EntityFile;
 
@@ -23,7 +23,7 @@ pub enum Verdict {
 }
 
 impl Verdict {
-    pub const ALL: [Verdict; 7] = [
+    pub(crate) const ALL: [Verdict; 7] = [
         Verdict::InSync,
         Verdict::LocalChanged,
         Verdict::ServerChanged,
@@ -52,7 +52,11 @@ impl Verdict {
 }
 
 /// Each side against its own recorded state (the two-sided baseline).
-pub fn verdict(working: &str, server: Option<&str>, baseline: Option<(&str, &str)>) -> Verdict {
+pub(crate) fn verdict(
+    working: &str,
+    server: Option<&str>,
+    baseline: Option<(&str, &str)>,
+) -> Verdict {
     let Some(server) = server else {
         return Verdict::NotOnServer;
     };
@@ -84,16 +88,9 @@ pub struct EntityStatus {
 
 /// Compare every entity with the server, in parallel. Per-entity failures are returned beside the
 /// statuses rather than aborting the rest, in input order.
-pub fn compute(
-    remote: &(dyn Remote + Sync),
-    baseline: &Baseline,
-    entities: &[EntityFile],
-) -> (Vec<EntityStatus>, Vec<String>) {
-    compute_with_progress(remote, baseline, entities, &NONE)
-}
-
-/// Like [`compute`], and report one step per entity. Messages hold entity names only.
-pub fn compute_with_progress(
+///
+/// It reports one step per entity. Messages hold entity names only.
+pub(crate) fn compute_with_progress(
     remote: &(dyn Remote + Sync),
     baseline: &Baseline,
     entities: &[EntityFile],
@@ -144,7 +141,7 @@ pub fn compute_with_progress(
 
 /// Record a baseline for every entity whose working copy and server agree, and never for one
 /// that differs. Returns how many were recorded.
-pub fn record_matching(baseline: &mut Baseline, statuses: &[EntityStatus]) -> usize {
+pub(crate) fn record_matching(baseline: &mut Baseline, statuses: &[EntityStatus]) -> usize {
     let mut recorded = 0;
     for status in statuses {
         if status.server.as_deref() == Some(status.working.as_str()) {
@@ -160,7 +157,7 @@ pub fn record_matching(baseline: &mut Baseline, statuses: &[EntityStatus]) -> us
     recorded
 }
 
-/// How many entities have each verdict, in [`Verdict::ALL`] order.
+/// How many entities have each verdict, in `Verdict::ALL` order.
 pub fn counts(statuses: &[EntityStatus]) -> Vec<(Verdict, usize)> {
     Verdict::ALL
         .into_iter()

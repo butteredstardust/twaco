@@ -13,7 +13,7 @@ use crate::core::config_table;
 use crate::core::entity;
 use crate::core::entity::carry::Kind;
 use crate::core::entity::key::EntityKey;
-use crate::core::progress::{self, Progress};
+use crate::core::progress::Progress;
 use crate::core::push;
 use crate::core::server::ServerError;
 use crate::core::workspace::EntityFile;
@@ -40,17 +40,8 @@ fn finding(
     }
 }
 
-/// The server's findings for one project.
-pub fn audit(
-    remote: &dyn Remote,
-    loaded: &Loaded,
-    helper_thing: Option<&ModelEntity>,
-) -> Vec<Finding> {
-    audit_with_progress(remote, loaded, helper_thing, &progress::NONE)
-}
-
-/// Like [`audit`], and report one step per entity read.
-pub fn audit_with_progress(
+/// The server's findings for one project. It reports one step per entity read.
+pub(crate) fn audit_with_progress(
     remote: &dyn Remote,
     loaded: &Loaded,
     helper_thing: Option<&ModelEntity>,
@@ -392,7 +383,7 @@ fn platform(remote: &dyn Remote, loaded: &Loaded, out: &mut Vec<Finding>) {
 }
 
 /// The names of a group's direct members.
-pub fn group_members(remote: &dyn Remote, group: &str) -> Result<BTreeSet<String>, String> {
+pub(crate) fn group_members(remote: &dyn Remote, group: &str) -> Result<BTreeSet<String>, String> {
     let target = crate::core::entity::key::ServiceTarget::entity("Groups", group)
         .map_err(|e| e.to_string())?;
     let reply = remote

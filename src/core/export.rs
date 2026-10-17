@@ -87,7 +87,7 @@ pub struct Exported {
 }
 
 /// The export's XML, with how many entities of each collection it holds.
-pub fn export(remote: &dyn Remote, what: &What) -> Result<Exported, ExportError> {
+pub(crate) fn export(remote: &dyn Remote, what: &What) -> Result<Exported, ExportError> {
     let xml = match what {
         What::Entity { key } => remote.export_xml(Some(key.collection()), Some(key.name()), None),
         What::Collection {
@@ -115,7 +115,7 @@ pub fn export(remote: &dyn Remote, what: &What) -> Result<Exported, ExportError>
 }
 
 /// Entities by collection: the children of each collection element under `<Entities>`.
-pub fn count_entities(xml: &[u8]) -> Vec<(String, usize)> {
+pub(crate) fn count_entities(xml: &[u8]) -> Vec<(String, usize)> {
     use super::scan::Kind;
     let Ok(tokens) = super::scan::tokenize(xml) else {
         return Vec::new();
@@ -158,7 +158,7 @@ pub struct Filters {
 /// Write the source-control layout of what `filters` select into a repository folder, or into
 /// a zip there when `zip` names one. A plan unless `apply`. Returns what was done, and for a
 /// zip, the download link the server gives.
-pub fn source_control(
+pub(crate) fn source_control(
     remote: &dyn Remote,
     repository: &str,
     path: &str,

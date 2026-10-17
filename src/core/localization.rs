@@ -10,24 +10,23 @@ use super::{scan, splice};
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 
-pub mod ops;
+pub(crate) mod ops;
 pub(crate) mod references;
-pub mod remote;
-pub use ops::{
-    new, pull, push, remove, set, status, Edited, FileChange, Pulled, Pushed, Status, TablePush,
-};
-pub use remote::Remote;
+pub(crate) mod remote;
+pub(crate) use ops::{new, pull, push, remove, set, status, Edited, Pulled};
+pub use ops::{FileChange, Pushed, Status, TablePush};
+pub(crate) use remote::Remote;
 
-pub const DEFAULT_ROOT: &str = "localization";
-pub const DEFAULT_TABLE: &str = "Default";
+pub(crate) const DEFAULT_ROOT: &str = "localization";
+pub(crate) const DEFAULT_TABLE: &str = "Default";
 
 /// One token as the server and the files hold it. Values are trimmed when read from a file.
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub struct Token {
-    pub name: String,
-    pub value: String,
-    pub usage: String,
-    pub context: String,
+    pub(crate) name: String,
+    pub(crate) value: String,
+    pub(crate) usage: String,
+    pub(crate) context: String,
 }
 
 /// The attributes a table file's `LocalizationTable` element carries that twaco cares about.
@@ -40,23 +39,23 @@ pub struct Header {
 
 /// One table file read from the solution.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub struct TableFile {
-    pub path: PathBuf,
-    pub table: String,
-    pub header: Header,
-    pub tokens: Vec<Token>,
+pub(crate) struct TableFile {
+    pub(crate) path: PathBuf,
+    pub(crate) table: String,
+    pub(crate) header: Header,
+    pub(crate) tokens: Vec<Token>,
 }
 
 /// Table files found below a localization root and files that looked like tables but were bad.
 #[derive(Debug, Default)]
-pub struct Discovered {
-    pub files: Vec<TableFile>,
-    pub unreadable: Vec<(PathBuf, String)>,
+pub(crate) struct Discovered {
+    pub(crate) files: Vec<TableFile>,
+    pub(crate) unreadable: Vec<(PathBuf, String)>,
 }
 
 /// A requested change to one token in a table file.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub enum Edit {
+pub(crate) enum Edit {
     Set(Token),
     Remove(String),
 }
@@ -119,7 +118,7 @@ pub fn root(solution: &Solution) -> PathBuf {
 }
 
 /// Prefixes this project owns, defaulting to its conventional dotted namespace.
-pub fn prefixes(project: &Project) -> Vec<String> {
+pub(crate) fn prefixes(project: &Project) -> Vec<String> {
     if project.localization.prefixes.is_empty() {
         vec![format!("{}.", project.name)]
     } else {
@@ -444,13 +443,14 @@ fn parse_table(
 /// Read one localization export of one table. Non-localization XML is ignored; a localization
 /// export whose table shape is incomplete, or that holds several tables, is refused with its path
 /// so it can be repaired by hand.
-pub fn read(path: &Path, src: &[u8]) -> Result<Option<TableFile>, LocalizationError> {
+#[cfg(test)]
+pub(crate) fn read(path: &Path, src: &[u8]) -> Result<Option<TableFile>, LocalizationError> {
     Ok(parse(path, src)?.map(|parsed| table_file(path, parsed)))
 }
 
 /// Read every table of a localization export: one `TableFile` per table, each with the file's
 /// path. Empty for XML that is not a localization export.
-pub fn read_all(path: &Path, src: &[u8]) -> Result<Vec<TableFile>, LocalizationError> {
+pub(crate) fn read_all(path: &Path, src: &[u8]) -> Result<Vec<TableFile>, LocalizationError> {
     Ok(parse_all(path, src)?
         .unwrap_or_default()
         .into_iter()
@@ -461,7 +461,11 @@ pub fn read_all(path: &Path, src: &[u8]) -> Result<Vec<TableFile>, LocalizationE
 /// What an import of `table` from this export sends: the file itself when it holds only that
 /// table, else its bytes with the other `<LocalizationTable>` elements cut out, so a push of one
 /// table never changes another. Nothing is re-serialised.
-pub fn table_export(path: &Path, src: &[u8], table: &str) -> Result<Vec<u8>, LocalizationError> {
+pub(crate) fn table_export(
+    path: &Path,
+    src: &[u8],
+    table: &str,
+) -> Result<Vec<u8>, LocalizationError> {
     let all =
         parse_all(path, src)?.ok_or_else(|| invalid(path, "is not a localization table export"))?;
     if !all.iter().any(|parsed| parsed.table == table) {
@@ -483,7 +487,10 @@ pub fn table_export(path: &Path, src: &[u8], table: &str) -> Result<Vec<u8>, Loc
 
 /// The content of every token-name cell, in every table of an export: where a rename changes a
 /// token. `None` for a file that is not a localization export.
-pub fn name_cells(path: &Path, src: &[u8]) -> Result<Option<Vec<scan::Span>>, LocalizationError> {
+pub(crate) fn name_cells(
+    path: &Path,
+    src: &[u8],
+) -> Result<Option<Vec<scan::Span>>, LocalizationError> {
     Ok(parse_all(path, src)?.map(|all| {
         all.iter()
             .flat_map(|parsed| parsed.rows.iter())
@@ -535,7 +542,7 @@ fn table_file(path: &Path, parsed: Parsed) -> TableFile {
 
 /// Find localization exports recursively. A missing root is an empty solution, while malformed
 /// table exports are returned in `unreadable` for a caller to report without losing good files.
-pub fn discover(root: &Path) -> Result<Discovered, LocalizationError> {
+pub(crate) fn discover(root: &Path) -> Result<Discovered, LocalizationError> {
     if !root.exists() {
         return Ok(Discovered::default());
     }
@@ -763,7 +770,7 @@ fn new_row(token: &Token, indent: &[u8], newline: &[u8]) -> Vec<u8> {
 
 /// Apply changes to a localization table without reformatting any existing bytes. Unsupported
 /// cell markup, duplicate rows, duplicate edit arguments, and files without `Rows` are refused.
-pub fn edit(path: &Path, src: &[u8], edits: &[Edit]) -> Result<Vec<u8>, LocalizationError> {
+pub(crate) fn edit(path: &Path, src: &[u8], edits: &[Edit]) -> Result<Vec<u8>, LocalizationError> {
     let parsed =
         parse(path, src)?.ok_or_else(|| invalid(path, "is not a localization table export"))?;
     let mut requested = BTreeSet::new();
@@ -883,7 +890,7 @@ pub fn edit(path: &Path, src: &[u8], edits: &[Edit]) -> Result<Vec<u8>, Localiza
 }
 
 /// Render a new portable table export. It intentionally omits project and modified-date metadata.
-pub fn render(table: &str, header: &Header, tokens: &[Token]) -> Vec<u8> {
+pub(crate) fn render(table: &str, header: &Header, tokens: &[Token]) -> Vec<u8> {
     let description = header.description.clone().unwrap_or_else(|| {
         if table == DEFAULT_TABLE {
             "Default localization table".to_string()
@@ -937,7 +944,7 @@ pub fn render(table: &str, header: &Header, tokens: &[Token]) -> Vec<u8> {
 }
 
 /// The conventional filename for a table within one project block.
-pub fn file_name(table: &str) -> String {
+pub(crate) fn file_name(table: &str) -> String {
     if table == DEFAULT_TABLE {
         "LocalizationTable.xml".to_string()
     } else {
@@ -946,7 +953,7 @@ pub fn file_name(table: &str) -> String {
 }
 
 /// Select where a new token belongs without guessing between projects that share a language.
-pub fn target(
+pub(crate) fn target(
     files: &[TableFile],
     root: &Path,
     project: &Project,
@@ -989,9 +996,9 @@ pub struct Compared {
     pub table: String,
     pub name: String,
     pub state: State,
-    pub local: Option<Token>,
-    pub server: Option<Token>,
-    pub file: Option<PathBuf>,
+    pub(crate) local: Option<Token>,
+    pub(crate) server: Option<Token>,
+    pub(crate) file: Option<PathBuf>,
 }
 
 fn comparable(token: &Token) -> Token {
@@ -1004,7 +1011,7 @@ fn comparable(token: &Token) -> Token {
 }
 
 /// Compare the local tokens this solution owns with the server's full tables.
-pub fn compare(
+pub(crate) fn compare(
     files: &[TableFile],
     server: &BTreeMap<String, Vec<Token>>,
     prefixes: &[String],
@@ -1086,7 +1093,7 @@ pub enum Problem {
 }
 
 /// Report cross-file table constraints in deterministic table and token order.
-pub fn problems(files: &[TableFile], prefixes: &[String]) -> Vec<Problem> {
+pub(crate) fn problems(files: &[TableFile], prefixes: &[String]) -> Vec<Problem> {
     let mut grouped: BTreeMap<String, Vec<&TableFile>> = BTreeMap::new();
     for file in files {
         grouped.entry(file.table.clone()).or_default().push(file);

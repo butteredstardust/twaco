@@ -40,7 +40,7 @@ pub enum ParseError {
 
 /// How an identifier occurs.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Role {
+pub(crate) enum Role {
     /// A use of the name as a value, or the target of an assignment.
     Reference,
     /// Declared by `var`, `let` or `const` (destructured or not), or as a function's own name.
@@ -55,23 +55,18 @@ pub enum Role {
     MemberProperty,
 }
 
-impl Role {
-    /// Whether the occurrence introduces the name rather than using it.
-    pub fn is_binding(self) -> bool {
-        matches!(self, Role::Declaration | Role::Parameter)
-    }
-}
+impl Role {}
 
 /// One occurrence of an identifier; the text is the span's bytes.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct Identifier {
-    pub span: scan::Span,
-    pub role: Role,
+pub(crate) struct Identifier {
+    pub(crate) span: scan::Span,
+    pub(crate) role: Role,
 }
 
 /// What stands before the `.` or `[` of a member access.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub enum Receiver {
+pub(crate) enum Receiver {
     /// The identifier `me`.
     Me,
     /// `this`.
@@ -86,28 +81,28 @@ pub enum Receiver {
 
 /// `obj.name` or `obj["name"]`.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct MemberAccess {
+pub(crate) struct MemberAccess {
     /// The property name; for a string index, the bytes inside the quotes.
-    pub property: scan::Span,
+    pub(crate) property: scan::Span,
     /// The property is written as a string literal in brackets.
-    pub string_index: bool,
+    pub(crate) string_index: bool,
     /// The access is the callee of a call or a `new` with arguments.
-    pub is_callee: bool,
-    pub receiver: Receiver,
+    pub(crate) is_callee: bool,
+    pub(crate) receiver: Receiver,
 }
 
 /// A key of an object literal given as a call's first argument.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct ObjectKey {
+pub(crate) struct ObjectKey {
     /// The key as written: an identifier's text, or a string key's text between its quotes.
-    pub text: String,
+    pub(crate) text: String,
     /// The identifier, or the bytes inside the quotes of a string key.
-    pub span: scan::Span,
+    pub(crate) span: scan::Span,
 }
 
 /// The first argument of a call.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub enum FirstArgument {
+pub(crate) enum FirstArgument {
     /// An object literal, with its `key: value` keys. A shorthand `{ name }` is not a key,
     /// because renaming it would rename the variable it reads, and a computed key or a spread
     /// names nothing that can be edited.
@@ -118,46 +113,46 @@ pub enum FirstArgument {
 
 /// A call whose callee is a member access.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Call {
+pub(crate) struct Call {
     /// The callee's property name, as for [`MemberAccess::property`].
-    pub property: scan::Span,
-    pub receiver: Receiver,
-    pub first: FirstArgument,
+    pub(crate) property: scan::Span,
+    pub(crate) receiver: Receiver,
+    pub(crate) first: FirstArgument,
 }
 
 /// A string literal.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct StringLiteral {
+pub(crate) struct StringLiteral {
     /// The source text between the quotes, not unescaped.
-    pub value: String,
+    pub(crate) value: String,
     /// The bytes inside the quotes.
-    pub span: scan::Span,
+    pub(crate) span: scan::Span,
 }
 
 /// An object-literal property whose value is a string literal.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct ObjectString {
+pub(crate) struct ObjectString {
     /// The key as written: an identifier's text, or a string key's text between its quotes.
-    pub key: String,
+    pub(crate) key: String,
     /// The value's source text between the quotes, not unescaped.
-    pub value: String,
+    pub(crate) value: String,
     /// The bytes inside the value's quotes.
-    pub value_span: scan::Span,
+    pub(crate) value_span: scan::Span,
 }
 
 /// A key written in an object literal.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct LiteralKey {
+pub(crate) struct LiteralKey {
     /// An identifier's text, a string key's text between its quotes, or a number key's text.
-    pub text: String,
+    pub(crate) text: String,
     /// The identifier, the bytes inside a string key's quotes, or the number literal.
-    pub span: scan::Span,
+    pub(crate) span: scan::Span,
     string: bool,
 }
 
 /// One property in an [`ObjectLiteral`].
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub enum ObjectProperty {
+pub(crate) enum ObjectProperty {
     /// A non-computed identifier, string or number key followed by a value.
     KeyValue { key: LiteralKey, value: Value },
     /// A shorthand, method, getter, setter, spread or computed key.
@@ -166,15 +161,15 @@ pub enum ObjectProperty {
 
 /// A JavaScript object literal, held once in [`Script::objects`].
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct ObjectLiteral {
+pub(crate) struct ObjectLiteral {
     /// The braces and their contents.
-    pub span: scan::Span,
-    pub properties: Vec<ObjectProperty>,
+    pub(crate) span: scan::Span,
+    pub(crate) properties: Vec<ObjectProperty>,
 }
 
 /// A value in an [`ObjectLiteral`] property or array literal.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub enum Value {
+pub(crate) enum Value {
     /// An object in [`Script::objects`].
     Object(usize),
     /// The elements of an array literal. A hole or spread is [`Value::Other`].
@@ -187,37 +182,37 @@ pub enum Value {
 
 /// A comment, delimiters included.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Comment {
-    pub span: scan::Span,
-    pub text: String,
+pub(crate) struct Comment {
+    pub(crate) span: scan::Span,
+    pub(crate) text: String,
 }
 
 /// The facts of one script.
 #[derive(Debug, Clone, Default)]
 pub struct Script {
     /// Every identifier occurrence, in source order, each reported once.
-    pub identifiers: Vec<Identifier>,
+    pub(crate) identifiers: Vec<Identifier>,
     /// Every `obj.name` and `obj["name"]`, whether or not it is called.
-    pub members: Vec<MemberAccess>,
+    pub(crate) members: Vec<MemberAccess>,
     /// Every call whose callee is such a member.
-    pub calls: Vec<Call>,
+    pub(crate) calls: Vec<Call>,
     /// Variable name to the entity of `Things.X`, for a variable that can only hold that Thing:
     /// every declaration of the name initialises it from the same `Things` entity, and it is
     /// never assigned again, redeclared differently, or taken as a parameter.
-    pub thing_variables: BTreeMap<String, String>,
-    pub object_strings: Vec<ObjectString>,
+    pub(crate) thing_variables: BTreeMap<String, String>,
+    pub(crate) object_strings: Vec<ObjectString>,
     /// Every object literal, in source order of its opening brace. Nested values refer to this
     /// arena by index so each literal is represented once.
-    pub objects: Vec<ObjectLiteral>,
+    pub(crate) objects: Vec<ObjectLiteral>,
     /// Every string literal, including string keys and string indexes.
-    pub strings: Vec<StringLiteral>,
+    pub(crate) strings: Vec<StringLiteral>,
     /// In source order.
-    pub comments: Vec<Comment>,
+    pub(crate) comments: Vec<Comment>,
 }
 
 impl Script {
     /// The `Things` entity a receiver stands for, if it provably stands for one.
-    pub fn thing_of<'a>(&'a self, receiver: &'a Receiver) -> Option<&'a str> {
+    pub(crate) fn thing_of<'a>(&'a self, receiver: &'a Receiver) -> Option<&'a str> {
         match receiver {
             Receiver::Thing(entity) => Some(entity),
             Receiver::Variable(name) => self.thing_variables.get(name).map(String::as_str),

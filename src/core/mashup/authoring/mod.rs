@@ -24,55 +24,56 @@ mod on;
 mod parameter;
 mod recipes;
 
-pub(crate) use add::function_property;
-pub use add::{
-    add_contained_plan_json, add_plan_json, plan_add, plan_add_contained, AddContainedPlan,
-    AddContainedRequest, AddPlan, AddRequest, ContainedParameter,
-};
+pub use add::{add_contained_plan_json, add_plan_json, AddContainedRequest, AddRequest};
+pub(crate) use add::{function_property, plan_add, plan_add_contained, AddContainedPlan, AddPlan};
+pub use bind::BindRequest;
 use bind::{bind_in, data_call, existing_data_call};
-pub use bind::{plan_bind, BindPlan, BindRequest};
+pub(crate) use bind::{plan_bind, BindPlan};
 use end::{
     allowed, area, base, details, menu_service, property, resolve_end, resolve_service,
     source_property_type, target_property_type, End,
 };
-pub use event::{plan_event, EventRequest};
-pub use new::{
-    apply_new, new_plan_json, parse_visibility, plan_new, template_slots, validate_template,
-    NewPlan, NewRequest, DEFAULT_THEME,
-};
+pub(crate) use event::plan_event;
+pub use event::EventRequest;
+pub(crate) use new::{apply_new, parse_visibility, plan_new, NewPlan};
+pub use new::{new_plan_json, template_slots, NewRequest};
+#[cfg(test)]
+pub(crate) use new::{validate_template, DEFAULT_THEME};
 use on::on_in;
-pub use on::{plan_on, OnPlan, OnRequest};
-pub use parameter::{
-    apply_parameter, parameter_plan_json, plan_parameter, ParameterAction, ParameterDefault,
-    ParameterPlan, ParameterRequest,
-};
+pub use on::OnRequest;
+pub(crate) use on::{plan_on, OnPlan};
+pub(crate) use parameter::{apply_parameter, plan_parameter, ParameterPlan};
 use parameter::{
     cache_entry, contained_parameters, default_value, ensure_cached, navigation_definition,
     parse_new_parameter, set_content_parameter, splice_parameter_definition, validate_parameter,
     ParameterDefinition,
 };
-pub use recipes::{
-    plan_recipe, recipe_plan_json, Recipe, RecipeArgs, RecipePlan, RecipeRequest, RECIPES,
-};
+pub use parameter::{parameter_plan_json, ParameterAction, ParameterDefault, ParameterRequest};
+pub(crate) use recipes::{plan_recipe, RecipePlan};
+pub use recipes::{recipe_plan_json, Recipe, RecipeArgs, RecipeRequest, RECIPES};
 
 #[derive(Debug)]
 pub struct SidecarEdit {
     pub content_path: PathBuf,
-    pub content_before: Vec<u8>,
-    pub content_after: Vec<u8>,
-    pub css_path: PathBuf,
+    pub(crate) content_before: Vec<u8>,
+    pub(crate) content_after: Vec<u8>,
+    #[allow(
+        dead_code,
+        reason = "read only by Debug; the stylesheet's path travels with the edit"
+    )]
+    pub(crate) css_path: PathBuf,
     /// The stylesheet is retained while content changes.
-    pub css: String,
+    pub(crate) css: String,
 }
 
 #[derive(Debug)]
 pub struct EditPlan {
     /// The command, as the transaction journal names it (`mashup add`, `mashup bind`).
-    pub command: &'static str,
+    pub(crate) command: &'static str,
     pub mashup: String,
     pub entity_path: PathBuf,
-    pub entity_before: Vec<u8>,
-    pub entity_after: Vec<u8>,
+    pub(crate) entity_before: Vec<u8>,
+    pub(crate) entity_after: Vec<u8>,
     /// `None` means this mashup has no sidecars and only its entity is changed.
     pub sidecars: Option<SidecarEdit>,
 }
@@ -232,7 +233,7 @@ fn insert(map: &mut Map<String, Value>, key: &str, value: Value) {
 }
 
 /// Apply an existing-mashup edit as one transaction.
-pub fn apply_edit(
+pub(crate) fn apply_edit(
     solution: &Solution,
     plan: &EditPlan,
     lock: &WorkspaceLock,

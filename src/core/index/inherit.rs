@@ -9,11 +9,11 @@ use std::collections::BTreeSet;
 /// What the walk reads of one entity.
 #[derive(Clone, Copy)]
 pub(crate) struct Inherits<'a> {
-    pub collection: &'a str,
+    pub(crate) collection: &'a str,
     /// A Thing's `thingTemplate` or a template's `baseThingTemplate`.
-    pub template: Option<&'a str>,
+    pub(crate) template: Option<&'a str>,
     /// The ThingShapes it implements, as written and in order.
-    pub shapes: &'a [String],
+    pub(crate) shapes: &'a [String],
 }
 
 /// The templates and shapes `start` inherits, nearest first: its own shapes, then its template's

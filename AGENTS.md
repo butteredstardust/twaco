@@ -41,6 +41,8 @@ On Windows, build with the MSVC toolchain (`rustup default stable-msvc`).
 ## Style
 
 - Match the surrounding code: naming, error types per module, comment density.
+- Library items are `pub(crate)` unless the binary (`src/main.rs`, `src/cli/`) or `tests/` uses
+  them; see ARCHITECTURE.md.
 - Comments say why, not what. Doc comments state the contract and what is refused.
 - Format with `cargo fmt` before you commit; CI runs `cargo fmt --all --check`. The tree was
   formatted in one commit (listed in `.git-blame-ignore-revs`), so formatting touches only what you

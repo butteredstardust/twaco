@@ -55,7 +55,8 @@ pub enum ExtensionOutcome {
 }
 
 impl ExtensionOutcome {
-    pub const fn effects(&self) -> Effects {
+    #[cfg(test)]
+    pub(crate) const fn effects(&self) -> Effects {
         match self {
             Self::Listed { effects, .. }
             | Self::Shown { effects, .. }

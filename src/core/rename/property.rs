@@ -14,17 +14,17 @@ use crate::core::{scan, script};
 use std::collections::{BTreeMap, BTreeSet};
 
 /// What one entity says about the property, and the edits for it.
-pub struct PropertyPass {
-    pub pass: XmlPass,
+pub(crate) struct PropertyPass {
+    pub(crate) pass: XmlPass,
     /// The entity declares a property with the old name.
-    pub declared: bool,
+    pub(crate) declared: bool,
     /// The entity declares a property with the new name.
-    pub new_declared: bool,
+    pub(crate) new_declared: bool,
 }
 
 /// Scan one entity document. `affected` are the scope and the entities that inherit it (they carry
 /// the property); `script_scope` says whether this entity's own scripts read `me.<name>`.
-pub fn scan_property_entity(
+pub(crate) fn scan_property_entity(
     src: &[u8],
     old: &str,
     new: &str,
@@ -187,7 +187,7 @@ pub fn scan_property_entity(
 }
 
 /// Scan a sidecar script (the whole file is script text).
-pub fn scan_property_script_file(
+pub(crate) fn scan_property_script_file(
     src: &[u8],
     old: &str,
     new: &str,

@@ -13,7 +13,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 static NAME_COUNTER: AtomicU64 = AtomicU64::new(0);
 
-pub fn execute(
+pub(crate) fn execute(
     remote: &dyn Remote,
     solution: &Solution,
     profile: &Profile,

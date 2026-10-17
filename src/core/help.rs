@@ -15,9 +15,9 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 use std::time::Duration;
 
-pub const BASE: &str = "https://support.ptc.com/help/thingworx/platform";
+pub(crate) const BASE: &str = "https://support.ptc.com/help/thingworx/platform";
 /// The versions published with this layout, oldest first.
-pub const VERSIONS: [&str; 5] = ["r9.6", "r9.7", "r10.0", "r10.1", "r10.2"];
+pub(crate) const VERSIONS: [&str; 5] = ["r9.6", "r9.7", "r10.0", "r10.1", "r10.2"];
 pub const INDEX_FILE: &str = "ThingWorx_sx.js";
 /// A word in a page's title counts this many times its rarity: in a help center the title is
 /// the strongest sign of what a page is about. At 2, "DataShape" ranked CacheThings (the word
@@ -127,7 +127,7 @@ impl Fetch for Web {
 }
 
 /// A version as the site spells it: `10.1`, `r10.1` and `10.1.0-b47` are all `r10.1`.
-pub fn version(text: &str) -> Result<String, HelpError> {
+pub(crate) fn version(text: &str) -> Result<String, HelpError> {
     let text = text.trim().trim_start_matches(['r', 'R']);
     let mut parts = text.split(['.', '-']);
     let (Some(major), Some(minor)) = (parts.next(), parts.next()) else {
@@ -151,7 +151,7 @@ pub fn version(text: &str) -> Result<String, HelpError> {
     }
 }
 
-pub fn newest() -> &'static str {
+pub(crate) fn newest() -> &'static str {
     VERSIONS[VERSIONS.len() - 1]
 }
 
@@ -183,7 +183,7 @@ pub fn cached(
 
 /// One web file at an explicitly chosen cache path. This is shared by the help center and
 /// other public PTC documentation with the same fetch-once semantics.
-pub fn cached_file(
+pub(crate) fn cached_file(
     fetch: &dyn Fetch,
     local: &std::path::Path,
     url: &str,
@@ -259,7 +259,7 @@ pub fn choose_version(
 }
 
 /// The server's ThingWorx version, such as `10.1.0-b47`. Read-only.
-pub fn server_version(client: &super::server::Client) -> Result<String, String> {
+pub(crate) fn server_version(client: &super::server::Client) -> Result<String, String> {
     let reply = client
         .call_service(
             &super::entity::key::ServiceTarget::platform("Subsystems", "PlatformSubsystem"),
@@ -287,7 +287,7 @@ pub struct Page {
 
 #[derive(Debug, Default)]
 pub struct Index {
-    pub pages: Vec<Page>,
+    pub(crate) pages: Vec<Page>,
     /// For each word, the pages it is on and how often.
     words: HashMap<String, Vec<(usize, u64)>>,
 }
@@ -349,7 +349,7 @@ impl Index {
 /// A query's words as the index spells them: lower case, split on what the index splits on.
 /// The index keeps `-`, `.`, `_`, `:` and `'` inside a word (`server-side`, `me.name`), so
 /// those stay, trimmed from the ends; brackets, quotes and commas separate words.
-pub fn words(query: &str) -> Vec<String> {
+pub(crate) fn words(query: &str) -> Vec<String> {
     query
         .to_lowercase()
         .split(|c: char| {
@@ -476,7 +476,7 @@ pub fn search(index: &Index, version: &str, query: &str, limit: usize) -> Found 
 }
 
 /// The address a person opens: the site's own frame, at that page.
-pub fn page_url(version: &str, path: &str) -> String {
+pub(crate) fn page_url(version: &str, path: &str) -> String {
     format!("{BASE}/{version}/en/#page/{path}")
 }
 
@@ -529,10 +529,10 @@ fn bad_page(text: &str) -> HelpError {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Read {
-    pub title: String,
+    pub(crate) title: String,
     pub url: String,
     /// Every heading on the page, in order, so a reader can ask for one section.
-    pub headings: Vec<String>,
+    pub(crate) headings: Vec<String>,
     pub markdown: String,
 }
 

@@ -126,9 +126,13 @@ pub struct Request {
 pub struct FileChange {
     pub path: PathBuf,
     /// `Collection/Name`.
-    pub entity: String,
-    pub before: Vec<u8>,
-    pub after: Vec<u8>,
+    #[allow(
+        dead_code,
+        reason = "read only by tests and Debug; kept so a plan names each file's entity"
+    )]
+    pub(crate) entity: String,
+    pub(crate) before: Vec<u8>,
+    pub(crate) after: Vec<u8>,
 }
 
 #[derive(Debug)]
@@ -244,7 +248,7 @@ const MEMBER_HOSTS: [&str; 3] = ["Things", "ThingTemplates", "ThingShapes"];
 // Planning and applying
 
 /// Plan an edit; nothing is written.
-pub fn plan(solution: &Solution, request: &Request) -> Result<Plan, EditError> {
+pub(crate) fn plan(solution: &Solution, request: &Request) -> Result<Plan, EditError> {
     let found = workspace::entities(solution);
     let file = workspace::resolve(&found, &request.entity)
         .map_err(|error| EditError::Unknown(error.to_string()))?
@@ -329,7 +333,11 @@ pub fn plan(solution: &Solution, request: &Request) -> Result<Plan, EditError> {
 }
 
 /// Write a plan in one transaction under the caller's lock.
-pub fn apply(solution: &Solution, plan: &Plan, lock: &WorkspaceLock) -> Result<(), EditError> {
+pub(crate) fn apply(
+    solution: &Solution,
+    plan: &Plan,
+    lock: &WorkspaceLock,
+) -> Result<(), EditError> {
     let mut transaction = Transaction::new(&solution.root, "entity edit");
     for change in &plan.changes {
         transaction

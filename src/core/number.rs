@@ -8,7 +8,7 @@
     clippy::cast_sign_loss,
     reason = "a float-to-integer `as` saturates, and saturating is what is wanted"
 )]
-pub fn saturating_u64(value: f64) -> u64 {
+pub(crate) fn saturating_u64(value: f64) -> u64 {
     value as u64
 }
 
@@ -18,7 +18,7 @@ pub fn saturating_u64(value: f64) -> u64 {
     clippy::cast_possible_truncation,
     reason = "a float-to-integer `as` saturates, and saturating is what is wanted"
 )]
-pub fn saturating_i64(value: f64) -> i64 {
+pub(crate) fn saturating_i64(value: f64) -> i64 {
     value as i64
 }
 

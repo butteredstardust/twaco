@@ -3,16 +3,16 @@ use crate::core::scan;
 
 /// Structural result for the field-only XML pass.
 #[derive(Debug)]
-pub struct FieldPass {
-    pub pass: XmlPass,
-    pub old_found: bool,
-    pub new_found: bool,
-    pub table_conflicts: Vec<String>,
-    pub tables: usize,
+pub(crate) struct FieldPass {
+    pub(crate) pass: XmlPass,
+    pub(crate) old_found: bool,
+    pub(crate) new_found: bool,
+    pub(crate) table_conflicts: Vec<String>,
+    pub(crate) tables: usize,
 }
 
 /// Renames one field declaration in a DataShape document.
-pub fn scan_data_shape_field(
+pub(crate) fn scan_data_shape_field(
     src: &[u8],
     old: &str,
     new: &str,
@@ -57,7 +57,7 @@ pub fn scan_data_shape_field(
 }
 
 /// Renames inline field declarations and row element names in matching configuration tables.
-pub fn scan_configuration_field(
+pub(crate) fn scan_configuration_field(
     src: &[u8],
     scope: &str,
     old: &str,
@@ -185,7 +185,7 @@ pub(crate) fn child_elements(tokens: &[scan::Token], parent: usize) -> Vec<usize
 }
 
 /// The data shape each declared property of an entity is typed by (`aspect.dataShape`), by name.
-pub fn property_shapes(
+pub(crate) fn property_shapes(
     src: &[u8],
 ) -> Result<std::collections::BTreeMap<String, String>, scan::ScanError> {
     let tokens = scan::tokenize(src)?;
@@ -211,7 +211,7 @@ pub fn property_shapes(
 /// `ThingProperties/<property>/Value/infoTable` of a Thing or ThingTemplate. `properties` are the
 /// properties whose declared type is the data shape being renamed in (the caller resolves
 /// inheritance, since a Thing's value is usually typed by its template).
-pub fn scan_infotable_field(
+pub(crate) fn scan_infotable_field(
     src: &[u8],
     properties: &std::collections::BTreeSet<String>,
     old: &str,

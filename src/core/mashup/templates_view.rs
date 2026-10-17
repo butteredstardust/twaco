@@ -18,10 +18,10 @@ pub struct TemplateDetail {
     pub name: String,
     pub aliases: Vec<String>,
     pub summary: String,
-    pub slots: Vec<String>,
-    pub page: serde_json::Map<String, serde_json::Value>,
+    pub(crate) slots: Vec<String>,
+    pub(crate) page: serde_json::Map<String, serde_json::Value>,
     pub master_slot: Option<String>,
-    pub children: Vec<LayoutNode>,
+    pub(crate) children: Vec<LayoutNode>,
 }
 
 pub fn list() -> Result<Vec<TemplateSummary>, String> {

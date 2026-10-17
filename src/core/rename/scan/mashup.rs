@@ -19,7 +19,7 @@ enum JsonNode {
 /// `TargetSection` is that DataName; `EventHandlerService` where `EventHandlerId` is that
 /// DataName; and `EventTriggerId` where `EventTriggerSection` is that DataName. Every other
 /// JSON string exactly equal to the old service name is left as a Review finding.
-pub fn scan_service_mashup(
+pub(crate) fn scan_service_mashup(
     src: &[u8],
     old: &str,
     new: &str,
@@ -65,7 +65,7 @@ pub fn scan_service_mashup(
 /// service; and `TargetProperty` in `DataBindings[].PropertyMaps[]` when `TargetArea` is `Data`,
 /// `TargetSection` is that DataName and `TargetId` is the selected service. Every other JSON key
 /// or string exactly equal to the old parameter is Review.
-pub fn scan_param_mashup(
+pub(crate) fn scan_param_mashup(
     src: &[u8],
     service: &str,
     old: &str,

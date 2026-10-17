@@ -32,7 +32,7 @@ impl fmt::Display for Method {
 /// reports one STRING input named `name` for every listed service: DeleteThing,
 /// DeleteThingTemplate, DeleteThingShape, DeleteMediaEntity, DeleteGroup, DeleteOrganization,
 /// DeleteProject and DeleteUser. Collections listed as REST use Composer's verified route.
-pub fn method_for(collection: &str) -> Option<Method> {
+pub(crate) fn method_for(collection: &str) -> Option<Method> {
     let service = match collection {
         "Things" => Some("DeleteThing"),
         "ThingTemplates" => Some("DeleteThingTemplate"),

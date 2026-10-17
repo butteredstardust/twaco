@@ -25,7 +25,11 @@ pub enum RetemplateOutcome {
 }
 
 impl RetemplateOutcome {
-    pub const fn effects(&self) -> Effects {
+    #[allow(
+        dead_code,
+        reason = "the command facade's Effects (COMMAND_FACADE.md); no adapter reads it yet"
+    )]
+    pub(crate) const fn effects(&self) -> Effects {
         match self {
             Self::Plan { effects, .. } | Self::Applied { effects, .. } => *effects,
         }

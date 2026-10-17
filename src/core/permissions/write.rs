@@ -26,9 +26,9 @@ fn error(message: impl Into<String>) -> PermissionsError {
 }
 
 /// How new entries are ordered: lower first, then by name.
-pub struct Order<'a> {
-    pub principal: &'a dyn Fn(&str) -> usize,
-    pub resource: &'a dyn Fn(&str) -> usize,
+pub(crate) struct Order<'a> {
+    pub(crate) principal: &'a dyn Fn(&str) -> usize,
+    pub(crate) resource: &'a dyn Fn(&str) -> usize,
 }
 
 /// The grants of one block, in document order.
@@ -221,7 +221,7 @@ fn merge(edits: Vec<Edit>) -> Vec<Edit> {
 /// Make each named set of the entity exactly `wanted`. Returns the new bytes, the same bytes
 /// when nothing differs. A missing block is added after the entity's last permission block, or
 /// before its closing tag.
-pub fn rewrite(
+pub(crate) fn rewrite(
     src: &[u8],
     wanted: &BTreeMap<KindKey, Grants>,
     order: &Order<'_>,

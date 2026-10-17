@@ -15,20 +15,20 @@ use std::collections::{BTreeMap, BTreeSet};
 
 #[derive(Debug, Serialize, PartialEq)]
 pub struct Description {
-    pub mashup: String,
-    pub file: String,
-    pub mashup_type: String,
-    pub parameters: Vec<MashupParameter>,
+    pub(crate) mashup: String,
+    pub(crate) file: String,
+    pub(crate) mashup_type: String,
+    pub(crate) parameters: Vec<MashupParameter>,
     #[serde(skip_serializing_if = "Vec::is_empty")]
-    pub containers: Vec<Container>,
+    pub(crate) containers: Vec<Container>,
     /// Function widgets (expressions, validators, navigation...) as what they do.
     #[serde(skip_serializing_if = "Vec::is_empty")]
-    pub functions: Vec<Function>,
-    pub widgets: Vec<WidgetNode>,
-    pub services: Vec<ServiceUse>,
-    pub bindings: Vec<Binding>,
-    pub events: Vec<Event>,
-    pub warnings: Vec<String>,
+    pub(crate) functions: Vec<Function>,
+    pub(crate) widgets: Vec<WidgetNode>,
+    pub(crate) services: Vec<ServiceUse>,
+    pub(crate) bindings: Vec<Binding>,
+    pub(crate) events: Vec<Event>,
+    pub(crate) warnings: Vec<String>,
 }
 
 /// A parameter the mashup declares (its XML `ParameterDefinitions`).
@@ -39,29 +39,29 @@ pub struct MashupParameter {
     /// `IN`, `OUT` or `BOTH`, as `aspect.bindingDirection` says; empty when it does not.
     pub direction: String,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub default: Option<Value>,
+    pub(crate) default: Option<Value>,
 }
 
 /// A function widget and, in one sentence, what it does.
 #[derive(Debug, Serialize, PartialEq)]
-pub struct Function {
-    pub id: String,
+pub(crate) struct Function {
+    pub(crate) id: String,
     #[serde(rename = "type")]
-    pub type_id: String,
-    pub does: String,
+    pub(crate) type_id: String,
+    pub(crate) does: String,
 }
 
 #[derive(Debug, Serialize, PartialEq)]
-pub struct Container {
-    pub id: String,
-    pub mashup: String,
-    pub parameters: Vec<ContainerParameter>,
+pub(crate) struct Container {
+    pub(crate) id: String,
+    pub(crate) mashup: String,
+    pub(crate) parameters: Vec<ContainerParameter>,
 }
 #[derive(Debug, Serialize, PartialEq)]
-pub struct ContainerParameter {
-    pub name: String,
-    pub direction: String,
-    pub status: String,
+pub(crate) struct ContainerParameter {
+    pub(crate) name: String,
+    pub(crate) direction: String,
+    pub(crate) status: String,
 }
 
 /// The parameters an entity file declares, from its `ParameterDefinitions` only (the
@@ -95,59 +95,59 @@ pub fn mashup_parameters(src: &[u8]) -> Result<Vec<MashupParameter>, String> {
 }
 
 #[derive(Debug, Serialize, PartialEq)]
-pub struct WidgetNode {
-    pub id: String,
+pub(crate) struct WidgetNode {
+    pub(crate) id: String,
     #[serde(rename = "type")]
-    pub type_id: String,
-    pub display_name: String,
-    pub depth: usize,
+    pub(crate) type_id: String,
+    pub(crate) display_name: String,
+    pub(crate) depth: usize,
     /// `row` or `column`, for a responsive container.
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub direction: Option<String>,
+    pub(crate) direction: Option<String>,
     /// It fills the container it is in.
     #[serde(skip_serializing_if = "std::ops::Not::not")]
-    pub fills: bool,
+    pub(crate) fills: bool,
     /// What it shows: its label, text or title, as written (a `[[token]]` stays one).
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub text: Option<String>,
+    pub(crate) text: Option<String>,
 }
 
 #[derive(Debug, Serialize, PartialEq)]
-pub struct ServiceUse {
+pub(crate) struct ServiceUse {
     /// `Entity.Service`, or `Entity.Service as alias`.
-    pub service: String,
-    pub section: String,
-    pub alias: String,
+    pub(crate) service: String,
+    pub(crate) section: String,
+    pub(crate) alias: String,
     /// Each declared parameter and what sets it: a binding's source, `static`, or `unbound`.
-    pub parameters: Vec<ParameterUse>,
+    pub(crate) parameters: Vec<ParameterUse>,
     /// What runs it: event triggers.
-    pub invoked_by: Vec<String>,
+    pub(crate) invoked_by: Vec<String>,
     /// False when twaco could not find the service's definition in the repository.
-    pub resolved: bool,
+    pub(crate) resolved: bool,
 }
 
 #[derive(Debug, Serialize, PartialEq)]
-pub struct ParameterUse {
-    pub name: String,
-    pub base_type: String,
-    pub set_by: Vec<String>,
+pub(crate) struct ParameterUse {
+    pub(crate) name: String,
+    pub(crate) base_type: String,
+    pub(crate) set_by: Vec<String>,
 }
 
 #[derive(Debug, Serialize, PartialEq)]
-pub struct Binding {
-    pub id: String,
-    pub from: String,
-    pub to: String,
+pub(crate) struct Binding {
+    pub(crate) id: String,
+    pub(crate) from: String,
+    pub(crate) to: String,
     /// A property map after the first: the runtime does not apply it.
     #[serde(skip_serializing_if = "std::ops::Not::not")]
-    pub ignored: bool,
+    pub(crate) ignored: bool,
 }
 
 #[derive(Debug, Serialize, PartialEq)]
-pub struct Event {
-    pub id: String,
-    pub trigger: String,
-    pub handler: String,
+pub(crate) struct Event {
+    pub(crate) id: String,
+    pub(crate) trigger: String,
+    pub(crate) handler: String,
 }
 
 #[derive(Debug, thiserror::Error)]

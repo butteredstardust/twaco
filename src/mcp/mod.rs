@@ -108,7 +108,12 @@ they would do; pass dry_run: false to act. Use `catalog` for the repository's ca
 Start with `projects`, then `check`, then `status` with `all: true` (or one `entity`).";
 
 /// Serve every tool until stdin closes. See [`serve_tools`].
-pub fn serve(root: &Path, input: impl BufRead, output: impl Write + Send) -> std::io::Result<()> {
+#[cfg(test)]
+pub(crate) fn serve(
+    root: &Path,
+    input: impl BufRead,
+    output: impl Write + Send,
+) -> std::io::Result<()> {
     serve_tools(root, &Selection::ALL, input, output)
 }
 

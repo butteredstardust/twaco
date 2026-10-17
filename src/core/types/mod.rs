@@ -11,21 +11,25 @@ pub(crate) mod platform;
 mod render;
 mod write;
 
-pub(crate) use compiler::check_with;
-pub use compiler::{check, CompilerOutput, CompilerRunner};
+pub(crate) use compiler::{check, check_with, CompilerRunner};
 pub(crate) use model::{
     load_model, DataShape, Entity, Member, Model, Parameter, Service, TypedValue,
 };
-pub use outcome::{
-    check_summary, finding_json, refresh_after_write, CheckError, CheckOutcome, Outcome,
-    PlatformOutcome, Refresh, TypeFinding,
+pub use outcome::{check_summary, finding_json, Refresh};
+pub(crate) use outcome::{
+    refresh_after_write, CheckError, CheckOutcome, Outcome, PlatformOutcome, TypeFinding,
 };
-pub(crate) use platform::{cached as cached_platform, Platform, PlatformMeta};
-pub use platform::{fetch_platform, fetch_platform_with_progress, Remote};
-pub use write::write;
+pub(crate) use platform::{
+    cached as cached_platform, fetch_platform_with_progress, Platform, PlatformMeta, Remote,
+};
+pub(crate) use write::write;
 
 use super::server::ServerError;
 use super::workspace;
+#[cfg(test)]
+pub(crate) use compiler::CompilerOutput;
+#[cfg(test)]
+pub(crate) use platform::fetch_platform;
 
 #[derive(Debug, thiserror::Error)]
 pub enum TypesError {

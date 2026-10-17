@@ -40,7 +40,7 @@ pub enum Member {
 }
 
 impl Member {
-    pub fn word(self) -> &'static str {
+    pub(crate) fn word(self) -> &'static str {
         match self {
             Member::Service => "service",
             Member::Property => "property",
@@ -150,8 +150,8 @@ impl std::error::Error for RelocateError {}
 #[derive(Debug, Clone, Default, Serialize)]
 pub struct Callers {
     /// Files holding references to the member that stop resolving.
-    pub files: usize,
-    pub references: usize,
+    pub(crate) files: usize,
+    pub(crate) references: usize,
     pub first: Vec<String>,
 }
 
@@ -163,8 +163,8 @@ pub struct Plan {
     pub request: Request,
     /// The member's name on the target.
     pub final_name: String,
-    pub from_file: PathBuf,
-    pub to_file: PathBuf,
+    pub(crate) from_file: PathBuf,
+    pub(crate) to_file: PathBuf,
     from_old: Vec<u8>,
     to_old: Vec<u8>,
     from_new: Option<Vec<u8>>,
@@ -578,7 +578,7 @@ fn is_ancestor(catalog: &catalog::Catalog, entity: &str, of: &str) -> bool {
         .is_some_and(|item| item.inherits.iter().any(|name| name == entity))
 }
 
-pub fn plan(solution: &Solution, request: &Request) -> Result<Plan, RelocateError> {
+pub(crate) fn plan(solution: &Solution, request: &Request) -> Result<Plan, RelocateError> {
     let member = request.member;
     let noun = member.word();
     refs::validate_field_name(&request.name, noun).map_err(RelocateError::Invalid)?;
@@ -1077,7 +1077,7 @@ impl Plan {
 }
 
 /// The entities the plan touched whose sidecars no longer match their XML (empty when in step).
-pub fn verify(solution: &Solution, plan: &Plan) -> Vec<String> {
+pub(crate) fn verify(solution: &Solution, plan: &Plan) -> Vec<String> {
     let discovered = workspace::discover(solution);
     discovered
         .entities
@@ -1100,16 +1100,24 @@ pub fn verify(solution: &Solution, plan: &Plan) -> Vec<String> {
 }
 
 #[derive(Debug, Clone)]
-pub struct Applied {
-    pub written: Vec<PathBuf>,
-    pub removed: Vec<PathBuf>,
+pub(crate) struct Applied {
+    #[allow(
+        dead_code,
+        reason = "read only by Debug; the applied files are kept with the plan's result"
+    )]
+    pub(crate) written: Vec<PathBuf>,
+    #[allow(
+        dead_code,
+        reason = "read only by tests and Debug; the applied files are kept with the plan's result"
+    )]
+    pub(crate) removed: Vec<PathBuf>,
 }
 
 /// Write the plan as one journaled operation. Every file is checked against the plan first (a file
 /// changed since is refused and nothing is written); a failure or a crash part-way leaves every
 /// file as it was or finished, and the next command to take the workspace lock completes or undoes
 /// an interrupted run.
-pub fn apply(plan: &Plan, lock: &WorkspaceLock) -> Result<Applied, RelocateError> {
+pub(crate) fn apply(plan: &Plan, lock: &WorkspaceLock) -> Result<Applied, RelocateError> {
     let mut transaction = Transaction::new(&plan.root, "move or copy a member");
     transaction
         .replace_file(&plan.to_file, &plan.to_old, plan.to_new.clone())

@@ -14,7 +14,11 @@ pub struct Request {
 pub struct Outcome {
     pub plan: entity::new::Plan,
     pub applied: bool,
-    pub effects: Effects,
+    #[allow(
+        dead_code,
+        reason = "the command facade's Effects (COMMAND_FACADE.md); no adapter reads it yet"
+    )]
+    pub(crate) effects: Effects,
 }
 #[derive(Debug, thiserror::Error)]
 pub enum CommandError {

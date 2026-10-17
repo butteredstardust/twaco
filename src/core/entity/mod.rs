@@ -14,7 +14,6 @@ pub mod key;
 pub mod new;
 
 use super::scan::{self, Kind, ScanError};
-use std::path::{Path, PathBuf};
 
 /// What one entity document declares about itself.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -26,41 +25,8 @@ pub struct EntityInfo {
     pub project: String,
 }
 
-#[derive(Debug, thiserror::Error)]
-pub enum EntityError {
-    #[error("cannot read {}: {why}", .path.display())]
-    Unreadable { path: PathBuf, why: String },
-    #[error("{}: {why}", .path.display())]
-    Scan { path: PathBuf, why: ScanError },
-    /// The file parsed but is not an entity export: no `<Entities>` wrapper with a collection.
-    #[error("{} is not a ThingWorx entity export", .path.display())]
-    NotAnEntityDocument { path: PathBuf },
-}
-
 /// The document element every ThingWorx export is wrapped in.
 const WRAPPER: &str = "Entities";
-
-/// Read what a document declares about itself.
-///
-/// Returns `NotAnEntityDocument` for anything that is not an `<Entities>` export — a service
-/// `definition.xml` sidecar fragment, for instance, which is a well-formed XML file and not an
-/// entity. The corpus is 425 XML files of which 141 are exactly that, so telling them apart
-/// matters and cannot be done by file extension.
-pub fn read(path: &Path) -> Result<EntityInfo, EntityError> {
-    let src = std::fs::read(path).map_err(|e| EntityError::Unreadable {
-        path: path.to_path_buf(),
-        why: e.to_string(),
-    })?;
-    parse(&src).map_err(|e| match e {
-        ParseFailureKind::Scan(why) => EntityError::Scan {
-            path: path.to_path_buf(),
-            why,
-        },
-        ParseFailureKind::NotAnEntity => EntityError::NotAnEntityDocument {
-            path: path.to_path_buf(),
-        },
-    })
-}
 
 /// The parsing half, separated from the filesystem so it can be tested on bytes.
 pub fn parse(src: &[u8]) -> Result<EntityInfo, ParseFailureKind> {
@@ -105,7 +71,8 @@ pub enum ParseFailureKind {
 
 /// How an entity relates to the project whose folder holds it.
 #[derive(Debug, PartialEq, Eq)]
-pub enum Attribution {
+#[cfg(test)]
+pub(crate) enum Attribution {
     /// The document's `projectName` matches the project it was found under.
     Matches,
     /// The document declares a different project: it is filed in the wrong place.
@@ -114,7 +81,8 @@ pub enum Attribution {
     Undeclared,
 }
 
-pub fn attribute_to(info: &EntityInfo, project: &str) -> Attribution {
+#[cfg(test)]
+pub(crate) fn attribute_to(info: &EntityInfo, project: &str) -> Attribution {
     if info.project.is_empty() {
         Attribution::Undeclared
     } else if info.project == project {

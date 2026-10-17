@@ -41,7 +41,7 @@ pub struct FieldsReport {
 }
 
 #[derive(Debug, Serialize)]
-pub struct UnusedFields {
+pub(crate) struct UnusedFields {
     pub(crate) data_shape: String,
     pub(crate) services: Vec<String>,
     pub(crate) fields: Vec<String>,

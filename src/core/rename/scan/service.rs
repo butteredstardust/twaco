@@ -4,7 +4,7 @@ use crate::core::{scan, script, sidecar};
 use std::collections::BTreeSet;
 
 /// Renames local service declarations and calls in script CDATA without rebuilding the XML.
-pub fn scan_service_entity(
+pub(crate) fn scan_service_entity(
     src: &[u8],
     old: &str,
     new: &str,
@@ -101,7 +101,7 @@ pub fn scan_service_entity(
 }
 
 /// Whether the member host declares or implements this service locally.
-pub fn has_local_service(src: &[u8], name: &str) -> Result<bool, scan::ScanError> {
+pub(crate) fn has_local_service(src: &[u8], name: &str) -> Result<bool, scan::ScanError> {
     let tokens = scan::tokenize(src)?;
     let Some(host) = sidecar::member_host_of(&tokens, src) else {
         return Ok(false);
@@ -124,7 +124,7 @@ pub fn has_local_service(src: &[u8], name: &str) -> Result<bool, scan::ScanError
 }
 
 /// Renames the definition name in a service sidecar.
-pub fn scan_service_definition(
+pub(crate) fn scan_service_definition(
     src: &[u8],
     old: &str,
     new: &str,
@@ -155,7 +155,7 @@ pub fn scan_service_definition(
 
 /// Scans a JavaScript file. Edits come from the parsed calls; the review is lexical, so a string,
 /// comment or member with the old name that is not a proven caller is left for a person.
-pub fn scan_service_script(
+pub(crate) fn scan_service_script(
     src: &[u8],
     old: &str,
     new: &str,

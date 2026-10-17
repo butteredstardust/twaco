@@ -36,13 +36,13 @@ impl Severity {
 
 #[derive(Clone, Debug, Serialize)]
 pub struct Finding {
-    pub severity: Severity,
+    pub(crate) severity: Severity,
     /// A stable kebab-case name for the kind of finding.
-    pub code: &'static str,
+    pub(crate) code: &'static str,
     /// `Collection/Name`, when the finding is about one entity.
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub entity: Option<String>,
-    pub message: String,
+    pub(crate) entity: Option<String>,
+    pub(crate) message: String,
     /// One line per grant, for `--detail`.
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub details: Vec<String>,
@@ -62,9 +62,9 @@ impl fmt::Display for Finding {
 #[derive(Clone, Debug, Serialize)]
 pub struct ProjectAudit {
     pub project: String,
-    pub policy: String,
+    pub(crate) policy: String,
     /// `plain` or `helper`, after `auto` is resolved.
-    pub mode: &'static str,
+    pub(crate) mode: &'static str,
     /// The permission helper Thing, in helper mode.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub helper: Option<String>,
@@ -84,7 +84,7 @@ impl ProjectAudit {
 #[derive(Clone, Debug, Default, Serialize)]
 pub struct AuditReport {
     /// Whether the server was compared too.
-    pub server: bool,
+    pub(crate) server: bool,
     pub projects: Vec<ProjectAudit>,
     /// Projects without a `permissions.toml`.
     pub without_policy: Vec<String>,
@@ -139,17 +139,17 @@ impl crate::core::codes::Coded for AuditError {
 }
 
 /// A project with its policy and its entities read.
-pub struct Loaded {
-    pub policy: Policy,
-    pub entities: Vec<ModelEntity>,
+pub(crate) struct Loaded {
+    pub(crate) policy: Policy,
+    pub(crate) entities: Vec<ModelEntity>,
     /// Every entity of the solution, by name, to tell whether a principal exists.
-    pub all: std::rc::Rc<BTreeMap<String, ModelEntity>>,
+    pub(crate) all: std::rc::Rc<BTreeMap<String, ModelEntity>>,
     /// The solution's project names: a principal under one of them should exist.
-    pub projects: std::rc::Rc<BTreeSet<String>>,
+    pub(crate) projects: std::rc::Rc<BTreeSet<String>>,
 }
 
 impl Loaded {
-    pub fn helper(&self) -> Result<Option<&ModelEntity>, AuditError> {
+    pub(crate) fn helper(&self) -> Result<Option<&ModelEntity>, AuditError> {
         let helpers: Vec<&ModelEntity> = self.entities.iter().filter(|e| e.is_helper()).collect();
         match (self.policy.mode, helpers.as_slice()) {
             (Mode::Plain, _) | (Mode::Auto, []) => Ok(None),
@@ -171,7 +171,7 @@ impl Loaded {
 }
 
 /// Read the policy and entities of every project that has a policy, or of the one named.
-pub fn load(
+pub(crate) fn load(
     solution: &Solution,
     project: Option<&str>,
 ) -> Result<(Vec<Loaded>, Vec<String>), AuditError> {
@@ -229,7 +229,7 @@ pub fn load(
 
 /// The run-time set the policy manages on an entity: its own for a Thing, its instances' for a
 /// ThingShape or ThingTemplate; none for anything else.
-pub fn run_time_kind(entity: &ModelEntity) -> Option<Kind> {
+pub(crate) fn run_time_kind(entity: &ModelEntity) -> Option<Kind> {
     match entity.entity_type.as_str() {
         "Thing" => Some(Kind::RunTime),
         "ThingShape" | "ThingTemplate" => Some(Kind::InstanceRunTime),
@@ -238,12 +238,14 @@ pub fn run_time_kind(entity: &ModelEntity) -> Option<Kind> {
 }
 
 /// Audit every project with a policy, or the one named.
-pub fn audit(solution: &Solution, project: Option<&str>) -> Result<AuditReport, AuditError> {
+#[cfg(test)]
+pub(crate) fn audit(solution: &Solution, project: Option<&str>) -> Result<AuditReport, AuditError> {
     audit_with(solution, project, None)
 }
 
-/// As [`audit`], and with a server also what the server holds against the repository.
-pub fn audit_with(
+/// [`audit_with_progress`] without a progress reporter.
+#[cfg(test)]
+pub(crate) fn audit_with(
     solution: &Solution,
     project: Option<&str>,
     server: Option<&dyn super::server_audit::Remote>,
@@ -251,9 +253,12 @@ pub fn audit_with(
     audit_with_progress(solution, project, server, &progress::NONE)
 }
 
-/// Like [`audit_with`], and report one step per entity audited. With a server, one more phase
-/// per project reports one step per entity read from the server. Messages hold entity names only.
-pub fn audit_with_progress(
+/// Audit every project with a policy, or the one named, and with a server also what the
+/// server holds against the repository.
+///
+/// It reports one step per entity audited. With a server, one more phase per project reports one
+/// step per entity read from the server. Messages hold entity names only.
+pub(crate) fn audit_with_progress(
     solution: &Solution,
     project: Option<&str>,
     server: Option<&dyn super::server_audit::Remote>,
@@ -292,12 +297,12 @@ pub fn audit_with_progress(
 }
 
 /// Audit one loaded project.
-pub fn audit_loaded(loaded: &Loaded) -> Result<ProjectAudit, AuditError> {
+pub(crate) fn audit_loaded(loaded: &Loaded) -> Result<ProjectAudit, AuditError> {
     audit_loaded_with_progress(loaded, &progress::NONE)
 }
 
 /// Like [`audit_loaded`], and report one step per entity.
-pub fn audit_loaded_with_progress(
+pub(crate) fn audit_loaded_with_progress(
     loaded: &Loaded,
     progress: &dyn Progress,
 ) -> Result<ProjectAudit, AuditError> {
@@ -420,7 +425,12 @@ fn compare(policy: &Policy, entity: &ModelEntity, kind: Kind, findings: &mut Vec
     });
 }
 
-pub fn wanted(policy: &Policy, entity: &ModelEntity, kind: Kind, current: &Grants) -> Grants {
+pub(crate) fn wanted(
+    policy: &Policy,
+    entity: &ModelEntity,
+    kind: Kind,
+    current: &Grants,
+) -> Grants {
     if kind == Kind::Visibility {
         policy.wanted_visibility(entity, current)
     } else {

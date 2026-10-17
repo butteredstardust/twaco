@@ -109,7 +109,7 @@ pub(super) fn secret_error(mut why: String, password: &str) -> DbError {
 }
 
 /// Remove a JDBC `password=` parameter without otherwise hiding the connection target.
-pub fn without_password(url: &str) -> String {
+pub(crate) fn without_password(url: &str) -> String {
     let mut out = url.to_string();
     loop {
         let lower = out.to_ascii_lowercase();

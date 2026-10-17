@@ -14,15 +14,15 @@
 //! only, `*` for the whole entity), an action, a principal and its type, allowed or denied. A
 //! permission set missing from the entity XML is not managed and is never written.
 
-pub mod apply;
+pub(crate) mod apply;
 pub mod audit;
-pub mod helper;
-pub mod init;
+pub(crate) mod helper;
+pub(crate) mod init;
 mod model;
 pub mod platform;
-pub mod policy;
-pub mod server_audit;
-pub mod write;
+pub(crate) mod policy;
+pub(crate) mod server_audit;
+pub(crate) mod write;
 
 use super::entity::carry::{Kind, Remote};
 use super::normalise::{self, Element, Node};
@@ -47,13 +47,13 @@ const RUN_TIME_ACTIONS: [&str; 5] = [
 
 /// One grant, without whether it allows or denies.
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize)]
-pub struct Grant {
+pub(crate) struct Grant {
     /// The run-time resource (`*` for the whole entity); empty for the other two sets.
     #[serde(skip_serializing_if = "String::is_empty")]
-    pub resource: String,
-    pub action: String,
-    pub principal: String,
-    pub principal_type: String,
+    pub(crate) resource: String,
+    pub(crate) action: String,
+    pub(crate) principal: String,
+    pub(crate) principal_type: String,
 }
 
 impl fmt::Display for Grant {
@@ -70,17 +70,17 @@ impl fmt::Display for Grant {
 }
 
 /// Every grant of one permission set, and whether it allows.
-pub type Grants = BTreeMap<Grant, bool>;
+pub(crate) type Grants = BTreeMap<Grant, bool>;
 
 /// The permission sets an entity's XML declares. A set the XML has no block for is absent.
-pub type Sets = BTreeMap<KindKey, Grants>;
+pub(crate) type Sets = BTreeMap<KindKey, Grants>;
 
 /// [`Kind`] as an ordered map key.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
-pub struct KindKey(u8);
+pub(crate) struct KindKey(u8);
 
 impl KindKey {
-    pub fn of(kind: Kind) -> Self {
+    pub(crate) fn of(kind: Kind) -> Self {
         KindKey(match kind {
             Kind::RunTime => 0,
             Kind::DesignTime => 1,
@@ -91,7 +91,7 @@ impl KindKey {
         })
     }
 
-    pub fn kind(self) -> Kind {
+    pub(crate) fn kind(self) -> Kind {
         match self.0 {
             0 => Kind::RunTime,
             1 => Kind::DesignTime,
@@ -112,7 +112,7 @@ fn error(message: impl Into<String>) -> PermissionsError {
 }
 
 /// The permission sets of one entity document.
-pub fn from_xml(src: &[u8]) -> Result<Sets, PermissionsError> {
+pub(crate) fn from_xml(src: &[u8]) -> Result<Sets, PermissionsError> {
     let entity = normalise::entity_of(src).map_err(|e| error(e.to_string()))?;
     let mut sets = Sets::new();
     for child in elements(&entity) {
@@ -194,7 +194,7 @@ fn insert(grants: &mut Grants, grant: Grant, permitted: bool) -> Result<(), Perm
 }
 
 /// The grants of one set as the matching `Get...AsJSON` service returns them.
-pub fn from_json(kind: Kind, value: &Value) -> Result<Grants, PermissionsError> {
+pub(crate) fn from_json(kind: Kind, value: &Value) -> Result<Grants, PermissionsError> {
     let mut grants = Grants::new();
     let add = |grants: &mut Grants, resource: &str, action: &str, list: &Value| {
         for principal in list.as_array().into_iter().flatten() {
@@ -249,7 +249,7 @@ pub fn from_json(kind: Kind, value: &Value) -> Result<Grants, PermissionsError> 
 }
 
 /// One set's grants in the form its `Set...AsJSON` service takes.
-pub fn to_json(kind: Kind, grants: &Grants) -> Value {
+pub(crate) fn to_json(kind: Kind, grants: &Grants) -> Value {
     let principal = |grant: &Grant, permitted: bool| {
         json!({
             "isPermitted": permitted,
@@ -305,7 +305,7 @@ pub fn to_json(kind: Kind, grants: &Grants) -> Value {
 /// How a grant differs between the repository and the server.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "kebab-case")]
-pub enum Change {
+pub(crate) enum Change {
     /// Only the server has it; an import never removes it.
     ServerOnly,
     /// Only the repository has it; the next import adds it.
@@ -315,7 +315,7 @@ pub enum Change {
 }
 
 impl Change {
-    pub fn label(self) -> &'static str {
+    pub(crate) fn label(self) -> &'static str {
         match self {
             Change::ServerOnly => "server only",
             Change::RepositoryOnly => "repository only",
@@ -328,14 +328,14 @@ impl Change {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
 pub struct Difference {
     #[serde(serialize_with = "serialize_kind")]
-    pub set: Kind,
-    pub change: Change,
+    pub(crate) set: Kind,
+    pub(crate) change: Change,
     #[serde(flatten)]
-    pub grant: Grant,
+    pub(crate) grant: Grant,
     /// Whether the repository allows it; absent when only the server has it.
-    pub repository: Option<bool>,
+    pub(crate) repository: Option<bool>,
     /// Whether the server allows it; absent when only the repository has it.
-    pub server: Option<bool>,
+    pub(crate) server: Option<bool>,
 }
 
 fn serialize_kind<S: serde::Serializer>(kind: &Kind, serializer: S) -> Result<S::Ok, S::Error> {
@@ -375,7 +375,7 @@ impl fmt::Display for Difference {
 }
 
 /// The grants of one set that differ, in grant order.
-pub fn differences(kind: Kind, repository: &Grants, server: &Grants) -> Vec<Difference> {
+pub(crate) fn differences(kind: Kind, repository: &Grants, server: &Grants) -> Vec<Difference> {
     let mut found = Vec::new();
     for (grant, &permitted) in repository {
         match server.get(grant) {
@@ -450,7 +450,7 @@ pub struct EntityReport {
     pub differences: Vec<Difference>,
     /// The sets a push wrote, or would write.
     #[serde(serialize_with = "serialize_kinds")]
-    pub sets: Vec<Kind>,
+    pub(crate) sets: Vec<Kind>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub error: Option<String>,
 }
@@ -480,15 +480,18 @@ impl Report {
     }
 }
 
-/// Compare each entity's permissions with the server's and, with `apply`, make every differing
-/// set the repository's and read it back. Entities run in parallel; one failing never stops the
-/// rest.
-pub fn run(remote: &(dyn Remote + Sync), entities: &[EntityFile], apply: bool) -> Report {
+/// [`run_with_progress`] without a progress reporter.
+#[cfg(test)]
+pub(crate) fn run(remote: &(dyn Remote + Sync), entities: &[EntityFile], apply: bool) -> Report {
     run_with_progress(remote, entities, apply, &progress::NONE)
 }
 
-/// Like [`run`], and report one step per entity. Messages hold entity names only.
-pub fn run_with_progress(
+/// Compare each entity's permissions with the server's and, with `apply`, make every differing
+/// set the repository's and read it back. Entities run in parallel; one failing never stops the
+/// rest.
+///
+/// It reports one step per entity. Messages hold entity names only.
+pub(crate) fn run_with_progress(
     remote: &(dyn Remote + Sync),
     entities: &[EntityFile],
     apply: bool,

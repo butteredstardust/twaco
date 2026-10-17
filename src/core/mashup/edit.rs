@@ -17,7 +17,7 @@ use serde_json::{Map, Value};
 use std::collections::BTreeSet;
 
 /// The root widget's id in every mashup Composer makes.
-pub const ROOT_ID: &str = "mashup-root";
+pub(crate) const ROOT_ID: &str = "mashup-root";
 
 #[derive(Debug, thiserror::Error, PartialEq, Eq)]
 pub enum EditError {
@@ -47,7 +47,7 @@ impl Coded for EditError {
 }
 
 /// Where a widget is: the indexes of `Widgets` arrays from `UI` down. The root is `[]`.
-pub type WidgetPath = Vec<usize>;
+pub(crate) type WidgetPath = Vec<usize>;
 
 /// One widget as the editor sees it.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -55,14 +55,14 @@ pub struct WidgetRef {
     pub id: String,
     pub type_id: String,
     pub display_name: String,
-    pub path: WidgetPath,
+    pub(crate) path: WidgetPath,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub struct Problem {
+pub(crate) struct Problem {
     /// The widget it is about, if it is about one.
-    pub widget: Option<String>,
-    pub message: String,
+    pub(crate) widget: Option<String>,
+    pub(crate) message: String,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -74,7 +74,7 @@ pub enum Side {
 }
 
 impl Side {
-    pub fn axis(self) -> &'static str {
+    pub(crate) fn axis(self) -> &'static str {
         match self {
             Self::Left | Self::Right => "row",
             Self::Above | Self::Below => "column",
@@ -106,25 +106,25 @@ pub struct Placed {
 
 /// A mashup content document that has passed the checks an edit relies on.
 #[derive(Clone, Debug, PartialEq)]
-pub struct MashupDocument {
+pub(crate) struct MashupDocument {
     value: Value,
 }
 
 /// Parse and check a `content.json`.
-pub fn parse(content: &str) -> Result<MashupDocument, EditError> {
+pub(crate) fn parse(content: &str) -> Result<MashupDocument, EditError> {
     let value: Value = serde_json::from_str(content)
         .map_err(|e| EditError::Invalid(format!("content.json will not parse: {e}")))?;
     MashupDocument::new(value)
 }
 
 impl MashupDocument {
-    pub fn new(value: Value) -> Result<Self, EditError> {
+    pub(crate) fn new(value: Value) -> Result<Self, EditError> {
         let document = Self { value };
         document.check()?;
         Ok(document)
     }
 
-    pub fn value(&self) -> &Value {
+    pub(crate) fn value(&self) -> &Value {
         &self.value
     }
 
@@ -171,7 +171,7 @@ impl MashupDocument {
     }
 
     /// The `content.json` text, formatted as extraction writes it.
-    pub fn to_content(&self) -> String {
+    pub(crate) fn to_content(&self) -> String {
         crate::core::mashup::to_sidecar(&self.value)
     }
 
@@ -210,7 +210,7 @@ impl MashupDocument {
     }
 
     /// Every widget, root first, depth first in document order.
-    pub fn widgets(&self) -> Vec<WidgetRef> {
+    pub(crate) fn widgets(&self) -> Vec<WidgetRef> {
         let mut out = Vec::new();
         collect(&self.value["UI"], &mut Vec::new(), &mut out);
         out
@@ -219,13 +219,13 @@ impl MashupDocument {
     /// The widget a person names: an exact `Id`, else a unique `DisplayName`, else the only
     /// widget of a type the catalogue resolves the word to, else the only widget whose type a
     /// catalogue search for the word finds ("the chart").
-    pub fn find(&self, word: &str) -> Result<WidgetRef, EditError> {
+    pub(crate) fn find(&self, word: &str) -> Result<WidgetRef, EditError> {
         self.find_widget(word, true)
     }
 
     /// As [`Self::find`] without the catalogue search, for wiring, where a loose guess could
     /// bind the wrong widget.
-    pub fn find_exact(&self, word: &str) -> Result<WidgetRef, EditError> {
+    pub(crate) fn find_exact(&self, word: &str) -> Result<WidgetRef, EditError> {
         self.find_widget(word, false)
     }
 
@@ -271,7 +271,7 @@ impl MashupDocument {
     }
 
     /// The widget object at `path`.
-    pub fn at(&self, path: &[usize]) -> &Value {
+    pub(crate) fn at(&self, path: &[usize]) -> &Value {
         let mut node = &self.value["UI"];
         for &index in path {
             node = &node["Widgets"][index];
@@ -289,7 +289,7 @@ impl MashupDocument {
     }
 
     /// Append `widget` as the last child of the widget at `parent`.
-    pub fn push_child(&mut self, parent: &[usize], widget: Value) {
+    pub(crate) fn push_child(&mut self, parent: &[usize], widget: Value) {
         self.insert_child(parent, children(self.at(parent)).len(), widget);
     }
 
@@ -302,22 +302,22 @@ impl MashupDocument {
     }
 
     /// Set one widget property, preserving Composer's key ordering convention.
-    pub fn set_property(&mut self, path: &[usize], key: &str, value: Value) {
+    pub(crate) fn set_property(&mut self, path: &[usize], key: &str, value: Value) {
         insert_sorted(properties_mut(self.at_mut(path)), key, value);
     }
 
     /// The root widget's properties.
-    pub fn root_properties_mut(&mut self) -> &mut Map<String, Value> {
+    pub(crate) fn root_properties_mut(&mut self) -> &mut Map<String, Value> {
         properties_mut(&mut self.value["UI"])
     }
 
     /// Set a top-level key of the document, such as `mashupType`.
-    pub fn set_top(&mut self, key: &str, value: Value) {
+    pub(crate) fn set_top(&mut self, key: &str, value: Value) {
         insert_sorted(self.root_mut(), key, value);
     }
 
     /// The next free number for a new widget id, which the root's `id_index` then records.
-    pub fn allocate(&mut self) -> u64 {
+    pub(crate) fn allocate(&mut self) -> u64 {
         let used = self
             .widgets()
             .iter()
@@ -335,7 +335,7 @@ impl MashupDocument {
 
     /// Structural problems: duplicate ids are refused by `parse`, so these are what a document
     /// can still get wrong, such as a responsive container holding both containers and widgets.
-    pub fn problems(&self) -> Vec<Problem> {
+    pub(crate) fn problems(&self) -> Vec<Problem> {
         let mut out = Vec::new();
         for widget in self.widgets() {
             if widget.type_id != "flexcontainer" {
@@ -360,7 +360,11 @@ impl MashupDocument {
     }
 
     /// Put a new widget in a responsive container or beside an existing widget.
-    pub fn place(&mut self, widget: &Widget, placement: &Placement) -> Result<Placed, EditError> {
+    pub(crate) fn place(
+        &mut self,
+        widget: &Widget,
+        placement: &Placement,
+    ) -> Result<Placed, EditError> {
         match placement {
             Placement::In(target) => self.place_in(widget, target),
             Placement::Beside { anchor, side } => self.place_beside(widget, anchor, *side),
@@ -607,7 +611,7 @@ impl MashupDocument {
 /// `alone` says whether it will be the only widget in its container: Composer makes a widget
 /// that can resize fill a container it is alone in (`ResponsiveLayout`), and gives every other
 /// widget a fixed size.
-pub fn new_widget(widget: &Widget, number: u64, alone: bool) -> Value {
+pub(crate) fn new_widget(widget: &Widget, number: u64, alone: bool) -> Value {
     let catalog = widgets::catalog();
     let mut properties: Map<String, Value> = widget.defaults.clone();
     let dropped = if widget.type_id == "flexcontainer" {
@@ -649,7 +653,7 @@ pub fn new_widget(widget: &Widget, number: u64, alone: bool) -> Value {
 }
 
 /// Insert `key`, keeping a sorted object sorted; an object that was not sorted gets it at the end.
-pub fn insert_sorted(object: &mut Map<String, Value>, key: &str, value: Value) {
+pub(crate) fn insert_sorted(object: &mut Map<String, Value>, key: &str, value: Value) {
     if object.contains_key(key) {
         object.insert(key.to_string(), value);
         return;

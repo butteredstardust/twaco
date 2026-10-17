@@ -33,11 +33,11 @@ pub struct FileChange {
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub details: Vec<String>,
     #[serde(skip)]
-    pub path: PathBuf,
+    pub(crate) path: PathBuf,
     #[serde(skip)]
-    pub before: Vec<u8>,
+    pub(crate) before: Vec<u8>,
     #[serde(skip)]
-    pub after: Vec<u8>,
+    pub(crate) after: Vec<u8>,
 }
 
 fn labels<S: serde::Serializer>(kinds: &[Kind], serializer: S) -> Result<S::Ok, S::Error> {
@@ -52,7 +52,7 @@ fn labels<S: serde::Serializer>(kinds: &[Kind], serializer: S) -> Result<S::Ok, 
 #[derive(Clone, Debug, Serialize)]
 pub struct ProjectPlan {
     pub project: String,
-    pub mode: &'static str,
+    pub(crate) mode: &'static str,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub helper: Option<String>,
     pub changes: Vec<FileChange>,
@@ -64,7 +64,7 @@ pub struct ProjectPlan {
 #[derive(Clone, Debug, Default, Serialize)]
 pub struct ApplyPlan {
     pub projects: Vec<ProjectPlan>,
-    pub without_policy: Vec<String>,
+    pub(crate) without_policy: Vec<String>,
 }
 
 impl ApplyPlan {
@@ -120,13 +120,16 @@ impl crate::core::codes::Coded for ApplyError {
     }
 }
 
-/// What writing every policy (or the named project's) would change.
-pub fn plan(solution: &Solution, project: Option<&str>) -> Result<ApplyPlan, ApplyError> {
+/// [`plan_with_progress`] without a progress reporter.
+#[cfg(test)]
+pub(crate) fn plan(solution: &Solution, project: Option<&str>) -> Result<ApplyPlan, ApplyError> {
     plan_with_progress(solution, project, &progress::NONE)
 }
 
-/// Like [`plan`], and report one step per entity planned. Messages hold entity names only.
-pub fn plan_with_progress(
+/// What writing every policy (or the named project's) would change.
+///
+/// It reports one step per entity planned. Messages hold entity names only.
+pub(crate) fn plan_with_progress(
     solution: &Solution,
     project: Option<&str>,
     progress: &dyn Progress,

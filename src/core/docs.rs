@@ -18,7 +18,7 @@ use serde::Serialize;
 use std::collections::BTreeMap;
 
 /// What the document does not claim, said in it.
-pub const LIMITS: &str = "references built at run time, and anything outside this repository, are not seen; permissions are not read yet";
+pub(crate) const LIMITS: &str = "references built at run time, and anything outside this repository, are not seen; permissions are not read yet";
 
 /// The most entities the summary lists in one section; detail lists all.
 const SUMMARY_ENTITIES: usize = 200;
@@ -28,10 +28,10 @@ const SUMMARY_REVIEW: usize = 25;
 const DIAGRAM_EDGES: usize = 80;
 
 #[derive(Debug, Default, Clone, Copy, Serialize)]
-pub struct Counts {
-    pub structural: usize,
-    pub resolved: usize,
-    pub review: usize,
+pub(crate) struct Counts {
+    pub(crate) structural: usize,
+    pub(crate) resolved: usize,
+    pub(crate) review: usize,
 }
 
 impl Counts {
@@ -49,75 +49,75 @@ impl Counts {
 }
 
 #[derive(Debug, Serialize)]
-pub struct ProjectDoc {
-    pub name: String,
+pub(crate) struct ProjectDoc {
+    pub(crate) name: String,
     /// Its place in the deploy order, from 1.
-    pub deploy_order: Option<usize>,
-    pub depends_on: Vec<String>,
+    pub(crate) deploy_order: Option<usize>,
+    pub(crate) depends_on: Vec<String>,
     /// How many entity documents it holds, by collection.
-    pub entities: BTreeMap<String, usize>,
+    pub(crate) entities: BTreeMap<String, usize>,
 }
 
 #[derive(Debug, Serialize)]
-pub struct EntityDoc {
+pub(crate) struct EntityDoc {
     /// `Collection/Name`.
-    pub entity: String,
-    pub collection: String,
-    pub name: String,
-    pub project: String,
-    pub file: Option<String>,
+    pub(crate) entity: String,
+    pub(crate) collection: String,
+    pub(crate) name: String,
+    pub(crate) project: String,
+    pub(crate) file: Option<String>,
     /// A Thing's template or a template's base, as written.
-    pub template: Option<String>,
+    pub(crate) template: Option<String>,
     /// The ThingShapes it implements itself, as written.
-    pub shapes: Vec<String>,
+    pub(crate) shapes: Vec<String>,
     /// Everything it inherits, nearest first.
-    pub inherits: Vec<String>,
+    pub(crate) inherits: Vec<String>,
     /// For a ThingShape: the Things and templates that implement it.
-    pub implemented_by: Vec<String>,
-    pub services: Vec<CatalogService>,
+    pub(crate) implemented_by: Vec<String>,
+    pub(crate) services: Vec<CatalogService>,
     /// What it refers to, and what refers to it, by how sure each reference is.
-    pub refers_to: Counts,
-    pub referred_to_by: Counts,
+    pub(crate) refers_to: Counts,
+    pub(crate) referred_to_by: Counts,
 }
 
 #[derive(Debug, Serialize)]
-pub struct FieldDoc {
-    pub name: String,
-    pub base_type: String,
-    pub description: String,
+pub(crate) struct FieldDoc {
+    pub(crate) name: String,
+    pub(crate) base_type: String,
+    pub(crate) description: String,
 }
 
 #[derive(Debug, Serialize)]
-pub struct DataShapeDoc {
-    pub name: String,
-    pub project: String,
-    pub base: Option<String>,
-    pub fields: Vec<FieldDoc>,
+pub(crate) struct DataShapeDoc {
+    pub(crate) name: String,
+    pub(crate) project: String,
+    pub(crate) base: Option<String>,
+    pub(crate) fields: Vec<FieldDoc>,
     /// The entities that type a service, property or field with it, directly.
-    pub used_by: Vec<String>,
+    pub(crate) used_by: Vec<String>,
 }
 
 #[derive(Debug, Serialize)]
-pub struct ReviewReference {
-    pub from: String,
-    pub to: String,
-    pub kind: String,
-    pub member: Option<String>,
-    pub at: Option<String>,
+pub(crate) struct ReviewReference {
+    pub(crate) from: String,
+    pub(crate) to: String,
+    pub(crate) kind: String,
+    pub(crate) member: Option<String>,
+    pub(crate) at: Option<String>,
 }
 
 #[derive(Debug, Serialize)]
 pub struct Document {
-    pub solution: String,
-    pub projects: Vec<ProjectDoc>,
-    pub entities: Vec<EntityDoc>,
-    pub data_shapes: Vec<DataShapeDoc>,
+    pub(crate) solution: String,
+    pub(crate) projects: Vec<ProjectDoc>,
+    pub(crate) entities: Vec<EntityDoc>,
+    pub(crate) data_shapes: Vec<DataShapeDoc>,
     /// References that only look like a name, for a person to judge.
-    pub review_references: Vec<ReviewReference>,
-    pub unparsed_scripts: Vec<String>,
-    pub unreadable: Vec<Unreadable>,
-    pub complete: bool,
-    pub limits: &'static str,
+    pub(crate) review_references: Vec<ReviewReference>,
+    pub(crate) unparsed_scripts: Vec<String>,
+    pub(crate) unreadable: Vec<Unreadable>,
+    pub(crate) complete: bool,
+    pub(crate) limits: &'static str,
 }
 
 /// Read the solution and write it down.

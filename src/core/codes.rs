@@ -5,7 +5,7 @@ use serde::Serialize;
 /// A machine-readable category for a failure and the caller's next action.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "snake_case")]
-pub enum ErrorCode {
+pub(crate) enum ErrorCode {
     /// Correct the supplied arguments and try again.
     InvalidArguments,
     /// Choose an entity that exists in the solution.
@@ -41,7 +41,8 @@ pub enum ErrorCode {
 }
 
 impl ErrorCode {
-    pub const ALL: [Self; 16] = [
+    #[cfg(test)]
+    pub(crate) const ALL: [Self; 16] = [
         Self::InvalidArguments,
         Self::UnknownEntity,
         Self::Ambiguous,
@@ -60,7 +61,7 @@ impl ErrorCode {
         Self::Unclassified,
     ];
 
-    pub const fn as_str(self) -> &'static str {
+    pub(crate) const fn as_str(self) -> &'static str {
         match self {
             Self::InvalidArguments => "invalid_arguments",
             Self::UnknownEntity => "unknown_entity",
@@ -83,7 +84,7 @@ impl ErrorCode {
 }
 
 /// An error whose stable category can be returned by an adapter.
-pub trait Coded {
+pub(crate) trait Coded {
     fn code(&self) -> ErrorCode;
 }
 

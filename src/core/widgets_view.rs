@@ -12,7 +12,7 @@ pub struct WidgetSummary {
     pub aliases: Vec<String>,
     pub container: bool,
     pub bindable: bool,
-    pub auto_resize: bool,
+    pub(crate) auto_resize: bool,
 }
 
 #[derive(Debug, Serialize, PartialEq, Eq)]
@@ -28,13 +28,13 @@ pub struct WidgetDetail {
     pub type_id: String,
     pub type_display_name: String,
     pub aliases: Vec<String>,
-    pub container: bool,
-    pub bindable: bool,
-    pub auto_resize: bool,
+    pub(crate) container: bool,
+    pub(crate) bindable: bool,
+    pub(crate) auto_resize: bool,
     pub properties: Vec<PropertyRow>,
     pub events: Vec<String>,
     pub services: Vec<String>,
-    pub defaults_count: usize,
+    pub(crate) defaults_count: usize,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub note: Option<String>,
 }

@@ -20,15 +20,15 @@ use swc_ecma_visit::{Visit, VisitWith};
 
 /// A result built from another DataShape than the one declared.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Mismatch {
+pub(crate) struct Mismatch {
     /// The line of the `CreateInfoTableFromDataShape` call, from 1.
-    pub line: usize,
-    pub declared: String,
-    pub built: String,
+    pub(crate) line: usize,
+    pub(crate) declared: String,
+    pub(crate) built: String,
 }
 
 /// The mismatches of one service: its `definition.xml` and its `script.js`.
-pub fn check(definition: &str, script: &str) -> Vec<Mismatch> {
+pub(crate) fn check(definition: &str, script: &str) -> Vec<Mismatch> {
     let Some(declared) = declared_shape(definition) else {
         return Vec::new();
     };

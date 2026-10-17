@@ -30,12 +30,17 @@ pub struct SyncRequest {
 #[derive(Debug)]
 pub struct SyncOutcome {
     pub report: workflow::SyncOutcome,
+    #[allow(
+        dead_code,
+        reason = "the command facade's Effects (COMMAND_FACADE.md); read only by tests"
+    )]
     effects: Effects,
 }
 
 impl SyncOutcome {
     /// The access this sync used or would use.
-    pub const fn effects(&self) -> Effects {
+    #[cfg(test)]
+    pub(crate) const fn effects(&self) -> Effects {
         self.effects
     }
 }

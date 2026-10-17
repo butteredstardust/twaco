@@ -43,22 +43,22 @@ pub struct Spec {
 /// One entity identity and its paths before and after an apply step.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Move {
-    pub collection: String,
-    pub old_name: String,
-    pub new_name: String,
-    pub old_file: PathBuf,
-    pub new_file: PathBuf,
-    pub old_sidecars: Option<PathBuf>,
-    pub new_sidecars: Option<PathBuf>,
+    pub(crate) collection: String,
+    pub(crate) old_name: String,
+    pub(crate) new_name: String,
+    pub(crate) old_file: PathBuf,
+    pub(crate) new_file: PathBuf,
+    pub(crate) old_sidecars: Option<PathBuf>,
+    pub(crate) new_sidecars: Option<PathBuf>,
     /// The committed FileRepository tree, when one exists for this entity name.
-    pub old_repo_files: Option<PathBuf>,
+    pub(crate) old_repo_files: Option<PathBuf>,
     /// The destination of [`Move::old_repo_files`].
-    pub new_repo_files: Option<PathBuf>,
+    pub(crate) new_repo_files: Option<PathBuf>,
 }
 
 /// The role a scanned file has in the solution.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum FileKind {
+pub(crate) enum FileKind {
     Entity,
     Sidecar,
     Config,
@@ -72,15 +72,15 @@ pub enum FileKind {
 #[derive(Debug)]
 pub struct FileChange {
     pub path: PathBuf,
-    pub kind: FileKind,
+    pub(crate) kind: FileKind,
     /// SHA-256 of the bytes whose offsets the edits refer to.
-    pub digest: [u8; 32],
-    pub edits: Vec<splice::Edit>,
+    pub(crate) digest: [u8; 32],
+    pub(crate) edits: Vec<splice::Edit>,
     pub findings: Vec<scan::Finding>,
 }
 
 impl Kind {
-    pub const ALL: [Kind; 7] = [
+    pub(crate) const ALL: [Kind; 7] = [
         Kind::Entity,
         Kind::Prefix,
         Kind::Field,
@@ -91,7 +91,7 @@ impl Kind {
     ];
 
     /// The word that names the kind on the command line, in the tool's `kind` and in the ledger.
-    pub fn word(self) -> &'static str {
+    pub(crate) fn word(self) -> &'static str {
         match self {
             Kind::Entity => "entity",
             Kind::Prefix => "prefix",
@@ -108,7 +108,7 @@ impl Kind {
     }
 
     /// What the kind is called in a sentence.
-    pub fn noun(self) -> &'static str {
+    pub(crate) fn noun(self) -> &'static str {
         if self == Kind::Param {
             "parameter"
         } else {
@@ -117,17 +117,17 @@ impl Kind {
     }
 
     /// A member rename names the entity that owns the member (its scope).
-    pub fn is_member(self) -> bool {
+    pub(crate) fn is_member(self) -> bool {
         !matches!(self, Kind::Entity | Kind::Prefix)
     }
 
     /// Only entity, prefix and field renames can touch a database column or table.
-    pub fn may_touch_database(self) -> bool {
+    pub(crate) fn may_touch_database(self) -> bool {
         matches!(self, Kind::Entity | Kind::Prefix | Kind::Field)
     }
 
     /// The positional arguments after the kind, as usage text.
-    pub fn positionals(self) -> &'static str {
+    pub(crate) fn positionals(self) -> &'static str {
         match self {
             Kind::Entity | Kind::Prefix => "<old> <new>",
             Kind::Param => "<entity> <service> <old> <new>",
@@ -136,7 +136,8 @@ impl Kind {
     }
 
     /// Kind words as a sentence fragment (`a`, `b` or `c`), for a refusal.
-    pub fn list_words() -> String {
+    #[cfg(test)]
+    pub(crate) fn list_words() -> String {
         Kind::list_words_of(Kind::ALL.into_iter())
     }
 
@@ -163,16 +164,16 @@ pub struct DatabaseFlags {
 /// decides which combinations are valid, so the two cannot drift apart.
 #[derive(Debug, Clone)]
 pub struct Request {
-    pub kind: Kind,
-    pub scope: Option<String>,
-    pub service: Option<String>,
-    pub old: String,
-    pub new: String,
+    pub(crate) kind: Kind,
+    pub(crate) scope: Option<String>,
+    pub(crate) service: Option<String>,
+    pub(crate) old: String,
+    pub(crate) new: String,
     pub apply: bool,
     pub include_outside: bool,
     pub skip_checks: bool,
     pub database: DatabaseFlags,
-    pub expect_digest: Option<String>,
+    pub(crate) expect_digest: Option<String>,
 }
 
 impl Request {
@@ -211,7 +212,7 @@ impl Request {
     }
 
     /// Check the combination and turn it into what `run` takes. `root` anchors the migration folder.
-    pub fn build(self, root: &Path, date: &str) -> Result<(Spec, RunOptions), String> {
+    pub(crate) fn build(self, root: &Path, date: &str) -> Result<(Spec, RunOptions), String> {
         let kind = self.kind;
         if kind.is_member() && self.scope.is_none() {
             return Err(format!(
@@ -279,56 +280,60 @@ pub struct Plan {
     pub moves: Vec<Move>,
     pub changes: Vec<FileChange>,
     pub outside: Vec<FileChange>,
-    pub baseline_keys: Vec<(String, String)>,
+    pub(crate) baseline_keys: Vec<(String, String)>,
     /// Paths named for the old identity which are reported but never renamed.
     pub named: Vec<PathBuf>,
     /// Non-UTF-8 sidecars and outside files, and outside files over 5 MiB.
     pub skipped: Vec<PathBuf>,
     /// Matching configuration-table instances, used by the field summary.
-    pub field_tables: usize,
+    pub(crate) field_tables: usize,
     /// Mashup files containing service rename findings.
-    pub service_mashups: usize,
+    #[allow(
+        dead_code,
+        reason = "read only by tests and Debug; counted with the other plan totals"
+    )]
+    pub(crate) service_mashups: usize,
 }
 
 /// Controls which planned text is applied and supplies the caller's ledger date.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct ApplyOptions {
+pub(crate) struct ApplyOptions {
     /// Also change files outside source and entity folders.
-    pub include_outside: bool,
+    pub(crate) include_outside: bool,
     /// Recorded verbatim in the rename ledger.
-    pub date: String,
+    pub(crate) date: String,
     /// New files the rename writes beside its edits (the database migration), created only if absent
     /// and removed again on a rollback.
-    pub extra_files: Vec<(PathBuf, Vec<u8>)>,
+    pub(crate) extra_files: Vec<(PathBuf, Vec<u8>)>,
 }
 
 /// The completed workspace changes from applying a rename plan.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Applied {
-    pub files_changed: usize,
-    pub moved: Vec<(PathBuf, PathBuf)>,
-    pub baseline_removed: usize,
-    pub ledger: PathBuf,
+    pub(crate) files_changed: usize,
+    pub(crate) moved: Vec<(PathBuf, PathBuf)>,
+    pub(crate) baseline_removed: usize,
+    pub(crate) ledger: PathBuf,
 }
 
 /// Controls gate preflight, optional mutation and the rename ledger date.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct RunOptions {
-    pub apply: bool,
-    pub include_outside: bool,
-    pub skip_checks: bool,
-    pub date: String,
+pub(crate) struct RunOptions {
+    pub(crate) apply: bool,
+    pub(crate) include_outside: bool,
+    pub(crate) skip_checks: bool,
+    pub(crate) date: String,
     /// What to do about the database half of a rename that touches DBConnection tables.
-    pub sql: SqlChoice,
+    pub(crate) sql: SqlChoice,
     /// The `plan_digest` of the plan the caller reviewed: if the workspace has changed since, the
     /// plan differs and the rename is refused before anything is written.
-    pub expect_digest: Option<String>,
+    pub(crate) expect_digest: Option<String>,
 }
 
 /// The caller's decision about the database half of a rename. There is no default that skips it:
 /// a rename that touches a DBConnection table and was not told what to do about the data is refused.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
-pub enum SqlChoice {
+pub(crate) enum SqlChoice {
     /// Nothing was said: refuse a rename that affects DBConnection tables.
     #[default]
     Unset,
@@ -389,7 +394,7 @@ pub struct Counts {
     pub config: KindCounts,
     pub outside: KindCounts,
     pub mashup: KindCounts,
-    pub localization: KindCounts,
+    pub(crate) localization: KindCounts,
 }
 
 /// A condition that prevents a complete and collision-free plan.
@@ -579,10 +584,10 @@ mod common;
 mod field;
 mod identity;
 mod member;
-pub mod property;
+pub(crate) mod property;
 mod run;
 pub mod scan;
-pub mod sql;
+pub(crate) mod sql;
 mod table;
 impl Coded for RenameError {
     fn code(&self) -> ErrorCode {
@@ -613,9 +618,9 @@ impl Coded for RenameError {
 #[cfg(test)]
 mod tests;
 
-pub use self::apply::apply;
+pub(crate) use self::apply::apply;
 pub use self::identity::plan;
-pub use self::run::{db_effects, follow_up, run, DbEffects};
+pub(crate) use self::run::run;
 #[allow(unused_imports)]
 use self::{
     apply::*,
@@ -631,7 +636,7 @@ impl Plan {
     /// A fingerprint of everything the plan would do: the moves and, per file, the digest of the
     /// bytes it reads and every edit. The same workspace and request give the same digest, so a
     /// caller that applies by digest applies exactly the plan it was shown.
-    pub fn digest(&self) -> String {
+    pub(crate) fn digest(&self) -> String {
         let mut hasher = Sha256::new();
         let mut put = |bytes: &[u8]| {
             hasher.update((bytes.len() as u64).to_le_bytes());

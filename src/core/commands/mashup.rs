@@ -16,7 +16,11 @@ pub struct MashupNewRequest {
 pub struct MashupNewOutcome {
     pub plan: mashup::authoring::NewPlan,
     pub applied: bool,
-    pub effects: Effects,
+    #[allow(
+        dead_code,
+        reason = "the command facade's Effects (COMMAND_FACADE.md); no adapter reads it yet"
+    )]
+    pub(crate) effects: Effects,
 }
 
 #[derive(Clone, Debug)]
@@ -30,7 +34,11 @@ pub struct MashupAddRequest {
 pub struct MashupAddOutcome {
     pub plan: mashup::authoring::AddPlan,
     pub applied: bool,
-    pub effects: Effects,
+    #[allow(
+        dead_code,
+        reason = "the command facade's Effects (COMMAND_FACADE.md); no adapter reads it yet"
+    )]
+    pub(crate) effects: Effects,
 }
 
 #[derive(Clone, Debug)]
@@ -44,7 +52,11 @@ pub struct MashupAddContainedRequest {
 pub struct MashupAddContainedOutcome {
     pub plan: mashup::authoring::AddContainedPlan,
     pub applied: bool,
-    pub effects: Effects,
+    #[allow(
+        dead_code,
+        reason = "the command facade's Effects (COMMAND_FACADE.md); no adapter reads it yet"
+    )]
+    pub(crate) effects: Effects,
 }
 
 #[derive(Clone, Debug)]
@@ -58,7 +70,11 @@ pub struct MashupBindRequest {
 pub struct MashupBindOutcome {
     pub plan: mashup::authoring::BindPlan,
     pub applied: bool,
-    pub effects: Effects,
+    #[allow(
+        dead_code,
+        reason = "the command facade's Effects (COMMAND_FACADE.md); no adapter reads it yet"
+    )]
+    pub(crate) effects: Effects,
 }
 
 #[derive(Clone, Debug)]
@@ -72,7 +88,11 @@ pub struct MashupOnRequest {
 pub struct MashupOnOutcome {
     pub plan: mashup::authoring::OnPlan,
     pub applied: bool,
-    pub effects: Effects,
+    #[allow(
+        dead_code,
+        reason = "the command facade's Effects (COMMAND_FACADE.md); no adapter reads it yet"
+    )]
+    pub(crate) effects: Effects,
 }
 
 #[derive(Clone, Debug)]
@@ -86,7 +106,11 @@ pub struct MashupParameterRequest {
 pub struct MashupParameterOutcome {
     pub plan: mashup::authoring::ParameterPlan,
     pub applied: bool,
-    pub effects: Effects,
+    #[allow(
+        dead_code,
+        reason = "the command facade's Effects (COMMAND_FACADE.md); no adapter reads it yet"
+    )]
+    pub(crate) effects: Effects,
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -276,7 +300,11 @@ pub struct MashupRecipeRequest {
 pub struct MashupRecipeOutcome {
     pub plan: mashup::authoring::RecipePlan,
     pub applied: bool,
-    pub effects: Effects,
+    #[allow(
+        dead_code,
+        reason = "the command facade's Effects (COMMAND_FACADE.md); no adapter reads it yet"
+    )]
+    pub(crate) effects: Effects,
 }
 
 /// Plan without a lock; to apply, lock first and plan again from what is on disk then.

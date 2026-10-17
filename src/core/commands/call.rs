@@ -44,14 +44,15 @@ pub enum CallOutcome {
 
 impl CallOutcome {
     /// The access this operation used or may have used.
-    pub const fn effects(&self) -> Effects {
+    #[cfg(test)]
+    pub(crate) const fn effects(&self) -> Effects {
         match self {
             Self::Plan { effects, .. } | Self::Applied { effects, .. } => *effects,
         }
     }
 
     /// The service target after repository shorthand was resolved.
-    pub fn target(&self) -> &ServiceTarget {
+    pub(crate) fn target(&self) -> &ServiceTarget {
         match self {
             Self::Plan { target, .. } | Self::Applied { target, .. } => target,
         }

@@ -3,7 +3,7 @@
 use crate::core::codes::{Coded, ErrorCode};
 
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub enum Address {
+pub(crate) enum Address {
     Ui {
         widget: String,
         property: String,
@@ -23,7 +23,7 @@ pub enum Address {
 
 #[derive(Debug, thiserror::Error, PartialEq, Eq)]
 #[error("invalid mashup address `{0}`")]
-pub struct AddressError(pub String);
+pub(crate) struct AddressError(pub(crate) String);
 
 impl Coded for AddressError {
     fn code(&self) -> ErrorCode {
@@ -33,7 +33,7 @@ impl Coded for AddressError {
 
 /// Parse an address exactly as `mashup describe` prints it.  Resolving the split between a dotted
 /// entity name and service is intentionally the caller's job: only its repository can do that.
-pub fn parse_address(text: &str) -> Result<Address, AddressError> {
+pub(crate) fn parse_address(text: &str) -> Result<Address, AddressError> {
     let bad = || AddressError(text.to_string());
     let (area, rest) = text.split_once(':').ok_or_else(bad)?;
     if rest.is_empty() || rest.trim() != rest {

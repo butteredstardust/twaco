@@ -20,7 +20,7 @@ use std::collections::{BTreeMap, BTreeSet};
 pub const JUDGED: &[&str] = &["Things", "ThingTemplates", "ThingShapes", "DataShapes"];
 
 /// What the index cannot see, said wherever the answer is shown.
-pub const LIMITS: &str = "an entity used only from outside this repository (a REST client, a connected system) looks unused; list it under [unused] keep";
+pub(crate) const LIMITS: &str = "an entity used only from outside this repository (a REST client, a connected system) looks unused; list it under [unused] keep";
 
 pub struct Request {
     /// The weakest reference that counts as use. `review` (the default) counts a string that
@@ -33,7 +33,7 @@ pub struct Request {
 /// Why a group of entities is an entry point.
 #[derive(Debug, Serialize)]
 pub struct RootGroup {
-    pub reason: &'static str,
+    pub(crate) reason: &'static str,
     pub entities: Vec<String>,
 }
 
@@ -41,31 +41,31 @@ pub struct RootGroup {
 pub struct Unused {
     /// `Collection/Name`.
     pub entity: String,
-    pub project: String,
+    pub(crate) project: String,
     /// Its file, relative to the solution root.
-    pub file: Option<String>,
+    pub(crate) file: Option<String>,
     /// What still names it although nothing reaches that either: a cluster of dead entities names
     /// itself, and removing one entity at a time would break the rest.
-    pub named_by_unreached: Vec<String>,
+    pub(crate) named_by_unreached: Vec<String>,
     /// What names it and is reached, but by a reference weaker than the minimum asked for. A
     /// stronger reading of the same repository would not call this entity unused.
-    pub named_weakly_by: Vec<String>,
+    pub(crate) named_weakly_by: Vec<String>,
 }
 
 #[derive(Debug, Serialize)]
 pub struct Report {
-    pub min_confidence: Confidence,
+    pub(crate) min_confidence: Confidence,
     pub roots: Vec<RootGroup>,
     /// How many entities were judged, and how many of them something reaches.
     pub judged: usize,
     pub reachable: usize,
     pub unused: Vec<Unused>,
     /// `keep` patterns that match no entity: a typo keeps nothing.
-    pub keep_unmatched: Vec<String>,
-    pub complete: bool,
-    pub unreadable: Vec<Unreadable>,
-    pub unparsed_scripts: Vec<String>,
-    pub limits: &'static str,
+    pub(crate) keep_unmatched: Vec<String>,
+    pub(crate) complete: bool,
+    pub(crate) unreadable: Vec<Unreadable>,
+    pub(crate) unparsed_scripts: Vec<String>,
+    pub(crate) limits: &'static str,
 }
 
 /// Whether `pattern` matches `text`, `*` standing for any run of characters.

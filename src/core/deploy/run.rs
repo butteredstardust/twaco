@@ -2,7 +2,7 @@ use super::super::entity::key::{EntityKey, ServiceTarget};
 use super::super::normalise;
 use super::super::parallel;
 use super::super::profile::Profile;
-use super::super::progress::{self, Progress, NONE};
+use super::super::progress::{self, Progress};
 use super::super::push::Decision;
 use super::super::server::ServerError;
 use super::calls::{redact_placeholder_values, resolve_call};
@@ -13,8 +13,9 @@ use super::{
 use std::collections::BTreeMap;
 use std::time::Duration;
 
-/// Plan or apply all project bundles. Projects must already be in dependency order.
-pub fn run(
+/// [`run_with_progress`] without a progress reporter.
+#[cfg(test)]
+pub(crate) fn run(
     remote: &dyn Remote,
     baselines: &dyn BaselineStore,
     profile: &Profile,
@@ -29,20 +30,22 @@ pub fn run(
         profile,
         projects,
         RunOptions { apply, force, only },
-        &NONE,
+        &progress::NONE,
     )
 }
 
 /// What a deploy run does: send changes, override conflicts, skip post-import services.
 #[derive(Clone, Copy, Debug)]
-pub struct RunOptions {
-    pub apply: bool,
-    pub force: bool,
-    pub only: bool,
+pub(crate) struct RunOptions {
+    pub(crate) apply: bool,
+    pub(crate) force: bool,
+    pub(crate) only: bool,
 }
 
-/// Like [`run`], and report progress. Messages hold project and entity names only.
-pub fn run_with_progress(
+/// Plan or apply all project bundles. Projects must already be in dependency order.
+///
+/// It reports progress. Messages hold project and entity names only.
+pub(crate) fn run_with_progress(
     remote: &dyn Remote,
     baselines: &dyn BaselineStore,
     profile: &Profile,

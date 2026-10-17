@@ -8,14 +8,14 @@ use std::collections::BTreeSet;
 
 /// Presence and edits for one service parameter declaration.
 #[derive(Debug)]
-pub struct ParamPass {
-    pub pass: XmlPass,
-    pub old_found: bool,
-    pub new_found: bool,
+pub(crate) struct ParamPass {
+    pub(crate) pass: XmlPass,
+    pub(crate) old_found: bool,
+    pub(crate) new_found: bool,
 }
 
 /// Renames one input declaration and scans scripts in an entity without rebuilding XML.
-pub fn scan_param_entity(
+pub(crate) fn scan_param_entity(
     src: &[u8],
     service: &str,
     old: &str,
@@ -139,7 +139,7 @@ pub fn scan_param_entity(
 }
 
 /// Renames a parameter declaration in one service definition sidecar.
-pub fn scan_param_definition(
+pub(crate) fn scan_param_definition(
     src: &[u8],
     service: &str,
     old: &str,
@@ -185,7 +185,7 @@ pub fn scan_param_definition(
 }
 
 /// Scans a sidecar script for the service's free input and calls to that service.
-pub fn scan_param_script(
+pub(crate) fn scan_param_script(
     src: &[u8],
     service: &str,
     old: &str,
@@ -393,7 +393,7 @@ fn find_bytes(src: &[u8], needle: &[u8]) -> Option<usize> {
 /// not as a member name): a parameter renamed to it would be captured by that use. A script that
 /// cannot be parsed is refused rather than guessed at: `true` if `name` occurs in it as a whole
 /// word anywhere.
-pub fn script_uses_identifier(src: &[u8], name: &str) -> bool {
+pub(crate) fn script_uses_identifier(src: &[u8], name: &str) -> bool {
     match script::parse(src) {
         Ok(script) => script.identifiers.iter().any(|identifier| {
             identifier.role != script::Role::MemberProperty

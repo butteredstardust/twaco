@@ -5,7 +5,7 @@
 //! file. Structured findings keep large check results compact and machine-readable.
 
 use super::config::Solution;
-use super::progress::{self, Progress, NONE};
+use super::progress::{self, Progress};
 use super::{bindings, fmt as format_js, sync, workspace};
 use std::collections::BTreeSet;
 use std::fmt;
@@ -16,13 +16,13 @@ use std::time::Duration;
 /// One thing wrong, in one place.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Finding {
-    pub gate: String,
+    pub(crate) gate: String,
     /// Relative to the solution root where possible, so findings are comparable between machines.
-    pub file: String,
+    pub(crate) file: String,
     /// 1-based. Zero means the finding is about the file rather than a line in it.
-    pub line: usize,
-    pub rule: String,
-    pub message: String,
+    pub(crate) line: usize,
+    pub(crate) rule: String,
+    pub(crate) message: String,
 }
 
 impl fmt::Display for Finding {
@@ -72,13 +72,13 @@ impl GateResult {
     }
 
     /// Whether the gate passed outright.
-    pub fn ok(&self) -> bool {
+    pub(crate) fn ok(&self) -> bool {
         self.findings.is_empty() && self.broken.is_none()
     }
 
     /// Whether the gate should fail the run. A non-gating check reports and steps aside; a gate
     /// that could not run always counts, because nobody knows what it would have said.
-    pub fn blocks(&self) -> bool {
+    pub(crate) fn blocks(&self) -> bool {
         self.broken.is_some() || (self.gates_the_run && !self.findings.is_empty())
     }
 }
@@ -110,7 +110,7 @@ impl CheckReport {
 }
 
 /// The built-in gates, by the names `[gates] advisory` uses.
-pub const BUILT_IN_GATES: &[&str] = &[
+pub(crate) const BUILT_IN_GATES: &[&str] = &[
     "line endings",
     "sidecars",
     "formatting",
@@ -175,6 +175,15 @@ impl ScriptChecker for super::server::Client {
     }
 }
 
+/// [`live_parse_with_progress`] without a progress reporter.
+#[cfg(test)]
+pub(crate) fn live_parse(
+    solution: &Solution,
+    checker: Result<&dyn ScriptChecker, String>,
+) -> GateResult {
+    live_parse_with_progress(solution, checker, &progress::NONE)
+}
+
 /// Every service script, parsed by ThingWorx itself (`check --live`).
 ///
 /// Offline lint catches the traps it knows by pattern. This catches everything the platform's
@@ -188,12 +197,8 @@ impl ScriptChecker for super::server::Client {
 /// A finding points at the service's `script.js` sidecar when it exists. The sidecar holds the
 /// script exactly as extraction reads it, which is what was sent, so the server's line number
 /// is that file's line number.
-pub fn live_parse(solution: &Solution, checker: Result<&dyn ScriptChecker, String>) -> GateResult {
-    live_parse_with_progress(solution, checker, &NONE)
-}
-
-/// Like [`live_parse`], and report one step per service script checked. Messages hold the
-/// entity and service names only.
+///
+/// It reports one step per service script checked. Messages hold the entity and service names only.
 pub fn live_parse_with_progress(
     solution: &Solution,
     checker: Result<&dyn ScriptChecker, String>,

@@ -9,11 +9,11 @@
 //! reorder every object in every mashup on first sync — 64 files at once in the reference
 //! project, with nothing to show for it.
 
-pub mod address;
+pub(crate) mod address;
 pub mod authoring;
 pub mod describe;
 pub mod edit;
-pub mod templates;
+pub(crate) mod templates;
 pub mod templates_view;
 pub mod validate;
 
@@ -72,7 +72,7 @@ pub fn extract(src: &[u8]) -> Result<Assets, MashupError> {
 
 /// The sidecar files for a mashup's content JSON, wherever the text came from: an entity file
 /// here, or a designer's export being adopted. One rendering, so the two cannot drift apart.
-pub fn assets_from_payload(text: &str) -> Result<Assets, MashupError> {
+pub(crate) fn assets_from_payload(text: &str) -> Result<Assets, MashupError> {
     let value: serde_json::Value =
         serde_json::from_str(text.trim()).map_err(|e| MashupError::NotJson(e.to_string()))?;
 
@@ -92,7 +92,7 @@ pub fn assets_from_payload(text: &str) -> Result<Assets, MashupError> {
 }
 
 /// The `content.json` text: two-space indent, key order intact, one trailing newline.
-pub fn to_sidecar(value: &serde_json::Value) -> String {
+pub(crate) fn to_sidecar(value: &serde_json::Value) -> String {
     format!("{}\n", pretty(value))
 }
 

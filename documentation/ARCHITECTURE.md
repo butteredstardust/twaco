@@ -42,6 +42,12 @@ main.rs  mcp/                   front ends: parse arguments, call core, print or
   core::{scan, splice, sidecar, entity, workspace, config, profile, server, lock}  foundations
 ```
 
+Modules that belong to one domain nest under it: `core::mashup::*`, `core::rename::*` and
+`core::entity::*`. `mcp` is part of the library, but `src/main.rs` and `src/cli/` are a separate
+binary crate that uses the library through `twaco::...`. So `pub(crate)` is the default
+visibility, and an item is `pub` only when the binary or a test in `tests/` uses it (or a `pub`
+item's signature needs it). An item that only unit tests use is `#[cfg(test)]`.
+
 ### Foundations
 
 | Module | Role |

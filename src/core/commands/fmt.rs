@@ -17,12 +17,17 @@ pub struct FmtRequest {
 #[derive(Debug)]
 pub struct FmtOutcome {
     pub report: workflow::FmtOutcome,
+    #[allow(
+        dead_code,
+        reason = "the command facade's Effects (COMMAND_FACADE.md); read only by tests"
+    )]
     effects: Effects,
 }
 
 impl FmtOutcome {
     /// The access this format run used or would use.
-    pub const fn effects(&self) -> Effects {
+    #[cfg(test)]
+    pub(crate) const fn effects(&self) -> Effects {
         self.effects
     }
 }

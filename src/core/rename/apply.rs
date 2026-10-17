@@ -20,7 +20,7 @@ struct PreparedFile {
 /// any later write, move, baseline update or ledger append fails, all completed work is undone;
 /// and if the process dies part-way, the next command to take the workspace lock finishes or
 /// undoes it (see `core::transaction`).
-pub fn apply(
+pub(crate) fn apply(
     solution: &Solution,
     plan: &Plan,
     options: &ApplyOptions,

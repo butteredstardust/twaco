@@ -23,8 +23,8 @@ use std::fs::{File, OpenOptions, TryLockError};
 use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
-pub const RELATIVE_PATH: &str = ".twaco/lock";
-pub const HOLDER_PATH: &str = ".twaco/lock.holder";
+pub(crate) const RELATIVE_PATH: &str = ".twaco/lock";
+pub(crate) const HOLDER_PATH: &str = ".twaco/lock.holder";
 const TEMPORARY_SUFFIX: &str = ".twaco-tmp";
 const LEGACY_SUFFIXES: [&str; 2] = [".twaco-rename-tmp", ".twaco-delete-tmp"];
 
@@ -33,9 +33,9 @@ const LEGACY_SUFFIXES: [&str; 2] = [".twaco-rename-tmp", ".twaco-delete-tmp"];
 pub struct WorkspaceLock {
     _file: File,
     /// Leftover temporaries removed when the lock was taken.
-    pub recovered: Vec<PathBuf>,
+    pub(crate) recovered: Vec<PathBuf>,
     /// Interrupted operations finished or undone when the lock was taken, one line each.
-    pub recovery: Vec<String>,
+    pub(crate) recovery: Vec<String>,
     root: PathBuf,
     command: String,
 }
@@ -48,12 +48,12 @@ impl Drop for WorkspaceLock {
 
 impl WorkspaceLock {
     /// The workspace this lock holds.
-    pub fn root(&self) -> &Path {
+    pub(crate) fn root(&self) -> &Path {
         &self.root
     }
 
     /// Whether this lock is the one for the workspace at `root`.
-    pub fn covers(&self, root: &Path) -> bool {
+    pub(crate) fn covers(&self, root: &Path) -> bool {
         match (
             std::fs::canonicalize(&self.root),
             std::fs::canonicalize(root),
@@ -192,7 +192,7 @@ fn acquire_then_sweep(
 ///
 /// For diagnosis only: the answer can be stale the moment it is returned. `Ok(None)` means
 /// nobody held it at the instant of asking.
-pub fn holder(root: &Path) -> Result<Option<String>, LockError> {
+pub(crate) fn holder(root: &Path) -> Result<Option<String>, LockError> {
     let path = root.join(RELATIVE_PATH);
     if !path.exists() {
         return Ok(None);
@@ -219,7 +219,7 @@ pub fn holder(root: &Path) -> Result<Option<String>, LockError> {
 
 /// Take the lock for a solution, sweeping everywhere twaco writes through a temporary: the entity
 /// folders and the sidecar tree (and `.twaco`, always). Used by the CLI and the MCP server alike.
-pub fn acquire_for(
+pub(crate) fn acquire_for(
     solution: &super::config::Solution,
     command: &str,
 ) -> Result<WorkspaceLock, LockError> {

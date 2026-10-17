@@ -16,7 +16,7 @@ use serde_json::{json, Value};
 use std::path::{Path, PathBuf};
 
 /// The theme a new mashup uses unless asked for another: 10.2's default.
-pub const DEFAULT_THEME: &str = "PTC Convergence Theme";
+pub(crate) const DEFAULT_THEME: &str = "PTC Convergence Theme";
 
 #[derive(Clone, Debug)]
 pub struct NewRequest {
@@ -49,11 +49,11 @@ pub struct NewPlan {
     pub master: bool,
     pub theme: String,
     pub visibility: Vec<Visibility>,
-    pub entity_path: PathBuf,
-    pub content_path: PathBuf,
-    pub css_path: PathBuf,
+    pub(crate) entity_path: PathBuf,
+    pub(crate) content_path: PathBuf,
+    pub(crate) css_path: PathBuf,
     pub entity: Vec<u8>,
-    pub assets: mashup::Assets,
+    pub(crate) assets: mashup::Assets,
     /// The widgets the new mashup holds, root first.
     pub widgets: Vec<mashup::edit::WidgetRef>,
     /// Menu service calls wired while creating a sidebar.
@@ -63,7 +63,7 @@ pub struct NewPlan {
 }
 
 /// `Organization/<name>` or `OrganizationalUnit/<organization>:<unit>`.
-pub fn parse_visibility(text: &str) -> Result<Visibility, AuthoringError> {
+pub(crate) fn parse_visibility(text: &str) -> Result<Visibility, AuthoringError> {
     let invalid = || {
         AuthoringError::Invalid(format!(
             "visibility {text:?} is not Organization/<name> or OrganizationalUnit/<organization>:<unit>"
@@ -87,7 +87,10 @@ pub fn parse_visibility(text: &str) -> Result<Visibility, AuthoringError> {
 }
 
 /// What creating the mashup would write. Nothing is written.
-pub fn plan_new(solution: &Solution, request: &NewRequest) -> Result<NewPlan, AuthoringError> {
+pub(crate) fn plan_new(
+    solution: &Solution,
+    request: &NewRequest,
+) -> Result<NewPlan, AuthoringError> {
     let template = mashup::templates::layout(&request.template)
         .map_err(AuthoringError::Invalid)?
         .ok_or_else(|| AuthoringError::Invalid(unknown_template(&request.template)))?;
@@ -427,7 +430,7 @@ fn validate_node(
 }
 
 /// Validate an embedded template before it becomes a Composer document.
-pub fn validate_template(
+pub(crate) fn validate_template(
     template: &mashup::templates::LayoutTemplate,
 ) -> Result<(), AuthoringError> {
     for key in template.page.keys() {
@@ -494,7 +497,7 @@ pub fn validate_template(
 }
 
 /// Write the planned files, all or none.
-pub fn apply_new(
+pub(crate) fn apply_new(
     solution: &Solution,
     plan: &NewPlan,
     lock: &WorkspaceLock,

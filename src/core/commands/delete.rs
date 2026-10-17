@@ -37,13 +37,18 @@ pub enum EntityDeleteOutcome {
 
 impl EntityDeleteOutcome {
     /// The access this specific outcome implies.
-    pub const fn effects(&self) -> Effects {
+    #[cfg(test)]
+    pub(crate) const fn effects(&self) -> Effects {
         match self {
             Self::Plan { effects, .. } | Self::Applied { effects, .. } => *effects,
         }
     }
 
-    pub const fn legacy_force_used(&self) -> bool {
+    #[allow(
+        dead_code,
+        reason = "part of the delete outcome; the adapters report the deprecated --force from the request instead"
+    )]
+    pub(crate) const fn legacy_force_used(&self) -> bool {
         match self {
             Self::Plan {
                 legacy_force_used, ..

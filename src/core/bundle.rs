@@ -31,7 +31,7 @@ const XML_DECLARATION: &str = "<?xml version=\"1.0\" encoding=\"UTF-8\"?>";
 /// the platform resolves references internally, but not for a configuration table whose columns
 /// changed: the Thing's rows arrive while its template still declares the old columns, and the
 /// values land empty. Importing the template before the Thing preserves those values.
-pub const COLLECTION_ORDER: &[&str] = &[
+pub(crate) const COLLECTION_ORDER: &[&str] = &[
     "StyleDefinitions",
     "Networks",
     "PersistenceProviderPackages",
@@ -110,13 +110,13 @@ pub struct Bundle {
 }
 
 /// What a bundle should contain.
-pub struct Selection<'a> {
+pub(crate) struct Selection<'a> {
     /// Only these collections. Empty means all of them.
-    pub collections: Option<BTreeSet<&'a str>>,
+    pub(crate) collections: Option<BTreeSet<&'a str>>,
 }
 
 impl Selection<'_> {
-    pub fn everything() -> Self {
+    pub(crate) fn everything() -> Self {
         Selection { collections: None }
     }
 
@@ -125,7 +125,7 @@ impl Selection<'_> {
     /// The split is by collection, never by inspecting an entity. Easy to state, impossible to
     /// get subtly wrong, and it is what lets backend work deploy without rolling back mashups
     /// that have not been exported back into the repository yet.
-    pub fn backend(solution: &Solution) -> Selection<'_> {
+    pub(crate) fn backend(solution: &Solution) -> Selection<'_> {
         let ui: BTreeSet<&str> = solution
             .bundle
             .ui_collections
@@ -142,7 +142,7 @@ impl Selection<'_> {
         }
     }
 
-    pub fn wants(&self, tag: &str) -> bool {
+    pub(crate) fn wants(&self, tag: &str) -> bool {
         self.collections
             .as_ref()
             .is_none_or(|allowed| allowed.contains(tag))
@@ -150,7 +150,7 @@ impl Selection<'_> {
 }
 
 /// Assemble the entity files under `root` into one document.
-pub fn build(files: &[PathBuf], selection: &Selection) -> Result<Bundle, BundleError> {
+pub(crate) fn build(files: &[PathBuf], selection: &Selection) -> Result<Bundle, BundleError> {
     let mut bodies: BTreeMap<String, Vec<String>> = BTreeMap::new();
     let mut entities: BTreeMap<(String, String), usize> = BTreeMap::new();
     let mut used = 0usize;
@@ -392,7 +392,7 @@ fn verify(bytes: &[u8], expected: &BTreeMap<(String, String), usize>) -> Result<
 ///
 /// Sorted by collection folder and then by filename, which is what makes two runs produce the
 /// same bytes.
-pub fn source_files(solution: &Solution) -> Vec<PathBuf> {
+pub(crate) fn source_files(solution: &Solution) -> Vec<PathBuf> {
     // Projects in deploy order, so a dependency's entities precede the entities that bind to
     // them within each collection. Falls back to declaration order only when the order cannot
     // be computed, which validation already refuses to load.
@@ -463,7 +463,7 @@ fn collect_xml(dir: &Path, out: &mut Vec<PathBuf>) {
 /// what the platform's own importer expects and the stable bundle order used here, so this
 /// reports rather than reorders: a ThingTemplate deriving from one that is not here is a real
 /// problem, and one that merely sorts later is not.
-/// [`dangling_references`] for the bundle `twaco bundle` builds: everything, or with
+/// `dangling_references` for the bundle `twaco bundle` builds: everything, or with
 /// `backend_only` the collections a designer does not own.
 pub fn dangling_in_selection(solution: &Solution, backend_only: bool) -> Vec<String> {
     let selection = if backend_only {
@@ -485,7 +485,7 @@ pub fn dangling_in_selection(solution: &Solution, backend_only: bool) -> Vec<Str
     dangling_references(&selected, &all)
 }
 
-pub fn dangling_references(selected: &[PathBuf], all: &[PathBuf]) -> Vec<String> {
+pub(crate) fn dangling_references(selected: &[PathBuf], all: &[PathBuf]) -> Vec<String> {
     let mut present = BTreeSet::new();
     let mut wanted: Vec<(String, String, String)> = Vec::new();
 

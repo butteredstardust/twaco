@@ -3,8 +3,8 @@ use crate::core::{refs, scan, splice};
 
 /// Finds and plans a name replacement in one UTF-8 XML document.
 ///
-/// Attributes and plain text are values and use [`refs::find`]; CDATA is a blob and uses
-/// [`refs::find_in_text`]. Only Exact and Embedded hits become edits. The scanner's malformed or
+/// Attributes and plain text are values and use `refs::find`; CDATA is a blob and uses
+/// `refs::find_in_text`. Only Exact and Embedded hits become edits. The scanner's malformed or
 /// unsupported-input errors are returned unchanged. This function refuses to decode entities,
 /// inspect comments or processing instructions, perform file I/O, or rebuild markup.
 pub fn scan_xml(
@@ -112,7 +112,8 @@ pub fn scan_xml(
 ///
 /// The whole file is treated as a text blob, so quoted values and qualified embedded names use
 /// the same rules as script CDATA. Non-UTF-8 input is refused and no file I/O is performed.
-pub fn scan_text(
+#[cfg(test)]
+pub(crate) fn scan_text(
     src: &[u8],
     name: &str,
     mode: refs::Mode,
@@ -129,20 +130,20 @@ pub fn scan_text(
 /// `Old.Child` that is another entity is that entity, and `Old.Member` names a member of the
 /// renamed one.
 #[derive(Debug, Default, Clone)]
-pub struct Qualified {
+pub(crate) struct Qualified {
     /// Every entity of the solution.
-    pub entities: std::collections::BTreeSet<String>,
+    pub(crate) entities: std::collections::BTreeSet<String>,
     /// The renamed entity's services, inherited ones included, and its own properties and events.
-    pub members: std::collections::BTreeSet<String>,
+    pub(crate) members: std::collections::BTreeSet<String>,
 }
 
-/// [`scan_text`], and with `qualified` also `Old.Member`: an entity mode hit that the name
+/// `scan_text`, and with `qualified` also `Old.Member`: an entity mode hit that the name
 /// boundary refuses because more of a dotted name follows. That is another entity's name when
 /// one has it, which is left alone. Otherwise a qualified name followed by a member of the
 /// renamed entity, as in `Acme.Orders.Manager.GetOrder`, is a reference and is renamed; any other
 /// continuation is left for a person. An unqualified name is only reported, and only before one
 /// of its members, since `Node.js` is no reference to an entity named `Node`.
-pub fn scan_text_with(
+pub(crate) fn scan_text_with(
     src: &[u8],
     name: &str,
     mode: refs::Mode,

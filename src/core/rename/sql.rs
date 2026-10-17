@@ -12,47 +12,47 @@ use std::fmt::Write;
 
 /// A table whose name changes because its DataShape's short name changes.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct TableRename {
-    pub old_table: String,
-    pub new_table: String,
+pub(crate) struct TableRename {
+    pub(crate) old_table: String,
+    pub(crate) new_table: String,
     /// Each index of the table, as its lowercased column names.
-    pub indexes: Vec<Vec<String>>,
+    pub(crate) indexes: Vec<Vec<String>>,
     /// The lowercased columns that carry a foreign key.
-    pub foreign_keys: Vec<String>,
+    pub(crate) foreign_keys: Vec<String>,
 }
 
 /// A column renamed in a table.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct ColumnRename {
-    pub table: String,
-    pub old: String,
-    pub new: String,
-    pub indexes: Vec<Vec<String>>,
-    pub foreign_keys: Vec<String>,
+pub(crate) struct ColumnRename {
+    pub(crate) table: String,
+    pub(crate) old: String,
+    pub(crate) new: String,
+    pub(crate) indexes: Vec<Vec<String>>,
+    pub(crate) foreign_keys: Vec<String>,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
-pub struct Migration {
-    pub date: String,
-    pub title: String,
-    pub tables: Vec<TableRename>,
-    pub columns: Vec<ColumnRename>,
+pub(crate) struct Migration {
+    pub(crate) date: String,
+    pub(crate) title: String,
+    pub(crate) tables: Vec<TableRename>,
+    pub(crate) columns: Vec<ColumnRename>,
     /// Old entity name -> new, replaced inside the text columns of every table in `backed_tables`.
-    pub replacements: Vec<(String, String)>,
+    pub(crate) replacements: Vec<(String, String)>,
     /// Every DBConnection table, under the names it has once the table renames above ran.
-    pub backed_tables: Vec<String>,
+    pub(crate) backed_tables: Vec<String>,
     /// Things a person must check, printed as comments.
-    pub notes: Vec<String>,
+    pub(crate) notes: Vec<String>,
 }
 
 impl Migration {
-    pub fn is_empty(&self) -> bool {
+    pub(crate) fn is_empty(&self) -> bool {
         self.tables.is_empty() && self.columns.is_empty() && self.replacements.is_empty()
     }
 }
 
 /// The file name for a migration: `<date>-rename-<what>.sql`, safe on every platform.
-pub fn file_name(date: &str, label: &str) -> String {
+pub(crate) fn file_name(date: &str, label: &str) -> String {
     let safe: String = label
         .chars()
         .map(|c| {
@@ -81,7 +81,7 @@ fn index_name(table: &str, columns: &[String]) -> String {
 }
 
 /// Render the script.
-pub fn render(migration: &Migration) -> String {
+pub(crate) fn render(migration: &Migration) -> String {
     let mut out = String::new();
     let _ = writeln!(out, "-- {}", migration.title);
     let _ = writeln!(out, "--");

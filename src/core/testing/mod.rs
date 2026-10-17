@@ -16,7 +16,7 @@ use serde_json::Value;
 use std::time::Duration;
 
 /// How long one service call of a test may take.
-pub const CALL_TIMEOUT: Duration = Duration::from_secs(60);
+pub(crate) const CALL_TIMEOUT: Duration = Duration::from_secs(60);
 
 /// What test users and cases ask of a server, as a trait so they are tested offline.
 pub trait Remote: Sync {
@@ -46,7 +46,7 @@ impl Remote for Client {
 
 /// The profile of a test user: the server of `profile`, signed in as `user` with the profile's
 /// `test_password`. Nothing else of the profile is carried over, the app key least of all.
-pub fn as_user(profile: &Profile, user: &str) -> Result<Profile, TestError> {
+pub(crate) fn as_user(profile: &Profile, user: &str) -> Result<Profile, TestError> {
     Ok(Profile {
         url: profile.url.clone(),
         username: user.to_string(),
@@ -58,7 +58,7 @@ pub fn as_user(profile: &Profile, user: &str) -> Result<Profile, TestError> {
 }
 
 /// The shared password of every test user, from the profile.
-pub fn test_password(profile: &Profile) -> Result<&str, TestError> {
+pub(crate) fn test_password(profile: &Profile) -> Result<&str, TestError> {
     profile
         .extra
         .get("test_password")
@@ -68,7 +68,7 @@ pub fn test_password(profile: &Profile) -> Result<&str, TestError> {
 }
 
 /// Refuse unless the profile names its server a test server.
-pub fn allowed(profile: &Profile) -> Result<(), TestError> {
+pub(crate) fn allowed(profile: &Profile) -> Result<(), TestError> {
     if profile
         .extra
         .get("allow_test_users")
@@ -113,7 +113,7 @@ impl Coded for TestError {
 
 /// Refuse a `[[test.user]]` declared twice: a seed would create it twice, a delete delete it
 /// twice, and a case run it twice. Every users and test action checks this first.
-pub fn check_users(solution: &crate::core::config::Solution) -> Result<(), TestError> {
+pub(crate) fn check_users(solution: &crate::core::config::Solution) -> Result<(), TestError> {
     let mut seen = std::collections::BTreeSet::new();
     match solution
         .test
@@ -131,7 +131,7 @@ pub fn check_users(solution: &crate::core::config::Solution) -> Result<(), TestE
 
 /// The status a call answered with: 200 for a reply, the HTTP status of a refusal. Anything
 /// else (no connection, a reply that is not JSON) is not a status and stays an error.
-pub fn status(result: &Result<Option<Value>, ServerError>) -> Option<u16> {
+pub(crate) fn status(result: &Result<Option<Value>, ServerError>) -> Option<u16> {
     match result {
         Ok(_) => Some(200),
         Err(ServerError::Http { status, .. }) => Some(*status),

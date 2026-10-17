@@ -72,7 +72,8 @@ pub enum LocalizationOutcome {
 }
 
 impl LocalizationOutcome {
-    pub const fn effects(&self) -> Effects {
+    #[cfg(test)]
+    pub(crate) const fn effects(&self) -> Effects {
         match self {
             Self::Status { effects, .. }
             | Self::Pulled { effects, .. }
@@ -102,7 +103,8 @@ impl Coded for LocalizationCommandError {
 }
 
 /// Execute a localization action with no progress reporter.
-pub fn execute<R, F>(
+#[cfg(test)]
+pub(crate) fn execute<R, F>(
     solution: &Solution,
     request: &LocalizationRequest,
     open: F,

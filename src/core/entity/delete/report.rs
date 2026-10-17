@@ -37,11 +37,11 @@ impl EntityResult {
             .expect("entity results originate from validated delete targets")
     }
 
-    pub fn refusals(&self) -> impl Iterator<Item = &str> {
+    pub(crate) fn refusals(&self) -> impl Iterator<Item = &str> {
         self.refusals.iter().map(|refusal| refusal.message.as_str())
     }
 
-    pub fn refusal_codes(&self) -> impl Iterator<Item = GuardCode> + '_ {
+    pub(crate) fn refusal_codes(&self) -> impl Iterator<Item = GuardCode> + '_ {
         self.refusals.iter().map(|refusal| refusal.code)
     }
 
@@ -113,7 +113,7 @@ impl From<LedgerError> for DeleteError {
 
 #[derive(Debug, Serialize)]
 pub struct Report {
-    pub applied: bool,
+    pub(crate) applied: bool,
     pub entities: Vec<EntityResult>,
     pub dependency_limit: &'static str,
     /// The folder the entities were saved to before they were deleted, relative to the solution.

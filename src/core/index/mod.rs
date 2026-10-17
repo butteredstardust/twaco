@@ -22,7 +22,8 @@ mod scripts;
 #[cfg(test)]
 mod tests;
 
-pub use query::{Dependent, DependentOptions, Step};
+pub(crate) use query::Dependent;
+pub use query::DependentOptions;
 
 use super::entity::key::EntityKey;
 use petgraph::graph::{DiGraph, NodeIndex};
@@ -44,7 +45,7 @@ pub enum Confidence {
 }
 
 impl Confidence {
-    pub fn word(self) -> &'static str {
+    pub(crate) fn word(self) -> &'static str {
         match self {
             Confidence::Review => "review",
             Confidence::Resolved => "resolved",
@@ -89,7 +90,7 @@ pub enum EdgeKind {
 }
 
 impl EdgeKind {
-    pub fn confidence(self) -> Confidence {
+    pub(crate) fn confidence(self) -> Confidence {
         match self {
             EdgeKind::Template
             | EdgeKind::ImplementedShape
@@ -103,7 +104,7 @@ impl EdgeKind {
     }
 
     /// A reference that makes the referrer inherit the members of what it names.
-    pub fn is_inheritance(self) -> bool {
+    pub(crate) fn is_inheritance(self) -> bool {
         matches!(
             self,
             EdgeKind::Template | EdgeKind::ImplementedShape | EdgeKind::BaseDataShape
@@ -131,22 +132,22 @@ impl EdgeKind {
 pub struct Edge {
     pub kind: EdgeKind,
     /// The service, property or field of the referrer that holds the reference, if it is in one.
-    pub from_member: Option<String>,
+    pub(crate) from_member: Option<String>,
     /// The member of the target that is named (`Things["X"].Run()` names `Run`), if one is.
-    pub to_member: Option<String>,
+    pub(crate) to_member: Option<String>,
     /// The file, relative to the solution root, where the reference is written.
-    pub at: Option<String>,
+    pub(crate) at: Option<String>,
 }
 
 impl Edge {
-    pub fn confidence(&self) -> Confidence {
+    pub(crate) fn confidence(&self) -> Confidence {
         self.kind.confidence()
     }
 }
 
 /// What a node is.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub enum NodeKind {
+pub(crate) enum NodeKind {
     Entity(EntityKey),
     Project(String),
 }
@@ -154,31 +155,31 @@ pub enum NodeKind {
 /// One node: an entity document or a configured project.
 #[derive(Clone, Debug)]
 pub struct Node {
-    pub kind: NodeKind,
+    pub(crate) kind: NodeKind,
     /// The project whose folders hold it, or the project's own name.
-    pub project: String,
+    pub(crate) project: String,
     /// The entity's file, relative to the solution root; none for a project.
-    pub file: Option<PathBuf>,
+    pub(crate) file: Option<PathBuf>,
     /// A Thing's `thingTemplate` or a template's `baseThingTemplate`, as written.
-    pub template: Option<String>,
+    pub(crate) template: Option<String>,
     /// The ThingShapes it implements, as written and in order.
-    pub shapes: Vec<String>,
+    pub(crate) shapes: Vec<String>,
     /// The services it declares itself.
-    pub services: BTreeSet<String>,
+    pub(crate) services: BTreeSet<String>,
     /// It runs without being called: it declares subscriptions, so an event reaches it.
-    pub subscribes: bool,
+    pub(crate) subscribes: bool,
 }
 
 impl Node {
     /// `Collection/Name`, or `project <name>`.
-    pub fn label(&self) -> String {
+    pub(crate) fn label(&self) -> String {
         match &self.kind {
             NodeKind::Entity(key) => key.to_string(),
             NodeKind::Project(name) => format!("project {name}"),
         }
     }
 
-    pub fn key(&self) -> Option<&EntityKey> {
+    pub(crate) fn key(&self) -> Option<&EntityKey> {
         match &self.kind {
             NodeKind::Entity(key) => Some(key),
             NodeKind::Project(_) => None,
@@ -190,8 +191,8 @@ impl Node {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
 pub struct Unreadable {
     /// A file, or `entity/service` for a script.
-    pub what: String,
-    pub why: String,
+    pub(crate) what: String,
+    pub(crate) why: String,
 }
 
 /// The whole picture. Built once by [`Index::build`]; never changed.
@@ -199,6 +200,10 @@ pub struct Unreadable {
 pub struct Index {
     graph: DiGraph<Node, Edge>,
     entities: BTreeMap<EntityKey, NodeIndex>,
+    #[allow(
+        dead_code,
+        reason = "read only by Debug; project nodes are found through the graph"
+    )]
     projects: BTreeMap<String, NodeIndex>,
     /// Project names in the order they must be imported.
     deploy_order: Vec<String>,
@@ -221,20 +226,20 @@ impl Index {
     }
 
     /// Whether every input was read.
-    pub fn is_complete(&self) -> bool {
+    pub(crate) fn is_complete(&self) -> bool {
         self.unreadable.is_empty()
     }
 
     /// The project names in the order they must be imported.
-    pub fn deploy_order(&self) -> &[String] {
+    pub(crate) fn deploy_order(&self) -> &[String] {
         &self.deploy_order
     }
 
-    pub fn node(&self, key: &EntityKey) -> Option<&Node> {
+    pub(crate) fn node(&self, key: &EntityKey) -> Option<&Node> {
         self.entities.get(key).map(|at| &self.graph[*at])
     }
 
-    pub fn contains(&self, key: &EntityKey) -> bool {
+    pub(crate) fn contains(&self, key: &EntityKey) -> bool {
         self.entities.contains_key(key)
     }
 

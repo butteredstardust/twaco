@@ -32,7 +32,8 @@ pub enum CarryOutcome {
 
 impl CarryOutcome {
     /// The access this specific outcome implies.
-    pub const fn effects(&self) -> Effects {
+    #[cfg(test)]
+    pub(crate) const fn effects(&self) -> Effects {
         match self {
             Self::Plan { effects, .. } | Self::Applied { effects, .. } => *effects,
         }

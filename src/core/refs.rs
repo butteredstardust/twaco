@@ -26,24 +26,24 @@ pub enum Tier {
 
 /// One non-overlapping name occurrence, addressed by byte offsets into the source value.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Hit {
+pub(crate) struct Hit {
     /// The first byte of the name itself.
-    pub start: usize,
+    pub(crate) start: usize,
     /// The byte immediately after the name itself.
-    pub end: usize,
+    pub(crate) end: usize,
     /// Whether the occurrence is applied automatically or retained for review.
-    pub tier: Tier,
+    pub(crate) tier: Tier,
 }
 
 impl Hit {
     /// Returns whether replacement is allowed without human review.
-    pub fn applies(&self) -> bool {
+    pub(crate) fn applies(&self) -> bool {
         matches!(self.tier, Tier::Exact | Tier::Embedded)
     }
 }
 
 /// Prefixes used by mashup identifiers derived from an entity name.
-pub const DERIVED_PREFIXES: [&str; 6] = [
+pub(crate) const DERIVED_PREFIXES: [&str; 6] = [
     "Things_",
     "ThingTemplates_",
     "ThingShapes_",
@@ -58,7 +58,7 @@ pub const DERIVED_PREFIXES: [&str; 6] = [
 /// prefix. Entity mode refuses a name at the head of a longer dotted entity name. An empty name is
 /// refused by returning no hits. Non-ASCII surrounding text is preserved through byte offsets that
 /// always lie on UTF-8 character boundaries.
-pub fn find(text: &str, name: &str, mode: Mode) -> Vec<Hit> {
+pub(crate) fn find(text: &str, name: &str, mode: Mode) -> Vec<Hit> {
     if name.is_empty() {
         return Vec::new();
     }
@@ -91,7 +91,7 @@ pub fn find(text: &str, name: &str, mode: Mode) -> Vec<Hit> {
 /// promoted to Exact only when the name is the entire content of a balanced ASCII string literal;
 /// qualified Embedded hits and already-Exact hits retain their original tier. A quote preceded by
 /// a backslash is part of a longer string, not the start of a literal, so it promotes nothing.
-pub fn find_in_text(text: &str, name: &str, mode: Mode) -> Vec<Hit> {
+pub(crate) fn find_in_text(text: &str, name: &str, mode: Mode) -> Vec<Hit> {
     find(text, name, mode)
         .into_iter()
         .map(|mut hit| {
@@ -116,7 +116,7 @@ pub fn find_in_text(text: &str, name: &str, mode: Mode) -> Vec<Hit> {
 /// `hits` must be ordered, non-overlapping ranges on UTF-8 boundaries, as returned by [`find`].
 /// Review hits are deliberately not replaced. With no applicable hits, the returned string has
 /// exactly the same content as `text`.
-pub fn replace(text: &str, hits: &[Hit], new: &str) -> String {
+pub(crate) fn replace(text: &str, hits: &[Hit], new: &str) -> String {
     let mut out = String::with_capacity(text.len());
     let mut cursor = 0;
     for hit in hits.iter().filter(|hit| hit.applies()) {
@@ -129,7 +129,7 @@ pub fn replace(text: &str, hits: &[Hit], new: &str) -> String {
 }
 
 /// Returns whether a name has at least one dotted qualifier.
-pub fn is_qualified(name: &str) -> bool {
+pub(crate) fn is_qualified(name: &str) -> bool {
     name.contains('.')
 }
 
@@ -174,7 +174,7 @@ pub fn validate_new_name(new: &str) -> Result<(), String> {
 }
 
 /// Validates a field-like name as an XML element-compatible ThingWorx identifier.
-pub fn validate_field_name(name: &str, noun: &str) -> Result<(), String> {
+pub(crate) fn validate_field_name(name: &str, noun: &str) -> Result<(), String> {
     if name.is_empty() {
         return Err(format!("{noun} name must not be empty"));
     }
@@ -272,7 +272,7 @@ const RESERVED_IDENTIFIERS: &[&str] = &[
 ];
 
 /// A service parameter's name: an identifier that is not reserved.
-pub fn validate_param_name(name: &str) -> Result<(), String> {
+pub(crate) fn validate_param_name(name: &str) -> Result<(), String> {
     validate_field_name(name, "parameter")?;
     if RESERVED_IDENTIFIERS.contains(&name) {
         return Err(format!("parameter name {name:?} is reserved: it is a JavaScript keyword or a name every ThingWorx script already has"));

@@ -22,9 +22,15 @@ impl Coded for DbError {
 #[cfg(test)]
 mod tests;
 
-pub use connection::without_password;
-pub use execute::execute;
-pub use model::{DbError, Mode, Options, Report};
-pub use remote::Remote;
-pub use resolve::resolve_thing;
-pub use sweep::{is_temporary_name, sweep, SweepStatus, Sweeper, Swept};
+#[cfg(test)]
+pub(crate) use connection::without_password;
+pub(crate) use execute::execute;
+pub(crate) use model::{DbError, Report};
+pub use model::{Mode, Options};
+pub(crate) use remote::Remote;
+#[cfg(test)]
+pub(crate) use resolve::resolve_thing;
+#[cfg(test)]
+pub(crate) use sweep::is_temporary_name;
+pub use sweep::SweepStatus;
+pub(crate) use sweep::{sweep, Sweeper, Swept};

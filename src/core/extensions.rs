@@ -8,7 +8,7 @@
 
 use super::codes::{Coded, ErrorCode};
 use super::entity::key::ServiceTarget;
-use super::progress::{self, Progress, NONE};
+use super::progress::{self, Progress};
 use super::server::{Client, ServerError};
 use serde_json::{json, Value};
 use std::io::Read;
@@ -56,7 +56,7 @@ pub struct Package {
     pub minimum_thingworx: String,
     pub group: String,
     pub artifact: String,
-    pub build: String,
+    pub(crate) build: String,
 }
 
 fn rows(reply: Option<Value>, what: &str) -> Result<Vec<Value>, ExtensionError> {
@@ -74,7 +74,7 @@ fn text(row: &Value, key: &str) -> String {
 }
 
 /// Every installed package, sorted by name.
-pub fn list(remote: &dyn Remote) -> Result<Vec<Package>, ExtensionError> {
+pub(crate) fn list(remote: &dyn Remote) -> Result<Vec<Package>, ExtensionError> {
     let reply = remote
         .service("GetExtensionPackageList", &json!({}))
         .map_err(ExtensionError::Remote)?;
@@ -104,7 +104,7 @@ pub struct Shown {
     pub in_use: Vec<Value>,
 }
 
-pub fn show(remote: &dyn Remote, name: &str) -> Result<Shown, ExtensionError> {
+pub(crate) fn show(remote: &dyn Remote, name: &str) -> Result<Shown, ExtensionError> {
     let package = list(remote)?
         .into_iter()
         .find(|p| p.name == name)
@@ -133,7 +133,7 @@ pub fn show(remote: &dyn Remote, name: &str) -> Result<Shown, ExtensionError> {
 
 /// What a package zip says it is, read from its `metadata.xml`, so a package the server would
 /// answer with a bare 406 is refused with a reason.
-pub fn inspect(zip: &[u8]) -> Result<Package, ExtensionError> {
+pub(crate) fn inspect(zip: &[u8]) -> Result<Package, ExtensionError> {
     let bad = |why: String| ExtensionError::Invalid(format!("not an extension package: {why}"));
     let mut archive = zip::ZipArchive::new(std::io::Cursor::new(zip))
         .map_err(|e| bad(format!("not a zip ({e})")))?;
@@ -186,7 +186,7 @@ pub fn inspect(zip: &[u8]) -> Result<Package, ExtensionError> {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Imported {
-    pub package: Package,
+    pub(crate) package: Package,
     /// new, upgrade from X, or reinstall of the same version.
     pub plan: String,
     pub applied: bool,
@@ -216,19 +216,22 @@ fn report(reply: &Value) -> Result<(), String> {
     })
 }
 
-/// Import a package: twaco's own check, then the server's validation, and unless `apply` stop
-/// there. Applied, the package list must then show the package at its version.
-pub fn import(
+/// [`import_with_progress`] without a progress reporter.
+#[cfg(test)]
+pub(crate) fn import(
     remote: &dyn Remote,
     file_name: &str,
     zip: &[u8],
     apply: bool,
 ) -> Result<Imported, ExtensionError> {
-    import_with_progress(remote, file_name, zip, apply, &NONE)
+    import_with_progress(remote, file_name, zip, apply, &progress::NONE)
 }
 
-/// Like [`import`], and report progress: one step per upload and per package-list read.
-pub fn import_with_progress(
+/// Import a package: twaco's own check, then the server's validation, and unless `apply` stop
+/// there. Applied, the package list must then show the package at its version.
+///
+/// It reports progress: one step per upload and per package-list read.
+pub(crate) fn import_with_progress(
     remote: &dyn Remote,
     file_name: &str,
     zip: &[u8],
@@ -313,7 +316,11 @@ pub fn import_with_progress(
 
 /// Remove a package, refused while any of its extensions is in use. A plan unless `apply`;
 /// applied, the package must be gone from the list.
-pub fn remove(remote: &dyn Remote, name: &str, apply: bool) -> Result<String, ExtensionError> {
+pub(crate) fn remove(
+    remote: &dyn Remote,
+    name: &str,
+    apply: bool,
+) -> Result<String, ExtensionError> {
     let shown = show(remote, name)?;
     if !shown.in_use.is_empty() {
         let names: Vec<String> = shown

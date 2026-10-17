@@ -15,7 +15,7 @@ use std::fmt;
 use std::path::{Path, PathBuf};
 
 /// The line ending a text mostly uses: CRLF when it has more of those than bare line feeds.
-pub fn line_ending(text: &str) -> &'static str {
+pub(crate) fn line_ending(text: &str) -> &'static str {
     let crlf = text.matches("\r\n").count();
     let bare = text.matches('\n').count() - crlf;
     if crlf > bare {
@@ -271,7 +271,10 @@ pub fn resolve<'a>(found: &'a [EntityFile], name: &str) -> Result<&'a EntityFile
 /// unchanged, for the platform's own Things and Resources; only an ambiguous one is refused.
 /// The solution's entity wins a short name: a platform Thing of the same name is reached as
 /// `Things/<Name>`, and the CLI says which target it resolved.
-pub fn call_target(found: &[EntityFile], given: &str) -> Result<ServiceTarget, WorkspaceError> {
+pub(crate) fn call_target(
+    found: &[EntityFile],
+    given: &str,
+) -> Result<ServiceTarget, WorkspaceError> {
     if given.contains('/') {
         return ServiceTarget::parse(given).map_err(|_| WorkspaceError::InvalidCallTarget {
             name: given.to_string(),
@@ -295,12 +298,12 @@ pub fn call_target(found: &[EntityFile], given: &str) -> Result<ServiceTarget, W
 }
 
 /// Where one entity's service sidecars live.
-pub fn services_dir(solution: &Solution, entity: &EntityFile) -> PathBuf {
+pub(crate) fn services_dir(solution: &Solution, entity: &EntityFile) -> PathBuf {
     solution.src_root().join(&entity.info.name).join("services")
 }
 
 /// Where one DataShape's field sidecar lives.
-pub fn fields_path(solution: &Solution, entity: &EntityFile) -> PathBuf {
+pub(crate) fn fields_path(solution: &Solution, entity: &EntityFile) -> PathBuf {
     solution
         .src_root()
         .join(&entity.info.name)
@@ -308,7 +311,7 @@ pub fn fields_path(solution: &Solution, entity: &EntityFile) -> PathBuf {
 }
 
 /// Where one mashup's content and stylesheet live.
-pub fn mashup_dir(solution: &Solution, entity: &EntityFile) -> PathBuf {
+pub(crate) fn mashup_dir(solution: &Solution, entity: &EntityFile) -> PathBuf {
     solution.src_root().join(&entity.info.name).join("mashup")
 }
 
@@ -317,7 +320,7 @@ pub fn mashup_dir(solution: &Solution, entity: &EntityFile) -> PathBuf {
 /// `Ok(None)` means the mashup is not under management; an error means it is and the files
 /// will not read. Those are different things, and collapsing them turned an unreadable
 /// stylesheet into an intentionally empty one that a sync then wrote into the entity.
-pub fn read_mashup(dir: &Path) -> Result<Option<super::mashup::Assets>, WorkspaceError> {
+pub(crate) fn read_mashup(dir: &Path) -> Result<Option<super::mashup::Assets>, WorkspaceError> {
     let content = match std::fs::read_to_string(dir.join("content.json")) {
         Ok(text) => text,
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(None),
@@ -346,7 +349,7 @@ pub fn read_mashup(dir: &Path) -> Result<Option<super::mashup::Assets>, Workspac
 }
 
 /// Read one DataTable's configuration sidecar, telling "not managed" from "will not read".
-pub fn read_datatable(path: &Path) -> Result<Option<String>, WorkspaceError> {
+pub(crate) fn read_datatable(path: &Path) -> Result<Option<String>, WorkspaceError> {
     match std::fs::read_to_string(path) {
         Ok(text) => Ok(Some(text.replace("\r\n", "\n"))),
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(None),
@@ -358,7 +361,7 @@ pub fn read_datatable(path: &Path) -> Result<Option<String>, WorkspaceError> {
 }
 
 /// Where one DataTable's configuration sidecar lives.
-pub fn datatable_path(solution: &Solution, entity: &EntityFile) -> PathBuf {
+pub(crate) fn datatable_path(solution: &Solution, entity: &EntityFile) -> PathBuf {
     solution
         .src_root()
         .join(&entity.info.name)
@@ -370,7 +373,7 @@ pub fn datatable_path(solution: &Solution, entity: &EntityFile) -> PathBuf {
 /// Sidecars are normalised to LF in memory. They are written LF, but a checkout can convert
 /// them, and a comparison that tripped over that would report every service as changed on a
 /// machine configured differently from the one that wrote them.
-pub fn read_sidecars(dir: &Path) -> BTreeMap<String, ServiceSidecar> {
+pub(crate) fn read_sidecars(dir: &Path) -> BTreeMap<String, ServiceSidecar> {
     let mut out = BTreeMap::new();
     let Ok(entries) = std::fs::read_dir(dir) else {
         return out;
@@ -405,7 +408,7 @@ pub fn read_sidecars(dir: &Path) -> BTreeMap<String, ServiceSidecar> {
 /// should decide on its own, and a sidecar left behind by a renamed service is worth a person's
 /// attention. (Sidecars are written LF, whatever the entity XML around them uses: they are source
 /// files an editor and a formatter work on, not fragments of the document.)
-pub fn stale_sidecars(dir: &Path, services: &[ServiceSidecar]) -> Vec<String> {
+pub(crate) fn stale_sidecars(dir: &Path, services: &[ServiceSidecar]) -> Vec<String> {
     let wanted: std::collections::BTreeSet<&str> =
         services.iter().map(|s| s.name.as_str()).collect();
     let mut stale = Vec::new();
@@ -439,7 +442,7 @@ fn write_lf(path: &Path, text: &str) -> Result<(), WorkspaceError> {
 ///
 /// Generated editor files are watched by editors and build tools, so preserving the timestamp
 /// on a fixed point is observable behaviour rather than just an optimisation.
-pub fn write_lf_if_changed(path: &Path, text: &str) -> Result<bool, WorkspaceError> {
+pub(crate) fn write_lf_if_changed(path: &Path, text: &str) -> Result<bool, WorkspaceError> {
     let normalised = text.replace("\r\n", "\n").replace('\r', "\n");
     if matches!(std::fs::read(path), Ok(current) if current == normalised.as_bytes()) {
         return Ok(false);
@@ -470,7 +473,7 @@ pub fn write_entity(path: &Path, bytes: &[u8]) -> Result<(), WorkspaceError> {
 /// name would otherwise have the write land wherever it points. The temporary is synced, takes the
 /// mode of the file it replaces (an executable bit, read-only), and is renamed over it; whatever
 /// fails, it is removed. A crash leaves a hidden `*.twaco-tmp` that the workspace lock sweeps.
-pub fn atomic_replace(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
+pub(crate) fn atomic_replace(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
     #[cfg(test)]
     crate::xml_oracle::check_write(path, bytes);
     static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
@@ -552,10 +555,10 @@ const SKIPPED_DIRS: &[&str] = &[
 /// What a walk found, each list in stable order. `unreadable` names what it could not read, so
 /// a caller that must see everything (a gate) can say so rather than pass on part of the tree.
 #[derive(Debug, Default)]
-pub struct Tree {
-    pub files: Vec<PathBuf>,
-    pub dirs: Vec<PathBuf>,
-    pub unreadable: Vec<String>,
+pub(crate) struct Tree {
+    pub(crate) files: Vec<PathBuf>,
+    pub(crate) dirs: Vec<PathBuf>,
+    pub(crate) unreadable: Vec<String>,
 }
 
 /// Every file and directory of the repository at `root` that twaco's source checks consider.
@@ -564,7 +567,7 @@ pub struct Tree {
 /// later commit would; not a parent folder's, the user's global excludes or `.git/info/exclude`,
 /// none of which travel with the repository), skips [`SKIPPED_DIRS`], and never follows a link:
 /// one can point out of the solution, or at an ancestor, and the walk would never end.
-pub fn walk_repository(root: &Path) -> Tree {
+pub(crate) fn walk_repository(root: &Path) -> Tree {
     walk(
         ignore::WalkBuilder::new(root)
             .hidden(false)
@@ -613,7 +616,7 @@ fn walk(builder: &mut ignore::WalkBuilder) -> Tree {
 
 /// Every `script.js` under the sidecar root, for the formatter and the script gates, and what
 /// could not be read there. An absent sidecar root holds no scripts and is not a failure.
-pub fn script_files(solution: &Solution) -> Tree {
+pub(crate) fn script_files(solution: &Solution) -> Tree {
     let root = solution.src_root();
     if !root.exists() {
         return Tree::default();

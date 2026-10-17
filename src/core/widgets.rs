@@ -17,71 +17,75 @@ use std::sync::LazyLock;
 const CATALOG: &str = include_str!("widgets/catalog.json");
 
 /// The platform the catalogue describes.
-pub const PLATFORM: &str = "10.2";
+pub(crate) const PLATFORM: &str = "10.2";
 
 #[derive(Debug, Deserialize)]
 pub struct Catalog {
-    pub platform: String,
+    #[allow(
+        dead_code,
+        reason = "deserialised from the embedded catalogue; checked only by tests"
+    )]
+    pub(crate) platform: String,
     /// Properties every widget has, whatever its contract says.
-    pub base_properties: BTreeMap<String, PropertyContract>,
+    pub(crate) base_properties: BTreeMap<String, PropertyContract>,
     /// What Composer writes on a dropped widget after its defaults.
-    pub dropped: Dropped,
-    pub widgets: Vec<Widget>,
+    pub(crate) dropped: Dropped,
+    pub(crate) widgets: Vec<Widget>,
 }
 
 #[derive(Debug, Deserialize)]
-pub struct Dropped {
+pub(crate) struct Dropped {
     /// On every PTCS widget.
-    pub ptcs: Map<String, Value>,
-    pub flexcontainer: Map<String, Value>,
+    pub(crate) ptcs: Map<String, Value>,
+    pub(crate) flexcontainer: Map<String, Value>,
 }
 
 #[derive(Debug, Deserialize)]
 pub struct Widget {
     /// The `Type` a mashup writes, e.g. `ptcsbutton`.
     #[serde(rename = "type")]
-    pub type_id: String,
-    pub aliases: Vec<String>,
+    pub(crate) type_id: String,
+    pub(crate) aliases: Vec<String>,
     /// Composer's label, written as `__TypeDisplayName`.
     pub type_display_name: String,
     /// The `DisplayName` stem: a dropped widget is `<display_name>-<n>`, or just this when it is
     /// not `numbered`.
-    pub display_name: String,
-    pub numbered: bool,
+    pub(crate) display_name: String,
+    pub(crate) numbered: bool,
     /// Whether other widgets go inside it.
-    pub container: bool,
+    pub(crate) container: bool,
     /// Whether it can fill the container it is alone in (Composer's `supportsAutoResize`).
     #[serde(default)]
-    pub auto_resize: bool,
+    pub(crate) auto_resize: bool,
     /// Composer's defaults, in Composer's order.
-    pub defaults: Map<String, Value>,
+    pub(crate) defaults: Map<String, Value>,
     /// The binding contract; absent for a widget whose contract the catalogue does not know.
-    pub properties: Option<BTreeMap<String, PropertyContract>>,
-    pub events: Option<Vec<String>>,
-    pub services: Option<Vec<String>>,
+    pub(crate) properties: Option<BTreeMap<String, PropertyContract>>,
+    pub(crate) events: Option<Vec<String>>,
+    pub(crate) services: Option<Vec<String>>,
     /// A function widget (expression, validator, navigation, ...): it sits under the mashup root,
     /// beside the layout, and draws nothing.
     #[serde(default)]
     pub function: bool,
     /// A legacy widget that stays readable in existing mashups; adding one adds this instead.
     #[serde(default)]
-    pub replaced_by: Option<String>,
+    pub(crate) replaced_by: Option<String>,
 }
 
 #[derive(Clone, Debug, Deserialize, PartialEq)]
-pub struct PropertyContract {
-    pub base_type: Option<String>,
+pub(crate) struct PropertyContract {
+    pub(crate) base_type: Option<String>,
     /// Can be bound from: the widget sets it.
     #[serde(default)]
-    pub source: bool,
+    pub(crate) source: bool,
     /// Can be bound to: something else sets it.
     #[serde(default)]
-    pub target: bool,
+    pub(crate) target: bool,
     #[serde(default = "yes")]
-    pub editable: bool,
+    pub(crate) editable: bool,
     /// The values a select property allows, when it lists them.
     #[serde(default)]
-    pub options: Vec<Value>,
+    pub(crate) options: Vec<Value>,
 }
 
 const fn yes() -> bool {
@@ -124,7 +128,7 @@ impl Catalog {
     }
 
     /// The widget a person names: its type or an alias, ignoring case.
-    pub fn resolve(&self, word: &str) -> Result<&Widget, CatalogError> {
+    pub(crate) fn resolve(&self, word: &str) -> Result<&Widget, CatalogError> {
         let wanted = word.trim().to_ascii_lowercase();
         self.widgets
             .iter()
@@ -153,7 +157,7 @@ impl Catalog {
     }
 
     /// Widgets whose type, alias or label contains `text`, ignoring case; all of them for "".
-    pub fn search(&self, text: &str) -> Vec<&Widget> {
+    pub(crate) fn search(&self, text: &str) -> Vec<&Widget> {
         let wanted = text.trim().to_ascii_lowercase();
         self.widgets
             .iter()
@@ -169,24 +173,24 @@ impl Catalog {
 
 impl Widget {
     /// Its type and aliases.
-    pub fn names(&self) -> impl Iterator<Item = &str> {
+    pub(crate) fn names(&self) -> impl Iterator<Item = &str> {
         std::iter::once(self.type_id.as_str()).chain(self.aliases.iter().map(String::as_str))
     }
 
     /// Whether the catalogue knows what its properties and events are.
-    pub fn has_contract(&self) -> bool {
+    pub(crate) fn has_contract(&self) -> bool {
         self.properties.is_some()
     }
 
     /// A property's contract, the widget's own or one every widget has. `None` when the widget has
     /// no contract or no such property.
-    pub fn property(&self, name: &str) -> Option<&PropertyContract> {
+    pub(crate) fn property(&self, name: &str) -> Option<&PropertyContract> {
         let own = self.properties.as_ref()?;
         own.get(name)
             .or_else(|| catalog().base_properties.get(name))
     }
 
-    pub fn has_event(&self, name: &str) -> bool {
+    pub(crate) fn has_event(&self, name: &str) -> bool {
         self.events
             .as_ref()
             .is_some_and(|events| events.iter().any(|event| event == name))

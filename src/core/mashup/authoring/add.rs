@@ -44,11 +44,11 @@ pub struct AddContainedRequest {
 
 #[derive(Debug)]
 pub struct AddContainedPlan {
-    pub edit: EditPlan,
+    pub(crate) edit: EditPlan,
     pub placed: mashup::edit::Placed,
     pub child: String,
     pub parameters: Vec<ContainedParameter>,
-    pub settings: Vec<String>,
+    pub(crate) settings: Vec<String>,
 }
 
 #[derive(Debug)]
@@ -197,7 +197,10 @@ pub(crate) fn function_property(
 }
 
 /// Plan adding one catalogue widget to an existing mashup. Nothing is written.
-pub fn plan_add(solution: &Solution, request: &AddRequest) -> Result<AddPlan, AuthoringError> {
+pub(crate) fn plan_add(
+    solution: &Solution,
+    request: &AddRequest,
+) -> Result<AddPlan, AuthoringError> {
     let loaded = load_existing(solution, &request.mashup)?;
     let mut document = parse_loaded(&loaded)?;
     let widget = widgets::catalog()
@@ -287,7 +290,7 @@ pub fn plan_add(solution: &Solution, request: &AddRequest) -> Result<AddPlan, Au
 
 /// Plan adding a child mashup as Composer's contained-mashup builder does.  The child is read
 /// from the repository, never from a server, so the cache is deterministic and reviewable.
-pub fn plan_add_contained(
+pub(crate) fn plan_add_contained(
     solution: &Solution,
     request: &AddContainedRequest,
 ) -> Result<AddContainedPlan, AuthoringError> {

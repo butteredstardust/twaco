@@ -80,7 +80,8 @@ pub enum RepoOutcome {
 }
 
 impl RepoOutcome {
-    pub const fn effects(&self) -> Effects {
+    #[cfg(test)]
+    pub(crate) const fn effects(&self) -> Effects {
         match self {
             Self::Listed { effects, .. }
             | Self::Ls { effects, .. }
@@ -120,9 +121,9 @@ impl Coded for RepoCommandError {
     }
 }
 
-/// Execute a repository operation. An applied pull locks before it computes the local root or
-/// asks the server what it will copy; every other operation leaves the solution tree untouched.
-pub fn execute<R, F>(
+/// [`execute_with_progress`] without a progress reporter.
+#[cfg(test)]
+pub(crate) fn execute<R, F>(
     solution: &Solution,
     request: &RepoRequest,
     open: F,
@@ -135,8 +136,11 @@ where
     execute_with_progress(solution, request, open, notices, &progress::NONE)
 }
 
-/// Like [`execute`], and report one step per folder listed, file compared, file copied or file
-/// moved. Messages hold repository paths only.
+/// Execute a repository operation. An applied pull locks before it computes the local root or
+/// asks the server what it will copy; every other operation leaves the solution tree untouched.
+///
+/// It reports one step per folder listed, file compared, file copied or file moved. Messages hold
+/// repository paths only.
 pub fn execute_with_progress<R, F>(
     solution: &Solution,
     request: &RepoRequest,

@@ -5,18 +5,18 @@ use std::collections::BTreeMap;
 
 /// Structural and script result for one entity in a table rename.
 #[derive(Debug)]
-pub struct TablePass {
-    pub pass: XmlPass,
-    pub old_definition: bool,
-    pub new_tables: usize,
-    pub renamed_tables: usize,
+pub(crate) struct TablePass {
+    pub(crate) pass: XmlPass,
+    pub(crate) old_definition: bool,
+    pub(crate) new_tables: usize,
+    pub(crate) renamed_tables: usize,
 }
 
 /// Renames table declarations and instances selected by the planner, and scans script CDATA.
 ///
 /// Script edits are limited to a literal value of a `tableName` key. Other quoted literals and
 /// member accesses are Review findings, including on entities outside the inheritance scope.
-pub fn scan_configuration_table(
+pub(crate) fn scan_configuration_table(
     src: &[u8],
     old: &str,
     new: &str,
@@ -86,7 +86,7 @@ pub fn scan_configuration_table(
 }
 
 /// Scans one sidecar script for table selectors and ambiguous occurrences.
-pub fn scan_table_script(
+pub(crate) fn scan_table_script(
     src: &[u8],
     old: &str,
     new: &str,

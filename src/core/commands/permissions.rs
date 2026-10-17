@@ -5,7 +5,7 @@ use super::{lock_workspace, Access, Effects, Mode, Notices};
 use crate::core::baseline::{self, Baseline};
 use crate::core::codes::{Coded, ErrorCode};
 use crate::core::config::Solution;
-use crate::core::progress::{self, Progress};
+use crate::core::progress::Progress;
 use crate::core::{entity, lock, permissions, profile, push, status, transaction, workspace};
 use std::fmt;
 
@@ -24,11 +24,19 @@ pub struct PermissionsOutcome {
     pub report: permissions::Report,
     /// After a push, how many pushed entities now match the server and were recorded.
     pub recorded: Option<usize>,
+    #[allow(
+        dead_code,
+        reason = "the command facade's Effects (COMMAND_FACADE.md); no adapter reads it yet"
+    )]
     effects: Effects,
 }
 
 impl PermissionsOutcome {
-    pub const fn effects(&self) -> Effects {
+    #[allow(
+        dead_code,
+        reason = "the command facade's Effects (COMMAND_FACADE.md); no adapter reads it yet"
+    )]
+    pub(crate) const fn effects(&self) -> Effects {
         self.effects
     }
 }
@@ -78,10 +86,9 @@ impl Coded for PermissionsCommandError {
     }
 }
 
-/// Compare the chosen entities' permissions with the server's, and with `Apply` make them the
-/// repository's. A push takes the workspace lock before discovery, because it records the
-/// baseline of every pushed entity that then matches the server.
-pub fn execute<R, F>(
+/// [`execute_with_progress`] without a progress reporter.
+#[cfg(test)]
+pub(crate) fn execute<R, F>(
     solution: &Solution,
     request: &PermissionsRequest,
     open: F,
@@ -91,10 +98,20 @@ where
     R: Remote,
     F: FnOnce(profile::Profile) -> R,
 {
-    execute_with_progress(solution, request, open, notices, &progress::NONE)
+    execute_with_progress(
+        solution,
+        request,
+        open,
+        notices,
+        &crate::core::progress::NONE,
+    )
 }
 
-/// Like [`execute`], and report one step per entity compared or pushed.
+/// Compare the chosen entities' permissions with the server's, and with `Apply` make them the
+/// repository's. A push takes the workspace lock before discovery, because it records the
+/// baseline of every pushed entity that then matches the server.
+///
+/// It reports one step per entity compared or pushed.
 pub fn execute_with_progress<R, F>(
     solution: &Solution,
     request: &PermissionsRequest,
@@ -211,20 +228,8 @@ impl Coded for AuditCommandError {
 }
 
 /// Audit the policies offline, and with a profile against that server too. Read-only.
-pub fn execute_audit<R, F>(
-    solution: &Solution,
-    request: &AuditRequest,
-    open: F,
-) -> Result<permissions::audit::AuditReport, AuditCommandError>
-where
-    R: permissions::server_audit::Remote,
-    F: FnOnce(profile::Profile) -> R,
-{
-    execute_audit_with_progress(solution, request, open, &progress::NONE)
-}
-
-/// Like [`execute_audit`], and report one step per entity audited, then one per entity read
-/// from the server.
+///
+/// It reports one step per entity audited, then one per entity read from the server.
 pub fn execute_audit_with_progress<R, F>(
     solution: &Solution,
     request: &AuditRequest,
@@ -268,19 +273,8 @@ pub struct PlatformRequest {
 
 /// Compare the policies' platform grants and memberships with the server, and with `Apply` add
 /// what is missing. Nothing local is written, so no lock is taken.
-pub fn execute_platform<R, F>(
-    solution: &Solution,
-    request: &PlatformRequest,
-    open: F,
-) -> Result<permissions::platform::PlatformReport, AuditCommandError>
-where
-    R: permissions::server_audit::Remote,
-    F: FnOnce(profile::Profile) -> R,
-{
-    execute_platform_with_progress(solution, request, open, &progress::NONE)
-}
-
-/// Like [`execute_platform`], and report one step per platform entry.
+///
+/// It reports one step per platform entry.
 pub fn execute_platform_with_progress<R, F>(
     solution: &Solution,
     request: &PlatformRequest,
@@ -388,11 +382,19 @@ pub struct ApplyOutcome {
     pub plan: permissions::apply::ApplyPlan,
     /// Whether the files were written.
     pub applied: bool,
+    #[allow(
+        dead_code,
+        reason = "the command facade's Effects (COMMAND_FACADE.md); no adapter reads it yet"
+    )]
     effects: Effects,
 }
 
 impl ApplyOutcome {
-    pub const fn effects(&self) -> Effects {
+    #[allow(
+        dead_code,
+        reason = "the command facade's Effects (COMMAND_FACADE.md); no adapter reads it yet"
+    )]
+    pub(crate) const fn effects(&self) -> Effects {
         self.effects
     }
 }
@@ -417,17 +419,20 @@ impl Coded for ApplyCommandError {
     }
 }
 
-/// Plan writing each project's permission policy into its entity XML, and with `Apply` write it:
-/// every changed file in one transaction, under the workspace lock taken before planning.
-pub fn execute_apply(
+/// [`execute_apply_with_progress`] without a progress reporter.
+#[cfg(test)]
+pub(crate) fn execute_apply(
     solution: &Solution,
     request: &ApplyRequest,
     notices: &mut Notices,
 ) -> Result<ApplyOutcome, ApplyCommandError> {
-    execute_apply_with_progress(solution, request, notices, &progress::NONE)
+    execute_apply_with_progress(solution, request, notices, &crate::core::progress::NONE)
 }
 
-/// Like [`execute_apply`], and report one step per entity planned.
+/// Plan writing each project's permission policy into its entity XML, and with `Apply` write it:
+/// every changed file in one transaction, under the workspace lock taken before planning.
+///
+/// It reports one step per entity planned.
 pub fn execute_apply_with_progress(
     solution: &Solution,
     request: &ApplyRequest,

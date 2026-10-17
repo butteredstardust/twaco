@@ -47,7 +47,8 @@ pub fn target(solution: &Solution, text: &str) -> Result<EntityKey, GetError> {
 }
 
 /// The server's XML for the entity `text` names.
-pub fn get(
+#[cfg(test)]
+pub(crate) fn get(
     remote: &dyn Remote,
     solution: &Solution,
     text: &str,

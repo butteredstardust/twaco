@@ -24,7 +24,7 @@ use serde_json::{Map, Value};
 use std::path::{Path, PathBuf};
 
 /// The default folder of case files.
-pub const DEFAULT_FOLDER: &str = "tests";
+pub(crate) const DEFAULT_FOLDER: &str = "tests";
 
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -50,16 +50,16 @@ struct RawCase {
 /// One case, checked and ready to run.
 #[derive(Clone, Debug)]
 pub struct Case {
-    pub file: PathBuf,
+    pub(crate) file: PathBuf,
     pub name: String,
     pub target: ServiceTarget,
     pub service: String,
     /// The test users it runs as, groups expanded, in order and without repeats.
     pub users: Vec<String>,
     pub expect: u16,
-    pub params: Value,
-    pub rows: Option<usize>,
-    pub first: Option<Map<String, Value>>,
+    pub(crate) params: Value,
+    pub(crate) rows: Option<usize>,
+    pub(crate) first: Option<Map<String, Value>>,
 }
 
 /// One call of a case as one user.
@@ -69,13 +69,13 @@ pub struct Outcome {
     pub case: usize,
     pub user: String,
     /// The status the server answered with; `None` when it answered with no status at all.
-    pub status: Option<u16>,
+    pub(crate) status: Option<u16>,
     /// Why the call did not do what the case expects; `None` when it passed.
     pub failure: Option<String>,
 }
 
 /// The folder of case files.
-pub fn folder(solution: &Solution) -> PathBuf {
+pub(crate) fn folder(solution: &Solution) -> PathBuf {
     solution
         .root
         .join(solution.test.cases.as_deref().unwrap_or(DEFAULT_FOLDER))
@@ -84,7 +84,7 @@ pub fn folder(solution: &Solution) -> PathBuf {
 /// Read every case file (`*.toml` directly in the folder, in name order), keeping the cases whose
 /// name, service or file contains one of `filters` (all of them without filters). Every problem
 /// in every file is reported at once, and nothing runs while there is one.
-pub fn load(solution: &Solution, filters: &[String]) -> Result<Vec<Case>, TestError> {
+pub(crate) fn load(solution: &Solution, filters: &[String]) -> Result<Vec<Case>, TestError> {
     super::check_users(solution)?;
     let folder = folder(solution);
     let mut paths: Vec<PathBuf> = match std::fs::read_dir(&folder) {
@@ -235,7 +235,7 @@ fn case(solution: &Solution, path: &Path, name: &str, raw: RawCase) -> Result<Ca
 
 /// Run every case as each of its users, one call after another. `sign_in` opens a session as
 /// a test user.
-pub fn run<S, F>(cases: &[Case], sign_in: F) -> Result<Vec<Outcome>, TestError>
+pub(crate) fn run<S, F>(cases: &[Case], sign_in: F) -> Result<Vec<Outcome>, TestError>
 where
     S: Remote,
     F: Fn(&str) -> Result<S, TestError>,

@@ -36,7 +36,8 @@ pub enum RestoreOutcome {
 
 impl RestoreOutcome {
     /// The access this specific outcome implies.
-    pub const fn effects(&self) -> Effects {
+    #[cfg(test)]
+    pub(crate) const fn effects(&self) -> Effects {
         match self {
             Self::Sets { effects, .. }
             | Self::Plan { effects, .. }
