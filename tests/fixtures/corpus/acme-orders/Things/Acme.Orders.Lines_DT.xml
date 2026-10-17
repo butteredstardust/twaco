@@ -41,7 +41,7 @@
                  name="Settings">
                     <Rows>
                         <Row>
-                            <accumulatedDataShape><json><![CDATA[{"fieldDefinitions":{"orderId":{"name":"orderId","baseType":"STRING","ordinal":1},"sku":{"name":"sku","baseType":"STRING","ordinal":2}}}]]></json></accumulatedDataShape>
+                            <accumulatedDataShape><json><![CDATA[{"fieldDefinitions":{"note":{"name":"note","aspects":{"isPrimaryKey":false},"description":"A remark with <markup> & an é","baseType":"STRING","ordinal":3},"quantity":{"name":"quantity","aspects":{"isPrimaryKey":false},"description":"How many","baseType":"INTEGER","ordinal":4},"orderId":{"name":"orderId","baseType":"STRING","ordinal":1},"sku":{"name":"sku","baseType":"STRING","ordinal":2}}}]]></json></accumulatedDataShape>
                             <dataShape><![CDATA[Acme.Orders.OrderLine_DS]]></dataShape>
                         </Row>
                     </Rows>

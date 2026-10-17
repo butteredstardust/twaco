@@ -45,13 +45,60 @@ pub enum DataTableError {
 /// across the file finds the first `ConfigurationTable name="Settings"` anywhere, which in a
 /// document holding more than one entity is a span belonging to something else entirely.
 fn data_table_thing(tokens: &[Token], src: &[u8]) -> Option<(usize, usize)> {
+    thing_with_template(tokens, src, |template| template == b"DataTable")
+}
+
+fn data_or_stream_thing(tokens: &[Token], src: &[u8]) -> Option<(usize, usize)> {
+    thing_with_template(tokens, src, |template| {
+        template == b"DataTable" || template == b"Stream"
+    })
+}
+
+fn thing_with_template(
+    tokens: &[Token],
+    src: &[u8],
+    matches_template: impl Fn(&[u8]) -> bool,
+) -> Option<(usize, usize)> {
     let start = tokens.iter().position(|t| {
         t.kind == Kind::Start
             && t.name.of(src) == b"Thing"
-            && matches!(scan::attribute(src, t, "thingTemplate"), Ok(Some(v)) if v.of(src) == b"DataTable")
+            && matches!(scan::attribute(src, t, "thingTemplate"), Ok(Some(v)) if matches_template(v.of(src)))
     })?;
     let end = scan::element_end_in(tokens, src, start)?;
     Some((start, end))
+}
+
+/// The declared DataShape and raw accumulated shape of a DataTable or Stream.
+pub(crate) fn shape_and_accumulated(src: &[u8]) -> Option<(String, String)> {
+    let tokens = scan::tokenize(src).ok()?;
+    let thing = data_or_stream_thing(&tokens, src)?;
+    let settings = table_named(&tokens, src, thing, "Settings")?;
+    let row = first_row(&tokens, src, settings)?;
+    Some((
+        child_text(&tokens, src, row, "dataShape")?,
+        child_text(&tokens, src, row, "accumulatedDataShape")?,
+    ))
+}
+
+/// Splice only a DataTable or Stream's accumulated-shape payload.
+pub(crate) fn write_accumulated(src: &[u8], json: &str) -> Result<Vec<u8>, DataTableError> {
+    let tokens = scan::tokenize(src).map_err(DataTableError::Scan)?;
+    let thing = data_or_stream_thing(&tokens, src).ok_or(DataTableError::NotADataTable)?;
+    let settings = table_named(&tokens, src, thing, "Settings")
+        .ok_or(DataTableError::MissingTable("Settings"))?;
+    let row = first_row(&tokens, src, settings)
+        .ok_or_else(|| DataTableError::Malformed("the Settings table has no Row".into()))?;
+    let span = value_region(&tokens, src, row, "accumulatedDataShape").ok_or_else(|| {
+        DataTableError::Malformed("no <accumulatedDataShape> to write the shape into".into())
+    })?;
+    writable(&tokens, src, span, "accumulatedDataShape")?;
+    let existing = String::from_utf8_lossy(span.of(src));
+    let rendered = render_value(&existing, json.trim(), super::sync::newline_of(&existing));
+    if rendered.as_slice() == span.of(src) {
+        return Ok(src.to_vec());
+    }
+    super::splice::splice(src, &[super::splice::Edit::new(span, rendered)])
+        .map_err(|e| DataTableError::Malformed(e.to_string()))
 }
 
 /// Whether a document is a DataTable Thing.
@@ -879,5 +926,26 @@ mod tests {
             </ConfigurationTables></Thing>
         </Things></Entities>"#;
         assert_eq!(extract(src).unwrap().data_shape, "Right_DS");
+    }
+
+    #[test]
+    fn accumulated_shape_helpers_cover_streams_and_keep_cdata_layout() {
+        for template in ["DataTable", "Stream"] {
+            let src = format!(
+                "<Entities><Things><Thing thingTemplate=\"{template}\"><ConfigurationTables><ConfigurationTable name=\"Settings\"><Rows><Row><dataShape><![CDATA[S]]></dataShape><accumulatedDataShape><json><![CDATA[\r\n  {{\"fieldDefinitions\":{{}}}}\r\n]]></json></accumulatedDataShape></Row></Rows></ConfigurationTable></ConfigurationTables></Thing></Things></Entities>"
+            );
+            assert_eq!(
+                shape_and_accumulated(src.as_bytes()),
+                Some(("S".into(), "{\"fieldDefinitions\":{}}".into()))
+            );
+            let out =
+                write_accumulated(src.as_bytes(), r#"{"fieldDefinitions":{"id":{}}}"#).unwrap();
+            let text = String::from_utf8(out).unwrap();
+            assert!(
+                text.contains("<![CDATA[\r\n  {\"fieldDefinitions\":{\"id\":{}}}\r\n  ]]>"),
+                "{text}"
+            );
+            assert!(text.contains("<dataShape><![CDATA[S]]>"), "{text}");
+        }
     }
 }

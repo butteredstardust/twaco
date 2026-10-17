@@ -7,7 +7,7 @@
 use super::config::Solution;
 use super::progress::{self, Progress};
 use super::{bindings, fmt as format_js, sync, workspace};
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
@@ -614,6 +614,42 @@ fn sidecars_in_sync(solution: &Solution) -> GateResult {
         }
     }
 
+    // A DataShape import rewrites accumulatedDataShape even on unmanaged tables and Streams.
+    // Compare with the DataShape as a sync leaves it; one whose own sidecar will not sync is
+    // already a finding above, and its tables are not judged against fields it may never take.
+    let mut shapes = BTreeMap::new();
+    for entity in &found.entities {
+        if entity.info.collection != "DataShapes" {
+            continue;
+        }
+        if let Some(fields) = super::workflow::shape_fields_after_sync(solution, entity, true) {
+            shapes.insert(entity.info.name.clone(), fields);
+        }
+    }
+    for entity in &found.entities {
+        let Ok(src) = std::fs::read(&entity.path) else {
+            continue;
+        };
+        let Some((shape, old)) = super::datatable::shape_and_accumulated(&src) else {
+            continue;
+        };
+        let Some(fields) = shapes.get(&shape) else {
+            continue;
+        };
+        if super::accumulated::merge(&old, fields).is_some() {
+            result.findings.push(Finding {
+                gate: "sidecars".to_string(),
+                file: relative(solution, &entity.path),
+                line: 0,
+                rule: "accumulated-shape-stale".to_string(),
+                message: format!(
+                    "accumulated shape does not follow DataShape {shape} ({}); twaco sync updates it",
+                    super::workflow::accumulated_changes(&old, fields)
+                ),
+            });
+        }
+    }
+
     result.examined = examined.len();
 
     // A sidecar tree for an entity that no longer exists is worth knowing about: a sync would
@@ -1199,6 +1235,41 @@ mod tests {
         std::fs::write(bad.join("script.js"), "var a = 1;\nvar b = ;").unwrap();
         let solution = Solution::load(&root.join("twaco.toml")).unwrap();
         (root_guard, root, solution)
+    }
+
+    #[test]
+    fn stale_accumulated_shape_is_a_sidecar_finding_and_a_settled_one_is_not() {
+        let (_dir, root, solution) = live_solution();
+        std::fs::create_dir_all(root.join("DataShapes")).unwrap();
+        let shape = "<Entities><DataShapes><DataShape name=\"P.D\" projectName=\"P\"><FieldDefinitions><FieldDefinition name=\"id\" baseType=\"STRING\" ordinal=\"1\" description=\"\" aspect.isPrimaryKey=\"true\"/><FieldDefinition name=\"count\" baseType=\"INTEGER\" ordinal=\"2\" description=\"\" aspect.isPrimaryKey=\"false\"/></FieldDefinitions></DataShape></DataShapes></Entities>";
+        std::fs::write(root.join("DataShapes/P.D.xml"), shape).unwrap();
+        let old = r#"{"fieldDefinitions":{"id":{"name":"id","aspects":{"isPrimaryKey":true},"description":"","baseType":"STRING","ordinal":0}}}"#;
+        let table = |accumulated: &str| {
+            format!("<Entities><Things><Thing name=\"P.Rows\" projectName=\"P\" thingTemplate=\"DataTable\"><ConfigurationTables><ConfigurationTable name=\"Settings\"><Rows><Row><dataShape><![CDATA[P.D]]></dataShape><accumulatedDataShape><json><![CDATA[{accumulated}]]></json></accumulatedDataShape></Row></Rows></ConfigurationTable></ConfigurationTables></Thing></Things></Entities>")
+        };
+        let path = root.join("Things/P.Rows.xml");
+        std::fs::write(&path, table(old)).unwrap();
+        let stale = sidecars_in_sync(&solution);
+        assert!(stale
+            .findings
+            .iter()
+            .any(|finding| finding.rule == "accumulated-shape-stale"));
+
+        let fields = super::super::datashape::extract(shape.as_bytes()).unwrap();
+        std::fs::write(
+            &path,
+            table(&super::super::accumulated::accumulated_json(&fields)),
+        )
+        .unwrap();
+        let settled = sidecars_in_sync(&solution);
+        assert!(
+            !settled
+                .findings
+                .iter()
+                .any(|finding| finding.rule == "accumulated-shape-stale"),
+            "{:?}",
+            settled.findings
+        );
     }
 
     #[test]

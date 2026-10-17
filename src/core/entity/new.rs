@@ -3,6 +3,7 @@
 //! The skeletons are the 10.1 exports with volatile server metadata removed.  This module only
 //! creates new files; subsequent changes are made by the scanners and sidecar synchronisers.
 
+use crate::core::accumulated::accumulated_json;
 use crate::core::codes::{Coded, ErrorCode};
 use crate::core::config::{Project, Solution};
 use crate::core::datashape::{self, Aspect, Field};
@@ -513,86 +514,6 @@ fn shape_fields(solution: &Solution, shape: &str) -> Result<Vec<Field>, NewError
     let src = std::fs::read(&file.path)
         .map_err(|error| NewError::Invalid(format!("{}: {error}", file.path.display())))?;
     datashape::extract(&src).map_err(|error| NewError::Invalid(error.to_string()))
-}
-
-/// The `accumulatedDataShape` JSON a 10.1 server writes for a data table or stream. It is a
-/// Java HashMap serialised as it iterates: ordinals number the fields in case-insensitive name
-/// order, the fields go in in that order, and the keys come out in hash-bucket order. The rule
-/// reproduces all 132 accumulated shapes found in real repositories.
-fn accumulated_json(fields: &[Field]) -> String {
-    let mut sorted: Vec<&Field> = fields.iter().collect();
-    sorted.sort_by(|a, b| (a.name.to_lowercase(), &a.name).cmp(&(b.name.to_lowercase(), &b.name)));
-    let entries: Vec<(String, String)> = sorted
-        .iter()
-        .enumerate()
-        .map(|(ordinal, field)| {
-            let aspects: Vec<(String, String)> = field
-                .aspects
-                .iter()
-                .map(|(key, value)| (key.clone(), aspect_json(key, value, &field.base_type)))
-                .collect();
-            let value = format!(
-                "{{\"name\":{},\"aspects\":{},\"description\":{},\"baseType\":{},\"ordinal\":{ordinal}}}",
-                json_string(&field.name),
-                java_hash_map(aspects),
-                json_string(&field.description),
-                json_string(&field.base_type),
-            );
-            (field.name.clone(), value)
-        })
-        .collect();
-    format!("{{\"fieldDefinitions\":{}}}", java_hash_map(entries))
-}
-
-fn aspect_json(key: &str, value: &Aspect, base_type: &str) -> String {
-    match value {
-        Aspect::Bool(flag) => flag.to_string(),
-        Aspect::Text(text) if key == "defaultValue" => match base_type {
-            "NUMBER" => match text.parse::<f64>() {
-                // Java's Double.toString: an integral value keeps its ".0".
-                Ok(number) if number.is_finite() && number.fract() == 0.0 && number.abs() < 1e7 => {
-                    format!("{number:.1}")
-                }
-                Ok(number) if number.is_finite() => number.to_string(),
-                _ => json_string(text),
-            },
-            "INTEGER" | "LONG" => text
-                .parse::<i64>()
-                .map_or_else(|_| json_string(text), |number| number.to_string()),
-            _ => json_string(text),
-        },
-        Aspect::Text(text) => json_string(text),
-    }
-}
-
-fn json_string(text: &str) -> String {
-    Value::String(text.to_string()).to_string()
-}
-
-/// A JSON object whose keys are in the order a `java.util.HashMap<String, _>` built by
-/// inserting `entries` in order iterates them: by bucket, then by insertion within a bucket.
-fn java_hash_map(entries: Vec<(String, String)>) -> String {
-    let mut capacity = 16usize;
-    while entries.len() * 4 > capacity * 3 {
-        capacity *= 2;
-    }
-    let bucket = |key: &str| {
-        let hash = key.encode_utf16().fold(0u32, |hash, unit| {
-            hash.wrapping_mul(31).wrapping_add(u32::from(unit))
-        });
-        ((hash ^ (hash >> 16)) as usize) & (capacity - 1)
-    };
-    let mut ordered: Vec<(usize, usize, &(String, String))> = entries
-        .iter()
-        .enumerate()
-        .map(|(at, entry)| (bucket(&entry.0), at, entry))
-        .collect();
-    ordered.sort_by_key(|(bucket, at, _)| (*bucket, *at));
-    let body: Vec<String> = ordered
-        .iter()
-        .map(|(_, _, (key, value))| format!("{}:{value}", json_string(key)))
-        .collect();
-    format!("{{{}}}", body.join(","))
 }
 
 fn data_thing(request: &NewRequest, project: &str, template: &str, settings: String) -> String {

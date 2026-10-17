@@ -372,6 +372,25 @@ Thing's own `ThingStart` event that populates the table if empty: query
 initializes after import (or platform restart), so this self-seeds on a fresh import
 with no extra step.
 
+## A DataShape import rewrites its tables' accumulated shape
+
+Verified on 10.1: importing `Acme.Orders.Row_DS` makes ThingWorx merge the stored
+`accumulatedDataShape` of every DataTable and Stream on it with the DataShape's own fields (a base
+DataShape's fields never appear). The accumulated shape in an imported table's own XML is ignored.
+
+- A field already there keeps its ordinal. Only its `baseType` follows the DataShape; a new
+  description or default value does not.
+- A removed field stays, with `isDeleted: true`. If it comes back, it gets its old ordinal and
+  `isDeleted: false`.
+- A new field gets the next ordinal, new fields in case-insensitive name order.
+- The JSON is compact, keys in Java `HashMap` order.
+
+So a field rename is a delete and an add: values stored in existing rows under `Acme.Orders.Row_DS`'s
+old field name are not carried over, and the renamed field reads its default. Copy them after the
+deploy if they matter. `twaco sync` applies the same merge to the XML and, for a DataTable, to
+`datatable.json`, and `check` reports a table that does not follow its DataShape; do not edit the
+accumulated shape by hand.
+
 ## A script service's `return` inside a nested block silently kills the whole service
 
 A ThingWorx script service body is not compiled as an ordinary JS function. `return

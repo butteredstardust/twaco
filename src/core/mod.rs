@@ -1,5 +1,6 @@
 //! Everything twaco does. The CLI and the MCP server are thin adapters over this.
 
+pub(crate) mod accumulated;
 pub mod adopt;
 pub mod backup;
 pub(crate) mod baseline;

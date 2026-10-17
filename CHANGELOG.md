@@ -14,6 +14,16 @@ All notable changes to twaco are recorded here. The format follows
 
 ### Fixed
 
+- `sync` keeps the `accumulatedDataShape` of the DataTables and Streams on a DataShape in step
+  with it, as the server does on import: a removed field is kept and marked deleted, a new one gets
+  the next ordinal. Before, the repository's tables drifted from the server after every DataShape
+  change (deploy read-back reported them "not kept"). A DataTable's `datatable.json` follows too,
+  `sync <DataShape>` brings its tables along, and the `sidecars` gate of `check` reports a table
+  that does not follow its DataShape (`accumulated-shape-stale`).
+- `rename field` treats a DataTable's or Stream's accumulated shape as the server does, a delete
+  and an add, instead of renaming the entry in place, which the server never kept; Streams were
+  skipped before. The plan now says that values stored under the old field in DataTable and
+  Stream rows are not carried over.
 - A failed MCP tool call no longer puts its `{error, code}` object in `structuredContent`, where
   it broke the tool's published `outputSchema`; the error stays in the text block.
 - The warning for a profile file other users can read now shows on stderr, once per run, without

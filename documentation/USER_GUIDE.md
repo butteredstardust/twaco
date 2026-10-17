@@ -469,6 +469,10 @@ accepts PNG, JPEG, GIF, or SVG content up to 10 MB. Styles use `#rrggbb` or `rgb
 States take ordered comparator specifications; menus require one or more `Title=Mashup` items; and
 themes may copy a repository StyleTheme with `--from` before applying `--prop name=value` overrides.
 
+On `sync`, a DataTable or Stream's `accumulatedDataShape` follows its DataShape exactly as the
+server does on import. DataTables update both their XML and `datatable.json`; Streams update XML.
+Do not edit `accumulatedDataShape` by hand.
+
 ## Changing entities
 
 Each command plans until `--apply` and changes only the element it names.
