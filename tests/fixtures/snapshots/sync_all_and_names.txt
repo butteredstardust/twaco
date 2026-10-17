@@ -1,0 +1,7 @@
+$ twaco sync --all Acme.T
+exit: 2
+
+--- stdout
+
+--- stderr
+twaco: --all and ["Acme.T"] say different things; pass one or the other

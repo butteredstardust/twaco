@@ -1,0 +1,11 @@
+$ twaco deploy --profile a --profile b
+exit: 2
+
+--- stdout
+
+--- stderr
+twaco: the argument '--profile <name>' cannot be used multiple times
+
+Usage: twaco deploy [--apply] [--force]
+
+For more information, try '--help'.

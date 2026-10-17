@@ -1,0 +1,8 @@
+$ twaco entity delete Things/X --force
+exit: 2
+
+--- stdout
+
+--- stderr
+twaco: --force is deprecated for entity delete; it now means --allow-repository-defined --allow-outside-dependents and never covers FileRepository data loss
+twaco: profile "default" was not found (looked in <ROOT>/.twaco/profiles/default.toml) and the environment is incomplete

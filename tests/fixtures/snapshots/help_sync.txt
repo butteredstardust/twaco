@@ -1,0 +1,14 @@
+$ twaco sync --help
+exit: 0
+
+--- stdout
+  sync <entity>|--all         sidecars -> entity XML
+      --check                 report what would change, write nothing
+      --allow-add-remove      add and remove services and fields as the sidecars do
+      --relayout              rewrite scripts in the configured CDATA layout
+
+  --project <name>            narrow to one project of the solution
+  --log <filter>              write diagnostic logs to stderr (or TWACO_LOG)
+  --log-file <path>           append diagnostic logs to a file (or TWACO_LOG_FILE)
+--- stderr
+

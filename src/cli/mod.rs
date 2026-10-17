@@ -1,9 +1,11 @@
 pub(crate) mod args;
+pub(crate) mod command;
 pub(crate) mod content;
 pub(crate) mod data;
 pub(crate) mod entity;
 pub(crate) mod entity_edit;
 pub(crate) mod entity_new;
+pub(crate) mod flags;
 pub(crate) mod info;
 pub(crate) mod localization;
 pub(crate) mod mashup;

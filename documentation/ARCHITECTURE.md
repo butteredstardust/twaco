@@ -112,10 +112,18 @@ See [Testing](TESTING.md) for commands.
 
 1. Put the behaviour in a `core` module, with its server access behind a trait so tests can
    fake it.
-2. Add the CLI command: one entry in `COMMANDS` in `cli/spec.rs` (its path, group, the flags it
-   takes, whether it takes operands, and the lines `twaco` lists for it; a new flag also gets
-   one line in `FLAGS`), and its arm in the dispatch in `main.rs`. clap parses from that table,
-   so an unknown flag or operand is refused with a suggestion, and `--help` works.
+2. Add the CLI command: one entry in `USAGE` in `cli/spec.rs` (its path, group, and the lines
+   `twaco` lists for it; a new flag also gets one line in `FLAGS`). Commands are moving from
+   `GRAMMAR` rows and `Args` to typed structs parsed by clap derive; a new command is typed:
+   a `#[derive(clap::Args)]` struct with `#[group(skip)]` beside its handler (every value an
+   `Option`, operands a `Vec<String>` with id `operands`, an explicit `long` and FLAGS'
+   `value_name` on each flag, shared flags flattened from `cli/flags.rs`), a variant in `Typed`
+   (`cli/command.rs`) with its `path()` and any `validate()` rule, and its arm in
+   `dispatch_typed` in `main.rs`. A command not yet moved has a `GRAMMAR` row and an arm in
+   `dispatch`. clap parses one tree built from both, so an unknown flag or operand is refused
+   with a suggestion, and `--help` works; `decorate()` gives every command the same grammar
+   policy, which `tests/fixtures/cli_grammar.txt` records (`TWACO_BLESS=1 cargo test --bin twaco
+   grammar`; moving a command must leave it unchanged).
 3. Add the MCP tool: a request object in `mcp/requests/`, its adapter in the family file, and one
    entry in `mcp/registry.rs` (see [MCP schemas](MCP_SCHEMAS.md)). Writes take `dry_run` defaulting
    to `true`; results lead with a summary.

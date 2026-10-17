@@ -49,14 +49,18 @@ pub(crate) fn write_agent_files(solution: &Solution) -> u8 {
     }
 }
 
+/// `twaco update [--apply]`.
+#[derive(Debug, clap::Args)]
+#[group(skip)]
+pub(crate) struct Update {
+    #[command(flatten)]
+    pub(crate) apply: super::flags::Apply,
+}
+
 /// `twaco update [--apply]`: compare with the latest release, and with `--apply` replace this
 /// binary with it. No MCP tool: an agent must not replace the server it is talking to.
-pub(crate) fn update_cmd(parsed: &Args) -> u8 {
+pub(crate) fn update_cmd(parsed: &Update) -> u8 {
     use twaco::core::update;
-    if !parsed.names.is_empty() {
-        eprintln!("{} update takes only --apply", style::prefix());
-        return FAILED;
-    }
     let current = env!("CARGO_PKG_VERSION");
     let web = update::Web::new(Duration::from_secs(120));
     let manifest = match update::manifest(&web, update::MANIFEST_URL, update::PUBLIC_KEY) {
@@ -99,7 +103,7 @@ pub(crate) fn update_cmd(parsed: &Args) -> u8 {
     // A package manager or an AppImage owns some installs: say how to update those instead.
     let appimage = std::env::var("APPIMAGE").ok();
     let owner = update::owner(&exe, appimage.as_deref());
-    if !parsed.flags.iter().any(|flag| flag == "--apply") {
+    if !parsed.apply.apply {
         match owner {
             Some(why) => println!("nothing installed; {why}"),
             None => println!(

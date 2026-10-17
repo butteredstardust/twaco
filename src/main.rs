@@ -18,7 +18,9 @@ use twaco::core::workspace;
 
 mod cli;
 
+use clap::{FromArgMatches as _, Subcommand as _};
 use cli::args::Args;
+use cli::command::Typed;
 use cli::content::{export_cmd, ext_cmd, import_cmd, package_cmd, repo_cmd, search_cmd};
 use cli::data::{call, config_table, datatable_copy_cmd, db_clean_cmd, db_cmd, logs_cmd};
 use cli::entity::{
@@ -123,23 +125,39 @@ fn run_command(args: &[String]) -> ExitCode {
             return ExitCode::from(u8::try_from(error.exit_code()).unwrap_or(FAILED));
         }
     };
-    let (command, matched) = cli::spec::matched(&matches);
-    let parsed = match cli::spec::args_of(command, matched) {
+    let (route, matched) = cli::spec::matched(&matches);
+    // A command clap derives is read into its struct; the rest are read from the table. Either
+    // way, what clap cannot check is refused here, before the solution is looked for.
+    let first = matches.subcommand_name().unwrap_or_default();
+    let parsed = if Typed::has_subcommand(first) {
+        Typed::from_arg_matches(&matches)
+            .map_err(|error| error.to_string())
+            .and_then(|typed| typed.validate().map(|()| Parsed::Typed(typed)))
+    } else {
+        cli::spec::args_of(route, matched).map(|args| Parsed::Legacy(route, Box::new(args)))
+    };
+    let parsed = match parsed {
         Ok(parsed) => parsed,
         Err(why) => {
             eprintln!("{} {why}", cli::style::prefix());
             return ExitCode::from(FAILED);
         }
     };
-    let route = command.path;
     let (log, log_file) = cli::spec::log_options(matched);
     if let Some(warning) = twaco::core::diagnostics::init(log.as_deref(), log_file.as_deref()) {
         eprintln!("{} {warning}", cli::style::prefix());
     }
+    let route = match &parsed {
+        Parsed::Typed(typed) => typed.path(),
+        Parsed::Legacy(route, _) => route,
+    };
     let span = tracing::info_span!("command", command = route);
     let _entered = span.enter();
     let started = std::time::Instant::now();
-    let code = dispatch(route, &parsed);
+    let code = match parsed {
+        Parsed::Typed(typed) => dispatch_typed(typed),
+        Parsed::Legacy(route, args) => dispatch(route, &args),
+    };
     tracing::info!(
         exit = code,
         elapsed_ms = u64::try_from(started.elapsed().as_millis()).unwrap_or(u64::MAX),
@@ -148,7 +166,28 @@ fn run_command(args: &[String]) -> ExitCode {
     ExitCode::from(code)
 }
 
-/// Run one parsed command and return its exit code.
+/// A command line as the command reads it: a derived command's struct, or a table command's path
+/// and [`Args`].
+enum Parsed {
+    Typed(Typed),
+    Legacy(&'static str, Box<Args>),
+}
+
+/// Run one derived command and return its exit code.
+fn dispatch_typed(typed: Typed) -> u8 {
+    match typed {
+        // update replaces the binary, not the solution, so it needs none.
+        Typed::Update(update) => update_cmd(&update),
+        // init makes the config discovery would look for, so it runs before discovery too.
+        Typed::Init(init) => init_cmd(&init),
+        // doctor diagnoses a missing solution rather than failing on it.
+        Typed::Doctor(doctor) => doctor_cmd(&doctor),
+        Typed::Mcp(mcp) => mcp_cmd(&mcp),
+        Typed::Projects => run(projects),
+    }
+}
+
+/// Run one table command and return its exit code.
 fn dispatch(route: &str, parsed: &Args) -> u8 {
     match route {
         // The help center needs no solution, so it runs before discovery and uses one if found.
@@ -157,13 +196,6 @@ fn dispatch(route: &str, parsed: &Args) -> u8 {
         "javadoc" => return javadoc_cmd(parsed),
         // So does the guide: its built-in topics are the same everywhere.
         "guide" => return guide_cmd(parsed),
-        // update replaces the binary, not the solution, so it needs none.
-        "update" => return update_cmd(parsed),
-        // init makes the config discovery would look for, so it runs before discovery too.
-        "init" => return init_cmd(parsed),
-        // doctor diagnoses a missing solution rather than failing on it.
-        "doctor" => return doctor_cmd(parsed),
-        "mcp" => return mcp_cmd(parsed),
         "widgets" => return widgets_cmd(parsed),
         "mashup templates" => return mashup_templates_cmd(parsed),
         _ => {}
@@ -172,7 +204,6 @@ fn dispatch(route: &str, parsed: &Args) -> u8 {
     // Commands that change the workspace take its lock in their executor (core::commands), so
     // the lock covers exactly what they change and both front ends take it the same way.
     run(|solution| match route {
-        "projects" => projects(solution),
         "types" => types_cmd(solution, parsed),
         "extract" => extract(solution, parsed),
         "sync" => sync_cmd(solution, parsed),
@@ -240,14 +271,24 @@ fn dispatch(route: &str, parsed: &Args) -> u8 {
         "db run" | "db query" => db_cmd(solution, route, parsed),
         "db clean" => db_clean_cmd(solution, parsed),
         "datatable copy" => datatable_copy_cmd(solution, parsed),
-        other => unreachable!("{other} is in COMMANDS but has no handler"),
+        other => unreachable!("{other} is in GRAMMAR but has no handler"),
     })
 }
 
+/// `twaco init [--write|--agents]`.
+#[derive(Debug, clap::Args)]
+#[group(skip)]
+struct Init {
+    #[arg(long = "write")]
+    write: bool,
+    #[arg(long = "agents")]
+    agents: bool,
+}
+
 /// `twaco init [--write|--agents]`: propose a twaco.toml from the repository's own entities.
-fn init_cmd(parsed: &Args) -> u8 {
+fn init_cmd(parsed: &Init) -> u8 {
     let here = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
-    let write = match (parsed.has("--write"), parsed.has("--agents")) {
+    let write = match (parsed.write, parsed.agents) {
         (false, false) => false,
         (true, false) => true,
         // The agent files alone, for a solution that already has its config.
@@ -322,14 +363,18 @@ fn init_cmd(parsed: &Args) -> u8 {
     }
 }
 
+/// `twaco doctor [--profile <name>]`.
+#[derive(Debug, clap::Args)]
+#[group(skip)]
+struct Doctor {
+    #[command(flatten)]
+    profile: cli::flags::Profile,
+}
+
 /// `twaco doctor [--profile <name>]`: what resolved, what is reachable, what is missing.
-fn doctor_cmd(parsed: &Args) -> u8 {
-    let profile_name = parsed
-        .profile
-        .clone()
-        .unwrap_or_else(|| "default".to_string());
+fn doctor_cmd(parsed: &Doctor) -> u8 {
     let here = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
-    let items = twaco::core::doctor::diagnose(&here, &profile_name);
+    let items = twaco::core::doctor::diagnose(&here, parsed.profile.name());
     for item in &items {
         let mark = match item.health {
             twaco::core::doctor::Health::Ok => "ok  ",
@@ -348,19 +393,27 @@ fn doctor_cmd(parsed: &Args) -> u8 {
     }
 }
 
+/// `twaco mcp [--tools <groups>]`.
+#[derive(Debug, clap::Args)]
+#[group(skip)]
+struct Mcp {
+    /// The tool groups to serve; `TWACO_MCP_TOOLS` when absent.
+    #[arg(long = "tools", value_name = "groups")]
+    tools: Option<String>,
+}
+
 /// `twaco mcp [--tools <groups>]`. The server finds the solution on every call rather than at
 /// start, so it starts in a directory without one and each tool says so, and an edit to
 /// twaco.toml needs no restart. The tool groups are fixed for the server's life: it tells clients
 /// its list does not change.
-fn mcp_cmd(parsed: &Args) -> u8 {
+fn mcp_cmd(parsed: &Mcp) -> u8 {
     let root = std::env::var_os("TWACO_ROOT")
         .map(PathBuf::from)
         .or_else(|| std::env::current_dir().ok())
         .unwrap_or_else(|| PathBuf::from("."));
     let groups = parsed
-        .values
-        .get("--tools")
-        .cloned()
+        .tools
+        .clone()
         .or_else(|| std::env::var("TWACO_MCP_TOOLS").ok());
     let selection = match groups.as_deref().map(twaco::mcp::Selection::parse) {
         None => twaco::mcp::Selection::ALL,
@@ -378,23 +431,6 @@ fn mcp_cmd(parsed: &Args) -> u8 {
             FAILED
         }
     }
-}
-
-/// A command's path, how many words it takes, and the flags it accepts: the table's view, for
-/// tests that start from words on a command line.
-#[cfg(test)]
-type Route = (&'static str, usize, &'static [&'static str]);
-
-#[cfg(test)]
-fn route(args: &[String]) -> Result<Route, String> {
-    let two = args.iter().take(2).cloned().collect::<Vec<_>>().join(" ");
-    let one = args.first().cloned().unwrap_or_default();
-    for (path, words) in [(two, 2), (one, 1)] {
-        if let Some(command) = cli::spec::command(&path) {
-            return Ok((command.path, words, command.flags));
-        }
-    }
-    Err(format!("unknown command `{}`", args.join(" ")))
 }
 
 /// Exit quietly when stdout's reader has gone, as `twaco projects | head` does once it has its

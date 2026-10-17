@@ -1,0 +1,13 @@
+$ twaco sync --cehck
+exit: 2
+
+--- stdout
+
+--- stderr
+twaco: unexpected argument '--cehck' found
+
+  tip: a similar argument exists: '--check'
+
+Usage: twaco sync <entity>|--all
+
+For more information, try '--help'.
