@@ -103,8 +103,9 @@ claude mcp add twaco -- twaco mcp --tools core,mashup
 
 ## Errors and codes
 
-An errored tool result has `{"error":"the unchanged message","code":"stable_code"}` in its
-text and structured content. The code identifies the next action.
+An errored tool result has `isError: true` and `{"error":"the unchanged message","code":"stable_code"}`
+in its text block. It has no `structuredContent`, which is kept for results that match the tool's
+`outputSchema`. The code identifies the next action.
 
 | Code | Meaning and next action |
 | --- | --- |
