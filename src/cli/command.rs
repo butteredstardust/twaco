@@ -41,6 +41,9 @@ pub(crate) enum Typed {
     Search(super::content::Search),
     Export(super::content::Export),
     Import(super::content::Import),
+    Call(super::data::Call),
+    Logs(super::data::Logs),
+    Settings(super::info::Settings),
 }
 
 impl Typed {
@@ -75,6 +78,9 @@ impl Typed {
             Typed::Search(_) => "search",
             Typed::Export(_) => "export",
             Typed::Import(_) => "import",
+            Typed::Call(_) => "call",
+            Typed::Logs(_) => "logs",
+            Typed::Settings(_) => "settings",
         }
     }
 
@@ -84,6 +90,7 @@ impl Typed {
         match self {
             Typed::Extract(extract) => extract.selection.validate(),
             Typed::Sync(sync) => sync.selection.validate(),
+            Typed::Call(call) => call.timeout.duration().map(|_| ()),
             Typed::Init(_)
             | Typed::Doctor(_)
             | Typed::Projects
@@ -109,7 +116,9 @@ impl Typed {
             | Typed::Ext(_)
             | Typed::Search(_)
             | Typed::Export(_)
-            | Typed::Import(_) => Ok(()),
+            | Typed::Import(_)
+            | Typed::Logs(_)
+            | Typed::Settings(_) => Ok(()),
         }
     }
 }

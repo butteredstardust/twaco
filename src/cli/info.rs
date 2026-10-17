@@ -1,4 +1,3 @@
-use super::args::Args;
 use super::style;
 use crate::{DRIFT, FAILED, OK};
 use std::path::PathBuf;
@@ -598,11 +597,25 @@ pub(crate) fn javadoc_cmd(parsed: &Javadoc) -> u8 {
     }
 }
 
+/// `twaco settings [<Subsystem> [<Table>]] [--search <text>] [--json]`.
+#[derive(Debug, clap::Args)]
+#[group(skip)]
+pub(crate) struct Settings {
+    #[arg(long = "search", value_name = "text")]
+    pub(crate) search: Option<String>,
+    #[command(flatten)]
+    pub(crate) json: super::flags::Json,
+    #[command(flatten)]
+    pub(crate) profile: super::flags::Profile,
+    #[arg(id = "operands", value_name = "operand")]
+    pub(crate) operands: Vec<String>,
+}
+
 /// `twaco settings [<Subsystem> [<Table>]] [--search <text>]`: the server's subsystem
 /// settings, read-only.
-pub(crate) fn settings_cmd(solution: &Solution, args: &Args) -> u8 {
+pub(crate) fn settings_cmd(solution: &Solution, args: &Settings) -> u8 {
     use twaco::core::settings;
-    let profile_name = args.profile.as_deref().unwrap_or("default");
+    let profile_name = args.profile.name();
     let client = match profile::load(&solution.root, profile_name) {
         Ok(profile) => server::Client::new(profile),
         Err(error) => {
@@ -629,12 +642,12 @@ pub(crate) fn settings_cmd(solution: &Solution, args: &Args) -> u8 {
         }
     };
     let result: Result<(), String> = (|| {
-        if let Some(text) = args.values.get("--search") {
+        if let Some(text) = args.search.as_ref() {
             let all = settings::read_all(&client).map_err(|e| e.to_string())?;
             let found = settings::search(&all, text);
             for f in &found {
                 let values: Vec<String> = f.values.iter().map(settings::shown).collect();
-                if args.has("--json") {
+                if args.json.json {
                     println!(
                         "{}",
                         serde_json::json!({ "subsystem": f.subsystem, "table": f.table, "setting": f.field.name, "type": f.field.base_type, "values": f.values, "description": f.field.description })
@@ -654,7 +667,7 @@ pub(crate) fn settings_cmd(solution: &Solution, args: &Args) -> u8 {
             return Ok(());
         }
         let names = settings::Remote::subsystems(&client).map_err(|e| e.to_string())?;
-        match args.names.as_slice() {
+        match args.operands.as_slice() {
             [] => {
                 let all = settings::summaries(&client).map_err(|e| e.to_string())?;
                 for settings::Summary {
@@ -663,7 +676,7 @@ pub(crate) fn settings_cmd(solution: &Solution, args: &Args) -> u8 {
                     tables,
                 } in &all
                 {
-                    if args.has("--json") {
+                    if args.json.json {
                         println!(
                             "{}",
                             serde_json::json!({ "subsystem": name, "running": running, "tables": tables })
@@ -685,7 +698,7 @@ pub(crate) fn settings_cmd(solution: &Solution, args: &Args) -> u8 {
                 let chosen = settings::tables(&read, rest.first().map(String::as_str))
                     .map_err(|e| e.to_string())?;
                 for table in chosen {
-                    if args.has("--json") {
+                    if args.json.json {
                         println!("{}", settings::table_json(&read.name, table));
                     } else {
                         print_table(&read.name, table);

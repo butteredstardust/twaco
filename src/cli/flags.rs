@@ -76,6 +76,31 @@ impl Selection {
     }
 }
 
+/// `--timeout <seconds>`: how long one request may take. Read as text and checked by
+/// [`Timeout::duration`] from `validate()`, as `args_from` checked it, so the message is the
+/// builder's.
+#[derive(Debug, Default, clap::Args)]
+#[group(skip)]
+pub(crate) struct Timeout {
+    #[arg(long = "timeout", value_name = "seconds")]
+    pub(crate) timeout: Option<String>,
+}
+
+impl Timeout {
+    /// The timeout given, if any; refused unless a positive whole number of seconds.
+    pub(crate) fn duration(&self) -> Result<Option<std::time::Duration>, String> {
+        let Some(value) = &self.timeout else {
+            return Ok(None);
+        };
+        value
+            .parse::<u64>()
+            .ok()
+            .filter(|seconds| *seconds > 0)
+            .map(|seconds| Some(std::time::Duration::from_secs(seconds)))
+            .ok_or_else(|| "--timeout needs a positive whole number of seconds".to_string())
+    }
+}
+
 /// The parser for a value that names a file (`value_parser = super::flags::path()`): any
 /// string, as the builder took it, read as a path. clap's own path parser refuses an empty value
 /// and accepts one that is not UTF-8, which the builder did the other way round.

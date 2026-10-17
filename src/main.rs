@@ -212,6 +212,9 @@ fn dispatch_typed(typed: Typed) -> u8 {
         Typed::Search(search) => run(|solution| search_cmd(solution, &search)),
         Typed::Export(export) => run(|solution| export_cmd(solution, &export)),
         Typed::Import(import) => run(|solution| import_cmd(solution, &import)),
+        Typed::Call(command) => run(|solution| call(solution, &command)),
+        Typed::Logs(logs) => run(|solution| logs_cmd(solution, &logs)),
+        Typed::Settings(settings) => run(|solution| settings_cmd(solution, &settings)),
     }
 }
 
@@ -227,9 +230,6 @@ fn dispatch(route: &str, parsed: &Args) -> u8 {
     run(|solution| match route {
         "bundle" => bundle(solution, parsed),
         "deploy" => deploy_cmd(solution, parsed),
-        "call" => call(solution, parsed),
-        "settings" => settings_cmd(solution, parsed),
-        "logs" => logs_cmd(solution, parsed),
         "adopt" => adopt_cmd(solution, parsed),
         "handoff" => handoff_cmd(solution, parsed),
         "rename entity" | "rename prefix" | "rename field" | "rename service" | "rename param"

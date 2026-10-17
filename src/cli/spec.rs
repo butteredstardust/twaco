@@ -2761,38 +2761,6 @@ pub(crate) const GRAMMAR: &[Grammar] = &[
         operands: false,
         flags: &["--apply", "--profile", "--json"],
     },
-    Grammar {
-        path: "call",
-        operands: true,
-        flags: &["--timeout", "--detail", "--profile", "--with-logs", "--as"],
-    },
-    Grammar {
-        path: "logs",
-        operands: true,
-        flags: &[
-            "--since",
-            "--from",
-            "--to",
-            "--level",
-            "--grep",
-            "--regex",
-            "--user",
-            "--thread",
-            "--origin",
-            "--limit",
-            "--oldest-first",
-            "--json",
-            "--profile",
-            "--sublogger",
-            "--reset",
-            "--apply",
-        ],
-    },
-    Grammar {
-        path: "settings",
-        operands: true,
-        flags: &["--search", "--json", "--profile"],
-    },
 ];
 
 /// The sections of the listing and of COMMANDS.md: a title and one line about them.

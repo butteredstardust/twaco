@@ -529,25 +529,40 @@ fn values_reach_the_fields_the_commands_read() {
     assert_eq!(deploy.only, ["A", "B"]);
     assert_eq!(deploy.only_projects, ["P", "Q"]);
     assert_eq!(deploy.profile.as_deref(), Some("x"));
-    let logs = parse(&["logs", "ScriptLog", "--since", "10m", "--json"]).unwrap();
-    assert_eq!(logs.names, ["ScriptLog"]);
-    assert_eq!(logs.values.get("--since").map(String::as_str), Some("10m"));
-    assert!(logs.has("--json"));
+    let Typed::Logs(logs) =
+        parse_typed(&["logs", "ScriptLog", "--since", "10m", "--json"]).unwrap()
+    else {
+        panic!("logs parses as logs");
+    };
+    assert_eq!(logs.operands, ["ScriptLog"]);
+    assert_eq!(logs.since.as_deref(), Some("10m"));
+    assert!(logs.json.json);
     let query = parse(&["db", "query", "-q", "select 1", "--timeout", "30"]).unwrap();
     assert_eq!(query.values.get("-q").map(String::as_str), Some("select 1"));
     assert_eq!(query.timeout, Some(Duration::from_secs(30)));
-    assert!(parse(&["call", "T", "S", "--timeout", "0"]).is_err());
+    assert_eq!(
+        parse_typed(&["call", "T", "S", "--timeout", "0"]).map(|_| ()),
+        Err("--timeout needs a positive whole number of seconds".to_string())
+    );
+    let Typed::Call(call) = parse_typed(&["call", "T", "S", "--timeout", "30"]).unwrap() else {
+        panic!("call parses as call");
+    };
+    assert_eq!(call.timeout.duration(), Ok(Some(Duration::from_secs(30))));
     assert!(parse(&["deploy", "--only-projects", " , "]).is_err());
     assert_eq!(
         parse_typed(&["sync", "--all", "Acme.T"]).map(|_| ()),
         Err("--all and [\"Acme.T\"] say different things; pass one or the other".to_string())
     );
     // A value may begin with a dash, as a log filter can.
-    let grep = parse(&["logs", "ScriptLog", "--grep", "-x"]).unwrap();
-    assert_eq!(grep.values.get("--grep").map(String::as_str), Some("-x"));
+    let Typed::Logs(grep) = parse_typed(&["logs", "ScriptLog", "--grep", "-x"]).unwrap() else {
+        panic!("logs parses as logs");
+    };
+    assert_eq!(grep.grep.as_deref(), Some("-x"));
     // A negative number is an operand; a mistyped flag after operands is still refused.
-    let call = parse(&["call", "T", "S", "-5"]).unwrap();
-    assert_eq!(call.names, ["T", "S", "-5"]);
+    let Typed::Call(call) = parse_typed(&["call", "T", "S", "-5"]).unwrap() else {
+        panic!("call parses as call");
+    };
+    assert_eq!(call.operands, ["T", "S", "-5"]);
     assert!(parse_typed(&["sync", "Acme.T", "--cehck"]).is_err());
     // A file named with a leading dash goes after `--`.
     let file = parse(&["db", "run", "--", "-migration.sql"]).unwrap();
@@ -1205,6 +1220,57 @@ fn projection(typed: Typed) -> Projection {
                 ("--profile", import.profile.profile),
             ]),
         ),
+
+        Typed::Call(call) => (
+            call.operands,
+            switches(&[
+                ("--detail", call.detail.detail),
+                ("--with-logs", call.with_logs),
+            ]),
+            values(&[
+                // args_from read it into a Duration; its seconds are what was given.
+                (
+                    "--timeout",
+                    call.timeout
+                        .duration()
+                        .unwrap()
+                        .map(|timeout| timeout.as_secs().to_string()),
+                ),
+                ("--profile", call.profile.profile),
+                ("--as", call.user),
+            ]),
+        ),
+        Typed::Logs(logs) => (
+            logs.operands,
+            switches(&[
+                ("--oldest-first", logs.oldest_first),
+                ("--json", logs.json.json),
+                ("--reset", logs.reset),
+                ("--apply", logs.apply.apply),
+            ]),
+            values(&[
+                ("--since", logs.since),
+                ("--from", logs.from),
+                ("--to", logs.to),
+                ("--level", logs.level),
+                ("--grep", logs.grep),
+                ("--regex", logs.regex),
+                ("--user", logs.user),
+                ("--thread", logs.thread),
+                ("--origin", logs.origin),
+                ("--limit", logs.limit),
+                ("--profile", logs.profile.profile),
+                ("--sublogger", logs.sublogger),
+            ]),
+        ),
+        Typed::Settings(settings) => (
+            settings.operands,
+            switches(&[("--json", settings.json.json)]),
+            values(&[
+                ("--search", settings.search),
+                ("--profile", settings.profile.profile),
+            ]),
+        ),
     }
 }
 
@@ -1377,6 +1443,34 @@ fn derived_commands_read_what_their_grammar_rows_read() {
                 "--detail",
             ],
         ),
+        (
+            "call",
+            true,
+            &["--timeout", "--detail", "--profile", "--with-logs", "--as"],
+        ),
+        (
+            "logs",
+            true,
+            &[
+                "--since",
+                "--from",
+                "--to",
+                "--level",
+                "--grep",
+                "--regex",
+                "--user",
+                "--thread",
+                "--origin",
+                "--limit",
+                "--oldest-first",
+                "--json",
+                "--profile",
+                "--sublogger",
+                "--reset",
+                "--apply",
+            ],
+        ),
+        ("settings", true, &["--search", "--json", "--profile"]),
     ];
     let lines: &[&[&str]] = &[
         &["init"],
@@ -1640,6 +1734,70 @@ fn derived_commands_read_what_their_grammar_rows_read() {
             "--profile",
             "qa",
         ],
+        &["call", "Acme.T", "Run"],
+        &[
+            "call",
+            "Acme.T",
+            "Run",
+            "{\"a\": -1}",
+            "--timeout",
+            "30",
+            "--detail",
+            "--with-logs",
+            "--as",
+            "tester",
+            "--profile",
+            "qa",
+        ],
+        &["call", "Acme.T", "Run", "-5"],
+        &["call", "Acme.T", "Run", "--timeout", "0"],
+        &["call", "Acme.T", "Run", "--timeout", "-3"],
+        &["call", "Acme.T", "Run", "--timeout", "soon"],
+        &[
+            "logs",
+            "ScriptLog",
+            "--since",
+            "10m",
+            "--level",
+            "WARN",
+            "--grep",
+            "-x",
+            "--user",
+            "Admin",
+            "--json",
+        ],
+        &[
+            "logs",
+            "ScriptLog",
+            "--from",
+            "-2h",
+            "--to",
+            "now",
+            "--regex",
+            "^-",
+            "--thread",
+            "t",
+            "--origin",
+            "o",
+            "--limit",
+            "-1",
+            "--oldest-first",
+        ],
+        &[
+            "logs",
+            "level",
+            "ScriptLog",
+            "DEBUG",
+            "--sublogger",
+            "Acme",
+            "--apply",
+            "--profile",
+            "qa",
+        ],
+        &["logs", "level", "ScriptLog", "--reset"],
+        &["settings"],
+        &["settings", "Subsystem", "Table", "--json"],
+        &["settings", "--search", "-timeout", "--profile", "qa"],
     ];
     for line in lines {
         let mut all = vec!["twaco"];
