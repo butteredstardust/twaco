@@ -1,5 +1,9 @@
-use super::super::*;
+use super::args::Args;
 use super::style;
+use crate::{print_notices, DRIFT, FAILED, OK};
+use twaco::core::commands::{self, Mode};
+use twaco::core::config::Solution;
+use twaco::core::{deploy, profile, push, server, types, workflow};
 
 pub(crate) fn types_cmd(solution: &Solution, args: &Args) -> u8 {
     let action = if args.has("--check") && args.has("--platform") {

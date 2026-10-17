@@ -1,5 +1,8 @@
-use super::super::*;
+use super::args::Args;
 use super::style;
+use crate::{print_notices, FAILED, OK};
+use twaco::core::commands::{self, Mode};
+use twaco::core::config::Solution;
 use twaco::core::entity_new::{self, Kind, NewRequest};
 
 /// `twaco new <kind> <name>`: plan a common entity, or create its XML and sidecars atomically.

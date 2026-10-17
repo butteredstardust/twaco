@@ -8,19 +8,13 @@
 //! Automation has to be able to tell drift from breakage, and one code for both hides an outage
 //! behind a diff.
 
-use std::io::Write;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::process::ExitCode;
 use std::time::Duration;
 
-use twaco::core::commands::{self, Mode};
+use twaco::core::commands::{self};
 use twaco::core::config::Solution;
-use twaco::core::index::Confidence;
-use twaco::core::{
-    adopt, backup, catalog, config_table, datatable_copy, db, deploy, docs, entity_carry,
-    entity_delete, impact, newblock, profile, push, relocate, rename, retemplate, server, status,
-    types, unused, workflow, workspace,
-};
+use twaco::core::workspace;
 
 mod cli;
 
@@ -407,6 +401,11 @@ fn route(args: &[String]) -> Result<Route, String> {
 /// lines. `println!` panics on a closed pipe, and a panic there is noise. The exit is 141, what
 /// a shell reports for a process its pipe closed: the command's own result is unknown at this
 /// point, so it must not read as success.
+///
+/// This reads std's panic message, which std does not promise to keep. The alternatives cost
+/// more: restoring `SIGPIPE` needs the crate's first `unsafe` and covers only Unix, and fallible
+/// writes would replace some 800 `println!`s. `offline.rs`'s closed-pipe test runs on all three
+/// CI systems, so a change in the message fails there first.
 fn quiet_when_the_reader_leaves() {
     let default = std::panic::take_hook();
     std::panic::set_hook(Box::new(move |info| {

@@ -302,6 +302,10 @@ fn cdata(value: &str) -> String {
     value.replace("]]>", "]]]]><![CDATA[>")
 }
 
+#[allow(
+    clippy::cast_possible_truncation,
+    reason = "only the low bits matter: they make the name unlikely to repeat"
+)]
 pub(super) fn temporary_name() -> String {
     let now = SystemTime::now()
         .duration_since(UNIX_EPOCH)

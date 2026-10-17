@@ -216,7 +216,9 @@ pub fn query(remote: &dyn Remote, query: &Query) -> Result<Outcome, LogsError> {
     let entries: Vec<Entry> = rows
         .iter()
         .map(|row| Entry {
-            timestamp: row.get("timestamp").and_then(Value::as_f64).unwrap_or(0.0) as i64,
+            timestamp: crate::core::number::saturating_i64(
+                row.get("timestamp").and_then(Value::as_f64).unwrap_or(0.0),
+            ),
             level: text(row, "level"),
             content: text(row, "content"),
             origin: text(row, "origin"),
@@ -847,7 +849,7 @@ mod tests {
             queries: RefCell::new(0),
         };
         let now = || *late.clock.borrow();
-        let sleep = |d: Duration| *late.clock.borrow_mut() += d.as_millis() as i64;
+        let sleep = |d: Duration| *late.clock.borrow_mut() += i64::try_from(d.as_millis()).unwrap();
         let found = during_call(&late, 10_000, 10_400, Wait::default(), &now, &sleep).unwrap();
         let contents: Vec<&str> = found.iter().map(|(_, e)| e.content.as_str()).collect();
         assert_eq!(contents, ["boom", "after"]);
@@ -870,7 +872,7 @@ mod tests {
             .collect();
         let busy = Late { arrivals, ..busy };
         let now = || *busy.clock.borrow();
-        let sleep = |d: Duration| *busy.clock.borrow_mut() += d.as_millis() as i64;
+        let sleep = |d: Duration| *busy.clock.borrow_mut() += i64::try_from(d.as_millis()).unwrap();
         during_call(&busy, 0, 0, Wait::default(), &now, &sleep).unwrap();
         assert!(
             *busy.clock.borrow() <= 3_000,

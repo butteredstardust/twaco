@@ -135,7 +135,7 @@ fn execute(fake: &Fake, solution: &Solution, names: &[&str], apply: bool, force:
         solution,
         names,
         apply,
-        acknowledged(force, false, false, false).0,
+        ack(false, false, false).with_force(force).0,
     )
 }
 
@@ -332,14 +332,22 @@ fn acknowledgements_independently_guard_repository_dependents_and_file_data() {
     }
 }
 
+fn ack(repository_defined: bool, outside_dependents: bool, data_loss: bool) -> Acknowledged {
+    Acknowledged {
+        repository_defined,
+        outside_dependents,
+        file_repository_data_loss: data_loss,
+    }
+}
+
 #[test]
 fn legacy_force_acknowledges_only_its_two_original_guards() {
     assert_eq!(
-        acknowledged(false, false, false, false),
+        ack(false, false, false).with_force(false),
         (Acknowledged::default(), false)
     );
     assert_eq!(
-        acknowledged(true, false, false, false),
+        ack(false, false, false).with_force(true),
         (
             Acknowledged {
                 repository_defined: true,
@@ -350,7 +358,7 @@ fn legacy_force_acknowledges_only_its_two_original_guards() {
         )
     );
     assert_eq!(
-        acknowledged(true, false, false, true),
+        ack(false, false, true).with_force(true),
         (
             Acknowledged {
                 repository_defined: true,
@@ -361,7 +369,7 @@ fn legacy_force_acknowledges_only_its_two_original_guards() {
         )
     );
     assert_eq!(
-        acknowledged(false, true, false, true),
+        ack(true, false, true).with_force(false),
         (
             Acknowledged {
                 repository_defined: true,
@@ -372,7 +380,7 @@ fn legacy_force_acknowledges_only_its_two_original_guards() {
         )
     );
     assert_eq!(
-        acknowledged(false, false, true, false),
+        ack(false, true, false).with_force(false),
         (
             Acknowledged {
                 repository_defined: false,

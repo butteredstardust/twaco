@@ -1,6 +1,9 @@
 //! The operation: digests, edits, moves, baseline and ledger, written as one journaled transaction.
 
-use super::*;
+use super::{
+    entity, ledger, splice, Applied, ApplyOptions, Baseline, Digest, FileKind, Kind, Ledger,
+    LedgerError, Path, PathBuf, Plan, RenameError, Sha256, Solution, Step, BASELINE_PATH,
+};
 use crate::core::lock::WorkspaceLock;
 use crate::core::transaction::{Transaction, TransactionError};
 

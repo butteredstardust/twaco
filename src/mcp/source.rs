@@ -2,7 +2,10 @@ use super::entity::{refusal_code, tool_targets};
 use super::requests::source::{
     CheckRequest, DeployRequest, ExtractRequest, FmtRequest, SyncRequest, TypesAction, TypesRequest,
 };
-use super::*;
+use super::{
+    add_notices, check, client, commands, deploy, json, push, relative, server, types, Mode,
+    Progress, Solution, ToolError, Value,
+};
 
 pub(crate) fn types_tool(
     solution: &Solution,

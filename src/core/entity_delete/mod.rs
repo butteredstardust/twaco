@@ -34,7 +34,7 @@ pub const DEPENDENCY_LIMIT: &str =
 pub const FORCE_DEPRECATION: &str =
     "--force is deprecated for entity delete; it now means --allow-repository-defined --allow-outside-dependents and never covers FileRepository data loss";
 
-pub use guards::{acknowledged, Acknowledged, GuardCode};
+pub use guards::{Acknowledged, GuardCode};
 pub use method::{method_for, Method};
 pub use remote::{Dependent, Remote};
 pub use report::{DeleteError, EntityResult, Report, Status};

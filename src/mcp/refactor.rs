@@ -8,7 +8,10 @@ use super::requests::refactor::{
     WidgetsRequest,
 };
 use super::source::add_types_refresh;
-use super::*;
+use super::{
+    add_notices, adopt, commands, json, newblock, nonempty, outcome_key, relative, relocate,
+    rename, required_text, retemplate, Mode, PathBuf, Solution, ToolError, Value,
+};
 
 pub(crate) fn move_member_tool(
     solution: &Solution,

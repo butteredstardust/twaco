@@ -201,7 +201,9 @@ pub fn primary_key(data_shape: &Value) -> Vec<String> {
 fn normalized(value: &Value) -> Value {
     match value {
         Value::Number(number) => match number.as_f64() {
-            Some(float) if float.fract() == 0.0 && float.abs() < 9.0e15 => json!(float as i64),
+            Some(float) if float.fract() == 0.0 && float.abs() < 9.0e15 => {
+                json!(crate::core::number::saturating_i64(float))
+            }
             _ => value.clone(),
         },
         Value::Array(items) => Value::Array(items.iter().map(normalized).collect()),
@@ -250,7 +252,9 @@ fn exact(value: Option<&Value>) -> String {
     fn canonical(value: &Value) -> Value {
         match value {
             Value::Number(number) => match number.as_f64() {
-                Some(float) if float.fract() == 0.0 && float.abs() < 9.0e15 => json!(float as i64),
+                Some(float) if float.fract() == 0.0 && float.abs() < 9.0e15 => {
+                    json!(crate::core::number::saturating_i64(float))
+                }
                 _ => value.clone(),
             },
             Value::Array(items) => Value::Array(items.iter().map(canonical).collect()),

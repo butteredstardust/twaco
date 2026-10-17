@@ -498,7 +498,7 @@ fn call_tool(
         if let Some(object) = value.as_object_mut() {
             object.insert(
                 "duration_ms".to_string(),
-                json!(started.elapsed().as_millis() as u64),
+                json!(u64::try_from(started.elapsed().as_millis()).unwrap_or(u64::MAX)),
             );
         }
         value

@@ -2,7 +2,11 @@ use super::requests::data::{
     CallRequest, ConfigTableAction as TableAction, ConfigTableRequest, DatatableCopyRequest,
     DbCleanRequest, DbQueryRequest, DbRunRequest, LogLevelRequest, LogsRequest,
 };
-use super::*;
+use super::{
+    add_notices, client, commands, config_table, db, in_path, json, logs, nonempty, out_path,
+    outcome_key, requests, required_text, server, workspace, Duration, ErrorCode, Mode, Solution,
+    ToolError, Value,
+};
 
 pub(crate) fn datatable_copy_tool(
     solution: &Solution,

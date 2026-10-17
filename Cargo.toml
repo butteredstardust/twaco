@@ -68,3 +68,12 @@ roxmltree = "0.21.1"
 
 [profile.release]
 strip = true
+
+# A curated few of clippy's pedantic lints: a cast that can
+# truncate or lose a sign has to say why, a function takes no run of positional bools, and
+# modules name what they import.
+[lints.clippy]
+cast_possible_truncation = "warn"
+cast_sign_loss = "warn"
+fn_params_excessive_bools = "warn"
+wildcard_imports = "warn"

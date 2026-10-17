@@ -285,7 +285,7 @@ mod tests {
     impl Remote for Fake {
         fn spotlight(&self, parameters: &Value) -> Result<Value, ServerError> {
             self.sent.borrow_mut().push(parameters.clone());
-            let limit = parameters["maxItems"].as_u64().unwrap() as usize;
+            let limit = usize::try_from(parameters["maxItems"].as_u64().unwrap()).unwrap();
             Ok(json!({ "rows": self.rows.iter().take(limit).collect::<Vec<_>>() }))
         }
 

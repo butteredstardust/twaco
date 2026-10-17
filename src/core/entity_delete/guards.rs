@@ -35,20 +35,17 @@ pub(super) struct Refusal {
     pub(super) message: String,
 }
 
-/// Map the legacy alias and explicit acknowledgements into the core delete options.
-/// `force` never acknowledges FileRepository data loss.
-pub fn acknowledged(
-    force: bool,
-    repository_defined: bool,
-    outside_dependents: bool,
-    file_repository_data_loss: bool,
-) -> (Acknowledged, bool) {
-    (
-        Acknowledged {
-            repository_defined: force || repository_defined,
-            outside_dependents: force || outside_dependents,
-            file_repository_data_loss,
-        },
-        force,
-    )
+impl Acknowledged {
+    /// Fold in the legacy `--force` alias, returning whether it was used. `force` never
+    /// acknowledges FileRepository data loss.
+    pub fn with_force(self, force: bool) -> (Self, bool) {
+        (
+            Self {
+                repository_defined: force || self.repository_defined,
+                outside_dependents: force || self.outside_dependents,
+                file_repository_data_loss: self.file_repository_data_loss,
+            },
+            force,
+        )
+    }
 }

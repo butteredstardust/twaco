@@ -2897,12 +2897,12 @@ impl std::io::Read for LiveInput {
 
 impl std::io::BufRead for LiveInput {
     fn fill_buf(&mut self) -> std::io::Result<&[u8]> {
-        if self.buffer.position() as usize >= self.buffer.get_ref().len() {
+        if usize::try_from(self.buffer.position()).unwrap() >= self.buffer.get_ref().len() {
             // A closed channel is the end of input.
             let line = self.lines.recv().unwrap_or_default();
             self.buffer = std::io::Cursor::new(line.into_bytes());
         }
-        let position = self.buffer.position() as usize;
+        let position = usize::try_from(self.buffer.position()).unwrap();
         Ok(&self.buffer.get_ref()[position..])
     }
 

@@ -253,7 +253,11 @@ pub fn find_class(index: &Index, wanted: &str) -> Result<Class, String> {
                     .map(|class| {
                         (
                             class,
-                            edit_distance(&class.name.to_lowercase(), &wanted.to_lowercase()) as u8,
+                            u8::try_from(edit_distance(
+                                &class.name.to_lowercase(),
+                                &wanted.to_lowercase(),
+                            ))
+                            .unwrap_or(u8::MAX),
                         )
                     })
                     .collect();
@@ -438,7 +442,11 @@ pub fn read(html: &[u8], class: &Class, member: Option<&str>) -> Result<Reading,
                         .map(|name| {
                             (
                                 name.clone(),
-                                edit_distance(&name.to_lowercase(), &wanted.to_lowercase()) as u8,
+                                u8::try_from(edit_distance(
+                                    &name.to_lowercase(),
+                                    &wanted.to_lowercase(),
+                                ))
+                                .unwrap_or(u8::MAX),
                             )
                         })
                         .collect();

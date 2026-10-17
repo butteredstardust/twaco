@@ -57,11 +57,10 @@ impl Remote for Client {
             .and_then(|value| value.get("rows"))
             .and_then(|rows| rows.get(0))
             .and_then(|row| row.get("result"))
-            .and_then(Value::as_f64)
-            .map(|count| count as u64)
+            .and_then(whole_count)
             .ok_or_else(|| ServerError::InvalidResponse {
                 url: table.to_string(),
-                why: "GetDataTableEntryCount returned no count".to_string(),
+                why: "GetDataTableEntryCount returned no whole, non-negative count".to_string(),
             })
     }
 
@@ -436,10 +435,34 @@ impl Coded for CopyError {
     }
 }
 
+/// A row count as ThingWorx sends it: a NUMBER, so `42` or `42.0`. A negative, fractional or
+/// out-of-range value is no count at all, rather than a silent 0.
+fn whole_count(value: &Value) -> Option<u64> {
+    if let Some(count) = value.as_u64() {
+        return Some(count);
+    }
+    let float = value.as_f64()?;
+    // 2^53: beyond it a float no longer holds every whole number.
+    (float.fract() == 0.0 && (0.0..=9_007_199_254_740_992.0).contains(&float))
+        .then(|| format!("{float:.0}").parse().ok())
+        .flatten()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use std::cell::RefCell;
+
+    #[test]
+    fn a_row_count_is_whole_and_not_negative_or_it_is_no_count() {
+        assert_eq!(whole_count(&json!(42)), Some(42));
+        assert_eq!(whole_count(&json!(42.0)), Some(42));
+        assert_eq!(whole_count(&json!(-1)), None);
+        assert_eq!(whole_count(&json!(-1.0)), None);
+        assert_eq!(whole_count(&json!(1.5)), None);
+        assert_eq!(whole_count(&json!(1e300)), None);
+        assert_eq!(whole_count(&json!("42")), None);
+    }
 
     struct Table {
         fields: Vec<(&'static str, &'static str)>,
@@ -495,7 +518,7 @@ mod tests {
             let rows: Vec<Value> = table
                 .rows
                 .iter()
-                .take(max_items as usize)
+                .take(usize::try_from(max_items).unwrap_or(usize::MAX))
                 .map(|row| {
                     let mut row = row.as_object().unwrap().clone();
                     row.insert("key".into(), json!("1"));

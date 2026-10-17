@@ -1,5 +1,9 @@
 use super::requests::content as tool;
-use super::*;
+use super::{
+    add_notices, client, commands, core_progress, export, extensions, imports, in_path, json, logs,
+    nonempty, out_path, relative, repo, required_text, server, ErrorCode, Mode, Progress, Solution,
+    ToolError, Value,
+};
 
 pub(crate) fn repo_tool(
     solution: &Solution,
@@ -105,7 +109,7 @@ pub(crate) fn repo_tool(
             let command::RepoOutcome::Got { bytes, .. } = outcome else {
                 unreachable!()
             };
-            let max = arguments.max_chars as usize;
+            let max = usize::try_from(arguments.max_chars).unwrap_or(usize::MAX);
             let digest = repo::sha256_hex(&bytes);
             match std::str::from_utf8(&bytes) {
                 Ok(text) => {

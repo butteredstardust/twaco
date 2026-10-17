@@ -1,6 +1,9 @@
 //! Planning a DataShape field rename, with its configuration tables, DataTables and InfoTables.
 
-use super::*;
+use super::{
+    catalog, check, datashape, datatable, dbinfo, push_change, read, rename_scan, splice, types,
+    validate_spec, workspace, BTreeSet, FileKind, Path, PathBuf, Plan, RenameError, Solution, Spec,
+};
 
 pub(super) fn plan_field(solution: &Solution, spec: &Spec) -> Result<Plan, RenameError> {
     validate_spec(spec)?;

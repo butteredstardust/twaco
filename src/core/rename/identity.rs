@@ -1,6 +1,11 @@
 //! Planning an entity or prefix rename, and the dispatch to every other planner.
 
-use super::*;
+use super::{
+    catalog, check, plan_field, plan_param, plan_property, plan_service, plan_table, push_change,
+    read, refs, refuse_collisions, rename_scan, repo, scan_text_file, validate_spec, workspace,
+    BTreeSet, FileChange, FileKind, Kind, Move, Path, PathBuf, Plan, RenameError, Solution, Spec,
+    CONFIG_FILE,
+};
 
 /// Computes every move, finding and byte edit for a rename without changing the workspace.
 ///

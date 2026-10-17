@@ -1,6 +1,10 @@
 //! Running a rename: gates, plan, database half, verification in a scratch copy, apply, verification.
 
-use super::*;
+use super::{
+    apply, check, dbinfo, plan, refs, rename_sql, workspace, ApplyOptions, Kind, Outcome, Path,
+    Plan, RenameError, RunOptions, Solution, Spec, SqlChoice, SqlScript, Verification,
+    WorkspaceLock, CONFIG_FILE,
+};
 
 /// Plans a rename, optionally applies it, and verifies the resulting workspace. Applying needs
 /// the workspace lock, which the caller holds for the whole command.

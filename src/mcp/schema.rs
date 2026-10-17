@@ -1,4 +1,4 @@
-use super::*;
+use super::{Map, Value};
 
 /// Hold the arguments to the tool's own schema before the tool sees them. A value of the wrong
 /// type read as absent would mean the default, which for `check`, `entity` or `only` is the wider

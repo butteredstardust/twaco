@@ -1135,7 +1135,11 @@ pub(crate) fn parse_finding(gate: &str, line: &str) -> Option<Finding> {
                 .and_then(|v| v.as_str())
                 .unwrap_or_default(),
         ),
-        line: object.get("line").and_then(|v| v.as_u64()).unwrap_or(0) as usize,
+        line: object
+            .get("line")
+            .and_then(serde_json::Value::as_u64)
+            .and_then(|line| usize::try_from(line).ok())
+            .unwrap_or(0),
         rule: sanitise(
             object
                 .get("rule")

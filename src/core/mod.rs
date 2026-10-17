@@ -54,6 +54,7 @@ pub mod mashup_templates_view;
 pub mod mashup_validate;
 pub mod newblock;
 pub mod normalise;
+pub mod number;
 pub mod order;
 pub mod package;
 pub mod parallel;

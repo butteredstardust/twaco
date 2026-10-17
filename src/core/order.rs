@@ -67,7 +67,7 @@ pub fn check(text: &str) -> Vec<Misplaced> {
 /// does not open a block.
 fn classify(text: &str) -> Vec<(usize, Kind)> {
     let mut out = Vec::new();
-    let mut depth = 0i32;
+    let mut depth = 0usize;
     let mut in_block_comment = false;
 
     for (index, raw) in text.lines().enumerate() {
@@ -100,8 +100,7 @@ fn classify(text: &str) -> Vec<(usize, Kind)> {
 
         if counts_toward_depth {
             let code = strip_literals(raw);
-            depth += code.matches('{').count() as i32 - code.matches('}').count() as i32;
-            depth = depth.max(0);
+            depth = (depth + code.matches('{').count()).saturating_sub(code.matches('}').count());
         }
     }
     out
