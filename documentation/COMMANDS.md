@@ -317,6 +317,8 @@ new menu <name> --item <Title=Mashup>... [--project <name>] [--description <text
 new theme <name> [--project <name>] [--description <text>] [--from <StyleTheme>]
     [--prop name=value]... [--apply] [--json]
                             create a StyleTheme; plan unless --apply
+new network <name> [--project <name>] [--description <text>] [--apply] [--json]
+                            create an empty Network entity; plan unless --apply
 ```
 
 ## Deploy and compare
@@ -324,6 +326,18 @@ new theme <name> [--project <name>] [--description <text>] [--from <StyleTheme>]
 Against a server: what differs, what would be imported, and doing it.
 
 ```text
+network list [--json]       list repository Networks and their hierarchy counts
+network show <Network> [<Thing>] [--depth <n>] [--json]
+                            a Network's hierarchy as a tree: each Thing's template, things outside
+                            the repository, nodes per template, problems; <Thing>: its subtree
+network add <Network> <Thing> (--under <Thing> | --as-root) [--type <connectionType>]
+    [--outside] [--apply] [--json]
+                            add a Thing to a Network (a Thing has one parent); plan unless --apply
+    --outside               a Thing the repository does not hold (it exists on the server)
+network move <Network> <Thing> (--under <Thing> | --as-root) [--type <connectionType>]
+    [--apply] [--json]      re-parent a Thing with its subtree; plan unless --apply
+network remove <Network> <Thing> [--subtree] [--apply] [--json]
+                            remove a Network connection, never the Thing; plan unless --apply
 entity status [<entity>|--all] [--detail] [--record]
     --record                 record matching working/server hashes as baseline
 entity get <entity>         fetch raw server XML to stdout or --out <path>

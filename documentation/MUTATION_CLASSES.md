@@ -133,6 +133,12 @@ when the command is asked to write. A local output named by an option is include
 | `new state` | read-only | multi-file atomic | entity XML | The entity XML is created in a journaled transaction; a file that appeared since the plan is refused. Retry. | `core/commands/entity_new.rs: execute` |
 | `new menu` | read-only | multi-file atomic | entity XML | The entity XML is created in a journaled transaction; a file that appeared since the plan is refused. Retry. | `core/commands/entity_new.rs: execute` |
 | `new theme` | read-only | multi-file atomic | entity XML | The entity XML is created in a journaled transaction; a file that appeared since the plan is refused. Retry. | `core/commands/entity_new.rs: execute` |
+| `new network` | read-only | multi-file atomic | entity XML | The entity XML is created in a journaled transaction; a file that appeared since the plan is refused. Retry. | `core/commands/entity_new.rs: execute` |
+| `network list` | read-only | read-only | none | Retry freely. | `core/network.rs: parse` |
+| `network show` | read-only | read-only | none | Retry freely. | `core/network.rs: show` |
+| `network add` | read-only | multi-file atomic | Network XML | The Network XML is changed in a journaled transaction; a file edited since the plan is refused. Retry. | `core/commands/network.rs: execute` |
+| `network move` | read-only | multi-file atomic | Network XML | The Network XML is changed in a journaled transaction; a file edited since the plan is refused. Retry. | `core/commands/network.rs: execute` |
+| `network remove` | read-only | multi-file atomic | Network XML | The Network XML is changed in a journaled transaction; a file edited since the plan is refused. Retry. | `core/commands/network.rs: execute` |
 | `thing property` | read-only | multi-file atomic | entity XML, Things inheriting it | Every file is rewritten in one journaled transaction, or none is; a file edited since the plan read it is refused. Retry. | `core/commands/entity_edit.rs: execute` |
 | `thing service` | read-only | multi-file atomic | entity XML, service sidecars | The entity and service sidecars are created or deleted in one journaled transaction; a file edited since the plan read it is refused. Retry. | `core/commands/entity_edit.rs: execute` |
 | `thing subscription` | read-only | multi-file atomic | entity XML | Every file is rewritten in one journaled transaction, or none is; a file edited since the plan read it is refused. Retry. | `core/commands/entity_edit.rs: execute` |

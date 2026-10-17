@@ -32,6 +32,7 @@ pub(crate) enum NewEntity {
     State(NewState),
     Menu(NewMenu),
     Theme(NewTheme),
+    Network(NewNetwork),
 }
 
 /// What every `new <kind>` takes: the name, `--project`, `--description`, `--apply` and
@@ -258,6 +259,14 @@ pub(crate) struct NewTheme {
     pub(crate) props: Vec<String>,
 }
 
+/// `twaco new network <name>`.
+#[derive(Debug, clap::Args)]
+#[group(skip)]
+pub(crate) struct NewNetwork {
+    #[command(flatten)]
+    pub(crate) base: Base,
+}
+
 impl NewEntity {
     /// The command's [`USAGE`](super::spec::USAGE) path.
     pub(crate) fn path(&self) -> &'static str {
@@ -276,6 +285,7 @@ impl NewEntity {
             NewEntity::State(_) => "new state",
             NewEntity::Menu(_) => "new menu",
             NewEntity::Theme(_) => "new theme",
+            NewEntity::Network(_) => "new network",
         }
     }
 
@@ -296,6 +306,7 @@ impl NewEntity {
             NewEntity::State(new) => &new.base,
             NewEntity::Menu(new) => &new.base,
             NewEntity::Theme(new) => &new.base,
+            NewEntity::Network(new) => &new.base,
         }
     }
 
@@ -371,6 +382,7 @@ impl NewEntity {
                 request.from.clone_from(&new.from);
                 request.props.clone_from(&new.props);
             }
+            NewEntity::Network(_) => {}
         }
         request
     }

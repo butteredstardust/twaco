@@ -442,7 +442,7 @@ static TOOLS: LazyLock<Vec<Tool>> = LazyLock::new(|| {
         .with_output::<outputs::NewBuildingBlockResult>(),
         solution_tool::<refactor_requests::EntityNewRequest>(
             "entity_new",
-            "Create a ThingWorx entity as a repository XML file: common Things, data Things, media, styles, states, menus, and themes. DataShape and DataTable creation also writes their managed sidecar. A dry run unless dry_run is false; apply takes the workspace lock and writes every file or none.",
+            "Create a ThingWorx entity as a repository XML file: common Things, data Things, media, styles, states, menus, themes, and Networks. DataShape and DataTable creation also writes their managed sidecar. A dry run unless dry_run is false; apply takes the workspace lock and writes every file or none.",
             false,
             refactor::entity_new_tool,
         )

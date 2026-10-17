@@ -1117,13 +1117,13 @@
   },
   {
     "name": "entity_new",
-    "description": "Create a ThingWorx entity as a repository XML file: common Things, data Things, media, styles, states, menus, and themes. DataShape and DataTable creation also writes their managed sidecar. A dry run unless dry_run is false; apply takes the workspace lock and writes every file or none.",
+    "description": "Create a ThingWorx entity as a repository XML file: common Things, data Things, media, styles, states, menus, themes, and Networks. DataShape and DataTable creation also writes their managed sidecar. A dry run unless dry_run is false; apply takes the workspace lock and writes every file or none.",
     "inputSchema": {
       "required": ["kind", "name"],
       "additionalProperties": false,
       "type": "object",
       "properties": {
-        "kind": {"description": "`thing`, `thing-template`, `thing-shape`, `data-shape`, `timer`, `scheduler`, `data-table`, `stream`, `value-stream`, `media`, `style`, `state`, `menu`, or `theme`.", "type": "string", "enum": ["thing", "thing-template", "thing-shape", "data-shape", "timer", "scheduler", "data-table", "stream", "value-stream", "media", "style", "state", "menu", "theme"]},
+        "kind": {"description": "`thing`, `thing-template`, `thing-shape`, `data-shape`, `timer`, `scheduler`, `data-table`, `stream`, `value-stream`, `media`, `style`, `state`, `menu`, `theme`, or `network`.", "type": "string", "enum": ["thing", "thing-template", "thing-shape", "data-shape", "timer", "scheduler", "data-table", "stream", "value-stream", "media", "style", "state", "menu", "theme", "network"]},
         "name": {"description": "The entity name.", "type": "string"},
         "project": {"type": "string"},
         "description": {"type": "string"},

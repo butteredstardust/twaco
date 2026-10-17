@@ -21,6 +21,7 @@ pub mod imports;
 pub mod localization;
 pub mod logs;
 pub mod mashup;
+pub mod network;
 pub mod newblock;
 pub mod package;
 pub mod permissions;
