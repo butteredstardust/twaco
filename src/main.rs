@@ -215,6 +215,13 @@ fn dispatch_typed(typed: Typed) -> u8 {
         Typed::Call(command) => run(|solution| call(solution, &command)),
         Typed::Logs(logs) => run(|solution| logs_cmd(solution, &logs)),
         Typed::Settings(settings) => run(|solution| settings_cmd(solution, &settings)),
+        Typed::Thing(thing) => run(|solution| entity_edit_cmd(solution, thing.edit())),
+        Typed::Timer(timer) => run(|solution| entity_edit_cmd(solution, timer.edit())),
+        Typed::Scheduler(scheduler) => run(|solution| entity_edit_cmd(solution, scheduler.edit())),
+        Typed::Style(style) => run(|solution| entity_edit_cmd(solution, style.edit())),
+        Typed::Media(media) => run(|solution| entity_edit_cmd(solution, media.edit())),
+        Typed::Menu(menu) => run(|solution| entity_edit_cmd(solution, menu.edit())),
+        Typed::State(state) => run(|solution| entity_edit_cmd(solution, state.edit())),
     }
 }
 
@@ -254,10 +261,6 @@ fn dispatch(route: &str, parsed: &Args) -> u8 {
         | "new scheduler" | "new data-table" | "new stream" | "new value-stream" | "new media"
         | "new style" | "new state" | "new menu" | "new theme" => {
             entity_new_cmd(solution, route, parsed)
-        }
-        "thing property" | "thing subscription" | "thing shape" | "timer set" | "scheduler set"
-        | "style set" | "media set" | "menu item" | "state set" => {
-            entity_edit_cmd(solution, route, parsed)
         }
         "config-table" => config_table(solution, parsed),
         "entity get" => entity_get(solution, parsed),

@@ -1,6 +1,7 @@
 use super::super::*;
 use super::command::Typed;
 use super::entity::entity_delete_force_deprecation;
+use super::entity_edit::{Media, Menu, Scheduler, State, Style, Thing, Timer};
 use super::spec::{self, GRAMMAR, USAGE};
 use clap::{FromArgMatches as _, Subcommand as _};
 
@@ -969,6 +970,20 @@ fn values(pairs: &[(&str, Option<String>)]) -> Vec<(String, String)> {
         .collect()
 }
 
+/// Each value of a repeated flag, once per time it was given.
+fn repeated(name: &str, given: Vec<String>) -> Vec<(String, String)> {
+    given
+        .into_iter()
+        .map(|value| (name.to_string(), value))
+        .collect()
+}
+
+/// A value that may be given bare (`--default`), as the builder read it: given, it is a switch,
+/// and its value is a value unless empty.
+fn bare(value: Option<String>) -> Option<String> {
+    value.filter(|value| !value.is_empty())
+}
+
 /// A path value as text.
 fn shown(path: Option<&std::path::PathBuf>) -> Option<String> {
     path.map(|path| path.display().to_string())
@@ -1271,6 +1286,126 @@ fn projection(typed: Typed) -> Projection {
                 ("--profile", settings.profile.profile),
             ]),
         ),
+        Typed::Thing(thing) => thing_projection(thing),
+        Typed::Timer(Timer::Set(set)) => (
+            set.operands,
+            switches(&[
+                ("--enabled", set.enabled),
+                ("--disabled", set.disabled),
+                ("--apply", set.apply.apply),
+                ("--json", set.json.json),
+            ]),
+            values(&[("--every", set.every), ("--run-as", set.run_as)]),
+        ),
+        Typed::Scheduler(Scheduler::Set(set)) => (
+            set.operands,
+            switches(&[
+                ("--enabled", set.enabled),
+                ("--disabled", set.disabled),
+                ("--apply", set.apply.apply),
+                ("--json", set.json.json),
+            ]),
+            values(&[("--cron", set.cron), ("--run-as", set.run_as)]),
+        ),
+        Typed::Style(Style::Set(set)) => (
+            set.operands,
+            switches(&[
+                ("--bold", set.bold),
+                ("--no-bold", set.no_bold),
+                ("--italic", set.italic),
+                ("--no-italic", set.no_italic),
+                ("--underline", set.underline),
+                ("--no-underline", set.no_underline),
+                ("--apply", set.apply.apply),
+                ("--json", set.json.json),
+            ]),
+            values(&[
+                ("--background", set.background),
+                ("--foreground", set.foreground),
+                ("--secondary-background", set.secondary_background),
+                ("--line-color", set.line_color),
+                ("--line-style", set.line_style),
+                ("--line-thickness", set.line_thickness),
+                ("--text-size", set.text_size),
+                ("--image", set.image),
+                ("--display-string", set.display_string),
+            ]),
+        ),
+        Typed::Media(Media::Set(set)) => (
+            set.operands,
+            switches(&[("--apply", set.apply.apply), ("--json", set.json.json)]),
+            values(&[("--file", shown(set.file.as_ref()))]),
+        ),
+        Typed::Menu(Menu::Item(item)) => (
+            item.operands,
+            switches(&[
+                ("--default", item.default.is_some()),
+                ("--apply", item.apply.apply),
+                ("--json", item.json.json),
+            ]),
+            values(&[("--default", bare(item.default)), ("--before", item.before)]),
+        ),
+        Typed::State(State::Set(set)) => {
+            let mut given = values(&[("--type", set.kind)]);
+            given.extend(repeated("--state", set.states));
+            (
+                set.operands,
+                switches(&[("--apply", set.apply.apply), ("--json", set.json.json)]),
+                given,
+            )
+        }
+    }
+}
+
+/// What a `thing` command read.
+fn thing_projection(thing: Thing) -> Projection {
+    match thing {
+        Thing::Property(property) => (
+            property.operands,
+            switches(&[
+                ("--default", property.default.is_some()),
+                ("--no-default", property.no_default),
+                ("--persistent", property.persistent),
+                ("--no-persistent", property.no_persistent),
+                ("--logged", property.logged),
+                ("--no-logged", property.no_logged),
+                ("--read-only", property.read_only),
+                ("--no-read-only", property.no_read_only),
+                ("--force", property.force),
+                ("--apply", property.apply.apply),
+                ("--json", property.json.json),
+            ]),
+            values(&[
+                ("--default", bare(property.default)),
+                ("--category", property.category),
+                ("--units", property.units),
+                ("--data-shape", property.data_shape),
+                ("--description", property.description),
+            ]),
+        ),
+        Thing::Subscription(subscription) => (
+            subscription.operands,
+            switches(&[
+                ("--apply", subscription.apply.apply),
+                ("--json", subscription.json.json),
+            ]),
+            values(&[
+                ("--event", subscription.event),
+                ("--source", subscription.source),
+                ("--source-property", subscription.source_property),
+                ("--then", subscription.then),
+                ("--script", shown(subscription.script.as_ref())),
+            ]),
+        ),
+        Thing::Shape(shape) => (
+            shape.operands,
+            switches(&[
+                ("--force", shape.force),
+                ("--apply", shape.apply.apply),
+                ("--json", shape.json.json),
+            ]),
+            Vec::new(),
+        ),
     }
 }
 
@@ -1471,6 +1606,99 @@ fn derived_commands_read_what_their_grammar_rows_read() {
             ],
         ),
         ("settings", true, &["--search", "--json", "--profile"]),
+        (
+            "thing property",
+            true,
+            &[
+                "--default",
+                "--no-default",
+                "--persistent",
+                "--no-persistent",
+                "--logged",
+                "--no-logged",
+                "--read-only",
+                "--no-read-only",
+                "--category",
+                "--units",
+                "--data-shape",
+                "--description",
+                "--force",
+                "--apply",
+                "--json",
+            ],
+        ),
+        (
+            "thing subscription",
+            true,
+            &[
+                "--event",
+                "--source",
+                "--source-property",
+                "--then",
+                "--script",
+                "--apply",
+                "--json",
+            ],
+        ),
+        ("thing shape", true, &["--force", "--apply", "--json"]),
+        (
+            "timer set",
+            true,
+            &[
+                "--every",
+                "--run-as",
+                "--enabled",
+                "--disabled",
+                "--apply",
+                "--json",
+            ],
+        ),
+        (
+            "scheduler set",
+            true,
+            &[
+                "--cron",
+                "--run-as",
+                "--enabled",
+                "--disabled",
+                "--apply",
+                "--json",
+            ],
+        ),
+        (
+            "style set",
+            true,
+            &[
+                "--background",
+                "--foreground",
+                "--secondary-background",
+                "--line-color",
+                "--line-style",
+                "--line-thickness",
+                "--bold",
+                "--no-bold",
+                "--italic",
+                "--no-italic",
+                "--underline",
+                "--no-underline",
+                "--text-size",
+                "--image",
+                "--display-string",
+                "--apply",
+                "--json",
+            ],
+        ),
+        ("media set", true, &["--file", "--apply", "--json"]),
+        (
+            "menu item",
+            true,
+            &["--default", "--before", "--apply", "--json"],
+        ),
+        (
+            "state set",
+            true,
+            &["--type", "--state", "--apply", "--json"],
+        ),
     ];
     let lines: &[&[&str]] = &[
         &["init"],
@@ -1798,6 +2026,171 @@ fn derived_commands_read_what_their_grammar_rows_read() {
         &["settings"],
         &["settings", "Subsystem", "Table", "--json"],
         &["settings", "--search", "-timeout", "--profile", "qa"],
+        &[
+            "thing",
+            "property",
+            "add",
+            "Acme.T",
+            "Count:INTEGER",
+            "--default",
+            "-1",
+            "--persistent",
+            "--no-logged",
+            "--read-only",
+            "--category",
+            "c",
+            "--units",
+            "u",
+            "--data-shape",
+            "Acme.DS",
+            "--description",
+            "-d",
+            "--apply",
+            "--json",
+        ],
+        &["thing", "property", "set", "Acme.T", "Count", "--default"],
+        &[
+            "thing",
+            "property",
+            "set",
+            "Acme.T",
+            "Count",
+            "--default",
+            "",
+        ],
+        &[
+            "thing",
+            "property",
+            "set",
+            "Acme.T",
+            "Count",
+            "--default",
+            "--no-default",
+            "--no-persistent",
+            "--logged",
+            "--no-read-only",
+            "--force",
+        ],
+        &["thing", "property", "remove", "Acme.T", "Count", "--force"],
+        &[
+            "thing",
+            "subscription",
+            "add",
+            "Acme.T",
+            "OnChange",
+            "--event",
+            "DataChange",
+            "--source",
+            "Acme.S",
+            "--source-property",
+            "p",
+            "--then",
+            "me.x = -1;",
+        ],
+        &[
+            "thing",
+            "subscription",
+            "add",
+            "Acme.T",
+            "OnChange",
+            "--script",
+            "on.js",
+            "--apply",
+            "--json",
+        ],
+        &[
+            "thing", "shape", "add", "Acme.T", "Acme.S", "--force", "--apply",
+        ],
+        &["thing", "shape"],
+        &[
+            "timer",
+            "set",
+            "Acme.Timer",
+            "--every",
+            "60",
+            "--run-as",
+            "Admin",
+            "--enabled",
+            "--apply",
+        ],
+        &["timer", "set", "Acme.Timer", "--disabled", "--json"],
+        &[
+            "scheduler",
+            "set",
+            "Acme.S",
+            "--cron",
+            "0 0 * * * ?",
+            "--run-as",
+            "Admin",
+            "--disabled",
+            "--enabled",
+        ],
+        &[
+            "style",
+            "set",
+            "Acme.Style",
+            "--background",
+            "#fff",
+            "--foreground",
+            "#000",
+            "--secondary-background",
+            "#eee",
+            "--line-color",
+            "#111",
+            "--line-style",
+            "dashed",
+            "--line-thickness",
+            "2",
+            "--bold",
+            "--no-italic",
+            "--underline",
+            "--text-size",
+            "large",
+            "--image",
+            "Acme.M",
+            "--display-string",
+            "-",
+            "--apply",
+            "--json",
+        ],
+        &[
+            "style",
+            "set",
+            "Acme.Style",
+            "--no-bold",
+            "--italic",
+            "--no-underline",
+        ],
+        &[
+            "media", "set", "Acme.M", "--file", "logo.png", "--apply", "--json",
+        ],
+        &["media", "set", "Acme.M", "--file", ""],
+        &[
+            "menu",
+            "item",
+            "add",
+            "Acme.Main_MN",
+            "Home=Acme.Home_MU",
+            "--default",
+            "--before",
+            "About",
+            "--apply",
+        ],
+        &[
+            "menu",
+            "item",
+            "add",
+            "Acme.Main_MN",
+            "Home=H",
+            "--default",
+            "x",
+        ],
+        &["menu", "item", "remove", "Acme.Main_MN", "Home", "--json"],
+        &[
+            "state", "set", "Acme.SD", "--type", "numeric", "--state", "a", "--state", "-b",
+            "--apply", "--json",
+        ],
+        &["state", "set", "Acme.SD"],
     ];
     for line in lines {
         let mut all = vec!["twaco"];
@@ -1809,10 +2202,12 @@ fn derived_commands_read_what_their_grammar_rows_read() {
         // The builder's command, from the row it had (its argument ids are the flag names, the
         // derived ones are the field names), under the same policy.
         let (_, operands, flags) = ROWS.iter().find(|(row, _, _)| *row == path).unwrap();
-        let built = spec::decorate(
-            clap::Command::new("twaco")
-                .subcommand(clap::Command::new(path).args(spec::arguments(flags, *operands))),
-        );
+        let command = match path.split_once(' ') {
+            Some((family, word)) => clap::Command::new(family)
+                .subcommand(clap::Command::new(word).args(spec::arguments(flags, *operands))),
+            None => clap::Command::new(path).args(spec::arguments(flags, *operands)),
+        };
+        let built = spec::decorate(clap::Command::new("twaco").subcommand(command));
         let old_matches = built
             .try_get_matches_from(&all)
             .unwrap_or_else(|e| panic!("{line:?}: {e}"));
@@ -1841,8 +2236,33 @@ fn derived_commands_read_what_their_grammar_rows_read() {
         add("--project", old.project.clone());
         add("--out", shown(old.out.as_ref()));
         add("--timeout", old.timeout.map(|t| t.as_secs().to_string()));
-        for param in &old.params {
-            add("--param", Some(param.clone()));
+        add("--backup", shown(old.backup.as_ref()));
+        add("--restore", shown(old.restore.as_ref()));
+        // `--prop` and `--set` both fill props; a command takes one of them.
+        let props = if flags.contains(&"--set") {
+            "--set"
+        } else {
+            "--prop"
+        };
+        for (name, repeated) in [
+            ("--only", &old.only),
+            ("--entity", &old.entity_filters),
+            ("--visibility", &old.visibility),
+            (props, &old.props),
+            ("--param", &old.params),
+            ("--tab", &old.tabs),
+            ("--input", &old.inputs),
+            ("--pass", &old.pass),
+            ("--column", &old.columns),
+            ("--shape", &old.shapes),
+            ("--field", &old.fields),
+            ("--index", &old.indexes),
+            ("--state", &old.states),
+            ("--item", &old.items),
+        ] {
+            for value in repeated {
+                add(name, Some(value.clone()));
+            }
         }
         let (names, mut on, mut given) = projection(typed);
         let mut old_flags = old.flags.clone();

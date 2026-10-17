@@ -44,6 +44,20 @@ pub(crate) enum Typed {
     Call(super::data::Call),
     Logs(super::data::Logs),
     Settings(super::info::Settings),
+    #[command(subcommand)]
+    Thing(super::entity_edit::Thing),
+    #[command(subcommand)]
+    Timer(super::entity_edit::Timer),
+    #[command(subcommand)]
+    Scheduler(super::entity_edit::Scheduler),
+    #[command(subcommand)]
+    Style(super::entity_edit::Style),
+    #[command(subcommand)]
+    Media(super::entity_edit::Media),
+    #[command(subcommand)]
+    Menu(super::entity_edit::Menu),
+    #[command(subcommand)]
+    State(super::entity_edit::State),
 }
 
 impl Typed {
@@ -81,6 +95,17 @@ impl Typed {
             Typed::Call(_) => "call",
             Typed::Logs(_) => "logs",
             Typed::Settings(_) => "settings",
+            Typed::Thing(thing) => match thing {
+                super::entity_edit::Thing::Property(_) => "thing property",
+                super::entity_edit::Thing::Subscription(_) => "thing subscription",
+                super::entity_edit::Thing::Shape(_) => "thing shape",
+            },
+            Typed::Timer(_) => "timer set",
+            Typed::Scheduler(_) => "scheduler set",
+            Typed::Style(_) => "style set",
+            Typed::Media(_) => "media set",
+            Typed::Menu(_) => "menu item",
+            Typed::State(_) => "state set",
         }
     }
 
@@ -118,7 +143,14 @@ impl Typed {
             | Typed::Export(_)
             | Typed::Import(_)
             | Typed::Logs(_)
-            | Typed::Settings(_) => Ok(()),
+            | Typed::Settings(_)
+            | Typed::Thing(_)
+            | Typed::Timer(_)
+            | Typed::Scheduler(_)
+            | Typed::Style(_)
+            | Typed::Media(_)
+            | Typed::Menu(_)
+            | Typed::State(_) => Ok(()),
         }
     }
 }
