@@ -3,6 +3,7 @@ use super::command::Typed;
 use super::entity::entity_delete_force_deprecation;
 use super::entity_edit::{Media, Menu, Scheduler, State, Style, Thing, Timer};
 use super::entity_new::{New, NewEntity};
+use super::mashup::{Mashup, Place};
 use super::spec::{self, GRAMMAR, USAGE};
 use clap::{FromArgMatches as _, Subcommand as _};
 
@@ -612,7 +613,7 @@ fn values_reach_the_fields_the_commands_read() {
     assert_eq!(menu.default.as_deref(), Some(""));
     assert_eq!(menu.label.as_deref(), Some("Main"));
     // It may still be negative.
-    let param = parse(&[
+    let Typed::Mashup(Mashup::Param(param)) = parse_typed(&[
         "mashup",
         "param",
         "set",
@@ -621,11 +622,10 @@ fn values_reach_the_fields_the_commands_read() {
         "--default",
         "-1",
     ])
-    .unwrap();
-    assert_eq!(
-        param.values.get("--default").map(String::as_str),
-        Some("-1")
-    );
+    .unwrap() else {
+        panic!("mashup param parses as mashup param");
+    };
+    assert_eq!(param.default.as_deref(), Some("-1"));
 }
 
 #[test]
@@ -1291,6 +1291,7 @@ fn projection(typed: Typed) -> Projection {
         ),
         Typed::Thing(thing) => thing_projection(thing),
         Typed::New(new) => new_projection(new),
+        Typed::Mashup(mashup) => mashup_projection(mashup),
         Typed::Timer(Timer::Set(set)) => (
             set.operands,
             switches(&[
@@ -1559,6 +1560,150 @@ fn new_projection(new: New) -> Projection {
         ("--description", base.description),
     ]));
     (base.operands, on, given)
+}
+
+/// Where a mashup command places what it adds.
+fn placed(place: Place) -> Vec<(String, String)> {
+    values(&[
+        ("--in", place.inside),
+        ("--right-of", place.right_of),
+        ("--left-of", place.left_of),
+        ("--above", place.above),
+        ("--below", place.below),
+    ])
+}
+
+/// What a `mashup` command read.
+fn mashup_projection(mashup: Mashup) -> Projection {
+    match mashup {
+        Mashup::Validate(validate) => (
+            validate.selection.operands,
+            switches(&[
+                ("--all", validate.selection.all),
+                ("--json", validate.json.json),
+            ]),
+            Vec::new(),
+        ),
+        Mashup::Describe(describe) => (
+            describe.operands,
+            switches(&[("--json", describe.json.json)]),
+            Vec::new(),
+        ),
+        Mashup::Add(add) => {
+            let mut given = placed(add.place);
+            given.extend(values(&[("--label", add.label)]));
+            given.extend(repeated("--prop", add.props));
+            given.extend(repeated("--input", add.inputs));
+            (
+                add.operands,
+                switches(&[("--apply", add.apply.apply), ("--json", add.json.json)]),
+                given,
+            )
+        }
+        Mashup::AddContained(add) => {
+            let mut given = placed(add.place);
+            given.extend(repeated("--set", add.props));
+            (
+                add.operands,
+                switches(&[("--apply", add.apply.apply), ("--json", add.json.json)]),
+                given,
+            )
+        }
+        Mashup::Bind(bind) => (
+            bind.operands,
+            switches(&[("--apply", bind.apply.apply), ("--json", bind.json.json)]),
+            values(&[("--from", bind.from), ("--to", bind.to)]),
+        ),
+        Mashup::On(on) => (
+            on.operands,
+            switches(&[("--apply", on.apply.apply), ("--json", on.json.json)]),
+            values(&[("--event", on.event), ("--invoke", on.invoke)]),
+        ),
+        Mashup::Param(param) => (
+            param.operands,
+            switches(&[
+                ("--default", param.default.is_some()),
+                ("--no-default", param.no_default),
+                ("--force", param.force),
+                ("--apply", param.apply.apply),
+                ("--json", param.json.json),
+            ]),
+            values(&[
+                ("--type", param.kind),
+                ("--direction", param.direction),
+                ("--description", param.description),
+                ("--default", bare(param.default)),
+                ("--data-shape", param.data_shape),
+            ]),
+        ),
+        Mashup::Recipe(recipe) => {
+            let mut given = values(&[
+                ("--if", recipe.condition),
+                ("--expr", recipe.expression),
+                ("--after", recipe.after),
+                ("--say", recipe.say),
+                ("--from", recipe.from),
+                ("--kind", recipe.kind),
+                ("--then", recipe.then),
+                ("--title", recipe.title),
+                ("--on", recipe.on),
+                ("--mashup", recipe.mashup),
+                ("--window", recipe.window),
+                ("--size", recipe.size),
+                ("--reload", recipe.reload),
+                ("--every", recipe.every),
+                ("--interval", recipe.interval),
+                ("--else-say", recipe.else_say),
+                ("--data", recipe.data),
+                ("--x", recipe.x),
+                ("--value", recipe.value),
+                ("--selected", recipe.selected),
+            ]);
+            given.extend(repeated("--input", recipe.inputs));
+            given.extend(repeated("--pass", recipe.pass));
+            given.extend(repeated("--column", recipe.columns));
+            (
+                recipe.operands,
+                switches(&[
+                    ("--apply", recipe.apply.apply),
+                    ("--json", recipe.json.json),
+                ]),
+                given,
+            )
+        }
+        Mashup::Event(event) => (
+            event.operands,
+            switches(&[("--apply", event.apply.apply), ("--json", event.json.json)]),
+            values(&[("--when", event.when)]),
+        ),
+        Mashup::Templates(templates) => (
+            templates.operands,
+            switches(&[("--json", templates.json.json)]),
+            Vec::new(),
+        ),
+        Mashup::New(new) => {
+            let mut given = values(&[
+                ("--project", new.project.project),
+                ("--template", new.template),
+                ("--layout", new.layout),
+                ("--primary-menu", new.primary_menu),
+                ("--secondary-menu", new.secondary_menu),
+                ("--theme", new.theme),
+            ]);
+            given.extend(repeated("--visibility", new.visibility));
+            given.extend(repeated("--param", new.params));
+            given.extend(repeated("--tab", new.tabs));
+            (
+                new.operands,
+                switches(&[
+                    ("--master", new.master),
+                    ("--apply", new.apply.apply),
+                    ("--json", new.json.json),
+                ]),
+                given,
+            )
+        }
+    }
 }
 
 /// While commands move from GRAMMAR rows to structs: each moved command line, read by the
@@ -2038,6 +2183,114 @@ fn derived_commands_read_what_their_grammar_rows_read() {
                 "--description",
                 "--from",
                 "--prop",
+                "--apply",
+                "--json",
+            ],
+        ),
+        ("mashup validate", true, &["--all", "--json"]),
+        ("mashup describe", true, &["--json"]),
+        (
+            "mashup add",
+            true,
+            &[
+                "--in",
+                "--right-of",
+                "--left-of",
+                "--above",
+                "--below",
+                "--label",
+                "--prop",
+                "--input",
+                "--apply",
+                "--json",
+            ],
+        ),
+        (
+            "mashup add-contained",
+            true,
+            &[
+                "--in",
+                "--right-of",
+                "--left-of",
+                "--above",
+                "--below",
+                "--set",
+                "--apply",
+                "--json",
+            ],
+        ),
+        (
+            "mashup bind",
+            true,
+            &["--from", "--to", "--apply", "--json"],
+        ),
+        (
+            "mashup on",
+            true,
+            &["--event", "--invoke", "--apply", "--json"],
+        ),
+        (
+            "mashup param",
+            true,
+            &[
+                "--type",
+                "--direction",
+                "--description",
+                "--default",
+                "--no-default",
+                "--data-shape",
+                "--force",
+                "--apply",
+                "--json",
+            ],
+        ),
+        (
+            "mashup recipe",
+            true,
+            &[
+                "--if",
+                "--expr",
+                "--input",
+                "--after",
+                "--say",
+                "--from",
+                "--kind",
+                "--then",
+                "--title",
+                "--on",
+                "--mashup",
+                "--window",
+                "--size",
+                "--pass",
+                "--reload",
+                "--every",
+                "--interval",
+                "--else-say",
+                "--data",
+                "--x",
+                "--value",
+                "--column",
+                "--selected",
+                "--apply",
+                "--json",
+            ],
+        ),
+        ("mashup event", true, &["--when", "--apply", "--json"]),
+        ("mashup templates", true, &["--json"]),
+        (
+            "mashup new",
+            true,
+            &[
+                "--project",
+                "--template",
+                "--layout",
+                "--primary-menu",
+                "--secondary-menu",
+                "--theme",
+                "--master",
+                "--visibility",
+                "--param",
+                "--tab",
                 "--apply",
                 "--json",
             ],
@@ -2707,6 +2960,221 @@ fn derived_commands_read_what_their_grammar_rows_read() {
             "b=-2",
         ],
         &["new", "theme"],
+        &["mashup", "validate", "Acme.Home_MU", "--json"],
+        &["mashup", "validate", "--all"],
+        &["mashup", "validate", "--all", "Acme.Home_MU"],
+        &["mashup", "describe", "Acme.Home_MU", "--json"],
+        &[
+            "mashup",
+            "add",
+            "Acme.Home_MU",
+            "ptcsbutton",
+            "--right-of",
+            "Title",
+            "--label",
+            "Go",
+            "--prop",
+            "Width=-1",
+            "--prop",
+            "Text=Go",
+            "--input",
+            "a:STRING",
+            "--apply",
+            "--json",
+        ],
+        &[
+            "mashup",
+            "add",
+            "Acme.Home_MU",
+            "ptcsgrid",
+            "--in",
+            "Main",
+            "--above",
+            "Title",
+        ],
+        &[
+            "mashup",
+            "add-contained",
+            "Acme.Home_MU",
+            "Acme.Child_MU",
+            "--below",
+            "Title",
+            "--left-of",
+            "Grid",
+            "--set",
+            "Count=1",
+            "--set",
+            "Name=x",
+            "--apply",
+        ],
+        &[
+            "mashup",
+            "bind",
+            "Acme.Home_MU",
+            "--from",
+            "Get.Result",
+            "--to",
+            "Grid.Data",
+            "--json",
+        ],
+        &[
+            "mashup",
+            "on",
+            "Acme.Home_MU",
+            "--event",
+            "Button.Clicked",
+            "--invoke",
+            "Get",
+            "--apply",
+        ],
+        &[
+            "mashup",
+            "param",
+            "add",
+            "Acme.Home_MU",
+            "Count",
+            "--type",
+            "INTEGER",
+            "--direction",
+            "IN",
+            "--description",
+            "-",
+            "--default",
+            "-1",
+            "--data-shape",
+            "Acme.DS",
+            "--force",
+            "--apply",
+            "--json",
+        ],
+        &[
+            "mashup",
+            "param",
+            "set",
+            "Acme.Home_MU",
+            "Count",
+            "--default",
+        ],
+        &[
+            "mashup",
+            "param",
+            "set",
+            "Acme.Home_MU",
+            "Count",
+            "--no-default",
+            "--default",
+            "",
+        ],
+        &[
+            "mashup",
+            "recipe",
+            "toast",
+            "Acme.Home_MU",
+            "Button",
+            "--if",
+            "x > 1",
+            "--expr",
+            "-x",
+            "--input",
+            "a:STRING",
+            "--input",
+            "b:NUMBER",
+            "--after",
+            "Get.Done",
+            "--say",
+            "hi",
+            "--from",
+            "Get",
+            "--kind",
+            "info",
+            "--then",
+            "Next",
+            "--title",
+            "T",
+            "--on",
+            "Button.Clicked",
+            "--mashup",
+            "Acme.Other_MU",
+            "--window",
+            "popup",
+            "--size",
+            "300x200",
+        ],
+        &[
+            "mashup",
+            "recipe",
+            "grid",
+            "Acme.Home_MU",
+            "--pass",
+            "a=Get.A",
+            "--pass",
+            "b=Get.B",
+            "--reload",
+            "Get",
+            "--every",
+            "5",
+            "--interval",
+            "Timer",
+            "--else-say",
+            "no",
+            "--data",
+            "Get.Result",
+            "--x",
+            "time",
+            "--value",
+            "v",
+            "--column",
+            "a:A:100",
+            "--column",
+            "b",
+            "--selected",
+            "Grid.Selected",
+            "--apply",
+            "--json",
+        ],
+        &[
+            "mashup",
+            "event",
+            "add",
+            "Acme.Home_MU",
+            "Done",
+            "--when",
+            "Get.Done",
+            "--apply",
+            "--json",
+        ],
+        &["mashup", "templates"],
+        &["mashup", "templates", "two-column", "--json"],
+        &[
+            "mashup",
+            "new",
+            "Acme.Home_MU",
+            "--project",
+            "Acme",
+            "--template",
+            "header",
+            "--layout",
+            "rows",
+            "--primary-menu",
+            "Acme.Main_MN",
+            "--secondary-menu",
+            "Acme.Side_MN",
+            "--theme",
+            "Acme.Theme",
+            "--master",
+            "--visibility",
+            "Org:Acme",
+            "--param",
+            "Count:INTEGER",
+            "--param",
+            "Name:STRING:IN",
+            "--tab",
+            "Home=Acme.A_MU",
+            "--tab",
+            "About=Acme.B_MU",
+            "--apply",
+            "--json",
+        ],
     ];
     for line in lines {
         let mut all = vec!["twaco"];

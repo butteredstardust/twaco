@@ -60,6 +60,8 @@ pub(crate) enum Typed {
     State(super::entity_edit::State),
     #[command(subcommand)]
     New(super::entity_new::New),
+    #[command(subcommand)]
+    Mashup(super::mashup::Mashup),
 }
 
 impl Typed {
@@ -110,6 +112,7 @@ impl Typed {
             Typed::State(_) => "state set",
             Typed::New(super::entity_new::New::BuildingBlock(_)) => "new building-block",
             Typed::New(super::entity_new::New::Entity(new)) => new.path(),
+            Typed::Mashup(mashup) => mashup.path(),
         }
     }
 
@@ -120,6 +123,9 @@ impl Typed {
             Typed::Extract(extract) => extract.selection.validate(),
             Typed::Sync(sync) => sync.selection.validate(),
             Typed::Call(call) => call.timeout.duration().map(|_| ()),
+            Typed::Mashup(super::mashup::Mashup::Validate(validate)) => {
+                validate.selection.validate()
+            }
             Typed::Init(_)
             | Typed::Doctor(_)
             | Typed::Projects
@@ -155,7 +161,8 @@ impl Typed {
             | Typed::Media(_)
             | Typed::Menu(_)
             | Typed::State(_)
-            | Typed::New(_) => Ok(()),
+            | Typed::New(_)
+            | Typed::Mashup(_) => Ok(()),
         }
     }
 }

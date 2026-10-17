@@ -38,7 +38,7 @@ use cli::localization::localization_cmd;
 use cli::mashup::{
     mashup_add_cmd, mashup_add_contained_cmd, mashup_bind_cmd, mashup_describe_cmd,
     mashup_event_cmd, mashup_new_cmd, mashup_on_cmd, mashup_param_cmd, mashup_recipe_cmd,
-    mashup_templates_cmd, mashup_validate_cmd,
+    mashup_templates_cmd, mashup_validate_cmd, Mashup,
 };
 use cli::refactor::{
     adopt_cmd, handoff_cmd, new_building_block_cmd, relocate_cmd, rename_cmd, reproject_cmd,
@@ -226,16 +226,26 @@ fn dispatch_typed(typed: Typed) -> u8 {
             run(|solution| new_building_block_cmd(solution, &block))
         }
         Typed::New(New::Entity(new)) => run(|solution| entity_new_cmd(solution, &new)),
+        // The templates are built in, so they need no solution.
+        Typed::Mashup(Mashup::Templates(templates)) => mashup_templates_cmd(&templates),
+        Typed::Mashup(mashup) => run(|solution| match &mashup {
+            Mashup::Add(add) => mashup_add_cmd(solution, add),
+            Mashup::AddContained(add) => mashup_add_contained_cmd(solution, add),
+            Mashup::Bind(bind) => mashup_bind_cmd(solution, bind),
+            Mashup::On(on) => mashup_on_cmd(solution, on),
+            Mashup::Param(param) => mashup_param_cmd(solution, param),
+            Mashup::Event(event) => mashup_event_cmd(solution, event),
+            Mashup::Recipe(recipe) => mashup_recipe_cmd(solution, recipe),
+            Mashup::New(new) => mashup_new_cmd(solution, new),
+            Mashup::Describe(describe) => mashup_describe_cmd(solution, describe),
+            Mashup::Validate(validate) => mashup_validate_cmd(solution, validate),
+            Mashup::Templates(_) => unreachable!("the templates need no solution"),
+        }),
     }
 }
 
 /// Run one table command and return its exit code.
 fn dispatch(route: &str, parsed: &Args) -> u8 {
-    // The templates are built in, so they need no solution.
-    if route == "mashup templates" {
-        return mashup_templates_cmd(parsed);
-    }
-
     // Commands that change the workspace take its lock in their executor (core::commands), so
     // the lock covers exactly what they change and both front ends take it the same way.
     run(|solution| match route {
@@ -250,16 +260,6 @@ fn dispatch(route: &str, parsed: &Args) -> u8 {
         }
         "retemplate" => retemplate_cmd(solution, parsed),
         "reproject" => reproject_cmd(solution, parsed),
-        "mashup add" => mashup_add_cmd(solution, parsed),
-        "mashup add-contained" => mashup_add_contained_cmd(solution, parsed),
-        "mashup bind" => mashup_bind_cmd(solution, parsed),
-        "mashup on" => mashup_on_cmd(solution, parsed),
-        "mashup param" => mashup_param_cmd(solution, parsed),
-        "mashup event" => mashup_event_cmd(solution, parsed),
-        "mashup recipe" => mashup_recipe_cmd(solution, parsed),
-        "mashup new" => mashup_new_cmd(solution, parsed),
-        "mashup describe" => mashup_describe_cmd(solution, parsed),
-        "mashup validate" => mashup_validate_cmd(solution, parsed),
         "config-table" => config_table(solution, parsed),
         "entity get" => entity_get(solution, parsed),
         "entity status" => entity_status(solution, parsed),
