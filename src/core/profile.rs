@@ -284,14 +284,116 @@ pub(crate) fn source(solution_root: &Path, name: &str) -> String {
     }
 }
 
-/// The deterministic half, injectable because process-global environment mutation makes tests
-/// race each other. `TWACO_*` wins over its legacy `TWX_*` alias when both are present.
-fn load_from(
+/// Write `key` as the `app_key` of the profile file `name` resolves to (the same file `load`
+/// reads), replacing an `app_key` or `appKey` line or adding one, and keeping every other line
+/// and the file's permissions. The file must exist: a key alone is not a profile. Returns the
+/// file written.
+pub(crate) fn save_app_key(
+    solution_root: &Path,
+    name: &str,
+    key: &Secret,
+) -> Result<PathBuf, ProfileError> {
+    save_app_key_in(solution_root, home().as_deref(), name, key)
+}
+
+/// The profile file `name` resolves to; refused when there is none.
+pub(crate) fn existing_file(solution_root: &Path, name: &str) -> Result<PathBuf, ProfileError> {
+    existing_file_in(solution_root, home().as_deref(), name)
+}
+
+fn existing_file_in(
     solution_root: &Path,
     home: Option<&Path>,
     name: &str,
-    environment: &BTreeMap<String, String>,
-) -> Result<Profile, ProfileError> {
+) -> Result<PathBuf, ProfileError> {
+    let searched = files(solution_root, home, name)?;
+    searched
+        .iter()
+        .find(|path| path.is_file())
+        .cloned()
+        .ok_or_else(|| ProfileError::Missing {
+            name: name.to_string(),
+            searched,
+        })
+}
+
+fn save_app_key_in(
+    solution_root: &Path,
+    home: Option<&Path>,
+    name: &str,
+    key: &Secret,
+) -> Result<PathBuf, ProfileError> {
+    let path = existing_file_in(solution_root, home, name)?;
+    let unreadable = |why: String| ProfileError::Unreadable {
+        path: path.clone(),
+        why,
+    };
+    let text = Secret::new(std::fs::read_to_string(&path).map_err(|e| unreadable(e.to_string()))?);
+    let newline = if text.expose().contains("\r\n") {
+        "\r\n"
+    } else {
+        "\n"
+    };
+    let line = Secret::new(format!(
+        "app_key = {}",
+        toml::Value::String(key.expose().to_string())
+    ));
+    // Top-level keys come before the first table; app_key goes where the old one was, or after
+    // the last top-level line.
+    let mut lines: Vec<&str> = text.expose().lines().collect();
+    let first_table = lines
+        .iter()
+        .position(|line| line.trim_start().starts_with('['))
+        .unwrap_or(lines.len());
+    let is_key = |line: &str| {
+        line.split_once('=').is_some_and(|(left, _)| {
+            matches!(
+                left.trim(),
+                "app_key" | "appKey" | "\"app_key\"" | "\"appKey\""
+            )
+        })
+    };
+    let existing: Vec<usize> = (0..first_table).filter(|at| is_key(lines[*at])).collect();
+    let at = existing.first().copied().unwrap_or_else(|| {
+        (0..first_table)
+            .rev()
+            .find(|at| !lines[*at].trim().is_empty())
+            .map_or(0, |at| at + 1)
+    });
+    for remove in existing.iter().rev() {
+        lines.remove(*remove);
+    }
+    lines.insert(at, line.expose());
+    let mut out = Secret::new(lines.join(newline));
+    if text.expose().ends_with('\n') || text.expose().is_empty() {
+        out.0.push_str(newline);
+    }
+    let written: Profile = toml::from_str(out.expose()).map_err(|e| ProfileError::Invalid {
+        path: path.clone(),
+        why: format!("adding app_key would make it invalid: {e}"),
+    })?;
+    if written.app_key.as_ref().map(Secret::expose) != Some(key.expose()) {
+        return Err(ProfileError::Invalid {
+            path: path.clone(),
+            why: "app_key did not read back as written".to_string(),
+        });
+    }
+    // The replacement keeps the old file's permissions, which for a profile are usually
+    // owner-only, from before it holds any byte (see `atomic_replace`).
+    super::workspace::atomic_replace(&path, out.expose().as_bytes())
+        .map_err(|e| unreadable(format!("could not write it: {e}")))?;
+    Ok(path)
+}
+
+/// The deterministic half, injectable because process-global environment mutation makes tests
+/// race each other. `TWACO_*` wins over its legacy `TWX_*` alias when both are present.
+/// The files a profile name can live in, in the order they are tried: the workspace's, then the
+/// user's.
+fn files(
+    solution_root: &Path,
+    home: Option<&Path>,
+    name: &str,
+) -> Result<Vec<PathBuf>, ProfileError> {
     if name.is_empty()
         || name == "."
         || name == ".."
@@ -301,26 +403,28 @@ fn load_from(
     {
         return Err(ProfileError::InvalidName(name.to_string()));
     }
-
-    let local = solution_root
-        .join(".twaco")
-        .join("profiles")
-        .join(format!("{name}.toml"));
-    let mut searched = vec![local.clone()];
-    let global = home.map(|home| {
-        home.join(".twaco")
+    let file = |root: &Path| {
+        root.join(".twaco")
             .join("profiles")
             .join(format!("{name}.toml"))
-    });
-    if let Some(path) = &global {
-        searched.push(path.clone());
-    }
+    };
+    Ok(std::iter::once(file(solution_root))
+        .chain(home.map(file))
+        .collect())
+}
 
+fn load_from(
+    solution_root: &Path,
+    home: Option<&Path>,
+    name: &str,
+    environment: &BTreeMap<String, String>,
+) -> Result<Profile, ProfileError> {
+    let searched = files(solution_root, home, name)?;
     // First existing file wins; an invalid local profile is an error, not permission to fall
     // through to a different server in the user's global profile.
-    let selected = std::iter::once(Some(local.as_path()))
-        .chain(std::iter::once(global.as_deref()))
-        .flatten()
+    let selected = searched
+        .iter()
+        .map(PathBuf::as_path)
         .find(|path| path.is_file());
     let mut values = BTreeMap::<&'static str, String>::new();
     let mut extra = BTreeMap::<String, toml::Value>::new();
@@ -427,6 +531,70 @@ mod tests {
         assert_eq!(format!("{secret:?}"), "<redacted>");
         assert_eq!(format!("{:?}", Some(&secret)), "Some(<redacted>)");
         assert_eq!(secret.expose(), "hunter2");
+    }
+
+    #[test]
+    fn an_app_key_replaces_the_old_one_or_joins_the_top_level_keys() {
+        let dir = tempfile::tempdir().unwrap();
+        let profiles = dir.path().join(".twaco/profiles");
+        std::fs::create_dir_all(&profiles).unwrap();
+        let path = profiles.join("dev.toml");
+        let key = Secret::new("2d7c0b6e-1111");
+        let save = |text: &str| {
+            std::fs::write(&path, text).unwrap();
+            save_app_key_in(dir.path(), None, "dev", &key).unwrap();
+            std::fs::read_to_string(&path).unwrap()
+        };
+        assert_eq!(
+            save("url = \"u\"\nusername = \"a\"\npassword = \"p\"\n"),
+            "url = \"u\"\nusername = \"a\"\npassword = \"p\"\napp_key = \"2d7c0b6e-1111\"\n"
+        );
+        assert_eq!(
+            save("url = \"u\"\r\nappKey = \"old\"\r\nusername = \"a\"\r\npassword = \"p\"\r\n"),
+            "url = \"u\"\r\napp_key = \"2d7c0b6e-1111\"\r\nusername = \"a\"\r\npassword = \"p\"\r\n"
+        );
+        assert_eq!(
+            save("url = \"u\"\nusername = \"a\"\npassword = \"p\"\n\n[deploy]\nx = 1\n"),
+            "url = \"u\"\nusername = \"a\"\npassword = \"p\"\napp_key = \"2d7c0b6e-1111\"\n\n[deploy]\nx = 1\n"
+        );
+        // A table's own app_key is not the profile's.
+        let tabled =
+            save("url = \"u\"\nusername = \"a\"\npassword = \"p\"\n[other]\napp_key = \"t\"\n");
+        assert!(tabled.contains("[other]\napp_key = \"t\""), "{tabled}");
+        assert!(
+            tabled.starts_with(
+                "url = \"u\"\nusername = \"a\"\npassword = \"p\"\napp_key = \"2d7c0b6e-1111\"\n"
+            ),
+            "{tabled}"
+        );
+        // No profile file: refused, nothing created.
+        std::fs::remove_file(&path).unwrap();
+        assert!(matches!(
+            save_app_key_in(dir.path(), None, "dev", &key),
+            Err(ProfileError::Missing { .. })
+        ));
+        assert!(!path.exists());
+        assert!(matches!(
+            save_app_key_in(dir.path(), None, "../dev", &key),
+            Err(ProfileError::InvalidName(_))
+        ));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn saving_an_app_key_keeps_the_profile_private() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = tempfile::tempdir().unwrap();
+        let profiles = dir.path().join(".twaco/profiles");
+        std::fs::create_dir_all(&profiles).unwrap();
+        let path = profiles.join("dev.toml");
+        std::fs::write(&path, "url = \"u\"\nusername = \"a\"\npassword = \"p\"\n").unwrap();
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600)).unwrap();
+        save_app_key_in(dir.path(), None, "dev", &Secret::new("k")).unwrap();
+        assert_eq!(
+            std::fs::metadata(&path).unwrap().permissions().mode() & 0o777,
+            0o600
+        );
     }
 
     #[cfg(unix)]

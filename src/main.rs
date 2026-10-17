@@ -19,6 +19,7 @@ use twaco::core::workspace;
 mod cli;
 
 use clap::FromArgMatches as _;
+use cli::appkey::appkey_cmd;
 use cli::command::Command;
 use cli::content::{export_cmd, ext_cmd, import_cmd, package_cmd, repo_cmd, search_cmd};
 use cli::data::{
@@ -193,6 +194,7 @@ fn dispatch(command: Command) -> u8 {
         Command::Fmt(command) => run(|solution| fmt(solution, &command)),
         Command::Check(command) => run(|solution| check(solution, &command)),
         Command::Users(users) => run(|solution| users_cmd(solution, &users)),
+        Command::AppKey(appkey) => run(|solution| appkey_cmd(solution, &appkey)),
         Command::Test(test) => run(|solution| test_cmd(solution, &test)),
         Command::Localization(localization) => {
             run(|solution| localization_cmd(solution, &localization))

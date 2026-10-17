@@ -1,0 +1,193 @@
+{
+  "note": "accumulatedDataShape of a DataTable read back from a ThingWorx 10.1.0-b47 server after importing its DataShape with the given fields, 2026-10-17. A Stream on the same shape read back identical.",
+  "rounds": [
+    {
+      "what": "retype qty INTEGER->LONG, new default and description on existing fields (ignored), Note removed, Comment and added new",
+      "before": "{\"fieldDefinitions\":{\"Note\":{\"name\":\"Note\",\"aspects\":{\"isPrimaryKey\":false},\"description\":\"\",\"baseType\":\"STRING\",\"ordinal\":1},\"qty\":{\"name\":\"qty\",\"aspects\":{\"isPrimaryKey\":false},\"description\":\"\",\"baseType\":\"INTEGER\",\"ordinal\":2},\"id\":{\"name\":\"id\",\"aspects\":{\"isPrimaryKey\":true},\"description\":\"\",\"baseType\":\"STRING\",\"ordinal\":0}}}",
+      "fields": [
+        {
+          "name": "id",
+          "baseType": "STRING",
+          "ordinal": "1",
+          "description": "the key",
+          "aspects": {
+            "isPrimaryKey": true
+          }
+        },
+        {
+          "name": "qty",
+          "baseType": "LONG",
+          "ordinal": "2",
+          "description": "",
+          "aspects": {
+            "isPrimaryKey": false,
+            "defaultValue": "7"
+          }
+        },
+        {
+          "name": "Comment",
+          "baseType": "STRING",
+          "ordinal": "3",
+          "description": "",
+          "aspects": {
+            "isPrimaryKey": false
+          }
+        },
+        {
+          "name": "added",
+          "baseType": "DATETIME",
+          "ordinal": "4",
+          "description": "",
+          "aspects": {
+            "isPrimaryKey": false
+          }
+        }
+      ],
+      "server": "{\"fieldDefinitions\":{\"Comment\":{\"name\":\"Comment\",\"aspects\":{\"isPrimaryKey\":false},\"description\":\"\",\"baseType\":\"STRING\",\"ordinal\":4},\"added\":{\"name\":\"added\",\"aspects\":{\"isPrimaryKey\":false},\"description\":\"\",\"baseType\":\"DATETIME\",\"ordinal\":3},\"Note\":{\"name\":\"Note\",\"aspects\":{\"isDeleted\":true,\"isPrimaryKey\":false},\"description\":\"\",\"baseType\":\"STRING\",\"ordinal\":1},\"qty\":{\"name\":\"qty\",\"aspects\":{\"isPrimaryKey\":false},\"description\":\"\",\"baseType\":\"LONG\",\"ordinal\":2},\"id\":{\"name\":\"id\",\"aspects\":{\"isPrimaryKey\":true},\"description\":\"\",\"baseType\":\"STRING\",\"ordinal\":0}}}"
+    },
+    {
+      "what": "added removed, Note re-added (isDeleted false), Comment description changed (ignored), zeta/beta/Alpha new with description and NUMBER default",
+      "before": "{\"fieldDefinitions\":{\"Comment\":{\"name\":\"Comment\",\"aspects\":{\"isPrimaryKey\":false},\"description\":\"\",\"baseType\":\"STRING\",\"ordinal\":4},\"added\":{\"name\":\"added\",\"aspects\":{\"isPrimaryKey\":false},\"description\":\"\",\"baseType\":\"DATETIME\",\"ordinal\":3},\"Note\":{\"name\":\"Note\",\"aspects\":{\"isDeleted\":true,\"isPrimaryKey\":false},\"description\":\"\",\"baseType\":\"STRING\",\"ordinal\":1},\"qty\":{\"name\":\"qty\",\"aspects\":{\"isPrimaryKey\":false},\"description\":\"\",\"baseType\":\"LONG\",\"ordinal\":2},\"id\":{\"name\":\"id\",\"aspects\":{\"isPrimaryKey\":true},\"description\":\"\",\"baseType\":\"STRING\",\"ordinal\":0}}}",
+      "fields": [
+        {
+          "name": "Alpha",
+          "baseType": "INTEGER",
+          "ordinal": "1",
+          "description": "",
+          "aspects": {
+            "isPrimaryKey": false
+          }
+        },
+        {
+          "name": "beta",
+          "baseType": "STRING",
+          "ordinal": "2",
+          "description": "",
+          "aspects": {
+            "isPrimaryKey": false
+          }
+        },
+        {
+          "name": "Comment",
+          "baseType": "STRING",
+          "ordinal": "3",
+          "description": "cd",
+          "aspects": {
+            "isPrimaryKey": false
+          }
+        },
+        {
+          "name": "id",
+          "baseType": "STRING",
+          "ordinal": "4",
+          "description": "the key",
+          "aspects": {
+            "isPrimaryKey": true
+          }
+        },
+        {
+          "name": "Note",
+          "baseType": "STRING",
+          "ordinal": "5",
+          "description": "",
+          "aspects": {
+            "isPrimaryKey": false
+          }
+        },
+        {
+          "name": "qty",
+          "baseType": "LONG",
+          "ordinal": "6",
+          "description": "",
+          "aspects": {
+            "defaultValue": "7",
+            "isPrimaryKey": false
+          }
+        },
+        {
+          "name": "zeta",
+          "baseType": "NUMBER",
+          "ordinal": "7",
+          "description": "zd",
+          "aspects": {
+            "defaultValue": "3.0",
+            "isPrimaryKey": false
+          }
+        }
+      ],
+      "server": "{\"fieldDefinitions\":{\"zeta\":{\"name\":\"zeta\",\"aspects\":{\"defaultValue\":3.0,\"isPrimaryKey\":false},\"description\":\"zd\",\"baseType\":\"NUMBER\",\"ordinal\":7},\"Comment\":{\"name\":\"Comment\",\"aspects\":{\"isPrimaryKey\":false},\"description\":\"\",\"baseType\":\"STRING\",\"ordinal\":4},\"added\":{\"name\":\"added\",\"aspects\":{\"isDeleted\":true,\"isPrimaryKey\":false},\"description\":\"\",\"baseType\":\"DATETIME\",\"ordinal\":3},\"Note\":{\"name\":\"Note\",\"aspects\":{\"isDeleted\":false,\"isPrimaryKey\":false},\"description\":\"\",\"baseType\":\"STRING\",\"ordinal\":1},\"qty\":{\"name\":\"qty\",\"aspects\":{\"isPrimaryKey\":false},\"description\":\"\",\"baseType\":\"LONG\",\"ordinal\":2},\"Alpha\":{\"name\":\"Alpha\",\"aspects\":{\"isPrimaryKey\":false},\"description\":\"\",\"baseType\":\"INTEGER\",\"ordinal\":5},\"id\":{\"name\":\"id\",\"aspects\":{\"isPrimaryKey\":true},\"description\":\"\",\"baseType\":\"STRING\",\"ordinal\":0},\"beta\":{\"name\":\"beta\",\"aspects\":{\"isPrimaryKey\":false},\"description\":\"\",\"baseType\":\"STRING\",\"ordinal\":6}}}"
+    },
+    {
+      "what": "twaco rename field beta -> gamma: the server marks beta deleted and adds gamma at the next ordinal",
+      "before": "{\"fieldDefinitions\":{\"zeta\":{\"name\":\"zeta\",\"aspects\":{\"defaultValue\":3.0,\"isPrimaryKey\":false},\"description\":\"zd\",\"baseType\":\"NUMBER\",\"ordinal\":7},\"Comment\":{\"name\":\"Comment\",\"aspects\":{\"isPrimaryKey\":false},\"description\":\"\",\"baseType\":\"STRING\",\"ordinal\":4},\"added\":{\"name\":\"added\",\"aspects\":{\"isDeleted\":true,\"isPrimaryKey\":false},\"description\":\"\",\"baseType\":\"DATETIME\",\"ordinal\":3},\"Note\":{\"name\":\"Note\",\"aspects\":{\"isDeleted\":false,\"isPrimaryKey\":false},\"description\":\"\",\"baseType\":\"STRING\",\"ordinal\":1},\"qty\":{\"name\":\"qty\",\"aspects\":{\"isPrimaryKey\":false},\"description\":\"\",\"baseType\":\"LONG\",\"ordinal\":2},\"Alpha\":{\"name\":\"Alpha\",\"aspects\":{\"isPrimaryKey\":false},\"description\":\"\",\"baseType\":\"INTEGER\",\"ordinal\":5},\"id\":{\"name\":\"id\",\"aspects\":{\"isPrimaryKey\":true},\"description\":\"\",\"baseType\":\"STRING\",\"ordinal\":0},\"beta\":{\"name\":\"beta\",\"aspects\":{\"isPrimaryKey\":false},\"description\":\"\",\"baseType\":\"STRING\",\"ordinal\":6}}}",
+      "fields": [
+        {
+          "name": "Alpha",
+          "baseType": "INTEGER",
+          "ordinal": "1",
+          "description": "",
+          "aspects": {
+            "isPrimaryKey": false
+          }
+        },
+        {
+          "name": "Comment",
+          "baseType": "STRING",
+          "ordinal": "2",
+          "description": "cd",
+          "aspects": {
+            "isPrimaryKey": false
+          }
+        },
+        {
+          "name": "gamma",
+          "baseType": "STRING",
+          "ordinal": "3",
+          "description": "",
+          "aspects": {
+            "isPrimaryKey": false
+          }
+        },
+        {
+          "name": "id",
+          "baseType": "STRING",
+          "ordinal": "4",
+          "description": "the key",
+          "aspects": {
+            "isPrimaryKey": true
+          }
+        },
+        {
+          "name": "Note",
+          "baseType": "STRING",
+          "ordinal": "5",
+          "description": "",
+          "aspects": {
+            "isPrimaryKey": false
+          }
+        },
+        {
+          "name": "qty",
+          "baseType": "LONG",
+          "ordinal": "6",
+          "description": "",
+          "aspects": {
+            "defaultValue": "7",
+            "isPrimaryKey": false
+          }
+        },
+        {
+          "name": "zeta",
+          "baseType": "NUMBER",
+          "ordinal": "7",
+          "description": "zd",
+          "aspects": {
+            "defaultValue": "3.0",
+            "isPrimaryKey": false
+          }
+        }
+      ],
+      "server": "{\"fieldDefinitions\":{\"zeta\":{\"name\":\"zeta\",\"aspects\":{\"defaultValue\":3.0,\"isPrimaryKey\":false},\"description\":\"zd\",\"baseType\":\"NUMBER\",\"ordinal\":7},\"Comment\":{\"name\":\"Comment\",\"aspects\":{\"isPrimaryKey\":false},\"description\":\"\",\"baseType\":\"STRING\",\"ordinal\":4},\"added\":{\"name\":\"added\",\"aspects\":{\"isDeleted\":true,\"isPrimaryKey\":false},\"description\":\"\",\"baseType\":\"DATETIME\",\"ordinal\":3},\"Note\":{\"name\":\"Note\",\"aspects\":{\"isDeleted\":false,\"isPrimaryKey\":false},\"description\":\"\",\"baseType\":\"STRING\",\"ordinal\":1},\"qty\":{\"name\":\"qty\",\"aspects\":{\"isPrimaryKey\":false},\"description\":\"\",\"baseType\":\"LONG\",\"ordinal\":2},\"Alpha\":{\"name\":\"Alpha\",\"aspects\":{\"isPrimaryKey\":false},\"description\":\"\",\"baseType\":\"INTEGER\",\"ordinal\":5},\"id\":{\"name\":\"id\",\"aspects\":{\"isPrimaryKey\":true},\"description\":\"\",\"baseType\":\"STRING\",\"ordinal\":0},\"beta\":{\"name\":\"beta\",\"aspects\":{\"isDeleted\":true,\"isPrimaryKey\":false},\"description\":\"\",\"baseType\":\"STRING\",\"ordinal\":6},\"gamma\":{\"name\":\"gamma\",\"aspects\":{\"isPrimaryKey\":false},\"description\":\"\",\"baseType\":\"STRING\",\"ordinal\":8}}}"
+    }
+  ]
+}

@@ -8,7 +8,7 @@ use super::config::Solution;
 use super::lock::WorkspaceLock;
 use super::transaction::Transaction;
 use super::workspace::EntityFile;
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 /// What happened, in the order it happened. Errors are kept apart from changes so a caller can
 /// route them (the CLI to stderr) without losing the order within each.
@@ -109,11 +109,59 @@ pub(crate) fn sync(
 ) -> SyncOutcome {
     let mut outcome = SyncOutcome::default();
     let log = &mut outcome.log;
+    // A DataShape import makes ThingWorx rewrite every table on that shape, even one in another
+    // project, so a DataShape synced here brings its tables along. A table follows the DataShape
+    // as this sync leaves it: a chosen one's XML after its own sync (nothing, when that sync is
+    // refused), any other's XML as it stands.
+    let mut work = chosen.to_vec();
+    let mut shapes = BTreeMap::new();
+    let tables_or_shapes = chosen.iter().any(|entity| {
+        entity.info.collection == "DataShapes"
+            || std::fs::read(&entity.path)
+                .is_ok_and(|src| super::datatable::shape_and_accumulated(&src).is_some())
+    });
+    if tables_or_shapes {
+        let found = super::workspace::discover(solution).entities;
+        let mut synced = BTreeSet::new();
+        for entity in found
+            .iter()
+            .filter(|entity| entity.info.collection == "DataShapes")
+        {
+            let named = chosen.iter().any(|chosen| chosen.path == entity.path);
+            let fields = if named {
+                shape_fields_after_sync(solution, entity, options.allow_structural)
+            } else {
+                std::fs::read(&entity.path)
+                    .ok()
+                    .and_then(|src| super::datashape::extract(&src).ok())
+            };
+            if let Some(fields) = fields {
+                if named {
+                    synced.insert(entity.info.name.clone());
+                }
+                shapes.insert(entity.info.name.clone(), fields);
+            }
+        }
+        for entity in found {
+            if work.iter().any(|chosen| chosen.path == entity.path) {
+                continue;
+            }
+            let Ok(src) = std::fs::read(&entity.path) else {
+                continue;
+            };
+            if super::datatable::shape_and_accumulated(&src)
+                .is_some_and(|(shape, _)| synced.contains(&shape))
+            {
+                work.push(entity);
+            }
+        }
+        work.sort_by(|a, b| a.path.cmp(&b.path));
+    }
     for problem in unreadable {
         log.error(problem.clone());
     }
     let mut failed = unreadable.len();
-    for entity in chosen {
+    for entity in &work {
         let src = match std::fs::read(&entity.path) {
             Ok(s) => s,
             Err(e) => {
@@ -146,19 +194,40 @@ pub(crate) fn sync(
                 options.check,
             ));
         }
+        // A DataTable whose own datatable.json is refused is left alone: the merge would write
+        // both files, overwriting the sidecar the person still has to correct.
+        let mut table_refused = false;
         if super::datatable::is_data_table(&src) {
-            tally.record(sync_datatable(
-                log,
-                solution,
-                entity,
-                &mut current,
-                options.check,
-            ));
+            let synced = sync_datatable(log, solution, entity, &mut current, options.check);
+            table_refused = synced.is_err();
+            tally.record(synced);
+        }
+        let mut accumulated_sidecar = None;
+        if let Some(fields) = super::datatable::shape_and_accumulated(&current)
+            .filter(|_| !table_refused)
+            .and_then(|(shape, _)| shapes.get(&shape))
+        {
+            if sync_accumulated(log, entity, &mut current, fields, options.check) {
+                tally.record(Ok(Some(true)));
+                if super::datatable::is_data_table(&current) {
+                    let path = super::workspace::datatable_path(solution, entity);
+                    if path.is_file() {
+                        if let Ok(configuration) = super::datatable::extract(&current) {
+                            if let Ok(text) = super::datatable::to_sidecar(&configuration) {
+                                accumulated_sidecar = Some((path, text));
+                            }
+                        }
+                    }
+                }
+            }
         }
 
         let dir = super::workspace::services_dir(solution, entity);
         let sidecars = super::workspace::read_sidecars(&dir);
-        if !sidecars.is_empty() {
+        // An existing empty services directory is deliberate management of zero services. This
+        // matters before Git drops the empty directory: it lets sync report (or, when allowed,
+        // remove) the last script service instead of silently treating the entity as unmanaged.
+        if !sidecars.is_empty() || dir.is_dir() {
             tally.record(sync_services(
                 log,
                 entity,
@@ -180,11 +249,22 @@ pub(crate) fn sync(
         }
         // What the kinds that succeeded changed is written, as when each wrote its own; a
         // write that fails leaves the file as it was, so nothing counts as changed.
+        let mut entity_written = current == src;
         if !options.check && current != src {
             if let Err(e) = super::workspace::write_entity(&entity.path, &current) {
                 log.error(format!("{e}"));
                 tally.changed = false;
                 tally.failed += 1;
+            } else {
+                entity_written = true;
+            }
+        }
+        if !options.check && entity_written {
+            if let Some((path, text)) = accumulated_sidecar {
+                if let Err(e) = super::workspace::write_lf_if_changed(&path, &text) {
+                    log.error(format!("{e}"));
+                    tally.failed += 1;
+                }
             }
         }
 
@@ -200,6 +280,106 @@ pub(crate) fn sync(
     outcome.types =
         super::types::refresh_after_write(solution, !options.check && outcome.changed > 0);
     outcome
+}
+
+/// A DataShape's fields once its `fields.json` is synced into it, or as its XML holds them when it
+/// has none. `None` when the sync would be refused (an add or remove without `allow_structural`,
+/// a sidecar that will not parse): its tables must not get ahead of the DataShape.
+pub(crate) fn shape_fields_after_sync(
+    solution: &Solution,
+    entity: &super::workspace::EntityFile,
+    allow_structural: bool,
+) -> Option<Vec<super::datashape::Field>> {
+    let src = std::fs::read(&entity.path).ok()?;
+    let path = super::workspace::fields_path(solution, entity);
+    let Ok(text) = std::fs::read_to_string(path) else {
+        return super::datashape::extract(&src).ok();
+    };
+    let desired = super::datashape::from_sidecar(&text.replace("\r\n", "\n")).ok()?;
+    let (out, _) = super::datashape::sync(&src, &desired, allow_structural).ok()?;
+    super::datashape::extract(&out).ok()
+}
+
+/// Apply the server's DataShape-import merge to one table; whether it changed. Failure is
+/// intentionally quiet: unknown and malformed accumulated shapes are outside the verified
+/// platform contract.
+fn sync_accumulated(
+    log: &mut Log,
+    entity: &super::workspace::EntityFile,
+    current: &mut Vec<u8>,
+    fields: &[super::datashape::Field],
+    check: bool,
+) -> bool {
+    let Some((shape, old)) = super::datatable::shape_and_accumulated(current) else {
+        return false;
+    };
+    let Some(new) = super::accumulated::merge(&old, fields) else {
+        return false;
+    };
+    let Ok(out) = super::datatable::write_accumulated(current, &new) else {
+        return false;
+    };
+    if out == *current {
+        return false;
+    }
+    log.change(format!(
+        "{}: accumulated shape {} {shape}: {}",
+        entity.info.name,
+        if check { "would follow" } else { "follows" },
+        accumulated_changes(&old, fields)
+    ));
+    *current = out;
+    true
+}
+
+/// What a merge does to an accumulated shape, in words: fields added, deleted, restored (a
+/// deleted field that is back) and retyped.
+pub(crate) fn accumulated_changes(old: &str, fields: &[super::datashape::Field]) -> String {
+    let old = serde_json::from_str::<serde_json::Value>(old)
+        .ok()
+        .and_then(|value| value.get("fieldDefinitions").cloned())
+        .and_then(|value| value.as_object().cloned())
+        .unwrap_or_default();
+    let is_deleted = |field: &serde_json::Value| {
+        field.pointer("/aspects/isDeleted") == Some(&serde_json::Value::Bool(true))
+    };
+    let mut added = Vec::new();
+    let mut restored = Vec::new();
+    let mut retyped = Vec::new();
+    for field in fields {
+        match old.get(&field.name) {
+            None => added.push(field.name.clone()),
+            Some(existing) => {
+                if is_deleted(existing) {
+                    restored.push(field.name.clone());
+                }
+                if existing.get("baseType").and_then(serde_json::Value::as_str)
+                    != Some(&field.base_type)
+                {
+                    retyped.push(field.name.clone());
+                }
+            }
+        }
+    }
+    let desired: BTreeSet<&str> = fields.iter().map(|field| field.name.as_str()).collect();
+    let mut deleted: Vec<String> = old
+        .iter()
+        .filter(|(name, field)| !desired.contains(name.as_str()) && !is_deleted(field))
+        .map(|(name, _)| name.clone())
+        .collect();
+    let mut parts = Vec::new();
+    for (names, word) in [
+        (&mut added, "added"),
+        (&mut deleted, "deleted"),
+        (&mut restored, "restored"),
+        (&mut retyped, "retyped"),
+    ] {
+        if !names.is_empty() {
+            names.sort();
+            parts.push(format!("{word} {}", names.join(", ")));
+        }
+    }
+    parts.join("; ")
 }
 
 /// Fold one entity's service sidecars into `current`. Returns whether anything changed.
@@ -744,6 +924,266 @@ mod tests {
 
     fn entities(solution: &Solution) -> Vec<EntityFile> {
         workspace::discover(solution).entities
+    }
+
+    #[test]
+    fn an_empty_services_directory_manages_the_last_service() {
+        let (_dir, root, solution) = service_fixture("empty-services");
+        std::fs::remove_dir_all(root.join("src/T/services/Run")).unwrap();
+        std::fs::create_dir_all(root.join("src/T/services")).unwrap();
+        let refused = sync(&solution, &entities(&solution), &[], SyncOptions::default());
+        assert_eq!(refused.failed, 1, "{:?}", refused.log);
+        assert!(read(&root, "Things/T.xml").contains("name=\"Run\""));
+        let applied = sync(
+            &solution,
+            &entities(&solution),
+            &[],
+            SyncOptions {
+                allow_structural: true,
+                ..SyncOptions::default()
+            },
+        );
+        assert_eq!(applied.failed, 0, "{:?}", applied.log);
+        assert!(!read(&root, "Things/T.xml").contains("name=\"Run\""));
+    }
+
+    /// A DataShape P.D (id, n) with its fields.json, a DataTable P.Rows with its datatable.json,
+    /// a Stream P.Log, and a Stream P.Other on a DataShape outside the solution, all settled.
+    fn shape_fixture(label: &str) -> (tempfile::TempDir, PathBuf, Solution) {
+        let root_guard = tempfile::Builder::new()
+            .prefix(&format!("twaco-workflow-{label}-"))
+            .tempdir()
+            .unwrap();
+        let root = root_guard.path().to_path_buf();
+        for dir in ["DataShapes", "Things", "src/P.D", "src/P.Rows"] {
+            std::fs::create_dir_all(root.join(dir)).unwrap();
+        }
+        std::fs::write(root.join("twaco.toml"), "[[project]]\nname = \"P\"\n").unwrap();
+        let shape = "<Entities><DataShapes><DataShape name=\"P.D\" projectName=\"P\"><FieldDefinitions>\
+            <FieldDefinition aspect.isPrimaryKey=\"true\" baseType=\"STRING\" description=\"\" name=\"id\" ordinal=\"1\"></FieldDefinition>\
+            <FieldDefinition aspect.isPrimaryKey=\"false\" baseType=\"INTEGER\" description=\"\" name=\"n\" ordinal=\"2\"></FieldDefinition>\
+            </FieldDefinitions></DataShape></DataShapes></Entities>";
+        std::fs::write(root.join("DataShapes/P.D.xml"), shape).unwrap();
+        let fields = super::super::datashape::extract(shape.as_bytes()).unwrap();
+        std::fs::write(
+            root.join("src/P.D/fields.json"),
+            super::super::datashape::to_sidecar(&fields),
+        )
+        .unwrap();
+        let accumulated = super::super::accumulated::accumulated_json(&fields);
+        let thing = |name: &str, template: &str, shape: &str| {
+            format!("<Entities><Things><Thing name=\"{name}\" projectName=\"P\" thingTemplate=\"{template}\"><ConfigurationTables><ConfigurationTable name=\"Settings\"><Rows><Row><accumulatedDataShape><json><![CDATA[{accumulated}]]></json></accumulatedDataShape><dataShape><![CDATA[{shape}]]></dataShape></Row></Rows></ConfigurationTable></ConfigurationTables></Thing></Things></Entities>")
+        };
+        let rows = thing("P.Rows", "DataTable", "P.D");
+        std::fs::write(root.join("Things/P.Rows.xml"), &rows).unwrap();
+        std::fs::write(
+            root.join("src/P.Rows/datatable.json"),
+            super::super::datatable::to_sidecar(
+                &super::super::datatable::extract(rows.as_bytes()).unwrap(),
+            )
+            .unwrap(),
+        )
+        .unwrap();
+        std::fs::write(
+            root.join("Things/P.Log.xml"),
+            thing("P.Log", "Stream", "P.D"),
+        )
+        .unwrap();
+        std::fs::write(
+            root.join("Things/P.Other.xml"),
+            thing("P.Other", "Stream", "Elsewhere.D"),
+        )
+        .unwrap();
+        let solution = Solution::load(&root.join("twaco.toml")).unwrap();
+        (root_guard, root, solution)
+    }
+
+    /// Add a field `extra` to P.D's fields.json.
+    fn add_extra_field(root: &std::path::Path) {
+        let path = root.join("src/P.D/fields.json");
+        let mut fields = super::super::datashape::from_sidecar(
+            &std::fs::read_to_string(&path)
+                .unwrap()
+                .replace("\r\n", "\n"),
+        )
+        .unwrap();
+        let mut extra = fields[1].clone();
+        extra.name = "extra".into();
+        extra.base_type = "STRING".into();
+        extra.ordinal = "3".into();
+        fields.push(extra);
+        std::fs::write(&path, super::super::datashape::to_sidecar(&fields)).unwrap();
+    }
+
+    fn named(solution: &Solution, names: &[&str]) -> Vec<EntityFile> {
+        entities(solution)
+            .into_iter()
+            .filter(|entity| names.contains(&entity.info.name.as_str()))
+            .collect()
+    }
+
+    fn read(root: &std::path::Path, path: &str) -> String {
+        std::fs::read_to_string(root.join(path)).unwrap()
+    }
+
+    const EXTRA: &str = r#""extra":{"name":"extra","aspects":{"isPrimaryKey":false},"description":"","baseType":"STRING","ordinal":2}"#;
+
+    #[test]
+    fn a_datashape_change_reaches_its_tables_and_streams_and_settles() {
+        let (_dir, root, solution) = shape_fixture("ripple");
+        let other = read(&root, "Things/P.Other.xml");
+        add_extra_field(&root);
+        let options = SyncOptions {
+            allow_structural: true,
+            ..SyncOptions::default()
+        };
+
+        let planned = sync(
+            &solution,
+            &entities(&solution),
+            &[],
+            SyncOptions {
+                check: true,
+                ..options
+            },
+        );
+        assert_eq!(planned.changed, 3, "{:?}", planned.log);
+        assert!(planned
+            .log
+            .changes()
+            .any(|line| line == "P.Log: accumulated shape would follow P.D: added extra"));
+        assert!(!read(&root, "Things/P.Log.xml").contains("extra"));
+
+        let written = sync(&solution, &entities(&solution), &[], options);
+        assert_eq!(written.changed, 3, "{:?}", written.log);
+        assert!(read(&root, "Things/P.Rows.xml").contains(EXTRA));
+        assert!(read(&root, "Things/P.Log.xml").contains(EXTRA));
+        let sidecar = read(&root, "src/P.Rows/datatable.json");
+        assert!(sidecar.contains("\"extra\": {"), "{sidecar}");
+        assert_eq!(read(&root, "Things/P.Other.xml"), other);
+
+        let again = sync(&solution, &entities(&solution), &[], options);
+        assert_eq!(again.changed, 0, "{:?}", again.log);
+    }
+
+    #[test]
+    fn a_datashape_named_alone_brings_its_tables_along() {
+        let (_dir, root, solution) = shape_fixture("named");
+        add_extra_field(&root);
+        let outcome = sync(
+            &solution,
+            &named(&solution, &["P.D"]),
+            &[],
+            SyncOptions {
+                allow_structural: true,
+                named: true,
+                ..SyncOptions::default()
+            },
+        );
+        assert_eq!(outcome.failed, 0, "{:?}", outcome.log);
+        assert!(read(&root, "Things/P.Rows.xml").contains(EXTRA));
+        assert!(read(&root, "src/P.Rows/datatable.json").contains("\"extra\": {"));
+        assert!(read(&root, "Things/P.Log.xml").contains(EXTRA));
+    }
+
+    #[test]
+    fn a_refused_datashape_sync_leaves_its_tables_alone() {
+        let (_dir, root, solution) = shape_fixture("refused");
+        let rows = read(&root, "Things/P.Rows.xml");
+        add_extra_field(&root);
+        // Adding a field needs allow_structural; without it the DataShape keeps its fields, and so
+        // must its tables.
+        let outcome = sync(&solution, &entities(&solution), &[], SyncOptions::default());
+        assert_eq!(outcome.failed, 1, "{:?}", outcome.log);
+        assert_eq!(read(&root, "Things/P.Rows.xml"), rows);
+        assert!(!read(&root, "Things/P.Log.xml").contains("extra"));
+        assert!(!read(&root, "src/P.Rows/datatable.json").contains("extra"));
+    }
+
+    #[test]
+    fn a_table_whose_own_sidecar_is_refused_is_not_written() {
+        let (_dir, root, solution) = shape_fixture("broken-sidecar");
+        let broken = read(&root, "src/P.Rows/datatable.json").replace("\"indexes\"", "\"indexez\"");
+        std::fs::write(root.join("src/P.Rows/datatable.json"), &broken).unwrap();
+        let rows = read(&root, "Things/P.Rows.xml");
+        add_extra_field(&root);
+        let outcome = sync(
+            &solution,
+            &entities(&solution),
+            &[],
+            SyncOptions {
+                allow_structural: true,
+                ..SyncOptions::default()
+            },
+        );
+        assert_eq!(outcome.failed, 1, "{:?}", outcome.log);
+        assert_eq!(read(&root, "src/P.Rows/datatable.json"), broken);
+        assert_eq!(read(&root, "Things/P.Rows.xml"), rows);
+        // The Stream on the same shape is not held back by the DataTable's sidecar.
+        assert!(read(&root, "Things/P.Log.xml").contains(EXTRA));
+    }
+
+    #[test]
+    fn a_datashape_reaches_tables_of_another_project() {
+        let (_dir, root, _) = shape_fixture("projects");
+        std::fs::write(
+            root.join("twaco.toml"),
+            "[[project]]\nname = \"P\"\n\n[[project]]\nname = \"Q\"\n",
+        )
+        .unwrap();
+        let log = read(&root, "Things/P.Log.xml").replace("projectName=\"P\"", "projectName=\"Q\"");
+        std::fs::write(root.join("Things/P.Log.xml"), log).unwrap();
+        let solution = Solution::load(&root.join("twaco.toml")).unwrap();
+        add_extra_field(&root);
+        // What `sync --project P P.D` chooses: the DataShape alone.
+        let chosen: Vec<EntityFile> = named(&solution, &["P.D"])
+            .into_iter()
+            .filter(|entity| entity.found_under == "P")
+            .collect();
+        assert_eq!(chosen.len(), 1);
+        sync(
+            &solution,
+            &chosen,
+            &[],
+            SyncOptions {
+                allow_structural: true,
+                named: true,
+                ..SyncOptions::default()
+            },
+        );
+        assert!(read(&root, "Things/P.Log.xml").contains(EXTRA));
+    }
+
+    #[test]
+    fn a_table_named_alone_follows_its_datashape_as_it_stands() {
+        let (_dir, root, solution) = shape_fixture("table");
+        let stale = read(&root, "Things/P.Log.xml");
+        add_extra_field(&root);
+        sync(
+            &solution,
+            &named(&solution, &["P.D"]),
+            &[],
+            SyncOptions {
+                allow_structural: true,
+                named: true,
+                ..SyncOptions::default()
+            },
+        );
+        // The DataShape now has the field; put the Stream back as it was before.
+        assert!(read(&root, "Things/P.Log.xml").contains(EXTRA));
+        std::fs::write(root.join("Things/P.Log.xml"), &stale).unwrap();
+
+        let outcome = sync(
+            &solution,
+            &named(&solution, &["P.Log"]),
+            &[],
+            SyncOptions {
+                named: true,
+                ..SyncOptions::default()
+            },
+        );
+        assert_eq!(outcome.changed, 1, "{:?}", outcome.log);
+        assert!(read(&root, "Things/P.Log.xml").contains(EXTRA));
     }
 
     #[test]

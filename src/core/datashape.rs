@@ -329,9 +329,17 @@ pub fn from_sidecar(text: &str) -> Result<Vec<Field>, FieldError> {
                 why: format!("two fields are named {name}"),
             });
         }
+        let base_type = text_of("baseType")?;
+        // A number default goes into the XML as the server will store it (`3` as `3.0`), or
+        // every deploy's read-back would find the DataShape changed.
+        if let Some(Aspect::Text(default)) = aspects.get_mut("defaultValue") {
+            if let Some(stored) = super::number::java_text(&base_type, default) {
+                *default = stored;
+            }
+        }
         fields.push(Field {
             name,
-            base_type: text_of("baseType")?,
+            base_type,
             ordinal: text_of("ordinal")?,
             description: text_of("description")?,
             aspects,
@@ -773,5 +781,28 @@ mod tests {
             Some(&Aspect::Text("Other_DS".into()))
         );
         assert!(to_sidecar(&fields).contains("\"dataShape\": \"Other_DS\""));
+    }
+
+    #[test]
+    fn a_number_default_reads_as_the_server_stores_it() {
+        let fields = from_sidecar(
+            r#"[{"name":"n","baseType":"NUMBER","ordinal":"1","description":"","aspects":{"defaultValue":"3"}},
+                {"name":"i","baseType":"INTEGER","ordinal":"2","description":"","aspects":{"defaultValue":"07"}},
+                {"name":"s","baseType":"STRING","ordinal":"3","description":"","aspects":{"defaultValue":"3"}},
+                {"name":"x","baseType":"NUMBER","ordinal":"4","description":"","aspects":{"defaultValue":"lots"}}]"#,
+        )
+        .unwrap();
+        let default = |at: usize| fields[at].aspects.get("defaultValue").cloned();
+        assert_eq!(default(0), Some(Aspect::Text("3.0".into())));
+        assert_eq!(default(1), Some(Aspect::Text("7".into())));
+        assert_eq!(default(2), Some(Aspect::Text("3".into())));
+        assert_eq!(default(3), Some(Aspect::Text("lots".into())));
+        // A DataShape already holding the stored form is in sync with the sidecar as written.
+        let src = br#"<Entities><DataShapes><DataShape name="D"><FieldDefinitions>
+            <FieldDefinition aspect.defaultValue="3.0" baseType="NUMBER" description="" name="n" ordinal="1"></FieldDefinition>
+        </FieldDefinitions></DataShape></DataShapes></Entities>"#;
+        let sidecar = r#"[{"name":"n","baseType":"NUMBER","ordinal":"1","description":"","aspects":{"defaultValue":"3"}}]"#;
+        let (out, _) = sync(src, &from_sidecar(sidecar).unwrap(), false).unwrap();
+        assert_eq!(out, src.to_vec());
     }
 }

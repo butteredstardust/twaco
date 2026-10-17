@@ -83,6 +83,7 @@ const OPEN_WORLD: &[&str] = &[
     "localization_write",
     "users",
     "users_write",
+    "appkey",
     "test",
     "extensions",
     "extension_write",
@@ -448,7 +449,7 @@ static TOOLS: LazyLock<Vec<Tool>> = LazyLock::new(|| {
         .with_output::<outputs::EntityNewResult>(),
         solution_tool::<refactor_requests::EntityEditRequest>(
             "entity_edit",
-            "Change an existing entity in the repository, as Composer would: add, change or remove a property of a Thing, ThingTemplate or ThingShape (a persistent one also writes the stored value of every Thing that has it), add or remove a script subscription, implement or stop implementing a ThingShape, change a timer's or scheduler's settings, given keys of a style, a MediaEntity's image, a menu's items, or a StateDefinition's states. Removing or retyping a property something still uses is refused unless force. A dry run unless dry_run is false; apply takes the workspace lock and writes every file or none.",
+            "Change an existing entity in the repository, as Composer would: add, change or remove a property of a Thing, ThingTemplate or ThingShape (a persistent one also writes the stored value of every Thing that has it), add a script service (a definition and its sidecars, as sync would) or remove one with its sidecars and run-time permissions, add or remove a script subscription, implement or stop implementing a ThingShape, change a timer's or scheduler's settings, given keys of a style, a MediaEntity's image, a menu's items, or a StateDefinition's states. Removing or retyping a property, or removing a service, something still uses is refused unless force. A dry run unless dry_run is false; apply takes the workspace lock and writes every file or none.",
             false,
             refactor::entity_edit_tool,
         )
@@ -614,6 +615,13 @@ static TOOLS: LazyLock<Vec<Tool>> = LazyLock::new(|| {
             content::users_write_tool,
         )
         .with_output::<outputs::UsersWriteResult>(),
+        solution_tool::<content_requests::AppKeyRequest>(
+            "appkey",
+            "Create an application key that acts as a user (create; a dry run unless dry_run is false), or read an existing one (show). It always gets an expiration (default 30d; the server's own default is a day). The key itself is returned only with show: true, and written as a profile's app_key only with save. Delete one with entity_delete ApplicationKeys/<name>.",
+            false,
+            content::appkey_tool,
+        )
+        .with_output::<outputs::AppKeyResult>(),
         solution_tool::<content_requests::TestRequest>(
             "test",
             "The service cases of tests/*.toml, each called as each of its test users and expecting a status (and optionally rows). A dry run lists and checks the cases; dry_run false calls them, which may change the server, and needs allow_test_users = true in the profile.",
@@ -686,7 +694,7 @@ static TOOLS: LazyLock<Vec<Tool>> = LazyLock::new(|| {
         .with_output::<outputs::SettingsResult>(),
         solution_tool::<info_requests::CatalogRequest>(
             "catalog",
-            "The repository's offline service catalog: callable services by entity, their parameters, result, description, origin and whether code exists. Summary returns at most 50 services; detail returns all.",
+            "The repository's offline service catalog: callable services by entity, their parameters, result, description, origin and whether code exists. entity may be Entity.Service (or a service name one entity declares) for one service; body: true adds its script. Summary returns at most 50 services; detail returns all.",
             true,
             info::catalog_tool,
         )
@@ -882,6 +890,7 @@ pub(crate) const GROUPS: &[(&str, &[&str])] = &[
             "localization_write",
             "users",
             "users_write",
+            "appkey",
             "extensions",
             "extension_write",
             "settings",

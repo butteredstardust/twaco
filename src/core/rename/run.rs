@@ -5,6 +5,7 @@ use super::{
     RenameError, RunOptions, Solution, Spec, SqlChoice, SqlScript, Verification, WorkspaceLock,
     CONFIG_FILE,
 };
+use crate::core::datatable;
 
 /// Plans a rename, optionally applies it, and verifies the resulting workspace. Applying needs
 /// the workspace lock, which the caller holds for the whole command.
@@ -78,6 +79,18 @@ pub(crate) fn run_with(
         }
     }
     let mut notes = Vec::new();
+    if spec.kind == super::Kind::Field
+        && spec.scope.as_deref().is_some_and(|shape| {
+            workspace::discover(solution).entities.iter().any(|entity| {
+                std::fs::read(&entity.path)
+                    .ok()
+                    .and_then(|src| datatable::shape_and_accumulated(&src))
+                    .is_some_and(|(table_shape, _)| table_shape == shape)
+            })
+        })
+    {
+        notes.push("Values stored under the old field in DataTable/Stream rows are not carried over: ThingWorx marks it deleted and the new field starts at its default. Copy them yourself after the deploy.".to_string());
+    }
     if options.apply {
         match verify_before_writing(solution, spec, &plan, options, scratch_hook)? {
             Verified::Clean => {}

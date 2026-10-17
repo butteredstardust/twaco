@@ -287,6 +287,9 @@ pub(crate) struct CallRequest {
     /// Call as this [[test.user]] of twaco.toml, with the profile's test_password; the profile must have allow_test_users. A user in no group that can see the entity gets 404; a wrong password 401.
     #[serde(default, rename = "as", skip_serializing_if = "Absent::is_absent")]
     pub as_user: Absent<String>,
+    /// Make the call in this language (de, or a preference list fr,de); only with as. ThingWorx takes a call's language from the user's stored preference, so the test user's preference is set for the call and put back after it.
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub lang: Absent<String>,
 }
 
 fn default_call_timeout_seconds() -> u64 {

@@ -1,0 +1,11 @@
+$ twaco thing service add Acme.Orders.Manager Ping --param count:INTEGER --returns STRING --then result = 'pong';
+exit: 0
+
+--- stdout
+would change Things/Acme.Orders.Manager: add service Ping
+  Things/Acme.Orders.Manager.xml
+  src/Acme.Orders.Manager/services/Ping/definition.xml
+  src/Acme.Orders.Manager/services/Ping/script.js
+run again with --apply to write it
+--- stderr
+

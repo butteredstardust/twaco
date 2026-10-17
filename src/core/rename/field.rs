@@ -187,19 +187,33 @@ pub(super) fn plan_field(solution: &Solution, spec: &Spec) -> Result<Plan, Renam
             }
             scanned.pass.edits.sort_by_key(|edit| edit.span.start);
         }
-        // A DataTable keeps its shape and indexes in its own configuration, not in a table of the
-        // renamed shape: rename them through the module that reads and writes them.
-        if item.info.collection == "Things" && datatable::is_data_table(bytes) {
-            let configuration = datatable::extract(bytes).map_err(|error| RenameError::Xml {
-                path: item.path.clone(),
-                why: error.to_string(),
-            })?;
-            if configuration.data_shape == scope {
-                if let Some(renamed) = rename_data_table(&configuration, &spec.old, &spec.new)
-                    .map_err(|why| RenameError::Xml {
+        // DataTables and Streams retain their old accumulated field as deleted; the import then
+        // appends the renamed field at the next ordinal.
+        if item.info.collection == "Things" {
+            let shape = datatable::shape_and_accumulated(bytes).map(|(shape, _)| shape);
+            if shape.as_deref() != Some(scope) {
+                push_change(
+                    &mut changes,
+                    item.path.clone(),
+                    FileKind::Entity,
+                    bytes,
+                    scanned.pass,
+                );
+                continue;
+            }
+            if datatable::is_data_table(bytes) {
+                let configuration =
+                    datatable::extract(bytes).map_err(|error| RenameError::Xml {
                         path: item.path.clone(),
-                        why,
-                    })?
+                        why: error.to_string(),
+                    })?;
+                if let Some(renamed) =
+                    rename_data_table(&configuration, &fields, &spec.old, &spec.new).map_err(
+                        |why| RenameError::Xml {
+                            path: item.path.clone(),
+                            why,
+                        },
+                    )?
                 {
                     if !scanned.pass.edits.is_empty() {
                         return Err(RenameError::Xml {
@@ -248,6 +262,36 @@ pub(super) fn plan_field(solution: &Solution, spec: &Spec) -> Result<Plan, Renam
                             scan::replace_file(&current, sidecar, "regenerated datatable.json"),
                         );
                     }
+                    data_table_shapes += 1;
+                    continue;
+                }
+            } else if let Some((_, old)) = datatable::shape_and_accumulated(bytes) {
+                if let Some(accumulated) = super::super::accumulated::merge(&old, &fields) {
+                    if !scanned.pass.edits.is_empty() {
+                        return Err(RenameError::Xml {
+                            path: item.path.clone(),
+                            why: "a Stream that also carries tables of the shape is not supported"
+                                .to_string(),
+                        });
+                    }
+                    let updated =
+                        datatable::write_accumulated(bytes, &accumulated).map_err(|error| {
+                            RenameError::Xml {
+                                path: item.path.clone(),
+                                why: error.to_string(),
+                            }
+                        })?;
+                    push_change(
+                        &mut changes,
+                        item.path.clone(),
+                        FileKind::Entity,
+                        bytes,
+                        scan::replace_file(
+                            bytes,
+                            updated,
+                            "updated the Stream's accumulated shape",
+                        ),
+                    );
                     data_table_shapes += 1;
                     continue;
                 }
@@ -329,6 +373,7 @@ pub(super) fn plan_field(solution: &Solution, spec: &Spec) -> Result<Plan, Renam
 /// survive a parse and a compact write unchanged is refused rather than rewritten.
 pub(super) fn rename_data_table(
     configuration: &datatable::Configuration,
+    fields: &[datashape::Field],
     old: &str,
     new: &str,
 ) -> Result<Option<datatable::Configuration>, String> {
@@ -336,39 +381,25 @@ pub(super) fn rename_data_table(
     let mut changed = false;
     let text = configuration.accumulated.trim();
     if !text.is_empty() {
-        let mut value: serde_json::Value = serde_json::from_str(text)
+        let value: serde_json::Value = serde_json::from_str(text)
             .map_err(|error| format!("the accumulated DataShape is not JSON: {error}"))?;
-        if serde_json::to_string(&value).map_err(|error| error.to_string())? != text {
-            return Err(
-                "the accumulated DataShape is not in the compact form twaco can rewrite exactly"
-                    .to_string(),
-            );
-        }
         if let Some(definitions) = value
-            .get_mut("fieldDefinitions")
-            .and_then(serde_json::Value::as_object_mut)
+            .get("fieldDefinitions")
+            .and_then(serde_json::Value::as_object)
         {
-            if definitions.contains_key(new) {
+            if definitions.get(new).is_some_and(|field| {
+                field
+                    .get("aspects")
+                    .and_then(serde_json::Value::as_object)
+                    .and_then(|aspects| aspects.get("isDeleted"))
+                    != Some(&serde_json::Value::Bool(true))
+            }) {
                 return Err(format!("the DataTable already has a field named {new}"));
             }
-            if definitions.contains_key(old) {
-                let rebuilt: serde_json::Map<String, serde_json::Value> =
-                    std::mem::take(definitions)
-                        .into_iter()
-                        .map(|(key, mut field)| {
-                            if key == old {
-                                if let Some(name) = field.get_mut("name") {
-                                    *name = serde_json::Value::String(new.to_string());
-                                }
-                                (new.to_string(), field)
-                            } else {
-                                (key, field)
-                            }
-                        })
-                        .collect();
-                *definitions = rebuilt;
-                renamed.accumulated =
-                    serde_json::to_string(&value).map_err(|error| error.to_string())?;
+            // The import merges whether or not the table ever recorded the old field (a table that
+            // missed an earlier change has not), so the new field is added either way.
+            if let Some(merged) = super::super::accumulated::merge(text, fields) {
+                renamed.accumulated = merged;
                 changed = true;
             }
         }

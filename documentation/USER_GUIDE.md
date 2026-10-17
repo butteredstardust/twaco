@@ -61,6 +61,11 @@ permissions for it. The folder's name and the `name` in its `definition.xml` mus
 sidecar naming a SQL service, or a service the entity only overrides, is refused: those are not
 added from sidecars.
 
+An existing but empty `services/` directory means that the entity deliberately manages zero
+services: `sync --allow-add-remove` removes its last script service, and without the flag reports
+the removal. An entity with no `services/` directory remains unmanaged. Git does not retain empty
+directories, so use `thing service remove` for a durable last-service removal.
+
 ## The change loop
 
 ```sh
@@ -469,6 +474,10 @@ accepts PNG, JPEG, GIF, or SVG content up to 10 MB. Styles use `#rrggbb` or `rgb
 States take ordered comparator specifications; menus require one or more `Title=Mashup` items; and
 themes may copy a repository StyleTheme with `--from` before applying `--prop name=value` overrides.
 
+On `sync`, a DataTable or Stream's `accumulatedDataShape` follows its DataShape exactly as the
+server does on import. DataTables update both their XML and `datatable.json`; Streams update XML.
+Do not edit `accumulatedDataShape` by hand.
+
 ## Changing entities
 
 Each command plans until `--apply` and changes only the element it names.
@@ -477,6 +486,8 @@ Each command plans until `--apply` and changes only the element it names.
 twaco thing property add Acme.Orders.Machine_TT Speed:NUMBER --default 12.5 --persistent --apply
 twaco thing property set Acme.Orders.Machine_TT Speed --no-logged --category Motion --apply
 twaco thing property remove Acme.Orders.Machine_TT Speed --apply
+twaco thing service add Acme.Orders.Machine_TT ReadSpeed --returns NUMBER --then "result = me.Speed;" --apply
+twaco thing service remove Acme.Orders.Machine_TT ReadSpeed --apply
 twaco thing subscription add Acme.Orders.Press OnSpeed --event DataChange --source-property Speed --then "me.Check();" --apply
 twaco thing shape add Acme.Orders.Machine_TT Acme.Orders.Audit_TS --apply
 twaco timer set Acme.Orders.Refresh_TM --every 5m --enabled --apply
@@ -496,6 +507,13 @@ refused, and so is stopping implementing a shape whose members are still used th
 does it anyway and lists the users. A persistent INFOTABLE property is
 refused: a 10.1 import re-stamps a stored infotable with the import time, so the repository could
 never match the server. MCP: `entity_edit`.
+
+`thing service add` writes the exported service signature and script sidecars, then folds them
+into the entity through the same synchronizer as sidecar changes. Parameters are repeated
+`--param name:TYPE[:DataShape]`; `--returns` defaults to `NOTHING`. `thing service remove` removes
+an own script service, its run-time permission and sidecar folder. Both refuse inherited clashes;
+remove also refuses callers unless `--force` lists and accepts them. MCP exposes the same work as
+`entity_edit` actions `service_add` and `service_remove`.
 
 ## Creating mashups
 
@@ -945,6 +963,37 @@ reports a user that cannot sign in with `test_password`.
 For one call by hand, `twaco call <target> <service> [<json>] --as <test user>` signs in as that
 `[[test.user]]` with `test_password` (the profile needs `allow_test_users`). A user in no group
 that can see the entity gets 404; a wrong password gets 401. No other account can be named.
+
+Add `--lang <code>` to make that call in another language: `--lang de`, or a preference list
+`--lang fr,de` (the first language with a localization table wins; one without falls back to
+Default). ThingWorx ignores `Accept-Language` and takes a call's language only from the calling
+user's stored preference, so twaco reads the test user's preference with the profile's own
+account, sets it, makes the call, and puts the old one back, even when the call fails. It works
+only with `--as`, so your own account's language never changes. If putting it back fails, the
+error says what it was and how to restore it. MCP: `call` with `as` and `lang`.
+
+## Application keys
+
+An application key lets a browser, a script or another tool call the server as a user without
+its password (`?appKey=` on a Runtime URL, or an `appKey` header).
+
+```sh
+twaco appkey create Acme.Kiosk_AK --user kiosk --expires 90d --project Acme --save default --apply
+twaco appkey show Acme.Kiosk_AK --show
+twaco appkey delete Acme.Kiosk_AK --apply
+```
+
+`create` plans until `--apply`. It always sends an expiration, `30d` unless `--expires` says
+otherwise (`12h`, a date at midnight UTC, or a timestamp): without one the server expires a key
+after a day. `--whitelist 10.0.0.0/8,127.0.0.1` limits where it may be used from. The key itself
+is a credential and twaco prints it only with `--show`; `--save <profile>` writes it as that
+profile file's `app_key` instead, replacing an old one and keeping the file's other lines and
+permissions, and the profile file must already exist. A key that was made but not saved is not
+lost: `appkey show <name> --save <profile>` reads it again. Re-importing a key's XML never changes
+its expiration, so twaco creates keys through the server rather than as repository entities.
+`appkey delete` is `entity delete ApplicationKeys/<name>`, with its plan and backup. twaco itself
+signs in with the profile's username and password either way, since the Importer refuses app
+keys. MCP: `appkey` (create, show); delete with `entity_delete`.
 
 ## Copying DataTable rows
 

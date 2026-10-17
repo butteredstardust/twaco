@@ -25,6 +25,10 @@ pub struct CallRequest {
     pub profile_before_target: bool,
     /// Call as this `[[test.user]]`, with the profile's `test_password`.
     pub as_user: Option<String>,
+    /// Make the call in this language (`de`, or a preference list `fr,de`). Only with `as_user`:
+    /// ThingWorx takes a call's language from the user's stored preference, so the test user's
+    /// preference is set for the call and put back after it.
+    pub lang: Option<String>,
 }
 
 /// The completed service call or its dry-run description.
@@ -87,6 +91,20 @@ impl Remote for server::Client {
 pub enum CallCommandError {
     Profile(profile::ProfileError),
     TestUser(crate::core::testing::TestError),
+    /// `--lang` without `--as`, or a language that is not a language tag list.
+    Language(String),
+    /// The language could not be read or set, so nothing was called.
+    SetLanguage {
+        user: String,
+        error: server::ServerError,
+    },
+    /// The call ran (its outcome is in `call`) but the user's language could not be put back.
+    RestoreLanguage {
+        user: String,
+        previous: String,
+        error: server::ServerError,
+        call: Box<Result<CallOutcome, CallCommandError>>,
+    },
     Target(workspace::WorkspaceError),
     Call {
         target: ServiceTarget,
@@ -100,6 +118,29 @@ impl fmt::Display for CallCommandError {
         match self {
             Self::Profile(error) => error.fmt(f),
             Self::TestUser(error) => error.fmt(f),
+            Self::Language(why) => f.write_str(why),
+            Self::SetLanguage { user, error } => {
+                write!(
+                    f,
+                    "could not set the language of {user}, so nothing was called: {error}"
+                )
+            }
+            Self::RestoreLanguage {
+                user,
+                previous,
+                error,
+                call,
+            } => write!(
+                f,
+                "the call ran ({}), but the language of {user} could not be put back to \
+                 {previous:?}: {error}; put it back with `twaco call Users/{user} \
+                 SetLanguagePreferences '{{\"preferences\":{previous:?}}}'`",
+                if call.is_ok() {
+                    "it succeeded"
+                } else {
+                    "it failed"
+                }
+            ),
             Self::Target(error) => error.fmt(f),
             Self::Call { error, logs, .. } => {
                 error.fmt(f)?;
@@ -126,6 +167,8 @@ impl Coded for CallCommandError {
         match self {
             Self::Profile(error) => error.code(),
             Self::TestUser(error) => error.code(),
+            Self::Language(_) => ErrorCode::InvalidArguments,
+            Self::SetLanguage { error, .. } | Self::RestoreLanguage { error, .. } => error.code(),
             Self::Target(error) => error.code(),
             Self::Call { error, .. } => error.code(),
         }
@@ -142,8 +185,18 @@ pub fn execute<R, F>(
 ) -> Result<CallOutcome, CallCommandError>
 where
     R: Remote,
-    F: FnOnce(profile::Profile) -> R,
+    F: Fn(profile::Profile) -> R,
 {
+    if request.lang.is_some() && request.as_user.is_none() {
+        return Err(CallCommandError::Language(
+            "--lang needs --as <test user>: ThingWorx takes a call's language from the calling \
+             user's stored preference, which twaco changes only for a declared test user"
+                .to_string(),
+        ));
+    }
+    if let Some(lang) = &request.lang {
+        valid_language(lang)?;
+    }
     let selected = if request.profile_before_target {
         Some(profile::load(&solution.root, &request.profile).map_err(CallCommandError::Profile)?)
     } else {
@@ -163,11 +216,40 @@ where
             profile::load(&solution.root, &request.profile).map_err(CallCommandError::Profile)?
         }
     };
-    let profile = match &request.as_user {
-        None => profile,
+    let signed_in = match &request.as_user {
+        None => profile.clone(),
         Some(user) => as_test_user(solution, &profile, user)?,
     };
-    let remote = open(profile);
+    let (Some(lang), Some(user)) = (&request.lang, &request.as_user) else {
+        return call(request, target, &open(signed_in));
+    };
+    // The profile's own account changes the test user's preference; the call runs as the test
+    // user; the old preference goes back whatever the call did.
+    let admin = open(profile);
+    let unset = |error| CallCommandError::SetLanguage {
+        user: user.clone(),
+        error,
+    };
+    let previous = language_of(&admin, user, request.timeout).map_err(unset)?;
+    set_language(&admin, user, lang, request.timeout).map_err(unset)?;
+    let called = call(request, target, &open(signed_in));
+    match set_language(&admin, user, &previous, request.timeout) {
+        Ok(()) => called,
+        Err(error) => Err(CallCommandError::RestoreLanguage {
+            user: user.clone(),
+            previous,
+            error,
+            call: Box::new(called),
+        }),
+    }
+}
+
+/// One call on `remote`, with the logs written during it when asked.
+fn call<R: Remote>(
+    request: &CallRequest,
+    target: ServiceTarget,
+    remote: &R,
+) -> Result<CallOutcome, CallCommandError> {
     let started = logs::now_ms();
     let called = remote.call_service(
         &target,
@@ -177,7 +259,7 @@ where
     );
     let logged = request.with_logs.then(|| {
         logs::during_call(
-            &remote,
+            remote,
             started,
             logs::now_ms(),
             logs::Wait::default(),
@@ -201,6 +283,65 @@ where
         logs: logged,
         effects: Effects::new(Access::Read, Access::Write),
     })
+}
+
+/// A language preference as `SetLanguagePreferences` takes it: language tags (`de`, `pt_BR`,
+/// `zh-CN`), comma-separated, the first one with a localization table winning.
+fn valid_language(lang: &str) -> Result<(), CallCommandError> {
+    let tag = |part: &str| {
+        !part.is_empty()
+            && part
+                .chars()
+                .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-')
+    };
+    if lang.split(',').all(tag) {
+        Ok(())
+    } else {
+        Err(CallCommandError::Language(format!(
+            "--lang {lang:?} is not a language or a comma-separated list of them (de, pt_BR, fr,de)"
+        )))
+    }
+}
+
+fn user_target(user: &str) -> Result<ServiceTarget, server::ServerError> {
+    ServiceTarget::entity("Users", user)
+        .map_err(|why| server::ServerError::InvalidUrl(why.to_string()))
+}
+
+/// The user's stored language preference (`""` when none is set).
+fn language_of<R: Remote>(
+    remote: &R,
+    user: &str,
+    timeout: Duration,
+) -> Result<String, server::ServerError> {
+    let reply = remote.call_service(
+        &user_target(user)?,
+        "GetPropertyValues",
+        &serde_json::json!({}),
+        timeout,
+    )?;
+    Ok(reply
+        .as_ref()
+        .and_then(|reply| reply.pointer("/rows/0/language"))
+        .and_then(Value::as_str)
+        .unwrap_or_default()
+        .to_string())
+}
+
+fn set_language<R: Remote>(
+    remote: &R,
+    user: &str,
+    preferences: &str,
+    timeout: Duration,
+) -> Result<(), server::ServerError> {
+    remote
+        .call_service(
+            &user_target(user)?,
+            "SetLanguagePreferences",
+            &serde_json::json!({ "preferences": preferences }),
+            timeout,
+        )
+        .map(|_| ())
 }
 
 /// The profile signed in as a declared test user. Only a `[[test.user]]` of the solution, and only
@@ -250,6 +391,7 @@ mod tests {
             with_logs: false,
             profile_before_target: false,
             as_user: None,
+            lang: None,
         };
         let outcome = execute::<server::Client, _>(
             &solution,
@@ -275,6 +417,7 @@ mod tests {
             with_logs: false,
             profile_before_target: true,
             as_user: None,
+            lang: None,
         };
         let error = execute::<server::Client, _>(
             &solution,
@@ -285,6 +428,218 @@ mod tests {
         .unwrap_err();
         assert!(matches!(error, CallCommandError::Profile(_)));
         assert_eq!(error.code(), ErrorCode::InvalidData);
+    }
+
+    /// A server that records each call as `account: Collection/Name.Service body`, failing the
+    /// calls whose text contains one of `fail`.
+    struct Fake {
+        account: String,
+        log: std::rc::Rc<std::cell::RefCell<Vec<String>>>,
+        fail: Vec<&'static str>,
+        /// The test user's stored language.
+        previous: &'static str,
+    }
+
+    impl logs::Remote for Fake {
+        fn service(
+            &self,
+            _: &str,
+            _: &str,
+            _: &Value,
+        ) -> Result<Option<Value>, server::ServerError> {
+            Ok(None)
+        }
+    }
+
+    impl Remote for Fake {
+        fn call_service(
+            &self,
+            target: &ServiceTarget,
+            service: &str,
+            parameters: &Value,
+            _: Duration,
+        ) -> Result<Option<Value>, server::ServerError> {
+            let line = format!("{}: {target}.{service} {parameters}", self.account);
+            self.log.borrow_mut().push(line.clone());
+            if self.fail.iter().any(|fail| line.contains(fail)) {
+                return Err(server::ServerError::Http {
+                    method: server::Method::Post,
+                    status: 500,
+                    url: "http://server/Thingworx".into(),
+                    body: "refused".into(),
+                });
+            }
+            Ok(Some(match service {
+                "GetPropertyValues" => serde_json::json!({"rows": [{"language": self.previous}]}),
+                _ => serde_json::json!({"rows": [{"result": "ok"}]}),
+            }))
+        }
+    }
+
+    fn language_solution() -> (tempfile::TempDir, Solution) {
+        let (dir, root, _) = solution();
+        std::fs::write(
+            root.join("twaco.toml"),
+            "[[project]]\nname = \"P\"\n[[test.user]]\nname = \"vera.viewer\"\n",
+        )
+        .unwrap();
+        std::fs::create_dir_all(root.join(".twaco/profiles")).unwrap();
+        std::fs::write(
+            root.join(".twaco/profiles/test.toml"),
+            "url = \"http://server/Thingworx\"\nusername = \"Administrator\"\npassword = \"admin\"\n\
+             allow_test_users = true\ntest_password = \"secret\"\n",
+        )
+        .unwrap();
+        let solution = Solution::load(&root.join("twaco.toml")).unwrap();
+        (dir, solution)
+    }
+
+    fn language_call(
+        solution: &Solution,
+        as_user: Option<&str>,
+        lang: &str,
+        fail: Vec<&'static str>,
+    ) -> (Result<CallOutcome, CallCommandError>, Vec<String>) {
+        language_call_from(solution, as_user, lang, fail, "en")
+    }
+
+    fn language_call_from(
+        solution: &Solution,
+        as_user: Option<&str>,
+        lang: &str,
+        fail: Vec<&'static str>,
+        previous: &'static str,
+    ) -> (Result<CallOutcome, CallCommandError>, Vec<String>) {
+        let request = CallRequest {
+            target: "Things/Acme.Manager".to_string(),
+            service: "Read".to_string(),
+            parameters: serde_json::json!({}),
+            timeout: Duration::from_secs(1),
+            mode: Mode::Apply,
+            profile: "test".to_string(),
+            with_logs: false,
+            profile_before_target: false,
+            as_user: as_user.map(str::to_string),
+            lang: Some(lang.to_string()),
+        };
+        let log = std::rc::Rc::new(std::cell::RefCell::new(Vec::new()));
+        let opened = log.clone();
+        let outcome = execute(
+            solution,
+            &request,
+            |profile| Fake {
+                account: profile.username.clone(),
+                log: opened.clone(),
+                fail: fail.clone(),
+                previous,
+            },
+            &mut Notices::default(),
+        );
+        let calls = log.borrow().clone();
+        (outcome, calls)
+    }
+
+    #[test]
+    fn lang_sets_the_test_users_language_for_the_call_and_puts_it_back() {
+        let (_dir, solution) = language_solution();
+        let (outcome, calls) = language_call(&solution, Some("vera.viewer"), "de", Vec::new());
+        assert!(
+            matches!(outcome, Ok(CallOutcome::Applied { .. })),
+            "{outcome:?}"
+        );
+        assert_eq!(
+            calls,
+            [
+                "Administrator: Users/vera.viewer.GetPropertyValues {}",
+                r#"Administrator: Users/vera.viewer.SetLanguagePreferences {"preferences":"de"}"#,
+                "vera.viewer: Things/Acme.Manager.Read {}",
+                r#"Administrator: Users/vera.viewer.SetLanguagePreferences {"preferences":"en"}"#,
+            ]
+        );
+    }
+
+    #[test]
+    fn lang_puts_the_language_back_after_a_failed_call_and_calls_nothing_when_it_cannot_set_it() {
+        let (_dir, solution) = language_solution();
+        let (outcome, calls) = language_call(
+            &solution,
+            Some("vera.viewer"),
+            "de",
+            vec!["Acme.Manager.Read"],
+        );
+        assert!(
+            matches!(outcome, Err(CallCommandError::Call { .. })),
+            "{outcome:?}"
+        );
+        assert!(
+            calls.last().unwrap().ends_with(r#"{"preferences":"en"}"#),
+            "{calls:?}"
+        );
+
+        let (outcome, calls) = language_call(
+            &solution,
+            Some("vera.viewer"),
+            "de",
+            vec![r#"{"preferences":"de"}"#],
+        );
+        assert!(
+            matches!(outcome, Err(CallCommandError::SetLanguage { .. })),
+            "{outcome:?}"
+        );
+        assert!(
+            !calls.iter().any(|call| call.contains("Acme.Manager.Read")),
+            "{calls:?}"
+        );
+
+        let (outcome, _) = language_call(
+            &solution,
+            Some("vera.viewer"),
+            "de",
+            vec![r#"{"preferences":"en"}"#],
+        );
+        let error = outcome.unwrap_err();
+        assert!(
+            matches!(&error, CallCommandError::RestoreLanguage { call, .. } if call.is_ok()),
+            "{error:?}"
+        );
+        assert!(error.to_string().contains(r#"put it back with `twaco call Users/vera.viewer SetLanguagePreferences '{"preferences":"en"}'`"#), "{error}");
+    }
+
+    #[test]
+    fn lang_puts_back_an_unset_preference_as_unset() {
+        // A user nobody gave a language: restored with an empty preference, which 10.1 takes
+        // as "none" (verified live).
+        let (_dir, solution) = language_solution();
+        let (outcome, calls) =
+            language_call_from(&solution, Some("vera.viewer"), "de", Vec::new(), "");
+        assert!(outcome.is_ok(), "{outcome:?}");
+        assert_eq!(
+            calls.last().unwrap(),
+            r#"Administrator: Users/vera.viewer.SetLanguagePreferences {"preferences":""}"#
+        );
+    }
+
+    #[test]
+    fn lang_needs_as_and_a_language() {
+        let (_dir, solution) = language_solution();
+        let (outcome, calls) = language_call(&solution, None, "de", Vec::new());
+        let error = outcome.unwrap_err();
+        assert!(
+            error.to_string().starts_with("--lang needs --as"),
+            "{error}"
+        );
+        assert_eq!(error.code(), ErrorCode::InvalidArguments);
+        assert!(calls.is_empty());
+        for bad in ["", "de fr", "de,,fr", "de;x"] {
+            let (outcome, calls) = language_call(&solution, Some("vera.viewer"), bad, Vec::new());
+            assert!(
+                matches!(outcome, Err(CallCommandError::Language(_))),
+                "{bad:?}"
+            );
+            assert!(calls.is_empty());
+        }
+        let (outcome, _) = language_call(&solution, Some("vera.viewer"), "pt_BR,zh-CN", Vec::new());
+        assert!(outcome.is_ok(), "{outcome:?}");
     }
 
     #[test]

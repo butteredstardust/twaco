@@ -1491,7 +1491,7 @@ fn zsh_completions_escape_the_colons_in_value_names() {
         .lines()
         .find(|line| line.contains("'*--param=[") && line.contains("TYPE"))
         .expect("a --param spec");
-    assert!(param.contains(r":name\:TYPE[\:DIRECTION]:"), "{param}");
+    assert!(param.contains(r":name\:TYPE[\:...]:"), "{param}");
     assert!(!script.contains(":name:TYPE"), "an unescaped value name");
 }
 

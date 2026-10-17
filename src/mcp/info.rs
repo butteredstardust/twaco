@@ -173,6 +173,7 @@ pub(crate) fn catalog_tool(
             entity: arguments.entity.as_deref(),
             project: arguments.project.as_deref(),
             text: arguments.text.as_deref(),
+            body: arguments.body,
         },
     )
     .map_err(ToolError::coded)?;

@@ -300,6 +300,50 @@ const SCENARIOS: &[(&str, &[&str])] = &[
         ],
     ),
     (
+        "appkey_create_plan",
+        &[
+            "appkey",
+            "create",
+            "Acme.Kiosk_AK",
+            "--user",
+            "kiosk",
+            "--expires",
+            "2099-01-01",
+            "--whitelist",
+            "10.0.0.0/8,127.0.0.1",
+        ],
+    ),
+    (
+        "appkey_show_with_apply",
+        &["appkey", "show", "Acme.Kiosk_AK", "--apply"],
+    ),
+    (
+        "thing_service_add_plan",
+        &[
+            "thing",
+            "service",
+            "add",
+            "Acme.Orders.Manager",
+            "Ping",
+            "--param",
+            "count:INTEGER",
+            "--returns",
+            "STRING",
+            "--then",
+            "result = 'pong';",
+        ],
+    ),
+    (
+        "thing_service_remove_in_use",
+        &[
+            "thing",
+            "service",
+            "remove",
+            "Acme.Orders.Manager",
+            "GetOrder",
+        ],
+    ),
+    (
         "mashup_new_form_dialog_plan",
         &[
             "mashup",

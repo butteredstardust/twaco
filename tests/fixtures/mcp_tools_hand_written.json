@@ -1151,7 +1151,7 @@
   },
   {
     "name": "entity_edit",
-    "description": "Change an existing entity in the repository, as Composer would: add, change or remove a property of a Thing, ThingTemplate or ThingShape (a persistent one also writes the stored value of every Thing that has it), add or remove a script subscription, implement or stop implementing a ThingShape, change a timer's or scheduler's settings, given keys of a style, a MediaEntity's image, a menu's items, or a StateDefinition's states. Removing or retyping a property something still uses is refused unless force. A dry run unless dry_run is false; apply takes the workspace lock and writes every file or none.",
+    "description": "Change an existing entity in the repository, as Composer would: add, change or remove a property of a Thing, ThingTemplate or ThingShape (a persistent one also writes the stored value of every Thing that has it), add a script service (a definition and its sidecars, as sync would) or remove one with its sidecars and run-time permissions, add or remove a script subscription, implement or stop implementing a ThingShape, change a timer's or scheduler's settings, given keys of a style, a MediaEntity's image, a menu's items, or a StateDefinition's states. Removing or retyping a property, or removing a service, something still uses is refused unless force. A dry run unless dry_run is false; apply takes the workspace lock and writes every file or none.",
     "inputSchema": {
       "required": [
         "action",
@@ -1169,6 +1169,8 @@
             "property_set",
             "subscription_add",
             "subscription_remove",
+            "service_add",
+            "service_remove",
             "shape_add",
             "shape_remove",
             "timer_set",
@@ -1185,7 +1187,7 @@
           "type": "string"
         },
         "name": {
-          "description": "The property or subscription name (property_*, subscription_*).",
+          "description": "The property, subscription or service name.",
           "type": "string"
         },
         "type": {
@@ -1247,8 +1249,22 @@
           "type": "string"
         },
         "then": {
-          "description": "subscription_add: the script to run.",
+          "description": "subscription_add / service_add: the script (service_add: absent means an empty body).",
           "type": "string"
+        },
+        "params": {
+          "description": "service_add: parameters in declaration order, each `name:TYPE[:DataShape]`.",
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "returns": {
+          "description": "service_add: the result `TYPE[:DataShape]`; absent means NOTHING.",
+          "type": "string"
+        },
+        "private": {
+          "description": "service_add: whether Composer hides the service from normal callers.",
+          "type": "boolean",
+          "default": false
         },
         "shape": {
           "description": "shape_add / shape_remove: the ThingShape.",
@@ -2209,6 +2225,80 @@
     }
   },
   {
+    "name": "appkey",
+    "description": "Create an application key that acts as a user (create; a dry run unless dry_run is false), or read an existing one (show). It always gets an expiration (default 30d; the server's own default is a day). The key itself is returned only with show: true, and written as a profile's app_key only with save. Delete one with entity_delete ApplicationKeys/<name>.",
+    "inputSchema": {
+      "required": [
+        "action",
+        "name"
+      ],
+      "additionalProperties": false,
+      "type": "object",
+      "properties": {
+        "action": {
+          "type": "string",
+          "enum": [
+            "create",
+            "show"
+          ]
+        },
+        "name": {
+          "description": "The application key's name.",
+          "type": "string"
+        },
+        "user": {
+          "description": "create: the user the key acts as.",
+          "type": "string"
+        },
+        "expires": {
+          "description": "create: when it expires: 30d (the default), 12h, a date (midnight UTC) or an RFC 3339 timestamp.",
+          "type": "string"
+        },
+        "project": {
+          "description": "create: the project the key belongs to.",
+          "type": "string"
+        },
+        "description": {
+          "description": "create: the key's description.",
+          "type": "string"
+        },
+        "whitelist": {
+          "description": "create: addresses or ranges the key may be used from; empty means any.",
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": []
+        },
+        "save": {
+          "description": "Write the key as app_key of this profile file, which must exist.",
+          "type": "string"
+        },
+        "show": {
+          "description": "Return the key itself in the result.",
+          "type": "boolean",
+          "default": false
+        },
+        "profile": {
+          "description": "Server profile name.",
+          "type": "string",
+          "default": "default"
+        },
+        "dry_run": {
+          "description": "create: true plans and sends nothing. show reads the server whatever it says.",
+          "type": "boolean",
+          "default": true
+        }
+      }
+    },
+    "annotations": {
+      "readOnlyHint": false,
+      "openWorldHint": true,
+      "destructiveHint": true,
+      "idempotentHint": false
+    }
+  },
+  {
     "name": "test",
     "description": "The service cases of tests/*.toml, each called as each of its test users and expecting a status (and optionally rows). A dry run lists and checks the cases; dry_run false calls them, which may change the server, and needs allow_test_users = true in the profile.",
     "inputSchema": {
@@ -2641,13 +2731,13 @@
   },
   {
     "name": "catalog",
-    "description": "The repository's offline service catalog: callable services by entity, their parameters, result, description, origin and whether code exists. Summary returns at most 50 services; detail returns all.",
+    "description": "The repository's offline service catalog: callable services by entity, their parameters, result, description, origin and whether code exists. entity may be Entity.Service (or a service name one entity declares) for one service; body: true adds its script. Summary returns at most 50 services; detail returns all.",
     "inputSchema": {
       "type": "object",
       "properties": {
         "entity": {
           "type": "string",
-          "description": "One entity, full name or its last dotted segment."
+          "description": "One entity, full name or its last dotted segment; or Entity.Service, or a service name only one entity declares, for that one service."
         },
         "project": {
           "type": "string",
@@ -2660,6 +2750,11 @@
         "detail": {
           "type": "boolean",
           "description": "Return everything instead of the summary.",
+          "default": false
+        },
+        "body": {
+          "type": "boolean",
+          "description": "Include each service's script (body). Needs entity.",
           "default": false
         }
       },
@@ -3006,6 +3101,7 @@
       "type": "object",
       "properties": {
         "as": {"description": "Call as this [[test.user]] of twaco.toml, with the profile's test_password; the profile must have allow_test_users. A user in no group that can see the entity gets 404; a wrong password 401.", "type": "string"},
+        "lang": {"description": "Make the call in this language (de, or a preference list fr,de); only with as. ThingWorx takes a call's language from the user's stored preference, so the test user's preference is set for the call and put back after it.", "type": "string"},
         "target": {
           "type": "string",
           "description": "Collection/Name, or an entity of the solution by full or last-segment name (Manager), or a platform Thing's name."

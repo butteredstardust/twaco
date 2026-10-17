@@ -1,0 +1,7 @@
+$ twaco thing service remove Acme.Orders.Manager GetOrder
+exit: 2
+
+--- stdout
+
+--- stderr
+twaco: GetOrder is still used by Mashups/Acme.Orders.Dashboard; refusing to remove it (--force does it anyway)

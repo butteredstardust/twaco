@@ -433,6 +433,7 @@ pub(crate) fn call_service_tool(
         with_logs: arguments.with_logs,
         profile_before_target: false,
         as_user: arguments.as_user.as_ref().cloned(),
+        lang: arguments.lang.as_ref().cloned(),
     };
     let mut notices = commands::Notices::default();
     let outcome = commands::call::execute(solution, &request, server::Client::new, &mut notices)
@@ -444,10 +445,17 @@ pub(crate) fn call_service_tool(
     } = outcome
     else {
         let target = outcome.target();
+        let note = match (arguments.as_user.as_ref(), arguments.lang.as_ref()) {
+            (Some(user), Some(lang)) => format!(
+                "nothing was sent; pass dry_run: false to call it as {user}, whose language \
+                 preference is set to {lang} for the call and then put back"
+            ),
+            _ => "nothing was sent; pass dry_run: false to call it".to_string(),
+        };
         return Ok(json!({
             "dry_run": true,
             "would_call": { "target": target.to_string(), "service": service, "parameters": parameters },
-            "note": "nothing was sent; pass dry_run: false to call it",
+            "note": note,
         }));
     };
     let logs_json = |found: &Result<Vec<(String, logs::Entry)>, logs::LogsError>| match found {

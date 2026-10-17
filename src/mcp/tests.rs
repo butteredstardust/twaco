@@ -954,6 +954,7 @@ fn every_tool_is_listed_with_a_schema_and_honest_annotations() {
             "localization_write",
             "users",
             "users_write",
+            "appkey",
             "test",
             "extensions",
             "extension_write",
@@ -1841,6 +1842,26 @@ fn a_service_call_is_a_dry_run_unless_asked_and_needs_no_server_to_be_one() {
     let text: Value = serde_json::from_str(result["content"][0]["text"].as_str().unwrap()).unwrap();
     assert_eq!(text["dry_run"], true);
     assert_eq!(text["would_call"]["service"], "Reset");
+    // A dry run with a language says that a user's preference would change.
+    let responses = converse(
+        &root,
+        &[
+            json!({"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"call","arguments":{"target":"T","service":"Reset","as":"vera.viewer","lang":"de"}}}),
+        ],
+    );
+    let text: Value = serde_json::from_str(
+        responses[0]["result"]["content"][0]["text"]
+            .as_str()
+            .unwrap(),
+    )
+    .unwrap();
+    assert!(
+        text["note"]
+            .as_str()
+            .unwrap()
+            .contains("vera.viewer, whose language preference is set to de"),
+        "{text}"
+    );
 }
 
 /// The `outputSchema` a tool publishes to the newest protocol revision.
@@ -2667,6 +2688,37 @@ fn entity_edit_property_add_plans_then_applies() {
         json!({"action": "property_add", "entity": "P.Press", "name": "Rate"}),
     );
     assert_eq!(missing["isError"], true, "{missing}");
+}
+
+#[test]
+fn entity_edit_service_add_plans_then_removes() {
+    let (_dir, root) = solution_dir();
+    let created = call(
+        &root,
+        "entity_new",
+        json!({"kind": "thing", "name": "P.Press", "dry_run": false}),
+    );
+    assert_eq!(created["isError"], false, "{created}");
+    let arguments = json!({
+        "action": "service_add", "entity": "P.Press", "name": "ReadRows",
+        "params": ["limit:INTEGER"], "returns": "NUMBER", "then": "return 1;"
+    });
+    let planned = call(&root, "entity_edit", arguments.clone());
+    assert_eq!(planned["isError"], false, "{planned}");
+    assert_eq!(planned["structuredContent"]["applied"], false);
+    let mut apply = arguments;
+    apply["dry_run"] = json!(false);
+    let applied = call(&root, "entity_edit", apply);
+    assert_eq!(applied["isError"], false, "{applied}");
+    let folder = root.join("src/P.Press/services/ReadRows");
+    assert!(folder.join("definition.xml").is_file());
+    let removed = call(
+        &root,
+        "entity_edit",
+        json!({"action": "service_remove", "entity": "P.Press", "name": "ReadRows", "dry_run": false}),
+    );
+    assert_eq!(removed["isError"], false, "{removed}");
+    assert!(!folder.exists());
 }
 
 #[test]

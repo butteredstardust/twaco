@@ -372,6 +372,45 @@ Thing's own `ThingStart` event that populates the table if empty: query
 initializes after import (or platform restart), so this self-seeds on a fresh import
 with no extra step.
 
+## An application key without an expiration lasts a day
+
+Verified on 10.1: `EntityServices.CreateApplicationKey` without `expirationDate` makes a key that
+expires after one day. The parameter for the user is `user` (the XML says `userNameReference`; the
+wrong one fails with `User [null] does not exist`), `whitelist` is one comma-separated string, and
+`expirationDate` takes epoch milliseconds or an ISO timestamp. Re-importing an ApplicationKey's
+XML never changes its expiration; use `SetExpirationDate` on the key, or delete and create it. The
+key's value is `ApplicationKeys/<name>.GetKeyID` -> `rows[0].KeyID`. `twaco appkey create` sends an
+expiration every time.
+
+## A call's language comes only from the user's stored preference
+
+Verified on 10.1: a REST service call is localized from the calling user's `language` property
+(a preference list like `fr,de`; the first language with a localization table wins, an unknown one
+falls back to Default). An `Accept-Language` header or a `?language=` parameter changes nothing.
+`Users/<name>/Services/SetLanguagePreferences {"preferences": "de"}` sets it and takes effect on
+the next call; `Users/<name>/Services/GetPropertyValues` reads it (`language`). To test a mashup's
+or service's text in German, set a test user's preference, not your own, and put it back:
+`twaco call <target> <service> --as <test user> --lang de` does both.
+
+## A DataShape import rewrites its tables' accumulated shape
+
+Verified on 10.1: importing `Acme.Orders.Row_DS` makes ThingWorx merge the stored
+`accumulatedDataShape` of every DataTable and Stream on it with the DataShape's own fields (a base
+DataShape's fields never appear). The accumulated shape in an imported table's own XML is ignored.
+
+- A field already there keeps its ordinal. Only its `baseType` follows the DataShape; a new
+  description or default value does not.
+- A removed field stays, with `isDeleted: true`. If it comes back, it gets its old ordinal and
+  `isDeleted: false`.
+- A new field gets the next ordinal, new fields in case-insensitive name order.
+- The JSON is compact, keys in Java `HashMap` order.
+
+So a field rename is a delete and an add: values stored in existing rows under `Acme.Orders.Row_DS`'s
+old field name are not carried over, and the renamed field reads its default. Copy them after the
+deploy if they matter. `twaco sync` applies the same merge to the XML and, for a DataTable, to
+`datatable.json`, and `check` reports a table that does not follow its DataShape; do not edit the
+accumulated shape by hand.
+
 ## A script service's `return` inside a nested block silently kills the whole service
 
 A ThingWorx script service body is not compiled as an ordinary JS function. `return

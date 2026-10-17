@@ -46,7 +46,7 @@ fn default_settings_action() -> SettingsAction {
 #[derive(Debug, Deserialize, JsonSchema, Serialize)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct CatalogRequest {
-    /// One entity, full name or its last dotted segment.
+    /// One entity, full name or its last dotted segment; or Entity.Service, or a service name only one entity declares, for that one service.
     #[serde(default, skip_serializing_if = "Absent::is_absent")]
     pub(crate) entity: Absent<String>,
     /// Narrow to one project of the solution.
@@ -58,6 +58,9 @@ pub(crate) struct CatalogRequest {
     /// Return everything instead of the summary.
     #[serde(default)]
     pub(crate) detail: bool,
+    /// Include each service's script (body). Needs entity.
+    #[serde(default)]
+    pub(crate) body: bool,
 }
 
 #[derive(Clone, Copy, Debug, Deserialize, JsonSchema, PartialEq, Eq, Serialize)]

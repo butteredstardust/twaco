@@ -114,6 +114,10 @@ fn a_field_rename_reaches_inherited_infotable_values_datatables_and_lists_other_
 
     let table = std::fs::read_to_string(fixture.root.join("Things/P.Rows_DT.xml")).unwrap();
     assert!(
+        table.contains("\"Period\":{\"name\":\"Period\",\"aspects\":{\"isDeleted\":true"),
+        "{table}"
+    );
+    assert!(
         table.contains("\"PeriodKey\":{\"name\":\"PeriodKey\""),
         "{table}"
     );
@@ -137,20 +141,28 @@ fn a_field_rename_reaches_inherited_infotable_values_datatables_and_lists_other_
         "const first = rows.row.Period;\nconst label = 'Period';\nreturn first;\n"
     );
 
-    // And back, byte for byte (the ledger is the only addition).
+    // And back: the DataShape and indexes return, while the server-style accumulated history
+    // keeps the renamed entry as deleted instead of renaming it in place.
     let back = plan(&fixture.solution, &field_spec("P.D", "PeriodKey", "Period")).unwrap();
     apply(&fixture.solution, &back, &options(false), &locked(&fixture)).unwrap();
-    assert_eq!(snapshot_without_twaco(&fixture.root), before);
+    let restored = std::fs::read_to_string(fixture.root.join("Things/P.Rows_DT.xml")).unwrap();
+    assert!(
+        restored.contains("\"PeriodKey\":{\"name\":\"PeriodKey\",\"aspects\":{\"isDeleted\":true"),
+        "{restored}"
+    );
 }
 
 #[test]
-fn a_datatable_field_rename_refuses_when_the_new_name_exists_or_the_json_is_not_compact() {
+fn a_datatable_field_rename_accepts_hand_written_json_and_refuses_a_live_new_name() {
     let fixture = data_table_fixture("refuse");
     let mut table = std::fs::read_to_string(fixture.root.join("Things/P.Rows_DT.xml")).unwrap();
     table = table.replace("{\"fieldDefinitions\"", "{ \"fieldDefinitions\"");
     std::fs::write(fixture.root.join("Things/P.Rows_DT.xml"), &table).unwrap();
-    let error = plan(&fixture.solution, &field_spec("P.D", "Period", "PeriodKey")).unwrap_err();
-    assert!(error.to_string().contains("compact form"), "{error}");
+    let planned = plan(&fixture.solution, &field_spec("P.D", "Period", "PeriodKey")).unwrap();
+    assert!(planned
+        .changes
+        .iter()
+        .any(|change| change.path.ends_with("P.Rows_DT.xml")));
     let clash = data_table_fixture("clash");
     let error = plan(&clash.solution, &field_spec("P.D", "Period", "Name")).unwrap_err();
     assert!(matches!(error, RenameError::Exists { .. }), "{error}");
@@ -358,4 +370,90 @@ fn every_injected_field_apply_failure_rolls_back_the_complete_tree() {
         );
         assert_no_rename_temporaries(&fixture.root);
     }
+}
+
+#[test]
+fn a_field_rename_marks_the_old_field_deleted_on_a_stream_of_the_shape() {
+    let fixture = data_table_fixture("stream");
+    let stream = r#"<Entities><Things><Thing name="P.Log_ST" projectName="P" thingTemplate="Stream"><ConfigurationTables><ConfigurationTable name="Settings"><Rows><Row><accumulatedDataShape><json><![CDATA[{"fieldDefinitions":{"Name":{"name":"Name","aspects":{},"description":"","baseType":"STRING","ordinal":0},"Period":{"name":"Period","aspects":{},"description":"","baseType":"STRING","ordinal":1}}}]]></json></accumulatedDataShape><dataShape><![CDATA[P.D]]></dataShape></Row></Rows></ConfigurationTable></ConfigurationTables></Thing></Things></Entities>
+"#;
+    write(&fixture.root, "Things/P.Log_ST.xml", stream);
+    let planned = plan(&fixture.solution, &field_spec("P.D", "Period", "PeriodKey")).unwrap();
+    apply(
+        &fixture.solution,
+        &planned,
+        &options(false),
+        &locked(&fixture),
+    )
+    .unwrap();
+    let after = std::fs::read_to_string(fixture.root.join("Things/P.Log_ST.xml")).unwrap();
+    assert!(
+        after.contains(r#""Period":{"name":"Period","aspects":{"isDeleted":true},"description":"","baseType":"STRING","ordinal":1}"#),
+        "{after}"
+    );
+    assert!(
+        after.contains(r#""PeriodKey":{"name":"PeriodKey","aspects":{},"description":"","baseType":"STRING","ordinal":2}"#),
+        "{after}"
+    );
+}
+
+#[test]
+fn the_stored_values_note_comes_only_when_a_table_uses_the_shape() {
+    let note = "Values stored under the old field in DataTable/Stream rows";
+    let with_table = data_table_fixture("note");
+    let outcome = run(
+        &with_table.solution,
+        &field_spec("P.D", "Period", "PeriodKey"),
+        &run_options(false, true),
+        None,
+    )
+    .unwrap();
+    assert!(
+        outcome.follow_up.iter().any(|line| line.starts_with(note)),
+        "{:?}",
+        outcome.follow_up
+    );
+    let without = field_fixture("note");
+    let outcome = run(
+        &without.solution,
+        &field_spec("P.D", "Period", "PeriodKey"),
+        &run_options(false, true),
+        None,
+    )
+    .unwrap();
+    assert!(
+        !outcome.follow_up.iter().any(|line| line.starts_with(note)),
+        "{:?}",
+        outcome.follow_up
+    );
+}
+
+#[test]
+fn a_field_rename_adds_the_new_field_to_a_table_that_never_recorded_the_old_one() {
+    let fixture = data_table_fixture("missed");
+    let path = fixture.root.join("Things/P.Rows_DT.xml");
+    let table = std::fs::read_to_string(&path)
+        .unwrap()
+        .replace(r#","Period":{"name":"Period","baseType":"STRING"}"#, "");
+    assert!(!table.contains("\"Period\":{"), "{table}");
+    std::fs::write(&path, &table).unwrap();
+    write(
+        &fixture.root,
+        "src/P.Rows_DT/datatable.json",
+        &datatable::to_sidecar(&datatable::extract(table.as_bytes()).unwrap()).unwrap(),
+    );
+    let planned = plan(&fixture.solution, &field_spec("P.D", "Period", "PeriodKey")).unwrap();
+    apply(
+        &fixture.solution,
+        &planned,
+        &options(false),
+        &locked(&fixture),
+    )
+    .unwrap();
+    let after = std::fs::read_to_string(&path).unwrap();
+    assert!(
+        after.contains("\"PeriodKey\":{\"name\":\"PeriodKey\""),
+        "{after}"
+    );
+    assert!(after.contains("Name,PeriodKey"), "{after}");
 }

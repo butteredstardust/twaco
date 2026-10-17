@@ -722,7 +722,7 @@ pub(crate) fn settings_cmd(solution: &Solution, args: &Settings) -> u8 {
 #[derive(Debug, clap::Args)]
 #[group(skip)]
 pub(crate) struct Trace {
-    #[arg(long = "param", value_name = "name:TYPE[:DIRECTION]")]
+    #[arg(long = "param", value_name = "name:TYPE[:...]")]
     pub(crate) params: Vec<String>,
     #[command(flatten)]
     pub(crate) json: Json,
@@ -1019,6 +1019,8 @@ pub(crate) struct Catalog {
     pub(crate) project: Project,
     #[arg(long = "search", value_name = "text")]
     pub(crate) search: Option<String>,
+    #[arg(long = "body")]
+    pub(crate) body: bool,
     #[command(flatten)]
     pub(crate) json: Json,
     #[arg(id = "operands", value_name = "operand")]
@@ -1027,13 +1029,17 @@ pub(crate) struct Catalog {
 
 pub(crate) fn catalog_cmd(solution: &Solution, args: &Catalog) -> u8 {
     if args.operands.len() > 1 {
-        eprintln!("{} catalog takes at most one entity name", style::prefix());
+        eprintln!(
+            "{} catalog takes at most one entity, Entity.Service or service name",
+            style::prefix()
+        );
         return FAILED;
     }
     let query = catalog::Query {
         project: args.project.project.as_deref(),
         entity: args.operands.first().map(String::as_str),
         text: args.search.as_deref(),
+        body: args.body,
     };
     let result = match catalog::build(solution, query) {
         Ok(result) => result,
@@ -1066,22 +1072,23 @@ pub(crate) fn catalog_cmd(solution: &Solution, args: &Catalog) -> u8 {
         }
         for service in &entity.services {
             if args.json.json {
-                println!(
-                    "{}",
-                    serde_json::json!({
-                        "collection": entity.collection,
-                        "entity": entity.name,
-                        "project": entity.project,
-                        "inherits": entity.inherits,
-                        "implemented_by": entity.implemented_by,
-                        "service": service.name,
-                        "parameters": service.parameters,
-                        "result": service.result,
-                        "description": service.description,
-                        "from": service.from,
-                        "has_script": service.has_script,
-                    })
-                );
+                let mut line = serde_json::json!({
+                    "collection": entity.collection,
+                    "entity": entity.name,
+                    "project": entity.project,
+                    "inherits": entity.inherits,
+                    "implemented_by": entity.implemented_by,
+                    "service": service.name,
+                    "parameters": service.parameters,
+                    "result": service.result,
+                    "description": service.description,
+                    "from": service.from,
+                    "has_script": service.has_script,
+                });
+                if args.body {
+                    line["body"] = serde_json::json!(service.body);
+                }
+                println!("{line}");
             } else {
                 let parameters = service
                     .parameters
@@ -1123,6 +1130,16 @@ pub(crate) fn catalog_cmd(solution: &Solution, args: &Catalog) -> u8 {
                     origin,
                     description
                 );
+                if args.body {
+                    match &service.body {
+                        Some(body) => {
+                            for line in body.lines() {
+                                println!("    {line}");
+                            }
+                        }
+                        None => println!("    (no script: not a script service)"),
+                    }
+                }
             }
         }
     }

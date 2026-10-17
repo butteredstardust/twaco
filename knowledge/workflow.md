@@ -14,6 +14,8 @@ a service does before you call it.
 - `twaco check`: every offline gate, one exit code. Run it before and after a change.
 - `twaco entity status --all`: which entities differ between the repository and the server.
 - `twaco catalog`: every service, where it lives, its signature and what it is for.
+  `twaco catalog <Entity>.<Service> --body` (or a service name only one entity declares) gives
+  one service with its script, also when the entity inherits it; read this before grepping XML.
 - `twaco impact <entity> [--member <name>]`: what changing an entity, or one service of it, would reach, with how sure each reference is; run it before a rename, a move or a delete.
 - `twaco trace <Entity>.<Service> [--param <name>]`: how each caller uses a service, where impact says who: per mashup, what runs the call, what sets each parameter (or unbound, with its default) and where each result field goes; per script, the call, the variable and what it reads; and what the service calls. Run it before changing a service's parameters or result.
 - `twaco unused`: entities no entry point reaches (advisory); list anything used from outside the repository under `[unused] keep` in `twaco.toml`.
@@ -43,10 +45,13 @@ which of its parts are fragile.
 ## Change a service
 
 1. **Edit the sidecar script.** For a signature change (parameters, result, DataShape), edit the
-   service definition in the entity XML too. To add a service, create
-   `src/<Entity>/services/<Name>/` with a `definition.xml` (a sibling's, renamed) and a
-   `script.js`; `twaco sync <entity> --allow-add-remove` adds it to the entity. Deleting the
-   folder and syncing with the flag removes the service.
+   service definition in the entity XML too. To create a service, prefer `twaco thing service add
+   <Entity> <Name> --param name:TYPE --returns TYPE --then '<code>' --apply`: it writes the
+   exported signature and both sidecars correctly. `twaco thing service remove <Entity> <Name>
+   --apply` removes an own service, its permissions and sidecars. A manual service folder can
+   still be added or deleted with `twaco sync <entity> --allow-add-remove`; an empty `services/`
+   directory means zero managed services until Git drops it, so the command is safer for removing
+   the last one.
 2. `twaco sync <entity> --check` shows what would change; `twaco sync <entity>` writes it.
 3. **Run the gates:** `twaco check`. `twaco types --check` type-checks every service against the
    entities' declarations; `twaco check --live` also has the server parse each script.

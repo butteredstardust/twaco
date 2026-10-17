@@ -423,8 +423,10 @@ pub(crate) const USAGE: &[Usage] = &[
     Usage {
         path: "catalog",
         group: 1,
-        text: r#"  catalog [<entity>] [--project P] [--search <text>] [--json]
-                              offline services, signatures, origins and descriptions"#,
+        text: r#"  catalog [<entity>|<Entity>.<Service>|<Service>] [--project P] [--search <text>] [--json]
+                              offline services, signatures, origins and descriptions; an
+                              Entity.Service, or a service only one entity declares, gives that one
+      --body                  with an entity or service: each service's script too"#,
     },
     Usage {
         path: "impact",
@@ -747,6 +749,20 @@ pub(crate) const USAGE: &[Usage] = &[
       --force                 remove or retype a property something still uses (they are listed)"#,
     },
     Usage {
+        path: "thing service",
+        group: 1,
+        text: r#"  thing service add <Entity> <Name> [--param <name>:<TYPE>[:<DataShape>]]...
+      [--returns <TYPE>[:<DataShape>]] [--description <text>] [--category <text>] [--private]
+      [--then <address> | --script <file.js>] [--apply] [--json]
+  thing service remove <Entity> <Name> [--force] [--apply] [--json]
+                              add or remove an own script service and its managed sidecars; an
+                              absent script is empty; plan unless --apply
+      --param                 a parameter in declaration order
+      --returns               result type, NOTHING by default
+      --private               make the service private
+      --force                 remove it even when callers still use it (they are listed)"#,
+    },
+    Usage {
         path: "thing subscription",
         group: 1,
         text: r#"  thing subscription add <Entity> <name> --event <Event> [--source <Thing>]
@@ -1065,10 +1081,12 @@ pub(crate) const USAGE: &[Usage] = &[
         path: "call",
         group: 3,
         text: r#"  call <target> <service> [<json>] [--timeout <seconds>] [--detail] [--as <test user>]
-                              target: Collection/Name, or an entity by name or last segment
+      [--lang <code>]         target: Collection/Name, or an entity by name or last segment
       --with-logs             then what it wrote to ScriptLog and ApplicationLog (waits up to 3 s)
       --as <test user>        call as a [[test.user]] with the profile's test_password (the profile
-                              needs allow_test_users): 404 if the user cannot see it, 401 a bad password"#,
+                              needs allow_test_users): 404 if the user cannot see it, 401 a bad password
+      --lang <code>           with --as: in this language (de, or fr,de: the first with a table);
+                              the test user's language preference is set for the call, then put back"#,
     },
     Usage {
         path: "logs",
@@ -1135,6 +1153,22 @@ pub(crate) const USAGE: &[Usage] = &[
   users seed                  create the missing users, the [test] project and group memberships
   users delete                delete the test users; both need allow_test_users = true in the
                               profile and plan until --apply"#,
+    },
+    Usage {
+        path: "appkey",
+        group: 4,
+        text: r#"  appkey create <name> --user <user> [--expires <30d|12h|date>] [--project <name>]
+      [--description <text>] [--whitelist <ip,...>] [--save <profile>] [--show] [--apply] [--json]
+  appkey show <name> [--save <profile>] [--show] [--json]
+  appkey delete <name> [--apply]   as entity delete ApplicationKeys/<name>
+                              an application key on the server, acting as a user; create plans
+                              until --apply; the key is printed only with --show
+      --user <user>           the user the key acts as
+      --expires <when>        30d (the default), 12h, a date (midnight UTC) or a timestamp; without
+                              one the server would expire it after a day
+      --whitelist <ip,...>    addresses or ranges it may be used from (default any)
+      --save <profile>        write it as app_key of that profile file, which must exist
+      --show                  print the key"#,
     },
     Usage {
         path: "test",

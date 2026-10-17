@@ -6,6 +6,58 @@ All notable changes to twaco are recorded here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- `twaco catalog <Entity>.<Service>` (MCP `catalog` with `entity: "Entity.Service"`) narrows the
+  catalog to one service, including one the entity inherits; a bare service name works when only
+  one entity declares it, and names the candidates when several do. `--body` (`body: true`) adds
+  each service's script, from its sidecar or, never extracted, from the declaring entity's XML.
+- The AGENTS.md that `twaco init --agents` writes lists the commands to use before grepping:
+  `catalog <Entity>.<Service> --body`, `impact --member`, `trace`, `mashup describe`, `entity
+  status` and `permissions diff`. An existing AGENTS.md is never replaced.
+- `twaco appkey create <name> --user <user>` (MCP `appkey`) creates an application key on the
+  server, always with an expiration (`--expires`, default 30 days; the server's own default is one
+  day), and `appkey show <name>` reads an existing one. The key is printed only with `--show`, or
+  written as a profile's `app_key` with `--save <profile>`. `appkey delete` is `entity delete
+  ApplicationKeys/<name>`.
+- `twaco call ... --as <test user> --lang <code>` (MCP `call` with `lang`) makes one call in
+  another language (`de`, or a preference list `fr,de`). ThingWorx takes a call's language only
+  from the user's stored preference, so the test user's preference is set for the call and put
+  back after it, even when the call fails; `--lang` without `--as` is refused.
+- `twaco thing service add <Entity> <Name>` (MCP `entity_edit` action `service_add`) creates a
+  script service on a Thing, ThingTemplate or ThingShape: its definition from `--param
+  name:TYPE[:DataShape]` and `--returns`, its script, and both sidecars, written as `sync` would.
+  `thing service remove` (`service_remove`) removes one with its run-time permissions and sidecar
+  folder, and refuses while something still calls it unless `--force`.
+
+### Changed
+
+- The value name of `--param` in clap's messages and shell completions is `name:TYPE[:...]` for
+  `trace`, `mashup new` and `thing service add` alike (it was `name:TYPE[:DIRECTION]`); the help
+  text still gives each command's own form.
+
+### Fixed
+
+- A number default in a DataShape's `fields.json` (and a property's `--default`) goes into the
+  XML as the server stores it, Java's `Double.toString` for NUMBER (`3` -> `3.0`, `10000000` ->
+  `1.0E7`, `0.0001` -> `1.0E-4`) and the plain integer for INTEGER and LONG (`07` -> `7`). Before,
+  the deploy read-back reported such a DataShape "not kept", and property defaults of 10^7 and up
+  or below 10^-3 were written in a form the server rewrote.
+- Removing an entity's last service: deleting its sidecar folder used to leave the service in
+  the XML without a word (`sync` treated the entity as unmanaged and `check` passed). An existing
+  empty `services/` folder now manages zero services, so `sync --allow-add-remove` removes it and
+  `check` reports it; `thing service remove` does it in one step.
+- `sync` keeps the `accumulatedDataShape` of the DataTables and Streams on a DataShape in step
+  with it, as the server does on import: a removed field is kept and marked deleted, a new one gets
+  the next ordinal. Before, the repository's tables drifted from the server after every DataShape
+  change (deploy read-back reported them "not kept"). A DataTable's `datatable.json` follows too,
+  `sync <DataShape>` brings its tables along, and the `sidecars` gate of `check` reports a table
+  that does not follow its DataShape (`accumulated-shape-stale`).
+- `rename field` treats a DataTable's or Stream's accumulated shape as the server does, a delete
+  and an add, instead of renaming the entry in place, which the server never kept; Streams were
+  skipped before. The plan now says that values stored under the old field in DataTable and
+  Stream rows are not carried over.
+
 ## [0.1.20] - 2026-10-17
 
 ### Changed
