@@ -372,6 +372,16 @@ Thing's own `ThingStart` event that populates the table if empty: query
 initializes after import (or platform restart), so this self-seeds on a fresh import
 with no extra step.
 
+## A call's language comes only from the user's stored preference
+
+Verified on 10.1: a REST service call is localized from the calling user's `language` property
+(a preference list like `fr,de`; the first language with a localization table wins, an unknown one
+falls back to Default). An `Accept-Language` header or a `?language=` parameter changes nothing.
+`Users/<name>/Services/SetLanguagePreferences {"preferences": "de"}` sets it and takes effect on
+the next call; `Users/<name>/Services/GetPropertyValues` reads it (`language`). To test a mashup's
+or service's text in German, set a test user's preference, not your own, and put it back:
+`twaco call <target> <service> --as <test user> --lang de` does both.
+
 ## A DataShape import rewrites its tables' accumulated shape
 
 Verified on 10.1: importing `Acme.Orders.Row_DS` makes ThingWorx merge the stored

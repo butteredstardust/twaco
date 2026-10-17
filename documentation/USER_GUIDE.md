@@ -964,6 +964,14 @@ For one call by hand, `twaco call <target> <service> [<json>] --as <test user>` 
 `[[test.user]]` with `test_password` (the profile needs `allow_test_users`). A user in no group
 that can see the entity gets 404; a wrong password gets 401. No other account can be named.
 
+Add `--lang <code>` to make that call in another language: `--lang de`, or a preference list
+`--lang fr,de` (the first language with a localization table wins; one without falls back to
+Default). ThingWorx ignores `Accept-Language` and takes a call's language only from the calling
+user's stored preference, so twaco reads the test user's preference with the profile's own
+account, sets it, makes the call, and puts the old one back, even when the call fails. It works
+only with `--as`, so your own account's language never changes. If putting it back fails, the
+error says what it was and how to restore it. MCP: `call` with `as` and `lang`.
+
 ## Copying DataTable rows
 
 Renaming a DataTable creates a new, empty one: its rows live on the server, not in the XML.

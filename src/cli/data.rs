@@ -227,6 +227,8 @@ pub(crate) struct Call {
     pub(crate) with_logs: bool,
     #[arg(long = "as", value_name = "new")]
     pub(crate) user: Option<String>,
+    #[arg(long = "lang", value_name = "code")]
+    pub(crate) lang: Option<String>,
     #[arg(id = "operands", value_name = "operand")]
     pub(crate) operands: Vec<String>,
 }
@@ -269,6 +271,7 @@ pub(crate) fn call(solution: &Solution, args: &Call) -> u8 {
         with_logs: args.with_logs,
         profile_before_target: true,
         as_user: args.user.clone(),
+        lang: args.lang.clone(),
     };
     let mut notices = commands::Notices::default();
     let outcome =

@@ -1079,10 +1079,12 @@ pub(crate) const USAGE: &[Usage] = &[
         path: "call",
         group: 3,
         text: r#"  call <target> <service> [<json>] [--timeout <seconds>] [--detail] [--as <test user>]
-                              target: Collection/Name, or an entity by name or last segment
+      [--lang <code>]         target: Collection/Name, or an entity by name or last segment
       --with-logs             then what it wrote to ScriptLog and ApplicationLog (waits up to 3 s)
       --as <test user>        call as a [[test.user]] with the profile's test_password (the profile
-                              needs allow_test_users): 404 if the user cannot see it, 401 a bad password"#,
+                              needs allow_test_users): 404 if the user cannot see it, 401 a bad password
+      --lang <code>           with --as: in this language (de, or fr,de: the first with a table);
+                              the test user's language preference is set for the call, then put back"#,
     },
     Usage {
         path: "logs",

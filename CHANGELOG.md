@@ -8,6 +8,10 @@ All notable changes to twaco are recorded here. The format follows
 
 ### Added
 
+- `twaco call ... --as <test user> --lang <code>` (MCP `call` with `lang`) makes one call in
+  another language (`de`, or a preference list `fr,de`). ThingWorx takes a call's language only
+  from the user's stored preference, so the test user's preference is set for the call and put
+  back after it, even when the call fails; `--lang` without `--as` is refused.
 - `twaco thing service add <Entity> <Name>` (MCP `entity_edit` action `service_add`) creates a
   script service on a Thing, ThingTemplate or ThingShape: its definition from `--param
   name:TYPE[:DataShape]` and `--returns`, its script, and both sidecars, written as `sync` would.
