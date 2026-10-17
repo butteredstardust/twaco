@@ -3,12 +3,12 @@
 use super::{lock_workspace, Access, Effects, Mode, Notices};
 use crate::core::codes::{Coded, ErrorCode};
 use crate::core::config::Solution;
-use crate::core::{entity_carry, lock, profile};
+use crate::core::{entity, lock, profile};
 
 /// The arguments that affect an entity carry.
 #[derive(Clone, Debug)]
 pub struct CarryRequest {
-    pub pairs: Vec<entity_carry::Pair>,
+    pub pairs: Vec<entity::carry::Pair>,
     pub renamed: bool,
     pub mode: Mode,
     pub detail: bool,
@@ -20,11 +20,11 @@ pub struct CarryRequest {
 #[derive(Debug)]
 pub enum CarryOutcome {
     Plan {
-        report: entity_carry::Report,
+        report: entity::carry::Report,
         effects: Effects,
     },
     Applied {
-        report: entity_carry::Report,
+        report: entity::carry::Report,
         date: String,
         effects: Effects,
     },
@@ -40,9 +40,9 @@ impl CarryOutcome {
 }
 
 /// A remote that can compare and carry permissions.
-pub trait Remote: entity_carry::Remote {}
+pub trait Remote: entity::carry::Remote {}
 
-impl<T: entity_carry::Remote + ?Sized> Remote for T {}
+impl<T: entity::carry::Remote + ?Sized> Remote for T {}
 
 /// A failure before a typed carry outcome could be produced.
 #[derive(Debug, thiserror::Error)]
@@ -52,7 +52,7 @@ pub enum CarryCommandError {
     #[error("{0}")]
     Profile(profile::ProfileError),
     #[error("{0}")]
-    Carry(entity_carry::CarryError),
+    Carry(entity::carry::CarryError),
 }
 
 impl Coded for CarryCommandError {
@@ -88,13 +88,13 @@ where
     let profile =
         profile::load(&solution.root, &request.profile).map_err(CarryCommandError::Profile)?;
     let date = jiff::Zoned::now().strftime("%Y-%m-%d").to_string();
-    let domain_request = entity_carry::Request {
+    let domain_request = entity::carry::Request {
         pairs: request.pairs.clone(),
         renamed: request.renamed,
         apply: matches!(request.mode, Mode::Apply),
         detail: request.detail,
     };
-    let report = entity_carry::run(&open(profile), solution, &domain_request, &date)
+    let report = entity::carry::run(&open(profile), solution, &domain_request, &date)
         .map_err(CarryCommandError::Carry)?;
     Ok(match request.mode {
         Mode::Plan => CarryOutcome::Plan {
@@ -126,12 +126,12 @@ mod tests {
 
     struct Fake;
 
-    impl entity_carry::Remote for Fake {
+    impl entity::carry::Remote for Fake {
         fn exists(&self, _: &str, _: &str) -> Result<bool, ServerError> {
             Ok(false)
         }
 
-        fn get(&self, _: &str, _: &str, _: entity_carry::Kind) -> Result<Value, ServerError> {
+        fn get(&self, _: &str, _: &str, _: entity::carry::Kind) -> Result<Value, ServerError> {
             unreachable!("a missing entity is reported without reading permissions")
         }
 
@@ -139,7 +139,7 @@ mod tests {
             &self,
             _: &str,
             _: &str,
-            _: entity_carry::Kind,
+            _: entity::carry::Kind,
             _: &Value,
         ) -> Result<(), ServerError> {
             unreachable!("a missing entity is never written")
@@ -175,7 +175,7 @@ mod tests {
 
     fn request(mode: Mode, renamed: bool) -> CarryRequest {
         CarryRequest {
-            pairs: entity_carry::pairs_from_names(&[
+            pairs: entity::carry::pairs_from_names(&[
                 "Things/Old".to_string(),
                 "Things/New".to_string(),
             ])
@@ -230,7 +230,7 @@ mod tests {
         assert_eq!(outcome.effects(), Effects::new(Access::Read, Access::Write));
         assert_eq!(notices.lines().len(), 1, "{:?}", notices.lines());
         assert!(notices.lines()[0].contains("left by an interrupted write"));
-        let error = CarryCommandError::Carry(entity_carry::CarryError::Arguments {
+        let error = CarryCommandError::Carry(entity::carry::CarryError::Arguments {
             why: "bad arguments".to_string(),
         });
         assert_eq!(error.code(), ErrorCode::InvalidArguments);

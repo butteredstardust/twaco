@@ -1,5 +1,5 @@
 use super::super::config::Solution;
-use super::super::entity_key::ServiceTarget;
+use super::super::entity::key::ServiceTarget;
 use super::super::progress::{self, Progress, NONE};
 use super::super::server::{Client, ServerError};
 use super::super::workspace;

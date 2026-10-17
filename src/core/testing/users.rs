@@ -7,7 +7,7 @@
 
 use super::{allowed, test_password, Remote, TestError};
 use crate::core::config::Solution;
-use crate::core::entity_key::{EntityKey, ServiceTarget};
+use crate::core::entity::key::{EntityKey, ServiceTarget};
 use crate::core::profile::Profile;
 use crate::core::server::ServerError;
 use serde_json::{json, Value};

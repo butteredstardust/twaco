@@ -7,7 +7,7 @@
 //! cannot read is a bare 406, so twaco opens the zip itself first, to say what is wrong.
 
 use super::codes::{Coded, ErrorCode};
-use super::entity_key::ServiceTarget;
+use super::entity::key::ServiceTarget;
 use super::progress::{self, Progress, NONE};
 use super::server::{Client, ServerError};
 use serde_json::{json, Value};

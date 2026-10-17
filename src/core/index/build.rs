@@ -3,7 +3,7 @@
 use super::{Edge, EdgeKind, Index, Node, NodeKind, Unreadable};
 use crate::core::config::Solution;
 use crate::core::datashape::Aspect;
-use crate::core::entity_key::EntityKey;
+use crate::core::entity::key::EntityKey;
 use crate::core::types::{self, Member, TypedValue};
 use crate::core::{scan, sidecar, workspace};
 use petgraph::graph::{DiGraph, NodeIndex};

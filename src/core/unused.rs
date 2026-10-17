@@ -11,7 +11,7 @@
 //! users, groups and the like are used by being present.
 
 use super::config::Solution;
-use super::entity_key::EntityKey;
+use super::entity::key::EntityKey;
 use super::index::{Confidence, Index, Unreadable};
 use serde::Serialize;
 use std::collections::{BTreeMap, BTreeSet};

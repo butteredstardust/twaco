@@ -24,7 +24,7 @@ pub mod policy;
 pub mod server_audit;
 pub mod write;
 
-use super::entity_carry::{Kind, Remote};
+use super::entity::carry::{Kind, Remote};
 use super::normalise::{self, Element, Node};
 use super::parallel;
 use super::progress::{self, Progress};

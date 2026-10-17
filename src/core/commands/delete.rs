@@ -3,7 +3,7 @@
 use super::{lock_workspace, Access, Effects, Mode, Notices};
 use crate::core::codes::{Coded, ErrorCode};
 use crate::core::config::Solution;
-use crate::core::{entity_delete, lock, profile};
+use crate::core::{entity, lock, profile};
 
 /// The arguments that affect guarded entity deletion.
 #[derive(Clone, Debug)]
@@ -12,7 +12,7 @@ pub struct EntityDeleteRequest {
     pub entities: Vec<String>,
     pub renamed: bool,
     pub mode: Mode,
-    pub acknowledgements: entity_delete::Acknowledged,
+    pub acknowledgements: entity::delete::Acknowledged,
     /// Whether the deprecated `--force` spelling supplied the acknowledgements.
     pub legacy_force_used: bool,
     pub backup: bool,
@@ -23,12 +23,12 @@ pub struct EntityDeleteRequest {
 #[derive(Debug)]
 pub enum EntityDeleteOutcome {
     Plan {
-        report: entity_delete::Report,
+        report: entity::delete::Report,
         effects: Effects,
         legacy_force_used: bool,
     },
     Applied {
-        report: entity_delete::Report,
+        report: entity::delete::Report,
         date: String,
         effects: Effects,
         legacy_force_used: bool,
@@ -58,9 +58,9 @@ impl EntityDeleteOutcome {
 const READ_EFFECTS: Effects = Effects::new(Access::Read, Access::Read);
 
 /// A remote that can perform every server operation used by guarded entity deletion.
-pub trait Remote: entity_delete::Remote {}
+pub trait Remote: entity::delete::Remote {}
 
-impl<T: entity_delete::Remote + ?Sized> Remote for T {}
+impl<T: entity::delete::Remote + ?Sized> Remote for T {}
 
 /// A failure before a typed delete outcome could be produced.
 #[derive(Debug, thiserror::Error)]
@@ -70,7 +70,7 @@ pub enum EntityDeleteCommandError {
     #[error("{0}")]
     Profile(profile::ProfileError),
     #[error("{0}")]
-    Delete(entity_delete::DeleteError),
+    Delete(entity::delete::DeleteError),
 }
 
 impl Coded for EntityDeleteCommandError {
@@ -112,14 +112,14 @@ where
     F: FnOnce(profile::Profile) -> R,
     H: FnOnce(),
 {
-    let mut prepared = entity_delete::prepare(solution, &request.entities, request.renamed)
+    let mut prepared = entity::delete::prepare(solution, &request.entities, request.renamed)
         .map_err(EntityDeleteCommandError::Delete)?;
     let apply = matches!(request.mode, Mode::Apply);
     let _lock = if apply && (request.backup || prepared.ledger_will_be_written(apply)) {
         let lock = lock_workspace(solution, "entity delete", notices)
             .map_err(EntityDeleteCommandError::Lock)?;
         after_lock();
-        prepared = entity_delete::prepare(solution, &request.entities, request.renamed)
+        prepared = entity::delete::prepare(solution, &request.entities, request.renamed)
             .map_err(EntityDeleteCommandError::Delete)?;
         Some(lock)
     } else {
@@ -131,7 +131,7 @@ where
     if request.backup {
         prepared = prepared.with_backup(&crate::core::backup::new_stamp());
     }
-    let report = entity_delete::run(
+    let report = entity::delete::run(
         &open(profile),
         solution,
         prepared,
@@ -156,14 +156,14 @@ where
     })
 }
 
-fn effects(report: &entity_delete::Report) -> Effects {
+fn effects(report: &entity::delete::Report) -> Effects {
     if !report.applied {
         return READ_EFFECTS;
     }
     let server = if report.entities.iter().any(|entity| {
         matches!(
             entity.status,
-            entity_delete::Status::Deleted | entity_delete::Status::Failed
+            entity::delete::Status::Deleted | entity::delete::Status::Failed
         )
     }) {
         Access::Write
@@ -194,7 +194,7 @@ mod tests {
         super::execute(solution, request, open, &mut Notices::default())
     }
     use crate::core::backup;
-    use crate::core::entity_key::EntityKey;
+    use crate::core::entity::key::EntityKey;
     use crate::core::server::ServerError;
     use serde_json::json;
     use std::cell::RefCell;
@@ -209,7 +209,7 @@ mod tests {
 
     struct FakeState {
         held: BTreeSet<(String, String)>,
-        dependents: BTreeMap<(String, String), Vec<entity_delete::Dependent>>,
+        dependents: BTreeMap<(String, String), Vec<entity::delete::Dependent>>,
         events: Vec<String>,
         fail_backup: bool,
         failed_deletes: BTreeSet<(String, String)>,
@@ -238,7 +238,7 @@ mod tests {
         }
     }
 
-    impl entity_delete::Remote for Fake {
+    impl entity::delete::Remote for Fake {
         fn exists(&self, key: &EntityKey) -> Result<bool, ServerError> {
             Ok(self
                 .state
@@ -247,7 +247,7 @@ mod tests {
                 .contains(&(key.collection().to_string(), key.name().to_string())))
         }
 
-        fn incoming(&self, key: &EntityKey) -> Result<Vec<entity_delete::Dependent>, ServerError> {
+        fn incoming(&self, key: &EntityKey) -> Result<Vec<entity::delete::Dependent>, ServerError> {
             Ok(self
                 .state
                 .borrow()
@@ -380,7 +380,7 @@ mod tests {
                 .collect(),
             renamed,
             mode,
-            acknowledgements: entity_delete::Acknowledged::default(),
+            acknowledgements: entity::delete::Acknowledged::default(),
             legacy_force_used: false,
             backup,
             profile: "default".to_string(),
@@ -534,7 +534,7 @@ mod tests {
         .unwrap_err();
         assert!(matches!(
             error,
-            EntityDeleteCommandError::Delete(entity_delete::DeleteError::Backup(_))
+            EntityDeleteCommandError::Delete(entity::delete::DeleteError::Backup(_))
         ));
         assert!(remote
             .events()
@@ -567,7 +567,7 @@ mod tests {
                 .insert(("Things".to_string(), "T".to_string()));
             state.dependents.insert(
                 ("Things".to_string(), "T".to_string()),
-                vec![entity_delete::Dependent {
+                vec![entity::delete::Dependent {
                     collection: "Mashups".to_string(),
                     name: "Outside".to_string(),
                 }],
@@ -601,10 +601,10 @@ mod tests {
             .flat_map(|entity| entity.refusal_codes())
             .collect::<Vec<_>>();
         for code in [
-            entity_delete::GuardCode::RepositoryDefined,
-            entity_delete::GuardCode::OutsideDependents,
-            entity_delete::GuardCode::FileRepositoryDataLoss,
-            entity_delete::GuardCode::NoDeleteMethod,
+            entity::delete::GuardCode::RepositoryDefined,
+            entity::delete::GuardCode::OutsideDependents,
+            entity::delete::GuardCode::FileRepositoryDataLoss,
+            entity::delete::GuardCode::NoDeleteMethod,
         ] {
             assert!(codes.contains(&code));
         }
@@ -625,16 +625,16 @@ mod tests {
             searched: Vec::new(),
         });
         assert_eq!(error.code(), ErrorCode::InvalidData);
-        let error = EntityDeleteCommandError::Delete(entity_delete::DeleteError::Target(
+        let error = EntityDeleteCommandError::Delete(entity::delete::DeleteError::Target(
             "bad target".to_string(),
         ));
         assert_eq!(error.code(), ErrorCode::InvalidArguments);
-        let error = EntityDeleteCommandError::Delete(entity_delete::DeleteError::Remote {
+        let error = EntityDeleteCommandError::Delete(entity::delete::DeleteError::Remote {
             entity: "Things/T".to_string(),
             why: ServerError::InvalidUrl("bad URL".to_string()),
         });
         assert_eq!(error.code(), ErrorCode::InvalidArguments);
-        let error = EntityDeleteCommandError::Delete(entity_delete::DeleteError::Backup(
+        let error = EntityDeleteCommandError::Delete(entity::delete::DeleteError::Backup(
             "backup failed".to_string(),
         ));
         assert_eq!(error.code(), ErrorCode::IoError);

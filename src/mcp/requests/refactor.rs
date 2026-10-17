@@ -367,7 +367,7 @@ pub(crate) enum EntityNewKind {
     Theme,
 }
 
-impl From<EntityNewKind> for crate::core::entity_new::Kind {
+impl From<EntityNewKind> for crate::core::entity::new::Kind {
     fn from(value: EntityNewKind) -> Self {
         match value {
             EntityNewKind::Thing => Self::Thing,

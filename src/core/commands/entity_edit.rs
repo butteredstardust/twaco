@@ -3,18 +3,18 @@
 use super::{lock_workspace, Access, Effects, Mode, Notices};
 use crate::core::codes::{Coded, ErrorCode};
 use crate::core::config::{self, Solution};
-use crate::core::{entity_edit, lock};
+use crate::core::{entity, lock};
 
 #[derive(Clone, Debug)]
 pub struct EditRequest {
-    pub request: entity_edit::Request,
+    pub request: entity::edit::Request,
     pub mode: Mode,
     pub lock_label: &'static str,
 }
 
 #[derive(Debug)]
 pub struct Outcome {
-    pub plan: entity_edit::Plan,
+    pub plan: entity::edit::Plan,
     pub applied: bool,
     pub effects: Effects,
 }
@@ -26,7 +26,7 @@ pub enum CommandError {
     #[error("{0}")]
     Config(config::ConfigError),
     #[error("{0}")]
-    Edit(entity_edit::EditError),
+    Edit(entity::edit::EditError),
 }
 
 impl Coded for CommandError {
@@ -34,7 +34,7 @@ impl Coded for CommandError {
         match self {
             Self::Lock(error) => error.code(),
             Self::Config(error) => error.code(),
-            Self::Edit(entity_edit::EditError::Unknown(_)) => ErrorCode::UnknownEntity,
+            Self::Edit(entity::edit::EditError::Unknown(_)) => ErrorCode::UnknownEntity,
             Self::Edit(_) => ErrorCode::InvalidArguments,
         }
     }
@@ -48,7 +48,7 @@ pub fn execute(
 ) -> Result<Outcome, CommandError> {
     match request.mode {
         Mode::Plan => Ok(Outcome {
-            plan: entity_edit::plan(solution, &request.request).map_err(CommandError::Edit)?,
+            plan: entity::edit::plan(solution, &request.request).map_err(CommandError::Edit)?,
             applied: false,
             effects: Effects::new(Access::Read, Access::None),
         }),
@@ -58,8 +58,8 @@ pub fn execute(
             let reloaded = Solution::load(&solution.root.join(config::CONFIG_FILE))
                 .map_err(CommandError::Config)?;
             let plan =
-                entity_edit::plan(&reloaded, &request.request).map_err(CommandError::Edit)?;
-            entity_edit::apply(&reloaded, &plan, &lock).map_err(CommandError::Edit)?;
+                entity::edit::plan(&reloaded, &request.request).map_err(CommandError::Edit)?;
+            entity::edit::apply(&reloaded, &plan, &lock).map_err(CommandError::Edit)?;
             Ok(Outcome {
                 plan,
                 applied: true,

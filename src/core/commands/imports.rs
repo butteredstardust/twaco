@@ -126,7 +126,7 @@ mod tests {
     }
 
     impl imports::Remote for Fake {
-        fn exists(&self, _: &crate::core::entity_key::EntityKey) -> Result<bool, ServerError> {
+        fn exists(&self, _: &crate::core::entity::key::EntityKey) -> Result<bool, ServerError> {
             Ok(false)
         }
 

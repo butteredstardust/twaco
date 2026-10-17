@@ -1,5 +1,5 @@
 use super::super::baseline::{Baseline, BaselineError};
-use super::super::entity_key::ServiceTarget;
+use super::super::entity::key::ServiceTarget;
 use super::super::push;
 use super::super::server::{Client, ScriptCheck, ServerError};
 use serde_json::Value;

@@ -12,7 +12,7 @@
 
 use super::baseline::{Baseline, BaselineError};
 use super::codes::{Coded, ErrorCode};
-use super::entity_key::EntityKey;
+use super::entity::key::EntityKey;
 use super::normalise::{self, NormaliseError};
 use super::server::{Client, ServerError};
 use std::fmt;

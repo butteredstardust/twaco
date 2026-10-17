@@ -6,7 +6,7 @@
 //! the whole server's, so twaco only reads them; a PASSWORD field's value is never shown.
 
 use super::codes::{Coded, ErrorCode};
-use super::entity_key::ServiceTarget;
+use super::entity::key::ServiceTarget;
 use super::server::{Client, ServerError};
 use serde_json::{json, Value};
 use std::time::Duration;

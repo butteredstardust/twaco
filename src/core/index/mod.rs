@@ -24,7 +24,7 @@ mod tests;
 
 pub use query::{Dependent, DependentOptions, Step};
 
-use super::entity_key::EntityKey;
+use super::entity::key::EntityKey;
 use petgraph::graph::{DiGraph, NodeIndex};
 use serde::Serialize;
 use std::collections::{BTreeMap, BTreeSet};

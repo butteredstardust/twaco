@@ -4,7 +4,7 @@ use super::write::{rewrite, Order};
 use super::{from_xml, Grant, Grants, KindKey};
 use crate::core::commands::{permissions as command, Mode, Notices};
 use crate::core::config::Solution;
-use crate::core::entity_carry::Kind;
+use crate::core::entity::carry::Kind;
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 

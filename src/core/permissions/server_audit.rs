@@ -10,8 +10,9 @@ use super::model::ModelEntity;
 use super::policy::Platform;
 use super::{from_json, Grant, Status};
 use crate::core::config_table;
-use crate::core::entity_carry::{self, Kind};
-use crate::core::entity_key::EntityKey;
+use crate::core::entity;
+use crate::core::entity::carry::Kind;
+use crate::core::entity::key::EntityKey;
 use crate::core::progress::{self, Progress};
 use crate::core::push;
 use crate::core::server::ServerError;
@@ -20,9 +21,9 @@ use serde_json::{json, Value};
 use std::collections::{BTreeMap, BTreeSet};
 
 /// What the server audit reads.
-pub trait Remote: entity_carry::Remote + config_table::Remote + push::Remote + Sync {}
+pub trait Remote: entity::carry::Remote + config_table::Remote + push::Remote + Sync {}
 
-impl<T: entity_carry::Remote + config_table::Remote + push::Remote + Sync + ?Sized> Remote for T {}
+impl<T: entity::carry::Remote + config_table::Remote + push::Remote + Sync + ?Sized> Remote for T {}
 
 fn finding(
     severity: Severity,
@@ -102,7 +103,7 @@ fn entities(remote: &dyn Remote, loaded: &Loaded, out: &mut Vec<Finding>, progre
 /// `&dyn Remote` as a sized type `permissions::run` can take.
 struct RemoteRef<'a>(&'a dyn Remote);
 
-impl entity_carry::Remote for RemoteRef<'_> {
+impl entity::carry::Remote for RemoteRef<'_> {
     fn exists(&self, collection: &str, name: &str) -> Result<bool, ServerError> {
         self.0.exists(collection, name)
     }
@@ -254,7 +255,7 @@ struct RemoteCall<'a>(&'a dyn Remote);
 impl config_table::Remote for RemoteCall<'_> {
     fn call(
         &self,
-        target: &crate::core::entity_key::ServiceTarget,
+        target: &crate::core::entity::key::ServiceTarget,
         service: &str,
         parameters: &Value,
     ) -> Result<Option<Value>, ServerError> {
@@ -392,7 +393,7 @@ fn platform(remote: &dyn Remote, loaded: &Loaded, out: &mut Vec<Finding>) {
 
 /// The names of a group's direct members.
 pub fn group_members(remote: &dyn Remote, group: &str) -> Result<BTreeSet<String>, String> {
-    let target = crate::core::entity_key::ServiceTarget::entity("Groups", group)
+    let target = crate::core::entity::key::ServiceTarget::entity("Groups", group)
         .map_err(|e| e.to_string())?;
     let reply = remote
         .call(&target, "GetGroupMembers", &json!({}))

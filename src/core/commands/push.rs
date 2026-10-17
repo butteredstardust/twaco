@@ -4,7 +4,7 @@ use super::{lock_workspace, Access, Effects, Mode, Notices};
 use crate::core::backup;
 use crate::core::codes::{Coded, ErrorCode};
 use crate::core::config::Solution;
-use crate::core::entity_key::{EntityKey, KeyError};
+use crate::core::entity::key::{EntityKey, KeyError};
 use crate::core::progress::{self, Progress};
 use crate::core::{lock, profile, push, workspace};
 use std::fmt;

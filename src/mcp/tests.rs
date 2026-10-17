@@ -672,7 +672,7 @@ fn refused_push_result_has_a_server_conflict_code() {
         false,
         false,
         commands::push::PushOutcome::Applied {
-            entity: crate::core::entity_key::EntityKey::new("Things", "P.T").unwrap(),
+            entity: crate::core::entity::key::EntityKey::new("Things", "P.T").unwrap(),
             result: push::Outcome::Refused(refusal.clone()),
             backup: None,
             effects: commands::Effects::new(commands::Access::Read, commands::Access::Read),
@@ -2056,7 +2056,7 @@ fn a_deploy_the_offline_gates_stop_answers_in_the_published_shape() {
 fn every_push_result_fits_the_output_schema() {
     use crate::core::commands::push::PushOutcome;
     let schema = output_schema_of("push");
-    let entity = || crate::core::entity_key::EntityKey::new("Things", "P.T").unwrap();
+    let entity = || crate::core::entity::key::EntityKey::new("Things", "P.T").unwrap();
     let effects = commands::Effects::new(commands::Access::Read, commands::Access::Read);
     let refusal = push::Refusal::Conflict {
         server: "server".to_string(),

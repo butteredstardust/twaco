@@ -6,7 +6,7 @@
 //! writes to it, so only it is a plan unless applied.
 
 use super::codes::{Coded, ErrorCode};
-use super::entity_key::{EntityKey, ServiceTarget};
+use super::entity::key::{EntityKey, ServiceTarget};
 use super::server::{Client, ServerError};
 use serde_json::{json, Value};
 use std::time::Duration;

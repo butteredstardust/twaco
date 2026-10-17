@@ -9,7 +9,7 @@ use super::policy::{Mode, Policy, PolicyError};
 use super::{differences, Change, Grants, KindKey, PermissionsError};
 use crate::core::adopt::glob_matches;
 use crate::core::config::Solution;
-use crate::core::entity_carry::Kind;
+use crate::core::entity::carry::Kind;
 use crate::core::progress::{self, Progress};
 use crate::core::workspace;
 use serde::Serialize;

@@ -9,7 +9,7 @@ pub mod cases;
 pub mod users;
 
 use super::codes::{Coded, ErrorCode};
-use super::entity_key::{EntityKey, ServiceTarget};
+use super::entity::key::{EntityKey, ServiceTarget};
 use super::profile::Profile;
 use super::server::{Client, ServerError};
 use serde_json::Value;

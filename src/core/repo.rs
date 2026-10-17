@@ -7,7 +7,7 @@
 //! question is how that tree and the server's differ.
 
 use super::codes::{Coded, ErrorCode};
-use super::entity_key::ServiceTarget;
+use super::entity::key::ServiceTarget;
 use super::lock::WorkspaceLock;
 use super::progress::{self, Progress, NONE};
 use super::server::{Client, ServerError};

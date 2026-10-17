@@ -11,7 +11,7 @@
 
 use super::catalog::{self, CatalogService};
 use super::config::Solution;
-use super::entity_key::EntityKey;
+use super::entity::key::EntityKey;
 use super::index::{Confidence, EdgeKind, Index, Unreadable};
 use super::types;
 use serde::Serialize;

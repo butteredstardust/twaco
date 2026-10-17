@@ -7,9 +7,9 @@
 //! calls from the entity and from what inherits it. Read-only and offline.
 
 use super::config::Solution;
-use super::entity_key::EntityKey;
+use super::entity::key::EntityKey;
 use super::index::{EdgeKind, Index};
-use super::mashup_describe;
+use super::mashup;
 use super::scan;
 use super::workspace::{self, WorkspaceError};
 use serde::Serialize;
@@ -169,7 +169,7 @@ pub fn run(solution: &Solution, given: &str, param: Option<&str>) -> Result<Trac
         let Some(name) = from.strip_prefix("Mashups/") else {
             continue;
         };
-        let Ok(description) = mashup_describe::describe(solution, name) else {
+        let Ok(description) = mashup::describe::describe(solution, name) else {
             continue;
         };
         let names: BTreeSet<String> = holders

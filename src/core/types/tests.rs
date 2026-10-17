@@ -1,5 +1,5 @@
 use super::super::config::Solution;
-use super::super::entity_key::ServiceTarget;
+use super::super::entity::key::ServiceTarget;
 use super::super::server::Method;
 use super::super::server::ServerError;
 use super::compiler::{

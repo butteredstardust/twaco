@@ -11,7 +11,7 @@
 //! - reaching `maxItems` truncates silently, so it is reported here.
 
 use super::codes::{Coded, ErrorCode};
-use super::entity_key::ServiceTarget;
+use super::entity::key::ServiceTarget;
 use super::server::{Client, ServerError};
 use jiff::civil::DateTime;
 use jiff::tz::TimeZone;

@@ -1,8 +1,8 @@
 //! Planning a service or service-parameter rename.
 
 use super::{
-    catalog, check, push_change, read, rename_scan, validate_spec, workspace, BTreeSet, FileKind,
-    Move, Path, Plan, RenameError, Solution, Spec, CONFIG_FILE,
+    catalog, check, push_change, read, scan, validate_spec, workspace, BTreeSet, FileKind, Move,
+    Path, Plan, RenameError, Solution, Spec, CONFIG_FILE,
 };
 
 pub(super) fn plan_service(solution: &Solution, spec: &Spec) -> Result<Plan, RenameError> {
@@ -91,12 +91,11 @@ pub(super) fn plan_service(solution: &Solution, spec: &Spec) -> Result<Plan, Ren
         .filter(|item| callers.contains(&item.info.name))
     {
         let bytes = read(&item.path)?;
-        let local = rename_scan::has_local_service(&bytes, &spec.old).map_err(|error| {
-            RenameError::Xml {
+        let local =
+            scan::has_local_service(&bytes, &spec.old).map_err(|error| RenameError::Xml {
                 path: item.path.clone(),
                 why: error.to_string(),
-            }
-        })?;
+            })?;
         if item.info.name != scope && local {
             affected.insert(item.info.name.clone());
         }
@@ -109,7 +108,7 @@ pub(super) fn plan_service(solution: &Solution, spec: &Spec) -> Result<Plan, Ren
             .iter()
             .find(|item| item.info.name == *name)
             .expect("affected entity was discovered");
-        if rename_scan::has_local_service(
+        if scan::has_local_service(
             bytes_by_name.get(name).expect("affected entity was read"),
             &spec.new,
         )
@@ -190,14 +189,14 @@ pub(super) fn plan_service(solution: &Solution, spec: &Spec) -> Result<Plan, Ren
             read(&item.path)?
         };
         let pass = if item.info.collection == "Mashups" {
-            rename_scan::scan_service_mashup(&bytes, &spec.old, &spec.new, &callers, true).map_err(
+            scan::scan_service_mashup(&bytes, &spec.old, &spec.new, &callers, true).map_err(
                 |why| RenameError::Xml {
                     path: item.path.clone(),
                     why,
                 },
             )?
         } else {
-            rename_scan::scan_service_entity(
+            scan::scan_service_entity(
                 &bytes,
                 &spec.old,
                 &spec.new,
@@ -230,7 +229,7 @@ pub(super) fn plan_service(solution: &Solution, spec: &Spec) -> Result<Plan, Ren
                     .parent()
                     .and_then(Path::file_name)
                     .is_some_and(|name| name == spec.old.as_str());
-            let pass = rename_scan::scan_service_script(
+            let pass = scan::scan_service_script(
                 &bytes,
                 &spec.old,
                 &spec.new,
@@ -253,12 +252,13 @@ pub(super) fn plan_service(solution: &Solution, spec: &Spec) -> Result<Plan, Ren
                 .is_some_and(|name| name == spec.old.as_str())
         {
             let bytes = read(&path)?;
-            let pass = rename_scan::scan_service_definition(&bytes, &spec.old, &spec.new).map_err(
-                |error| RenameError::Xml {
-                    path: path.clone(),
-                    why: error.to_string(),
-                },
-            )?;
+            let pass =
+                scan::scan_service_definition(&bytes, &spec.old, &spec.new).map_err(|error| {
+                    RenameError::Xml {
+                        path: path.clone(),
+                        why: error.to_string(),
+                    }
+                })?;
             push_change(&mut changes, path, FileKind::Sidecar, &bytes, pass);
         } else if path.file_name().is_some_and(|name| name == "content.json")
             && path
@@ -267,24 +267,21 @@ pub(super) fn plan_service(solution: &Solution, spec: &Spec) -> Result<Plan, Ren
                 .is_some_and(|name| name == "mashup")
         {
             let bytes = read(&path)?;
-            let pass =
-                rename_scan::scan_service_mashup(&bytes, &spec.old, &spec.new, &callers, false)
-                    .map_err(|why| RenameError::Io {
-                        path: path.clone(),
-                        why,
-                    })?;
+            let pass = scan::scan_service_mashup(&bytes, &spec.old, &spec.new, &callers, false)
+                .map_err(|why| RenameError::Io {
+                    path: path.clone(),
+                    why,
+                })?;
             push_change(&mut changes, path, FileKind::Mashup, &bytes, pass);
         }
     }
     let config_path = solution.root.join(CONFIG_FILE);
     let config_bytes = read(&config_path)?;
-    let config_pass =
-        rename_scan::scan_service_config(&config_bytes, &spec.old, &spec.new, &callers).map_err(
-            |why| RenameError::Io {
-                path: config_path.clone(),
-                why,
-            },
-        )?;
+    let config_pass = scan::scan_service_config(&config_bytes, &spec.old, &spec.new, &callers)
+        .map_err(|why| RenameError::Io {
+            path: config_path.clone(),
+            why,
+        })?;
     push_change(
         &mut changes,
         config_path,
@@ -394,11 +391,9 @@ pub(super) fn plan_param(solution: &Solution, spec: &Spec) -> Result<Plan, Renam
     {
         let bytes = read(&item.path)?;
         if item.info.name != scope
-            && rename_scan::has_local_service(&bytes, service_name).map_err(|error| {
-                RenameError::Xml {
-                    path: item.path.clone(),
-                    why: error.to_string(),
-                }
+            && scan::has_local_service(&bytes, service_name).map_err(|error| RenameError::Xml {
+                path: item.path.clone(),
+                why: error.to_string(),
             })?
         {
             affected.insert(item.info.name.clone());
@@ -414,20 +409,13 @@ pub(super) fn plan_param(solution: &Solution, spec: &Spec) -> Result<Plan, Renam
             read(&item.path)?
         };
         let pass = if item.info.collection == "Mashups" {
-            rename_scan::scan_param_mashup(
-                &bytes,
-                service_name,
-                &spec.old,
-                &spec.new,
-                &callers,
-                true,
-            )
-            .map_err(|why| RenameError::Xml {
-                path: item.path.clone(),
-                why,
-            })?
+            scan::scan_param_mashup(&bytes, service_name, &spec.old, &spec.new, &callers, true)
+                .map_err(|why| RenameError::Xml {
+                    path: item.path.clone(),
+                    why,
+                })?
         } else {
-            let scanned = rename_scan::scan_param_entity(
+            let scanned = scan::scan_param_entity(
                 &bytes,
                 service_name,
                 &spec.old,
@@ -473,7 +461,7 @@ pub(super) fn plan_param(solution: &Solution, spec: &Spec) -> Result<Plan, Renam
             let bytes = read(&path)?;
             if selected_service
                 && owner.is_some_and(|name| affected.contains(name))
-                && rename_scan::script_uses_identifier(&bytes, &spec.new)
+                && scan::script_uses_identifier(&bytes, &spec.new)
             {
                 // `result = value * 2` renamed from `value` to `result` would read `result = result * 2`.
                 conflicts.push(format!(
@@ -482,7 +470,7 @@ pub(super) fn plan_param(solution: &Solution, spec: &Spec) -> Result<Plan, Renam
                     owner.unwrap_or_default()
                 ));
             }
-            let pass = rename_scan::scan_param_script(
+            let pass = scan::scan_param_script(
                 &bytes,
                 service_name,
                 &spec.old,
@@ -503,12 +491,11 @@ pub(super) fn plan_param(solution: &Solution, spec: &Spec) -> Result<Plan, Renam
             && owner.is_some_and(|name| affected.contains(name))
         {
             let bytes = read(&path)?;
-            let scanned =
-                rename_scan::scan_param_definition(&bytes, service_name, &spec.old, &spec.new)
-                    .map_err(|error| RenameError::Xml {
-                        path: path.clone(),
-                        why: error.to_string(),
-                    })?;
+            let scanned = scan::scan_param_definition(&bytes, service_name, &spec.old, &spec.new)
+                .map_err(|error| RenameError::Xml {
+                path: path.clone(),
+                why: error.to_string(),
+            })?;
             push_change(&mut changes, path, FileKind::Sidecar, &bytes, scanned.pass);
         } else if path.file_name().is_some_and(|name| name == "content.json")
             && path
@@ -517,7 +504,7 @@ pub(super) fn plan_param(solution: &Solution, spec: &Spec) -> Result<Plan, Renam
                 .is_some_and(|name| name == "mashup")
         {
             let bytes = read(&path)?;
-            let pass = rename_scan::scan_param_mashup(
+            let pass = scan::scan_param_mashup(
                 &bytes,
                 service_name,
                 &spec.old,
@@ -535,7 +522,7 @@ pub(super) fn plan_param(solution: &Solution, spec: &Spec) -> Result<Plan, Renam
     let config_path = solution.root.join(CONFIG_FILE);
     let config_bytes = read(&config_path)?;
     let config =
-        rename_scan::scan_param_config(&config_bytes, service_name, &spec.old, &spec.new, &callers)
+        scan::scan_param_config(&config_bytes, service_name, &spec.old, &spec.new, &callers)
             .map_err(|why| RenameError::Io {
                 path: config_path.clone(),
                 why,

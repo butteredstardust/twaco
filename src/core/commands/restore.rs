@@ -113,7 +113,7 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::core::entity_key::EntityKey;
+    use crate::core::entity::key::EntityKey;
     use crate::core::server::ServerError;
     use std::cell::RefCell;
     use std::collections::BTreeMap;

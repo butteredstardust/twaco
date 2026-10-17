@@ -1,7 +1,7 @@
 //! The small live-server surface used by localization operations.
 
 use super::{Header, Token};
-use crate::core::entity_key::{EntityKey, ServiceTarget};
+use crate::core::entity::key::{EntityKey, ServiceTarget};
 use crate::core::imports;
 use crate::core::server::{Client, ServerError};
 use serde_json::{json, Value};

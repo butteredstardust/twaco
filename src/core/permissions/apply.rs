@@ -10,7 +10,7 @@ use super::policy::Policy;
 use super::write::{self, Order};
 use super::{differences, Change, Grants, KindKey};
 use crate::core::config::Solution;
-use crate::core::entity_carry::Kind;
+use crate::core::entity::carry::Kind;
 use crate::core::progress::{self, Progress};
 use serde::Serialize;
 use std::collections::BTreeMap;

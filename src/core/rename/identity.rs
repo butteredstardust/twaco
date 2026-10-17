@@ -2,8 +2,8 @@
 
 use super::{
     catalog, check, plan_field, plan_param, plan_property, plan_service, plan_table, push_change,
-    read, refs, refuse_collisions, rename_scan, repo, scan_text_file, validate_spec, workspace,
-    BTreeSet, FileChange, FileKind, Kind, Move, Path, PathBuf, Plan, RenameError, Solution, Spec,
+    read, refs, refuse_collisions, repo, scan, scan_text_file, validate_spec, workspace, BTreeSet,
+    FileChange, FileKind, Kind, Move, Path, PathBuf, Plan, RenameError, Solution, Spec,
     CONFIG_FILE,
 };
 
@@ -118,7 +118,7 @@ pub(super) fn plan_identity(solution: &Solution, spec: &Spec) -> Result<Plan, Re
     let mut changes = Vec::new();
     for entity in &discovery.entities {
         let bytes = read(&entity.path)?;
-        let pass = rename_scan::scan_xml(&bytes, &spec.old, mode, &spec.new).map_err(|error| {
+        let pass = scan::scan_xml(&bytes, &spec.old, mode, &spec.new).map_err(|error| {
             RenameError::Xml {
                 path: entity.path.clone(),
                 why: error.to_string(),
@@ -282,8 +282,8 @@ fn qualified_names(
     solution: &Solution,
     discovery: &workspace::Discovery,
     spec: &Spec,
-) -> rename_scan::Qualified {
-    let mut qualified = rename_scan::Qualified {
+) -> scan::Qualified {
+    let mut qualified = scan::Qualified {
         entities: discovery
             .entities
             .iter()
@@ -352,10 +352,9 @@ fn scan_token_names(
     if spec.kind != Kind::Prefix {
         return Ok(true);
     }
-    let mut pass = rename_scan::XmlPass::new_for(&bytes);
+    let mut pass = scan::XmlPass::new_for(&bytes);
     for cell in cells {
-        let Ok(found) =
-            rename_scan::scan_text_with(cell.of(&bytes), &spec.old, mode, &spec.new, None)
+        let Ok(found) = scan::scan_text_with(cell.of(&bytes), &spec.old, mode, &spec.new, None)
         else {
             continue;
         };

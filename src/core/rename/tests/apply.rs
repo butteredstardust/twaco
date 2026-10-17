@@ -141,8 +141,7 @@ fn applied_plan_is_idempotently_unknown_and_leaves_no_applicable_old_hit() {
             continue;
         }
         let bytes = std::fs::read(&path).unwrap();
-        let Ok(pass) = rename_scan::scan_text(&bytes, "Acme.App", refs::Mode::Prefix, "unused")
-        else {
+        let Ok(pass) = scan::scan_text(&bytes, "Acme.App", refs::Mode::Prefix, "unused") else {
             continue;
         };
         assert!(

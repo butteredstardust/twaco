@@ -12,7 +12,7 @@
 //! never assumed, and a multi-row table without one is refused rather than guessed at.
 
 use super::codes::{Coded, ErrorCode};
-use super::entity_key::ServiceTarget;
+use super::entity::key::ServiceTarget;
 use super::scan::{self, Kind, Token};
 use super::server::{Client, ServerError};
 use super::sidecar;

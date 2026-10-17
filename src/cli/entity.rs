@@ -6,7 +6,7 @@ use std::io::Write;
 use std::path::PathBuf;
 use twaco::core::commands::{self, Mode};
 use twaco::core::config::Solution;
-use twaco::core::{backup, entity_carry, entity_delete, profile, push, server, status, workspace};
+use twaco::core::{backup, entity, profile, push, server, status, workspace};
 
 /// `twaco entity <command>`.
 #[derive(Debug, clap::Subcommand)]
@@ -54,8 +54,8 @@ pub(crate) fn entity_get(solution: &Solution, args: &EntityGet) -> u8 {
         );
         return FAILED;
     }
-    use twaco::core::entity_get;
-    let key = match entity_get::target(solution, &args.operands[0]) {
+    use twaco::core::entity;
+    let key = match entity::get::target(solution, &args.operands[0]) {
         Ok(key) => key,
         Err(error) => {
             eprintln!("{} {error}", style::prefix());
@@ -85,7 +85,7 @@ pub(crate) fn entity_get(solution: &Solution, args: &EntityGet) -> u8 {
             return FAILED;
         }
     };
-    let live = match entity_get::fetch(&server::Client::new(profile), &key) {
+    let live = match entity::get::fetch(&server::Client::new(profile), &key) {
         Ok(bytes) => bytes,
         Err(error) => {
             eprintln!("{} {error}", style::prefix());
@@ -383,7 +383,7 @@ pub(crate) struct EntityDelete {
 /// even when it reports guarded refusals; an apply reports any refusal or failed confirmation as
 /// exit 2 after attempting the rest.
 pub(crate) fn entity_delete_cmd(solution: &Solution, args: &EntityDelete) -> u8 {
-    let (acknowledged, force_used) = entity_delete::Acknowledged {
+    let (acknowledged, force_used) = entity::delete::Acknowledged {
         repository_defined: args.allow_repository_defined,
         outside_dependents: args.allow_outside_dependents,
         file_repository_data_loss: args.allow_file_repository_data_loss,
@@ -476,7 +476,7 @@ pub(crate) fn entity_delete_cmd(solution: &Solution, args: &EntityDelete) -> u8 
 }
 
 pub(crate) fn entity_delete_force_deprecation() -> &'static str {
-    entity_delete::FORCE_DEPRECATION
+    entity::delete::FORCE_DEPRECATION
 }
 
 /// `twaco entity restore [<set> [<entity>...]]`.
@@ -599,7 +599,7 @@ pub(crate) struct EntityCarry {
 /// writes what differs and reports any failure as exit 2 after attempting the rest. Only an apply
 /// that reads the ledger's pending entries writes the workspace, and so takes its lock.
 pub(crate) fn entity_carry_cmd(solution: &Solution, args: &EntityCarry) -> u8 {
-    let pairs = match entity_carry::pairs_from_names(&args.operands) {
+    let pairs = match entity::carry::pairs_from_names(&args.operands) {
         Ok(pairs) => pairs,
         Err(error) => {
             eprintln!("{} {error}", style::prefix());
@@ -671,7 +671,7 @@ pub(crate) fn entity_carry_cmd(solution: &Solution, args: &EntityCarry) -> u8 {
     if report
         .entities
         .iter()
-        .any(|entity| entity.status == entity_carry::Status::Failed)
+        .any(|entity| entity.status == entity::carry::Status::Failed)
         && apply
     {
         FAILED

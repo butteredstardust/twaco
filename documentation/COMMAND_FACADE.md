@@ -12,7 +12,7 @@ implementations.
 - **A request**: a plain struct of what a caller can say (names, flags, a profile name, a
   `Mode`). No `Args`, no `serde_json::Value`, no output formatting.
 - **An outcome**: a typed result that reuses the domain's own types (`push::Decision`,
-  `entity_delete::Report`, ...). A plan and an applied result are different variants. Each
+  `entity::delete::Report`, ...). A plan and an applied result are different variants. Each
   carries accurate `Effects` (workspace and server access: none, read, write). A partial failure
   that the domain already reports row by row (a delete that failed for one entity) is an
   outcome, not an error.

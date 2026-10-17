@@ -91,7 +91,7 @@ fn attribute<'a>(element: &'a Element, name: &str) -> &'a str {
 fn collect(element: &Element, model: &mut ModelEntity) {
     for child in elements(element) {
         let name = child.name.as_slice();
-        if crate::core::entity_carry::Kind::of_element(name).is_some()
+        if crate::core::entity::carry::Kind::of_element(name).is_some()
             || name == b"ConfigurationTables"
         {
             continue;

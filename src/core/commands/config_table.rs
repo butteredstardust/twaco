@@ -167,7 +167,7 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::core::entity_key::ServiceTarget;
+    use crate::core::entity::key::ServiceTarget;
     use crate::core::server::ServerError;
     use serde_json::{json, Value};
     use std::cell::RefCell;

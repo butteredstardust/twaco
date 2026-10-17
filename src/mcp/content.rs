@@ -546,7 +546,7 @@ pub(crate) fn import_tool(
             let command::ImportOutcome::File { plan, .. } = outcome else {
                 unreachable!()
             };
-            let names = |list: &[crate::core::entity_key::EntityKey]| {
+            let names = |list: &[crate::core::entity::key::EntityKey]| {
                 list.iter().map(ToString::to_string).collect::<Vec<_>>()
             };
             let mut result = json!({
@@ -682,11 +682,11 @@ pub(crate) fn entity_get_tool(
     solution: &Solution,
     arguments: tool::EntityGetRequest,
 ) -> Result<Value, ToolError> {
-    use crate::core::entity_get;
+    use crate::core::entity::get;
     let entity = nonempty(&arguments.entity, "entity")?;
-    let key = entity_get::target(solution, entity).map_err(ToolError::coded)?;
+    let key = get::target(solution, entity).map_err(ToolError::coded)?;
     let client = client(solution, &arguments.profile)?;
-    let bytes = entity_get::fetch(&client, &key).map_err(ToolError::coded)?;
+    let bytes = get::fetch(&client, &key).map_err(ToolError::coded)?;
     let text = String::from_utf8_lossy(&bytes);
     let max = usize::try_from(arguments.max_chars).unwrap_or(usize::MAX);
     let total = text.chars().count();

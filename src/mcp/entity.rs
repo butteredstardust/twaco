@@ -5,8 +5,8 @@ use super::requests::entity::{
     PushRequest, StatusRequest,
 };
 use super::{
-    add_notices, backup, commands, entity_carry, entity_delete, json, outcome_key, push, server,
-    status, Coded, ErrorCode, Map, Mode, Progress, Solution, ToolError, Value,
+    add_notices, backup, carry, commands, delete, json, outcome_key, push, server, status, Coded,
+    ErrorCode, Map, Mode, Progress, Solution, ToolError, Value,
 };
 
 pub(crate) fn status_tool(
@@ -218,7 +218,7 @@ pub(crate) fn entity_delete_tool(
     request: EntityDeleteRequest,
 ) -> Result<Value, ToolError> {
     let dry_run = request.dry_run;
-    let (acknowledged, force_used) = entity_delete::Acknowledged {
+    let (acknowledged, force_used) = delete::Acknowledged {
         repository_defined: request.allow_repository_defined,
         outside_dependents: request.allow_outside_dependents,
         file_repository_data_loss: request.allow_file_repository_data_loss,
@@ -265,7 +265,7 @@ pub(crate) fn entity_delete_tool(
         result["ledger_marked"] = json!(date.expect("an applied delete outcome has a date"));
     }
     if force_used {
-        result["deprecated"] = json!(entity_delete::FORCE_DEPRECATION);
+        result["deprecated"] = json!(delete::FORCE_DEPRECATION);
     }
     add_notices(&mut result, &notices);
     Ok(result)
@@ -315,7 +315,7 @@ pub(crate) fn entity_carry_tool(
     request: EntityCarryRequest,
 ) -> Result<Value, ToolError> {
     let dry_run = request.dry_run;
-    let pairs = entity_carry::pairs_from_names(request.pairs.items()).map_err(ToolError::coded)?;
+    let pairs = carry::pairs_from_names(request.pairs.items()).map_err(ToolError::coded)?;
     let request = commands::carry::CarryRequest {
         pairs,
         renamed: request.renamed,
@@ -335,7 +335,7 @@ pub(crate) fn entity_carry_tool(
         && report
             .entities
             .iter()
-            .any(|entity| entity.status == entity_carry::Status::Failed);
+            .any(|entity| entity.status == carry::Status::Failed);
     let mut result = json!({ "ok": !failed, "entities": report.entities });
     result[outcome_key(dry_run)] = json!(true);
     if report.ledger_changed {

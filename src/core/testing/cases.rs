@@ -18,7 +18,7 @@
 
 use super::{Remote, TestError};
 use crate::core::config::Solution;
-use crate::core::entity_key::ServiceTarget;
+use crate::core::entity::key::ServiceTarget;
 use serde::Deserialize;
 use serde_json::{Map, Value};
 use std::path::{Path, PathBuf};
@@ -345,7 +345,7 @@ fn same(actual: &Value, expected: &Value) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::core::entity_key::EntityKey;
+    use crate::core::entity::key::EntityKey;
     use crate::core::server::{Method, ServerError};
     use serde_json::json;
 

@@ -11,7 +11,7 @@
 
 use super::codes::{Coded, ErrorCode};
 use super::config::Solution;
-use super::entity_key::{EntityKey, ServiceTarget};
+use super::entity::key::{EntityKey, ServiceTarget};
 use super::server::{Client, ServerError};
 use serde::Serialize;
 use serde_json::{json, Map, Value};

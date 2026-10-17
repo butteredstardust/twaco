@@ -7,7 +7,7 @@
 //! credentials are never carried to a host the server names.
 
 use super::codes::{Coded, ErrorCode};
-use super::entity_key::{EntityKey, ServiceTarget};
+use super::entity::key::{EntityKey, ServiceTarget};
 use super::profile::{Profile, Secret};
 use super::scan;
 use serde::Deserialize;
@@ -1645,7 +1645,7 @@ Content-Type: text/xml\r\n\
             "Things/X/Y",
             "Things/.",
         ] {
-            let error: ServerError = super::super::entity_key::ServiceTarget::parse(bad)
+            let error: ServerError = super::super::entity::key::ServiceTarget::parse(bad)
                 .unwrap_err()
                 .into();
             assert!(
@@ -1659,15 +1659,15 @@ Content-Type: text/xml\r\n\
     fn service_calls_keep_their_existing_urls_for_typed_targets() {
         for (target, expected) in [
             (
-                super::super::entity_key::ServiceTarget::parse("A Thing").unwrap(),
+                super::super::entity::key::ServiceTarget::parse("A Thing").unwrap(),
                 "/Thingworx/Things/A%20Thing/Services/S%20name",
             ),
             (
-                super::super::entity_key::ServiceTarget::entity("Widgets", "%#?é").unwrap(),
+                super::super::entity::key::ServiceTarget::entity("Widgets", "%#?é").unwrap(),
                 "/Thingworx/Widgets/%25%23%3F%C3%A9/Services/S%20name",
             ),
             (
-                super::super::entity_key::ServiceTarget::platform(
+                super::super::entity::key::ServiceTarget::platform(
                     "Resources",
                     "SourceControlFunctions",
                 ),

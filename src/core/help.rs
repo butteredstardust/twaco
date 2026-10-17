@@ -262,7 +262,7 @@ pub fn choose_version(
 pub fn server_version(client: &super::server::Client) -> Result<String, String> {
     let reply = client
         .call_service(
-            &super::entity_key::ServiceTarget::platform("Subsystems", "PlatformSubsystem"),
+            &super::entity::key::ServiceTarget::platform("Subsystems", "PlatformSubsystem"),
             "GetPlatformStats",
             &serde_json::json!({}),
             Duration::from_secs(20),

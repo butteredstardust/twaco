@@ -7,8 +7,8 @@
 
 use super::codes::{Coded, ErrorCode};
 use super::config::{Project, Solution};
+use super::entity::key::ServiceTarget;
 use super::entity::{self, EntityInfo};
-use super::entity_key::ServiceTarget;
 use super::sidecar::ServiceSidecar;
 use std::collections::BTreeMap;
 use std::fmt;

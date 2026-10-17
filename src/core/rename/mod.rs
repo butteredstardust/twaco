@@ -10,8 +10,7 @@ use super::config::{Solution, CONFIG_FILE};
 use super::ledger::{self, Ledger, LedgerError};
 use super::lock::WorkspaceLock;
 use super::{
-    catalog, check, datashape, datatable, dbinfo, entity, refs, rename_property, rename_scan,
-    rename_sql, repo, splice, types, workspace,
+    catalog, check, datashape, datatable, dbinfo, entity, refs, repo, splice, types, workspace,
 };
 use sha2::{Digest, Sha256};
 use std::collections::BTreeSet;
@@ -77,7 +76,7 @@ pub struct FileChange {
     /// SHA-256 of the bytes whose offsets the edits refer to.
     pub digest: [u8; 32],
     pub edits: Vec<splice::Edit>,
-    pub findings: Vec<rename_scan::Finding>,
+    pub findings: Vec<scan::Finding>,
 }
 
 impl Kind {
@@ -580,7 +579,10 @@ mod common;
 mod field;
 mod identity;
 mod member;
+pub mod property;
 mod run;
+pub mod scan;
+pub mod sql;
 mod table;
 impl Coded for RenameError {
     fn code(&self) -> ErrorCode {

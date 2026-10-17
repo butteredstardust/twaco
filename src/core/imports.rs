@@ -8,7 +8,7 @@
 //! differs. Both are plans unless applied.
 
 use super::codes::{Coded, ErrorCode};
-use super::entity_key::{EntityKey, ServiceTarget};
+use super::entity::key::{EntityKey, ServiceTarget};
 use super::progress::{self, Progress, NONE};
 use super::server::{Client, ServerError};
 use serde_json::{json, Value};

@@ -15,7 +15,7 @@ use super::codes::{Coded, ErrorCode};
 use super::config::Solution;
 use super::deploy;
 use super::entity;
-use super::entity_key::EntityKey;
+use super::entity::key::EntityKey;
 use super::push::{self, Decision, Refusal};
 use super::server::{Client, ServerError};
 use super::workspace;

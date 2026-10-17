@@ -6,7 +6,7 @@ use crate::core::baseline::{self, Baseline};
 use crate::core::codes::{Coded, ErrorCode};
 use crate::core::config::Solution;
 use crate::core::progress::{self, Progress};
-use crate::core::{entity_carry, lock, permissions, profile, push, status, transaction, workspace};
+use crate::core::{entity, lock, permissions, profile, push, status, transaction, workspace};
 use std::fmt;
 
 /// The arguments that affect a permissions diff or push.
@@ -34,9 +34,9 @@ impl PermissionsOutcome {
 }
 
 /// A remote that can read and write permissions and export entities.
-pub trait Remote: entity_carry::Remote + push::Remote + Sync {}
+pub trait Remote: entity::carry::Remote + push::Remote + Sync {}
 
-impl<T: entity_carry::Remote + push::Remote + Sync + ?Sized> Remote for T {}
+impl<T: entity::carry::Remote + push::Remote + Sync + ?Sized> Remote for T {}
 
 #[derive(Debug)]
 pub enum PermissionsCommandError {

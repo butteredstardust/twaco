@@ -2,7 +2,7 @@
 
 use super::inherit::{implements_shape, inheritance_chain, Inherits};
 use super::{Confidence, Edge, EdgeKind, Index};
-use crate::core::entity_key::EntityKey;
+use crate::core::entity::key::EntityKey;
 use crate::core::workspace::WorkspaceError;
 use petgraph::graph::NodeIndex;
 use petgraph::visit::{EdgeFiltered, EdgeRef};

@@ -6,7 +6,7 @@
 //! follows, ordered by the caller's rank (a role's position in the policy, a helper row's).
 
 use super::{elements, from_xml, Grant, Grants, KindKey, PermissionsError, RUN_TIME_ACTIONS};
-use crate::core::entity_carry::Kind;
+use crate::core::entity::carry::Kind;
 use crate::core::normalise::{self, Element};
 use crate::core::scan;
 use crate::core::splice::{self, Edit};

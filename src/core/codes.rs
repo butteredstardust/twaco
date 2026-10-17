@@ -121,7 +121,7 @@ mod tests {
             ErrorCode::UnknownEntity
         );
         assert_eq!(
-            super::super::entity_key::EntityKey::parse("bad")
+            super::super::entity::key::EntityKey::parse("bad")
                 .unwrap_err()
                 .code(),
             ErrorCode::InvalidArguments
@@ -565,7 +565,7 @@ mod tests {
 
     #[test]
     fn delete_error() {
-        use crate::core::entity_delete::DeleteError;
+        use crate::core::entity::delete::DeleteError;
         is(
             DeleteError::Remote {
                 entity: text(),
@@ -600,7 +600,7 @@ mod tests {
 
     #[test]
     fn carry_error() {
-        use crate::core::entity_carry::CarryError;
+        use crate::core::entity::carry::CarryError;
         is(CarryError::Ledger { why: text() }, ErrorCode::InvalidData);
         is(
             CarryError::Arguments { why: text() },
@@ -745,7 +745,7 @@ mod tests {
 
     #[test]
     fn key_error() {
-        use crate::core::entity_key::EntityKey;
+        use crate::core::entity::key::EntityKey;
         is(
             EntityKey::parse("bad").unwrap_err(),
             ErrorCode::InvalidArguments,
@@ -991,13 +991,13 @@ mod tests {
 
     #[test]
     fn search_and_entity_get_errors() {
-        use crate::core::entity_get::GetError;
+        use crate::core::entity::get::GetError;
         use crate::core::search::SearchError;
         is(SearchError::Invalid(text()), ErrorCode::InvalidArguments);
         is(SearchError::Reply(text()), ErrorCode::InvalidData);
         is(GetError::Invalid(text()), ErrorCode::InvalidArguments);
         is(
-            GetError::NotOnServer(crate::core::entity_key::EntityKey::new("Things", "T").unwrap()),
+            GetError::NotOnServer(crate::core::entity::key::EntityKey::new("Things", "T").unwrap()),
             ErrorCode::UnknownEntity,
         );
     }

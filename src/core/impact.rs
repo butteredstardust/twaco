@@ -8,7 +8,7 @@
 
 use super::codes::{Coded, ErrorCode};
 use super::config::Solution;
-use super::entity_key::EntityKey;
+use super::entity::key::EntityKey;
 use super::index::{Confidence, Dependent, DependentOptions, Index, Unreadable};
 use super::workspace::WorkspaceError;
 use serde::Serialize;

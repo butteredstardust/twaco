@@ -4,7 +4,7 @@
 //! what "in sync" means.
 
 use super::baseline::Baseline;
-use super::entity_key::EntityKey;
+use super::entity::key::EntityKey;
 use super::normalise;
 use super::parallel;
 use super::progress::{self, Progress, NONE};

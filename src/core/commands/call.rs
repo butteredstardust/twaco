@@ -3,7 +3,7 @@
 use super::{Access, Effects, Mode, Notices};
 use crate::core::codes::{Coded, ErrorCode};
 use crate::core::config::Solution;
-use crate::core::entity_key::ServiceTarget;
+use crate::core::entity::key::ServiceTarget;
 use crate::core::{logs, profile, server, workspace};
 use serde_json::Value;
 use std::fmt;

@@ -16,7 +16,7 @@ use super::audit::{run_time_kind, Loaded};
 use super::model::ModelEntity;
 use super::policy::Policy;
 use super::{elements, Grant, Grants, KindKey, PermissionsError};
-use crate::core::entity_carry::Kind;
+use crate::core::entity::carry::Kind;
 use crate::core::normalise::{self, Element, Node};
 use crate::core::scan;
 use crate::core::splice::{self, Edit};

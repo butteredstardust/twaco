@@ -15,7 +15,7 @@ use super::model::ModelEntity;
 use super::policy::{self, Policy};
 use super::{Grant, Grants, KindKey, PermissionsError};
 use crate::core::config::Solution;
-use crate::core::entity_carry::Kind;
+use crate::core::entity::carry::Kind;
 use crate::core::normalise;
 use crate::core::workspace;
 use serde::Serialize;

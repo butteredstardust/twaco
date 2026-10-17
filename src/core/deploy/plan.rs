@@ -1,5 +1,5 @@
 use super::super::baseline::Baseline;
-use super::super::entity_key::EntityKey;
+use super::super::entity::key::EntityKey;
 use super::super::normalise;
 use super::super::parallel;
 use super::super::progress::{Progress, NONE};
