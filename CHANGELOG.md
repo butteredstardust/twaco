@@ -40,6 +40,18 @@ All notable changes to twaco are recorded here. The format follows
   `action must be add, set or remove`. `users` given anything after its action now gets clap's
   `unexpected argument` refusal. A missing action keeps its message.
 
+### Fixed
+
+- A failed MCP tool call no longer puts its `{error, code}` object in `structuredContent`, where
+  it broke the tool's published `outputSchema`; the error stays in the text block.
+- The warning for a profile file other users can read now shows on stderr, once per run, without
+  `--log`; before, it reached only the logs.
+- A server read that timed out is no longer sent a second time, which doubled the wait; only a
+  read whose connection failed or dropped is retried.
+- `TWACO_MCP_TOOLS` set to an empty value serves every tool group instead of refusing to start.
+- The MCP server answers a tool call that fails with an internal error instead of leaving the
+  client waiting, and a call that reuses a finished call's id can still be cancelled.
+
 ## [0.1.18] - 2026-10-17
 
 ## [0.1.17] - 2026-10-17

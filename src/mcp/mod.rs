@@ -141,10 +141,22 @@ pub fn serve_tools(
         let (queue, calls) = std::sync::mpsc::channel::<Call>();
         let worker = scope.spawn(|| -> std::io::Result<()> {
             for call in calls {
-                if let Some(response) = run_call(root, selection, &call, sink) {
+                // A panic in a tool answers its call rather than leaving the client waiting on a
+                // response that never comes; the server goes on to the next call.
+                let ran = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                    run_call(root, selection, &call, sink)
+                }));
+                let response = ran.unwrap_or_else(|_| {
+                    Some(error_response(
+                        call.id.clone(),
+                        -32603,
+                        "twaco failed inside this tool; see its stderr",
+                    ))
+                });
+                if let Some(response) = response {
                     write_line(sink, &response)?;
                 }
-                pending.finish(&call.id);
+                pending.finish(&call.id, &call.cancelled);
             }
             Ok(())
         });
@@ -259,8 +271,13 @@ impl Pending {
         }
     }
 
-    fn finish(&self, id: &Value) {
-        self.calls().remove(&id.to_string());
+    /// Forget the finished call. A later call that reused its id keeps its own entry.
+    fn finish(&self, id: &Value, flag: &Arc<AtomicBool>) {
+        let mut calls = self.calls();
+        let key = id.to_string();
+        if calls.get(&key).is_some_and(|held| Arc::ptr_eq(held, flag)) {
+            calls.remove(&key);
+        }
     }
 }
 
@@ -470,7 +487,8 @@ impl ToolError {
 }
 
 /// A tool's JSON as MCP content. `structuredContent` exists from 2025-06-18; the text block
-/// carries the same JSON for clients that predate it.
+/// carries the same JSON for clients that predate it. A failure has only the text block: its
+/// `{error, code}` object does not match the tool's `outputSchema`, which clients may enforce.
 pub(crate) fn tool_result(outcome: Result<Value, ToolError>, protocol: Protocol) -> Value {
     let (value, is_error) = match outcome {
         Ok(value) => (value, false),
@@ -483,7 +501,7 @@ pub(crate) fn tool_result(outcome: Result<Value, ToolError>, protocol: Protocol)
         "content": [{ "type": "text", "text": serde_json::to_string(&value).expect("JSON values serialise") }],
         "isError": is_error,
     });
-    if protocol.has_structured_output() {
+    if protocol.has_structured_output() && !is_error {
         result["structuredContent"] = value;
     }
     result

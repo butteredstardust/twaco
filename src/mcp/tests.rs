@@ -830,6 +830,12 @@ fn protocol_revisions_round_trip_and_sort_by_date() {
     assert!(old.get("structuredContent").is_none());
     let new = tool_result(Ok(json!({"ok": true})), Protocol::V2025_06_18);
     assert_eq!(new["structuredContent"], json!({"ok": true}));
+    let failed = tool_result(
+        Err(ToolError::with(ErrorCode::Unclassified, "free text")),
+        Protocol::V2025_06_18,
+    );
+    assert_eq!(failed["isError"], true);
+    assert!(failed.get("structuredContent").is_none());
 }
 
 #[test]
@@ -2587,10 +2593,9 @@ fn mashup_new_plans_by_default_and_creates_the_files_when_asked() {
     // Again: the mashup exists now, and the refusal says so with its code.
     let again = call(&root, "mashup_new", apply);
     assert_eq!(again["isError"], true);
-    assert_eq!(
-        again["structuredContent"]["code"], "already_exists",
-        "{again}"
-    );
+    let refusal: Value =
+        serde_json::from_str(again["content"][0]["text"].as_str().unwrap()).unwrap();
+    assert_eq!(refusal["code"], "already_exists", "{again}");
 }
 
 #[test]
@@ -3105,4 +3110,17 @@ fn a_tool_group_lists_and_runs_only_its_tools() {
         .collect();
     assert_eq!(lines[0]["error"]["code"], -32602, "{}", lines[0]);
     assert_eq!(lines[1]["result"]["isError"], false, "{}", lines[1]);
+}
+
+#[test]
+fn a_finished_call_leaves_a_later_call_with_its_id_cancellable() {
+    let pending = super::Pending::default();
+    let id = json!(7);
+    let first = pending.start(&id);
+    let second = pending.start(&id);
+    pending.finish(&id, &first);
+    assert!(pending.cancel(&id));
+    assert!(second.load(std::sync::atomic::Ordering::SeqCst));
+    pending.finish(&id, &second);
+    assert!(!pending.cancel(&id));
 }

@@ -7,10 +7,11 @@
 //! The purpose is to show what twaco did when a command misbehaves, without changing normal
 //! output. A bad option never stops a command: [`init`] returns a warning and logs stay off.
 
+use std::collections::BTreeSet;
 use std::fs::OpenOptions;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::Mutex;
+use std::sync::{Mutex, OnceLock};
 
 use tracing_subscriber::EnvFilter;
 
@@ -24,6 +25,27 @@ static ON_STDERR: AtomicBool = AtomicBool::new(false);
 /// Tell whether logs are written to stderr. Progress bars stay off then, so the two do not mix.
 pub fn writes_to_stderr() -> bool {
     ON_STDERR.load(Ordering::Relaxed)
+}
+
+static NOTICE_SINK: OnceLock<fn(&str)> = OnceLock::new();
+static NOTICED: Mutex<BTreeSet<String>> = Mutex::new(BTreeSet::new());
+
+/// Choose where [`notice`] sends a warning the user must see whether or not logs are on. Core
+/// never prints; the front end decides how to show it. Only the first call counts.
+pub fn set_notice_sink(sink: fn(&str)) {
+    let _ = NOTICE_SINK.set(sink);
+}
+
+/// A warning for the user, such as a profile file other users can read. It is sent to the sink
+/// once per process, however often the same condition is met, and is also logged.
+pub fn notice(message: &str) {
+    tracing::warn!("{message}");
+    let first = NOTICED
+        .lock()
+        .map_or(true, |mut seen| seen.insert(message.to_string()));
+    if let (true, Some(sink)) = (first, NOTICE_SINK.get()) {
+        sink(message);
+    }
 }
 
 const LEVELS: [&str; 6] = ["error", "warn", "info", "debug", "trace", "off"];

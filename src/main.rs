@@ -59,10 +59,16 @@ const FAILED: u8 = 2;
 
 fn main() -> ExitCode {
     quiet_when_the_reader_leaves();
+    twaco::core::diagnostics::set_notice_sink(print_notice);
     let args: Vec<String> = std::env::args().skip(1).collect();
     let code = run_command(&args);
     update_notice(args.first().map(String::as_str).unwrap_or_default());
     code
+}
+
+/// A warning core raised for the user, on stderr: the MCP server's stdout is JSON-RPC.
+fn print_notice(message: &str) {
+    eprintln!("{} warning: {message}", cli::style::prefix());
 }
 
 /// After the command, a line on stderr when a newer release exists. The network is asked at
@@ -404,6 +410,13 @@ struct Mcp {
     tools: Option<String>,
 }
 
+/// The tool groups asked for: `--tools`, else `TWACO_MCP_TOOLS` unless it is blank, as client
+/// configurations often template an unused variable to an empty string.
+fn tool_groups(flag: Option<&str>, variable: Option<String>) -> Option<String> {
+    flag.map(str::to_string)
+        .or_else(|| variable.filter(|value| !value.trim().is_empty()))
+}
+
 /// `twaco mcp [--tools <groups>]`. The server finds the solution on every call rather than at
 /// start, so it starts in a directory without one and each tool says so, and an edit to
 /// twaco.toml needs no restart. The tool groups are fixed for the server's life: it tells clients
@@ -413,10 +426,10 @@ fn mcp_cmd(parsed: &Mcp) -> u8 {
         .map(PathBuf::from)
         .or_else(|| std::env::current_dir().ok())
         .unwrap_or_else(|| PathBuf::from("."));
-    let groups = parsed
-        .tools
-        .clone()
-        .or_else(|| std::env::var("TWACO_MCP_TOOLS").ok());
+    let groups = tool_groups(
+        parsed.tools.as_deref(),
+        std::env::var("TWACO_MCP_TOOLS").ok(),
+    );
     let selection = match groups.as_deref().map(twaco::mcp::Selection::parse) {
         None => twaco::mcp::Selection::ALL,
         Some(Ok(selection)) => selection,

@@ -181,12 +181,15 @@ fn home() -> Option<PathBuf> {
 /// It is a warning, not a refusal: the file may sit on a share whose modes mean nothing.
 fn warn_if_shared(path: &Path) {
     if let Some(mode) = shared_mode(path) {
-        tracing::warn!(
-            path = %path.display(),
-            mode = format_args!("{mode:o}"),
-            "profile file can be read by other users; run chmod 600 on it"
-        );
+        super::diagnostics::notice(&shared_warning(path, mode));
     }
+}
+
+fn shared_warning(path: &Path, mode: u32) -> String {
+    format!(
+        "the profile {} can be read by other users (mode {mode:o}); run chmod 600 on it",
+        path.display()
+    )
 }
 
 /// The file's permission bits when group or others may read or write it.
