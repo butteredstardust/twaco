@@ -615,7 +615,15 @@ pub use self::apply::apply;
 pub use self::identity::plan;
 pub use self::run::{db_effects, follow_up, run, DbEffects};
 #[allow(unused_imports)]
-use self::{apply::*, common::*, field::*, identity::*, member::*, run::*, table::*};
+use self::{
+    apply::*,
+    common::{push_change, read, refuse_collisions, scan_text_file, validate_spec},
+    field::plan_field,
+    identity::*,
+    member::{plan_param, plan_service},
+    run::*,
+    table::{plan_property, plan_table},
+};
 
 impl Plan {
     /// A fingerprint of everything the plan would do: the moves and, per file, the digest of the

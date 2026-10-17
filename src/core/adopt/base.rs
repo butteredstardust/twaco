@@ -143,7 +143,9 @@ pub fn record_handoff(
         created: std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap_or_default()
-            .as_millis() as u64,
+            .as_millis()
+            .try_into()
+            .unwrap_or(u64::MAX),
         files: recorded,
     };
     let json = serde_json::to_vec_pretty(&handoff).expect("handoff is serializable");

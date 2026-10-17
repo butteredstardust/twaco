@@ -164,10 +164,8 @@ pub fn sync(
                 entity,
                 &mut current,
                 &sidecars,
-                options.check,
-                options.allow_structural,
+                options,
                 solution.format.indent_cdata_payload,
-                options.relayout,
             ));
         } else if !tally.managed && options.named {
             // Under --all, no sidecars means the entity is simply not under management. Asked
@@ -205,23 +203,21 @@ pub fn sync(
 }
 
 /// Fold one entity's service sidecars into `current`. Returns whether anything changed.
-#[allow(clippy::too_many_arguments)]
 fn sync_services(
     log: &mut Log,
     entity: &super::workspace::EntityFile,
     current: &mut Vec<u8>,
     sidecars: &BTreeMap<String, super::sidecar::ServiceSidecar>,
-    check: bool,
-    allow_structural: bool,
+    options: SyncOptions,
     indent_cdata_payload: bool,
-    relayout: bool,
 ) -> Result<Option<bool>, ()> {
+    let check = options.check;
     match super::sync::sync(
         current,
         sidecars,
-        allow_structural,
+        options.allow_structural,
         indent_cdata_payload,
-        relayout,
+        options.relayout,
     ) {
         Ok((out, report)) => {
             if out == *current {

@@ -1,11 +1,15 @@
-use super::super::*;
+use super::args::Args;
 use super::style;
+use crate::{print_notices, DRIFT, FAILED, OK};
 use std::collections::BTreeMap;
 use std::path::Path;
 use twaco::core::commands::localization::{
     self as command, LocalizationAction, LocalizationOutcome, LocalizationRequest,
 };
+use twaco::core::commands::{self, Mode};
+use twaco::core::config::Solution;
 use twaco::core::localization::{self, Problem, State};
+use twaco::core::server;
 
 /// `twaco localization`: compare, synchronize, and edit localization tables.
 pub(crate) fn localization_cmd(solution: &Solution, args: &Args) -> u8 {

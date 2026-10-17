@@ -1,6 +1,9 @@
 //! What every planner shares: spec validation, collision refusal, reading and scanning files.
 
-use super::*;
+use super::{
+    refs, rename_scan, workspace, BTreeSet, Digest, FileChange, FileKind, Kind, Move, Path,
+    PathBuf, RenameError, Sha256, Spec,
+};
 
 pub(super) fn validate_spec(spec: &Spec) -> Result<(), RenameError> {
     if spec.kind.is_member() {

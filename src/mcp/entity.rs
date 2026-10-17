@@ -4,7 +4,10 @@ use super::requests::entity::{
     PermissionsAuditRequest, PermissionsInitRequest, PermissionsPushRequest, PermissionsRequest,
     PushRequest, StatusRequest,
 };
-use super::*;
+use super::{
+    add_notices, backup, commands, entity_carry, entity_delete, json, outcome_key, push, server,
+    status, Coded, ErrorCode, Map, Mode, Progress, Solution, ToolError, Value,
+};
 
 pub(crate) fn status_tool(
     solution: &Solution,
@@ -215,12 +218,12 @@ pub(crate) fn entity_delete_tool(
     request: EntityDeleteRequest,
 ) -> Result<Value, ToolError> {
     let dry_run = request.dry_run;
-    let (acknowledged, force_used) = entity_delete::acknowledged(
-        request.force,
-        request.allow_repository_defined,
-        request.allow_outside_dependents,
-        request.allow_file_repository_data_loss,
-    );
+    let (acknowledged, force_used) = entity_delete::Acknowledged {
+        repository_defined: request.allow_repository_defined,
+        outside_dependents: request.allow_outside_dependents,
+        file_repository_data_loss: request.allow_file_repository_data_loss,
+    }
+    .with_force(request.force);
     let request = commands::delete::EntityDeleteRequest {
         entities: request.entities.items().to_vec(),
         renamed: request.renamed,

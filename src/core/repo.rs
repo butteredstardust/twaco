@@ -199,11 +199,14 @@ pub fn list_with_progress(
         for row in &files {
             listing.files.push(File {
                 path: inside(text(row, "path"))?,
-                size: row.get("size").and_then(Value::as_f64).unwrap_or(0.0) as u64,
-                modified: row
-                    .get("lastModifiedDate")
-                    .and_then(Value::as_f64)
-                    .unwrap_or(0.0) as i64,
+                size: crate::core::number::saturating_u64(
+                    row.get("size").and_then(Value::as_f64).unwrap_or(0.0),
+                ),
+                modified: crate::core::number::saturating_i64(
+                    row.get("lastModifiedDate")
+                        .and_then(Value::as_f64)
+                        .unwrap_or(0.0),
+                ),
             });
         }
         progress.advance(1);
@@ -251,7 +254,9 @@ pub fn kind(
                 };
                 (
                     kind,
-                    row.get("size").and_then(Value::as_f64).unwrap_or(0.0) as u64,
+                    crate::core::number::saturating_u64(
+                        row.get("size").and_then(Value::as_f64).unwrap_or(0.0),
+                    ),
                 )
             }))
         }

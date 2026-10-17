@@ -1,5 +1,8 @@
-use super::super::*;
+use super::args::Args;
 use super::style;
+use crate::{print_notices, FAILED, OK};
+use twaco::core::commands::{self, Mode};
+use twaco::core::config::Solution;
 use twaco::core::entity_edit::{self, Action, Property, Request, StyleChange};
 
 /// The edit commands: `thing property|subscription|shape`, `timer set`, `scheduler set`,

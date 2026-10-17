@@ -6,6 +6,12 @@ All notable changes to twaco are recorded here. The format follows
 
 ## [Unreleased]
 
+### Fixed
+
+- `datatable copy` refuses a row count the server sends negative, fractional or out of range,
+  instead of reading it as 0. Close-match ranking in `javadoc` no longer wraps for names more
+  than 255 edits apart.
+
 ## [0.1.14] - 2026-10-17
 
 ### Security

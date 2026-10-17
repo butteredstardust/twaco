@@ -1,6 +1,12 @@
-use super::super::*;
+use super::args::Args;
 use super::source::print_types_refresh;
 use super::style;
+use crate::{print_notices, DRIFT, FAILED, OK};
+use std::path::Path;
+use std::path::PathBuf;
+use twaco::core::commands::{self, Mode};
+use twaco::core::config::Solution;
+use twaco::core::{adopt, newblock, relocate, rename, retemplate};
 
 /// Compare a designer's export with the solution: what it would revert, and what it would change.
 ///

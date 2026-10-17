@@ -1,6 +1,11 @@
-use super::super::*;
+use super::args::Args;
 use super::refactor::same_path;
 use super::style;
+use crate::{print_notices, DRIFT, FAILED, OK};
+use std::io::Write;
+use twaco::core::commands::{self, Mode};
+use twaco::core::config::Solution;
+use twaco::core::{backup, entity_carry, entity_delete, profile, push, server, status, workspace};
 
 /// Fetch one raw export without ever replacing a file that belongs to the solution.
 pub(crate) fn entity_get(solution: &Solution, args: &Args) -> u8 {
@@ -287,12 +292,12 @@ pub(crate) fn entity_push(solution: &Solution, args: &Args) -> u8 {
 /// even when it reports guarded refusals; an apply reports any refusal or failed confirmation as
 /// exit 2 after attempting the rest.
 pub(crate) fn entity_delete_cmd(solution: &Solution, args: &Args) -> u8 {
-    let (acknowledged, force_used) = entity_delete::acknowledged(
-        args.has("--force"),
-        args.has("--allow-repository-defined"),
-        args.has("--allow-outside-dependents"),
-        args.has("--allow-file-repository-data-loss"),
-    );
+    let (acknowledged, force_used) = entity_delete::Acknowledged {
+        repository_defined: args.has("--allow-repository-defined"),
+        outside_dependents: args.has("--allow-outside-dependents"),
+        file_repository_data_loss: args.has("--allow-file-repository-data-loss"),
+    }
+    .with_force(args.has("--force"));
     if force_used {
         eprintln!("{} {}", style::prefix(), entity_delete_force_deprecation());
     }

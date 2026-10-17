@@ -1,6 +1,9 @@
 //! Planning a service or service-parameter rename.
 
-use super::*;
+use super::{
+    catalog, check, push_change, read, rename_scan, validate_spec, workspace, BTreeSet, FileKind,
+    Move, Path, Plan, RenameError, Solution, Spec, CONFIG_FILE,
+};
 
 pub(super) fn plan_service(solution: &Solution, spec: &Spec) -> Result<Plan, RenameError> {
     validate_spec(spec)?;

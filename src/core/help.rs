@@ -337,7 +337,7 @@ impl Index {
                     .as_chunks::<2>()
                     .0
                     .iter()
-                    .map(|[page, count]| (*page as usize, *count))
+                    .map(|[page, count]| (usize::try_from(*page).unwrap_or(usize::MAX), *count))
                     .collect();
                 (word.clone(), postings)
             })
@@ -447,7 +447,12 @@ pub fn search(index: &Index, version: &str, query: &str, limit: usize) -> Found 
     let mut matching: Vec<(usize, u64)> = scores
         .into_iter()
         .filter(|(page, (seen, _))| *seen == terms.len() && *page < index.pages.len())
-        .map(|(page, (_, score))| (page, (score * 1000.0).round() as u64))
+        .map(|(page, (_, score))| {
+            (
+                page,
+                crate::core::number::saturating_u64((score * 1000.0).round()),
+            )
+        })
         .collect();
     matching.sort_by(|a, b| {
         b.1.cmp(&a.1)

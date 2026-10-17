@@ -1,5 +1,11 @@
-use super::super::*;
+use super::args::Args;
 use super::style;
+use crate::{DRIFT, FAILED, OK};
+use std::path::PathBuf;
+use std::time::Duration;
+use twaco::core::config::Solution;
+use twaco::core::index::Confidence;
+use twaco::core::{catalog, docs, impact, profile, server, unused};
 
 /// `twaco help search <words> | page <page>`: the ThingWorx Platform help center, for the
 /// server's own version unless told otherwise. Read-only; downloads go to the user's cache.

@@ -1,5 +1,8 @@
 use super::requests::info as tool;
-use super::*;
+use super::{
+    catalog, client, docs, guide, help, impact, javadoc, json, nonempty, required_text, settings,
+    unused, Confidence, ErrorCode, Path, Solution, ToolError, Value,
+};
 
 /// What resolved, what is reachable and what is missing: `twaco doctor`. Read-only.
 pub(crate) fn doctor_tool(root: &Path, arguments: tool::DoctorRequest) -> Result<Value, ToolError> {
@@ -271,7 +274,7 @@ pub(crate) fn guide_tool(root: &Path, arguments: tool::GuideRequest) -> Result<V
         })).collect::<Vec<_>>() }),
         tool::GuideAction::Search => {
             let query = required_text(&arguments.text, "text")?;
-            let limit = arguments.limit as usize;
+            let limit = usize::try_from(arguments.limit).unwrap_or(usize::MAX);
             let hits = guide::search(&topics, query, limit);
             json!({
                 "ok": true,
@@ -319,7 +322,7 @@ pub(crate) fn help_search_tool(
     )
     .map_err(ToolError::coded)?;
     let index = help::Index::parse(&String::from_utf8_lossy(&bytes)).map_err(ToolError::coded)?;
-    let limit = arguments.limit as usize;
+    let limit = usize::try_from(arguments.limit).unwrap_or(usize::MAX);
     let found = help::search(&index, &version, query, limit);
     let mut result = json!({
         "ok": true,
@@ -366,7 +369,7 @@ pub(crate) fn help_page_tool(
     .map_err(ToolError::coded)?;
     let read = help::read(&html, &version, &path, arguments.section.as_deref())
         .map_err(ToolError::coded)?;
-    let max = arguments.max_chars as usize;
+    let max = usize::try_from(arguments.max_chars).unwrap_or(usize::MAX);
     let total = read.markdown.chars().count();
     let mut result = json!({
         "ok": true,
@@ -409,7 +412,7 @@ pub(crate) fn javadoc_tool(arguments: tool::JavadocRequest) -> Result<Value, Too
                 &String::from_utf8_lossy(&members),
             )
             .map_err(|why| ToolError::with(ErrorCode::InvalidData, why))?;
-            let limit = arguments.limit as usize;
+            let limit = usize::try_from(arguments.limit).unwrap_or(usize::MAX);
             let hits = javadoc::search(&index, name, limit);
             json!({
                 "ok": true,

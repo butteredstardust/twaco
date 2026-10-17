@@ -85,7 +85,7 @@ pub fn run_time_fields(policy: &Policy) -> Vec<Field> {
     for (at, role) in policy.roles.iter().enumerate() {
         fields.push(field(
             &format!("{}Group", role.name),
-            6 + at as u32,
+            6 + u32::try_from(at).expect("a handful of roles"),
             "BOOLEAN",
         ));
     }
@@ -109,7 +109,7 @@ pub fn visibility_fields(policy: &Policy) -> Vec<Field> {
     for (at, role) in policy.roles.iter().enumerate() {
         fields.push(field(
             &format!("{}Org", role.name),
-            3 + at as u32,
+            3 + u32::try_from(at).expect("a handful of roles"),
             "BOOLEAN",
         ));
     }

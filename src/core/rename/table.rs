@@ -1,6 +1,9 @@
 //! Planning a configuration-table or property rename.
 
-use super::*;
+use super::{
+    catalog, check, push_change, read, rename_property, rename_scan, validate_spec, workspace,
+    BTreeSet, FileKind, PathBuf, Plan, RenameError, Solution, Spec,
+};
 
 pub(super) fn plan_table(solution: &Solution, spec: &Spec) -> Result<Plan, RenameError> {
     validate_spec(spec)?;
