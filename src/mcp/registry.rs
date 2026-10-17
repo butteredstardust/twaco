@@ -694,7 +694,7 @@ static TOOLS: LazyLock<Vec<Tool>> = LazyLock::new(|| {
         .with_output::<outputs::SettingsResult>(),
         solution_tool::<info_requests::CatalogRequest>(
             "catalog",
-            "The repository's offline service catalog: callable services by entity, their parameters, result, description, origin and whether code exists. Summary returns at most 50 services; detail returns all.",
+            "The repository's offline service catalog: callable services by entity, their parameters, result, description, origin and whether code exists. entity may be Entity.Service (or a service name one entity declares) for one service; body: true adds its script. Summary returns at most 50 services; detail returns all.",
             true,
             info::catalog_tool,
         )

@@ -423,8 +423,10 @@ pub(crate) const USAGE: &[Usage] = &[
     Usage {
         path: "catalog",
         group: 1,
-        text: r#"  catalog [<entity>] [--project P] [--search <text>] [--json]
-                              offline services, signatures, origins and descriptions"#,
+        text: r#"  catalog [<entity>|<Entity>.<Service>|<Service>] [--project P] [--search <text>] [--json]
+                              offline services, signatures, origins and descriptions; an
+                              Entity.Service, or a service only one entity declares, gives that one
+      --body                  with an entity or service: each service's script too"#,
     },
     Usage {
         path: "impact",

@@ -33,8 +33,10 @@ usage: twaco <command>
                               suppress one finding on the line above with
                               // @ts-ignore or // @ts-expect-error
                               [[check]] hook: command = ["twaco", "types", "--check", "--json"]
-  catalog [<entity>] [--project P] [--search <text>] [--json]
-                              offline services, signatures, origins and descriptions
+  catalog [<entity>|<Entity>.<Service>|<Service>] [--project P] [--search <text>] [--json]
+                              offline services, signatures, origins and descriptions; an
+                              Entity.Service, or a service only one entity declares, gives that one
+      --body                  with an entity or service: each service's script too
   impact <entity> [--member <name>] [--min-confidence structural|resolved|review] [--depth <n>]
                               what changing an entity, or one service/property/field of it, reaches
       --detail                list every dependent and the chain of references to each

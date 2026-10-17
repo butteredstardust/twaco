@@ -6942,12 +6942,12 @@
   },
   {
     "name": "catalog",
-    "description": "The repository's offline service catalog: callable services by entity, their parameters, result, description, origin and whether code exists. Summary returns at most 50 services; detail returns all.",
+    "description": "The repository's offline service catalog: callable services by entity, their parameters, result, description, origin and whether code exists. entity may be Entity.Service (or a service name one entity declares) for one service; body: true adds its script. Summary returns at most 50 services; detail returns all.",
     "inputSchema": {
       "additionalProperties": false,
       "properties": {
         "entity": {
-          "description": "One entity, full name or its last dotted segment.",
+          "description": "One entity, full name or its last dotted segment; or Entity.Service, or a service name only one entity declares, for that one service.",
           "type": "string"
         },
         "project": {
@@ -6960,6 +6960,11 @@
         },
         "detail": {
           "description": "Return everything instead of the summary.",
+          "type": "boolean",
+          "default": false
+        },
+        "body": {
+          "description": "Include each service's script (body). Needs entity.",
           "type": "boolean",
           "default": false
         }

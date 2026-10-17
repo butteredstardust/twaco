@@ -14,6 +14,8 @@ a service does before you call it.
 - `twaco check`: every offline gate, one exit code. Run it before and after a change.
 - `twaco entity status --all`: which entities differ between the repository and the server.
 - `twaco catalog`: every service, where it lives, its signature and what it is for.
+  `twaco catalog <Entity>.<Service> --body` (or a service name only one entity declares) gives
+  one service with its script, also when the entity inherits it; read this before grepping XML.
 - `twaco impact <entity> [--member <name>]`: what changing an entity, or one service of it, would reach, with how sure each reference is; run it before a rename, a move or a delete.
 - `twaco trace <Entity>.<Service> [--param <name>]`: how each caller uses a service, where impact says who: per mashup, what runs the call, what sets each parameter (or unbound, with its default) and where each result field goes; per script, the call, the variable and what it reads; and what the service calls. Run it before changing a service's parameters or result.
 - `twaco unused`: entities no entry point reaches (advisory); list anything used from outside the repository under `[unused] keep` in `twaco.toml`.

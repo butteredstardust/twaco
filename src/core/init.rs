@@ -267,8 +267,17 @@ Projects, in deploy order (`twaco projects`):
 - `twaco guide --search <words>`: the ThingWorx platform's verified-live quirks, the
   service-code reference, and this repository's own documents. Search it before a live import,
   a hand-written mashup binding, a configuration-table change, or a service that touches JSON.
-- `twaco catalog [<entity>]`: every service, with its signature and description, derived from
-  the entities.
+- Find before you grep: these read the repository and answer in one call what grepping XML
+  takes many.
+  - `twaco catalog <Entity>.<Service> --body`: a service's signature, where it comes from and
+    its script; `twaco catalog <entity>` lists everything an entity can call.
+  - `twaco impact <entity> --member <service>`: what depends on a service, property or field.
+  - `twaco trace <Entity>.<Service>`: how each caller uses it (what sets each parameter, where
+    each result field goes).
+  - `twaco mashup describe <mashup>`: a mashup's widgets, data calls, bindings and events,
+    without its XML.
+  - `twaco entity status <entity>` and `twaco permissions diff <entity>`: how the repository
+    and the server differ.
 - `twaco check` before reporting a change complete. Then deploy only what changed and call
   the service; the gates check structure, never behaviour.
 - A command that writes to the server only plans unless given `--apply`.
@@ -374,6 +383,21 @@ mod tests {
             proposal.toml.contains("depends_on"),
             "a multi-project solution is told about deploy order"
         );
+    }
+
+    #[test]
+    fn the_agents_file_says_what_to_run_before_grepping() {
+        let [(_, agents), _] = agent_files("Acme", &["Acme".to_string()]);
+        for command in [
+            "twaco catalog <Entity>.<Service> --body",
+            "twaco impact <entity> --member <service>",
+            "twaco trace <Entity>.<Service>",
+            "twaco mashup describe <mashup>",
+            "twaco entity status <entity>",
+            "twaco permissions diff <entity>",
+        ] {
+            assert!(agents.contains(command), "{command}");
+        }
     }
 
     #[test]

@@ -12,8 +12,13 @@ use std::collections::{BTreeMap, BTreeSet};
 #[derive(Debug, Default)]
 pub struct Query<'a> {
     pub project: Option<&'a str>,
+    /// An entity (full name or last dotted segment); when none has that name, `Entity.Service`
+    /// or a service name only one entity declares, which narrows to that service.
     pub entity: Option<&'a str>,
     pub text: Option<&'a str>,
+    /// Include each service's script. Only with `entity`: a whole solution's scripts are what
+    /// the repository is for.
+    pub body: bool,
 }
 
 #[derive(Debug, Serialize)]
@@ -52,6 +57,12 @@ pub struct CatalogService {
     pub description: String,
     pub from: String,
     pub has_script: bool,
+    /// The script, when asked for and the service has one.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub body: Option<String>,
+    /// The collection and name of the entity that declares it, where its script lives.
+    #[serde(skip)]
+    pub(crate) declared_by: (String, String),
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -139,6 +150,13 @@ pub fn build(solution: &Solution, query: Query<'_>) -> Result<Catalog, CatalogEr
         }
     }
     let (model, skipped) = types::load_model(solution);
+    if query.body && query.entity.is_none() {
+        return Err(CatalogError::Invalid(
+            "--body needs an entity or an Entity.Service: the whole solution's scripts are in \
+             the repository"
+                .to_string(),
+        ));
+    }
     let mut pool: Vec<&Entity> = model
         .entities
         .iter()
@@ -148,8 +166,18 @@ pub fn build(solution: &Solution, query: Query<'_>) -> Result<Catalog, CatalogEr
                 .is_none_or(|project| entity.project == project)
         })
         .collect();
+    let mut only_service = None;
     if let Some(name) = query.entity {
-        pool = vec![resolve(&pool, name)?];
+        match resolve(&pool, name) {
+            Ok(entity) => pool = vec![entity],
+            // No entity has that name: it may be `Entity.Service`, or a service's own name.
+            Err(CatalogError::UnknownEntity(_)) => {
+                let (entity, service) = resolve_service(&pool, &model.entities, name)?;
+                pool = vec![entity];
+                only_service = Some(service);
+            }
+            Err(other) => return Err(other),
+        }
     }
 
     let mut entities = Vec::new();
@@ -171,6 +199,14 @@ pub fn build(solution: &Solution, query: Query<'_>) -> Result<Catalog, CatalogEr
         // to an entity.
         if let Some(needle) = needle.as_deref() {
             services.retain(|service| service_matches(service, needle));
+        }
+        if let Some(only) = &only_service {
+            services.retain(|service| &service.name == only);
+        }
+        if query.body {
+            for service in &mut services {
+                service.body = script_body(solution, &service.declared_by, &service.name);
+            }
         }
         if services.is_empty() && (query.entity.is_none() || query.text.is_some()) {
             continue;
@@ -230,6 +266,105 @@ fn resolve<'a>(entities: &[&'a Entity], name: &str) -> Result<&'a Entity, Catalo
     }
 }
 
+/// `Entity.Service` (the entity as [`resolve`] finds it, then a service it can call), or a
+/// service name exactly one entity of the pool declares itself.
+fn resolve_service<'a>(
+    pool: &[&'a Entity],
+    entities: &[Entity],
+    name: &str,
+) -> Result<(&'a Entity, String), CatalogError> {
+    let declares = |entity: &Entity, service: &str| {
+        entity
+            .members
+            .iter()
+            .any(|member| matches!(member, Member::Service(own) if own.name == service))
+    };
+    if let Some((entity_name, service)) = name.rsplit_once('.') {
+        if let Ok(entity) = resolve(pool, entity_name) {
+            // A service the entity calls: its own, a shape's or a template's.
+            let mut chain = vec![entity];
+            let mut at = entity;
+            while let Some(template) = at.template.as_deref().and_then(|template| {
+                entities.iter().find(|candidate| {
+                    candidate.collection == "ThingTemplates" && candidate.name == template
+                })
+            }) {
+                if chain.iter().any(|seen| std::ptr::eq(*seen, template)) {
+                    break;
+                }
+                chain.push(template);
+                at = template;
+            }
+            let shapes = chain
+                .iter()
+                .flat_map(|item| &item.shapes)
+                .filter_map(|shape| {
+                    entities.iter().find(|candidate| {
+                        candidate.collection == "ThingShapes" && &candidate.name == shape
+                    })
+                });
+            if chain
+                .iter()
+                .copied()
+                .chain(shapes)
+                .any(|item| declares(item, service))
+            {
+                return Ok((entity, service.to_string()));
+            }
+            return Err(CatalogError::UnknownEntity(format!(
+                "{} has no service {service}; `twaco catalog {}` lists what it has",
+                entity.name, entity.name
+            )));
+        }
+    }
+    let declaring: Vec<&Entity> = pool
+        .iter()
+        .copied()
+        .filter(|entity| declares(entity, name))
+        .collect();
+    match declaring.as_slice() {
+        [] => Err(CatalogError::UnknownEntity(format!(
+            "no entity or service named {name} in this solution"
+        ))),
+        [entity] => Ok((entity, name.to_string())),
+        many => Err(CatalogError::Ambiguous(format!(
+            "{name} is declared by more than one entity; name one: {}",
+            many.iter()
+                .map(|entity| format!("{}.{name}", entity.name))
+                .collect::<Vec<_>>()
+                .join(", ")
+        ))),
+    }
+}
+
+/// A service's script: its sidecar, or the script inside the declaring entity's XML when the
+/// entity was never extracted.
+fn script_body(
+    solution: &Solution,
+    declared_by: &(String, String),
+    service: &str,
+) -> Option<String> {
+    let (collection, name) = declared_by;
+    let sidecar = solution
+        .src_root()
+        .join(name)
+        .join("services")
+        .join(service)
+        .join("script.js");
+    if let Ok(script) = std::fs::read_to_string(sidecar) {
+        return Some(script);
+    }
+    let file = super::workspace::entities(solution)
+        .into_iter()
+        .find(|file| &file.info.collection == collection && &file.info.name == name)?;
+    let src = std::fs::read(&file.path).ok()?;
+    super::sidecar::extract_services(&src)
+        .ok()?
+        .into_iter()
+        .find(|sidecar| sidecar.name == service)
+        .map(|sidecar| sidecar.script)
+}
+
 fn collection_rank(collection: &str) -> usize {
     ["Things", "ThingTemplates", "ThingShapes"]
         .iter()
@@ -246,6 +381,7 @@ fn own_services(entity: &Entity, solution: &Solution) -> Vec<CatalogService> {
                 service,
                 "own",
                 has_script(solution, entity, &service.name),
+                entity,
             )),
             Member::Property(_) => None,
         })
@@ -309,7 +445,7 @@ fn callable_services(
             } else {
                 &defined_by.name
             };
-            catalog_service(service, from, scripted)
+            catalog_service(service, from, scripted, defined_by)
         })
         .collect()
 }
@@ -450,7 +586,12 @@ fn has_script(solution: &Solution, entity: &Entity, service: &str) -> bool {
             .is_file()
 }
 
-fn catalog_service(service: &Service, from: &str, has_script: bool) -> CatalogService {
+fn catalog_service(
+    service: &Service,
+    from: &str,
+    has_script: bool,
+    declared_by: &Entity,
+) -> CatalogService {
     CatalogService {
         name: service.name.clone(),
         parameters: service
@@ -471,6 +612,8 @@ fn catalog_service(service: &Service, from: &str, has_script: bool) -> CatalogSe
         description: service.description.clone(),
         from: from.to_string(),
         has_script,
+        body: None,
+        declared_by: (declared_by.collection.clone(), declared_by.name.clone()),
     }
 }
 
@@ -629,6 +772,113 @@ mod tests {
         )
         .unwrap_err()
         .to_string()
-        .contains("no entity named Missing"));
+        .contains("no entity or service named Missing"));
+    }
+
+    fn one(solution: &Solution, entity: &str, body: bool) -> Result<Catalog, CatalogError> {
+        build(
+            solution,
+            Query {
+                entity: Some(entity),
+                body,
+                ..Query::default()
+            },
+        )
+    }
+
+    fn names(catalog: &Catalog) -> Vec<(String, String)> {
+        catalog
+            .entities
+            .iter()
+            .flat_map(|entity| {
+                entity
+                    .services
+                    .iter()
+                    .map(|service| (entity.name.clone(), service.name.clone()))
+            })
+            .collect()
+    }
+
+    #[test]
+    fn an_entity_service_or_a_service_one_entity_declares_narrows_to_it() {
+        let (_dir, _, solution) = fixture();
+        let pair = |entity: &str, service: &str| vec![(entity.to_string(), service.to_string())];
+        assert_eq!(
+            names(&one(&solution, "P.Thing.OwnService", false).unwrap()),
+            pair("P.Thing", "OwnService")
+        );
+        // A service the Thing reaches through its template and shape, by the entity's last segment.
+        assert_eq!(
+            names(&one(&solution, "Thing.ShapeService", false).unwrap()),
+            pair("P.Thing", "ShapeService")
+        );
+        // A bare name: the one entity that declares it, not every entity that can call it.
+        assert_eq!(
+            names(&one(&solution, "TemplateService", false).unwrap()),
+            pair("P.Template", "TemplateService")
+        );
+        // An entity name still means the entity.
+        assert_eq!(names(&one(&solution, "Thing", false).unwrap()).len(), 3);
+        let unknown = one(&solution, "P.Thing.Nope", false).unwrap_err();
+        assert!(
+            unknown.to_string().contains("P.Thing has no service Nope"),
+            "{unknown}"
+        );
+        assert!(matches!(
+            one(&solution, "Nope", false),
+            Err(CatalogError::UnknownEntity(_))
+        ));
+    }
+
+    #[test]
+    fn a_service_declared_twice_is_ambiguous_and_names_each() {
+        let (_dir, root, solution) = fixture();
+        std::fs::write(
+            root.join("Things/P.Other.xml"),
+            entity("Things", "Thing", "P.Other", "", "<ThingShape><ServiceDefinitions><ServiceDefinition name=\"OwnService\"><ResultType baseType=\"NUMBER\"/></ServiceDefinition></ServiceDefinitions></ThingShape>"),
+        )
+        .unwrap();
+        let error = one(&solution, "OwnService", false).unwrap_err();
+        assert!(matches!(error, CatalogError::Ambiguous(_)));
+        assert!(
+            error
+                .to_string()
+                .contains("P.Other.OwnService, P.Thing.OwnService"),
+            "{error}"
+        );
+    }
+
+    #[test]
+    fn body_reads_the_sidecar_or_the_xml_of_the_declaring_entity() {
+        let (_dir, root, solution) = fixture();
+        // No sidecar: the script inside the XML.
+        let from_xml = one(&solution, "P.Thing.OwnService", true).unwrap();
+        assert_eq!(
+            from_xml.entities[0].services[0].body.as_deref(),
+            Some("return 1;")
+        );
+        // A sidecar wins.
+        std::fs::create_dir_all(root.join("src/P.Thing/services/OwnService")).unwrap();
+        std::fs::write(
+            root.join("src/P.Thing/services/OwnService/script.js"),
+            "return 2;",
+        )
+        .unwrap();
+        let from_sidecar = one(&solution, "P.Thing.OwnService", true).unwrap();
+        assert_eq!(
+            from_sidecar.entities[0].services[0].body.as_deref(),
+            Some("return 2;")
+        );
+        // An inherited service with no script anywhere has no body.
+        let inherited = one(&solution, "P.Thing.TemplateService", true).unwrap();
+        assert_eq!(inherited.entities[0].services[0].body, None);
+        assert!(build(
+            &solution,
+            Query {
+                body: true,
+                ..Query::default()
+            }
+        )
+        .is_err());
     }
 }

@@ -52,8 +52,10 @@ help:
 |                               suppress one finding on the line above with
 |                               // @ts-ignore or // @ts-expect-error
 |                               [[check]] hook: command = ["twaco", "types", "--check", "--json"]
-|   catalog [<entity>] [--project P] [--search <text>] [--json]
-|                               offline services, signatures, origins and descriptions
+|   catalog [<entity>|<Entity>.<Service>|<Service>] [--project P] [--search <text>] [--json]
+|                               offline services, signatures, origins and descriptions; an
+|                               Entity.Service, or a service only one entity declares, gives that one
+|       --body                  with an entity or service: each service's script too
 |   impact <entity> [--member <name>] [--min-confidence structural|resolved|review] [--depth <n>]
 |                               what changing an entity, or one service/property/field of it, reaches
 |       --detail                list every dependent and the chain of references to each
@@ -1091,9 +1093,20 @@ help:
 |   --log-file <path>           append diagnostic logs to a file (or TWACO_LOG_FILE)
 
 == twaco catalog
-usage: twaco catalog [<entity>] [--project P] [--search <text>] [--json]
+usage: twaco catalog [<entity>|<Entity>.<Service>|<Service>] [--project P] [--search <text>] [--json]
 settings: disable-version-flag disable-help-subcommand
 subcommands: 
+arg --body
+    action: SetTrue
+    value_name: -
+    num_args: 0
+    allow_hyphen_values: no
+    allow_negative_numbers: no
+    required: no
+    default: "false"
+    index: -
+    other: -
+    given twice: accepted
 arg --help
     action: Help
     value_name: -
@@ -1174,8 +1187,10 @@ arg <operands>
     index: 1
     other: -
 help:
-|   catalog [<entity>] [--project P] [--search <text>] [--json]
-|                               offline services, signatures, origins and descriptions
+|   catalog [<entity>|<Entity>.<Service>|<Service>] [--project P] [--search <text>] [--json]
+|                               offline services, signatures, origins and descriptions; an
+|                               Entity.Service, or a service only one entity declares, gives that one
+|       --body                  with an entity or service: each service's script too
 | 
 |   --project <name>            narrow to one project of the solution
 |   --log <filter>              write diagnostic logs to stderr (or TWACO_LOG)

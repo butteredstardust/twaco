@@ -8,6 +8,13 @@ All notable changes to twaco are recorded here. The format follows
 
 ### Added
 
+- `twaco catalog <Entity>.<Service>` (MCP `catalog` with `entity: "Entity.Service"`) narrows the
+  catalog to one service, including one the entity inherits; a bare service name works when only
+  one entity declares it, and names the candidates when several do. `--body` (`body: true`) adds
+  each service's script, from its sidecar or, never extracted, from the declaring entity's XML.
+- The AGENTS.md that `twaco init --agents` writes lists the commands to use before grepping:
+  `catalog <Entity>.<Service> --body`, `impact --member`, `trace`, `mashup describe`, `entity
+  status` and `permissions diff`. An existing AGENTS.md is never replaced.
 - `twaco appkey create <name> --user <user>` (MCP `appkey`) creates an application key on the
   server, always with an expiration (`--expires`, default 30 days; the server's own default is one
   day), and `appkey show <name>` reads an existing one. The key is printed only with `--show`, or
