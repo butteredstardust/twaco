@@ -1105,18 +1105,19 @@ mod tests {
             }
         };
 
-        // Transport: the server hangs up without answering, both times the read is tried. The
-        // port stays held, so no other test's server can take it and answer the retry.
+        // Transport: the server hangs up without answering, however often the read is tried.
+        // The port stays held, so no other test's server can take it and answer the retry. The
+        // thread is not joined: whether the read is retried depends on how the platform reports
+        // the hang-up, so it cannot know how many connections to wait for.
         let hangs_up = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
         let address = hangs_up.local_addr().unwrap();
-        let server = std::thread::spawn(move || {
-            for _ in 0..2 {
-                drop(hangs_up.accept().unwrap());
+        std::thread::spawn(move || {
+            for stream in hangs_up.incoming() {
+                drop(stream);
             }
         });
         let client = Client::new(profile_for(format!("http://{address}/Thingworx/")));
         let error = client.fetch_entity(&key).unwrap_err();
-        server.join().unwrap();
         assert!(matches!(error, ServerError::Transport { .. }), "{error}");
         assert_clean(error);
 
