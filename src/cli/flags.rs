@@ -52,6 +52,30 @@ pub(crate) struct Project {
     pub(crate) project: Option<String>,
 }
 
+/// `--all` or the entities named: what a command works on.
+#[derive(Debug, Default, clap::Args)]
+#[group(skip)]
+pub(crate) struct Selection {
+    #[arg(long = "all")]
+    pub(crate) all: bool,
+    #[arg(id = "operands", value_name = "operand")]
+    pub(crate) operands: Vec<String>,
+}
+
+impl Selection {
+    /// `--all` with names says two things; refused before the command runs, in the builder's
+    /// words.
+    pub(crate) fn validate(&self) -> Result<(), String> {
+        if self.all && !self.operands.is_empty() {
+            return Err(format!(
+                "--all and {:?} say different things; pass one or the other",
+                self.operands
+            ));
+        }
+        Ok(())
+    }
+}
+
 /// The parser for a value that names a file (`value_parser = super::flags::path()`): any
 /// string, as the builder took it, read as a path. clap's own path parser refuses an empty value
 /// and accepts one that is not UTF-8, which the builder did the other way round.

@@ -538,14 +538,17 @@ fn values_reach_the_fields_the_commands_read() {
     assert_eq!(query.timeout, Some(Duration::from_secs(30)));
     assert!(parse(&["call", "T", "S", "--timeout", "0"]).is_err());
     assert!(parse(&["deploy", "--only-projects", " , "]).is_err());
-    assert!(parse(&["sync", "--all", "Acme.T"]).is_err());
+    assert_eq!(
+        parse_typed(&["sync", "--all", "Acme.T"]).map(|_| ()),
+        Err("--all and [\"Acme.T\"] say different things; pass one or the other".to_string())
+    );
     // A value may begin with a dash, as a log filter can.
     let grep = parse(&["logs", "ScriptLog", "--grep", "-x"]).unwrap();
     assert_eq!(grep.values.get("--grep").map(String::as_str), Some("-x"));
     // A negative number is an operand; a mistyped flag after operands is still refused.
     let call = parse(&["call", "T", "S", "-5"]).unwrap();
     assert_eq!(call.names, ["T", "S", "-5"]);
-    assert!(parse(&["sync", "Acme.T", "--cehck"]).is_err());
+    assert!(parse_typed(&["sync", "Acme.T", "--cehck"]).is_err());
     // A file named with a leading dash goes after `--`.
     let file = parse(&["db", "run", "--", "-migration.sql"]).unwrap();
     assert_eq!(file.names, ["-migration.sql"]);
@@ -1074,6 +1077,37 @@ fn projection(typed: Typed) -> Projection {
             switches(&[("--json", widgets.json.json)]),
             values(&[("--search", widgets.search)]),
         ),
+
+        Typed::Extract(extract) => (
+            extract.selection.operands,
+            switches(&[("--all", extract.selection.all)]),
+            values(&[("--project", extract.project.project)]),
+        ),
+        Typed::Sync(sync) => (
+            sync.selection.operands,
+            switches(&[
+                ("--all", sync.selection.all),
+                ("--check", sync.check),
+                ("--allow-add-remove", sync.allow_add_remove),
+                ("--relayout", sync.relayout),
+            ]),
+            values(&[("--project", sync.project.project)]),
+        ),
+        Typed::Fmt(fmt) => (Vec::new(), switches(&[("--check", fmt.check)]), Vec::new()),
+        Typed::Check(check) => (
+            Vec::new(),
+            switches(&[("--detail", check.detail.detail), ("--live", check.live)]),
+            values(&[("--profile", check.profile.profile)]),
+        ),
+        Typed::Types(types) => (
+            Vec::new(),
+            switches(&[
+                ("--platform", types.platform),
+                ("--check", types.check),
+                ("--json", types.json.json),
+            ]),
+            values(&[("--profile", types.profile.profile)]),
+        ),
     }
 }
 
@@ -1153,6 +1187,25 @@ fn derived_commands_read_what_their_grammar_rows_read() {
             &["--detail", "--json", "--out", "--force", "--check"],
         ),
         ("widgets", true, &["--search", "--json"]),
+        ("extract", true, &["--all", "--project"]),
+        (
+            "sync",
+            true,
+            &[
+                "--all",
+                "--check",
+                "--allow-add-remove",
+                "--relayout",
+                "--project",
+            ],
+        ),
+        ("fmt", false, &["--check"]),
+        ("check", false, &["--detail", "--live", "--profile"]),
+        (
+            "types",
+            false,
+            &["--platform", "--check", "--json", "--profile"],
+        ),
     ];
     let lines: &[&[&str]] = &[
         &["init"],
@@ -1268,6 +1321,27 @@ fn derived_commands_read_what_their_grammar_rows_read() {
         &["widgets"],
         &["widgets", "ptcsbutton", "--json"],
         &["widgets", "--search", "grid"],
+        &["extract"],
+        &["extract", "--all", "--project", "Acme"],
+        &["extract", "Acme.A", "Acme.B"],
+        &["extract", "--all", "Acme.A"],
+        &[
+            "sync",
+            "--all",
+            "--check",
+            "--allow-add-remove",
+            "--relayout",
+            "--check",
+        ],
+        &["sync", "Acme.A", "--project=Acme"],
+        &["sync", "Acme.A", "--all"],
+        &["fmt"],
+        &["fmt", "--check"],
+        &["check"],
+        &["check", "--detail", "--live", "--profile", "qa"],
+        &["types"],
+        &["types", "--platform", "--profile", "qa"],
+        &["types", "--check", "--json"],
     ];
     for line in lines {
         let mut all = vec!["twaco"];
@@ -1287,7 +1361,16 @@ fn derived_commands_read_what_their_grammar_rows_read() {
             .try_get_matches_from(&all)
             .unwrap_or_else(|e| panic!("{line:?}: {e}"));
         let (_, matched) = spec::matched(&old_matches);
-        let old = spec::args_from(flags, *operands, matched).unwrap();
+        let typed = Typed::from_arg_matches(&matches).unwrap();
+        // What the builder refused, validate() refuses in the same words.
+        let old = match spec::args_from(flags, *operands, matched) {
+            Ok(old) => old,
+            Err(why) => {
+                assert_eq!(typed.validate(), Err(why), "{line:?}");
+                continue;
+            }
+        };
+        assert_eq!(typed.validate(), Ok(()), "{line:?}");
         let mut old_values: Vec<(String, String)> = old
             .values
             .iter()
@@ -1305,7 +1388,7 @@ fn derived_commands_read_what_their_grammar_rows_read() {
         for param in &old.params {
             add("--param", Some(param.clone()));
         }
-        let (names, mut on, mut given) = projection(Typed::from_arg_matches(&matches).unwrap());
+        let (names, mut on, mut given) = projection(typed);
         let mut old_flags = old.flags.clone();
         old_flags.sort();
         old_values.sort();

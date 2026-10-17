@@ -28,6 +28,11 @@ pub(crate) enum Typed {
     Unused(super::info::Unused),
     Docs(super::info::Docs),
     Widgets(super::widgets::Widgets),
+    Extract(super::source::Extract),
+    Sync(super::source::Sync),
+    Fmt(super::source::Fmt),
+    Check(super::source::Check),
+    Types(super::source::Types),
 }
 
 impl Typed {
@@ -49,6 +54,11 @@ impl Typed {
             Typed::Unused(_) => "unused",
             Typed::Docs(_) => "docs",
             Typed::Widgets(_) => "widgets",
+            Typed::Extract(_) => "extract",
+            Typed::Sync(_) => "sync",
+            Typed::Fmt(_) => "fmt",
+            Typed::Check(_) => "check",
+            Typed::Types(_) => "types",
         }
     }
 
@@ -56,6 +66,8 @@ impl Typed {
     /// builder's commands refuse it in [`args_of`](super::spec::args_of) and in its words.
     pub(crate) fn validate(&self) -> Result<(), String> {
         match self {
+            Typed::Extract(extract) => extract.selection.validate(),
+            Typed::Sync(sync) => sync.selection.validate(),
             Typed::Init(_)
             | Typed::Doctor(_)
             | Typed::Projects
@@ -70,7 +82,10 @@ impl Typed {
             | Typed::Trace(_)
             | Typed::Unused(_)
             | Typed::Docs(_)
-            | Typed::Widgets(_) => Ok(()),
+            | Typed::Widgets(_)
+            | Typed::Fmt(_)
+            | Typed::Check(_)
+            | Typed::Types(_) => Ok(()),
         }
     }
 }

@@ -197,6 +197,11 @@ fn dispatch_typed(typed: Typed) -> u8 {
         Typed::Trace(trace) => run(|solution| cli::info::trace_cmd(solution, &trace)),
         Typed::Unused(unused) => run(|solution| unused_cmd(solution, &unused)),
         Typed::Docs(docs) => run(|solution| docs_cmd(solution, &docs)),
+        Typed::Types(types) => run(|solution| types_cmd(solution, &types)),
+        Typed::Extract(command) => run(|solution| extract(solution, &command)),
+        Typed::Sync(sync) => run(|solution| sync_cmd(solution, &sync)),
+        Typed::Fmt(command) => run(|solution| fmt(solution, &command)),
+        Typed::Check(command) => run(|solution| check(solution, &command)),
     }
 }
 
@@ -210,11 +215,6 @@ fn dispatch(route: &str, parsed: &Args) -> u8 {
     // Commands that change the workspace take its lock in their executor (core::commands), so
     // the lock covers exactly what they change and both front ends take it the same way.
     run(|solution| match route {
-        "types" => types_cmd(solution, parsed),
-        "extract" => extract(solution, parsed),
-        "sync" => sync_cmd(solution, parsed),
-        "fmt" => fmt(solution, parsed),
-        "check" => check(solution, parsed),
         "bundle" => bundle(solution, parsed),
         "deploy" => deploy_cmd(solution, parsed),
         "call" => call(solution, parsed),

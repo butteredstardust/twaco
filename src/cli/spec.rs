@@ -2081,37 +2081,6 @@ pub(crate) const USAGE: &[Usage] = &[
 /// is, and [`Typed`] declares the rest.
 pub(crate) const GRAMMAR: &[Grammar] = &[
     Grammar {
-        path: "extract",
-        operands: true,
-        flags: &["--all", "--project"],
-    },
-    Grammar {
-        path: "sync",
-        operands: true,
-        flags: &[
-            "--all",
-            "--check",
-            "--allow-add-remove",
-            "--relayout",
-            "--project",
-        ],
-    },
-    Grammar {
-        path: "fmt",
-        operands: false,
-        flags: &["--check"],
-    },
-    Grammar {
-        path: "check",
-        operands: false,
-        flags: &["--detail", "--live", "--profile"],
-    },
-    Grammar {
-        path: "types",
-        operands: false,
-        flags: &["--platform", "--check", "--json", "--profile"],
-    },
-    Grammar {
         path: "adopt",
         operands: true,
         flags: &[
