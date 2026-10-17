@@ -1,6 +1,7 @@
 //! Every command, once. [`USAGE`] says what each is: its path, its group and the text `twaco`
 //! with no arguments, `--help` and `documentation/COMMANDS.md` show. [`GRAMMAR`] says what each
-//! takes: its flags, and whether it takes operands. clap parses against the tree [`tree`] builds
+//! takes: its flags, and whether it takes operands, for the commands not yet in
+//! [`Typed`](super::command::Typed). clap parses against the tree [`tree`] builds
 //! (unknown flags and operands are refused, with a suggestion), and
 //! [`Args`](super::args::Args) is filled from what clap matched.
 //!
@@ -10,6 +11,7 @@
 //! in [`decorate`].
 
 use super::args::Args;
+use super::command::Typed;
 use std::time::Duration;
 
 /// What a flag takes.
@@ -126,18 +128,30 @@ pub(crate) fn arguments(flags: &[&str], operands: bool) -> Vec<clap::Arg> {
 }
 
 /// The whole command line: every command, with families as nested subcommands, in the order
-/// [`USAGE`] lists them.
+/// [`USAGE`] lists them. A command clap derives comes from [`Typed`]; the rest are built from
+/// their [`GRAMMAR`] rows.
 pub(crate) fn tree() -> clap::Command {
+    use clap::Subcommand as _;
+    let typed = Typed::augment_subcommands(clap::Command::new("typed"));
+    let derived = |word: &str| typed.find_subcommand(word).cloned();
     let mut root = clap::Command::new("twaco");
     // A family (`entity`, `rename`...) is a command of its own whose commands are the words
     // after it; it is listed where its first command is.
     let mut families: Vec<&'static str> = Vec::new();
     for command in USAGE {
         match command.path.split_once(' ') {
-            None => root = root.subcommand(builder(command.path, command.path)),
+            None => {
+                let built =
+                    derived(command.path).unwrap_or_else(|| builder(command.path, command.path));
+                root = root.subcommand(built);
+            }
             Some((family, _)) if !families.contains(&family) => {
                 let family: &'static str = &command.path[..family.len()];
                 families.push(family);
+                if let Some(built) = derived(family) {
+                    root = root.subcommand(built);
+                    continue;
+                }
                 let mut built = clap::Command::new(family);
                 for member in USAGE {
                     if member.path.split_once(' ').map(|(name, _)| name) == Some(family) {
@@ -222,10 +236,12 @@ fn behaviour(arg: clap::Arg) -> clap::Arg {
         .get_num_args()
         .is_some_and(|range| range.min_values() == 0);
     match arg.get_action() {
-        // Saying a switch twice says it once, as it always did.
+        // Saying a switch twice says it once, as it always did. A switch takes no value, so it
+        // has no value name (clap derive gives every field one).
         clap::ArgAction::SetTrue => {
             let own = arg.get_id().clone();
             arg.overrides_with(own)
+                .value_names(std::iter::empty::<&str>())
         }
         clap::ArgAction::Set if optional => arg
             .default_missing_value("")
@@ -2061,33 +2077,9 @@ pub(crate) const USAGE: &[Usage] = &[
     },
 ];
 
-/// What each command takes, for the builder; [`USAGE`] says what it is.
+/// What each command takes, for the commands the builder still makes; [`USAGE`] says what each
+/// is, and [`Typed`] declares the rest.
 pub(crate) const GRAMMAR: &[Grammar] = &[
-    Grammar {
-        path: "init",
-        operands: false,
-        flags: &["--write", "--agents"],
-    },
-    Grammar {
-        path: "doctor",
-        operands: false,
-        flags: &["--profile"],
-    },
-    Grammar {
-        path: "projects",
-        operands: false,
-        flags: &[],
-    },
-    Grammar {
-        path: "mcp",
-        operands: false,
-        flags: &["--tools"],
-    },
-    Grammar {
-        path: "update",
-        operands: false,
-        flags: &["--apply"],
-    },
     Grammar {
         path: "extract",
         operands: true,

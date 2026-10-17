@@ -1,6 +1,8 @@
 use super::super::*;
+use super::command::Typed;
 use super::entity::entity_delete_force_deprecation;
 use super::spec::{self, GRAMMAR, USAGE};
+use clap::{FromArgMatches as _, Subcommand as _};
 
 /// The command a command line names: its path, how many words name it, and the flags it takes.
 type Route = (&'static str, usize, Vec<String>);
@@ -45,7 +47,8 @@ fn flags_of(path: &str) -> Vec<String> {
         .collect()
 }
 
-/// Parse a command line (the words after `twaco`) as `twaco` does, up to what the command reads.
+/// Parse a table command's line (the words after `twaco`) as `twaco` does, up to what the
+/// command reads.
 fn parse(words: &[&str]) -> Result<Args, String> {
     let mut all = vec!["twaco"];
     all.extend(words);
@@ -54,6 +57,18 @@ fn parse(words: &[&str]) -> Result<Args, String> {
         .map_err(|e| e.to_string())?;
     let (path, matched) = spec::matched(&matches);
     spec::args_of(path, matched)
+}
+
+/// Parse a derived command's line as `twaco` does, up to what the command reads.
+fn parse_typed(words: &[&str]) -> Result<Typed, String> {
+    let mut all = vec!["twaco"];
+    all.extend(words);
+    let matches = spec::tree()
+        .try_get_matches_from(all)
+        .map_err(|e| e.to_string())?;
+    let typed = Typed::from_arg_matches(&matches).map_err(|e| e.to_string())?;
+    typed.validate()?;
+    Ok(typed)
 }
 
 /// What `twaco` with no arguments lists for one command.
@@ -374,7 +389,19 @@ fn every_command_has_a_handler_or_a_route_of_its_own() {
             .unwrap_or_else(|e| panic!("{}: {e}", command.path));
         let (found, matched) = spec::matched(&matches);
         assert_eq!(found, command.path);
-        spec::args_of(found, matched).unwrap();
+        let first = command.path.split(' ').next().unwrap_or_default();
+        if Typed::has_subcommand(first) {
+            let typed = Typed::from_arg_matches(&matches).unwrap();
+            assert_eq!(typed.path(), command.path);
+            typed.validate().unwrap();
+            assert!(
+                spec::grammar(command.path).is_none(),
+                "{} is declared twice",
+                command.path
+            );
+        } else {
+            spec::args_of(found, matched).unwrap();
+        }
     }
     spec::tree().debug_assert();
 }
@@ -528,8 +555,25 @@ fn values_reach_the_fields_the_commands_read() {
         .has("--force"));
     assert!(parse(&["deploy", "--profile", "a", "--profile", "b"]).is_err());
     // `--flag=value` works too.
-    let profile = parse(&["doctor", "--profile=prod"]).unwrap();
+    let profile = parse(&["deploy", "--profile=prod"]).unwrap();
     assert_eq!(profile.profile.as_deref(), Some("prod"));
+    let Typed::Doctor(doctor) = parse_typed(&["doctor", "--profile=prod"]).unwrap() else {
+        panic!("doctor parses as doctor");
+    };
+    assert_eq!(doctor.profile.name(), "prod");
+    let Typed::Doctor(doctor) = parse_typed(&["doctor"]).unwrap() else {
+        panic!("doctor parses as doctor");
+    };
+    assert_eq!(doctor.profile.name(), "default");
+    assert!(parse_typed(&["doctor", "--profile", "a", "--profile", "b"]).is_err());
+    let Typed::Update(update) = parse_typed(&["update", "--apply", "--apply"]).unwrap() else {
+        panic!("update parses as update");
+    };
+    assert!(update.apply.apply);
+    let Typed::Mcp(mcp) = parse_typed(&["mcp", "--tools", "-core"]).unwrap() else {
+        panic!("mcp parses as mcp");
+    };
+    assert_eq!(mcp.tools.as_deref(), Some("-core"));
     // An optional value given bare is followed by the next flag, never takes it as its value.
     let menu = parse(&[
         "new",
@@ -884,4 +928,88 @@ fn arg_fields(
         fields.push(("given bare", bare));
     }
     fields
+}
+
+/// While commands move from GRAMMAR rows to structs: each moved command line, read by the
+/// builder's [`spec::args_from`] with the row the command had and by its struct, says the same
+/// (operands, switches, values). Remove a group's rows here when the builder is deleted.
+#[test]
+fn derived_commands_read_what_their_grammar_rows_read() {
+    type Projection = (Vec<String>, Vec<String>, Vec<(String, String)>);
+    const ROWS: &[(&str, &[&str])] = &[
+        ("init", &["--write", "--agents"]),
+        ("doctor", &["--profile"]),
+        ("projects", &[]),
+        ("mcp", &["--tools"]),
+        ("update", &["--apply"]),
+    ];
+    let lines: &[&[&str]] = &[
+        &["init"],
+        &["init", "--write"],
+        &["init", "--agents"],
+        &["init", "--write", "--agents", "--write"],
+        &["doctor"],
+        &["doctor", "--profile", "prod"],
+        &["doctor", "--profile=-x"],
+        &["projects"],
+        &["mcp"],
+        &["mcp", "--tools", "core,entity"],
+        &["mcp", "--tools", ""],
+        &["update"],
+        &["update", "--apply"],
+    ];
+    let value = |pairs: &[(&str, Option<&String>)]| -> Vec<(String, String)> {
+        pairs
+            .iter()
+            .filter_map(|(name, value)| value.map(|value| ((*name).to_string(), value.clone())))
+            .collect()
+    };
+    let switches = |pairs: &[(&str, bool)]| -> Vec<String> {
+        pairs
+            .iter()
+            .filter(|(_, on)| *on)
+            .map(|(name, _)| (*name).to_string())
+            .collect()
+    };
+    for line in lines {
+        let mut all = vec!["twaco"];
+        all.extend(*line);
+        let matches = spec::tree().try_get_matches_from(&all).unwrap();
+        let (path, matched) = spec::matched(&matches);
+        let (_, flags) = ROWS.iter().find(|(row, _)| *row == path).unwrap();
+        let old = spec::args_from(flags, false, matched).unwrap();
+        let mut old_values: Vec<(String, String)> = old
+            .values
+            .iter()
+            .map(|(name, value)| (name.clone(), value.clone()))
+            .collect();
+        if let Some(profile) = &old.profile {
+            old_values.push(("--profile".to_string(), profile.clone()));
+        }
+        let expected: Projection = (old.names.clone(), old.flags.clone(), old_values);
+        let new: Projection = match Typed::from_arg_matches(&matches).unwrap() {
+            Typed::Init(init) => (
+                Vec::new(),
+                switches(&[("--write", init.write), ("--agents", init.agents)]),
+                Vec::new(),
+            ),
+            Typed::Doctor(doctor) => (
+                Vec::new(),
+                Vec::new(),
+                value(&[("--profile", doctor.profile.profile.as_ref())]),
+            ),
+            Typed::Projects => (Vec::new(), Vec::new(), Vec::new()),
+            Typed::Mcp(mcp) => (
+                Vec::new(),
+                Vec::new(),
+                value(&[("--tools", mcp.tools.as_ref())]),
+            ),
+            Typed::Update(update) => (
+                Vec::new(),
+                switches(&[("--apply", update.apply.apply)]),
+                Vec::new(),
+            ),
+        };
+        assert_eq!(new, expected, "{line:?}");
+    }
 }
