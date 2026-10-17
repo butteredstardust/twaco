@@ -18,9 +18,8 @@ use twaco::core::workspace;
 
 mod cli;
 
-use clap::{FromArgMatches as _, Subcommand as _};
-use cli::args::Args;
-use cli::command::Typed;
+use clap::FromArgMatches as _;
+use cli::command::Command;
 use cli::content::{export_cmd, ext_cmd, import_cmd, package_cmd, repo_cmd, search_cmd};
 use cli::data::{
     call, config_table, datatable_copy_cmd, db_clean_cmd, db_cmd, logs_cmd, Datatable, Db,
@@ -127,19 +126,14 @@ fn run_command(args: &[String]) -> ExitCode {
             return ExitCode::from(u8::try_from(error.exit_code()).unwrap_or(FAILED));
         }
     };
-    let (route, matched) = cli::spec::matched(&matches);
-    // A command clap derives is read into its struct; the rest are read from the table. Either
-    // way, what clap cannot check is refused here, before the solution is looked for.
-    let first = matches.subcommand_name().unwrap_or_default();
-    let parsed = if Typed::has_subcommand(first) {
-        Typed::from_arg_matches(&matches)
-            .map_err(|error| error.to_string())
-            .and_then(|typed| typed.validate().map(|()| Parsed::Typed(Box::new(typed))))
-    } else {
-        cli::spec::args_of(route, matched).map(|args| Parsed::Legacy(route, Box::new(args)))
-    };
-    let parsed = match parsed {
-        Ok(parsed) => parsed,
+    let (_, matched) = cli::spec::matched(&matches);
+    // The command's struct, and what clap cannot check refused here, before the solution is
+    // looked for.
+    let parsed = Command::from_arg_matches(&matches)
+        .map_err(|error| error.to_string())
+        .and_then(|command| command.validate().map(|()| command));
+    let command = match parsed {
+        Ok(command) => command,
         Err(why) => {
             eprintln!("{} {why}", cli::style::prefix());
             return ExitCode::from(FAILED);
@@ -149,17 +143,10 @@ fn run_command(args: &[String]) -> ExitCode {
     if let Some(warning) = twaco::core::diagnostics::init(log.as_deref(), log_file.as_deref()) {
         eprintln!("{} {warning}", cli::style::prefix());
     }
-    let route = match &parsed {
-        Parsed::Typed(typed) => typed.path(),
-        Parsed::Legacy(route, _) => route,
-    };
-    let span = tracing::info_span!("command", command = route);
+    let span = tracing::info_span!("command", command = command.path());
     let _entered = span.enter();
     let started = std::time::Instant::now();
-    let code = match parsed {
-        Parsed::Typed(typed) => dispatch_typed(*typed),
-        Parsed::Legacy(route, args) => dispatch(route, &args),
-    };
+    let code = dispatch(command);
     tracing::info!(
         exit = code,
         elapsed_ms = u64::try_from(started.elapsed().as_millis()).unwrap_or(u64::MAX),
@@ -168,69 +155,64 @@ fn run_command(args: &[String]) -> ExitCode {
     ExitCode::from(code)
 }
 
-/// A command line as the command reads it: a derived command's struct, or a table command's path
-/// and [`Args`].
-enum Parsed {
-    Typed(Box<Typed>),
-    Legacy(&'static str, Box<Args>),
-}
-
-/// Run one derived command and return its exit code.
-fn dispatch_typed(typed: Typed) -> u8 {
-    match typed {
+/// Run one command and return its exit code.
+fn dispatch(command: Command) -> u8 {
+    match command {
         // update replaces the binary, not the solution, so it needs none.
-        Typed::Update(update) => update_cmd(&update),
+        Command::Update(update) => update_cmd(&update),
         // init makes the config discovery would look for, so it runs before discovery too.
-        Typed::Init(init) => init_cmd(&init),
+        Command::Init(init) => init_cmd(&init),
         // doctor diagnoses a missing solution rather than failing on it.
-        Typed::Doctor(doctor) => doctor_cmd(&doctor),
-        Typed::Mcp(mcp) => mcp_cmd(&mcp),
-        Typed::Projects => run(projects),
+        Command::Doctor(doctor) => doctor_cmd(&doctor),
+        Command::Mcp(mcp) => mcp_cmd(&mcp),
+        Command::Projects => run(projects),
         // The help center needs no solution, so it runs before discovery and uses one if found.
-        Typed::Help(help) => help_cmd(&help),
+        Command::Help(help) => help_cmd(&help),
         // The public Java API documentation also needs no solution.
-        Typed::Javadoc(javadoc) => javadoc_cmd(&javadoc),
+        Command::Javadoc(javadoc) => javadoc_cmd(&javadoc),
         // So does the guide: its built-in topics are the same everywhere.
-        Typed::Guide(guide) => guide_cmd(&guide),
-        Typed::Package(package) => run(|solution| package_cmd(solution, &package)),
-        Typed::Widgets(widgets) => widgets_cmd(&widgets),
-        Typed::Catalog(catalog) => run(|solution| catalog_cmd(solution, &catalog)),
-        Typed::Impact(impact) => run(|solution| impact_cmd(solution, &impact)),
-        Typed::Trace(trace) => run(|solution| cli::info::trace_cmd(solution, &trace)),
-        Typed::Unused(unused) => run(|solution| unused_cmd(solution, &unused)),
-        Typed::Docs(docs) => run(|solution| docs_cmd(solution, &docs)),
-        Typed::Types(types) => run(|solution| types_cmd(solution, &types)),
-        Typed::Extract(command) => run(|solution| extract(solution, &command)),
-        Typed::Sync(sync) => run(|solution| sync_cmd(solution, &sync)),
-        Typed::Fmt(command) => run(|solution| fmt(solution, &command)),
-        Typed::Check(command) => run(|solution| check(solution, &command)),
-        Typed::Users(users) => run(|solution| users_cmd(solution, &users)),
-        Typed::Test(test) => run(|solution| test_cmd(solution, &test)),
-        Typed::Localization(localization) => {
+        Command::Guide(guide) => guide_cmd(&guide),
+        Command::Package(package) => run(|solution| package_cmd(solution, &package)),
+        Command::Widgets(widgets) => widgets_cmd(&widgets),
+        Command::Catalog(catalog) => run(|solution| catalog_cmd(solution, &catalog)),
+        Command::Impact(impact) => run(|solution| impact_cmd(solution, &impact)),
+        Command::Trace(trace) => run(|solution| cli::info::trace_cmd(solution, &trace)),
+        Command::Unused(unused) => run(|solution| unused_cmd(solution, &unused)),
+        Command::Docs(docs) => run(|solution| docs_cmd(solution, &docs)),
+        Command::Types(types) => run(|solution| types_cmd(solution, &types)),
+        Command::Extract(command) => run(|solution| extract(solution, &command)),
+        Command::Sync(sync) => run(|solution| sync_cmd(solution, &sync)),
+        Command::Fmt(command) => run(|solution| fmt(solution, &command)),
+        Command::Check(command) => run(|solution| check(solution, &command)),
+        Command::Users(users) => run(|solution| users_cmd(solution, &users)),
+        Command::Test(test) => run(|solution| test_cmd(solution, &test)),
+        Command::Localization(localization) => {
             run(|solution| localization_cmd(solution, &localization))
         }
-        Typed::Repo(repo) => run(|solution| repo_cmd(solution, &repo)),
-        Typed::Ext(ext) => run(|solution| ext_cmd(solution, &ext)),
-        Typed::Search(search) => run(|solution| search_cmd(solution, &search)),
-        Typed::Export(export) => run(|solution| export_cmd(solution, &export)),
-        Typed::Import(import) => run(|solution| import_cmd(solution, &import)),
-        Typed::Call(command) => run(|solution| call(solution, &command)),
-        Typed::Logs(logs) => run(|solution| logs_cmd(solution, &logs)),
-        Typed::Settings(settings) => run(|solution| settings_cmd(solution, &settings)),
-        Typed::Thing(thing) => run(|solution| entity_edit_cmd(solution, thing.edit())),
-        Typed::Timer(timer) => run(|solution| entity_edit_cmd(solution, timer.edit())),
-        Typed::Scheduler(scheduler) => run(|solution| entity_edit_cmd(solution, scheduler.edit())),
-        Typed::Style(style) => run(|solution| entity_edit_cmd(solution, style.edit())),
-        Typed::Media(media) => run(|solution| entity_edit_cmd(solution, media.edit())),
-        Typed::Menu(menu) => run(|solution| entity_edit_cmd(solution, menu.edit())),
-        Typed::State(state) => run(|solution| entity_edit_cmd(solution, state.edit())),
-        Typed::New(New::BuildingBlock(block)) => {
+        Command::Repo(repo) => run(|solution| repo_cmd(solution, &repo)),
+        Command::Ext(ext) => run(|solution| ext_cmd(solution, &ext)),
+        Command::Search(search) => run(|solution| search_cmd(solution, &search)),
+        Command::Export(export) => run(|solution| export_cmd(solution, &export)),
+        Command::Import(import) => run(|solution| import_cmd(solution, &import)),
+        Command::Call(command) => run(|solution| call(solution, &command)),
+        Command::Logs(logs) => run(|solution| logs_cmd(solution, &logs)),
+        Command::Settings(settings) => run(|solution| settings_cmd(solution, &settings)),
+        Command::Thing(thing) => run(|solution| entity_edit_cmd(solution, thing.edit())),
+        Command::Timer(timer) => run(|solution| entity_edit_cmd(solution, timer.edit())),
+        Command::Scheduler(scheduler) => {
+            run(|solution| entity_edit_cmd(solution, scheduler.edit()))
+        }
+        Command::Style(style) => run(|solution| entity_edit_cmd(solution, style.edit())),
+        Command::Media(media) => run(|solution| entity_edit_cmd(solution, media.edit())),
+        Command::Menu(menu) => run(|solution| entity_edit_cmd(solution, menu.edit())),
+        Command::State(state) => run(|solution| entity_edit_cmd(solution, state.edit())),
+        Command::New(New::BuildingBlock(block)) => {
             run(|solution| new_building_block_cmd(solution, &block))
         }
-        Typed::New(New::Entity(new)) => run(|solution| entity_new_cmd(solution, &new)),
+        Command::New(New::Entity(new)) => run(|solution| entity_new_cmd(solution, &new)),
         // The templates are built in, so they need no solution.
-        Typed::Mashup(Mashup::Templates(templates)) => mashup_templates_cmd(&templates),
-        Typed::Mashup(mashup) => run(|solution| match &mashup {
+        Command::Mashup(Mashup::Templates(templates)) => mashup_templates_cmd(&templates),
+        Command::Mashup(mashup) => run(|solution| match &mashup {
             Mashup::Add(add) => mashup_add_cmd(solution, add),
             Mashup::AddContained(add) => mashup_add_contained_cmd(solution, add),
             Mashup::Bind(bind) => mashup_bind_cmd(solution, bind),
@@ -243,10 +225,10 @@ fn dispatch_typed(typed: Typed) -> u8 {
             Mashup::Validate(validate) => mashup_validate_cmd(solution, validate),
             Mashup::Templates(_) => unreachable!("the templates need no solution"),
         }),
-        Typed::Adopt(adopt) => run(|solution| adopt_cmd(solution, &adopt)),
-        Typed::Handoff(handoff) => run(|solution| handoff_cmd(solution, &handoff)),
-        Typed::Rename(rename) => run(|solution| rename_cmd(solution, &rename)),
-        Typed::Move(relocate) => run(|solution| match &relocate {
+        Command::Adopt(adopt) => run(|solution| adopt_cmd(solution, &adopt)),
+        Command::Handoff(handoff) => run(|solution| handoff_cmd(solution, &handoff)),
+        Command::Rename(rename) => run(|solution| rename_cmd(solution, &rename)),
+        Command::Move(relocate) => run(|solution| match &relocate {
             MoveMember::Service(service) => relocate_cmd(
                 solution,
                 relocate.path(),
@@ -257,14 +239,14 @@ fn dispatch_typed(typed: Typed) -> u8 {
                 relocate_cmd(solution, relocate.path(), property, false)
             }
         }),
-        Typed::Copy(relocate) => run(|solution| match &relocate {
+        Command::Copy(relocate) => run(|solution| match &relocate {
             CopyMember::Service(member) | CopyMember::Property(member) => {
                 relocate_cmd(solution, relocate.path(), member, false)
             }
         }),
-        Typed::Retemplate(retemplate) => run(|solution| retemplate_cmd(solution, &retemplate)),
-        Typed::Reproject(reproject) => run(|solution| reproject_cmd(solution, &reproject)),
-        Typed::Entity(entity) => run(|solution| match &entity {
+        Command::Retemplate(retemplate) => run(|solution| retemplate_cmd(solution, &retemplate)),
+        Command::Reproject(reproject) => run(|solution| reproject_cmd(solution, &reproject)),
+        Command::Entity(entity) => run(|solution| match &entity {
             Entity::Get(get) => entity_get(solution, get),
             Entity::Status(status) => entity_status(solution, status),
             Entity::Push(push) => entity_push(solution, push),
@@ -272,31 +254,25 @@ fn dispatch_typed(typed: Typed) -> u8 {
             Entity::Carry(carry) => entity_carry_cmd(solution, carry),
             Entity::Restore(restore) => entity_restore_cmd(solution, restore),
         }),
-        Typed::Permissions(permissions) => run(|solution| match &permissions {
+        Command::Permissions(permissions) => run(|solution| match &permissions {
             Permissions::Diff(diff) => permissions_cmd(solution, diff, None),
             Permissions::Push(push) => permissions_cmd(solution, &push.diff, Some(push)),
             Permissions::Audit(audit) => permissions_audit_cmd(solution, audit),
             Permissions::Apply(apply) => permissions_apply_cmd(solution, apply),
             Permissions::Init(init) => permissions_init_cmd(solution, init),
         }),
-        Typed::Bundle(command) => run(|solution| bundle(solution, &command)),
-        Typed::Deploy(deploy) => run(|solution| deploy_cmd(solution, &deploy)),
-        Typed::ConfigTable(table) => run(|solution| config_table(solution, &table)),
-        Typed::Datatable(Datatable::Copy(copy)) => {
+        Command::Bundle(command) => run(|solution| bundle(solution, &command)),
+        Command::Deploy(deploy) => run(|solution| deploy_cmd(solution, &deploy)),
+        Command::ConfigTable(table) => run(|solution| config_table(solution, &table)),
+        Command::Datatable(Datatable::Copy(copy)) => {
             run(|solution| datatable_copy_cmd(solution, &copy))
         }
-        Typed::Db(db) => run(|solution| match &db {
+        Command::Db(db) => run(|solution| match &db {
             Db::Run(run) => db_cmd(solution, &run.line()),
             Db::Query(query) => db_cmd(solution, &query.line()),
             Db::Clean(clean) => db_clean_cmd(solution, clean),
         }),
     }
-}
-
-/// Run one table command and return its exit code. Every command is derived now, so none is
-/// left to run here; the table goes in the cleanup that follows.
-fn dispatch(route: &str, _parsed: &Args) -> u8 {
-    unreachable!("{route} is in GRAMMAR but has no handler")
 }
 
 /// `twaco init [--write|--agents]`.

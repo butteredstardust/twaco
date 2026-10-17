@@ -1,3 +1,4 @@
+use super::flags::{Apply, Detail, Json, Profile, Project};
 use super::style;
 use crate::{DRIFT, FAILED, OK};
 use std::path::PathBuf;
@@ -53,7 +54,7 @@ pub(crate) fn write_agent_files(solution: &Solution) -> u8 {
 #[group(skip)]
 pub(crate) struct Update {
     #[command(flatten)]
-    pub(crate) apply: super::flags::Apply,
+    pub(crate) apply: Apply,
 }
 
 /// `twaco update [--apply]`: compare with the latest release, and with `--apply` replace this
@@ -141,7 +142,7 @@ pub(crate) struct Guide {
     #[arg(long = "limit", value_name = "n")]
     pub(crate) limit: Option<String>,
     #[command(flatten)]
-    pub(crate) json: super::flags::Json,
+    pub(crate) json: Json,
     #[arg(id = "operands", value_name = "operand")]
     pub(crate) operands: Vec<String>,
 }
@@ -265,9 +266,9 @@ pub(crate) struct Help {
     #[arg(long = "refresh")]
     pub(crate) refresh: bool,
     #[command(flatten)]
-    pub(crate) json: super::flags::Json,
+    pub(crate) json: Json,
     #[command(flatten)]
-    pub(crate) profile: super::flags::Profile,
+    pub(crate) profile: Profile,
     #[arg(id = "operands", value_name = "operand")]
     pub(crate) operands: Vec<String>,
 }
@@ -434,7 +435,7 @@ pub(crate) struct Javadoc {
     #[arg(long = "refresh")]
     pub(crate) refresh: bool,
     #[command(flatten)]
-    pub(crate) json: super::flags::Json,
+    pub(crate) json: Json,
     #[arg(id = "operands", value_name = "operand")]
     pub(crate) operands: Vec<String>,
 }
@@ -604,9 +605,9 @@ pub(crate) struct Settings {
     #[arg(long = "search", value_name = "text")]
     pub(crate) search: Option<String>,
     #[command(flatten)]
-    pub(crate) json: super::flags::Json,
+    pub(crate) json: Json,
     #[command(flatten)]
-    pub(crate) profile: super::flags::Profile,
+    pub(crate) profile: Profile,
     #[arg(id = "operands", value_name = "operand")]
     pub(crate) operands: Vec<String>,
 }
@@ -725,7 +726,7 @@ pub(crate) struct Trace {
     #[arg(long = "param", value_name = "name:TYPE[:DIRECTION]")]
     pub(crate) params: Vec<String>,
     #[command(flatten)]
-    pub(crate) json: super::flags::Json,
+    pub(crate) json: Json,
     #[arg(id = "operands", value_name = "operand")]
     pub(crate) operands: Vec<String>,
 }
@@ -771,9 +772,9 @@ pub(crate) struct Impact {
     #[arg(long = "depth", value_name = "n")]
     pub(crate) depth: Option<String>,
     #[command(flatten)]
-    pub(crate) detail: super::flags::Detail,
+    pub(crate) detail: Detail,
     #[command(flatten)]
-    pub(crate) json: super::flags::Json,
+    pub(crate) json: Json,
     #[arg(long = "dot")]
     pub(crate) dot: bool,
     #[arg(id = "operands", value_name = "operand")]
@@ -861,9 +862,9 @@ pub(crate) struct Unused {
     #[arg(long = "fields")]
     pub(crate) fields: bool,
     #[command(flatten)]
-    pub(crate) detail: super::flags::Detail,
+    pub(crate) detail: Detail,
     #[command(flatten)]
-    pub(crate) json: super::flags::Json,
+    pub(crate) json: Json,
 }
 
 /// Entities no entry point reaches. Offline, advisory and read-only: it deletes nothing.
@@ -930,9 +931,9 @@ pub(crate) fn unused_cmd(solution: &Solution, args: &Unused) -> u8 {
 #[group(skip)]
 pub(crate) struct Docs {
     #[command(flatten)]
-    pub(crate) detail: super::flags::Detail,
+    pub(crate) detail: Detail,
     #[command(flatten)]
-    pub(crate) json: super::flags::Json,
+    pub(crate) json: Json,
     #[arg(long = "out", value_name = "path", value_parser = super::flags::path())]
     pub(crate) out: Option<std::path::PathBuf>,
     #[arg(long = "force")]
@@ -1016,11 +1017,11 @@ pub(crate) fn docs_cmd(solution: &Solution, args: &Docs) -> u8 {
 #[group(skip)]
 pub(crate) struct Catalog {
     #[command(flatten)]
-    pub(crate) project: super::flags::Project,
+    pub(crate) project: Project,
     #[arg(long = "search", value_name = "text")]
     pub(crate) search: Option<String>,
     #[command(flatten)]
-    pub(crate) json: super::flags::Json,
+    pub(crate) json: Json,
     #[arg(id = "operands", value_name = "operand")]
     pub(crate) operands: Vec<String>,
 }

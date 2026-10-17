@@ -112,18 +112,24 @@ See [Testing](TESTING.md) for commands.
 
 1. Put the behaviour in a `core` module, with its server access behind a trait so tests can
    fake it.
-2. Add the CLI command: one entry in `USAGE` in `cli/spec.rs` (its path, group, and the lines
-   `twaco` lists for it; a new flag also gets one line in `FLAGS`). Commands are moving from
-   `GRAMMAR` rows and `Args` to typed structs parsed by clap derive; a new command is typed:
-   a `#[derive(clap::Args)]` struct with `#[group(skip)]` beside its handler (every value an
-   `Option`, operands a `Vec<String>` with id `operands`, an explicit `long` and FLAGS'
-   `value_name` on each flag, shared flags flattened from `cli/flags.rs`), a variant in `Typed`
-   (`cli/command.rs`) with its `path()` and any `validate()` rule, and its arm in
-   `dispatch_typed` in `main.rs`. A command not yet moved has a `GRAMMAR` row and an arm in
-   `dispatch`. clap parses one tree built from both, so an unknown flag or operand is refused
-   with a suggestion, and `--help` works; `decorate()` gives every command the same grammar
-   policy, which `tests/fixtures/cli_grammar.txt` records (`TWACO_BLESS=1 cargo test --bin twaco
-   grammar`; moving a command must leave it unchanged).
+2. Add the CLI command, parsed by clap derive:
+   - a `#[derive(clap::Args)]` struct with `#[group(skip)]` beside its handler in `cli/`. Every
+     value is an `Option` (the handler says what is missing, in its own words), operands are a
+     `Vec<String>` with id `operands`, each flag has an explicit `long` and `value_name` (a flag
+     another command already takes keeps its kind and value name; a test holds every flag to
+     one meaning), and shared flags (`--profile`, `--project`, `--apply`, `--json`, `--detail`,
+     `--all` with operands, ...) are flattened from `cli/flags.rs`;
+   - a variant in `Command` (`cli/command.rs`), with its `path()` and any `validate()` rule
+     clap cannot say, and its arm in `dispatch` in `main.rs`;
+   - one entry in `USAGE` in `cli/spec.rs`: its path, its group in `GROUPS`, and the help text
+     `twaco` lists for it and `--help` shows. Tests hold the text to the struct both ways: every
+     flag the command takes is described, and every flag described is taken.
+
+   `decorate()` in `cli/spec.rs` gives every command the same grammar policy (a switch said
+   twice, a value starting with a dash, negative operands, `--log`/`--log-file`, the usage line
+   and help), so a struct declares only names. `tests/fixtures/cli_grammar.txt` records the
+   whole grammar; review its diff and bless it with `TWACO_BLESS=1 cargo test --bin twaco
+   grammar`.
 3. Add the MCP tool: a request object in `mcp/requests/`, its adapter in the family file, and one
    entry in `mcp/registry.rs` (see [MCP schemas](MCP_SCHEMAS.md)). Writes take `dry_run` defaulting
    to `true`; results lead with a summary.

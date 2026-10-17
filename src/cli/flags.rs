@@ -1,7 +1,6 @@
-//! Flags several typed commands take, each declared once and flattened into the commands
+//! Flags several commands take, each declared once and flattened into the commands
 //! (`#[command(flatten)]`). A group declares only what a flag is called and the name of its
-//! value, as `FLAGS` in [`super::spec`] does; how it behaves on the command line is
-//! [`super::spec::decorate`]'s. `#[group(skip)]` keeps clap from adding an argument group per
+//! value; how it behaves on the command line is [`super::spec::decorate`]'s. `#[group(skip)]` keeps clap from adding an argument group per
 //! struct, which the grammar dump would show and nothing reads.
 
 /// `--profile <name>`: the server profile. Its default is applied here, not by clap, so a parse
@@ -63,8 +62,7 @@ pub(crate) struct Selection {
 }
 
 impl Selection {
-    /// `--all` with names says two things; refused before the command runs, in the builder's
-    /// words.
+    /// `--all` with names says two things; refused before the command runs.
     pub(crate) fn validate(&self) -> Result<(), String> {
         if self.all && !self.operands.is_empty() {
             return Err(format!(
@@ -77,8 +75,7 @@ impl Selection {
 }
 
 /// `--timeout <seconds>`: how long one request may take. Read as text and checked by
-/// [`Timeout::duration`] from `validate()`, as `args_from` checked it, so the message is the
-/// builder's.
+/// [`Timeout::duration`] from `validate()`.
 #[derive(Debug, Default, clap::Args)]
 #[group(skip)]
 pub(crate) struct Timeout {
@@ -102,16 +99,15 @@ impl Timeout {
 }
 
 /// The parser for a value that names a file (`value_parser = super::flags::path()`): any
-/// string, as the builder took it, read as a path. clap's own path parser refuses an empty value
-/// and accepts one that is not UTF-8, which the builder did the other way round.
+/// string, read as a path. clap's own path parser refuses an empty value and accepts one that is
+/// not UTF-8, which twaco has always done the other way round.
 pub(crate) fn path() -> impl clap::builder::TypedValueParser<Value = std::path::PathBuf> {
     use clap::builder::TypedValueParser as _;
     clap::builder::StringValueParser::new().map(std::path::PathBuf::from)
 }
 
 /// `--only-projects <a,b>`: the projects to work on, separated by commas. Read as text and
-/// split by [`OnlyProjects::projects`] from `validate()`, as `args_from` split it, so the
-/// message for a list that names none is the builder's.
+/// split by [`OnlyProjects::projects`] from `validate()`.
 #[derive(Debug, Default, clap::Args)]
 #[group(skip)]
 pub(crate) struct OnlyProjects {

@@ -1,3 +1,4 @@
+use super::flags::{Apply, Json, Profile};
 use super::style;
 use crate::{DRIFT, FAILED, OK};
 use twaco::core::commands::users::{self as command, UsersAction, UsersOutcome, UsersRequest};
@@ -11,11 +12,11 @@ use twaco::core::testing::users::{users_json, Membership, UserState};
 #[group(skip)]
 pub(crate) struct Users {
     #[command(flatten)]
-    pub(crate) apply: super::flags::Apply,
+    pub(crate) apply: Apply,
     #[command(flatten)]
-    pub(crate) json: super::flags::Json,
+    pub(crate) json: Json,
     #[command(flatten)]
-    pub(crate) profile: super::flags::Profile,
+    pub(crate) profile: Profile,
     #[arg(id = "operands", value_name = "operand")]
     pub(crate) operands: Vec<String>,
 }

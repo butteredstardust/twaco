@@ -1,3 +1,4 @@
+use super::flags::{Apply, Detail, Json, Profile, Project};
 use super::style;
 use crate::{print_notices, DRIFT, FAILED, OK};
 use std::collections::BTreeMap;
@@ -17,7 +18,7 @@ pub(crate) struct Localization {
     #[arg(long = "table", value_name = "name")]
     pub(crate) table: Option<String>,
     #[command(flatten)]
-    pub(crate) project: super::flags::Project,
+    pub(crate) project: Project,
     #[arg(long = "prune")]
     pub(crate) prune: bool,
     #[arg(long = "language-common", value_name = "text")]
@@ -33,13 +34,13 @@ pub(crate) struct Localization {
     #[arg(long = "context", value_name = "text")]
     pub(crate) context: Option<String>,
     #[command(flatten)]
-    pub(crate) json: super::flags::Json,
+    pub(crate) json: Json,
     #[command(flatten)]
-    pub(crate) detail: super::flags::Detail,
+    pub(crate) detail: Detail,
     #[command(flatten)]
-    pub(crate) profile: super::flags::Profile,
+    pub(crate) profile: Profile,
     #[command(flatten)]
-    pub(crate) apply: super::flags::Apply,
+    pub(crate) apply: Apply,
     #[arg(id = "operands", value_name = "operand")]
     pub(crate) operands: Vec<String>,
 }

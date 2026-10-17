@@ -6,6 +6,11 @@ All notable changes to twaco are recorded here. The format follows
 
 ## [Unreleased]
 
+### Changed
+
+- The command-line parser is now typed clap derive structs, one beside each command's handler,
+  in place of the hand-written flag table. No change to commands, flags or messages.
+
 ## [0.1.18] - 2026-10-17
 
 ## [0.1.17] - 2026-10-17
