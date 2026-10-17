@@ -74,28 +74,30 @@ impl Selection {
     }
 }
 
-/// `--timeout <seconds>`: how long one request may take. Read as text and checked by
-/// [`Timeout::duration`] from `validate()`.
+/// `--timeout <seconds>`: how long one request may take. clap refuses a value that is not a
+/// positive whole number of seconds, before the command runs.
 #[derive(Debug, Default, clap::Args)]
 #[group(skip)]
 pub(crate) struct Timeout {
-    #[arg(long = "timeout", value_name = "seconds")]
-    pub(crate) timeout: Option<String>,
+    #[arg(long = "timeout", value_name = "seconds", value_parser = seconds)]
+    pub(crate) timeout: Option<std::time::Duration>,
 }
 
 impl Timeout {
-    /// The timeout given, if any; refused unless a positive whole number of seconds.
-    pub(crate) fn duration(&self) -> Result<Option<std::time::Duration>, String> {
-        let Some(value) = &self.timeout else {
-            return Ok(None);
-        };
-        value
-            .parse::<u64>()
-            .ok()
-            .filter(|seconds| *seconds > 0)
-            .map(|seconds| Some(std::time::Duration::from_secs(seconds)))
-            .ok_or_else(|| "--timeout needs a positive whole number of seconds".to_string())
+    /// The timeout given, or `default`.
+    pub(crate) fn or(&self, default: std::time::Duration) -> std::time::Duration {
+        self.timeout.unwrap_or(default)
     }
+}
+
+/// A positive whole number of seconds, as `--timeout` takes it.
+fn seconds(value: &str) -> Result<std::time::Duration, String> {
+    value
+        .parse::<u64>()
+        .ok()
+        .filter(|seconds| *seconds > 0)
+        .map(std::time::Duration::from_secs)
+        .ok_or_else(|| "needs a positive whole number of seconds".to_string())
 }
 
 /// The parser for a value that names a file (`value_parser = super::flags::path()`): any
@@ -106,30 +108,39 @@ pub(crate) fn path() -> impl clap::builder::TypedValueParser<Value = std::path::
     clap::builder::StringValueParser::new().map(std::path::PathBuf::from)
 }
 
-/// `--only-projects <a,b>`: the projects to work on, separated by commas. Read as text and
-/// split by [`OnlyProjects::projects`] from `validate()`.
+/// `--only-projects <a,b>`: the projects to work on, separated by commas. clap refuses a list
+/// that names none, before the command runs.
 #[derive(Debug, Default, clap::Args)]
 #[group(skip)]
 pub(crate) struct OnlyProjects {
-    #[arg(long = "only-projects", value_name = "a,b")]
-    pub(crate) only_projects: Option<String>,
+    #[arg(long = "only-projects", value_name = "a,b", value_parser = project_list)]
+    pub(crate) only_projects: Option<ProjectList>,
 }
 
+/// The projects one `--only-projects` names.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct ProjectList(pub(crate) Vec<String>);
+
 impl OnlyProjects {
-    /// The projects named, trimmed, empty names dropped; refused when given but naming none.
-    pub(crate) fn projects(&self) -> Result<Vec<String>, String> {
-        let Some(value) = &self.only_projects else {
-            return Ok(Vec::new());
-        };
-        let selected: Vec<String> = value
-            .split(',')
-            .map(str::trim)
-            .filter(|name| !name.is_empty())
-            .map(str::to_string)
-            .collect();
-        if selected.is_empty() {
-            return Err("--only-projects needs at least one project".to_string());
-        }
-        Ok(selected)
+    /// The projects named; none when the flag was not given.
+    pub(crate) fn projects(&self) -> Vec<String> {
+        self.only_projects
+            .as_ref()
+            .map(|list| list.0.clone())
+            .unwrap_or_default()
     }
+}
+
+/// The names between commas, trimmed, empty names dropped; refused when none is left.
+fn project_list(value: &str) -> Result<ProjectList, String> {
+    let selected: Vec<String> = value
+        .split(',')
+        .map(str::trim)
+        .filter(|name| !name.is_empty())
+        .map(str::to_string)
+        .collect();
+    if selected.is_empty() {
+        return Err("needs at least one project".to_string());
+    }
+    Ok(ProjectList(selected))
 }

@@ -4,4 +4,6 @@ exit: 2
 --- stdout
 
 --- stderr
-twaco: --only-projects needs at least one project
+twaco: invalid value ' , ' for '--only-projects <a,b>': needs at least one project
+
+For more information, try '--help'.

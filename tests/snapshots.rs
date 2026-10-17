@@ -117,6 +117,11 @@ const SCENARIOS: &[(&str, &[&str])] = &[
         &["reproject", "Audit", "--to", "Acme.Nope"],
     ),
     ("users_list_takes_no_apply", &["users", "list", "--apply"]),
+    ("users_unknown_action", &["users", "frob"]),
+    (
+        "mashup_param_needs_action",
+        &["mashup", "param", "Acme.Home_MU", "Count"],
+    ),
     ("widgets_search_chart", &["widgets", "--search", "chart"]),
     ("widgets_grid", &["widgets", "grid"]),
     ("widgets_gizmo", &["widgets", "gizmo"]),

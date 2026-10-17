@@ -158,10 +158,6 @@ impl Command {
         match self {
             Command::Extract(extract) => extract.selection.validate(),
             Command::Sync(sync) => sync.selection.validate(),
-            Command::Call(call) => call.timeout.duration().map(|_| ()),
-            Command::Deploy(deploy) => deploy.only_projects.projects().map(|_| ()),
-            Command::Db(super::data::Db::Run(run)) => run.timeout.duration().map(|_| ()),
-            Command::Db(super::data::Db::Query(query)) => query.timeout.duration().map(|_| ()),
             Command::Mashup(super::mashup::Mashup::Validate(validate)) => {
                 validate.selection.validate()
             }
@@ -221,7 +217,9 @@ impl Command {
             | Command::Bundle(_)
             | Command::ConfigTable(_)
             | Command::Datatable(_)
-            | Command::Db(super::data::Db::Clean(_)) => Ok(()),
+            | Command::Call(_)
+            | Command::Deploy(_)
+            | Command::Db(_) => Ok(()),
         }
     }
 }

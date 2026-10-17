@@ -17,8 +17,17 @@ pub(crate) struct Users {
     pub(crate) json: Json,
     #[command(flatten)]
     pub(crate) profile: Profile,
-    #[arg(id = "operands", value_name = "operand")]
-    pub(crate) operands: Vec<String>,
+    /// What to do; clap refuses any other word, with the ones it takes.
+    #[arg(id = "action", value_name = "action", value_enum)]
+    pub(crate) action: Option<UsersVerb>,
+}
+
+/// What `users` does.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, clap::ValueEnum)]
+pub(crate) enum UsersVerb {
+    List,
+    Seed,
+    Delete,
 }
 
 /// `twaco users list|seed|delete`: the test users of `[[test.user]]` on the profile's server.
@@ -28,11 +37,11 @@ pub(crate) fn users_cmd(solution: &Solution, args: &Users) -> u8 {
     } else {
         Mode::Plan
     };
-    let action = match args.operands.as_slice() {
-        [action] if action == "list" => UsersAction::List,
-        [action] if action == "seed" => UsersAction::Seed { mode },
-        [action] if action == "delete" => UsersAction::Delete { mode },
-        _ => {
+    let action = match args.action {
+        Some(UsersVerb::List) => UsersAction::List,
+        Some(UsersVerb::Seed) => UsersAction::Seed { mode },
+        Some(UsersVerb::Delete) => UsersAction::Delete { mode },
+        None => {
             eprintln!("{} users takes: list | seed | delete", style::prefix());
             return FAILED;
         }

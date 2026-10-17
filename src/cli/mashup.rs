@@ -168,8 +168,19 @@ pub(crate) struct MashupParam {
     pub(crate) apply: Apply,
     #[command(flatten)]
     pub(crate) json: Json,
+    /// What to do; clap refuses any other word, with the ones it takes.
+    #[arg(id = "action", value_name = "action", value_enum)]
+    pub(crate) action: Option<ParamVerb>,
     #[arg(id = "operands", value_name = "operand")]
     pub(crate) operands: Vec<String>,
+}
+
+/// What `mashup param` does to the parameter.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, clap::ValueEnum)]
+pub(crate) enum ParamVerb {
+    Add,
+    Set,
+    Remove,
 }
 
 /// `twaco mashup recipe <recipe> <mashup> [<widget>]`: each recipe reads the flags it needs.
@@ -592,21 +603,17 @@ pub(crate) fn mashup_event_cmd(solution: &Solution, args: &MashupEvent) -> u8 {
 }
 
 pub(crate) fn mashup_param_cmd(solution: &Solution, args: &MashupParam) -> u8 {
-    let [action, mashup, name] = args.operands.as_slice() else {
+    let (Some(action), [mashup, name]) = (args.action, args.operands.as_slice()) else {
         eprintln!(
             "{} mashup param needs add|set|remove <mashup> <name>",
             style::prefix()
         );
         return FAILED;
     };
-    let action = match action.as_str() {
-        "add" => mashup_authoring::ParameterAction::Add,
-        "set" => mashup_authoring::ParameterAction::Set,
-        "remove" => mashup_authoring::ParameterAction::Remove,
-        _ => {
-            eprintln!("{} action must be add, set or remove", style::prefix());
-            return FAILED;
-        }
+    let action = match action {
+        ParamVerb::Add => mashup_authoring::ParameterAction::Add,
+        ParamVerb::Set => mashup_authoring::ParameterAction::Set,
+        ParamVerb::Remove => mashup_authoring::ParameterAction::Remove,
     };
     // Given bare, `--default` is empty.
     let given = args.default.as_ref().filter(|value| !value.is_empty());

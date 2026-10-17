@@ -3644,6 +3644,16 @@ arg --version
     other: -
     given twice: ArgumentConflict
     given bare: InvalidValue
+arg <action>
+    action: Set
+    value_name: action
+    num_args: 1
+    allow_hyphen_values: no
+    allow_negative_numbers: no
+    required: no
+    default: -
+    index: 1
+    other: possible-values
 arg <operands>
     action: Append
     value_name: operand
@@ -3652,7 +3662,7 @@ arg <operands>
     allow_negative_numbers: yes
     required: no
     default: -
-    index: 1
+    index: 2
     other: -
 help:
 |   help search <words>         search the ThingWorx Platform help (the server's version)
@@ -4085,6 +4095,16 @@ arg --refresh
     index: -
     other: -
     given twice: accepted
+arg <action>
+    action: Set
+    value_name: action
+    num_args: 1
+    allow_hyphen_values: no
+    allow_negative_numbers: no
+    required: no
+    default: -
+    index: 1
+    other: possible-values
 arg <operands>
     action: Append
     value_name: operand
@@ -4093,7 +4113,7 @@ arg <operands>
     allow_negative_numbers: yes
     required: no
     default: -
-    index: 1
+    index: 2
     other: -
 help:
 |   javadoc search <name>       search ThingWorx Platform Java API classes and members
@@ -5742,6 +5762,16 @@ arg --type
     other: -
     given twice: ArgumentConflict
     given bare: InvalidValue
+arg <action>
+    action: Set
+    value_name: action
+    num_args: 1
+    allow_hyphen_values: no
+    allow_negative_numbers: no
+    required: no
+    default: -
+    index: 1
+    other: possible-values
 arg <operands>
     action: Append
     value_name: operand
@@ -5750,7 +5780,7 @@ arg <operands>
     allow_negative_numbers: yes
     required: no
     default: -
-    index: 1
+    index: 2
     other: -
 help:
 |   mashup param <add|set|remove> <mashup> <name> [--type <BASETYPE>] [--direction <IN|OUT|BOTH>]
@@ -13206,16 +13236,16 @@ arg --profile
     other: -
     given twice: ArgumentConflict
     given bare: InvalidValue
-arg <operands>
-    action: Append
-    value_name: operand
-    num_args: 0..
+arg <action>
+    action: Set
+    value_name: action
+    num_args: 1
     allow_hyphen_values: no
-    allow_negative_numbers: yes
+    allow_negative_numbers: no
     required: no
     default: -
     index: 1
-    other: -
+    other: possible-values
 help:
 |   users list [--json]         the test users of [[test.user]] on the server: present, signing in
 |                               with the profile's test_password, in their groups

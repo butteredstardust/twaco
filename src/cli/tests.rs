@@ -418,6 +418,22 @@ fn every_flag_means_the_same_in_every_command() {
                 .iter()
                 .map(ToString::to_string)
                 .collect();
+            // Operands, and before them a sub-action that takes only the words it names.
+            if arg.is_positional() && arg.get_id() == "action" {
+                assert_eq!(value_names, ["action"], "{}", command.path);
+                assert!(
+                    !arg.get_possible_values().is_empty(),
+                    "{}: an action names its words",
+                    command.path
+                );
+                assert_eq!(
+                    node.get_positionals().next().map(clap::Arg::get_id),
+                    Some(arg.get_id()),
+                    "{}: the action is the first word",
+                    command.path
+                );
+                continue;
+            }
             if arg.is_positional() {
                 assert_eq!(arg.get_id(), "operands", "{}", command.path);
                 assert_eq!(value_names, ["operand"], "{}", command.path);
@@ -519,10 +535,7 @@ fn values_reach_the_fields_the_commands_read() {
         panic!("deploy parses as deploy");
     };
     assert_eq!(deploy.only, ["A", "B"]);
-    assert_eq!(
-        deploy.only_projects.projects(),
-        Ok(vec!["P".into(), "Q".into()])
-    );
+    assert_eq!(deploy.only_projects.projects(), ["P", "Q"]);
     assert_eq!(deploy.profile.name(), "x");
     let Command::Logs(logs) = parse(&["logs", "ScriptLog", "--since", "10m", "--json"]).unwrap()
     else {
@@ -537,18 +550,42 @@ fn values_reach_the_fields_the_commands_read() {
         panic!("db query parses as db query");
     };
     assert_eq!(query.sql.as_deref(), Some("select 1"));
-    assert_eq!(query.timeout.duration(), Ok(Some(Duration::from_secs(30))));
-    assert_eq!(
-        parse(&["call", "T", "S", "--timeout", "0"]).map(|_| ()),
-        Err("--timeout needs a positive whole number of seconds".to_string())
-    );
+    assert_eq!(query.timeout.timeout, Some(Duration::from_secs(30)));
+    // clap refuses a timeout or a project list that does not read, before the command runs.
+    for (line, refusal) in [
+        (
+            &["call", "T", "S", "--timeout", "0"][..],
+            "invalid value '0' for '--timeout <seconds>': needs a positive whole number of seconds",
+        ),
+        (
+            &["db", "query", "q.sql", "--timeout", "soon"][..],
+            "invalid value 'soon' for '--timeout <seconds>': needs a positive whole number of seconds",
+        ),
+        (
+            &["deploy", "--only-projects", " , "][..],
+            "invalid value ' , ' for '--only-projects <a,b>': needs at least one project",
+        ),
+    ] {
+        let error = spec::tree().try_get_matches_from(
+            std::iter::once("twaco").chain(line.iter().copied()),
+        );
+        let error = error.unwrap_err();
+        assert_eq!(error.exit_code(), 2, "{line:?}");
+        assert!(error.to_string().contains(refusal), "{line:?}: {error}");
+    }
     let Command::Call(call) = parse(&["call", "T", "S", "--timeout", "30"]).unwrap() else {
         panic!("call parses as call");
     };
-    assert_eq!(call.timeout.duration(), Ok(Some(Duration::from_secs(30))));
     assert_eq!(
-        parse(&["deploy", "--only-projects", " , "]).map(|_| ()),
-        Err("--only-projects needs at least one project".to_string())
+        call.timeout.or(Duration::from_secs(120)),
+        Duration::from_secs(30)
+    );
+    let Command::Call(call) = parse(&["call", "T", "S"]).unwrap() else {
+        panic!("call parses as call");
+    };
+    assert_eq!(
+        call.timeout.or(Duration::from_secs(120)),
+        Duration::from_secs(120)
     );
     assert_eq!(
         parse(&["sync", "--all", "Acme.T"]).map(|_| ()),
@@ -629,6 +666,24 @@ fn values_reach_the_fields_the_commands_read() {
         panic!("mashup param parses as mashup param");
     };
     assert_eq!(param.default.as_deref(), Some("-1"));
+    // A sub-action is read into its own field, and the operands follow it.
+    assert_eq!(param.action, Some(super::mashup::ParamVerb::Set));
+    assert_eq!(param.operands, ["Acme.Home_MU", "Count"]);
+    let Command::Users(users) = parse(&["users", "seed", "--apply"]).unwrap() else {
+        panic!("users parses as users");
+    };
+    assert_eq!(users.action, Some(super::users::UsersVerb::Seed));
+    let Command::Help(help) = parse(&["help", "search", "mashup", "binding"]).unwrap() else {
+        panic!("help parses as help");
+    };
+    assert_eq!(help.action, Some(super::info::HelpVerb::Search));
+    assert_eq!(help.operands, ["mashup", "binding"]);
+    let Command::Javadoc(javadoc) = parse(&["javadoc", "class", "Thing"]).unwrap() else {
+        panic!("javadoc parses as javadoc");
+    };
+    assert_eq!(javadoc.action, Some(super::info::JavadocVerb::Class));
+    assert!(parse(&["users", "list", "extra"]).is_err());
+    assert!(parse(&["javadoc", "frob"]).is_err());
 }
 
 #[test]
@@ -904,6 +959,20 @@ fn arg_fields(
         arg.get_action(),
         clap::ArgAction::Set | clap::ArgAction::Append
     );
+    // A value the flag takes: any word, or a number where it takes a number (`--timeout`).
+    let value = ["v", "1"]
+        .into_iter()
+        .find(|value| {
+            let argv: Vec<&str> = std::iter::once("twaco")
+                .chain(words.iter().copied())
+                .chain([name.as_str(), value])
+                .collect();
+            !matches!(
+                probe.try_get_matches_from_mut(argv),
+                Err(error) if error.kind() == clap::error::ErrorKind::ValueValidation
+            )
+        })
+        .unwrap_or("v");
     let given = |times: usize| -> Vec<String> {
         let mut argv: Vec<String> = std::iter::once("twaco")
             .chain(words.iter().copied())
@@ -912,7 +981,7 @@ fn arg_fields(
         for _ in 0..times {
             argv.push(name.clone());
             if takes_value {
-                argv.push("v".to_string());
+                argv.push(value.to_string());
             }
         }
         argv

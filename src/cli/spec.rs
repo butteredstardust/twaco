@@ -133,6 +133,10 @@ fn leaf(node: clap::Command, command: &'static Usage) -> clap::Command {
 
 /// How an argument behaves, decided by what it takes.
 fn behaviour(arg: clap::Arg) -> clap::Arg {
+    if arg.is_positional() && arg.get_id() != "operands" {
+        // A sub-action (`users list`): one word of those it takes.
+        return arg;
+    }
     if arg.is_positional() {
         // A negative number is an operand (a JSON value for `call`); any other word that
         // starts with a dash is a flag, so a mistyped one is refused, not taken as a name.

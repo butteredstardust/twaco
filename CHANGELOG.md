@@ -10,6 +10,20 @@ All notable changes to twaco are recorded here. The format follows
 
 - The command-line parser is now typed clap derive structs, one beside each command's handler,
   in place of the hand-written flag table. No change to commands, flags or messages.
+- clap now refuses a bad `--timeout` (`call`, `db run`, `db query`) or an `--only-projects` that
+  names no project (`deploy`) before the command runs, in its own words: `twaco: invalid value '0'
+  for '--timeout <seconds>': needs a positive whole number of seconds` (was `twaco: --timeout needs
+  a positive whole number of seconds`) and `twaco: invalid value ' , ' for '--only-projects <a,b>':
+  needs at least one project` (was `twaco: --only-projects needs at least one project`), each
+  followed by `For more information, try '--help'.`; exit 2 as before.
+- The sub-action of `users` (`list|seed|delete`), `help` (`search|page`), `javadoc`
+  (`search|class`) and `mashup param` (`add|set|remove`) is checked by clap before the command
+  runs, so a word it does not take is refused with the words it does, for example
+  `twaco: invalid value 'frob' for '[action]'` and `[possible values: list, seed, delete]`. This
+  replaces `users takes: list | seed | delete` (which came only after the solution was found),
+  ``help has `search` and `page`, not "frob"``, ``javadoc has `search` and `class`, not "frob"`` and
+  `action must be add, set or remove`. `users` given anything after its action now gets clap's
+  `unexpected argument` refusal. A missing action keeps its message.
 
 ## [0.1.18] - 2026-10-17
 

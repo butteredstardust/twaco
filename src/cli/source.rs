@@ -564,7 +564,7 @@ pub(crate) fn deploy_cmd(solution: &Solution, args: &Deploy) -> u8 {
         backup: !args.no_backup,
         skip_checks: args.skip_checks,
         // validate() refused a list that names no project.
-        only_projects: args.only_projects.projects().unwrap_or_default(),
+        only_projects: args.only_projects.projects(),
         only: args.only.clone(),
         backend_only: args.backend_only,
         profile: args.profile.name().to_string(),
