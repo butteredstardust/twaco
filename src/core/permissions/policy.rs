@@ -13,17 +13,17 @@ use super::model::ModelEntity;
 use super::{Grant, Grants};
 use crate::core::adopt::glob_matches;
 use serde::Deserialize;
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
 
 /// The file name, in a project's root folder.
-pub const FILE_NAME: &str = "permissions.toml";
+pub(crate) const FILE_NAME: &str = "permissions.toml";
 
-pub const RUN_TIME_ACTIONS: [&str; 5] = super::RUN_TIME_ACTIONS;
+pub(crate) const RUN_TIME_ACTIONS: [&str; 5] = super::RUN_TIME_ACTIONS;
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Deserialize, serde::Serialize)]
 #[serde(rename_all = "lowercase")]
-pub enum Mode {
+pub(crate) enum Mode {
     /// Helper mode when the project has a permission helper Thing, plain otherwise.
     #[default]
     Auto,
@@ -115,38 +115,38 @@ struct PlatformGrantFile {
 
 /// A principal as a permission names it.
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, serde::Serialize)]
-pub struct Principal {
-    pub name: String,
+pub(crate) struct Principal {
+    pub(crate) name: String,
     #[serde(rename = "type")]
-    pub principal_type: String,
+    pub(crate) principal_type: String,
 }
 
 #[derive(Clone, Debug)]
-pub struct Role {
-    pub name: String,
+pub(crate) struct Role {
+    pub(crate) name: String,
     /// The group's full name.
-    pub group: String,
+    pub(crate) group: String,
     /// The principal that makes an entity visible to the role; none for `org = "none"`.
-    pub org: Option<Principal>,
-    pub includes: Vec<String>,
+    pub(crate) org: Option<Principal>,
+    pub(crate) includes: Vec<String>,
 }
 
 #[derive(Clone, Debug)]
-pub struct RuntimeRule {
-    pub entities: Vec<String>,
-    pub action: String,
+pub(crate) struct RuntimeRule {
+    pub(crate) entities: Vec<String>,
+    pub(crate) action: String,
     /// Patterns over the named resources; `*` is every one of them, never the entity-wide `*`.
-    pub resources: Vec<String>,
+    pub(crate) resources: Vec<String>,
     /// Names or patterns the rule leaves out.
-    pub except: Vec<String>,
+    pub(crate) except: Vec<String>,
     /// Also the entity-wide resource, which ThingWorx writes `*`.
-    pub entity_wide: bool,
-    pub roles: Vec<String>,
+    pub(crate) entity_wide: bool,
+    pub(crate) roles: Vec<String>,
 }
 
 impl RuntimeRule {
     /// Whether the rule names this named resource.
-    pub fn names_resource(&self, resource: &str) -> bool {
+    pub(crate) fn names_resource(&self, resource: &str) -> bool {
         resource != "*"
             && self.resources.iter().any(|p| glob_matches(p, resource))
             && !self.except.iter().any(|p| glob_matches(p, resource))
@@ -154,16 +154,16 @@ impl RuntimeRule {
 }
 
 #[derive(Clone, Debug)]
-pub struct VisibilityRule {
-    pub types: Vec<String>,
-    pub names: Vec<String>,
-    pub roles: Vec<String>,
+pub(crate) struct VisibilityRule {
+    pub(crate) types: Vec<String>,
+    pub(crate) names: Vec<String>,
+    pub(crate) roles: Vec<String>,
 }
 
 /// A grant on, or membership of, an entity the project does not own, which an import cannot
 /// carry: the Solution Framework's `DeployComponent` makes these.
 #[derive(Clone, Debug)]
-pub enum Platform {
+pub(crate) enum Platform {
     Grant {
         /// `Collection/Name`.
         entity: String,
@@ -180,31 +180,35 @@ pub enum Platform {
 }
 
 #[derive(Clone, Debug)]
-pub struct Policy {
-    pub project: String,
-    pub path: PathBuf,
-    pub mode: Mode,
-    pub organization: String,
-    pub strict: Vec<String>,
-    pub unmanaged: Vec<String>,
-    pub roles: Vec<Role>,
-    pub runtime: Vec<RuntimeRule>,
-    pub visibility_roles: Vec<String>,
-    pub visibility_remove: Vec<String>,
-    pub visibility_rules: Vec<VisibilityRule>,
-    pub platform: Vec<Platform>,
+pub(crate) struct Policy {
+    pub(crate) project: String,
+    pub(crate) path: PathBuf,
+    pub(crate) mode: Mode,
+    #[allow(
+        dead_code,
+        reason = "parsed from the policy file; nothing reads it yet"
+    )]
+    pub(crate) organization: String,
+    pub(crate) strict: Vec<String>,
+    pub(crate) unmanaged: Vec<String>,
+    pub(crate) roles: Vec<Role>,
+    pub(crate) runtime: Vec<RuntimeRule>,
+    pub(crate) visibility_roles: Vec<String>,
+    pub(crate) visibility_remove: Vec<String>,
+    pub(crate) visibility_rules: Vec<VisibilityRule>,
+    pub(crate) platform: Vec<Platform>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 #[error("{}: {}", .path.display(), .why)]
 pub struct PolicyError {
-    pub path: PathBuf,
-    pub why: String,
+    pub(crate) path: PathBuf,
+    pub(crate) why: String,
 }
 
 /// A name in the project unless it is already qualified: `Viewer_UG` in project `Acme.App` is
 /// `Acme.App.Viewer_UG`, and `PTC.Base.Default_UG` stays as written.
-pub fn qualify(project: &str, name: &str) -> String {
+pub(crate) fn qualify(project: &str, name: &str) -> String {
     if name.contains('.') {
         name.to_string()
     } else {
@@ -214,7 +218,7 @@ pub fn qualify(project: &str, name: &str) -> String {
 
 /// Whether an entity pattern names this entity, by its full name or by the part after the
 /// project's prefix.
-pub fn names_entity(project: &str, pattern: &str, name: &str) -> bool {
+pub(crate) fn names_entity(project: &str, pattern: &str, name: &str) -> bool {
     glob_matches(pattern, name)
         || name
             .strip_prefix(project)
@@ -224,7 +228,7 @@ pub fn names_entity(project: &str, pattern: &str, name: &str) -> bool {
 
 impl Policy {
     /// Read and check a project's policy. `Ok(None)` when the project has none.
-    pub fn load(project: &str, root: &Path) -> Result<Option<Policy>, PolicyError> {
+    pub(crate) fn load(project: &str, root: &Path) -> Result<Option<Policy>, PolicyError> {
         let path = root.join(FILE_NAME);
         let text = match std::fs::read_to_string(&path) {
             Ok(text) => text,
@@ -239,7 +243,7 @@ impl Policy {
         Policy::parse(project, &path, &text).map(Some)
     }
 
-    pub fn parse(project: &str, path: &Path, text: &str) -> Result<Policy, PolicyError> {
+    pub(crate) fn parse(project: &str, path: &Path, text: &str) -> Result<Policy, PolicyError> {
         let fail = |why: String| PolicyError {
             path: path.to_path_buf(),
             why,
@@ -432,12 +436,12 @@ impl Policy {
         })
     }
 
-    pub fn role(&self, name: &str) -> Option<&Role> {
+    pub(crate) fn role(&self, name: &str) -> Option<&Role> {
         self.roles.iter().find(|role| role.name == name)
     }
 
     /// The role itself and every role that includes it, directly or through another.
-    pub fn grantees(&self, name: &str) -> Vec<&Role> {
+    pub(crate) fn grantees(&self, name: &str) -> Vec<&Role> {
         let mut found: Vec<&Role> = Vec::new();
         let mut stack = vec![name.to_string()];
         while let Some(next) = stack.pop() {
@@ -462,17 +466,17 @@ impl Policy {
     }
 
     /// Whether the policy leaves this entity's blocks alone.
-    pub fn is_unmanaged(&self, name: &str) -> bool {
+    pub(crate) fn is_unmanaged(&self, name: &str) -> bool {
         self.unmanaged
             .iter()
             .any(|pattern| self.names(pattern, name))
     }
 
-    pub fn is_strict(&self, name: &str) -> bool {
+    pub(crate) fn is_strict(&self, name: &str) -> bool {
         self.strict.iter().any(|pattern| self.names(pattern, name))
     }
 
-    pub fn rule_names(&self, rule: &RuntimeRule, name: &str) -> bool {
+    pub(crate) fn rule_names(&self, rule: &RuntimeRule, name: &str) -> bool {
         rule.entities
             .iter()
             .any(|pattern| self.names(pattern, name))
@@ -498,7 +502,7 @@ impl Policy {
 
     /// The run-time grants the policy wants on an entity, given its current block. Every grant
     /// allows, and names a role's group.
-    pub fn wanted_run_time(&self, entity: &ModelEntity, current: &Grants) -> Grants {
+    pub(crate) fn wanted_run_time(&self, entity: &ModelEntity, current: &Grants) -> Grants {
         let mut wanted = Grants::new();
         for rule in &self.runtime {
             if !self.rule_names(rule, entity.name()) {
@@ -533,7 +537,7 @@ impl Policy {
 
     /// Whether some `ServiceInvoke` rule names this service of the entity. A strict entity's
     /// services must each be classified, even if only to no role.
-    pub fn classifies(&self, entity: &str, service: &str) -> bool {
+    pub(crate) fn classifies(&self, entity: &str, service: &str) -> bool {
         self.runtime.iter().any(|rule| {
             rule.action == "ServiceInvoke"
                 && self.rule_names(rule, entity)
@@ -542,7 +546,7 @@ impl Policy {
     }
 
     /// The roles that see an entity: the first visibility rule that names it, or the default.
-    pub fn visible_to(&self, entity: &ModelEntity) -> &[String] {
+    pub(crate) fn visible_to(&self, entity: &ModelEntity) -> &[String] {
         for rule in &self.visibility_rules {
             let type_ok =
                 rule.types.is_empty() || rule.types.iter().any(|t| t == &entity.entity_type);
@@ -556,7 +560,7 @@ impl Policy {
     }
 
     /// Every principal a role's visibility uses: the ones the policy owns in a visibility block.
-    pub fn managed_visibility(&self) -> BTreeSet<Principal> {
+    pub(crate) fn managed_visibility(&self) -> BTreeSet<Principal> {
         self.roles
             .iter()
             .filter_map(|role| role.org.clone())
@@ -564,7 +568,7 @@ impl Policy {
     }
 
     /// Whether a principal is one the policy removes from every visibility block it manages.
-    pub fn removes(&self, principal: &str) -> bool {
+    pub(crate) fn removes(&self, principal: &str) -> bool {
         self.visibility_remove
             .iter()
             .any(|pattern| glob_matches(pattern, principal))
@@ -572,7 +576,7 @@ impl Policy {
 
     /// The visibility grants the policy wants, given the current block: principals the policy does
     /// not own are kept, unless `remove` names them.
-    pub fn wanted_visibility(&self, entity: &ModelEntity, current: &Grants) -> Grants {
+    pub(crate) fn wanted_visibility(&self, entity: &ModelEntity, current: &Grants) -> Grants {
         let managed = self.managed_visibility();
         let mut wanted: Grants = current
             .iter()
@@ -599,13 +603,4 @@ impl Policy {
         }
         wanted
     }
-}
-
-/// Every role's group, keyed by role name.
-pub fn groups(policy: &Policy) -> BTreeMap<String, String> {
-    policy
-        .roles
-        .iter()
-        .map(|role| (role.name.clone(), role.group.clone()))
-        .collect()
 }

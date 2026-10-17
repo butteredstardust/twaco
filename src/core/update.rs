@@ -28,16 +28,16 @@ use super::help::Fetch;
 pub const MANIFEST_URL: &str =
     "https://github.com/butteredstardust/twaco/releases/latest/download/updater.json";
 /// Where a person downloads an installer by hand.
-pub const RELEASES_URL: &str = "https://github.com/butteredstardust/twaco/releases/latest";
+pub(crate) const RELEASES_URL: &str = "https://github.com/butteredstardust/twaco/releases/latest";
 /// The minisign key the release workflow signs with. The `TWACO_SIGNING_KEY` repository secret
 /// holds its secret half.
 pub const PUBLIC_KEY: &str = "RWRqPjLVLgJ9nu7C3x2lGYTU1k31WEjJpTkAiuMBL8UFlEFmM5NG+cRf";
 /// The platform this binary was built for, as the manifest names it.
 pub const TARGET: &str = env!("TWACO_TARGET");
 /// How long one check stands before the notice asks again.
-pub const CHECK_INTERVAL_SECS: i64 = 24 * 60 * 60;
+pub(crate) const CHECK_INTERVAL_SECS: i64 = 24 * 60 * 60;
 /// Set it to anything but `0` to turn the notice off.
-pub const OPT_OUT: &str = "TWACO_NO_UPDATE_CHECK";
+pub(crate) const OPT_OUT: &str = "TWACO_NO_UPDATE_CHECK";
 /// The most a release archive may weigh. A larger download is not a twaco release.
 const MOST_BYTES: u64 = 256 * 1024 * 1024;
 
@@ -46,14 +46,14 @@ pub struct Manifest {
     pub version: String,
     #[serde(default)]
     pub notes: String,
-    pub platforms: BTreeMap<String, Payload>,
+    pub(crate) platforms: BTreeMap<String, Payload>,
 }
 
 #[derive(Debug, Deserialize)]
-pub struct Payload {
-    pub url: String,
+pub(crate) struct Payload {
+    pub(crate) url: String,
     /// The whole `.minisig` file: comments, signature and global signature.
-    pub signature: String,
+    pub(crate) signature: String,
 }
 
 /// The release web, over HTTPS only. Redirects are followed: GitHub serves assets from
@@ -113,7 +113,7 @@ impl Fetch for Web {
 }
 
 /// `X.Y.Z`, as the release workflow writes it. Anything else is not a release version.
-pub fn parse_version(text: &str) -> Option<(u64, u64, u64)> {
+pub(crate) fn parse_version(text: &str) -> Option<(u64, u64, u64)> {
     let mut parts = text.trim().split('.');
     let version = (
         parts.next()?.parse().ok()?,
@@ -155,7 +155,7 @@ pub fn manifest(fetch: &dyn Fetch, url: &str, public_key: &str) -> Result<Manife
 
 /// The release's archive for a platform: `twaco-<version>-<target>.zip` on Windows and
 /// `.tar.gz` elsewhere.
-pub fn archive_name(version: &str, target: &str) -> String {
+pub(crate) fn archive_name(version: &str, target: &str) -> String {
     let extension = if target.contains("windows") {
         "zip"
     } else {
@@ -351,14 +351,14 @@ fn with_backup(exe: &Path, swap: impl FnOnce() -> std::io::Result<()>) -> std::i
 
 /// The last check, kept in the user's cache folder so the network is asked once a day.
 #[derive(Debug, Default, Serialize, Deserialize)]
-pub struct CheckRecord {
+pub(crate) struct CheckRecord {
     /// Unix seconds.
-    pub checked: i64,
+    pub(crate) checked: i64,
     /// The latest release then, or none when the check failed.
-    pub latest: Option<String>,
+    pub(crate) latest: Option<String>,
     /// The highest version that any signed manifest showed.
     #[serde(default)]
-    pub highest: Option<String>,
+    pub(crate) highest: Option<String>,
 }
 
 fn read_record(cache: &Path) -> CheckRecord {

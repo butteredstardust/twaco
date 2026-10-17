@@ -18,12 +18,12 @@ pub const MEMBER_INDEX: &str = "member-search-index.js";
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Class {
-    pub package: String,
-    pub name: String,
+    pub(crate) package: String,
+    pub(crate) name: String,
 }
 
 impl Class {
-    pub fn qualified(&self) -> String {
+    pub(crate) fn qualified(&self) -> String {
         if self.package.is_empty() {
             self.name.clone()
         } else {
@@ -33,23 +33,23 @@ impl Class {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Member {
-    pub package: String,
-    pub class: String,
-    pub label: String,
-    pub anchor: Option<String>,
+pub(crate) struct Member {
+    pub(crate) package: String,
+    pub(crate) class: String,
+    pub(crate) label: String,
+    pub(crate) anchor: Option<String>,
 }
 
 impl Member {
-    pub fn name(&self) -> &str {
+    pub(crate) fn name(&self) -> &str {
         self.label.split('(').next().unwrap_or(&self.label)
     }
 }
 
 #[derive(Debug, Default, Clone)]
 pub struct Index {
-    pub classes: Vec<Class>,
-    pub members: Vec<Member>,
+    pub(crate) classes: Vec<Class>,
+    pub(crate) members: Vec<Member>,
 }
 
 impl Index {
@@ -329,7 +329,7 @@ pub fn class_path(class: &Class) -> Result<String, String> {
     })
 }
 
-pub fn document_url(path: &str) -> String {
+pub(crate) fn document_url(path: &str) -> String {
     format!("{BASE}/{path}")
 }
 

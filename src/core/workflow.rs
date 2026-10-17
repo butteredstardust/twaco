@@ -32,14 +32,14 @@ impl Log {
         self.lines.push(Line::Error(line));
     }
 
-    pub fn changes(&self) -> impl Iterator<Item = &str> {
+    pub(crate) fn changes(&self) -> impl Iterator<Item = &str> {
         self.lines.iter().filter_map(|line| match line {
             Line::Change(text) => Some(text.as_str()),
             Line::Error(_) => None,
         })
     }
 
-    pub fn errors(&self) -> impl Iterator<Item = &str> {
+    pub(crate) fn errors(&self) -> impl Iterator<Item = &str> {
         self.lines.iter().filter_map(|line| match line {
             Line::Error(text) => Some(text.as_str()),
             Line::Change(_) => None,
@@ -48,16 +48,16 @@ impl Log {
 }
 
 #[derive(Debug, Clone, Copy, Default)]
-pub struct SyncOptions {
+pub(crate) struct SyncOptions {
     /// Report what would change and write nothing.
-    pub check: bool,
+    pub(crate) check: bool,
     /// Permit a service or field to appear or disappear.
-    pub allow_structural: bool,
+    pub(crate) allow_structural: bool,
     /// Rewrite every script payload in the configured layout.
-    pub relayout: bool,
+    pub(crate) relayout: bool,
     /// The entities were asked for by name, so one with no sidecars is a failure rather than
     /// simply not under management.
-    pub named: bool,
+    pub(crate) named: bool,
 }
 
 #[derive(Debug, Default)]
@@ -101,7 +101,7 @@ impl Tally {
 /// Write every sidecar kind back into its entity file: service scripts, DataShape fields,
 /// mashup content, DataTable configuration. `unreadable` are files discovery could not read,
 /// each already a failure.
-pub fn sync(
+pub(crate) fn sync(
     solution: &Solution,
     chosen: &[EntityFile],
     unreadable: &[String],
@@ -409,7 +409,7 @@ pub struct ExtractOutcome {
 /// definition beside its old script. A kind that cannot be read from the entity is reported and
 /// the others are still written, as are the other entities. A file that already holds what it
 /// should is not written.
-pub fn extract(
+pub(crate) fn extract(
     solution: &Solution,
     chosen: &[EntityFile],
     unreadable: &[String],
@@ -660,7 +660,7 @@ pub struct FmtOutcome {
 /// A reformatted script is written through the workspace's atomic write, as every other file
 /// twaco writes is. Until this moved here it used a plain `fs::write`, so an interrupted run
 /// could leave a script truncated.
-pub fn fmt(solution: &Solution, check: bool) -> FmtOutcome {
+pub(crate) fn fmt(solution: &Solution, check: bool) -> FmtOutcome {
     let mut outcome = FmtOutcome::default();
     let style = super::fmt::Style::default();
     let tree = super::workspace::script_files(solution);

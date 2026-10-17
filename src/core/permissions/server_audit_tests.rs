@@ -2,8 +2,9 @@
 
 use super::audit::{self, Severity};
 use crate::core::config::Solution;
-use crate::core::entity_carry::{self, Kind};
-use crate::core::entity_key::{EntityKey, ServiceTarget};
+use crate::core::entity;
+use crate::core::entity::carry::Kind;
+use crate::core::entity::key::{EntityKey, ServiceTarget};
 use crate::core::server::ServerError;
 use crate::core::{config_table, push};
 use serde_json::{json, Value};
@@ -37,7 +38,7 @@ fn empty(kind: Kind) -> Value {
     }
 }
 
-impl entity_carry::Remote for Fake {
+impl entity::carry::Remote for Fake {
     fn exists(&self, collection: &str, name: &str) -> Result<bool, ServerError> {
         if self.missing.iter().any(|m| m == name) {
             return Ok(false);

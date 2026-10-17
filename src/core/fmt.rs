@@ -18,10 +18,10 @@ use dprint_plugin_typescript::FormatTextOptions;
 use std::path::Path;
 
 /// How a project wants its scripts formatted.
-pub struct Style {
-    pub indent_width: u8,
+pub(crate) struct Style {
+    pub(crate) indent_width: u8,
     /// jsbeautifier is configured with no wrapping, so the default is effectively unlimited.
-    pub line_width: u32,
+    pub(crate) line_width: u32,
 }
 
 impl Default for Style {
@@ -57,7 +57,7 @@ impl Style {
 /// script, so a sidecar has no trailing newline; dprint always adds one. Left alone, the
 /// formatter would add a newline that the next extract removed, and the two would disagree
 /// forever with neither ever settling. Trimming here makes `fmt` a fixed point of `extract`.
-pub fn format(source: &str, style: &Style) -> Result<Option<String>, String> {
+pub(crate) fn format(source: &str, style: &Style) -> Result<Option<String>, String> {
     // dprint returning None means "already formatted by my rules", which still allows the
     // trailing newline extraction would strip. The invariant has to be applied either way.
     let text = format_raw(source, style)?.unwrap_or_else(|| source.to_string());
@@ -70,7 +70,7 @@ pub fn format(source: &str, style: &Style) -> Result<Option<String>, String> {
 }
 
 /// dprint's own output, newline and all. Exposed for tests that care about the difference.
-pub fn format_raw(source: &str, style: &Style) -> Result<Option<String>, String> {
+pub(crate) fn format_raw(source: &str, style: &Style) -> Result<Option<String>, String> {
     let config = style.build();
     let options = FormatTextOptions {
         path: Path::new("service.js"),
@@ -80,15 +80,6 @@ pub fn format_raw(source: &str, style: &Style) -> Result<Option<String>, String>
         external_formatter: None,
     };
     dprint_plugin_typescript::format_text(options).map_err(|e| e.to_string())
-}
-
-/// Whether a script is already formatted. Formats in memory and writes nothing, so a
-/// verification pass can never mutate a file.
-pub fn is_formatted(source: &str, style: &Style) -> Result<bool, String> {
-    Ok(match format(source, style)? {
-        None => true,
-        Some(out) => out == source,
-    })
 }
 
 #[cfg(test)]

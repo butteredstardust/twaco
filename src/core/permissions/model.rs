@@ -8,37 +8,37 @@ use std::collections::{BTreeMap, BTreeSet};
 /// The template every Solution Framework permission helper Thing derives from. It ships in the
 /// `PTCDTS.Base` project, which depends only on `PTC.Base`, so a server without the Solution
 /// Framework can have one.
-pub const HELPER_TEMPLATE: &str = "PTCDTS.Base.ComponentPermissionHelper_TT";
+pub(crate) const HELPER_TEMPLATE: &str = "PTCDTS.Base.ComponentPermissionHelper_TT";
 
 /// One entity of the project, with what its permission rules can name.
 #[derive(Clone, Debug)]
-pub struct ModelEntity {
-    pub file: EntityFile,
+pub(crate) struct ModelEntity {
+    pub(crate) file: EntityFile,
     /// The XML element name: `Thing`, `ThingShape`, `Mashup`...
-    pub entity_type: String,
+    pub(crate) entity_type: String,
     /// `thingTemplate` of a Thing; empty otherwise.
-    pub thing_template: String,
-    pub services: BTreeSet<String>,
-    pub properties: BTreeSet<String>,
-    pub events: BTreeSet<String>,
-    pub sets: Sets,
+    pub(crate) thing_template: String,
+    pub(crate) services: BTreeSet<String>,
+    pub(crate) properties: BTreeSet<String>,
+    pub(crate) events: BTreeSet<String>,
+    pub(crate) sets: Sets,
     /// The organizational units an Organization declares, with the names of their members; empty
     /// for anything else.
-    pub units: BTreeMap<String, BTreeSet<String>>,
+    pub(crate) units: BTreeMap<String, BTreeSet<String>>,
     /// The file as it was read. A plan rewrites these bytes and a transaction expects them, so a
     /// file changed since is refused rather than overwritten.
-    pub bytes: std::rc::Rc<Vec<u8>>,
+    pub(crate) bytes: std::rc::Rc<Vec<u8>>,
 }
 
 impl ModelEntity {
-    pub fn read(file: &EntityFile) -> Result<ModelEntity, PermissionsError> {
+    pub(crate) fn read(file: &EntityFile) -> Result<ModelEntity, PermissionsError> {
         let bytes = std::fs::read(&file.path)
             .map_err(|e| PermissionsError(format!("{}: {e}", file.path.display())))?;
         ModelEntity::of(file, bytes)
     }
 
     /// The model of an entity file holding `bytes`.
-    pub fn of(file: &EntityFile, bytes: Vec<u8>) -> Result<ModelEntity, PermissionsError> {
+    pub(crate) fn of(file: &EntityFile, bytes: Vec<u8>) -> Result<ModelEntity, PermissionsError> {
         let at = |e: PermissionsError| PermissionsError(format!("{}: {e}", file.path.display()));
         let sets = from_xml(&bytes).map_err(at)?;
         let entity = normalise::entity_of(&bytes)
@@ -60,16 +60,16 @@ impl ModelEntity {
     }
 
     /// `Collection/Name`, as every report names an entity.
-    pub fn key(&self) -> String {
+    pub(crate) fn key(&self) -> String {
         format!("{}/{}", self.file.info.collection, self.file.info.name)
     }
 
-    pub fn name(&self) -> &str {
+    pub(crate) fn name(&self) -> &str {
         &self.file.info.name
     }
 
     /// The resources of one run-time action that the entity itself defines.
-    pub fn defined(&self, action: &str) -> &BTreeSet<String> {
+    pub(crate) fn defined(&self, action: &str) -> &BTreeSet<String> {
         match action {
             "ServiceInvoke" => &self.services,
             "EventInvoke" | "EventSubscribe" => &self.events,
@@ -77,7 +77,7 @@ impl ModelEntity {
         }
     }
 
-    pub fn is_helper(&self) -> bool {
+    pub(crate) fn is_helper(&self) -> bool {
         self.entity_type == "Thing" && self.thing_template == HELPER_TEMPLATE
     }
 }
@@ -91,7 +91,7 @@ fn attribute<'a>(element: &'a Element, name: &str) -> &'a str {
 fn collect(element: &Element, model: &mut ModelEntity) {
     for child in elements(element) {
         let name = child.name.as_slice();
-        if crate::core::entity_carry::Kind::of_element(name).is_some()
+        if crate::core::entity::carry::Kind::of_element(name).is_some()
             || name == b"ConfigurationTables"
         {
             continue;

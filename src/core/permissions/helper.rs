@@ -16,15 +16,15 @@ use super::audit::{run_time_kind, Loaded};
 use super::model::ModelEntity;
 use super::policy::Policy;
 use super::{elements, Grant, Grants, KindKey, PermissionsError};
-use crate::core::entity_carry::Kind;
+use crate::core::entity::carry::Kind;
 use crate::core::normalise::{self, Element, Node};
 use crate::core::scan;
 use crate::core::splice::{self, Edit};
 use std::collections::{BTreeMap, BTreeSet};
 
-pub const ROLES_TABLE: &str = "RoleGroupsAndOrganizations";
-pub const RUN_TIME_TABLE: &str = "RunTimePermissionsTable";
-pub const VISIBILITY_TABLE: &str = "VisibilityPermissionsTable";
+pub(crate) const ROLES_TABLE: &str = "RoleGroupsAndOrganizations";
+pub(crate) const RUN_TIME_TABLE: &str = "RunTimePermissionsTable";
+pub(crate) const VISIBILITY_TABLE: &str = "VisibilityPermissionsTable";
 
 fn error(message: impl Into<String>) -> PermissionsError {
     PermissionsError(message.into())
@@ -32,14 +32,14 @@ fn error(message: impl Into<String>) -> PermissionsError {
 
 /// One column of a table.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub struct Field {
-    pub name: String,
-    pub ordinal: u32,
-    pub base_type: String,
+pub(crate) struct Field {
+    pub(crate) name: String,
+    pub(crate) ordinal: u32,
+    pub(crate) base_type: String,
     /// `aspect.isPrimaryKey`: written when `Some`.
-    pub primary_key: Option<bool>,
+    pub(crate) primary_key: Option<bool>,
     /// `aspect.defaultValue`.
-    pub default: Option<String>,
+    pub(crate) default: Option<String>,
 }
 
 fn field(name: &str, ordinal: u32, base_type: &str) -> Field {
@@ -52,14 +52,14 @@ fn field(name: &str, ordinal: u32, base_type: &str) -> Field {
     }
 }
 
-pub type Row = BTreeMap<String, String>;
+pub(crate) type Row = BTreeMap<String, String>;
 
 /// A configuration table's columns, sorted as the helper writes them, and its rows in order.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub struct Table {
-    pub data_shape: String,
-    pub fields: Vec<Field>,
-    pub rows: Vec<Row>,
+pub(crate) struct Table {
+    pub(crate) data_shape: String,
+    pub(crate) fields: Vec<Field>,
+    pub(crate) rows: Vec<Row>,
 }
 
 fn sort_fields(fields: &mut [Field]) {
@@ -67,7 +67,7 @@ fn sort_fields(fields: &mut [Field]) {
 }
 
 /// The columns of the run-time table and its DataShape.
-pub fn run_time_fields(policy: &Policy) -> Vec<Field> {
+pub(crate) fn run_time_fields(policy: &Policy) -> Vec<Field> {
     let mut fields = vec![
         Field {
             primary_key: Some(true),
@@ -94,7 +94,7 @@ pub fn run_time_fields(policy: &Policy) -> Vec<Field> {
 }
 
 /// The columns of the visibility table and its DataShape.
-pub fn visibility_fields(policy: &Policy) -> Vec<Field> {
+pub(crate) fn visibility_fields(policy: &Policy) -> Vec<Field> {
     let mut fields = vec![
         Field {
             default: Some("Live".to_string()),
@@ -214,7 +214,7 @@ pub(crate) fn read_tables(entity: &Element) -> BTreeMap<String, Table> {
 }
 
 /// What the policy wants on an entity, or what its blocks hold when the policy leaves it alone.
-pub fn effective(policy: &Policy, entity: &ModelEntity, kind: Kind) -> Grants {
+pub(crate) fn effective(policy: &Policy, entity: &ModelEntity, kind: Kind) -> Grants {
     let current = entity
         .sets
         .get(&KindKey::of(kind))
@@ -247,7 +247,7 @@ fn number_text(value: f64) -> String {
 }
 
 /// The three tables as the policy has them, given the helper's current ones.
-pub fn wanted_tables(
+pub(crate) fn wanted_tables(
     loaded: &Loaded,
     current: &BTreeMap<String, Table>,
 ) -> BTreeMap<String, Table> {
@@ -542,7 +542,7 @@ fn indent_before(src: &[u8], at: usize) -> String {
 }
 
 /// Replace the named tables of a helper Thing whose content differs. Same bytes when none does.
-pub fn rewrite_tables(
+pub(crate) fn rewrite_tables(
     src: &[u8],
     wanted: &BTreeMap<String, Table>,
 ) -> Result<Vec<u8>, PermissionsError> {
@@ -602,7 +602,7 @@ pub fn rewrite_tables(
 }
 
 /// Make a DataShape's own `FieldDefinitions` exactly `fields`. Same bytes when they already are.
-pub fn rewrite_fields(src: &[u8], fields: &[Field]) -> Result<Vec<u8>, PermissionsError> {
+pub(crate) fn rewrite_fields(src: &[u8], fields: &[Field]) -> Result<Vec<u8>, PermissionsError> {
     let entity = normalise::entity_of(src).map_err(|e| error(e.to_string()))?;
     let current = child(&entity, "FieldDefinitions").map(fields_of);
     if current.as_deref() == Some(fields) {
@@ -636,7 +636,7 @@ pub fn rewrite_fields(src: &[u8], fields: &[Field]) -> Result<Vec<u8>, Permissio
 }
 
 /// What differs between two versions of a table, for a finding's details.
-pub fn describe(name: &str, current: Option<&Table>, wanted: &Table) -> Vec<String> {
+pub(crate) fn describe(name: &str, current: Option<&Table>, wanted: &Table) -> Vec<String> {
     let Some(current) = current else {
         return vec![format!("{name}: missing")];
     };
@@ -691,15 +691,15 @@ pub fn describe(name: &str, current: Option<&Table>, wanted: &Table) -> Vec<Stri
 }
 
 /// One helper file's new bytes, and what changed in it.
-pub struct HelperEdit<'a> {
-    pub entity: &'a ModelEntity,
-    pub after: Vec<u8>,
-    pub details: Vec<String>,
+pub(crate) struct HelperEdit<'a> {
+    pub(crate) entity: &'a ModelEntity,
+    pub(crate) after: Vec<u8>,
+    pub(crate) details: Vec<String>,
 }
 
 /// The helper Thing's tables and the two DataShapes' columns, written over `bytes_of` (each
 /// file's bytes after any block change). Only files that change are returned.
-pub fn edits<'a>(
+pub(crate) fn edits<'a>(
     loaded: &'a Loaded,
     helper: &'a ModelEntity,
     bytes_of: &dyn Fn(&ModelEntity) -> Result<Vec<u8>, PermissionsError>,
@@ -751,7 +751,7 @@ pub fn edits<'a>(
 
 /// Audit findings of helper mode: tables and DataShape columns the policy would change, and run-time
 /// rows for services that no longer exist.
-pub fn findings(
+pub(crate) fn findings(
     loaded: &Loaded,
     helper: &ModelEntity,
 ) -> Result<Vec<super::audit::Finding>, PermissionsError> {

@@ -1,8 +1,8 @@
 //! What every planner shares: spec validation, collision refusal, reading and scanning files.
 
 use super::{
-    refs, rename_scan, workspace, BTreeSet, Digest, FileChange, FileKind, Kind, Move, Path,
-    PathBuf, RenameError, Sha256, Spec,
+    refs, scan, workspace, BTreeSet, Digest, FileChange, FileKind, Kind, Move, Path, PathBuf,
+    RenameError, Sha256, Spec,
 };
 
 pub(super) fn validate_spec(spec: &Spec) -> Result<(), RenameError> {
@@ -120,12 +120,12 @@ pub(super) fn scan_text_file(
     kind: FileKind,
     spec: &Spec,
     mode: refs::Mode,
-    qualified: Option<&rename_scan::Qualified>,
+    qualified: Option<&scan::Qualified>,
     changes: &mut Vec<FileChange>,
     skipped: &mut Vec<PathBuf>,
 ) -> Result<(), RenameError> {
     let bytes = read(path)?;
-    match rename_scan::scan_text_with(&bytes, &spec.old, mode, &spec.new, qualified) {
+    match scan::scan_text_with(&bytes, &spec.old, mode, &spec.new, qualified) {
         Ok(mut pass) => {
             // A SQL file outside the sources is a migration or a query: a migration documents an old
             // name and a new one (including the one an earlier rename generated), so rewriting it
@@ -152,7 +152,7 @@ pub(super) fn push_change(
     path: PathBuf,
     kind: FileKind,
     bytes: &[u8],
-    pass: rename_scan::XmlPass,
+    pass: scan::XmlPass,
 ) {
     if !pass.findings.is_empty() {
         changes.push(FileChange {

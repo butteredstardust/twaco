@@ -7,7 +7,7 @@
 
 use super::{allowed, test_password, Remote, TestError};
 use crate::core::config::Solution;
-use crate::core::entity_key::{EntityKey, ServiceTarget};
+use crate::core::entity::key::{EntityKey, ServiceTarget};
 use crate::core::profile::Profile;
 use crate::core::server::ServerError;
 use serde_json::{json, Value};
@@ -71,7 +71,7 @@ fn key(collection: &str, name: &str) -> Result<EntityKey, TestError> {
 
 /// Every declared user as the server has it. `sign_in` opens a session as one user; it is only
 /// asked for users that exist, and only when the profile has a test password.
-pub fn list<R, S, F>(
+pub(crate) fn list<R, S, F>(
     solution: &Solution,
     profile: &Profile,
     admin: &R,
@@ -193,7 +193,7 @@ pub fn users_json(users: &[UserState]) -> Value {
 
 /// Create what is missing. A group that is not on the server is refused before anything is
 /// sent: deploy the solution first.
-pub fn seed<R, S, F>(
+pub(crate) fn seed<R, S, F>(
     solution: &Solution,
     profile: &Profile,
     admin: &R,
@@ -298,7 +298,7 @@ where
 }
 
 /// Delete every declared user the server has. Groups and the project stay: they may hold more.
-pub fn delete<R: Remote + ?Sized>(
+pub(crate) fn delete<R: Remote + ?Sized>(
     solution: &Solution,
     profile: &Profile,
     admin: &R,

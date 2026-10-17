@@ -31,7 +31,7 @@ const STOPWORDS: [&str; 40] = [
 /// A markdown file larger than this is not knowledge but data, and is left out.
 const MAX_FILE: u64 = 2 * 1024 * 1024;
 /// A topic read whole up to this size; a longer one gives its outline unless a section is named.
-pub const WHOLE: usize = 24_000;
+pub(crate) const WHOLE: usize = 24_000;
 
 #[derive(Debug, thiserror::Error)]
 pub enum GuideError {
@@ -46,14 +46,14 @@ pub struct Topic {
     pub title: String,
     /// None for a built-in topic.
     pub file: Option<PathBuf>,
-    pub text: String,
+    pub(crate) text: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Section {
+pub(crate) struct Section {
     /// Empty for the text before the first `##`.
-    pub heading: String,
-    pub text: String,
+    pub(crate) heading: String,
+    pub(crate) text: String,
 }
 
 /// The built-in topics, then the solution's, and what could not be read.
@@ -196,7 +196,7 @@ fn title_of(text: &str, id: &str) -> String {
 
 /// A topic's `##` sections, the text before the first one included when it holds anything
 /// but the title. A `##` inside a fenced code block is code, not a heading.
-pub fn sections(text: &str) -> Vec<Section> {
+pub(crate) fn sections(text: &str) -> Vec<Section> {
     let mut out = vec![Section {
         heading: String::new(),
         text: String::new(),
@@ -332,7 +332,7 @@ pub struct Hit {
     /// How many of the query's words the section holds.
     pub matched: usize,
     pub of: usize,
-    pub score: f64,
+    pub(crate) score: f64,
     /// The first line holding a query word, shortened.
     pub line: String,
 }

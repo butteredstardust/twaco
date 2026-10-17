@@ -12,9 +12,9 @@ use std::time::Instant;
 
 /// Captured compiler output, kept independent of `std::process::Output` for no-node tests.
 pub struct CompilerOutput {
-    pub success: bool,
-    pub stdout: Vec<u8>,
-    pub stderr: Vec<u8>,
+    pub(crate) success: bool,
+    pub(crate) stdout: Vec<u8>,
+    pub(crate) stderr: Vec<u8>,
 }
 
 /// Injectable boundary around TypeScript. Production uses a child process; tests use canned text.
@@ -63,7 +63,7 @@ impl CompilerRunner for ProcessCompiler {
 }
 
 /// Regenerate editor declarations and type-check every service in one compiler project.
-pub fn check(solution: &Solution) -> Result<CheckOutcome, CheckError> {
+pub(crate) fn check(solution: &Solution) -> Result<CheckOutcome, CheckError> {
     check_with(solution, &ProcessCompiler)
 }
 

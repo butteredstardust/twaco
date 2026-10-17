@@ -28,9 +28,8 @@ mod base_tests;
 #[cfg(test)]
 mod classify_tests;
 
-pub use base::{
-    check_handoff, handoffs, history_versions, record_handoff, resolve, Base, BaseSource, Handoff,
-    Side,
+pub(crate) use base::{
+    check_handoff, handoffs, history_versions, record_handoff, resolve, Handoff, Side,
 };
 pub use classify::{Change, Kind};
 
@@ -110,7 +109,7 @@ pub struct EntityReport {
     pub entity: EntityRef,
     /// The export's own `projectName`, so a multi-project drop is attributed per project.
     pub project: String,
-    pub status: Status,
+    pub(crate) status: Status,
     pub differences: Vec<Difference>,
     pub volatile_ids: usize,
     pub ignored: usize,
@@ -214,21 +213,26 @@ pub struct Take {
     pub target: String,
 }
 
-/// Extra inputs to the three-way comparison.  The old [`compare`] entry point intentionally
-/// keeps its two-way-shaped signature for existing front ends.
+/// Extra inputs to the three-way comparison. The old `compare` entry point, which the tests
+/// still use, keeps its two-way-shaped signature.
 #[derive(Debug, Default)]
-pub struct CompareOptions {
-    pub base: Option<String>,
-    pub only_kind: Option<Kind>,
+pub(crate) struct CompareOptions {
+    pub(crate) base: Option<String>,
+    pub(crate) only_kind: Option<Kind>,
 }
 
 /// Compare an export with the solution. `only` retains its established name-fragment meaning.
-pub fn compare(solution: &Solution, export: &Path, only: &[String]) -> Result<Report, AdoptError> {
+#[cfg(test)]
+pub(crate) fn compare(
+    solution: &Solution,
+    export: &Path,
+    only: &[String],
+) -> Result<Report, AdoptError> {
     compare_with(solution, export, only, &CompareOptions::default())
 }
 
 /// Compare an export using an explicit base and/or collection kind filter.
-pub fn compare_with(
+pub(crate) fn compare_with(
     solution: &Solution,
     export: &Path,
     only: &[String],
@@ -664,7 +668,7 @@ fn py_space(c: char) -> bool {
 
 /// A value as a comparison should see it: whitespace runs collapsed, and JSON re-serialised with
 /// sorted keys, so one object written two ways is one value.
-pub fn canonical(value: &str) -> String {
+pub(crate) fn canonical(value: &str) -> String {
     let mut collapsed = String::with_capacity(value.len());
     let mut in_space = false;
     for c in value.chars() {
@@ -850,7 +854,7 @@ fn is_volatile_id(path: &str) -> bool {
 /// An `ignore_paths` glob, anchored at both ends: `*` matches within one path step, `**` across
 /// steps, and every other character, brackets included, is literal. `fnmatch` would read
 /// `ConfigurationTable[ConnectionInfo]` as a character class and silently match nothing.
-pub fn glob_matches(pattern: &str, text: &str) -> bool {
+pub(crate) fn glob_matches(pattern: &str, text: &str) -> bool {
     #[derive(Clone, Copy, PartialEq)]
     enum Token {
         Char(char),
@@ -946,7 +950,7 @@ pub struct ApplyOutcome {
 /// Every write is worked out before the first is made, so an export that cannot be adopted
 /// (a payload that is not JSON, a name that is not a file name) changes nothing. The writes are
 /// then made as one transaction under `lock`: all of them or, after a failure or a crash, none.
-pub fn apply(
+pub(crate) fn apply(
     solution: &Solution,
     export: &Path,
     report: &Report,
@@ -1229,7 +1233,7 @@ fn validate_takes(report: &Report, takes: &[Take]) -> Result<(), AdoptError> {
 }
 
 /// The take target that resolves every UI conflict and unknown in favour of the export.
-pub const TAKE_ALL_UI: &str = "ui";
+pub(crate) const TAKE_ALL_UI: &str = "ui";
 
 /// Whether the export's version of a UI entity was explicitly asked for, by name or as `ui`.
 fn ui_taken(entry: &EntityReport, takes: &[Take]) -> bool {

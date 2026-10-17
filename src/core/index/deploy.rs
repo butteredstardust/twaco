@@ -2,7 +2,7 @@
 
 use super::build::Builder;
 use super::EdgeKind;
-use crate::core::entity_key::EntityKey;
+use crate::core::entity::key::EntityKey;
 
 impl Builder<'_> {
     /// An edge from each project to the entities its deploy configuration names: the entry point

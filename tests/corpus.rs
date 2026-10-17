@@ -379,7 +379,7 @@ fn rename_scan_counts_on_the_corpus() {
                     continue;
                 }
                 files += 1;
-                match twaco::core::rename_scan::scan_xml(&src, name, mode, "Twaco.Rename.Probe") {
+                match twaco::core::rename::scan::scan_xml(&src, name, mode, "Twaco.Rename.Probe") {
                     Ok(pass) => {
                         for finding in pass.findings {
                             match finding.tier {
@@ -441,7 +441,7 @@ fn rename_scan_counts_on_the_corpus() {
                 skipped += 1;
                 continue;
             }
-            let forward = match twaco::core::rename_scan::scan_xml(
+            let forward = match twaco::core::rename::scan::scan_xml(
                 &src,
                 &info.name,
                 twaco::core::refs::Mode::Entity,
@@ -460,7 +460,7 @@ fn rename_scan_counts_on_the_corpus() {
                     continue;
                 }
             };
-            let reverse = match twaco::core::rename_scan::scan_xml(
+            let reverse = match twaco::core::rename::scan::scan_xml(
                 &renamed,
                 &new,
                 twaco::core::refs::Mode::Entity,
@@ -1781,7 +1781,7 @@ fn scripts_parse_over_the_corpus() {
 /// reaches itself, and what it could not read is listed rather than dropped.
 #[test]
 fn the_index_holds_its_invariants_over_the_corpus() {
-    use twaco::core::entity_key::EntityKey;
+    use twaco::core::entity::key::EntityKey;
     use twaco::core::index::{Confidence, DependentOptions, Index};
 
     let mut entities = 0usize;

@@ -1,5 +1,5 @@
 use super::super::config::Solution;
-use super::super::entity_key::ServiceTarget;
+use super::super::entity::key::ServiceTarget;
 use super::super::profile::Profile;
 use super::connection::{
     connection, connection_table, read_only_connection, secret_error, without_password, Connection,
@@ -13,7 +13,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 static NAME_COUNTER: AtomicU64 = AtomicU64::new(0);
 
-pub fn execute(
+pub(crate) fn execute(
     remote: &dyn Remote,
     solution: &Solution,
     profile: &Profile,

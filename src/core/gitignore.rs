@@ -10,7 +10,7 @@ use std::io::Write;
 use std::path::Path;
 
 /// What a solution should not commit.
-pub const ENTRIES: &[&str] = &[
+pub(crate) const ENTRIES: &[&str] = &[
     ".twaco/profiles/",
     ".twaco/lock",
     ".twaco/lock.holder",
@@ -45,7 +45,7 @@ fn covered(entry: &str, lines: &[&str]) -> bool {
 }
 
 /// The entries the solution's `.gitignore` does not cover yet; all of them without a file.
-pub fn missing(root: &Path) -> Vec<&'static str> {
+pub(crate) fn missing(root: &Path) -> Vec<&'static str> {
     let text = std::fs::read_to_string(root.join(".gitignore")).unwrap_or_default();
     let lines: Vec<&str> = text
         .lines()
@@ -92,13 +92,14 @@ pub fn add_missing(root: &Path) -> std::io::Result<Vec<&'static str>> {
 
 /// The folders whose files can hold a secret: profiles hold credentials; backups and journal
 /// backups hold a server's copy of an entity, a database Thing's password included.
-pub const SECRET_FOLDERS: &[&str] = &[".twaco/profiles", ".twaco/backups", ".twaco/transactions"];
+pub(crate) const SECRET_FOLDERS: &[&str] =
+    &[".twaco/profiles", ".twaco/backups", ".twaco/transactions"];
 
 /// The files under [`SECRET_FOLDERS`] that git already tracks, relative to `root`. An ignore line
 /// does not untrack a file that was added before it, so `.gitignore` alone cannot answer this.
 /// Asks `git ls-files`, which reads the index and nothing else; an error says why git could not
 /// be asked.
-pub fn tracked_secrets(root: &Path) -> Result<Vec<String>, String> {
+pub(crate) fn tracked_secrets(root: &Path) -> Result<Vec<String>, String> {
     let started = std::time::Instant::now();
     let output = std::process::Command::new("git")
         .arg("-C")

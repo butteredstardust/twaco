@@ -31,13 +31,17 @@ pub struct PackageOutcome {
     pub summary: String,
     /// What was built, from the build that was written, for an adapter that reports more than the
     /// one-line summary.
-    pub detail: PackageDetail,
-    pub effects: Effects,
+    pub(crate) detail: PackageDetail,
+    #[allow(
+        dead_code,
+        reason = "the command facade's Effects (COMMAND_FACADE.md); read only by tests"
+    )]
+    pub(crate) effects: Effects,
 }
 
 /// What a package holds.
 #[derive(Debug)]
-pub enum PackageDetail {
+pub(crate) enum PackageDetail {
     Bundle {
         entities: usize,
         files: usize,

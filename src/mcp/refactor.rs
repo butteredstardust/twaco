@@ -92,7 +92,7 @@ pub(crate) fn entity_new_tool(
     solution: &Solution,
     arguments: EntityNewRequest,
 ) -> Result<Value, ToolError> {
-    let request = crate::core::entity_new::NewRequest {
+    let request = crate::core::entity::new::NewRequest {
         kind: arguments.kind.into(),
         name: nonempty(&arguments.name, "name")?.to_string(),
         project: arguments.project.as_ref().cloned(),
@@ -142,7 +142,7 @@ pub(crate) fn entity_new_tool(
     let mut notices = commands::Notices::default();
     let outcome = commands::entity_new::execute(solution, &request, &mut notices)
         .map_err(ToolError::coded)?;
-    let mut result = crate::core::entity_new::plan_json(solution, &outcome.plan, outcome.applied);
+    let mut result = crate::core::entity::new::plan_json(solution, &outcome.plan, outcome.applied);
     result["dry_run"] = json!(dry_run);
     add_notices(&mut result, &notices);
     Ok(result)
@@ -152,7 +152,7 @@ pub(crate) fn entity_edit_tool(
     solution: &Solution,
     arguments: EntityEditRequest,
 ) -> Result<Value, ToolError> {
-    use crate::core::entity_edit::{Action, Property, Request, StyleChange};
+    use crate::core::entity::edit::{Action, Property, Request, StyleChange};
     use crate::mcp::requests::common::Absent;
     let text = |value: &Absent<String>| value.as_ref().cloned();
     let need = |value: &Absent<String>, what: &str| -> Result<String, ToolError> {
@@ -261,7 +261,7 @@ pub(crate) fn entity_edit_tool(
     let mut notices = commands::Notices::default();
     let outcome = commands::entity_edit::execute(solution, &request, &mut notices)
         .map_err(ToolError::coded)?;
-    let mut result = crate::core::entity_edit::plan_json(solution, &outcome.plan, outcome.applied);
+    let mut result = crate::core::entity::edit::plan_json(solution, &outcome.plan, outcome.applied);
     result["dry_run"] = json!(dry_run);
     add_notices(&mut result, &notices);
     Ok(result)
@@ -325,7 +325,7 @@ pub(crate) fn mashup_describe_tool(
     arguments: MashupDescribeRequest,
 ) -> Result<Value, ToolError> {
     let description =
-        crate::core::mashup_describe::describe(solution, nonempty(&arguments.mashup, "mashup")?)
+        crate::core::mashup::describe::describe(solution, nonempty(&arguments.mashup, "mashup")?)
             .map_err(ToolError::coded)?;
     Ok(serde_json::to_value(description).expect("a description serialises"))
 }
@@ -344,7 +344,7 @@ pub(crate) fn mashup_validate_tool(
         }
     };
     let reports =
-        crate::core::mashup_validate::validate(solution, name).map_err(ToolError::coded)?;
+        crate::core::mashup::validate::validate(solution, name).map_err(ToolError::coded)?;
     let problems: usize = reports.iter().map(|report| report.problems.len()).sum();
     Ok(json!({ "problems": problems, "mashups": reports }))
 }
@@ -364,7 +364,7 @@ pub(crate) fn mashup_new_tool(
         .cloned()
         .unwrap_or_else(|| "blank".into());
     let request = commands::mashup::MashupNewRequest {
-        request: crate::core::mashup_authoring::NewRequest {
+        request: crate::core::mashup::authoring::NewRequest {
             name: nonempty(&arguments.name, "name")?.to_string(),
             project: arguments.project.as_ref().cloned(),
             template,
@@ -383,7 +383,7 @@ pub(crate) fn mashup_new_tool(
     let outcome =
         commands::mashup::new(solution, &request, &mut notices).map_err(ToolError::coded)?;
     let mut result =
-        crate::core::mashup_authoring::new_plan_json(solution, &outcome.plan, outcome.applied);
+        crate::core::mashup::authoring::new_plan_json(solution, &outcome.plan, outcome.applied);
     result["dry_run"] = json!(dry_run);
     add_notices(&mut result, &notices);
     Ok(result)
@@ -391,11 +391,11 @@ pub(crate) fn mashup_new_tool(
 
 pub(crate) fn mashup_templates_tool(arguments: MashupTemplatesRequest) -> Result<Value, ToolError> {
     match arguments.name.as_ref() {
-        Some(name) => crate::core::mashup_templates_view::detail(name)
+        Some(name) => crate::core::mashup::templates_view::detail(name)
             .map_err(ToolError::invalid)?
             .map(|template| serde_json::to_value(template).expect("template serialises"))
             .ok_or_else(|| ToolError::invalid(format!("unknown template `{name}`"))),
-        None => crate::core::mashup_templates_view::list()
+        None => crate::core::mashup::templates_view::list()
             .map(|templates| json!({ "templates": templates }))
             .map_err(ToolError::invalid),
     }
@@ -411,27 +411,27 @@ pub(crate) fn mashup_add_tool(
             .container
             .as_ref()
             .cloned()
-            .map(crate::core::mashup_edit::Placement::In),
+            .map(crate::core::mashup::edit::Placement::In),
         arguments
             .right_of
             .as_ref()
             .cloned()
-            .map(|anchor| beside(anchor, crate::core::mashup_edit::Side::Right)),
+            .map(|anchor| beside(anchor, crate::core::mashup::edit::Side::Right)),
         arguments
             .left_of
             .as_ref()
             .cloned()
-            .map(|anchor| beside(anchor, crate::core::mashup_edit::Side::Left)),
+            .map(|anchor| beside(anchor, crate::core::mashup::edit::Side::Left)),
         arguments
             .above
             .as_ref()
             .cloned()
-            .map(|anchor| beside(anchor, crate::core::mashup_edit::Side::Above)),
+            .map(|anchor| beside(anchor, crate::core::mashup::edit::Side::Above)),
         arguments
             .below
             .as_ref()
             .cloned()
-            .map(|anchor| beside(anchor, crate::core::mashup_edit::Side::Below)),
+            .map(|anchor| beside(anchor, crate::core::mashup::edit::Side::Below)),
     ];
     let supplied: Vec<_> = placements.into_iter().flatten().collect();
     if supplied.len() > 1 {
@@ -440,7 +440,7 @@ pub(crate) fn mashup_add_tool(
         ));
     }
     let request = commands::mashup::MashupAddRequest {
-        request: crate::core::mashup_authoring::AddRequest {
+        request: crate::core::mashup::authoring::AddRequest {
             mashup: nonempty(&arguments.mashup, "mashup")?.to_string(),
             widget: nonempty(&arguments.widget, "widget")?.to_string(),
             inputs: arguments.inputs.items().to_vec(),
@@ -461,7 +461,7 @@ pub(crate) fn mashup_add_tool(
     let outcome =
         commands::mashup::add(solution, &request, &mut notices).map_err(ToolError::coded)?;
     let mut result =
-        crate::core::mashup_authoring::add_plan_json(solution, &outcome.plan, outcome.applied);
+        crate::core::mashup::authoring::add_plan_json(solution, &outcome.plan, outcome.applied);
     result["dry_run"] = json!(dry_run);
     add_notices(&mut result, &notices);
     Ok(result)
@@ -476,27 +476,27 @@ pub(crate) fn mashup_add_contained_tool(
             .container
             .as_ref()
             .cloned()
-            .map(crate::core::mashup_edit::Placement::In),
+            .map(crate::core::mashup::edit::Placement::In),
         arguments
             .right_of
             .as_ref()
             .cloned()
-            .map(|anchor| beside(anchor, crate::core::mashup_edit::Side::Right)),
+            .map(|anchor| beside(anchor, crate::core::mashup::edit::Side::Right)),
         arguments
             .left_of
             .as_ref()
             .cloned()
-            .map(|anchor| beside(anchor, crate::core::mashup_edit::Side::Left)),
+            .map(|anchor| beside(anchor, crate::core::mashup::edit::Side::Left)),
         arguments
             .above
             .as_ref()
             .cloned()
-            .map(|anchor| beside(anchor, crate::core::mashup_edit::Side::Above)),
+            .map(|anchor| beside(anchor, crate::core::mashup::edit::Side::Above)),
         arguments
             .below
             .as_ref()
             .cloned()
-            .map(|anchor| beside(anchor, crate::core::mashup_edit::Side::Below)),
+            .map(|anchor| beside(anchor, crate::core::mashup::edit::Side::Below)),
     ];
     let supplied: Vec<_> = placements.into_iter().flatten().collect();
     if supplied.len() > 1 {
@@ -506,7 +506,7 @@ pub(crate) fn mashup_add_contained_tool(
     }
     let dry_run = arguments.dry_run;
     let request = commands::mashup::MashupAddContainedRequest {
-        request: crate::core::mashup_authoring::AddContainedRequest {
+        request: crate::core::mashup::authoring::AddContainedRequest {
             mashup: nonempty(&arguments.mashup, "mashup")?.into(),
             child: nonempty(&arguments.child, "child")?.into(),
             placement: supplied.into_iter().next(),
@@ -524,7 +524,7 @@ pub(crate) fn mashup_add_contained_tool(
     let mut notices = commands::Notices::default();
     let outcome = commands::mashup::add_contained(solution, &request, &mut notices)
         .map_err(ToolError::coded)?;
-    let mut result = crate::core::mashup_authoring::add_contained_plan_json(
+    let mut result = crate::core::mashup::authoring::add_contained_plan_json(
         solution,
         &outcome.plan,
         outcome.applied,
@@ -543,19 +543,19 @@ pub(crate) fn mashup_parameter_tool(
         return Err(ToolError::invalid("give default or no_default, not both"));
     }
     let action = match arguments.action {
-        MashupParameterAction::Add => crate::core::mashup_authoring::ParameterAction::Add,
-        MashupParameterAction::Set => crate::core::mashup_authoring::ParameterAction::Set,
-        MashupParameterAction::Remove => crate::core::mashup_authoring::ParameterAction::Remove,
+        MashupParameterAction::Add => crate::core::mashup::authoring::ParameterAction::Add,
+        MashupParameterAction::Set => crate::core::mashup::authoring::ParameterAction::Set,
+        MashupParameterAction::Remove => crate::core::mashup::authoring::ParameterAction::Remove,
     };
     let default = if arguments.no_default {
-        crate::core::mashup_authoring::ParameterDefault::Clear
+        crate::core::mashup::authoring::ParameterDefault::Clear
     } else if let Some(value) = arguments.default.as_ref() {
-        crate::core::mashup_authoring::ParameterDefault::Set(value.clone())
+        crate::core::mashup::authoring::ParameterDefault::Set(value.clone())
     } else {
-        crate::core::mashup_authoring::ParameterDefault::Unchanged
+        crate::core::mashup::authoring::ParameterDefault::Unchanged
     };
     let request = commands::mashup::MashupParameterRequest {
-        request: crate::core::mashup_authoring::ParameterRequest {
+        request: crate::core::mashup::authoring::ParameterRequest {
             mashup: nonempty(&arguments.mashup, "mashup")?.into(),
             action,
             name: nonempty(&arguments.name, "name")?.into(),
@@ -572,7 +572,7 @@ pub(crate) fn mashup_parameter_tool(
     let mut notices = commands::Notices::default();
     let outcome =
         commands::mashup::parameter(solution, &request, &mut notices).map_err(ToolError::coded)?;
-    let mut result = crate::core::mashup_authoring::parameter_plan_json(
+    let mut result = crate::core::mashup::authoring::parameter_plan_json(
         solution,
         &outcome.plan,
         outcome.applied,
@@ -586,7 +586,7 @@ pub(crate) fn mashup_recipe_tool(
     solution: &Solution,
     arguments: MashupRecipeRequest,
 ) -> Result<Value, ToolError> {
-    use crate::core::mashup_authoring::{Recipe, RecipeArgs, RecipeRequest};
+    use crate::core::mashup::authoring::{Recipe, RecipeArgs, RecipeRequest};
     let dry_run = arguments.dry_run;
     let recipe_args = RecipeArgs {
         widget: arguments.widget.as_ref().cloned(),
@@ -628,7 +628,7 @@ pub(crate) fn mashup_recipe_tool(
     let outcome =
         commands::mashup::recipe(solution, &request, &mut notices).map_err(ToolError::coded)?;
     let mut result =
-        crate::core::mashup_authoring::recipe_plan_json(solution, &outcome.plan, outcome.applied);
+        crate::core::mashup::authoring::recipe_plan_json(solution, &outcome.plan, outcome.applied);
     result["dry_run"] = json!(dry_run);
     add_notices(&mut result, &notices);
     Ok(result)
@@ -640,7 +640,7 @@ pub(crate) fn mashup_event_tool(
 ) -> Result<Value, ToolError> {
     let dry_run = arguments.dry_run;
     let request = commands::mashup::MashupEventRequest {
-        request: crate::core::mashup_authoring::EventRequest {
+        request: crate::core::mashup::authoring::EventRequest {
             mashup: nonempty(&arguments.mashup, "mashup")?.into(),
             name: nonempty(&arguments.name, "name")?.into(),
             when: nonempty(&arguments.when, "when")?.into(),
@@ -651,7 +651,7 @@ pub(crate) fn mashup_event_tool(
     let mut notices = commands::Notices::default();
     let outcome =
         commands::mashup::event(solution, &request, &mut notices).map_err(ToolError::coded)?;
-    let mut result = crate::core::mashup_authoring::parameter_plan_json(
+    let mut result = crate::core::mashup::authoring::parameter_plan_json(
         solution,
         &outcome.plan,
         outcome.applied,
@@ -667,7 +667,7 @@ pub(crate) fn mashup_bind_tool(
 ) -> Result<Value, ToolError> {
     let dry_run = arguments.dry_run;
     let request = commands::mashup::MashupBindRequest {
-        request: crate::core::mashup_authoring::BindRequest {
+        request: crate::core::mashup::authoring::BindRequest {
             mashup: nonempty(&arguments.mashup, "mashup")?.to_string(),
             from: nonempty(&arguments.from, "from")?.to_string(),
             to: nonempty(&arguments.to, "to")?.to_string(),
@@ -704,7 +704,7 @@ pub(crate) fn mashup_on_tool(
 ) -> Result<Value, ToolError> {
     let dry_run = arguments.dry_run;
     let request = commands::mashup::MashupOnRequest {
-        request: crate::core::mashup_authoring::OnRequest {
+        request: crate::core::mashup::authoring::OnRequest {
             mashup: nonempty(&arguments.mashup, "mashup")?.to_string(),
             event: nonempty(&arguments.event, "event")?.to_string(),
             invoke: nonempty(&arguments.invoke, "invoke")?.to_string(),
@@ -731,9 +731,9 @@ pub(crate) fn mashup_on_tool(
 
 fn beside(
     anchor: String,
-    side: crate::core::mashup_edit::Side,
-) -> crate::core::mashup_edit::Placement {
-    crate::core::mashup_edit::Placement::Beside { anchor, side }
+    side: crate::core::mashup::edit::Side,
+) -> crate::core::mashup::edit::Placement {
+    crate::core::mashup::edit::Placement::Beside { anchor, side }
 }
 
 pub(crate) fn widgets_tool(arguments: WidgetsRequest) -> Result<Value, ToolError> {

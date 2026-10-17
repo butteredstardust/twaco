@@ -17,7 +17,7 @@
 //!   search finds nothing, the server is asked whether the project exists.
 
 use super::codes::{Coded, ErrorCode};
-use super::entity_key::{EntityKey, ServiceTarget};
+use super::entity::key::{EntityKey, ServiceTarget};
 use super::server::{Client, ServerError};
 use serde::Serialize;
 use serde_json::{json, Value};
@@ -25,7 +25,7 @@ use std::time::Duration;
 
 /// Every entity collection the search knows, with the singular type name it takes. Each was
 /// checked on a live server: the singular name narrows the search, and only these do.
-pub const TYPES: &[(&str, &str)] = &[
+pub(crate) const TYPES: &[(&str, &str)] = &[
     ("ApplicationKeys", "ApplicationKey"),
     ("Authenticators", "Authenticator"),
     ("Dashboards", "Dashboard"),
@@ -54,7 +54,7 @@ pub const TYPES: &[(&str, &str)] = &[
 ];
 
 /// The most a search may ask for. Far more than a person reads; an agent narrows instead.
-pub const MAX_LIMIT: usize = 10_000;
+pub(crate) const MAX_LIMIT: usize = 10_000;
 pub const DEFAULT_LIMIT: usize = 100;
 
 /// What the search asks of the server, as a trait so it is tested offline.
@@ -91,7 +91,7 @@ pub enum SearchError {
 }
 
 /// The singular type the search takes for a type or collection name, in any case.
-pub fn entity_type(given: &str) -> Result<&'static str, SearchError> {
+pub(crate) fn entity_type(given: &str) -> Result<&'static str, SearchError> {
     let given = given.trim();
     TYPES
         .iter()
@@ -115,7 +115,7 @@ pub fn entity_type(given: &str) -> Result<&'static str, SearchError> {
 pub struct Query<'a> {
     /// Text in a name or description; `*` makes it a pattern. Absent or blank: every entity.
     pub text: Option<&'a str>,
-    /// Type or collection names, each checked by [`entity_type`].
+    /// Type or collection names, each checked by `entity_type`.
     pub types: &'a [String],
     pub project: Option<&'a str>,
     pub limit: usize,
@@ -126,7 +126,7 @@ pub struct Found {
     /// `Collection/Name`, as `export` and `entity get` take it.
     pub entity: String,
     #[serde(rename = "type")]
-    pub type_name: String,
+    pub(crate) type_name: String,
     #[serde(skip_serializing_if = "String::is_empty")]
     pub project: String,
     #[serde(skip_serializing_if = "String::is_empty")]

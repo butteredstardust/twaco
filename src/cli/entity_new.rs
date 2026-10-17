@@ -4,7 +4,8 @@ use crate::{print_notices, FAILED, OK};
 use std::path::PathBuf;
 use twaco::core::commands::{self, Mode};
 use twaco::core::config::Solution;
-use twaco::core::entity_new::{self, Kind, NewRequest};
+use twaco::core::entity;
+use twaco::core::entity::new::{Kind, NewRequest};
 
 /// `twaco new <kind> <name>`: a building block, or one of the common entities.
 #[derive(Debug, clap::Subcommand)]
@@ -412,7 +413,7 @@ pub(crate) fn entity_new_cmd(solution: &Solution, new: &NewEntity) -> u8 {
         }
     };
     print_notices(&notices);
-    let report = entity_new::plan_json(solution, &outcome.plan, outcome.applied);
+    let report = entity::new::plan_json(solution, &outcome.plan, outcome.applied);
     if base.json.json {
         println!(
             "{}",

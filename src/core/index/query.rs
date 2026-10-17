@@ -2,7 +2,7 @@
 
 use super::inherit::{implements_shape, inheritance_chain, Inherits};
 use super::{Confidence, Edge, EdgeKind, Index};
-use crate::core::entity_key::EntityKey;
+use crate::core::entity::key::EntityKey;
 use crate::core::workspace::WorkspaceError;
 use petgraph::graph::NodeIndex;
 use petgraph::visit::{EdgeFiltered, EdgeRef};
@@ -15,11 +15,11 @@ use std::collections::{BTreeMap, BTreeSet, VecDeque};
 pub struct DependentOptions {
     /// Restrict the question to one service, property or field of the entity: who calls `Run`,
     /// not who uses the entity at all.
-    pub member: Option<String>,
+    pub(crate) member: Option<String>,
     /// The weakest edge to follow. `Review` follows everything.
-    pub min: Confidence,
+    pub(crate) min: Confidence,
     /// How many references away to look; none is no limit.
-    pub max_depth: Option<usize>,
+    pub(crate) max_depth: Option<usize>,
 }
 
 impl Default for DependentOptions {
@@ -37,10 +37,10 @@ impl Default for DependentOptions {
 pub struct Step {
     pub from: String,
     pub to: String,
-    pub kind: EdgeKind,
-    pub from_member: Option<String>,
-    pub to_member: Option<String>,
-    pub at: Option<String>,
+    pub(crate) kind: EdgeKind,
+    pub(crate) from_member: Option<String>,
+    pub(crate) to_member: Option<String>,
+    pub(crate) at: Option<String>,
 }
 
 /// Something that depends, directly or through others, on the thing asked about.
@@ -49,13 +49,13 @@ pub struct Dependent {
     /// `Collection/Name`, or `project <name>`.
     pub label: String,
     /// The project it belongs to.
-    pub project: String,
+    pub(crate) project: String,
     /// How many references away it is.
     pub depth: usize,
     /// The strongest chain of references that reaches it is only as sure as its weakest link.
-    pub confidence: Confidence,
+    pub(crate) confidence: Confidence,
     /// The services, properties or fields of it that are involved.
-    pub members: Vec<String>,
+    pub(crate) members: Vec<String>,
     /// The shortest chain that reaches it, starting at the thing asked about.
     pub path: Vec<Step>,
 }
@@ -176,7 +176,7 @@ impl Index {
     }
 
     /// What refers to `key` directly, as the references themselves, strongest first.
-    pub fn references_to(&self, key: &EntityKey) -> Vec<Step> {
+    pub(crate) fn references_to(&self, key: &EntityKey) -> Vec<Step> {
         let Some(to) = self.at(key) else {
             return Vec::new();
         };
@@ -197,7 +197,7 @@ impl Index {
     }
 
     /// What `key` refers to directly, as the references themselves, strongest first.
-    pub fn references_from(&self, key: &EntityKey) -> Vec<Step> {
+    pub(crate) fn references_from(&self, key: &EntityKey) -> Vec<Step> {
         let Some(from) = self.at(key) else {
             return Vec::new();
         };
@@ -220,7 +220,7 @@ impl Index {
     /// The entity a person means by `given`: `Collection/Name`, a full name, or its last dotted
     /// segment (case-insensitively, as typed on Windows). A name that fits two entities is an
     /// error listing them, never a first-match win.
-    pub fn resolve(&self, given: &str) -> Result<EntityKey, WorkspaceError> {
+    pub(crate) fn resolve(&self, given: &str) -> Result<EntityKey, WorkspaceError> {
         let unknown = || WorkspaceError::UnknownEntity {
             name: given.to_string(),
         };
@@ -288,7 +288,7 @@ impl Index {
 
     /// The templates and shapes `key` inherits, nearest first: see
     /// [`inheritance_chain`], the one walk the service catalog shares.
-    pub fn inheritance_names(&self, key: &EntityKey) -> Vec<String> {
+    pub(crate) fn inheritance_names(&self, key: &EntityKey) -> Vec<String> {
         self.inherits_of(key)
             .map(|start| inheritance_chain(start, |name| self.template_named(name)))
             .unwrap_or_default()
@@ -296,7 +296,7 @@ impl Index {
 
     /// The Things and templates that implement `shape`, directly or through a template chain, by
     /// name, sorted. `project` limits the answer to one project's entities.
-    pub fn implementers(&self, shape: &EntityKey, project: Option<&str>) -> Vec<String> {
+    pub(crate) fn implementers(&self, shape: &EntityKey, project: Option<&str>) -> Vec<String> {
         let mut out: Vec<String> = self
             .entities()
             .filter(|(key, node)| {
@@ -366,7 +366,7 @@ impl Index {
 
     /// The projects that hold any of `labels` (entity labels as returned in [`Dependent::label`]
     /// or `Collection/Name`), with each project's place in the deploy order, in that order.
-    pub fn projects_of(&self, labels: &[String]) -> Vec<(usize, String)> {
+    pub(crate) fn projects_of(&self, labels: &[String]) -> Vec<(usize, String)> {
         let mut names: BTreeSet<String> = BTreeSet::new();
         for label in labels {
             if let Some(name) = label.strip_prefix("project ") {
@@ -396,15 +396,10 @@ impl Index {
         out
     }
 
-    /// The project nodes of the graph, by name.
-    pub fn project_names(&self) -> Vec<&str> {
-        self.projects.keys().map(String::as_str).collect()
-    }
-
     /// The labels of everything that refers to `key` at all, entities and projects, sorted. A
     /// dependent that is itself unreferenced is a dead end, and shows up here for the entity it
     /// still names.
-    pub fn referrers(&self, key: &EntityKey) -> Vec<String> {
+    pub(crate) fn referrers(&self, key: &EntityKey) -> Vec<String> {
         let Some(node) = self.at(key) else {
             return Vec::new();
         };
@@ -419,7 +414,7 @@ impl Index {
     }
 
     /// The entities `twaco.toml` names as a project's entry point or a post-import call.
-    pub fn deploy_targets(&self) -> Vec<EntityKey> {
+    pub(crate) fn deploy_targets(&self) -> Vec<EntityKey> {
         self.entities
             .iter()
             .filter(|(_, node)| {
@@ -433,7 +428,7 @@ impl Index {
 
     /// Whether `key` runs without being called: it declares subscriptions, it inherits a template
     /// or shape that does, or it is a Timer or Scheduler.
-    pub fn runs_on_events(&self, key: &EntityKey) -> bool {
+    pub(crate) fn runs_on_events(&self, key: &EntityKey) -> bool {
         let Some(node) = self.node(key) else {
             return false;
         };
@@ -456,33 +451,12 @@ impl Index {
 
     /// Whether the node standing for `key` is a configured project's entry point or deploy call
     /// target, as `twaco.toml` names it.
-    pub fn is_deployed(&self, key: &EntityKey) -> bool {
+    #[cfg(test)]
+    pub(crate) fn is_deployed(&self, key: &EntityKey) -> bool {
         self.at(key).is_some_and(|node| {
             self.graph
                 .edges_directed(node, Direction::Incoming)
                 .any(|edge| edge.weight().kind == EdgeKind::Deploy)
         })
-    }
-
-    /// The kind of node `label` names, for rendering.
-    pub fn is_project(&self, label: &str) -> bool {
-        label
-            .strip_prefix("project ")
-            .is_some_and(|name| self.projects.contains_key(name))
-    }
-
-    /// Entities no reference points at, sorted. Not a verdict that they are unused: see
-    /// `unused` for that.
-    pub fn unreferenced(&self) -> Vec<EntityKey> {
-        self.entities
-            .iter()
-            .filter(|(_, node)| {
-                self.graph
-                    .edges_directed(**node, Direction::Incoming)
-                    .next()
-                    .is_none()
-            })
-            .map(|(key, _)| key.clone())
-            .collect()
     }
 }

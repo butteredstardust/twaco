@@ -23,45 +23,45 @@ pub struct Solution {
     #[serde(default, rename = "project")]
     pub projects: Vec<Project>,
     #[serde(default)]
-    pub bundle: Bundle,
+    pub(crate) bundle: Bundle,
     /// Project-specific gates, run by `twaco check` alongside the built-in ones.
     #[serde(default, rename = "check")]
-    pub checks: Vec<Check>,
+    pub(crate) checks: Vec<Check>,
     #[serde(default)]
-    pub validate: Validate,
+    pub(crate) validate: Validate,
     /// What `twaco unused` treats as in use without anything referring to it.
     #[serde(default)]
-    pub unused: Unused,
+    pub(crate) unused: Unused,
     /// What `adopt` should not report as a change. See [`Adopt`].
     #[serde(default)]
-    pub adopt: Adopt,
+    pub(crate) adopt: Adopt,
     /// Solution-wide output conventions for generated content.
     #[serde(default)]
-    pub format: Format,
+    pub(crate) format: Format,
     /// Which of the built-in gates a plain `twaco check` runs. See [`Gates`].
     #[serde(default)]
     pub gates: Gates,
     /// TypeScript compiler override used by `twaco types --check`.
     #[serde(default)]
-    pub types: Types,
+    pub(crate) types: Types,
     /// Which ThingWorx Platform help `twaco help` reads, when not the server's own version.
     #[serde(default)]
-    pub help: Help,
+    pub(crate) help: Help,
     /// Where file repositories' trees are kept: `[repositories] root = "filerepository"`.
     #[serde(default)]
-    pub repositories: Repositories,
+    pub(crate) repositories: Repositories,
     /// Where localization table exports live: `[localization] root = "localization"`.
     #[serde(default)]
-    pub localization: Localization,
+    pub(crate) localization: Localization,
     /// What `twaco package extension` writes into each `metadata.xml`.
     #[serde(default)]
-    pub package: Package,
+    pub(crate) package: Package,
     /// The solution's own markdown that `twaco guide` reads besides its built-in topics.
     #[serde(default)]
-    pub knowledge: Knowledge,
+    pub(crate) knowledge: Knowledge,
     /// The test users and the cases `twaco test` runs as them. See [`Test`].
     #[serde(default)]
-    pub test: Test,
+    pub(crate) test: Test,
     #[serde(skip)]
     pub root: PathBuf,
 }
@@ -69,25 +69,25 @@ pub struct Solution {
 /// How generated content is laid out inside entity XML.
 #[derive(Debug, Default, Deserialize)]
 #[serde(deny_unknown_fields)]
-pub struct Format {
+pub(crate) struct Format {
     /// Preserve the legacy, XML-aligned script layout instead of writing scripts flush left.
     #[serde(default)]
-    pub indent_cdata_payload: bool,
+    pub(crate) indent_cdata_payload: bool,
 }
 
 /// Decisions a project has already made about a designer's export.
 #[derive(Debug, Default, Deserialize)]
 #[serde(deny_unknown_fields)]
-pub struct Adopt {
+pub(crate) struct Adopt {
     /// Node paths never reported as changes, as `Collection/Entity/node/path` globs: `*` stays
     /// within one path step and `**` crosses them. For values that differ on every export by
     /// design, such as live property values or a password encrypted with the designer's key.
     #[serde(default)]
-    pub ignore_paths: Vec<String>,
+    pub(crate) ignore_paths: Vec<String>,
     /// `Entity.Service` names whose body is generated here, so a difference from the export is
     /// expected and the repository is authoritative.
     #[serde(default)]
-    pub generated_services: Vec<String>,
+    pub(crate) generated_services: Vec<String>,
 }
 
 /// `[gates]`: named for the built-in gates, since `[[check]]` is the hook list.
@@ -102,43 +102,43 @@ pub struct Gates {
     /// Built-in gates that report without failing the run, for a solution adopting twaco over
     /// code written before these gates existed. A gate that cannot run still fails.
     #[serde(default)]
-    pub advisory: Vec<String>,
+    pub(crate) advisory: Vec<String>,
 }
 
 /// Optional TypeScript compiler command. Arguments before twaco's `-p` are allowed.
 #[derive(Debug, Default, Deserialize)]
 #[serde(deny_unknown_fields)]
-pub struct Types {
-    pub tsc: Option<Vec<String>>,
+pub(crate) struct Types {
+    pub(crate) tsc: Option<Vec<String>>,
 }
 
 /// `[help] version = "10.1"`: the help center version, instead of the server's.
 #[derive(Debug, Default, Deserialize)]
 #[serde(deny_unknown_fields)]
-pub struct Help {
-    pub version: Option<String>,
+pub(crate) struct Help {
+    pub(crate) version: Option<String>,
 }
 
 /// `[repositories] root`: the folder holding one subfolder per FileRepository.
 #[derive(Debug, Default, Deserialize)]
 #[serde(deny_unknown_fields)]
-pub struct Repositories {
-    pub root: Option<String>,
+pub(crate) struct Repositories {
+    pub(crate) root: Option<String>,
 }
 
 /// Where localization table exports live.
 #[derive(Debug, Default, Deserialize)]
 #[serde(deny_unknown_fields)]
-pub struct Localization {
-    pub root: Option<String>,
+pub(crate) struct Localization {
+    pub(crate) root: Option<String>,
 }
 
 /// `[knowledge] paths`: files or folders of markdown, relative to the solution. Unset, it is
 /// AGENTS.md, CLAUDE.md and docs/, where they exist.
 #[derive(Debug, Default, Deserialize)]
 #[serde(deny_unknown_fields)]
-pub struct Knowledge {
-    pub paths: Option<Vec<String>>,
+pub(crate) struct Knowledge {
+    pub(crate) paths: Option<Vec<String>>,
 }
 
 /// `[test]` and `[[test.user]]`: the accounts `twaco users seed` creates on a test server and
@@ -146,71 +146,71 @@ pub struct Knowledge {
 /// `test_password`, never this file.
 #[derive(Debug, Default, Deserialize)]
 #[serde(deny_unknown_fields)]
-pub struct Test {
+pub(crate) struct Test {
     #[serde(default, rename = "user")]
-    pub users: Vec<TestUser>,
+    pub(crate) users: Vec<TestUser>,
     /// The project the users are created in. Unset, they are in none.
-    pub project: Option<String>,
+    pub(crate) project: Option<String>,
     /// The folder of case files (`*.toml`), relative to the solution. Default `tests`.
-    pub cases: Option<String>,
+    pub(crate) cases: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
-pub struct TestUser {
-    pub name: String,
+pub(crate) struct TestUser {
+    pub(crate) name: String,
     /// The groups the user belongs to: the roles a case runs as.
     #[serde(default)]
-    pub groups: Vec<String>,
+    pub(crate) groups: Vec<String>,
 }
 
 /// `[package]`: an extension package's metadata. Unset, the version is 1.0.0, the group the
 /// solution's name and the minimum ThingWorx 9.0.0.
 #[derive(Debug, Default, Deserialize)]
 #[serde(deny_unknown_fields)]
-pub struct Package {
-    pub version: Option<String>,
-    pub group: Option<String>,
-    pub vendor: Option<String>,
-    pub minimum_thingworx: Option<String>,
+pub(crate) struct Package {
+    pub(crate) version: Option<String>,
+    pub(crate) group: Option<String>,
+    pub(crate) vendor: Option<String>,
+    pub(crate) minimum_thingworx: Option<String>,
 }
 
 /// What the project validator should tolerate.
 /// Entities `twaco unused` must never report, because something outside the repository uses them.
 #[derive(Debug, Default, Deserialize)]
 #[serde(deny_unknown_fields)]
-pub struct Unused {
+pub(crate) struct Unused {
     /// Names or `Collection/Name` patterns, `*` standing for any text: `Acme.Orders.Database`,
     /// `Things/Acme.Orders.Api.*`. A database connection Thing that the platform calls, an entity
     /// a REST client uses, anything reached from outside, belongs here.
     #[serde(default)]
-    pub keep: Vec<String>,
+    pub(crate) keep: Vec<String>,
 }
 
 #[derive(Debug, Default, Deserialize)]
 #[serde(deny_unknown_fields)]
-pub struct Validate {
+pub(crate) struct Validate {
     /// Services implemented locally with the definition inherited from a shape or template.
     /// Legitimate, and impossible to tell from a mistake without being told.
     #[serde(default)]
-    pub inherited_overrides: Vec<String>,
+    pub(crate) inherited_overrides: Vec<String>,
 }
 
 /// An external command run as part of the gate.
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
-pub struct Check {
-    pub name: String,
+pub(crate) struct Check {
+    pub(crate) name: String,
     /// The program and its arguments. Run from the solution root.
-    pub command: Vec<String>,
+    pub(crate) command: Vec<String>,
     /// Whether a non-zero exit fails the gate. A check may report without blocking.
     #[serde(default = "yes")]
-    pub gate: bool,
+    pub(crate) gate: bool,
     /// Credentials are withheld unless a check says it needs them.
     #[serde(default)]
-    pub needs_credentials: bool,
+    pub(crate) needs_credentials: bool,
     #[serde(default = "default_timeout")]
-    pub timeout_seconds: u64,
+    pub(crate) timeout_seconds: u64,
 }
 
 fn yes() -> bool {
@@ -228,9 +228,9 @@ pub struct SolutionMeta {
     pub name: String,
     /// Where sidecars live, relative to the solution root.
     #[serde(default = "default_src")]
-    pub src: String,
+    pub(crate) src: String,
     #[serde(default = "default_dist")]
-    pub dist: String,
+    pub(crate) dist: String,
 }
 
 /// Hand-written rather than derived. `#[serde(default)]` on the `solution` field builds the
@@ -261,54 +261,54 @@ pub struct Project {
     pub name: String,
     /// Where this project's collection folders live, relative to the solution root.
     #[serde(default = "dot")]
-    pub root: String,
+    pub(crate) root: String,
     /// Collection folders belonging to this project. Empty means "discover what is there".
     #[serde(default)]
-    pub collections: Vec<String>,
+    pub(crate) collections: Vec<String>,
     /// Projects that must be imported before this one.
     #[serde(default)]
     pub depends_on: Vec<String>,
     /// Calls made after this project's imported entities have been read back successfully.
     #[serde(default)]
-    pub deploy: Deploy,
+    pub(crate) deploy: Deploy,
     /// Token-name prefixes this project owns in shared localization tables.
     #[serde(default)]
-    pub localization: ProjectLocalization,
+    pub(crate) localization: ProjectLocalization,
 }
 
 /// Localization token namespaces owned by one project.
 #[derive(Debug, Default, Deserialize)]
 #[serde(deny_unknown_fields)]
-pub struct ProjectLocalization {
+pub(crate) struct ProjectLocalization {
     #[serde(default)]
-    pub prefixes: Vec<String>,
+    pub(crate) prefixes: Vec<String>,
 }
 
 /// Optional post-import behaviour for one project.
 #[derive(Clone, Debug, Default, Deserialize, PartialEq)]
 #[serde(deny_unknown_fields)]
-pub struct Deploy {
+pub(crate) struct Deploy {
     #[serde(default)]
-    pub entry_point_thing: Option<String>,
+    pub(crate) entry_point_thing: Option<String>,
     #[serde(default)]
-    pub deploy_service: Option<String>,
+    pub(crate) deploy_service: Option<String>,
     #[serde(default)]
-    pub deploy_parameters: Option<toml::Table>,
+    pub(crate) deploy_parameters: Option<toml::Table>,
     #[serde(default)]
-    pub post_import: Vec<PostImport>,
+    pub(crate) post_import: Vec<PostImport>,
 }
 
 /// One configured service to run after the project's deploy service.
 #[derive(Clone, Debug, Deserialize, PartialEq)]
 #[serde(deny_unknown_fields)]
-pub struct PostImport {
-    pub thing: String,
-    pub service: String,
+pub(crate) struct PostImport {
+    pub(crate) thing: String,
+    pub(crate) service: String,
     #[serde(default)]
-    pub parameters: Option<toml::Table>,
+    pub(crate) parameters: Option<toml::Table>,
     /// A qualified `Collection/Name`; defaults to `Things/<thing>`.
     #[serde(default)]
-    pub target: Option<String>,
+    pub(crate) target: Option<String>,
 }
 
 fn dot() -> String {
@@ -317,16 +317,16 @@ fn dot() -> String {
 
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
-pub struct Bundle {
+pub(crate) struct Bundle {
     /// Filename for the whole-solution document.
     #[serde(default = "default_bundle_name")]
-    pub name: String,
+    pub(crate) name: String,
     /// Filename for the backend-only document.
     #[serde(default = "default_backend_name")]
-    pub backend_name: String,
+    pub(crate) backend_name: String,
     /// Collections a designer owns in Composer, excluded by a backend-only build.
     #[serde(default)]
-    pub ui_collections: Vec<String>,
+    pub(crate) ui_collections: Vec<String>,
 }
 
 impl Default for Bundle {

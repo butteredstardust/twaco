@@ -120,10 +120,10 @@ pub(crate) enum ConfigTableAction {
 #[derive(Debug, Deserialize, JsonSchema, Serialize)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct ConfigTableRequest {
-    pub(crate) thing: String,
-    pub(crate) table: String,
+    pub thing: String,
+    pub table: String,
     #[serde(default = "default_config_table_action")]
-    pub(crate) action: ConfigTableAction,
+    pub action: ConfigTableAction,
     /// backup: a new file to write, relative to the solution (under .twaco/backups/ git ignores it; a table can hold secrets); an existing one is never replaced. restore: the file a backup wrote, inside the solution.
     #[serde(default, skip_serializing_if = "Absent::is_absent")]
     pub(crate) backup: Absent<String>,
@@ -131,7 +131,7 @@ pub(crate) struct ConfigTableRequest {
     pub(crate) dry_run: bool,
     /// Server profile name.
     #[serde(default = "default_profile")]
-    pub(crate) profile: String,
+    pub profile: String,
     /// Return everything instead of the summary.
     #[serde(default)]
     pub(crate) detail: bool,
@@ -244,7 +244,7 @@ impl LogLevelLevel {
 #[serde(deny_unknown_fields)]
 pub(crate) struct LogLevelRequest {
     /// ApplicationLog, ScriptLog, CommunicationLog, ConfigurationLog or SecurityLog.
-    pub(crate) log: String,
+    pub log: String,
     /// Set this level. Omit, with reset false, to only read.
     #[serde(default, skip_serializing_if = "Absent::is_absent")]
     pub(crate) level: Absent<LogLevelLevel>,
@@ -258,18 +258,18 @@ pub(crate) struct LogLevelRequest {
     pub(crate) dry_run: bool,
     /// Server profile name.
     #[serde(default = "default_profile")]
-    pub(crate) profile: String,
+    pub profile: String,
 }
 
 #[derive(Debug, Deserialize, JsonSchema, Serialize)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct CallRequest {
     /// Collection/Name, or an entity of the solution by full or last-segment name (Manager), or a platform Thing's name.
-    pub(crate) target: String,
-    pub(crate) service: String,
+    pub target: String,
+    pub service: String,
     #[serde(default)]
     #[schemars(schema_with = "free_object")]
-    pub(crate) parameters: Map<String, Value>,
+    pub parameters: Map<String, Value>,
     #[serde(default = "default_true")]
     pub(crate) dry_run: bool,
     #[serde(default = "default_call_timeout_seconds")]
@@ -277,16 +277,16 @@ pub(crate) struct CallRequest {
     pub(crate) timeout_seconds: u64,
     /// Also return what the call wrote to ScriptLog and ApplicationLog, even when it fails. Waits up to 3 s for late entries. ScriptLog at WARN records no logger.info/debug; see log_level.
     #[serde(default)]
-    pub(crate) with_logs: bool,
+    pub with_logs: bool,
     /// Server profile name.
     #[serde(default = "default_profile")]
-    pub(crate) profile: String,
+    pub profile: String,
     /// Return everything instead of the summary.
     #[serde(default)]
     pub(crate) detail: bool,
     /// Call as this [[test.user]] of twaco.toml, with the profile's test_password; the profile must have allow_test_users. A user in no group that can see the entity gets 404; a wrong password 401.
     #[serde(default, rename = "as", skip_serializing_if = "Absent::is_absent")]
-    pub(crate) as_user: Absent<String>,
+    pub as_user: Absent<String>,
 }
 
 fn default_call_timeout_seconds() -> u64 {

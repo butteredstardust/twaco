@@ -27,9 +27,9 @@ pub struct ServiceSidecar {
 /// inherited. Deploy parses these all; inheritance changes where the signature lives, not
 /// whether bad JavaScript can break the entity after import.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct ScriptService {
-    pub name: String,
-    pub script: String,
+pub(crate) struct ScriptService {
+    pub(crate) name: String,
+    pub(crate) script: String,
 }
 
 /// What an entity's service sections contained.
@@ -38,12 +38,12 @@ pub struct Extraction {
     /// Script services with both halves present here. These become sidecars.
     pub services: Vec<ServiceSidecar>,
     /// Implementations with a handler other than `Script`: SQL, and anything else.
-    pub non_script: Vec<String>,
+    pub(crate) non_script: Vec<String>,
     /// Defined here but implemented elsewhere, or not at all.
-    pub without_script: Vec<String>,
+    pub(crate) without_script: Vec<String>,
     /// Implemented here with the definition inherited from a shape or template. This is a
     /// legitimate override, not a missing definition.
-    pub inherited: Vec<String>,
+    pub(crate) inherited: Vec<String>,
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -151,7 +151,7 @@ pub fn extract_services(src: &[u8]) -> Result<Vec<ServiceSidecar>, SidecarError>
 }
 
 /// Extract every local `Script` implementation from one entity document.
-pub fn script_services(src: &[u8]) -> Result<Vec<ScriptService>, SidecarError> {
+pub(crate) fn script_services(src: &[u8]) -> Result<Vec<ScriptService>, SidecarError> {
     let tokens = scan::tokenize(src)?;
     let entity = entity_element(&tokens, src).ok_or(SidecarError::NotAnEntity)?;
     let host = member_host(&tokens, src, entity);
@@ -232,13 +232,13 @@ fn direct_children(tokens: &[Token], parent: usize) -> Vec<usize> {
 }
 
 /// The element holding an entity's members, found from the document.
-pub fn member_host_of(tokens: &[Token], src: &[u8]) -> Option<usize> {
+pub(crate) fn member_host_of(tokens: &[Token], src: &[u8]) -> Option<usize> {
     let entity = entity_element(tokens, src)?;
     Some(member_host(tokens, src, entity))
 }
 
 /// A service implementation's handler, defaulting to `Script` when it declares none.
-pub fn handler_of(
+pub(crate) fn handler_of(
     tokens: &[Token],
     src: &[u8],
     implementation: usize,
@@ -251,7 +251,11 @@ pub fn handler_of(
 }
 
 /// The `<code>` element under an implementation's Script configuration table.
-pub fn code_element_of(tokens: &[Token], src: &[u8], implementation: usize) -> Option<usize> {
+pub(crate) fn code_element_of(
+    tokens: &[Token],
+    src: &[u8],
+    implementation: usize,
+) -> Option<usize> {
     let tables = scan::child_tags(tokens, src, "ConfigurationTables", implementation);
     let script_table = tables
         .iter()
@@ -264,7 +268,7 @@ pub fn code_element_of(tokens: &[Token], src: &[u8], implementation: usize) -> O
 }
 
 /// Named blocks inside one direct-child section of the entity. Shared with `sync`.
-pub fn named_children_of(
+pub(crate) fn named_children_of(
     tokens: &[Token],
     src: &[u8],
     host: usize,
@@ -351,7 +355,7 @@ fn definition_text(block: &[u8]) -> String {
 /// as blank, so a line of vertical tabs is content and holds the margin at zero; and a tab is
 /// not worth any number of spaces, so a tab-indented line and a space-indented one share no
 /// prefix and nothing is removed.
-pub fn dedent(text: &str) -> String {
+pub(crate) fn dedent(text: &str) -> String {
     // XML normalises every line ending to a single newline before a parser sees it.
     let normalized = text.replace("\r\n", "\n").replace('\r', "\n");
     let lines: Vec<&str> = normalized.split('\n').collect();

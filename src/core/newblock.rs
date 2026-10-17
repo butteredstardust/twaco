@@ -148,12 +148,16 @@ impl std::error::Error for NewBlockError {}
 #[derive(Debug, Clone)]
 pub struct NewFile {
     pub path: PathBuf,
-    pub text: String,
+    pub(crate) text: String,
 }
 
 #[derive(Debug, Clone)]
 pub struct Plan {
-    pub request: Request,
+    #[allow(
+        dead_code,
+        reason = "read only by Debug; the plan keeps the request it answers"
+    )]
+    pub(crate) request: Request,
     pub root: String,
     pub files: Vec<NewFile>,
     /// The new `twaco.toml` text, and what is appended to it.
@@ -302,7 +306,7 @@ fn declared_base_extension(solution: &Solution) -> Option<String> {
     None
 }
 
-pub fn plan(solution: &Solution, request: &Request) -> Result<Plan, NewBlockError> {
+pub(crate) fn plan(solution: &Solution, request: &Request) -> Result<Plan, NewBlockError> {
     let invalid = |why: String| NewBlockError::Invalid(why);
     refs::validate_new_name(&request.name).map_err(invalid)?;
     if !request.name.contains('.') {
@@ -605,7 +609,7 @@ pub fn plan(solution: &Solution, request: &Request) -> Result<Plan, NewBlockErro
 /// Create the files (never over an existing one) and append the project to `twaco.toml`, as one
 /// journaled operation: a crash or a failure leaves every file as it was or every file as planned,
 /// and the next command to take the workspace lock finishes or undoes an interrupted run.
-pub fn apply(
+pub(crate) fn apply(
     solution: &Solution,
     plan: &Plan,
     lock: &WorkspaceLock,

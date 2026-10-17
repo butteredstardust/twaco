@@ -15,9 +15,9 @@ use std::sync::Mutex;
 use tracing_subscriber::EnvFilter;
 
 /// Filter directive: `--log` beats this variable.
-pub const LOG_VARIABLE: &str = "TWACO_LOG";
+pub(crate) const LOG_VARIABLE: &str = "TWACO_LOG";
 /// Log file: `--log-file` beats this variable.
-pub const LOG_FILE_VARIABLE: &str = "TWACO_LOG_FILE";
+pub(crate) const LOG_FILE_VARIABLE: &str = "TWACO_LOG_FILE";
 
 static ON_STDERR: AtomicBool = AtomicBool::new(false);
 
@@ -30,16 +30,16 @@ const LEVELS: [&str; 6] = ["error", "warn", "info", "debug", "trace", "off"];
 
 /// What the flags and variables ask for.
 #[derive(Debug, PartialEq, Eq)]
-pub struct Plan {
+pub(crate) struct Plan {
     /// A filter directive, as given.
-    pub filter: String,
+    pub(crate) filter: String,
     /// Append to this file; stderr when absent.
-    pub file: Option<PathBuf>,
+    pub(crate) file: Option<PathBuf>,
 }
 
 /// Decide what to log. A flag beats its variable. An empty value counts as unset.
 /// `--log-file` alone means `debug`. Returns `None` when logs stay off.
-pub fn resolve(
+pub(crate) fn resolve(
     log: Option<&str>,
     log_file: Option<&str>,
     variable: &dyn Fn(&str) -> Option<String>,
@@ -63,7 +63,7 @@ pub fn resolve(
 }
 
 /// Build the filter. A bare level applies to the `twaco` target only, so dependencies stay quiet.
-pub fn filter_of(spec: &str) -> Result<EnvFilter, String> {
+pub(crate) fn filter_of(spec: &str) -> Result<EnvFilter, String> {
     let spec = spec.trim();
     let directive = if LEVELS.contains(&spec.to_ascii_lowercase().as_str()) {
         format!("twaco={}", spec.to_ascii_lowercase())

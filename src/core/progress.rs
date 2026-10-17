@@ -6,7 +6,7 @@
 //! The purpose is to let a front end show that twaco is working. A report changes no result.
 //! Workers on several threads call the same reporter, so every method takes `&self`.
 //!
-//! A phase runs from `start` to `finish`. [`phase`] pairs the two, so an early return still ends
+//! A phase runs from `start` to `finish`. `phase` pairs the two, so an early return still ends
 //! the phase.
 
 /// Receives progress reports from one command. Implementations are thread-safe.
@@ -23,7 +23,7 @@ pub trait Progress: Sync {
 
 /// Reports nothing. The default for callers that do not show progress.
 #[derive(Clone, Copy, Debug, Default)]
-pub struct Noop;
+pub(crate) struct Noop;
 
 impl Progress for Noop {
     fn start(&self, _: &str, _: Option<u64>) {}
@@ -33,14 +33,14 @@ impl Progress for Noop {
 }
 
 /// A shared reporter that reports nothing.
-pub static NONE: Noop = Noop;
+pub(crate) static NONE: Noop = Noop;
 
 /// A started phase. Dropping it finishes the phase.
 #[must_use = "the phase ends when this value is dropped"]
-pub struct Phase<'a>(&'a dyn Progress);
+pub(crate) struct Phase<'a>(&'a dyn Progress);
 
 /// Start a phase that ends when the returned value is dropped.
-pub fn phase<'a>(progress: &'a dyn Progress, name: &str, total: Option<u64>) -> Phase<'a> {
+pub(crate) fn phase<'a>(progress: &'a dyn Progress, name: &str, total: Option<u64>) -> Phase<'a> {
     progress.start(name, total);
     Phase(progress)
 }

@@ -36,7 +36,8 @@ pub enum RestoreOutcome {
 
 impl RestoreOutcome {
     /// The access this specific outcome implies.
-    pub const fn effects(&self) -> Effects {
+    #[cfg(test)]
+    pub(crate) const fn effects(&self) -> Effects {
         match self {
             Self::Sets { effects, .. }
             | Self::Plan { effects, .. }
@@ -113,7 +114,7 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::core::entity_key::EntityKey;
+    use crate::core::entity::key::EntityKey;
     use crate::core::server::ServerError;
     use std::cell::RefCell;
     use std::collections::BTreeMap;

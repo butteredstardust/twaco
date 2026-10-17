@@ -40,7 +40,11 @@ pub enum DeployOutcome {
 }
 
 impl DeployOutcome {
-    pub const fn effects(&self) -> Effects {
+    #[allow(
+        dead_code,
+        reason = "the command facade's Effects (COMMAND_FACADE.md); no adapter reads it yet"
+    )]
+    pub(crate) const fn effects(&self) -> Effects {
         match self {
             Self::GatesBlocked { effects, .. } | Self::Complete { effects, .. } => *effects,
         }
@@ -368,7 +372,7 @@ mod tests {
     impl crate::core::push::Remote for Rejecting {
         fn fetch(
             &self,
-            _: &crate::core::entity_key::EntityKey,
+            _: &crate::core::entity::key::EntityKey,
         ) -> Result<Option<Vec<u8>>, crate::core::server::ServerError> {
             Ok(None)
         }
@@ -381,7 +385,7 @@ mod tests {
     impl backup::Remote for Rejecting {
         fn export(
             &self,
-            _: &crate::core::entity_key::EntityKey,
+            _: &crate::core::entity::key::EntityKey,
         ) -> Result<Option<Vec<u8>>, crate::core::server::ServerError> {
             Ok(None)
         }
@@ -392,7 +396,7 @@ mod tests {
 
         fn exists(
             &self,
-            _: &crate::core::entity_key::EntityKey,
+            _: &crate::core::entity::key::EntityKey,
         ) -> Result<bool, crate::core::server::ServerError> {
             Ok(false)
         }
@@ -413,7 +417,7 @@ mod tests {
 
         fn call_service(
             &self,
-            _: &crate::core::entity_key::ServiceTarget,
+            _: &crate::core::entity::key::ServiceTarget,
             _: &str,
             _: &serde_json::Value,
             _: std::time::Duration,
@@ -425,7 +429,7 @@ mod tests {
     impl crate::core::imports::Remote for Rejecting {
         fn exists(
             &self,
-            _: &crate::core::entity_key::EntityKey,
+            _: &crate::core::entity::key::EntityKey,
         ) -> Result<bool, crate::core::server::ServerError> {
             Ok(false)
         }
@@ -594,7 +598,7 @@ name = \"Acme.App\"
     impl crate::core::push::Remote for Keeping {
         fn fetch(
             &self,
-            _: &crate::core::entity_key::EntityKey,
+            _: &crate::core::entity::key::EntityKey,
         ) -> Result<Option<Vec<u8>>, crate::core::server::ServerError> {
             Ok((*self.imported.lock().unwrap()).then(|| self.entity.clone()))
         }
@@ -609,7 +613,7 @@ name = \"Acme.App\"
     impl backup::Remote for Keeping {
         fn export(
             &self,
-            _: &crate::core::entity_key::EntityKey,
+            _: &crate::core::entity::key::EntityKey,
         ) -> Result<Option<Vec<u8>>, crate::core::server::ServerError> {
             Ok(None)
         }
@@ -620,7 +624,7 @@ name = \"Acme.App\"
 
         fn exists(
             &self,
-            _: &crate::core::entity_key::EntityKey,
+            _: &crate::core::entity::key::EntityKey,
         ) -> Result<bool, crate::core::server::ServerError> {
             Ok(false)
         }
@@ -636,7 +640,7 @@ name = \"Acme.App\"
 
         fn call_service(
             &self,
-            _: &crate::core::entity_key::ServiceTarget,
+            _: &crate::core::entity::key::ServiceTarget,
             _: &str,
             _: &serde_json::Value,
             _: std::time::Duration,
@@ -648,7 +652,7 @@ name = \"Acme.App\"
     impl crate::core::imports::Remote for Keeping {
         fn exists(
             &self,
-            _: &crate::core::entity_key::EntityKey,
+            _: &crate::core::entity::key::EntityKey,
         ) -> Result<bool, crate::core::server::ServerError> {
             Ok(true)
         }

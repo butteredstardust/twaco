@@ -2,7 +2,7 @@
 
 use super::build::Builder;
 use super::EdgeKind;
-use crate::core::entity_key::EntityKey;
+use crate::core::entity::key::EntityKey;
 use crate::core::{scan, script, sidecar};
 use petgraph::graph::NodeIndex;
 use std::collections::{BTreeMap, BTreeSet};

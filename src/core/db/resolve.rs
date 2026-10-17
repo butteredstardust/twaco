@@ -5,7 +5,10 @@ use super::model::DbError;
 use std::collections::BTreeMap;
 
 /// Resolve the database Thing from local inheritance unless the caller named one explicitly.
-pub fn resolve_thing(solution: &Solution, explicit: Option<&str>) -> Result<String, DbError> {
+pub(crate) fn resolve_thing(
+    solution: &Solution,
+    explicit: Option<&str>,
+) -> Result<String, DbError> {
     if let Some(name) = explicit {
         if name.is_empty() {
             return Err(DbError("--thing needs a non-empty Thing name".to_string()));

@@ -12,7 +12,7 @@ use std::path::Path;
 
 /// Why a journal was not recovered. The text is the repair plan: it names every path involved.
 #[derive(Debug, PartialEq, Eq)]
-pub struct Refusal(pub String);
+pub(crate) struct Refusal(pub(crate) String);
 
 impl fmt::Display for Refusal {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -23,7 +23,7 @@ impl fmt::Display for Refusal {
 impl std::error::Error for Refusal {}
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum Action {
+pub(crate) enum Action {
     /// Nothing was visible, or the operation had committed: only artifacts were removed.
     Cleaned,
     RolledForward,
@@ -31,15 +31,15 @@ pub enum Action {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub struct Recovered {
-    pub operation_id: String,
-    pub command: String,
-    pub action: Action,
+pub(crate) struct Recovered {
+    pub(crate) operation_id: String,
+    pub(crate) command: String,
+    pub(crate) action: Action,
 }
 
 impl Recovered {
     /// One line for a person: what was found and what was done.
-    pub fn describe(&self) -> String {
+    pub(crate) fn describe(&self) -> String {
         let what = match self.action {
             Action::Cleaned => "cleaned up after",
             Action::RolledForward => "finished",
@@ -115,7 +115,7 @@ fn show(digest: &Option<String>) -> String {
 
 /// Recover whatever a crash left, before anything else touches the workspace. Called with the
 /// workspace lock held, ahead of the sweep for stale temporaries.
-pub fn recover_pending(root: &Path) -> Result<Vec<Recovered>, Refusal> {
+pub(crate) fn recover_pending(root: &Path) -> Result<Vec<Recovered>, Refusal> {
     let folder = root.join(journal::DIRECTORY);
     let Ok(entries) = std::fs::read_dir(&folder) else {
         return Ok(Vec::new());

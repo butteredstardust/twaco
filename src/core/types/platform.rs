@@ -1,6 +1,6 @@
 use super::super::config::Solution;
-use super::super::entity_key::ServiceTarget;
-use super::super::progress::{self, Progress, NONE};
+use super::super::entity::key::ServiceTarget;
+use super::super::progress::{self, Progress};
 use super::super::server::{Client, ServerError};
 use super::super::workspace;
 use super::model::{load_model, Member, Parameter, Property, Service, TypedValue};
@@ -103,16 +103,19 @@ fn is_false(value: &bool) -> bool {
     !value
 }
 
-/// Fetch a complete new cache before replacing the old one, then regenerate declarations from it.
-pub fn fetch_platform(
+/// [`fetch_platform_with_progress`] without a progress reporter.
+#[cfg(test)]
+pub(crate) fn fetch_platform(
     remote: &dyn Remote,
     solution: &Solution,
 ) -> Result<PlatformOutcome, TypesError> {
-    fetch_platform_with_progress(remote, solution, &NONE)
+    fetch_platform_with_progress(remote, solution, &progress::NONE)
 }
 
-/// Like [`fetch_platform`], and report one step per template, shape and resource fetched.
-pub fn fetch_platform_with_progress(
+/// Fetch a complete new cache before replacing the old one, then regenerate declarations from it.
+///
+/// It reports one step per template, shape and resource fetched.
+pub(crate) fn fetch_platform_with_progress(
     remote: &dyn Remote,
     solution: &Solution,
     progress: &dyn Progress,

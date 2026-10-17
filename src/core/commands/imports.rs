@@ -37,7 +37,8 @@ pub enum ImportOutcome {
 }
 
 impl ImportOutcome {
-    pub const fn effects(&self) -> Effects {
+    #[cfg(test)]
+    pub(crate) const fn effects(&self) -> Effects {
         match self {
             Self::File { effects, .. } | Self::SourceControl { effects, .. } => *effects,
         }
@@ -126,7 +127,7 @@ mod tests {
     }
 
     impl imports::Remote for Fake {
-        fn exists(&self, _: &crate::core::entity_key::EntityKey) -> Result<bool, ServerError> {
+        fn exists(&self, _: &crate::core::entity::key::EntityKey) -> Result<bool, ServerError> {
             Ok(false)
         }
 

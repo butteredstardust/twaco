@@ -25,21 +25,21 @@ use std::collections::BTreeMap;
 /// A name that appears as a string literal in the script, with the span of its content.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Name {
-    pub value: String,
-    pub span: Span,
+    pub(crate) value: String,
+    pub(crate) span: Span,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ForeignKey {
-    pub column: Option<Name>,
-    pub reference_shape: Option<Name>,
-    pub reference_field: Option<Name>,
+    pub(crate) column: Option<Name>,
+    pub(crate) reference_shape: Option<Name>,
+    pub(crate) reference_field: Option<Name>,
 }
 
 /// One table the script describes.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DbShape {
-    pub data_shape: Name,
+    pub(crate) data_shape: Name,
     /// `fields[].name`.
     pub fields: Vec<Name>,
     /// One entry per index: `indexedFields[].name` is a one-column index, `fieldNames` several.
@@ -57,7 +57,7 @@ pub struct Scan {
 }
 
 /// Read one `GetDBInfo` script.
-pub fn scan_script(src: &[u8]) -> Scan {
+pub(crate) fn scan_script(src: &[u8]) -> Scan {
     let mut scan = Scan::default();
     let Ok(script) = script::parse(src) else {
         scan.unsure = true;
@@ -83,15 +83,15 @@ pub fn scan_script(src: &[u8]) -> Scan {
 
 /// Every DB-backed DataShape across scripts, by full name, with the scripts that describe it.
 #[derive(Debug, Default)]
-pub struct DbInfo {
+pub(crate) struct DbInfo {
     /// Data shape name -> the shape as the first script describing it reads.
-    pub shapes: BTreeMap<String, DbShape>,
+    pub(crate) shapes: BTreeMap<String, DbShape>,
     /// Scripts that look like a `GetDBInfo` but could not be read completely.
-    pub unsure: Vec<String>,
+    pub(crate) unsure: Vec<String>,
 }
 
 impl DbInfo {
-    pub fn add(&mut self, origin: &str, scan: Scan) {
+    pub(crate) fn add(&mut self, origin: &str, scan: Scan) {
         for shape in scan.shapes {
             self.shapes
                 .entry(shape.data_shape.value.clone())
@@ -102,18 +102,14 @@ impl DbInfo {
         }
     }
 
-    pub fn is_backed(&self, data_shape: &str) -> bool {
+    pub(crate) fn is_backed(&self, data_shape: &str) -> bool {
         self.shapes.contains_key(data_shape)
-    }
-
-    pub fn any(&self) -> bool {
-        !self.shapes.is_empty() || !self.unsure.is_empty()
     }
 }
 
 /// Read every `GetDBInfo` of the solution: the sidecar scripts, and the scripts inside entity XML
 /// (a `GetDBInfo` that overrides an inherited definition has no sidecar, so its only copy is there).
-pub fn load(solution: &Solution) -> DbInfo {
+pub(crate) fn load(solution: &Solution) -> DbInfo {
     let mut info = DbInfo::default();
     for entity in workspace::entities(solution) {
         if !matches!(
@@ -177,7 +173,7 @@ pub fn scan_entity(src: &[u8]) -> Result<Vec<(usize, Scan)>, scan::ScanError> {
 }
 
 /// The table DBConnection makes for a DataShape: its short name, lowercased.
-pub fn table_of(data_shape: &str) -> String {
+pub(crate) fn table_of(data_shape: &str) -> String {
     data_shape
         .rsplit('.')
         .next()
@@ -186,13 +182,13 @@ pub fn table_of(data_shape: &str) -> String {
 }
 
 /// The column DBConnection makes for a field: its name, lowercased.
-pub fn column_of(field: &str) -> String {
+pub(crate) fn column_of(field: &str) -> String {
     field.to_lowercase()
 }
 
 /// The spans of `field` in `scan` that belong to `data_shape`: its own `fields`, `indexedFields`
 /// and foreign keys, and the `referenceFieldName` of a foreign key in another table that points at it.
-pub fn field_spans(scan: &Scan, data_shape: &str, field: &str) -> Vec<Span> {
+pub(crate) fn field_spans(scan: &Scan, data_shape: &str, field: &str) -> Vec<Span> {
     let mut spans = Vec::new();
     for shape in &scan.shapes {
         if shape.data_shape.value == data_shape {

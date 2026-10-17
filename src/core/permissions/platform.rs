@@ -12,8 +12,8 @@ use super::from_json;
 use super::policy::Platform;
 use super::server_audit::{group_members, Remote};
 use super::Grant;
-use crate::core::entity_carry::Kind;
-use crate::core::entity_key::ServiceTarget;
+use crate::core::entity::carry::Kind;
+use crate::core::entity::key::ServiceTarget;
 use crate::core::progress::{self, Progress};
 use serde::Serialize;
 use serde_json::json;
@@ -48,7 +48,7 @@ impl State {
 /// One grant or membership for one role group.
 #[derive(Clone, Debug, Serialize)]
 pub struct Item {
-    pub project: String,
+    pub(crate) project: String,
     /// `Collection/Name` of the entity granted on, or of the group joined.
     pub entity: String,
     /// `ServiceInvoke ReadEntityDefinitionAsJSON`, or `member`.
@@ -71,9 +71,9 @@ impl PlatformReport {
     }
 }
 
-/// Compare every project's platform entries with the server and, with `apply`, add what is
-/// missing.
-pub fn run(remote: &dyn Remote, loaded: &[Loaded], apply: bool) -> PlatformReport {
+/// [`run_with_progress`] without a progress reporter.
+#[cfg(test)]
+pub(crate) fn run(remote: &dyn Remote, loaded: &[Loaded], apply: bool) -> PlatformReport {
     run_with_progress(remote, loaded, apply, &progress::NONE)
 }
 
@@ -86,8 +86,11 @@ impl Drop for Step<'_> {
     }
 }
 
-/// Like [`run`], and report one step per platform entry. Messages hold entity names only.
-pub fn run_with_progress(
+/// Compare every project's platform entries with the server and, with `apply`, add what is
+/// missing.
+///
+/// It reports one step per platform entry. Messages hold entity names only.
+pub(crate) fn run_with_progress(
     remote: &dyn Remote,
     loaded: &[Loaded],
     apply: bool,

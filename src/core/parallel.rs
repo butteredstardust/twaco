@@ -7,13 +7,13 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 const MAX_WORKERS: usize = 8;
 
 /// Apply `f` to every item with bounded concurrency, preserving input order.
-pub fn map<T: Sync, R: Send>(items: &[T], f: impl Fn(&T) -> R + Sync) -> Vec<R> {
+pub(crate) fn map<T: Sync, R: Send>(items: &[T], f: impl Fn(&T) -> R + Sync) -> Vec<R> {
     map_progress(items, &NONE, f)
 }
 
 /// Like [`map`], and report one step to `progress` after each item. The caller starts and
 /// finishes the phase. Workers call `progress` from their own threads.
-pub fn map_progress<T: Sync, R: Send>(
+pub(crate) fn map_progress<T: Sync, R: Send>(
     items: &[T],
     progress: &dyn Progress,
     f: impl Fn(&T) -> R + Sync,

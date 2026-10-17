@@ -64,8 +64,8 @@ impl Coded for TransactionError {
 #[cfg(test)]
 mod tests;
 
-pub use journal::{Format, Journal, Kind, State, Step, DIRECTORY};
-pub use recover::{recover_pending, Action, Recovered, Refusal};
+pub(crate) use journal::{Format, Journal, Kind, State, Step};
+pub(crate) use recover::{recover_pending, Recovered};
 
 use super::lock::WorkspaceLock;
 use journal::digest;
@@ -74,7 +74,7 @@ use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 
 /// The files a command means to change, gathered before anything is written.
-pub struct Transaction<'a> {
+pub(crate) struct Transaction<'a> {
     root: &'a Path,
     command: &'a str,
     planned: Vec<Planned>,
@@ -91,9 +91,9 @@ struct Planned {
 
 /// What an applied transaction did.
 #[derive(Debug, PartialEq, Eq)]
-pub struct Committed {
-    pub operation_id: String,
-    pub steps: usize,
+pub(crate) struct Committed {
+    pub(crate) operation_id: String,
+    pub(crate) steps: usize,
 }
 
 #[derive(Debug)]
@@ -161,7 +161,7 @@ impl std::error::Error for TransactionError {}
 impl TransactionError {
     /// Whether the workspace is known to be as it was: nothing was installed, or everything
     /// installed was put back. Only then may a caller say nothing changed.
-    pub fn changed_nothing(&self) -> bool {
+    pub(crate) fn changed_nothing(&self) -> bool {
         !matches!(
             self,
             Self::Failed {
@@ -175,7 +175,7 @@ impl TransactionError {
 /// Refuse a folder or file a command will write under unless it is inside the workspace at
 /// `root` and reached through no link. A command checks this before it reads or downloads
 /// anything, so a misplaced root is refused even when nothing turns out to change.
-pub fn check_inside(root: &Path, path: &Path) -> Result<(), String> {
+pub(crate) fn check_inside(root: &Path, path: &Path) -> Result<(), String> {
     if path == root {
         return Ok(());
     }
@@ -184,7 +184,7 @@ pub fn check_inside(root: &Path, path: &Path) -> Result<(), String> {
 }
 
 impl<'a> Transaction<'a> {
-    pub fn new(root: &'a Path, command: &'a str) -> Self {
+    pub(crate) fn new(root: &'a Path, command: &'a str) -> Self {
         Transaction {
             root,
             command,
@@ -194,7 +194,7 @@ impl<'a> Transaction<'a> {
 
     /// Replace a file that holds `expected_before` with `after`. Identical bytes change nothing
     /// and add no step.
-    pub fn replace_file(
+    pub(crate) fn replace_file(
         &mut self,
         path: &Path,
         expected_before: &[u8],
@@ -213,13 +213,21 @@ impl<'a> Transaction<'a> {
 
     /// Create a file that must not exist yet. Folders on the way are created, and removed again
     /// if the transaction is undone.
-    pub fn create_file(&mut self, path: &Path, after: Vec<u8>) -> Result<(), TransactionError> {
+    pub(crate) fn create_file(
+        &mut self,
+        path: &Path,
+        after: Vec<u8>,
+    ) -> Result<(), TransactionError> {
         self.plan(Kind::Create, path, None, Some(after))
     }
 
     /// Make a file hold `after`: a replacement of what it holds now (read here, and checked again
     /// when the transaction is applied), or a new file when there is none.
-    pub fn write_file(&mut self, path: &Path, after: Vec<u8>) -> Result<(), TransactionError> {
+    pub(crate) fn write_file(
+        &mut self,
+        path: &Path,
+        after: Vec<u8>,
+    ) -> Result<(), TransactionError> {
         match std::fs::read(path) {
             Ok(before) => self.replace_file(path, &before, after),
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
@@ -233,7 +241,7 @@ impl<'a> Transaction<'a> {
     }
 
     /// Remove a file that holds `expected_before`.
-    pub fn delete_file(
+    pub(crate) fn delete_file(
         &mut self,
         path: &Path,
         expected_before: &[u8],
@@ -243,7 +251,7 @@ impl<'a> Transaction<'a> {
 
     /// Rename a file or a whole folder. Anything the operation also rewrites inside it is named
     /// at its old path and rewritten first; the rename comes after.
-    pub fn move_path(&mut self, from: &Path, to: &Path) -> Result<(), TransactionError> {
+    pub(crate) fn move_path(&mut self, from: &Path, to: &Path) -> Result<(), TransactionError> {
         let destination = paths::relative(self.root, to).map_err(TransactionError::Invalid)?;
         paths::reject_links(self.root, &destination).map_err(TransactionError::Invalid)?;
         self.plan_to(Kind::Move, from, Some(destination), None, None)
@@ -292,25 +300,25 @@ impl<'a> Transaction<'a> {
         Ok(())
     }
 
-    pub fn is_empty(&self) -> bool {
+    pub(crate) fn is_empty(&self) -> bool {
         self.planned.is_empty()
     }
 
     /// How many steps are planned.
-    pub fn len(&self) -> usize {
+    pub(crate) fn len(&self) -> usize {
         self.planned.len()
     }
 
     /// Carry the operation out. The lock proves no other twaco is writing; taking it also ran any
     /// recovery an earlier crash needed.
-    pub fn apply(self, lock: &WorkspaceLock) -> Result<Committed, TransactionError> {
+    pub(crate) fn apply(self, lock: &WorkspaceLock) -> Result<Committed, TransactionError> {
         self.apply_with(lock, &mut |_, _| Ok(()))
     }
 
     /// As `apply`, calling `before_step` with each step's position and the step just before it is
     /// made. An error from it stops the operation and undoes what was done: how a caller makes
     /// a failure happen at an exact point.
-    pub fn apply_with(
+    pub(crate) fn apply_with(
         self,
         lock: &WorkspaceLock,
         before_step: &mut dyn FnMut(usize, &Step) -> std::io::Result<()>,

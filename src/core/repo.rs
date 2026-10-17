@@ -7,7 +7,7 @@
 //! question is how that tree and the server's differ.
 
 use super::codes::{Coded, ErrorCode};
-use super::entity_key::ServiceTarget;
+use super::entity::key::ServiceTarget;
 use super::lock::WorkspaceLock;
 use super::progress::{self, Progress, NONE};
 use super::server::{Client, ServerError};
@@ -20,7 +20,7 @@ use std::time::Duration;
 
 const TIMEOUT: Duration = Duration::from_secs(300);
 /// Where a repository's tree lives in a solution.
-pub const DEFAULT_ROOT: &str = "filerepository";
+pub(crate) const DEFAULT_ROOT: &str = "filerepository";
 
 /// What this module asks of a server, as a trait so it is tested offline. `Sync`, because
 /// status downloads in parallel.
@@ -129,7 +129,7 @@ fn text(row: &Value, key: &str) -> String {
 }
 
 /// One folder, or with `recursive` everything under it, sorted by path.
-pub fn list(
+pub(crate) fn list(
     remote: &dyn Remote,
     repository: &str,
     folder: &str,
@@ -140,7 +140,7 @@ pub fn list(
 
 /// Like [`list`], and report one step per folder listed. The total is unknown, because a
 /// recursive listing finds folders as it goes. Messages hold folder paths only.
-pub fn list_with_progress(
+pub(crate) fn list_with_progress(
     remote: &dyn Remote,
     repository: &str,
     folder: &str,
@@ -217,7 +217,7 @@ pub fn list_with_progress(
 }
 
 /// A file's bytes, exactly as stored.
-pub fn get(remote: &dyn Remote, repository: &str, path: &str) -> Result<Vec<u8>, RepoError> {
+pub(crate) fn get(remote: &dyn Remote, repository: &str, path: &str) -> Result<Vec<u8>, RepoError> {
     let path = remote_path(path)?;
     if path == "/" {
         return Err(RepoError::Invalid(
@@ -232,13 +232,13 @@ pub fn get(remote: &dyn Remote, repository: &str, path: &str) -> Result<Vec<u8>,
 // ---- single changes, planned before they are made ---------------------------------------------
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Kind {
+pub(crate) enum Kind {
     File,
     Folder,
 }
 
 /// Whether a path exists, and as what. The server answers a missing path with a 404.
-pub fn kind(
+pub(crate) fn kind(
     remote: &dyn Remote,
     repository: &str,
     path: &str,
@@ -302,7 +302,7 @@ pub struct Planned {
 /// Check a change against the repository, and unless `apply`, stop at the plan. Applied, the
 /// result is read back: an upload must download as the same bytes, a removed path must be
 /// gone, a moved file must be at its target and not at its source.
-pub fn change(
+pub(crate) fn change(
     remote: &dyn Remote,
     repository: &str,
     change: &Change,
@@ -484,7 +484,7 @@ pub struct Compared {
 
 /// Every file under a local folder, by its `/`-rooted path relative to it. Hidden files and
 /// folders (a leading `.`) are not repository content.
-pub fn local_files(root: &Path) -> Result<BTreeMap<String, PathBuf>, RepoError> {
+pub(crate) fn local_files(root: &Path) -> Result<BTreeMap<String, PathBuf>, RepoError> {
     let mut found = BTreeMap::new();
     let mut pending = vec![root.to_path_buf()];
     while let Some(folder) = pending.pop() {
@@ -513,9 +513,9 @@ pub fn local_files(root: &Path) -> Result<BTreeMap<String, PathBuf>, RepoError> 
     Ok(found)
 }
 
-/// The local tree against the server's, file by file. Sizes decide first; equal sizes are
-/// settled by downloading and hashing, so `same` means the same bytes.
-pub fn status(
+/// [`status_with_progress`] without a progress reporter.
+#[cfg(test)]
+pub(crate) fn status(
     remote: &dyn Remote,
     repository: &str,
     local_root: &Path,
@@ -523,9 +523,12 @@ pub fn status(
     status_with_progress(remote, repository, local_root, &NONE)
 }
 
-/// Like [`status`], and report the listing, then one step per file downloaded to settle equal
-/// sizes. Messages hold paths only.
-pub fn status_with_progress(
+/// The local tree against the server's, file by file. Sizes decide first; equal sizes are
+/// settled by downloading and hashing, so `same` means the same bytes.
+///
+/// It reports the listing, then one step per file downloaded to settle equal sizes. Messages hold
+/// paths only.
+pub(crate) fn status_with_progress(
     remote: &dyn Remote,
     repository: &str,
     local_root: &Path,
@@ -618,17 +621,12 @@ pub struct Synced {
     /// Paths on the far side only, which a sync never deletes.
     pub left: Vec<String>,
     pub same: usize,
-    pub applied: bool,
+    pub(crate) applied: bool,
 }
 
-/// Copy what one side has that the other lacks, or holds differently. Never deletes, on
-/// either side: a file present only where the copy goes is reported in `left`. A file that
-/// differs on both sides is a conflict, and any conflict refuses the whole sync unless
-/// `overwrite`, so a sync never half-happens over a decision nobody made.
-///
-/// An applied pull writes under `lock`, the workspace's lock, and `local_root` must be inside
-/// that workspace: every file is downloaded first, then all are written as one transaction.
-pub fn sync(
+/// [`sync_with_progress`] without a progress reporter.
+#[cfg(test)]
+pub(crate) fn sync(
     remote: &dyn Remote,
     repository: &str,
     local_root: &Path,
@@ -642,9 +640,17 @@ pub fn sync(
     )
 }
 
-/// Like [`sync`], and report the status steps, then one step per file copied.
+/// Copy what one side has that the other lacks, or holds differently. Never deletes, on
+/// either side: a file present only where the copy goes is reported in `left`. A file that
+/// differs on both sides is a conflict, and any conflict refuses the whole sync unless
+/// `overwrite`, so a sync never half-happens over a decision nobody made.
+///
+/// An applied pull writes under `lock`, the workspace's lock, and `local_root` must be inside
+/// that workspace: every file is downloaded first, then all are written as one transaction.
+///
+/// It reports the status steps, then one step per file copied.
 #[allow(clippy::too_many_arguments)]
-pub fn sync_with_progress(
+pub(crate) fn sync_with_progress(
     remote: &dyn Remote,
     repository: &str,
     local_root: &Path,
@@ -881,12 +887,16 @@ fn local_file(local_root: &Path, path: &str) -> PathBuf {
 }
 
 /// A file's SHA-256, as lowercase hex.
-pub fn sha256_hex(bytes: &[u8]) -> String {
+pub(crate) fn sha256_hex(bytes: &[u8]) -> String {
     super::normalise::hex(&Sha256::digest(bytes))
 }
 
 /// Where a repository's tree is kept in a solution: `<root>/<repository>/`.
-pub fn local_root(solution_root: &Path, configured: Option<&str>, repository: &str) -> PathBuf {
+pub(crate) fn local_root(
+    solution_root: &Path,
+    configured: Option<&str>,
+    repository: &str,
+) -> PathBuf {
     solution_root
         .join(configured.unwrap_or(DEFAULT_ROOT))
         .join(repository)

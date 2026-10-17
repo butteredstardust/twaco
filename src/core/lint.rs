@@ -13,16 +13,16 @@ use std::collections::{BTreeMap, BTreeSet};
 
 /// One trap, in one place.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Trap {
-    pub line: usize,
-    pub rule: &'static str,
-    pub message: String,
+pub(crate) struct Trap {
+    pub(crate) line: usize,
+    pub(crate) rule: &'static str,
+    pub(crate) message: String,
     /// The offending line, trimmed, so a report can show it without re-reading the file.
-    pub source: String,
+    pub(crate) source: String,
 }
 
 /// Every trap in one service script.
-pub fn lint(text: &str) -> Vec<Trap> {
+pub(crate) fn lint(text: &str) -> Vec<Trap> {
     let lines: Vec<&str> = text.split('\n').collect();
     let mut traps = Vec::new();
     traps.extend(const_in_loop(&lines));

@@ -6,13 +6,13 @@
 //! the whole server's, so twaco only reads them; a PASSWORD field's value is never shown.
 
 use super::codes::{Coded, ErrorCode};
-use super::entity_key::ServiceTarget;
+use super::entity::key::ServiceTarget;
 use super::server::{Client, ServerError};
 use serde_json::{json, Value};
 use std::time::Duration;
 
 const TIMEOUT: Duration = Duration::from_secs(60);
-pub const HIDDEN: &str = "(hidden)";
+pub(crate) const HIDDEN: &str = "(hidden)";
 
 /// What this module asks of a server, as a trait so it is tested offline.
 pub trait Remote: Sync {
@@ -94,8 +94,8 @@ pub struct Table {
 #[derive(Debug, Clone, PartialEq)]
 pub struct Subsystem {
     pub name: String,
-    pub running: bool,
-    pub tables: Vec<Table>,
+    pub(crate) running: bool,
+    pub(crate) tables: Vec<Table>,
 }
 
 fn rows_of(reply: Option<Value>, what: &str) -> Result<Vec<Value>, SettingsError> {

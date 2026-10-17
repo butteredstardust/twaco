@@ -137,7 +137,7 @@ pub enum Part {
 }
 
 /// One importable document of the solution or a project, as `bundle` builds it.
-pub fn bundle(
+pub(crate) fn bundle(
     solution: &Solution,
     project: Option<&str>,
     part: Part,
@@ -190,7 +190,7 @@ fn zip_bytes(entries: &[(String, Vec<u8>)]) -> Result<Vec<u8>, PackageError> {
 }
 
 /// The source-control layout, `<Project>/<Collection>/<Name>.xml`, as a zip.
-pub fn source_control(
+pub(crate) fn source_control(
     solution: &Solution,
     project: Option<&str>,
 ) -> Result<(Vec<u8>, usize), PackageError> {
@@ -211,7 +211,7 @@ pub fn source_control(
 
 /// An entity document with its root entity's editability set: the attribute's value replaced
 /// where present, the attribute added after the element name where not. Nothing else moves.
-pub fn set_editable(src: &[u8], editable: bool) -> Result<Vec<u8>, PackageError> {
+pub(crate) fn set_editable(src: &[u8], editable: bool) -> Result<Vec<u8>, PackageError> {
     let bad = |why: String| PackageError::Invalid(format!("an entity document {why}"));
     let tokens = super::scan::tokenize(src).map_err(|e| bad(format!("will not scan: {e}")))?;
     let at = super::sidecar::entity_element(&tokens, src)
@@ -236,15 +236,15 @@ pub fn set_editable(src: &[u8], editable: bool) -> Result<Vec<u8>, PackageError>
 
 /// What a project's `ExtensionPackage` says about it.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Metadata {
-    pub version: String,
-    pub group: String,
-    pub vendor: String,
-    pub minimum_thingworx: String,
+pub(crate) struct Metadata {
+    pub(crate) version: String,
+    pub(crate) group: String,
+    pub(crate) vendor: String,
+    pub(crate) minimum_thingworx: String,
 }
 
 impl Metadata {
-    pub fn from_solution(solution: &Solution) -> Metadata {
+    pub(crate) fn from_solution(solution: &Solution) -> Metadata {
         let config = &solution.package;
         Metadata {
             version: config
@@ -280,7 +280,7 @@ fn escape(text: &str) -> Result<String, PackageError> {
 }
 
 /// `metadata.xml` for one project, `dependsOn` from its `depends_on`.
-pub fn metadata_xml(
+pub(crate) fn metadata_xml(
     project: &str,
     depends_on: &[String],
     meta: &Metadata,
@@ -303,7 +303,7 @@ pub fn metadata_xml(
 }
 
 /// One project as an extension zip. Returns the bytes and how many entities it holds.
-pub fn extension(
+pub(crate) fn extension(
     solution: &Solution,
     project: &str,
     editable: bool,
@@ -332,10 +332,10 @@ pub fn extension(
 }
 
 /// How many entities each project's package holds, in deploy order.
-pub type Counts = Vec<(String, usize)>;
+pub(crate) type Counts = Vec<(String, usize)>;
 
 /// The solution as an outer zip of its projects' extension zips, in deploy order.
-pub fn solution_extensions(
+pub(crate) fn solution_extensions(
     solution: &Solution,
     editable: bool,
     meta: &Metadata,

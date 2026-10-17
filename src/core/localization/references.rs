@@ -19,22 +19,22 @@ pub(crate) const GATE: &str = "localization tokens";
 /// One thing the gate found.
 #[derive(Debug, PartialEq, Eq)]
 pub(crate) struct TokenProblem {
-    pub file: String,
+    pub(crate) file: String,
     /// 1-based; zero for a finding about the whole file.
-    pub line: usize,
-    pub rule: &'static str,
-    pub message: String,
+    pub(crate) line: usize,
+    pub(crate) rule: &'static str,
+    pub(crate) message: String,
 }
 
 #[derive(Debug, Default)]
 pub(crate) struct Report {
     /// References to the solution's own tokens that were checked.
-    pub checked: usize,
+    pub(crate) checked: usize,
     /// Entity files that hold at least one `[[token]]`.
-    pub files: usize,
+    pub(crate) files: usize,
     /// References to tokens outside every project's prefixes.
-    pub not_checked: usize,
-    pub problems: Vec<TokenProblem>,
+    pub(crate) not_checked: usize,
+    pub(crate) problems: Vec<TokenProblem>,
 }
 
 pub(crate) fn run(solution: &Solution) -> Report {

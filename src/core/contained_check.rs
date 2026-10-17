@@ -4,7 +4,7 @@
 
 use super::config::Solution;
 use super::mashup;
-use super::mashup_describe::mashup_parameters;
+use super::mashup::describe::mashup_parameters;
 use super::workspace;
 use serde_json::Value;
 use std::collections::{BTreeMap, BTreeSet};

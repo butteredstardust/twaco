@@ -56,7 +56,7 @@ pub struct Swept {
 }
 
 /// Whether a name is one `temporary_name` makes: `ZZ.Twaco.Sql.` and eight lowercase hex digits.
-pub fn is_temporary_name(name: &str) -> bool {
+pub(crate) fn is_temporary_name(name: &str) -> bool {
     name.strip_prefix("ZZ.Twaco.Sql.").is_some_and(|rest| {
         rest.len() == 8
             && rest
@@ -67,7 +67,7 @@ pub fn is_temporary_name(name: &str) -> bool {
 
 /// Find the temporary Things an interrupted run left, and with `apply` delete them, confirming
 /// each is gone. Only a name twaco generates, on a `Database` Thing, is ever touched.
-pub fn sweep(remote: &dyn Sweeper, apply: bool) -> Result<Vec<Swept>, DbError> {
+pub(crate) fn sweep(remote: &dyn Sweeper, apply: bool) -> Result<Vec<Swept>, DbError> {
     let mut names: Vec<String> = remote
         .thing_names()
         .map_err(|why| DbError(format!("cannot list the server's Things: {why}")))?

@@ -1,5 +1,5 @@
 use super::super::baseline::{Baseline, BaselineError};
-use super::super::entity_key::{EntityKey, ServiceTarget};
+use super::super::entity::key::{EntityKey, ServiceTarget};
 use super::super::normalise;
 use super::super::profile::Profile;
 use super::super::push;

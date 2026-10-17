@@ -5,7 +5,7 @@ use serde::Serialize;
 /// A machine-readable category for a failure and the caller's next action.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "snake_case")]
-pub enum ErrorCode {
+pub(crate) enum ErrorCode {
     /// Correct the supplied arguments and try again.
     InvalidArguments,
     /// Choose an entity that exists in the solution.
@@ -41,7 +41,8 @@ pub enum ErrorCode {
 }
 
 impl ErrorCode {
-    pub const ALL: [Self; 16] = [
+    #[cfg(test)]
+    pub(crate) const ALL: [Self; 16] = [
         Self::InvalidArguments,
         Self::UnknownEntity,
         Self::Ambiguous,
@@ -60,7 +61,7 @@ impl ErrorCode {
         Self::Unclassified,
     ];
 
-    pub const fn as_str(self) -> &'static str {
+    pub(crate) const fn as_str(self) -> &'static str {
         match self {
             Self::InvalidArguments => "invalid_arguments",
             Self::UnknownEntity => "unknown_entity",
@@ -83,7 +84,7 @@ impl ErrorCode {
 }
 
 /// An error whose stable category can be returned by an adapter.
-pub trait Coded {
+pub(crate) trait Coded {
     fn code(&self) -> ErrorCode;
 }
 
@@ -121,7 +122,7 @@ mod tests {
             ErrorCode::UnknownEntity
         );
         assert_eq!(
-            super::super::entity_key::EntityKey::parse("bad")
+            super::super::entity::key::EntityKey::parse("bad")
                 .unwrap_err()
                 .code(),
             ErrorCode::InvalidArguments
@@ -565,7 +566,7 @@ mod tests {
 
     #[test]
     fn delete_error() {
-        use crate::core::entity_delete::DeleteError;
+        use crate::core::entity::delete::DeleteError;
         is(
             DeleteError::Remote {
                 entity: text(),
@@ -600,7 +601,7 @@ mod tests {
 
     #[test]
     fn carry_error() {
-        use crate::core::entity_carry::CarryError;
+        use crate::core::entity::carry::CarryError;
         is(CarryError::Ledger { why: text() }, ErrorCode::InvalidData);
         is(
             CarryError::Arguments { why: text() },
@@ -745,7 +746,7 @@ mod tests {
 
     #[test]
     fn key_error() {
-        use crate::core::entity_key::EntityKey;
+        use crate::core::entity::key::EntityKey;
         is(
             EntityKey::parse("bad").unwrap_err(),
             ErrorCode::InvalidArguments,
@@ -991,13 +992,13 @@ mod tests {
 
     #[test]
     fn search_and_entity_get_errors() {
-        use crate::core::entity_get::GetError;
+        use crate::core::entity::get::GetError;
         use crate::core::search::SearchError;
         is(SearchError::Invalid(text()), ErrorCode::InvalidArguments);
         is(SearchError::Reply(text()), ErrorCode::InvalidData);
         is(GetError::Invalid(text()), ErrorCode::InvalidArguments);
         is(
-            GetError::NotOnServer(crate::core::entity_key::EntityKey::new("Things", "T").unwrap()),
+            GetError::NotOnServer(crate::core::entity::key::EntityKey::new("Things", "T").unwrap()),
             ErrorCode::UnknownEntity,
         );
     }

@@ -20,14 +20,14 @@ enum Kind {
 
 /// One thing in the wrong place.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Misplaced {
-    pub line: usize,
-    pub rule: &'static str,
-    pub message: String,
+pub(crate) struct Misplaced {
+    pub(crate) line: usize,
+    pub(crate) rule: &'static str,
+    pub(crate) message: String,
 }
 
 /// What appears below the first top-level function that should be above it.
-pub fn check(text: &str) -> Vec<Misplaced> {
+pub(crate) fn check(text: &str) -> Vec<Misplaced> {
     let classified = classify(text);
     let Some(first) = classified
         .iter()

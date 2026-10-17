@@ -13,19 +13,19 @@ use std::collections::BTreeMap;
 /// One field of a DataShape.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Field {
-    pub name: String,
-    pub base_type: String,
+    pub(crate) name: String,
+    pub(crate) base_type: String,
     /// Kept as written. ThingWorx emits it as an attribute and the sidecar carries the string,
     /// so a leading zero or an empty value survives a round trip.
-    pub ordinal: String,
-    pub description: String,
+    pub(crate) ordinal: String,
+    pub(crate) description: String,
     /// `aspect.*` attributes, without the prefix. `true`/`false` become booleans; the rest stay
     /// strings, which is what the reference does and what the committed sidecars hold.
-    pub aspects: BTreeMap<String, Aspect>,
+    pub(crate) aspects: BTreeMap<String, Aspect>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub enum Aspect {
+pub(crate) enum Aspect {
     Bool(bool),
     Text(String),
 }

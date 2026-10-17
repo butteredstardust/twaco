@@ -1,7 +1,7 @@
 //! Planning a DataShape field rename, with its configuration tables, DataTables and InfoTables.
 
 use super::{
-    catalog, check, datashape, datatable, dbinfo, push_change, read, rename_scan, splice, types,
+    catalog, check, datashape, datatable, dbinfo, push_change, read, scan, splice, types,
     validate_spec, workspace, BTreeSet, FileKind, Path, PathBuf, Plan, RenameError, Solution, Spec,
 };
 
@@ -31,10 +31,12 @@ pub(super) fn plan_field(solution: &Solution, spec: &Spec) -> Result<Plan, Renam
     }
     let shape = shapes[0];
     let shape_bytes = read(&shape.path)?;
-    let shape_pass = rename_scan::scan_data_shape_field(&shape_bytes, &spec.old, &spec.new)
-        .map_err(|error| RenameError::Xml {
-            path: shape.path.clone(),
-            why: error.to_string(),
+    let shape_pass =
+        scan::scan_data_shape_field(&shape_bytes, &spec.old, &spec.new).map_err(|error| {
+            RenameError::Xml {
+                path: shape.path.clone(),
+                why: error.to_string(),
+            }
         })?;
     if !shape_pass.old_found {
         return Err(RenameError::Unknown {
@@ -73,7 +75,7 @@ pub(super) fn plan_field(solution: &Solution, spec: &Spec) -> Result<Plan, Renam
         fields_path,
         FileKind::Sidecar,
         &sidecar_bytes,
-        rename_scan::replace_file(&sidecar_bytes, sidecar, "regenerated fields.json"),
+        scan::replace_file(&sidecar_bytes, sidecar, "regenerated fields.json"),
     );
 
     let mut conflicts = Vec::new();
@@ -97,11 +99,10 @@ pub(super) fn plan_field(solution: &Solution, spec: &Spec) -> Result<Plan, Renam
             item.info.collection.as_str(),
             "Things" | "ThingTemplates" | "ThingShapes"
         ) {
-            let shapes =
-                rename_scan::property_shapes(&bytes).map_err(|error| RenameError::Xml {
-                    path: item.path.clone(),
-                    why: error.to_string(),
-                })?;
+            let shapes = scan::property_shapes(&bytes).map_err(|error| RenameError::Xml {
+                path: item.path.clone(),
+                why: error.to_string(),
+            })?;
             own_properties.insert(item.info.name.clone(), shapes);
         }
         file_bytes.insert(item.path.clone(), bytes);
@@ -116,7 +117,7 @@ pub(super) fn plan_field(solution: &Solution, spec: &Spec) -> Result<Plan, Renam
             continue;
         }
         let bytes = &file_bytes[&item.path];
-        let mut scanned = rename_scan::scan_configuration_field(bytes, scope, &spec.old, &spec.new)
+        let mut scanned = scan::scan_configuration_field(bytes, scope, &spec.old, &spec.new)
             .map_err(|error| RenameError::Xml {
                 path: item.path.clone(),
                 why: error.to_string(),
@@ -149,11 +150,12 @@ pub(super) fn plan_field(solution: &Solution, spec: &Spec) -> Result<Plan, Renam
             }
         }
         if !typed.is_empty() {
-            let info = rename_scan::scan_infotable_field(bytes, &typed, &spec.old, &spec.new)
-                .map_err(|error| RenameError::Xml {
+            let info = scan::scan_infotable_field(bytes, &typed, &spec.old, &spec.new).map_err(
+                |error| RenameError::Xml {
                     path: item.path.clone(),
                     why: error.to_string(),
-                })?;
+                },
+            )?;
             field_tables += info.tables;
             for table in info.table_conflicts {
                 conflicts.push(format!(
@@ -174,11 +176,11 @@ pub(super) fn plan_field(solution: &Solution, spec: &Spec) -> Result<Plan, Renam
             })? {
                 for span in dbinfo::field_spans(&scan, scope, &spec.old) {
                     let absolute = crate::core::scan::Span::new(base + span.start, base + span.end);
-                    rename_scan::add_field_edit(
+                    scan::add_field_edit(
                         bytes,
                         absolute,
                         &spec.new,
-                        rename_scan::Place::File,
+                        scan::Place::File,
                         &mut scanned.pass,
                     );
                 }
@@ -230,7 +232,7 @@ pub(super) fn plan_field(solution: &Solution, spec: &Spec) -> Result<Plan, Renam
                         item.path.clone(),
                         FileKind::Entity,
                         bytes,
-                        rename_scan::replace_file(
+                        scan::replace_file(
                             bytes,
                             updated,
                             "renamed the DataTable's shape and indexes",
@@ -243,11 +245,7 @@ pub(super) fn plan_field(solution: &Solution, spec: &Spec) -> Result<Plan, Renam
                             sidecar_path,
                             FileKind::Sidecar,
                             &current,
-                            rename_scan::replace_file(
-                                &current,
-                                sidecar,
-                                "regenerated datatable.json",
-                            ),
+                            scan::replace_file(&current, sidecar, "regenerated datatable.json"),
                         );
                     }
                     data_table_shapes += 1;
@@ -278,15 +276,9 @@ pub(super) fn plan_field(solution: &Solution, spec: &Spec) -> Result<Plan, Renam
                 continue;
             }
             let bytes = read(&path)?;
-            let mut pass = rename_scan::XmlPass::new_for(&bytes);
+            let mut pass = scan::XmlPass::new_for(&bytes);
             for span in dbinfo::field_spans(&dbinfo::scan_script(&bytes), scope, &spec.old) {
-                rename_scan::add_field_edit(
-                    &bytes,
-                    span,
-                    &spec.new,
-                    rename_scan::Place::File,
-                    &mut pass,
-                );
+                scan::add_field_edit(&bytes, span, &spec.new, scan::Place::File, &mut pass);
             }
             push_change(&mut changes, path, FileKind::Sidecar, &bytes, pass);
         }
@@ -314,7 +306,7 @@ pub(super) fn plan_field(solution: &Solution, spec: &Spec) -> Result<Plan, Renam
         let Ok(bytes) = std::fs::read(&path) else {
             continue;
         };
-        let Ok(mentions) = rename_scan::review_mentions(&bytes, &spec.old) else {
+        let Ok(mentions) = scan::review_mentions(&bytes, &spec.old) else {
             continue;
         };
         push_change(&mut changes, path, FileKind::Sidecar, &bytes, mentions);

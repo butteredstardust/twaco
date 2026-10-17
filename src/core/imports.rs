@@ -8,7 +8,7 @@
 //! differs. Both are plans unless applied.
 
 use super::codes::{Coded, ErrorCode};
-use super::entity_key::{EntityKey, ServiceTarget};
+use super::entity::key::{EntityKey, ServiceTarget};
 use super::progress::{self, Progress, NONE};
 use super::server::{Client, ServerError};
 use serde_json::{json, Value};
@@ -73,7 +73,7 @@ pub enum ImportError {
 /// Every entity an export document holds: the named children of each collection element under
 /// `<Entities>`. A name that cannot address an entity (empty, `.`, `..`, or holding a `/`) is
 /// refused here, before it reaches a server URL.
-pub fn entities_in_xml(xml: &[u8]) -> Result<Vec<EntityKey>, ImportError> {
+pub(crate) fn entities_in_xml(xml: &[u8]) -> Result<Vec<EntityKey>, ImportError> {
     use super::scan::Kind;
     let tokens =
         super::scan::tokenize(xml).map_err(|e| ImportError::Invalid(format!("not XML: {e}")))?;
@@ -114,10 +114,13 @@ pub fn entities_in_xml(xml: &[u8]) -> Result<Vec<EntityKey>, ImportError> {
 }
 
 /// The most one XML entry of an import zip may expand to: far beyond any real export.
-pub const MAX_ENTRY_BYTES: u64 = 512 << 20;
+pub(crate) const MAX_ENTRY_BYTES: u64 = 512 << 20;
 
 /// The entities of an import file: one export XML, or a zip of them (the `.xml` entries).
-pub fn entities_in_file(file_name: &str, bytes: &[u8]) -> Result<Vec<EntityKey>, ImportError> {
+pub(crate) fn entities_in_file(
+    file_name: &str,
+    bytes: &[u8],
+) -> Result<Vec<EntityKey>, ImportError> {
     entities_within(file_name, bytes, MAX_ENTRY_BYTES)
 }
 
@@ -179,7 +182,7 @@ pub struct FilePlan {
 
 /// Import a file: what it holds and what it would replace, and unless `apply` stop there.
 /// Applied, every entity it holds must then exist on the server.
-pub fn import_file(
+pub(crate) fn import_file(
     remote: &dyn Remote,
     file_name: &str,
     bytes: &[u8],
@@ -199,7 +202,7 @@ pub fn import_file(
 }
 
 /// Like [`import_file`], and report progress: one step per entity looked up, one for the send.
-pub fn import_file_with_progress(
+pub(crate) fn import_file_with_progress(
     remote: &dyn Remote,
     file_name: &str,
     bytes: &[u8],
@@ -279,7 +282,7 @@ pub struct Differs {
 
 /// A source-control tree in a repository against the server: every entity whose server copy
 /// differs, with what differs. Read-only. `entities` is how many the tree holds.
-pub fn diff(
+pub(crate) fn diff(
     remote: &dyn Remote,
     repository: &str,
     path: &str,
@@ -348,7 +351,7 @@ pub struct TreeImport {
 /// Import a source-control tree from a repository. The plan is the server's diff; applied,
 /// the import is sent and the diff taken again, and what still differs is returned (a Database
 /// Thing's encrypted password, for one, always will).
-pub fn import_source_control(
+pub(crate) fn import_source_control(
     remote: &dyn Remote,
     repository: &str,
     path: &str,

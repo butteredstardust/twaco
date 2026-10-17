@@ -3,7 +3,7 @@
 use super::{Access, Effects, Mode, Notices};
 use crate::core::codes::{Coded, ErrorCode};
 use crate::core::config::Solution;
-use crate::core::entity_key::ServiceTarget;
+use crate::core::entity::key::ServiceTarget;
 use crate::core::{logs, profile, server, workspace};
 use serde_json::Value;
 use std::fmt;
@@ -44,14 +44,15 @@ pub enum CallOutcome {
 
 impl CallOutcome {
     /// The access this operation used or may have used.
-    pub const fn effects(&self) -> Effects {
+    #[cfg(test)]
+    pub(crate) const fn effects(&self) -> Effects {
         match self {
             Self::Plan { effects, .. } | Self::Applied { effects, .. } => *effects,
         }
     }
 
     /// The service target after repository shorthand was resolved.
-    pub fn target(&self) -> &ServiceTarget {
+    pub(crate) fn target(&self) -> &ServiceTarget {
         match self {
             Self::Plan { target, .. } | Self::Applied { target, .. } => target,
         }

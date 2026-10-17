@@ -238,7 +238,7 @@ fn payload_layout(bytes: &[u8]) -> (usize, usize) {
 /// The files that route an agent to what it needs, for a solution of these projects: an
 /// AGENTS.md whose first section is for people to fill in, and a CLAUDE.md pointing at it.
 /// What twaco knows is in `twaco guide` and `twaco catalog`, so these stay short.
-pub fn agent_files(solution_name: &str, projects: &[String]) -> [(&'static str, String); 2] {
+pub(crate) fn agent_files(solution_name: &str, projects: &[String]) -> [(&'static str, String); 2] {
     let name = if solution_name.is_empty() {
         projects.join(", ")
     } else {

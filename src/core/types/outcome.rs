@@ -22,7 +22,7 @@ pub struct Refresh {
 
 /// Keep an opted-in solution's declarations current after another command wrote source data.
 /// Failure is advisory: the command's own writes have already succeeded and remain successful.
-pub fn refresh_after_write(solution: &Solution, wrote: bool) -> Refresh {
+pub(crate) fn refresh_after_write(solution: &Solution, wrote: bool) -> Refresh {
     if !wrote || !solution.root.join(".twaco/types").exists() {
         return Refresh::default();
     }
@@ -60,9 +60,9 @@ pub struct TypeFinding {
 pub struct CheckOutcome {
     pub declarations: Outcome,
     pub findings: Vec<TypeFinding>,
-    pub affected_services: usize,
-    pub services: usize,
-    pub elapsed: Duration,
+    pub(crate) affected_services: usize,
+    pub(crate) services: usize,
+    pub(crate) elapsed: Duration,
 }
 
 /// One finding in the JSON Lines protocol consumed by a declared `[[check]]` hook.

@@ -14,17 +14,17 @@ use super::scan::{self, Kind, ScanError, Token};
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Configuration {
     /// The DataShape its rows take.
-    pub data_shape: String,
+    pub(crate) data_shape: String,
     /// The shape the platform accumulated, as raw JSON text.
-    pub accumulated: String,
-    pub indexes: Vec<Index>,
+    pub(crate) accumulated: String,
+    pub(crate) indexes: Vec<Index>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Index {
-    pub name: String,
+pub(crate) struct Index {
+    pub(crate) name: String,
     /// Comma-separated, as the platform writes it.
-    pub field_names: String,
+    pub(crate) field_names: String,
 }
 
 #[derive(Debug, thiserror::Error)]

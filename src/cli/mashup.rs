@@ -3,8 +3,8 @@ use super::style;
 use crate::{print_notices, DRIFT, FAILED, OK};
 use twaco::core::commands::{self, Mode};
 use twaco::core::config::Solution;
-use twaco::core::mashup_authoring;
-use twaco::core::mashup_edit::{Placement, Side};
+use twaco::core::mashup;
+use twaco::core::mashup::edit::{Placement, Side};
 
 /// `twaco mashup <command>`.
 #[derive(Debug, clap::Subcommand)]
@@ -315,7 +315,7 @@ pub(crate) fn mashup_new_cmd(solution: &Solution, args: &MashupNew) -> u8 {
         .unwrap_or_else(|| "blank".into());
     let apply = args.apply.apply;
     let request = commands::mashup::MashupNewRequest {
-        request: mashup_authoring::NewRequest {
+        request: mashup::authoring::NewRequest {
             name: name.clone(),
             project: args.project.project.clone(),
             template,
@@ -340,7 +340,7 @@ pub(crate) fn mashup_new_cmd(solution: &Solution, args: &MashupNew) -> u8 {
         }
     };
     print_notices(&notices);
-    let report = mashup_authoring::new_plan_json(solution, &outcome.plan, outcome.applied);
+    let report = mashup::authoring::new_plan_json(solution, &outcome.plan, outcome.applied);
     if args.json.json {
         println!(
             "{}",
@@ -368,10 +368,10 @@ pub(crate) fn mashup_new_cmd(solution: &Solution, args: &MashupNew) -> u8 {
     );
     println!(
         "  slots: {}",
-        mashup_authoring::template_slots(&plan.template).join(", ")
+        mashup::authoring::template_slots(&plan.template).join(", ")
     );
     let parameters =
-        twaco::core::mashup_describe::mashup_parameters(&plan.entity).unwrap_or_default();
+        twaco::core::mashup::describe::mashup_parameters(&plan.entity).unwrap_or_default();
     if !parameters.is_empty() {
         println!(
             "  parameters: {}",
@@ -423,7 +423,7 @@ pub(crate) fn mashup_recipe_cmd(solution: &Solution, args: &MashupRecipe) -> u8 
             eprintln!(
                 "{} mashup recipe needs <recipe> <mashup> [<widget>]; the recipes are {}",
                 style::prefix(),
-                mashup_authoring::RECIPES.join(", ")
+                mashup::authoring::RECIPES.join(", ")
             );
             return FAILED;
         }
@@ -436,7 +436,7 @@ pub(crate) fn mashup_recipe_cmd(solution: &Solution, args: &MashupRecipe) -> u8 
             return FAILED;
         }
     };
-    let recipe_args = mashup_authoring::RecipeArgs {
+    let recipe_args = mashup::authoring::RecipeArgs {
         widget,
         condition: args.condition.clone(),
         expression: args.expression.clone(),
@@ -462,7 +462,7 @@ pub(crate) fn mashup_recipe_cmd(solution: &Solution, args: &MashupRecipe) -> u8 
         columns: args.columns.clone(),
         selected: args.selected.clone(),
     };
-    let recipe = match mashup_authoring::Recipe::from_args(name, &recipe_args) {
+    let recipe = match mashup::authoring::Recipe::from_args(name, &recipe_args) {
         Ok(recipe) => recipe,
         Err(error) => {
             eprintln!("{} {error}", style::prefix());
@@ -470,7 +470,7 @@ pub(crate) fn mashup_recipe_cmd(solution: &Solution, args: &MashupRecipe) -> u8 
         }
     };
     let request = commands::mashup::MashupRecipeRequest {
-        request: mashup_authoring::RecipeRequest {
+        request: mashup::authoring::RecipeRequest {
             mashup: mashup.clone(),
             recipe,
         },
@@ -491,7 +491,7 @@ pub(crate) fn mashup_recipe_cmd(solution: &Solution, args: &MashupRecipe) -> u8 
         }
     };
     print_notices(&notices);
-    let report = mashup_authoring::recipe_plan_json(solution, &outcome.plan, outcome.applied);
+    let report = mashup::authoring::recipe_plan_json(solution, &outcome.plan, outcome.applied);
     if args.json.json {
         println!(
             "{}",
@@ -542,7 +542,7 @@ pub(crate) fn mashup_event_cmd(solution: &Solution, args: &MashupEvent) -> u8 {
         return FAILED;
     };
     let request = commands::mashup::MashupEventRequest {
-        request: mashup_authoring::EventRequest {
+        request: mashup::authoring::EventRequest {
             mashup: mashup.clone(),
             name: name.clone(),
             when: when.clone(),
@@ -564,7 +564,7 @@ pub(crate) fn mashup_event_cmd(solution: &Solution, args: &MashupEvent) -> u8 {
         }
     };
     print_notices(&notices);
-    let report = mashup_authoring::parameter_plan_json(solution, &outcome.plan, outcome.applied);
+    let report = mashup::authoring::parameter_plan_json(solution, &outcome.plan, outcome.applied);
     if args.json.json {
         println!(
             "{}",
@@ -611,9 +611,9 @@ pub(crate) fn mashup_param_cmd(solution: &Solution, args: &MashupParam) -> u8 {
         return FAILED;
     };
     let action = match action {
-        ParamVerb::Add => mashup_authoring::ParameterAction::Add,
-        ParamVerb::Set => mashup_authoring::ParameterAction::Set,
-        ParamVerb::Remove => mashup_authoring::ParameterAction::Remove,
+        ParamVerb::Add => mashup::authoring::ParameterAction::Add,
+        ParamVerb::Set => mashup::authoring::ParameterAction::Set,
+        ParamVerb::Remove => mashup::authoring::ParameterAction::Remove,
     };
     // Given bare, `--default` is empty.
     let given = args.default.as_ref().filter(|value| !value.is_empty());
@@ -622,11 +622,11 @@ pub(crate) fn mashup_param_cmd(solution: &Solution, args: &MashupParam) -> u8 {
         return FAILED;
     }
     let default = if args.no_default {
-        mashup_authoring::ParameterDefault::Clear
+        mashup::authoring::ParameterDefault::Clear
     } else if let Some(value) = given {
-        mashup_authoring::ParameterDefault::Set(value.clone())
+        mashup::authoring::ParameterDefault::Set(value.clone())
     } else {
-        mashup_authoring::ParameterDefault::Unchanged
+        mashup::authoring::ParameterDefault::Unchanged
     };
     if args.no_default && given.is_some() {
         eprintln!(
@@ -636,7 +636,7 @@ pub(crate) fn mashup_param_cmd(solution: &Solution, args: &MashupParam) -> u8 {
         return FAILED;
     }
     let request = commands::mashup::MashupParameterRequest {
-        request: mashup_authoring::ParameterRequest {
+        request: mashup::authoring::ParameterRequest {
             mashup: mashup.clone(),
             action,
             name: name.clone(),
@@ -664,7 +664,7 @@ pub(crate) fn mashup_param_cmd(solution: &Solution, args: &MashupParam) -> u8 {
         }
     };
     print_notices(&notices);
-    let report = mashup_authoring::parameter_plan_json(solution, &outcome.plan, outcome.applied);
+    let report = mashup::authoring::parameter_plan_json(solution, &outcome.plan, outcome.applied);
     if args.json.json {
         println!(
             "{}",
@@ -673,9 +673,9 @@ pub(crate) fn mashup_param_cmd(solution: &Solution, args: &MashupParam) -> u8 {
         return OK;
     }
     let verb = match action {
-        mashup_authoring::ParameterAction::Add => ("add", "added"),
-        mashup_authoring::ParameterAction::Set => ("change", "changed"),
-        mashup_authoring::ParameterAction::Remove => ("remove", "removed"),
+        mashup::authoring::ParameterAction::Add => ("add", "added"),
+        mashup::authoring::ParameterAction::Set => ("change", "changed"),
+        mashup::authoring::ParameterAction::Remove => ("remove", "removed"),
     };
     println!(
         "{} parameter {}{} in {}",
@@ -685,7 +685,7 @@ pub(crate) fn mashup_param_cmd(solution: &Solution, args: &MashupParam) -> u8 {
             format!("would {}", verb.0)
         },
         outcome.plan.name,
-        if action == mashup_authoring::ParameterAction::Remove {
+        if action == mashup::authoring::ParameterAction::Remove {
             String::new()
         } else {
             format!(" ({}, {})", outcome.plan.base_type, outcome.plan.direction)
@@ -731,7 +731,7 @@ pub(crate) fn mashup_templates_cmd(args: &MashupTemplates) -> u8 {
         }
     };
     match detail {
-        Some(name) => match twaco::core::mashup_templates_view::detail(name) {
+        Some(name) => match twaco::core::mashup::templates_view::detail(name) {
             Ok(Some(template)) => {
                 if args.json.json {
                     println!(
@@ -743,7 +743,7 @@ pub(crate) fn mashup_templates_cmd(args: &MashupTemplates) -> u8 {
                     if !template.aliases.is_empty() {
                         println!("aliases: {}", template.aliases.join(", "));
                     }
-                    for line in twaco::core::mashup_templates_view::tree_lines(&template) {
+                    for line in twaco::core::mashup::templates_view::tree_lines(&template) {
                         println!("  {line}");
                     }
                     if let Some(slot) = &template.master_slot {
@@ -753,7 +753,7 @@ pub(crate) fn mashup_templates_cmd(args: &MashupTemplates) -> u8 {
                 OK
             }
             Ok(None) => {
-                let names = twaco::core::mashup_templates_view::list()
+                let names = twaco::core::mashup::templates_view::list()
                     .map(|all| {
                         all.into_iter()
                             .map(|t| t.name)
@@ -772,7 +772,7 @@ pub(crate) fn mashup_templates_cmd(args: &MashupTemplates) -> u8 {
                 FAILED
             }
         },
-        None => match twaco::core::mashup_templates_view::list() {
+        None => match twaco::core::mashup::templates_view::list() {
             Ok(templates) => {
                 if args.json.json {
                     println!(
@@ -849,7 +849,7 @@ pub(crate) fn mashup_add_cmd(solution: &Solution, args: &MashupAdd) -> u8 {
         }
     };
     let request = commands::mashup::MashupAddRequest {
-        request: mashup_authoring::AddRequest {
+        request: mashup::authoring::AddRequest {
             mashup: mashup.clone(),
             widget: widget.clone(),
             inputs: args.inputs.clone(),
@@ -874,7 +874,7 @@ pub(crate) fn mashup_add_cmd(solution: &Solution, args: &MashupAdd) -> u8 {
         }
     };
     print_notices(&notices);
-    let report = mashup_authoring::add_plan_json(solution, &outcome.plan, outcome.applied);
+    let report = mashup::authoring::add_plan_json(solution, &outcome.plan, outcome.applied);
     if args.json.json {
         println!(
             "{}",
@@ -984,7 +984,7 @@ pub(crate) fn mashup_add_contained_cmd(solution: &Solution, args: &MashupAddCont
         }
     };
     let request = commands::mashup::MashupAddContainedRequest {
-        request: mashup_authoring::AddContainedRequest {
+        request: mashup::authoring::AddContainedRequest {
             mashup: mashup.clone(),
             child: child.clone(),
             placement,
@@ -1008,7 +1008,7 @@ pub(crate) fn mashup_add_contained_cmd(solution: &Solution, args: &MashupAddCont
     };
     print_notices(&notices);
     let report =
-        mashup_authoring::add_contained_plan_json(solution, &outcome.plan, outcome.applied);
+        mashup::authoring::add_contained_plan_json(solution, &outcome.plan, outcome.applied);
     if args.json.json {
         println!(
             "{}",
@@ -1085,7 +1085,7 @@ pub(crate) fn mashup_bind_cmd(solution: &Solution, args: &MashupBind) -> u8 {
         return FAILED;
     };
     let request = commands::mashup::MashupBindRequest {
-        request: mashup_authoring::BindRequest {
+        request: mashup::authoring::BindRequest {
             mashup: mashup.clone(),
             from: from.clone(),
             to: to.clone(),
@@ -1183,7 +1183,7 @@ pub(crate) fn mashup_on_cmd(solution: &Solution, args: &MashupOn) -> u8 {
         return FAILED;
     };
     let request = commands::mashup::MashupOnRequest {
-        request: mashup_authoring::OnRequest {
+        request: mashup::authoring::OnRequest {
             mashup: mashup.clone(),
             event: event.clone(),
             invoke: invoke.clone(),
@@ -1270,7 +1270,7 @@ pub(crate) fn mashup_describe_cmd(solution: &Solution, args: &MashupDescribe) ->
         eprintln!("{} mashup describe needs one <mashup>", style::prefix());
         return FAILED;
     };
-    match twaco::core::mashup_describe::describe(solution, name) {
+    match twaco::core::mashup::describe::describe(solution, name) {
         Ok(description) => {
             if args.json.json {
                 println!(
@@ -1278,7 +1278,7 @@ pub(crate) fn mashup_describe_cmd(solution: &Solution, args: &MashupDescribe) ->
                     serde_json::to_string_pretty(&description).expect("a description serialises")
                 );
             } else {
-                print!("{}", twaco::core::mashup_describe::render(&description));
+                print!("{}", twaco::core::mashup::describe::render(&description));
             }
             OK
         }
@@ -1302,7 +1302,7 @@ pub(crate) fn mashup_validate_cmd(solution: &Solution, args: &MashupValidate) ->
             return FAILED;
         }
     };
-    let reports = match twaco::core::mashup_validate::validate(solution, name) {
+    let reports = match twaco::core::mashup::validate::validate(solution, name) {
         Ok(reports) => reports,
         Err(error) => {
             eprintln!("{} {error}", style::prefix());

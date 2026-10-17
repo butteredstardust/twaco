@@ -48,7 +48,8 @@ pub enum ConfigTableOutcome {
 
 impl ConfigTableOutcome {
     /// The access this operation used or may have used.
-    pub const fn effects(&self) -> Effects {
+    #[cfg(test)]
+    pub(crate) const fn effects(&self) -> Effects {
         match self {
             Self::Read { effects, .. }
             | Self::BackedUp { effects, .. }
@@ -167,7 +168,7 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::core::entity_key::ServiceTarget;
+    use crate::core::entity::key::ServiceTarget;
     use crate::core::server::ServerError;
     use serde_json::{json, Value};
     use std::cell::RefCell;

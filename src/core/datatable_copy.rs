@@ -11,7 +11,7 @@
 
 use super::codes::{Coded, ErrorCode};
 use super::config::Solution;
-use super::entity_key::{EntityKey, ServiceTarget};
+use super::entity::key::{EntityKey, ServiceTarget};
 use super::server::{Client, ServerError};
 use serde::Serialize;
 use serde_json::{json, Map, Value};
@@ -19,7 +19,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::time::Duration;
 
 /// Columns the platform adds to every DataTable row; they are not part of the shape.
-pub const SYSTEM_COLUMNS: [&str; 6] = [
+pub(crate) const SYSTEM_COLUMNS: [&str; 6] = [
     "key",
     "location",
     "source",
@@ -109,17 +109,17 @@ impl From<ServerError> for CopyError {
 }
 
 #[derive(Debug, Clone, Default)]
-pub struct Request {
-    pub old: String,
-    pub new: String,
+pub(crate) struct Request {
+    pub(crate) old: String,
+    pub(crate) new: String,
     /// Explicit `old -> new` field names, taking precedence over everything else.
-    pub map: BTreeMap<String, String>,
+    pub(crate) map: BTreeMap<String, String>,
     /// Allow source fields that have no target to be left behind.
-    pub drop_unmapped: bool,
+    pub(crate) drop_unmapped: bool,
     /// Allow a target that already has rows.
-    pub append: bool,
-    pub max_rows: u64,
-    pub apply: bool,
+    pub(crate) append: bool,
+    pub(crate) max_rows: u64,
+    pub(crate) apply: bool,
 }
 
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
@@ -134,7 +134,7 @@ pub struct FieldMove {
 pub struct Report {
     pub old: String,
     pub new: String,
-    pub applied: bool,
+    pub(crate) applied: bool,
     pub source_rows: u64,
     pub target_rows_before: u64,
     pub fields: Vec<FieldMove>,
@@ -244,7 +244,7 @@ fn rows_of(entries: &Value, fields: &BTreeSet<&str>) -> Vec<Map<String, Value>> 
         .collect()
 }
 
-pub fn run(
+pub(crate) fn run(
     remote: &dyn Remote,
     solution: &Solution,
     request: &Request,

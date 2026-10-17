@@ -4,7 +4,7 @@
 //!
 //! A backup set is a folder `.twaco/backups/<stamp>/` holding each entity's Exporter XML, which the
 //! server imports back as it is (verified on a live server: export, delete, import), and a
-//! `backup.json` that says what and why. Only the newest [`KEEP`] sets are kept. `entity restore`
+//! `backup.json` that says what and why. Only the newest `KEEP` sets are kept. `entity restore`
 //! imports a set again, and plans unless told to apply.
 //!
 //! What an export holds is the entity as the server would export it: definitions, configuration,
@@ -15,7 +15,7 @@ use super::codes::{Coded, ErrorCode};
 use super::config::Solution;
 use super::deploy;
 use super::entity;
-use super::entity_key::EntityKey;
+use super::entity::key::EntityKey;
 use super::push::{self, Decision, Refusal};
 use super::server::{Client, ServerError};
 use super::workspace;
@@ -25,7 +25,7 @@ use std::path::{Path, PathBuf};
 pub const DIR: &str = ".twaco/backups";
 const MANIFEST: &str = "backup.json";
 /// How many sets are kept; older ones are removed when a new one is saved.
-pub const KEEP: usize = 20;
+pub(crate) const KEEP: usize = 20;
 
 /// Reading an entity's export, and importing one back.
 pub trait Remote {
@@ -76,12 +76,12 @@ pub enum BackupError {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Item {
-    pub collection: String,
-    pub name: String,
+    pub(crate) collection: String,
+    pub(crate) name: String,
     /// The file holding it, relative to the set. Absent in sets saved before 0.1.5, which
     /// named files by the low byte of each character.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub file: Option<String>,
+    pub(crate) file: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -95,12 +95,12 @@ pub struct Manifest {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct Set {
     pub id: String,
-    pub dir: PathBuf,
+    pub(crate) dir: PathBuf,
     pub manifest: Manifest,
 }
 
 /// A set's id: the local time to the second.
-pub fn new_stamp() -> String {
+pub(crate) fn new_stamp() -> String {
     jiff::Zoned::now().strftime("%Y%m%d-%H%M%S").to_string()
 }
 
@@ -188,7 +188,7 @@ fn saved_path(set: &Set, item: &Item) -> Result<PathBuf, BackupError> {
 
 /// Save the server's current version of each entity that exists. Entities the server does not
 /// have are left out (there is nothing to lose). Returns `None` when none existed.
-pub fn save(
+pub(crate) fn save(
     remote: &dyn Remote,
     solution: &Solution,
     reason: &str,
@@ -262,7 +262,7 @@ fn unused_dir(base: &Path, stamp: &str) -> (String, PathBuf) {
 }
 
 /// Every set, oldest first.
-pub fn list(solution: &Solution) -> Vec<Set> {
+pub(crate) fn list(solution: &Solution) -> Vec<Set> {
     let mut sets = Vec::new();
     let Ok(entries) = std::fs::read_dir(root(solution)) else {
         return sets;
@@ -285,14 +285,14 @@ pub fn list(solution: &Solution) -> Vec<Set> {
 }
 
 /// Remove all but the newest `keep` sets. Only folders holding a manifest are ever removed.
-pub fn rotate(solution: &Solution, keep: usize) {
+pub(crate) fn rotate(solution: &Solution, keep: usize) {
     let sets = list(solution);
     for set in sets.iter().take(sets.len().saturating_sub(keep)) {
         let _ = std::fs::remove_dir_all(&set.dir);
     }
 }
 
-pub fn find(solution: &Solution, id: &str) -> Result<Set, BackupError> {
+pub(crate) fn find(solution: &Solution, id: &str) -> Result<Set, BackupError> {
     list(solution)
         .into_iter()
         .find(|set| set.id == id)
@@ -322,7 +322,7 @@ pub struct Restored {
 /// Plan, or with `apply` perform, importing a set (or the entities of it that `only` names, as
 /// `Collection/Name` or a bare name) back to the server. Each import is confirmed by asking the
 /// server for the entity; a failure is reported and the rest are still tried.
-pub fn restore(
+pub(crate) fn restore(
     remote: &dyn Remote,
     set: &Set,
     only: &[String],
@@ -401,7 +401,7 @@ pub fn restore(
 
 /// The entities a forced push or deploy would overwrite although the server holds changes the
 /// repository has not seen: the ones worth saving first.
-pub fn forced_overwrites(
+pub(crate) fn forced_overwrites(
     decisions: impl IntoIterator<Item = (EntityKey, Decision)>,
 ) -> Vec<EntityKey> {
     decisions
@@ -418,7 +418,7 @@ pub fn forced_overwrites(
 
 /// Before `entity push --force --apply`: save the server's copy if it holds changes the repository
 /// never saw. Returns the set's folder, relative to the solution.
-pub fn before_forced_push<R: push::Remote + Remote>(
+pub(crate) fn before_forced_push<R: push::Remote + Remote>(
     client: &R,
     solution: &Solution,
     target: &push::Target,
@@ -435,7 +435,7 @@ pub fn before_forced_push<R: push::Remote + Remote>(
 
 /// Before `deploy --force --apply`: save the server's copy of every entity the deploy would
 /// overwrite although the server holds changes the repository never saw.
-pub fn before_forced_deploy<R: deploy::Remote + Remote>(
+pub(crate) fn before_forced_deploy<R: deploy::Remote + Remote>(
     client: &R,
     solution: &Solution,
     projects: &[deploy::ProjectBundle],

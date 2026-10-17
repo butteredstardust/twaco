@@ -48,7 +48,7 @@ pub enum Mode {
 
 /// The level of access an outcome used or may have used.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum Access {
+pub(crate) enum Access {
     None,
     Read,
     Write,
@@ -57,12 +57,12 @@ pub enum Access {
 /// The workspace and server access associated with a command outcome.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Effects {
-    pub workspace: Access,
-    pub server: Access,
+    pub(crate) workspace: Access,
+    pub(crate) server: Access,
 }
 
 impl Effects {
-    pub const fn new(workspace: Access, server: Access) -> Self {
+    pub(crate) const fn new(workspace: Access, server: Access) -> Self {
         Self { workspace, server }
     }
 }
@@ -78,14 +78,14 @@ impl Notices {
         &self.0
     }
 
-    pub fn is_empty(&self) -> bool {
+    pub(crate) fn is_empty(&self) -> bool {
         self.0.is_empty()
     }
 }
 
 /// Take the workspace lock for a command that changes the workspace, recording what taking it
 /// did. Every executor takes its lock here, so none of them is a second place that decides how.
-pub fn lock_workspace(
+pub(crate) fn lock_workspace(
     solution: &Solution,
     label: &str,
     notices: &mut Notices,

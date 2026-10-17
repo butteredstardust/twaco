@@ -6,6 +6,12 @@ All notable changes to twaco are recorded here. The format follows
 
 ## [Unreleased]
 
+### Changed
+
+- The library's modules are nested by domain (`core::mashup::*`, `core::rename::*`,
+  `core::entity::*`) and most of its items are now crate-private, so the `twaco` library API is
+  smaller. The CLI and MCP server are unchanged.
+
 ## [0.1.19] - 2026-10-17
 
 ### Added

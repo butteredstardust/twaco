@@ -22,16 +22,16 @@ pub struct SyncReport {
     /// Services already matching their sidecars.
     pub unchanged: Vec<String>,
     /// In the entity, with no sidecar to write back. Removing a service needs saying so.
-    pub only_in_entity: Vec<String>,
+    pub(crate) only_in_entity: Vec<String>,
     /// A sidecar the entity has no writable service for. Adding one needs saying so.
-    pub only_in_sidecars: Vec<String>,
+    pub(crate) only_in_sidecars: Vec<String>,
     /// Run-time permission resources removed with the services they named.
-    pub dropped_permissions: Vec<String>,
+    pub(crate) dropped_permissions: Vec<String>,
 }
 
 impl SyncReport {
     /// Whether anything would be added or removed rather than updated in place.
-    pub fn has_structural_change(&self) -> bool {
+    pub(crate) fn has_structural_change(&self) -> bool {
         !self.only_in_entity.is_empty() || !self.only_in_sidecars.is_empty()
     }
 }
@@ -608,7 +608,7 @@ fn script_region(
 ///
 /// A blank line is written empty rather than as trailing whitespace, which is the one place the
 /// indented output is deliberately not a mirror of the input.
-pub fn render_payload(
+pub(crate) fn render_payload(
     existing: &str,
     script: &str,
     newline: &str,
@@ -650,7 +650,7 @@ pub fn render_payload(
 /// Local rather than document-wide: one CRLF after an XML declaration should not make every
 /// rewritten block CRLF, and a CRLF introduced into one block should not change how the next
 /// sync treats every other block.
-pub fn newline_of(text: &str) -> &'static str {
+pub(crate) fn newline_of(text: &str) -> &'static str {
     let crlf = text.matches("\r\n").count();
     let lf = text.matches('\n').count() - crlf;
     if crlf > lf {

@@ -8,17 +8,17 @@ use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
-pub const RELATIVE_PATH: &str = ".twaco/baseline.json";
+pub(crate) const RELATIVE_PATH: &str = ".twaco/baseline.json";
 
 #[derive(Clone, Debug, Serialize, PartialEq, Eq)]
-pub struct Entry {
-    pub local: String,
-    pub server: String,
+pub(crate) struct Entry {
+    pub(crate) local: String,
+    pub(crate) server: String,
 }
 
 impl Entry {
     /// Whether both sides were hashed by this normalisation version.
-    pub fn is_current(&self) -> bool {
+    pub(crate) fn is_current(&self) -> bool {
         let current = |hash: &str| {
             hash.split_once(':')
                 .is_some_and(|(version, _)| version == super::normalise::HASH_VERSION)
@@ -50,7 +50,7 @@ impl<'de> Deserialize<'de> for Entry {
 }
 
 #[derive(Clone, Debug, Default, Deserialize, Serialize)]
-pub struct Baseline {
+pub(crate) struct Baseline {
     #[serde(default)]
     entities: BTreeMap<String, BTreeMap<String, Entry>>,
 }
@@ -58,7 +58,7 @@ pub struct Baseline {
 impl Baseline {
     /// The entry recorded for an entity, if its hashes are of the current normalisation: one
     /// from another version cannot be compared, so it counts as no baseline at all.
-    pub fn get(&self, collection: &str, name: &str) -> Option<&Entry> {
+    pub(crate) fn get(&self, collection: &str, name: &str) -> Option<&Entry> {
         self.entities
             .get(collection)?
             .get(name)
@@ -66,7 +66,7 @@ impl Baseline {
     }
 
     /// How many entries were recorded under another normalisation version.
-    pub fn outdated(&self) -> usize {
+    pub(crate) fn outdated(&self) -> usize {
         self.entities
             .values()
             .flat_map(BTreeMap::values)
@@ -74,7 +74,7 @@ impl Baseline {
             .count()
     }
 
-    pub fn set(&mut self, collection: &str, name: &str, local: String, server: String) {
+    pub(crate) fn set(&mut self, collection: &str, name: &str, local: String, server: String) {
         self.entities
             .entry(collection.to_string())
             .or_default()
@@ -82,7 +82,7 @@ impl Baseline {
     }
 
     /// Remove one entity, pruning an empty collection, and report whether it existed.
-    pub fn remove(&mut self, collection: &str, name: &str) -> bool {
+    pub(crate) fn remove(&mut self, collection: &str, name: &str) -> bool {
         let Some(items) = self.entities.get_mut(collection) else {
             return false;
         };
@@ -98,7 +98,7 @@ impl Baseline {
     /// Those changes are part of the deploy (restoring a Database password that every import
     /// blanks, for example). The working file correctly does not contain them, so preserving
     /// `local` while advancing `server` is what lets both sides still read as in sync.
-    pub fn set_server(
+    pub(crate) fn set_server(
         &mut self,
         collection: &str,
         name: &str,
@@ -118,7 +118,7 @@ impl Baseline {
         Ok(())
     }
 
-    pub fn load(root: &Path) -> Result<Self, BaselineError> {
+    pub(crate) fn load(root: &Path) -> Result<Self, BaselineError> {
         let path = root.join(RELATIVE_PATH);
         let bytes = match std::fs::read(&path) {
             Ok(bytes) => bytes,
@@ -139,7 +139,7 @@ impl Baseline {
     }
 
     /// The complete deterministic JSON document, as `write` writes it.
-    pub fn to_bytes(&self, root: &Path) -> Result<Vec<u8>, BaselineError> {
+    pub(crate) fn to_bytes(&self, root: &Path) -> Result<Vec<u8>, BaselineError> {
         let mut bytes =
             serde_json::to_vec_pretty(self).map_err(|error| BaselineError::Invalid {
                 path: root.join(RELATIVE_PATH),
@@ -150,7 +150,7 @@ impl Baseline {
     }
 
     /// Write a complete deterministic JSON document through a same-directory temporary file.
-    pub fn write(&self, root: &Path) -> Result<(), BaselineError> {
+    pub(crate) fn write(&self, root: &Path) -> Result<(), BaselineError> {
         let path = root.join(RELATIVE_PATH);
         let parent = path.parent().expect("baseline has a parent");
         std::fs::create_dir_all(parent).map_err(|error| BaselineError::Io {

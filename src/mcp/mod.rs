@@ -15,12 +15,13 @@
 use crate::core::codes::{Coded, ErrorCode};
 use crate::core::commands::{self, Mode};
 use crate::core::config::Solution;
+use crate::core::entity::{carry, delete};
 use crate::core::index::Confidence;
 use crate::core::progress::{self as core_progress, Progress};
 use crate::core::{
-    adopt, backup, catalog, check, config_table, db, deploy, docs, entity_carry, entity_delete,
-    export, extensions, guide, help, impact, imports, javadoc, logs, newblock, profile, push,
-    relocate, rename, repo, retemplate, server, settings, status, types, unused, workspace,
+    adopt, backup, catalog, check, config_table, db, deploy, docs, export, extensions, guide, help,
+    impact, imports, javadoc, logs, newblock, profile, push, relocate, rename, repo, retemplate,
+    server, settings, status, types, unused, workspace,
 };
 use serde_json::{json, Map, Value};
 use std::collections::HashMap;
@@ -107,7 +108,12 @@ they would do; pass dry_run: false to act. Use `catalog` for the repository's ca
 Start with `projects`, then `check`, then `status` with `all: true` (or one `entity`).";
 
 /// Serve every tool until stdin closes. See [`serve_tools`].
-pub fn serve(root: &Path, input: impl BufRead, output: impl Write + Send) -> std::io::Result<()> {
+#[cfg(test)]
+pub(crate) fn serve(
+    root: &Path,
+    input: impl BufRead,
+    output: impl Write + Send,
+) -> std::io::Result<()> {
     serve_tools(root, &Selection::ALL, input, output)
 }
 

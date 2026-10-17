@@ -2,7 +2,7 @@ use super::ops::{write_plans, PlannedFile};
 use super::*;
 use crate::core::codes::{Coded, ErrorCode};
 use crate::core::config::Solution;
-use crate::core::entity_key::EntityKey;
+use crate::core::entity::key::EntityKey;
 use crate::core::server::ServerError;
 use crate::core::{imports, progress};
 use serde_json::Value;

@@ -12,7 +12,7 @@
 
 use super::baseline::{Baseline, BaselineError};
 use super::codes::{Coded, ErrorCode};
-use super::entity_key::EntityKey;
+use super::entity::key::EntityKey;
 use super::normalise::{self, NormaliseError};
 use super::server::{Client, ServerError};
 use std::fmt;
@@ -63,7 +63,11 @@ impl fmt::Display for Refusal {
 }
 
 /// The decision table. Pure, so every row is testable.
-pub fn decide(working: &str, server: Option<&str>, baseline: Option<(&str, &str)>) -> Decision {
+pub(crate) fn decide(
+    working: &str,
+    server: Option<&str>,
+    baseline: Option<(&str, &str)>,
+) -> Decision {
     match (server, baseline) {
         (Some(server), _) if server == working => Decision::AlreadyThere,
         (None, None) => Decision::Create,
@@ -106,15 +110,15 @@ impl Remote for Client {
 }
 
 /// The entity being pushed.
-pub struct Target<'a> {
-    pub key: EntityKey,
-    pub document: EntityDocument<'a>,
+pub(crate) struct Target<'a> {
+    pub(crate) key: EntityKey,
+    pub(crate) document: EntityDocument<'a>,
 }
 
 /// The bytes and importer file name for an entity being pushed.
-pub struct EntityDocument<'a> {
-    pub file_name: &'a str,
-    pub bytes: &'a [u8],
+pub(crate) struct EntityDocument<'a> {
+    pub(crate) file_name: &'a str,
+    pub(crate) bytes: &'a [u8],
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -168,7 +172,7 @@ pub enum PushError {
 ///
 /// The baseline is loaded and written as late as possible, and only through
 /// [`Baseline::write`], which replaces the file atomically. Only this entity's key changes.
-pub fn push(
+pub(crate) fn push(
     remote: &dyn Remote,
     root: &Path,
     target: &Target,

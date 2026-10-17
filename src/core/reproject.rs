@@ -68,7 +68,7 @@ impl Coded for ReprojectError {
     }
 }
 
-pub fn plan(solution: &Solution, request: &Request) -> Result<Plan, ReprojectError> {
+pub(crate) fn plan(solution: &Solution, request: &Request) -> Result<Plan, ReprojectError> {
     let target = solution.project(&request.to).ok_or_else(|| {
         ReprojectError::Unknown(format!(
             "project {} is not in twaco.toml; declare it first",
@@ -275,7 +275,11 @@ pub fn plan_json(solution: &Solution, plan: &Plan, applied: bool) -> serde_json:
 }
 
 /// Write every move in one transaction: each file's new bytes, then its new place.
-pub fn apply(solution: &Solution, plan: &Plan, lock: &WorkspaceLock) -> Result<(), ReprojectError> {
+pub(crate) fn apply(
+    solution: &Solution,
+    plan: &Plan,
+    lock: &WorkspaceLock,
+) -> Result<(), ReprojectError> {
     let mut transaction = Transaction::new(&solution.root, "reproject");
     for item in &plan.moves {
         transaction

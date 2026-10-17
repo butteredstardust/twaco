@@ -11,14 +11,14 @@ use std::collections::BTreeMap;
 
 /// One inconsistency, with the file it is in.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Problem {
-    pub file: String,
+pub(crate) struct Problem {
+    pub(crate) file: String,
     pub rule: &'static str,
     pub message: String,
 }
 
 /// Check every entity in the solution.
-pub fn check(solution: &Solution) -> Vec<Problem> {
+pub(crate) fn check(solution: &Solution) -> Vec<Problem> {
     let found = workspace::discover(solution);
     let mut problems = Vec::new();
 

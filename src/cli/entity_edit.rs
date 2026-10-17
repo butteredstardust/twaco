@@ -4,7 +4,8 @@ use crate::{print_notices, FAILED, OK};
 use std::path::PathBuf;
 use twaco::core::commands::{self, Mode};
 use twaco::core::config::Solution;
-use twaco::core::entity_edit::{self, Action, Property, Request, StyleChange};
+use twaco::core::entity;
+use twaco::core::entity::edit::{Action, Property, Request, StyleChange};
 
 /// `twaco thing property|subscription|shape`.
 #[derive(Debug, clap::Subcommand)]
@@ -428,7 +429,7 @@ pub(crate) fn entity_edit_cmd(solution: &Solution, edit: Edit) -> u8 {
     print_notices(&notices);
     let plan = &outcome.plan;
     if edit.json {
-        let report = entity_edit::plan_json(solution, plan, outcome.applied);
+        let report = entity::edit::plan_json(solution, plan, outcome.applied);
         println!(
             "{}",
             serde_json::to_string_pretty(&report).expect("entity edit plan serialises")

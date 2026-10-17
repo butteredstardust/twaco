@@ -11,7 +11,7 @@
 //! - reaching `maxItems` truncates silently, so it is reported here.
 
 use super::codes::{Coded, ErrorCode};
-use super::entity_key::ServiceTarget;
+use super::entity::key::ServiceTarget;
 use super::server::{Client, ServerError};
 use jiff::civil::DateTime;
 use jiff::tz::TimeZone;
@@ -23,8 +23,8 @@ use std::time::Duration;
 /// minutes past its 3 s budget.
 const TIMEOUT: Duration = Duration::from_secs(15);
 /// The shortest window the platform accepts.
-pub const MIN_WINDOW_MS: i64 = 5_000;
-pub const MAX_LIMIT: u64 = 10_000;
+pub(crate) const MIN_WINDOW_MS: i64 = 5_000;
+pub(crate) const MAX_LIMIT: u64 = 10_000;
 
 /// The logs the platform ships. Others are passed through; the server says if one is unknown.
 pub const LOGS: [&str; 5] = [
@@ -64,7 +64,7 @@ pub enum LogsError {
 }
 
 /// The levels, lowest first.
-pub const LEVELS: [&str; 5] = ["TRACE", "DEBUG", "INFO", "WARN", "ERROR"];
+pub(crate) const LEVELS: [&str; 5] = ["TRACE", "DEBUG", "INFO", "WARN", "ERROR"];
 
 /// A level as the server spells it, from any case.
 pub fn level(text: &str) -> Result<&'static str, LogsError> {
@@ -106,15 +106,15 @@ pub struct Query {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Entry {
-    pub timestamp: i64,
-    pub level: String,
-    pub content: String,
-    pub origin: String,
-    pub instance: String,
-    pub thread: String,
-    pub user: String,
-    pub session: String,
-    pub platform_id: String,
+    pub(crate) timestamp: i64,
+    pub(crate) level: String,
+    pub(crate) content: String,
+    pub(crate) origin: String,
+    pub(crate) instance: String,
+    pub(crate) thread: String,
+    pub(crate) user: String,
+    pub(crate) session: String,
+    pub(crate) platform_id: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -131,7 +131,7 @@ pub struct Outcome {
 /// A substring as the server's whole-message regex: anything, the text quoted, anything, with
 /// `.` reaching across lines. A `\E` inside the text would end the quoting early, so it is
 /// closed, written as a literal, and reopened.
-pub fn grep_expression(text: &str) -> String {
+pub(crate) fn grep_expression(text: &str) -> String {
     format!("(?s).*\\Q{}\\E.*", text.replace("\\E", "\\E\\\\E\\Q"))
 }
 
@@ -149,7 +149,7 @@ fn window(from_ms: i64, to_ms: i64) -> (i64, i64, bool) {
 }
 
 /// The request body, with only what is set. Returns whether the window was widened.
-pub fn body(query: &Query) -> (Value, bool) {
+pub(crate) fn body(query: &Query) -> (Value, bool) {
     let (from_ms, to_ms, widened) = window(query.from_ms, query.to_ms);
     let mut body = Map::new();
     body.insert("startDate".into(), json!(iso(from_ms)));
@@ -242,17 +242,17 @@ pub fn query(remote: &dyn Remote, query: &Query) -> Result<Outcome, LogsError> {
 // ---- what a call logged ---------------------------------------------------------------------
 
 /// The logs a service call writes to.
-pub const CALL_LOGS: [&str; 2] = ["ScriptLog", "ApplicationLog"];
+pub(crate) const CALL_LOGS: [&str; 2] = ["ScriptLog", "ApplicationLog"];
 
 /// How long to look for a call's entries. Measured on localhost, an entry is readable about
 /// 0.3 s after the call returns, so polling stops early once a poll finds nothing new.
 #[derive(Debug, Clone, Copy)]
-pub struct Wait {
-    pub interval: Duration,
+pub(crate) struct Wait {
+    pub(crate) interval: Duration,
     /// Keep polling at least this long after the call.
-    pub settle: Duration,
+    pub(crate) settle: Duration,
     /// And never longer than this, so delayed log delivery cannot stall a call indefinitely.
-    pub most: Duration,
+    pub(crate) most: Duration,
 }
 
 impl Default for Wait {
@@ -267,7 +267,7 @@ impl Default for Wait {
 
 /// Entries the call wrote: those stamped from its start (less a second for clocks) until now,
 /// in every one of `CALL_LOGS`, oldest first, each with its log.
-pub fn during_call(
+pub(crate) fn during_call(
     remote: &dyn Remote,
     start_ms: i64,
     end_ms: i64,
@@ -345,9 +345,9 @@ pub enum Change {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ChangeReport {
-    pub before: Levels,
+    pub(crate) before: Levels,
     /// Read back after an applied change; `None` for a plan.
-    pub after: Option<Levels>,
+    pub(crate) after: Option<Levels>,
     /// What changes, in words: "ScriptLog: WARN -> DEBUG".
     pub plan: String,
     /// How to put it back, as twaco commands: one for most changes, one per override removed
@@ -363,7 +363,7 @@ fn rows<'a>(reply: &'a Option<Value>, what: &str) -> Result<&'a Vec<Value>, Logs
         .ok_or_else(|| LogsError::Shape(format!("{what} returned no rows")))
 }
 
-pub fn levels(remote: &dyn Remote, log: &str) -> Result<Levels, LogsError> {
+pub(crate) fn levels(remote: &dyn Remote, log: &str) -> Result<Levels, LogsError> {
     let reply = remote
         .service(log, "GetLogLevel", &json!({}))
         .map_err(LogsError::Remote)?;
@@ -392,7 +392,7 @@ pub fn levels(remote: &dyn Remote, log: &str) -> Result<Levels, LogsError> {
 /// Change a level: read what is there, and unless `apply`, stop at the plan. Applied, the
 /// change is read back and must show, or it is an error. The server's level is everyone's, so
 /// the report says how to put it back.
-pub fn change(
+pub(crate) fn change(
     remote: &dyn Remote,
     log: &str,
     change: &Change,
@@ -531,7 +531,7 @@ pub fn change(
 }
 
 /// Levels in one line: `WARN (subloggers: com.thingworx=WARN, ...)`.
-pub fn describe(levels: &Levels) -> String {
+pub(crate) fn describe(levels: &Levels) -> String {
     if levels.subloggers.is_empty() {
         return levels.level.clone();
     }
@@ -653,7 +653,7 @@ pub fn entry_json(entry: &Entry) -> Value {
 
 /// What an agent reads first: how many, at which levels, from where, which messages repeat,
 /// and the newest few in full. `detail` gives every entry instead of the newest few.
-pub fn summary(log: &str, outcome: &Outcome, detail: bool) -> Value {
+pub(crate) fn summary(log: &str, outcome: &Outcome, detail: bool) -> Value {
     use std::collections::BTreeMap;
     let mut by_level: BTreeMap<&str, usize> = BTreeMap::new();
     let mut origins: BTreeMap<&str, usize> = BTreeMap::new();

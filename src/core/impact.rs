@@ -8,14 +8,14 @@
 
 use super::codes::{Coded, ErrorCode};
 use super::config::Solution;
-use super::entity_key::EntityKey;
+use super::entity::key::EntityKey;
 use super::index::{Confidence, Dependent, DependentOptions, Index, Unreadable};
 use super::workspace::WorkspaceError;
 use serde::Serialize;
 use std::collections::BTreeSet;
 
 /// What the index cannot see, said wherever its answer is shown.
-pub const LIMITS: &str =
+pub(crate) const LIMITS: &str =
     "references built at run time, and anything outside this repository, are not seen";
 
 /// The most dependents a summary lists per confidence group; detail lists all.
@@ -45,40 +45,40 @@ impl From<WorkspaceError> for ImpactError {
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize)]
-pub struct Counts {
-    pub structural: usize,
-    pub resolved: usize,
-    pub review: usize,
+pub(crate) struct Counts {
+    pub(crate) structural: usize,
+    pub(crate) resolved: usize,
+    pub(crate) review: usize,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
-pub struct ProjectAt {
+pub(crate) struct ProjectAt {
     /// Its place in the deploy order, from 1; none when the order does not name it.
-    pub deploy_order: Option<usize>,
-    pub name: String,
+    pub(crate) deploy_order: Option<usize>,
+    pub(crate) name: String,
 }
 
 #[derive(Debug, Serialize)]
 pub struct Report {
     /// `Collection/Name`.
-    pub entity: String,
-    pub project: String,
-    pub member: Option<String>,
-    pub min_confidence: Confidence,
-    pub depth: Option<usize>,
-    pub dependents: Vec<Dependent>,
-    pub counts: Counts,
+    pub(crate) entity: String,
+    pub(crate) project: String,
+    pub(crate) member: Option<String>,
+    pub(crate) min_confidence: Confidence,
+    pub(crate) depth: Option<usize>,
+    pub(crate) dependents: Vec<Dependent>,
+    pub(crate) counts: Counts,
     /// Dependents that reach the entity only through inheritance: they have what it has.
-    pub inherited_by: Vec<String>,
+    pub(crate) inherited_by: Vec<String>,
     /// The projects that hold the entity or any dependent, in deploy order.
-    pub projects: Vec<ProjectAt>,
+    pub(crate) projects: Vec<ProjectAt>,
     /// Whether every input was read. A report from an incomplete index misses what depends on the
     /// inputs it could not read.
-    pub complete: bool,
-    pub unreadable: Vec<Unreadable>,
-    pub unparsed_scripts: Vec<String>,
-    pub notes: Vec<String>,
-    pub limits: &'static str,
+    pub(crate) complete: bool,
+    pub(crate) unreadable: Vec<Unreadable>,
+    pub(crate) unparsed_scripts: Vec<String>,
+    pub(crate) notes: Vec<String>,
+    pub(crate) limits: &'static str,
 }
 
 /// Ask the index. Offline, read-only, and never writes.

@@ -10,12 +10,12 @@ use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 use std::path::{Path, PathBuf};
 
-pub const RELATIVE_PATH: &str = ".twaco/renames.json";
+pub(crate) const RELATIVE_PATH: &str = ".twaco/renames.json";
 
 /// What was renamed.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
-pub enum Kind {
+pub(crate) enum Kind {
     Entity,
     Prefix,
     Field,
@@ -27,7 +27,7 @@ pub enum Kind {
 
 impl Kind {
     /// Whether the rename created differently named entities on the server (and so left old ones).
-    pub fn replaces_entities(self) -> bool {
+    pub(crate) fn replaces_entities(self) -> bool {
         matches!(self, Kind::Entity | Kind::Prefix)
     }
 }
@@ -35,22 +35,22 @@ impl Kind {
 /// An entity a rename touched: for `entity` and `prefix` the old and new names; for the member
 /// kinds the entity that was edited (old and new are then the same).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct Entity {
-    pub collection: String,
-    pub old: String,
-    pub new: String,
+pub(crate) struct Entity {
+    pub(crate) collection: String,
+    pub(crate) old: String,
+    pub(crate) new: String,
     /// The date `entity delete` removed the old entity from the server.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub deleted: Option<String>,
+    pub(crate) deleted: Option<String>,
     /// The date `entity carry` copied the old entity's permissions to the new one.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub carried: Option<String>,
+    pub(crate) carried: Option<String>,
     #[serde(flatten)]
-    pub other: Map<String, Value>,
+    pub(crate) other: Map<String, Value>,
 }
 
 impl Entity {
-    pub fn new(
+    pub(crate) fn new(
         collection: impl Into<String>,
         old: impl Into<String>,
         new: impl Into<String>,
@@ -67,26 +67,26 @@ impl Entity {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct Record {
-    pub date: String,
-    pub kind: Kind,
-    pub old: String,
-    pub new: String,
+pub(crate) struct Record {
+    pub(crate) date: String,
+    pub(crate) kind: Kind,
+    pub(crate) old: String,
+    pub(crate) new: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub scope: Option<String>,
+    pub(crate) scope: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub service: Option<String>,
-    pub entities: Vec<Entity>,
+    pub(crate) service: Option<String>,
+    pub(crate) entities: Vec<Entity>,
     #[serde(flatten)]
-    pub other: Map<String, Value>,
+    pub(crate) other: Map<String, Value>,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(transparent)]
-pub struct Ledger(pub Vec<Record>);
+pub(crate) struct Ledger(pub(crate) Vec<Record>);
 
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
-pub enum LedgerError {
+pub(crate) enum LedgerError {
     /// The file could not be read or is not a ledger.
     #[error("cannot read rename ledger {}: {why}", .path.display())]
     Invalid { path: PathBuf, why: String },
@@ -96,7 +96,7 @@ pub enum LedgerError {
 
 impl Ledger {
     /// The ledger at `path`; a missing file is an empty ledger.
-    pub fn read(path: &Path) -> Result<Ledger, LedgerError> {
+    pub(crate) fn read(path: &Path) -> Result<Ledger, LedgerError> {
         let invalid = |why: String| LedgerError::Invalid {
             path: path.to_path_buf(),
             why,
@@ -126,7 +126,7 @@ impl Ledger {
     }
 
     /// The whole ledger as the bytes `write` writes.
-    pub fn to_bytes(&self, path: &Path) -> Result<Vec<u8>, LedgerError> {
+    pub(crate) fn to_bytes(&self, path: &Path) -> Result<Vec<u8>, LedgerError> {
         let mut bytes = serde_json::to_vec_pretty(self).map_err(|error| LedgerError::Write {
             path: path.to_path_buf(),
             why: error.to_string(),
@@ -136,7 +136,7 @@ impl Ledger {
     }
 
     /// Write the whole ledger, replacing the file in one step and creating `.twaco` if needed.
-    pub fn write(&self, path: &Path) -> Result<(), LedgerError> {
+    pub(crate) fn write(&self, path: &Path) -> Result<(), LedgerError> {
         let write = |why: String| LedgerError::Write {
             path: path.to_path_buf(),
             why,
@@ -153,7 +153,7 @@ impl Ledger {
 
     /// `(record, entity)` positions of the entities that `entity` and `prefix` renames left on the
     /// server and that `keep` selects; positions stay valid for [`Ledger::entity_mut`].
-    pub fn replaced(&self, keep: impl Fn(&Entity) -> bool) -> Vec<(usize, usize)> {
+    pub(crate) fn replaced(&self, keep: impl Fn(&Entity) -> bool) -> Vec<(usize, usize)> {
         let mut found = Vec::new();
         for (record_at, record) in self.0.iter().enumerate() {
             if !record.kind.replaces_entities() {
@@ -168,11 +168,11 @@ impl Ledger {
         found
     }
 
-    pub fn entity(&self, (record, entity): (usize, usize)) -> &Entity {
+    pub(crate) fn entity(&self, (record, entity): (usize, usize)) -> &Entity {
         &self.0[record].entities[entity]
     }
 
-    pub fn entity_mut(&mut self, (record, entity): (usize, usize)) -> &mut Entity {
+    pub(crate) fn entity_mut(&mut self, (record, entity): (usize, usize)) -> &mut Entity {
         &mut self.0[record].entities[entity]
     }
 }

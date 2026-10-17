@@ -16,10 +16,10 @@ pub(crate) enum TypesAction {
 #[serde(deny_unknown_fields)]
 pub(crate) struct TypesRequest {
     #[serde(default = "default_types_action")]
-    pub(crate) action: TypesAction,
+    pub action: TypesAction,
     /// Server profile name.
     #[serde(default = "default_profile")]
-    pub(crate) profile: String,
+    pub profile: String,
     /// Return everything instead of the summary.
     #[serde(default)]
     pub(crate) detail: bool,
@@ -65,7 +65,7 @@ pub(crate) struct SyncRequest {
     pub(crate) allow_add_remove: bool,
     /// Rewrite every script payload in the configured layout.
     #[serde(default)]
-    pub(crate) relayout: bool,
+    pub relayout: bool,
 }
 
 #[derive(Debug, Deserialize, JsonSchema, Serialize)]
@@ -98,23 +98,23 @@ pub(crate) struct DeployRequest {
     pub(crate) dry_run: bool,
     /// Overwrite entities the server changed since the last sync.
     #[serde(default)]
-    pub(crate) force: bool,
+    pub force: bool,
     /// With force, save the server's copy of each overwritten entity under .twaco/backups first (default true).
     #[serde(default = "default_true")]
-    pub(crate) backup: bool,
+    pub backup: bool,
     /// Only these entities; post-import services are skipped.
     #[serde(default, skip_serializing_if = "Absent::is_absent")]
-    pub(crate) only: Absent<Vec<String>>,
+    pub only: Absent<Vec<String>>,
     #[serde(default, skip_serializing_if = "Absent::is_absent")]
-    pub(crate) only_projects: Absent<Vec<String>>,
+    pub only_projects: Absent<Vec<String>>,
     #[serde(default)]
-    pub(crate) backend_only: bool,
+    pub backend_only: bool,
     /// Skip the offline gates. The server's script parse still runs.
     #[serde(default)]
-    pub(crate) skip_checks: bool,
+    pub skip_checks: bool,
     /// Server profile name.
     #[serde(default = "default_profile")]
-    pub(crate) profile: String,
+    pub profile: String,
     /// Return everything instead of the summary.
     #[serde(default)]
     pub(crate) detail: bool,

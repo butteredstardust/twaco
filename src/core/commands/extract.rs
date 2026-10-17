@@ -31,7 +31,11 @@ pub struct ExtractOutcome {
 
 impl ExtractOutcome {
     /// Extraction always changes or may change the workspace.
-    pub const fn effects(&self) -> Effects {
+    #[allow(
+        dead_code,
+        reason = "the command facade's Effects (COMMAND_FACADE.md); no adapter reads it yet"
+    )]
+    pub(crate) const fn effects(&self) -> Effects {
         Effects::new(Access::Write, Access::None)
     }
 }

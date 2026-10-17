@@ -34,7 +34,11 @@ pub enum TypesOutcome {
 
 impl TypesOutcome {
     /// Each current types operation writes generated declarations or the platform cache.
-    pub const fn effects(&self) -> Effects {
+    #[allow(
+        dead_code,
+        reason = "the command facade's Effects (COMMAND_FACADE.md); no adapter reads it yet"
+    )]
+    pub(crate) const fn effects(&self) -> Effects {
         match self {
             Self::Generated(_) | Self::Checked(_) => Effects::new(Access::Write, Access::None),
             Self::Platform(_) => Effects::new(Access::Write, Access::Read),

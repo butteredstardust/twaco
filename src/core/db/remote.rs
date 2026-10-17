@@ -1,4 +1,4 @@
-use super::super::entity_key::{EntityKey, ServiceTarget};
+use super::super::entity::key::{EntityKey, ServiceTarget};
 use super::super::server::Client;
 use serde_json::{json, Value};
 use std::time::Duration;

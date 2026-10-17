@@ -1,14 +1,14 @@
 //! Running a rename: gates, plan, database half, verification in a scratch copy, apply, verification.
 
 use super::{
-    apply, check, dbinfo, plan, refs, rename_sql, workspace, ApplyOptions, Kind, Outcome, Path,
-    Plan, RenameError, RunOptions, Solution, Spec, SqlChoice, SqlScript, Verification,
-    WorkspaceLock, CONFIG_FILE,
+    apply, check, dbinfo, plan, refs, sql, workspace, ApplyOptions, Kind, Outcome, Path, Plan,
+    RenameError, RunOptions, Solution, Spec, SqlChoice, SqlScript, Verification, WorkspaceLock,
+    CONFIG_FILE,
 };
 
 /// Plans a rename, optionally applies it, and verifies the resulting workspace. Applying needs
 /// the workspace lock, which the caller holds for the whole command.
-pub fn run(
+pub(crate) fn run(
     solution: &Solution,
     spec: &Spec,
     options: &RunOptions,
@@ -68,10 +68,10 @@ pub(crate) fn run_with(
             }
             SqlChoice::Off => {}
             SqlChoice::Write(folder) if !effects.migration.is_empty() => {
-                let name = rename_sql::file_name(&options.date, &effects.label);
+                let name = sql::file_name(&options.date, &effects.label);
                 sql = Some(SqlScript {
                     path: folder.join(name),
-                    text: rename_sql::render(&effects.migration),
+                    text: sql::render(&effects.migration),
                 });
             }
             SqlChoice::Write(_) => {}
@@ -311,20 +311,20 @@ fn verify_before_writing(
 
 /// What a rename does to DBConnection tables: the script it would need, and why a decision is wanted.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
-pub struct DbEffects {
+pub(crate) struct DbEffects {
     /// Backed DataShapes the rename touches (full old names).
-    pub shapes: Vec<String>,
-    pub migration: rename_sql::Migration,
+    pub(crate) shapes: Vec<String>,
+    pub(crate) migration: sql::Migration,
     /// `GetDBInfo` scripts that could not be read completely.
-    pub unsure: Vec<String>,
+    pub(crate) unsure: Vec<String>,
     /// Part of the script's file name.
-    pub label: String,
+    pub(crate) label: String,
     affected: bool,
 }
 
 impl DbEffects {
     /// Whether the caller must say what to do about the database.
-    pub fn needs_decision(&self) -> bool {
+    pub(crate) fn needs_decision(&self) -> bool {
         self.affected
     }
 }
@@ -332,7 +332,7 @@ impl DbEffects {
 /// Compute the database half of a rename from the solution's `GetDBInfo` scripts. Only the
 /// DataShapes those scripts declare are DBConnection tables; a service, a parameter and a
 /// configuration table never are.
-pub fn db_effects(solution: &Solution, plan: &Plan, date: &str) -> DbEffects {
+pub(crate) fn db_effects(solution: &Solution, plan: &Plan, date: &str) -> DbEffects {
     let info = dbinfo::load(solution);
     let mut effects = DbEffects {
         unsure: info.unsure.clone(),
@@ -376,7 +376,7 @@ pub fn db_effects(solution: &Solution, plan: &Plan, date: &str) -> DbEffects {
             effects.migration.title =
                 format!("Rename field {}.{} to {}", scope, spec.old, spec.new);
             if old != new {
-                effects.migration.columns.push(rename_sql::ColumnRename {
+                effects.migration.columns.push(sql::ColumnRename {
                     table: dbinfo::table_of(scope),
                     old,
                     new,
@@ -409,7 +409,7 @@ pub fn db_effects(solution: &Solution, plan: &Plan, date: &str) -> DbEffects {
                     dbinfo::table_of(&item.new_name),
                 );
                 if old_table != new_table {
-                    effects.migration.tables.push(rename_sql::TableRename {
+                    effects.migration.tables.push(sql::TableRename {
                         old_table: old_table.clone(),
                         new_table: new_table.clone(),
                         indexes: columns_of(&shape.indexes),
@@ -444,7 +444,7 @@ pub fn db_effects(solution: &Solution, plan: &Plan, date: &str) -> DbEffects {
 }
 
 /// Warnings for state and references that a repository rename cannot carry.
-pub fn follow_up(plan: &Plan, outside_included: bool) -> Vec<String> {
+pub(crate) fn follow_up(plan: &Plan, outside_included: bool) -> Vec<String> {
     if plan.spec.kind == Kind::Param {
         let review = plan
             .changes

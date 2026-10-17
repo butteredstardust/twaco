@@ -85,9 +85,9 @@ pub struct Change {
     pub kind: &'static str,
     pub name: String,
     /// Where it was declared before (lost) or is declared after (gained).
-    pub declared_on: String,
+    pub(crate) declared_on: String,
     /// The entities (the changed one and what inherits it) that lose or gain it.
-    pub entities: Vec<String>,
+    pub(crate) entities: Vec<String>,
     /// Stored values or rows left behind with no definition (lost members only).
     pub orphaned: usize,
     /// References that would stop resolving (lost members only).
@@ -98,7 +98,7 @@ pub struct Change {
 pub struct Plan {
     pub request: Request,
     pub collection: String,
-    pub file: PathBuf,
+    pub(crate) file: PathBuf,
     old: Vec<u8>,
     new: Vec<u8>,
     /// The changed entity and everything inheriting from it.
@@ -243,7 +243,7 @@ fn config_tables_of(
     out
 }
 
-pub fn plan(solution: &Solution, request: &Request) -> Result<Plan, RetemplateError> {
+pub(crate) fn plan(solution: &Solution, request: &Request) -> Result<Plan, RetemplateError> {
     if request.template.is_none()
         && request.add_shapes.is_empty()
         && request.remove_shapes.is_empty()
@@ -703,7 +703,7 @@ impl Plan {
 }
 
 /// Write the plan. A file changed since the plan is refused; a loss needs `--accept-loss`.
-pub fn apply(plan: &Plan) -> Result<(), RetemplateError> {
+pub(crate) fn apply(plan: &Plan) -> Result<(), RetemplateError> {
     if !plan.request.accept_loss && !plan.blocked.is_empty() {
         return Err(RetemplateError::Loss {
             reasons: plan.blocked.clone(),

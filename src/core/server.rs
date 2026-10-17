@@ -7,7 +7,7 @@
 //! credentials are never carried to a host the server names.
 
 use super::codes::{Coded, ErrorCode};
-use super::entity_key::{EntityKey, ServiceTarget};
+use super::entity::key::{EntityKey, ServiceTarget};
 use super::profile::{Profile, Secret};
 use super::scan;
 use serde::Deserialize;
@@ -68,7 +68,7 @@ impl Client {
     }
 
     /// Fetch `GET <base>/<Collection>/<Name>` as raw, validated UTF-8 XML bytes.
-    pub fn fetch_entity(&self, key: &EntityKey) -> Result<Vec<u8>, ServerError> {
+    pub(crate) fn fetch_entity(&self, key: &EntityKey) -> Result<Vec<u8>, ServerError> {
         // MediaEntities' ordinary REST resource is the media bytes, even with `Accept: text/xml`.
         // ThingWorx's read-only Exporter route returns the entity XML when the entity
         // representation (rather than its REST view) is required.
@@ -112,7 +112,10 @@ impl Client {
 
     /// Fetch the ordinary REST representation of an entity as JSON. This is distinct from
     /// `fetch_entity`, whose export XML deliberately excludes live configuration values.
-    pub fn fetch_entity_json(&self, key: &EntityKey) -> Result<serde_json::Value, ServerError> {
+    pub(crate) fn fetch_entity_json(
+        &self,
+        key: &EntityKey,
+    ) -> Result<serde_json::Value, ServerError> {
         let url = format!("{}/{}", self.base(), key.url_path());
         let authorization = self.authorization();
         let headers = [
@@ -136,7 +139,7 @@ impl Client {
     }
 
     /// The names of every entity of a collection, from its REST listing.
-    pub fn list_entity_names(&self, collection: &str) -> Result<Vec<String>, ServerError> {
+    pub(crate) fn list_entity_names(&self, collection: &str) -> Result<Vec<String>, ServerError> {
         let url = format!("{}/{}", self.base(), encode_path_segment(collection));
         let authorization = self.authorization();
         let headers = [
@@ -169,7 +172,7 @@ impl Client {
     /// Whether the server has an entity: its REST address answers 404 when it does not. The
     /// Exporter cannot say (it answers 200 with an empty export), and for MediaEntities
     /// `fetch_entity` goes through the Exporter, so this asks the plain address for JSON.
-    pub fn entity_exists(&self, key: &EntityKey) -> Result<bool, ServerError> {
+    pub(crate) fn entity_exists(&self, key: &EntityKey) -> Result<bool, ServerError> {
         let url = format!("{}/{}", self.base(), key.url_path());
         let authorization = self.authorization();
         let headers = [
@@ -194,7 +197,7 @@ impl Client {
 
     /// Delete through Composer's REST route. The repeated content-negotiation query parameters
     /// and XMLHttpRequest header are required: without them DataShapes and Mashups answer 500.
-    pub fn delete_entity_rest(&self, key: &EntityKey) -> Result<(), ServerError> {
+    pub(crate) fn delete_entity_rest(&self, key: &EntityKey) -> Result<(), ServerError> {
         let url = format!(
             "{}/{}?Accept=application%2Fjson&Content-Type=application%2Fjson",
             self.base(),
@@ -220,7 +223,11 @@ impl Client {
 
     /// A file of a FileRepository, exactly as stored: the `FileRepositories` servlet that
     /// Composer's download links point at. `path` is slash-separated from the repository root.
-    pub fn download_file(&self, repository: &str, path: &str) -> Result<Vec<u8>, ServerError> {
+    pub(crate) fn download_file(
+        &self,
+        repository: &str,
+        path: &str,
+    ) -> Result<Vec<u8>, ServerError> {
         let segments: Vec<String> = path
             .split('/')
             .filter(|segment| !segment.is_empty())
@@ -255,14 +262,14 @@ impl Client {
     /// Neither says the server *kept* what was sent, since a configuration table
     /// its template does not define is dropped while the import still says `success`. Only
     /// reading the entity back can show that, which is the caller's job.
-    pub fn import_entity(&self, file_name: &str, xml: &[u8]) -> Result<(), ServerError> {
+    pub(crate) fn import_entity(&self, file_name: &str, xml: &[u8]) -> Result<(), ServerError> {
         self.import_with(file_name, xml, IMPORT_QUERY)
     }
 
     /// An export file (XML, or a zip of them) through the Importer, as Composer's Import from
     /// File does. Composer's default is to keep the server's property values and configuration
     /// table rows; the flags say otherwise.
-    pub fn import_file(
+    pub(crate) fn import_file(
         &self,
         file_name: &str,
         bytes: &[u8],
@@ -312,7 +319,7 @@ impl Client {
 
     /// The `Exporter`'s XML for a route: `Things/X` (one entity), `Things` (a collection), or
     /// empty (everything), with `project` narrowing either of the last two to one project.
-    pub fn export_xml(
+    pub(crate) fn export_xml(
         &self,
         collection: Option<&str>,
         name: Option<&str>,
@@ -354,7 +361,7 @@ impl Client {
     /// Send an extension package to `ExtensionPackageUploader`, as Composer's import dialog does.
     /// With `validate` the server checks the package and installs nothing; without, it installs.
     /// The answer is the server's JSON report. A package it cannot read is a bare 406.
-    pub fn upload_extension(
+    pub(crate) fn upload_extension(
         &self,
         file_name: &str,
         zip: &[u8],
@@ -393,7 +400,7 @@ impl Client {
     ///
     /// This is intentionally not a generic service-call escape hatch. Deploy is required to
     /// fail closed on this exact gate, and its four response fields are part of the contract.
-    pub fn check_script(&self, script: &str) -> Result<ScriptCheck, ServerError> {
+    pub(crate) fn check_script(&self, script: &str) -> Result<ScriptCheck, ServerError> {
         const ROUTE: &str = "Resources/ScriptServices/Services/CheckScriptWithLinesAndColumns";
         let url = format!("{}/{ROUTE}", self.base());
         let body = serde_json::to_vec(&serde_json::json!({ "script": script }))
@@ -430,7 +437,7 @@ impl Client {
     /// This call has no dry run: the command line names exactly what to execute, and the client
     /// cannot know whether an arbitrary service writes. The MCP surface must make its
     /// own, separate decision about how to expose service execution.
-    pub fn call_service(
+    pub(crate) fn call_service(
         &self,
         target: &ServiceTarget,
         service: &str,
@@ -501,10 +508,10 @@ impl Client {
 #[derive(Clone, Debug, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub struct ScriptCheck {
-    pub status: bool,
-    pub line_number: usize,
-    pub column_number: usize,
-    pub message: String,
+    pub(crate) status: bool,
+    pub(crate) line_number: usize,
+    pub(crate) column_number: usize,
+    pub(crate) message: String,
 }
 
 #[derive(Deserialize)]
@@ -604,7 +611,7 @@ impl ServerError {
         }
     }
 
-    pub fn is_not_found(&self) -> bool {
+    pub(crate) fn is_not_found(&self) -> bool {
         matches!(self, ServerError::Http { status: 404, .. })
     }
 }
@@ -849,7 +856,7 @@ fn multipart(boundary: &str, file_name: &str, payload: &[u8]) -> Vec<u8> {
 }
 
 /// Percent-encode one complete URL path segment, retaining only RFC 3986 unreserved bytes.
-pub fn encode_path_segment(value: &str) -> String {
+pub(crate) fn encode_path_segment(value: &str) -> String {
     const HEX: &[u8; 16] = b"0123456789ABCDEF";
     let mut out = String::with_capacity(value.len());
     for byte in value.as_bytes() {
@@ -1645,7 +1652,7 @@ Content-Type: text/xml\r\n\
             "Things/X/Y",
             "Things/.",
         ] {
-            let error: ServerError = super::super::entity_key::ServiceTarget::parse(bad)
+            let error: ServerError = super::super::entity::key::ServiceTarget::parse(bad)
                 .unwrap_err()
                 .into();
             assert!(
@@ -1659,15 +1666,15 @@ Content-Type: text/xml\r\n\
     fn service_calls_keep_their_existing_urls_for_typed_targets() {
         for (target, expected) in [
             (
-                super::super::entity_key::ServiceTarget::parse("A Thing").unwrap(),
+                super::super::entity::key::ServiceTarget::parse("A Thing").unwrap(),
                 "/Thingworx/Things/A%20Thing/Services/S%20name",
             ),
             (
-                super::super::entity_key::ServiceTarget::entity("Widgets", "%#?é").unwrap(),
+                super::super::entity::key::ServiceTarget::entity("Widgets", "%#?é").unwrap(),
                 "/Thingworx/Widgets/%25%23%3F%C3%A9/Services/S%20name",
             ),
             (
-                super::super::entity_key::ServiceTarget::platform(
+                super::super::entity::key::ServiceTarget::platform(
                     "Resources",
                     "SourceControlFunctions",
                 ),

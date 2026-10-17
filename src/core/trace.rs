@@ -7,9 +7,9 @@
 //! calls from the entity and from what inherits it. Read-only and offline.
 
 use super::config::Solution;
-use super::entity_key::EntityKey;
+use super::entity::key::EntityKey;
 use super::index::{EdgeKind, Index};
-use super::mashup_describe;
+use super::mashup;
 use super::scan;
 use super::workspace::{self, WorkspaceError};
 use serde::Serialize;
@@ -25,55 +25,55 @@ use swc_ecma_visit::{Visit, VisitWith};
 #[derive(Debug, Serialize)]
 pub struct Trace {
     /// `Collection/Name.Service`.
-    pub service: String,
+    pub(crate) service: String,
     /// Where the definition was read, when it is inherited.
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub defined_in: Option<String>,
-    pub parameters: Vec<Parameter>,
-    pub returns: String,
-    pub mashups: Vec<MashupCaller>,
-    pub scripts: Vec<ScriptCall>,
+    pub(crate) defined_in: Option<String>,
+    pub(crate) parameters: Vec<Parameter>,
+    pub(crate) returns: String,
+    pub(crate) mashups: Vec<MashupCaller>,
+    pub(crate) scripts: Vec<ScriptCall>,
     /// What the service itself calls: `Collection/Name.Member`.
-    pub calls: Vec<String>,
-    pub notes: Vec<String>,
+    pub(crate) calls: Vec<String>,
+    pub(crate) notes: Vec<String>,
 }
 
 #[derive(Debug, Serialize)]
-pub struct Parameter {
-    pub name: String,
-    pub base_type: String,
+pub(crate) struct Parameter {
+    pub(crate) name: String,
+    pub(crate) base_type: String,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub default: Option<String>,
-    pub required: bool,
+    pub(crate) default: Option<String>,
+    pub(crate) required: bool,
 }
 
 #[derive(Debug, Serialize)]
-pub struct MashupCaller {
-    pub mashup: String,
+pub(crate) struct MashupCaller {
+    pub(crate) mashup: String,
     /// The data source as the mashup names it, `Entity.Service` or with an alias.
-    pub call: String,
-    pub runs_on: Vec<String>,
+    pub(crate) call: String,
+    pub(crate) runs_on: Vec<String>,
     /// Each parameter and what sets it; `UNBOUND` when nothing does.
-    pub parameters: Vec<(String, Vec<String>)>,
+    pub(crate) parameters: Vec<(String, Vec<String>)>,
     /// Each result path and where it goes: `[SelectedRows].UID -> ui:...`.
-    pub results: Vec<(String, String)>,
+    pub(crate) results: Vec<(String, String)>,
 }
 
 #[derive(Debug, Serialize)]
-pub struct ScriptCall {
+pub(crate) struct ScriptCall {
     /// `Collection/Name.Service` of the calling script.
-    pub caller: String,
-    pub line: usize,
+    pub(crate) caller: String,
+    pub(crate) line: usize,
     /// The call as written, on one line.
-    pub call: String,
+    pub(crate) call: String,
     /// The variable the result is put in, when it is put in one.
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub into: Option<String>,
+    pub(crate) into: Option<String>,
     /// What the script reads of the result: fields, `rows`, `length`...
-    pub reads: Vec<String>,
+    pub(crate) reads: Vec<String>,
     /// False when the variable is bound more than once in the script (a parameter, another
     /// declaration, a reassignment): then what is read of it may not be this result.
-    pub reads_followed: bool,
+    pub(crate) reads_followed: bool,
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -169,7 +169,7 @@ pub fn run(solution: &Solution, given: &str, param: Option<&str>) -> Result<Trac
         let Some(name) = from.strip_prefix("Mashups/") else {
             continue;
         };
-        let Ok(description) = mashup_describe::describe(solution, name) else {
+        let Ok(description) = mashup::describe::describe(solution, name) else {
             continue;
         };
         let names: BTreeSet<String> = holders

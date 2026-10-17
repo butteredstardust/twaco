@@ -61,9 +61,9 @@ pub struct CatalogParameter {
     pub base_type: String,
     #[serde(rename = "dataShape", skip_serializing_if = "Option::is_none")]
     pub data_shape: Option<String>,
-    pub required: bool,
+    pub(crate) required: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub default: Option<String>,
+    pub(crate) default: Option<String>,
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -81,7 +81,7 @@ pub struct CatalogValue {
 /// [`build`], this includes entities with no services because configuration tables do not require
 /// a service declaration. The second value lists entities the model could not read: a caller that
 /// scopes a refactor by inheritance must refuse when it is not empty.
-pub fn inheritance(solution: &Solution) -> (Vec<CatalogEntity>, Vec<String>) {
+pub(crate) fn inheritance(solution: &Solution) -> (Vec<CatalogEntity>, Vec<String>) {
     let index = Index::build(solution);
     let mut entities: Vec<CatalogEntity> = index
         .entities()

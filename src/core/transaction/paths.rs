@@ -7,7 +7,7 @@ use std::path::{Component, Path, PathBuf};
 /// A path may be given relative or as `root` joined to one. It may not climb out (`..`), name a
 /// drive or a root, or be empty: a journal that named such a path could be made to replace or
 /// delete a file anywhere.
-pub fn relative(root: &Path, given: &Path) -> Result<String, String> {
+pub(crate) fn relative(root: &Path, given: &Path) -> Result<String, String> {
     let inside = if given.is_absolute() {
         given
             .strip_prefix(root)
@@ -19,7 +19,7 @@ pub fn relative(root: &Path, given: &Path) -> Result<String, String> {
 }
 
 /// A path as a journal holds it, checked the same way.
-pub fn stored(text: &str) -> Result<String, String> {
+pub(crate) fn stored(text: &str) -> Result<String, String> {
     let mut parts: Vec<&str> = Vec::new();
     for component in Path::new(text).components() {
         match component {
@@ -48,7 +48,7 @@ pub fn stored(text: &str) -> Result<String, String> {
     Ok(parts.join("/"))
 }
 
-pub fn absolute(root: &Path, relative: &str) -> PathBuf {
+pub(crate) fn absolute(root: &Path, relative: &str) -> PathBuf {
     let mut path = root.to_path_buf();
     for part in relative.split('/') {
         path.push(part);
@@ -57,7 +57,7 @@ pub fn absolute(root: &Path, relative: &str) -> PathBuf {
 }
 
 /// Whether `path` is a symbolic link or, on Windows, any reparse point (a junction, a mount).
-pub fn is_link(path: &Path) -> bool {
+pub(crate) fn is_link(path: &Path) -> bool {
     let Ok(metadata) = std::fs::symlink_metadata(path) else {
         return false;
     };
@@ -77,7 +77,7 @@ pub fn is_link(path: &Path) -> bool {
 
 /// Refuse a path any of whose parts, below `root`, is a link: what lies behind it is not this
 /// workspace's to replace or delete. The root itself may be reached through a link.
-pub fn reject_links(root: &Path, relative: &str) -> Result<(), String> {
+pub(crate) fn reject_links(root: &Path, relative: &str) -> Result<(), String> {
     let mut path = root.to_path_buf();
     for part in relative.split('/') {
         path.push(part);
@@ -92,7 +92,7 @@ pub fn reject_links(root: &Path, relative: &str) -> Result<(), String> {
 }
 
 /// The folders that do not exist yet on the way to `relative`'s parent, shallowest first.
-pub fn missing_folders(root: &Path, relative: &str) -> Vec<String> {
+pub(crate) fn missing_folders(root: &Path, relative: &str) -> Vec<String> {
     let parts: Vec<&str> = relative.split('/').collect();
     let mut missing = Vec::new();
     for count in 1..parts.len() {

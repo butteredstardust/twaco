@@ -129,7 +129,7 @@ pub fn normalise(src: &[u8]) -> Result<Vec<u8>, NormaliseError> {
 /// (instance blocks included) left out, and not
 /// equal with them. An import never removes a grant, so such an entity needs a permissions push
 /// rather than another import.
-pub fn differ_only_in_permissions(left: &[u8], right: &[u8]) -> bool {
+pub(crate) fn differ_only_in_permissions(left: &[u8], right: &[u8]) -> bool {
     match (canonical(left, false), canonical(right, false)) {
         (Ok(left_rest), Ok(right_rest)) => {
             left_rest == right_rest && normalise(left).ok() != normalise(right).ok()
@@ -176,7 +176,7 @@ pub(crate) fn entity_of(src: &[u8]) -> Result<Element, NormaliseError> {
 }
 
 /// Versioned SHA-256 over [`normalise`]'s canonical bytes.
-pub fn hash(src: &[u8]) -> Result<String, NormaliseError> {
+pub(crate) fn hash(src: &[u8]) -> Result<String, NormaliseError> {
     let canonical = normalise(src)?;
     Ok(format!("{HASH_VERSION}:{}", hex(&sha256(&canonical))))
 }

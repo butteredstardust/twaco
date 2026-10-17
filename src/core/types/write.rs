@@ -33,7 +33,7 @@ pub(super) const PLAIN_COLLECTIONS: &[&str] = &[
 ];
 
 /// Generate and atomically update the four shared declaration files.
-pub fn write(solution: &Solution) -> Result<Outcome, TypesError> {
+pub(crate) fn write(solution: &Solution) -> Result<Outcome, TypesError> {
     let (model, mut skipped) = load_model(solution);
     let platform_path = solution.root.join(".twaco/platform.json");
     let platform = match std::fs::read(&platform_path) {

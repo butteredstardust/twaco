@@ -5,20 +5,20 @@ use sha2::{Digest, Sha256};
 use std::path::{Path, PathBuf};
 
 /// Where the journals live, relative to the workspace root.
-pub const DIRECTORY: &str = ".twaco/transactions";
-pub const MAJOR: u32 = 1;
-pub const MINOR: u32 = 0;
+pub(crate) const DIRECTORY: &str = ".twaco/transactions";
+pub(crate) const MAJOR: u32 = 1;
+pub(crate) const MINOR: u32 = 0;
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-pub struct Format {
-    pub major: u32,
-    pub minor: u32,
+pub(crate) struct Format {
+    pub(crate) major: u32,
+    pub(crate) minor: u32,
 }
 
 /// How far an operation got. Nothing is visible until `Applying`.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
-pub enum State {
+pub(crate) enum State {
     /// Stage and backup files are being written; no destination has been touched.
     Staging,
     /// Every stage and backup is durable; destinations are being changed one at a time.
@@ -29,7 +29,7 @@ pub enum State {
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
-pub enum Kind {
+pub(crate) enum Kind {
     /// The destination holds the `before` bytes and will hold the `after` bytes.
     Replace,
     /// The destination is absent and will hold the `after` bytes.
@@ -40,54 +40,45 @@ pub enum Kind {
     Move,
 }
 
-impl Kind {
-    pub fn word(self) -> &'static str {
-        match self {
-            Kind::Replace => "replace",
-            Kind::Create => "create",
-            Kind::Delete => "delete",
-            Kind::Move => "move",
-        }
-    }
-}
+impl Kind {}
 
 /// One file change. Paths are relative to the workspace root and written with `/`.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-pub struct Step {
-    pub id: usize,
-    pub kind: Kind,
-    pub path: String,
+pub(crate) struct Step {
+    pub(crate) id: usize,
+    pub(crate) kind: Kind,
+    pub(crate) path: String,
     /// Digest of the destination before the step; none when it is absent.
-    pub before: Option<String>,
+    pub(crate) before: Option<String>,
     /// Digest of the destination after the step; none when it is absent.
-    pub after: Option<String>,
+    pub(crate) after: Option<String>,
     /// The bytes that will be installed, staged beside the destination.
-    pub stage: Option<String>,
+    pub(crate) stage: Option<String>,
     /// A copy of the original bytes, kept so the step can be undone.
-    pub backup: Option<String>,
+    pub(crate) backup: Option<String>,
     /// Where a `move` puts what is at `path`.
     #[serde(default)]
-    pub to: Option<String>,
+    pub(crate) to: Option<String>,
     /// For a file inside something a later `move` renames: where it is once that has happened.
     #[serde(default)]
-    pub then_at: Option<String>,
+    pub(crate) then_at: Option<String>,
     /// Folders this step created, shallowest first; removed again if the step is undone.
     #[serde(default)]
-    pub new_dirs: Vec<String>,
-    pub completed: bool,
+    pub(crate) new_dirs: Vec<String>,
+    pub(crate) completed: bool,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-pub struct Journal {
-    pub format: Format,
-    pub operation_id: String,
-    pub command: String,
-    pub state: State,
-    pub steps: Vec<Step>,
+pub(crate) struct Journal {
+    pub(crate) format: Format,
+    pub(crate) operation_id: String,
+    pub(crate) command: String,
+    pub(crate) state: State,
+    pub(crate) steps: Vec<Step>,
 }
 
 /// `sha256:` and the lower-case hex of the digest.
-pub fn digest(bytes: &[u8]) -> String {
+pub(crate) fn digest(bytes: &[u8]) -> String {
     let mut text = String::from("sha256:");
     for byte in Sha256::digest(bytes) {
         text.push_str(&format!("{byte:02x}"));
@@ -98,7 +89,7 @@ pub fn digest(bytes: &[u8]) -> String {
 /// The digest of a file, or of a whole folder: every regular file under it by relative path.
 /// `overrides` stands for files the operation will have rewritten before the digest is taken
 /// again (`None`: removed). A link anywhere inside is an error.
-pub fn tree_digest(
+pub(crate) fn tree_digest(
     root: &Path,
     relative: &str,
     overrides: &std::collections::BTreeMap<String, Option<Vec<u8>>>,
@@ -157,13 +148,13 @@ pub fn tree_digest(
     Ok(format!("sha256-tree:{}", &digest(text.as_bytes())[7..]))
 }
 
-pub fn path_of(root: &Path, operation_id: &str) -> PathBuf {
+pub(crate) fn path_of(root: &Path, operation_id: &str) -> PathBuf {
     root.join(DIRECTORY).join(format!("{operation_id}.json"))
 }
 
 /// Why a journal could not be used.
 #[derive(Debug)]
-pub enum ReadError {
+pub(crate) enum ReadError {
     Io(std::io::Error),
     Malformed(String),
     /// Written by a version of twaco this one does not understand.
@@ -173,7 +164,7 @@ pub enum ReadError {
     },
 }
 
-pub fn read(path: &Path) -> Result<Journal, ReadError> {
+pub(crate) fn read(path: &Path) -> Result<Journal, ReadError> {
     let bytes = std::fs::read(path).map_err(ReadError::Io)?;
     let value: serde_json::Value =
         serde_json::from_slice(&bytes).map_err(|why| ReadError::Malformed(why.to_string()))?;
@@ -210,7 +201,7 @@ pub fn read(path: &Path) -> Result<Journal, ReadError> {
 }
 
 /// Replace the journal on disk in one step and make the replacement durable.
-pub fn write(root: &Path, journal: &Journal) -> std::io::Result<()> {
+pub(crate) fn write(root: &Path, journal: &Journal) -> std::io::Result<()> {
     let folder = root.join(DIRECTORY);
     std::fs::create_dir_all(&folder)?;
     let bytes = serde_json::to_vec_pretty(journal).expect("a journal serialises");
@@ -220,7 +211,7 @@ pub fn write(root: &Path, journal: &Journal) -> std::io::Result<()> {
 }
 
 /// Make a rename in `folder` durable where the platform lets a directory be synced.
-pub fn sync_directory(folder: &Path) {
+pub(crate) fn sync_directory(folder: &Path) {
     #[cfg(unix)]
     if let Ok(directory) = std::fs::File::open(folder) {
         let _ = directory.sync_all();

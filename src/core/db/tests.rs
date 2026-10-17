@@ -1,5 +1,5 @@
 use super::super::config::Solution;
-use super::super::entity_key::ServiceTarget;
+use super::super::entity::key::ServiceTarget;
 use super::super::profile::Profile;
 use super::connection::{read_only_connection, Connection};
 use super::execute::{temporary_name, thing_xml};
