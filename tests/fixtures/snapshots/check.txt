@@ -2,17 +2,17 @@ $ twaco check
 exit: 0
 
 --- stdout
-  ok      line endings   32 examined
+  ok      line endings   33 examined
   ok      sidecars       8 examined
   ok      formatting     7 examined
   ok      script traps   7 examined
   ok      code order     7 examined
-  ok      project        12 examined
+  ok      project        13 examined
   ok      mashup bindings 0 examined
   ok      contained mashups 0 examined
   ok      localization tokens 0 examined
   ok      result shapes  7 examined
-  ok      networks       0 examined
+  ok      networks       1 examined
 
 11 gate(s) passed
 --- stderr

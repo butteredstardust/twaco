@@ -14,6 +14,7 @@ pub(crate) enum Network {
     Add(Add),
     Move(Move),
     Remove(Remove),
+    Import(Import),
 }
 #[derive(Debug, clap::Args)]
 #[group(skip)]
@@ -74,6 +75,24 @@ pub(crate) struct Remove {
     json: Json,
     #[arg(long)]
     subtree: bool,
+    #[arg(id = "operands", value_name = "operand")]
+    operands: Vec<String>,
+}
+#[derive(Debug, clap::Args)]
+#[group(skip)]
+pub(crate) struct Import {
+    #[command(flatten)]
+    apply: Apply,
+    #[command(flatten)]
+    json: Json,
+    #[arg(long = "file", value_name = "path")]
+    file: Option<std::path::PathBuf>,
+    #[arg(long = "create-things")]
+    create_things: bool,
+    #[arg(long = "move")]
+    move_existing: bool,
+    #[arg(long)]
+    outside: bool,
     #[arg(id = "operands", value_name = "operand")]
     operands: Vec<String>,
 }
@@ -172,7 +191,7 @@ pub(crate) fn network_cmd(solution: &Solution, command: &Network) -> u8 {
             if show.json.json {
                 println!(
                     "{}",
-                    serde_json::to_string_pretty(&show_json(&network, &report))
+                    serde_json::to_string_pretty(&network::show_json(&network, &report))
                         .expect("network show JSON")
                 );
             } else {
@@ -261,7 +280,60 @@ pub(crate) fn network_cmd(solution: &Solution, command: &Network) -> u8 {
                 remove.json.json,
             )
         }
+        Network::Import(import) => import_cmd(solution, import),
     }
+}
+
+fn import_cmd(solution: &Solution, import: &Import) -> u8 {
+    let [network] = import.operands.as_slice() else {
+        eprintln!("{} network import needs <Network>", style::prefix());
+        return FAILED;
+    };
+    let Some(file) = &import.file else {
+        eprintln!("{} network import needs --file <path>", style::prefix());
+        return FAILED;
+    };
+    let request = commands::network::ImportRequest {
+        network: network.clone(),
+        file: file.clone(),
+        create_things: import.create_things,
+        move_existing: import.move_existing,
+        outside: import.outside,
+        mode: if import.apply.apply {
+            Mode::Apply
+        } else {
+            Mode::Plan
+        },
+        lock_label: "network import",
+    };
+    let mut notices = commands::Notices::default();
+    let outcome = match commands::network::import_execute(solution, &request, &mut notices) {
+        Ok(outcome) => outcome,
+        Err(error) => {
+            print_notices(&notices);
+            eprintln!("{} {error}", style::prefix());
+            return FAILED;
+        }
+    };
+    print_notices(&notices);
+    let created: Vec<_> = outcome.plan.created.iter().map(|plan| serde_json::json!({"name": plan.request.name, "template": plan.request.template, "project": plan.project})).collect();
+    if import.json.json {
+        println!("{}", serde_json::to_string_pretty(&serde_json::json!({
+            "applied": outcome.applied, "file": solution.relative(&outcome.plan.path), "created": created,
+            "added": outcome.plan.added, "moved": outcome.plan.moved, "noops": outcome.plan.noops,
+        })).expect("network import JSON"));
+    } else if outcome.applied {
+        println!(
+            "imported {}: {} Things created, {} connections added, {} moved",
+            network,
+            outcome.plan.created.len(),
+            outcome.plan.added.len(),
+            outcome.plan.moved.len()
+        );
+    } else {
+        println!("would import {}: {} Things created, {} connections added, {} moved; run again with --apply to write it", network, outcome.plan.created.len(), outcome.plan.added.len(), outcome.plan.moved.len());
+    }
+    OK
 }
 /// Where `add` and `move` put a Thing.
 struct Placement {
@@ -349,26 +421,4 @@ fn execute(solution: &Solution, request: commands::network::Request, json: bool)
         }
     }
     OK
-}
-
-/// The JSON `network show --json` prints and MCP `network` returns.
-pub(crate) fn show_json(network: &network::Network, report: &network::Show) -> serde_json::Value {
-    serde_json::json!({
-        "name": report.name,
-        "project": report.project,
-        "nodes": report.nodes,
-        "roots": report.roots,
-        "depth": report.depth,
-        "templates": report.templates.iter().map(|(template, count)| serde_json::json!({"template": template, "count": count})).collect::<Vec<_>>(),
-        "tree": report.rows.iter().map(|(node, level)| serde_json::json!({
-            "name": node.name,
-            "level": level,
-            "type": node.connection_type,
-            "template": node.template,
-            "project": node.project,
-            "outside_repository": node.outside_repository,
-        })).collect::<Vec<_>>(),
-        "connections": network.connections.iter().map(|connection| serde_json::json!({"type": connection.connection_type, "from": connection.from, "to": connection.to})).collect::<Vec<_>>(),
-        "problems": report.problems.iter().map(ToString::to_string).collect::<Vec<_>>(),
-    })
 }

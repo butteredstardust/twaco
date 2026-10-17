@@ -1150,6 +1150,47 @@
     "annotations": { "readOnlyHint": false, "openWorldHint": false, "destructiveHint": false, "idempotentHint": false }
   },
   {
+    "name": "network",
+    "description": "List repository Networks or show one asset hierarchy. Show returns the same data as network show --json; its tree is limited to 200 rows unless detail is true. Read-only.",
+    "inputSchema": {
+      "required": ["action"],
+      "additionalProperties": false,
+      "type": "object",
+      "properties": {
+        "action": {"type": "string", "enum": ["list", "show"]},
+        "network": {"type": "string"},
+        "top": {"type": "string"},
+        "depth": {"type": "integer", "minimum": 0},
+        "detail": {"type": "boolean", "default": false}
+      }
+    },
+    "annotations": {"readOnlyHint": true, "openWorldHint": false}
+  },
+  {
+    "name": "network_write",
+    "description": "Add, move or remove a Network connection, or import an RFC 4180 asset CSV. An import can create Things from repository or platform templates. A dry run unless dry_run is false; apply writes every created Thing and the Network XML in one transaction.",
+    "inputSchema": {
+      "required": ["action", "network"],
+      "additionalProperties": false,
+      "type": "object",
+      "properties": {
+        "action": {"type": "string", "enum": ["add", "move", "remove", "import"]},
+        "network": {"type": "string"},
+        "thing": {"type": "string"},
+        "under": {"type": "string"},
+        "as_root": {"type": "boolean", "default": false},
+        "type": {"type": "string"},
+        "outside": {"type": "boolean", "default": false},
+        "subtree": {"type": "boolean", "default": false},
+        "file": {"type": "string"},
+        "create_things": {"type": "boolean", "default": false},
+        "move": {"type": "boolean", "default": false},
+        "dry_run": {"type": "boolean", "default": true}
+      }
+    },
+    "annotations": {"readOnlyHint": false, "openWorldHint": false, "destructiveHint": true, "idempotentHint": false}
+  },
+  {
     "name": "entity_edit",
     "description": "Change an existing entity in the repository, as Composer would: add, change or remove a property of a Thing, ThingTemplate or ThingShape (a persistent one also writes the stored value of every Thing that has it), add a script service (a definition and its sidecars, as sync would) or remove one with its sidecars and run-time permissions, add or remove a script subscription, implement or stop implementing a ThingShape, change a timer's or scheduler's settings, given keys of a style, a MediaEntity's image, a menu's items, or a StateDefinition's states. Removing or retyping a property, or removing a service, something still uses is refused unless force. A dry run unless dry_run is false; apply takes the workspace lock and writes every file or none.",
     "inputSchema": {

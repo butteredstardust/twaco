@@ -9,7 +9,173 @@ use super::entity;
 use super::scan::{self, Kind, Span, Token};
 use super::splice::{self, Edit};
 use super::workspace;
+use serde_json::{json, Value};
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
+
+/// One asset row from a RFC 4180 CSV import.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct AssetRow {
+    pub line: usize,
+    pub name: String,
+    pub parent: String,
+    pub connection_type: String,
+    pub template: Option<String>,
+    pub description: String,
+    pub project: Option<String>,
+}
+
+/// Read the deliberately small asset-import dialect.  This is kept here rather than accepting
+/// an ad-hoc split on commas: descriptions and names exported by asset tools regularly contain
+/// commas and newlines.
+pub fn assets_csv(src: &[u8]) -> Result<Vec<AssetRow>, NetworkError> {
+    let text = std::str::from_utf8(src)
+        .map_err(|error| NetworkError::Invalid(format!("CSV is not UTF-8: {error}")))?
+        .strip_prefix('\u{feff}')
+        .unwrap_or_else(|| std::str::from_utf8(src).expect("checked UTF-8"));
+    let mut records = Vec::<(usize, Vec<String>)>::new();
+    let mut row = Vec::new();
+    let mut field = String::new();
+    let mut quoted = false;
+    let mut at_start = true;
+    let mut line = 1usize;
+    let mut row_line = 1usize;
+    let mut chars = text.chars().peekable();
+    while let Some(ch) = chars.next() {
+        match ch {
+            '"' if at_start => {
+                quoted = true;
+                at_start = false;
+            }
+            '"' if quoted => {
+                if chars.peek() == Some(&'"') {
+                    chars.next();
+                    field.push('"');
+                } else {
+                    quoted = false;
+                }
+            }
+            ',' if !quoted => {
+                row.push(std::mem::take(&mut field));
+                at_start = true;
+            }
+            '\r' if !quoted => {
+                if chars.peek() == Some(&'\n') {
+                    chars.next();
+                }
+                row.push(std::mem::take(&mut field));
+                records.push((row_line, std::mem::take(&mut row)));
+                line += 1;
+                row_line = line;
+                at_start = true;
+            }
+            '\n' if !quoted => {
+                row.push(std::mem::take(&mut field));
+                records.push((row_line, std::mem::take(&mut row)));
+                line += 1;
+                row_line = line;
+                at_start = true;
+            }
+            '\r' => {
+                field.push('\r');
+                if chars.peek() == Some(&'\n') {
+                    chars.next();
+                    field.push('\n');
+                    line += 1;
+                }
+            }
+            '\n' => {
+                field.push('\n');
+                line += 1;
+            }
+            _ => {
+                field.push(ch);
+                at_start = false;
+            }
+        }
+    }
+    if quoted {
+        return Err(NetworkError::Invalid(format!(
+            "CSV line {row_line} has an unclosed quoted field"
+        )));
+    }
+    if !field.is_empty() || !row.is_empty() {
+        row.push(field);
+        records.push((row_line, row));
+    }
+    let Some((header_line, header)) = records.first() else {
+        return Err(NetworkError::Invalid("CSV has no header row".into()));
+    };
+    let header = header.clone();
+    let header_line = *header_line;
+    let mut columns = BTreeMap::new();
+    for (index, name) in header.iter().enumerate() {
+        if !matches!(
+            name.as_str(),
+            "name" | "parent" | "type" | "template" | "description" | "project"
+        ) {
+            return Err(NetworkError::Invalid(format!(
+                "CSV line {header_line} has unknown column {name:?}"
+            )));
+        }
+        if columns.insert(name.as_str(), index).is_some() {
+            return Err(NetworkError::Invalid(format!(
+                "CSV line {header_line} has column {name:?} twice"
+            )));
+        }
+    }
+    for required in ["name", "parent"] {
+        if !columns.contains_key(required) {
+            return Err(NetworkError::Invalid(format!(
+                "CSV header needs {required}"
+            )));
+        }
+    }
+    let get = |record: &[String], name: &str| -> String {
+        columns
+            .get(name)
+            .and_then(|index| record.get(*index))
+            .cloned()
+            .unwrap_or_default()
+    };
+    let mut names = HashSet::new();
+    let mut rows = Vec::new();
+    for (line, record) in records.into_iter().skip(1) {
+        // A blank line, as a spreadsheet leaves between groups, is no row.
+        if record.iter().all(|field| field.trim().is_empty()) {
+            continue;
+        }
+        if record.len() > header.len() {
+            return Err(NetworkError::Invalid(format!(
+                "CSV line {line} has more fields than its header"
+            )));
+        }
+        let name = get(&record, "name");
+        if name.is_empty() {
+            return Err(NetworkError::Invalid(format!(
+                "CSV line {line} has an empty name"
+            )));
+        }
+        if !names.insert(name.clone()) {
+            return Err(NetworkError::Invalid(format!(
+                "CSV line {line} names {name} more than once"
+            )));
+        }
+        let optional = |key: &str| {
+            let value = get(&record, key);
+            (!value.is_empty()).then_some(value)
+        };
+        rows.push(AssetRow {
+            line,
+            name,
+            parent: get(&record, "parent"),
+            connection_type: optional("type").unwrap_or_else(|| "Contains".into()),
+            template: optional("template"),
+            description: get(&record, "description"),
+            project: optional("project"),
+        });
+    }
+    Ok(rows)
+}
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Connection {
@@ -396,6 +562,28 @@ pub fn show(
     })
 }
 
+/// The stable JSON projection shared by the CLI and MCP adapters.
+pub fn show_json(network: &Network, report: &Show) -> Value {
+    json!({
+        "name": report.name, "project": report.project, "nodes": report.nodes,
+        "roots": report.roots, "depth": report.depth,
+        "templates": report.templates.iter().map(|(template, count)| json!({"template": template, "count": count})).collect::<Vec<_>>(),
+        "tree": report.rows.iter().map(|(node, level)| json!({"name": node.name, "level": level, "type": node.connection_type, "template": node.template, "project": node.project, "outside_repository": node.outside_repository})).collect::<Vec<_>>(),
+        "connections": network.connections.iter().map(|connection| json!({"type": connection.connection_type, "from": connection.from, "to": connection.to})).collect::<Vec<_>>(),
+        "problems": report.problems.iter().map(ToString::to_string).collect::<Vec<_>>(),
+    })
+}
+
+/// One compact row per repository Network, the JSON form of `network list`.
+pub fn list_json(solution: &Solution) -> Vec<Value> {
+    workspace::entities(solution).into_iter().filter(|entry| entry.info.collection == "Networks").filter_map(|entry| {
+        let bytes = std::fs::read(&entry.path).ok()?;
+        let model = parse(&bytes).ok()?;
+        let forest = forest(&model);
+        Some(json!({"name": model.name, "project": model.project, "connections": model.connections.len(), "roots": forest.roots.len(), "depth": forest.depth.values().copied().max().unwrap_or(0)}))
+    }).collect()
+}
+
 fn line_ending(src: &[u8]) -> &'static str {
     if src.windows(2).any(|pair| pair == b"\r\n") {
         "\r\n"
@@ -700,5 +888,30 @@ mod tests {
             ),
             "{removed}"
         );
+    }
+
+    #[test]
+    fn asset_csv_accepts_bom_crlf_quotes_and_embedded_newlines() {
+        let rows = assets_csv(b"\xef\xbb\xbfname,parent,type,description\r\nAcme.Site,,Contains,\"site, primary\"\r\nAcme.Line,Acme.Site,,\"line one\r\nline two\"\r\n").unwrap();
+        assert_eq!(rows.len(), 2);
+        assert_eq!(rows[0].description, "site, primary");
+        assert_eq!(rows[1].connection_type, "Contains");
+        assert_eq!(rows[1].description, "line one\r\nline two");
+    }
+
+    #[test]
+    fn asset_csv_refuses_bad_names_and_columns_at_their_lines() {
+        assert!(assets_csv(b"name,parent,unknown\nAcme.Site,,x\n")
+            .unwrap_err()
+            .to_string()
+            .contains("unknown column"));
+        assert!(assets_csv(b"name,parent\n,\n")
+            .unwrap_err()
+            .to_string()
+            .contains("line 2"));
+        assert!(assets_csv(b"name,parent\nAcme.Site,\nAcme.Site,\n")
+            .unwrap_err()
+            .to_string()
+            .contains("line 3"));
     }
 }

@@ -507,6 +507,29 @@ children unless `--subtree`. Each edit plans until `--apply` and changes only th
 names, in the file's own layout. The `networks` gate of `twaco check` reports a Thing with two
 parents, a cycle, a parent that is not itself in the network, and a connection listed twice.
 
+`network import` brings an asset export into that same hierarchy. Its `--file` is UTF-8 RFC 4180
+CSV (a BOM, CRLF, quoted commas, doubled quotes and quoted newlines are accepted), with `name` and
+`parent` headers and optional `type`, `template`, `description` and `project`. An empty `parent`
+makes a root. Parents are applied before their children even if the CSV puts the child first.
+
+```csv
+name,parent,type,template,description,project
+Acme.Site,,Contains,GenericThing,Acme site,Acme
+Acme.Line,Acme.Site,Contains,Acme.Line_TT,"Line, one",Acme
+```
+
+```sh
+twaco network import Acme.Plant --file assets.csv --create-things
+twaco network import Acme.Plant --file assets.csv --create-things --apply
+```
+
+An already-correct row is a no-op; an existing Thing under another parent needs `--move`.
+`--create-things` requires a template on every missing Thing and creates it from a repository or
+platform template (such as `GenericThing`), with the row project or the Network project. Without
+it, missing Things need `--outside`. Refusals write nothing; an applied import creates all Things
+and changes the Network in one transaction. MCP exposes the same read operations as `network` and
+the edits and import as `network_write` (`dry_run` defaults to true).
+
 ## Changing entities
 
 Each command plans until `--apply` and changes only the element it names.

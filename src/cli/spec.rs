@@ -960,6 +960,12 @@ pub(crate) const USAGE: &[Usage] = &[
                               remove a Network connection, never the Thing; plan unless --apply"#,
     },
     Usage {
+        path: "network import",
+        group: 2,
+        text: r#"  network import <Network> --file <path> [--create-things] [--move] [--outside] [--apply] [--json]
+                                map CSV assets into a Network hierarchy; plan unless --apply"#,
+    },
+    Usage {
         path: "entity status",
         group: 2,
         text: r#"  entity status [<entity>|--all] [--detail] [--record]

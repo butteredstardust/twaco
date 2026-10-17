@@ -146,6 +146,7 @@ impl Command {
                 super::network::Network::Add(_) => "network add",
                 super::network::Network::Move(_) => "network move",
                 super::network::Network::Remove(_) => "network remove",
+                super::network::Network::Import(_) => "network import",
             },
             Command::New(super::entity_new::New::BuildingBlock(_)) => "new building-block",
             Command::New(super::entity_new::New::Entity(new)) => new.path(),

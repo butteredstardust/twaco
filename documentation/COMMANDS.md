@@ -338,6 +338,8 @@ network move <Network> <Thing> (--under <Thing> | --as-root) [--type <connection
     [--apply] [--json]      re-parent a Thing with its subtree; plan unless --apply
 network remove <Network> <Thing> [--subtree] [--apply] [--json]
                             remove a Network connection, never the Thing; plan unless --apply
+network import <Network> --file <path> [--create-things] [--move] [--outside] [--apply] [--json]
+                              map CSV assets into a Network hierarchy; plan unless --apply
 entity status [<entity>|--all] [--detail] [--record]
     --record                 record matching working/server hashes as baseline
 entity get <entity>         fetch raw server XML to stdout or --out <path>
