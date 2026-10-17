@@ -202,15 +202,13 @@ fn the_stable_tools_publish_an_output_schema_only_to_clients_that_know_it() {
     };
     assert!(with("2024-11-05").is_empty());
     assert!(with("2025-03-26").is_empty());
-    let expected = [
-        "projects", "types", "check", "status", "sync", "extract", "fmt", "push", "deploy",
-    ];
+    // Every tool describes its result.
+    let every: Vec<String> = tool_definitions()
+        .iter()
+        .map(|tool| tool["name"].as_str().unwrap().to_string())
+        .collect();
     for protocol in ["2025-06-18", LATEST.as_str()] {
-        let mut names = with(protocol);
-        names.sort();
-        let mut want: Vec<String> = expected.iter().map(|name| name.to_string()).collect();
-        want.sort();
-        assert_eq!(names, want, "{protocol}");
+        assert_eq!(with(protocol), every, "{protocol}");
     }
 }
 
@@ -1901,6 +1899,147 @@ fn what_the_stable_tools_return_fits_the_output_schema_they_publish() {
 }
 
 #[test]
+fn what_the_offline_tools_return_fits_the_output_schema_they_publish() {
+    // As above: the registry checks each result against the tool's schema. These need no server,
+    // or answer before reaching one.
+    let (_dir, root) = solution_with_unreachable_server();
+    std::fs::write(
+        root.join("Things/P.T.xml"),
+        "<Entities><Things><Thing name=\"P.T\" projectName=\"P\" thingTemplate=\"GenericThing\"><ThingShape><ServiceDefinitions><ServiceDefinition name=\"Run\" description=\"\"><ResultType baseType=\"NUMBER\" name=\"result\"/><ParameterDefinitions><FieldDefinition baseType=\"STRING\" name=\"from\"/></ParameterDefinitions></ServiceDefinition></ServiceDefinitions><ServiceImplementations><ServiceImplementation name=\"Run\" handlerName=\"Script\"><ConfigurationTables><ConfigurationTable name=\"Script\"><Rows><Row><code><![CDATA[var result = 1;]]></code></Row></Rows></ConfigurationTable></ConfigurationTables></ServiceImplementation></ServiceImplementations></ThingShape></Thing></Things></Entities>",
+    )
+    .unwrap();
+    std::fs::write(
+        root.join("twaco.toml"),
+        "[[project]]\nname = \"P\"\n\n[[test.user]]\nname = \"tess\"\ngroups = [\"P.Users\"]\n",
+    )
+    .unwrap();
+    std::fs::create_dir_all(root.join("tests")).unwrap();
+    std::fs::write(
+        root.join("tests/run.toml"),
+        "[[case]]\nname = \"runs\"\nservice = \"P.T.Run\"\nas = [\"tess\"]\nexpect = 200\n",
+    )
+    .unwrap();
+    // In order: some calls write what later ones read (the mashups, P.New, permissions.toml).
+    let calls = [
+        (
+            "mashup_new",
+            json!({"name": "P.Board_MU", "dry_run": false}),
+        ),
+        (
+            "mashup_new",
+            json!({"name": "P.Card_MU", "dry_run": false, "params": ["id:LONG:IN"]}),
+        ),
+        ("catalog", json!({"detail": true})),
+        ("docs", json!({})),
+        ("docs", json!({"detail": true})),
+        ("doctor", json!({})),
+        ("guide", json!({})),
+        ("guide", json!({"text": "AddMember group"})),
+        ("guide", json!({"topic": "workflow"})),
+        ("guide", json!({"topic": "quirks"})),
+        ("impact", json!({"entity": "P.T"})),
+        ("impact", json!({"entity": "P.T", "detail": true})),
+        ("impact", json!({"entity": "P.T", "format": "dot"})),
+        ("trace", json!({"service": "P.T.Run"})),
+        ("unused", json!({})),
+        ("unused", json!({"detail": true})),
+        ("unused", json!({"fields": true})),
+        ("mashup_templates", json!({})),
+        ("mashup_templates", json!({"name": "blank"})),
+        ("widgets", json!({})),
+        ("widgets", json!({"search": "grid"})),
+        ("widgets", json!({"widget": "button"})),
+        ("mashup_validate", json!({"all": true})),
+        ("mashup_describe", json!({"mashup": "P.Board_MU"})),
+        (
+            "mashup_add",
+            json!({"mashup": "P.Board_MU", "widget": "button"}),
+        ),
+        (
+            "mashup_add_contained",
+            json!({"mashup": "P.Board_MU", "child": "P.Card_MU"}),
+        ),
+        (
+            "mashup_param",
+            json!({"mashup": "P.Board_MU", "action": "add", "name": "x", "type": "STRING"}),
+        ),
+        (
+            "mashup_event",
+            json!({"mashup": "P.Card_MU", "name": "Saved", "when": "mashup:Loaded"}),
+        ),
+        (
+            "mashup_recipe",
+            json!({"mashup": "P.Board_MU", "recipe": "auto-refresh", "then": "data:P.T.Run", "every": 30}),
+        ),
+        ("bundle", json!({})),
+        (
+            "package",
+            json!({"action": "source_control", "out": "out/sc.zip"}),
+        ),
+        (
+            "package",
+            json!({"action": "extension", "out": "out/p.zip", "project": "P"}),
+        ),
+        ("permissions_init", json!({})),
+        ("permissions_init", json!({"dry_run": false})),
+        ("permissions_audit", json!({})),
+        ("permissions_audit", json!({"detail": true})),
+        ("permissions_apply", json!({})),
+        ("test", json!({})),
+        ("entity_restore", json!({})),
+        ("handoff", json!({"action": "list"})),
+        (
+            "entity_new",
+            json!({"kind": "thing", "name": "P.New", "dry_run": false}),
+        ),
+        (
+            "entity_new",
+            json!({"kind": "timer", "name": "P.Tick", "every": "1m", "run_as": "Administrator"}),
+        ),
+        (
+            "entity_edit",
+            json!({"entity": "P.New", "action": "property_add", "name": "Speed", "type": "NUMBER"}),
+        ),
+        (
+            "new_building_block",
+            json!({"name": "P.Block", "type": "standard", "base_extension": "PTC.Base:1.0.0"}),
+        ),
+        (
+            "rename",
+            json!({"kind": "entity", "old": "P.T", "new": "P.U"}),
+        ),
+        (
+            "retemplate",
+            json!({"entity": "P.T", "template": "RemoteThing"}),
+        ),
+        (
+            "move_member",
+            json!({"action": "copy", "kind": "service", "from": "P.T", "to": "P.New", "name": "Run"}),
+        ),
+        ("call", json!({"target": "P.T", "service": "Run"})),
+        (
+            "localization_write",
+            json!({"action": "new", "table": "P.Words"}),
+        ),
+        (
+            "localization_write",
+            json!({"action": "set", "token": "P.hello", "value": "Hello"}),
+        ),
+    ];
+    let mut failures = Vec::new();
+    for (name, arguments) in calls {
+        let result = call(&root, name, arguments.clone());
+        if result["isError"] == true {
+            failures.push(format!(
+                "{name} {arguments}: {}",
+                result["content"][0]["text"]
+            ));
+        }
+    }
+    assert!(failures.is_empty(), "{}", failures.join("\n"));
+}
+
+#[test]
 fn a_deploy_the_offline_gates_stop_answers_in_the_published_shape() {
     let (_dir, root) = solution_with_unreachable_server();
     std::fs::write(root.join("Things/Broken.xml"), "<Entities><Things><Thing").unwrap();
@@ -2152,6 +2291,156 @@ fn status_workspace() -> (tempfile::TempDir, PathBuf) {
     )
     .unwrap();
     (guard, root)
+}
+
+/// A server that answers every request for JSON with an empty InfoTable and every other request with
+/// the XML of a Thing named by the path's last segment. It reads each request whole first, so a
+/// request body is never cut off.
+fn service_server() -> std::net::SocketAddr {
+    use std::io::{Read, Write};
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let address = listener.local_addr().unwrap();
+    std::thread::spawn(move || {
+        for stream in listener.incoming() {
+            let Ok(mut stream) = stream else { return };
+            let mut request = Vec::new();
+            let mut buffer = [0u8; 8192];
+            let complete = loop {
+                let Ok(read) = stream.read(&mut buffer) else {
+                    break false;
+                };
+                if read == 0 {
+                    break false;
+                }
+                request.extend_from_slice(&buffer[..read]);
+                let Some(end) = request.windows(4).position(|w| w == b"\r\n\r\n") else {
+                    continue;
+                };
+                let head = String::from_utf8_lossy(&request[..end]).to_ascii_lowercase();
+                let length: usize = head
+                    .lines()
+                    .find_map(|line| line.strip_prefix("content-length:"))
+                    .and_then(|value| value.trim().parse().ok())
+                    .unwrap_or(0);
+                if request.len() >= end + 4 + length {
+                    break true;
+                }
+            };
+            if !complete {
+                continue;
+            }
+            let request = String::from_utf8_lossy(&request).into_owned();
+            let path = request.split_whitespace().nth(1).unwrap_or("");
+            let name = path.rsplit('/').next().unwrap_or("");
+            let (body, kind) = if request
+                .to_ascii_lowercase()
+                .contains("accept: application/json")
+            {
+                (
+                    "{\"dataShape\":{\"fieldDefinitions\":{}},\"rows\":[]}".to_string(),
+                    "application/json",
+                )
+            } else {
+                (
+                    format!("<Entities><Things><Thing name=\"{name}\" projectName=\"P\"></Thing></Things></Entities>"),
+                    "text/xml",
+                )
+            };
+            let _ = write!(
+                stream,
+                "HTTP/1.1 200 OK\r\nContent-Type: {kind}\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+                body.len()
+            );
+        }
+    });
+    address
+}
+
+#[test]
+fn what_the_server_tools_return_fits_the_output_schema_they_publish() {
+    // A server whose every answer is empty, or one entity: enough for these tools to succeed. The
+    // registry checks each result against the tool's schema.
+    let (_dir, root) = status_workspace();
+    std::fs::write(
+        root.join("twaco.toml"),
+        "[[project]]\nname = \"P\"\n\n[[test.user]]\nname = \"tess\"\ngroups = [\"P.Users\"]\n",
+    )
+    .unwrap();
+    std::fs::write(
+        root.join(".twaco/profiles/default.toml"),
+        format!(
+            "url = \"http://{}/Thingworx/\"\nusername = \"user\"\npassword = \"pass\"\n",
+            service_server()
+        ),
+    )
+    .unwrap();
+    let calls = [
+        ("entity_get", json!({"entity": "Things/P.T0"})),
+        (
+            "entity_get",
+            json!({"entity": "Things/P.T0", "max_chars": 10}),
+        ),
+        ("permissions", json!({"all": true})),
+        ("permissions_push", json!({"all": true})),
+        (
+            "export",
+            json!({"action": "entity", "entity": "Things/P.T0", "out": "out/t0.xml"}),
+        ),
+        ("entity_delete", json!({"entities": ["Things/P.T0"]})),
+        (
+            "entity_carry",
+            json!({"pairs": ["Things/P.T0", "Things/P.T1"]}),
+        ),
+        ("search", json!({"text": "P"})),
+        ("settings", json!({})),
+        ("users", json!({})),
+        ("extensions", json!({})),
+        ("repo", json!({})),
+        (
+            "repo",
+            json!({"action": "ls", "repository": "SystemRepository"}),
+        ),
+        (
+            "repo_write",
+            json!({"action": "mkdir", "repository": "SystemRepository", "path": "/x"}),
+        ),
+        (
+            "call",
+            json!({"target": "P.T0", "service": "Run", "dry_run": false}),
+        ),
+        ("settings", json!({"action": "search", "text": "x"})),
+        ("db_clean", json!({})),
+        ("localization", json!({})),
+        ("localization_write", json!({"action": "pull"})),
+        (
+            "export",
+            json!({"action": "source_control", "repository": "SystemRepository", "path": "/x", "project": "P"}),
+        ),
+        (
+            "repo",
+            json!({"action": "status", "repository": "SystemRepository"}),
+        ),
+        (
+            "repo_write",
+            json!({"action": "pull", "repository": "SystemRepository"}),
+        ),
+        ("logs", json!({"log": "ScriptLog"})),
+        (
+            "config_table",
+            json!({"thing": "P.T0", "table": "Settings"}),
+        ),
+    ];
+    let mut failures = Vec::new();
+    for (name, arguments) in calls {
+        let result = call(&root, name, arguments.clone());
+        if result["isError"] == true {
+            failures.push(format!(
+                "{name} {arguments}: {}",
+                result["content"][0]["text"]
+            ));
+        }
+    }
+    assert!(failures.is_empty(), "{}", failures.join("\n"));
 }
 
 fn status_call(id: u64, meta: Option<Value>) -> Value {

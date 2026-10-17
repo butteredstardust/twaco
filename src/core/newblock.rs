@@ -521,14 +521,7 @@ pub fn plan(solution: &Solution, request: &Request) -> Result<Plan, NewBlockErro
     let mut taken = Vec::new();
     for file in &files {
         if file.path.exists() {
-            taken.push(
-                file.path
-                    .strip_prefix(&solution.root)
-                    .unwrap_or(&file.path)
-                    .display()
-                    .to_string()
-                    .replace('\\', "/"),
-            );
+            taken.push(solution.relative(&file.path));
         }
     }
     let wanted: Vec<String> = files

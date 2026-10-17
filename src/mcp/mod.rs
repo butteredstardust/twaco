@@ -582,13 +582,18 @@ pub(crate) fn client(solution: &Solution, profile: &str) -> Result<server::Clien
         .map_err(ToolError::coded)
 }
 
+/// The key a writing tool sets to `true` in its result: `plan` for a dry run, `applied` once
+/// the change is written.
+pub(crate) fn outcome_key(dry_run: bool) -> &'static str {
+    if dry_run {
+        "plan"
+    } else {
+        "applied"
+    }
+}
+
 pub(crate) fn relative(solution: &Solution, path: &Path) -> String {
-    let text = path
-        .strip_prefix(&solution.root)
-        .unwrap_or(path)
-        .display()
-        .to_string()
-        .replace('\\', "/");
+    let text = solution.relative(path);
     // A project at the solution root is `.`, as twaco.toml spells it, not an empty string.
     let text = text.trim_start_matches("./").to_string();
     if text.is_empty() || text == "." {

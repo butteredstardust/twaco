@@ -1422,12 +1422,7 @@ pub fn apply(solution: &Solution, plan: &Plan, lock: &WorkspaceLock) -> Result<(
 }
 
 pub fn plan_json(solution: &Solution, plan: &Plan, applied: bool) -> Value {
-    let relative = |path: &Path| {
-        path.strip_prefix(&solution.root)
-            .unwrap_or(path)
-            .to_string_lossy()
-            .replace('\\', "/")
-    };
+    let relative = |path: &Path| solution.relative(path);
     json!({ "applied": applied, "kind": plan.request.kind.word(), "name": plan.request.name, "project": plan.project, "files": std::iter::once(relative(&plan.entity_path)).chain(plan.sidecars.iter().map(|(path, _)| relative(path))).collect::<Vec<_>>(), "every_ms": plan.duration_ms, "cron": plan.cron, "runs": plan.script.as_ref().map(|code| code.lines().next().unwrap_or_default()) })
 }
 

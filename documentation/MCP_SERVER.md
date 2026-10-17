@@ -51,9 +51,10 @@ Server tools use the same [profiles](CONFIGURATION.md#server-profiles) as the co
 pass `profile` to choose one.
 
 **Fewer tools.** A client keeps every listed tool's definition in the agent's context on every
-turn, and all 73 come to about 89 KB. `--tools` (or `TWACO_MCP_TOOLS`) lists and runs only the
-groups named, comma-separated; any other tool is unknown to that server. `core` alone is about
-25 KB.
+turn, and all 73 come to about 123 KB with their output schemas (about 82 KB for a client on a
+revision before `2025-06-18`, which gets none). `--tools` (or `TWACO_MCP_TOOLS`) lists and runs only
+the groups named, comma-separated; any other tool is unknown to that server. `core` alone is about
+30 KB (18 KB without output schemas).
 
 | Group | Tools |
 | --- | --- |

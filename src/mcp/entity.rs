@@ -257,7 +257,7 @@ pub(crate) fn entity_delete_tool(
     if let Some(dir) = &report.backup {
         result["backup"] = json!(dir);
     }
-    result[if dry_run { "plan" } else { "applied" }] = json!(true);
+    result[outcome_key(dry_run)] = json!(true);
     if report.ledger_changed {
         result["ledger_marked"] = json!(date.expect("an applied delete outcome has a date"));
     }
@@ -299,7 +299,7 @@ pub(crate) fn entity_restore_tool(
                 .iter()
                 .any(|entry| entry.status == backup::Status::Failed);
             let mut result = json!({ "ok": !failed, "set": set.id, "entities": entities });
-            result[if dry_run { "plan" } else { "applied" }] = json!(true);
+            result[outcome_key(dry_run)] = json!(true);
             result
         }
     };
@@ -334,7 +334,7 @@ pub(crate) fn entity_carry_tool(
             .iter()
             .any(|entity| entity.status == entity_carry::Status::Failed);
     let mut result = json!({ "ok": !failed, "entities": report.entities });
-    result[if dry_run { "plan" } else { "applied" }] = json!(true);
+    result[outcome_key(dry_run)] = json!(true);
     if report.ledger_changed {
         result["ledger_marked"] = json!(date.expect("an applied carry has a date"));
     }

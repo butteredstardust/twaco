@@ -134,6 +134,42 @@ impl MashupDocument {
         &mut self.value
     }
 
+    /// The root object. [`Self::check`] established it, so this cannot fail.
+    pub(crate) fn root_mut(&mut self) -> &mut Map<String, Value> {
+        self.value
+            .as_object_mut()
+            .expect("checked: the content is an object")
+    }
+
+    /// `DataBindings`, created empty if the mashup has none.
+    pub(crate) fn bindings_mut(&mut self) -> &mut Vec<Value> {
+        self.list_mut("DataBindings")
+    }
+
+    /// `Events`, created empty if the mashup has none.
+    pub(crate) fn events_mut(&mut self) -> &mut Vec<Value> {
+        self.list_mut("Events")
+    }
+
+    /// `Data`, created empty (in Composer's key order) if the mashup has none.
+    pub(crate) fn data_mut(&mut self) -> &mut Map<String, Value> {
+        let root = self.root_mut();
+        if !root.contains_key("Data") {
+            insert_sorted(root, "Data", Value::Object(Map::new()));
+        }
+        root["Data"]
+            .as_object_mut()
+            .expect("checked: Data is an object")
+    }
+
+    fn list_mut(&mut self, section: &str) -> &mut Vec<Value> {
+        self.root_mut()
+            .entry(section)
+            .or_insert_with(|| Value::Array(Vec::new()))
+            .as_array_mut()
+            .expect("checked: DataBindings and Events are lists")
+    }
+
     /// The `content.json` text, formatted as extraction writes it.
     pub fn to_content(&self) -> String {
         crate::core::mashup::to_sidecar(&self.value)
@@ -258,44 +294,26 @@ impl MashupDocument {
     }
 
     fn insert_child(&mut self, parent: &[usize], index: usize, widget: Value) {
-        let object = self
-            .at_mut(parent)
-            .as_object_mut()
-            .expect("checked: a widget is an object");
-        if !object.contains_key("Widgets") {
-            insert_sorted(object, "Widgets", Value::Array(Vec::new()));
-        }
-        object["Widgets"]
-            .as_array_mut()
-            .expect("checked: Widgets is a list")
-            .insert(index, widget);
+        children_mut(self.at_mut(parent)).insert(index, widget);
     }
 
     fn replace_child(&mut self, parent: &[usize], index: usize, widget: Value) {
-        self.at_mut(parent)["Widgets"]
-            .as_array_mut()
-            .expect("checked: Widgets is a list")[index] = widget;
+        children_mut(self.at_mut(parent))[index] = widget;
     }
 
     /// Set one widget property, preserving Composer's key ordering convention.
     pub fn set_property(&mut self, path: &[usize], key: &str, value: Value) {
-        let properties = self.at_mut(path)["Properties"]
-            .as_object_mut()
-            .expect("checked: a widget has Properties");
-        insert_sorted(properties, key, value);
+        insert_sorted(properties_mut(self.at_mut(path)), key, value);
     }
 
     /// The root widget's properties.
     pub fn root_properties_mut(&mut self) -> &mut Map<String, Value> {
-        self.value["UI"]["Properties"]
-            .as_object_mut()
-            .expect("checked: the root has Properties")
+        properties_mut(&mut self.value["UI"])
     }
 
     /// Set a top-level key of the document, such as `mashupType`.
     pub fn set_top(&mut self, key: &str, value: Value) {
-        let object = self.value.as_object_mut().expect("checked: an object");
-        insert_sorted(object, key, value);
+        insert_sorted(self.root_mut(), key, value);
     }
 
     /// The next free number for a new widget id, which the root's `id_index` then records.
@@ -311,10 +329,7 @@ impl MashupDocument {
             .and_then(Value::as_u64)
             .unwrap_or(0);
         let next = used.max(index) + 1;
-        let properties = self.value["UI"]["Properties"]
-            .as_object_mut()
-            .expect("checked: the root has Properties");
-        insert_sorted(properties, "id_index", Value::from(next));
+        insert_sorted(self.root_properties_mut(), "id_index", Value::from(next));
         next
     }
 
@@ -666,6 +681,13 @@ fn sorted(object: Map<String, Value>) -> Map<String, Value> {
     entries.into_iter().collect()
 }
 
+/// The `Properties` of a widget: one the document check passed, or one [`new_widget`] built.
+pub(crate) fn properties_mut(widget: &mut Value) -> &mut Map<String, Value> {
+    widget["Properties"]
+        .as_object_mut()
+        .expect("a checked or newly built widget has a Properties object")
+}
+
 fn check_widget(widget: &Value, at: &str, seen: &mut BTreeSet<String>) -> Result<(), EditError> {
     let properties = widget
         .get("Properties")
@@ -734,23 +756,24 @@ fn fills(widget: &Value) -> bool {
 }
 
 fn push_value_child(parent: &mut Value, child: Value) {
-    let object = parent
+    children_mut(parent).push(child);
+}
+
+/// A widget's `Widgets`, created empty (in Composer's key order) if it has none.
+fn children_mut(widget: &mut Value) -> &mut Vec<Value> {
+    let object = widget
         .as_object_mut()
-        .expect("checked: a widget is an object");
+        .expect("a checked or newly built widget is an object");
     if !object.contains_key("Widgets") {
         insert_sorted(object, "Widgets", Value::Array(Vec::new()));
     }
     object["Widgets"]
         .as_array_mut()
         .expect("checked: Widgets is a list")
-        .push(child);
 }
 
 fn set_value_property(widget: &mut Value, key: &str, value: Value) {
-    let properties = widget["Properties"]
-        .as_object_mut()
-        .expect("checked: a widget has Properties");
-    insert_sorted(properties, key, value);
+    insert_sorted(properties_mut(widget), key, value);
 }
 
 /// The number an id ends in: `3` for `ptcslabel-3`, `7` for `legacy7`.
@@ -762,6 +785,7 @@ fn number_of(id: &str) -> Option<u64> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use serde_json::json;
 
     const BLANK: &str = include_str!("mashup_templates/blank.content.json");
 
@@ -770,6 +794,38 @@ mod tests {
             r#"{{"UI":{{"Properties":{{"Id":"mashup-root","Type":"mashup","id_index":{id_index}}},"Widgets":[{widgets}]}},"Data":{{}},"DataBindings":[],"Events":[]}}"#
         ))
         .unwrap()
+    }
+
+    #[test]
+    fn a_checked_document_creates_missing_sections_and_refuses_misshapen_ones() {
+        let mut bare = parse(
+            r#"{"UI":{"Properties":{"Id":"mashup-root","Type":"mashup"}},"mashupType":"mashup"}"#,
+        )
+        .unwrap();
+        bare.data_mut().insert("Things_T".into(), json!({}));
+        bare.bindings_mut().push(json!({"Id": "b"}));
+        bare.events_mut().push(json!({"Id": "e"}));
+        let root = bare.value().as_object().unwrap();
+        assert_eq!(root["DataBindings"], json!([{"Id": "b"}]));
+        assert_eq!(root["Events"], json!([{"Id": "e"}]));
+        // Data goes in Composer's key order among sorted keys; the lists are appended.
+        assert_eq!(
+            root.keys().collect::<Vec<_>>(),
+            ["Data", "UI", "mashupType", "DataBindings", "Events"]
+        );
+        for (content, why) in [
+            (r#""DataBindings":{}"#, "DataBindings is not a list"),
+            (r#""Events":"x""#, "Events is not a list"),
+            (r#""Data":[]"#, "Data is not an object"),
+        ] {
+            let text = format!(
+                r#"{{"UI":{{"Properties":{{"Id":"mashup-root","Type":"mashup"}}}},{content}}}"#
+            );
+            assert!(
+                parse(&text).unwrap_err().to_string().contains(why),
+                "{content}"
+            );
+        }
     }
 
     fn widget(type_id: &str, id: &str, display: &str, children: &str) -> String {

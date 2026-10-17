@@ -113,11 +113,7 @@ pub fn load(solution: &Solution, filters: &[String]) -> Result<Vec<Case>, TestEr
     let mut problems = Vec::new();
     let mut cases = Vec::new();
     for path in &paths {
-        let shown = path
-            .strip_prefix(&solution.root)
-            .unwrap_or(path)
-            .to_string_lossy()
-            .replace('\\', "/");
+        let shown = solution.relative(path);
         let text = match std::fs::read_to_string(path) {
             Ok(text) => text,
             Err(error) => {

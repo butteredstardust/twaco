@@ -51,14 +51,20 @@ schema allows and the tool still refuses (an empty text, `give file or sql`) is 
 
 ## Output schemas
 
-`mcp/outputs.rs` describes the successful result of the tools whose shape is stable: `projects`,
-`check`, `status`, `sync`, `extract`, `fmt`, `types`, `push` and `deploy`. The types describe the JSON
+`mcp/outputs.rs` describes the successful result of every tool, all 73. The types describe the JSON
 the adapters return; they do not build it. A member every result has is required, anything a result
-has only sometimes is optional, and the objects stay open so that `notices` and `duration_ms` are
-not refused. They are published only to clients that negotiated the `2025-06-18` revision or later.
-Tools whose result carries arbitrary server or document data (`call`, `db_query`, `repo`, the help
-tools and so on) publish none: a schema of "anything" tells a client nothing.
+has only sometimes (one action's members, a plan's or an applied run's, a detail asked for) is
+optional, and the objects stay open so that `notices` and `duration_ms` are not refused. They are
+published only to clients that negotiated the `2025-06-18` revision or later. Where a result carries
+arbitrary server or document data (a service's reply in `call`, the rows of `db_query`, a report
+serialised from `core`), that member is an open value: the schema names the envelope around it, not
+the data.
 
 Under test, the registry checks every successful result of a tool that publishes an output schema
-against it, and tests drive each of the nine tools, including the shapes a plan, an applied run and a
-refusal take. Add a case there when a result gains a variant.
+against it. Tests drive the tools offline, against a server that cannot be reached, and against a
+local fake that answers every read with one entity or an empty InfoTable, including the shapes a
+plan, an applied run and a refusal take. Add a case there when a result gains a variant. The tools
+no test yet reaches with a success (`db_run`, `db_query`, `datatable_copy`, `adopt_apply`,
+`reproject`, `log_level`, `users_write`, `extension_write`, `import`, `help_search`, `help_page`,
+`javadoc`) have schemas read from their adapters and the `core` types they serialise; what is not
+certain there is an open value.

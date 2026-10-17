@@ -467,16 +467,7 @@ fn save_overwritten<R: Remote>(
     if entities.is_empty() {
         return Ok(None);
     }
-    Ok(save(client, solution, reason, entities, stamp)?.map(|set| relative(solution, &set.dir)))
-}
-
-/// A path as `/`-separated text, relative to the solution when it is under it.
-pub fn relative(solution: &Solution, path: &Path) -> String {
-    path.strip_prefix(&solution.root)
-        .unwrap_or(path)
-        .display()
-        .to_string()
-        .replace('\\', "/")
+    Ok(save(client, solution, reason, entities, stamp)?.map(|set| solution.relative(&set.dir)))
 }
 
 impl Coded for BackupError {

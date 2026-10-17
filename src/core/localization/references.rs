@@ -39,12 +39,7 @@ pub(crate) struct Report {
 
 pub(crate) fn run(solution: &Solution) -> Report {
     let mut report = Report::default();
-    let shown = |path: &Path| {
-        path.strip_prefix(&solution.root)
-            .unwrap_or(path)
-            .to_string_lossy()
-            .replace('\\', "/")
-    };
+    let shown = |path: &Path| solution.relative(path);
     let found = match discover(&root(solution)) {
         Ok(found) => found,
         Err(error) => {

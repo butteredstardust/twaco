@@ -105,16 +105,16 @@ pub(crate) enum RenameKind {
     Property,
 }
 
-impl RenameKind {
-    pub(crate) fn as_str(self) -> &'static str {
-        match self {
-            Self::Entity => "entity",
-            Self::Prefix => "prefix",
-            Self::Field => "field",
-            Self::Service => "service",
-            Self::Param => "param",
-            Self::Table => "table",
-            Self::Property => "property",
+impl From<RenameKind> for crate::core::rename::Kind {
+    fn from(value: RenameKind) -> Self {
+        match value {
+            RenameKind::Entity => Self::Entity,
+            RenameKind::Prefix => Self::Prefix,
+            RenameKind::Field => Self::Field,
+            RenameKind::Service => Self::Service,
+            RenameKind::Param => Self::Param,
+            RenameKind::Table => Self::Table,
+            RenameKind::Property => Self::Property,
         }
     }
 }
@@ -159,15 +159,6 @@ pub(crate) enum MoveMemberAction {
     Copy,
 }
 
-impl MoveMemberAction {
-    pub(crate) fn as_str(self) -> &'static str {
-        match self {
-            Self::Move => "move",
-            Self::Copy => "copy",
-        }
-    }
-}
-
 #[derive(Clone, Copy, Debug, Deserialize, JsonSchema, PartialEq, Eq, Serialize)]
 pub(crate) enum MoveMemberKind {
     #[serde(rename = "service")]
@@ -176,11 +167,11 @@ pub(crate) enum MoveMemberKind {
     Property,
 }
 
-impl MoveMemberKind {
-    pub(crate) fn as_str(self) -> &'static str {
-        match self {
-            Self::Service => "service",
-            Self::Property => "property",
+impl From<MoveMemberKind> for crate::core::relocate::Member {
+    fn from(value: MoveMemberKind) -> Self {
+        match value {
+            MoveMemberKind::Service => Self::Service,
+            MoveMemberKind::Property => Self::Property,
         }
     }
 }
@@ -214,12 +205,12 @@ pub(crate) enum NewBuildingBlockType {
     Implementation,
 }
 
-impl NewBuildingBlockType {
-    pub(crate) fn as_str(self) -> &'static str {
-        match self {
-            Self::Standard => "standard",
-            Self::Abstract => "abstract",
-            Self::Implementation => "implementation",
+impl From<NewBuildingBlockType> for crate::core::newblock::BlockType {
+    fn from(value: NewBuildingBlockType) -> Self {
+        match value {
+            NewBuildingBlockType::Standard => Self::Standard,
+            NewBuildingBlockType::Abstract => Self::Abstract,
+            NewBuildingBlockType::Implementation => Self::Implementation,
         }
     }
 }
@@ -344,11 +335,64 @@ pub(crate) struct MashupNewRequest {
     pub(crate) dry_run: bool,
 }
 
+#[derive(Clone, Copy, Debug, Deserialize, JsonSchema, PartialEq, Eq, Serialize)]
+pub(crate) enum EntityNewKind {
+    #[serde(rename = "thing")]
+    Thing,
+    #[serde(rename = "thing-template")]
+    ThingTemplate,
+    #[serde(rename = "thing-shape")]
+    ThingShape,
+    #[serde(rename = "data-shape")]
+    DataShape,
+    #[serde(rename = "timer")]
+    Timer,
+    #[serde(rename = "scheduler")]
+    Scheduler,
+    #[serde(rename = "data-table")]
+    DataTable,
+    #[serde(rename = "stream")]
+    Stream,
+    #[serde(rename = "value-stream")]
+    ValueStream,
+    #[serde(rename = "media")]
+    Media,
+    #[serde(rename = "style")]
+    Style,
+    #[serde(rename = "state")]
+    State,
+    #[serde(rename = "menu")]
+    Menu,
+    #[serde(rename = "theme")]
+    Theme,
+}
+
+impl From<EntityNewKind> for crate::core::entity_new::Kind {
+    fn from(value: EntityNewKind) -> Self {
+        match value {
+            EntityNewKind::Thing => Self::Thing,
+            EntityNewKind::ThingTemplate => Self::ThingTemplate,
+            EntityNewKind::ThingShape => Self::ThingShape,
+            EntityNewKind::DataShape => Self::DataShape,
+            EntityNewKind::Timer => Self::Timer,
+            EntityNewKind::Scheduler => Self::Scheduler,
+            EntityNewKind::DataTable => Self::DataTable,
+            EntityNewKind::Stream => Self::Stream,
+            EntityNewKind::ValueStream => Self::ValueStream,
+            EntityNewKind::Media => Self::Media,
+            EntityNewKind::Style => Self::Style,
+            EntityNewKind::State => Self::State,
+            EntityNewKind::Menu => Self::Menu,
+            EntityNewKind::Theme => Self::Theme,
+        }
+    }
+}
+
 #[derive(Debug, Deserialize, JsonSchema, Serialize)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct EntityNewRequest {
     /// `thing`, `thing-template`, `thing-shape`, `data-shape`, `timer`, `scheduler`, `data-table`, `stream`, `value-stream`, `media`, `style`, `state`, `menu`, or `theme`.
-    pub(crate) kind: String,
+    pub(crate) kind: EntityNewKind,
     /// The entity name.
     pub(crate) name: String,
     #[serde(default, skip_serializing_if = "Absent::is_absent")]

@@ -90,7 +90,7 @@ impl Remote for Client {
         stamp: &str,
     ) -> Result<Option<String>, backup::BackupError> {
         let set = backup::save(self, solution, "entity delete", entities, stamp)?;
-        Ok(set.map(|set| backup::relative(solution, &set.dir)))
+        Ok(set.map(|set| solution.relative(&set.dir)))
     }
 }
 

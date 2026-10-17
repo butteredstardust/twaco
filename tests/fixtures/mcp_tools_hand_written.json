@@ -1123,7 +1123,7 @@
       "additionalProperties": false,
       "type": "object",
       "properties": {
-        "kind": {"description": "`thing`, `thing-template`, `thing-shape`, `data-shape`, `timer`, `scheduler`, `data-table`, `stream`, `value-stream`, `media`, `style`, `state`, `menu`, or `theme`.", "type": "string"},
+        "kind": {"description": "`thing`, `thing-template`, `thing-shape`, `data-shape`, `timer`, `scheduler`, `data-table`, `stream`, `value-stream`, `media`, `style`, `state`, `menu`, or `theme`.", "type": "string", "enum": ["thing", "thing-template", "thing-shape", "data-shape", "timer", "scheduler", "data-table", "stream", "value-stream", "media", "style", "state", "menu", "theme"]},
         "name": {"description": "The entity name.", "type": "string"},
         "project": {"type": "string"},
         "description": {"type": "string"},

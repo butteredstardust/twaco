@@ -1061,13 +1061,7 @@ fn find_callers(
 impl Plan {
     /// Where files would change, relative to the solution.
     pub fn files(&self, solution: &Solution) -> Vec<String> {
-        let relative = |path: &Path| {
-            path.strip_prefix(&solution.root)
-                .unwrap_or(path)
-                .display()
-                .to_string()
-                .replace('\\', "/")
-        };
+        let relative = |path: &Path| solution.relative(path);
         let mut files = vec![relative(&self.to_file)];
         if self.from_new.is_some() {
             files.push(relative(&self.from_file));

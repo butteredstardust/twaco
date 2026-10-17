@@ -6,6 +6,22 @@ All notable changes to twaco are recorded here. The format follows
 
 ## [Unreleased]
 
+### Security
+
+- `zip` 9.0.4 (from 8.6.0) for RUSTSEC-2026-0368 and RUSTSEC-2026-0369. twaco never calls the
+  affected `extract`, so it was not exposed, but the advisories fail the dependency check.
+
+### Changed
+
+- MCP `entity_new` lists its kinds in its schema, so a client can offer them and a wrong one is
+  refused before the tool runs.
+- Parallel server reads hand each worker the next entity as it frees up, so one slow request no
+  longer holds back a fixed share of the others.
+- A profile file other users can read gets a warning on Unix, as ssh gives; passwords and app
+  keys are zeroed in memory once used.
+- Every MCP tool, all 73, now publishes an `outputSchema` describing its successful result (it
+  was 9); clients on the `2025-06-18` revision or later see them.
+
 ## [0.1.13] - 2026-10-16
 
 ### Fixed

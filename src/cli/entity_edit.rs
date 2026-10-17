@@ -47,7 +47,7 @@ pub(crate) fn entity_edit_cmd(solution: &Solution, route: &str, args: &Args) -> 
     };
     println!("{verb} {}: {}", plan.entity, plan.summary);
     for change in &plan.changes {
-        println!("  {}", entity_edit::relative(solution, &change.path));
+        println!("  {}", solution.relative(&change.path));
     }
     for warning in &plan.warnings {
         println!("  warning: {warning}");
