@@ -1455,3 +1455,24 @@ fn docs_check_fails_a_stale_document_and_writes_nothing() {
     let markdown_check = run(&["docs", "--out", "SOLUTION.json", "--check"]);
     assert_eq!(markdown_check.status.code(), Some(1), "{markdown_check:?}");
 }
+
+#[test]
+fn completions_write_the_script_to_stdout_and_logs_to_stderr_outside_a_solution() {
+    let directory = tempfile::Builder::new()
+        .prefix("twaco-completions-")
+        .tempdir()
+        .unwrap();
+    let output = Command::new(env!("CARGO_BIN_EXE_twaco"))
+        .args(["completions", "bash", "--log", "debug"])
+        .current_dir(directory.path())
+        .env_clear()
+        .output()
+        .unwrap();
+    assert!(output.status.success(), "{output:?}");
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(stdout.starts_with("_twaco()"), "{stdout}");
+    assert!(stdout.contains("complete -F _twaco"), "{stdout}");
+    assert!(!stdout.contains("command finished"), "a log line on stdout");
+    assert!(stderr.contains("command finished"), "{stderr}");
+}

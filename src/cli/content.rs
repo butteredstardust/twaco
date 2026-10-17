@@ -1,3 +1,4 @@
+use super::flags::{Apply, Detail, Json, Profile, Project};
 use super::style;
 use crate::{print_notices, FAILED, OK};
 use twaco::core::commands;
@@ -11,13 +12,13 @@ pub(crate) struct Search {
     #[arg(long = "type", value_name = "value")]
     pub(crate) kind: Option<String>,
     #[command(flatten)]
-    pub(crate) project: super::flags::Project,
+    pub(crate) project: Project,
     #[arg(long = "limit", value_name = "n")]
     pub(crate) limit: Option<String>,
     #[command(flatten)]
-    pub(crate) json: super::flags::Json,
+    pub(crate) json: Json,
     #[command(flatten)]
-    pub(crate) profile: super::flags::Profile,
+    pub(crate) profile: Profile,
     #[arg(id = "operands", value_name = "operand")]
     pub(crate) operands: Vec<String>,
 }
@@ -121,9 +122,9 @@ pub(crate) struct Export {
     #[arg(long = "force")]
     pub(crate) force: bool,
     #[command(flatten)]
-    pub(crate) project: super::flags::Project,
+    pub(crate) project: Project,
     #[command(flatten)]
-    pub(crate) profile: super::flags::Profile,
+    pub(crate) profile: Profile,
     #[arg(long = "repository", value_name = "repository")]
     pub(crate) repository: Option<String>,
     #[arg(long = "path", value_name = "path")]
@@ -137,7 +138,7 @@ pub(crate) struct Export {
     #[arg(long = "with-dependents")]
     pub(crate) with_dependents: bool,
     #[command(flatten)]
-    pub(crate) apply: super::flags::Apply,
+    pub(crate) apply: Apply,
     #[arg(id = "operands", value_name = "operand")]
     pub(crate) operands: Vec<String>,
 }
@@ -271,7 +272,7 @@ pub(crate) fn export_cmd(solution: &Solution, args: &Export) -> u8 {
 #[group(skip)]
 pub(crate) struct Import {
     #[command(flatten)]
-    pub(crate) apply: super::flags::Apply,
+    pub(crate) apply: Apply,
     #[arg(long = "overwrite-properties")]
     pub(crate) overwrite_properties: bool,
     #[arg(long = "overwrite-tables")]
@@ -281,9 +282,9 @@ pub(crate) struct Import {
     #[arg(long = "path", value_name = "path")]
     pub(crate) path: Option<String>,
     #[command(flatten)]
-    pub(crate) profile: super::flags::Profile,
+    pub(crate) profile: Profile,
     #[command(flatten)]
-    pub(crate) detail: super::flags::Detail,
+    pub(crate) detail: Detail,
     #[arg(id = "operands", value_name = "operand")]
     pub(crate) operands: Vec<String>,
 }
@@ -435,7 +436,7 @@ pub(crate) fn import_cmd(solution: &Solution, args: &Import) -> u8 {
 #[group(skip)]
 pub(crate) struct Package {
     #[command(flatten)]
-    pub(crate) project: super::flags::Project,
+    pub(crate) project: Project,
     #[arg(long = "backend-only")]
     pub(crate) backend_only: bool,
     #[arg(long = "frontend-only")]
@@ -519,11 +520,11 @@ pub(crate) fn package_cmd(solution: &Solution, args: &Package) -> u8 {
 #[group(skip)]
 pub(crate) struct Ext {
     #[command(flatten)]
-    pub(crate) apply: super::flags::Apply,
+    pub(crate) apply: Apply,
     #[command(flatten)]
-    pub(crate) json: super::flags::Json,
+    pub(crate) json: Json,
     #[command(flatten)]
-    pub(crate) profile: super::flags::Profile,
+    pub(crate) profile: Profile,
     #[arg(id = "operands", value_name = "operand")]
     pub(crate) operands: Vec<String>,
 }
@@ -706,15 +707,15 @@ pub(crate) struct Repo {
     #[arg(long = "out", value_name = "path", value_parser = super::flags::path())]
     pub(crate) out: Option<std::path::PathBuf>,
     #[command(flatten)]
-    pub(crate) json: super::flags::Json,
+    pub(crate) json: Json,
     #[command(flatten)]
-    pub(crate) profile: super::flags::Profile,
+    pub(crate) profile: Profile,
     #[arg(long = "force")]
     pub(crate) force: bool,
     #[arg(long = "overwrite")]
     pub(crate) overwrite: bool,
     #[command(flatten)]
-    pub(crate) apply: super::flags::Apply,
+    pub(crate) apply: Apply,
     #[arg(id = "operands", value_name = "operand")]
     pub(crate) operands: Vec<String>,
 }

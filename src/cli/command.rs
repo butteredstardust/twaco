@@ -1,23 +1,25 @@
-//! The commands clap derives, one variant each, while the rest are still built from
-//! [`GRAMMAR`](super::spec::GRAMMAR) rows. Both kinds sit in one tree: [`super::spec::tree`] takes
-//! these from [`Typed::augment_subcommands`](clap::Subcommand::augment_subcommands) in
+//! Every command, one variant each. [`super::spec::tree`] takes them from
+//! [`Command::augment_subcommands`](clap::Subcommand::augment_subcommands) in
 //! [`USAGE`](super::spec::USAGE)'s order, and [`super::spec::decorate`] gives every command the
-//! same grammar policy. A family moves here as a whole, as one variant holding its own enum.
+//! same grammar policy. A family (`entity`, `rename`...) is one variant holding its own enum.
 //!
 //! A command's struct sits beside its handler and declares only names: every value is an
 //! `Option` (a required field would replace the handler's own message for a missing value),
-//! operands are a `Vec<String>` with the id `operands`, each flag has an explicit `long` and the
-//! `value_name` FLAGS gives it (clap's errors quote it), and `#[group(skip)]` is on every struct.
-//! The grammar dump test holds the result to the grammar the builder had.
+//! operands are a `Vec<String>` with the id `operands`, each flag has an explicit `long` and a
+//! `value_name` (clap's errors quote it, and a flag several commands take names its value the
+//! same in each), and `#[group(skip)]` is on every struct. Flags several commands take are
+//! flattened from [`super::flags`]. The grammar dump test (`tests/fixtures/cli_grammar.txt`)
+//! holds the result.
 
-/// The commands parsed into structs rather than [`Args`](super::args::Args).
+/// What the command line can say: one command and what it was given.
 #[derive(Debug, clap::Subcommand)]
-pub(crate) enum Typed {
+pub(crate) enum Command {
     Init(crate::Init),
     Doctor(crate::Doctor),
     Projects,
     Mcp(crate::Mcp),
     Update(super::info::Update),
+    Completions(crate::Completions),
     Guide(super::info::Guide),
     Help(super::info::Help),
     Javadoc(super::info::Javadoc),
@@ -85,140 +87,142 @@ pub(crate) enum Typed {
     Db(super::data::Db),
 }
 
-impl Typed {
+impl Command {
     /// The command's [`USAGE`](super::spec::USAGE) path, for the log span and messages.
     pub(crate) fn path(&self) -> &'static str {
         match self {
-            Typed::Init(_) => "init",
-            Typed::Doctor(_) => "doctor",
-            Typed::Projects => "projects",
-            Typed::Mcp(_) => "mcp",
-            Typed::Update(_) => "update",
-            Typed::Guide(_) => "guide",
-            Typed::Help(_) => "help",
-            Typed::Javadoc(_) => "javadoc",
-            Typed::Package(_) => "package",
-            Typed::Catalog(_) => "catalog",
-            Typed::Impact(_) => "impact",
-            Typed::Trace(_) => "trace",
-            Typed::Unused(_) => "unused",
-            Typed::Docs(_) => "docs",
-            Typed::Widgets(_) => "widgets",
-            Typed::Extract(_) => "extract",
-            Typed::Sync(_) => "sync",
-            Typed::Fmt(_) => "fmt",
-            Typed::Check(_) => "check",
-            Typed::Types(_) => "types",
-            Typed::Users(_) => "users",
-            Typed::Test(_) => "test",
-            Typed::Localization(_) => "localization",
-            Typed::Repo(_) => "repo",
-            Typed::Ext(_) => "ext",
-            Typed::Search(_) => "search",
-            Typed::Export(_) => "export",
-            Typed::Import(_) => "import",
-            Typed::Call(_) => "call",
-            Typed::Logs(_) => "logs",
-            Typed::Settings(_) => "settings",
-            Typed::Thing(thing) => match thing {
+            Command::Init(_) => "init",
+            Command::Doctor(_) => "doctor",
+            Command::Projects => "projects",
+            Command::Mcp(_) => "mcp",
+            Command::Update(_) => "update",
+            Command::Completions(_) => "completions",
+            Command::Guide(_) => "guide",
+            Command::Help(_) => "help",
+            Command::Javadoc(_) => "javadoc",
+            Command::Package(_) => "package",
+            Command::Catalog(_) => "catalog",
+            Command::Impact(_) => "impact",
+            Command::Trace(_) => "trace",
+            Command::Unused(_) => "unused",
+            Command::Docs(_) => "docs",
+            Command::Widgets(_) => "widgets",
+            Command::Extract(_) => "extract",
+            Command::Sync(_) => "sync",
+            Command::Fmt(_) => "fmt",
+            Command::Check(_) => "check",
+            Command::Types(_) => "types",
+            Command::Users(_) => "users",
+            Command::Test(_) => "test",
+            Command::Localization(_) => "localization",
+            Command::Repo(_) => "repo",
+            Command::Ext(_) => "ext",
+            Command::Search(_) => "search",
+            Command::Export(_) => "export",
+            Command::Import(_) => "import",
+            Command::Call(_) => "call",
+            Command::Logs(_) => "logs",
+            Command::Settings(_) => "settings",
+            Command::Thing(thing) => match thing {
                 super::entity_edit::Thing::Property(_) => "thing property",
                 super::entity_edit::Thing::Subscription(_) => "thing subscription",
                 super::entity_edit::Thing::Shape(_) => "thing shape",
             },
-            Typed::Timer(_) => "timer set",
-            Typed::Scheduler(_) => "scheduler set",
-            Typed::Style(_) => "style set",
-            Typed::Media(_) => "media set",
-            Typed::Menu(_) => "menu item",
-            Typed::State(_) => "state set",
-            Typed::New(super::entity_new::New::BuildingBlock(_)) => "new building-block",
-            Typed::New(super::entity_new::New::Entity(new)) => new.path(),
-            Typed::Mashup(mashup) => mashup.path(),
-            Typed::Adopt(_) => "adopt",
-            Typed::Handoff(_) => "handoff",
-            Typed::Rename(rename) => rename.path(),
-            Typed::Move(relocate) => relocate.path(),
-            Typed::Copy(relocate) => relocate.path(),
-            Typed::Retemplate(_) => "retemplate",
-            Typed::Reproject(_) => "reproject",
-            Typed::Entity(entity) => entity.path(),
-            Typed::Permissions(permissions) => permissions.path(),
-            Typed::Bundle(_) => "bundle",
-            Typed::Deploy(_) => "deploy",
-            Typed::ConfigTable(_) => "config-table",
-            Typed::Datatable(_) => "datatable copy",
-            Typed::Db(db) => db.path(),
+            Command::Timer(_) => "timer set",
+            Command::Scheduler(_) => "scheduler set",
+            Command::Style(_) => "style set",
+            Command::Media(_) => "media set",
+            Command::Menu(_) => "menu item",
+            Command::State(_) => "state set",
+            Command::New(super::entity_new::New::BuildingBlock(_)) => "new building-block",
+            Command::New(super::entity_new::New::Entity(new)) => new.path(),
+            Command::Mashup(mashup) => mashup.path(),
+            Command::Adopt(_) => "adopt",
+            Command::Handoff(_) => "handoff",
+            Command::Rename(rename) => rename.path(),
+            Command::Move(relocate) => relocate.path(),
+            Command::Copy(relocate) => relocate.path(),
+            Command::Retemplate(_) => "retemplate",
+            Command::Reproject(_) => "reproject",
+            Command::Entity(entity) => entity.path(),
+            Command::Permissions(permissions) => permissions.path(),
+            Command::Bundle(_) => "bundle",
+            Command::Deploy(_) => "deploy",
+            Command::ConfigTable(_) => "config-table",
+            Command::Datatable(_) => "datatable copy",
+            Command::Db(db) => db.path(),
         }
     }
 
-    /// What clap cannot say about the arguments, refused before the command runs, as the
-    /// builder's commands refuse it in [`args_of`](super::spec::args_of) and in its words.
+    /// What clap cannot say about the arguments, refused before the command runs (and before
+    /// the solution is looked for), exit 2.
     pub(crate) fn validate(&self) -> Result<(), String> {
         match self {
-            Typed::Extract(extract) => extract.selection.validate(),
-            Typed::Sync(sync) => sync.selection.validate(),
-            Typed::Call(call) => call.timeout.duration().map(|_| ()),
-            Typed::Deploy(deploy) => deploy.only_projects.projects().map(|_| ()),
-            Typed::Db(super::data::Db::Run(run)) => run.timeout.duration().map(|_| ()),
-            Typed::Db(super::data::Db::Query(query)) => query.timeout.duration().map(|_| ()),
-            Typed::Mashup(super::mashup::Mashup::Validate(validate)) => {
+            Command::Extract(extract) => extract.selection.validate(),
+            Command::Sync(sync) => sync.selection.validate(),
+            Command::Mashup(super::mashup::Mashup::Validate(validate)) => {
                 validate.selection.validate()
             }
-            Typed::Entity(super::entity::Entity::Status(status)) => status.selection.validate(),
-            Typed::Permissions(super::entity::Permissions::Diff(diff)) => diff.selection.validate(),
-            Typed::Permissions(super::entity::Permissions::Push(push)) => {
+            Command::Entity(super::entity::Entity::Status(status)) => status.selection.validate(),
+            Command::Permissions(super::entity::Permissions::Diff(diff)) => {
+                diff.selection.validate()
+            }
+            Command::Permissions(super::entity::Permissions::Push(push)) => {
                 push.diff.selection.validate()
             }
-            Typed::Init(_)
-            | Typed::Doctor(_)
-            | Typed::Projects
-            | Typed::Mcp(_)
-            | Typed::Update(_)
-            | Typed::Guide(_)
-            | Typed::Help(_)
-            | Typed::Javadoc(_)
-            | Typed::Package(_)
-            | Typed::Catalog(_)
-            | Typed::Impact(_)
-            | Typed::Trace(_)
-            | Typed::Unused(_)
-            | Typed::Docs(_)
-            | Typed::Widgets(_)
-            | Typed::Fmt(_)
-            | Typed::Check(_)
-            | Typed::Types(_)
-            | Typed::Users(_)
-            | Typed::Test(_)
-            | Typed::Localization(_)
-            | Typed::Repo(_)
-            | Typed::Ext(_)
-            | Typed::Search(_)
-            | Typed::Export(_)
-            | Typed::Import(_)
-            | Typed::Logs(_)
-            | Typed::Settings(_)
-            | Typed::Thing(_)
-            | Typed::Timer(_)
-            | Typed::Scheduler(_)
-            | Typed::Style(_)
-            | Typed::Media(_)
-            | Typed::Menu(_)
-            | Typed::State(_)
-            | Typed::New(_)
-            | Typed::Mashup(_)
-            | Typed::Adopt(_)
-            | Typed::Handoff(_)
-            | Typed::Rename(_)
-            | Typed::Move(_)
-            | Typed::Copy(_)
-            | Typed::Retemplate(_)
-            | Typed::Reproject(_)
-            | Typed::Entity(_)
-            | Typed::Permissions(_)
-            | Typed::Bundle(_)
-            | Typed::ConfigTable(_)
-            | Typed::Datatable(_)
-            | Typed::Db(super::data::Db::Clean(_)) => Ok(()),
+            Command::Init(_)
+            | Command::Doctor(_)
+            | Command::Projects
+            | Command::Mcp(_)
+            | Command::Update(_)
+            | Command::Completions(_)
+            | Command::Guide(_)
+            | Command::Help(_)
+            | Command::Javadoc(_)
+            | Command::Package(_)
+            | Command::Catalog(_)
+            | Command::Impact(_)
+            | Command::Trace(_)
+            | Command::Unused(_)
+            | Command::Docs(_)
+            | Command::Widgets(_)
+            | Command::Fmt(_)
+            | Command::Check(_)
+            | Command::Types(_)
+            | Command::Users(_)
+            | Command::Test(_)
+            | Command::Localization(_)
+            | Command::Repo(_)
+            | Command::Ext(_)
+            | Command::Search(_)
+            | Command::Export(_)
+            | Command::Import(_)
+            | Command::Logs(_)
+            | Command::Settings(_)
+            | Command::Thing(_)
+            | Command::Timer(_)
+            | Command::Scheduler(_)
+            | Command::Style(_)
+            | Command::Media(_)
+            | Command::Menu(_)
+            | Command::State(_)
+            | Command::New(_)
+            | Command::Mashup(_)
+            | Command::Adopt(_)
+            | Command::Handoff(_)
+            | Command::Rename(_)
+            | Command::Move(_)
+            | Command::Copy(_)
+            | Command::Retemplate(_)
+            | Command::Reproject(_)
+            | Command::Entity(_)
+            | Command::Permissions(_)
+            | Command::Bundle(_)
+            | Command::ConfigTable(_)
+            | Command::Datatable(_)
+            | Command::Call(_)
+            | Command::Deploy(_)
+            | Command::Db(_) => Ok(()),
         }
     }
 }

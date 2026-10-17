@@ -1,3 +1,4 @@
+use super::flags::{Apply, Detail, Json, Profile, Project};
 use super::style;
 use crate::{DRIFT, FAILED, OK};
 use std::path::PathBuf;
@@ -53,7 +54,7 @@ pub(crate) fn write_agent_files(solution: &Solution) -> u8 {
 #[group(skip)]
 pub(crate) struct Update {
     #[command(flatten)]
-    pub(crate) apply: super::flags::Apply,
+    pub(crate) apply: Apply,
 }
 
 /// `twaco update [--apply]`: compare with the latest release, and with `--apply` replace this
@@ -141,7 +142,7 @@ pub(crate) struct Guide {
     #[arg(long = "limit", value_name = "n")]
     pub(crate) limit: Option<String>,
     #[command(flatten)]
-    pub(crate) json: super::flags::Json,
+    pub(crate) json: Json,
     #[arg(id = "operands", value_name = "operand")]
     pub(crate) operands: Vec<String>,
 }
@@ -265,19 +266,26 @@ pub(crate) struct Help {
     #[arg(long = "refresh")]
     pub(crate) refresh: bool,
     #[command(flatten)]
-    pub(crate) json: super::flags::Json,
+    pub(crate) json: Json,
     #[command(flatten)]
-    pub(crate) profile: super::flags::Profile,
+    pub(crate) profile: Profile,
+    /// What to do; clap refuses any other word, with the ones it takes.
+    #[arg(id = "action", value_name = "action", value_enum)]
+    pub(crate) action: Option<HelpVerb>,
     #[arg(id = "operands", value_name = "operand")]
     pub(crate) operands: Vec<String>,
 }
 
+/// What `help` does.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, clap::ValueEnum)]
+pub(crate) enum HelpVerb {
+    Search,
+    Page,
+}
+
 pub(crate) fn help_cmd(parsed: &Help) -> u8 {
     use twaco::core::help;
-    let (Some(action), rest) = (
-        parsed.operands.first().map(String::as_str),
-        parsed.operands.get(1..).unwrap_or_default(),
-    ) else {
+    let (Some(action), rest) = (parsed.action, parsed.operands.as_slice()) else {
         eprintln!(
             "{} help needs `search <words>` or `page <page>`",
             style::prefix()
@@ -297,7 +305,7 @@ pub(crate) fn help_cmd(parsed: &Help) -> u8 {
     };
     let mut notes = Vec::new();
     let named = match action {
-        "page" => match rest {
+        HelpVerb::Page => match rest {
             [page] => match help::page_path(page) {
                 Ok((version, _)) => version,
                 Err(error) => {
@@ -310,7 +318,7 @@ pub(crate) fn help_cmd(parsed: &Help) -> u8 {
                 return FAILED;
             }
         },
-        _ => None,
+        HelpVerb::Search => None,
     };
     let version = match help::choose_version(
         parsed.version.as_deref(),
@@ -338,7 +346,7 @@ pub(crate) fn help_cmd(parsed: &Help) -> u8 {
     let web = help::Web::default();
     let refresh = parsed.refresh;
     match action {
-        "search" => {
+        HelpVerb::Search => {
             if rest.is_empty() {
                 eprintln!("{} help search needs words", style::prefix());
                 return FAILED;
@@ -396,7 +404,7 @@ pub(crate) fn help_cmd(parsed: &Help) -> u8 {
             );
             OK
         }
-        "page" => {
+        HelpVerb::Page => {
             let section = parsed.section.as_deref();
             let (_, path) = help::page_path(&rest[0]).expect("checked above");
             match help::cached(&web, &cache, &version, &path, refresh)
@@ -413,13 +421,6 @@ pub(crate) fn help_cmd(parsed: &Help) -> u8 {
                 }
             }
         }
-        other => {
-            eprintln!(
-                "{} help has `search` and `page`, not {other:?}",
-                style::prefix()
-            );
-            FAILED
-        }
     }
 }
 
@@ -434,19 +435,26 @@ pub(crate) struct Javadoc {
     #[arg(long = "refresh")]
     pub(crate) refresh: bool,
     #[command(flatten)]
-    pub(crate) json: super::flags::Json,
+    pub(crate) json: Json,
+    /// What to do; clap refuses any other word, with the ones it takes.
+    #[arg(id = "action", value_name = "action", value_enum)]
+    pub(crate) action: Option<JavadocVerb>,
     #[arg(id = "operands", value_name = "operand")]
     pub(crate) operands: Vec<String>,
+}
+
+/// What `javadoc` does.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, clap::ValueEnum)]
+pub(crate) enum JavadocVerb {
+    Search,
+    Class,
 }
 
 /// `twaco javadoc search <name> | class <Name>`: the public ThingWorx Java API docs.
 /// Read-only and usable outside a solution; downloads go to the user's cache.
 pub(crate) fn javadoc_cmd(parsed: &Javadoc) -> u8 {
     use twaco::core::{help, javadoc};
-    let (Some(action), rest) = (
-        parsed.operands.first().map(String::as_str),
-        parsed.operands.get(1..).unwrap_or_default(),
-    ) else {
+    let (Some(action), rest) = (parsed.action, parsed.operands.as_slice()) else {
         eprintln!(
             "{} javadoc needs `search <name>` or `class <Name>`",
             style::prefix()
@@ -454,22 +462,15 @@ pub(crate) fn javadoc_cmd(parsed: &Javadoc) -> u8 {
         return FAILED;
     };
     match action {
-        "search" if rest.is_empty() => {
+        JavadocVerb::Search if rest.is_empty() => {
             eprintln!("{} javadoc search needs a name", style::prefix());
             return FAILED;
         }
-        "class" if rest.len() != 1 => {
+        JavadocVerb::Class if rest.len() != 1 => {
             eprintln!("{} javadoc class needs one class name", style::prefix());
             return FAILED;
         }
-        "search" | "class" => {}
-        other => {
-            eprintln!(
-                "{} javadoc has `search` and `class`, not {other:?}",
-                style::prefix()
-            );
-            return FAILED;
-        }
+        JavadocVerb::Search | JavadocVerb::Class => {}
     }
     let cache = match javadoc::cache_root() {
         Ok(cache) => cache,
@@ -489,7 +490,7 @@ pub(crate) fn javadoc_cmd(parsed: &Javadoc) -> u8 {
         }
     };
     match action {
-        "search" => {
+        JavadocVerb::Search => {
             if parsed.member.is_some() {
                 eprintln!("{} javadoc: --member is only for `class`", style::prefix());
                 return FAILED;
@@ -544,7 +545,7 @@ pub(crate) fn javadoc_cmd(parsed: &Javadoc) -> u8 {
             );
             OK
         }
-        "class" => {
+        JavadocVerb::Class => {
             let index = match javadoc::Index::parse(
                 &String::from_utf8_lossy(&types),
                 "memberSearchIndex = []",
@@ -593,7 +594,6 @@ pub(crate) fn javadoc_cmd(parsed: &Javadoc) -> u8 {
                 }
             }
         }
-        _ => unreachable!("the action was checked above"),
     }
 }
 
@@ -604,9 +604,9 @@ pub(crate) struct Settings {
     #[arg(long = "search", value_name = "text")]
     pub(crate) search: Option<String>,
     #[command(flatten)]
-    pub(crate) json: super::flags::Json,
+    pub(crate) json: Json,
     #[command(flatten)]
-    pub(crate) profile: super::flags::Profile,
+    pub(crate) profile: Profile,
     #[arg(id = "operands", value_name = "operand")]
     pub(crate) operands: Vec<String>,
 }
@@ -725,7 +725,7 @@ pub(crate) struct Trace {
     #[arg(long = "param", value_name = "name:TYPE[:DIRECTION]")]
     pub(crate) params: Vec<String>,
     #[command(flatten)]
-    pub(crate) json: super::flags::Json,
+    pub(crate) json: Json,
     #[arg(id = "operands", value_name = "operand")]
     pub(crate) operands: Vec<String>,
 }
@@ -771,9 +771,9 @@ pub(crate) struct Impact {
     #[arg(long = "depth", value_name = "n")]
     pub(crate) depth: Option<String>,
     #[command(flatten)]
-    pub(crate) detail: super::flags::Detail,
+    pub(crate) detail: Detail,
     #[command(flatten)]
-    pub(crate) json: super::flags::Json,
+    pub(crate) json: Json,
     #[arg(long = "dot")]
     pub(crate) dot: bool,
     #[arg(id = "operands", value_name = "operand")]
@@ -861,9 +861,9 @@ pub(crate) struct Unused {
     #[arg(long = "fields")]
     pub(crate) fields: bool,
     #[command(flatten)]
-    pub(crate) detail: super::flags::Detail,
+    pub(crate) detail: Detail,
     #[command(flatten)]
-    pub(crate) json: super::flags::Json,
+    pub(crate) json: Json,
 }
 
 /// Entities no entry point reaches. Offline, advisory and read-only: it deletes nothing.
@@ -930,9 +930,9 @@ pub(crate) fn unused_cmd(solution: &Solution, args: &Unused) -> u8 {
 #[group(skip)]
 pub(crate) struct Docs {
     #[command(flatten)]
-    pub(crate) detail: super::flags::Detail,
+    pub(crate) detail: Detail,
     #[command(flatten)]
-    pub(crate) json: super::flags::Json,
+    pub(crate) json: Json,
     #[arg(long = "out", value_name = "path", value_parser = super::flags::path())]
     pub(crate) out: Option<std::path::PathBuf>,
     #[arg(long = "force")]
@@ -1016,11 +1016,11 @@ pub(crate) fn docs_cmd(solution: &Solution, args: &Docs) -> u8 {
 #[group(skip)]
 pub(crate) struct Catalog {
     #[command(flatten)]
-    pub(crate) project: super::flags::Project,
+    pub(crate) project: Project,
     #[arg(long = "search", value_name = "text")]
     pub(crate) search: Option<String>,
     #[command(flatten)]
-    pub(crate) json: super::flags::Json,
+    pub(crate) json: Json,
     #[arg(id = "operands", value_name = "operand")]
     pub(crate) operands: Vec<String>,
 }

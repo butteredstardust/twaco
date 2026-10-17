@@ -1,3 +1,4 @@
+use super::flags::{Apply, Detail, Json, Profile};
 use super::style;
 use crate::{DRIFT, FAILED, OK};
 use twaco::core::commands::service_tests::{self as command, TestOutcome, TestRequest};
@@ -11,13 +12,13 @@ use twaco::core::testing::cases::{outcomes_json, plan_json, Case};
 #[group(skip)]
 pub(crate) struct Test {
     #[command(flatten)]
-    pub(crate) apply: super::flags::Apply,
+    pub(crate) apply: Apply,
     #[command(flatten)]
-    pub(crate) json: super::flags::Json,
+    pub(crate) json: Json,
     #[command(flatten)]
-    pub(crate) detail: super::flags::Detail,
+    pub(crate) detail: Detail,
     #[command(flatten)]
-    pub(crate) profile: super::flags::Profile,
+    pub(crate) profile: Profile,
     #[arg(id = "operands", value_name = "operand")]
     pub(crate) operands: Vec<String>,
 }

@@ -1,0 +1,10 @@
+$ twaco mashup param Acme.Home_MU Count
+exit: 2
+
+--- stdout
+
+--- stderr
+twaco: invalid value 'Acme.Home_MU' for '[action]'
+  [possible values: add, set, remove]
+
+For more information, try '--help'.

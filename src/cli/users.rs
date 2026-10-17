@@ -1,3 +1,4 @@
+use super::flags::{Apply, Json, Profile};
 use super::style;
 use crate::{DRIFT, FAILED, OK};
 use twaco::core::commands::users::{self as command, UsersAction, UsersOutcome, UsersRequest};
@@ -11,13 +12,22 @@ use twaco::core::testing::users::{users_json, Membership, UserState};
 #[group(skip)]
 pub(crate) struct Users {
     #[command(flatten)]
-    pub(crate) apply: super::flags::Apply,
+    pub(crate) apply: Apply,
     #[command(flatten)]
-    pub(crate) json: super::flags::Json,
+    pub(crate) json: Json,
     #[command(flatten)]
-    pub(crate) profile: super::flags::Profile,
-    #[arg(id = "operands", value_name = "operand")]
-    pub(crate) operands: Vec<String>,
+    pub(crate) profile: Profile,
+    /// What to do; clap refuses any other word, with the ones it takes.
+    #[arg(id = "action", value_name = "action", value_enum)]
+    pub(crate) action: Option<UsersVerb>,
+}
+
+/// What `users` does.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, clap::ValueEnum)]
+pub(crate) enum UsersVerb {
+    List,
+    Seed,
+    Delete,
 }
 
 /// `twaco users list|seed|delete`: the test users of `[[test.user]]` on the profile's server.
@@ -27,11 +37,11 @@ pub(crate) fn users_cmd(solution: &Solution, args: &Users) -> u8 {
     } else {
         Mode::Plan
     };
-    let action = match args.operands.as_slice() {
-        [action] if action == "list" => UsersAction::List,
-        [action] if action == "seed" => UsersAction::Seed { mode },
-        [action] if action == "delete" => UsersAction::Delete { mode },
-        _ => {
+    let action = match args.action {
+        Some(UsersVerb::List) => UsersAction::List,
+        Some(UsersVerb::Seed) => UsersAction::Seed { mode },
+        Some(UsersVerb::Delete) => UsersAction::Delete { mode },
+        None => {
             eprintln!("{} users takes: list | seed | delete", style::prefix());
             return FAILED;
         }

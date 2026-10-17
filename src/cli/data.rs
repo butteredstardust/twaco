@@ -263,13 +263,7 @@ pub(crate) fn call(solution: &Solution, args: &Call) -> u8 {
         target: args.operands[0].clone(),
         service: args.operands[1].clone(),
         parameters,
-        // validate() refused a timeout that does not read.
-        timeout: args
-            .timeout
-            .duration()
-            .ok()
-            .flatten()
-            .unwrap_or(Duration::from_secs(120)),
+        timeout: args.timeout.or(Duration::from_secs(120)),
         mode: Mode::Apply,
         profile: args.profile.name().to_string(),
         with_logs: args.with_logs,
@@ -989,13 +983,7 @@ pub(crate) fn db_cmd(solution: &Solution, args: &DbLine) -> u8 {
         apply: mode == db::Mode::Query || args.apply,
         no_transaction: args.no_transaction,
         max_rows,
-        // validate() refused a timeout that does not read.
-        timeout: args
-            .timeout
-            .duration()
-            .ok()
-            .flatten()
-            .unwrap_or(Duration::from_secs(120)),
+        timeout: args.timeout.or(Duration::from_secs(120)),
     };
     let request = commands::db::DbRequest::Execute {
         sql,

@@ -1,3 +1,4 @@
+use super::flags::{Apply, Detail, Json, OnlyProjects, Profile, Project, Selection};
 use super::style;
 use crate::{print_notices, DRIFT, FAILED, OK};
 use twaco::core::commands::{self, Mode};
@@ -13,9 +14,9 @@ pub(crate) struct Types {
     #[arg(long = "check")]
     pub(crate) check: bool,
     #[command(flatten)]
-    pub(crate) json: super::flags::Json,
+    pub(crate) json: Json,
     #[command(flatten)]
-    pub(crate) profile: super::flags::Profile,
+    pub(crate) profile: Profile,
 }
 
 pub(crate) fn types_cmd(solution: &Solution, args: &Types) -> u8 {
@@ -122,9 +123,9 @@ pub(crate) fn print_types_refresh(refresh: &types::Refresh) {
 #[group(skip)]
 pub(crate) struct Extract {
     #[command(flatten)]
-    pub(crate) selection: super::flags::Selection,
+    pub(crate) selection: Selection,
     #[command(flatten)]
-    pub(crate) project: super::flags::Project,
+    pub(crate) project: Project,
 }
 
 pub(crate) fn extract(solution: &Solution, args: &Extract) -> u8 {
@@ -168,7 +169,7 @@ pub(crate) fn extract(solution: &Solution, args: &Extract) -> u8 {
 #[group(skip)]
 pub(crate) struct Sync {
     #[command(flatten)]
-    pub(crate) selection: super::flags::Selection,
+    pub(crate) selection: Selection,
     #[arg(long = "check")]
     pub(crate) check: bool,
     #[arg(long = "allow-add-remove")]
@@ -176,7 +177,7 @@ pub(crate) struct Sync {
     #[arg(long = "relayout")]
     pub(crate) relayout: bool,
     #[command(flatten)]
-    pub(crate) project: super::flags::Project,
+    pub(crate) project: Project,
 }
 
 pub(crate) fn sync_cmd(solution: &Solution, args: &Sync) -> u8 {
@@ -343,11 +344,11 @@ fn print_gate_line(gate: &twaco::core::check::GateResult) {
 #[group(skip)]
 pub(crate) struct Check {
     #[command(flatten)]
-    pub(crate) detail: super::flags::Detail,
+    pub(crate) detail: Detail,
     #[arg(long = "live")]
     pub(crate) live: bool,
     #[command(flatten)]
-    pub(crate) profile: super::flags::Profile,
+    pub(crate) profile: Profile,
 }
 
 /// The gate: every built-in check, then every one the solution declares.
@@ -470,7 +471,7 @@ pub(crate) struct Bundle {
     pub(crate) handoff: Option<String>,
     /// Accepted, and changes nothing: the bundle is a local file, written unless `--check`.
     #[command(flatten)]
-    pub(crate) apply: super::flags::Apply,
+    pub(crate) apply: Apply,
 }
 
 /// Assemble one importable document from the split entity files.
@@ -536,7 +537,7 @@ pub(crate) fn bundle(solution: &Solution, args: &Bundle) -> u8 {
 #[group(skip)]
 pub(crate) struct Deploy {
     #[command(flatten)]
-    pub(crate) apply: super::flags::Apply,
+    pub(crate) apply: Apply,
     #[arg(long = "force")]
     pub(crate) force: bool,
     #[arg(long = "backend-only")]
@@ -544,13 +545,13 @@ pub(crate) struct Deploy {
     #[arg(long = "only", value_name = "entity")]
     pub(crate) only: Vec<String>,
     #[command(flatten)]
-    pub(crate) only_projects: super::flags::OnlyProjects,
+    pub(crate) only_projects: OnlyProjects,
     #[arg(long = "skip-checks")]
     pub(crate) skip_checks: bool,
     #[arg(long = "no-backup")]
     pub(crate) no_backup: bool,
     #[command(flatten)]
-    pub(crate) profile: super::flags::Profile,
+    pub(crate) profile: Profile,
 }
 
 /// Deploy through import, read-back, configured service calls, and a post-service re-read.
@@ -563,7 +564,7 @@ pub(crate) fn deploy_cmd(solution: &Solution, args: &Deploy) -> u8 {
         backup: !args.no_backup,
         skip_checks: args.skip_checks,
         // validate() refused a list that names no project.
-        only_projects: args.only_projects.projects().unwrap_or_default(),
+        only_projects: args.only_projects.projects(),
         only: args.only.clone(),
         backend_only: args.backend_only,
         profile: args.profile.name().to_string(),

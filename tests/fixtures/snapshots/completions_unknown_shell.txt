@@ -1,0 +1,12 @@
+$ twaco completions tcsh
+exit: 2
+
+--- stdout
+
+--- stderr
+twaco: invalid value 'tcsh' for '[shell]'
+  [possible values: bash, elvish, fish, powershell, zsh]
+
+  tip: a similar value exists: 'zsh'
+
+For more information, try '--help'.

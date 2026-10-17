@@ -1,37 +1,13 @@
 //! Every command, once. [`USAGE`] says what each is: its path, its group and the text `twaco`
-//! with no arguments, `--help` and `documentation/COMMANDS.md` show. [`GRAMMAR`] says what each
-//! takes: its flags, and whether it takes operands, for the commands not yet in
-//! [`Typed`](super::command::Typed). clap parses against the tree [`tree`] builds
-//! (unknown flags and operands are refused, with a suggestion), and
-//! [`Args`](super::args::Args) is filled from what clap matched.
+//! with no arguments, `--help` and `documentation/COMMANDS.md` show. What each takes is its
+//! struct, beside its handler, as a variant of [`Command`]; clap parses against the tree [`tree`]
+//! builds from them (unknown flags and operands are refused, with a suggestion).
 //!
-//! A flag means the same in every command that takes it, so its kind is declared once in
-//! [`FLAGS`]: a switch, a value, or a value that may repeat. How a kind behaves on the command
-//! line (a switch said twice, a value that starts with a dash, a negative operand) is decided once,
-//! in [`decorate`].
+//! How each kind of argument behaves on the command line (a switch said twice, a value that
+//! starts with a dash, a negative operand) is decided once, in [`decorate`], so a struct declares
+//! only what its flags are called and what their values are named.
 
-use super::args::Args;
-use super::command::Typed;
-use std::time::Duration;
-
-/// What a flag takes.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) enum Takes {
-    Switch,
-    /// One value, named as help shows it.
-    Value(&'static str),
-    /// One optional value. The command decides whether its spelling permits no value.
-    OptionalValue(&'static str),
-    /// A value, and the flag may be given again.
-    Repeated(&'static str),
-}
-
-#[derive(Debug)]
-pub(crate) struct Flag {
-    /// `--name`, or `-q` for the one short flag.
-    pub(crate) name: &'static str,
-    pub(crate) takes: Takes,
-}
+use super::command::Command;
 
 /// A command as people read it.
 #[derive(Debug)]
@@ -45,32 +21,9 @@ pub(crate) struct Usage {
     pub(crate) text: &'static str,
 }
 
-/// What a command takes, for the commands the builder still parses.
-#[derive(Debug)]
-pub(crate) struct Grammar {
-    /// The [`Usage`] path it belongs to.
-    pub(crate) path: &'static str,
-    /// Whether it takes positional operands (entity names, files, sub-actions).
-    pub(crate) operands: bool,
-    pub(crate) flags: &'static [&'static str],
-}
-
-/// The flag's kind; every name a command lists is declared here.
-pub(crate) fn flag(name: &str) -> &'static Flag {
-    FLAGS
-        .iter()
-        .find(|flag| flag.name == name)
-        .unwrap_or_else(|| panic!("{name} is not declared in FLAGS"))
-}
-
 /// The command a path names.
 pub(crate) fn command(path: &str) -> Option<&'static Usage> {
     USAGE.iter().find(|command| command.path == path)
-}
-
-/// What the command a path names takes, when the builder parses it.
-pub(crate) fn grammar(path: &str) -> Option<&'static Grammar> {
-    GRAMMAR.iter().find(|grammar| grammar.path == path)
 }
 
 /// The clap id of a flag: its name without dashes.
@@ -78,8 +31,9 @@ fn id(name: &str) -> &str {
     name.trim_start_matches('-')
 }
 
-/// Flags every command accepts without listing them: diagnostic logs. See `core::diagnostics`.
-pub(crate) const GLOBAL_FLAGS: &[&str] = &["--log", "--log-file"];
+/// Flags every command accepts without listing them, and their value names: diagnostic logs. See
+/// `core::diagnostics`.
+pub(crate) const GLOBAL_FLAGS: &[(&str, &str)] = &[("--log", "filter"), ("--log-file", "path")];
 
 /// The diagnostic options a parse matched: `--log` and `--log-file`.
 pub(crate) fn log_options(matches: &clap::ArgMatches) -> (Option<String>, Option<String>) {
@@ -94,88 +48,42 @@ fn synopsis(command: &Usage) -> String {
     format!("twaco {synopsis}")
 }
 
-/// The clap arguments of a command that takes these flags, and operands or not: what each is
-/// called and what it takes. [`decorate`] adds how it behaves.
-pub(crate) fn arguments(flags: &[&str], operands: bool) -> Vec<clap::Arg> {
-    let mut built = Vec::new();
-    for name in flags {
-        let declared = flag(name);
-        let name = declared.name;
-        let mut arg = clap::Arg::new(id(name));
-        arg = match name.strip_prefix("--") {
-            Some(long) => arg.long(long),
-            None => arg.short(name.chars().nth(1).expect("a short flag has a letter")),
-        };
-        arg = match declared.takes {
-            Takes::Switch => arg.action(clap::ArgAction::SetTrue),
-            Takes::Value(value) => arg.value_name(value).action(clap::ArgAction::Set),
-            Takes::OptionalValue(value) => arg
-                .value_name(value)
-                .num_args(0..=1)
-                .action(clap::ArgAction::Set),
-            Takes::Repeated(value) => arg.value_name(value).action(clap::ArgAction::Append),
-        };
-        built.push(arg);
-    }
-    if operands {
-        built.push(
-            clap::Arg::new("operands")
-                .action(clap::ArgAction::Append)
-                .value_name("operand"),
-        );
-    }
-    built
+/// The diagnostic flags, [`GLOBAL_FLAGS`]; [`decorate`] adds how they behave.
+fn log_arguments() -> impl Iterator<Item = clap::Arg> {
+    GLOBAL_FLAGS.iter().map(|(name, value)| {
+        clap::Arg::new(id(name))
+            .long(id(name))
+            .value_name(*value)
+            .action(clap::ArgAction::Set)
+    })
 }
 
-/// The whole command line: every command, with families as nested subcommands, in the order
-/// [`USAGE`] lists them. A command clap derives comes from [`Typed`]; the rest are built from
-/// their [`GRAMMAR`] rows.
+/// The whole command line: every command of [`Command`], with families as nested subcommands, in
+/// the order [`USAGE`] lists them.
 pub(crate) fn tree() -> clap::Command {
     use clap::Subcommand as _;
-    let typed = Typed::augment_subcommands(clap::Command::new("typed"));
-    let derived = |word: &str| typed.find_subcommand(word).cloned();
+    let derived = Command::augment_subcommands(clap::Command::new("derived"));
     let mut root = clap::Command::new("twaco");
     // A family (`entity`, `rename`...) is a command of its own whose commands are the words
     // after it; it is listed where its first command is.
-    let mut families: Vec<&'static str> = Vec::new();
+    let mut added: Vec<&str> = Vec::new();
     for command in USAGE {
-        match command.path.split_once(' ') {
-            None => {
-                let built =
-                    derived(command.path).unwrap_or_else(|| builder(command.path, command.path));
-                root = root.subcommand(built);
-            }
-            Some((family, _)) if !families.contains(&family) => {
-                let family: &'static str = &command.path[..family.len()];
-                families.push(family);
-                if let Some(built) = derived(family) {
-                    root = root.subcommand(built);
-                    continue;
-                }
-                let mut built = clap::Command::new(family);
-                for member in USAGE {
-                    if member.path.split_once(' ').map(|(name, _)| name) == Some(family) {
-                        let word: &'static str = &member.path[family.len() + 1..];
-                        built = built.subcommand(builder(word, member.path));
-                    }
-                }
-                root = root.subcommand(built);
-            }
-            Some(_) => {}
+        let word = command.path.split(' ').next().unwrap_or(command.path);
+        if added.contains(&word) {
+            continue;
         }
+        added.push(word);
+        let built = derived
+            .find_subcommand(word)
+            .unwrap_or_else(|| panic!("{} is in USAGE but not in Command", command.path));
+        root = root.subcommand(built.clone());
     }
     decorate(root)
 }
 
-/// A command the builder parses, from its [`GRAMMAR`] row.
-fn builder(word: &'static str, path: &str) -> clap::Command {
-    let grammar = grammar(path).unwrap_or_else(|| panic!("{path} has no GRAMMAR row"));
-    clap::Command::new(word).args(arguments(grammar.flags, grammar.operands))
-}
-
-/// The grammar's policy, applied once to the whole tree however its commands were declared: the
-/// root's and each family's listing and settings, and on every command its usage line and help,
-/// the diagnostic flags, and how each kind of argument behaves.
+/// The grammar's policy, applied once to the whole tree: the root's and each family's listing and
+/// settings, and on every command its usage line and help, the diagnostic flags, and how each
+/// kind of argument behaves.
 pub(crate) fn decorate(root: clap::Command) -> clap::Command {
     decorate_node(root, "")
 }
@@ -199,8 +107,16 @@ fn decorate_node(node: clap::Command, path: &str) -> clap::Command {
     if let Some(command) = command(path) {
         return leaf(node, command);
     }
+    // What shell completions say a family is: its commands. Not the doc comment clap derive
+    // would take, which is written for the code.
+    let members: Vec<&str> = USAGE
+        .iter()
+        .filter_map(|c| c.path.strip_prefix(path)?.strip_prefix(' '))
+        .collect();
     node.override_usage(format!("twaco {path} <command>"))
         .override_help(family_listing(path))
+        .about(members.join(", "))
+        .long_about(None::<&str>)
         .subcommand_required(true)
         .arg_required_else_help(true)
         .disable_help_subcommand(true)
@@ -212,19 +128,96 @@ fn decorate_node(node: clap::Command, path: &str) -> clap::Command {
 }
 
 /// A command: its usage line and help from [`USAGE`], the diagnostic flags, and the policy for
-/// every argument.
+/// every argument. `--help` shows the text as written; the one-line descriptions of the command
+/// and of each flag are taken from it too, for shell completions.
 fn leaf(node: clap::Command, command: &'static Usage) -> clap::Command {
     let takes = |long: &str| node.get_arguments().any(|arg| arg.get_long() == Some(long));
     let help = help_of(command, &|name| takes(id(name)));
+    // clap derive takes a struct's doc comment for its description; completions show the help
+    // text's instead, or none.
+    let node = match summary(command.text) {
+        Some(about) => node.about(about),
+        None => node.about(None::<&str>),
+    }
+    .long_about(None::<&str>);
     node.override_usage(synopsis(command))
         .override_help(help)
         .disable_version_flag(true)
-        .args(arguments(GLOBAL_FLAGS, false))
-        .mut_args(behaviour)
+        .args(log_arguments())
+        .mut_args(|arg| {
+            let name = arg
+                .get_long()
+                .map(|long| format!("--{long}"))
+                .or_else(|| arg.get_short().map(|short| format!("-{short}")));
+            let help = name.and_then(|name| {
+                [command.text, SHARED, LOGGING]
+                    .into_iter()
+                    .find_map(|text| described(text, &name))
+            });
+            let arg = behaviour(arg).long_help(None::<&str>);
+            match help {
+                Some(help) => arg.help(help),
+                None => arg.help(None::<&str>),
+            }
+        })
+}
+
+/// Where a description starts in the help text: column 31.
+const DESCRIPTION_COLUMN: &str = "                              ";
+
+/// A synopsis or flag entry split into what it names and what it says it does: they are parted by
+/// the first run of two spaces.
+fn entry(line: &str) -> (&str, &str) {
+    let line = line.trim_start();
+    match line.find("  ") {
+        Some(at) => (&line[..at], line[at..].trim()),
+        None => (line, ""),
+    }
+}
+
+/// A description and the lines that continue it at [`DESCRIPTION_COLUMN`], as one line.
+fn joined<'a>(first: &'a str, rest: impl Iterator<Item = &'a str>) -> Option<String> {
+    let words: Vec<&str> = std::iter::once(first)
+        .chain(
+            rest.take_while(|line| line.starts_with(DESCRIPTION_COLUMN) && !line.trim().is_empty()),
+        )
+        .flat_map(str::split_whitespace)
+        .collect();
+    (!words.is_empty()).then(|| words.join(" "))
+}
+
+/// What a command's text says the command does: its first entry's description.
+fn summary(text: &str) -> Option<String> {
+    let mut lines = text.lines();
+    let (_, first) = entry(lines.next()?);
+    joined(first, lines)
+}
+
+/// What a help text says a flag does, when the flag has a line of its own
+/// (`      --when <address>        the event...`); a flag named only in passing has none.
+fn described(text: &str, flag: &str) -> Option<String> {
+    let lines: Vec<&str> = text.lines().collect();
+    lines.iter().enumerate().find_map(|(at, line)| {
+        let (head, first) = entry(line);
+        let own = head.starts_with('-')
+            && head.match_indices(flag).any(|(start, _)| {
+                let before = head[..start].chars().next_back();
+                let after = head[start + flag.len()..].chars().next();
+                let word =
+                    |c: Option<char>| c.is_some_and(|c| c.is_ascii_alphanumeric() || c == '-');
+                !word(before) && !word(after)
+            });
+        own.then(|| joined(first, lines[at + 1..].iter().copied()))
+            .flatten()
+    })
 }
 
 /// How an argument behaves, decided by what it takes.
 fn behaviour(arg: clap::Arg) -> clap::Arg {
+    if arg.is_positional() && arg.get_id() != "operands" {
+        // A sub-action (`users list`) or a shell: one word of those it takes.
+        return arg;
+    }
     if arg.is_positional() {
         // A negative number is an operand (a JSON value for `call`); any other word that
         // starts with a dash is a flag, so a mistyped one is refused, not taken as a name.
@@ -266,110 +259,6 @@ pub(crate) fn matched(matches: &clap::ArgMatches) -> (&'static str, &clap::ArgMa
         .find(|c| c.path.split_once(' ') == Some((first, second)))
         .expect("clap matched only commands in USAGE");
     (command.path, leaf)
-}
-
-/// What the command at `path` matched, as the commands read it.
-pub(crate) fn args_of(path: &str, matches: &clap::ArgMatches) -> Result<Args, String> {
-    let grammar = grammar(path).unwrap_or_else(|| panic!("{path} has no GRAMMAR row"));
-    args_from(grammar.flags, grammar.operands, matches)
-}
-
-/// What a parse with [`arguments`] matched, as the commands read it.
-pub(crate) fn args_from(
-    flags: &[&str],
-    operands: bool,
-    matches: &clap::ArgMatches,
-) -> Result<Args, String> {
-    let mut args = Args::default();
-    if operands {
-        args.names = matches
-            .get_many::<String>("operands")
-            .map(|values| values.cloned().collect())
-            .unwrap_or_default();
-    }
-    for name in flags {
-        let key = id(name);
-        match flag(name).takes {
-            Takes::Switch => {
-                if matches.get_flag(key) {
-                    args.flags.push(name.to_string());
-                }
-            }
-            Takes::Repeated(_) => {
-                let values: Vec<String> = matches
-                    .get_many::<String>(key)
-                    .map(|values| values.cloned().collect())
-                    .unwrap_or_default();
-                match *name {
-                    "--only" => args.only.extend(values),
-                    "--entity" => args.entity_filters.extend(values),
-                    "--visibility" => args.visibility.extend(values),
-                    "--prop" | "--set" => args.props.extend(values),
-                    "--param" => args.params.extend(values),
-                    "--tab" => args.tabs.extend(values),
-                    "--input" => args.inputs.extend(values),
-                    "--pass" => args.pass.extend(values),
-                    "--column" => args.columns.extend(values),
-                    "--shape" => args.shapes.extend(values),
-                    "--field" => args.fields.extend(values),
-                    "--index" => args.indexes.extend(values),
-                    "--state" => args.states.extend(values),
-                    "--item" => args.items.extend(values),
-                    other => unreachable!("{other} repeats but nothing reads it"),
-                }
-            }
-            Takes::Value(_) | Takes::OptionalValue(_) => {
-                let Some(value) = matches.get_one::<String>(key).cloned() else {
-                    continue;
-                };
-                if matches!(flag(name).takes, Takes::OptionalValue(_)) {
-                    args.flags.push(name.to_string());
-                    if value.is_empty() {
-                        continue;
-                    }
-                }
-                match *name {
-                    "--project" => args.project = Some(value),
-                    "--profile" => args.profile = Some(value),
-                    "--out" => args.out = Some(value.into()),
-                    "--backup" => args.backup = Some(value.into()),
-                    "--restore" => args.restore = Some(value.into()),
-                    "--only-projects" => {
-                        let selected: Vec<String> = value
-                            .split(',')
-                            .map(str::trim)
-                            .filter(|name| !name.is_empty())
-                            .map(str::to_string)
-                            .collect();
-                        if selected.is_empty() {
-                            return Err("--only-projects needs at least one project".to_string());
-                        }
-                        args.only_projects.extend(selected);
-                    }
-                    "--timeout" => {
-                        let seconds = value
-                            .parse::<u64>()
-                            .ok()
-                            .filter(|seconds| *seconds > 0)
-                            .ok_or_else(|| {
-                                "--timeout needs a positive whole number of seconds".to_string()
-                            })?;
-                        args.timeout = Some(Duration::from_secs(seconds));
-                    }
-                    other => {
-                        args.values.insert(other.to_string(), value);
-                    }
-                }
-            }
-        }
-    }
-    if args.has("--all") && !args.names.is_empty() {
-        return Err(format!(
-            "--all and {:?} say different things; pass one or the other",
-            args.names
-        ));
-    }
-    Ok(args)
 }
 
 /// Flags every command describes once, at the end of the listing.
@@ -453,766 +342,6 @@ fn dedent(text: &str) -> String {
         .collect()
 }
 
-/// Every flag, and what it takes.
-pub(crate) const FLAGS: &[Flag] = &[
-    Flag {
-        name: "--above",
-        takes: Takes::Value("widget"),
-    },
-    Flag {
-        name: "--accept-loss",
-        takes: Takes::Switch,
-    },
-    Flag {
-        name: "--add-shapes",
-        takes: Takes::Value("value"),
-    },
-    Flag {
-        name: "--agents",
-        takes: Takes::Switch,
-    },
-    Flag {
-        name: "--all",
-        takes: Takes::Switch,
-    },
-    Flag {
-        name: "--allow-add-remove",
-        takes: Takes::Switch,
-    },
-    Flag {
-        name: "--allow-file-repository-data-loss",
-        takes: Takes::Switch,
-    },
-    Flag {
-        name: "--allow-outside-dependents",
-        takes: Takes::Switch,
-    },
-    Flag {
-        name: "--allow-repository-defined",
-        takes: Takes::Switch,
-    },
-    Flag {
-        name: "--append",
-        takes: Takes::Switch,
-    },
-    Flag {
-        name: "--apply",
-        takes: Takes::Switch,
-    },
-    Flag {
-        name: "--as",
-        takes: Takes::Value("new"),
-    },
-    Flag {
-        name: "--backend-only",
-        takes: Takes::Switch,
-    },
-    Flag {
-        name: "--base",
-        takes: Takes::Value("file|handoff|git rev"),
-    },
-    Flag {
-        name: "--backup",
-        takes: Takes::Value("file"),
-    },
-    Flag {
-        name: "--below",
-        takes: Takes::Value("widget"),
-    },
-    Flag {
-        name: "--base-extension",
-        takes: Takes::Value("value"),
-    },
-    Flag {
-        name: "--check",
-        takes: Takes::Switch,
-    },
-    Flag {
-        name: "--collection",
-        takes: Takes::Value("name"),
-    },
-    Flag {
-        name: "--depth",
-        takes: Takes::Value("n"),
-    },
-    Flag {
-        name: "--description",
-        takes: Takes::Value("text"),
-    },
-    Flag {
-        name: "--disabled",
-        takes: Takes::Switch,
-    },
-    Flag {
-        name: "--detail",
-        takes: Takes::Switch,
-    },
-    Flag {
-        name: "--fields",
-        takes: Takes::Switch,
-    },
-    Flag {
-        name: "--field",
-        takes: Takes::Repeated("name:TYPE[:primary]"),
-    },
-    Flag {
-        name: "--index",
-        takes: Takes::Repeated("name=field1,field2"),
-    },
-    Flag {
-        name: "--file",
-        takes: Takes::Value("path"),
-    },
-    Flag {
-        name: "--background",
-        takes: Takes::Value("color"),
-    },
-    Flag {
-        name: "--foreground",
-        takes: Takes::Value("color"),
-    },
-    Flag {
-        name: "--secondary-background",
-        takes: Takes::Value("color"),
-    },
-    Flag {
-        name: "--line-color",
-        takes: Takes::Value("color"),
-    },
-    Flag {
-        name: "--line-style",
-        takes: Takes::Value("solid|dashed|dotted|none"),
-    },
-    Flag {
-        name: "--line-thickness",
-        takes: Takes::Value("n"),
-    },
-    Flag {
-        name: "--bold",
-        takes: Takes::Switch,
-    },
-    Flag {
-        name: "--italic",
-        takes: Takes::Switch,
-    },
-    Flag {
-        name: "--underline",
-        takes: Takes::Switch,
-    },
-    Flag {
-        name: "--text-size",
-        takes: Takes::Value("size"),
-    },
-    Flag {
-        name: "--image",
-        takes: Takes::Value("MediaEntity"),
-    },
-    Flag {
-        name: "--display-string",
-        takes: Takes::Value("text"),
-    },
-    Flag {
-        name: "--state",
-        takes: Takes::Repeated("spec"),
-    },
-    Flag {
-        name: "--item",
-        takes: Takes::Repeated("Title=Mashup"),
-    },
-    Flag {
-        name: "--diff",
-        takes: Takes::Switch,
-    },
-    Flag {
-        name: "--event",
-        takes: Takes::Value("address"),
-    },
-    Flag {
-        name: "--when",
-        takes: Takes::Value("address"),
-    },
-    Flag {
-        name: "--if",
-        takes: Takes::Value("condition"),
-    },
-    Flag {
-        name: "--expr",
-        takes: Takes::Value("expression"),
-    },
-    Flag {
-        name: "--after",
-        takes: Takes::Value("address"),
-    },
-    Flag {
-        name: "--say",
-        takes: Takes::Value("text"),
-    },
-    Flag {
-        name: "--kind",
-        takes: Takes::Value("info|warning|error"),
-    },
-    Flag {
-        name: "--then",
-        takes: Takes::Value("address"),
-    },
-    Flag {
-        name: "--title",
-        takes: Takes::Value("text"),
-    },
-    Flag {
-        name: "--on",
-        takes: Takes::Value("address"),
-    },
-    Flag {
-        name: "--mashup",
-        takes: Takes::Value("name"),
-    },
-    Flag {
-        name: "--window",
-        takes: Takes::Value("type"),
-    },
-    Flag {
-        name: "--size",
-        takes: Takes::Value("WxH"),
-    },
-    Flag {
-        name: "--reload",
-        takes: Takes::Value("address"),
-    },
-    Flag {
-        name: "--every",
-        takes: Takes::Value("seconds"),
-    },
-    Flag {
-        name: "--cron",
-        takes: Takes::Value("quartz expression"),
-    },
-    Flag {
-        name: "--run-as",
-        takes: Takes::Value("user"),
-    },
-    Flag {
-        name: "--script",
-        takes: Takes::Value("file.js"),
-    },
-    Flag {
-        name: "--shape",
-        takes: Takes::Repeated("ThingShape"),
-    },
-    Flag {
-        name: "--interval",
-        takes: Takes::Value("address"),
-    },
-    Flag {
-        name: "--else-say",
-        takes: Takes::Value("text"),
-    },
-    Flag {
-        name: "--pass",
-        takes: Takes::Repeated("name=address"),
-    },
-    Flag {
-        name: "--data",
-        takes: Takes::Value("address"),
-    },
-    Flag {
-        name: "--x",
-        takes: Takes::Value("field"),
-    },
-    Flag {
-        name: "--selected",
-        takes: Takes::Value("address"),
-    },
-    Flag {
-        name: "--column",
-        takes: Takes::Repeated("field[:Title[:width]]"),
-    },
-    Flag {
-        name: "--display-name",
-        takes: Takes::Value("text"),
-    },
-    Flag {
-        name: "--in",
-        takes: Takes::Value("widget"),
-    },
-    Flag {
-        name: "--invoke",
-        takes: Takes::Value("address"),
-    },
-    Flag {
-        name: "--dot",
-        takes: Takes::Switch,
-    },
-    Flag {
-        name: "--drop-unmapped",
-        takes: Takes::Switch,
-    },
-    Flag {
-        name: "--editable",
-        takes: Takes::Switch,
-    },
-    Flag {
-        name: "--entity",
-        takes: Takes::Repeated("name"),
-    },
-    Flag {
-        name: "--fail-on-revert",
-        takes: Takes::Switch,
-    },
-    Flag {
-        name: "--force",
-        takes: Takes::Switch,
-    },
-    Flag {
-        name: "--from",
-        takes: Takes::Value("address"),
-    },
-    Flag {
-        name: "--from-helper",
-        takes: Takes::Switch,
-    },
-    Flag {
-        name: "--frontend-only",
-        takes: Takes::Switch,
-    },
-    Flag {
-        name: "--grep",
-        takes: Takes::Value("text"),
-    },
-    Flag {
-        name: "--json",
-        takes: Takes::Switch,
-    },
-    Flag {
-        name: "--handoff",
-        takes: Takes::Value("name"),
-    },
-    Flag {
-        name: "--leave-delegate",
-        takes: Takes::Switch,
-    },
-    Flag {
-        name: "--level",
-        takes: Takes::Value("level"),
-    },
-    Flag {
-        name: "--language-common",
-        takes: Takes::Value("text"),
-    },
-    Flag {
-        name: "--language-native",
-        takes: Takes::Value("text"),
-    },
-    Flag {
-        name: "--layout",
-        takes: Takes::Value("layout"),
-    },
-    Flag {
-        name: "--label",
-        takes: Takes::Value("text"),
-    },
-    Flag {
-        name: "--left-of",
-        takes: Takes::Value("widget"),
-    },
-    Flag {
-        name: "--limit",
-        takes: Takes::Value("n"),
-    },
-    Flag {
-        name: "--log",
-        takes: Takes::Value("filter"),
-    },
-    Flag {
-        name: "--log-file",
-        takes: Takes::Value("path"),
-    },
-    Flag {
-        name: "--live",
-        takes: Takes::Switch,
-    },
-    Flag {
-        name: "--master",
-        takes: Takes::Switch,
-    },
-    Flag {
-        name: "--primary-menu",
-        takes: Takes::Value("address"),
-    },
-    Flag {
-        name: "--map",
-        takes: Takes::Value("value"),
-    },
-    Flag {
-        name: "--max-rows",
-        takes: Takes::Value("n"),
-    },
-    Flag {
-        name: "--member",
-        takes: Takes::Value("name"),
-    },
-    Flag {
-        name: "--min-confidence",
-        takes: Takes::Value("value"),
-    },
-    Flag {
-        name: "--model-logic",
-        takes: Takes::Switch,
-    },
-    Flag {
-        name: "--no-backup",
-        takes: Takes::Switch,
-    },
-    Flag {
-        name: "--no-management-shape",
-        takes: Takes::Switch,
-    },
-    Flag {
-        name: "--no-sql",
-        takes: Takes::Switch,
-    },
-    Flag {
-        name: "--no-transaction",
-        takes: Takes::Switch,
-    },
-    Flag {
-        name: "--name",
-        takes: Takes::Value("name"),
-    },
-    Flag {
-        name: "--oldest-first",
-        takes: Takes::Switch,
-    },
-    Flag {
-        name: "--only",
-        takes: Takes::Repeated("entity"),
-    },
-    Flag {
-        name: "--prop",
-        takes: Takes::Repeated("name=value"),
-    },
-    Flag {
-        name: "--set",
-        takes: Takes::Repeated("parameter=value"),
-    },
-    Flag {
-        name: "--direction",
-        takes: Takes::Value("IN|OUT|BOTH"),
-    },
-    Flag {
-        name: "--default",
-        takes: Takes::OptionalValue("value"),
-    },
-    Flag {
-        name: "--no-default",
-        takes: Takes::Switch,
-    },
-    Flag {
-        name: "--data-shape",
-        takes: Takes::Value("DataShape"),
-    },
-    Flag {
-        name: "--param",
-        takes: Takes::Repeated("name:TYPE[:DIRECTION]"),
-    },
-    Flag {
-        name: "--tab",
-        takes: Takes::Repeated("Label=Mashup"),
-    },
-    Flag {
-        name: "--input",
-        takes: Takes::Repeated("name:TYPE"),
-    },
-    Flag {
-        name: "--take",
-        takes: Takes::Value("side:name,..."),
-    },
-    Flag {
-        name: "--only-projects",
-        takes: Takes::Value("a,b"),
-    },
-    Flag {
-        name: "--origin",
-        takes: Takes::Value("value"),
-    },
-    Flag {
-        name: "--out",
-        takes: Takes::Value("path"),
-    },
-    Flag {
-        name: "--overwrite",
-        takes: Takes::Switch,
-    },
-    Flag {
-        name: "--overwrite-properties",
-        takes: Takes::Switch,
-    },
-    Flag {
-        name: "--overwrite-tables",
-        takes: Takes::Switch,
-    },
-    Flag {
-        name: "--parent",
-        takes: Takes::Value("block"),
-    },
-    Flag {
-        name: "--path",
-        takes: Takes::Value("path"),
-    },
-    Flag {
-        name: "--prune",
-        takes: Takes::Switch,
-    },
-    Flag {
-        name: "--platform",
-        takes: Takes::Switch,
-    },
-    Flag {
-        name: "--profile",
-        takes: Takes::Value("name"),
-    },
-    Flag {
-        name: "--project",
-        takes: Takes::Value("name"),
-    },
-    Flag {
-        name: "--record",
-        takes: Takes::Switch,
-    },
-    Flag {
-        name: "--recursive",
-        takes: Takes::Switch,
-    },
-    Flag {
-        name: "--right-of",
-        takes: Takes::Value("widget"),
-    },
-    Flag {
-        name: "--refresh",
-        takes: Takes::Switch,
-    },
-    Flag {
-        name: "--regex",
-        takes: Takes::Value("re"),
-    },
-    Flag {
-        name: "--relayout",
-        takes: Takes::Switch,
-    },
-    Flag {
-        name: "--remove-shapes",
-        takes: Takes::Value("value"),
-    },
-    Flag {
-        name: "--renamed",
-        takes: Takes::Switch,
-    },
-    Flag {
-        name: "--repository",
-        takes: Takes::Value("repository"),
-    },
-    Flag {
-        name: "--reset",
-        takes: Takes::Switch,
-    },
-    Flag {
-        name: "--restore",
-        takes: Takes::Value("file"),
-    },
-    Flag {
-        name: "--root",
-        takes: Takes::Value("dir"),
-    },
-    Flag {
-        name: "--search",
-        takes: Takes::Value("text"),
-    },
-    Flag {
-        name: "--secondary-menu",
-        takes: Takes::Value("address"),
-    },
-    Flag {
-        name: "--section",
-        takes: Takes::Value("heading"),
-    },
-    Flag {
-        name: "--server",
-        takes: Takes::Switch,
-    },
-    Flag {
-        name: "--since",
-        takes: Takes::Value("duration"),
-    },
-    Flag {
-        name: "--skip-checks",
-        takes: Takes::Switch,
-    },
-    Flag {
-        name: "--sql",
-        takes: Takes::Switch,
-    },
-    Flag {
-        name: "--sql-dir",
-        takes: Takes::Value("dir"),
-    },
-    Flag {
-        name: "--sublogger",
-        takes: Takes::Value("name"),
-    },
-    Flag {
-        name: "--tags",
-        takes: Takes::Value("value"),
-    },
-    Flag {
-        name: "--table",
-        takes: Takes::Value("name"),
-    },
-    Flag {
-        name: "--text",
-        takes: Takes::Switch,
-    },
-    Flag {
-        name: "--thing",
-        takes: Takes::Value("name"),
-    },
-    Flag {
-        name: "--theme",
-        takes: Takes::Value("theme"),
-    },
-    Flag {
-        name: "--template",
-        takes: Takes::Value("name"),
-    },
-    Flag {
-        name: "--value-stream",
-        takes: Takes::Value("ValueStream"),
-    },
-    Flag {
-        name: "--thread",
-        takes: Takes::Value("value"),
-    },
-    Flag {
-        name: "--timeout",
-        takes: Takes::Value("seconds"),
-    },
-    Flag {
-        name: "--tools",
-        takes: Takes::Value("groups"),
-    },
-    Flag {
-        name: "--to",
-        takes: Takes::Value("address"),
-    },
-    Flag {
-        name: "--type",
-        takes: Takes::Value("value"),
-    },
-    Flag {
-        name: "--user",
-        takes: Takes::Value("value"),
-    },
-    Flag {
-        name: "--usage",
-        takes: Takes::Value("text"),
-    },
-    Flag {
-        name: "--context",
-        takes: Takes::Value("text"),
-    },
-    Flag {
-        name: "--no-persistent",
-        takes: Takes::Switch,
-    },
-    Flag {
-        name: "--no-logged",
-        takes: Takes::Switch,
-    },
-    Flag {
-        name: "--no-read-only",
-        takes: Takes::Switch,
-    },
-    Flag {
-        name: "--no-bold",
-        takes: Takes::Switch,
-    },
-    Flag {
-        name: "--no-italic",
-        takes: Takes::Switch,
-    },
-    Flag {
-        name: "--no-underline",
-        takes: Takes::Switch,
-    },
-    Flag {
-        name: "--enabled",
-        takes: Takes::Switch,
-    },
-    Flag {
-        name: "--source",
-        takes: Takes::Value("Thing"),
-    },
-    Flag {
-        name: "--source-property",
-        takes: Takes::Value("property"),
-    },
-    Flag {
-        name: "--before",
-        takes: Takes::Value("Title"),
-    },
-    Flag {
-        name: "--category",
-        takes: Takes::Value("text"),
-    },
-    Flag {
-        name: "--units",
-        takes: Takes::Value("text"),
-    },
-    Flag {
-        name: "--persistent",
-        takes: Takes::Switch,
-    },
-    Flag {
-        name: "--logged",
-        takes: Takes::Switch,
-    },
-    Flag {
-        name: "--read-only",
-        takes: Takes::Switch,
-    },
-    Flag {
-        name: "--value",
-        takes: Takes::Value("text"),
-    },
-    Flag {
-        name: "--visibility",
-        takes: Takes::Repeated("principal"),
-    },
-    Flag {
-        name: "--version",
-        takes: Takes::Value("release"),
-    },
-    Flag {
-        name: "--with-dependents",
-        takes: Takes::Switch,
-    },
-    Flag {
-        name: "--with-logs",
-        takes: Takes::Switch,
-    },
-    Flag {
-        name: "--write",
-        takes: Takes::Switch,
-    },
-    Flag {
-        name: "--zip",
-        takes: Takes::Value("name"),
-    },
-    Flag {
-        name: "-q",
-        takes: Takes::Value("sql"),
-    },
-];
-
 /// Every command as people read it, in the order `twaco` lists them within a group.
 pub(crate) const USAGE: &[Usage] = &[
     Usage {
@@ -1246,6 +375,12 @@ pub(crate) const USAGE: &[Usage] = &[
         group: 0,
         text: r#"  update [--apply]            compare with the latest release; --apply verifies its signature
                               and replaces this binary (TWACO_NO_UPDATE_CHECK=1: no daily notice)"#,
+    },
+    Usage {
+        path: "completions",
+        group: 0,
+        text: r#"  completions <shell>         a completion script on stdout for bash, elvish, fish, powershell
+                              or zsh: every command, flag and action, with descriptions"#,
     },
     Usage {
         path: "extract",
@@ -2076,10 +1211,6 @@ pub(crate) const USAGE: &[Usage] = &[
   javadoc class <Name|pkg.Name>  read a class as Markdown; --member <name>; --refresh; --json"#,
     },
 ];
-
-/// What each command takes, for the commands the builder still makes; [`USAGE`] says what each
-/// is, and [`Typed`] declares the rest.
-pub(crate) const GRAMMAR: &[Grammar] = &[];
 
 /// The sections of the listing and of COMMANDS.md: a title and one line about them.
 pub(crate) const GROUPS: &[(&str, &str)] = &[

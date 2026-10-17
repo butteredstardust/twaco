@@ -1,7 +1,7 @@
 == twaco
 usage: twaco <command>
 settings: version disable-help-subcommand subcommand-required arg-required-else-help
-subcommands: adopt bundle call catalog check config-table copy datatable db deploy docs doctor entity export ext extract fmt guide handoff help impact import init javadoc localization logs mashup mcp media menu move new package permissions projects rename repo reproject retemplate scheduler search settings state style sync test thing timer trace types unused update users widgets
+subcommands: adopt bundle call catalog check completions config-table copy datatable db deploy docs doctor entity export ext extract fmt guide handoff help impact import init javadoc localization logs mashup mcp media menu move new package permissions projects rename repo reproject retemplate scheduler search settings state style sync test thing timer trace types unused update users widgets
 arg --help
     action: Help
     value_name: -
@@ -37,6 +37,8 @@ help:
 |                               default all
 |   update [--apply]            compare with the latest release; --apply verifies its signature
 |                               and replaces this binary (TWACO_NO_UPDATE_CHECK=1: no daily notice)
+|   completions <shell>         a completion script on stdout for bash, elvish, fish, powershell
+|                               or zsh: every command, flag and action, with descriptions
 |   extract <entity>|--all      entity XML -> sidecars
 |   sync <entity>|--all         sidecars -> entity XML
 |       --check                 report what would change, write nothing
@@ -1024,6 +1026,61 @@ help:
 |       --live                  also parse every script on the server (fails closed)
 | 
 |   --profile <name>            the server profile (default: default)
+|   --log <filter>              write diagnostic logs to stderr (or TWACO_LOG)
+|   --log-file <path>           append diagnostic logs to a file (or TWACO_LOG_FILE)
+
+== twaco completions
+usage: twaco completions <shell>
+settings: disable-version-flag disable-help-subcommand
+subcommands: 
+arg --help
+    action: Help
+    value_name: -
+    num_args: 0
+    allow_hyphen_values: no
+    allow_negative_numbers: no
+    required: no
+    default: -
+    index: -
+    other: -
+arg --log
+    action: Set
+    value_name: filter
+    num_args: 1
+    allow_hyphen_values: yes
+    allow_negative_numbers: no
+    required: no
+    default: -
+    index: -
+    other: -
+    given twice: ArgumentConflict
+    given bare: InvalidValue
+arg --log-file
+    action: Set
+    value_name: path
+    num_args: 1
+    allow_hyphen_values: yes
+    allow_negative_numbers: no
+    required: no
+    default: -
+    index: -
+    other: -
+    given twice: ArgumentConflict
+    given bare: InvalidValue
+arg <shell>
+    action: Set
+    value_name: shell
+    num_args: 1
+    allow_hyphen_values: no
+    allow_negative_numbers: no
+    required: no
+    default: -
+    index: 1
+    other: possible-values
+help:
+|   completions <shell>         a completion script on stdout for bash, elvish, fish, powershell
+|                               or zsh: every command, flag and action, with descriptions
+| 
 |   --log <filter>              write diagnostic logs to stderr (or TWACO_LOG)
 |   --log-file <path>           append diagnostic logs to a file (or TWACO_LOG_FILE)
 
@@ -3644,6 +3701,16 @@ arg --version
     other: -
     given twice: ArgumentConflict
     given bare: InvalidValue
+arg <action>
+    action: Set
+    value_name: action
+    num_args: 1
+    allow_hyphen_values: no
+    allow_negative_numbers: no
+    required: no
+    default: -
+    index: 1
+    other: possible-values
 arg <operands>
     action: Append
     value_name: operand
@@ -3652,7 +3719,7 @@ arg <operands>
     allow_negative_numbers: yes
     required: no
     default: -
-    index: 1
+    index: 2
     other: -
 help:
 |   help search <words>         search the ThingWorx Platform help (the server's version)
@@ -4085,6 +4152,16 @@ arg --refresh
     index: -
     other: -
     given twice: accepted
+arg <action>
+    action: Set
+    value_name: action
+    num_args: 1
+    allow_hyphen_values: no
+    allow_negative_numbers: no
+    required: no
+    default: -
+    index: 1
+    other: possible-values
 arg <operands>
     action: Append
     value_name: operand
@@ -4093,7 +4170,7 @@ arg <operands>
     allow_negative_numbers: yes
     required: no
     default: -
-    index: 1
+    index: 2
     other: -
 help:
 |   javadoc search <name>       search ThingWorx Platform Java API classes and members
@@ -5742,6 +5819,16 @@ arg --type
     other: -
     given twice: ArgumentConflict
     given bare: InvalidValue
+arg <action>
+    action: Set
+    value_name: action
+    num_args: 1
+    allow_hyphen_values: no
+    allow_negative_numbers: no
+    required: no
+    default: -
+    index: 1
+    other: possible-values
 arg <operands>
     action: Append
     value_name: operand
@@ -5750,7 +5837,7 @@ arg <operands>
     allow_negative_numbers: yes
     required: no
     default: -
-    index: 1
+    index: 2
     other: -
 help:
 |   mashup param <add|set|remove> <mashup> <name> [--type <BASETYPE>] [--direction <IN|OUT|BOTH>]
@@ -13206,16 +13293,16 @@ arg --profile
     other: -
     given twice: ArgumentConflict
     given bare: InvalidValue
-arg <operands>
-    action: Append
-    value_name: operand
-    num_args: 0..
+arg <action>
+    action: Set
+    value_name: action
+    num_args: 1
     allow_hyphen_values: no
-    allow_negative_numbers: yes
+    allow_negative_numbers: no
     required: no
     default: -
     index: 1
-    other: -
+    other: possible-values
 help:
 |   users list [--json]         the test users of [[test.user]] on the server: present, signing in
 |                               with the profile's test_password, in their groups

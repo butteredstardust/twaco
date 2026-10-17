@@ -64,6 +64,7 @@ when the command is asked to write. A local output named by an option is include
 | `mcp` | read-only | read-only | none | Retry freely. | `main.rs: main` |
 | `doctor` | read-only | read-only | none | Retry freely. | `main.rs: doctor` |
 | `update` | read-only | single-file atomic | the twaco executable | The executable is old or new; retry freely. | `core/update.rs: install` |
+| `completions` | read-only | read-only | none | Retry freely. | `main.rs: completions_cmd` |
 | `search` | read-only | read-only | none | Retry freely. | `cli/content.rs: search_cmd` |
 | `export entity` | single-file atomic | single-file atomic | named export file | The output is old or new; retry freely. | `cli/content.rs: export_cmd` |
 | `export collection` | single-file atomic | single-file atomic | named export file | The output is old or new; retry freely. | `cli/content.rs: export_cmd` |

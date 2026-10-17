@@ -1,0 +1,10 @@
+$ twaco users frob
+exit: 2
+
+--- stdout
+
+--- stderr
+twaco: invalid value 'frob' for '[action]'
+  [possible values: list, seed, delete]
+
+For more information, try '--help'.

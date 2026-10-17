@@ -1,3 +1,4 @@
+use super::flags::Json;
 use super::style;
 use crate::{FAILED, OK};
 use twaco::core::widgets_view::{self, WidgetDetail, WidgetSummary};
@@ -9,7 +10,7 @@ pub(crate) struct Widgets {
     #[arg(long = "search", value_name = "text")]
     pub(crate) search: Option<String>,
     #[command(flatten)]
-    pub(crate) json: super::flags::Json,
+    pub(crate) json: Json,
     #[arg(id = "operands", value_name = "operand")]
     pub(crate) operands: Vec<String>,
 }

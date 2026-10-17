@@ -1,7 +1,6 @@
-//! Flags several typed commands take, each declared once and flattened into the commands
+//! Flags several commands take, each declared once and flattened into the commands
 //! (`#[command(flatten)]`). A group declares only what a flag is called and the name of its
-//! value, as `FLAGS` in [`super::spec`] does; how it behaves on the command line is
-//! [`super::spec::decorate`]'s. `#[group(skip)]` keeps clap from adding an argument group per
+//! value; how it behaves on the command line is [`super::spec::decorate`]'s. `#[group(skip)]` keeps clap from adding an argument group per
 //! struct, which the grammar dump would show and nothing reads.
 
 /// `--profile <name>`: the server profile. Its default is applied here, not by clap, so a parse
@@ -63,8 +62,7 @@ pub(crate) struct Selection {
 }
 
 impl Selection {
-    /// `--all` with names says two things; refused before the command runs, in the builder's
-    /// words.
+    /// `--all` with names says two things; refused before the command runs.
     pub(crate) fn validate(&self) -> Result<(), String> {
         if self.all && !self.operands.is_empty() {
             return Err(format!(
@@ -76,64 +74,73 @@ impl Selection {
     }
 }
 
-/// `--timeout <seconds>`: how long one request may take. Read as text and checked by
-/// [`Timeout::duration`] from `validate()`, as `args_from` checked it, so the message is the
-/// builder's.
+/// `--timeout <seconds>`: how long one request may take. clap refuses a value that is not a
+/// positive whole number of seconds, before the command runs.
 #[derive(Debug, Default, clap::Args)]
 #[group(skip)]
 pub(crate) struct Timeout {
-    #[arg(long = "timeout", value_name = "seconds")]
-    pub(crate) timeout: Option<String>,
+    #[arg(long = "timeout", value_name = "seconds", value_parser = seconds)]
+    pub(crate) timeout: Option<std::time::Duration>,
 }
 
 impl Timeout {
-    /// The timeout given, if any; refused unless a positive whole number of seconds.
-    pub(crate) fn duration(&self) -> Result<Option<std::time::Duration>, String> {
-        let Some(value) = &self.timeout else {
-            return Ok(None);
-        };
-        value
-            .parse::<u64>()
-            .ok()
-            .filter(|seconds| *seconds > 0)
-            .map(|seconds| Some(std::time::Duration::from_secs(seconds)))
-            .ok_or_else(|| "--timeout needs a positive whole number of seconds".to_string())
+    /// The timeout given, or `default`.
+    pub(crate) fn or(&self, default: std::time::Duration) -> std::time::Duration {
+        self.timeout.unwrap_or(default)
     }
 }
 
+/// A positive whole number of seconds, as `--timeout` takes it.
+fn seconds(value: &str) -> Result<std::time::Duration, String> {
+    value
+        .parse::<u64>()
+        .ok()
+        .filter(|seconds| *seconds > 0)
+        .map(std::time::Duration::from_secs)
+        .ok_or_else(|| "needs a positive whole number of seconds".to_string())
+}
+
 /// The parser for a value that names a file (`value_parser = super::flags::path()`): any
-/// string, as the builder took it, read as a path. clap's own path parser refuses an empty value
-/// and accepts one that is not UTF-8, which the builder did the other way round.
+/// string, read as a path. clap's own path parser refuses an empty value and accepts one that is
+/// not UTF-8, which twaco has always done the other way round.
 pub(crate) fn path() -> impl clap::builder::TypedValueParser<Value = std::path::PathBuf> {
     use clap::builder::TypedValueParser as _;
     clap::builder::StringValueParser::new().map(std::path::PathBuf::from)
 }
 
-/// `--only-projects <a,b>`: the projects to work on, separated by commas. Read as text and
-/// split by [`OnlyProjects::projects`] from `validate()`, as `args_from` split it, so the
-/// message for a list that names none is the builder's.
+/// `--only-projects <a,b>`: the projects to work on, separated by commas. clap refuses a list
+/// that names none, before the command runs.
 #[derive(Debug, Default, clap::Args)]
 #[group(skip)]
 pub(crate) struct OnlyProjects {
-    #[arg(long = "only-projects", value_name = "a,b")]
-    pub(crate) only_projects: Option<String>,
+    #[arg(long = "only-projects", value_name = "a,b", value_parser = project_list)]
+    pub(crate) only_projects: Option<ProjectList>,
 }
 
+/// The projects one `--only-projects` names.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct ProjectList(pub(crate) Vec<String>);
+
 impl OnlyProjects {
-    /// The projects named, trimmed, empty names dropped; refused when given but naming none.
-    pub(crate) fn projects(&self) -> Result<Vec<String>, String> {
-        let Some(value) = &self.only_projects else {
-            return Ok(Vec::new());
-        };
-        let selected: Vec<String> = value
-            .split(',')
-            .map(str::trim)
-            .filter(|name| !name.is_empty())
-            .map(str::to_string)
-            .collect();
-        if selected.is_empty() {
-            return Err("--only-projects needs at least one project".to_string());
-        }
-        Ok(selected)
+    /// The projects named; none when the flag was not given.
+    pub(crate) fn projects(&self) -> Vec<String> {
+        self.only_projects
+            .as_ref()
+            .map(|list| list.0.clone())
+            .unwrap_or_default()
     }
+}
+
+/// The names between commas, trimmed, empty names dropped; refused when none is left.
+fn project_list(value: &str) -> Result<ProjectList, String> {
+    let selected: Vec<String> = value
+        .split(',')
+        .map(str::trim)
+        .filter(|name| !name.is_empty())
+        .map(str::to_string)
+        .collect();
+    if selected.is_empty() {
+        return Err("needs at least one project".to_string());
+    }
+    Ok(ProjectList(selected))
 }
