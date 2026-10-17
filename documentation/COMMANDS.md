@@ -23,7 +23,7 @@ mcp [--tools <groups>]      serve the tools over MCP on stdio (TWACO_ROOT: the s
 update [--apply]            compare with the latest release; --apply verifies its signature
                             and replaces this binary (TWACO_NO_UPDATE_CHECK=1: no daily notice)
 completions <shell>         a completion script on stdout for bash, elvish, fish, powershell
-                            or zsh: every command, flag and action, with descriptions
+                            or zsh: commands and flags with descriptions; actions in bash and zsh
 ```
 
 ## Work on the repository

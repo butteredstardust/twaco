@@ -118,7 +118,8 @@ twaco update --apply   # download it, verify its signature, and replace this bin
 ### Shell completions
 
 `twaco completions <shell>` writes a completion script for bash, elvish, fish, powershell or zsh
-on stdout: every command, flag and action, with the descriptions `twaco` lists.
+on stdout: every command and flag, with the descriptions `twaco` lists, and in bash and zsh the
+action words too (`users list|seed|delete`).
 
 ```sh
 twaco completions bash > ~/.local/share/bash-completion/completions/twaco
