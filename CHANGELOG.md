@@ -6,6 +6,11 @@ All notable changes to twaco are recorded here. The format follows
 
 ## [Unreleased]
 
+### Security
+
+- `zip` 9.0.4 (from 8.6.0) for RUSTSEC-2026-0368 and RUSTSEC-2026-0369. twaco never calls the
+  affected `extract`, so it was not exposed, but the advisories fail the dependency check.
+
 ### Changed
 
 - MCP `entity_new` lists its kinds in its schema, so a client can offer them and a wrong one is

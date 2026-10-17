@@ -137,10 +137,13 @@ fn entities_within(
         let mut entry = archive
             .by_index(index)
             .map_err(|e| ImportError::Invalid(format!("{file_name}: {e}")))?;
-        if !entry.name().to_ascii_lowercase().ends_with(".xml") {
+        let name = entry
+            .name()
+            .map_err(|e| ImportError::Invalid(format!("{file_name}: {e}")))?
+            .to_string();
+        if !name.to_ascii_lowercase().ends_with(".xml") {
             continue;
         }
-        let name = entry.name().to_string();
         let mut xml = Vec::new();
         // A zip says how big an entry is, but a crafted one can lie and expand without end:
         // read at most one byte past the limit, and refuse what reaches it.
