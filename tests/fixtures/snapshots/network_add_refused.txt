@@ -1,0 +1,7 @@
+$ twaco network add Acme.Orders.Plant Acme.Orders.Manager --as-root
+exit: 2
+
+--- stdout
+
+--- stderr
+twaco: Acme.Orders.Manager is already in Network Acme.Orders.Plant under the root; use network move

@@ -14,6 +14,36 @@ use std::collections::BTreeMap;
 /// What every state-changing tool may add: what taking the workspace lock did.
 type Notices = Option<Vec<String>>;
 
+/// `network` list or show.  The action determines whether `networks` or the hierarchy members
+/// are populated.
+#[derive(Serialize, JsonSchema)]
+pub(crate) struct NetworkResult {
+    networks: Option<Vec<Value>>,
+    name: Option<String>,
+    project: Option<String>,
+    nodes: Option<usize>,
+    roots: Option<usize>,
+    depth: Option<usize>,
+    templates: Option<Vec<Value>>,
+    tree: Option<Vec<Value>>,
+    connections: Option<Vec<Value>>,
+    problems: Option<Vec<String>>,
+    note: Option<String>,
+}
+#[derive(Serialize, JsonSchema)]
+pub(crate) struct NetworkWriteResult {
+    dry_run: bool,
+    applied: bool,
+    file: String,
+    changed: Option<bool>,
+    removed: Option<Vec<String>>,
+    created: Option<Vec<Value>>,
+    added: Option<Vec<String>>,
+    moved: Option<Vec<String>>,
+    noops: Option<Vec<String>>,
+    notices: Notices,
+}
+
 #[derive(Serialize, JsonSchema)]
 pub(crate) struct ProjectsResult {
     solution: String,

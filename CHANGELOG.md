@@ -6,6 +6,14 @@ All notable changes to twaco are recorded here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- `twaco network list|show|add|move|remove|import` reads and edits repository Network hierarchies as
+  byte-preserving XML splices. `network import` maps RFC 4180 asset CSV files and can create
+  Things in the same transaction; MCP `network` and `network_write` expose the hierarchy and its
+  plans. `new network` creates an empty Network entity and the `networks` check gate catches
+  connection shapes the server refuses.
+
 ## [0.1.21] - 2026-10-17
 
 ### Added

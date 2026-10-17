@@ -58,6 +58,28 @@ const SCENARIOS: &[(&str, &[&str])] = &[
     ("mcp_bad_tools", &["mcp", "--tools", "bogus"]),
     ("projects", &["projects"]),
     ("check", &["check"]),
+    ("network_show", &["network", "show", "Acme.Orders.Plant"]),
+    (
+        "network_add_refused",
+        &[
+            "network",
+            "add",
+            "Acme.Orders.Plant",
+            "Acme.Orders.Manager",
+            "--as-root",
+        ],
+    ),
+    (
+        "network_import_plan",
+        &[
+            "network",
+            "import",
+            "Acme.Orders.Plant",
+            "--file",
+            "network-assets.csv",
+            "--json",
+        ],
+    ),
     ("sync_all_check", &["sync", "--all", "--check"]),
     (
         "catalog_json",

@@ -2,9 +2,10 @@ use super::outputs;
 use super::requests::common::{parse, schema, NoArguments};
 use super::requests::{
     content as content_requests, data as data_requests, entity as entity_requests,
-    info as info_requests, refactor as refactor_requests, source as source_requests,
+    info as info_requests, network as network_requests, refactor as refactor_requests,
+    source as source_requests,
 };
-use super::{content, data, entity, info, refactor, source, Protocol, ToolError};
+use super::{content, data, entity, info, network, refactor, source, Protocol, ToolError};
 use crate::core::config::Solution;
 use crate::core::progress::Progress;
 use schemars::JsonSchema;
@@ -442,11 +443,23 @@ static TOOLS: LazyLock<Vec<Tool>> = LazyLock::new(|| {
         .with_output::<outputs::NewBuildingBlockResult>(),
         solution_tool::<refactor_requests::EntityNewRequest>(
             "entity_new",
-            "Create a ThingWorx entity as a repository XML file: common Things, data Things, media, styles, states, menus, and themes. DataShape and DataTable creation also writes their managed sidecar. A dry run unless dry_run is false; apply takes the workspace lock and writes every file or none.",
+            "Create a ThingWorx entity as a repository XML file: common Things, data Things, media, styles, states, menus, themes, and Networks. DataShape and DataTable creation also writes their managed sidecar. A dry run unless dry_run is false; apply takes the workspace lock and writes every file or none.",
             false,
             refactor::entity_new_tool,
         )
         .with_output::<outputs::EntityNewResult>(),
+        solution_tool::<network_requests::NetworkRequest>(
+            "network",
+            "List repository Networks or show one asset hierarchy. Show returns the same data as network show --json; its tree is limited to 200 rows unless detail is true. Read-only.",
+            true,
+            network::network_tool,
+        ).with_output::<outputs::NetworkResult>(),
+        solution_tool::<network_requests::NetworkWriteRequest>(
+            "network_write",
+            "Add, move or remove a Network connection, or import an RFC 4180 asset CSV. An import can create Things from repository or platform templates. A dry run unless dry_run is false; apply writes every created Thing and the Network XML in one transaction.",
+            false,
+            network::network_write_tool,
+        ).with_output::<outputs::NetworkWriteResult>(),
         solution_tool::<refactor_requests::EntityEditRequest>(
             "entity_edit",
             "Change an existing entity in the repository, as Composer would: add, change or remove a property of a Thing, ThingTemplate or ThingShape (a persistent one also writes the stored value of every Thing that has it), add a script service (a definition and its sidecars, as sync would) or remove one with its sidecars and run-time permissions, add or remove a script subscription, implement or stop implementing a ThingShape, change a timer's or scheduler's settings, given keys of a style, a MediaEntity's image, a menu's items, or a StateDefinition's states. Removing or retyping a property, or removing a service, something still uses is refused unless force. A dry run unless dry_run is false; apply takes the workspace lock and writes every file or none.",
@@ -821,6 +834,8 @@ pub(crate) const GROUPS: &[(&str, &[&str])] = &[
             "entity_restore",
             "entity_carry",
             "entity_new",
+            "network",
+            "network_write",
             "entity_edit",
             "new_building_block",
             "export",

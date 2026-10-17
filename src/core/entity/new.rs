@@ -36,6 +36,7 @@ pub enum Kind {
     State,
     Menu,
     Theme,
+    Network,
 }
 
 impl Kind {
@@ -55,6 +56,7 @@ impl Kind {
             "state" => Self::State,
             "menu" => Self::Menu,
             "theme" => Self::Theme,
+            "network" => Self::Network,
             _ => return None,
         })
     }
@@ -75,6 +77,7 @@ impl Kind {
             Self::State => "state",
             Self::Menu => "menu",
             Self::Theme => "theme",
+            Self::Network => "network",
         }
     }
 
@@ -94,6 +97,7 @@ impl Kind {
             Self::State => "StateDefinitions",
             Self::Menu => "Menus",
             Self::Theme => "StyleThemes",
+            Self::Network => "Networks",
         }
     }
 }
@@ -1015,6 +1019,11 @@ fn make_xml(
             request,
             project,
             &format!("            <content>{}</content>\n            <preview></preview>", cdata(&theme_content(request))),
+        ),
+        Kind::Network => format!(
+            "{}        <Network\n         description=\"{desc}\"\n         documentationContent=\"\"\n         name=\"{name}\"\n         projectName=\"{project}\"\n         tags=\"\">\n            <Connections></Connections>\n        </Network>\n{}",
+            header("Networks"),
+            footer("Networks")
         ),
         Kind::ThingShape => format!("{}        <ThingShape\n         aspect.isSystemObject=\"false\"\n         className=\"\"\n         description=\"{desc}\"\n         documentationContent=\"\"\n         homeMashup=\"\"\n         name=\"{name}\"\n         projectName=\"{project}\"\n         tags=\"\">\n            <PropertyDefinitions></PropertyDefinitions>\n            <ServiceDefinitions></ServiceDefinitions>\n            <EventDefinitions></EventDefinitions>\n            <ServiceMappings></ServiceMappings>\n            <ServiceImplementations></ServiceImplementations>\n            <Subscriptions></Subscriptions>\n{common}\n            <PropertyBindings></PropertyBindings>\n            <RemotePropertyBindings></RemotePropertyBindings>\n            <RemoteServiceBindings></RemoteServiceBindings>\n            <RemoteEventBindings></RemoteEventBindings>\n            <AlertConfigurations></AlertConfigurations>\n            <InstanceRunTimePermissions></InstanceRunTimePermissions>\n        </ThingShape>\n{}", header("ThingShapes"), footer("ThingShapes")),
         Kind::DataShape => {

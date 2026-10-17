@@ -922,6 +922,50 @@ pub(crate) const USAGE: &[Usage] = &[
                               create a StyleTheme; plan unless --apply"#,
     },
     Usage {
+        path: "new network",
+        group: 1,
+        text: r#"  new network <name> [--project <name>] [--description <text>] [--apply] [--json]
+                              create an empty Network entity; plan unless --apply"#,
+    },
+    Usage {
+        path: "network list",
+        group: 2,
+        text: r#"  network list [--json]       list repository Networks and their hierarchy counts"#,
+    },
+    Usage {
+        path: "network show",
+        group: 2,
+        text: r#"  network show <Network> [<Thing>] [--depth <n>] [--json]
+                              a Network's hierarchy as a tree: each Thing's template, things outside
+                              the repository, nodes per template, problems; <Thing>: its subtree"#,
+    },
+    Usage {
+        path: "network add",
+        group: 2,
+        text: r#"  network add <Network> <Thing> (--under <Thing> | --as-root) [--type <connectionType>]
+      [--outside] [--apply] [--json]
+                              add a Thing to a Network (a Thing has one parent); plan unless --apply
+      --outside               a Thing the repository does not hold (it exists on the server)"#,
+    },
+    Usage {
+        path: "network move",
+        group: 2,
+        text: r#"  network move <Network> <Thing> (--under <Thing> | --as-root) [--type <connectionType>]
+      [--apply] [--json]      re-parent a Thing with its subtree; plan unless --apply"#,
+    },
+    Usage {
+        path: "network remove",
+        group: 2,
+        text: r#"  network remove <Network> <Thing> [--subtree] [--apply] [--json]
+                              remove a Network connection, never the Thing; plan unless --apply"#,
+    },
+    Usage {
+        path: "network import",
+        group: 2,
+        text: r#"  network import <Network> --file <path> [--create-things] [--move] [--outside] [--apply] [--json]
+                                map CSV assets into a Network hierarchy; plan unless --apply"#,
+    },
+    Usage {
         path: "entity status",
         group: 2,
         text: r#"  entity status [<entity>|--all] [--detail] [--record]

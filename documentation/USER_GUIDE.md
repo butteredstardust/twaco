@@ -478,6 +478,58 @@ On `sync`, a DataTable or Stream's `accumulatedDataShape` follows its DataShape 
 server does on import. DataTables update both their XML and `datatable.json`; Streams update XML.
 Do not edit `accumulatedDataShape` by hand.
 
+## Asset hierarchies and networks
+
+ThingWorx joins the Things of an asset hierarchy (enterprise, site, area, line, machine; a fleet of
+vehicles) in a Network entity. A Network is a forest: a Thing appears in it once, under one parent,
+and a connection whose `from` is empty is a root. The Network XML in the repository is the
+declarative truth: deploying it replaces the server's whole connection list.
+
+```sh
+twaco network list
+twaco network show Acme.Plant                  # the tree, with each Thing's template
+twaco network show Acme.Plant Acme.Area2 --depth 1
+twaco new network Acme.Plant --project Acme --apply
+twaco network add Acme.Plant Acme.Site --as-root --apply
+twaco network add Acme.Plant Acme.Line7 --under Acme.Site --type Child --apply
+twaco network move Acme.Plant Acme.Line7 --under Acme.Area2 --apply
+twaco network remove Acme.Plant Acme.Area2 --subtree --apply
+```
+
+`network show` prints each Thing with its ThingTemplate, or "outside the repository" for a Thing
+only the server holds, then how many nodes each template has and anything wrong with the
+hierarchy; a Thing name after the Network shows only its subtree, and `--depth` cuts it. `--json`
+gives the tree, the flat connection list and the problems. `add` refuses a Thing already in the
+network (`move` it instead), a parent that is not in it, and a Thing the repository does not hold
+unless `--outside` says it exists on the server. `move` keeps the Thing's subtree and refuses a
+parent inside it. `remove` takes the connection, never the Thing, and refuses a Thing with
+children unless `--subtree`. Each edit plans until `--apply` and changes only the connections it
+names, in the file's own layout. The `networks` gate of `twaco check` reports a Thing with two
+parents, a cycle, a parent that is not itself in the network, and a connection listed twice.
+
+`network import` brings an asset export into that same hierarchy. Its `--file` is UTF-8 RFC 4180
+CSV (a BOM, CRLF, quoted commas, doubled quotes and quoted newlines are accepted), with `name` and
+`parent` headers and optional `type`, `template`, `description` and `project`. An empty `parent`
+makes a root. Parents are applied before their children even if the CSV puts the child first.
+
+```csv
+name,parent,type,template,description,project
+Acme.Site,,Contains,GenericThing,Acme site,Acme
+Acme.Line,Acme.Site,Contains,Acme.Line_TT,"Line, one",Acme
+```
+
+```sh
+twaco network import Acme.Plant --file assets.csv --create-things
+twaco network import Acme.Plant --file assets.csv --create-things --apply
+```
+
+An already-correct row is a no-op; an existing Thing under another parent needs `--move`.
+`--create-things` requires a template on every missing Thing and creates it from a repository or
+platform template (such as `GenericThing`), with the row project or the Network project. Without
+it, missing Things need `--outside`. Refusals write nothing; an applied import creates all Things
+and changes the Network in one transaction. MCP exposes the same read operations as `network` and
+the edits and import as `network_write` (`dry_run` defaults to true).
+
 ## Changing entities
 
 Each command plans until `--apply` and changes only the element it names.

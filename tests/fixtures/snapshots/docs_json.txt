@@ -12,6 +12,7 @@ exit: 0
       "entities": {
         "DataShapes": 2,
         "Mashups": 1,
+        "Networks": 1,
         "Projects": 1,
         "ThingShapes": 2,
         "ThingTemplates": 1,

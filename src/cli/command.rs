@@ -63,6 +63,8 @@ pub(crate) enum Command {
     #[command(subcommand)]
     State(super::entity_edit::State),
     #[command(subcommand)]
+    Network(super::network::Network),
+    #[command(subcommand)]
     New(super::entity_new::New),
     #[command(subcommand)]
     Mashup(super::mashup::Mashup),
@@ -138,6 +140,14 @@ impl Command {
             Command::Media(_) => "media set",
             Command::Menu(_) => "menu item",
             Command::State(_) => "state set",
+            Command::Network(network) => match network {
+                super::network::Network::List(_) => "network list",
+                super::network::Network::Show(_) => "network show",
+                super::network::Network::Add(_) => "network add",
+                super::network::Network::Move(_) => "network move",
+                super::network::Network::Remove(_) => "network remove",
+                super::network::Network::Import(_) => "network import",
+            },
             Command::New(super::entity_new::New::BuildingBlock(_)) => "new building-block",
             Command::New(super::entity_new::New::Entity(new)) => new.path(),
             Command::Mashup(mashup) => mashup.path(),
@@ -211,6 +221,7 @@ impl Command {
             | Command::Media(_)
             | Command::Menu(_)
             | Command::State(_)
+            | Command::Network(_)
             | Command::New(_)
             | Command::Mashup(_)
             | Command::Adopt(_)
