@@ -1016,6 +1016,64 @@ fn projection(typed: Typed) -> Projection {
                 ("--out", shown(package.out.as_ref())),
             ]),
         ),
+
+        Typed::Catalog(catalog) => (
+            catalog.operands,
+            switches(&[("--json", catalog.json.json)]),
+            values(&[
+                ("--project", catalog.project.project),
+                ("--search", catalog.search),
+            ]),
+        ),
+        Typed::Impact(impact) => (
+            impact.operands,
+            switches(&[
+                ("--detail", impact.detail.detail),
+                ("--json", impact.json.json),
+                ("--dot", impact.dot),
+            ]),
+            values(&[
+                ("--member", impact.member),
+                ("--min-confidence", impact.min_confidence),
+                ("--depth", impact.depth),
+            ]),
+        ),
+        Typed::Trace(trace) => (
+            trace.operands,
+            switches(&[("--json", trace.json.json)]),
+            trace
+                .params
+                .into_iter()
+                .map(|param| ("--param".to_string(), param))
+                .collect(),
+        ),
+        Typed::Unused(unused) => (
+            Vec::new(),
+            switches(&[
+                ("--fields", unused.fields),
+                ("--detail", unused.detail.detail),
+                ("--json", unused.json.json),
+            ]),
+            values(&[
+                ("--min-confidence", unused.min_confidence),
+                ("--collection", unused.collection),
+            ]),
+        ),
+        Typed::Docs(docs) => (
+            Vec::new(),
+            switches(&[
+                ("--detail", docs.detail.detail),
+                ("--json", docs.json.json),
+                ("--force", docs.force),
+                ("--check", docs.check),
+            ]),
+            values(&[("--out", shown(docs.out.as_ref()))]),
+        ),
+        Typed::Widgets(widgets) => (
+            widgets.operands,
+            switches(&[("--json", widgets.json.json)]),
+            values(&[("--search", widgets.search)]),
+        ),
     }
 }
 
@@ -1064,6 +1122,37 @@ fn derived_commands_read_what_their_grammar_rows_read() {
                 "--force",
             ],
         ),
+        ("catalog", true, &["--project", "--search", "--json"]),
+        (
+            "impact",
+            true,
+            &[
+                "--member",
+                "--min-confidence",
+                "--depth",
+                "--detail",
+                "--json",
+                "--dot",
+            ],
+        ),
+        ("trace", true, &["--param", "--json"]),
+        (
+            "unused",
+            false,
+            &[
+                "--min-confidence",
+                "--collection",
+                "--fields",
+                "--detail",
+                "--json",
+            ],
+        ),
+        (
+            "docs",
+            false,
+            &["--detail", "--json", "--out", "--force", "--check"],
+        ),
+        ("widgets", true, &["--search", "--json"]),
     ];
     let lines: &[&[&str]] = &[
         &["init"],
@@ -1120,6 +1209,65 @@ fn derived_commands_read_what_their_grammar_rows_read() {
         ],
         &["package", "source-control", "--out", ""],
         &["package", "--", "-weird"],
+        &["catalog"],
+        &[
+            "catalog",
+            "Acme.T",
+            "--project",
+            "Acme",
+            "--search",
+            "-get",
+            "--json",
+        ],
+        &[
+            "impact",
+            "Acme.T",
+            "--member",
+            "Run",
+            "--min-confidence",
+            "resolved",
+            "--depth",
+            "-1",
+            "--detail",
+            "--json",
+            "--dot",
+        ],
+        &["impact", "a", "b"],
+        &["trace", "Acme.T.Run"],
+        &[
+            "trace",
+            "Acme.T.Run",
+            "--param",
+            "a:STRING",
+            "--param",
+            "b",
+            "--json",
+        ],
+        &["unused"],
+        &[
+            "unused",
+            "--min-confidence",
+            "review",
+            "--collection",
+            "Things",
+            "--detail",
+            "--json",
+            "--json",
+        ],
+        &["unused", "--fields"],
+        &["docs"],
+        &[
+            "docs",
+            "--out",
+            "SOLUTION.md",
+            "--check",
+            "--detail",
+            "--json",
+        ],
+        &["docs", "--out=", "--force"],
+        &["widgets"],
+        &["widgets", "ptcsbutton", "--json"],
+        &["widgets", "--search", "grid"],
     ];
     for line in lines {
         let mut all = vec!["twaco"];

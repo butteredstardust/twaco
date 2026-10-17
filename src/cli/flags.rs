@@ -36,6 +36,14 @@ pub(crate) struct Json {
     pub(crate) json: bool,
 }
 
+/// `--detail`: the whole result, not only its summary.
+#[derive(Debug, Default, clap::Args)]
+#[group(skip)]
+pub(crate) struct Detail {
+    #[arg(long = "detail")]
+    pub(crate) detail: bool,
+}
+
 /// `--project <name>`: narrow to one project of the solution.
 #[derive(Debug, Default, clap::Args)]
 #[group(skip)]

@@ -2112,44 +2112,6 @@ pub(crate) const GRAMMAR: &[Grammar] = &[
         flags: &["--platform", "--check", "--json", "--profile"],
     },
     Grammar {
-        path: "catalog",
-        operands: true,
-        flags: &["--project", "--search", "--json"],
-    },
-    Grammar {
-        path: "impact",
-        operands: true,
-        flags: &[
-            "--member",
-            "--min-confidence",
-            "--depth",
-            "--detail",
-            "--json",
-            "--dot",
-        ],
-    },
-    Grammar {
-        path: "trace",
-        operands: true,
-        flags: &["--param", "--json"],
-    },
-    Grammar {
-        path: "unused",
-        operands: false,
-        flags: &[
-            "--min-confidence",
-            "--collection",
-            "--fields",
-            "--detail",
-            "--json",
-        ],
-    },
-    Grammar {
-        path: "docs",
-        operands: false,
-        flags: &["--detail", "--json", "--out", "--force", "--check"],
-    },
-    Grammar {
         path: "adopt",
         operands: true,
         flags: &[
@@ -2267,11 +2229,6 @@ pub(crate) const GRAMMAR: &[Grammar] = &[
         path: "reproject",
         operands: true,
         flags: &["--to", "--apply", "--json"],
-    },
-    Grammar {
-        path: "widgets",
-        operands: true,
-        flags: &["--search", "--json"],
     },
     Grammar {
         path: "mashup validate",

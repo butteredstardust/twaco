@@ -22,6 +22,12 @@ pub(crate) enum Typed {
     Help(super::info::Help),
     Javadoc(super::info::Javadoc),
     Package(super::content::Package),
+    Catalog(super::info::Catalog),
+    Impact(super::info::Impact),
+    Trace(super::info::Trace),
+    Unused(super::info::Unused),
+    Docs(super::info::Docs),
+    Widgets(super::widgets::Widgets),
 }
 
 impl Typed {
@@ -37,6 +43,12 @@ impl Typed {
             Typed::Help(_) => "help",
             Typed::Javadoc(_) => "javadoc",
             Typed::Package(_) => "package",
+            Typed::Catalog(_) => "catalog",
+            Typed::Impact(_) => "impact",
+            Typed::Trace(_) => "trace",
+            Typed::Unused(_) => "unused",
+            Typed::Docs(_) => "docs",
+            Typed::Widgets(_) => "widgets",
         }
     }
 
@@ -52,7 +64,13 @@ impl Typed {
             | Typed::Guide(_)
             | Typed::Help(_)
             | Typed::Javadoc(_)
-            | Typed::Package(_) => Ok(()),
+            | Typed::Package(_)
+            | Typed::Catalog(_)
+            | Typed::Impact(_)
+            | Typed::Trace(_)
+            | Typed::Unused(_)
+            | Typed::Docs(_)
+            | Typed::Widgets(_) => Ok(()),
         }
     }
 }

@@ -191,15 +191,20 @@ fn dispatch_typed(typed: Typed) -> u8 {
         // So does the guide: its built-in topics are the same everywhere.
         Typed::Guide(guide) => guide_cmd(&guide),
         Typed::Package(package) => run(|solution| package_cmd(solution, &package)),
+        Typed::Widgets(widgets) => widgets_cmd(&widgets),
+        Typed::Catalog(catalog) => run(|solution| catalog_cmd(solution, &catalog)),
+        Typed::Impact(impact) => run(|solution| impact_cmd(solution, &impact)),
+        Typed::Trace(trace) => run(|solution| cli::info::trace_cmd(solution, &trace)),
+        Typed::Unused(unused) => run(|solution| unused_cmd(solution, &unused)),
+        Typed::Docs(docs) => run(|solution| docs_cmd(solution, &docs)),
     }
 }
 
 /// Run one table command and return its exit code.
 fn dispatch(route: &str, parsed: &Args) -> u8 {
-    match route {
-        "widgets" => return widgets_cmd(parsed),
-        "mashup templates" => return mashup_templates_cmd(parsed),
-        _ => {}
+    // The templates are built in, so they need no solution.
+    if route == "mashup templates" {
+        return mashup_templates_cmd(parsed);
     }
 
     // Commands that change the workspace take its lock in their executor (core::commands), so
@@ -219,11 +224,6 @@ fn dispatch(route: &str, parsed: &Args) -> u8 {
         "test" => test_cmd(solution, parsed),
         "ext" => ext_cmd(solution, parsed),
         "settings" => settings_cmd(solution, parsed),
-        "catalog" => catalog_cmd(solution, parsed),
-        "impact" => impact_cmd(solution, parsed),
-        "trace" => cli::info::trace_cmd(solution, parsed),
-        "unused" => unused_cmd(solution, parsed),
-        "docs" => docs_cmd(solution, parsed),
         "search" => search_cmd(solution, parsed),
         "export" => export_cmd(solution, parsed),
         "import" => import_cmd(solution, parsed),

@@ -705,12 +705,21 @@ pub(crate) fn settings_cmd(solution: &Solution, args: &Args) -> u8 {
     }
 }
 
-/// `twaco catalog [<entity>] [--project P] [--search <text>] [--json]`.
-/// What changing an entity, or one service, property or field of it, would reach. Offline and
-/// read-only: it reads the solution into the index and asks it.
+/// `twaco trace <Entity>.<Service> [--param <name>] [--json]`.
+#[derive(Debug, clap::Args)]
+#[group(skip)]
+pub(crate) struct Trace {
+    #[arg(long = "param", value_name = "name:TYPE[:DIRECTION]")]
+    pub(crate) params: Vec<String>,
+    #[command(flatten)]
+    pub(crate) json: super::flags::Json,
+    #[arg(id = "operands", value_name = "operand")]
+    pub(crate) operands: Vec<String>,
+}
+
 /// `twaco trace <Entity>.<Service>`: how each caller uses a service. Read-only and offline.
-pub(crate) fn trace_cmd(solution: &Solution, args: &Args) -> u8 {
-    let [service] = args.names.as_slice() else {
+pub(crate) fn trace_cmd(solution: &Solution, args: &Trace) -> u8 {
+    let [service] = args.operands.as_slice() else {
         eprintln!("{} trace needs one <Entity>.<Service>", style::prefix());
         return FAILED;
     };
@@ -720,7 +729,7 @@ pub(crate) fn trace_cmd(solution: &Solution, args: &Args) -> u8 {
     }
     let param = args.params.first().map(String::as_str);
     match twaco::core::trace::run(solution, service, param) {
-        Ok(trace) if args.has("--json") => {
+        Ok(trace) if args.json.json => {
             println!(
                 "{}",
                 serde_json::to_string_pretty(&trace).expect("a trace serialises")
@@ -738,22 +747,44 @@ pub(crate) fn trace_cmd(solution: &Solution, args: &Args) -> u8 {
     }
 }
 
-pub(crate) fn impact_cmd(solution: &Solution, args: &Args) -> u8 {
-    let [entity] = args.names.as_slice() else {
+/// `twaco impact <entity> [--member <name>] [--min-confidence <value>] [--depth <n>]`.
+#[derive(Debug, clap::Args)]
+#[group(skip)]
+pub(crate) struct Impact {
+    #[arg(long = "member", value_name = "name")]
+    pub(crate) member: Option<String>,
+    #[arg(long = "min-confidence", value_name = "value")]
+    pub(crate) min_confidence: Option<String>,
+    #[arg(long = "depth", value_name = "n")]
+    pub(crate) depth: Option<String>,
+    #[command(flatten)]
+    pub(crate) detail: super::flags::Detail,
+    #[command(flatten)]
+    pub(crate) json: super::flags::Json,
+    #[arg(long = "dot")]
+    pub(crate) dot: bool,
+    #[arg(id = "operands", value_name = "operand")]
+    pub(crate) operands: Vec<String>,
+}
+
+/// What changing an entity, or one service, property or field of it, would reach. Offline and
+/// read-only: it reads the solution into the index and asks it.
+pub(crate) fn impact_cmd(solution: &Solution, args: &Impact) -> u8 {
+    let [entity] = args.operands.as_slice() else {
         eprintln!(
             "{} impact needs one <entity>, such as Acme.Orders.Manager",
             style::prefix()
         );
         return FAILED;
     };
-    if args.has("--json") && args.has("--dot") {
+    if args.json.json && args.dot {
         eprintln!(
             "{} --json and --dot are different outputs; pick one",
             style::prefix()
         );
         return FAILED;
     }
-    let min = match args.values.get("--min-confidence") {
+    let min = match args.min_confidence.as_ref() {
         None => Confidence::Review,
         Some(word) => match Confidence::parse(word) {
             Some(confidence) => confidence,
@@ -766,7 +797,7 @@ pub(crate) fn impact_cmd(solution: &Solution, args: &Args) -> u8 {
             }
         },
     };
-    let depth = match args.values.get("--depth") {
+    let depth = match args.depth.as_ref() {
         None => None,
         Some(text) => match text.parse::<usize>() {
             Ok(depth) if depth > 0 => Some(depth),
@@ -781,7 +812,7 @@ pub(crate) fn impact_cmd(solution: &Solution, args: &Args) -> u8 {
     };
     let request = impact::Request {
         entity: entity.clone(),
-        member: args.values.get("--member").cloned(),
+        member: args.member.clone(),
         min,
         depth,
     };
@@ -792,34 +823,40 @@ pub(crate) fn impact_cmd(solution: &Solution, args: &Args) -> u8 {
             return FAILED;
         }
     };
-    if args.has("--json") {
-        let value = report.to_json(args.has("--detail"));
+    if args.json.json {
+        let value = report.to_json(args.detail.detail);
         println!(
             "{}",
             serde_json::to_string_pretty(&value).expect("a report serialises")
         );
-    } else if args.has("--dot") {
+    } else if args.dot {
         print!("{}", impact::render_dot(&report));
     } else {
-        print!("{}", impact::render_text(&report, args.has("--detail")));
+        print!("{}", impact::render_text(&report, args.detail.detail));
     }
     OK
 }
 
+/// `twaco unused [--min-confidence <value>] [--collection <name>] [--fields]`.
+#[derive(Debug, clap::Args)]
+#[group(skip)]
+pub(crate) struct Unused {
+    #[arg(long = "min-confidence", value_name = "value")]
+    pub(crate) min_confidence: Option<String>,
+    #[arg(long = "collection", value_name = "name")]
+    pub(crate) collection: Option<String>,
+    #[arg(long = "fields")]
+    pub(crate) fields: bool,
+    #[command(flatten)]
+    pub(crate) detail: super::flags::Detail,
+    #[command(flatten)]
+    pub(crate) json: super::flags::Json,
+}
+
 /// Entities no entry point reaches. Offline, advisory and read-only: it deletes nothing.
-pub(crate) fn unused_cmd(solution: &Solution, args: &Args) -> u8 {
-    if !args.names.is_empty() {
-        eprintln!(
-            "{} unused takes no entity; use --collection to narrow it",
-            style::prefix()
-        );
-        return FAILED;
-    }
-    let fields = args.has("--fields");
-    if fields
-        && (args.values.contains_key("--min-confidence")
-            || args.values.contains_key("--collection"))
-    {
+pub(crate) fn unused_cmd(solution: &Solution, args: &Unused) -> u8 {
+    let fields = args.fields;
+    if fields && (args.min_confidence.is_some() || args.collection.is_some()) {
         eprintln!(
             "{} --fields cannot be used with --collection or --min-confidence",
             style::prefix()
@@ -828,7 +865,7 @@ pub(crate) fn unused_cmd(solution: &Solution, args: &Args) -> u8 {
     }
     if fields {
         let report = unused::fields(solution);
-        if args.has("--json") {
+        if args.json.json {
             println!(
                 "{}",
                 serde_json::to_string_pretty(&report).expect("a report serialises")
@@ -838,7 +875,7 @@ pub(crate) fn unused_cmd(solution: &Solution, args: &Args) -> u8 {
         }
         return OK;
     }
-    let min = match args.values.get("--min-confidence") {
+    let min = match args.min_confidence.as_ref() {
         None => Confidence::Review,
         Some(word) => match Confidence::parse(word) {
             Some(confidence) => confidence,
@@ -851,7 +888,7 @@ pub(crate) fn unused_cmd(solution: &Solution, args: &Args) -> u8 {
             }
         },
     };
-    let collection = args.values.get("--collection").cloned();
+    let collection = args.collection.clone();
     if let Some(name) = &collection {
         if !unused::JUDGED.contains(&name.as_str()) {
             eprintln!(
@@ -863,36 +900,48 @@ pub(crate) fn unused_cmd(solution: &Solution, args: &Args) -> u8 {
         }
     }
     let report = unused::run(solution, &unused::Request { min, collection });
-    if args.has("--json") {
-        let value = report.to_json(args.has("--detail"));
+    if args.json.json {
+        let value = report.to_json(args.detail.detail);
         println!(
             "{}",
             serde_json::to_string_pretty(&value).expect("a report serialises")
         );
     } else {
-        print!("{}", unused::render_text(&report, args.has("--detail")));
+        print!("{}", unused::render_text(&report, args.detail.detail));
     }
     OK
 }
 
+/// `twaco docs [--detail] [--json] [--out <file> [--force|--check]]`.
+#[derive(Debug, clap::Args)]
+#[group(skip)]
+pub(crate) struct Docs {
+    #[command(flatten)]
+    pub(crate) detail: super::flags::Detail,
+    #[command(flatten)]
+    pub(crate) json: super::flags::Json,
+    #[arg(long = "out", value_name = "path", value_parser = super::flags::path())]
+    pub(crate) out: Option<std::path::PathBuf>,
+    #[arg(long = "force")]
+    pub(crate) force: bool,
+    #[arg(long = "check")]
+    pub(crate) check: bool,
+}
+
 /// The solution written down. Offline; with `--out` it writes exactly one file.
-pub(crate) fn docs_cmd(solution: &Solution, args: &Args) -> u8 {
-    if !args.names.is_empty() {
-        eprintln!("{} docs takes no entity name", style::prefix());
-        return FAILED;
-    }
-    if args.has("--force") && args.out.is_none() {
+pub(crate) fn docs_cmd(solution: &Solution, args: &Docs) -> u8 {
+    if args.force && args.out.is_none() {
         eprintln!("{} --force only applies to --out", style::prefix());
         return FAILED;
     }
-    if args.has("--check") && args.out.is_none() {
+    if args.check && args.out.is_none() {
         eprintln!(
             "{} --check needs --out <file>: the document to compare",
             style::prefix()
         );
         return FAILED;
     }
-    if args.has("--check") && args.has("--force") {
+    if args.check && args.force {
         eprintln!(
             "{} --check writes nothing; leave out --force",
             style::prefix()
@@ -900,8 +949,8 @@ pub(crate) fn docs_cmd(solution: &Solution, args: &Args) -> u8 {
         return FAILED;
     }
     let document = docs::build(solution);
-    let detail = args.has("--detail");
-    let text = if args.has("--json") {
+    let detail = args.detail.detail;
+    let text = if args.json.json {
         let mut json =
             serde_json::to_string_pretty(&document.to_json(detail)).expect("a document serialises");
         json.push('\n');
@@ -911,8 +960,8 @@ pub(crate) fn docs_cmd(solution: &Solution, args: &Args) -> u8 {
     };
     match &args.out {
         None => print!("{text}"),
-        Some(path) if args.has("--check") => {
-            let format = if args.has("--json") { " --json" } else { "" };
+        Some(path) if args.check => {
+            let format = if args.json.json { " --json" } else { "" };
             let detail = if detail { " --detail" } else { "" };
             match docs::is_current(path, &text) {
                 Ok(true) => println!("{} is up to date", path.display()),
@@ -939,7 +988,7 @@ pub(crate) fn docs_cmd(solution: &Solution, args: &Args) -> u8 {
             }
         }
         Some(path) => {
-            if let Err(error) = docs::write(path, &text, args.has("--force")) {
+            if let Err(error) = docs::write(path, &text, args.force) {
                 eprintln!("{} docs: {error}", style::prefix());
                 return FAILED;
             }
@@ -949,15 +998,29 @@ pub(crate) fn docs_cmd(solution: &Solution, args: &Args) -> u8 {
     OK
 }
 
-pub(crate) fn catalog_cmd(solution: &Solution, args: &Args) -> u8 {
-    if args.names.len() > 1 {
+/// `twaco catalog [<entity>] [--project P] [--search <text>] [--json]`.
+#[derive(Debug, clap::Args)]
+#[group(skip)]
+pub(crate) struct Catalog {
+    #[command(flatten)]
+    pub(crate) project: super::flags::Project,
+    #[arg(long = "search", value_name = "text")]
+    pub(crate) search: Option<String>,
+    #[command(flatten)]
+    pub(crate) json: super::flags::Json,
+    #[arg(id = "operands", value_name = "operand")]
+    pub(crate) operands: Vec<String>,
+}
+
+pub(crate) fn catalog_cmd(solution: &Solution, args: &Catalog) -> u8 {
+    if args.operands.len() > 1 {
         eprintln!("{} catalog takes at most one entity name", style::prefix());
         return FAILED;
     }
     let query = catalog::Query {
-        project: args.project.as_deref(),
-        entity: args.names.first().map(String::as_str),
-        text: args.values.get("--search").map(String::as_str),
+        project: args.project.project.as_deref(),
+        entity: args.operands.first().map(String::as_str),
+        text: args.search.as_deref(),
     };
     let result = match catalog::build(solution, query) {
         Ok(result) => result,
@@ -970,7 +1033,7 @@ pub(crate) fn catalog_cmd(solution: &Solution, args: &Args) -> u8 {
         eprintln!("{} skipped {skipped}", style::prefix());
     }
     for entity in &result.entities {
-        if !args.has("--json") {
+        if !args.json.json {
             let mut notes = Vec::new();
             if !entity.inherits.is_empty() {
                 notes.push(format!("inherits {}", entity.inherits.join(", ")));
@@ -989,7 +1052,7 @@ pub(crate) fn catalog_cmd(solution: &Solution, args: &Args) -> u8 {
             println!("{}/{}{}", entity.collection, entity.name, notes);
         }
         for service in &entity.services {
-            if args.has("--json") {
+            if args.json.json {
                 println!(
                     "{}",
                     serde_json::json!({

@@ -1,19 +1,30 @@
-use super::args::Args;
 use super::style;
 use crate::{FAILED, OK};
 use twaco::core::widgets_view::{self, WidgetDetail, WidgetSummary};
 
+/// `twaco widgets [<widget>] [--search <text>] [--json]`.
+#[derive(Debug, clap::Args)]
+#[group(skip)]
+pub(crate) struct Widgets {
+    #[arg(long = "search", value_name = "text")]
+    pub(crate) search: Option<String>,
+    #[command(flatten)]
+    pub(crate) json: super::flags::Json,
+    #[arg(id = "operands", value_name = "operand")]
+    pub(crate) operands: Vec<String>,
+}
+
 /// `twaco widgets [<widget>] [--search <text>]`: read the embedded catalogue.
-pub(crate) fn widgets_cmd(args: &Args) -> u8 {
-    if !args.names.is_empty() && args.values.contains_key("--search") {
+pub(crate) fn widgets_cmd(args: &Widgets) -> u8 {
+    if !args.operands.is_empty() && args.search.is_some() {
         eprintln!("{} give a widget or --search, not both", style::prefix());
         return FAILED;
     }
-    match args.names.as_slice() {
+    match args.operands.as_slice() {
         [] => list_cmd(args),
         [word] => match widgets_view::detail(word) {
             Ok(detail) => {
-                if args.has("--json") {
+                if args.json.json {
                     println!(
                         "{}",
                         serde_json::to_string_pretty(&detail).expect("a widget serialises")
@@ -35,17 +46,17 @@ pub(crate) fn widgets_cmd(args: &Args) -> u8 {
     }
 }
 
-fn list_cmd(args: &Args) -> u8 {
-    let search = args.values.get("--search").map(String::as_str);
+fn list_cmd(args: &Widgets) -> u8 {
+    let search = args.search.as_deref();
     let widgets = widgets_view::list(search);
-    if widgets.is_empty() && !args.has("--json") {
+    if widgets.is_empty() && !args.json.json {
         println!(
             "no widget matches \"{}\"; twaco widgets lists them all",
             search.unwrap_or_default()
         );
         return OK;
     }
-    if args.has("--json") {
+    if args.json.json {
         println!(
             "{}",
             serde_json::to_string_pretty(&widgets).expect("widgets serialise")
