@@ -6,6 +6,8 @@ All notable changes to twaco are recorded here. The format follows
 
 ## [Unreleased]
 
+## [0.1.14] - 2026-10-17
+
 ### Security
 
 - `zip` 9.0.4 (from 8.6.0) for RUSTSEC-2026-0368 and RUSTSEC-2026-0369. twaco never calls the
@@ -578,6 +580,7 @@ The first public release.
 - `mcp` serves 39 tools over stdio to MCP clients, with compact summaries, validated arguments
   and dry runs by default for tools that can write to a server.
 
+[0.1.14]: https://github.com/butteredstardust/twaco/releases/tag/v0.1.14
 [0.1.13]: https://github.com/butteredstardust/twaco/releases/tag/v0.1.13
 [0.1.12]: https://github.com/butteredstardust/twaco/releases/tag/v0.1.12
 [0.1.11]: https://github.com/butteredstardust/twaco/releases/tag/v0.1.11
