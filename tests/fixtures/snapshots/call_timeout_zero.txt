@@ -1,0 +1,7 @@
+$ twaco call T S --timeout 0
+exit: 2
+
+--- stdout
+
+--- stderr
+twaco: --timeout needs a positive whole number of seconds

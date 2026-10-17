@@ -112,10 +112,12 @@ See [Testing](TESTING.md) for commands.
 
 1. Put the behaviour in a `core` module, with its server access behind a trait so tests can
    fake it.
-2. Add the CLI command: one entry in `COMMANDS` in `cli/spec.rs` (its path, group, the flags it
-   takes, whether it takes operands, and the lines `twaco` lists for it; a new flag also gets
-   one line in `FLAGS`), and its arm in the dispatch in `main.rs`. clap parses from that table,
-   so an unknown flag or operand is refused with a suggestion, and `--help` works.
+2. Add the CLI command: one entry in `USAGE` in `cli/spec.rs` (its path, group, and the lines
+   `twaco` lists for it) and one in `GRAMMAR` (the flags it takes and whether it takes operands;
+   a new flag also gets one line in `FLAGS`), and its arm in the dispatch in `main.rs`. clap
+   parses from the tree built from them, so an unknown flag or operand is refused with a
+   suggestion, and `--help` works; `decorate()` gives every command the same grammar policy,
+   which `tests/fixtures/cli_grammar.txt` records (`TWACO_BLESS=1 cargo test --bin twaco grammar`).
 3. Add the MCP tool: a request object in `mcp/requests/`, its adapter in the family file, and one
    entry in `mcp/registry.rs` (see [MCP schemas](MCP_SCHEMAS.md)). Writes take `dry_run` defaulting
    to `true`; results lead with a summary.

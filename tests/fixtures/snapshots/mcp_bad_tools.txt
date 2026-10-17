@@ -1,0 +1,7 @@
+$ twaco mcp --tools bogus
+exit: 2
+
+--- stdout
+
+--- stderr
+twaco: mcp: unknown tool group `bogus`; use all or any of core, entity, refactor, mashup, permissions, data, server, reference

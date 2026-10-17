@@ -123,15 +123,14 @@ fn run_command(args: &[String]) -> ExitCode {
             return ExitCode::from(u8::try_from(error.exit_code()).unwrap_or(FAILED));
         }
     };
-    let (command, matched) = cli::spec::matched(&matches);
-    let parsed = match cli::spec::args_of(command, matched) {
+    let (route, matched) = cli::spec::matched(&matches);
+    let parsed = match cli::spec::args_of(route, matched) {
         Ok(parsed) => parsed,
         Err(why) => {
             eprintln!("{} {why}", cli::style::prefix());
             return ExitCode::from(FAILED);
         }
     };
-    let route = command.path;
     let (log, log_file) = cli::spec::log_options(matched);
     if let Some(warning) = twaco::core::diagnostics::init(log.as_deref(), log_file.as_deref()) {
         eprintln!("{} {warning}", cli::style::prefix());
@@ -240,7 +239,7 @@ fn dispatch(route: &str, parsed: &Args) -> u8 {
         "db run" | "db query" => db_cmd(solution, route, parsed),
         "db clean" => db_clean_cmd(solution, parsed),
         "datatable copy" => datatable_copy_cmd(solution, parsed),
-        other => unreachable!("{other} is in COMMANDS but has no handler"),
+        other => unreachable!("{other} is in USAGE but has no handler"),
     })
 }
 
@@ -378,23 +377,6 @@ fn mcp_cmd(parsed: &Args) -> u8 {
             FAILED
         }
     }
-}
-
-/// A command's path, how many words it takes, and the flags it accepts: the table's view, for
-/// tests that start from words on a command line.
-#[cfg(test)]
-type Route = (&'static str, usize, &'static [&'static str]);
-
-#[cfg(test)]
-fn route(args: &[String]) -> Result<Route, String> {
-    let two = args.iter().take(2).cloned().collect::<Vec<_>>().join(" ");
-    let one = args.first().cloned().unwrap_or_default();
-    for (path, words) in [(two, 2), (one, 1)] {
-        if let Some(command) = cli::spec::command(&path) {
-            return Ok((command.path, words, command.flags));
-        }
-    }
-    Err(format!("unknown command `{}`", args.join(" ")))
 }
 
 /// Exit quietly when stdout's reader has gone, as `twaco projects | head` does once it has its

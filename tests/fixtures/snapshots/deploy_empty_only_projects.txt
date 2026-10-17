@@ -1,0 +1,7 @@
+$ twaco deploy --only-projects  , 
+exit: 2
+
+--- stdout
+
+--- stderr
+twaco: --only-projects needs at least one project

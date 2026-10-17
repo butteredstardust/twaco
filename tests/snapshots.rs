@@ -22,6 +22,40 @@ use std::process::Command;
 const SCENARIOS: &[(&str, &[&str])] = &[
     ("usage", &[]),
     ("unknown_command", &["bogus"]),
+    // The grammar itself: listings, help, and the refusals clap and the argument checks make.
+    ("family_listing_entity", &["entity"]),
+    ("help_root", &["--help"]),
+    ("help_sync", &["sync", "--help"]),
+    ("help_entity", &["entity", "--help"]),
+    ("flag_typo", &["sync", "--cehck"]),
+    (
+        "value_flag_twice",
+        &["deploy", "--profile", "a", "--profile", "b"],
+    ),
+    ("call_timeout_zero", &["call", "T", "S", "--timeout", "0"]),
+    (
+        "deploy_empty_only_projects",
+        &["deploy", "--only-projects", " , "],
+    ),
+    ("sync_all_and_names", &["sync", "--all", "Acme.T"]),
+    (
+        "entity_delete_deprecated_force",
+        &["entity", "delete", "Things/X", "--force"],
+    ),
+    (
+        "new_menu_bare_default",
+        &[
+            "new",
+            "menu",
+            "X",
+            "--item",
+            "Home=Acme.Home_MU",
+            "--default",
+            "--label",
+            "Main",
+        ],
+    ),
+    ("mcp_bad_tools", &["mcp", "--tools", "bogus"]),
     ("projects", &["projects"]),
     ("check", &["check"]),
     ("sync_all_check", &["sync", "--all", "--check"]),
