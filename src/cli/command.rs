@@ -36,6 +36,8 @@ pub(crate) enum Command {
     Check(super::source::Check),
     Types(super::source::Types),
     Users(super::users::Users),
+    #[command(name = "appkey")]
+    AppKey(super::appkey::AppKey),
     Test(super::service_tests::Test),
     Localization(super::localization::Localization),
     Repo(super::content::Repo),
@@ -113,6 +115,7 @@ impl Command {
             Command::Check(_) => "check",
             Command::Types(_) => "types",
             Command::Users(_) => "users",
+            Command::AppKey(_) => "appkey",
             Command::Test(_) => "test",
             Command::Localization(_) => "localization",
             Command::Repo(_) => "repo",
@@ -191,6 +194,7 @@ impl Command {
             | Command::Check(_)
             | Command::Types(_)
             | Command::Users(_)
+            | Command::AppKey(_)
             | Command::Test(_)
             | Command::Localization(_)
             | Command::Repo(_)

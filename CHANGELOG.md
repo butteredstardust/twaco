@@ -8,6 +8,11 @@ All notable changes to twaco are recorded here. The format follows
 
 ### Added
 
+- `twaco appkey create <name> --user <user>` (MCP `appkey`) creates an application key on the
+  server, always with an expiration (`--expires`, default 30 days; the server's own default is one
+  day), and `appkey show <name>` reads an existing one. The key is printed only with `--show`, or
+  written as a profile's `app_key` with `--save <profile>`. `appkey delete` is `entity delete
+  ApplicationKeys/<name>`.
 - `twaco call ... --as <test user> --lang <code>` (MCP `call` with `lang`) makes one call in
   another language (`de`, or a preference list `fr,de`). ThingWorx takes a call's language only
   from the user's stored preference, so the test user's preference is set for the call and put

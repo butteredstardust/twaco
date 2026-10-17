@@ -1,0 +1,7 @@
+$ twaco appkey show Acme.Kiosk_AK --apply
+exit: 2
+
+--- stdout
+
+--- stderr
+twaco: appkey show changes nothing on the server; leave out --apply

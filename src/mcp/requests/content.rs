@@ -182,6 +182,49 @@ pub(crate) struct UsersWriteRequest {
     pub(crate) dry_run: bool,
 }
 
+#[derive(Clone, Copy, Debug, Deserialize, JsonSchema, PartialEq, Eq, Serialize)]
+pub(crate) enum AppKeyAction {
+    #[serde(rename = "create")]
+    Create,
+    #[serde(rename = "show")]
+    Show,
+}
+
+#[derive(Debug, Deserialize, JsonSchema, Serialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct AppKeyRequest {
+    pub(crate) action: AppKeyAction,
+    /// The application key's name.
+    pub(crate) name: String,
+    /// create: the user the key acts as.
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) user: Absent<String>,
+    /// create: when it expires: 30d (the default), 12h, a date (midnight UTC) or an RFC 3339 timestamp.
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) expires: Absent<String>,
+    /// create: the project the key belongs to.
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) project: Absent<String>,
+    /// create: the key's description.
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) description: Absent<String>,
+    /// create: addresses or ranges the key may be used from; empty means any.
+    #[serde(default)]
+    pub(crate) whitelist: Vec<String>,
+    /// Write the key as app_key of this profile file, which must exist.
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) save: Absent<String>,
+    /// Return the key itself in the result.
+    #[serde(default)]
+    pub(crate) show: bool,
+    /// Server profile name.
+    #[serde(default = "default_profile")]
+    pub(crate) profile: String,
+    /// create: true plans and sends nothing. show reads the server whatever it says.
+    #[serde(default = "default_true")]
+    pub(crate) dry_run: bool,
+}
+
 #[derive(Debug, Deserialize, JsonSchema, Serialize)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct TestRequest {

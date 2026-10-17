@@ -954,6 +954,7 @@ fn every_tool_is_listed_with_a_schema_and_honest_annotations() {
             "localization_write",
             "users",
             "users_write",
+            "appkey",
             "test",
             "extensions",
             "extension_write",

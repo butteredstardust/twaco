@@ -972,6 +972,29 @@ account, sets it, makes the call, and puts the old one back, even when the call 
 only with `--as`, so your own account's language never changes. If putting it back fails, the
 error says what it was and how to restore it. MCP: `call` with `as` and `lang`.
 
+## Application keys
+
+An application key lets a browser, a script or another tool call the server as a user without
+its password (`?appKey=` on a Runtime URL, or an `appKey` header).
+
+```sh
+twaco appkey create Acme.Kiosk_AK --user kiosk --expires 90d --project Acme --save default --apply
+twaco appkey show Acme.Kiosk_AK --show
+twaco appkey delete Acme.Kiosk_AK --apply
+```
+
+`create` plans until `--apply`. It always sends an expiration, `30d` unless `--expires` says
+otherwise (`12h`, a date at midnight UTC, or a timestamp): without one the server expires a key
+after a day. `--whitelist 10.0.0.0/8,127.0.0.1` limits where it may be used from. The key itself
+is a credential and twaco prints it only with `--show`; `--save <profile>` writes it as that
+profile file's `app_key` instead, replacing an old one and keeping the file's other lines and
+permissions, and the profile file must already exist. A key that was made but not saved is not
+lost: `appkey show <name> --save <profile>` reads it again. Re-importing a key's XML never changes
+its expiration, so twaco creates keys through the server rather than as repository entities.
+`appkey delete` is `entity delete ApplicationKeys/<name>`, with its plan and backup. twaco itself
+signs in with the profile's username and password either way, since the Importer refuses app
+keys. MCP: `appkey` (create, show); delete with `entity_delete`.
+
 ## Copying DataTable rows
 
 Renaming a DataTable creates a new, empty one: its rows live on the server, not in the XML.

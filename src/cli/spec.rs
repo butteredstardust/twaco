@@ -1153,6 +1153,22 @@ pub(crate) const USAGE: &[Usage] = &[
                               profile and plan until --apply"#,
     },
     Usage {
+        path: "appkey",
+        group: 4,
+        text: r#"  appkey create <name> --user <user> [--expires <30d|12h|date>] [--project <name>]
+      [--description <text>] [--whitelist <ip,...>] [--save <profile> | --show] [--apply] [--json]
+  appkey show <name> [--save <profile> | --show] [--json]
+  appkey delete <name> [--apply]   as entity delete ApplicationKeys/<name>
+                              an application key on the server, acting as a user; create plans
+                              until --apply; the key is printed only with --show
+      --user <user>           the user the key acts as
+      --expires <when>        30d (the default), 12h, a date (midnight UTC) or a timestamp; without
+                              one the server would expire it after a day
+      --whitelist <ip,...>    addresses or ranges it may be used from (default any)
+      --save <profile>        write it as app_key of that profile file, which must exist
+      --show                  print the key"#,
+    },
+    Usage {
         path: "test",
         group: 4,
         text: r#"  test [<filter>...]          the service cases of tests/*.toml: each called as each of its test

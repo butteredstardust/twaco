@@ -1,6 +1,7 @@
 //! Command contracts shared by the command-line and MCP adapters.
 
 pub mod adopt;
+pub mod appkey;
 pub mod bundle;
 pub mod call;
 pub mod carry;

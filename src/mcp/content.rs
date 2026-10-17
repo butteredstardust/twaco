@@ -248,6 +248,74 @@ pub(crate) fn users_write_tool(
     }))
 }
 
+/// Create an application key, or read an existing one; the key is returned only with `show`.
+pub(crate) fn appkey_tool(
+    solution: &Solution,
+    arguments: tool::AppKeyRequest,
+) -> Result<Value, ToolError> {
+    use crate::core::appkey;
+    use crate::core::commands::appkey::{
+        self as command, AppKeyAction, AppKeyOutcome, AppKeyRequest,
+    };
+    let action = match arguments.action {
+        tool::AppKeyAction::Show => AppKeyAction::Show {
+            name: arguments.name.clone(),
+        },
+        tool::AppKeyAction::Create => {
+            let expires = appkey::parse_expires(
+                arguments.expires.as_ref().map_or("30d", String::as_str),
+                jiff::Timestamp::now(),
+            )
+            .map_err(ToolError::coded)?;
+            AppKeyAction::Create {
+                key: appkey::NewKey {
+                    name: arguments.name.clone(),
+                    user: arguments.user.as_ref().cloned().unwrap_or_default(),
+                    expires,
+                    project: arguments.project.as_ref().cloned(),
+                    description: arguments.description.as_ref().cloned().unwrap_or_default(),
+                    whitelist: arguments.whitelist.clone(),
+                },
+                mode: if arguments.dry_run {
+                    commands::Mode::Plan
+                } else {
+                    commands::Mode::Apply
+                },
+            }
+        }
+    };
+    let request = AppKeyRequest {
+        action,
+        profile: arguments.profile.clone(),
+        save: arguments.save.as_ref().cloned(),
+    };
+    match command::execute(solution, &request, server::Client::new).map_err(ToolError::coded)? {
+        AppKeyOutcome::Planned { key, .. } => Ok(json!({
+            "dry_run": true,
+            "name": key.name,
+            "user": key.user,
+            "expires": key.expires.to_string(),
+            "project": key.project,
+            "whitelist": key.whitelist,
+            "saved_to": null,
+            "key": null,
+        })),
+        AppKeyOutcome::Done {
+            created,
+            key,
+            saved,
+            ..
+        } => Ok(json!({
+            "dry_run": false,
+            "created": created,
+            "name": key.name,
+            "expires": key.expires.map(|when| when.to_string()),
+            "saved_to": saved.map(|path| path.display().to_string()),
+            "key": arguments.show.then(|| key.reveal().to_string()),
+        })),
+    }
+}
+
 /// The service cases of `tests/*.toml`, run as the test users; a check and listing unless
 /// `dry_run` is false.
 pub(crate) fn test_tool(

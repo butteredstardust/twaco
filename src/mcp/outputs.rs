@@ -491,6 +491,20 @@ pub(crate) struct UsersWriteResult {
     users: Vec<Value>,
 }
 
+/// A planned or created key, or one read back. `key` is the key itself, only when asked for.
+#[derive(Serialize, JsonSchema)]
+pub(crate) struct AppKeyResult {
+    dry_run: bool,
+    created: Option<bool>,
+    name: String,
+    user: Option<String>,
+    expires: Option<String>,
+    project: Option<String>,
+    whitelist: Option<Vec<String>>,
+    saved_to: Option<String>,
+    key: Option<String>,
+}
+
 /// A dry run lists the cases; a run answers with counts and each call.
 #[derive(Serialize, JsonSchema)]
 pub(crate) struct TestResult {

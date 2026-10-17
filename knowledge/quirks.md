@@ -372,6 +372,16 @@ Thing's own `ThingStart` event that populates the table if empty: query
 initializes after import (or platform restart), so this self-seeds on a fresh import
 with no extra step.
 
+## An application key without an expiration lasts a day
+
+Verified on 10.1: `EntityServices.CreateApplicationKey` without `expirationDate` makes a key that
+expires after one day. The parameter for the user is `user` (the XML says `userNameReference`; the
+wrong one fails with `User [null] does not exist`), `whitelist` is one comma-separated string, and
+`expirationDate` takes epoch milliseconds or an ISO timestamp. Re-importing an ApplicationKey's
+XML never changes its expiration; use `SetExpirationDate` on the key, or delete and create it. The
+key's value is `ApplicationKeys/<name>.GetKeyID` -> `rows[0].KeyID`. `twaco appkey create` sends an
+expiration every time.
+
 ## A call's language comes only from the user's stored preference
 
 Verified on 10.1: a REST service call is localized from the calling user's `language` property
