@@ -22,6 +22,16 @@ fn workspace(address: std::net::SocketAddr) -> (tempfile::TempDir, PathBuf) {
         ),
     )
     .unwrap();
+    // Private, as a profile should be: a shared one gets a warning on stderr.
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(
+            root.join(".twaco/profiles/default.toml"),
+            std::fs::Permissions::from_mode(0o600),
+        )
+        .unwrap();
+    }
     for name in ["A", "B", "C"] {
         std::fs::write(
             root.join(format!("Things/{name}.xml")),

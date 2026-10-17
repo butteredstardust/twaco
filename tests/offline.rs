@@ -1476,3 +1476,55 @@ fn completions_write_the_script_to_stdout_and_logs_to_stderr_outside_a_solution(
     assert!(!stdout.contains("command finished"), "a log line on stdout");
     assert!(stderr.contains("command finished"), "{stderr}");
 }
+
+#[test]
+fn zsh_completions_escape_the_colons_in_value_names() {
+    let output = Command::new(env!("CARGO_BIN_EXE_twaco"))
+        .args(["completions", "zsh"])
+        .env_clear()
+        .output()
+        .unwrap();
+    assert!(output.status.success(), "{output:?}");
+    let script = String::from_utf8_lossy(&output.stdout);
+    // `_arguments` reads `--param=[help]:message:action`; a bare colon in the message splits it.
+    let param = script
+        .lines()
+        .find(|line| line.contains("'*--param=[") && line.contains("TYPE"))
+        .expect("a --param spec");
+    assert!(param.contains(r":name\:TYPE[\:DIRECTION]:"), "{param}");
+    assert!(!script.contains(":name:TYPE"), "an unescaped value name");
+}
+
+#[cfg(unix)]
+#[test]
+fn a_profile_other_users_can_read_is_warned_about_once_without_logs() {
+    use std::os::unix::fs::PermissionsExt;
+    let directory = tempfile::Builder::new()
+        .prefix("twaco-shared-profile-")
+        .tempdir()
+        .unwrap();
+    let root = directory.path();
+    std::fs::write(root.join("twaco.toml"), "[[project]]\nname = \"P\"\n").unwrap();
+    let profiles = root.join(".twaco/profiles");
+    std::fs::create_dir_all(&profiles).unwrap();
+    let profile = profiles.join("default.toml");
+    std::fs::write(
+        &profile,
+        "url = \"http://127.0.0.1:1/Thingworx/\"\nusername = \"u\"\npassword = \"p\"\n",
+    )
+    .unwrap();
+    std::fs::set_permissions(&profile, std::fs::Permissions::from_mode(0o644)).unwrap();
+    let output = Command::new(env!("CARGO_BIN_EXE_twaco"))
+        .arg("settings")
+        .current_dir(root)
+        .env_clear()
+        .output()
+        .unwrap();
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert_eq!(
+        stderr.matches("can be read by other users").count(),
+        1,
+        "{stderr}"
+    );
+    assert!(stderr.contains("run chmod 600 on it"), "{stderr}");
+}

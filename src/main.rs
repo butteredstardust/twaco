@@ -59,10 +59,16 @@ const FAILED: u8 = 2;
 
 fn main() -> ExitCode {
     quiet_when_the_reader_leaves();
+    twaco::core::diagnostics::set_notice_sink(print_notice);
     let args: Vec<String> = std::env::args().skip(1).collect();
     let code = run_command(&args);
     update_notice(args.first().map(String::as_str).unwrap_or_default());
     code
+}
+
+/// A warning core raised for the user, on stderr: the MCP server's stdout is JSON-RPC.
+fn print_notice(message: &str) {
+    eprintln!("{} warning: {message}", cli::style::prefix());
 }
 
 /// After the command, a line on stderr when a newer release exists. The network is asked at
@@ -404,6 +410,13 @@ struct Mcp {
     tools: Option<String>,
 }
 
+/// The tool groups asked for: `--tools`, else `TWACO_MCP_TOOLS` unless it is blank, as client
+/// configurations often template an unused variable to an empty string.
+fn tool_groups(flag: Option<&str>, variable: Option<String>) -> Option<String> {
+    flag.map(str::to_string)
+        .or_else(|| variable.filter(|value| !value.trim().is_empty()))
+}
+
 /// `twaco mcp [--tools <groups>]`. The server finds the solution on every call rather than at
 /// start, so it starts in a directory without one and each tool says so, and an edit to
 /// twaco.toml needs no restart. The tool groups are fixed for the server's life: it tells clients
@@ -413,10 +426,10 @@ fn mcp_cmd(parsed: &Mcp) -> u8 {
         .map(PathBuf::from)
         .or_else(|| std::env::current_dir().ok())
         .unwrap_or_else(|| PathBuf::from("."));
-    let groups = parsed
-        .tools
-        .clone()
-        .or_else(|| std::env::var("TWACO_MCP_TOOLS").ok());
+    let groups = tool_groups(
+        parsed.tools.as_deref(),
+        std::env::var("TWACO_MCP_TOOLS").ok(),
+    );
     let selection = match groups.as_deref().map(twaco::mcp::Selection::parse) {
         None => twaco::mcp::Selection::ALL,
         Some(Ok(selection)) => selection,
@@ -455,10 +468,40 @@ fn completions_cmd(parsed: &Completions) -> u8 {
         return FAILED;
     };
     // Written whole through print!, so a reader that leaves early is quiet, as for any output.
+    let mut tree = cli::spec::tree();
+    if shell == clap_complete::Shell::Zsh {
+        tree = escape_colons_for_zsh(tree);
+    }
     let mut script = Vec::new();
-    clap_complete::generate(shell, &mut cli::spec::tree(), "twaco", &mut script);
+    clap_complete::generate(shell, &mut tree, "twaco", &mut script);
     print!("{}", String::from_utf8_lossy(&script));
     OK
+}
+
+/// zsh's `_arguments` splits a spec at `:`, and clap_complete escapes it in help text but not in
+/// value names such as `name:TYPE[:DIRECTION]`, so those would break completion of the flag.
+fn escape_colons_for_zsh(command: clap::Command) -> clap::Command {
+    let command = command.mut_subcommands(escape_colons_for_zsh);
+    let ids: Vec<clap::Id> = command
+        .get_arguments()
+        .filter(|arg| {
+            arg.get_value_names()
+                .is_some_and(|names| names.iter().any(|name| name.contains(':')))
+        })
+        .map(|arg| arg.get_id().clone())
+        .collect();
+    ids.iter().fold(command, |command, id| {
+        command.mut_arg(id, |arg| {
+            // Leaked: clap takes `'static` names, and this runs once before the process ends.
+            let names: Vec<&'static str> = arg
+                .get_value_names()
+                .unwrap_or_default()
+                .iter()
+                .map(|name| &*Box::leak(name.replace(':', "\\:").into_boxed_str()))
+                .collect();
+            arg.value_names(names)
+        })
+    })
 }
 
 /// Exit quietly when stdout's reader has gone, as `twaco projects | head` does once it has its

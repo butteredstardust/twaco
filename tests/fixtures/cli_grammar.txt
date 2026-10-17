@@ -38,7 +38,7 @@ help:
 |   update [--apply]            compare with the latest release; --apply verifies its signature
 |                               and replaces this binary (TWACO_NO_UPDATE_CHECK=1: no daily notice)
 |   completions <shell>         a completion script on stdout for bash, elvish, fish, powershell
-|                               or zsh: every command, flag and action, with descriptions
+|                               or zsh: commands and flags with descriptions; actions in bash and zsh
 |   extract <entity>|--all      entity XML -> sidecars
 |   sync <entity>|--all         sidecars -> entity XML
 |       --check                 report what would change, write nothing
@@ -1079,7 +1079,7 @@ arg <shell>
     other: possible-values
 help:
 |   completions <shell>         a completion script on stdout for bash, elvish, fish, powershell
-|                               or zsh: every command, flag and action, with descriptions
+|                               or zsh: commands and flags with descriptions; actions in bash and zsh
 | 
 |   --log <filter>              write diagnostic logs to stderr (or TWACO_LOG)
 |   --log-file <path>           append diagnostic logs to a file (or TWACO_LOG_FILE)

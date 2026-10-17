@@ -923,14 +923,14 @@ fn transport_with_timeout(
 ) -> Result<Response, ServerError> {
     let started = std::time::Instant::now();
     let logged_url = || scrub(secrets, &super::profile::hide_url_credentials(url));
-    let mut result =
-        send(agent, method, url, headers, body, timeout).map_err(|error| error.scrubbed(secrets));
-    if method == Method::Get && matches!(result, Err(ServerError::Transport { .. })) {
+    let attempt = || send(agent, method, url, headers, body, timeout);
+    let mut result = attempt();
+    if method == Method::Get && matches!(result, Err(Failure { retry: true, .. })) {
         tracing::debug!(url = %logged_url(), "server read failed; trying it once more");
         std::thread::sleep(GET_RETRY_PAUSE);
-        result = send(agent, method, url, headers, body, timeout)
-            .map_err(|error| error.scrubbed(secrets));
+        result = attempt();
     }
+    let result = result.map_err(|failure| failure.error.scrubbed(secrets));
     let elapsed_ms = u64::try_from(started.elapsed().as_millis()).unwrap_or(u64::MAX);
     match &result {
         Ok(response) => tracing::debug!(
@@ -953,6 +953,30 @@ fn transport_with_timeout(
     result
 }
 
+/// A failed request, and whether repeating it is worth it: only when the connection failed
+/// before a request reached the server. A timeout is not repeated, as it would double the wait.
+struct Failure {
+    error: ServerError,
+    retry: bool,
+}
+
+/// Tell whether a request failed for want of a connection, so it can be sent once more.
+fn worth_retrying(error: &ureq::Error) -> bool {
+    use std::io::ErrorKind;
+    match error {
+        ureq::Error::ConnectionFailed => true,
+        ureq::Error::Io(error) => matches!(
+            error.kind(),
+            ErrorKind::ConnectionRefused
+                | ErrorKind::ConnectionReset
+                | ErrorKind::ConnectionAborted
+                | ErrorKind::BrokenPipe
+                | ErrorKind::UnexpectedEof
+        ),
+        _ => false,
+    }
+}
+
 fn send(
     agent: &ureq::Agent,
     method: Method,
@@ -960,13 +984,16 @@ fn send(
     headers: &[(&str, &str)],
     body: Option<&[u8]>,
     timeout: Option<Duration>,
-) -> Result<Response, ServerError> {
-    let unreachable = |error: ureq::Error| match error {
-        ureq::Error::BadUri(why) => ServerError::InvalidUrl(why),
-        error => ServerError::Transport {
-            method,
-            url: url.to_string(),
-            why: error.to_string(),
+) -> Result<Response, Failure> {
+    let unreachable = |error: ureq::Error| Failure {
+        retry: worth_retrying(&error),
+        error: match error {
+            ureq::Error::BadUri(why) => ServerError::InvalidUrl(why),
+            error => ServerError::Transport {
+                method,
+                url: url.to_string(),
+                why: error.to_string(),
+            },
         },
     };
     let mut response = match method {
@@ -1014,10 +1041,13 @@ fn send(
         .with_config()
         .limit(u64::MAX)
         .read_to_vec()
-        .map_err(|error| ServerError::Transport {
-            method,
-            url: url.to_string(),
-            why: error.to_string(),
+        .map_err(|error| Failure {
+            error: ServerError::Transport {
+                method,
+                url: url.to_string(),
+                why: error.to_string(),
+            },
+            retry: false,
         })?;
     Ok(Response {
         status,
@@ -1075,12 +1105,18 @@ mod tests {
             }
         };
 
-        // Transport: nothing listens on the port.
-        let closed = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
-        let address = closed.local_addr().unwrap();
-        drop(closed);
+        // Transport: the server hangs up without answering, both times the read is tried. The
+        // port stays held, so no other test's server can take it and answer the retry.
+        let hangs_up = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let address = hangs_up.local_addr().unwrap();
+        let server = std::thread::spawn(move || {
+            for _ in 0..2 {
+                drop(hangs_up.accept().unwrap());
+            }
+        });
         let client = Client::new(profile_for(format!("http://{address}/Thingworx/")));
         let error = client.fetch_entity(&key).unwrap_err();
+        server.join().unwrap();
         assert!(matches!(error, ServerError::Transport { .. }), "{error}");
         assert_clean(error);
 
@@ -1200,6 +1236,29 @@ mod tests {
     #[test]
     fn basic_auth_encoding_is_correct() {
         assert_eq!(base64(b"user:password"), "dXNlcjpwYXNzd29yZA==");
+    }
+
+    #[test]
+    fn only_a_failed_connection_is_worth_a_second_read() {
+        use std::io::{Error, ErrorKind};
+
+        assert!(super::worth_retrying(&ureq::Error::ConnectionFailed));
+        assert!(super::worth_retrying(&ureq::Error::Io(Error::from(
+            ErrorKind::ConnectionReset
+        ))));
+        assert!(super::worth_retrying(&ureq::Error::Io(Error::from(
+            ErrorKind::ConnectionRefused
+        ))));
+        assert!(!super::worth_retrying(&ureq::Error::Timeout(
+            ureq::Timeout::Global
+        )));
+        assert!(!super::worth_retrying(&ureq::Error::Timeout(
+            ureq::Timeout::Connect
+        )));
+        assert!(!super::worth_retrying(&ureq::Error::HostNotFound));
+        assert!(!super::worth_retrying(&ureq::Error::Io(Error::from(
+            ErrorKind::PermissionDenied
+        ))));
     }
 
     #[test]

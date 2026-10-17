@@ -209,6 +209,11 @@ fn described(text: &str, flag: &str) -> Option<String> {
             });
         own.then(|| joined(first, lines[at + 1..].iter().copied()))
             .flatten()
+            // `another release; --limit <n>; --json` describes this flag up to the next one.
+            .map(|text| match text.split_once("; -") {
+                Some((own, _)) => own.to_string(),
+                None => text,
+            })
     })
 }
 
@@ -380,7 +385,7 @@ pub(crate) const USAGE: &[Usage] = &[
         path: "completions",
         group: 0,
         text: r#"  completions <shell>         a completion script on stdout for bash, elvish, fish, powershell
-                              or zsh: every command, flag and action, with descriptions"#,
+                              or zsh: commands and flags with descriptions; actions in bash and zsh"#,
     },
     Usage {
         path: "extract",

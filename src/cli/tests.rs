@@ -1116,3 +1116,17 @@ fn arg_fields(
     }
     fields
 }
+
+#[test]
+fn a_blank_tools_variable_serves_every_group() {
+    assert_eq!(crate::tool_groups(None, Some(String::new())), None);
+    assert_eq!(crate::tool_groups(None, Some("  ".to_string())), None);
+    assert_eq!(
+        crate::tool_groups(None, Some("read".to_string())).as_deref(),
+        Some("read")
+    );
+    assert_eq!(
+        crate::tool_groups(Some("edit"), Some("read".to_string())).as_deref(),
+        Some("edit")
+    );
+}
