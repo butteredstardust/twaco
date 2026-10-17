@@ -184,18 +184,19 @@ fn dispatch_typed(typed: Typed) -> u8 {
         Typed::Doctor(doctor) => doctor_cmd(&doctor),
         Typed::Mcp(mcp) => mcp_cmd(&mcp),
         Typed::Projects => run(projects),
+        // The help center needs no solution, so it runs before discovery and uses one if found.
+        Typed::Help(help) => help_cmd(&help),
+        // The public Java API documentation also needs no solution.
+        Typed::Javadoc(javadoc) => javadoc_cmd(&javadoc),
+        // So does the guide: its built-in topics are the same everywhere.
+        Typed::Guide(guide) => guide_cmd(&guide),
+        Typed::Package(package) => run(|solution| package_cmd(solution, &package)),
     }
 }
 
 /// Run one table command and return its exit code.
 fn dispatch(route: &str, parsed: &Args) -> u8 {
     match route {
-        // The help center needs no solution, so it runs before discovery and uses one if found.
-        "help" => return help_cmd(parsed),
-        // The public Java API documentation also needs no solution.
-        "javadoc" => return javadoc_cmd(parsed),
-        // So does the guide: its built-in topics are the same everywhere.
-        "guide" => return guide_cmd(parsed),
         "widgets" => return widgets_cmd(parsed),
         "mashup templates" => return mashup_templates_cmd(parsed),
         _ => {}
@@ -223,7 +224,6 @@ fn dispatch(route: &str, parsed: &Args) -> u8 {
         "trace" => cli::info::trace_cmd(solution, parsed),
         "unused" => unused_cmd(solution, parsed),
         "docs" => docs_cmd(solution, parsed),
-        "package" => package_cmd(solution, parsed),
         "search" => search_cmd(solution, parsed),
         "export" => export_cmd(solution, parsed),
         "import" => import_cmd(solution, parsed),

@@ -2949,40 +2949,6 @@ pub(crate) const GRAMMAR: &[Grammar] = &[
             "--detail",
         ],
     },
-    Grammar {
-        path: "package",
-        operands: true,
-        flags: &[
-            "--project",
-            "--backend-only",
-            "--frontend-only",
-            "--editable",
-            "--out",
-            "--force",
-        ],
-    },
-    Grammar {
-        path: "guide",
-        operands: true,
-        flags: &["--section", "--search", "--limit", "--json"],
-    },
-    Grammar {
-        path: "help",
-        operands: true,
-        flags: &[
-            "--version",
-            "--limit",
-            "--section",
-            "--refresh",
-            "--json",
-            "--profile",
-        ],
-    },
-    Grammar {
-        path: "javadoc",
-        operands: true,
-        flags: &["--member", "--limit", "--refresh", "--json"],
-    },
 ];
 
 /// The sections of the listing and of COMMANDS.md: a title and one line about them.

@@ -366,38 +366,56 @@ pub(crate) fn import_cmd(solution: &Solution, args: &Args) -> u8 {
     }
 }
 
+/// `twaco package bundle | source-control | extension --out <file>`.
+#[derive(Debug, clap::Args)]
+#[group(skip)]
+pub(crate) struct Package {
+    #[command(flatten)]
+    pub(crate) project: super::flags::Project,
+    #[arg(long = "backend-only")]
+    pub(crate) backend_only: bool,
+    #[arg(long = "frontend-only")]
+    pub(crate) frontend_only: bool,
+    #[arg(long = "editable")]
+    pub(crate) editable: bool,
+    #[arg(long = "out", value_name = "path", value_parser = super::flags::path())]
+    pub(crate) out: Option<std::path::PathBuf>,
+    #[arg(long = "force")]
+    pub(crate) force: bool,
+    #[arg(id = "operands", value_name = "operand")]
+    pub(crate) operands: Vec<String>,
+}
+
 /// `twaco package bundle | source-control | extension`: the repository packaged for release,
 /// offline. Never replaces an existing `--out` file without `--force`.
-pub(crate) fn package_cmd(solution: &Solution, args: &Args) -> u8 {
+pub(crate) fn package_cmd(solution: &Solution, args: &Package) -> u8 {
     use twaco::core::commands::package::{self, PackageAction, PackageRequest};
     let Some(out) = args.out.clone() else {
         eprintln!("{} package: package needs --out <file>", style::prefix());
         return FAILED;
     };
-    let action = match args.names.as_slice() {
-        [name] if name == "bundle" => {
-            match (args.has("--backend-only"), args.has("--frontend-only")) {
-                (true, true) => {
-                    eprintln!(
-                        "{} package: --backend-only and --frontend-only say different things",
-                        style::prefix()
-                    );
-                    return FAILED;
-                }
-                (true, false) => PackageAction::Bundle {
-                    part: twaco::core::package::Part::Backend,
-                },
-                (false, true) => PackageAction::Bundle {
-                    part: twaco::core::package::Part::Frontend,
-                },
-                (false, false) => PackageAction::Bundle {
-                    part: twaco::core::package::Part::All,
-                },
+    let action = match args.operands.as_slice() {
+        [name] if name == "bundle" => match (args.backend_only, args.frontend_only) {
+            (true, true) => {
+                eprintln!(
+                    "{} package: --backend-only and --frontend-only say different things",
+                    style::prefix()
+                );
+                return FAILED;
             }
-        }
+            (true, false) => PackageAction::Bundle {
+                part: twaco::core::package::Part::Backend,
+            },
+            (false, true) => PackageAction::Bundle {
+                part: twaco::core::package::Part::Frontend,
+            },
+            (false, false) => PackageAction::Bundle {
+                part: twaco::core::package::Part::All,
+            },
+        },
         [name] if name == "source-control" => PackageAction::SourceControl,
         [name] if name == "extension" => PackageAction::Extension {
-            editable: args.has("--editable"),
+            editable: args.editable,
         },
         _ => {
             eprintln!(
@@ -411,9 +429,9 @@ pub(crate) fn package_cmd(solution: &Solution, args: &Args) -> u8 {
         solution,
         &PackageRequest {
             action,
-            project: args.project.clone(),
+            project: args.project.project.clone(),
             out,
-            force: args.has("--force"),
+            force: args.force,
         },
     ) {
         Ok(outcome) => {

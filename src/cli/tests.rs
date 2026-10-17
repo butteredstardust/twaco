@@ -930,18 +930,140 @@ fn arg_fields(
     fields
 }
 
+/// What a command line says, for [`derived_commands_read_what_their_grammar_rows_read`]: its
+/// operands, the switches given and the values given, each value once per time it was given.
+type Projection = (Vec<String>, Vec<String>, Vec<(String, String)>);
+
+/// The switches of a derived command that are on.
+fn switches(pairs: &[(&str, bool)]) -> Vec<String> {
+    pairs
+        .iter()
+        .filter(|(_, on)| *on)
+        .map(|(name, _)| (*name).to_string())
+        .collect()
+}
+
+/// The values of a derived command that were given.
+fn values(pairs: &[(&str, Option<String>)]) -> Vec<(String, String)> {
+    pairs
+        .iter()
+        .filter_map(|(name, value)| value.clone().map(|value| ((*name).to_string(), value)))
+        .collect()
+}
+
+/// A path value as text.
+fn shown(path: Option<&std::path::PathBuf>) -> Option<String> {
+    path.map(|path| path.display().to_string())
+}
+
+/// What a derived command read.
+fn projection(typed: Typed) -> Projection {
+    match typed {
+        Typed::Init(init) => (
+            Vec::new(),
+            switches(&[("--write", init.write), ("--agents", init.agents)]),
+            Vec::new(),
+        ),
+        Typed::Doctor(doctor) => (
+            Vec::new(),
+            Vec::new(),
+            values(&[("--profile", doctor.profile.profile)]),
+        ),
+        Typed::Projects => (Vec::new(), Vec::new(), Vec::new()),
+        Typed::Mcp(mcp) => (Vec::new(), Vec::new(), values(&[("--tools", mcp.tools)])),
+        Typed::Update(update) => (
+            Vec::new(),
+            switches(&[("--apply", update.apply.apply)]),
+            Vec::new(),
+        ),
+        Typed::Guide(guide) => (
+            guide.operands,
+            switches(&[("--json", guide.json.json)]),
+            values(&[
+                ("--section", guide.section),
+                ("--search", guide.search),
+                ("--limit", guide.limit),
+            ]),
+        ),
+        Typed::Help(help) => (
+            help.operands,
+            switches(&[("--refresh", help.refresh), ("--json", help.json.json)]),
+            values(&[
+                ("--version", help.version),
+                ("--limit", help.limit),
+                ("--section", help.section),
+                ("--profile", help.profile.profile),
+            ]),
+        ),
+        Typed::Javadoc(javadoc) => (
+            javadoc.operands,
+            switches(&[
+                ("--refresh", javadoc.refresh),
+                ("--json", javadoc.json.json),
+            ]),
+            values(&[("--member", javadoc.member), ("--limit", javadoc.limit)]),
+        ),
+        Typed::Package(package) => (
+            package.operands,
+            switches(&[
+                ("--backend-only", package.backend_only),
+                ("--frontend-only", package.frontend_only),
+                ("--editable", package.editable),
+                ("--force", package.force),
+            ]),
+            values(&[
+                ("--project", package.project.project),
+                ("--out", shown(package.out.as_ref())),
+            ]),
+        ),
+    }
+}
+
 /// While commands move from GRAMMAR rows to structs: each moved command line, read by the
 /// builder's [`spec::args_from`] with the row the command had and by its struct, says the same
 /// (operands, switches, values). Remove a group's rows here when the builder is deleted.
 #[test]
 fn derived_commands_read_what_their_grammar_rows_read() {
-    type Projection = (Vec<String>, Vec<String>, Vec<(String, String)>);
-    const ROWS: &[(&str, &[&str])] = &[
-        ("init", &["--write", "--agents"]),
-        ("doctor", &["--profile"]),
-        ("projects", &[]),
-        ("mcp", &["--tools"]),
-        ("update", &["--apply"]),
+    const ROWS: &[(&str, bool, &[&str])] = &[
+        ("init", false, &["--write", "--agents"]),
+        ("doctor", false, &["--profile"]),
+        ("projects", false, &[]),
+        ("mcp", false, &["--tools"]),
+        ("update", false, &["--apply"]),
+        (
+            "guide",
+            true,
+            &["--section", "--search", "--limit", "--json"],
+        ),
+        (
+            "help",
+            true,
+            &[
+                "--version",
+                "--limit",
+                "--section",
+                "--refresh",
+                "--json",
+                "--profile",
+            ],
+        ),
+        (
+            "javadoc",
+            true,
+            &["--member", "--limit", "--refresh", "--json"],
+        ),
+        (
+            "package",
+            true,
+            &[
+                "--project",
+                "--backend-only",
+                "--frontend-only",
+                "--editable",
+                "--out",
+                "--force",
+            ],
+        ),
     ];
     let lines: &[&[&str]] = &[
         &["init"],
@@ -957,59 +1079,94 @@ fn derived_commands_read_what_their_grammar_rows_read() {
         &["mcp", "--tools", ""],
         &["update"],
         &["update", "--apply"],
+        &["guide"],
+        &["guide", "workflow", "--section", "Deploy", "--json"],
+        &["guide", "--search", "-x y", "--limit", "3"],
+        &["guide", "a", "b", "-1"],
+        &["help", "search", "mashup", "binding", "--limit", "5"],
+        &[
+            "help",
+            "page",
+            "ThingWorx/Welcome.html",
+            "--version",
+            "9.6",
+            "--section",
+            "Intro",
+            "--refresh",
+            "--json",
+            "--profile",
+            "prod",
+        ],
+        &["help"],
+        &["javadoc", "search", "Thing", "--limit", "2", "--json"],
+        &[
+            "javadoc",
+            "class",
+            "Thing",
+            "--member",
+            "getName",
+            "--refresh",
+        ],
+        &["package", "bundle", "--out", "dist/a.zip", "--backend-only"],
+        &[
+            "package",
+            "extension",
+            "--out=x.zip",
+            "--editable",
+            "--force",
+            "--project",
+            "Acme",
+            "--frontend-only",
+        ],
+        &["package", "source-control", "--out", ""],
+        &["package", "--", "-weird"],
     ];
-    let value = |pairs: &[(&str, Option<&String>)]| -> Vec<(String, String)> {
-        pairs
-            .iter()
-            .filter_map(|(name, value)| value.map(|value| ((*name).to_string(), value.clone())))
-            .collect()
-    };
-    let switches = |pairs: &[(&str, bool)]| -> Vec<String> {
-        pairs
-            .iter()
-            .filter(|(_, on)| *on)
-            .map(|(name, _)| (*name).to_string())
-            .collect()
-    };
     for line in lines {
         let mut all = vec!["twaco"];
         all.extend(*line);
-        let matches = spec::tree().try_get_matches_from(&all).unwrap();
-        let (path, matched) = spec::matched(&matches);
-        let (_, flags) = ROWS.iter().find(|(row, _)| *row == path).unwrap();
-        let old = spec::args_from(flags, false, matched).unwrap();
+        let matches = spec::tree()
+            .try_get_matches_from(&all)
+            .unwrap_or_else(|e| panic!("{line:?}: {e}"));
+        let (path, _) = spec::matched(&matches);
+        // The builder's command, from the row it had (its argument ids are the flag names, the
+        // derived ones are the field names), under the same policy.
+        let (_, operands, flags) = ROWS.iter().find(|(row, _, _)| *row == path).unwrap();
+        let built = spec::decorate(
+            clap::Command::new("twaco")
+                .subcommand(clap::Command::new(path).args(spec::arguments(flags, *operands))),
+        );
+        let old_matches = built
+            .try_get_matches_from(&all)
+            .unwrap_or_else(|e| panic!("{line:?}: {e}"));
+        let (_, matched) = spec::matched(&old_matches);
+        let old = spec::args_from(flags, *operands, matched).unwrap();
         let mut old_values: Vec<(String, String)> = old
             .values
             .iter()
             .map(|(name, value)| (name.clone(), value.clone()))
             .collect();
-        if let Some(profile) = &old.profile {
-            old_values.push(("--profile".to_string(), profile.clone()));
-        }
-        let expected: Projection = (old.names.clone(), old.flags.clone(), old_values);
-        let new: Projection = match Typed::from_arg_matches(&matches).unwrap() {
-            Typed::Init(init) => (
-                Vec::new(),
-                switches(&[("--write", init.write), ("--agents", init.agents)]),
-                Vec::new(),
-            ),
-            Typed::Doctor(doctor) => (
-                Vec::new(),
-                Vec::new(),
-                value(&[("--profile", doctor.profile.profile.as_ref())]),
-            ),
-            Typed::Projects => (Vec::new(), Vec::new(), Vec::new()),
-            Typed::Mcp(mcp) => (
-                Vec::new(),
-                Vec::new(),
-                value(&[("--tools", mcp.tools.as_ref())]),
-            ),
-            Typed::Update(update) => (
-                Vec::new(),
-                switches(&[("--apply", update.apply.apply)]),
-                Vec::new(),
-            ),
+        let mut add = |name: &str, value: Option<String>| {
+            if let Some(value) = value {
+                old_values.push((name.to_string(), value));
+            }
         };
-        assert_eq!(new, expected, "{line:?}");
+        add("--profile", old.profile.clone());
+        add("--project", old.project.clone());
+        add("--out", shown(old.out.as_ref()));
+        add("--timeout", old.timeout.map(|t| t.as_secs().to_string()));
+        for param in &old.params {
+            add("--param", Some(param.clone()));
+        }
+        let (names, mut on, mut given) = projection(Typed::from_arg_matches(&matches).unwrap());
+        let mut old_flags = old.flags.clone();
+        old_flags.sort();
+        old_values.sort();
+        on.sort();
+        given.sort();
+        assert_eq!(
+            (names, on, given),
+            (old.names.clone(), old_flags, old_values),
+            "{line:?}"
+        );
     }
 }

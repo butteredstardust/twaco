@@ -27,3 +27,27 @@ pub(crate) struct Apply {
     #[arg(long = "apply")]
     pub(crate) apply: bool,
 }
+
+/// `--json`: results as JSON on stdout instead of text.
+#[derive(Debug, Default, clap::Args)]
+#[group(skip)]
+pub(crate) struct Json {
+    #[arg(long = "json")]
+    pub(crate) json: bool,
+}
+
+/// `--project <name>`: narrow to one project of the solution.
+#[derive(Debug, Default, clap::Args)]
+#[group(skip)]
+pub(crate) struct Project {
+    #[arg(long = "project", value_name = "name")]
+    pub(crate) project: Option<String>,
+}
+
+/// The parser for a value that names a file (`value_parser = super::flags::path()`): any
+/// string, as the builder took it, read as a path. clap's own path parser refuses an empty value
+/// and accepts one that is not UTF-8, which the builder did the other way round.
+pub(crate) fn path() -> impl clap::builder::TypedValueParser<Value = std::path::PathBuf> {
+    use clap::builder::TypedValueParser as _;
+    clap::builder::StringValueParser::new().map(std::path::PathBuf::from)
+}

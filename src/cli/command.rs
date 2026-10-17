@@ -18,6 +18,10 @@ pub(crate) enum Typed {
     Projects,
     Mcp(crate::Mcp),
     Update(super::info::Update),
+    Guide(super::info::Guide),
+    Help(super::info::Help),
+    Javadoc(super::info::Javadoc),
+    Package(super::content::Package),
 }
 
 impl Typed {
@@ -29,6 +33,10 @@ impl Typed {
             Typed::Projects => "projects",
             Typed::Mcp(_) => "mcp",
             Typed::Update(_) => "update",
+            Typed::Guide(_) => "guide",
+            Typed::Help(_) => "help",
+            Typed::Javadoc(_) => "javadoc",
+            Typed::Package(_) => "package",
         }
     }
 
@@ -40,7 +48,11 @@ impl Typed {
             | Typed::Doctor(_)
             | Typed::Projects
             | Typed::Mcp(_)
-            | Typed::Update(_) => Ok(()),
+            | Typed::Update(_)
+            | Typed::Guide(_)
+            | Typed::Help(_)
+            | Typed::Javadoc(_)
+            | Typed::Package(_) => Ok(()),
         }
     }
 }

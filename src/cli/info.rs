@@ -131,9 +131,25 @@ pub(crate) fn update_cmd(parsed: &Update) -> u8 {
     }
 }
 
+/// `twaco guide [<topic> [--section <heading>]] [--search <words>]`.
+#[derive(Debug, clap::Args)]
+#[group(skip)]
+pub(crate) struct Guide {
+    #[arg(long = "section", value_name = "heading")]
+    pub(crate) section: Option<String>,
+    #[arg(long = "search", value_name = "text")]
+    pub(crate) search: Option<String>,
+    #[arg(long = "limit", value_name = "n")]
+    pub(crate) limit: Option<String>,
+    #[command(flatten)]
+    pub(crate) json: super::flags::Json,
+    #[arg(id = "operands", value_name = "operand")]
+    pub(crate) operands: Vec<String>,
+}
+
 /// `twaco guide [<topic> [--section <heading>]] [--search <words>]`: the knowledge an agent needs
 /// besides the CLI, built in and the solution's own. Works outside a solution too.
-pub(crate) fn guide_cmd(parsed: &Args) -> u8 {
+pub(crate) fn guide_cmd(parsed: &Guide) -> u8 {
     use twaco::core::guide;
     let here = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
     let solution = match Solution::discover(&here) {
@@ -149,11 +165,11 @@ pub(crate) fn guide_cmd(parsed: &Args) -> u8 {
         eprintln!("{} guide: {problem}", style::prefix());
     }
     let result: Result<(), String> = (|| {
-        if let Some(query) = parsed.values.get("--search") {
-            if !parsed.names.is_empty() {
+        if let Some(query) = parsed.search.as_ref() {
+            if !parsed.operands.is_empty() {
                 return Err("--search searches every topic; pass no topic with it".to_string());
             }
-            let limit = match parsed.values.get("--limit") {
+            let limit = match parsed.limit.as_ref() {
                 Some(n) => n
                     .parse::<usize>()
                     .ok()
@@ -163,7 +179,7 @@ pub(crate) fn guide_cmd(parsed: &Args) -> u8 {
             };
             let hits = guide::search(&topics, query, limit);
             for hit in &hits {
-                if parsed.has("--json") {
+                if parsed.json.json {
                     println!(
                         "{}",
                         serde_json::json!({ "topic": hit.topic, "section": hit.heading, "matched": hit.matched, "of": hit.of, "line": hit.line })
@@ -185,12 +201,12 @@ pub(crate) fn guide_cmd(parsed: &Args) -> u8 {
             }
             if hits.is_empty() {
                 eprintln!("nothing matches {query:?}");
-            } else if !parsed.has("--json") {
+            } else if !parsed.json.json {
                 eprintln!("read one: twaco guide <topic> --section \"<heading>\"");
             }
             return Ok(());
         }
-        match parsed.names.as_slice() {
+        match parsed.operands.as_slice() {
             [] => {
                 for topic in &topics {
                     let origin = if topic.file.is_some() {
@@ -213,9 +229,7 @@ pub(crate) fn guide_cmd(parsed: &Args) -> u8 {
             }
             [wanted] => {
                 let topic = guide::find(&topics, wanted).map_err(|e| e.to_string())?;
-                match guide::read(topic, parsed.values.get("--section").map(String::as_str))
-                    .map_err(|e| e.to_string())?
-                {
+                match guide::read(topic, parsed.section.as_deref()).map_err(|e| e.to_string())? {
                     guide::Reading::Text(text) => print!("{text}"),
                     guide::Reading::Outline { title, headings } => {
                         println!("# {title}\n");
@@ -239,11 +253,31 @@ pub(crate) fn guide_cmd(parsed: &Args) -> u8 {
     }
 }
 
-pub(crate) fn help_cmd(parsed: &Args) -> u8 {
+/// `twaco help search <words> | page <page>`.
+#[derive(Debug, clap::Args)]
+#[group(skip)]
+pub(crate) struct Help {
+    #[arg(long = "version", value_name = "release")]
+    pub(crate) version: Option<String>,
+    #[arg(long = "limit", value_name = "n")]
+    pub(crate) limit: Option<String>,
+    #[arg(long = "section", value_name = "heading")]
+    pub(crate) section: Option<String>,
+    #[arg(long = "refresh")]
+    pub(crate) refresh: bool,
+    #[command(flatten)]
+    pub(crate) json: super::flags::Json,
+    #[command(flatten)]
+    pub(crate) profile: super::flags::Profile,
+    #[arg(id = "operands", value_name = "operand")]
+    pub(crate) operands: Vec<String>,
+}
+
+pub(crate) fn help_cmd(parsed: &Help) -> u8 {
     use twaco::core::help;
     let (Some(action), rest) = (
-        parsed.names.first().map(String::as_str),
-        parsed.names.get(1..).unwrap_or_default(),
+        parsed.operands.first().map(String::as_str),
+        parsed.operands.get(1..).unwrap_or_default(),
     ) else {
         eprintln!(
             "{} help needs `search <words>` or `page <page>`",
@@ -280,10 +314,10 @@ pub(crate) fn help_cmd(parsed: &Args) -> u8 {
         _ => None,
     };
     let version = match help::choose_version(
-        parsed.values.get("--version").map(String::as_str),
+        parsed.version.as_deref(),
         named,
         solution.as_ref(),
-        parsed.profile.as_deref().unwrap_or("default"),
+        parsed.profile.name(),
         &mut notes,
     ) {
         Ok(version) => version,
@@ -303,14 +337,14 @@ pub(crate) fn help_cmd(parsed: &Args) -> u8 {
         }
     };
     let web = help::Web::default();
-    let refresh = parsed.has("--refresh");
+    let refresh = parsed.refresh;
     match action {
         "search" => {
             if rest.is_empty() {
                 eprintln!("{} help search needs words", style::prefix());
                 return FAILED;
             }
-            let limit = match parsed.values.get("--limit").map(|n| n.parse::<usize>()) {
+            let limit = match parsed.limit.as_ref().map(|n| n.parse::<usize>()) {
                 None => 10,
                 Some(Ok(n)) if n > 0 => n,
                 Some(_) => {
@@ -331,7 +365,7 @@ pub(crate) fn help_cmd(parsed: &Args) -> u8 {
                 }
             };
             let found = help::search(&index, &version, &rest.join(" "), limit);
-            if parsed.has("--json") {
+            if parsed.json.json {
                 for hit in &found.hits {
                     println!(
                         "{}",
@@ -364,7 +398,7 @@ pub(crate) fn help_cmd(parsed: &Args) -> u8 {
             OK
         }
         "page" => {
-            let section = parsed.values.get("--section").map(String::as_str);
+            let section = parsed.section.as_deref();
             let (_, path) = help::page_path(&rest[0]).expect("checked above");
             match help::cached(&web, &cache, &version, &path, refresh)
                 .and_then(|html| help::read(&html, &version, &path, section))
@@ -390,13 +424,29 @@ pub(crate) fn help_cmd(parsed: &Args) -> u8 {
     }
 }
 
+/// `twaco javadoc search <name> | class <Name>`.
+#[derive(Debug, clap::Args)]
+#[group(skip)]
+pub(crate) struct Javadoc {
+    #[arg(long = "member", value_name = "name")]
+    pub(crate) member: Option<String>,
+    #[arg(long = "limit", value_name = "n")]
+    pub(crate) limit: Option<String>,
+    #[arg(long = "refresh")]
+    pub(crate) refresh: bool,
+    #[command(flatten)]
+    pub(crate) json: super::flags::Json,
+    #[arg(id = "operands", value_name = "operand")]
+    pub(crate) operands: Vec<String>,
+}
+
 /// `twaco javadoc search <name> | class <Name>`: the public ThingWorx Java API docs.
 /// Read-only and usable outside a solution; downloads go to the user's cache.
-pub(crate) fn javadoc_cmd(parsed: &Args) -> u8 {
+pub(crate) fn javadoc_cmd(parsed: &Javadoc) -> u8 {
     use twaco::core::{help, javadoc};
     let (Some(action), rest) = (
-        parsed.names.first().map(String::as_str),
-        parsed.names.get(1..).unwrap_or_default(),
+        parsed.operands.first().map(String::as_str),
+        parsed.operands.get(1..).unwrap_or_default(),
     ) else {
         eprintln!(
             "{} javadoc needs `search <name>` or `class <Name>`",
@@ -430,7 +480,7 @@ pub(crate) fn javadoc_cmd(parsed: &Args) -> u8 {
         }
     };
     let web = help::Web::new(javadoc::BASE);
-    let refresh = parsed.has("--refresh");
+    let refresh = parsed.refresh;
     let fetch = |path: &str| javadoc::cached(&web, &cache, path, refresh);
     let types = match fetch(javadoc::TYPE_INDEX) {
         Ok(bytes) => bytes,
@@ -441,11 +491,11 @@ pub(crate) fn javadoc_cmd(parsed: &Args) -> u8 {
     };
     match action {
         "search" => {
-            if parsed.values.contains_key("--member") {
+            if parsed.member.is_some() {
                 eprintln!("{} javadoc: --member is only for `class`", style::prefix());
                 return FAILED;
             }
-            let limit = match parsed.values.get("--limit").map(|n| n.parse::<usize>()) {
+            let limit = match parsed.limit.as_ref().map(|n| n.parse::<usize>()) {
                 None => 10,
                 Some(Ok(n)) if n > 0 => n,
                 Some(_) => {
@@ -475,7 +525,7 @@ pub(crate) fn javadoc_cmd(parsed: &Args) -> u8 {
             };
             let hits = javadoc::search(&index, &rest.join(" "), limit);
             for hit in &hits {
-                if parsed.has("--json") {
+                if parsed.json.json {
                     println!(
                         "{}",
                         serde_json::json!({
@@ -521,15 +571,10 @@ pub(crate) fn javadoc_cmd(parsed: &Args) -> u8 {
                 }
             };
             match fetch(&path).map_err(|e| e.to_string()).and_then(|html| {
-                javadoc::read(
-                    &html,
-                    &class,
-                    parsed.values.get("--member").map(String::as_str),
-                )
-                .map_err(|e| e.to_string())
+                javadoc::read(&html, &class, parsed.member.as_deref()).map_err(|e| e.to_string())
             }) {
                 Ok(read) => {
-                    if parsed.has("--json") {
+                    if parsed.json.json {
                         println!(
                             "{}",
                             serde_json::json!({
