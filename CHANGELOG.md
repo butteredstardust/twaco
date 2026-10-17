@@ -35,9 +35,6 @@ All notable changes to twaco are recorded here. The format follows
 - The value name of `--param` in clap's messages and shell completions is `name:TYPE[:...]` for
   `trace`, `mashup new` and `thing service add` alike (it was `name:TYPE[:DIRECTION]`); the help
   text still gives each command's own form.
-- The library's modules are nested by domain (`core::mashup::*`, `core::rename::*`,
-  `core::entity::*`) and most of its items are now crate-private, so the `twaco` library API is
-  smaller. The CLI and MCP server are unchanged.
 
 ### Fixed
 
@@ -60,6 +57,17 @@ All notable changes to twaco are recorded here. The format follows
   and an add, instead of renaming the entry in place, which the server never kept; Streams were
   skipped before. The plan now says that values stored under the old field in DataTable and
   Stream rows are not carried over.
+
+## [0.1.20] - 2026-10-17
+
+### Changed
+
+- The library's modules are nested by domain (`core::mashup::*`, `core::rename::*`,
+  `core::entity::*`) and most of its items are now crate-private, so the `twaco` library API is
+  smaller. The CLI and MCP server are unchanged.
+
+### Fixed
+
 - A failed MCP tool call no longer puts its `{error, code}` object in `structuredContent`, where
   it broke the tool's published `outputSchema`; the error stays in the text block.
 - The warning for a profile file other users can read now shows on stderr, once per run, without
@@ -694,6 +702,7 @@ The first public release.
 - `mcp` serves 39 tools over stdio to MCP clients, with compact summaries, validated arguments
   and dry runs by default for tools that can write to a server.
 
+[0.1.20]: https://github.com/butteredstardust/twaco/releases/tag/v0.1.20
 [0.1.19]: https://github.com/butteredstardust/twaco/releases/tag/v0.1.19
 [0.1.18]: https://github.com/butteredstardust/twaco/releases/tag/v0.1.18
 [0.1.17]: https://github.com/butteredstardust/twaco/releases/tag/v0.1.17
