@@ -4,7 +4,7 @@
 //! they are hash input, never an export. Length-prefixing makes element, attribute, text and
 //! CDATA boundaries unambiguous without choosing an escaping style.
 //!
-//! Normalisation version 6 has exactly these non-semantic rules:
+//! Normalisation version 7 has exactly these non-semantic rules:
 //!
 //! - apply XML 1.0 line-end and CDATA-attribute whitespace normalisation to literal XML input
 //!   before unescaping character references or applying payload-specific rules;
@@ -37,6 +37,12 @@
 //!   the kinds a resource left out (observed 2026-10-07; version 4, instance blocks version 5);
 //! - compact the single JSON CDATA payload in `mashupContent`; mashup JSON differed only in layout,
 //!   as did direct-child `content` in observed `StateDefinition` and `StyleTheme` entities;
+//! - in `mashupContent`, also sort every JSON object's keys: a 10.1 server returns a mashup's
+//!   `Data` map (its data sources, keyed by name) in another order than imported (observed
+//!   2026-10-19; version 7). Array order stays semantic;
+//! - in an `Organization`, treat the direct-child `Connections` and `OrganizationalUnits` lists as
+//!   sets and sort them by canonical bytes: the server returns both in another order than imported
+//!   (observed 2026-10-19; version 7);
 //! - remove ASCII whitespace from a single CDATA payload in a `MediaEntity`'s direct-child
 //!   `content`, matching the wrapped committed and single-line live base64 representations;
 //! - for leaf elements, trim leading and trailing XML whitespace from their single CDATA payload,
@@ -51,7 +57,7 @@ use super::scan::{self, Kind, ScanError, Token};
 use sha2::{Digest, Sha256};
 
 /// The normalisation version every hash carries; a baseline from another one says nothing.
-pub(crate) const HASH_VERSION: &str = "v6";
+pub(crate) const HASH_VERSION: &str = "v7";
 const LIVE_ONLY_ELEMENTS: [&[u8]; 9] = [
     b"effectiveShape",
     b"Owner",
@@ -148,6 +154,7 @@ fn canonical(src: &[u8], with_permissions: bool) -> Result<Vec<u8>, NormaliseErr
     clean_indentation(&mut entity);
     sort_name_keyed_containers(&mut entity);
     sort_thing_properties(&mut entity);
+    sort_organization_sets(&mut entity);
     if with_permissions {
         normalise_permissions(&mut entity);
     } else {
@@ -156,7 +163,7 @@ fn canonical(src: &[u8], with_permissions: bool) -> Result<Vec<u8>, NormaliseErr
                 if PERMISSION_BLOCKS.contains(&element.name.as_slice()))
         });
     }
-    let mut out = b"twaco-entity-normalise-v6\0".to_vec();
+    let mut out = b"twaco-entity-normalise-v7\0".to_vec();
     write_element(&entity, &mut out);
     Ok(out)
 }
@@ -428,6 +435,65 @@ fn normalise_mashup_payloads(element: &mut Element) {
     }
     if element.name == b"mashupContent" {
         normalise_json_payload(element);
+        sort_json_payload_keys(element);
+    }
+}
+
+/// Object keys in key order, recursively; arrays keep their order.
+fn sorted_keys(value: serde_json::Value) -> serde_json::Value {
+    match value {
+        serde_json::Value::Object(map) => {
+            let mut entries: Vec<_> = map.into_iter().collect();
+            entries.sort_by(|left, right| left.0.cmp(&right.0));
+            serde_json::Value::Object(
+                entries
+                    .into_iter()
+                    .map(|(key, value)| (key, sorted_keys(value)))
+                    .collect(),
+            )
+        }
+        serde_json::Value::Array(items) => {
+            serde_json::Value::Array(items.into_iter().map(sorted_keys).collect())
+        }
+        other => other,
+    }
+}
+
+fn sort_json_payload_keys(element: &mut Element) {
+    let Some(payload) = single_cdata_payload(element) else {
+        return;
+    };
+    let Ok(value) = serde_json::from_slice::<serde_json::Value>(&payload) else {
+        return;
+    };
+    let Ok(sorted) = serde_json::to_vec(&sorted_keys(value)) else {
+        return;
+    };
+    element.children = vec![Node::Cdata(sorted)];
+}
+
+/// An Organization's tree of connections and its units are sets; see the module rules.
+fn sort_organization_sets(entity: &mut Element) {
+    if entity.name != b"Organization" {
+        return;
+    }
+    for child in &mut entity.children {
+        let Node::Element(list) = child else {
+            continue;
+        };
+        if list.name != b"Connections" && list.name != b"OrganizationalUnits" {
+            continue;
+        }
+        if list
+            .children
+            .iter()
+            .all(|child| matches!(child, Node::Element(_)))
+        {
+            list.children.sort_by_cached_key(|child| match child {
+                Node::Element(child) => canonical_element_bytes(child),
+                _ => unreachable!("only elements are sorted"),
+            });
+        }
     }
 }
 
@@ -824,7 +890,7 @@ mod tests {
     }
 
     #[test]
-    fn mashup_json_layout_is_ignored_but_values_and_key_order_are_not() {
+    fn mashup_json_layout_and_key_order_are_ignored_but_values_and_array_order_are_not() {
         let pretty = br#"<Mashup><mashupContent>
   <![CDATA[
     {"first": 1, "second": {"value": true}}
@@ -835,7 +901,23 @@ mod tests {
         let reordered = br#"<Mashup><mashupContent><![CDATA[{"second":{"value":true},"first":1}]]></mashupContent></Mashup>"#;
         assert_eq!(hash(pretty).unwrap(), hash(compact).unwrap());
         assert_ne!(hash(compact).unwrap(), hash(changed).unwrap());
-        assert_ne!(hash(compact).unwrap(), hash(reordered).unwrap());
+        assert_eq!(hash(compact).unwrap(), hash(reordered).unwrap());
+        let items_ab = br#"<Mashup><mashupContent><![CDATA[{"Widgets":[{"a":1},{"b":2}]}]]></mashupContent></Mashup>"#;
+        let items_ba = br#"<Mashup><mashupContent><![CDATA[{"Widgets":[{"b":2},{"a":1}]}]]></mashupContent></Mashup>"#;
+        assert_ne!(hash(items_ab).unwrap(), hash(items_ba).unwrap());
+    }
+
+    #[test]
+    fn an_organizations_connections_and_units_compare_as_sets() {
+        let sent = br#"<Organization name="O"><Connections><Connection from="Root" to="A"/><Connection from="Root" to="B"/></Connections><OrganizationalUnits><OrganizationalUnit name="A"><Members/></OrganizationalUnit><OrganizationalUnit name="B"><Members/></OrganizationalUnit></OrganizationalUnits></Organization>"#;
+        let back = br#"<Organization name="O"><Connections><Connection from="Root" to="B"/><Connection from="Root" to="A"/></Connections><OrganizationalUnits><OrganizationalUnit name="B"><Members/></OrganizationalUnit><OrganizationalUnit name="A"><Members/></OrganizationalUnit></OrganizationalUnits></Organization>"#;
+        let changed = br#"<Organization name="O"><Connections><Connection from="Root" to="B"/><Connection from="A" to="A"/></Connections><OrganizationalUnits><OrganizationalUnit name="B"><Members/></OrganizationalUnit><OrganizationalUnit name="A"><Members/></OrganizationalUnit></OrganizationalUnits></Organization>"#;
+        assert_eq!(hash(sent).unwrap(), hash(back).unwrap());
+        assert_ne!(hash(sent).unwrap(), hash(changed).unwrap());
+        // The same lists elsewhere keep their order.
+        let thing_ab = br#"<Thing name="T"><Connections><Connection from="Root" to="A"/><Connection from="Root" to="B"/></Connections></Thing>"#;
+        let thing_ba = br#"<Thing name="T"><Connections><Connection from="Root" to="B"/><Connection from="Root" to="A"/></Connections></Thing>"#;
+        assert_ne!(hash(thing_ab).unwrap(), hash(thing_ba).unwrap());
     }
 
     #[test]
@@ -902,10 +984,10 @@ mod tests {
 
     #[test]
     fn hash_and_framing_are_version_six() {
-        assert!(hash(b"<Thing/>").unwrap().starts_with("v6:"));
+        assert!(hash(b"<Thing/>").unwrap().starts_with("v7:"));
         assert!(normalise(b"<Thing/>")
             .unwrap()
-            .starts_with(b"twaco-entity-normalise-v6\0"));
+            .starts_with(b"twaco-entity-normalise-v7\0"));
     }
 
     #[test]
