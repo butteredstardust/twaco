@@ -99,6 +99,8 @@ pub struct AssetRow {
     pub name: String,
     pub parent: String,
     pub connection_type: String,
+    /// Whether the row gave its type; without one it is "Contains" for a new connection.
+    pub typed: bool,
     pub template: Option<String>,
     pub description: String,
     pub project: Option<String>,
@@ -249,6 +251,7 @@ pub fn assets_csv(src: &[u8]) -> Result<Vec<AssetRow>, NetworkError> {
             name,
             parent: get(&record, "parent"),
             connection_type: optional("type").unwrap_or_else(|| "Contains".into()),
+            typed: optional("type").is_some(),
             template: optional("template"),
             description: get(&record, "description"),
             project: optional("project"),
@@ -788,6 +791,13 @@ pub fn add_all(
                 element(&format!("{indent}    "))
             ),
         )
+    } else if src[..network.entity_span.end].ends_with(b"/>") {
+        // A self-closing <Network/> opens up to hold the new element.
+        let end = network.entity_span.end;
+        Edit::new(
+            Span::new(end - 2, end),
+            format!("><Connections>{}</Connections></Network>", elements("", "")),
+        )
     } else {
         let close = network.entity_span.end - "</Network>".len();
         let line_start = src[..close]
@@ -813,27 +823,46 @@ pub fn add_all(
     splice::splice(src, &[edit]).map_err(|error| NetworkError::Invalid(error.to_string()))
 }
 
-/// The bytes removing `span` takes: its whole line (indentation and line ending) when nothing
-/// else is on it, so no blank line is left behind.
-fn removal(src: &[u8], span: Span) -> Span {
-    let line_start = src[..span.start]
-        .iter()
-        .rposition(|&byte| byte == b'\n')
-        .map_or(0, |at| at + 1);
-    let rest = &src[span.end..];
-    let line_end = rest
-        .iter()
-        .position(|&byte| byte == b'\n')
-        .map_or(src.len(), |at| span.end + at + 1);
-    let before_blank = src[line_start..span.start]
-        .iter()
-        .all(u8::is_ascii_whitespace);
-    let after_blank = src[span.end..line_end].iter().all(u8::is_ascii_whitespace);
-    if before_blank && after_blank && line_end <= src.len() {
-        Span::new(line_start, line_end)
-    } else {
-        span
+/// The edits removing `spans`: the whole lines (indentation and line endings) of any run of
+/// lines that holds nothing else, so no blank line is left behind, even when several removed
+/// elements share a line; otherwise just the elements.
+fn removals(src: &[u8], spans: &[Span]) -> Vec<Edit> {
+    let lines = |span: Span| {
+        let start = src[..span.start]
+            .iter()
+            .rposition(|&byte| byte == b'\n')
+            .map_or(0, |at| at + 1);
+        let end = src[span.end..]
+            .iter()
+            .position(|&byte| byte == b'\n')
+            .map_or(src.len(), |at| span.end + at + 1);
+        (start, end)
+    };
+    let mut spans = spans.to_vec();
+    spans.sort_by_key(|span| span.start);
+    let mut edits = Vec::new();
+    let mut at = 0;
+    while at < spans.len() {
+        let (start, mut end) = lines(spans[at]);
+        let mut group = vec![spans[at]];
+        at += 1;
+        while at < spans.len() && spans[at].start < end {
+            end = end.max(lines(spans[at]).1);
+            group.push(spans[at]);
+            at += 1;
+        }
+        let mut rest = src[start..group[0].start].to_vec();
+        for (span, next) in group.iter().zip(group.iter().skip(1)) {
+            rest.extend_from_slice(&src[span.end..next.start]);
+        }
+        rest.extend_from_slice(&src[group[group.len() - 1].end..end]);
+        if rest.iter().all(u8::is_ascii_whitespace) {
+            edits.push(Edit::new(Span::new(start, end), Vec::new()));
+        } else {
+            edits.extend(group.into_iter().map(|span| Edit::new(span, Vec::new())));
+        }
     }
+    edits
 }
 
 /// Delete the connections whose child is one of `children`, each with its line. When none is
@@ -855,10 +884,13 @@ pub fn remove_children(
         Some(span) if removed.len() == network.connections.len() => {
             vec![Edit::new(span, "<Connections></Connections>")]
         }
-        _ => removed
-            .iter()
-            .map(|connection| Edit::new(removal(src, connection.span), Vec::new()))
-            .collect(),
+        _ => removals(
+            src,
+            &removed
+                .iter()
+                .map(|connection| connection.span)
+                .collect::<Vec<_>>(),
+        ),
     };
     splice::splice(src, &edits).map_err(|error| NetworkError::Invalid(error.to_string()))
 }
@@ -1057,5 +1089,42 @@ mod tests {
             .unwrap_err()
             .to_string()
             .contains("line 3"));
+    }
+
+    #[test]
+    fn adding_to_a_self_closing_network_opens_it() {
+        let src = b"<Entities><Networks><Network name=\"Acme.N\" projectName=\"Acme\"/></Networks></Entities>";
+        let network = parse(src).unwrap();
+        let out = add(src, &network, "Contains", "", "Acme.Site").unwrap();
+        let text = String::from_utf8(out.clone()).unwrap();
+        assert!(
+            text.contains("projectName=\"Acme\"><Connections>"),
+            "{text}"
+        );
+        assert!(
+            text.ends_with("</Connections></Network></Networks></Entities>"),
+            "{text}"
+        );
+        assert_eq!(parse(&out).unwrap().connections[0].to, "Acme.Site");
+    }
+
+    #[test]
+    fn removing_connections_that_share_a_line_leaves_no_blank_line() {
+        let pair = "    <Connection connectionType=\"Contains\" from=\"\" to=\"Acme.A\"/><Connection connectionType=\"Contains\" from=\"Acme.A\" to=\"Acme.B\"/>\n";
+        let src = format!("<Entities>\n<Networks>\n<Network name=\"Acme.N\" projectName=\"Acme\">\n  <Connections>\n{pair}    <Connection connectionType=\"Contains\" from=\"\" to=\"Acme.C\"/>\n  </Connections>\n</Network>\n</Networks>\n</Entities>\n");
+        let network = parse(src.as_bytes()).unwrap();
+        let both = BTreeSet::from(["Acme.A".to_string(), "Acme.B".to_string()]);
+        let out = remove_children(src.as_bytes(), &network, &both).unwrap();
+        assert_eq!(String::from_utf8(out).unwrap(), src.replace(pair, ""));
+        // Removing one of the two keeps the other on its line.
+        let one = remove_children(
+            src.as_bytes(),
+            &network,
+            &BTreeSet::from(["Acme.B".to_string()]),
+        )
+        .unwrap();
+        assert!(String::from_utf8(one)
+            .unwrap()
+            .contains("    <Connection connectionType=\"Contains\" from=\"\" to=\"Acme.A\"/>\n"));
     }
 }

@@ -150,29 +150,43 @@ impl Coded for CommandError {
 }
 
 /// Compare connection placement by child. A Thing can have one parent, so equal child names
-/// with a changed parent or type are one useful difference rather than two noisy additions.
+/// with a changed parent or type are one useful difference rather than two noisy additions. A
+/// child the repository places twice (a problem the networks gate reports) keeps the placement
+/// the server has, and every other one is repository-only, whatever their order in the file.
 pub fn diff(repository: &network::Network, server: &[network::ServerConnection]) -> Diff {
-    let repo_by_to: std::collections::HashMap<_, _> = repository
-        .connections
-        .iter()
-        .map(|row| (row.to.as_str(), row))
-        .collect();
-    let server_by_to: std::collections::HashMap<_, _> =
-        server.iter().map(|row| (row.to.as_str(), row)).collect();
+    let mut repo_by_to: HashMap<&str, Vec<&network::Connection>> = HashMap::new();
+    for row in &repository.connections {
+        repo_by_to.entry(row.to.as_str()).or_default().push(row);
+    }
+    let server_children: HashSet<&str> = server.iter().map(|row| row.to.as_str()).collect();
     let mut result = Diff::default();
     for row in server {
-        match repo_by_to.get(row.to.as_str()) {
-            None => result.server_only.push(row.clone()),
-            Some(local)
-                if local.from != row.from || local.connection_type != row.connection_type =>
-            {
-                result.different.push(((*local).clone(), row.clone()))
+        let Some(locals) = repo_by_to.get(row.to.as_str()) else {
+            result.server_only.push(row.clone());
+            continue;
+        };
+        let same = |local: &&network::Connection| {
+            local.from == row.from && local.connection_type == row.connection_type
+        };
+        let kept = locals.iter().position(same);
+        match kept {
+            Some(at) => result.repository_only.extend(
+                locals
+                    .iter()
+                    .enumerate()
+                    .filter(|(index, _)| *index != at)
+                    .map(|(_, local)| (*local).clone()),
+            ),
+            None => {
+                result.different.push((locals[0].clone(), row.clone()));
+                result
+                    .repository_only
+                    .extend(locals[1..].iter().map(|local| (*local).clone()));
             }
-            Some(_) => {}
         }
     }
     for row in &repository.connections {
-        if !server_by_to.contains_key(row.to.as_str()) {
+        if !server_children.contains(row.to.as_str()) {
             result.repository_only.push(row.clone());
         }
     }
@@ -188,12 +202,11 @@ pub fn server_diff<R: network::Remote>(
     let bytes = std::fs::read(&file.path)
         .map_err(|error| CommandError::Invalid(format!("{}: {error}", file.path.display())))?;
     let repository = network::parse(&bytes).map_err(CommandError::Network)?;
-    Ok(diff(
-        &repository,
-        &remote
-            .connections(name, false)
-            .map_err(CommandError::Server)?,
-    ))
+    // The operand may be a short alias; the server knows the Network by its own name.
+    let server = remote
+        .connections(&repository.name, false)
+        .map_err(CommandError::Server)?;
+    Ok(diff(&repository, &server))
 }
 
 /// Read the profile only for the server-backed form, keeping offline network commands offline.
@@ -229,7 +242,7 @@ where
     let local = network::parse(&bytes).map_err(CommandError::Network)?;
     let profile = profile::load(&solution.root, profile_name).map_err(CommandError::Profile)?;
     let rows = open(profile)
-        .connections(name, true)
+        .connections(&local.name, true)
         .map_err(CommandError::Server)?;
     Ok(network::from_server(&local.name, &local.project, &rows))
 }
@@ -244,7 +257,7 @@ fn pull_plan<R: network::Remote>(
         .map_err(|error| CommandError::Invalid(format!("{}: {error}", file.path.display())))?;
     let initial = network::parse(&before).map_err(CommandError::Network)?;
     let rows = remote
-        .connections(name, false)
+        .connections(&initial.name, false)
         .map_err(CommandError::Server)?;
     // Only the connections that differ are edited, so a pull of an unchanged server writes
     // nothing and a pulled change reads as a small diff.
@@ -257,11 +270,13 @@ fn pull_plan<R: network::Remote>(
         .collect();
     let removed =
         network::remove_children(&before, &initial, &replaced).map_err(CommandError::Network)?;
+    // A replaced child loses every connection it had, so the server's placement of it comes
+    // back with the server-only ones.
     let incoming: HashSet<&str> = changes
         .server_only
         .iter()
         .map(|row| row.to.as_str())
-        .chain(changes.different.iter().map(|(_, row)| row.to.as_str()))
+        .chain(replaced.iter().map(String::as_str))
         .collect();
     let additions: Vec<(&str, &str, &str)> = rows
         .iter()
@@ -360,6 +375,32 @@ fn descendants(forest: &network::Forest, root: &str, out: &mut BTreeSet<String>)
     }
 }
 
+/// Refuse an edit that leaves the Network with a problem it did not already have: a cycle, a
+/// second parent, a parent outside it. Whatever an edit checks itself, this is the last word.
+fn no_new_problem(
+    initial: &network::Network,
+    after: &[u8],
+    what: &str,
+) -> Result<(), CommandError> {
+    let had: BTreeSet<String> = network::forest(initial)
+        .problems
+        .iter()
+        .map(ToString::to_string)
+        .collect();
+    let result = network::parse(after).map_err(CommandError::Network)?;
+    if let Some(problem) = network::forest(&result)
+        .problems
+        .iter()
+        .find(|problem| !had.contains(&problem.to_string()))
+    {
+        return Err(CommandError::Invalid(format!(
+            "{what} would leave Network {} with a problem: {problem}",
+            initial.name
+        )));
+    }
+    Ok(())
+}
+
 pub fn plan(solution: &Solution, request: &Request) -> Result<Plan, CommandError> {
     if !matches!(request.action, Action::Remove) && request.root == request.parent.is_some() {
         return Err(CommandError::Invalid(
@@ -423,7 +464,11 @@ pub fn plan(solution: &Solution, request: &Request) -> Result<Plan, CommandError
                     request.thing, model.name
                 )));
             };
-            if old.from == parent {
+            let retyped = request
+                .connection_type
+                .as_ref()
+                .is_some_and(|wanted| *wanted != old.connection_type);
+            if old.from == parent && !retyped {
                 (before.clone(), Vec::new())
             } else {
                 let mut below = BTreeSet::new();
@@ -486,6 +531,7 @@ pub fn plan(solution: &Solution, request: &Request) -> Result<Plan, CommandError
             )
         }
     };
+    no_new_problem(&model, &after, "the edit")?;
     Ok(Plan {
         path: file.path,
         changed: before != after,
@@ -603,10 +649,15 @@ pub fn import_plan(
     }
     // Decide every row against the placement so far, then splice once: removals of the moved
     // Things, and the additions in row order, as row-by-row edits would leave them.
-    let mut placed: HashMap<String, String> = initial
+    let mut placed: HashMap<String, (String, String)> = initial
         .connections
         .iter()
-        .map(|connection| (connection.to.clone(), connection.from.clone()))
+        .map(|connection| {
+            (
+                connection.to.clone(),
+                (connection.from.clone(), connection.connection_type.clone()),
+            )
+        })
         .collect();
     let mut moving = BTreeSet::new();
     let mut additions: Vec<(&str, &str, &str)> = Vec::new();
@@ -614,15 +665,29 @@ pub fn import_plan(
     let mut moved = Vec::new();
     let mut noops = Vec::new();
     for row in ordered {
+        // A row without a type keeps the connection's own; one with a type changes it.
+        let same = |(parent, connection_type): &(String, String)| {
+            *parent == row.parent && (!row.typed || *connection_type == row.connection_type)
+        };
         match placed.get(&row.name) {
-            Some(parent) if *parent == row.parent => noops.push(row.name.clone()),
-            Some(parent) if !request.move_existing => {
+            Some(current) if same(current) => noops.push(row.name.clone()),
+            Some((parent, connection_type)) if !request.move_existing => {
+                let place = |parent: &str, connection_type: &str| {
+                    let parent = if parent.is_empty() {
+                        "the root"
+                    } else {
+                        parent
+                    };
+                    format!("under {parent} as {connection_type}")
+                };
                 return Err(CommandError::Invalid(format!(
-                "CSV line {}: {} is already in Network {} under {}; use --move to put it under {}",
-                row.line, row.name, initial.name,
-                if parent.is_empty() { "the root" } else { parent },
-                if row.parent.is_empty() { "the root" } else { &row.parent }
-            )))
+                    "CSV line {}: {} is already in Network {} {}; use --move to put it {}",
+                    row.line,
+                    row.name,
+                    initial.name,
+                    place(parent, connection_type),
+                    place(&row.parent, &row.connection_type)
+                )));
             }
             Some(_) => {
                 additions.retain(|(_, _, to)| *to != row.name);
@@ -635,7 +700,11 @@ pub fn import_plan(
                 added.push(row.name.clone());
             }
         }
-        placed.insert(row.name.clone(), row.parent.clone());
+        let connection_type = match placed.get(&row.name) {
+            Some((_, current)) if !row.typed => current.clone(),
+            _ => row.connection_type.clone(),
+        };
+        placed.insert(row.name.clone(), (row.parent.clone(), connection_type));
     }
     let without =
         network::remove_children(&before, &initial, &moving).map_err(CommandError::Network)?;
@@ -643,22 +712,7 @@ pub fn import_plan(
     let after = network::add_all(&without, &model, &additions).map_err(CommandError::Network)?;
     // A --move can put a Thing under its own descendant; whatever the rows do, the network must
     // come out with no problem it did not already have.
-    let had: BTreeSet<String> = network::forest(&initial)
-        .problems
-        .iter()
-        .map(ToString::to_string)
-        .collect();
-    let result = network::parse(&after).map_err(CommandError::Network)?;
-    if let Some(problem) = network::forest(&result)
-        .problems
-        .iter()
-        .find(|problem| !had.contains(&problem.to_string()))
-    {
-        return Err(CommandError::Invalid(format!(
-            "the import would leave Network {} with a problem: {problem}",
-            initial.name
-        )));
-    }
+    no_new_problem(&initial, &after, "the import")?;
     Ok(ImportPlan {
         path: file.path,
         before,
@@ -1136,5 +1190,196 @@ mod tests {
                 );
             }
         }
+    }
+
+    /// Answers with fixed rows and records the Network names it was asked for.
+    struct NamedServer(
+        Vec<network::ServerConnection>,
+        std::sync::Mutex<Vec<String>>,
+    );
+    impl network::Remote for NamedServer {
+        fn connections(
+            &self,
+            name: &str,
+            _: bool,
+        ) -> Result<Vec<network::ServerConnection>, crate::core::server::ServerError> {
+            self.1.lock().unwrap().push(name.into());
+            Ok(self.0.clone())
+        }
+    }
+
+    #[test]
+    fn a_short_operand_asks_the_server_for_the_resolved_network() {
+        let (_dir, solution) = solution();
+        let server = NamedServer(repository_rows(), Default::default());
+        server_diff(&solution, "plant", &server).unwrap();
+        pull_plan(&solution, "plant", &server).unwrap();
+        assert_eq!(*server.1.lock().unwrap(), ["Acme.Plant", "Acme.Plant"]);
+    }
+
+    #[test]
+    fn diff_keeps_the_server_placement_of_a_child_placed_twice_in_either_order() {
+        for (first, second) in [("Acme.LineA", ""), ("", "Acme.LineA")] {
+            let src = format!("<Entities><Networks><Network name=\"Acme.N\" projectName=\"Acme\"><Connections><Connection connectionType=\"Contains\" from=\"\" to=\"Acme.LineA\"/><Connection connectionType=\"Contains\" from=\"{first}\" to=\"Acme.Press\"/><Connection connectionType=\"Contains\" from=\"{second}\" to=\"Acme.Press\"/></Connections></Network></Networks></Entities>");
+            let repository = network::parse(src.as_bytes()).unwrap();
+            let report = diff(
+                &repository,
+                &[
+                    row("Contains", "", "Acme.LineA"),
+                    row("Contains", "", "Acme.Press"),
+                ],
+            );
+            assert!(report.differs());
+            assert_eq!(report.repository_only.len(), 1);
+            assert_eq!(report.repository_only[0].from, "Acme.LineA");
+            assert!(report.different.is_empty() && report.server_only.is_empty());
+        }
+    }
+
+    #[test]
+    fn pulling_a_child_placed_twice_leaves_it_one_parent() {
+        let (dir, solution) = solution();
+        let doubled = NETWORK.replace(
+            "            </Connections>",
+            "                <Connection\n                 connectionType=\"Contains\"\n                 from=\"Acme.Site\"\n                 to=\"Acme.Press\"></Connection>\n            </Connections>",
+        );
+        std::fs::write(dir.path().join("Networks/Acme.Plant.xml"), &doubled).unwrap();
+        let plan = pull_plan(&solution, "Acme.Plant", &FakeServer(repository_rows())).unwrap();
+        let pulled = network::parse(&plan.after).unwrap();
+        assert_eq!(
+            pulled
+                .connections
+                .iter()
+                .filter(|c| c.to == "Acme.Press")
+                .map(|c| c.from.as_str())
+                .collect::<Vec<_>>(),
+            ["Acme.LineA"]
+        );
+    }
+
+    #[test]
+    fn moving_under_the_same_parent_with_another_type_retypes() {
+        let (_dir, solution) = solution();
+        let mut move_request = request(Action::Move, "Acme.Press", Some("Acme.LineA"));
+        move_request.connection_type = Some("Child".into());
+        let plan = plan(&solution, &move_request).unwrap();
+        assert!(plan.changed);
+        let press = network::parse(&plan.after)
+            .unwrap()
+            .connections
+            .into_iter()
+            .find(|c| c.to == "Acme.Press")
+            .unwrap();
+        assert_eq!(
+            (press.from.as_str(), press.connection_type.as_str()),
+            ("Acme.LineA", "Child")
+        );
+        // Without --type the same move is still nothing to do.
+        let same = request(Action::Move, "Acme.Press", Some("Acme.LineA"));
+        assert!(!super::plan(&solution, &same).unwrap().changed);
+    }
+
+    #[test]
+    fn importing_a_given_type_retypes_only_with_move_and_no_type_keeps_it() {
+        let (_dir, solution) = solution();
+        let refused = import(
+            &solution,
+            "name,parent,type\nAcme.Press,Acme.LineA,Child\n",
+            |_| {},
+        )
+        .unwrap_err()
+        .to_string();
+        assert!(
+            refused.contains(
+                "under Acme.LineA as Contains; use --move to put it under Acme.LineA as Child"
+            ),
+            "{refused}"
+        );
+        let moved = import(
+            &solution,
+            "name,parent,type\nAcme.Press,Acme.LineA,Child\n",
+            |request| request.move_existing = true,
+        )
+        .unwrap();
+        assert_eq!(moved.moved, ["Acme.Press"]);
+        let press = network::parse(&moved.after)
+            .unwrap()
+            .connections
+            .into_iter()
+            .find(|c| c.to == "Acme.Press")
+            .unwrap();
+        assert_eq!(press.connection_type, "Child");
+        let untyped = import(&solution, "name,parent\nAcme.Press,Acme.LineA\n", |_| {}).unwrap();
+        assert_eq!(untyped.noops, ["Acme.Press"]);
+        assert_eq!(untyped.before, untyped.after);
+    }
+
+    #[test]
+    fn adding_a_thing_that_would_close_a_cycle_is_refused() {
+        let (dir, solution) = solution();
+        // Acme.Saw hangs under Acme.Zone, which is not itself in the network.
+        let dangling = NETWORK.replace(
+            "            </Connections>",
+            "                <Connection\n                 connectionType=\"Contains\"\n                 from=\"Acme.Zone\"\n                 to=\"Acme.Saw\"></Connection>\n            </Connections>",
+        );
+        std::fs::write(dir.path().join("Networks/Acme.Plant.xml"), &dangling).unwrap();
+        let mut add = request(Action::Add, "Acme.Zone", Some("Acme.Saw"));
+        add.outside = true;
+        let refused = plan(&solution, &add).unwrap_err().to_string();
+        assert!(
+            refused.contains("would leave Network Acme.Plant with a problem"),
+            "{refused}"
+        );
+    }
+
+    #[test]
+    fn pull_execute_writes_only_when_applied() {
+        let (dir, solution) = solution();
+        std::fs::create_dir_all(dir.path().join(".twaco/profiles")).unwrap();
+        std::fs::write(
+            dir.path().join(".twaco/profiles/default.toml"),
+            "url = \"http://server/Thingworx\"\nusername = \"Administrator\"\npassword = \"admin\"\n",
+        )
+        .unwrap();
+        let mut rows = repository_rows();
+        rows[2].from = "Acme.LineB".into();
+        let mut pull = PullRequest {
+            network: "Acme.Plant".into(),
+            mode: Mode::Plan,
+            profile: "default".into(),
+            lock_label: "test pull",
+        };
+        let planned = pull_execute(
+            &solution,
+            &pull,
+            |_| FakeServer(rows.clone()),
+            &mut Notices::default(),
+        )
+        .unwrap();
+        assert!(!planned.applied);
+        assert_eq!(network_text(dir.path()), NETWORK);
+        pull.mode = Mode::Apply;
+        let applied = pull_execute(
+            &solution,
+            &pull,
+            |_| FakeServer(rows.clone()),
+            &mut Notices::default(),
+        )
+        .unwrap();
+        assert!(applied.applied);
+        assert_eq!(
+            network_text(dir.path()).as_bytes(),
+            applied.plan.after.as_slice()
+        );
+        assert_ne!(network_text(dir.path()), NETWORK);
+        // Pulling the same server again changes nothing.
+        let again = pull_execute(
+            &solution,
+            &pull,
+            |_| FakeServer(rows),
+            &mut Notices::default(),
+        )
+        .unwrap();
+        assert_eq!(again.plan.before, again.plan.after);
     }
 }

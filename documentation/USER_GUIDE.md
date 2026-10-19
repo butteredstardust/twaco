@@ -506,7 +506,8 @@ hierarchy; a Thing name after the Network shows only its subtree, and `--depth` 
 gives the tree, the flat connection list and the problems. `add` refuses a Thing already in the
 network (`move` it instead), a parent that is not in it, and a Thing the repository does not hold
 unless `--outside` says it exists on the server. `move` keeps the Thing's subtree and refuses a
-parent inside it. `remove` takes the connection, never the Thing, and refuses a Thing with
+parent inside it; `move` with `--type` under the same parent changes only the connection type. No
+edit may leave the network with a cycle, a second parent or another problem it did not have. `remove` takes the connection, never the Thing, and refuses a Thing with
 children unless `--subtree`. Each edit plans until `--apply` and changes only the connections it
 names, in the file's own layout. The `networks` gate of `twaco check` reports a Thing with two
 parents, a cycle, a parent that is not itself in the network, and a connection listed twice.
@@ -524,7 +525,9 @@ overrides); pull first to keep them.
 `network import` brings an asset export into that same hierarchy. Its `--file` is UTF-8 RFC 4180
 CSV (a BOM, CRLF, quoted commas, doubled quotes and quoted newlines are accepted), with `name` and
 `parent` headers and optional `type`, `template`, `description` and `project`. An empty `parent`
-makes a root. Parents are applied before their children even if the CSV puts the child first.
+makes a root. Parents are applied before their children even if the CSV puts the child first. A
+row without a `type` keeps an existing connection's type (a new one is `Contains`); a row that
+gives a different parent or type changes the connection only with `--move`.
 
 ```csv
 name,parent,type,template,description,project
