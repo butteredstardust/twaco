@@ -176,28 +176,9 @@ fn check_services(file: &str, entity: &str, src: &[u8], allowed: &[String]) -> V
 /// The runtime reads that JSON. A mashup that will not parse shows an empty page rather than an
 /// error, which is why this is worth catching before an import rather than after one.
 fn check_mashup(file: &str, src: &[u8]) -> Vec<Problem> {
-    let Ok(tokens) = scan::tokenize(src) else {
+    let Some(payload) = mashup_payload(src) else {
         return Vec::new();
     };
-    let Some(content) = tokens
-        .iter()
-        .position(|t| t.kind == Kind::Start && t.name.of(src) == b"mashupContent")
-    else {
-        return Vec::new();
-    };
-    let Some(end) = scan::element_end_in(&tokens, src, content) else {
-        return Vec::new();
-    };
-
-    let payload: String = (content + 1..end)
-        .filter_map(|i| match tokens[i].kind {
-            Kind::Cdata => Some(String::from_utf8_lossy(tokens[i].inner.of(src)).into_owned()),
-            Kind::Text => Some(scan::decode_entities(&String::from_utf8_lossy(
-                tokens[i].span.of(src),
-            ))),
-            _ => None,
-        })
-        .collect();
     if payload.trim().is_empty() {
         return Vec::new();
     }
@@ -224,6 +205,27 @@ fn check_mashup(file: &str, src: &[u8]) -> Vec<Problem> {
             message: format!("mashupContent will not parse: {e}"),
         }],
     }
+}
+
+/// A Mashup entity's `mashupContent` payload, from CDATA or escaped text alike; `None` when the
+/// file has no such element.
+pub(crate) fn mashup_payload(src: &[u8]) -> Option<String> {
+    let tokens = scan::tokenize(src).ok()?;
+    let content = tokens
+        .iter()
+        .position(|t| t.kind == Kind::Start && t.name.of(src) == b"mashupContent")?;
+    let end = scan::element_end_in(&tokens, src, content)?;
+    Some(
+        (content + 1..end)
+            .filter_map(|i| match tokens[i].kind {
+                Kind::Cdata => Some(String::from_utf8_lossy(tokens[i].inner.of(src)).into_owned()),
+                Kind::Text => Some(scan::decode_entities(&String::from_utf8_lossy(
+                    tokens[i].span.of(src),
+                ))),
+                _ => None,
+            })
+            .collect(),
+    )
 }
 
 fn relative(solution: &Solution, entity: &EntityFile) -> String {

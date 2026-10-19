@@ -99,12 +99,18 @@ pub(crate) fn content_problems(solution: &Solution) -> (usize, Vec<(String, Prob
             .to_string_lossy()
             .replace('\\', "/");
         let mut problems = Vec::new();
-        match std::fs::read(&file.path)
-            .map_err(|error| error.to_string())
-            .and_then(|bytes| mashup::extract(&bytes).map_err(|error| error.to_string()))
-        {
-            Err(error) => problems.push(problem("unreadable", error)),
-            Ok(assets) => check_content(&assets.content, &mut problems),
+        match std::fs::read(&file.path) {
+            Err(error) => problems.push(problem("unreadable", error.to_string())),
+            Ok(bytes) => {
+                // An empty placeholder, or JSON the project gate already reports as unparsable,
+                // is no content to judge; nor is an object without a UI yet, as `{}` is.
+                let payload = crate::core::validate::mashup_payload(&bytes).unwrap_or_default();
+                let judged = serde_json::from_str::<Value>(payload.trim())
+                    .is_ok_and(|value| value.get("UI").is_some());
+                if judged {
+                    check_content(payload.trim(), &mut problems);
+                }
+            }
         }
         found.extend(problems.into_iter().map(|p| (relative.clone(), p)));
     }
@@ -312,12 +318,16 @@ fn check_ui_end(
     }
     // A chart with MultipleDataSources takes one data source per series, DataSource1 to
     // DataSource<NumberOfSeries>, each an infotable it reads.
-    if let Some(series) = property
-        .strip_prefix("DataSource")
-        .and_then(|n| n.parse::<u64>().ok())
-    {
+    if let Some(series) = property.strip_prefix("DataSource").and_then(|n| {
+        n.parse::<u64>()
+            .ok()
+            .filter(|series| series.to_string() == n)
+    }) {
         let separate = properties["MultipleDataSources"].as_bool() == Some(true);
-        let count = properties["NumberOfSeries"].as_u64().unwrap_or(0);
+        let count = match &properties["NumberOfSeries"] {
+            Value::String(text) => text.trim().parse().unwrap_or(0),
+            other => other.as_u64().unwrap_or(0),
+        };
         if separate && (1..=count).contains(&series) {
             if source {
                 problems.push(direction(binding, id, property, source));
@@ -580,6 +590,14 @@ mod tests {
         );
         assert_eq!(
             rules(&content(chart(false), bind("DataSource1"), json!([]), 4)),
+            ["unknown-property"]
+        );
+        // A series count stored as text counts; a name ThingWorx would not write does not.
+        let text_count = json!([{"Properties": {"Id": "ptcschartline-3", "Type": "ptcschartline", "DisplayName": "c",
+            "MultipleDataSources": true, "NumberOfSeries": "2"}, "Widgets": []}]);
+        assert!(rules(&content(text_count, bind("DataSource2"), json!([]), 4)).is_empty());
+        assert_eq!(
+            rules(&content(chart(true), bind("DataSource01"), json!([]), 4)),
             ["unknown-property"]
         );
     }

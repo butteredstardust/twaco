@@ -1789,5 +1789,35 @@ mod tests {
         assert_eq!(found.findings[0].rule, "unknown-property");
         assert_eq!(found.findings[0].file, "Mashups/P.M.xml");
         assert!(found.blocks());
+
+        // Content written as escaped XML text is read like CDATA.
+        let as_text = mashup("Dta")
+            .replace("<![CDATA[", "")
+            .replace("]]>", "")
+            .replace('"', "&quot;");
+        let as_text = as_text
+            .replace("&quot;P.M&quot;", "\"P.M\"")
+            .replace("&quot;P&quot;", "\"P\"");
+        std::fs::write(root.join("Mashups/P.M.xml"), as_text).unwrap();
+        assert_eq!(mashup_content(&solution).findings.len(), 1);
+
+        // Placeholders a new or untouched mashup has are not judged.
+        for placeholder in [
+            "<mashupContent/>",
+            "<mashupContent></mashupContent>",
+            "<mashupContent><![CDATA[{}]]></mashupContent>",
+        ] {
+            std::fs::write(
+                root.join("Mashups/P.M.xml"),
+                format!("<Entities><Mashups><Mashup name=\"P.M\" projectName=\"P\">{placeholder}</Mashup></Mashups></Entities>"),
+            )
+            .unwrap();
+            let gate = mashup_content(&solution);
+            assert!(
+                gate.findings.is_empty(),
+                "{placeholder}: {:?}",
+                gate.findings
+            );
+        }
     }
 }
