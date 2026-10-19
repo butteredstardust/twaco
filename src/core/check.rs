@@ -6,7 +6,7 @@
 
 use super::config::Solution;
 use super::progress::{self, Progress};
-use super::{bindings, fmt as format_js, sync, workspace};
+use super::{bindings, fmt as format_js, network, sync, workspace};
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
 use std::path::{Path, PathBuf};
@@ -121,6 +121,7 @@ pub(crate) const BUILT_IN_GATES: &[&str] = &[
     "contained mashups",
     "localization tokens",
     "result shapes",
+    "networks",
 ];
 
 /// A built-in gate as the solution wants it: blocking, or advisory when `[gates] advisory`
@@ -146,6 +147,7 @@ pub fn run(solution: &Solution) -> CheckReport {
         contained_mashups(solution),
         localization_tokens(solution),
         result_shapes(solution),
+        networks(solution),
     ] {
         report.gates.push(as_configured(solution, gate));
     }
@@ -815,6 +817,73 @@ fn project_validation(solution: &Solution) -> GateResult {
             message: problem.message,
         });
     }
+    result
+}
+
+/// Networks are forests on the server: the same Thing may have only one parent.
+fn networks(solution: &Solution) -> GateResult {
+    let entries: Vec<_> = workspace::entities(solution)
+        .into_iter()
+        .filter(|entry| entry.info.collection == "Networks")
+        .collect();
+    let mut result = GateResult::passed("networks", entries.len());
+    let mut outside = 0usize;
+    for entry in entries {
+        let bytes = match std::fs::read(&entry.path) {
+            Ok(bytes) => bytes,
+            Err(error) => {
+                result.findings.push(Finding {
+                    gate: "networks".into(),
+                    file: solution.relative(&entry.path),
+                    line: 0,
+                    rule: "unreadable".into(),
+                    message: error.to_string(),
+                });
+                continue;
+            }
+        };
+        let model = match network::parse(&bytes) {
+            Ok(model) => model,
+            Err(error) => {
+                result.findings.push(Finding {
+                    gate: "networks".into(),
+                    file: solution.relative(&entry.path),
+                    line: 0,
+                    rule: "invalid".into(),
+                    message: error.to_string(),
+                });
+                continue;
+            }
+        };
+        for problem in network::forest(&model).problems {
+            let rule = match problem {
+                network::Problem::TwoParents { .. } => "two-parents",
+                network::Problem::Cycle { .. } => "cycle",
+                network::Problem::DanglingParent { .. } => "dangling-parent",
+                network::Problem::Duplicate { .. } => "duplicate",
+                network::Problem::EmptyType { .. } => "empty-type",
+            };
+            result.findings.push(Finding {
+                gate: "networks".into(),
+                file: solution.relative(&entry.path),
+                line: 0,
+                rule: rule.into(),
+                message: format!("{problem:?}"),
+            });
+        }
+        outside += network::nodes(solution, &model)
+            .map(|nodes| {
+                nodes
+                    .into_iter()
+                    .filter(|node| node.outside_repository)
+                    .count()
+            })
+            .unwrap_or(0);
+    }
+    result.prose.push(format!(
+        "{} Networks checked; {} node(s) not checked (outside the repository)",
+        result.examined, outside
+    ));
     result
 }
 

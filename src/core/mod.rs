@@ -41,6 +41,7 @@ pub mod localization;
 pub mod lock;
 pub mod logs;
 pub mod mashup;
+pub mod network;
 pub mod newblock;
 pub mod normalise;
 pub(crate) mod number;

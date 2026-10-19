@@ -7,6 +7,15 @@ that matches what you are about to do before a live import, a hand-written mashu
 configuration-table change, or a service that introspects metadata or touches JSON. When a
 section and the server disagree, test against the server: platform versions differ.
 
+## Networks are declarative forests (verified on 10.1)
+
+A Network export stores `Connection` elements under `Connections`; `from=""` is a root and a
+Thing can occur only once, so it has one parent. `Contains` and `Child` are common connection
+types, but the type is free text. Importing Network XML replaces its server connections, including
+connections absent from the XML. Network services are `AddConnection`, `DeleteConnection`,
+`RemoveFromNetwork`, `SetConnections`, `GetNetworkConnections`, `GetSubNetworkConnections` and
+`GetChildConnections` (plus template variants).
+
 ## Import (`/Thingworx/Importer`) needs a session, not an app key
 
 The manual Importer endpoint returns **401/403 for a valid, working app key**,

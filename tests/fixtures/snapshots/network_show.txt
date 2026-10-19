@@ -1,0 +1,13 @@
+$ twaco network show Acme.Orders.Plant
+exit: 0
+
+--- stdout
+Acme.Orders.Manager  [Acme.Orders.Base_TT]
+  Acme.Orders.Poller  [Timer]
+    Acme.Orders.Lines_DT  [DataTable]
+3 nodes, 1 roots, depth 2
+       1  Acme.Orders.Base_TT
+       1  DataTable
+       1  Timer
+--- stderr
+

@@ -1117,13 +1117,13 @@
   },
   {
     "name": "entity_new",
-    "description": "Create a ThingWorx entity as a repository XML file: common Things, data Things, media, styles, states, menus, and themes. DataShape and DataTable creation also writes their managed sidecar. A dry run unless dry_run is false; apply takes the workspace lock and writes every file or none.",
+    "description": "Create a ThingWorx entity as a repository XML file: common Things, data Things, media, styles, states, menus, themes, and Networks. DataShape and DataTable creation also writes their managed sidecar. A dry run unless dry_run is false; apply takes the workspace lock and writes every file or none.",
     "inputSchema": {
       "required": ["kind", "name"],
       "additionalProperties": false,
       "type": "object",
       "properties": {
-        "kind": {"description": "`thing`, `thing-template`, `thing-shape`, `data-shape`, `timer`, `scheduler`, `data-table`, `stream`, `value-stream`, `media`, `style`, `state`, `menu`, or `theme`.", "type": "string", "enum": ["thing", "thing-template", "thing-shape", "data-shape", "timer", "scheduler", "data-table", "stream", "value-stream", "media", "style", "state", "menu", "theme"]},
+        "kind": {"description": "`thing`, `thing-template`, `thing-shape`, `data-shape`, `timer`, `scheduler`, `data-table`, `stream`, `value-stream`, `media`, `style`, `state`, `menu`, `theme`, or `network`.", "type": "string", "enum": ["thing", "thing-template", "thing-shape", "data-shape", "timer", "scheduler", "data-table", "stream", "value-stream", "media", "style", "state", "menu", "theme", "network"]},
         "name": {"description": "The entity name.", "type": "string"},
         "project": {"type": "string"},
         "description": {"type": "string"},
@@ -1148,6 +1148,50 @@
       }
     },
     "annotations": { "readOnlyHint": false, "openWorldHint": false, "destructiveHint": false, "idempotentHint": false }
+  },
+  {
+    "name": "network",
+    "description": "List repository Networks, show an asset hierarchy (from the server when server is true), or diff repository and server connections. Show returns the same data as network show --json; its tree is limited to 200 rows unless detail is true. Read-only.",
+    "inputSchema": {
+      "required": ["action"],
+      "additionalProperties": false,
+      "type": "object",
+      "properties": {
+        "action": {"type": "string", "enum": ["list", "show", "diff"]},
+        "network": {"type": "string"},
+        "top": {"type": "string"},
+        "depth": {"type": "integer", "minimum": 0},
+        "detail": {"type": "boolean", "default": false},
+        "profile": {"description": "Server profile for diff, and for show when server is true.", "type": "string", "default": "default"},
+        "server": {"description": "Read `show` from the server rather than the repository.", "type": "boolean", "default": false}
+      }
+    },
+    "annotations": {"readOnlyHint": true, "openWorldHint": true}
+  },
+  {
+    "name": "network_write",
+    "description": "Add, move or remove a Network connection, import an RFC 4180 asset CSV, or pull server connections into the repository. An import can create Things from repository or platform templates. A dry run unless dry_run is false; apply writes every created Thing and the Network XML in one transaction.",
+    "inputSchema": {
+      "required": ["action", "network"],
+      "additionalProperties": false,
+      "type": "object",
+      "properties": {
+        "action": {"type": "string", "enum": ["add", "move", "remove", "import", "pull"]},
+        "network": {"type": "string"},
+        "profile": {"description": "Server profile for pull.", "type": "string", "default": "default"},
+        "thing": {"type": "string"},
+        "under": {"type": "string"},
+        "as_root": {"type": "boolean", "default": false},
+        "type": {"type": "string"},
+        "outside": {"type": "boolean", "default": false},
+        "subtree": {"type": "boolean", "default": false},
+        "file": {"type": "string"},
+        "create_things": {"type": "boolean", "default": false},
+        "move": {"type": "boolean", "default": false},
+        "dry_run": {"type": "boolean", "default": true}
+      }
+    },
+    "annotations": {"readOnlyHint": false, "openWorldHint": true, "destructiveHint": true, "idempotentHint": false}
   },
   {
     "name": "entity_edit",

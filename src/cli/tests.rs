@@ -132,6 +132,7 @@ fn usage_paths() -> std::collections::BTreeSet<String> {
         "media",
         "menu",
         "state",
+        "network",
     ];
     let mut paths = std::collections::BTreeSet::new();
     let blocks: String = USAGE

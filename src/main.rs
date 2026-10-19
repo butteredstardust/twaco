@@ -42,6 +42,7 @@ use cli::mashup::{
     mashup_event_cmd, mashup_new_cmd, mashup_on_cmd, mashup_param_cmd, mashup_recipe_cmd,
     mashup_templates_cmd, mashup_validate_cmd, Mashup,
 };
+use cli::network::network_cmd;
 use cli::refactor::{
     adopt_cmd, handoff_cmd, new_building_block_cmd, relocate_cmd, rename_cmd, reproject_cmd,
     retemplate_cmd, CopyMember, MoveMember,
@@ -216,6 +217,7 @@ fn dispatch(command: Command) -> u8 {
         Command::Media(media) => run(|solution| entity_edit_cmd(solution, media.edit())),
         Command::Menu(menu) => run(|solution| entity_edit_cmd(solution, menu.edit())),
         Command::State(state) => run(|solution| entity_edit_cmd(solution, state.edit())),
+        Command::Network(network) => run(|solution| network_cmd(solution, &network)),
         Command::New(New::BuildingBlock(block)) => {
             run(|solution| new_building_block_cmd(solution, &block))
         }

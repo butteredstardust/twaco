@@ -365,6 +365,8 @@ pub(crate) enum EntityNewKind {
     Menu,
     #[serde(rename = "theme")]
     Theme,
+    #[serde(rename = "network")]
+    Network,
 }
 
 impl From<EntityNewKind> for crate::core::entity::new::Kind {
@@ -384,6 +386,7 @@ impl From<EntityNewKind> for crate::core::entity::new::Kind {
             EntityNewKind::State => Self::State,
             EntityNewKind::Menu => Self::Menu,
             EntityNewKind::Theme => Self::Theme,
+            EntityNewKind::Network => Self::Network,
         }
     }
 }
@@ -391,7 +394,7 @@ impl From<EntityNewKind> for crate::core::entity::new::Kind {
 #[derive(Debug, Deserialize, JsonSchema, Serialize)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct EntityNewRequest {
-    /// `thing`, `thing-template`, `thing-shape`, `data-shape`, `timer`, `scheduler`, `data-table`, `stream`, `value-stream`, `media`, `style`, `state`, `menu`, or `theme`.
+    /// `thing`, `thing-template`, `thing-shape`, `data-shape`, `timer`, `scheduler`, `data-table`, `stream`, `value-stream`, `media`, `style`, `state`, `menu`, `theme`, or `network`.
     pub(crate) kind: EntityNewKind,
     /// The entity name.
     pub(crate) name: String,
