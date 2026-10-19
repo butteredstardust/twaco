@@ -327,9 +327,13 @@ Against a server: what differs, what would be imported, and doing it.
 
 ```text
 network list [--json]       list repository Networks and their hierarchy counts
-network show <Network> [<Thing>] [--depth <n>] [--json]
+network show <Network> [<Thing>] [--depth <n>] [--server] [--profile <name>] [--json]
                             a Network's hierarchy as a tree: each Thing's template, things outside
                             the repository, nodes per template, problems; <Thing>: its subtree
+network diff <Network> [--profile <name>] [--json]
+                            compare repository and server connections; exits 1 when they differ
+network pull <Network> [--profile <name>] [--apply] [--json]
+                            copy server connections into the repository; plan unless --apply
 network add <Network> <Thing> (--under <Thing> | --as-root) [--type <connectionType>]
     [--outside] [--apply] [--json]
                             add a Thing to a Network (a Thing has one parent); plan unless --apply

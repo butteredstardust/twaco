@@ -2077,6 +2077,13 @@
           ],
           "items": true
         },
+        "network_connections": {
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": true
+        },
         "backup": {
           "type": [
             "string",
@@ -3117,7 +3124,7 @@
   },
   {
     "name": "network",
-    "description": "List repository Networks or show one asset hierarchy. Show returns the same data as network show --json; its tree is limited to 200 rows unless detail is true. Read-only.",
+    "description": "List repository Networks, show an asset hierarchy (from the server when server is true), or diff repository and server connections. Show returns the same data as network show --json; its tree is limited to 200 rows unless detail is true. Read-only.",
     "inputSchema": {
       "required": [
         "action"
@@ -3129,7 +3136,8 @@
           "type": "string",
           "enum": [
             "list",
-            "show"
+            "show",
+            "diff"
           ]
         },
         "network": {
@@ -3145,12 +3153,22 @@
         "detail": {
           "type": "boolean",
           "default": false
+        },
+        "profile": {
+          "description": "Server profile for diff, and for show when server is true.",
+          "type": "string",
+          "default": "default"
+        },
+        "server": {
+          "description": "Read `show` from the server rather than the repository.",
+          "type": "boolean",
+          "default": false
         }
       }
     },
     "annotations": {
       "readOnlyHint": true,
-      "openWorldHint": false
+      "openWorldHint": true
     },
     "outputSchema": {
       "properties": {
@@ -3229,6 +3247,33 @@
             "string",
             "null"
           ]
+        },
+        "matches": {
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "server_only": {
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": true
+        },
+        "repository_only": {
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": true
+        },
+        "different": {
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": true
         }
       },
       "type": "object",
@@ -3237,7 +3282,7 @@
   },
   {
     "name": "network_write",
-    "description": "Add, move or remove a Network connection, or import an RFC 4180 asset CSV. An import can create Things from repository or platform templates. A dry run unless dry_run is false; apply writes every created Thing and the Network XML in one transaction.",
+    "description": "Add, move or remove a Network connection, import an RFC 4180 asset CSV, or pull server connections into the repository. An import can create Things from repository or platform templates. A dry run unless dry_run is false; apply writes every created Thing and the Network XML in one transaction.",
     "inputSchema": {
       "required": [
         "action",
@@ -3252,11 +3297,17 @@
             "add",
             "move",
             "remove",
-            "import"
+            "import",
+            "pull"
           ]
         },
         "network": {
           "type": "string"
+        },
+        "profile": {
+          "description": "Server profile for pull.",
+          "type": "string",
+          "default": "default"
         },
         "thing": {
           "type": "string"
@@ -3298,7 +3349,7 @@
     },
     "annotations": {
       "readOnlyHint": false,
-      "openWorldHint": false,
+      "openWorldHint": true,
       "destructiveHint": true,
       "idempotentHint": false
     },
@@ -3366,6 +3417,41 @@
           "items": {
             "type": "string"
           }
+        },
+        "connections": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 0
+        },
+        "connections_added": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 0
+        },
+        "connections_removed": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 0
+        },
+        "connections_moved": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 0
+        },
+        "outside_repository": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 0
         },
         "notices": {
           "type": [

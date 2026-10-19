@@ -98,6 +98,8 @@ const OPEN_WORLD: &[&str] = &[
     "help_page",
     "javadoc",
     "call",
+    "network",
+    "network_write",
 ];
 
 /// Writing tools whose changes only add or regenerate: they create files that did not exist,
@@ -450,13 +452,13 @@ static TOOLS: LazyLock<Vec<Tool>> = LazyLock::new(|| {
         .with_output::<outputs::EntityNewResult>(),
         solution_tool::<network_requests::NetworkRequest>(
             "network",
-            "List repository Networks or show one asset hierarchy. Show returns the same data as network show --json; its tree is limited to 200 rows unless detail is true. Read-only.",
+            "List repository Networks, show an asset hierarchy (from the server when server is true), or diff repository and server connections. Show returns the same data as network show --json; its tree is limited to 200 rows unless detail is true. Read-only.",
             true,
             network::network_tool,
         ).with_output::<outputs::NetworkResult>(),
         solution_tool::<network_requests::NetworkWriteRequest>(
             "network_write",
-            "Add, move or remove a Network connection, or import an RFC 4180 asset CSV. An import can create Things from repository or platform templates. A dry run unless dry_run is false; apply writes every created Thing and the Network XML in one transaction.",
+            "Add, move or remove a Network connection, import an RFC 4180 asset CSV, or pull server connections into the repository. An import can create Things from repository or platform templates. A dry run unless dry_run is false; apply writes every created Thing and the Network XML in one transaction.",
             false,
             network::network_write_tool,
         ).with_output::<outputs::NetworkWriteResult>(),

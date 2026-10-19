@@ -143,6 +143,8 @@ impl Command {
             Command::Network(network) => match network {
                 super::network::Network::List(_) => "network list",
                 super::network::Network::Show(_) => "network show",
+                super::network::Network::Diff(_) => "network diff",
+                super::network::Network::Pull(_) => "network pull",
                 super::network::Network::Add(_) => "network add",
                 super::network::Network::Move(_) => "network move",
                 super::network::Network::Remove(_) => "network remove",

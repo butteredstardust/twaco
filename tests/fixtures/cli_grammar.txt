@@ -328,9 +328,13 @@ help:
 |   new network <name> [--project <name>] [--description <text>] [--apply] [--json]
 |                               create an empty Network entity; plan unless --apply
 |   network list [--json]       list repository Networks and their hierarchy counts
-|   network show <Network> [<Thing>] [--depth <n>] [--json]
+|   network show <Network> [<Thing>] [--depth <n>] [--server] [--profile <name>] [--json]
 |                               a Network's hierarchy as a tree: each Thing's template, things outside
 |                               the repository, nodes per template, problems; <Thing>: its subtree
+|   network diff <Network> [--profile <name>] [--json]
+|                               compare repository and server connections; exits 1 when they differ
+|   network pull <Network> [--profile <name>] [--apply] [--json]
+|                               copy server connections into the repository; plan unless --apply
 |   network add <Network> <Thing> (--under <Thing> | --as-root) [--type <connectionType>]
 |       [--outside] [--apply] [--json]
 |                               add a Thing to a Network (a Thing has one parent); plan unless --apply
@@ -7188,7 +7192,7 @@ help:
 == twaco network
 usage: twaco network <command>
 settings: disable-version-flag disable-help-subcommand subcommand-required arg-required-else-help
-subcommands: add import list move remove show
+subcommands: add diff import list move pull remove show
 arg --help
     action: Help
     value_name: -
@@ -7203,9 +7207,13 @@ help:
 | usage: twaco network <command>
 | 
 |   network list [--json]       list repository Networks and their hierarchy counts
-|   network show <Network> [<Thing>] [--depth <n>] [--json]
+|   network show <Network> [<Thing>] [--depth <n>] [--server] [--profile <name>] [--json]
 |                               a Network's hierarchy as a tree: each Thing's template, things outside
 |                               the repository, nodes per template, problems; <Thing>: its subtree
+|   network diff <Network> [--profile <name>] [--json]
+|                               compare repository and server connections; exits 1 when they differ
+|   network pull <Network> [--profile <name>] [--apply] [--json]
+|                               copy server connections into the repository; plan unless --apply
 |   network add <Network> <Thing> (--under <Thing> | --as-root) [--type <connectionType>]
 |       [--outside] [--apply] [--json]
 |                               add a Thing to a Network (a Thing has one parent); plan unless --apply
@@ -7344,6 +7352,85 @@ help:
 |                               add a Thing to a Network (a Thing has one parent); plan unless --apply
 |       --outside               a Thing the repository does not hold (it exists on the server)
 | 
+|   --log <filter>              write diagnostic logs to stderr (or TWACO_LOG)
+|   --log-file <path>           append diagnostic logs to a file (or TWACO_LOG_FILE)
+
+== twaco network diff
+usage: twaco network diff <Network> [--profile <name>] [--json]
+settings: disable-version-flag disable-help-subcommand
+subcommands: 
+arg --help
+    action: Help
+    value_name: -
+    num_args: 0
+    allow_hyphen_values: no
+    allow_negative_numbers: no
+    required: no
+    default: -
+    index: -
+    other: -
+arg --json
+    action: SetTrue
+    value_name: -
+    num_args: 0
+    allow_hyphen_values: no
+    allow_negative_numbers: no
+    required: no
+    default: "false"
+    index: -
+    other: -
+    given twice: accepted
+arg --log
+    action: Set
+    value_name: filter
+    num_args: 1
+    allow_hyphen_values: yes
+    allow_negative_numbers: no
+    required: no
+    default: -
+    index: -
+    other: -
+    given twice: ArgumentConflict
+    given bare: InvalidValue
+arg --log-file
+    action: Set
+    value_name: path
+    num_args: 1
+    allow_hyphen_values: yes
+    allow_negative_numbers: no
+    required: no
+    default: -
+    index: -
+    other: -
+    given twice: ArgumentConflict
+    given bare: InvalidValue
+arg --profile
+    action: Set
+    value_name: name
+    num_args: 1
+    allow_hyphen_values: yes
+    allow_negative_numbers: no
+    required: no
+    default: -
+    index: -
+    other: -
+    given twice: ArgumentConflict
+    given bare: InvalidValue
+arg <operands>
+    action: Append
+    value_name: operand
+    num_args: 0..
+    allow_hyphen_values: no
+    allow_negative_numbers: yes
+    required: no
+    default: -
+    index: 1
+    other: -
+help:
+|   network diff <Network> [--profile <name>] [--json]
+|                               compare repository and server connections; exits 1 when they differ
+| 
+|   --profile <name>            the server profile (default: default)
 |   --log <filter>              write diagnostic logs to stderr (or TWACO_LOG)
 |   --log-file <path>           append diagnostic logs to a file (or TWACO_LOG_FILE)
 
@@ -7636,6 +7723,96 @@ help:
 |   --log <filter>              write diagnostic logs to stderr (or TWACO_LOG)
 |   --log-file <path>           append diagnostic logs to a file (or TWACO_LOG_FILE)
 
+== twaco network pull
+usage: twaco network pull <Network> [--profile <name>] [--apply] [--json]
+settings: disable-version-flag disable-help-subcommand
+subcommands: 
+arg --apply
+    action: SetTrue
+    value_name: -
+    num_args: 0
+    allow_hyphen_values: no
+    allow_negative_numbers: no
+    required: no
+    default: "false"
+    index: -
+    other: -
+    given twice: accepted
+arg --help
+    action: Help
+    value_name: -
+    num_args: 0
+    allow_hyphen_values: no
+    allow_negative_numbers: no
+    required: no
+    default: -
+    index: -
+    other: -
+arg --json
+    action: SetTrue
+    value_name: -
+    num_args: 0
+    allow_hyphen_values: no
+    allow_negative_numbers: no
+    required: no
+    default: "false"
+    index: -
+    other: -
+    given twice: accepted
+arg --log
+    action: Set
+    value_name: filter
+    num_args: 1
+    allow_hyphen_values: yes
+    allow_negative_numbers: no
+    required: no
+    default: -
+    index: -
+    other: -
+    given twice: ArgumentConflict
+    given bare: InvalidValue
+arg --log-file
+    action: Set
+    value_name: path
+    num_args: 1
+    allow_hyphen_values: yes
+    allow_negative_numbers: no
+    required: no
+    default: -
+    index: -
+    other: -
+    given twice: ArgumentConflict
+    given bare: InvalidValue
+arg --profile
+    action: Set
+    value_name: name
+    num_args: 1
+    allow_hyphen_values: yes
+    allow_negative_numbers: no
+    required: no
+    default: -
+    index: -
+    other: -
+    given twice: ArgumentConflict
+    given bare: InvalidValue
+arg <operands>
+    action: Append
+    value_name: operand
+    num_args: 0..
+    allow_hyphen_values: no
+    allow_negative_numbers: yes
+    required: no
+    default: -
+    index: 1
+    other: -
+help:
+|   network pull <Network> [--profile <name>] [--apply] [--json]
+|                               copy server connections into the repository; plan unless --apply
+| 
+|   --profile <name>            the server profile (default: default)
+|   --log <filter>              write diagnostic logs to stderr (or TWACO_LOG)
+|   --log-file <path>           append diagnostic logs to a file (or TWACO_LOG_FILE)
+
 == twaco network remove
 usage: twaco network remove <Network> <Thing> [--subtree] [--apply] [--json]
 settings: disable-version-flag disable-help-subcommand
@@ -7725,7 +7902,7 @@ help:
 |   --log-file <path>           append diagnostic logs to a file (or TWACO_LOG_FILE)
 
 == twaco network show
-usage: twaco network show <Network> [<Thing>] [--depth <n>] [--json]
+usage: twaco network show <Network> [<Thing>] [--depth <n>] [--server] [--profile <name>] [--json]
 settings: disable-version-flag disable-help-subcommand
 subcommands: 
 arg --depth
@@ -7785,6 +7962,29 @@ arg --log-file
     other: -
     given twice: ArgumentConflict
     given bare: InvalidValue
+arg --profile
+    action: Set
+    value_name: name
+    num_args: 1
+    allow_hyphen_values: yes
+    allow_negative_numbers: no
+    required: no
+    default: -
+    index: -
+    other: -
+    given twice: ArgumentConflict
+    given bare: InvalidValue
+arg --server
+    action: SetTrue
+    value_name: -
+    num_args: 0
+    allow_hyphen_values: no
+    allow_negative_numbers: no
+    required: no
+    default: "false"
+    index: -
+    other: -
+    given twice: accepted
 arg <operands>
     action: Append
     value_name: operand
@@ -7796,10 +7996,11 @@ arg <operands>
     index: 1
     other: -
 help:
-|   network show <Network> [<Thing>] [--depth <n>] [--json]
+|   network show <Network> [<Thing>] [--depth <n>] [--server] [--profile <name>] [--json]
 |                               a Network's hierarchy as a tree: each Thing's template, things outside
 |                               the repository, nodes per template, problems; <Thing>: its subtree
 | 
+|   --profile <name>            the server profile (default: default)
 |   --log <filter>              write diagnostic logs to stderr (or TWACO_LOG)
 |   --log-file <path>           append diagnostic logs to a file (or TWACO_LOG_FILE)
 

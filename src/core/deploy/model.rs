@@ -79,6 +79,18 @@ pub struct Report {
     /// Placeholder-bearing calls only; resolved values never enter a report.
     pub calls: Vec<PlannedCall>,
     pub changed_by_deploy: Vec<(String, String)>,
+    /// Network connection replacements an import will make. Removing a server connection is
+    /// called out because importing a Network replaces its complete hierarchy.
+    pub network_changes: Vec<NetworkChange>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct NetworkChange {
+    pub name: String,
+    pub adds: usize,
+    /// Things the import puts under another parent or connects with another type.
+    pub moves: usize,
+    pub removes: usize,
 }
 
 #[derive(Clone, Debug, PartialEq)]

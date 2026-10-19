@@ -18,7 +18,7 @@ pub use error::DeployError;
 pub(crate) use model::{
     Entity, NotKept, ParseFailure, PlanOptions, PlannedCall, ProjectBundle, Script, ServiceCall,
 };
-pub use model::{EntityPlan, Report};
+pub use model::{EntityPlan, NetworkChange, Report};
 pub(crate) use plan::{decide_all, decide_all_with_progress, plan_bundles};
 pub(crate) use remote::{BaselineStore, DiskBaseline, Remote};
 #[cfg(test)]

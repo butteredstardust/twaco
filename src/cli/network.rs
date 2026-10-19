@@ -1,16 +1,19 @@
 //! Read and edit the repository's Network entity files.
 
-use super::flags::{Apply, Json};
+use super::flags::{Apply, Json, Profile};
 use super::style;
 use crate::{print_notices, DRIFT, FAILED, OK};
 use twaco::core::commands::{self, Mode};
 use twaco::core::config::Solution;
+use twaco::core::server;
 use twaco::core::{network, workspace};
 
 #[derive(Debug, clap::Subcommand)]
 pub(crate) enum Network {
     List(List),
     Show(Show),
+    Diff(Diff),
+    Pull(Pull),
     Add(Add),
     Move(Move),
     Remove(Remove),
@@ -29,6 +32,32 @@ pub(crate) struct Show {
     json: Json,
     #[arg(long = "depth", value_name = "n")]
     depth: Option<String>,
+    #[arg(long)]
+    server: bool,
+    #[command(flatten)]
+    profile: Profile,
+    #[arg(id = "operands", value_name = "operand")]
+    operands: Vec<String>,
+}
+#[derive(Debug, clap::Args)]
+#[group(skip)]
+pub(crate) struct Diff {
+    #[command(flatten)]
+    json: Json,
+    #[command(flatten)]
+    profile: Profile,
+    #[arg(id = "operands", value_name = "operand")]
+    operands: Vec<String>,
+}
+#[derive(Debug, clap::Args)]
+#[group(skip)]
+pub(crate) struct Pull {
+    #[command(flatten)]
+    apply: Apply,
+    #[command(flatten)]
+    json: Json,
+    #[command(flatten)]
+    profile: Profile,
     #[arg(id = "operands", value_name = "operand")]
     operands: Vec<String>,
 }
@@ -167,7 +196,16 @@ pub(crate) fn network_cmd(solution: &Solution, command: &Network) -> u8 {
                     return FAILED;
                 }
             };
-            let network = match model(solution, name) {
+            let network = match if show.server {
+                commands::network::server_show(
+                    solution,
+                    name,
+                    show.profile.name(),
+                    server::Client::new,
+                )
+            } else {
+                model(solution, name).map_err(commands::network::CommandError::Invalid)
+            } {
                 Ok(network) => network,
                 Err(error) => {
                     eprintln!("{} {error}", style::prefix());
@@ -228,6 +266,8 @@ pub(crate) fn network_cmd(solution: &Solution, command: &Network) -> u8 {
                 DRIFT
             }
         }
+        Network::Diff(diff) => diff_cmd(solution, diff),
+        Network::Pull(pull) => pull_cmd(solution, pull),
         Network::Add(add) => edit_cmd(
             solution,
             &add.operands,
@@ -282,6 +322,128 @@ pub(crate) fn network_cmd(solution: &Solution, command: &Network) -> u8 {
         }
         Network::Import(import) => import_cmd(solution, import),
     }
+}
+
+fn diff_cmd(solution: &Solution, args: &Diff) -> u8 {
+    let [name] = args.operands.as_slice() else {
+        eprintln!("{} network diff needs <Network>", style::prefix());
+        return FAILED;
+    };
+    let report = match commands::network::server_diff_execute(
+        solution,
+        name,
+        args.profile.name(),
+        server::Client::new,
+    ) {
+        Ok(value) => value,
+        Err(error) => {
+            eprintln!("{} {error}", style::prefix());
+            return FAILED;
+        }
+    };
+    if args.json.json {
+        println!("{}", serde_json::to_string_pretty(&serde_json::json!({"server_only": report.server_only.iter().map(connection_json).collect::<Vec<_>>(), "repository_only": report.repository_only.iter().map(connection_json).collect::<Vec<_>>(), "different": report.different.iter().map(|(repository, server)| serde_json::json!({"repository": connection_json(repository), "server": connection_json(server)})).collect::<Vec<_>>() })).expect("network diff JSON"));
+    } else if report.differs() {
+        println!(
+            "Network {name} differs: {} server-only, {} repository-only, {} changed",
+            report.server_only.len(),
+            report.repository_only.len(),
+            report.different.len()
+        );
+    } else {
+        println!("Network {name} matches the server");
+    }
+    if report.differs() {
+        DRIFT
+    } else {
+        OK
+    }
+}
+
+fn connection_json<T: ConnectionView>(connection: &T) -> serde_json::Value {
+    serde_json::json!({"type": connection.connection_type(), "from": connection.from(), "to": connection.to()})
+}
+trait ConnectionView {
+    fn connection_type(&self) -> &str;
+    fn from(&self) -> &str;
+    fn to(&self) -> &str;
+}
+impl ConnectionView for network::Connection {
+    fn connection_type(&self) -> &str {
+        &self.connection_type
+    }
+    fn from(&self) -> &str {
+        &self.from
+    }
+    fn to(&self) -> &str {
+        &self.to
+    }
+}
+impl ConnectionView for network::ServerConnection {
+    fn connection_type(&self) -> &str {
+        &self.connection_type
+    }
+    fn from(&self) -> &str {
+        &self.from
+    }
+    fn to(&self) -> &str {
+        &self.to
+    }
+}
+
+fn pull_cmd(solution: &Solution, args: &Pull) -> u8 {
+    let [name] = args.operands.as_slice() else {
+        eprintln!("{} network pull needs <Network>", style::prefix());
+        return FAILED;
+    };
+    let mut notices = commands::Notices::default();
+    let outcome = match commands::network::pull_execute(
+        solution,
+        &commands::network::PullRequest {
+            network: name.clone(),
+            mode: if args.apply.apply {
+                Mode::Apply
+            } else {
+                Mode::Plan
+            },
+            profile: args.profile.name().into(),
+            lock_label: "network pull",
+        },
+        server::Client::new,
+        &mut notices,
+    ) {
+        Ok(value) => value,
+        Err(error) => {
+            print_notices(&notices);
+            eprintln!("{} {error}", style::prefix());
+            return FAILED;
+        }
+    };
+    print_notices(&notices);
+    let plan = &outcome.plan;
+    if args.json.json {
+        println!("{}", serde_json::to_string_pretty(&serde_json::json!({"applied": outcome.applied, "file": solution.relative(&plan.path), "connections": plan.server_connections, "connections_added": plan.added, "connections_removed": plan.removed, "connections_moved": plan.changed, "outside_repository": plan.outside_repository})).expect("network pull JSON"));
+    } else if plan.before == plan.after {
+        println!(
+            "{name} already matches the server ({} connections)",
+            plan.server_connections
+        );
+    } else {
+        println!(
+            "{} {name} into {}: {} added, {} removed, {} moved; {} connections, {} Things outside the repository",
+            if outcome.applied { "pulled" } else { "would pull" },
+            solution.relative(&plan.path),
+            plan.added,
+            plan.removed,
+            plan.changed,
+            plan.server_connections,
+            plan.outside_repository
+        );
+        if !outcome.applied {
+            println!("run again with --apply to write it");
+        }
+    }
+    OK
 }
 
 fn import_cmd(solution: &Solution, import: &Import) -> u8 {

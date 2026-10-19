@@ -9,8 +9,88 @@ use super::entity;
 use super::scan::{self, Kind, Span, Token};
 use super::splice::{self, Edit};
 use super::workspace;
+use super::{
+    entity::key::ServiceTarget,
+    server::{Client, ServerError},
+};
 use serde_json::{json, Value};
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
+use std::time::Duration;
+
+const SERVER_DEPTH: u32 = 10_000;
+const SERVER_TIMEOUT: Duration = Duration::from_secs(60);
+
+/// A connection returned by a Network service. Templates are present only in the richer
+/// `GetNetworkConnectionsWithTemplate` response, whose rows carry `thingTemplate`.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ServerConnection {
+    pub connection_type: String,
+    pub from: String,
+    pub to: String,
+    pub template: Option<String>,
+}
+
+/// The deliberately narrow, read-only Network server surface.
+pub trait Remote: Sync {
+    fn connections(
+        &self,
+        network: &str,
+        templates: bool,
+    ) -> Result<Vec<ServerConnection>, ServerError>;
+}
+
+impl Remote for Client {
+    fn connections(
+        &self,
+        network: &str,
+        templates: bool,
+    ) -> Result<Vec<ServerConnection>, ServerError> {
+        let service = if templates {
+            "GetNetworkConnectionsWithTemplate"
+        } else {
+            "GetNetworkConnections"
+        };
+        let target = ServiceTarget::entity("Networks", network)?;
+        let reply = self.call_service(
+            &target,
+            service,
+            &json!({"maxDepth": SERVER_DEPTH}),
+            SERVER_TIMEOUT,
+        )?;
+        let url = format!("Networks/{network}/Services/{service}");
+        let rows = reply
+            .and_then(|value| value.get("rows").and_then(Value::as_array).cloned())
+            .ok_or_else(|| ServerError::InvalidResponse {
+                url: url.clone(),
+                why: "returned no rows".into(),
+            })?;
+        rows.into_iter()
+            .map(|row| {
+                let text = |field: &str| {
+                    row.get(field)
+                        .and_then(Value::as_str)
+                        .map(str::to_string)
+                        .ok_or_else(|| ServerError::InvalidResponse {
+                            url: url.clone(),
+                            why: format!("a row has no {field}"),
+                        })
+                };
+                Ok(ServerConnection {
+                    connection_type: text("connectionType")?,
+                    from: text("from")?,
+                    to: text("to")?,
+                    template: if templates {
+                        row.get("thingTemplate")
+                            .and_then(Value::as_str)
+                            .map(str::to_string)
+                    } else {
+                        None
+                    },
+                })
+            })
+            .collect()
+    }
+}
 
 /// One asset row from a RFC 4180 CSV import.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -193,6 +273,7 @@ pub struct Network {
     entity_span: Span,
     connections_span: Option<Span>,
     connections_open: Option<Span>,
+    server_templates: HashMap<String, String>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -335,7 +416,37 @@ pub fn parse(src: &[u8]) -> Result<Network, NetworkError> {
         entity_span,
         connections_span,
         connections_open,
+        server_templates: HashMap::new(),
     })
+}
+
+/// Construct a Network-shaped model from a server response. Its zero-length spans are never
+/// spliced: callers that write first parse the repository bytes again.
+pub fn from_server(name: &str, project: &str, rows: &[ServerConnection]) -> Network {
+    let mut server_templates = HashMap::new();
+    let connections = rows
+        .iter()
+        .map(|row| {
+            if let Some(template) = &row.template {
+                server_templates.insert(row.to.clone(), template.clone());
+            }
+            Connection {
+                connection_type: row.connection_type.clone(),
+                from: row.from.clone(),
+                to: row.to.clone(),
+                span: Span::new(0, 0),
+            }
+        })
+        .collect();
+    Network {
+        name: name.into(),
+        project: project.into(),
+        connections,
+        entity_span: Span::new(0, 0),
+        connections_span: None,
+        connections_open: None,
+        server_templates,
+    }
 }
 
 /// Validate the shape the server itself accepts and construct the document-order forest.
@@ -462,18 +573,26 @@ pub fn nodes(solution: &Solution, network: &Network) -> Result<Vec<Node>, Networ
             continue;
         }
         let thing = things.get(&connection.to);
-        let template = thing
-            .and_then(|thing| std::fs::read(&thing.path).ok())
-            .and_then(|src| {
-                let tokens = scan::tokenize(&src).ok()?;
-                let thing = tokens.iter().find(|token| {
-                    matches!(token.kind, Kind::Start | Kind::Empty)
-                        && token.name.of(&src) == b"Thing"
-                })?;
-                scan::attribute(&src, thing, "thingTemplate")
-                    .ok()
-                    .flatten()
-                    .map(|span| scan::decode_entities(&String::from_utf8_lossy(span.of(&src))))
+        let template = network
+            .server_templates
+            .get(&connection.to)
+            .cloned()
+            .or_else(|| {
+                thing
+                    .and_then(|thing| std::fs::read(&thing.path).ok())
+                    .and_then(|src| {
+                        let tokens = scan::tokenize(&src).ok()?;
+                        let thing = tokens.iter().find(|token| {
+                            matches!(token.kind, Kind::Start | Kind::Empty)
+                                && token.name.of(&src) == b"Thing"
+                        })?;
+                        scan::attribute(&src, thing, "thingTemplate")
+                            .ok()
+                            .flatten()
+                            .map(|span| {
+                                scan::decode_entities(&String::from_utf8_lossy(span.of(&src)))
+                            })
+                    })
             });
         out.push(Node {
             name: connection.to.clone(),
@@ -623,11 +742,29 @@ pub fn add(
     from: &str,
     to: &str,
 ) -> Result<Vec<u8>, NetworkError> {
+    add_all(src, network, &[(connection_type, from, to)])
+}
+
+/// Add connections `(type, from, to)` in order, as [`add`] would one by one, in one splice.
+pub fn add_all(
+    src: &[u8],
+    network: &Network,
+    rows: &[(&str, &str, &str)],
+) -> Result<Vec<u8>, NetworkError> {
+    if rows.is_empty() {
+        return Ok(src.to_vec());
+    }
     let ending = line_ending(src);
-    let element = |indent: &str| {
-        String::from_utf8(connection_xml(connection_type, from, to, indent, ending))
-            .expect("network XML is UTF-8")
+    let elements = |indent: &str, separator: &str| {
+        rows.iter()
+            .map(|(connection_type, from, to)| {
+                String::from_utf8(connection_xml(connection_type, from, to, indent, ending))
+                    .expect("network XML is UTF-8")
+            })
+            .collect::<Vec<_>>()
+            .join(separator)
     };
+    let element = |indent: &str| elements(indent, ending);
     let edit = if let Some(last) = network.connections.last() {
         let indent = indent_before(src, last.span.start);
         Edit::new(
@@ -669,7 +806,7 @@ pub fn add(
         } else {
             Edit::new(
                 Span::new(close, close),
-                format!("<Connections>{}</Connections>", element("")),
+                format!("<Connections>{}</Connections>", elements("", "")),
             )
         }
     };
@@ -905,10 +1042,17 @@ mod tests {
             .unwrap_err()
             .to_string()
             .contains("unknown column"));
-        assert!(assets_csv(b"name,parent\n,\n")
+        assert!(assets_csv(b"name,parent\n,Acme.Site\n")
             .unwrap_err()
             .to_string()
             .contains("line 2"));
+        // A spreadsheet saves a blank row as empty fields: no row, not an error.
+        assert_eq!(
+            assets_csv(b"name,parent\nAcme.Site,\n,\n\nAcme.Line,Acme.Site\n")
+                .unwrap()
+                .len(),
+            2
+        );
         assert!(assets_csv(b"name,parent\nAcme.Site,\nAcme.Site,\n")
             .unwrap_err()
             .to_string()

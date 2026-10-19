@@ -1,4 +1,4 @@
-use super::common::{default_true, Absent};
+use super::common::{default_profile, default_true, Absent};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
@@ -8,6 +8,8 @@ pub(crate) enum NetworkAction {
     List,
     #[serde(rename = "show")]
     Show,
+    #[serde(rename = "diff")]
+    Diff,
 }
 #[derive(Debug, Deserialize, JsonSchema, Serialize)]
 #[serde(deny_unknown_fields)]
@@ -21,6 +23,12 @@ pub(crate) struct NetworkRequest {
     pub(crate) depth: Absent<u64>,
     #[serde(default)]
     pub(crate) detail: bool,
+    /// Server profile for diff, and for show when server is true.
+    #[serde(default = "default_profile")]
+    pub(crate) profile: String,
+    /// Read `show` from the server rather than the repository.
+    #[serde(default)]
+    pub(crate) server: bool,
 }
 
 #[derive(Clone, Copy, Debug, Deserialize, JsonSchema, PartialEq, Eq, Serialize)]
@@ -33,12 +41,17 @@ pub(crate) enum NetworkWriteAction {
     Remove,
     #[serde(rename = "import")]
     Import,
+    #[serde(rename = "pull")]
+    Pull,
 }
 #[derive(Debug, Deserialize, JsonSchema, Serialize)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct NetworkWriteRequest {
     pub(crate) action: NetworkWriteAction,
     pub(crate) network: String,
+    /// Server profile for pull.
+    #[serde(default = "default_profile")]
+    pub(crate) profile: String,
     #[serde(default, skip_serializing_if = "Absent::is_absent")]
     pub(crate) thing: Absent<String>,
     #[serde(default, skip_serializing_if = "Absent::is_absent")]

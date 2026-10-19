@@ -935,9 +935,21 @@ pub(crate) const USAGE: &[Usage] = &[
     Usage {
         path: "network show",
         group: 2,
-        text: r#"  network show <Network> [<Thing>] [--depth <n>] [--json]
+        text: r#"  network show <Network> [<Thing>] [--depth <n>] [--server] [--profile <name>] [--json]
                               a Network's hierarchy as a tree: each Thing's template, things outside
                               the repository, nodes per template, problems; <Thing>: its subtree"#,
+    },
+    Usage {
+        path: "network diff",
+        group: 2,
+        text: r#"  network diff <Network> [--profile <name>] [--json]
+                              compare repository and server connections; exits 1 when they differ"#,
+    },
+    Usage {
+        path: "network pull",
+        group: 2,
+        text: r#"  network pull <Network> [--profile <name>] [--apply] [--json]
+                              copy server connections into the repository; plan unless --apply"#,
     },
     Usage {
         path: "network add",

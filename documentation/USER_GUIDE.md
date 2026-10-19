@@ -488,7 +488,11 @@ declarative truth: deploying it replaces the server's whole connection list.
 ```sh
 twaco network list
 twaco network show Acme.Plant                  # the tree, with each Thing's template
+twaco network show Acme.Plant --server         # the hierarchy currently on the server
 twaco network show Acme.Plant Acme.Area2 --depth 1
+twaco network diff Acme.Plant                  # repository versus server connections
+twaco network pull Acme.Plant                  # plan copying the server hierarchy into XML
+twaco network pull Acme.Plant --apply
 twaco new network Acme.Plant --project Acme --apply
 twaco network add Acme.Plant Acme.Site --as-root --apply
 twaco network add Acme.Plant Acme.Line7 --under Acme.Site --type Child --apply
@@ -506,6 +510,16 @@ parent inside it. `remove` takes the connection, never the Thing, and refuses a 
 children unless `--subtree`. Each edit plans until `--apply` and changes only the connections it
 names, in the file's own layout. The `networks` gate of `twaco check` reports a Thing with two
 parents, a cycle, a parent that is not itself in the network, and a connection listed twice.
+
+`network show --server` reads `GetNetworkConnectionsWithTemplate`, so the templates are the
+ones the server reports. `network diff` lists connections only on either side and Things whose
+parent or connection type differs; it exits 1 on drift. `network pull` reads the server's full
+connection list and changes only the connections that differ, in the file's own layout, so a
+hierarchy built at run time becomes declarative. It says how many server Things remain outside the
+repository, and writes only with `--apply`. A Network import replaces the server list, so the
+deploy plan says how many connections each import adds, moves and **REMOVES**. A server whose
+connections changed since the last deploy is refused like any other server change (`--force`
+overrides); pull first to keep them.
 
 `network import` brings an asset export into that same hierarchy. Its `--file` is UTF-8 RFC 4180
 CSV (a BOM, CRLF, quoted commas, doubled quotes and quoted newlines are accepted), with `name` and

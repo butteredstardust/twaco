@@ -1020,10 +1020,13 @@ fn make_xml(
             project,
             &format!("            <content>{}</content>\n            <preview></preview>", cdata(&theme_content(request))),
         ),
-        Kind::Network => format!(
-            "{}        <Network\n         description=\"{desc}\"\n         documentationContent=\"\"\n         name=\"{name}\"\n         projectName=\"{project}\"\n         tags=\"\">\n            <Connections></Connections>\n        </Network>\n{}",
-            header("Networks"),
-            footer("Networks")
+        // The server's own export of a new Network, so its first deploy reads back as kept.
+        Kind::Network => plain_entity(
+            "Networks",
+            "Network",
+            request,
+            project,
+            "            <Connections></Connections>",
         ),
         Kind::ThingShape => format!("{}        <ThingShape\n         aspect.isSystemObject=\"false\"\n         className=\"\"\n         description=\"{desc}\"\n         documentationContent=\"\"\n         homeMashup=\"\"\n         name=\"{name}\"\n         projectName=\"{project}\"\n         tags=\"\">\n            <PropertyDefinitions></PropertyDefinitions>\n            <ServiceDefinitions></ServiceDefinitions>\n            <EventDefinitions></EventDefinitions>\n            <ServiceMappings></ServiceMappings>\n            <ServiceImplementations></ServiceImplementations>\n            <Subscriptions></Subscriptions>\n{common}\n            <PropertyBindings></PropertyBindings>\n            <RemotePropertyBindings></RemotePropertyBindings>\n            <RemoteServiceBindings></RemoteServiceBindings>\n            <RemoteEventBindings></RemoteEventBindings>\n            <AlertConfigurations></AlertConfigurations>\n            <InstanceRunTimePermissions></InstanceRunTimePermissions>\n        </ThingShape>\n{}", header("ThingShapes"), footer("ThingShapes")),
         Kind::DataShape => {
@@ -1562,6 +1565,8 @@ mod tests {
         theme
             .props
             .push("e-button-primary-fontcolor=#ffffff".into());
+        // Verified live: deployed as written, a new Network reads back as kept.
+        let network = request(Kind::Network, "Acme.Orders.Plant_NW");
         for (name, request) in [
             ("data-table", table),
             ("stream", stream),
@@ -1571,6 +1576,7 @@ mod tests {
             ("state", state),
             ("menu", menu),
             ("theme", theme),
+            ("network", network),
         ] {
             assert_golden(name, &plan(&solution, &request).unwrap().entity);
         }

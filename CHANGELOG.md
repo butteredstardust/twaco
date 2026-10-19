@@ -8,6 +8,10 @@ All notable changes to twaco are recorded here. The format follows
 
 ### Added
 
+- `network show --server`, `network diff` and `network pull` inspect and reconcile live Network
+  connections; pull splices only the connections that differ. Deploy plans say how many
+  connections each Network import adds, moves and removes on the server.
+
 - `twaco network list|show|add|move|remove|import` reads and edits repository Network hierarchies as
   byte-preserving XML splices. `network import` maps RFC 4180 asset CSV files and can create
   Things in the same transaction; MCP `network` and `network_write` expose the hierarchy and its

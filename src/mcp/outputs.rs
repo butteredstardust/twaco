@@ -29,6 +29,10 @@ pub(crate) struct NetworkResult {
     connections: Option<Vec<Value>>,
     problems: Option<Vec<String>>,
     note: Option<String>,
+    matches: Option<bool>,
+    server_only: Option<Vec<Value>>,
+    repository_only: Option<Vec<Value>>,
+    different: Option<Vec<Value>>,
 }
 #[derive(Serialize, JsonSchema)]
 pub(crate) struct NetworkWriteResult {
@@ -41,6 +45,11 @@ pub(crate) struct NetworkWriteResult {
     added: Option<Vec<String>>,
     moved: Option<Vec<String>>,
     noops: Option<Vec<String>>,
+    connections: Option<usize>,
+    connections_added: Option<usize>,
+    connections_removed: Option<usize>,
+    connections_moved: Option<usize>,
+    outside_repository: Option<usize>,
     notices: Notices,
 }
 
@@ -197,6 +206,7 @@ pub(crate) struct DeployResult {
     scripts_parsed: Option<u64>,
     entities: Option<Value>,
     calls: Option<Vec<Value>>,
+    network_connections: Option<Vec<Value>>,
     backup: Option<String>,
     imported: Option<Value>,
     kept: Option<u64>,
