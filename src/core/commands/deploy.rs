@@ -6,7 +6,7 @@ use crate::core::check;
 use crate::core::codes::{Coded, ErrorCode};
 use crate::core::config::Solution;
 use crate::core::progress::Progress;
-use crate::core::{deploy, localization, lock, profile};
+use crate::core::{deploy, localization, lock, network, profile};
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct DeployRequest {
@@ -52,9 +52,12 @@ impl DeployOutcome {
 }
 
 /// A remote used by deploy, its pre-overwrite backup and its localization tables.
-pub trait Remote: deploy::Remote + backup::Remote + localization::Remote {}
+pub trait Remote: deploy::Remote + backup::Remote + localization::Remote + network::Remote {}
 
-impl<T: deploy::Remote + backup::Remote + localization::Remote + ?Sized> Remote for T {}
+impl<T: deploy::Remote + backup::Remote + localization::Remote + network::Remote + ?Sized> Remote
+    for T
+{
+}
 
 #[derive(Debug, thiserror::Error)]
 pub enum DeployCommandError {
@@ -80,6 +83,8 @@ pub enum DeployCommandError {
         why: Box<deploy::DeployError>,
         backup: Option<String>,
         gates: Option<check::CheckReport>,
+        /// What the refused or failed imports would have done to Network connections.
+        network_changes: Vec<deploy::NetworkChange>,
     },
     /// The localization tables stopped the deploy: before any import, or after the entities
     /// were imported (`deployed`).
@@ -145,6 +150,41 @@ impl<R: deploy::Remote> check::ScriptChecker for DeployChecker<'_, R> {
     ) -> Result<crate::core::server::ScriptCheck, crate::core::server::ServerError> {
         self.0.check_script(script)
     }
+}
+
+/// What importing each bundled Network does to the server's connections. Only reported: a
+/// server whose connections changed since the last deploy is already refused by the baseline
+/// guard, and removals the repository made on purpose are what the deploy is for.
+fn network_changes<R: network::Remote>(
+    projects: &[deploy::ProjectBundle],
+    remote: &R,
+) -> Result<Vec<deploy::NetworkChange>, String> {
+    let mut changes = Vec::new();
+    for entity in projects
+        .iter()
+        .flat_map(|project| &project.entities)
+        .filter(|entity| entity.collection == "Networks")
+    {
+        let repository = network::parse(&entity.bytes)
+            .map_err(|error| format!("Networks/{}: {error}", entity.name))?;
+        // A Network the server does not have yet has no connections to lose.
+        let server = match remote.connections(&entity.name, false) {
+            Ok(rows) => rows,
+            Err(error) if error.is_not_found() => Vec::new(),
+            Err(error) => return Err(format!("Networks/{}: {error}", entity.name)),
+        };
+        let diff = super::network::diff(&repository, &server);
+        let change = deploy::NetworkChange {
+            name: entity.name.clone(),
+            adds: diff.repository_only.len(),
+            moves: diff.different.len(),
+            removes: diff.server_only.len(),
+        };
+        if change.adds + change.moves + change.removes != 0 {
+            changes.push(change);
+        }
+    }
+    Ok(changes)
 }
 
 /// Run a deploy. Applying takes the workspace lock before gates or bundle planning, because any
@@ -217,6 +257,10 @@ where
         Err(why) => return Err(DeployCommandError::Profile { why, gates }),
     };
     let remote = open(profile.clone());
+    let network_changes = match network_changes(&projects, &remote) {
+        Ok(changes) => changes,
+        Err(why) => return Err(DeployCommandError::Plan { why, gates }),
+    };
     // Planned before anything is imported, so a table the server would refuse stops the deploy
     // while nothing has been sent.
     let tables = if carries_localization(solution, request) {
@@ -242,7 +286,7 @@ where
     } else {
         None
     };
-    let report = match deploy::run_with_progress(
+    let mut report = match deploy::run_with_progress(
         &remote,
         &deploy::DiskBaseline::new(&solution.root),
         &profile,
@@ -260,9 +304,11 @@ where
                 why: Box::new(why),
                 backup,
                 gates,
+                network_changes,
             })
         }
     };
+    report.network_changes = network_changes;
     let localization = match tables {
         Some(planned) if matches!(request.mode, Mode::Apply) && !planned.tables.is_empty() => {
             match localization::push(solution, &remote, None, false, true, progress) {
@@ -317,6 +363,91 @@ mod tests {
     use super::*;
     use crate::core::lock;
 
+    struct NetworkFake(Vec<network::ServerConnection>);
+    impl network::Remote for NetworkFake {
+        fn connections(
+            &self,
+            _: &str,
+            _: bool,
+        ) -> Result<Vec<network::ServerConnection>, crate::core::server::ServerError> {
+            Ok(self.0.clone())
+        }
+    }
+
+    #[test]
+    fn deploy_network_preflight_counts_replaced_connections_as_data_loss() {
+        let project = deploy::ProjectBundle {
+            project: "Acme".into(),
+            file_name: "Acme.xml".into(),
+            bytes: Vec::new(),
+            entities: vec![deploy::Entity {
+                collection: "Networks".into(),
+                name: "Acme.Plant".into(),
+                bytes: b"<Entities><Networks><Network name=\"Acme.Plant\" projectName=\"Acme\"><Connections><Connection connectionType=\"Contains\" from=\"\" to=\"Acme.Site\"></Connection></Connections></Network></Networks></Entities>".to_vec(),
+            }],
+            scripts: Vec::new(),
+            deploy: None,
+            post_import: Vec::new(),
+        };
+        let server = NetworkFake(vec![network::ServerConnection {
+            connection_type: "Contains".into(),
+            from: "".into(),
+            to: "Acme.ServerSite".into(),
+            template: None,
+        }]);
+        assert_eq!(
+            network_changes(&[project], &server).unwrap(),
+            vec![deploy::NetworkChange {
+                name: "Acme.Plant".into(),
+                adds: 1,
+                moves: 0,
+                removes: 1,
+            }]
+        );
+    }
+
+    struct NoNetwork;
+    impl network::Remote for NoNetwork {
+        fn connections(
+            &self,
+            network: &str,
+            _: bool,
+        ) -> Result<Vec<network::ServerConnection>, crate::core::server::ServerError> {
+            Err(crate::core::server::ServerError::Http {
+                method: crate::core::server::Method::Post,
+                status: 404,
+                url: format!("Networks/{network}"),
+                body: String::new(),
+            })
+        }
+    }
+
+    #[test]
+    fn a_network_new_to_the_server_only_adds_connections() {
+        let project = deploy::ProjectBundle {
+            project: "Acme".into(),
+            file_name: "Acme.xml".into(),
+            bytes: Vec::new(),
+            entities: vec![deploy::Entity {
+                collection: "Networks".into(),
+                name: "Acme.Plant".into(),
+                bytes: b"<Entities><Networks><Network name=\"Acme.Plant\" projectName=\"Acme\"><Connections><Connection connectionType=\"Contains\" from=\"\" to=\"Acme.Site\"></Connection></Connections></Network></Networks></Entities>".to_vec(),
+            }],
+            scripts: Vec::new(),
+            deploy: None,
+            post_import: Vec::new(),
+        };
+        assert_eq!(
+            network_changes(&[project], &NoNetwork).unwrap(),
+            vec![deploy::NetworkChange {
+                name: "Acme.Plant".into(),
+                adds: 1,
+                moves: 0,
+                removes: 0,
+            }]
+        );
+    }
+
     #[test]
     fn a_deploy_plan_needs_no_lock_but_an_apply_locks_before_gates() {
         let root_guard = tempfile::Builder::new()
@@ -368,6 +499,16 @@ mod tests {
 
     /// A remote that rejects every script, so the live gate blocks the deploy.
     struct Rejecting;
+
+    impl network::Remote for Rejecting {
+        fn connections(
+            &self,
+            _: &str,
+            _: bool,
+        ) -> Result<Vec<network::ServerConnection>, crate::core::server::ServerError> {
+            Ok(Vec::new())
+        }
+    }
 
     impl crate::core::push::Remote for Rejecting {
         fn fetch(
@@ -581,6 +722,16 @@ name = \"Acme.App\"
         tables: std::sync::Arc<std::sync::Mutex<Vec<localization::Token>>>,
         events: std::sync::Arc<std::sync::Mutex<Vec<String>>>,
         forgets: bool,
+    }
+
+    impl network::Remote for Keeping {
+        fn connections(
+            &self,
+            _: &str,
+            _: bool,
+        ) -> Result<Vec<network::ServerConnection>, crate::core::server::ServerError> {
+            Ok(Vec::new())
+        }
     }
 
     impl Keeping {

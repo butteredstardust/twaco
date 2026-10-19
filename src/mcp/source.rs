@@ -332,9 +332,12 @@ pub(crate) fn deploy_tool(
             localization,
             ..
         }) => (Ok((report, localization)), notes, backup),
-        Err(commands::deploy::DeployCommandError::Deploy { why, backup, .. }) => {
-            (Err(*why), Vec::new(), backup)
-        }
+        Err(commands::deploy::DeployCommandError::Deploy {
+            why,
+            backup,
+            network_changes,
+            ..
+        }) => (Err((*why, network_changes)), Vec::new(), backup),
         Err(error @ commands::deploy::DeployCommandError::Localization { .. }) => {
             let mut value = localization_failure(&error);
             add_notices(&mut value, &notices);
@@ -371,6 +374,7 @@ pub(crate) fn deploy_tool(
                 "scripts_parsed": report.scripts_checked,
                 "entities": plans(&report),
                 "calls": calls(&report),
+                "network_connections": network_changes(&report.network_changes),
             });
             if let Some(dir) = &saved {
                 value["backup"] = json!(dir);
@@ -405,7 +409,7 @@ pub(crate) fn deploy_tool(
             }
             value
         }
-        Err(deploy::DeployError::ParseFailed(failures)) => json!({
+        Err((deploy::DeployError::ParseFailed(failures), _)) => json!({
             "ok": false,
             "stage": "server script parse",
             "failures": failures
@@ -414,9 +418,10 @@ pub(crate) fn deploy_tool(
                 .collect::<Vec<_>>(),
             "note": "nothing was imported",
         }),
-        Err(deploy::DeployError::Conflicts(conflicts)) => json!({
+        Err((deploy::DeployError::Conflicts(conflicts), networks)) => json!({
             "ok": false,
             "stage": "conflict check",
+            "network_connections": network_changes(&networks),
             // A short reason per entity; the full sentence, with hashes, is detail.
             "refused": conflicts
                 .iter()
@@ -436,7 +441,7 @@ pub(crate) fn deploy_tool(
                      no-baseline: the sides differ and nothing records which changed (see status). \
                      deleted-on-server: it was removed there. force: true overwrites all of these.",
         }),
-        Err(deploy::DeployError::NotKept(report)) => json!({
+        Err((deploy::DeployError::NotKept(report), _)) => json!({
             "ok": false,
             "stage": "read-back",
             "imported": report.imported,
@@ -446,8 +451,15 @@ pub(crate) fn deploy_tool(
                 .map(|n| json!({ "entity": format!("{}/{}", n.collection, n.name), "sent": n.sent, "read_back": n.read_back, "error": n.error, "only_permissions": n.only_permissions }))
                 .collect::<Vec<_>>(),
         }),
-        Err(error) => return Err(ToolError::coded(error)),
+        Err((error, _)) => return Err(ToolError::coded(error)),
     };
     add_notices(&mut value, &notices);
     Ok(value)
+}
+
+fn network_changes(changes: &[deploy::NetworkChange]) -> Vec<Value> {
+    changes
+        .iter()
+        .map(|change| json!({"network": change.name, "adds": change.adds, "moves": change.moves, "removes": change.removes, "data_loss": change.removes != 0}))
+        .collect()
 }

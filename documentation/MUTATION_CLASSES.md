@@ -133,6 +133,15 @@ when the command is asked to write. A local output named by an option is include
 | `new state` | read-only | multi-file atomic | entity XML | The entity XML is created in a journaled transaction; a file that appeared since the plan is refused. Retry. | `core/commands/entity_new.rs: execute` |
 | `new menu` | read-only | multi-file atomic | entity XML | The entity XML is created in a journaled transaction; a file that appeared since the plan is refused. Retry. | `core/commands/entity_new.rs: execute` |
 | `new theme` | read-only | multi-file atomic | entity XML | The entity XML is created in a journaled transaction; a file that appeared since the plan is refused. Retry. | `core/commands/entity_new.rs: execute` |
+| `new network` | read-only | multi-file atomic | entity XML | The entity XML is created in a journaled transaction; a file that appeared since the plan is refused. Retry. | `core/commands/entity_new.rs: execute` |
+| `network list` | read-only | read-only | none | Retry freely. | `core/network.rs: parse` |
+| `network show` | read-only | read-only | none | Retry freely. | `core/network.rs: show` |
+| `network diff` | read-only | read-only | server | Retry freely. | `core/commands/network.rs: server_diff` |
+| `network pull` | read-only | single-file atomic | Network XML | Applying reads the server again while holding the workspace lock, then replaces only the Network XML through a transaction. Retry after a stale plan. | `core/commands/network.rs: pull_execute` |
+| `network add` | read-only | multi-file atomic | Network XML | The Network XML is changed in a journaled transaction; a file edited since the plan is refused. Retry. | `core/commands/network.rs: execute` |
+| `network move` | read-only | multi-file atomic | Network XML | The Network XML is changed in a journaled transaction; a file edited since the plan is refused. Retry. | `core/commands/network.rs: execute` |
+| `network remove` | read-only | multi-file atomic | Network XML | The Network XML is changed in a journaled transaction; a file edited since the plan is refused. Retry. | `core/commands/network.rs: execute` |
+| `network import` | read-only | multi-file atomic | Network XML, new Thing XML | Every new Thing and the Network XML are written in one journaled transaction, or none is; a changed file is refused. Retry. | `core/commands/network.rs: import_execute` |
 | `thing property` | read-only | multi-file atomic | entity XML, Things inheriting it | Every file is rewritten in one journaled transaction, or none is; a file edited since the plan read it is refused. Retry. | `core/commands/entity_edit.rs: execute` |
 | `thing service` | read-only | multi-file atomic | entity XML, service sidecars | The entity and service sidecars are created or deleted in one journaled transaction; a file edited since the plan read it is refused. Retry. | `core/commands/entity_edit.rs: execute` |
 | `thing subscription` | read-only | multi-file atomic | entity XML | Every file is rewritten in one journaled transaction, or none is; a file edited since the plan read it is refused. Retry. | `core/commands/entity_edit.rs: execute` |
@@ -204,6 +213,8 @@ when the command is asked to write. A local output named by an option is include
 | `move_member` | read-only | multi-file atomic | XML, sidecars | A crash is finished or undone by the next command that takes the workspace lock; if it refuses, follow its message. Otherwise retry. | `core/commands/relocate.rs: execute` |
 | `new_building_block` | read-only | multi-file atomic | project files, config | A crash is finished or undone by the next command that takes the workspace lock; if it refuses, follow its message. Otherwise retry. | `core/commands/newblock.rs: execute` |
 | `entity_new` | read-only | multi-file atomic | entity XML, DataShape sidecar | The entity XML and every managed sidecar are created in one journaled transaction, or none is; a file that appeared since the plan is refused. Retry. | `core/commands/entity_new.rs: execute` |
+| `network` | read-only | read-only | none | Retry freely. | `core/network.rs: show` |
+| `network_write` | read-only | multi-file atomic | Network XML, new Thing XML | A dry run is default; apply writes every imported Thing and the Network XML in one journaled transaction; pull replaces only the Network XML after a fresh server read. Retry after a stale plan. | `core/commands/network.rs: import_execute` |
 | `entity_edit` | read-only | multi-file atomic | entity XML, service sidecars, Things inheriting it | Every file is rewritten in one journaled transaction, or none is; a file edited since the plan read it is refused. Retry. | `core/commands/entity_edit.rs: execute` |
 | `retemplate` | read-only | single-file atomic | one entity XML | The entity is old or new; retry freely. | `core/commands/retemplate.rs: execute` |
 | `mashup_describe` | read-only | read-only | none | Retry freely. | `core/mashup_describe.rs: describe` |

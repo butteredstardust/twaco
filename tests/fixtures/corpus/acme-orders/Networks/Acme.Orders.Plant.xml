@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Entities
+ majorVersion="10"
+ minorVersion="1"
+ universal="password">
+    <Networks>
+        <Network
+         description="Acme asset hierarchy."
+         documentationContent=""
+         name="Acme.Orders.Plant"
+         projectName="Acme.Orders"
+         tags="">
+            <Connections>
+                <Connection
+                 connectionType="Contains"
+                 from=""
+                 to="Acme.Orders.Manager"></Connection>
+                <Connection
+                 connectionType="Contains"
+                 from="Acme.Orders.Manager"
+                 to="Acme.Orders.Poller"></Connection>
+                <Connection
+                 connectionType="Contains"
+                 from="Acme.Orders.Poller"
+                 to="Acme.Orders.Lines_DT"></Connection>
+            </Connections>
+        </Network>
+    </Networks>
+</Entities>

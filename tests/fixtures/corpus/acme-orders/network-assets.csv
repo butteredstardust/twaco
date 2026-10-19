@@ -1,0 +1,3 @@
+name,parent,type
+Acme.Orders.Manager,,Contains
+Acme.Orders.Database,Acme.Orders.Manager,Contains

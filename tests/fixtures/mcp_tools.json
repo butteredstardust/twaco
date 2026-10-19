@@ -2077,6 +2077,13 @@
           ],
           "items": true
         },
+        "network_connections": {
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": true
+        },
         "backup": {
           "type": [
             "string",
@@ -2869,7 +2876,7 @@
   },
   {
     "name": "entity_new",
-    "description": "Create a ThingWorx entity as a repository XML file: common Things, data Things, media, styles, states, menus, and themes. DataShape and DataTable creation also writes their managed sidecar. A dry run unless dry_run is false; apply takes the workspace lock and writes every file or none.",
+    "description": "Create a ThingWorx entity as a repository XML file: common Things, data Things, media, styles, states, menus, themes, and Networks. DataShape and DataTable creation also writes their managed sidecar. A dry run unless dry_run is false; apply takes the workspace lock and writes every file or none.",
     "inputSchema": {
       "required": [
         "kind",
@@ -2879,7 +2886,7 @@
       "type": "object",
       "properties": {
         "kind": {
-          "description": "`thing`, `thing-template`, `thing-shape`, `data-shape`, `timer`, `scheduler`, `data-table`, `stream`, `value-stream`, `media`, `style`, `state`, `menu`, or `theme`.",
+          "description": "`thing`, `thing-template`, `thing-shape`, `data-shape`, `timer`, `scheduler`, `data-table`, `stream`, `value-stream`, `media`, `style`, `state`, `menu`, `theme`, or `network`.",
           "type": "string",
           "enum": [
             "thing",
@@ -2895,7 +2902,8 @@
             "style",
             "state",
             "menu",
-            "theme"
+            "theme",
+            "network"
           ]
         },
         "name": {
@@ -3100,6 +3108,350 @@
             "string",
             "null"
           ]
+        },
+        "notices": {
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "type": "object"
+    }
+  },
+  {
+    "name": "network",
+    "description": "List repository Networks, show an asset hierarchy (from the server when server is true), or diff repository and server connections. Show returns the same data as network show --json; its tree is limited to 200 rows unless detail is true. Read-only.",
+    "inputSchema": {
+      "required": [
+        "action"
+      ],
+      "additionalProperties": false,
+      "type": "object",
+      "properties": {
+        "action": {
+          "type": "string",
+          "enum": [
+            "list",
+            "show",
+            "diff"
+          ]
+        },
+        "network": {
+          "type": "string"
+        },
+        "top": {
+          "type": "string"
+        },
+        "depth": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "detail": {
+          "type": "boolean",
+          "default": false
+        },
+        "profile": {
+          "description": "Server profile for diff, and for show when server is true.",
+          "type": "string",
+          "default": "default"
+        },
+        "server": {
+          "description": "Read `show` from the server rather than the repository.",
+          "type": "boolean",
+          "default": false
+        }
+      }
+    },
+    "annotations": {
+      "readOnlyHint": true,
+      "openWorldHint": true
+    },
+    "outputSchema": {
+      "properties": {
+        "networks": {
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": true
+        },
+        "name": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "project": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "nodes": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 0
+        },
+        "roots": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 0
+        },
+        "depth": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 0
+        },
+        "templates": {
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": true
+        },
+        "tree": {
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": true
+        },
+        "connections": {
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": true
+        },
+        "problems": {
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": {
+            "type": "string"
+          }
+        },
+        "note": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "matches": {
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "server_only": {
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": true
+        },
+        "repository_only": {
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": true
+        },
+        "different": {
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": true
+        }
+      },
+      "type": "object",
+      "description": "`network` list or show.  The action determines whether `networks` or the hierarchy members\nare populated."
+    }
+  },
+  {
+    "name": "network_write",
+    "description": "Add, move or remove a Network connection, import an RFC 4180 asset CSV, or pull server connections into the repository. An import can create Things from repository or platform templates. A dry run unless dry_run is false; apply writes every created Thing and the Network XML in one transaction.",
+    "inputSchema": {
+      "required": [
+        "action",
+        "network"
+      ],
+      "additionalProperties": false,
+      "type": "object",
+      "properties": {
+        "action": {
+          "type": "string",
+          "enum": [
+            "add",
+            "move",
+            "remove",
+            "import",
+            "pull"
+          ]
+        },
+        "network": {
+          "type": "string"
+        },
+        "profile": {
+          "description": "Server profile for pull.",
+          "type": "string",
+          "default": "default"
+        },
+        "thing": {
+          "type": "string"
+        },
+        "under": {
+          "type": "string"
+        },
+        "as_root": {
+          "type": "boolean",
+          "default": false
+        },
+        "type": {
+          "type": "string"
+        },
+        "outside": {
+          "type": "boolean",
+          "default": false
+        },
+        "subtree": {
+          "type": "boolean",
+          "default": false
+        },
+        "file": {
+          "type": "string"
+        },
+        "create_things": {
+          "type": "boolean",
+          "default": false
+        },
+        "move": {
+          "type": "boolean",
+          "default": false
+        },
+        "dry_run": {
+          "type": "boolean",
+          "default": true
+        }
+      }
+    },
+    "annotations": {
+      "readOnlyHint": false,
+      "openWorldHint": true,
+      "destructiveHint": true,
+      "idempotentHint": false
+    },
+    "outputSchema": {
+      "required": [
+        "dry_run",
+        "applied",
+        "file"
+      ],
+      "properties": {
+        "dry_run": {
+          "type": "boolean"
+        },
+        "applied": {
+          "type": "boolean"
+        },
+        "file": {
+          "type": "string"
+        },
+        "changed": {
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "removed": {
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": {
+            "type": "string"
+          }
+        },
+        "created": {
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": true
+        },
+        "added": {
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": {
+            "type": "string"
+          }
+        },
+        "moved": {
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": {
+            "type": "string"
+          }
+        },
+        "noops": {
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": {
+            "type": "string"
+          }
+        },
+        "connections": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 0
+        },
+        "connections_added": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 0
+        },
+        "connections_removed": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 0
+        },
+        "connections_moved": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 0
+        },
+        "outside_repository": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 0
         },
         "notices": {
           "type": [

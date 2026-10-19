@@ -930,6 +930,8 @@ fn every_tool_is_listed_with_a_schema_and_honest_annotations() {
             "move_member",
             "new_building_block",
             "entity_new",
+            "network",
+            "network_write",
             "entity_edit",
             "mashup_new",
             "mashup_templates",
@@ -994,6 +996,7 @@ fn every_tool_is_listed_with_a_schema_and_honest_annotations() {
         "move_member",
         "new_building_block",
         "entity_new",
+        "network_write",
         "entity_edit",
         "mashup_new",
         "mashup_add",
@@ -3175,4 +3178,67 @@ fn a_finished_call_leaves_a_later_call_with_its_id_cancellable() {
     assert!(second.load(std::sync::atomic::Ordering::SeqCst));
     pending.finish(&id, &second);
     assert!(!pending.cancel(&id));
+}
+
+#[test]
+fn network_tools_show_a_hierarchy_and_edit_it_through_a_dry_run() {
+    let (_dir, root) = solution_dir();
+    for name in ["P.Site", "P.Line"] {
+        let created = call(
+            &root,
+            "entity_new",
+            json!({"kind": "thing", "name": name, "dry_run": false}),
+        );
+        assert_eq!(created["isError"], false, "{created}");
+    }
+    let network = call(
+        &root,
+        "entity_new",
+        json!({"kind": "network", "name": "P.Plant", "dry_run": false}),
+    );
+    assert_eq!(network["isError"], false, "{network}");
+    let root_added = call(
+        &root,
+        "network_write",
+        json!({"action": "add", "network": "P.Plant", "thing": "P.Site", "as_root": true, "dry_run": false}),
+    );
+    assert_eq!(root_added["isError"], false, "{root_added}");
+    // A dry run by default: nothing written.
+    let planned = call(
+        &root,
+        "network_write",
+        json!({"action": "add", "network": "P.Plant", "thing": "P.Line", "under": "P.Site"}),
+    );
+    assert_eq!(planned["isError"], false, "{planned}");
+    assert_eq!(planned["structuredContent"]["applied"], false);
+    let before = call(
+        &root,
+        "network",
+        json!({"action": "show", "network": "P.Plant"}),
+    );
+    assert_eq!(before["structuredContent"]["nodes"], 1, "{before}");
+    let applied = call(
+        &root,
+        "network_write",
+        json!({"action": "add", "network": "P.Plant", "thing": "P.Line", "under": "P.Site", "dry_run": false}),
+    );
+    assert_eq!(applied["isError"], false, "{applied}");
+    let shown = call(
+        &root,
+        "network",
+        json!({"action": "show", "network": "Plant"}),
+    );
+    let tree = &shown["structuredContent"]["tree"];
+    assert_eq!(tree[0]["name"], "P.Site", "{shown}");
+    assert_eq!(tree[1]["name"], "P.Line");
+    assert_eq!(tree[1]["level"], 1);
+    let listed = call(&root, "network", json!({"action": "list"}));
+    assert_eq!(listed["isError"], false, "{listed}");
+    // A second parent is refused, as the server would.
+    let refused = call(
+        &root,
+        "network_write",
+        json!({"action": "add", "network": "P.Plant", "thing": "P.Line", "as_root": true, "dry_run": false}),
+    );
+    assert_eq!(refused["isError"], true, "{refused}");
 }

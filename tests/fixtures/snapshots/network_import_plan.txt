@@ -1,0 +1,18 @@
+$ twaco network import Acme.Orders.Plant --file network-assets.csv --json
+exit: 0
+
+--- stdout
+{
+  "applied": false,
+  "file": "Networks/Acme.Orders.Plant.xml",
+  "created": [],
+  "added": [
+    "Acme.Orders.Database"
+  ],
+  "moved": [],
+  "noops": [
+    "Acme.Orders.Manager"
+  ]
+}
+--- stderr
+

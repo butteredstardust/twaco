@@ -600,7 +600,11 @@ pub(crate) fn deploy_cmd(solution: &Solution, args: &Deploy) -> u8 {
                 );
             }
             return match error {
-                commands::deploy::DeployCommandError::Deploy { why, .. } => match *why {
+                commands::deploy::DeployCommandError::Deploy {
+                    why,
+                    network_changes,
+                    ..
+                } => match *why {
                     deploy::DeployError::ParseFailed(failures) => {
                         for failure in failures {
                             eprintln!(
@@ -617,6 +621,7 @@ pub(crate) fn deploy_cmd(solution: &Solution, args: &Deploy) -> u8 {
                         FAILED
                     }
                     deploy::DeployError::Conflicts(conflicts) => {
+                        print_network_changes(&network_changes);
                         for conflict in conflicts {
                             let deploy::EntityPlan {
                                 collection,
@@ -738,11 +743,30 @@ fn print_deploy_localization(pushed: &twaco::core::localization::Pushed) {
     }
 }
 
+fn print_network_changes(changes: &[deploy::NetworkChange]) {
+    for change in changes {
+        let mut line = format!(
+            "Network {}: import adds {} and moves {} connection(s)",
+            change.name, change.adds, change.moves
+        );
+        if change.removes != 0 {
+            line.push_str(&format!(
+                ", {} {} server connection(s) {}",
+                style::warn("REMOVES"),
+                change.removes,
+                style::warn("(data loss)")
+            ));
+        }
+        println!("{line}");
+    }
+}
+
 fn print_deploy_report(report: &deploy::Report, apply: bool, force: bool) {
     println!(
         "live parse: {} script service(s) passed",
         report.scripts_checked
     );
+    print_network_changes(&report.network_changes);
     for plan in &report.plans {
         let label = format!("{}/{}", plan.collection, plan.name);
         match &plan.decision {
