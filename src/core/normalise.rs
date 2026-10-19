@@ -902,6 +902,10 @@ mod tests {
         assert_eq!(hash(pretty).unwrap(), hash(compact).unwrap());
         assert_ne!(hash(compact).unwrap(), hash(changed).unwrap());
         assert_eq!(hash(compact).unwrap(), hash(reordered).unwrap());
+        // The observed case: the data sources inside the Data map, one level down.
+        let data_ab = br#"<Mashup><mashupContent><![CDATA[{"Data":{"A":{"x":1},"B":{}}}]]></mashupContent></Mashup>"#;
+        let data_ba = br#"<Mashup><mashupContent><![CDATA[{"Data":{"B":{},"A":{"x":1}}}]]></mashupContent></Mashup>"#;
+        assert_eq!(hash(data_ab).unwrap(), hash(data_ba).unwrap());
         let items_ab = br#"<Mashup><mashupContent><![CDATA[{"Widgets":[{"a":1},{"b":2}]}]]></mashupContent></Mashup>"#;
         let items_ba = br#"<Mashup><mashupContent><![CDATA[{"Widgets":[{"b":2},{"a":1}]}]]></mashupContent></Mashup>"#;
         assert_ne!(hash(items_ab).unwrap(), hash(items_ba).unwrap());
