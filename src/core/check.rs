@@ -118,6 +118,7 @@ pub(crate) const BUILT_IN_GATES: &[&str] = &[
     "code order",
     "project",
     "mashup bindings",
+    "mashup content",
     "contained mashups",
     "localization tokens",
     "result shapes",
@@ -144,6 +145,7 @@ pub fn run(solution: &Solution) -> CheckReport {
         code_order(solution),
         project_validation(solution),
         mashup_bindings(solution),
+        mashup_content(solution),
         contained_mashups(solution),
         localization_tokens(solution),
         result_shapes(solution),
@@ -909,6 +911,28 @@ fn mashup_bindings(solution: &Solution) -> GateResult {
         prose.push_str("; twaco types --platform caches the platform's services");
     }
     result.prose.push(prose);
+    result
+}
+
+/// What in a mashup's content ThingWorx would load but not honour: the rules of `twaco mashup
+/// validate`, such as a binding to a property its widget does not have.
+fn mashup_content(solution: &Solution) -> GateResult {
+    use super::mashup::validate;
+    let (mashups, problems) = validate::content_problems(solution);
+    let mut result = GateResult::passed(validate::GATE, mashups);
+    result.findings = problems
+        .into_iter()
+        .map(|(file, problem)| Finding {
+            gate: validate::GATE.to_string(),
+            file,
+            line: 0,
+            rule: problem.rule,
+            message: problem.message,
+        })
+        .collect();
+    result.prose.push(format!(
+        "{mashups} mashups checked; widgets outside the catalogue (extensions) are not judged"
+    ));
     result
 }
 
@@ -1733,5 +1757,37 @@ mod tests {
             !gate.ok(),
             "a gate that could not run is not a gate that passed"
         );
+    }
+
+    #[test]
+    fn the_mashup_content_gate_reports_a_binding_to_a_property_the_widget_lacks() {
+        let (_dir, root, solution) = live_solution();
+        std::fs::create_dir_all(root.join("Mashups")).unwrap();
+        let mashup = |target: &str| {
+            let content = serde_json::json!({
+                "UI": {"Properties": {"Id": "mashup-root", "Type": "mashup", "ResponsiveLayout": true, "id_index": 4},
+                    "Widgets": [{"Properties": {"Id": "flexcontainer-2", "Type": "flexcontainer", "DisplayName": "center"},
+                        "Widgets": [{"Properties": {"Id": "ptcsgrid-3", "Type": "ptcsgrid", "DisplayName": "g"}, "Widgets": []}]}]},
+                "Data": {"Things_P.T": {"DataName": "Things_P.T", "EntityName": "P.T", "EntityType": "Things",
+                    "Id": "d1", "Services": [{"Name": "Good", "Target": "Good"}]}},
+                "DataBindings": [{"Id": "b1", "PropertyMaps": [{"SourceProperty": "", "TargetProperty": target}],
+                    "SourceArea": "Data", "SourceSection": "Things_P.T", "SourceId": "Good",
+                    "TargetArea": "UI", "TargetSection": "", "TargetId": "ptcsgrid-3"}],
+                "Events": [],
+                "mashupType": "mashup"
+            });
+            format!("<Entities><Mashups><Mashup name=\"P.M\" projectName=\"P\"><mashupContent><![CDATA[{content}]]></mashupContent></Mashup></Mashups></Entities>")
+        };
+        std::fs::write(root.join("Mashups/P.M.xml"), mashup("Data")).unwrap();
+        let clean = mashup_content(&solution);
+        assert!(clean.findings.is_empty(), "{:?}", clean.findings);
+        assert_eq!(clean.examined, 1);
+
+        std::fs::write(root.join("Mashups/P.M.xml"), mashup("Dta")).unwrap();
+        let found = mashup_content(&solution);
+        assert_eq!(found.findings.len(), 1);
+        assert_eq!(found.findings[0].rule, "unknown-property");
+        assert_eq!(found.findings[0].file, "Mashups/P.M.xml");
+        assert!(found.blocks());
     }
 }

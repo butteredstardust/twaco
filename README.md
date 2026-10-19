@@ -45,7 +45,7 @@ twaco is a single command-line binary that makes the repository the source of tr
   service, `unused` what nothing reaches, and `mashup describe` a mashup's wiring without its XML.
 - **Checks before the server sees it.** `twaco check` runs every gate in one pass: sidecars in
   sync, line endings, formatting, script traps the Rhino engine punishes, code order, project
-  validation, mashup bindings against their services' DataShapes, contained mashups,
+  validation, mashup bindings against their services' DataShapes, mashup content, contained mashups,
   localization tokens, result shapes and your own hooks. `twaco types --check` type-checks every
   service against the entities' declarations with TypeScript.
 - **Deploys that refuse to clobber.** `twaco deploy` bundles per project in dependency order,

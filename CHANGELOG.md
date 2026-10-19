@@ -8,6 +8,19 @@ All notable changes to twaco are recorded here. The format follows
 
 ### Added
 
+- A `mashup content` gate in `twaco check` (and so before `deploy`): the content rules of
+  `twaco mashup validate`, such as a binding to a property its widget does not have, now fail the
+  run. A solution adopting it can list it in `[gates] advisory` until its findings are fixed.
+
+### Fixed
+
+- `mashup validate` accepts `DataSource1` to `DataSource<NumberOfSeries>` on a chart with
+  `MultipleDataSources`, one data source per series.
+- The help of `bundle` says the document is always written (`--apply` changes nothing), and the
+  help of `db query` says it imports a temporary `ZZ.Twaco.Sql.*` Thing and deletes it.
+
+### Added
+
 - `network show --server`, `network diff` and `network pull` inspect and reconcile live Network
   connections; pull splices only the connections that differ. Deploy plans say how many
   connections each Network import adds, moves and removes on the server.

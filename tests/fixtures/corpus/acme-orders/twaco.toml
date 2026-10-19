@@ -18,3 +18,8 @@ keep = ["Acme.Orders.Database"]
 [[project]]
 name = "Acme.Orders"
 root = "."
+
+[gates]
+# Acme.Orders.Dashboard is a minimal hand-written mashup, not an export: its content is no full
+# mashup document, which the mashup content gate reports.
+advisory = ["mashup content"]
