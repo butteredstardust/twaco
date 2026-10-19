@@ -18,6 +18,13 @@ All notable changes to twaco are recorded here. The format follows
   plans. `new network` creates an empty Network entity and the `networks` check gate catches
   connection shapes the server refuses.
 
+### Changed
+
+- Entity hashes are version 7: an Organization's connections and organizational units, and the
+  keys of a mashup's JSON, compare in any order, since a 10.1 server returns both reordered. An
+  unchanged Organization or mashup no longer reads as changed on the server. Baselines recorded
+  by an earlier twaco count as unrecorded: run `twaco entity status --all --record` once.
+
 ## [0.1.21] - 2026-10-17
 
 ### Added
