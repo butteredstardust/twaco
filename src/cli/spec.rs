@@ -1094,7 +1094,8 @@ pub(crate) const USAGE: &[Usage] = &[
     Usage {
         path: "bundle",
         group: 2,
-        text: r#"  bundle [--backend-only] [--handoff <name>] [--apply]  one importable document
+        text: r#"  bundle [--backend-only] [--handoff <name>] [--apply]  write one importable document
+                              (always written: --apply is accepted and changes nothing)
       --check                 report whether the bundle is current, write nothing"#,
     },
     Usage {
@@ -1126,7 +1127,8 @@ pub(crate) const USAGE: &[Usage] = &[
         path: "db query",
         group: 2,
         text: r#"  db query <file.sql>|-q <sql> [--thing <name>] [--max-rows <n>] [--timeout <seconds>] [--detail] [--json]
-                              run a read-only SQLQuery; summary shows columns and first 20 rows"#,
+                              run a read-only SQLQuery; summary shows columns and first 20 rows.
+                              Like db run, it imports a temporary ZZ.Twaco.Sql.* Thing and deletes it"#,
     },
     Usage {
         path: "db clean",

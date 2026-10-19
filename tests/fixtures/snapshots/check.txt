@@ -9,11 +9,14 @@ exit: 0
   ok      code order     7 examined
   ok      project        13 examined
   ok      mashup bindings 0 examined
+  warn    mashup content 1 finding(s) in 1 examined
   ok      contained mashups 0 examined
   ok      localization tokens 0 examined
   ok      result shapes  7 examined
   ok      networks       1 examined
 
-11 gate(s) passed
+1 finding(s) across 1 gate(s); 0 gate(s) could not run
+run `twaco check --detail` to see them
+nothing found blocks the run
 --- stderr
 

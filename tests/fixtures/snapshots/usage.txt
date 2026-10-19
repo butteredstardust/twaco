@@ -392,7 +392,8 @@ usage: twaco <command>
       --map a=b,...           source field -> target field (same names and the rename ledger match otherwise)
       --drop-unmapped         leave behind source fields that have no target field
       --append                allow a target that already has rows
-  bundle [--backend-only] [--handoff <name>] [--apply]  one importable document
+  bundle [--backend-only] [--handoff <name>] [--apply]  write one importable document
+                              (always written: --apply is accepted and changes nothing)
       --check                 report whether the bundle is current, write nothing
   deploy [--apply] [--force]  check, bundle, live-parse, conflict-check, import
       --backend-only          exclude configured UI collections
@@ -408,7 +409,8 @@ usage: twaco <command>
   db run <file.sql> [--thing <name>] [--no-transaction] [--timeout <seconds>] [--apply] [--json]
                               run one atomic SQLCommand; plan unless --apply
   db query <file.sql>|-q <sql> [--thing <name>] [--max-rows <n>] [--timeout <seconds>] [--detail] [--json]
-                              run a read-only SQLQuery; summary shows columns and first 20 rows
+                              run a read-only SQLQuery; summary shows columns and first 20 rows.
+                              Like db run, it imports a temporary ZZ.Twaco.Sql.* Thing and deletes it
   db clean [--apply] [--json] delete temporary ZZ.Twaco.Sql.* Things an interrupted db run left; plan unless --apply
   call <target> <service> [<json>] [--timeout <seconds>] [--detail] [--as <test user>]
       [--lang <code>]         target: Collection/Name, or an entity by name or last segment
