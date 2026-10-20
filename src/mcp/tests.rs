@@ -33,6 +33,89 @@ fn solution_dir() -> (tempfile::TempDir, PathBuf) {
     (root_guard, root)
 }
 
+#[test]
+fn contract_diff_is_read_only_offline_and_requires_against() {
+    let (_dir, root) = solution_dir();
+    let responses = converse(
+        &root,
+        &[
+            json!({"jsonrpc":"2.0","id":1,"method":"tools/list"}),
+            json!({"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"contract_diff","arguments":{}}}),
+        ],
+    );
+    let tool = responses[0]["result"]["tools"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|t| t["name"] == "contract_diff")
+        .unwrap();
+    assert_eq!(tool["annotations"]["readOnlyHint"], true);
+    assert_eq!(tool["annotations"]["openWorldHint"], false);
+    assert_eq!(tool["inputSchema"]["required"], json!(["against"]));
+    assert!(tool["inputSchema"]["properties"].get("profile").is_none());
+    assert!(responses[1].to_string().contains("against"));
+    assert!(responses[1].to_string().contains("required"));
+}
+
+#[test]
+fn contract_diff_returns_changes_and_text_matching_its_output_schema() {
+    use std::process::Command;
+    if Command::new("git").arg("--version").output().is_err() {
+        eprintln!("skipping contract MCP integration test: git is not on PATH");
+        return;
+    }
+    let (_dir, root) = solution_dir();
+    for args in [
+        vec!["init", "--quiet"],
+        vec!["config", "user.name", "Acme Test"],
+        vec!["config", "user.email", "test@example.invalid"],
+        vec!["add", "."],
+        vec![
+            "-c",
+            "commit.gpgsign=false",
+            "commit",
+            "--quiet",
+            "-m",
+            "Acme solution",
+        ],
+    ] {
+        let output = Command::new("git")
+            .current_dir(&root)
+            .args(&args)
+            .output()
+            .unwrap();
+        assert!(
+            output.status.success(),
+            "{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+    }
+    std::fs::create_dir(root.join("DataShapes")).unwrap();
+    std::fs::write(root.join("DataShapes/Acme.Rows.xml"), r#"<Entities><DataShapes><DataShape name="Acme.Rows" projectName="P"><FieldDefinitions/></DataShape></DataShapes></Entities>"#).unwrap();
+    for detail in [false, true] {
+        let responses = converse(
+            &root,
+            &[
+                json!({"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"contract_diff","arguments":{"against":"HEAD","detail":detail}}}),
+            ],
+        );
+        let content = &responses[0]["result"]["structuredContent"];
+        assert_eq!(content["compatible"][0]["entity"], "DataShapes/Acme.Rows");
+        assert!(content["breaking"].as_array().unwrap().is_empty());
+        assert!(
+            jsonschema::draft202012::is_valid(&output_schema_of("contract_diff"), content),
+            "{content}"
+        );
+        let text = content["text"].as_str().unwrap();
+        if detail {
+            assert!(text.contains("compatible: DataShapes/Acme.Rows"));
+        } else {
+            assert!(text.contains("compatible: 1 entity"));
+        }
+    }
+    assert!(!root.join(".twaco/profiles").exists());
+}
+
 fn default_matches_type(schema: &Value, value: &Value) -> bool {
     match schema["type"].as_str() {
         Some("string") => value.is_string(),
@@ -975,6 +1058,7 @@ fn every_tool_is_listed_with_a_schema_and_honest_annotations() {
             "import",
             "settings",
             "catalog",
+            "contract_diff",
             "impact",
             "trace",
             "unused",

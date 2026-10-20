@@ -14,6 +14,7 @@ pub mod commands;
 pub mod config;
 pub mod config_table;
 pub(crate) mod contained_check;
+pub mod contract;
 pub mod datashape;
 pub mod datatable;
 pub mod datatable_copy;

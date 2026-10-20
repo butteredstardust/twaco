@@ -79,6 +79,7 @@ when the command is asked to write. A local output named by an option is include
 | `import source-control` | read-only | server-partial | server entities | Read the post-import diff before retrying. | `core/imports.rs: import_source_control` |
 | `settings` | read-only | read-only | none | Retry freely. | `cli/info.rs: settings_cmd` |
 | `catalog` | read-only | read-only | none | Retry freely. | `cli/info.rs: catalog_cmd` |
+| `contract diff` | read-only | read-only | none | Retry freely. | `core/contract.rs: diff` |
 | `impact` | read-only | read-only | none | Retry freely. | `core/impact.rs: run` |
 | `trace` | read-only | read-only | none | Retry freely. | `core/trace.rs: run` |
 | `unused` | read-only | read-only | none | Retry freely. | `core/unused.rs: run` |
@@ -249,6 +250,7 @@ when the command is asked to write. A local output named by an option is include
 | `import` | read-only | server-partial | server entities | Compare again with the server before retrying. | `core/commands/imports.rs: execute` |
 | `settings` | read-only | read-only | none | Retry freely. | `mcp/info.rs: settings_tool` |
 | `catalog` | read-only | read-only | none | Retry freely. | `mcp/info.rs: catalog_tool` |
+| `contract_diff` | read-only | read-only | none | Retry freely. | `core/contract.rs: diff` |
 | `impact` | read-only | read-only | none | Retry freely. | `mcp/info.rs: impact_tool` |
 | `trace` | read-only | read-only | none | Retry freely. | `mcp/info.rs: trace_tool` |
 | `unused` | read-only | read-only | none | Retry freely. | `mcp/info.rs: unused_tool` |

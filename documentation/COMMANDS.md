@@ -48,6 +48,12 @@ catalog [<entity>|<Entity>.<Service>|<Service>] [--project P] [--search <text>] 
                             offline services, signatures, origins and descriptions; an
                             Entity.Service, or a service only one entity declares, gives that one
     --body                  with an entity or service: each service's script too
+contract diff --against <git rev> [--project P] [--detail] [--json]
+                            compare public contracts with a git revision; offline and read-only
+    --against <git rev>     required revision to compare; try origin/main
+    --project <name>        limit both sides to this project
+    --detail                every change and every caller in this repository
+    --json                  the complete report as JSON; exit 1 when breaking
 impact <entity> [--member <name>] [--min-confidence structural|resolved|review] [--depth <n>]
                             what changing an entity, or one service/property/field of it, reaches
     --detail                list every dependent and the chain of references to each

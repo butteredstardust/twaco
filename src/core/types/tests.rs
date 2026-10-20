@@ -54,6 +54,27 @@ fn rendered(model: Model) -> Generated {
     generate(&model, None)
 }
 
+#[test]
+fn events_are_loaded_without_changing_types_output() {
+    let without = entity("ThingShapes", "<ThingShape name=\"Acme.Shape\"><ServiceDefinitions><ServiceDefinition name=\"Run\"/></ServiceDefinitions></ThingShape>");
+    let with = entity("ThingShapes", "<ThingShape name=\"Acme.Shape\"><ServiceDefinitions><ServiceDefinition name=\"Run\"/></ServiceDefinitions><EventDefinitions><EventDefinition name=\"Changed\" dataShape=\"Acme.Rows\"/></EventDefinitions></ThingShape>");
+    assert_eq!(
+        with.events,
+        [("Changed".to_string(), Some("Acme.Rows".to_string()))]
+    );
+    let before = rendered(Model {
+        entities: vec![without],
+        ..Model::default()
+    });
+    let after = rendered(Model {
+        entities: vec![with],
+        ..Model::default()
+    });
+    assert_eq!(before.datashapes, after.datashapes);
+    assert_eq!(before.entities, after.entities);
+    assert_eq!(before.collections, after.collections);
+}
+
 fn platform_property(base_type: &str) -> PlatformProperty {
     PlatformProperty {
         base_type: base_type.to_string(),

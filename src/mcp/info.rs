@@ -116,6 +116,19 @@ pub(crate) fn docs_tool(
     }))
 }
 
+pub(crate) fn contract_diff_tool(
+    solution: &Solution,
+    arguments: tool::ContractDiffRequest,
+) -> Result<Value, ToolError> {
+    let against = nonempty(&arguments.against, "against")?;
+    let report = crate::core::contract::diff(solution, against, arguments.project.as_deref())
+        .map_err(ToolError::invalid)?;
+    let mut value =
+        serde_json::to_value(&report).map_err(|error| ToolError::invalid(error.to_string()))?;
+    value["text"] = json!(crate::core::contract::render(&report, arguments.detail));
+    Ok(value)
+}
+
 pub(crate) fn trace_tool(
     solution: &Solution,
     arguments: tool::TraceRequest,

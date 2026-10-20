@@ -1,6 +1,7 @@
 pub(crate) mod appkey;
 pub(crate) mod command;
 pub(crate) mod content;
+pub(crate) mod contract;
 pub(crate) mod data;
 pub(crate) mod entity;
 pub(crate) mod entity_edit;

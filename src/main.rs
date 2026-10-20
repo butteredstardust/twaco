@@ -185,6 +185,9 @@ fn dispatch(command: Command) -> u8 {
         Command::Package(package) => run(|solution| package_cmd(solution, &package)),
         Command::Widgets(widgets) => widgets_cmd(&widgets),
         Command::Catalog(catalog) => run(|solution| catalog_cmd(solution, &catalog)),
+        Command::Contract(cli::contract::Contract::Diff(args)) => {
+            run(|solution| cli::contract::diff_cmd(solution, &args))
+        }
         Command::Impact(impact) => run(|solution| impact_cmd(solution, &impact)),
         Command::Trace(trace) => run(|solution| cli::info::trace_cmd(solution, &trace)),
         Command::Unused(unused) => run(|solution| unused_cmd(solution, &unused)),

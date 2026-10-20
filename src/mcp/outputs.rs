@@ -15,6 +15,16 @@ use std::collections::BTreeMap;
 type Notices = Option<Vec<String>>;
 
 #[derive(Serialize, JsonSchema)]
+pub(crate) struct ContractDiffResult {
+    summary: String,
+    breaking: Vec<crate::core::contract::Change>,
+    compatible: Vec<crate::core::contract::Change>,
+    skipped: Vec<String>,
+    limits: String,
+    text: String,
+}
+
+#[derive(Serialize, JsonSchema)]
 pub(crate) struct RequirementsInitResult {
     summary: String,
     dry_run: bool,

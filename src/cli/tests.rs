@@ -125,6 +125,7 @@ fn usage_paths() -> std::collections::BTreeSet<String> {
         "javadoc",
         "permissions",
         "requirements",
+        "contract",
         "mashup",
         "thing",
         "timer",

@@ -5,6 +5,20 @@ start](QUICK_START.md) gets a repository set up; [Commands](COMMANDS.md) lists e
 
 ## The repository
 
+### Reviewing public contract changes
+
+Run `twaco contract diff --against origin/main` before releasing a solution. It compares
+declared services and their signatures, properties, events, DataShape fields and mashup
+parameters with that revision's own `twaco.toml`. The solution may live in a repository
+subdirectory. No profile or server is needed, and neither git state nor entity files change.
+
+The summary counts breaking and compatible changes, then lists breaking changes with their
+first three current callers. `--detail` lists every change and caller; `--json` returns the
+complete arrays (`breaking`, `compatible`, `skipped`). `--project <name>` limits both sides.
+Exit 1 means a breaking change; compatible changes alone exit 0. Unreadable entities make
+the report partial. Ledger records turn matching removals and additions into breaking renames.
+Callers outside this repository are invisible; review REST clients and other projects too.
+
 ### Entity XML is the source of truth
 
 Each entity is one XML file, exactly as ThingWorx exports it, in a folder named after its

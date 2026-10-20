@@ -17,6 +17,12 @@ impl Index {
     /// stops the build, so the answer is as complete as the repository allows and says where it
     /// is not.
     pub fn build(solution: &Solution) -> Index {
+        Self::with_targets(solution, &[])
+    }
+
+    /// Resolve current references to historical contract identities too. These extra nodes
+    /// have no source file or outgoing edges: callers still come exclusively from this tree.
+    pub(crate) fn with_targets(solution: &Solution, targets: &[EntityKey]) -> Index {
         let (model, skipped) = types::load_model(solution);
         let mut builder = Builder {
             solution,
@@ -30,6 +36,21 @@ impl Index {
         };
         builder.add_projects();
         builder.add_entities();
+        for key in targets {
+            if builder.entities.contains_key(key) {
+                continue;
+            }
+            let at = builder.graph.add_node(Node {
+                kind: NodeKind::Entity(key.clone()),
+                project: String::new(),
+                file: None,
+                template: None,
+                shapes: Vec::new(),
+                services: BTreeSet::new(),
+                subscribes: false,
+            });
+            builder.entities.insert(key.clone(), at);
+        }
         builder.add_structural_edges();
         builder.add_script_edges();
         builder.add_mashup_edges();

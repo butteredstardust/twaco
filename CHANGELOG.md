@@ -8,6 +8,10 @@ All notable changes to twaco are recorded here. The format follows
 
 ### Added
 
+- `contract diff --against <git rev>` compares public contracts offline, classifies breaking
+  and compatible changes, recognizes ledger renames and lists current repository callers.
+  Exit 1 flags breaking changes for CI; MCP exposes the read-only `contract_diff` tool.
+
 - `requirements init` drafts a reviewed `requirements.toml` for external entities, extensions,
   projects and the minimum platform version. `requirements check` gates the repository offline;
   `--server` also verifies the dependencies with read-only server requests. MCP exposes

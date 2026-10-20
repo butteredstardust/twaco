@@ -1,7 +1,7 @@
 == twaco
 usage: twaco <command>
 settings: version disable-help-subcommand subcommand-required arg-required-else-help
-subcommands: adopt appkey bundle call catalog check completions config-table copy datatable db deploy docs doctor entity export ext extract fmt guide handoff help impact import init javadoc localization logs mashup mcp media menu move network new package permissions projects rename repo reproject requirements retemplate scheduler search settings state style sync test thing timer trace types unused update users widgets
+subcommands: adopt appkey bundle call catalog check completions config-table contract copy datatable db deploy docs doctor entity export ext extract fmt guide handoff help impact import init javadoc localization logs mashup mcp media menu move network new package permissions projects rename repo reproject requirements retemplate scheduler search settings state style sync test thing timer trace types unused update users widgets
 arg --help
     action: Help
     value_name: -
@@ -56,6 +56,12 @@ help:
 |                               offline services, signatures, origins and descriptions; an
 |                               Entity.Service, or a service only one entity declares, gives that one
 |       --body                  with an entity or service: each service's script too
+|   contract diff --against <git rev> [--project P] [--detail] [--json]
+|                               compare public contracts with a git revision; offline and read-only
+|       --against <git rev>     required revision to compare; try origin/main
+|       --project <name>        limit both sides to this project
+|       --detail                every change and every caller in this repository
+|       --json                  the complete report as JSON; exit 1 when breaking
 |   impact <entity> [--member <name>] [--min-confidence structural|resolved|review] [--depth <n>]
 |                               what changing an entity, or one service/property/field of it, reaches
 |       --detail                list every dependent and the chain of references to each
@@ -1486,6 +1492,131 @@ help:
 |       --detail                every row, not only the first
 | 
 |   --profile <name>            the server profile (default: default)
+|   --log <filter>              write diagnostic logs to stderr (or TWACO_LOG)
+|   --log-file <path>           append diagnostic logs to a file (or TWACO_LOG_FILE)
+
+== twaco contract
+usage: twaco contract <command>
+settings: disable-version-flag disable-help-subcommand subcommand-required arg-required-else-help
+subcommands: diff
+arg --help
+    action: Help
+    value_name: -
+    num_args: 0
+    allow_hyphen_values: no
+    allow_negative_numbers: no
+    required: no
+    default: -
+    index: -
+    other: -
+help:
+| usage: twaco contract <command>
+| 
+|   contract diff --against <git rev> [--project P] [--detail] [--json]
+|                               compare public contracts with a git revision; offline and read-only
+|       --against <git rev>     required revision to compare; try origin/main
+|       --project <name>        limit both sides to this project
+|       --detail                every change and every caller in this repository
+|       --json                  the complete report as JSON; exit 1 when breaking
+| 
+|   --project <name>            narrow to one project of the solution
+|   --profile <name>            the server profile (default: default)
+|   --log <filter>              write diagnostic logs to stderr (or TWACO_LOG)
+|   --log-file <path>           append diagnostic logs to a file (or TWACO_LOG_FILE)
+
+== twaco contract diff
+usage: twaco contract diff --against <git rev> [--project P] [--detail] [--json]
+settings: disable-version-flag disable-help-subcommand
+subcommands: 
+arg --against
+    action: Set
+    value_name: git rev
+    num_args: 1
+    allow_hyphen_values: yes
+    allow_negative_numbers: no
+    required: no
+    default: -
+    index: -
+    other: -
+    given twice: ArgumentConflict
+    given bare: InvalidValue
+arg --detail
+    action: SetTrue
+    value_name: -
+    num_args: 0
+    allow_hyphen_values: no
+    allow_negative_numbers: no
+    required: no
+    default: "false"
+    index: -
+    other: -
+    given twice: accepted
+arg --help
+    action: Help
+    value_name: -
+    num_args: 0
+    allow_hyphen_values: no
+    allow_negative_numbers: no
+    required: no
+    default: -
+    index: -
+    other: -
+arg --json
+    action: SetTrue
+    value_name: -
+    num_args: 0
+    allow_hyphen_values: no
+    allow_negative_numbers: no
+    required: no
+    default: "false"
+    index: -
+    other: -
+    given twice: accepted
+arg --log
+    action: Set
+    value_name: filter
+    num_args: 1
+    allow_hyphen_values: yes
+    allow_negative_numbers: no
+    required: no
+    default: -
+    index: -
+    other: -
+    given twice: ArgumentConflict
+    given bare: InvalidValue
+arg --log-file
+    action: Set
+    value_name: path
+    num_args: 1
+    allow_hyphen_values: yes
+    allow_negative_numbers: no
+    required: no
+    default: -
+    index: -
+    other: -
+    given twice: ArgumentConflict
+    given bare: InvalidValue
+arg --project
+    action: Set
+    value_name: name
+    num_args: 1
+    allow_hyphen_values: yes
+    allow_negative_numbers: no
+    required: no
+    default: -
+    index: -
+    other: -
+    given twice: ArgumentConflict
+    given bare: InvalidValue
+help:
+|   contract diff --against <git rev> [--project P] [--detail] [--json]
+|                               compare public contracts with a git revision; offline and read-only
+|       --against <git rev>     required revision to compare; try origin/main
+|       --project <name>        limit both sides to this project
+|       --detail                every change and every caller in this repository
+|       --json                  the complete report as JSON; exit 1 when breaking
+| 
+|   --project <name>            narrow to one project of the solution
 |   --log <filter>              write diagnostic logs to stderr (or TWACO_LOG)
 |   --log-file <path>           append diagnostic logs to a file (or TWACO_LOG_FILE)
 

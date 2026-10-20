@@ -25,6 +25,8 @@ pub(crate) enum Command {
     Javadoc(super::info::Javadoc),
     Package(super::content::Package),
     Catalog(super::info::Catalog),
+    #[command(subcommand)]
+    Contract(super::contract::Contract),
     Impact(super::info::Impact),
     Trace(super::info::Trace),
     Unused(super::info::Unused),
@@ -108,6 +110,7 @@ impl Command {
             Command::Javadoc(_) => "javadoc",
             Command::Package(_) => "package",
             Command::Catalog(_) => "catalog",
+            Command::Contract(super::contract::Contract::Diff(_)) => "contract diff",
             Command::Impact(_) => "impact",
             Command::Trace(_) => "trace",
             Command::Unused(_) => "unused",
@@ -203,6 +206,7 @@ impl Command {
             | Command::Javadoc(_)
             | Command::Package(_)
             | Command::Catalog(_)
+            | Command::Contract(_)
             | Command::Impact(_)
             | Command::Trace(_)
             | Command::Unused(_)

@@ -730,6 +730,13 @@ static TOOLS: LazyLock<Vec<Tool>> = LazyLock::new(|| {
             info::catalog_tool,
         )
         .with_output::<outputs::CatalogResult>(),
+        solution_tool::<info_requests::ContractDiffRequest>(
+            "contract_diff",
+            "Compare the working tree's public contract with a git revision (against, required). Offline and read-only; the revision must contain its own twaco.toml. Reports breaking and compatible changes, unreadable inputs, and current callers at resolved or structural confidence. Callers outside this repository are invisible. project limits both sides; detail expands the text report. The JSON arrays always contain every change and caller.",
+            true,
+            info::contract_diff_tool,
+        )
+        .with_output::<outputs::ContractDiffResult>(),
         solution_tool::<info_requests::ImpactRequest>(
             "impact",
             "What changing an entity, or one service, property or field of it, would reach: the Things, templates, shapes, mashups and projects that depend on it, directly or through others, each at the strength of its weakest reference (structural: declared in the XML or twaco.toml; resolved: a static name in a script or a mashup binding; review: a string that looks like the name, for a person to judge). Offline and read-only. It cannot see references built at run time or outside the repository; `complete` says whether every input was read and `unreadable` lists what was not. Summary leaves the chain to each dependent out; detail includes it.",
@@ -836,6 +843,7 @@ pub(crate) const GROUPS: &[(&str, &[&str])] = &[
             "bundle",
             "catalog",
             "impact",
+            "contract_diff",
             "trace",
             "unused",
             "search",

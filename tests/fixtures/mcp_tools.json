@@ -7647,6 +7647,138 @@
     }
   },
   {
+    "name": "contract_diff",
+    "description": "Compare the working tree's public contract with a git revision (against, required). Offline and read-only; the revision must contain its own twaco.toml. Reports breaking and compatible changes, unreadable inputs, and current callers at resolved or structural confidence. Callers outside this repository are invisible. project limits both sides; detail expands the text report. The JSON arrays always contain every change and caller.",
+    "inputSchema": {
+      "required": [
+        "against"
+      ],
+      "additionalProperties": false,
+      "type": "object",
+      "properties": {
+        "against": {
+          "description": "Required git revision to compare with, such as origin/main.",
+          "type": "string"
+        },
+        "project": {
+          "description": "Limit both sides to this project.",
+          "type": "string"
+        },
+        "detail": {
+          "description": "Include text with every change and caller instead of the text summary.",
+          "type": "boolean",
+          "default": false
+        }
+      }
+    },
+    "annotations": {
+      "readOnlyHint": true,
+      "openWorldHint": false
+    },
+    "outputSchema": {
+      "required": [
+        "summary",
+        "breaking",
+        "compatible",
+        "skipped",
+        "limits",
+        "text"
+      ],
+      "properties": {
+        "summary": {
+          "type": "string"
+        },
+        "breaking": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "kind": {
+                "type": "string"
+              },
+              "entity": {
+                "type": "string"
+              },
+              "member": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "change": {
+                "type": "string"
+              },
+              "from": true,
+              "to": true,
+              "callers": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              }
+            },
+            "required": [
+              "kind",
+              "entity",
+              "change",
+              "callers"
+            ]
+          }
+        },
+        "compatible": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "kind": {
+                "type": "string"
+              },
+              "entity": {
+                "type": "string"
+              },
+              "member": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "change": {
+                "type": "string"
+              },
+              "from": true,
+              "to": true,
+              "callers": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              }
+            },
+            "required": [
+              "kind",
+              "entity",
+              "change",
+              "callers"
+            ]
+          }
+        },
+        "skipped": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "limits": {
+          "type": "string"
+        },
+        "text": {
+          "type": "string"
+        }
+      },
+      "type": "object"
+    }
+  },
+  {
     "name": "impact",
     "description": "What changing an entity, or one service, property or field of it, would reach: the Things, templates, shapes, mashups and projects that depend on it, directly or through others, each at the strength of its weakest reference (structural: declared in the XML or twaco.toml; resolved: a static name in a script or a mashup binding; review: a string that looks like the name, for a person to judge). Offline and read-only. It cannot see references built at run time or outside the repository; `complete` says whether every input was read and `unreadable` lists what was not. Summary leaves the chain to each dependent out; detail includes it.",
     "inputSchema": {

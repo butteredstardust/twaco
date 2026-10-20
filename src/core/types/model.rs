@@ -60,6 +60,7 @@ pub(crate) struct Entity {
     pub(crate) template: Option<String>,
     pub(crate) shapes: Vec<String>,
     pub(crate) members: Vec<Member>,
+    pub(crate) events: Vec<(String, Option<String>)>,
     pub(crate) script_services: BTreeSet<String>,
 }
 
@@ -237,6 +238,17 @@ pub(super) fn parse_document(
         }));
     }
     members.sort_by(|a, b| a.name().cmp(b.name()));
+    let mut events = Vec::new();
+    for (name, at) in
+        sidecar::named_children_of(&tokens, src, host, "EventDefinitions", "EventDefinition")
+            .map_err(|error| ParseError(error.to_string()))?
+    {
+        let shape = attribute(&tokens[at], src, "dataShape")?
+            .or(attribute(&tokens[at], src, "aspect.dataShape")?)
+            .filter(|value| !value.is_empty());
+        events.push((name, shape));
+    }
+    events.sort();
     let mut script_services = BTreeSet::new();
     if let Some(&section) = scan::child_tags(&tokens, src, "ServiceImplementations", host).first() {
         for implementation in scan::child_tags(&tokens, src, "ServiceImplementation", section) {
@@ -260,6 +272,7 @@ pub(super) fn parse_document(
         template,
         shapes,
         members,
+        events,
         script_services,
     }))
 }
