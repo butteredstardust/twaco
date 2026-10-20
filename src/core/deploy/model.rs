@@ -11,6 +11,7 @@ pub(crate) struct Script {
 
 #[derive(Clone, Debug)]
 pub(crate) struct Entity {
+    pub(crate) server_owned: Vec<super::super::server_owned::Part>,
     pub(crate) collection: String,
     pub(crate) name: String,
     /// The one-entity source document whose body is present in the bundle.
@@ -46,6 +47,10 @@ impl fmt::Display for ServiceCall {
 
 #[derive(Clone, Debug)]
 pub struct EntityPlan {
+    /// Owned parts the import carries from the server.
+    pub server_owned: Vec<String>,
+    /// Owned parts holding an encrypted value, which the import clears (a deploy hook sets it).
+    pub cleared: Vec<String>,
     #[allow(
         dead_code,
         reason = "read only by Debug; the plan keeps the project it was planned for"

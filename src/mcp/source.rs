@@ -378,6 +378,7 @@ pub(crate) fn deploy_tool(
                 "entities": plans(&report),
                 "calls": calls(&report),
                 "network_connections": network_changes(&report.network_changes),
+                "server_owned": report.plans.iter().filter(|p| !p.server_owned.is_empty() || !p.cleared.is_empty()).map(|p| json!({"entity": format!("{}/{}", p.collection, p.name), "parts": p.server_owned, "clears": p.cleared})).collect::<Vec<_>>(),
             });
             if let Some(dir) = &saved {
                 value["backup"] = json!(dir);
@@ -407,7 +408,7 @@ pub(crate) fn deploy_tool(
                 value["plans"] = json!(report
                     .plans
                     .iter()
-                    .map(|p| json!({ "entity": format!("{}/{}", p.collection, p.name), "decision": format!("{:?}", p.decision) }))
+                    .map(|p| json!({ "entity": format!("{}/{}", p.collection, p.name), "decision": format!("{:?}", p.decision), "server_owned": p.server_owned }))
                     .collect::<Vec<_>>());
             }
             value
@@ -433,7 +434,7 @@ pub(crate) fn deploy_tool(
                         push::Decision::Refuse(reason) => (refusal_code(reason), reason.to_string()),
                         other => ("unexpected", format!("{other:?}")),
                     };
-                    let mut entry = json!({ "entity": format!("{}/{}", c.collection, c.name), "reason": code });
+                    let mut entry = json!({ "entity": format!("{}/{}", c.collection, c.name), "reason": code, "server_owned": c.server_owned });
                     if detail {
                         entry["explanation"] = json!(full);
                     }

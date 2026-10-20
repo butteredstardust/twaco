@@ -65,6 +65,7 @@ fn run_test(
 
 fn target(name: &str, script: &str) -> Entity {
     Entity {
+        server_owned: Vec::new(),
         collection: "Things".to_string(),
         name: name.to_string(),
         bytes: entity(name, script),

@@ -545,6 +545,8 @@ pub(crate) fn bundle(solution: &Solution, args: &Bundle) -> u8 {
 #[group(skip)]
 pub(crate) struct Deploy {
     #[command(flatten)]
+    pub(crate) json: Json,
+    #[command(flatten)]
     pub(crate) apply: Apply,
     #[arg(long = "force")]
     pub(crate) force: bool,
@@ -580,13 +582,23 @@ pub(crate) fn deploy_cmd(solution: &Solution, args: &Deploy) -> u8 {
     };
     let mut notices = commands::Notices::default();
     let progress = super::progress::reporter();
-    let outcome = match commands::deploy::execute(
+    let result = commands::deploy::execute(
         solution,
         &request,
         server::Client::new,
         &mut notices,
         &progress,
-    ) {
+    );
+    if args.json.json {
+        print_notices(&notices);
+        let (value, code) = deploy_json(result, apply);
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&value).expect("deploy result is JSON")
+        );
+        return code;
+    }
+    let outcome = match result {
         Ok(outcome) => outcome,
         Err(error) => {
             print_notices(&notices);
@@ -728,6 +740,51 @@ pub(crate) fn deploy_cmd(solution: &Solution, args: &Deploy) -> u8 {
     }
 }
 
+fn deploy_json(
+    result: Result<commands::deploy::DeployOutcome, commands::deploy::DeployCommandError>,
+    apply: bool,
+) -> (serde_json::Value, u8) {
+    use serde_json::json;
+    match result {
+        Ok(commands::deploy::DeployOutcome::Complete {
+            report,
+            notes,
+            backup,
+            localization,
+            ..
+        }) => {
+            let plans: Vec<_> = report.plans.iter().map(|p| json!({"entity": format!("{}/{}", p.collection, p.name), "decision": format!("{:?}", p.decision), "server_owned": p.server_owned})).collect();
+            (
+                json!({"ok": true, "dry_run": !apply, "projects": notes, "scripts_parsed": report.scripts_checked, "plans": plans,
+                "server_owned": report.plans.iter().filter(|p| !p.server_owned.is_empty()).map(|p| json!({"entity": format!("{}/{}", p.collection, p.name), "parts": p.server_owned})).collect::<Vec<_>>(),
+                "imported": report.imported, "kept": report.kept.len(), "backup": backup,
+                "calls": report.calls.iter().map(|c| json!({"project": c.project, "call": c.call.to_string(), "skipped": c.skipped})).collect::<Vec<_>>(),
+                "localization": localization.map(|l| l.tables.iter().map(|t| json!({"table": t.table, "create": t.create, "set": t.set.len(), "imported": l.applied})).collect::<Vec<_>>()),
+                "network_connections": report.network_changes.iter().map(|n| json!({"name": n.name, "adds": n.adds, "moves": n.moves, "removes": n.removes})).collect::<Vec<_>>() }),
+                OK,
+            )
+        }
+        Ok(commands::deploy::DeployOutcome::GatesBlocked { report, .. }) => (
+            json!({"ok":false,"stage":"offline gates","findings":report.findings(),"broken":report.broken()}),
+            if report.broken() > 0 { FAILED } else { DRIFT },
+        ),
+        Err(error) => {
+            let mut value = json!({"ok":false,"error":error.to_string(),"backup":error.backup()});
+            let code = if let commands::deploy::DeployCommandError::Deploy { why, .. } = &error {
+                if let deploy::DeployError::Conflicts(plans) = why.as_ref() {
+                    value["refused"] = json!(plans.iter().map(|p| json!({"entity":format!("{}/{}",p.collection,p.name),"decision":format!("{:?}",p.decision),"server_owned":p.server_owned})).collect::<Vec<_>>());
+                    DRIFT
+                } else {
+                    FAILED
+                }
+            } else {
+                FAILED
+            };
+            (value, code)
+        }
+    }
+}
+
 /// The localization tables a whole-solution deploy carries.
 fn print_deploy_localization(pushed: &twaco::core::localization::Pushed) {
     if pushed.tables.is_empty() {
@@ -777,6 +834,19 @@ fn print_deploy_report(report: &deploy::Report, apply: bool, force: bool) {
     print_network_changes(&report.network_changes);
     for plan in &report.plans {
         let label = format!("{}/{}", plan.collection, plan.name);
+        if !plan.server_owned.is_empty() {
+            println!(
+                "  {label}: keeps the server's {}",
+                plan.server_owned.join(", ")
+            );
+        }
+        if !plan.cleared.is_empty() {
+            println!(
+                "  {label}: the import clears the server's {} (an encrypted value cannot be \
+                 carried); a deploy hook must set it again",
+                plan.cleared.join(", ")
+            );
+        }
         match &plan.decision {
             push::Decision::AlreadyThere => println!("  {label}: nothing to push"),
             push::Decision::Create => println!("  {label}: would create"),

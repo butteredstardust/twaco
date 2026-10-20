@@ -39,6 +39,9 @@ pub enum Refusal {
     UnknownAncestor { server: String },
     /// The server changed since its recorded baseline.
     Conflict { server: String, baseline: String },
+    /// Server-owned parts hold an encrypted value, which an import cannot carry: the push would
+    /// clear it on the server.
+    EncryptedServerOwned { parts: Vec<String> },
 }
 
 impl fmt::Display for Refusal {
@@ -57,6 +60,13 @@ impl fmt::Display for Refusal {
                 f,
                 "the server changed since the last sync (server baseline {baseline}, server now {server}); \
                  pushing would overwrite that change"
+            ),
+            Refusal::EncryptedServerOwned { parts } => write!(
+                f,
+                "the server's {} holds an encrypted value, which an import cannot carry, so pushing \
+                 would clear it; `twaco deploy` sets it again through its deploy hook, or pass \
+                 --force and set it again yourself",
+                parts.join(", ")
             ),
         }
     }
@@ -92,10 +102,20 @@ pub(crate) fn decide(
 /// a server; [`Client`] is the real one.
 pub trait Remote {
     fn fetch(&self, key: &EntityKey) -> Result<Option<Vec<u8>>, ServerError>;
+    /// Import-compatible Exporter XML. Refuse unsupported remotes rather than copying GET bytes.
+    fn export_owned(&self, key: &EntityKey) -> Result<Option<Vec<u8>>, ServerError> {
+        Err(ServerError::InvalidResponse {
+            url: "Exporter".into(),
+            why: format!("{key}: server-owned parts require the Exporter"),
+        })
+    }
     fn import(&self, file_name: &str, xml: &[u8]) -> Result<(), ServerError>;
 }
 
 impl Remote for Client {
+    fn export_owned(&self, key: &EntityKey) -> Result<Option<Vec<u8>>, ServerError> {
+        super::backup::Remote::export(self, key)
+    }
     fn fetch(&self, key: &EntityKey) -> Result<Option<Vec<u8>>, ServerError> {
         match self.fetch_entity(key) {
             Ok(bytes) => Ok(Some(bytes)),
@@ -172,6 +192,7 @@ pub enum PushError {
 ///
 /// The baseline is loaded and written as late as possible, and only through
 /// [`Baseline::write`], which replaces the file atomically. Only this entity's key changes.
+#[cfg(test)]
 pub(crate) fn push(
     remote: &dyn Remote,
     root: &Path,
@@ -179,15 +200,27 @@ pub(crate) fn push(
     apply: bool,
     force: bool,
 ) -> Result<Outcome, PushError> {
-    let working = normalise::hash(target.document.bytes).map_err(PushError::Working)?;
-    let server = remote
-        .fetch(&target.key)
-        .map_err(PushError::Remote)?
-        .map(|bytes| normalise::hash(&bytes))
+    push_with_parts(remote, root, target, apply, force, &[])
+}
+
+pub(crate) fn push_with_parts(
+    remote: &dyn Remote,
+    root: &Path,
+    target: &Target,
+    apply: bool,
+    force: bool,
+    parts: &[super::server_owned::Part],
+) -> Result<Outcome, PushError> {
+    let working =
+        normalise::hash_with_parts(target.document.bytes, parts).map_err(PushError::Working)?;
+    let fetched = remote.fetch(&target.key).map_err(PushError::Remote)?;
+    let server = fetched
+        .as_deref()
+        .map(|bytes| normalise::hash_with_parts(bytes, parts))
         .transpose()
         .map_err(PushError::Server)?;
     let baseline = Baseline::load(root).map_err(PushError::Baseline)?;
-    let entry = baseline.get(target.key.collection(), target.key.name());
+    let entry = baseline.get_for(target.key.collection(), target.key.name(), &working);
     let decision = decide(
         &working,
         server.as_deref(),
@@ -195,6 +228,21 @@ pub(crate) fn push(
     );
 
     if !apply {
+        // The live copy carries the table and property definitions too, so a plan can already
+        // say that an import would clear an encrypted owned value; the apply checks the export.
+        let encrypted = match &fetched {
+            Some(bytes) if !force && !matches!(decision, Decision::AlreadyThere) => {
+                super::server_owned::encrypted(bytes, parts).map_err(PushError::Server)?
+            }
+            _ => Vec::new(),
+        };
+        if !encrypted.is_empty() {
+            return Ok(Outcome::WouldDo(Decision::Refuse(
+                Refusal::EncryptedServerOwned {
+                    parts: super::server_owned::labels(&encrypted),
+                },
+            )));
+        }
         return Ok(Outcome::WouldDo(decision));
     }
     let created = match &decision {
@@ -210,15 +258,34 @@ pub(crate) fn push(
         Decision::Update => false,
     };
 
+    let outgoing = if !created && !parts.is_empty() {
+        let exported = remote.export_owned(&target.key).map_err(PushError::Remote)?
+            .ok_or_else(|| PushError::Remote(ServerError::InvalidResponse {
+                url: "Exporter".into(),
+                why: format!("{} disappeared before its server-owned parts could be preserved; retry the push", target.key),
+            }))?;
+        let encrypted =
+            super::server_owned::encrypted(&exported, parts).map_err(PushError::Server)?;
+        if !encrypted.is_empty() && !force {
+            return Ok(Outcome::Refused(Refusal::EncryptedServerOwned {
+                parts: super::server_owned::labels(&encrypted),
+            }));
+        }
+        let carried = super::server_owned::carried(parts, &encrypted);
+        super::server_owned::preserve_for_import(target.document.bytes, &exported, &carried)
+            .map_err(PushError::Server)?
+    } else {
+        target.document.bytes.to_vec()
+    };
     remote
-        .import(target.document.file_name, target.document.bytes)
+        .import(target.document.file_name, &outgoing)
         .map_err(PushError::Remote)?;
     // From here on the server has changed, so a failure must say so rather than read like the
     // fetch before the import did.
     let read_back = remote
         .fetch(&target.key)
         .map_err(PushError::Unverified)?
-        .map(|bytes| normalise::hash(&bytes))
+        .map(|bytes| normalise::hash_with_parts(&bytes, parts))
         .transpose()
         .map_err(PushError::Server)?;
     if read_back.as_deref() != Some(working.as_str()) {
@@ -243,6 +310,7 @@ impl Coded for Refusal {
             Self::DeletedOnServer { .. } | Self::UnknownAncestor { .. } | Self::Conflict { .. } => {
                 ErrorCode::ServerConflict
             }
+            Self::EncryptedServerOwned { .. } => ErrorCode::GuardRefused,
         }
     }
 }

@@ -77,6 +77,7 @@ pub(crate) fn verdict(
 
 #[derive(Clone, Debug)]
 pub struct EntityStatus {
+    pub server_owned: Vec<String>,
     pub collection: String,
     pub name: String,
     pub working: String,
@@ -94,27 +95,32 @@ pub(crate) fn compute_with_progress(
     remote: &(dyn Remote + Sync),
     baseline: &Baseline,
     entities: &[EntityFile],
+    rules: &[super::server_owned::Rule],
     progress: &dyn Progress,
 ) -> (Vec<EntityStatus>, Vec<String>) {
     let _phase = progress::phase(progress, "comparing entities", Some(entities.len() as u64));
     let results = parallel::map_progress(entities, progress, |entity| {
         progress.message(&entity.info.name);
+        let parts = super::server_owned::parts(rules, &entity.info.collection, &entity.info.name);
         let working = std::fs::read(&entity.path)
             .map_err(|error| error.to_string())
-            .and_then(|bytes| normalise::hash(&bytes).map_err(|error| error.to_string()))
+            .and_then(|bytes| {
+                normalise::hash_with_parts(&bytes, &parts).map_err(|error| error.to_string())
+            })
             .map_err(|error| format!("{}: {error}", entity.path.display()))?;
         let server = match EntityKey::address(&entity.info.collection, &entity.info.name)
             .and_then(|key| remote.fetch(&key))
         {
             Ok(Some(bytes)) => Some(
-                normalise::hash(&bytes)
+                normalise::hash_with_parts(&bytes, &parts)
                     .map_err(|error| format!("server export for {}: {error}", entity.info.name))?,
             ),
             Ok(None) => None,
             Err(error) => return Err(format!("{}: {error}", entity.info.name)),
         };
-        let ancestor = baseline.get(&entity.info.collection, &entity.info.name);
+        let ancestor = baseline.get_for(&entity.info.collection, &entity.info.name, &working);
         Ok(EntityStatus {
+            server_owned: super::server_owned::labels(&parts),
             collection: entity.info.collection.clone(),
             name: entity.info.name.clone(),
             verdict: verdict(
@@ -207,6 +213,7 @@ mod tests {
     fn record_selects_only_matching_working_and_server_hashes() {
         fn status(name: &str, working: &str, server: Option<&str>) -> EntityStatus {
             EntityStatus {
+                server_owned: Vec::new(),
                 collection: "Things".to_string(),
                 name: name.to_string(),
                 working: working.to_string(),

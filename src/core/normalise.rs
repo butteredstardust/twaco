@@ -52,6 +52,13 @@
 //!
 //! No generated id, default attribute, or other exception is included without a live/committed
 //! observation. Apart from the rules above, CDATA bytes are never decoded, re-indented, or joined.
+//!
+//! Without server ownership, hashes remain `v7:<sha256>` byte for byte. With ownership they are
+//! `v7:so1:<policy-sha256>:<content-sha256>`: the policy digest covers the sorted, deduplicated
+//! union of applicable part labels (newline-delimited). `so1` versions selector semantics.
+//! Content uses the same comparison tree with owned nodes omitted. Baselines must compare the
+//! entire prefix before the final colon; adding, removing or changing ownership invalidates
+//! only that entity's ancestor, even when its content happens to hash identically.
 
 use super::scan::{self, Kind, ScanError, Token};
 use sha2::{Digest, Sha256};
@@ -161,7 +168,12 @@ pub(crate) fn comparison_tree(
 ) -> Result<Element, NormaliseError> {
     let tokens = scan::tokenize(src)?;
     reject_non_utf8_declaration(src, &tokens)?;
-    let mut entity = unwrap_entity(parse(src, &tokens)?)?;
+    let entity = unwrap_entity(parse(src, &tokens)?)?;
+    Ok(comparison_element(entity, with_permissions))
+}
+
+/// Compare an already parsed entity using the hash and layout policy, without serialising it.
+pub(crate) fn comparison_element(mut entity: Element, with_permissions: bool) -> Element {
     strip_live_only(&mut entity);
     normalise_leaf_content(&mut entity);
     normalise_special_payloads(&mut entity);
@@ -177,7 +189,7 @@ pub(crate) fn comparison_tree(
                 if PERMISSION_BLOCKS.contains(&element.name.as_slice()))
         });
     }
-    Ok(entity)
+    entity
 }
 
 /// The document's top-level nodes, parsed but not normalised: text unescaped and line ends
@@ -198,6 +210,35 @@ pub(crate) fn entity_of(src: &[u8]) -> Result<Element, NormaliseError> {
 pub(crate) fn hash(src: &[u8]) -> Result<String, NormaliseError> {
     let canonical = normalise(src)?;
     Ok(format!("{HASH_VERSION}:{}", hex(&sha256(&canonical))))
+}
+
+pub(crate) fn hash_with_parts(
+    src: &[u8],
+    parts: &[super::server_owned::Part],
+) -> Result<String, NormaliseError> {
+    if parts.is_empty() {
+        return hash(src);
+    }
+    let mut tree = comparison_tree(src, true)?;
+    super::server_owned::omit(&mut tree, parts);
+    // Removing owned descendants can change a set member's canonical sort key.
+    let tree = comparison_element(tree, true);
+    let mut canonical = b"twaco-entity-normalise-v7\0".to_vec();
+    write_element(&tree, &mut canonical);
+    Ok(format!(
+        "{}:{}",
+        hash_scope(parts),
+        hex(&sha256(&canonical))
+    ))
+}
+
+/// Hash version and selector policy, excluding the content digest.
+pub(crate) fn hash_scope(parts: &[super::server_owned::Part]) -> String {
+    if parts.is_empty() {
+        return HASH_VERSION.into();
+    }
+    let policy = super::server_owned::labels(parts).join("\n");
+    format!("{HASH_VERSION}:so1:{}", hex(&sha256(policy.as_bytes())))
 }
 
 fn parse(src: &[u8], tokens: &[Token]) -> Result<Vec<Node>, NormaliseError> {

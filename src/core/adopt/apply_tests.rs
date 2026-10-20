@@ -1,6 +1,45 @@
 use super::*;
 
 #[test]
+fn server_owned_parts_are_neither_reported_nor_adopted_with_other_changes() {
+    let dir = tempfile::tempdir().unwrap();
+    let config = dir.path().join("twaco.toml");
+    std::fs::write(&config, "[[project]]\nname='Acme.Project'\n[[server_owned]]\nentities=['Groups/Acme.Admin_UG']\nparts=['members','run-time-permissions']\n").unwrap();
+    std::fs::create_dir(dir.path().join("Groups")).unwrap();
+    let path = dir.path().join("Groups/Acme.Admin_UG.xml");
+    let local = "<Entities><Groups><Group name=\"Acme.Admin_UG\" projectName=\"Acme.Project\" description=\"before\"><Members><Member name='Acme.Local'/></Members><RunTimePermissions><Permissions><Read><Principal name='Acme.Local' type='Group'/></Read></Permissions></RunTimePermissions></Group></Groups></Entities>";
+    std::fs::write(&path, local).unwrap();
+    let solution = Solution::load(&config).unwrap();
+    let export = dir.path().join("export.xml");
+    let changed_owned = local.replace("Acme.Local", "Acme.Server");
+    std::fs::write(&export, &changed_owned).unwrap();
+    let report = compare(&solution, &export, &[]).unwrap();
+    assert_eq!(report.entities[0].change, Change::Same);
+    assert!(report.entities[0].differences.is_empty());
+    apply(&solution, &export, &report, &[], &locked(&solution)).unwrap();
+    assert_eq!(std::fs::read_to_string(&path).unwrap(), local);
+    std::fs::write(&export, changed_owned.replace("before", "after")).unwrap();
+    let report = compare(&solution, &export, &[]).unwrap();
+    assert_eq!(report.entities[0].differences.len(), 1);
+    assert_eq!(report.entities[0].differences[0].path, "@description");
+    apply(
+        &solution,
+        &export,
+        &report,
+        &[Take {
+            side: TakeSide::Theirs,
+            target: "Acme.Admin_UG".into(),
+        }],
+        &locked(&solution),
+    )
+    .unwrap();
+    assert_eq!(
+        std::fs::read_to_string(&path).unwrap(),
+        local.replace("before", "after")
+    );
+}
+
+#[test]
 fn exporter_backend_replacement_keeps_the_repository_lines_and_new_entity_layout() {
     let dir = tempfile::tempdir().unwrap();
     std::fs::write(

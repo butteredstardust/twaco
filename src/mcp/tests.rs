@@ -542,6 +542,20 @@ fn output_schema_waits_for_the_new_protocol() {
 }
 
 #[test]
+fn tools_list_publishes_owned_parts_in_status_push_and_deploy_schemas() {
+    let status = output_schema_of("status");
+    assert!(status["properties"]["statuses"]["items"]["properties"]["server_owned"].is_object());
+    let push = output_schema_of("push");
+    assert_eq!(push["properties"]["server_owned"]["type"], "array");
+    let deploy = output_schema_of("deploy");
+    assert!(deploy["properties"]["server_owned"].is_object());
+    assert_eq!(
+        deploy["properties"]["server_owned"]["items"]["properties"]["parts"]["type"],
+        "array"
+    );
+}
+
+#[test]
 fn validator_keeps_top_level_messages_stable() {
     let required = json!({ "type": "object", "properties": { "x": { "type": "string" } }, "required": ["x"], "additionalProperties": false });
     assert_eq!(
@@ -760,6 +774,7 @@ fn refused_push_result_has_a_server_conflict_code() {
         false,
         false,
         commands::push::PushOutcome::Applied {
+            server_owned: Vec::new(),
             entity: crate::core::entity::key::EntityKey::new("Things", "P.T").unwrap(),
             result: push::Outcome::Refused(refusal.clone()),
             backup: None,
@@ -2203,6 +2218,7 @@ fn every_push_result_fits_the_output_schema() {
     let mut results = Vec::new();
     for decision in plans {
         let outcome = PushOutcome::Plan {
+            server_owned: Vec::new(),
             entity: entity(),
             decision,
             effects,
@@ -2211,6 +2227,7 @@ fn every_push_result_fits_the_output_schema() {
     }
     for result in applied {
         let outcome = PushOutcome::Applied {
+            server_owned: Vec::new(),
             entity: entity(),
             result,
             backup: None,

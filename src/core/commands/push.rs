@@ -27,10 +27,12 @@ pub enum PushOutcome {
     Plan {
         entity: EntityKey,
         decision: push::Decision,
+        server_owned: Vec<String>,
         effects: Effects,
     },
     Applied {
         entity: EntityKey,
+        server_owned: Vec<String>,
         result: push::Outcome,
         backup: Option<String>,
         effects: Effects,
@@ -215,6 +217,12 @@ where
     } else {
         None
     };
+    let parts = crate::core::server_owned::parts(
+        &solution.server_owned,
+        &entity.info.collection,
+        &entity.info.name,
+    );
+    let server_owned = crate::core::server_owned::labels(&parts);
     let result = {
         // A plan sends nothing, so its phase must not say that it pushes.
         let phase = match request.mode {
@@ -223,12 +231,13 @@ where
         };
         let _phase = progress::phase(progress, phase, Some(1));
         progress.message(&label);
-        let result = push::push(
+        let result = push::push_with_parts(
             &remote,
             &solution.root,
             &target,
             matches!(request.mode, Mode::Apply),
             request.force,
+            &parts,
         )
         .map_err(|why| PushCommandError::Push {
             label,
@@ -240,23 +249,27 @@ where
     };
     match result {
         push::Outcome::WouldDo(decision) => Ok(PushOutcome::Plan {
+            server_owned,
             entity: key,
             decision,
             effects: PLAN_EFFECTS,
         }),
         push::Outcome::AlreadyThere => Ok(PushOutcome::Applied {
+            server_owned,
             entity: key,
             result,
             backup,
             effects: ALREADY_THERE_EFFECTS,
         }),
         push::Outcome::Pushed { .. } => Ok(PushOutcome::Applied {
+            server_owned,
             entity: key,
             result,
             backup,
             effects: PUSHED_EFFECTS,
         }),
         push::Outcome::Refused(_) => Ok(PushOutcome::Applied {
+            server_owned,
             entity: key,
             result,
             backup,
@@ -443,6 +456,7 @@ mod tests {
     fn outcome_effects_match_the_push_result() {
         let key = EntityKey::new("Things", "P.T").unwrap();
         let plan = PushOutcome::Plan {
+            server_owned: Vec::new(),
             entity: key.clone(),
             decision: push::Decision::Create,
             effects: PLAN_EFFECTS,
@@ -457,6 +471,7 @@ mod tests {
             ),
         ] {
             let outcome = PushOutcome::Applied {
+                server_owned: Vec::new(),
                 entity: key.clone(),
                 result,
                 backup: None,

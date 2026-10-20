@@ -168,6 +168,36 @@ and the like. `entity status --record` records the current state as the baseline
 two sides already agree, for a repository adopting twaco. It reports how many baselines it
 recorded; counts, detail and the exit status reflect the updated baseline.
 
+### State that belongs to the server
+
+Use `[[server_owned]]` in `twaco.toml` for group membership assigned separately on each server,
+an encrypted database password, runtime-filled configuration, or changing simulation values:
+
+```toml
+[[server_owned]]
+entities = ["Groups/Acme.*_UG"]
+parts = ["members", "run-time-permissions"]
+
+[[server_owned]]
+entities = ["Things/Acme.Database"]
+parts = ["configuration-table:ConnectionInfo.password"]
+```
+
+The kinds are `members`, `run-time-permissions`, `visibility-permissions`, `property-values`
+(or `property-values:speed,temperature`), and `configuration-table:Table` (or
+`configuration-table:Table.column`). Rules combine, and `*` matches within an entity name.
+See the [configuration reference](CONFIGURATION.md#server_owned) for their exact scopes.
+
+Status and its `--record` option compare everything outside these parts. Push and deploy
+fetch the existing entity's Exporter copy and splice its owned content into the outgoing
+import, without changing repository files. Plans name what they keep, status detail names
+what it omits, and doctor warns about unmatched rules. Adopt keeps the repository's owned
+content. The repository's copy is still what a fresh server gets, so keep useful initial values
+there and leave secrets out. An encrypted value (a password) is only left out of the comparison: an import
+always clears it, so set it again after the import with a deploy hook, and `entity push` refuses
+such an entity without `--force`. Changing applicable parts makes that entity's old baseline absent;
+run `entity status --all --record` to record matching entities under the new rules.
+
 Repository entity operands accept a full name (`Acme.App.Manager`), its last dotted segment
 (`Manager`), or `Things/Acme.App.Manager`. The collection prefix also scopes short names
 (`Things/Manager`) and is case-insensitive; ambiguous names need a collection or full name.

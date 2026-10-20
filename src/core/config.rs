@@ -17,6 +17,9 @@ pub const CONFIG_FILE: &str = "twaco.toml";
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Solution {
+    /// Parts compared and transferred according to the server's ownership.
+    #[serde(default)]
+    pub(crate) server_owned: Vec<super::server_owned::Rule>,
     #[serde(default)]
     pub solution: SolutionMeta,
     /// One entry per ThingWorx project. A single-project repository declares one.

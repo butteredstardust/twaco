@@ -357,7 +357,8 @@ help:
 |   entity get <entity>         fetch raw server XML to stdout or --out <path>
 |                               Collection/Name: any server entity; a bare name: the repository's
 |       [--profile <name>]      server profile (default: default)
-|   entity push <entity>        import one entity, refusing if the server changed
+|   entity push <entity> [--json]
+|                               import one entity, refusing if the server changed
 |       --apply                 actually push (without it, report what would happen)
 |       --force                 push over a server-side change; the server's copy is saved first
 |       --no-backup             with --force, do not save the server's copy first
@@ -428,7 +429,8 @@ help:
 |   bundle [--backend-only] [--handoff <name>] [--apply]  write one importable document
 |                               (always written: --apply is accepted and changes nothing)
 |       --check                 report whether the bundle is current, write nothing
-|   deploy [--apply] [--force]  check, bundle, live-parse, conflict-check, import
+|   deploy [--apply] [--force] [--json]
+|                               check, bundle, live-parse, conflict-check, import
 |       --backend-only          exclude configured UI collections
 |       --only <entity>         include only this entity (repeatable)
 |       --only-projects <a,b>   include only these projects
@@ -2386,7 +2388,7 @@ help:
 |   --log-file <path>           append diagnostic logs to a file (or TWACO_LOG_FILE)
 
 == twaco deploy
-usage: twaco deploy [--apply] [--force]
+usage: twaco deploy [--apply] [--force] [--json]
 settings: disable-version-flag disable-help-subcommand
 subcommands: 
 arg --apply
@@ -2432,6 +2434,17 @@ arg --help
     default: -
     index: -
     other: -
+arg --json
+    action: SetTrue
+    value_name: -
+    num_args: 0
+    allow_hyphen_values: no
+    allow_negative_numbers: no
+    required: no
+    default: "false"
+    index: -
+    other: -
+    given twice: accepted
 arg --log
     action: Set
     value_name: filter
@@ -2515,7 +2528,8 @@ arg --skip-checks
     other: -
     given twice: accepted
 help:
-|   deploy [--apply] [--force]  check, bundle, live-parse, conflict-check, import
+|   deploy [--apply] [--force] [--json]
+|                               check, bundle, live-parse, conflict-check, import
 |       --backend-only          exclude configured UI collections
 |       --only <entity>         include only this entity (repeatable)
 |       --only-projects <a,b>   include only these projects
@@ -2712,7 +2726,8 @@ help:
 |   entity get <entity>         fetch raw server XML to stdout or --out <path>
 |                               Collection/Name: any server entity; a bare name: the repository's
 |       [--profile <name>]      server profile (default: default)
-|   entity push <entity>        import one entity, refusing if the server changed
+|   entity push <entity> [--json]
+|                               import one entity, refusing if the server changed
 |       --apply                 actually push (without it, report what would happen)
 |       --force                 push over a server-side change; the server's copy is saved first
 |       --no-backup             with --force, do not save the server's copy first
@@ -3101,7 +3116,7 @@ help:
 |   --log-file <path>           append diagnostic logs to a file (or TWACO_LOG_FILE)
 
 == twaco entity push
-usage: twaco entity push <entity>
+usage: twaco entity push <entity> [--json]
 settings: disable-version-flag disable-help-subcommand
 subcommands: 
 arg --apply
@@ -3136,6 +3151,17 @@ arg --help
     default: -
     index: -
     other: -
+arg --json
+    action: SetTrue
+    value_name: -
+    num_args: 0
+    allow_hyphen_values: no
+    allow_negative_numbers: no
+    required: no
+    default: "false"
+    index: -
+    other: -
+    given twice: accepted
 arg --log
     action: Set
     value_name: filter
@@ -3194,7 +3220,8 @@ arg <operands>
     index: 1
     other: -
 help:
-|   entity push <entity>        import one entity, refusing if the server changed
+|   entity push <entity> [--json]
+|                               import one entity, refusing if the server changed
 |       --apply                 actually push (without it, report what would happen)
 |       --force                 push over a server-side change; the server's copy is saved first
 |       --no-backup             with --force, do not save the server's copy first

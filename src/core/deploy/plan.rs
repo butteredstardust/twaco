@@ -31,33 +31,51 @@ pub(crate) fn decide_all_with_progress(
         .collect();
     let plans = parallel::map_progress(&entities, progress, |(project, entity)| {
         progress.message(&entity.name);
-        let working = normalise::hash(&entity.bytes).map_err(|error| DeployError::Working {
+        let working =
+            normalise::hash_with_parts(&entity.bytes, &entity.server_owned).map_err(|error| {
+                DeployError::Working {
+                    collection: entity.collection.clone(),
+                    name: entity.name.clone(),
+                    why: error.to_string(),
+                }
+            })?;
+        let server_error = |why: String| DeployError::Server {
             collection: entity.collection.clone(),
             name: entity.name.clone(),
-            why: error.to_string(),
-        })?;
-        let server = EntityKey::address(&entity.collection, &entity.name)
+            why,
+        };
+        let fetched = EntityKey::address(&entity.collection, &entity.name)
             .and_then(|key| remote.fetch(&key))
-            .map_err(|error| DeployError::Server {
-                collection: entity.collection.clone(),
-                name: entity.name.clone(),
-                why: error.to_string(),
-            })?
-            .map(|bytes| normalise::hash(&bytes))
+            .map_err(|error| server_error(error.to_string()))?;
+        let server = fetched
+            .as_deref()
+            .map(|bytes| normalise::hash_with_parts(bytes, &entity.server_owned))
             .transpose()
-            .map_err(|error| DeployError::Server {
-                collection: entity.collection.clone(),
-                name: entity.name.clone(),
-                why: error.to_string(),
-            })?;
+            .map_err(|error| server_error(error.to_string()))?;
+        // An encrypted owned value cannot be carried, so the import clears it; the live copy
+        // carries the definitions that say which values are encrypted.
+        let cleared = match &fetched {
+            Some(bytes) => super::super::server_owned::encrypted(bytes, &entity.server_owned)
+                .map_err(|error| server_error(error.to_string()))?,
+            None => Vec::new(),
+        };
         let decision = push::decide(
             &working,
             server.as_deref(),
             baseline
-                .get(&entity.collection, &entity.name)
+                .get_for(&entity.collection, &entity.name, &working)
                 .map(|entry| (entry.local.as_str(), entry.server.as_str())),
         );
         Ok(EntityPlan {
+            server_owned: if server.is_some() {
+                super::super::server_owned::labels(&super::super::server_owned::carried(
+                    &entity.server_owned,
+                    &cleared,
+                ))
+            } else {
+                Vec::new()
+            },
+            cleared: super::super::server_owned::labels(&cleared),
             project: project.project.clone(),
             collection: entity.collection.clone(),
             name: entity.name.clone(),
@@ -208,6 +226,11 @@ pub(crate) fn plan_bundles(
                 }
             }
             entities.push(Entity {
+                server_owned: super::super::server_owned::parts(
+                    &solution.server_owned,
+                    &entity.info.collection,
+                    &entity.info.name,
+                ),
                 collection: entity.info.collection,
                 name: entity.info.name,
                 bytes,

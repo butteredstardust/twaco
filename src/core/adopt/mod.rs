@@ -357,8 +357,7 @@ pub(crate) fn compare_with(
                 },
             }),
             Some((repo_element, _)) => {
-                let mut compared =
-                    compare_entity(entity, element, repo_element, &solution.adopt.ignore_paths);
+                let mut compared = compare_owned_entity(solution, entity, element, repo_element);
                 compared.project = project;
                 compared.kind = kind;
                 compared.change = entity_change(
@@ -414,18 +413,19 @@ fn entity_change(
     base: Option<&Element>,
     source: Option<&Path>,
 ) -> Change {
-    if entity_same(entity, theirs, ours, &solution.adopt.ignore_paths) {
+    let same = |left: &Element, right: &Element| {
+        compare_owned_entity(solution, entity, left, right)
+            .differences
+            .is_empty()
+    };
+    if same(theirs, ours) {
         Change::Same
     } else if let Some(base) = base {
-        classify::three_way(
-            entity_same(entity, theirs, base, &solution.adopt.ignore_paths),
-            entity_same(entity, ours, base, &solution.adopt.ignore_paths),
-        )
+        classify::three_way(same(theirs, base), same(ours, base))
     } else if source.is_some_and(|source| {
-        history_versions(solution, source, 50).iter().any(|bytes| {
-            entity_from_bytes(bytes, entity)
-                .is_some_and(|old| entity_same(entity, theirs, &old, &solution.adopt.ignore_paths))
-        })
+        history_versions(solution, source, 50)
+            .iter()
+            .any(|bytes| entity_from_bytes(bytes, entity).is_some_and(|old| same(theirs, &old)))
     }) {
         Change::Stale
     } else {
@@ -433,10 +433,22 @@ fn entity_change(
     }
 }
 
-fn entity_same(entity: &EntityRef, left: &Element, right: &Element, ignore: &[String]) -> bool {
-    compare_entity(entity, left, right, ignore)
-        .differences
-        .is_empty()
+fn compare_owned_entity(
+    solution: &Solution,
+    entity: &EntityRef,
+    left: &Element,
+    right: &Element,
+) -> EntityReport {
+    let parts =
+        super::server_owned::parts(&solution.server_owned, &entity.collection, &entity.name);
+    if parts.is_empty() {
+        return compare_entity(entity, left, right, &solution.adopt.ignore_paths);
+    }
+    let mut left = normalise::comparison_element(left.clone(), true);
+    let mut right = normalise::comparison_element(right.clone(), true);
+    super::server_owned::omit(&mut left, &parts);
+    super::server_owned::omit(&mut right, &parts);
+    compare_entity(entity, &left, &right, &solution.adopt.ignore_paths)
 }
 
 fn entity_from_bytes(bytes: &[u8], wanted: &EntityRef) -> Option<Element> {
@@ -1306,6 +1318,16 @@ fn plan_backend(
         return Ok(());
     }
     let raw = raw_entity(export, entity)?;
+    let parts =
+        super::server_owned::parts(&solution.server_owned, &entity.collection, &entity.name);
+    // Restore ours before layout's node-by-node comparison, so unchanged owned subtrees retain
+    // their exact repository bytes even when another part of this entity is adopted.
+    let raw = if let Some((_, path)) = here.get(entity) {
+        let ours = std::fs::read(path).map_err(|e| io_error(path, e))?;
+        super::server_owned::preserve(&raw, &ours, &parts).map_err(|e| io_error(export, e))?
+    } else {
+        raw
+    };
     let sample = here
         .get(entity)
         .map(|(_, path)| (entity, path))
@@ -1431,8 +1453,8 @@ fn plan_backend(
         .services
         .iter()
         .any(|service| service.entity == *entity_name)
-        && normalise::hash(&ours_raw).is_ok_and(|ours| {
-            normalise::hash(&entity_document(&entity.collection, &their_raw))
+        && normalise::hash_with_parts(&ours_raw, &parts).is_ok_and(|ours| {
+            normalise::hash_with_parts(&entity_document(&entity.collection, &their_raw), &parts)
                 .is_ok_and(|theirs| ours == theirs)
         })
     {
@@ -1494,8 +1516,15 @@ fn plan_backend(
         .base_side
         .as_ref()
         .and_then(|side| side.entities.get(entity));
-    let theirs_frame_is_base = base.is_some_and(|base| same_frame(_element, base));
-    let ours_frame_is_base = base.is_some_and(|base| same_frame(ours_element, base));
+    let frame = |a: &Element, b: &Element| {
+        let mut a = a.clone();
+        let mut b = b.clone();
+        super::server_owned::omit(&mut a, &parts);
+        super::server_owned::omit(&mut b, &parts);
+        same_frame(&a, &b)
+    };
+    let theirs_frame_is_base = base.is_some_and(|base| frame(_element, base));
+    let ours_frame_is_base = base.is_some_and(|base| frame(ours_element, base));
     let frame_theirs = their_entity_take || (!theirs_frame_is_base && ours_frame_is_base);
     let frame_conflict = !theirs_frame_is_base && !ours_frame_is_base;
     let mut chosen = BTreeMap::new();

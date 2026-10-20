@@ -420,6 +420,15 @@
           "items": {
             "type": "object",
             "properties": {
+              "server_owned": {
+                "type": [
+                  "array",
+                  "null"
+                ],
+                "items": {
+                  "type": "string"
+                }
+              },
               "entity": {
                 "type": "string"
               },
@@ -446,6 +455,15 @@
           "items": {
             "type": "object",
             "properties": {
+              "server_owned": {
+                "type": [
+                  "array",
+                  "null"
+                ],
+                "items": {
+                  "type": "string"
+                }
+              },
               "entity": {
                 "type": "string"
               },
@@ -798,10 +816,17 @@
     },
     "outputSchema": {
       "required": [
+        "server_owned",
         "entity",
         "dry_run"
       ],
       "properties": {
+        "server_owned": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
         "entity": {
           "type": "string"
         },
@@ -2305,6 +2330,40 @@
         "ok"
       ],
       "properties": {
+        "server_owned": {
+          "description": "Each existing entity whose import preserves server-owned parts, with its part labels.",
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": {
+            "type": "object",
+            "properties": {
+              "entity": {
+                "type": "string"
+              },
+              "parts": {
+                "description": "Owned parts the import carries from the server.",
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "clears": {
+                "description": "Owned parts holding an encrypted value, which the import clears; a deploy hook sets them.",
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              }
+            },
+            "required": [
+              "entity",
+              "parts",
+              "clears"
+            ]
+          }
+        },
         "ok": {
           "type": "boolean"
         },

@@ -61,6 +61,7 @@ item's signature needs it). An item that only unit tests use is `#[cfg(test)]`.
 | `workspace` | Finds a solution's entity files, reports unreadable ones and links, and reads and writes sidecars atomically; `atomic_replace` is the one way any file that may exist is replaced. |
 | `sidecar`, `datashape`, `datatable`, `mashup` | Extract and sync each sidecar kind. |
 | `normalise` | The comparison form of an entity: what ThingWorx changes on its own is removed, so the repository and server versions compare by content. |
+| `server_owned` | Validated ownership selectors shared by hashes, status, push, deploy and adopt; omits selected comparison nodes and transfers only scanner spans, keeping server values in memory. |
 | `config`, `profile` | `twaco.toml` and server profiles. |
 | `codes` | Stable error categories shared by front-end adapters. |
 | `server` | The HTTP client (ureq): REST entity reads, services, Importer, Exporter, file repositories, extension uploads. Credentials are redacted from every `Debug` and error. |

@@ -70,6 +70,7 @@ pub(crate) fn status_tool(
                 entry["server"] = json!(s.server);
                 entry["baseline_local"] = json!(s.local_baseline);
                 entry["baseline_server"] = json!(s.server_baseline);
+                entry["server_owned"] = json!(s.server_owned);
             }
             entry
         })
@@ -105,6 +106,7 @@ pub(crate) fn refusal_code(refusal: &push::Refusal) -> &'static str {
         push::Refusal::Conflict { .. } => "server-changed",
         push::Refusal::UnknownAncestor { .. } => "no-baseline",
         push::Refusal::DeletedOnServer => "deleted-on-server",
+        push::Refusal::EncryptedServerOwned { .. } => "encrypted-server-owned",
     }
 }
 
@@ -163,7 +165,20 @@ pub(crate) fn push_outcome_json(
     force: bool,
     outcome: commands::push::PushOutcome,
 ) -> Value {
-    match outcome {
+    let owned = match &outcome {
+        commands::push::PushOutcome::Plan {
+            server_owned,
+            decision,
+            ..
+        } if !matches!(decision, push::Decision::Create) => server_owned.clone(),
+        commands::push::PushOutcome::Applied {
+            server_owned,
+            result,
+            ..
+        } if !matches!(result, push::Outcome::Pushed { created: true }) => server_owned.clone(),
+        _ => Vec::new(),
+    };
+    let mut value = match outcome {
         commands::push::PushOutcome::Plan { decision, .. } => {
             let (would, refusal) = match &decision {
                 push::Decision::AlreadyThere => {
@@ -210,7 +225,9 @@ pub(crate) fn push_outcome_json(
             result: push::Outcome::WouldDo(_),
             ..
         } => unreachable!("an applied outcome cannot be a plan"),
-    }
+    };
+    value["server_owned"] = json!(owned);
+    value
 }
 
 pub(crate) fn entity_delete_tool(

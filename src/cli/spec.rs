@@ -1004,7 +1004,8 @@ pub(crate) const USAGE: &[Usage] = &[
     Usage {
         path: "entity push",
         group: 2,
-        text: r#"  entity push <entity>        import one entity, refusing if the server changed
+        text: r#"  entity push <entity> [--json]
+                              import one entity, refusing if the server changed
       --apply                 actually push (without it, report what would happen)
       --force                 push over a server-side change; the server's copy is saved first
       --no-backup             with --force, do not save the server's copy first"#,
@@ -1127,7 +1128,8 @@ pub(crate) const USAGE: &[Usage] = &[
     Usage {
         path: "deploy",
         group: 2,
-        text: r#"  deploy [--apply] [--force]  check, bundle, live-parse, conflict-check, import
+        text: r#"  deploy [--apply] [--force] [--json]
+                              check, bundle, live-parse, conflict-check, import
       --backend-only          exclude configured UI collections
       --only <entity>         include only this entity (repeatable)
       --only-projects <a,b>   include only these projects

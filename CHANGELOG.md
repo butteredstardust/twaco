@@ -8,6 +8,14 @@ All notable changes to twaco are recorded here. The format follows
 
 ### Added
 
+- `[[server_owned]]` declares members, permissions, configuration tables or cells, and property
+  values that belong to each server. Status and guards omit them; push and deploy preserve the
+  current Exporter values in memory, and adopt keeps the repository's copy. Changed ownership
+  rules invalidate the affected baselines. Status detail and plans expose the parts over CLI
+  and MCP; push and deploy accept `--json`, and doctor reports rules that match no entity.
+  An encrypted owned value is compared out but never carried, since an import cannot carry it;
+  `entity push` refuses such an entity without `--force`.
+
 - `contract diff --against <git rev>` compares public contracts offline, classifies breaking
   and compatible changes, recognizes ledger renames and lists current repository callers.
   Exit 1 flags breaking changes for CI; MCP exposes the read-only `contract_diff` tool.

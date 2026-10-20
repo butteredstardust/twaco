@@ -85,6 +85,7 @@ pub fn diagnose(root: &Path, profile_name: &str) -> Vec<Item> {
     }
 
     let found = workspace::discover(&solution);
+    items.extend(server_owned_advice(&solution, &found.entities));
     let misfiled = found.entities.iter().filter(|e| e.is_misfiled()).count();
     let health = if !found.unreadable.is_empty() || misfiled > 0 {
         Health::Warn
@@ -143,12 +144,15 @@ pub fn diagnose(root: &Path, profile_name: &str) -> Vec<Item> {
 
     items.push(match Baseline::load(&solution.root) {
         Ok(baseline) => {
-            let recorded = found
-                .entities
-                .iter()
-                .filter(|e| baseline.get(&e.info.collection, &e.info.name).is_some())
-                .count();
-            let outdated = baseline.outdated();
+            let mut recorded = 0;
+            let mut outdated = baseline.outdated();
+            for entity in &found.entities {
+                let (collection, name) = (&entity.info.collection, &entity.info.name);
+                let parts = super::server_owned::parts(&solution.server_owned, collection, name);
+                let hash = format!("{}:", super::normalise::hash_scope(&parts));
+                if baseline.get_for(collection, name, &hash).is_some() { recorded += 1; }
+                else if baseline.get(collection, name).is_some() { outdated += 1; }
+            }
             if outdated == 0 {
                 item(
                     Health::Ok,
@@ -160,8 +164,8 @@ pub fn diagnose(root: &Path, profile_name: &str) -> Vec<Item> {
                     Health::Warn,
                     "baseline",
                     format!(
-                        "{recorded} of {} entities recorded; {outdated} older entries count as \
-                         unrecorded (an earlier twaco hashed them): `twaco entity status --all \
+                        "{recorded} of {} entities recorded; {outdated} incompatible entries count as \
+                         unrecorded (hash version or server-owned rules changed): `twaco entity status --all \
                          --record` records again those that match the server",
                         found.entities.len()
                     ),
@@ -214,6 +218,12 @@ pub fn diagnose(root: &Path, profile_name: &str) -> Vec<Item> {
     items
 }
 
+fn server_owned_advice(solution: &Solution, entities: &[workspace::EntityFile]) -> Vec<Item> {
+    solution.server_owned.iter().enumerate().filter(|(_, rule)| {
+        !entities.iter().any(|e| rule.matches(&e.info.collection, &e.info.name))
+    }).map(|(i, rule)| item(Health::Warn, "server-owned parts", format!("server_owned rule {} matches no entity: {}; check its Collection/Name patterns", i + 1, rule.entities.join(", ")))).collect()
+}
+
 /// Profiles, backups or journal backups that git tracks. A committed profile is a leaked
 /// credential: untracking it is not enough, because history keeps it.
 fn committed_secrets(root: &Path) -> Item {
@@ -260,6 +270,22 @@ fn committed_secrets(root: &Path) -> Item {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn server_owned_rules_matching_no_entity_are_advisory() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("twaco.toml"), "[[project]]\nname='Acme.Project'\n[[server_owned]]\nentities=['Groups/Acme.Missing*']\nparts=['members']\n").unwrap();
+        let items = super::diagnose(dir.path(), "missing");
+        let advice = items
+            .iter()
+            .find(|i| i.subject == "server-owned parts")
+            .unwrap();
+        assert_eq!(advice.health, super::Health::Warn);
+        assert!(
+            advice.detail.contains("matches no entity")
+                && advice.detail.contains("Groups/Acme.Missing*")
+        );
+        assert!(items.iter().all(|i| i.health != super::Health::Fail));
+    }
     use super::*;
 
     fn git(root: &Path, args: &[&str]) {

@@ -150,8 +150,13 @@ where
     let profile =
         profile::load(&solution.root, &request.profile).map_err(StatusCommandError::Profile)?;
     let mut baseline = Baseline::load(&solution.root).map_err(StatusCommandError::Baseline)?;
-    let (mut statuses, failures) =
-        status::compute_with_progress(&open(profile), &baseline, &chosen, progress);
+    let (mut statuses, failures) = status::compute_with_progress(
+        &open(profile),
+        &baseline,
+        &chosen,
+        &solution.server_owned,
+        progress,
+    );
     if request.record && !failures.is_empty() {
         if request.refuse_record_failures {
             return Err(StatusCommandError::RecordFailures(failures));

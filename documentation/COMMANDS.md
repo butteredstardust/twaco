@@ -356,7 +356,8 @@ entity status [<entity>|--all] [--detail] [--record]
 entity get <entity>         fetch raw server XML to stdout or --out <path>
                             Collection/Name: any server entity; a bare name: the repository's
     [--profile <name>]      server profile (default: default)
-entity push <entity>        import one entity, refusing if the server changed
+entity push <entity> [--json]
+                            import one entity, refusing if the server changed
     --apply                 actually push (without it, report what would happen)
     --force                 push over a server-side change; the server's copy is saved first
     --no-backup             with --force, do not save the server's copy first
@@ -427,7 +428,8 @@ datatable copy <old> <new> [--map a=b,c=d] [--drop-unmapped] [--append] [--max-r
 bundle [--backend-only] [--handoff <name>] [--apply]  write one importable document
                             (always written: --apply is accepted and changes nothing)
     --check                 report whether the bundle is current, write nothing
-deploy [--apply] [--force]  check, bundle, live-parse, conflict-check, import
+deploy [--apply] [--force] [--json]
+                            check, bundle, live-parse, conflict-check, import
     --backend-only          exclude configured UI collections
     --only <entity>         include only this entity (repeatable)
     --only-projects <a,b>   include only these projects

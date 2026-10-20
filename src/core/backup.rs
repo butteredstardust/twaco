@@ -424,7 +424,12 @@ pub(crate) fn before_forced_push<R: push::Remote + Remote>(
     target: &push::Target,
     stamp: &str,
 ) -> Result<Option<String>, BackupError> {
-    let outcome = push::push(client, &solution.root, target, false, true)
+    let parts = super::server_owned::parts(
+        &solution.server_owned,
+        target.key.collection(),
+        target.key.name(),
+    );
+    let outcome = push::push_with_parts(client, &solution.root, target, false, true, &parts)
         .map_err(|error| BackupError::Plan(error.to_string()))?;
     let push::Outcome::WouldDo(decision) = outcome else {
         return Ok(None);

@@ -152,6 +152,7 @@ pub(crate) struct StatusResult {
 
 #[derive(Serialize, JsonSchema)]
 struct StatusEntry {
+    server_owned: Option<Vec<String>>,
     entity: String,
     verdict: String,
     working: Option<Value>,
@@ -226,6 +227,7 @@ pub(crate) struct TypesResult {
 /// A plan and an applied push answer with different members; `entity` and `dry_run` are shared.
 #[derive(Serialize, JsonSchema)]
 pub(crate) struct PushResult {
+    server_owned: Vec<String>,
     entity: String,
     dry_run: bool,
     force: Option<bool>,
@@ -243,6 +245,8 @@ pub(crate) struct PushResult {
 /// differently; `ok` and the stage it reached tell them apart.
 #[derive(Serialize, JsonSchema)]
 pub(crate) struct DeployResult {
+    /// Each existing entity whose import preserves server-owned parts, with its part labels.
+    server_owned: Option<Vec<ServerOwnedEntity>>,
     ok: bool,
     /// Absent when the deploy completed; otherwise where it stopped.
     stage: Option<String>,
@@ -267,6 +271,15 @@ pub(crate) struct DeployResult {
     refused: Option<Vec<Value>>,
     not_kept: Option<Vec<Value>>,
     notices: Notices,
+}
+
+#[derive(Serialize, JsonSchema)]
+struct ServerOwnedEntity {
+    entity: String,
+    /// Owned parts the import carries from the server.
+    parts: Vec<String>,
+    /// Owned parts holding an encrypted value, which the import clears; a deploy hook sets them.
+    clears: Vec<String>,
 }
 
 // ---- entities and permissions ---------------------------------------------------------------

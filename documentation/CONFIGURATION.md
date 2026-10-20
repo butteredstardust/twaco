@@ -185,6 +185,68 @@ text, as it is: a value holding `"` or `\` inside a JSON string must be written 
 profile. Only a string, number, boolean or date can sit inside a longer string; an array or a
 table there, like an unknown key, stops the deploy before anything is imported.
 
+### `[[server_owned]]`
+
+Declare per-server state once, so comparisons omit it and imports preserve it:
+
+```toml
+[[server_owned]]
+entities = ["Groups/Acme.Admin_UG", "Groups/Acme.*_UG"]
+parts = ["members", "run-time-permissions"]
+
+[[server_owned]]
+entities = ["Things/Acme.Database"]
+parts = ["configuration-table:ConnectionInfo.password"]
+
+[[server_owned]]
+entities = ["Things/Acme.Manager"]
+parts = ["configuration-table:DatabaseConnectionConfiguration"]
+
+[[server_owned]]
+entities = ["Things/Acme.Sample*"]
+parts = ["property-values:speed,temperature"]
+```
+
+Both lists are required and nonempty. Entity patterns use a known collection and a name;
+`*` matches within the name, and other glob syntax is refused. Matching rules are combined.
+Unknown kinds, malformed selectors and unknown keys stop configuration loading.
+
+| Part | Owned content |
+| --- | --- |
+| `members` | A Group's direct `Members`, or the `Members` of an Organization's units. |
+| `run-time-permissions` | The entity's direct `RunTimePermissions`. |
+| `visibility-permissions` | The entity's direct `VisibilityPermissions`. |
+| `property-values` | All direct `ThingProperties`. |
+| `property-values:a,b` | Just the named property entries in that block. |
+| `configuration-table:Table` | The named direct `ConfigurationTables` table, including its definition and rows. |
+| `configuration-table:Table.column` | That column's cells in every row; its definition remains compared. |
+
+Table, column and property selectors are exact, case-sensitive names, without whitespace or
+selector separators (`:`, `,`, `.`, `/`, `*`, `\`). Unkeyed repeated rows correspond by position;
+rows with a known unowned key use that key, as adopt does. Keep row and Organization unit
+identities in source when owning only their cells or members. A transfer that would change
+unowned structure is refused before import, including with `--force`; own the whole table if
+the server also owns its row structure.
+
+Status (including `--record`), guards and read-back compare both sides without these parts.
+Applicable parts are fingerprinted in the hash: a policy change makes that entity's old
+baseline absent; entities without rules keep their existing hashes. `entity status --detail`
+names the parts; `doctor` warns when an entire rule matches no solution entity.
+
+For an existing server entity, push and deploy fetch its Exporter form and splice each owned
+part into the outgoing copy: replace, insert, or drop it according to the server. Server values
+stay in memory, except when an existing backup option saves them. Deploy prepares all owned
+copies before importing its project bundles. Plans and MCP results list these entities and
+parts (`--json` on CLI push and deploy). Repository files are unchanged. A fresh server receives the repository's initial values.
+Adopt neither reports nor takes owned content from a designer's export.
+
+An encrypted value cannot be carried: the Importer encrypts the Exporter's ciphertext again and
+the Thing is left with a wrong password. So an owned `PASSWORD` column, a whole owned table with
+one, or an owned `PASSWORD` property the entity defines is still left out of comparisons, but an
+import sends the repository's value and clears the server's. `entity push` refuses such an
+entity unless `--force`; set the value again after the import, as a deploy hook that supplies
+the credentials does.
+
 ### `[bundle]`
 
 `twaco bundle` and `twaco deploy` build one importable document from the repository.

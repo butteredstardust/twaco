@@ -66,6 +66,7 @@ pub mod scan;
 pub mod script;
 pub mod search;
 pub mod server;
+pub(crate) mod server_owned;
 pub mod settings;
 pub mod sidecar;
 pub mod splice;
