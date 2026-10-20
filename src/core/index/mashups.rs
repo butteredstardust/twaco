@@ -9,7 +9,7 @@ use serde_json::Value;
 use std::collections::BTreeMap;
 
 /// A mashup's collection names as the exporter writes them in an `EntityType`, singular or not.
-fn collection_of(entity_type: &str) -> String {
+pub(crate) fn collection_of(entity_type: &str) -> String {
     match entity_type {
         "Thing" => "Things",
         "ThingTemplate" => "ThingTemplates",
@@ -25,7 +25,7 @@ fn collection_of(entity_type: &str) -> String {
 /// the services it calls. An export's Data section lists them as `Services: [{ "Name": alias,
 /// "Target": service }]`; a single `Service` is read too. A section that names no service binds the
 /// entity as a whole.
-fn bindings(value: &Value, out: &mut Vec<(String, String, Option<String>)>) {
+pub(crate) fn bindings(value: &Value, out: &mut Vec<(String, String, Option<String>)>) {
     match value {
         Value::Object(object) => {
             if let Some(name) = object.get("EntityName").and_then(Value::as_str) {

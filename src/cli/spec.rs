@@ -1040,6 +1040,21 @@ pub(crate) const USAGE: &[Usage] = &[
                               matrix edited in the helper's mashup)"#,
     },
     Usage {
+        path: "requirements init",
+        group: 2,
+        text: r#"  requirements init [--apply] [--json]
+                              draft requirements.toml from external repository dependencies;
+                              prints a plan unless --apply; refuses an existing file"#,
+    },
+    Usage {
+        path: "requirements check",
+        group: 2,
+        text: r#"  requirements check [--server] [--profile <name>] [--detail] [--json]
+                              check requirements.toml against the repository; stale entries are notes
+      --server                also verify platform, extensions and entities on the server, read-only
+      --detail                every finding with its referrers"#,
+    },
+    Usage {
         path: "permissions audit",
         group: 2,
         text: r#"  permissions audit [--project <name>] [--server] [--detail] [--json]

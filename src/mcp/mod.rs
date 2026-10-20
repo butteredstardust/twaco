@@ -40,6 +40,7 @@ mod outputs;
 mod progress;
 mod refactor;
 mod registry;
+mod requirements;
 pub use registry::Selection;
 mod requests;
 mod schema;

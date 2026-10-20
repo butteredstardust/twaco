@@ -88,6 +88,7 @@ item's signature needs it). An item that only unit tests use is `#[cfg(test)]`.
 | `db` | `db run`, `db query`, `db clean`: SQL through a throwaway Database Thing |
 | `logs`, `settings` | `logs`, `logs level`, `settings` |
 | `repo`, `extensions`, `export`, `imports` | `repo`, `ext`, `export`, `import` |
+| `requirements` | `requirements init`, `requirements check`: external entity and Project dependency collection, the reviewed requirements.toml contract, offline gate and read-only server verification |
 | `package` | `package`: bundles, source-control zips, extension packages |
 | `commands` | One module per state-changing command that holds its policy (lock, profile, plan versus apply, backup) as a request, a typed outcome and an executor; the CLI and MCP adapters only parse and project. See [COMMAND_FACADE.md](COMMAND_FACADE.md). |
 | `mcp/requests`, `mcp/registry.rs`, `mcp/outputs.rs` | MCP boundary request objects, the one table that defines every tool, and the shape of each tool's result, published as its `outputSchema`. See [MCP schemas](MCP_SCHEMAS.md). |

@@ -11,7 +11,7 @@
 use crate::core::codes::{Coded, ErrorCode};
 use serde::Deserialize;
 use serde_json::{Map, Value};
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::sync::LazyLock;
 
 const CATALOG: &str = include_str!("widgets/catalog.json");
@@ -30,6 +30,8 @@ pub struct Catalog {
     pub(crate) base_properties: BTreeMap<String, PropertyContract>,
     /// What Composer writes on a dropped widget after its defaults.
     pub(crate) dropped: Dropped,
+    /// Every widget type the platform ships, including those without a contract here.
+    pub(crate) platform_types: BTreeSet<String>,
     pub(crate) widgets: Vec<Widget>,
 }
 

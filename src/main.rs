@@ -202,6 +202,9 @@ fn dispatch(command: Command) -> u8 {
         }
         Command::Repo(repo) => run(|solution| repo_cmd(solution, &repo)),
         Command::Ext(ext) => run(|solution| ext_cmd(solution, &ext)),
+        Command::Requirements(command) => {
+            run(|solution| cli::requirements::requirements_cmd(solution, &command))
+        }
         Command::Search(search) => run(|solution| search_cmd(solution, &search)),
         Command::Export(export) => run(|solution| export_cmd(solution, &export)),
         Command::Import(import) => run(|solution| import_cmd(solution, &import)),

@@ -3,9 +3,11 @@ use super::requests::common::{parse, schema, NoArguments};
 use super::requests::{
     content as content_requests, data as data_requests, entity as entity_requests,
     info as info_requests, network as network_requests, refactor as refactor_requests,
-    source as source_requests,
+    requirements as requirements_requests, source as source_requests,
 };
-use super::{content, data, entity, info, network, refactor, source, Protocol, ToolError};
+use super::{
+    content, data, entity, info, network, refactor, requirements, source, Protocol, ToolError,
+};
 use crate::core::config::Solution;
 use crate::core::progress::Progress;
 use schemars::JsonSchema;
@@ -69,6 +71,7 @@ const OPEN_WORLD: &[&str] = &[
     "entity_carry",
     "permissions",
     "permissions_audit",
+    "requirements_check",
     "permissions_push",
     "db_run",
     "db_query",
@@ -115,6 +118,7 @@ const ADDITIVE: &[&str] = &[
     "entity_new",
     "mashup_new",
     "permissions_init",
+    "requirements_init",
 ];
 
 /// Writing tools that, called again with the same arguments, change nothing more.
@@ -338,6 +342,18 @@ static TOOLS: LazyLock<Vec<Tool>> = LazyLock::new(|| {
             entity::permissions_tool,
         )
         .with_output::<outputs::PermissionsResult>(),
+        solution_tool::<requirements_requests::InitRequest>(
+            "requirements_init",
+            "Draft requirements.toml offline from the solution's external entities, Project dependsOn extensions and projects, and platform version. Returns the draft; dry_run defaults to true. Apply creates a new file under the workspace lock and refuses an existing requirements.toml; use requirements_check to see what changed.",
+            false,
+            requirements::init_tool,
+        ).with_output::<outputs::RequirementsInitResult>(),
+        solution_progress_tool::<requirements_requests::CheckRequest>(
+            "requirements_check",
+            "Check requirements.toml against the repository. Undeclared dependencies and lower declared versions block; stale entries are notes. With server true, also verify the platform version, installed extensions, projects and external entities with read-only server requests. Server failures block. Summary first; detail includes every finding and referrer.",
+            true,
+            requirements::check_tool,
+        ).with_output::<outputs::RequirementsCheckResult>(),
         solution_tool::<entity_requests::PermissionsInitRequest>(
             "permissions_init",
             "Draft a permissions.toml for each project without one, from what the project grants today, so that permissions_apply then changes nothing but what each draft's notes name: each rule names its roles outright; roles come from the permission helper's RoleGroupsAndOrganizations when the project has one, else from the groups its run-time blocks grant. from_helper takes the grants from the helper's tables instead of the entity XML (a matrix edited in the helper's mashup). An entity with a deny or a non-group principal in its run-time block, or a visibility deny of a role's unit, is left unmanaged, with a note. A dry run (the drafts' text) unless dry_run is false; existing files are never overwritten.",
@@ -878,6 +894,8 @@ pub(crate) const GROUPS: &[(&str, &[&str])] = &[
         "permissions",
         &[
             "permissions",
+            "requirements_init",
+            "requirements_check",
             "permissions_init",
             "permissions_audit",
             "permissions_apply",

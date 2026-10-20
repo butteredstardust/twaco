@@ -14,6 +14,41 @@ use std::collections::BTreeMap;
 /// What every state-changing tool may add: what taking the workspace lock did.
 type Notices = Option<Vec<String>>;
 
+#[derive(Serialize, JsonSchema)]
+pub(crate) struct RequirementsInitResult {
+    summary: String,
+    dry_run: bool,
+    written: bool,
+    file: String,
+    draft: String,
+    requirements: RequirementsCheckResult,
+    notices: Notices,
+}
+
+#[derive(Serialize, JsonSchema)]
+pub(crate) struct RequirementsCheckResult {
+    summary: String,
+    ok: bool,
+    entities: usize,
+    collections: BTreeMap<String, usize>,
+    extensions: usize,
+    projects: usize,
+    platform: Option<String>,
+    server_checked: bool,
+    total_findings: usize,
+    findings: Vec<RequirementsFinding>,
+}
+
+#[derive(Serialize, JsonSchema)]
+struct RequirementsFinding {
+    rule: String,
+    requirement: String,
+    blocking: bool,
+    message: String,
+    installed: Option<String>,
+    referrers: Option<Vec<String>>,
+}
+
 /// `network` list or show.  The action determines whether `networks` or the hierarchy members
 /// are populated.
 #[derive(Serialize, JsonSchema)]
@@ -84,6 +119,7 @@ struct GateEntry {
     examined: u64,
     findings: u64,
     broken: Option<String>,
+    skipped: Option<String>,
     advisory: Option<bool>,
 }
 

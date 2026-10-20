@@ -5,6 +5,74 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 
 #[test]
+fn requirements_init_and_check_are_offline_and_missing_declarations_exit_one() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path();
+    std::fs::write(root.join("twaco.toml"), "[[project]]\nname='Acme.App'\n").unwrap();
+    std::fs::create_dir_all(root.join("Things")).unwrap();
+    std::fs::write(root.join("Things/Acme.Ref.xml"), r#"<Entities majorVersion="10" minorVersion="1"><Things><Thing name="Acme.Ref" projectName="Acme.App" thingTemplate="GenericThing"/></Things></Entities>"#).unwrap();
+    let run = |args: &[&str]| {
+        Command::new(env!("CARGO_BIN_EXE_twaco"))
+            .args(args)
+            .current_dir(root)
+            .env_clear()
+            .output()
+            .unwrap()
+    };
+    let missing = run(&["requirements", "check"]);
+    assert!(!missing.status.success());
+    assert!(String::from_utf8_lossy(&missing.stderr).contains("requirements init"));
+    let gates = run(&["check"]);
+    assert!(String::from_utf8_lossy(&gates.stdout).contains("skip    requirements"));
+    assert!(String::from_utf8_lossy(&gates.stdout).contains("requirements.toml is absent"));
+    let plan = run(&["requirements", "init"]);
+    assert!(
+        plan.status.success(),
+        "{}",
+        String::from_utf8_lossy(&plan.stderr)
+    );
+    assert!(String::from_utf8_lossy(&plan.stdout).contains("--apply writes requirements.toml"));
+    assert!(!root.join("requirements.toml").exists());
+    let init = run(&["requirements", "init", "--apply", "--json"]);
+    assert!(
+        init.status.success(),
+        "{}",
+        String::from_utf8_lossy(&init.stderr)
+    );
+    let value: serde_json::Value = serde_json::from_slice(&init.stdout).unwrap();
+    assert_eq!(value["written"], true);
+    let check = run(&["requirements", "check", "--json"]);
+    assert!(
+        check.status.success(),
+        "{}",
+        String::from_utf8_lossy(&check.stderr)
+    );
+    let value: serde_json::Value = serde_json::from_slice(&check.stdout).unwrap();
+    assert_eq!(value["ok"], true);
+    let path = root.join("requirements.toml");
+    let bytes = std::fs::read_to_string(&path).unwrap();
+    std::fs::write(
+        &path,
+        bytes
+            .lines()
+            .filter(|line| !line.contains("\"GenericThing\""))
+            .collect::<Vec<_>>()
+            .join("\n"),
+    )
+    .unwrap();
+    let check = run(&["requirements", "check", "--detail", "--json"]);
+    assert_eq!(check.status.code(), Some(1));
+    let value: serde_json::Value = serde_json::from_slice(&check.stdout).unwrap();
+    assert_eq!(
+        value["findings"][0]["requirement"],
+        "ThingTemplates/GenericThing"
+    );
+    assert_eq!(value["findings"][0]["referrers"][0], "Things/Acme.Ref");
+    assert!(!run(&["requirements", "init", "--apply"]).status.success());
+    assert!(!root.join(".twaco/profiles/default.toml").exists());
+}
+
+#[test]
 fn offline_projects_needs_no_profile_or_environment() {
     let root_guard = tempfile::Builder::new()
         .prefix("twaco-offline-")

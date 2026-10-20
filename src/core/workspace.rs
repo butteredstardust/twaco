@@ -29,7 +29,7 @@ pub(crate) fn line_ending(text: &str) -> &'static str {
 ///
 /// A fixed list rather than "every subdirectory": a repository also holds `exported/`, `dist/`
 /// and scratch trees full of entity documents that are not the project's source.
-const KNOWN_COLLECTIONS: &[&str] = &[
+pub(crate) const KNOWN_COLLECTIONS: &[&str] = &[
     "ApplicationKeys",
     "Dashboards",
     "DataShapes",

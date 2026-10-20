@@ -180,6 +180,9 @@ const catalog = {
   },
   base_properties: overlay.base_properties,
   dropped: { ptcs: overlay.dropped.ptcs, flexcontainer: overlay.dropped.flexcontainer },
+  // Every widget type the platform ships, with or without a contract above: a type outside this
+  // list comes from an extension.
+  platform_types: [...new Set([...Object.keys(meta), ...widgets.map((widget) => widget.type)])].sort(),
   widgets,
 };
 

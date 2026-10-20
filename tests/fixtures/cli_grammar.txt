@@ -1,7 +1,7 @@
 == twaco
 usage: twaco <command>
 settings: version disable-help-subcommand subcommand-required arg-required-else-help
-subcommands: adopt appkey bundle call catalog check completions config-table copy datatable db deploy docs doctor entity export ext extract fmt guide handoff help impact import init javadoc localization logs mashup mcp media menu move network new package permissions projects rename repo reproject retemplate scheduler search settings state style sync test thing timer trace types unused update users widgets
+subcommands: adopt appkey bundle call catalog check completions config-table copy datatable db deploy docs doctor entity export ext extract fmt guide handoff help impact import init javadoc localization logs mashup mcp media menu move network new package permissions projects rename repo reproject requirements retemplate scheduler search settings state style sync test thing timer trace types unused update users widgets
 arg --help
     action: Help
     value_name: -
@@ -379,6 +379,13 @@ help:
 |                               one; prints unless --apply
 |       --from-helper           take the grants from the helper's tables, not the entity XML (a
 |                               matrix edited in the helper's mashup)
+|   requirements init [--apply] [--json]
+|                               draft requirements.toml from external repository dependencies;
+|                               prints a plan unless --apply; refuses an existing file
+|   requirements check [--server] [--profile <name>] [--detail] [--json]
+|                               check requirements.toml against the repository; stale entries are notes
+|       --server                also verify platform, extensions and entities on the server, read-only
+|       --detail                every finding with its referrers
 |   permissions audit [--project <name>] [--server] [--detail] [--json]
 |                               each project's permissions.toml against its entity XML, offline: blocks
 |                               the policy would change, services a strict entity leaves unclassified,
@@ -12286,6 +12293,197 @@ help:
 |                               under that project's root; the plan names each reference the move puts
 |                               outside the deploy order, with the depends_on that allows it
 |       --to <project>          the project they move to
+| 
+|   --log <filter>              write diagnostic logs to stderr (or TWACO_LOG)
+|   --log-file <path>           append diagnostic logs to a file (or TWACO_LOG_FILE)
+
+== twaco requirements
+usage: twaco requirements <command>
+settings: disable-version-flag disable-help-subcommand subcommand-required arg-required-else-help
+subcommands: check init
+arg --help
+    action: Help
+    value_name: -
+    num_args: 0
+    allow_hyphen_values: no
+    allow_negative_numbers: no
+    required: no
+    default: -
+    index: -
+    other: -
+help:
+| usage: twaco requirements <command>
+| 
+|   requirements init [--apply] [--json]
+|                               draft requirements.toml from external repository dependencies;
+|                               prints a plan unless --apply; refuses an existing file
+|   requirements check [--server] [--profile <name>] [--detail] [--json]
+|                               check requirements.toml against the repository; stale entries are notes
+|       --server                also verify platform, extensions and entities on the server, read-only
+|       --detail                every finding with its referrers
+| 
+|   --project <name>            narrow to one project of the solution
+|   --profile <name>            the server profile (default: default)
+|   --log <filter>              write diagnostic logs to stderr (or TWACO_LOG)
+|   --log-file <path>           append diagnostic logs to a file (or TWACO_LOG_FILE)
+
+== twaco requirements check
+usage: twaco requirements check [--server] [--profile <name>] [--detail] [--json]
+settings: disable-version-flag disable-help-subcommand
+subcommands: 
+arg --detail
+    action: SetTrue
+    value_name: -
+    num_args: 0
+    allow_hyphen_values: no
+    allow_negative_numbers: no
+    required: no
+    default: "false"
+    index: -
+    other: -
+    given twice: accepted
+arg --help
+    action: Help
+    value_name: -
+    num_args: 0
+    allow_hyphen_values: no
+    allow_negative_numbers: no
+    required: no
+    default: -
+    index: -
+    other: -
+arg --json
+    action: SetTrue
+    value_name: -
+    num_args: 0
+    allow_hyphen_values: no
+    allow_negative_numbers: no
+    required: no
+    default: "false"
+    index: -
+    other: -
+    given twice: accepted
+arg --log
+    action: Set
+    value_name: filter
+    num_args: 1
+    allow_hyphen_values: yes
+    allow_negative_numbers: no
+    required: no
+    default: -
+    index: -
+    other: -
+    given twice: ArgumentConflict
+    given bare: InvalidValue
+arg --log-file
+    action: Set
+    value_name: path
+    num_args: 1
+    allow_hyphen_values: yes
+    allow_negative_numbers: no
+    required: no
+    default: -
+    index: -
+    other: -
+    given twice: ArgumentConflict
+    given bare: InvalidValue
+arg --profile
+    action: Set
+    value_name: name
+    num_args: 1
+    allow_hyphen_values: yes
+    allow_negative_numbers: no
+    required: no
+    default: -
+    index: -
+    other: -
+    given twice: ArgumentConflict
+    given bare: InvalidValue
+arg --server
+    action: SetTrue
+    value_name: -
+    num_args: 0
+    allow_hyphen_values: no
+    allow_negative_numbers: no
+    required: no
+    default: "false"
+    index: -
+    other: -
+    given twice: accepted
+help:
+|   requirements check [--server] [--profile <name>] [--detail] [--json]
+|                               check requirements.toml against the repository; stale entries are notes
+|       --server                also verify platform, extensions and entities on the server, read-only
+|       --detail                every finding with its referrers
+| 
+|   --profile <name>            the server profile (default: default)
+|   --log <filter>              write diagnostic logs to stderr (or TWACO_LOG)
+|   --log-file <path>           append diagnostic logs to a file (or TWACO_LOG_FILE)
+
+== twaco requirements init
+usage: twaco requirements init [--apply] [--json]
+settings: disable-version-flag disable-help-subcommand
+subcommands: 
+arg --apply
+    action: SetTrue
+    value_name: -
+    num_args: 0
+    allow_hyphen_values: no
+    allow_negative_numbers: no
+    required: no
+    default: "false"
+    index: -
+    other: -
+    given twice: accepted
+arg --help
+    action: Help
+    value_name: -
+    num_args: 0
+    allow_hyphen_values: no
+    allow_negative_numbers: no
+    required: no
+    default: -
+    index: -
+    other: -
+arg --json
+    action: SetTrue
+    value_name: -
+    num_args: 0
+    allow_hyphen_values: no
+    allow_negative_numbers: no
+    required: no
+    default: "false"
+    index: -
+    other: -
+    given twice: accepted
+arg --log
+    action: Set
+    value_name: filter
+    num_args: 1
+    allow_hyphen_values: yes
+    allow_negative_numbers: no
+    required: no
+    default: -
+    index: -
+    other: -
+    given twice: ArgumentConflict
+    given bare: InvalidValue
+arg --log-file
+    action: Set
+    value_name: path
+    num_args: 1
+    allow_hyphen_values: yes
+    allow_negative_numbers: no
+    required: no
+    default: -
+    index: -
+    other: -
+    given twice: ArgumentConflict
+    given bare: InvalidValue
+help:
+|   requirements init [--apply] [--json]
+|                               draft requirements.toml from external repository dependencies;
+|                               prints a plan unless --apply; refuses an existing file
 | 
 |   --log <filter>              write diagnostic logs to stderr (or TWACO_LOG)
 |   --log-file <path>           append diagnostic logs to a file (or TWACO_LOG_FILE)

@@ -1,14 +1,59 @@
 # Configuration
 
-twaco reads two kinds of configuration:
+twaco reads these configuration files:
 
 - **`twaco.toml`** describes the solution. It is committed. twaco looks for it in the working
   directory and then upwards, so any command works from any folder of the solution.
 - **Server profiles** say how to reach a ThingWorx server. They hold credentials and are
   never committed.
+- **`requirements.toml`** is an optional, committed contract for the dependencies the solution
+  needs from its server and does not ship itself.
 
 `twaco init` proposes a `twaco.toml` from the entities themselves; most solutions need little
 beyond what it writes.
+
+## `requirements.toml`
+
+An optional reviewed contract at the solution root, committed with the source. Draft it with
+`twaco requirements init`, then write it with `--apply`. Every section is optional. Unknown
+fields and unknown `[entities]` collection names are refused with the file and key to fix.
+
+```toml
+[platform]
+minimum = "10.1"
+
+[[extension]]
+name = "Acme.Base"
+minimum = "2.1.0"
+
+[[project]]
+name = "Acme.Shared"
+
+[entities]
+ThingTemplates = ["GenericThing", "Acme.ExternalTemplate"]
+ThingShapes = ["Acme.ExternalShape"]
+DataShapes = ["Acme.ExternalRows"]
+Things = ["Acme.ExternalEntryPoint"]
+Organizations = ["Acme.Shared_OR"]
+Groups = ["Acme.Operators"]
+Widgets = ["Acme.ExtensionWidget"]
+```
+
+Collection keys use ThingWorx collection names; only names the repository does not define
+belong here. The draft records a count of referring entities and the first sorted referrer per
+name. Extension minima come from Project `dependsOn` declarations, taking the highest version;
+external project names come from the same declarations. The platform minimum comes first from
+the highest non-empty Project `minPlatformVersion`, otherwise `[package] minimum_thingworx`,
+otherwise the highest export `Entities` major/minor version. Its comment records the source.
+Versions compare dotted numeric parts as integers, missing parts as zero, ignoring the first
+`-` and everything after it: `10.1.0-b47` equals `10.1`. Non-numeric parts are refused.
+
+`requirements check` checks the file offline. It blocks on undeclared dependencies or versions
+below the source declarations, and reports unused declarations as stale notes. Keep intentional
+runtime dependencies even when marked stale. `--server` additionally checks the platform,
+extension package versions, external projects and entities; unreadable server results block.
+The built-in `requirements` gate runs offline when the file exists; `[gates] advisory =
+["requirements"]` makes its findings advisory (a gate that cannot run still fails closed).
 
 ## `twaco.toml`
 
@@ -164,7 +209,7 @@ layout once.
 `advisory` names built-in gates whose findings are reported (as `warn`) without failing
 `check` or blocking `deploy`: `line endings`, `sidecars`, `formatting`, `script traps`,
 `code order`, `project`, `mashup bindings`, `mashup content`, `contained mashups`, `localization tokens`,
-`result shapes`, `networks`. The live parse is not among them: `deploy` always has the server
+`result shapes`, `networks`, `requirements`. The live parse is not among them: `deploy` always has the server
 parse every script, and stops on a script it refuses. It is for a solution adopting twaco over code written
 before those gates existed; take a gate off the list once its findings are fixed. A gate that
 cannot run still fails, and a name that is not a gate is refused.

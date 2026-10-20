@@ -143,6 +143,9 @@ pub(crate) fn check_tool(
             if let Some(why) = &gate.broken {
                 entry["broken"] = json!(why);
             }
+            if let Some(why) = &gate.skipped {
+                entry["skipped"] = json!(why);
+            }
             if !gate.gates_the_run {
                 entry["advisory"] = json!(true);
             }

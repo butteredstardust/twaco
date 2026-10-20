@@ -82,6 +82,8 @@ pub(crate) enum Command {
     Entity(super::entity::Entity),
     #[command(subcommand)]
     Permissions(super::entity::Permissions),
+    #[command(subcommand)]
+    Requirements(super::requirements::Requirements),
     Bundle(super::source::Bundle),
     Deploy(super::source::Deploy),
     ConfigTable(super::data::ConfigTable),
@@ -162,6 +164,10 @@ impl Command {
             Command::Reproject(_) => "reproject",
             Command::Entity(entity) => entity.path(),
             Command::Permissions(permissions) => permissions.path(),
+            Command::Requirements(requirements) => match requirements {
+                super::requirements::Requirements::Init(_) => "requirements init",
+                super::requirements::Requirements::Check(_) => "requirements check",
+            },
             Command::Bundle(_) => "bundle",
             Command::Deploy(_) => "deploy",
             Command::ConfigTable(_) => "config-table",
@@ -235,6 +241,7 @@ impl Command {
             | Command::Reproject(_)
             | Command::Entity(_)
             | Command::Permissions(_)
+            | Command::Requirements(_)
             | Command::Bundle(_)
             | Command::ConfigTable(_)
             | Command::Datatable(_)

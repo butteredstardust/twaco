@@ -81,6 +81,16 @@ Then commit. `deploy --apply` and `entity push --apply` record what they sent in
 
 ### The gates
 
+Record dependencies the solution does not ship with `twaco requirements init`: it prints a draft
+of `requirements.toml`; `--apply` creates the file and refuses to overwrite one. Review and commit
+the external entities, extensions, projects and platform minimum. `twaco requirements check`
+reports undeclared dependencies and versions below Project declarations as blocking findings;
+stale entries are notes. `--detail` includes every finding and its referrers, and `--json` returns
+structured counts and findings. References built at run time and script mentions are not inferred.
+`twaco requirements check --server --profile staging` also verifies the platform version,
+installed extension versions and entity existence using read-only requests; a failed read blocks.
+Both commands work through MCP as `requirements_init` (dry run by default) and `requirements_check`.
+
 `twaco check` runs every gate and exits 0 when no blocking gate fails; a `[[check]]` hook
 with `gate = false` reports its findings without failing the run. `--detail` lists every finding;
 without it, each gate gives a summary.
@@ -98,6 +108,7 @@ without it, each gate gives a summary.
 | contained mashups | a binding to a contained mashup's or navigation function's parameter that its copy of the parameters lacks (the value is dropped) or that the mashup it shows no longer declares; `twaco mashup param set <mashup> <parameter>` refreshes every copy; a stale copy nothing binds is only counted |
 | localization tokens | an entity names a `[[token]]` under one of the solution's token prefixes that no Default table file holds (the label would show the raw text), a language table holds a token Default lacks, a token is in one table twice, or a table file cannot be read. Tokens outside the prefixes are the platform's or an extension's and are not checked |
 | result shapes | a service's script builds its result with `CreateInfoTableFromDataShape` from another DataShape than its definition declares, named by a literal or a `const` holding one (a mashup bound to the declared shape finds other fields). A name computed at run time is not checked |
+| requirements | `requirements.toml` exists and a collected dependency is undeclared or its version is declared lower; skipped when absent. Runs offline; list `requirements` in `[gates] advisory` to report without blocking |
 | your hooks | a `[[check]]` command fails ([Configuration](CONFIGURATION.md#check-your-own-gates)) |
 | live parse | with `--live` or `[gates] live`: the server's own parser rejects a script |
 

@@ -352,8 +352,13 @@ fn meaning(schema: &Value) -> Value {
 
 #[test]
 fn generated_schemas_mean_what_the_hand_written_ones_did() {
-    let generated = registry::definitions(LATEST);
     let hand_written = hand_written_tools();
+    // The historical fixture proves migration compatibility. New tools are covered by the
+    // current golden file and tools/list contract, without rewriting that historical baseline.
+    let generated: Vec<_> = registry::definitions(LATEST)
+        .into_iter()
+        .filter(|tool| hand_written.iter().any(|old| old["name"] == tool["name"]))
+        .collect();
     let names = |tools: &[Value]| {
         tools
             .iter()
@@ -914,6 +919,8 @@ fn every_tool_is_listed_with_a_schema_and_honest_annotations() {
             "entity_restore",
             "entity_carry",
             "permissions",
+            "requirements_init",
+            "requirements_check",
             "permissions_init",
             "permissions_audit",
             "permissions_apply",
@@ -986,6 +993,7 @@ fn every_tool_is_listed_with_a_schema_and_honest_annotations() {
         "entity_restore",
         "entity_carry",
         "permissions_init",
+        "requirements_init",
         "permissions_apply",
         "permissions_push",
         "db_run",
@@ -2011,6 +2019,10 @@ fn what_the_offline_tools_return_fits_the_output_schema_they_publish() {
             json!({"action": "extension", "out": "out/p.zip", "project": "P"}),
         ),
         ("permissions_init", json!({})),
+        ("requirements_init", json!({})),
+        ("requirements_init", json!({"dry_run": false})),
+        ("requirements_check", json!({})),
+        ("requirements_check", json!({"detail": true})),
         ("permissions_init", json!({"dry_run": false})),
         ("permissions_audit", json!({})),
         ("permissions_audit", json!({"detail": true})),
@@ -3241,4 +3253,66 @@ fn network_tools_show_a_hierarchy_and_edit_it_through_a_dry_run() {
         json!({"action": "add", "network": "P.Plant", "thing": "P.Line", "as_root": true, "dry_run": false}),
     );
     assert_eq!(refused["isError"], true, "{refused}");
+}
+
+#[test]
+fn requirements_tools_default_to_offline_plans_and_return_blocking_findings() {
+    let (_dir, root) = solution_dir();
+    let gates = call(&root, "check", json!({}));
+    let skipped = gates["structuredContent"]["gates"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|gate| gate["gate"] == "requirements")
+        .unwrap();
+    assert!(skipped["skipped"]
+        .as_str()
+        .unwrap()
+        .contains("requirements.toml is absent"));
+    std::fs::write(root.join("Things/Acme.Ref.xml"), r#"<Entities><Things><Thing name="Acme.Ref" projectName="P" thingTemplate="Acme.External"/></Things></Entities>"#).unwrap();
+    let planned = call(&root, "requirements_init", json!({}));
+    assert_eq!(planned["isError"], false, "{planned}");
+    assert_eq!(planned["structuredContent"]["dry_run"], true);
+    assert_eq!(planned["structuredContent"]["written"], false);
+    assert!(!root.join("requirements.toml").exists());
+    let applied = call(&root, "requirements_init", json!({"dry_run": false}));
+    assert_eq!(applied["isError"], false, "{applied}");
+    assert_eq!(applied["structuredContent"]["written"], true);
+    let checked = call(
+        &root,
+        "requirements_check",
+        json!({"detail":true, "profile":"does-not-exist"}),
+    );
+    assert_eq!(checked["isError"], false, "{checked}");
+    assert_eq!(checked["structuredContent"]["ok"], true);
+    assert_eq!(checked["structuredContent"]["server_checked"], false);
+    let refused = call(&root, "requirements_init", json!({"dry_run":false}));
+    assert_eq!(refused["isError"], true);
+    std::fs::write(root.join("requirements.toml"), "").unwrap();
+    let checked = call(&root, "requirements_check", json!({"detail":true}));
+    assert_eq!(checked["isError"], false, "{checked}");
+    assert_eq!(checked["structuredContent"]["ok"], false);
+    assert!(checked["structuredContent"]["findings"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|f| f["requirement"] == "ThingTemplates/Acme.External"
+            && f["referrers"][0] == "Things/Acme.Ref"));
+    assert_eq!(
+        call(&root, "requirements_check", json!({"unknown":true}))["isError"],
+        true
+    );
+    let definitions = tool_definitions();
+    let check = definitions
+        .iter()
+        .find(|tool| tool["name"] == "requirements_check")
+        .unwrap();
+    assert_eq!(check["annotations"]["readOnlyHint"], true);
+    assert_eq!(check["annotations"]["openWorldHint"], true);
+    let init = definitions
+        .iter()
+        .find(|tool| tool["name"] == "requirements_init")
+        .unwrap();
+    assert_eq!(init["annotations"]["destructiveHint"], false);
+    assert_eq!(init["annotations"]["openWorldHint"], false);
 }

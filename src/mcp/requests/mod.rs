@@ -7,4 +7,5 @@ pub(crate) mod entity;
 pub(crate) mod info;
 pub(crate) mod network;
 pub(crate) mod refactor;
+pub(crate) mod requirements;
 pub(crate) mod source;

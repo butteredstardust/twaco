@@ -12,6 +12,7 @@ pub(crate) mod mashup;
 pub(crate) mod network;
 pub(crate) mod progress;
 pub(crate) mod refactor;
+pub(crate) mod requirements;
 pub(crate) mod service_tests;
 pub(crate) mod source;
 pub(crate) mod spec;

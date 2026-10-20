@@ -6,6 +6,14 @@ All notable changes to twaco are recorded here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- `requirements init` drafts a reviewed `requirements.toml` for external entities, extensions,
+  projects and the minimum platform version. `requirements check` gates the repository offline;
+  `--server` also verifies the dependencies with read-only server requests. MCP exposes
+  `requirements_init` and `requirements_check`, and `check` runs the offline requirements gate
+  when the contract exists (advisory through `[gates] advisory`).
+
 ## [0.1.23] - 2026-10-19
 
 ## [0.1.22] - 2026-10-19

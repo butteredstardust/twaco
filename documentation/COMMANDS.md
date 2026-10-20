@@ -378,6 +378,13 @@ permissions init [--project <name>] [--from-helper] [--apply] [--json]
                             one; prints unless --apply
     --from-helper           take the grants from the helper's tables, not the entity XML (a
                             matrix edited in the helper's mashup)
+requirements init [--apply] [--json]
+                            draft requirements.toml from external repository dependencies;
+                            prints a plan unless --apply; refuses an existing file
+requirements check [--server] [--profile <name>] [--detail] [--json]
+                            check requirements.toml against the repository; stale entries are notes
+    --server                also verify platform, extensions and entities on the server, read-only
+    --detail                every finding with its referrers
 permissions audit [--project <name>] [--server] [--detail] [--json]
                             each project's permissions.toml against its entity XML, offline: blocks
                             the policy would change, services a strict entity leaves unclassified,

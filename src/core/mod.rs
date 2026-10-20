@@ -57,6 +57,7 @@ pub mod relocate;
 pub mod rename;
 pub mod repo;
 pub mod reproject;
+pub mod requirements;
 pub(crate) mod result_shape;
 pub mod retemplate;
 pub mod scan;

@@ -285,6 +285,12 @@
                   "null"
                 ]
               },
+              "skipped": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
               "advisory": {
                 "type": [
                   "boolean",
@@ -1245,6 +1251,279 @@
           ],
           "items": {
             "type": "string"
+          }
+        }
+      },
+      "type": "object"
+    }
+  },
+  {
+    "name": "requirements_init",
+    "description": "Draft requirements.toml offline from the solution's external entities, Project dependsOn extensions and projects, and platform version. Returns the draft; dry_run defaults to true. Apply creates a new file under the workspace lock and refuses an existing requirements.toml; use requirements_check to see what changed.",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "dry_run": {
+          "type": "boolean",
+          "default": true
+        }
+      },
+      "type": "object"
+    },
+    "annotations": {
+      "readOnlyHint": false,
+      "openWorldHint": false,
+      "destructiveHint": false,
+      "idempotentHint": false
+    },
+    "outputSchema": {
+      "required": [
+        "summary",
+        "dry_run",
+        "written",
+        "file",
+        "draft",
+        "requirements"
+      ],
+      "properties": {
+        "summary": {
+          "type": "string"
+        },
+        "dry_run": {
+          "type": "boolean"
+        },
+        "written": {
+          "type": "boolean"
+        },
+        "file": {
+          "type": "string"
+        },
+        "draft": {
+          "type": "string"
+        },
+        "requirements": {
+          "type": "object",
+          "properties": {
+            "summary": {
+              "type": "string"
+            },
+            "ok": {
+              "type": "boolean"
+            },
+            "entities": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "collections": {
+              "type": "object",
+              "additionalProperties": {
+                "type": "integer",
+                "minimum": 0
+              }
+            },
+            "extensions": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "projects": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "platform": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "server_checked": {
+              "type": "boolean"
+            },
+            "total_findings": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "findings": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "rule": {
+                    "type": "string"
+                  },
+                  "requirement": {
+                    "type": "string"
+                  },
+                  "blocking": {
+                    "type": "boolean"
+                  },
+                  "message": {
+                    "type": "string"
+                  },
+                  "installed": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "referrers": {
+                    "type": [
+                      "array",
+                      "null"
+                    ],
+                    "items": {
+                      "type": "string"
+                    }
+                  }
+                },
+                "required": [
+                  "rule",
+                  "requirement",
+                  "blocking",
+                  "message"
+                ]
+              }
+            }
+          },
+          "required": [
+            "summary",
+            "ok",
+            "entities",
+            "collections",
+            "extensions",
+            "projects",
+            "server_checked",
+            "total_findings",
+            "findings"
+          ]
+        },
+        "notices": {
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "type": "object"
+    }
+  },
+  {
+    "name": "requirements_check",
+    "description": "Check requirements.toml against the repository. Undeclared dependencies and lower declared versions block; stale entries are notes. With server true, also verify the platform version, installed extensions, projects and external entities with read-only server requests. Server failures block. Summary first; detail includes every finding and referrer.",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "server": {
+          "type": "boolean",
+          "default": false
+        },
+        "detail": {
+          "type": "boolean",
+          "default": false
+        },
+        "profile": {
+          "type": "string",
+          "default": "default"
+        }
+      },
+      "type": "object"
+    },
+    "annotations": {
+      "readOnlyHint": true,
+      "openWorldHint": true
+    },
+    "outputSchema": {
+      "required": [
+        "summary",
+        "ok",
+        "entities",
+        "collections",
+        "extensions",
+        "projects",
+        "server_checked",
+        "total_findings",
+        "findings"
+      ],
+      "properties": {
+        "summary": {
+          "type": "string"
+        },
+        "ok": {
+          "type": "boolean"
+        },
+        "entities": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "collections": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "integer",
+            "minimum": 0
+          }
+        },
+        "extensions": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "projects": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "platform": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "server_checked": {
+          "type": "boolean"
+        },
+        "total_findings": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "findings": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "rule": {
+                "type": "string"
+              },
+              "requirement": {
+                "type": "string"
+              },
+              "blocking": {
+                "type": "boolean"
+              },
+              "message": {
+                "type": "string"
+              },
+              "installed": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "referrers": {
+                "type": [
+                  "array",
+                  "null"
+                ],
+                "items": {
+                  "type": "string"
+                }
+              }
+            },
+            "required": [
+              "rule",
+              "requirement",
+              "blocking",
+              "message"
+            ]
           }
         }
       },

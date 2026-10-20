@@ -308,6 +308,14 @@ pub(crate) fn fmt(solution: &Solution, args: &Fmt) -> u8 {
 
 /// Print the one-line result of a gate. Pad the plain word first, then style it.
 fn print_gate_line(gate: &twaco::core::check::GateResult) {
+    if let Some(why) = &gate.skipped {
+        println!(
+            "  {} {:<14} {why}",
+            style::ok(&format!("{:<7}", "skip")),
+            gate.name
+        );
+        return;
+    }
     match &gate.broken {
         Some(why) => println!(
             "  {} {:<14} {why}",
