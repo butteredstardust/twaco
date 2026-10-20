@@ -35,7 +35,7 @@ pub struct StatusOutcome {
     pub statuses: Vec<status::EntityStatus>,
     pub failures: Vec<String>,
     pub(crate) unreadable: Vec<String>,
-    pub(crate) recorded: Option<usize>,
+    pub recorded: Option<usize>,
     #[allow(
         dead_code,
         reason = "the command facade's Effects (COMMAND_FACADE.md); no adapter reads it yet"
@@ -150,7 +150,7 @@ where
     let profile =
         profile::load(&solution.root, &request.profile).map_err(StatusCommandError::Profile)?;
     let mut baseline = Baseline::load(&solution.root).map_err(StatusCommandError::Baseline)?;
-    let (statuses, failures) =
+    let (mut statuses, failures) =
         status::compute_with_progress(&open(profile), &baseline, &chosen, progress);
     if request.record && !failures.is_empty() {
         if request.refuse_record_failures {
@@ -165,7 +165,7 @@ where
         });
     }
     let recorded = if request.record {
-        let recorded = status::record_matching(&mut baseline, &statuses);
+        let recorded = status::record_matching(&mut baseline, &mut statuses);
         baseline
             .write(&solution.root)
             .map_err(StatusCommandError::Baseline)?;

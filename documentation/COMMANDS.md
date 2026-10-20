@@ -351,6 +351,7 @@ network remove <Network> <Thing> [--subtree] [--apply] [--json]
 network import <Network> --file <path> [--create-things] [--move] [--outside] [--apply] [--json]
                               map CSV assets into a Network hierarchy; plan unless --apply
 entity status [<entity>|--all] [--detail] [--record]
+                            entity: full name, last dotted segment, or Collection/Name
     --record                 record matching working/server hashes as baseline
 entity get <entity>         fetch raw server XML to stdout or --out <path>
                             Collection/Name: any server entity; a bare name: the repository's
@@ -451,7 +452,7 @@ Call services and read what the server says.
 
 ```text
 call <target> <service> [<json>] [--timeout <seconds>] [--detail] [--as <test user>]
-    [--lang <code>]         target: Collection/Name, or an entity by name or last segment
+    [--lang <code>]         target: Collection/Name, full name, or last dotted segment
     --with-logs             then what it wrote to ScriptLog and ApplicationLog (waits up to 3 s)
     --as <test user>        call as a [[test.user]] with the profile's test_password (the profile
                             needs allow_test_users): 404 if the user cannot see it, 401 a bad password

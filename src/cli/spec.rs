@@ -991,6 +991,7 @@ pub(crate) const USAGE: &[Usage] = &[
         path: "entity status",
         group: 2,
         text: r#"  entity status [<entity>|--all] [--detail] [--record]
+                              entity: full name, last dotted segment, or Collection/Name
       --record                 record matching working/server hashes as baseline"#,
     },
     Usage {
@@ -1164,7 +1165,7 @@ pub(crate) const USAGE: &[Usage] = &[
         path: "call",
         group: 3,
         text: r#"  call <target> <service> [<json>] [--timeout <seconds>] [--detail] [--as <test user>]
-      [--lang <code>]         target: Collection/Name, or an entity by name or last segment
+      [--lang <code>]         target: Collection/Name, full name, or last dotted segment
       --with-logs             then what it wrote to ScriptLog and ApplicationLog (waits up to 3 s)
       --as <test user>        call as a [[test.user]] with the profile's test_password (the profile
                               needs allow_test_users): 404 if the user cannot see it, 401 a bad password

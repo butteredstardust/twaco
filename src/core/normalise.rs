@@ -58,7 +58,7 @@ use sha2::{Digest, Sha256};
 
 /// The normalisation version every hash carries; a baseline from another one says nothing.
 pub(crate) const HASH_VERSION: &str = "v7";
-const LIVE_ONLY_ELEMENTS: [&[u8]; 9] = [
+pub(crate) const LIVE_ONLY_ELEMENTS: [&[u8]; 9] = [
     b"effectiveShape",
     b"Owner",
     b"EffectiveImplementedShapes",
@@ -111,6 +111,9 @@ impl From<ScanError> for NormaliseError {
 /// rather than a second parser that could read a document differently.
 #[derive(Clone, Debug)]
 pub(crate) struct Element {
+    /// Scanner offset retained through normalisation for byte-preserving adopt edits.
+    pub(crate) source_start: usize,
+    pub(crate) unordered: bool,
     pub(crate) name: Vec<u8>,
     /// Unescaped values, sorted by name.
     pub(crate) attributes: Vec<(Vec<u8>, Vec<u8>)>,
@@ -145,6 +148,17 @@ pub(crate) fn differ_only_in_permissions(left: &[u8], right: &[u8]) -> bool {
 }
 
 fn canonical(src: &[u8], with_permissions: bool) -> Result<Vec<u8>, NormaliseError> {
+    let entity = comparison_tree(src, with_permissions)?;
+    let mut out = b"twaco-entity-normalise-v7\0".to_vec();
+    write_element(&entity, &mut out);
+    Ok(out)
+}
+
+/// The hash's exact comparison tree, retaining source offsets and set-list membership.
+pub(crate) fn comparison_tree(
+    src: &[u8],
+    with_permissions: bool,
+) -> Result<Element, NormaliseError> {
     let tokens = scan::tokenize(src)?;
     reject_non_utf8_declaration(src, &tokens)?;
     let mut entity = unwrap_entity(parse(src, &tokens)?)?;
@@ -163,9 +177,7 @@ fn canonical(src: &[u8], with_permissions: bool) -> Result<Vec<u8>, NormaliseErr
                 if PERMISSION_BLOCKS.contains(&element.name.as_slice()))
         });
     }
-    let mut out = b"twaco-entity-normalise-v7\0".to_vec();
-    write_element(&entity, &mut out);
-    Ok(out)
+    Ok(entity)
 }
 
 /// The document's top-level nodes, parsed but not normalised: text unescaped and line ends
@@ -209,6 +221,8 @@ fn parse(src: &[u8], tokens: &[Token]) -> Result<Vec<Node>, NormaliseError> {
                     )));
                 }
                 let element = Element {
+                    source_start: token.span.start,
+                    unordered: false,
                     name: token.name.of(src).to_vec(),
                     attributes,
                     children: Vec::new(),
@@ -484,6 +498,7 @@ fn sort_organization_sets(entity: &mut Element) {
         if list.name != b"Connections" && list.name != b"OrganizationalUnits" {
             continue;
         }
+        list.unordered = true;
         if list
             .children
             .iter()
@@ -548,6 +563,7 @@ fn sort_thing_properties(entity: &mut Element) {
         if block.name != b"ThingProperties" {
             continue;
         }
+        block.unordered = true;
         let slots: Vec<usize> = block
             .children
             .iter()
@@ -588,6 +604,7 @@ fn sort_name_keyed_containers(element: &mut Element) {
     if !NAME_KEYED_CONTAINERS.contains(&element.name.as_slice()) {
         return;
     }
+    element.unordered = true;
 
     let slots: Vec<usize> = element
         .children
@@ -627,6 +644,7 @@ fn normalise_permissions(element: &mut Element) {
 /// A permission block's lists as sets: a kind or resource granting nobody is the same as one left
 /// out, and order carries nothing.
 fn as_set(element: &mut Element) {
+    element.unordered = true;
     for child in &mut element.children {
         if let Node::Element(child) = child {
             as_set(child);
@@ -657,7 +675,7 @@ fn name_attribute(element: &Element) -> &[u8] {
         .unwrap_or_default()
 }
 
-fn canonical_element_bytes(element: &Element) -> Vec<u8> {
+pub(crate) fn canonical_element_bytes(element: &Element) -> Vec<u8> {
     let mut out = Vec::new();
     write_element(element, &mut out);
     out

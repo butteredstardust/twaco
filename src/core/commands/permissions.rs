@@ -169,8 +169,9 @@ where
     let recorded = if apply && !pushed.is_empty() {
         let mut baseline =
             Baseline::load(&solution.root).map_err(PermissionsCommandError::Baseline)?;
-        let (statuses, _) = status::compute_with_progress(&remote, &baseline, &pushed, progress);
-        let recorded = status::record_matching(&mut baseline, &statuses);
+        let (mut statuses, _) =
+            status::compute_with_progress(&remote, &baseline, &pushed, progress);
+        let recorded = status::record_matching(&mut baseline, &mut statuses);
         if recorded > 0 {
             baseline
                 .write(&solution.root)

@@ -754,7 +754,7 @@ fn flatten_json(value: &Value, prefix: &str, out: &mut BTreeMap<String, String>)
 }
 
 /// The value a `<Row>` identifies itself by, if it has one.
-fn row_key(element: &Element) -> Option<String> {
+pub(crate) fn row_key(element: &Element) -> Option<String> {
     if !is_named(element, "Row") {
         return None;
     }
@@ -1196,7 +1196,12 @@ fn validate_takes(report: &Report, takes: &[Take]) -> Result<(), AdoptError> {
     let known: BTreeSet<String> = report
         .entities
         .iter()
-        .filter(|entry| matches!(entry.change, Change::Conflict | Change::Unknown))
+        .filter(|entry| {
+            matches!(
+                entry.change,
+                Change::Conflict | Change::Unknown | Change::Same
+            )
+        })
         .map(|entry| entry.entity.name.clone())
         .chain(
             report
@@ -1226,7 +1231,7 @@ fn validate_takes(report: &Report, takes: &[Take]) -> Result<(), AdoptError> {
         }
         let available = available.join(", ");
         Err(AdoptError::Take(format!(
-            "{}; conflicts and unknowns that can be taken: {available}",
+            "{}; available take targets: {available}",
             bad.join(", ")
         )))
     }
@@ -1300,7 +1305,36 @@ fn plan_backend(
         steps.push((None, format!("kept     {}: ours", entity.path())));
         return Ok(());
     }
-    let their_raw = raw_entity(export, entity)?;
+    let raw = raw_entity(export, entity)?;
+    let sample = here
+        .get(entity)
+        .map(|(_, path)| (entity, path))
+        .or_else(|| {
+            here.iter()
+                .find(|(key, (value, _))| {
+                    key.collection == entity.collection
+                        && attribute(value, "projectName").as_deref()
+                            == Some(entry.project.as_str())
+                })
+                .map(|(key, (_, path))| (key, path))
+        })
+        .or_else(|| {
+            here.iter()
+                .find(|(key, _)| key.collection == entity.collection)
+                .map(|(key, (_, path))| (key, path))
+        });
+    let sample_bytes = sample
+        .map(|(_, path)| std::fs::read(path).map_err(|e| io_error(path, e)))
+        .transpose()?;
+    let reference = match (sample, sample_bytes.as_ref()) {
+        (Some((key, _)), Some(bytes)) => {
+            let tokens = scan::tokenize(bytes).map_err(|e| io_error(export, e))?;
+            entity_span(&tokens, bytes, key).map(|span| span.of(bytes))
+        }
+        _ => None,
+    };
+    let their_raw = super::layout::entity(&raw, reference, solution.format.indent_cdata_payload)
+        .map_err(|e| io_error(export, e))?;
     let their_services = services_from_document(&entity_document(&entity.collection, &their_raw))?;
     // Both name folders under src/; the transaction would refuse an escape, but not `CON`, and
     // its refusal would not say which name was at fault.
@@ -1330,17 +1364,30 @@ fn plan_backend(
             ));
             return Ok(());
         };
-        let bytes = if let Some((sample_key, (_, sample))) =
-            here.iter().find(|(key, (value, _))| {
-                key.collection == entity.collection
-                    && attribute(value, "projectName").as_deref() == Some(entry.project.as_str())
-            }) {
+        let bytes = if let Some((sample_key, sample)) = sample {
             // Shaped like a file of its own collection and project: that file's entity is
             // swapped for the new one, so the declaration and wrapper match the solution's.
             let old = std::fs::read(sample).map_err(|e| io_error(sample, e))?;
-            replace_entity_bytes(&old, sample_key, &their_raw)?
+            replace_entity_bytes(
+                &old,
+                sample_key,
+                &their_raw,
+                solution.format.indent_cdata_payload,
+            )?
         } else {
-            entity_document(&entity.collection, &their_raw)
+            let laid_out =
+                super::layout::entity(&their_raw, None, solution.format.indent_cdata_payload)
+                    .map_err(|e| io_error(export, e))?;
+            // No peer file to copy the envelope from: the one `entity new` writes.
+            let collection = &entity.collection;
+            [
+                super::entity::new::header(collection).as_bytes(),
+                b"        ",
+                &laid_out,
+                b"\n",
+                super::entity::new::footer(collection).as_bytes(),
+            ]
+            .concat()
         };
         steps.push((
             Some(Write::Bytes(path.clone(), bytes)),
@@ -1380,10 +1427,27 @@ fn plan_backend(
                 Change::Stale | Change::Conflict | Change::Unknown
             )
     });
+    if !report
+        .services
+        .iter()
+        .any(|service| service.entity == *entity_name)
+        && normalise::hash(&ours_raw).is_ok_and(|ours| {
+            normalise::hash(&entity_document(&entity.collection, &their_raw))
+                .is_ok_and(|theirs| ours == theirs)
+        })
+    {
+        steps.push((None, format!("skipped  {}: unchanged", entity.path())));
+        return Ok(());
+    }
     if (entry.change == Change::Theirs && !generated_here && !services_disagree)
         || (entry.change == Change::Unknown && report.base.is_none() && their_entity_take)
     {
-        let bytes = replace_entity_bytes(&ours_raw, entity, &their_raw)?;
+        let bytes = replace_entity_bytes(
+            &ours_raw,
+            entity,
+            &their_raw,
+            solution.format.indent_cdata_payload,
+        )?;
         let remove = stale_service_dirs(&service_dir, &their_services);
         steps.push((
             Some(Write::Bytes(path.clone(), bytes)),
@@ -1486,7 +1550,12 @@ fn plan_backend(
             }
         }
     }
-    let their_document = entity_document(&entity.collection, &their_raw);
+    let their_document = replace_entity_bytes(
+        &ours_raw,
+        entity,
+        &their_raw,
+        solution.format.indent_cdata_payload,
+    )?;
     let seed = if frame_theirs {
         their_document.as_slice()
     } else {
@@ -1509,7 +1578,12 @@ fn plan_backend(
         )
         .map(|span| span.of(&merged).to_vec())
         .ok_or_else(|| io_error(path, "the merged entity disappeared"))?;
-        replace_entity_bytes(&ours_raw, entity, &merged_entity)?
+        replace_entity_bytes(
+            &ours_raw,
+            entity,
+            &merged_entity,
+            solution.format.indent_cdata_payload,
+        )?
     } else {
         merged
     };
@@ -1654,6 +1728,7 @@ fn replace_entity_bytes(
     src: &[u8],
     wanted: &EntityRef,
     entity: &[u8],
+    indent_cdata_payload: bool,
 ) -> Result<Vec<u8>, AdoptError> {
     let tokens = scan::tokenize(src).map_err(|e| io_error(Path::new("entity"), e))?;
     let span = entity_span(&tokens, src, wanted).ok_or_else(|| {
@@ -1662,7 +1737,9 @@ fn replace_entity_bytes(
             format!("no {} in entity file", wanted.path()),
         )
     })?;
-    splice::splice(src, &[splice::Edit::new(span, entity.to_vec())])
+    let entity = super::layout::entity(entity, Some(span.of(src)), indent_cdata_payload)
+        .map_err(|e| io_error(Path::new("entity"), e))?;
+    splice::splice(src, &[splice::Edit::new(span, entity)])
         .map_err(|e| io_error(Path::new("entity"), e))
 }
 

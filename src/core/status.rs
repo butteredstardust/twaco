@@ -141,7 +141,7 @@ pub(crate) fn compute_with_progress(
 
 /// Record a baseline for every entity whose working copy and server agree, and never for one
 /// that differs. Returns how many were recorded.
-pub(crate) fn record_matching(baseline: &mut Baseline, statuses: &[EntityStatus]) -> usize {
+pub(crate) fn record_matching(baseline: &mut Baseline, statuses: &mut [EntityStatus]) -> usize {
     let mut recorded = 0;
     for status in statuses {
         if status.server.as_deref() == Some(status.working.as_str()) {
@@ -151,6 +151,9 @@ pub(crate) fn record_matching(baseline: &mut Baseline, statuses: &[EntityStatus]
                 status.working.clone(),
                 status.working.clone(),
             );
+            status.local_baseline = Some(status.working.clone());
+            status.server_baseline = Some(status.working.clone());
+            status.verdict = Verdict::InSync;
             recorded += 1;
         }
     }
@@ -214,26 +217,31 @@ mod tests {
             }
         }
 
-        let statuses = [
-            status("Same", "v7:same", Some("v7:same")),
-            status("Different", "v7:working", Some("v7:server")),
-            status("Missing", "v7:working", None),
+        let mut statuses = [
+            status("Acme.Same", "v7:same", Some("v7:same")),
+            status("Acme.Different", "v7:working", Some("v7:server")),
+            status("Acme.Missing", "v7:working", None),
         ];
         let mut baseline = Baseline::default();
-        assert_eq!(record_matching(&mut baseline, &statuses), 1);
+        statuses[0].verdict = Verdict::BothChanged;
+        assert_eq!(record_matching(&mut baseline, &mut statuses), 1);
+        assert_eq!(statuses[0].verdict, Verdict::InSync);
+        assert_eq!(statuses[0].local_baseline.as_deref(), Some("v7:same"));
+        assert_eq!(statuses[0].server_baseline.as_deref(), Some("v7:same"));
+        assert_eq!(statuses[1].verdict, Verdict::NoBaselineDiffers);
         assert_eq!(
             baseline
-                .get("Things", "Same")
+                .get("Things", "Acme.Same")
                 .map(|entry| entry.local.as_str()),
             Some("v7:same")
         );
         assert_eq!(
             baseline
-                .get("Things", "Same")
+                .get("Things", "Acme.Same")
                 .map(|entry| entry.server.as_str()),
             Some("v7:same")
         );
-        assert_eq!(baseline.get("Things", "Different"), None);
-        assert_eq!(baseline.get("Things", "Missing"), None);
+        assert_eq!(baseline.get("Things", "Acme.Different"), None);
+        assert_eq!(baseline.get("Things", "Acme.Missing"), None);
     }
 }

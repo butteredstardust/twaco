@@ -2398,6 +2398,79 @@ fn entity_server() -> std::net::SocketAddr {
     address
 }
 
+#[test]
+fn status_record_returns_matching_entities_in_sync_and_keeps_differing_verdicts() {
+    let body = |result: &Value| {
+        serde_json::from_str::<Value>(result["content"][0]["text"].as_str().unwrap()).unwrap()
+    };
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path();
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let address = listener.local_addr().unwrap();
+    std::thread::spawn(move || {
+        use std::io::{Read, Write};
+        for _ in 0..5 {
+            let (mut stream, _) = listener.accept().unwrap();
+            let mut buffer = [0; 8192];
+            let read = stream.read(&mut buffer).unwrap();
+            let request = String::from_utf8_lossy(&buffer[..read]);
+            let name = request
+                .split_whitespace()
+                .nth(1)
+                .unwrap()
+                .rsplit('/')
+                .next()
+                .unwrap();
+            let xml = format!("<Entities><Things><Thing name=\"{name}\" projectName=\"Acme.App\"></Thing></Things></Entities>");
+            write!(stream,"HTTP/1.1 200 OK\r\nContent-Type: text/xml\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{xml}",xml.len()).unwrap();
+        }
+    });
+    std::fs::write(root.join("twaco.toml"), "[[project]]\nname='Acme.App'\n").unwrap();
+    std::fs::create_dir(root.join("Things")).unwrap();
+    for (name, value) in [
+        ("Acme.Same", ""),
+        ("Acme.Different", "<value>changed</value>"),
+    ] {
+        std::fs::write(root.join(format!("Things/{name}.xml")),format!("<Entities><Things><Thing name=\"{name}\" projectName=\"Acme.App\">{value}</Thing></Things></Entities>")).unwrap();
+    }
+    std::fs::create_dir_all(root.join(".twaco/profiles")).unwrap();
+    std::fs::write(
+        root.join(".twaco/profiles/default.toml"),
+        format!(
+            "url='http://{}/Thingworx/'\nusername='user'\npassword='pass'\n",
+            address
+        ),
+    )
+    .unwrap();
+    std::fs::write(root.join(".twaco/baseline.json"),r#"{"entities":{"Things":{"Acme.Same":{"local":"v7:old","server":"v7:old"},"Acme.Different":{"local":"v7:old","server":"v7:old"}}}}"#).unwrap();
+    let before = call(root, "status", json!({"all":true,"detail":true}));
+    assert_eq!(body(&before)["counts"]["both-changed"], 2);
+    let after = call(
+        root,
+        "status",
+        json!({"all":true,"detail":true,"record":true}),
+    );
+    assert_ne!(after["isError"], true, "{after}");
+    let result = body(&after);
+    assert_eq!(result["recorded"], 1);
+    assert_eq!(result["counts"]["in-sync"], 1);
+    assert_eq!(result["counts"]["both-changed"], 1);
+    let entries = result["statuses"].as_array().unwrap();
+    let same = entries
+        .iter()
+        .find(|s| s["entity"] == "Things/Acme.Same")
+        .unwrap();
+    assert_eq!(same["verdict"], "in-sync");
+    assert_eq!(same["working"], same["baseline_local"]);
+    assert_eq!(same["server"], same["baseline_server"]);
+    let single = call(
+        root,
+        "status",
+        json!({"entity":"Things/Same","record":true}),
+    );
+    assert_eq!(body(&single)["ok"], true);
+}
+
 fn status_workspace() -> (tempfile::TempDir, PathBuf) {
     let (guard, root) = solution_dir();
     for n in 0..6 {

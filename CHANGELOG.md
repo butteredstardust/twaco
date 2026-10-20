@@ -18,6 +18,13 @@ All notable changes to twaco are recorded here. The format follows
   `requirements_init` and `requirements_check`, and `check` runs the offline requirements gate
   when the contract exists (advisory through `[gates] advisory`).
 
+### Fixed
+
+- `adopt` preserves repository bytes and set-member order for unchanged content, lays out real
+  changes like the repository, and strips incoming export-only metadata.
+- `entity status --record` reports the recorded count and post-record verdicts and exit status.
+- Repository entity operands accept `Collection/Name`, including collection-scoped short names.
+
 ## [0.1.23] - 2026-10-19
 
 ## [0.1.22] - 2026-10-19

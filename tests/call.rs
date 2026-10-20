@@ -74,6 +74,67 @@ fn answer(stream: &mut std::net::TcpStream, status: &str, content_type: &str, bo
 }
 
 #[test]
+fn status_record_prints_post_record_verdicts_and_returns_their_exit_code() {
+    for matches in [true, false] {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let (_dir, root) = temp("status-record");
+        std::fs::write(root.join("twaco.toml"), "[[project]]\nname='Acme.App'\n").unwrap();
+        profile(&root, listener.local_addr().unwrap());
+        std::fs::create_dir(root.join("Things")).unwrap();
+        let xml = "<Entities><Things><Thing name=\"Acme.Manager\" projectName=\"Acme.App\"><value>current</value></Thing></Things></Entities>";
+        std::fs::write(root.join("Things/Acme.Manager.xml"), xml).unwrap();
+        let baseline =
+            r#"{"entities":{"Things":{"Acme.Manager":{"local":"v7:old","server":"v7:old"}}}}"#;
+        std::fs::write(root.join(".twaco/baseline.json"), baseline).unwrap();
+        let response = if matches {
+            xml.to_string()
+        } else {
+            xml.replace("current", "different")
+        };
+        let server = std::thread::spawn(move || {
+            for _ in 0..2 {
+                let (mut stream, _) = listener.accept().unwrap();
+                receive(&mut stream);
+                answer(&mut stream, "200 OK", "text/xml", &response);
+            }
+        });
+        let before = run(
+            &root,
+            &["entity", "status", "Things/Acme.Manager", "--detail"],
+        );
+        assert_eq!(before.status.code(), Some(1));
+        assert!(
+            String::from_utf8_lossy(&before.stdout).contains("Things/Acme.Manager  both-changed")
+        );
+        let after = run(
+            &root,
+            &["entity", "status", "Things/Manager", "--record", "--detail"],
+        );
+        let text = String::from_utf8_lossy(&after.stdout);
+        if matches {
+            assert_eq!(after.status.code(), Some(0), "{text}");
+            assert!(text.contains("baseline recorded for 1 entity"), "{text}");
+            assert!(text.contains("Things/Acme.Manager  in-sync"), "{text}");
+        } else {
+            assert_eq!(after.status.code(), Some(1), "{text}");
+            assert!(
+                text.contains("nothing to record: no entity matches the server"),
+                "{text}"
+            );
+            assert!(text.contains("Things/Acme.Manager  both-changed"), "{text}");
+            let saved: serde_json::Value =
+                serde_json::from_slice(&std::fs::read(root.join(".twaco/baseline.json")).unwrap())
+                    .unwrap();
+            assert_eq!(
+                saved["entities"]["Things"]["Acme.Manager"]["local"],
+                "v7:old"
+            );
+        }
+        server.join().unwrap();
+    }
+}
+
+#[test]
 fn entity_get_never_creates_or_changes_the_baseline() {
     let listener = TcpListener::bind("127.0.0.1:0").unwrap();
     let (_dir, root) = temp("get-baseline");

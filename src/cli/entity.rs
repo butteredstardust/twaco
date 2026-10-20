@@ -194,6 +194,16 @@ pub(crate) fn entity_status(solution: &Solution, args: &EntityStatus) -> u8 {
         };
         println!("  {label} {count}");
     }
+    if let Some(recorded) = outcome.recorded {
+        if recorded == 0 {
+            println!("nothing to record: no entity matches the server");
+        } else {
+            println!(
+                "baseline recorded for {recorded} entit{}",
+                if recorded == 1 { "y" } else { "ies" }
+            );
+        }
+    }
     if args.detail.detail {
         println!();
         for status in &outcome.statuses {

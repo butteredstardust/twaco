@@ -165,7 +165,12 @@ own.
 
 The comparison ignores what ThingWorx changes on its own: change history, owners, timestamps
 and the like. `entity status --record` records the current state as the baseline when the
-two sides already agree, for a repository adopting twaco.
+two sides already agree, for a repository adopting twaco. It reports how many baselines it
+recorded; counts, detail and the exit status reflect the updated baseline.
+
+Repository entity operands accept a full name (`Acme.App.Manager`), its last dotted segment
+(`Manager`), or `Things/Acme.App.Manager`. The collection prefix also scopes short names
+(`Things/Manager`) and is case-insensitive; ambiguous names need a collection or full name.
 
 `deploy` and `entity push` refuse an entity whose state is server-changed or both-changed,
 one that differs from the server with no baseline (the common ancestor is unknown), and one
@@ -215,6 +220,10 @@ twaco handoff list
 twaco adopt returned-export.xml                 # review the three-way plan
 twaco adopt returned-export.xml --apply         # take safe collaborator changes
 ```
+
+`adopt` lays out incoming entity bytes like the destination file (or a peer in its collection
+for a new entity), retaining the repository's indentation and CDATA presentation and removing
+export-only metadata. A single-line Exporter response therefore keeps a reviewable diff.
 
 `adopt` compares Composer's canonical form, so formatting and platform noise do not count. It
 uses the named `--base <file|handoff|git-rev>`, otherwise the most similar recorded handoff; with

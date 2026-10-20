@@ -136,7 +136,8 @@ struct GateEntry {
 #[derive(Serialize, JsonSchema)]
 pub(crate) struct StatusResult {
     ok: bool,
-    /// How many baselines were recorded; absent unless asked to record.
+    /// How many baselines were recorded; null unless asked to record. Counts and verdicts
+    /// describe the state after recording, including the matching entities now in-sync.
     recorded: Option<u64>,
     entities: u64,
     counts: BTreeMap<String, u64>,

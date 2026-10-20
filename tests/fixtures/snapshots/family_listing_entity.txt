@@ -7,6 +7,7 @@ exit: 2
 usage: twaco entity <command>
 
   entity status [<entity>|--all] [--detail] [--record]
+                              entity: full name, last dotted segment, or Collection/Name
       --record                 record matching working/server hashes as baseline
   entity get <entity>         fetch raw server XML to stdout or --out <path>
                               Collection/Name: any server entity; a bare name: the repository's
