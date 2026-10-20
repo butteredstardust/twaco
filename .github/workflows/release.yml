@@ -237,7 +237,13 @@ jobs:
         shell: pwsh
         run: |
           if (-not (Get-Command makensis -ErrorAction SilentlyContinue)) {
-            choco install nsis --no-progress -y
+            # The Chocolatey feed answers 504 now and then; retry before failing the release.
+            foreach ($attempt in 1..5) {
+              choco install nsis --no-progress -y
+              if ($LASTEXITCODE -eq 0) { break }
+              if ($attempt -eq 5) { throw "choco install nsis failed $attempt times" }
+              Start-Sleep -Seconds (30 * $attempt)
+            }
             $env:Path += ";${env:ProgramFiles(x86)}\NSIS"
           }
           makensis /V2 "/DVERSION=$env:VERSION" `
