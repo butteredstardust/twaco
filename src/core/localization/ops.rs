@@ -325,7 +325,7 @@ pub(crate) fn pull<R: Remote + ?Sized>(
     )?;
     let server = server_tokens(remote, &selected)?;
     let compared = compare(&files, &server, &all_prefixes(solution));
-    let mut edits: BTreeMap<PathBuf, Vec<Edit>> = BTreeMap::new();
+    let mut edits: BTreeMap<PathBuf, BTreeMap<String, Vec<Edit>>> = BTreeMap::new();
     let mut creates: BTreeMap<PathBuf, (String, Vec<Token>)> = BTreeMap::new();
     for item in &compared {
         match item.state {
@@ -334,6 +334,8 @@ pub(crate) fn pull<R: Remote + ?Sized>(
                 token.value = token.value.trim().to_string();
                 edits
                     .entry(item.file.clone().expect("local differs has file"))
+                    .or_default()
+                    .entry(item.table.clone())
                     .or_default()
                     .push(Edit::Set(token));
             }
@@ -353,7 +355,12 @@ pub(crate) fn pull<R: Remote + ?Sized>(
                 let mut token = token;
                 token.value = token.value.trim().to_string();
                 if path.exists() {
-                    edits.entry(path).or_default().push(Edit::Set(token));
+                    edits
+                        .entry(path)
+                        .or_default()
+                        .entry(item.table.clone())
+                        .or_default()
+                        .push(Edit::Set(token));
                 } else {
                     creates
                         .entry(path)
@@ -365,6 +372,8 @@ pub(crate) fn pull<R: Remote + ?Sized>(
             State::LocalOnly if prune && selected.contains(&item.table) => {
                 edits
                     .entry(item.file.clone().expect("local-only has file"))
+                    .or_default()
+                    .entry(item.table.clone())
                     .or_default()
                     .push(Edit::Remove(item.name.clone()));
             }
@@ -399,18 +408,21 @@ pub(crate) fn pull<R: Remote + ?Sized>(
         }
     }
     let mut plans = Vec::new();
-    for (path, edits) in edits {
+    for (path, tables) in edits {
         let source = std::fs::read(&path).map_err(|error| LocalizationError::Io {
             path: path.clone(),
             why: error.to_string(),
         })?;
-        let bytes = edit(&path, &source, &edits)?;
+        let mut bytes = source.clone();
         let mut set = Vec::new();
         let mut removed = Vec::new();
-        for edit in edits {
-            match edit {
-                Edit::Set(token) => set.push(token.name),
-                Edit::Remove(name) => removed.push(name),
+        for (table, edits) in tables {
+            bytes = edit(&path, &bytes, &table, &edits)?;
+            for edit in edits {
+                match edit {
+                    Edit::Set(token) => set.push(token.name),
+                    Edit::Remove(name) => removed.push(name),
+                }
             }
         }
         set.sort();
@@ -906,7 +918,7 @@ pub(crate) fn set(
             path: path.clone(),
             why: error.to_string(),
         })?;
-        let bytes = edit(&path, &source, &[Edit::Set(token.clone())])?;
+        let bytes = edit(&path, &source, table, &[Edit::Set(token.clone())])?;
         (Some(source), bytes)
     };
     let plan = PlannedFile {
@@ -939,29 +951,37 @@ pub(crate) fn remove(
     // Removing from Default removes from every table: a language token Default lacks is one the
     // server refuses.
     let every_table = table.is_none_or(|table| table == DEFAULT_TABLE);
-    let files: Vec<&TableFile> = found
-        .files
-        .iter()
-        .filter(|file| {
-            (every_table || Some(file.table.as_str()) == table)
-                && file.tokens.iter().any(|token| token.name == name)
-        })
-        .collect();
+    let mut files: BTreeMap<PathBuf, Vec<&TableFile>> = BTreeMap::new();
+    for file in &found.files {
+        if (every_table || Some(file.table.as_str()) == table)
+            && file.tokens.iter().any(|token| token.name == name)
+        {
+            files.entry(file.path.clone()).or_default().push(file);
+        }
+    }
     if files.is_empty() {
         return Err(LocalizationError::Unknown(format!(
             "no localization token named {name}"
         )));
     }
     let mut plans = Vec::new();
-    for file in files {
-        let source = std::fs::read(&file.path).map_err(|error| LocalizationError::Io {
-            path: file.path.clone(),
+    for (path, tables) in files {
+        let source = std::fs::read(&path).map_err(|error| LocalizationError::Io {
+            path: path.clone(),
             why: error.to_string(),
         })?;
-        let bytes = edit(&file.path, &source, &[Edit::Remove(name.to_string())])?;
+        let mut bytes = source.clone();
+        for file in tables {
+            bytes = edit(
+                &path,
+                &bytes,
+                &file.table,
+                &[Edit::Remove(name.to_string())],
+            )?;
+        }
         plans.push(PlannedFile {
             change: FileChange {
-                path: file.path.clone(),
+                path,
                 created: false,
                 set: Vec::new(),
                 removed: vec![name.to_string()],

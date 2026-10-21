@@ -846,8 +846,10 @@ name = \"Acme.App\"
             _: bool,
             _: bool,
         ) -> Result<(), crate::core::server::ServerError> {
-            let file = localization::read(std::path::Path::new("sent.xml"), bytes)
+            let file = localization::read_all(std::path::Path::new("sent.xml"), bytes)
                 .unwrap()
+                .into_iter()
+                .next()
                 .unwrap();
             self.events
                 .lock()

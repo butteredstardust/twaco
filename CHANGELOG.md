@@ -6,6 +6,11 @@ All notable changes to twaco are recorded here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- `localization pull`, `set` and `remove` edit one table at a time in extension exports that hold
+  several localization tables, preserving every byte outside the table being changed.
+
 ## [0.1.25] - 2026-10-21
 
 ### Added

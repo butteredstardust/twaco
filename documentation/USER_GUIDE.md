@@ -1226,8 +1226,8 @@ per table: `localization/<Project>/LocalizationTable.xml` for `Default` and
 names and flat layouts are read too, by the table name inside each file. twaco edits these files
 in place, so section comments and row order survive. A file holding several tables, as an
 extension ships them, is read table by table: `status` compares it and `push` imports each of its
-tables alone (the other tables cut out of the bytes it sends); `pull`, `set` and `remove` refuse to
-edit it and say to split it into one file per table.
+tables alone (the other tables cut out of the bytes it sends); `pull`, `set` and `remove` edit it
+table by table, leaving its other tables byte-for-byte unchanged.
 
 ```sh
 twaco localization status --detail                 # each token: same, differs, local only, server only
