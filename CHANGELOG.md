@@ -6,6 +6,8 @@ All notable changes to twaco are recorded here. The format follows
 
 ## [Unreleased]
 
+## [0.1.24] - 2026-10-21
+
 ### Added
 
 - `[[server_owned]]` declares members, permissions, configuration tables or cells, and property
@@ -767,6 +769,7 @@ The first public release.
 - `mcp` serves 39 tools over stdio to MCP clients, with compact summaries, validated arguments
   and dry runs by default for tools that can write to a server.
 
+[0.1.24]: https://github.com/butteredstardust/twaco/releases/tag/v0.1.24
 [0.1.23]: https://github.com/butteredstardust/twaco/releases/tag/v0.1.23
 [0.1.22]: https://github.com/butteredstardust/twaco/releases/tag/v0.1.22
 [0.1.21]: https://github.com/butteredstardust/twaco/releases/tag/v0.1.21
