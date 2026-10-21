@@ -424,6 +424,18 @@ pub(crate) fn footer(collection: &str) -> String {
     format!("    </{collection}>\n</Entities>\n")
 }
 
+/// A new entity's file: the envelope `entity new` writes around the entity, already laid out.
+pub(crate) fn document(collection: &str, laid_out: &[u8]) -> Vec<u8> {
+    [
+        header(collection).as_bytes(),
+        b"        ",
+        laid_out,
+        b"\n",
+        footer(collection).as_bytes(),
+    ]
+    .concat()
+}
+
 /// One `<ImplementedShape>`, as written at 16 spaces.
 pub(crate) fn implemented_shape_xml(shape: &str) -> String {
     format!(

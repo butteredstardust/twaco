@@ -392,6 +392,12 @@ fn lay_out(
                     .collect();
                 Some((d, i, *parts.first()?, *parts.last()?))
             });
+            // A payload split across CDATA sections is text with CDATA inside: whitespace around
+            // the sections is part of it, so a new frame would change the value. With no file of
+            // its own to copy, it stays as it came.
+            if cdata.len() > 1 && sample.is_none() {
+                return Ok(());
+            }
             let block = sample.map_or(multiline, |(d, i, f, _)| {
                 d.src[d.tokens[i].span.end..f.span.start].contains(&b'\n')
             });
@@ -842,6 +848,21 @@ mod tests {
                 "\n    result = 1;"
             }));
         }
+    }
+
+    #[test]
+    fn a_new_entity_keeps_a_split_cdata_payload_as_the_server_wrote_it() {
+        // Around two CDATA sections, whitespace is part of the value; framing them would change
+        // the script and leave the entity out of step with the server for good.
+        let raw = b"<Thing name=\"Acme.Manager\"><code><![CDATA[result = \"x]]]]><![CDATA[>\";]]></code></Thing>";
+        let result = entity(raw, None, false).unwrap();
+        assert!(
+            std::str::from_utf8(&result)
+                .unwrap()
+                .contains("<code><![CDATA[result = \"x]]]]><![CDATA[>\";]]></code>"),
+            "{}",
+            String::from_utf8_lossy(&result)
+        );
     }
 
     #[test]

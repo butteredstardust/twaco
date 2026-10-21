@@ -563,15 +563,7 @@ fn plan_backend(
             )
             .map_err(|e| io_error(export, e))?;
             // No peer file to copy the envelope from: the one `entity new` writes.
-            let collection = &entity.collection;
-            [
-                super::super::entity::new::header(collection).as_bytes(),
-                b"        ",
-                &laid_out,
-                b"\n",
-                super::super::entity::new::footer(collection).as_bytes(),
-            ]
-            .concat()
+            super::super::entity::new::document(&entity.collection, &laid_out)
         };
         steps.push((
             Some(Write::Bytes(path.clone(), bytes)),
