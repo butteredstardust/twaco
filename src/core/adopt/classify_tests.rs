@@ -1,4 +1,6 @@
+use super::compare::compare;
 use super::*;
+use crate::core::config::Solution;
 use std::path::Path;
 use std::process::Command;
 

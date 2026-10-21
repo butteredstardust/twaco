@@ -1,8 +1,9 @@
 //! Bases for the adopt three-way comparison: delivered exports, repository revisions and
 //! locally recorded handoffs.
 
-use super::{export_entities, repository_entities, service_bodies, AdoptError, Element, EntityRef};
+use super::{export_entities, repository_entities, service_bodies, AdoptError, EntityRef};
 use crate::core::config::Solution;
+use crate::core::normalise::Element;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
@@ -285,7 +286,7 @@ pub(crate) fn resolve(
             .iter()
             .filter(|(entity, theirs)| {
                 side.entities.get(*entity).is_some_and(|base| {
-                    super::compare_owned_entity(solution, entity, theirs, base)
+                    super::compare::compare_owned_entity(solution, entity, theirs, base)
                         .differences
                         .is_empty()
                 })

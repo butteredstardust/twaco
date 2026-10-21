@@ -1,4 +1,6 @@
+use super::base::{history_versions, resolve};
 use super::*;
+use crate::core::config::Solution;
 use std::path::Path;
 use std::process::Command;
 
