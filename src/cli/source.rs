@@ -450,7 +450,10 @@ fn print_blocking(report: &twaco::core::check::CheckReport) {
         }
         let total = gate["findings"].as_u64().unwrap_or(0);
         if total > 8 {
-            println!("  {name}: {} more", total - 8);
+            println!(
+                "  {name}: {} more; `twaco check --detail` lists every offline one",
+                total - 8
+            );
         }
     }
 }
@@ -628,7 +631,7 @@ pub(crate) fn deploy_cmd(solution: &Solution, args: &Deploy) -> u8 {
         Err(error) => {
             print_notices(&notices);
             if let Some(gates) = error.gates() {
-                println!("offline gates:");
+                println!("gates:");
                 print_check_report(gates, false);
                 println!();
             }
@@ -745,7 +748,7 @@ pub(crate) fn deploy_cmd(solution: &Solution, args: &Deploy) -> u8 {
             ..
         } => {
             if let Some(gates) = gates {
-                println!("offline gates:");
+                println!("gates:");
                 print_check_report(&gates, false);
                 println!();
             }

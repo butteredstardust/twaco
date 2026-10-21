@@ -11,7 +11,8 @@ All notable changes to twaco are recorded here. The format follows
 - `deploy` checks `requirements.toml` against the server it deploys to, in its `requirements`
   gate: an unmet platform, extension or entity requirement stops it before any import.
 - `doctor` warns when a `[[server_owned]]` rule names `members` but matches no Group or
-  Organization, or property values but matches no Thing: such a part hides nothing.
+  Organization, or property values but matches no Thing or ThingTemplate: such a part hides
+  nothing.
 
 ### Changed
 
@@ -23,7 +24,7 @@ All notable changes to twaco are recorded here. The format follows
 ### Fixed
 
 - On Windows, a gate's finding for an unreadable file named only the drive letter (`C`) as its
-  file.
+  file; both gates now name it relative to the repository.
 - A `[[check]]` hook with `needs_credentials` that printed a server URL carrying
   `user:password@` printed the password; twaco now hides the user and password, and the
   password alone, as written and decoded.

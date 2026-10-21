@@ -232,7 +232,8 @@ Status (including `--record`), guards and read-back compare both sides without t
 Applicable parts are fingerprinted in the hash: a policy change makes that entity's old
 baseline absent; entities without rules keep their existing hashes. `entity status --detail`
 names the parts; `doctor` warns when an entire rule matches no solution entity, and when it
-names `members` but matches no Group or Organization, or property values but matches no Thing.
+names `members` but matches no Group or Organization, or property values but matches no Thing
+or ThingTemplate.
 
 For an existing server entity, push and deploy fetch its Exporter form and splice each owned
 part into the outgoing copy: replace, insert, or drop it according to the server. Server values

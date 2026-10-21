@@ -175,11 +175,12 @@ pub(crate) fn parts(rules: &[Rule], collection: &str, name: &str) -> Vec<Part> {
 }
 
 /// The collections whose entities can hold a part, when only some can: `members` belong to
-/// Groups and Organizations, property values to Things. `None` for parts any entity may have.
+/// Groups and Organizations, property values to Things and ThingTemplates. `None` for parts any
+/// entity may have.
 pub(crate) fn collections(part: &Part) -> Option<&'static [&'static str]> {
     match part {
         Part::Members => Some(&["Groups", "Organizations"]),
-        Part::Properties(_) => Some(&["Things"]),
+        Part::Properties(_) => Some(&["Things", "ThingTemplates"]),
         Part::RunTimePermissions | Part::VisibilityPermissions | Part::Table(..) => None,
     }
 }

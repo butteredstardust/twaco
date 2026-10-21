@@ -1877,7 +1877,7 @@ fn a_deploy_the_gates_stop_says_what_each_blocking_gate_found() {
         "{stdout}"
     );
     assert!(
-        stdout.contains("Broken.xml [project/unreadable]"),
+        stdout.contains("  Things/Broken.xml [project/unreadable]"),
         "{stdout}"
     );
     assert!(String::from_utf8_lossy(&text.stderr).contains("gates block deploy"));
