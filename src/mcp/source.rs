@@ -149,6 +149,11 @@ pub(crate) fn check_tool(
             if !gate.gates_the_run {
                 entry["advisory"] = json!(true);
             }
+            // What the gate said beside its findings: hook summaries, and notes such as the
+            // untranslated and unreferenced localization tokens.
+            if detail && !gate.prose.is_empty() {
+                entry["notes"] = json!(gate.prose);
+            }
             entry
         })
         .collect();
@@ -316,12 +321,10 @@ pub(crate) fn deploy_tool(
         progress,
     ) {
         Ok(commands::deploy::DeployOutcome::GatesBlocked { report, .. }) => {
-            let failing: Vec<Value> = report.gates.iter().filter(|gate| gate.blocks()).map(
-                |gate| json!({ "gate": gate.name, "findings": gate.findings.len(), "broken": gate.broken }),
-            ).collect();
+            let failing = report.blocking(if detail { usize::MAX } else { 8 });
             let mut value = json!({
                 "ok": false,
-                "stage": "offline gates",
+                "stage": "gates",
                 "blocking_gates": failing,
                 "note": "nothing was sent; fix these, or pass skip_checks: true",
             });

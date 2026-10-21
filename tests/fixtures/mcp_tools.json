@@ -2266,7 +2266,7 @@
   },
   {
     "name": "deploy",
-    "description": "Deploy the solution: offline gates, one bundle per project in dependency order, every script parsed by the server (fails closed), a conflict check per entity, then import, read-back, and the project's deploy and post-import services. A dry run (a plan) unless dry_run is false.",
+    "description": "Deploy the solution: the gates (requirements checked against the server), one bundle per project in dependency order, every script parsed by the server (fails closed), a conflict check per entity, then import, read-back, and the project's deploy and post-import services. A dry run (a plan) unless dry_run is false.",
     "inputSchema": {
       "additionalProperties": false,
       "properties": {
@@ -2302,7 +2302,7 @@
           "default": false
         },
         "skip_checks": {
-          "description": "Skip the offline gates. The server's script parse still runs.",
+          "description": "Skip the gates, the server requirements check among them. The server's script parse\nduring the deploy still runs.",
           "type": "boolean",
           "default": false
         },
@@ -2498,7 +2498,7 @@
           }
         }
       },
-      "description": "A deploy that ran, one the offline gates stopped, and one the server refused each answer\ndifferently; `ok` and the stage it reached tell them apart.",
+      "description": "A deploy that ran, one the gates stopped (`blocking_gates` says what each found), and one the server refused each answer\ndifferently; `ok` and the stage it reached tell them apart.",
       "type": "object"
     }
   },
@@ -2555,6 +2555,8 @@
         "absent",
         "changed",
         "type_changes",
+        "retyped_arguments",
+        "retyped_defaults",
         "identical",
         "base",
         "entities"
@@ -2587,6 +2589,14 @@
           "items": true
         },
         "type_changes": {
+          "type": "array",
+          "items": true
+        },
+        "retyped_arguments": {
+          "type": "array",
+          "items": true
+        },
+        "retyped_defaults": {
           "type": "array",
           "items": true
         },
@@ -2681,6 +2691,7 @@
       "required": [
         "applied",
         "reverts_not_applied",
+        "unmapped",
         "base",
         "entities",
         "services",
@@ -2697,6 +2708,11 @@
         "reverts_not_applied": {
           "type": "integer",
           "minimum": 0
+        },
+        "unmapped": {
+          "description": "Literal arguments and defaults of retyped service parameters that the new base type does\nnot take: left as written, for a person to change.",
+          "type": "array",
+          "items": true
         },
         "base": true,
         "entities": {

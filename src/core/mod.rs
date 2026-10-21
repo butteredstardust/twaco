@@ -5,6 +5,7 @@ pub mod adopt;
 pub mod appkey;
 pub mod backup;
 pub(crate) mod baseline;
+pub(crate) mod basetype;
 pub(crate) mod bindings;
 pub mod bundle;
 pub mod catalog;

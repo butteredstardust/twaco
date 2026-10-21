@@ -759,7 +759,7 @@
   },
   {
     "name": "deploy",
-    "description": "Deploy the solution: offline gates, one bundle per project in dependency order, every script parsed by the server (fails closed), a conflict check per entity, then import, read-back, and the project's deploy and post-import services. A dry run (a plan) unless dry_run is false.",
+    "description": "Deploy the solution: the gates (requirements checked against the server), one bundle per project in dependency order, every script parsed by the server (fails closed), a conflict check per entity, then import, read-back, and the project's deploy and post-import services. A dry run (a plan) unless dry_run is false.",
     "inputSchema": {
       "type": "object",
       "properties": {
@@ -797,7 +797,7 @@
         "skip_checks": {
           "type": "boolean",
           "default": false,
-          "description": "Skip the offline gates. The server's script parse still runs."
+          "description": "Skip the gates, the server requirements check among them. The server's script parse\nduring the deploy still runs."
         },
         "profile": {
           "type": "string",

@@ -12,8 +12,9 @@ indent_cdata_payload = false
 inherited_overrides = ["Acme.Orders.Database.GetDBInfo"]
 
 [unused]
-# The platform calls this Thing's GetDBInfo; nothing in the repository names it.
-keep = ["Acme.Orders.Database"]
+# The platform calls this Thing's GetDBInfo; nothing in the repository names it. The station is
+# read by clients outside the repository.
+keep = ["Acme.Orders.Database", "Acme.Orders.Station"]
 
 [[project]]
 name = "Acme.Orders"

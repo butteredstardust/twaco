@@ -6,6 +6,39 @@ All notable changes to twaco are recorded here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- `adopt` maps the literal arguments scripts pass to a service parameter the export retypes to
+  values the new base type takes (`"42"` to `42` for a `LONG`), on apply, and names the ones it
+  cannot map and a default the new type does not take.
+- `deploy` checks `requirements.toml` against the server it deploys to, in its `requirements`
+  gate: an unmet platform, extension or entity requirement stops it before any import.
+- `doctor` warns when a `[[server_owned]]` rule names `members` but matches no Group or
+  Organization, or property values but matches no Thing or ThingTemplate: such a part hides
+  nothing.
+- The `localization tokens` gate notes, without failing, each language table's untranslated
+  solution tokens and the Default tokens no entity or sidecar script names. MCP `check` with
+  `detail: true` gives each gate its `notes`.
+
+### Changed
+
+- A deploy the gates stop lists what each blocking gate found (CLI text and `--json`, and MCP
+  `blocking_gates[].first`, all with `detail: true`), and its stage is `gates`, not
+  `offline gates`: the live parse and requirements gates read the server, so `twaco check` alone
+  could not show them.
+
+### Fixed
+
+- On Windows, a gate's finding for an unreadable file named only the drive letter (`C`) as its
+  file; both gates now name it relative to the repository.
+- A `[[check]]` hook with `needs_credentials` that printed a server URL carrying
+  `user:password@` printed the password; twaco now hides the user and password, and the
+  password alone, as written and decoded.
+- `requirements check --profile <name>` without `--server` ignored the profile; it now refuses.
+- A push refused for a missing baseline says how to settle it: look at the server's copy,
+  bring its change in or overwrite it with `--force --apply`, and record the baseline once both
+  sides agree.
+
 ## [0.1.24] - 2026-10-21
 
 ### Added

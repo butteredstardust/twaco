@@ -1061,7 +1061,7 @@ pub(crate) const USAGE: &[Usage] = &[
     Usage {
         path: "requirements check",
         group: 2,
-        text: r#"  requirements check [--server] [--profile <name>] [--detail] [--json]
+        text: r#"  requirements check [--server [--profile <name>]] [--detail] [--json]
                               check requirements.toml against the repository; stale entries are notes
       --server                also verify platform, extensions and entities on the server, read-only
       --detail                every finding with its referrers"#,
@@ -1133,7 +1133,7 @@ pub(crate) const USAGE: &[Usage] = &[
       --backend-only          exclude configured UI collections
       --only <entity>         include only this entity (repeatable)
       --only-projects <a,b>   include only these projects
-      --skip-checks           skip offline gates; live parse still runs
+      --skip-checks           skip the gates, server requirements too; scripts are still parsed
       --no-backup             with --force, do not save the server's copies first"#,
     },
     Usage {

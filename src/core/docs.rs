@@ -684,7 +684,7 @@ mod tests {
         assert_eq!(document.solution, "Acme.Orders");
         let project = &document.projects[0];
         assert_eq!(project.deploy_order, Some(1));
-        assert_eq!(project.entities["Things"], 5);
+        assert_eq!(project.entities["Things"], 6);
 
         let manager = entity(&document, "Things/Acme.Orders.Manager");
         assert_eq!(manager.inherits, ["Acme.Orders.Base_TT"]);

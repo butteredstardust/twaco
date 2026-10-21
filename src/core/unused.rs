@@ -413,7 +413,7 @@ mod tests {
             retired.file.as_deref(),
             Some("DataShapes/Acme.Orders.Retired_DS.xml")
         );
-        assert_eq!((report.judged, report.reachable), (10, 8));
+        assert_eq!((report.judged, report.reachable), (11, 9));
         assert!(report.complete && report.keep_unmatched.is_empty());
     }
 
@@ -438,7 +438,7 @@ mod tests {
         assert_eq!(group("runs on events"), ["Things/Acme.Orders.Poller"]);
         assert_eq!(
             group("kept by [unused] keep"),
-            ["Things/Acme.Orders.Database"]
+            ["Things/Acme.Orders.Database", "Things/Acme.Orders.Station"]
         );
         // Without the keep rule the database Thing, which only the platform calls, is reported.
         let mut solution = bundled();

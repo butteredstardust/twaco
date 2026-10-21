@@ -1,4 +1,11 @@
+use super::compare::compare;
+use super::read::replace_entity_bytes;
 use super::*;
+use crate::core::config::Solution;
+use crate::core::lock::WorkspaceLock;
+use crate::core::{scan, sidecar, sync};
+use std::collections::BTreeMap;
+use std::path::Path;
 
 #[test]
 fn server_owned_parts_are_neither_reported_nor_adopted_with_other_changes() {

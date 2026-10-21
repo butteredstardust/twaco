@@ -11,15 +11,15 @@ exit: 0
     },
     {
       "reason": "kept by [unused] keep",
-      "count": 1
+      "count": 2
     },
     {
       "reason": "runs on events",
       "count": 1
     }
   ],
-  "judged": 10,
-  "reachable": 8,
+  "judged": 11,
+  "reachable": 9,
   "unused": [
     {
       "entity": "DataShapes/Acme.Orders.Retired_DS",

@@ -430,6 +430,34 @@ pub(crate) fn check(solution: &Solution, args: &Check) -> u8 {
 }
 
 /// Print a gate report in the command-line form shared by `check` and deploy's gate outcome.
+fn print_gate_lines(report: &twaco::core::check::CheckReport) {
+    for gate in &report.gates {
+        print_gate_line(gate);
+    }
+    println!();
+}
+
+/// What each gate that stopped a deploy found, so the deploy says why: a gate that read the
+/// server cannot be reproduced by `twaco check`.
+fn print_blocking(report: &twaco::core::check::CheckReport) {
+    for gate in report.blocking(8) {
+        let name = gate["gate"].as_str().unwrap_or_default();
+        if let Some(why) = gate["broken"].as_str() {
+            println!("  {name}: could not run: {why}");
+        }
+        for finding in gate["first"].as_array().into_iter().flatten() {
+            println!("  {}", finding.as_str().unwrap_or_default());
+        }
+        let total = gate["findings"].as_u64().unwrap_or(0);
+        if total > 8 {
+            println!(
+                "  {name}: {} more; `twaco check --detail` lists every offline one",
+                total - 8
+            );
+        }
+    }
+}
+
 fn print_check_report(report: &twaco::core::check::CheckReport, detail: bool) {
     for gate in &report.gates {
         print_gate_line(gate);
@@ -603,7 +631,7 @@ pub(crate) fn deploy_cmd(solution: &Solution, args: &Deploy) -> u8 {
         Err(error) => {
             print_notices(&notices);
             if let Some(gates) = error.gates() {
-                println!("offline gates:");
+                println!("gates:");
                 print_check_report(gates, false);
                 println!();
             }
@@ -701,9 +729,10 @@ pub(crate) fn deploy_cmd(solution: &Solution, args: &Deploy) -> u8 {
     print_notices(&notices);
     match outcome {
         commands::deploy::DeployOutcome::GatesBlocked { report, .. } => {
-            println!("offline gates:");
-            print_check_report(&report, false);
-            eprintln!("{} offline gates block deploy", style::prefix());
+            println!("gates:");
+            print_gate_lines(&report);
+            print_blocking(&report);
+            eprintln!("{} gates block deploy", style::prefix());
             if report.broken() > 0 {
                 FAILED
             } else {
@@ -719,7 +748,7 @@ pub(crate) fn deploy_cmd(solution: &Solution, args: &Deploy) -> u8 {
             ..
         } => {
             if let Some(gates) = gates {
-                println!("offline gates:");
+                println!("gates:");
                 print_check_report(&gates, false);
                 println!();
             }
@@ -765,7 +794,7 @@ fn deploy_json(
             )
         }
         Ok(commands::deploy::DeployOutcome::GatesBlocked { report, .. }) => (
-            json!({"ok":false,"stage":"offline gates","findings":report.findings(),"broken":report.broken()}),
+            json!({"ok":false,"stage":"gates","findings":report.findings(),"broken":report.broken(),"blocking_gates":report.blocking(8)}),
             if report.broken() > 0 { FAILED } else { DRIFT },
         ),
         Err(error) => {

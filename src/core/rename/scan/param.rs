@@ -213,7 +213,7 @@ pub(crate) fn scan_param_script(
 /// Whether a call's receiver is one the rename reaches: `me` and `this` when the entity's own
 /// service is meant (`local`), or a Thing, named directly or through a variable, that is in
 /// `callers`.
-pub(super) fn is_caller_receiver(
+pub(crate) fn is_caller_receiver(
     script: &script::Script,
     receiver: &script::Receiver,
     local: bool,

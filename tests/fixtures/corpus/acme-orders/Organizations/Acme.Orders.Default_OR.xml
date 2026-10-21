@@ -1,0 +1,65 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Entities
+ majorVersion="10"
+ minorVersion="1"
+ universal="password">
+    <Organizations>
+        <Organization
+         description="Who may see the order lines."
+         documentationContent=""
+         homeMashup=""
+         loginButtonStyle=""
+         loginPrompt=""
+         loginResetPassword="false"
+         loginStyle=""
+         mobileMashup=""
+         name="Acme.Orders.Default_OR"
+         projectName="Acme.Orders"
+         resetMailContent=""
+         resetMailServer=""
+         resetMailSubject=""
+         tags="">
+            <avatar></avatar>
+            <DesignTimePermissions>
+                <Create></Create>
+                <Read></Read>
+                <Update></Update>
+                <Delete></Delete>
+                <Metadata></Metadata>
+            </DesignTimePermissions>
+            <RunTimePermissions></RunTimePermissions>
+            <VisibilityPermissions></VisibilityPermissions>
+            <ConfigurationTableDefinitions></ConfigurationTableDefinitions>
+            <ConfigurationTables></ConfigurationTables>
+            <loginImage></loginImage>
+            <Connections>
+                <Connection
+                 from=""
+                 to="Root"></Connection>
+                <Connection
+                 from="Root"
+                 to="Floor"></Connection>
+            </Connections>
+            <OrganizationalUnits>
+                <OrganizationalUnit
+                 description=""
+                 name="Root">
+                    <Members>
+                        <Members>
+                            <Member
+                             name="Acme.Orders.Operators_UG"
+                             type="Group"></Member>
+                        </Members>
+                    </Members>
+                </OrganizationalUnit>
+                <OrganizationalUnit
+                 description="The shop floor."
+                 name="Floor">
+                    <Members>
+                        <Members></Members>
+                    </Members>
+                </OrganizationalUnit>
+            </OrganizationalUnits>
+        </Organization>
+    </Organizations>
+</Entities>

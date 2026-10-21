@@ -11,12 +11,14 @@ exit: 0
       "depends_on": [],
       "entities": {
         "DataShapes": 2,
+        "Groups": 1,
         "Mashups": 1,
         "Networks": 1,
+        "Organizations": 1,
         "Projects": 1,
         "ThingShapes": 2,
         "ThingTemplates": 1,
-        "Things": 5
+        "Things": 6
       }
     }
   ],
@@ -198,6 +200,30 @@ exit: 0
       "shapes": [],
       "inherits": [
         "Timer"
+      ],
+      "implemented_by": [],
+      "referred_to_by": {
+        "structural": 0,
+        "resolved": 0,
+        "review": 0
+      },
+      "refers_to": {
+        "structural": 0,
+        "resolved": 0,
+        "review": 0
+      },
+      "service_count": 0
+    },
+    {
+      "entity": "Things/Acme.Orders.Station",
+      "collection": "Things",
+      "name": "Acme.Orders.Station",
+      "project": "Acme.Orders",
+      "file": "Things/Acme.Orders.Station.xml",
+      "template": "GenericThing",
+      "shapes": [],
+      "inherits": [
+        "GenericThing"
       ],
       "implemented_by": [],
       "referred_to_by": {

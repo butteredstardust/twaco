@@ -103,6 +103,9 @@ stale entries are notes. `--detail` includes every finding and its referrers, an
 structured counts and findings. References built at run time and script mentions are not inferred.
 `twaco requirements check --server --profile staging` also verifies the platform version,
 installed extension versions and entity existence using read-only requests; a failed read blocks.
+`deploy` runs the same server check against the server it is about to import into, as its
+`requirements` gate, so a missing extension or entity stops the deploy before anything is
+imported; `--skip-checks` skips it with the other gates.
 Both commands work through MCP as `requirements_init` (dry run by default) and `requirements_check`.
 
 `twaco check` runs every gate and exits 0 when no blocking gate fails; a `[[check]]` hook
@@ -120,7 +123,7 @@ without it, each gate gives a summary.
 | mashup bindings | a repository-resolved mashup service, result field or parameter is not declared; unresolved platform and inherited DataShape details are left unchecked |
 | mashup content | what `twaco mashup validate` finds in a mashup's content: a binding to a property, event or service its widget or data source does not have, a binding in the wrong direction, mixed container layouts. Widgets outside the catalogue (extensions) are not judged |
 | contained mashups | a binding to a contained mashup's or navigation function's parameter that its copy of the parameters lacks (the value is dropped) or that the mashup it shows no longer declares; `twaco mashup param set <mashup> <parameter>` refreshes every copy; a stale copy nothing binds is only counted |
-| localization tokens | an entity names a `[[token]]` under one of the solution's token prefixes that no Default table file holds (the label would show the raw text), a language table holds a token Default lacks, a token is in one table twice, or a table file cannot be read. Tokens outside the prefixes are the platform's or an extension's and are not checked |
+| localization tokens | an entity names a `[[token]]` under one of the solution's token prefixes that no Default table file holds (the label would show the raw text), a language table holds a token Default lacks, a token is in one table twice, or a table file cannot be read. Tokens outside the prefixes are the platform's or an extension's and are not checked. Notes, which never fail it: per language table, the solution's tokens it lacks (they show the Default text), and Default tokens no entity names as `[[token]]` or as a bare name |
 | result shapes | a service's script builds its result with `CreateInfoTableFromDataShape` from another DataShape than its definition declares, named by a literal or a `const` holding one (a mashup bound to the declared shape finds other fields). A name computed at run time is not checked |
 | requirements | `requirements.toml` exists and a collected dependency is undeclared or its version is declared lower; skipped when absent. Runs offline; list `requirements` in `[gates] advisory` to report without blocking |
 | your hooks | a `[[check]]` command fails ([Configuration](CONFIGURATION.md#check-your-own-gates)) |
@@ -213,7 +216,8 @@ repository if it matters, and then deploy, or `--force` to overwrite it on purpo
 `twaco deploy` imports the solution, or the part `--only <entity>` and `--only-projects`
 name. Without `--apply` it plans and stops. With it, it:
 
-1. runs the offline gates, unless `--skip-checks`;
+1. runs the gates, unless `--skip-checks`; with a `requirements.toml`, its `requirements` gate
+   reads the server (in a plan too), and a gate that blocks is listed with what it found;
 2. builds one bundle per project, projects in `depends_on` order, collections in the order
    the importer needs;
 3. plans the localization tables, as `twaco localization push` does, and stops on a table the
@@ -265,6 +269,15 @@ A base type that changed on something both sides have (a mashup parameter, a bin
 parameter, a field) is listed under its own heading, with the old and new type, whatever else
 changed: whoever passes the old type now sends a value the other side does not expect. `--json`
 and MCP `adopt_report` return them as `type_changes`.
+
+When an export changes a service parameter's base type, `adopt` lists the literal arguments
+repository scripts pass to it (`me.GetOrder({orderId: "42"})`, or through `Things[...]`) and
+whether the new type takes them, and checks the parameter's default. `--apply`, when it adopts
+that entity, rewrites each one that maps (`"42"` to `42` for a `LONG`) in the sidecar and the
+entity XML alike. One that does not map (`"abc"`) is left as written and named, and apply exits 1;
+MCP `adopt_apply` lists them as `unmapped`. Only service and subscription code is read; a
+variable or other expression is not a literal, and a script that declares its own `me` is
+skipped, since which Thing it calls cannot be told.
 
 | State | Meaning | Apply |
 | --- | --- | --- |

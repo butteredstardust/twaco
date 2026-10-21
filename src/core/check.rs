@@ -93,6 +93,24 @@ pub struct CheckReport {
 }
 
 impl CheckReport {
+    /// The gates that stop a run, each with what it found: its first `limit` findings, so a
+    /// command the gates refused says why without a second run. A gate that read a server (live
+    /// parse, requirements against the server) cannot be reproduced by `twaco check` alone.
+    pub fn blocking(&self, limit: usize) -> Vec<serde_json::Value> {
+        self.gates
+            .iter()
+            .filter(|gate| gate.blocks())
+            .map(|gate| {
+                serde_json::json!({
+                    "gate": gate.name,
+                    "findings": gate.findings.len(),
+                    "broken": gate.broken,
+                    "first": gate.findings.iter().take(limit).map(ToString::to_string).collect::<Vec<_>>(),
+                })
+            })
+            .collect()
+    }
+
     pub fn findings(&self) -> usize {
         self.gates.iter().map(|g| g.findings.len()).sum()
     }
@@ -421,7 +439,15 @@ fn sidecars_in_sync(solution: &Solution) -> GateResult {
     for problem in &found.unreadable {
         result.findings.push(Finding {
             gate: "sidecars".to_string(),
-            file: problem.split(':').next().unwrap_or(problem).to_string(),
+            // `<path>: <why>`; the first colon of a Windows path is its drive letter.
+            file: relative(
+                solution,
+                Path::new(
+                    problem
+                        .split_once(": ")
+                        .map_or(problem.as_str(), |(file, _)| file),
+                ),
+            ),
             line: 0,
             rule: "unreadable".to_string(),
             message: problem.clone(),
@@ -829,6 +855,33 @@ fn project_validation(solution: &Solution) -> GateResult {
 
 /// The offline half of `requirements check`, when the solution keeps a requirements.toml.
 fn requirements(solution: &Solution) -> GateResult {
+    requirements_gate(solution, None, &progress::NONE)
+}
+
+/// The requirements gate checked against the server a deploy is about to import into as well,
+/// so an extension, entity or platform the server lacks stops the deploy before any import.
+/// It replaces the offline gate of the same name in `report`.
+pub fn requirements_on_server(
+    solution: &Solution,
+    report: &mut CheckReport,
+    remote: &dyn super::requirements::Remote,
+    progress: &dyn Progress,
+) {
+    let gate = as_configured(
+        solution,
+        requirements_gate(solution, Some(remote), progress),
+    );
+    match report.gates.iter_mut().find(|g| g.name == gate.name) {
+        Some(slot) => *slot = gate,
+        None => report.gates.push(gate),
+    }
+}
+
+fn requirements_gate(
+    solution: &Solution,
+    server: Option<&dyn super::requirements::Remote>,
+    progress: &dyn Progress,
+) -> GateResult {
     let mut gate = GateResult::passed("requirements", 0);
     if !solution.root.join(super::requirements::FILE).exists() {
         gate.skipped =
@@ -837,7 +890,11 @@ fn requirements(solution: &Solution) -> GateResult {
     }
     let result = super::requirements::load(solution).and_then(|contract| {
         let collected = super::requirements::collect(solution)?;
-        Ok(super::requirements::offline(&contract, &collected))
+        let mut report = super::requirements::offline(&contract, &collected);
+        if let Some(remote) = server {
+            super::requirements::server_check(&contract, &collected, remote, &mut report, progress);
+        }
+        Ok(report)
     });
     match result {
         Ok(report) => {
@@ -1029,6 +1086,30 @@ fn localization_tokens(solution: &Solution) -> GateResult {
         "{} references to the solution's tokens checked in {} files; {} not checked (platform or extension tokens)",
         checked.checked, checked.files, checked.not_checked
     ));
+    // Notes, not findings: neither stops a deploy, and both are normal for a while.
+    let first = |names: &[String]| {
+        let shown: Vec<&str> = names.iter().take(5).map(String::as_str).collect();
+        let more = names.len().saturating_sub(shown.len());
+        if more == 0 {
+            shown.join(", ")
+        } else {
+            format!("{}, and {more} more", shown.join(", "))
+        }
+    };
+    for (table, names) in &checked.untranslated {
+        result.prose.push(format!(
+            "table {table}: {} of the solution's tokens untranslated, so they show the Default text: {}",
+            names.len(),
+            first(names)
+        ));
+    }
+    if !checked.unreferenced.is_empty() {
+        result.prose.push(format!(
+            "{} of the solution's Default tokens named by no entity (a name built at run time is not seen): {}",
+            checked.unreferenced.len(),
+            first(&checked.unreferenced)
+        ));
+    }
     result
 }
 
@@ -1259,19 +1340,39 @@ fn spawn_reader<R: std::io::Read + Send + 'static>(
 }
 
 /// The secret values a hook with `needs_credentials` inherits: the password, app key, token or
-/// secret variables twaco and its `TWX_` spellings read, as set in this process.
+/// secret variables twaco and its `TWX_` spellings read, as set in this process, and the
+/// `user:password` of any of their values that is a URL carrying one, whole, and its password
+/// alone, as written and decoded.
 fn credential_values() -> Vec<String> {
-    let mut values: Vec<String> = std::env::vars()
-        .filter(|(key, value)| {
-            let key = key.to_ascii_uppercase();
-            (key.starts_with("TWACO_") || key.starts_with("TWX_"))
-                && ["PASSWORD", "KEY", "SECRET", "TOKEN"]
-                    .iter()
-                    .any(|word| key.contains(word))
-                && value.len() >= 4
-        })
-        .map(|(_, value)| value)
-        .collect();
+    let mut values = Vec::new();
+    let mut userinfo = Vec::new();
+    for (key, value) in std::env::vars() {
+        let key = key.to_ascii_uppercase();
+        if !(key.starts_with("TWACO_") || key.starts_with("TWX_")) {
+            continue;
+        }
+        if ["PASSWORD", "KEY", "SECRET", "TOKEN"]
+            .iter()
+            .any(|word| key.contains(word))
+        {
+            values.push(value.clone());
+        }
+        let Ok(url) = url::Url::parse(&value) else {
+            continue;
+        };
+        if let Some(password) = url.password() {
+            // The pair is replaced whatever its length: with the colon it cannot be mistaken.
+            userinfo.push(format!("{}:{password}", url.username()));
+            values.push(password.to_string());
+            if let Ok(decoded) = percent_encoding::percent_decode_str(password).decode_utf8() {
+                values.push(decoded.into_owned());
+            }
+        }
+    }
+    // A short value alone would be replaced wherever those letters appear.
+    values.retain(|value| value.len() >= 4);
+    values.extend(userinfo);
+    values.dedup();
     // Longest first, so a secret that contains another is replaced whole.
     values.sort_by_key(|value| std::cmp::Reverse(value.len()));
     values
@@ -1649,6 +1750,75 @@ mod tests {
                 .all(|line| !line.contains("probe-value-7f3a")),
             "what a hook prints of its credentials is not printed: {:?}",
             with.prose
+        );
+    }
+
+    #[test]
+    fn a_password_inside_a_server_url_is_hidden_from_what_a_hook_prints() {
+        let (_dir, _, solution) = live_solution();
+        std::env::set_var(
+            "TWACO_URL_PROBE",
+            "https://probe-user:probe-url-4b9e@host.invalid/Thingworx",
+        );
+        std::env::set_var(
+            "TWX_URL_PROBE",
+            "https://probe-user:probe%40url-6c1d@host.invalid/Thingworx",
+        );
+        // A short password, a username that is itself the secret, and what a hook that decodes
+        // the URL prints.
+        std::env::set_var(
+            "TWACO_SHORT_URL_PROBE",
+            "https://probe-token-2e7a:abc@host.invalid/",
+        );
+        std::fs::write(
+            solution.root.join("decoded.txt"),
+            "decoded probe@url-6c1d
+",
+        )
+        .unwrap();
+        let printer: Vec<String> = if cfg!(windows) {
+            vec!["cmd".into(), "/C".into(), "set & type decoded.txt".into()]
+        } else {
+            vec!["sh".into(), "-c".into(), "env; cat decoded.txt".into()]
+        };
+        let result = run_hook(
+            &solution,
+            &super::super::config::Check {
+                name: "environment".to_string(),
+                command: printer,
+                gate: false,
+                needs_credentials: true,
+                timeout_seconds: 30,
+            },
+        );
+        std::env::remove_var("TWACO_URL_PROBE");
+        std::env::remove_var("TWX_URL_PROBE");
+        std::env::remove_var("TWACO_SHORT_URL_PROBE");
+
+        assert!(
+            result
+                .prose
+                .iter()
+                .any(|line| line.contains("TWACO_URL_PROBE=https://<redacted>@host")),
+            "{:?}",
+            result.prose
+        );
+        assert!(
+            result
+                .prose
+                .iter()
+                .all(|line| !line.contains("probe-url-4b9e")
+                    && !line.contains("probe%40url-6c1d")
+                    && !line.contains("probe@url-6c1d")
+                    && !line.contains("probe-token-2e7a")
+                    && !line.contains(":abc@")),
+            "{:?}",
+            result.prose
+        );
+        assert!(
+            result.prose.iter().any(|line| line == "decoded <redacted>"),
+            "{:?}",
+            result.prose
         );
     }
 

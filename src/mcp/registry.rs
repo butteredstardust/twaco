@@ -412,7 +412,7 @@ static TOOLS: LazyLock<Vec<Tool>> = LazyLock::new(|| {
         .with_output::<outputs::DbCleanResult>(),
         solution_progress_tool::<source_requests::DeployRequest>(
             "deploy",
-            "Deploy the solution: offline gates, one bundle per project in dependency order, every script parsed by the server (fails closed), a conflict check per entity, then import, read-back, and the project's deploy and post-import services. A dry run (a plan) unless dry_run is false.",
+            "Deploy the solution: the gates (requirements checked against the server), one bundle per project in dependency order, every script parsed by the server (fails closed), a conflict check per entity, then import, read-back, and the project's deploy and post-import services. A dry run (a plan) unless dry_run is false.",
             false,
             source::deploy_tool,
         )
