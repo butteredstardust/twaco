@@ -112,7 +112,8 @@ pub(crate) fn run(solution: &Solution) -> Report {
         .flat_map(|file| file.tokens.iter().map(|token| token.name.as_str()))
         .collect();
     let mut named: BTreeSet<String> = BTreeSet::new();
-    let mut texts: Vec<Vec<u8>> = Vec::new();
+    // Every name-like word of every entity and sidecar script, for tokens a script names bare.
+    let mut words: BTreeSet<Vec<u8>> = BTreeSet::new();
     for file in &workspace::discover(solution).entities {
         let Ok(bytes) = std::fs::read(&file.path) else {
             // The project gate reports a file it cannot read.
@@ -145,26 +146,37 @@ pub(crate) fn run(solution: &Solution) -> Report {
         if !found.is_empty() {
             report.files += 1;
         }
-        texts.push(bytes);
+        add_words(&bytes, &mut words);
+    }
+    // A script edited in its sidecar names a token before `sync` writes it into the entity.
+    for script in crate::core::workspace::script_files(solution).files {
+        if let Ok(bytes) = std::fs::read(&script) {
+            add_words(&bytes, &mut words);
+        }
     }
     report.unreferenced = defined
         .iter()
         .filter(|name| project_for(solution, name).is_some() && !named.contains(**name))
-        .filter(|name| !texts.iter().any(|text| names_bare(text, name.as_bytes())))
+        .filter(|name| !words.contains(name.as_bytes()))
         .map(|name| (*name).to_string())
         .collect();
     report
 }
 
-/// Whether `text` holds `name` whole: not inside a longer token name, so `Acme.Title` is not
-/// found in `Acme.TitleShort`.
-fn names_bare(text: &[u8], name: &[u8]) -> bool {
-    let part = |byte: u8| byte.is_ascii_alphanumeric() || matches!(byte, b'.' | b'_' | b'-');
-    text.windows(name.len()).enumerate().any(|(at, window)| {
-        window == name
-            && (at == 0 || !part(text[at - 1]))
-            && text.get(at + name.len()).is_none_or(|byte| !part(*byte))
-    })
+/// The whole words of `text` that could be a token name: runs of the bytes a name is made of, so
+/// `Acme.Title` is not found in `Acme.TitleShort` or `Acme:Title:Long`.
+fn add_words(text: &[u8], words: &mut BTreeSet<Vec<u8>>) {
+    let part = |byte: &u8| {
+        byte.is_ascii_alphanumeric() || matches!(byte, b'.' | b'_' | b'-' | b':') || *byte >= 0x80
+    };
+    for word in text
+        .split(|byte| !part(byte))
+        .filter(|word| !word.is_empty())
+    {
+        if !words.contains(word) {
+            words.insert(word.to_vec());
+        }
+    }
 }
 
 /// The longest token name looked for. Names are short keys; the bound keeps a file full of
@@ -345,6 +357,13 @@ collections = [\"Mashups\"]
             "localization/Acme.App_LocalizationTable_DE.xml",
             format!("{}{}", &german[..row], &german[end..]).as_bytes(),
         );
+        // A sidecar script names Open before `sync` writes it into its entity; a longer name
+        // holding Close is not Close.
+        write(
+            dir.path(),
+            "src/Acme.App.View/services/Load/script.js",
+            b"result = LocalizeToken(\"Acme.App.Open\") + \"Acme.App.Close:Long\";",
+        );
         let report = run(&solution);
         assert!(report.problems.is_empty(), "{:?}", report.problems);
         assert_eq!(
@@ -353,12 +372,7 @@ collections = [\"Mashups\"]
         );
         assert_eq!(
             report.unreferenced,
-            [
-                "Acme.App.Close",
-                "Acme.App.Delete",
-                "Acme.App.Help",
-                "Acme.App.Open"
-            ]
+            ["Acme.App.Close", "Acme.App.Delete", "Acme.App.Help"]
         );
     }
 

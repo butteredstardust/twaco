@@ -149,6 +149,11 @@ pub(crate) fn check_tool(
             if !gate.gates_the_run {
                 entry["advisory"] = json!(true);
             }
+            // What the gate said beside its findings: hook summaries, and notes such as the
+            // untranslated and unreferenced localization tokens.
+            if detail && !gate.prose.is_empty() {
+                entry["notes"] = json!(gate.prose);
+            }
             entry
         })
         .collect();

@@ -17,7 +17,8 @@ All notable changes to twaco are recorded here. The format follows
   Organization, or property values but matches no Thing or ThingTemplate: such a part hides
   nothing.
 - The `localization tokens` gate notes, without failing, each language table's untranslated
-  solution tokens and the Default tokens no entity names.
+  solution tokens and the Default tokens no entity or sidecar script names. MCP `check` with
+  `detail: true` gives each gate its `notes`.
 
 ### Changed
 

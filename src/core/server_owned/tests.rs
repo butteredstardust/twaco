@@ -817,7 +817,9 @@ fn children_any_order(bytes: &[u8]) -> (Attributes, Vec<Vec<u8>>) {
 
 /// A transfer that copied nothing would pass the identity law above. So each owned part is taken
 /// out (from a donor that has none of it) and put back (from the original): taking it out changes
-/// exactly that part, and putting it back restores the entity.
+/// exactly that part, and putting it back restores the entity. A whole table whose rows the source
+/// keys is refused when taking it out would change their structure; only the identity law covers
+/// such a table.
 #[test]
 fn every_owned_part_is_taken_out_and_put_back_alone_over_the_corpus() {
     let mut moved = BTreeMap::new();

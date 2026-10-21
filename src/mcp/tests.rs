@@ -3500,3 +3500,23 @@ fn requirements_tools_default_to_offline_plans_and_return_blocking_findings() {
     assert_eq!(init["annotations"]["destructiveHint"], false);
     assert_eq!(init["annotations"]["openWorldHint"], false);
 }
+
+#[test]
+fn check_with_detail_gives_each_gate_its_notes() {
+    let (_dir, root) = solution_dir();
+    std::fs::write(root.join("requirements.toml"), "").unwrap();
+    let notes = |detail: bool| {
+        let result = call(&root, "check", json!({ "detail": detail }));
+        result["structuredContent"]["gates"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|gate| gate["gate"] == "requirements")
+            .unwrap()["notes"]
+            .clone()
+    };
+    assert!(notes(true)[0]
+        .as_str()
+        .is_some_and(|note| note.starts_with("requirements:")));
+    assert!(notes(false).is_null(), "a summary leaves the notes out");
+}

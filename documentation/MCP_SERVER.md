@@ -131,7 +131,7 @@ in its text block. It has no `structuredContent`, which is kept for results that
 | Tool | Writes | What it does |
 | --- | --- | --- |
 | `projects` | no | The solution's projects, their roots and deploy order |
-| `check` | no | Every gate; `live: true` also parses every script on the server |
+| `check` | no | Every gate; `live: true` also parses every script on the server; `detail: true` adds each finding and each gate's notes |
 | `types` | workspace | Generate editor declarations, type-check every service, or cache the platform's |
 | `extract` | workspace | Entity XML to sidecars |
 | `sync` | workspace | Sidecars to entity XML |
