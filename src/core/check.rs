@@ -1086,6 +1086,30 @@ fn localization_tokens(solution: &Solution) -> GateResult {
         "{} references to the solution's tokens checked in {} files; {} not checked (platform or extension tokens)",
         checked.checked, checked.files, checked.not_checked
     ));
+    // Notes, not findings: neither stops a deploy, and both are normal for a while.
+    let first = |names: &[String]| {
+        let shown: Vec<&str> = names.iter().take(5).map(String::as_str).collect();
+        let more = names.len().saturating_sub(shown.len());
+        if more == 0 {
+            shown.join(", ")
+        } else {
+            format!("{}, and {more} more", shown.join(", "))
+        }
+    };
+    for (table, names) in &checked.untranslated {
+        result.prose.push(format!(
+            "table {table}: {} of the solution's tokens untranslated, so they show the Default text: {}",
+            names.len(),
+            first(names)
+        ));
+    }
+    if !checked.unreferenced.is_empty() {
+        result.prose.push(format!(
+            "{} of the solution's Default tokens named by no entity (a name built at run time is not seen): {}",
+            checked.unreferenced.len(),
+            first(&checked.unreferenced)
+        ));
+    }
     result
 }
 

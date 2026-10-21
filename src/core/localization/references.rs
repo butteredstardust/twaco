@@ -11,7 +11,7 @@ use super::ops::project_for;
 use super::{discover, problems, root, Problem, DEFAULT_TABLE};
 use crate::core::config::Solution;
 use crate::core::{scan, workspace};
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
 
 pub(crate) const GATE: &str = "localization tokens";
@@ -35,6 +35,11 @@ pub(crate) struct Report {
     /// References to tokens outside every project's prefixes.
     pub(crate) not_checked: usize,
     pub(crate) problems: Vec<TokenProblem>,
+    /// Per language table, the solution's Default tokens it lacks: they show the Default text.
+    pub(crate) untranslated: BTreeMap<String, Vec<String>>,
+    /// The solution's Default tokens that no entity names, as `[[name]]` or as the bare name a
+    /// script passes to a localization function. A name built at run time is not seen.
+    pub(crate) unreferenced: Vec<String>,
 }
 
 pub(crate) fn run(solution: &Solution) -> Report {
@@ -93,8 +98,11 @@ pub(crate) fn run(solution: &Solution) -> Report {
                      it. Add it with `twaco localization set {name} <value>`"
                 ),
             }),
-            // A missing translation shows the Default text: normal while a language is filled in.
-            Problem::Untranslated { .. } => {}
+            // A missing translation shows the Default text: normal while a language is filled
+            // in, so it is a note rather than a finding.
+            Problem::Untranslated { table, name } => {
+                report.untranslated.entry(table).or_default().push(name);
+            }
         }
     }
     let defined: BTreeSet<&str> = found
@@ -103,12 +111,15 @@ pub(crate) fn run(solution: &Solution) -> Report {
         .filter(|file| file.table == DEFAULT_TABLE)
         .flat_map(|file| file.tokens.iter().map(|token| token.name.as_str()))
         .collect();
+    let mut named: BTreeSet<String> = BTreeSet::new();
+    let mut texts: Vec<Vec<u8>> = Vec::new();
     for file in &workspace::discover(solution).entities {
         let Ok(bytes) = std::fs::read(&file.path) else {
             // The project gate reports a file it cannot read.
             continue;
         };
         let found = references(&bytes);
+        named.extend(found.iter().map(|(_, name)| name.clone()));
         let mut reported: BTreeSet<&str> = BTreeSet::new();
         for (line, name) in &found {
             let (line, name) = (*line, name.as_str());
@@ -134,8 +145,26 @@ pub(crate) fn run(solution: &Solution) -> Report {
         if !found.is_empty() {
             report.files += 1;
         }
+        texts.push(bytes);
     }
+    report.unreferenced = defined
+        .iter()
+        .filter(|name| project_for(solution, name).is_some() && !named.contains(**name))
+        .filter(|name| !texts.iter().any(|text| names_bare(text, name.as_bytes())))
+        .map(|name| (*name).to_string())
+        .collect();
     report
+}
+
+/// Whether `text` holds `name` whole: not inside a longer token name, so `Acme.Title` is not
+/// found in `Acme.TitleShort`.
+fn names_bare(text: &[u8], name: &[u8]) -> bool {
+    let part = |byte: u8| byte.is_ascii_alphanumeric() || matches!(byte, b'.' | b'_' | b'-');
+    text.windows(name.len()).enumerate().any(|(at, window)| {
+        window == name
+            && (at == 0 || !part(text[at - 1]))
+            && text.get(at + name.len()).is_none_or(|byte| !part(*byte))
+    })
 }
 
 /// The longest token name looked for. Names are short keys; the bound keeps a file full of
@@ -294,6 +323,42 @@ collections = [\"Mashups\"]
             problem.message.contains("[[Acme.App.Missing]]"),
             "{}",
             problem.message
+        );
+    }
+
+    #[test]
+    fn untranslated_and_unreferenced_solution_tokens_are_notes_not_findings() {
+        // Cancel as a label, Save as the bare name a script passes, and a longer name that holds
+        // Open but is not it.
+        let (dir, solution) = solution(
+            "{\"Text\":\"[[Acme.App.Cancel]]\",\"token\":\"Acme.App.Save\",\"x\":\"Acme.App.OpenAll\"}",
+        );
+        const GERMAN: &[u8] = include_bytes!(
+            "../../../tests/fixtures/localization/flat/Acme.App_LocalizationTable_DE.xml"
+        );
+        let german = String::from_utf8(GERMAN.to_vec()).unwrap();
+        let start = german.find("<![CDATA[Acme.App.Help]]>").unwrap();
+        let row = german[..start].rfind("<Row>").unwrap();
+        let end = german[start..].find("</Row>").unwrap() + start + "</Row>".len();
+        write(
+            dir.path(),
+            "localization/Acme.App_LocalizationTable_DE.xml",
+            format!("{}{}", &german[..row], &german[end..]).as_bytes(),
+        );
+        let report = run(&solution);
+        assert!(report.problems.is_empty(), "{:?}", report.problems);
+        assert_eq!(
+            report.untranslated.values().collect::<Vec<_>>(),
+            [&["Acme.App.Help".to_string()]]
+        );
+        assert_eq!(
+            report.unreferenced,
+            [
+                "Acme.App.Close",
+                "Acme.App.Delete",
+                "Acme.App.Help",
+                "Acme.App.Open"
+            ]
         );
     }
 

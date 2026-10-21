@@ -13,6 +13,8 @@ All notable changes to twaco are recorded here. The format follows
 - `doctor` warns when a `[[server_owned]]` rule names `members` but matches no Group or
   Organization, or property values but matches no Thing or ThingTemplate: such a part hides
   nothing.
+- The `localization tokens` gate notes, without failing, each language table's untranslated
+  solution tokens and the Default tokens no entity names.
 
 ### Changed
 
