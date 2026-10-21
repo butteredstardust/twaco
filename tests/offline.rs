@@ -271,6 +271,9 @@ fn requirements_init_and_check_are_offline_and_missing_declarations_exit_one() {
             .output()
             .unwrap()
     };
+    let offline_profile = run(&["requirements", "check", "--profile", "production"]);
+    assert_eq!(offline_profile.status.code(), Some(2));
+    assert!(String::from_utf8_lossy(&offline_profile.stderr).contains("it needs --server"));
     let missing = run(&["requirements", "check"]);
     assert!(!missing.status.success());
     assert!(String::from_utf8_lossy(&missing.stderr).contains("requirements init"));

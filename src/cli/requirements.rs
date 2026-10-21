@@ -74,6 +74,10 @@ pub(crate) fn requirements_cmd(solution: &Solution, command: &Requirements) -> u
             }
         }
         Requirements::Check(args) => {
+            if args.profile.profile.is_some() && !args.server {
+                eprintln!("--profile names the server to check against; it needs --server");
+                return FAILED;
+            }
             let progress = super::progress::reporter();
             match requirements::execute_check(
                 solution,

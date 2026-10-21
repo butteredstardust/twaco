@@ -1259,19 +1259,29 @@ fn spawn_reader<R: std::io::Read + Send + 'static>(
 }
 
 /// The secret values a hook with `needs_credentials` inherits: the password, app key, token or
-/// secret variables twaco and its `TWX_` spellings read, as set in this process.
+/// secret variables twaco and its `TWX_` spellings read, as set in this process, and the password
+/// of any of their values that is a URL with `user:password@` in it.
 fn credential_values() -> Vec<String> {
-    let mut values: Vec<String> = std::env::vars()
-        .filter(|(key, value)| {
-            let key = key.to_ascii_uppercase();
-            (key.starts_with("TWACO_") || key.starts_with("TWX_"))
-                && ["PASSWORD", "KEY", "SECRET", "TOKEN"]
-                    .iter()
-                    .any(|word| key.contains(word))
-                && value.len() >= 4
-        })
-        .map(|(_, value)| value)
-        .collect();
+    let mut values = Vec::new();
+    for (key, value) in std::env::vars() {
+        let key = key.to_ascii_uppercase();
+        if !(key.starts_with("TWACO_") || key.starts_with("TWX_")) {
+            continue;
+        }
+        if ["PASSWORD", "KEY", "SECRET", "TOKEN"]
+            .iter()
+            .any(|word| key.contains(word))
+        {
+            values.push(value.clone());
+        }
+        if let Some(password) = url::Url::parse(&value)
+            .ok()
+            .and_then(|url| url.password().map(str::to_string))
+        {
+            values.push(password);
+        }
+    }
+    values.retain(|value| value.len() >= 4);
     // Longest first, so a secret that contains another is replaced whole.
     values.sort_by_key(|value| std::cmp::Reverse(value.len()));
     values
@@ -1649,6 +1659,53 @@ mod tests {
                 .all(|line| !line.contains("probe-value-7f3a")),
             "what a hook prints of its credentials is not printed: {:?}",
             with.prose
+        );
+    }
+
+    #[test]
+    fn a_password_inside_a_server_url_is_hidden_from_what_a_hook_prints() {
+        let (_dir, _, solution) = live_solution();
+        std::env::set_var(
+            "TWACO_URL_PROBE",
+            "https://probe-user:probe-url-4b9e@host.invalid/Thingworx",
+        );
+        std::env::set_var(
+            "TWX_URL_PROBE",
+            "https://probe-user:probe%40url-6c1d@host.invalid/Thingworx",
+        );
+        let printer: Vec<String> = if cfg!(windows) {
+            vec!["cmd".into(), "/C".into(), "set".into()]
+        } else {
+            vec!["env".into()]
+        };
+        let result = run_hook(
+            &solution,
+            &super::super::config::Check {
+                name: "environment".to_string(),
+                command: printer,
+                gate: false,
+                needs_credentials: true,
+                timeout_seconds: 30,
+            },
+        );
+        std::env::remove_var("TWACO_URL_PROBE");
+        std::env::remove_var("TWX_URL_PROBE");
+
+        assert!(
+            result
+                .prose
+                .iter()
+                .any(|line| line.contains("TWACO_URL_PROBE=https://probe-user:<redacted>@host")),
+            "{:?}",
+            result.prose
+        );
+        assert!(
+            result
+                .prose
+                .iter()
+                .all(|line| !line.contains("probe-url-4b9e") && !line.contains("probe%40url-6c1d")),
+            "{:?}",
+            result.prose
         );
     }
 
