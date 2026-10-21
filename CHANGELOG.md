@@ -6,6 +6,8 @@ All notable changes to twaco are recorded here. The format follows
 
 ## [Unreleased]
 
+## [0.1.25] - 2026-10-21
+
 ### Added
 
 - `adopt` maps the literal arguments scripts pass to a service parameter the export retypes to
@@ -802,6 +804,7 @@ The first public release.
 - `mcp` serves 39 tools over stdio to MCP clients, with compact summaries, validated arguments
   and dry runs by default for tools that can write to a server.
 
+[0.1.25]: https://github.com/butteredstardust/twaco/releases/tag/v0.1.25
 [0.1.24]: https://github.com/butteredstardust/twaco/releases/tag/v0.1.24
 [0.1.23]: https://github.com/butteredstardust/twaco/releases/tag/v0.1.23
 [0.1.22]: https://github.com/butteredstardust/twaco/releases/tag/v0.1.22
