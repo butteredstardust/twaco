@@ -43,7 +43,7 @@ fn no_color_leaves_check_results_plain() {
 fn piped_output_is_plain_and_equals_the_stripped_coloured_output() {
     let plain = text(&twaco(&["check"], &[]).stdout);
     assert!(!plain.contains('\x1b'));
-    assert!(plain.contains("  ok      line endings   33 examined"));
+    assert!(plain.contains("  ok      line endings   36 examined"));
     // Strip the escapes from the coloured text. Nothing else may differ.
     let coloured = text(&twaco(&["check"], &[("FORCE_COLOR", "1")]).stdout);
     let mut stripped = String::new();

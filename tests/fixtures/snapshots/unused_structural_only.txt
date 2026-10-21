@@ -2,8 +2,8 @@ $ twaco unused --min-confidence structural --collection Things
 exit: 0
 
 --- stdout
-unused: 3 of 5 entities are not reached from any entry point (at structural confidence or stronger)
-  entry points  1 a mashup, 1 kept by [unused] keep, 1 runs on events
+unused: 3 of 6 entities are not reached from any entry point (at structural confidence or stronger)
+  entry points  1 a mashup, 2 kept by [unused] keep, 1 runs on events
 
   Things/Acme.Orders.Audit  (Acme.Orders)
       still named by Things/Acme.Orders.Manager (itself unreached)

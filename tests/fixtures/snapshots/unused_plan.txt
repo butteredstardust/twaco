@@ -2,8 +2,8 @@ $ twaco unused
 exit: 0
 
 --- stdout
-unused: 2 of 10 entities are not reached from any entry point (at review confidence or stronger)
-  entry points  1 a mashup, 1 kept by [unused] keep, 1 runs on events
+unused: 2 of 11 entities are not reached from any entry point (at review confidence or stronger)
+  entry points  1 a mashup, 2 kept by [unused] keep, 1 runs on events
 
   DataShapes/Acme.Orders.Retired_DS  (Acme.Orders)
       still named by ThingShapes/Acme.Orders.Legacy_TS (itself unreached)

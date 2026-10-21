@@ -693,3 +693,151 @@ fn encrypted_parts_cover_whole_tables_and_named_secret_properties_only() {
     let plain = document("Thing", "<ThingShape><PropertyDefinitions><PropertyDefinition name=\"speed\" baseType=\"NUMBER\"/></PropertyDefinitions></ThingShape>");
     assert!(encrypted(&plain, &all).unwrap().is_empty());
 }
+
+/// The bundled corpus and the real repositories `TWACO_CORPUS` names, as `tests/corpus.rs` reads
+/// them: every entity document in each.
+fn corpus_entities() -> Vec<(std::path::PathBuf, Vec<u8>)> {
+    let mut roots =
+        vec![std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("tests/fixtures/corpus/acme-orders")];
+    if let Some(paths) = std::env::var_os("TWACO_CORPUS") {
+        roots.extend(std::env::split_paths(&paths).filter(|p| p.is_dir()));
+    }
+    let mut files = Vec::new();
+    for root in roots {
+        let mut pending = vec![root];
+        while let Some(dir) = pending.pop() {
+            for entry in std::fs::read_dir(&dir).into_iter().flatten().flatten() {
+                let path = entry.path();
+                let name = entry.file_name();
+                if path.is_dir() {
+                    if !name.to_string_lossy().starts_with('.') && name != "target" {
+                        pending.push(path);
+                    }
+                } else if path.extension().is_some_and(|e| e == "xml") {
+                    let bytes = std::fs::read(&path).unwrap();
+                    // One entity per document, as twaco keeps them; exported bundles are skipped.
+                    if crate::core::entity::parse(&bytes).is_ok()
+                        && crate::core::normalise::entity_of(&bytes).is_ok()
+                    {
+                        files.push((path, bytes));
+                    }
+                }
+            }
+        }
+    }
+    files.sort();
+    files
+}
+
+/// Every part an entity document could have: each kind, and each configuration table it holds.
+fn every_part(bytes: &[u8]) -> Vec<Part> {
+    let mut parts: Vec<Part> = [
+        "members",
+        "run-time-permissions",
+        "visibility-permissions",
+        "property-values",
+    ]
+    .iter()
+    .flat_map(|label| part(label))
+    .collect();
+    let text = String::from_utf8_lossy(bytes);
+    for (at, _) in text.match_indices("<ConfigurationTable") {
+        let tag = &text[at..text[at..].find('>').map_or(text.len(), |end| at + end)];
+        if let Some(name) = tag
+            .split("name=\"")
+            .nth(1)
+            .and_then(|rest| rest.split('"').next())
+        {
+            if !name.is_empty() && !name.contains(['.', ':', ',', '/', '*', '\\', ' ']) {
+                parts.extend(part(&format!("configuration-table:{name}")));
+            }
+        }
+    }
+    parts
+}
+
+/// The server's presentation of the same content: no whitespace between tags, outside CDATA.
+fn exporter_presentation(bytes: &[u8]) -> Vec<u8> {
+    let text = String::from_utf8_lossy(bytes);
+    let mut out = String::new();
+    let mut rest = text.as_ref();
+    while !rest.is_empty() {
+        let (plain, cdata) = match rest.find("<![CDATA[") {
+            Some(at) => {
+                let end = rest[at..]
+                    .find("]]>")
+                    .map_or(rest.len(), |end| at + end + 3);
+                (&rest[..at], &rest[at..end])
+            }
+            None => (rest, ""),
+        };
+        let mut last = 0;
+        for (i, _) in plain.match_indices('>') {
+            let next = plain[i + 1..]
+                .find(|c: char| !c.is_ascii_whitespace())
+                .map_or(plain.len(), |n| i + 1 + n);
+            // Whitespace up to the next tag, or up to the CDATA section that follows.
+            if plain[next..].starts_with('<') || next == plain.len() && !cdata.is_empty() {
+                out.push_str(&plain[last..=i]);
+                last = next;
+            }
+        }
+        out.push_str(&plain[last..]);
+        out.push_str(cdata);
+        rest = &rest[plain.len() + cdata.len()..];
+    }
+    out.into_bytes()
+}
+
+#[test]
+fn preserving_every_part_from_the_same_content_is_the_identity_over_the_corpus() {
+    let mut owned_somewhere = BTreeMap::new();
+    let files = corpus_entities();
+    for (path, bytes) in &files {
+        let parts = every_part(bytes);
+        // Do not print entity payloads: a real corpus may hold encrypted values.
+        let name = path.display();
+        assert_eq!(
+            preserve(bytes, bytes, &parts).unwrap_or_else(|e| panic!("{name}: {e}")),
+            *bytes,
+            "{name}: a transfer from the same bytes changed them"
+        );
+        let presented = exporter_presentation(bytes);
+        let carried = preserve(bytes, &presented, &parts).unwrap_or_else(|e| panic!("{name}: {e}"));
+        assert_eq!(
+            crate::core::normalise::normalise(&carried).unwrap(),
+            crate::core::normalise::normalise(bytes).unwrap(),
+            "{name}: the server's presentation of the same content changed it"
+        );
+        // Which kinds own something here, so the laws above are not vacuous.
+        let whole = crate::core::normalise::comparison_tree(bytes, true).unwrap();
+        for one in &parts {
+            let mut tree = whole.clone();
+            omit(&mut tree, std::slice::from_ref(one));
+            if crate::core::normalise::canonical_element_bytes(&tree)
+                != crate::core::normalise::canonical_element_bytes(&whole)
+            {
+                let label = one.label();
+                let kind = label.split(':').next().unwrap().to_string();
+                *owned_somewhere.entry(kind).or_insert(0) += 1;
+            }
+        }
+    }
+    eprintln!(
+        "server-owned corpus: {} files; owned content by kind: {owned_somewhere:?}",
+        files.len()
+    );
+    for kind in [
+        "members",
+        "run-time-permissions",
+        "visibility-permissions",
+        "property-values",
+        "configuration-table",
+    ] {
+        assert!(
+            owned_somewhere.contains_key(kind),
+            "no corpus entity owns {kind}: {owned_somewhere:?}"
+        );
+    }
+}
