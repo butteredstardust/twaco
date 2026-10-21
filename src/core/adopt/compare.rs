@@ -180,6 +180,10 @@ pub(crate) fn compare_with(
         })
         .cloned()
         .collect();
+    let retypes = super::retype::retypes(solution, &report);
+    let (arguments, defaults) = super::retype::report(solution, &retypes, &exported)?;
+    report.retyped_arguments = arguments;
+    report.retyped_defaults = defaults;
     Ok(report)
 }
 

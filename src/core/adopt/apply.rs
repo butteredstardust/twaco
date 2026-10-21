@@ -7,11 +7,11 @@ use super::read::{
     entity_document, entity_span, export_entities, raw_entity, replace_entity_bytes,
     repository_entities,
 };
+use super::{retype, Change, Kind};
 use super::{
     AdoptError, ApplyOutcome, EntityRef, EntityReport, Report, ServiceReport, Take, TakeSide,
     TAKE_ALL_UI,
 };
-use super::{Change, Kind};
 use crate::core::config::Solution;
 use crate::core::lock::WorkspaceLock;
 use crate::core::normalise::{self, Element};
@@ -173,6 +173,7 @@ pub(crate) fn apply(
             )?,
         }
     }
+    map_retyped_arguments(solution, report, &here, &mut steps)?;
     let mut transaction = Transaction::new(&solution.root, "adopt");
     let mut lines = Vec::new();
     for (write, line) in steps {
@@ -252,6 +253,92 @@ pub(crate) fn apply(
         lines,
         types: super::super::types::refresh_after_write(solution, wrote),
     })
+}
+
+/// Rewrite the literal arguments scripts pass to the service parameters this apply retypes, so
+/// each is one the new base type takes. Only a retype whose entity this apply writes counts. Each
+/// script text is rewritten where it ends up: in a write already planned, or as a new write of its
+/// file, sidecar and entity XML alike so the two stay in step.
+fn map_retyped_arguments(
+    solution: &Solution,
+    report: &Report,
+    here: &BTreeMap<EntityRef, (Element, PathBuf)>,
+    steps: &mut Vec<(Option<Write>, String)>,
+) -> Result<(), AdoptError> {
+    let planned_xml: BTreeSet<PathBuf> = steps
+        .iter()
+        .filter_map(|(write, _)| match write {
+            Some(Write::Entity(path, _) | Write::Bytes(path, _)) => Some(path.clone()),
+            _ => None,
+        })
+        .collect();
+    let retypes: Vec<retype::Retype> = retype::retypes(solution, report)
+        .into_iter()
+        .filter(|retype| {
+            here.get(&retype.entity)
+                .is_some_and(|(_, path)| planned_xml.contains(path))
+        })
+        .collect();
+    if retypes.is_empty() {
+        return Ok(());
+    }
+    let mut added = Vec::new();
+    for entity in workspace::discover(solution).entities {
+        let caller = entity.info.name.as_str();
+        for path in retype::sidecar_scripts(solution, &entity) {
+            let planned = steps.iter_mut().find_map(|(write, _)| match write {
+                Some(Write::Services { dir, services, .. }) => services
+                    .values_mut()
+                    .find(|service| dir.join(&service.name).join("script.js") == path),
+                _ => None,
+            });
+            if let Some(service) = planned {
+                let whole = [scan::Span::new(0, service.script.len())];
+                if let Some(bytes) =
+                    retype::rewrite(service.script.as_bytes(), &whole, caller, &retypes)
+                {
+                    service.script = String::from_utf8(bytes).expect("a UTF-8 script stays UTF-8");
+                }
+                continue;
+            }
+            let bytes = std::fs::read(&path).map_err(|error| io_error(&path, error))?;
+            let whole = [scan::Span::new(0, bytes.len())];
+            if let Some(bytes) = retype::rewrite(&bytes, &whole, caller, &retypes) {
+                let line = format!("mapped   {}", relative_to(solution, &path));
+                added.push((Some(Write::Bytes(path, bytes)), line));
+            }
+        }
+        let planned = steps.iter_mut().find_map(|(write, _)| match write {
+            Some(Write::Bytes(path, bytes)) if *path == entity.path => Some(bytes),
+            _ => None,
+        });
+        if let Some(bytes) = planned {
+            let spans = retype::cdata_spans(bytes);
+            if let Some(rewritten) = retype::rewrite(bytes, &spans, caller, &retypes) {
+                *bytes = rewritten;
+            }
+            continue;
+        }
+        let planned_text = steps.iter_mut().find_map(|(write, _)| match write {
+            Some(Write::Entity(path, text)) if *path == entity.path => Some(text),
+            _ => None,
+        });
+        if let Some(text) = planned_text {
+            let spans = retype::cdata_spans(text.as_bytes());
+            if let Some(rewritten) = retype::rewrite(text.as_bytes(), &spans, caller, &retypes) {
+                *text = String::from_utf8(rewritten).expect("UTF-8 XML stays UTF-8");
+            }
+            continue;
+        }
+        let bytes = std::fs::read(&entity.path).map_err(|error| io_error(&entity.path, error))?;
+        let spans = retype::cdata_spans(&bytes);
+        if let Some(rewritten) = retype::rewrite(&bytes, &spans, caller, &retypes) {
+            let line = format!("mapped   {}", relative_to(solution, &entity.path));
+            added.push((Some(Write::Bytes(entity.path.clone(), rewritten)), line));
+        }
+    }
+    steps.extend(added);
+    Ok(())
 }
 
 /// One file or sidecar folder `apply` will write, worked out in full beforehand.

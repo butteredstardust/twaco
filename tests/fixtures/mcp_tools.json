@@ -2555,6 +2555,8 @@
         "absent",
         "changed",
         "type_changes",
+        "retyped_arguments",
+        "retyped_defaults",
         "identical",
         "base",
         "entities"
@@ -2587,6 +2589,14 @@
           "items": true
         },
         "type_changes": {
+          "type": "array",
+          "items": true
+        },
+        "retyped_arguments": {
+          "type": "array",
+          "items": true
+        },
+        "retyped_defaults": {
           "type": "array",
           "items": true
         },
@@ -2681,6 +2691,7 @@
       "required": [
         "applied",
         "reverts_not_applied",
+        "unmapped",
         "base",
         "entities",
         "services",
@@ -2697,6 +2708,11 @@
         "reverts_not_applied": {
           "type": "integer",
           "minimum": 0
+        },
+        "unmapped": {
+          "description": "Literal arguments and defaults of retyped service parameters that the new base type does\nnot take: left as written, for a person to change.",
+          "type": "array",
+          "items": true
         },
         "base": true,
         "entities": {

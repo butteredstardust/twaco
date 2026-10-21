@@ -270,6 +270,14 @@ parameter, a field) is listed under its own heading, with the old and new type, 
 changed: whoever passes the old type now sends a value the other side does not expect. `--json`
 and MCP `adopt_report` return them as `type_changes`.
 
+When an export changes a service parameter's base type, `adopt` lists the literal arguments
+repository scripts pass to it (`me.GetOrder({orderId: "42"})`, or through `Things[...]`) and
+whether the new type takes them, and checks the parameter's default. `--apply`, when it adopts
+that entity, rewrites each one that maps (`"42"` to `42` for a `LONG`) in the sidecar and the
+entity XML alike. One that does not map (`"abc"`) is left as written and named, and apply exits 1;
+MCP `adopt_apply` lists them as `unmapped`. A variable or other expression is not a literal and
+is not looked at.
+
 | State | Meaning | Apply |
 | --- | --- | --- |
 | same | both sides already agree | does nothing |

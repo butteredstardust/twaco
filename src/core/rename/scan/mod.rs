@@ -24,7 +24,8 @@ pub(crate) use findings::{
 pub(crate) use findings::{replace_file, review_mentions, Finding, Place, XmlPass};
 pub(crate) use mashup::{scan_param_mashup, scan_service_mashup};
 pub(crate) use param::{
-    scan_param_definition, scan_param_entity, scan_param_script, script_uses_identifier,
+    is_caller_receiver, scan_param_definition, scan_param_entity, scan_param_script,
+    script_uses_identifier,
 };
 pub(crate) use service::{
     has_local_service, scan_service_definition, scan_service_entity, scan_service_script,

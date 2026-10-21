@@ -1133,6 +1133,8 @@ pub(crate) struct AdoptReportResult {
     absent: Vec<String>,
     changed: Vec<Value>,
     type_changes: Vec<Value>,
+    retyped_arguments: Vec<Value>,
+    retyped_defaults: Vec<Value>,
     identical: u64,
     base: Value,
     entities: Vec<Value>,
@@ -1144,6 +1146,9 @@ pub(crate) struct AdoptApplyResult {
     /// What was written, one line each.
     applied: Vec<String>,
     reverts_not_applied: u64,
+    /// Literal arguments and defaults of retyped service parameters that the new base type does
+    /// not take: left as written, for a person to change.
+    unmapped: Vec<Value>,
     base: Value,
     entities: Vec<Value>,
     services: Vec<Value>,

@@ -25,6 +25,7 @@ mod classify;
 mod compare;
 mod flatten;
 mod read;
+mod retype;
 
 #[cfg(test)]
 mod apply_tests;
@@ -32,7 +33,10 @@ mod apply_tests;
 mod base_tests;
 #[cfg(test)]
 mod classify_tests;
+#[cfg(test)]
+mod retype_tests;
 
+use crate::core::basetype::Mapped;
 pub(crate) use apply::{apply, is_file_name};
 pub(crate) use base::{check_handoff, handoffs, record_handoff, Handoff, Side};
 pub use classify::{Change, Kind};
@@ -141,6 +145,49 @@ pub struct Report {
     pub unmatched_services: Vec<String>,
     /// In the repository, in a collection the export carries, but not in the export.
     pub absent: Vec<EntityRef>,
+    pub retyped_arguments: Vec<RetypedArgument>,
+    pub retyped_defaults: Vec<RetypedDefault>,
+}
+
+/// A literal argument a script passes to a service parameter the export retypes.
+#[derive(Debug, Clone)]
+pub struct RetypedArgument {
+    pub service_entity: String,
+    pub service: String,
+    pub parameter: String,
+    pub from: String,
+    pub to: String,
+    pub caller: String,
+    pub file: PathBuf,
+    pub line: usize,
+    pub literal: String,
+    pub(crate) mapped: Mapped,
+}
+
+impl RetypedArgument {
+    pub fn mapped_source(&self) -> Option<&str> {
+        match &self.mapped {
+            Mapped::Rewritten(text) => Some(text),
+            _ => None,
+        }
+    }
+    pub fn unmappable_why(&self) -> Option<&'static str> {
+        match self.mapped {
+            Mapped::Unmappable(why) => Some(why),
+            _ => None,
+        }
+    }
+}
+
+/// A retyped parameter's default value that the new base type does not take.
+#[derive(Debug, Clone)]
+pub struct RetypedDefault {
+    pub entity: String,
+    pub service: String,
+    pub parameter: String,
+    pub to: String,
+    pub default: String,
+    pub why: &'static str,
 }
 
 impl Report {

@@ -8,6 +8,9 @@ All notable changes to twaco are recorded here. The format follows
 
 ### Added
 
+- `adopt` maps the literal arguments scripts pass to a service parameter the export retypes to
+  values the new base type takes (`"42"` to `42` for a `LONG`), on apply, and names the ones it
+  cannot map and a default the new type does not take.
 - `deploy` checks `requirements.toml` against the server it deploys to, in its `requirements`
   gate: an unmet platform, extension or entity requirement stops it before any import.
 - `doctor` warns when a `[[server_owned]]` rule names `members` but matches no Group or

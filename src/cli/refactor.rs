@@ -116,6 +116,8 @@ pub(crate) fn adopt_cmd(solution: &Solution, args: &Adopt) -> u8 {
             "absent": report.absent.iter().map(adopt::EntityRef::path).collect::<Vec<_>>(),
             "changed": changed,
             "type_changes": report.type_changes().iter().map(|(entity, d)| serde_json::json!({ "entity": entity.path(), "path": d.path, "export": d.export, "repo": d.repo })).collect::<Vec<_>>(),
+            "retyped_arguments": report.retyped_arguments.iter().map(|a| serde_json::json!({ "service_entity": a.service_entity, "service": a.service, "parameter": a.parameter, "from": a.from, "to": a.to, "caller": a.caller, "file": solution.relative(&a.file), "line": a.line, "literal": a.literal, "mapped": a.mapped_source(), "why": a.unmappable_why() })).collect::<Vec<_>>(),
+            "retyped_defaults": report.retyped_defaults.iter().map(|d| serde_json::json!({ "entity": d.entity, "service": d.service, "parameter": d.parameter, "to": d.to, "default": d.default, "why": d.why })).collect::<Vec<_>>(),
             "identical": report.with_status(adopt::Status::Identical).count(),
             "base": report.base,
             "entities": report.entities.iter().map(|e| serde_json::json!({ "entity": e.entity.path(), "change": change_word(e.change), "kind": kind_word(e.kind) })).collect::<Vec<_>>(),
@@ -127,7 +129,7 @@ pub(crate) fn adopt_cmd(solution: &Solution, args: &Adopt) -> u8 {
     } else {
         print_adopt_report(solution, &report, args.detail.detail);
     }
-    if let Some(outcome) = applied {
+    if let Some(outcome) = applied.as_ref() {
         println!("\n=== applied ({}) ===", outcome.lines.len());
         for line in &outcome.lines {
             println!("  {line}");
@@ -150,6 +152,19 @@ pub(crate) fn adopt_cmd(solution: &Solution, args: &Adopt) -> u8 {
                 "The {reverts} service difference(s) above were not applied; they need a person."
             );
         }
+    }
+    let unmappable = report
+        .retyped_arguments
+        .iter()
+        .filter(|argument| argument.unmappable_why().is_some())
+        .count()
+        + report.retyped_defaults.len();
+    if applied.is_some() && unmappable > 0 {
+        eprintln!(
+            "{} {unmappable} retyped value(s) remain unmapped",
+            style::prefix()
+        );
+        return DRIFT;
     }
     if args.fail_on_revert && reverts > 0 {
         DRIFT
@@ -739,6 +754,44 @@ fn print_adopt_report(solution: &Solution, report: &adopt::Report, detail: bool)
                 difference.path,
                 difference.repo.as_deref().unwrap_or_default(),
                 difference.export.as_deref().unwrap_or_default()
+            );
+        }
+    }
+    if !report.retyped_arguments.is_empty() || !report.retyped_defaults.is_empty() {
+        println!("\n=== retyped service parameters ===");
+        for argument in &report.retyped_arguments {
+            match (argument.mapped_source(), argument.unmappable_why()) {
+                (Some(mapped), _) => println!(
+                    "  {} line {}: {} {} -> {}",
+                    argument.caller, argument.line, argument.parameter, argument.literal, mapped
+                ),
+                (_, Some(why)) => println!(
+                    "  {} line {}: {} {}: cannot map to {} ({why})",
+                    argument.caller,
+                    argument.line,
+                    argument.parameter,
+                    argument.literal,
+                    argument.to
+                ),
+                _ => println!(
+                    "  {} line {}: {} {} accepted by {}",
+                    argument.caller,
+                    argument.line,
+                    argument.parameter,
+                    argument.literal,
+                    argument.to
+                ),
+            }
+        }
+        for default in &report.retyped_defaults {
+            println!(
+                "  {} {}.{} default {:?}: cannot map to {} ({})",
+                default.entity,
+                default.service,
+                default.parameter,
+                default.default,
+                default.to,
+                default.why
             );
         }
     }

@@ -819,6 +819,12 @@ pub(crate) fn adopt_apply_tool(
     let mut result = json!({
         "applied": outcome.lines,
         "reverts_not_applied": report.reverts().count(),
+        "unmapped": report
+            .retyped_arguments
+            .iter()
+            .filter_map(|a| a.unmappable_why().map(|why| json!({ "caller": a.caller, "file": solution.relative(&a.file), "line": a.line, "parameter": a.parameter, "literal": a.literal, "to": a.to, "why": why })))
+            .chain(report.retyped_defaults.iter().map(|d| json!({ "entity": d.entity, "service": d.service, "parameter": d.parameter, "default": d.default, "to": d.to, "why": d.why })))
+            .collect::<Vec<_>>(),
         "base": report.base,
         "entities": report.entities.iter().map(adopt_entity_json).collect::<Vec<_>>(),
         "services": report.services.iter().map(adopt_service_json).collect::<Vec<_>>(),
@@ -897,6 +903,8 @@ pub(crate) fn adopt_tool(
         "absent": report.absent.iter().map(adopt::EntityRef::path).collect::<Vec<_>>(),
         "changed": changed,
         "type_changes": report.type_changes().iter().map(|(entity, d)| json!({ "entity": entity.path(), "path": d.path, "export": d.export, "repo": d.repo })).collect::<Vec<_>>(),
+        "retyped_arguments": report.retyped_arguments.iter().map(|a| json!({ "service_entity": a.service_entity, "service": a.service, "parameter": a.parameter, "from": a.from, "to": a.to, "caller": a.caller, "file": solution.relative(&a.file), "line": a.line, "literal": a.literal, "mapped": a.mapped_source(), "why": a.unmappable_why() })).collect::<Vec<_>>(),
+        "retyped_defaults": report.retyped_defaults.iter().map(|d| json!({ "entity": d.entity, "service": d.service, "parameter": d.parameter, "to": d.to, "default": d.default, "why": d.why })).collect::<Vec<_>>(),
         "identical": report.with_status(adopt::Status::Identical).count(),
         "base": report.base,
         "entities": report.entities.iter().map(adopt_entity_json).collect::<Vec<_>>(),
