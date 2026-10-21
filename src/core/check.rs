@@ -1259,10 +1259,12 @@ fn spawn_reader<R: std::io::Read + Send + 'static>(
 }
 
 /// The secret values a hook with `needs_credentials` inherits: the password, app key, token or
-/// secret variables twaco and its `TWX_` spellings read, as set in this process, and the password
-/// of any of their values that is a URL with `user:password@` in it.
+/// secret variables twaco and its `TWX_` spellings read, as set in this process, and the
+/// `user:password` of any of their values that is a URL carrying one, whole, and its password
+/// alone, as written and decoded.
 fn credential_values() -> Vec<String> {
     let mut values = Vec::new();
+    let mut userinfo = Vec::new();
     for (key, value) in std::env::vars() {
         let key = key.to_ascii_uppercase();
         if !(key.starts_with("TWACO_") || key.starts_with("TWX_")) {
@@ -1274,14 +1276,22 @@ fn credential_values() -> Vec<String> {
         {
             values.push(value.clone());
         }
-        if let Some(password) = url::Url::parse(&value)
-            .ok()
-            .and_then(|url| url.password().map(str::to_string))
-        {
-            values.push(password);
+        let Ok(url) = url::Url::parse(&value) else {
+            continue;
+        };
+        if let Some(password) = url.password() {
+            // The pair is replaced whatever its length: with the colon it cannot be mistaken.
+            userinfo.push(format!("{}:{password}", url.username()));
+            values.push(password.to_string());
+            if let Ok(decoded) = percent_encoding::percent_decode_str(password).decode_utf8() {
+                values.push(decoded.into_owned());
+            }
         }
     }
+    // A short value alone would be replaced wherever those letters appear.
     values.retain(|value| value.len() >= 4);
+    values.extend(userinfo);
+    values.dedup();
     // Longest first, so a secret that contains another is replaced whole.
     values.sort_by_key(|value| std::cmp::Reverse(value.len()));
     values
@@ -1673,10 +1683,22 @@ mod tests {
             "TWX_URL_PROBE",
             "https://probe-user:probe%40url-6c1d@host.invalid/Thingworx",
         );
+        // A short password, a username that is itself the secret, and what a hook that decodes
+        // the URL prints.
+        std::env::set_var(
+            "TWACO_SHORT_URL_PROBE",
+            "https://probe-token-2e7a:abc@host.invalid/",
+        );
+        std::fs::write(
+            solution.root.join("decoded.txt"),
+            "decoded probe@url-6c1d
+",
+        )
+        .unwrap();
         let printer: Vec<String> = if cfg!(windows) {
-            vec!["cmd".into(), "/C".into(), "set".into()]
+            vec!["cmd".into(), "/C".into(), "set & type decoded.txt".into()]
         } else {
-            vec!["env".into()]
+            vec!["sh".into(), "-c".into(), "env; cat decoded.txt".into()]
         };
         let result = run_hook(
             &solution,
@@ -1690,12 +1712,13 @@ mod tests {
         );
         std::env::remove_var("TWACO_URL_PROBE");
         std::env::remove_var("TWX_URL_PROBE");
+        std::env::remove_var("TWACO_SHORT_URL_PROBE");
 
         assert!(
             result
                 .prose
                 .iter()
-                .any(|line| line.contains("TWACO_URL_PROBE=https://probe-user:<redacted>@host")),
+                .any(|line| line.contains("TWACO_URL_PROBE=https://<redacted>@host")),
             "{:?}",
             result.prose
         );
@@ -1703,7 +1726,16 @@ mod tests {
             result
                 .prose
                 .iter()
-                .all(|line| !line.contains("probe-url-4b9e") && !line.contains("probe%40url-6c1d")),
+                .all(|line| !line.contains("probe-url-4b9e")
+                    && !line.contains("probe%40url-6c1d")
+                    && !line.contains("probe@url-6c1d")
+                    && !line.contains("probe-token-2e7a")
+                    && !line.contains(":abc@")),
+            "{:?}",
+            result.prose
+        );
+        assert!(
+            result.prose.iter().any(|line| line == "decoded <redacted>"),
             "{:?}",
             result.prose
         );

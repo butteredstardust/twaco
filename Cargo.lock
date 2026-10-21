@@ -3051,6 +3051,7 @@ dependencies = [
  "jsonschema",
  "minisign-verify",
  "owo-colors",
+ "percent-encoding",
  "petgraph",
  "proptest",
  "roxmltree",

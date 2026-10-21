@@ -389,7 +389,7 @@ permissions init [--project <name>] [--from-helper] [--apply] [--json]
 requirements init [--apply] [--json]
                             draft requirements.toml from external repository dependencies;
                             prints a plan unless --apply; refuses an existing file
-requirements check [--server] [--profile <name>] [--detail] [--json]
+requirements check [--server [--profile <name>]] [--detail] [--json]
                             check requirements.toml against the repository; stale entries are notes
     --server                also verify platform, extensions and entities on the server, read-only
     --detail                every finding with its referrers

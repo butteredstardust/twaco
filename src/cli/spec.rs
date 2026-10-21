@@ -1061,7 +1061,7 @@ pub(crate) const USAGE: &[Usage] = &[
     Usage {
         path: "requirements check",
         group: 2,
-        text: r#"  requirements check [--server] [--profile <name>] [--detail] [--json]
+        text: r#"  requirements check [--server [--profile <name>]] [--detail] [--json]
                               check requirements.toml against the repository; stale entries are notes
       --server                also verify platform, extensions and entities on the server, read-only
       --detail                every finding with its referrers"#,

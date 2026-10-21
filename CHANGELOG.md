@@ -9,10 +9,12 @@ All notable changes to twaco are recorded here. The format follows
 ### Fixed
 
 - A `[[check]]` hook with `needs_credentials` that printed a server URL carrying
-  `user:password@` printed the password; twaco now hides it like the other credentials.
+  `user:password@` printed the password; twaco now hides the user and password, and the
+  password alone, as written and decoded.
 - `requirements check --profile <name>` without `--server` ignored the profile; it now refuses.
-- A push refused for a missing baseline says how to settle it: compare, then push with
-  `--force` or adopt the server's copy, and record the baseline once both sides agree.
+- A push refused for a missing baseline says how to settle it: look at the server's copy,
+  bring its change in or overwrite it with `--force --apply`, and record the baseline once both
+  sides agree.
 
 ## [0.1.24] - 2026-10-21
 

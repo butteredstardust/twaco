@@ -53,11 +53,7 @@ impl fmt::Display for Refusal {
             ),
             Refusal::UnknownAncestor { server } => write!(
                 f,
-                "the server has a different version ({server}) and there is no baseline to say \
-                 which side changed; compare with `twaco entity status <entity> --detail`, then \
-                 push with --force if the repository is right, or `entity get --out` and `adopt` \
-                 the server's copy if it is; once both sides agree, `entity status --record` \
-                 records the baseline"
+                "the server has a different version ({server}) and there is no baseline to say                  which side changed; look at it with `twaco entity get <entity>` and bring its                  change into the repository if it matters, or overwrite it with --force --apply;                  once both sides agree, `twaco entity status <entity> --record` records the                  baseline"
             ),
             Refusal::Conflict { server, baseline } => write!(
                 f,
@@ -400,7 +396,7 @@ mod tests {
     #[test]
     fn a_push_with_no_baseline_says_how_to_settle_it() {
         let text = Refusal::UnknownAncestor { server: "s".into() }.to_string();
-        for step in ["--detail", "--force", "adopt", "--record"] {
+        for step in ["entity get <entity>", "--force --apply", "status <entity> --record"] {
             assert!(text.contains(step), "{step}: {text}");
         }
     }
