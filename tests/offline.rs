@@ -1851,3 +1851,44 @@ fn a_profile_other_users_can_read_is_warned_about_once_without_logs() {
     );
     assert!(stderr.contains("run chmod 600 on it"), "{stderr}");
 }
+
+#[test]
+fn a_deploy_the_gates_stop_says_what_each_blocking_gate_found() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path();
+    std::fs::write(root.join("twaco.toml"), "[[project]]\nname='Acme.App'\n").unwrap();
+    std::fs::create_dir_all(root.join("Things")).unwrap();
+    std::fs::write(root.join("Things/Broken.xml"), "<Entities><Things><Thing").unwrap();
+    let run = |args: &[&str]| {
+        Command::new(env!("CARGO_BIN_EXE_twaco"))
+            .args(args)
+            .current_dir(root)
+            .env_clear()
+            .output()
+            .unwrap()
+    };
+    let text = run(&["deploy"]);
+    assert_eq!(text.status.code(), Some(1));
+    let stdout = String::from_utf8_lossy(&text.stdout);
+    assert!(stdout.starts_with("gates:"), "{stdout}");
+    // Each blocking gate's finding, its file whole (not cut at a Windows drive letter).
+    assert!(
+        stdout.contains("Broken.xml [sidecars/unreadable]"),
+        "{stdout}"
+    );
+    assert!(
+        stdout.contains("Broken.xml [project/unreadable]"),
+        "{stdout}"
+    );
+    assert!(String::from_utf8_lossy(&text.stderr).contains("gates block deploy"));
+    let json = run(&["deploy", "--json"]);
+    let value: serde_json::Value = serde_json::from_slice(&json.stdout).unwrap();
+    assert_eq!(value["stage"], "gates");
+    assert!(value["blocking_gates"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|gate| gate["first"][0]
+            .as_str()
+            .is_some_and(|f| f.contains("Broken.xml [sidecars/unreadable]"))));
+}

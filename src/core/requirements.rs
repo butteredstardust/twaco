@@ -755,6 +755,27 @@ pub(crate) fn server_check(
     progress: &dyn Progress,
 ) {
     report.server_checked = true;
+    let mut entities: Vec<_> = contract
+        .entities
+        .iter()
+        .flat_map(|(collection, names)| {
+            names
+                .iter()
+                .map(move |name| (collection.as_str(), name.as_str()))
+        })
+        .collect();
+    entities.extend(
+        contract
+            .project
+            .iter()
+            .map(|p| ("Projects", p.name.as_str())),
+    );
+    // Opened before the platform and extension reads, which wait on the server too.
+    let _phase = progress::phase(
+        progress,
+        "checking requirements",
+        Some(entities.len() as u64),
+    );
     if let Some(platform) = &contract.platform {
         check_version(
             report,
@@ -786,26 +807,6 @@ pub(crate) fn server_check(
             );
         }
     }
-    let mut entities: Vec<_> = contract
-        .entities
-        .iter()
-        .flat_map(|(collection, names)| {
-            names
-                .iter()
-                .map(move |name| (collection.as_str(), name.as_str()))
-        })
-        .collect();
-    entities.extend(
-        contract
-            .project
-            .iter()
-            .map(|p| ("Projects", p.name.as_str())),
-    );
-    let _phase = progress::phase(
-        progress,
-        "checking requirements",
-        Some(entities.len() as u64),
-    );
     let answers = parallel::map_progress(&entities, progress, |(collection, name)| {
         progress.message(&format!("{collection}/{name}"));
         remote.entity_exists(collection, name)

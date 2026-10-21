@@ -13,8 +13,17 @@ All notable changes to twaco are recorded here. The format follows
 - `doctor` warns when a `[[server_owned]]` rule names `members` but matches no Group or
   Organization, or property values but matches no Thing: such a part hides nothing.
 
+### Changed
+
+- A deploy the gates stop lists what each blocking gate found (CLI text and `--json`, and MCP
+  `blocking_gates[].first`, all with `detail: true`), and its stage is `gates`, not
+  `offline gates`: the live parse and requirements gates read the server, so `twaco check` alone
+  could not show them.
+
 ### Fixed
 
+- On Windows, a gate's finding for an unreadable file named only the drive letter (`C`) as its
+  file.
 - A `[[check]]` hook with `needs_credentials` that printed a server URL carrying
   `user:password@` printed the password; twaco now hides the user and password, and the
   password alone, as written and decoded.

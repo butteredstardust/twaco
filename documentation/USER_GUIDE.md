@@ -216,7 +216,8 @@ repository if it matters, and then deploy, or `--force` to overwrite it on purpo
 `twaco deploy` imports the solution, or the part `--only <entity>` and `--only-projects`
 name. Without `--apply` it plans and stops. With it, it:
 
-1. runs the offline gates, unless `--skip-checks`;
+1. runs the gates, unless `--skip-checks`; with a `requirements.toml`, its `requirements` gate
+   reads the server (in a plan too), and a gate that blocks is listed with what it found;
 2. builds one bundle per project, projects in `depends_on` order, collections in the order
    the importer needs;
 3. plans the localization tables, as `twaco localization push` does, and stops on a table the

@@ -46,7 +46,11 @@ pub(crate) fn check(solution: &Solution) -> Vec<Problem> {
 
     for problem in &found.unreadable {
         problems.push(Problem {
-            file: problem.split(':').next().unwrap_or(problem).to_string(),
+            // `<path>: <why>`; the first colon of a Windows path is its drive letter.
+            file: problem
+                .split_once(": ")
+                .map_or(problem.as_str(), |(file, _)| file)
+                .to_string(),
             rule: "unreadable",
             message: problem.clone(),
         });

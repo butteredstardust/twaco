@@ -138,7 +138,7 @@ in its text block. It has no `structuredContent`, which is kept for results that
 | `fmt` | workspace | Format service scripts; `check: true` only reports |
 | `status` | baseline | Compare entities with the server and the baseline |
 | `push` | server | Import one entity, refusing a conflict |
-| `deploy` | server | The full deploy, in project order, with live parse and conflict checks |
+| `deploy` | server | The full deploy, in project order, with live parse, server requirements and conflict checks; a deploy the gates stop answers `stage: "gates"` and lists each blocking gate's findings |
 | `call` | server | Call a service; `with_logs` adds what it logged |
 | `adopt_report` | no | What a designer's Composer export really changes |
 | `adopt_apply` | workspace | Write the mechanical half of a designer's export |

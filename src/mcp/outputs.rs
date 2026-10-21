@@ -241,7 +241,7 @@ pub(crate) struct PushResult {
     notices: Notices,
 }
 
-/// A deploy that ran, one the offline gates stopped, and one the server refused each answer
+/// A deploy that ran, one the gates stopped (`blocking_gates` says what each found), and one the server refused each answer
 /// differently; `ok` and the stage it reached tell them apart.
 #[derive(Serialize, JsonSchema)]
 pub(crate) struct DeployResult {

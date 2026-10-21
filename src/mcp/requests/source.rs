@@ -109,7 +109,8 @@ pub(crate) struct DeployRequest {
     pub only_projects: Absent<Vec<String>>,
     #[serde(default)]
     pub backend_only: bool,
-    /// Skip the offline gates. The server's script parse still runs.
+    /// Skip the gates, the server requirements check among them. The server's script parse
+    /// during the deploy still runs.
     #[serde(default)]
     pub skip_checks: bool,
     /// Server profile name.

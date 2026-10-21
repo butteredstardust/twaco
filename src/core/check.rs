@@ -93,6 +93,24 @@ pub struct CheckReport {
 }
 
 impl CheckReport {
+    /// The gates that stop a run, each with what it found: its first `limit` findings, so a
+    /// command the gates refused says why without a second run. A gate that read a server (live
+    /// parse, requirements against the server) cannot be reproduced by `twaco check` alone.
+    pub fn blocking(&self, limit: usize) -> Vec<serde_json::Value> {
+        self.gates
+            .iter()
+            .filter(|gate| gate.blocks())
+            .map(|gate| {
+                serde_json::json!({
+                    "gate": gate.name,
+                    "findings": gate.findings.len(),
+                    "broken": gate.broken,
+                    "first": gate.findings.iter().take(limit).map(ToString::to_string).collect::<Vec<_>>(),
+                })
+            })
+            .collect()
+    }
+
     pub fn findings(&self) -> usize {
         self.gates.iter().map(|g| g.findings.len()).sum()
     }
@@ -421,7 +439,15 @@ fn sidecars_in_sync(solution: &Solution) -> GateResult {
     for problem in &found.unreadable {
         result.findings.push(Finding {
             gate: "sidecars".to_string(),
-            file: problem.split(':').next().unwrap_or(problem).to_string(),
+            // `<path>: <why>`; the first colon of a Windows path is its drive letter.
+            file: relative(
+                solution,
+                Path::new(
+                    problem
+                        .split_once(": ")
+                        .map_or(problem.as_str(), |(file, _)| file),
+                ),
+            ),
             line: 0,
             rule: "unreadable".to_string(),
             message: problem.clone(),

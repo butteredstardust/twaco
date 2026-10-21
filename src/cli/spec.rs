@@ -1133,7 +1133,7 @@ pub(crate) const USAGE: &[Usage] = &[
       --backend-only          exclude configured UI collections
       --only <entity>         include only this entity (repeatable)
       --only-projects <a,b>   include only these projects
-      --skip-checks           skip offline gates; live parse still runs
+      --skip-checks           skip the gates, server requirements too; scripts are still parsed
       --no-backup             with --force, do not save the server's copies first"#,
     },
     Usage {
