@@ -6,7 +6,7 @@ use crate::core::check;
 use crate::core::codes::{Coded, ErrorCode};
 use crate::core::config::Solution;
 use crate::core::progress::Progress;
-use crate::core::{deploy, localization, lock, network, profile};
+use crate::core::{deploy, localization, lock, network, profile, requirements};
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct DeployRequest {
@@ -51,11 +51,21 @@ impl DeployOutcome {
     }
 }
 
-/// A remote used by deploy, its pre-overwrite backup and its localization tables.
-pub trait Remote: deploy::Remote + backup::Remote + localization::Remote + network::Remote {}
+/// A remote used by deploy, its pre-overwrite backup, its localization tables and the
+/// requirements it checks before importing.
+pub trait Remote:
+    deploy::Remote + backup::Remote + localization::Remote + network::Remote + requirements::Remote
+{
+}
 
-impl<T: deploy::Remote + backup::Remote + localization::Remote + network::Remote + ?Sized> Remote
-    for T
+impl<
+        T: deploy::Remote
+            + backup::Remote
+            + localization::Remote
+            + network::Remote
+            + requirements::Remote
+            + ?Sized,
+    > Remote for T
 {
 }
 
@@ -209,25 +219,31 @@ where
     };
     let gates = if !request.skip_checks {
         let mut report = check::run(solution);
-        if solution.gates.live {
+        let on_server = solution.root.join(requirements::FILE).exists();
+        if solution.gates.live || on_server {
             match profile::load(&solution.root, &request.profile) {
                 Ok(profile) => {
                     let remote = open(profile);
-                    report.gates.push(check::live_parse_with_progress(
-                        solution,
-                        Ok(&DeployChecker(&remote)),
-                        progress,
-                    ));
+                    if solution.gates.live {
+                        report.gates.push(check::live_parse_with_progress(
+                            solution,
+                            Ok(&DeployChecker(&remote)),
+                            progress,
+                        ));
+                    }
+                    if on_server {
+                        check::requirements_on_server(solution, &mut report, &remote, progress);
+                    }
                 }
-                Err(error) => report.gates.push(check::live_parse_with_progress(
-                    solution,
-                    Err(error.to_string()),
-                    progress,
-                )),
+                // The profile error stops the deploy below; the offline requirements gate stands.
+                Err(error) if solution.gates.live => report.gates.push(
+                    check::live_parse_with_progress(solution, Err(error.to_string()), progress),
+                ),
+                Err(_) => {}
             }
         }
         if report.blocks() {
-            let server = if solution.gates.live {
+            let server = if solution.gates.live || on_server {
                 Access::Read
             } else {
                 Access::None
@@ -621,6 +637,19 @@ mod tests {
         }
     }
 
+    /// No test with this server keeps a requirements.toml.
+    impl requirements::Remote for Rejecting {
+        fn platform_version(&self) -> Result<String, String> {
+            unreachable!("no requirements to check")
+        }
+        fn extensions(&self) -> Result<std::collections::BTreeMap<String, String>, String> {
+            unreachable!("no requirements to check")
+        }
+        fn entity_exists(&self, _: &str, _: &str) -> Result<bool, String> {
+            unreachable!("no requirements to check")
+        }
+    }
+
     /// A solution of one Thing, a profile, and a Default table file holding `table`.
     fn with_table(table: &[u8]) -> (tempfile::TempDir, Solution) {
         let root_guard = tempfile::Builder::new()
@@ -861,6 +890,82 @@ name = \"Acme.App\"
         fn delete_token(&self, _: &str, _: &str) -> Result<(), crate::core::server::ServerError> {
             unreachable!("a deploy never prunes")
         }
+    }
+
+    /// A 10.0 server with no extensions installed.
+    impl requirements::Remote for Keeping {
+        fn platform_version(&self) -> Result<String, String> {
+            Ok("10.0.0".into())
+        }
+        fn extensions(&self) -> Result<std::collections::BTreeMap<String, String>, String> {
+            Ok(std::collections::BTreeMap::new())
+        }
+        fn entity_exists(&self, _: &str, _: &str) -> Result<bool, String> {
+            Ok(true)
+        }
+    }
+
+    #[test]
+    fn a_deploy_stops_before_any_import_when_the_server_lacks_a_requirement() {
+        let (_root, solution) = with_table(DEFAULT);
+        std::fs::write(
+            solution.root.join("requirements.toml"),
+            "[[extension]]
+name = \"Acme.Ext\"
+minimum = \"1.0.0\"
+",
+        )
+        .unwrap();
+        let server = Keeping::new(&solution, false);
+        let checked = DeployRequest {
+            skip_checks: false,
+            ..whole(Mode::Apply)
+        };
+        let outcome = execute(
+            &solution,
+            &checked,
+            |_| server.clone(),
+            &mut Notices::default(),
+            &crate::core::progress::NONE,
+        )
+        .unwrap();
+        let DeployOutcome::GatesBlocked { report, .. } = outcome else {
+            panic!("the unmet requirement blocks the deploy");
+        };
+        let gate = report
+            .gates
+            .iter()
+            .find(|gate| gate.name == "requirements")
+            .unwrap();
+        assert!(
+            gate.findings
+                .iter()
+                .any(|f| f.rule == "unmet" && f.message.contains("extension/Acme.Ext")),
+            "{gate:?}"
+        );
+        assert_eq!(
+            report
+                .gates
+                .iter()
+                .filter(|g| g.name == "requirements")
+                .count(),
+            1
+        );
+        assert!(
+            server.events.lock().unwrap().is_empty(),
+            "nothing was imported"
+        );
+
+        // Skipping the checks skips the server's requirements too.
+        let outcome = execute(
+            &solution,
+            &whole(Mode::Plan),
+            |_| server.clone(),
+            &mut Notices::default(),
+            &crate::core::progress::NONE,
+        )
+        .unwrap();
+        assert!(matches!(outcome, DeployOutcome::Complete { .. }));
     }
 
     #[test]

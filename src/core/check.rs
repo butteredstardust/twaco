@@ -829,6 +829,33 @@ fn project_validation(solution: &Solution) -> GateResult {
 
 /// The offline half of `requirements check`, when the solution keeps a requirements.toml.
 fn requirements(solution: &Solution) -> GateResult {
+    requirements_gate(solution, None, &progress::NONE)
+}
+
+/// The requirements gate checked against the server a deploy is about to import into as well,
+/// so an extension, entity or platform the server lacks stops the deploy before any import.
+/// It replaces the offline gate of the same name in `report`.
+pub fn requirements_on_server(
+    solution: &Solution,
+    report: &mut CheckReport,
+    remote: &dyn super::requirements::Remote,
+    progress: &dyn Progress,
+) {
+    let gate = as_configured(
+        solution,
+        requirements_gate(solution, Some(remote), progress),
+    );
+    match report.gates.iter_mut().find(|g| g.name == gate.name) {
+        Some(slot) => *slot = gate,
+        None => report.gates.push(gate),
+    }
+}
+
+fn requirements_gate(
+    solution: &Solution,
+    server: Option<&dyn super::requirements::Remote>,
+    progress: &dyn Progress,
+) -> GateResult {
     let mut gate = GateResult::passed("requirements", 0);
     if !solution.root.join(super::requirements::FILE).exists() {
         gate.skipped =
@@ -837,7 +864,11 @@ fn requirements(solution: &Solution) -> GateResult {
     }
     let result = super::requirements::load(solution).and_then(|contract| {
         let collected = super::requirements::collect(solution)?;
-        Ok(super::requirements::offline(&contract, &collected))
+        let mut report = super::requirements::offline(&contract, &collected);
+        if let Some(remote) = server {
+            super::requirements::server_check(&contract, &collected, remote, &mut report, progress);
+        }
+        Ok(report)
     });
     match result {
         Ok(report) => {

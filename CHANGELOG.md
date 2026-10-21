@@ -6,6 +6,11 @@ All notable changes to twaco are recorded here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- `deploy` checks `requirements.toml` against the server it deploys to, in its `requirements`
+  gate: an unmet platform, extension or entity requirement stops it before any import.
+
 ### Fixed
 
 - A `[[check]]` hook with `needs_credentials` that printed a server URL carrying

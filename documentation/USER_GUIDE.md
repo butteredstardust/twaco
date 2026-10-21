@@ -103,6 +103,9 @@ stale entries are notes. `--detail` includes every finding and its referrers, an
 structured counts and findings. References built at run time and script mentions are not inferred.
 `twaco requirements check --server --profile staging` also verifies the platform version,
 installed extension versions and entity existence using read-only requests; a failed read blocks.
+`deploy` runs the same server check against the server it is about to import into, as its
+`requirements` gate, so a missing extension or entity stops the deploy before anything is
+imported; `--skip-checks` skips it with the other gates.
 Both commands work through MCP as `requirements_init` (dry run by default) and `requirements_check`.
 
 `twaco check` runs every gate and exits 0 when no blocking gate fails; a `[[check]]` hook
