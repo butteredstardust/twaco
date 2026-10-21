@@ -1,14 +1,59 @@
 # Configuration
 
-twaco reads two kinds of configuration:
+twaco reads these configuration files:
 
 - **`twaco.toml`** describes the solution. It is committed. twaco looks for it in the working
   directory and then upwards, so any command works from any folder of the solution.
 - **Server profiles** say how to reach a ThingWorx server. They hold credentials and are
   never committed.
+- **`requirements.toml`** is an optional, committed contract for the dependencies the solution
+  needs from its server and does not ship itself.
 
 `twaco init` proposes a `twaco.toml` from the entities themselves; most solutions need little
 beyond what it writes.
+
+## `requirements.toml`
+
+An optional reviewed contract at the solution root, committed with the source. Draft it with
+`twaco requirements init`, then write it with `--apply`. Every section is optional. Unknown
+fields and unknown `[entities]` collection names are refused with the file and key to fix.
+
+```toml
+[platform]
+minimum = "10.1"
+
+[[extension]]
+name = "Acme.Base"
+minimum = "2.1.0"
+
+[[project]]
+name = "Acme.Shared"
+
+[entities]
+ThingTemplates = ["GenericThing", "Acme.ExternalTemplate"]
+ThingShapes = ["Acme.ExternalShape"]
+DataShapes = ["Acme.ExternalRows"]
+Things = ["Acme.ExternalEntryPoint"]
+Organizations = ["Acme.Shared_OR"]
+Groups = ["Acme.Operators"]
+Widgets = ["Acme.ExtensionWidget"]
+```
+
+Collection keys use ThingWorx collection names; only names the repository does not define
+belong here. The draft records a count of referring entities and the first sorted referrer per
+name. Extension minima come from Project `dependsOn` declarations, taking the highest version;
+external project names come from the same declarations. The platform minimum comes first from
+the highest non-empty Project `minPlatformVersion`, otherwise `[package] minimum_thingworx`,
+otherwise the highest export `Entities` major/minor version. Its comment records the source.
+Versions compare dotted numeric parts as integers, missing parts as zero, ignoring the first
+`-` and everything after it: `10.1.0-b47` equals `10.1`. Non-numeric parts are refused.
+
+`requirements check` checks the file offline. It blocks on undeclared dependencies or versions
+below the source declarations, and reports unused declarations as stale notes. Keep intentional
+runtime dependencies even when marked stale. `--server` additionally checks the platform,
+extension package versions, external projects and entities; unreadable server results block.
+The built-in `requirements` gate runs offline when the file exists; `[gates] advisory =
+["requirements"]` makes its findings advisory (a gate that cannot run still fails closed).
 
 ## `twaco.toml`
 
@@ -140,6 +185,68 @@ text, as it is: a value holding `"` or `\` inside a JSON string must be written 
 profile. Only a string, number, boolean or date can sit inside a longer string; an array or a
 table there, like an unknown key, stops the deploy before anything is imported.
 
+### `[[server_owned]]`
+
+Declare per-server state once, so comparisons omit it and imports preserve it:
+
+```toml
+[[server_owned]]
+entities = ["Groups/Acme.Admin_UG", "Groups/Acme.*_UG"]
+parts = ["members", "run-time-permissions"]
+
+[[server_owned]]
+entities = ["Things/Acme.Database"]
+parts = ["configuration-table:ConnectionInfo.password"]
+
+[[server_owned]]
+entities = ["Things/Acme.Manager"]
+parts = ["configuration-table:DatabaseConnectionConfiguration"]
+
+[[server_owned]]
+entities = ["Things/Acme.Sample*"]
+parts = ["property-values:speed,temperature"]
+```
+
+Both lists are required and nonempty. Entity patterns use a known collection and a name;
+`*` matches within the name, and other glob syntax is refused. Matching rules are combined.
+Unknown kinds, malformed selectors and unknown keys stop configuration loading.
+
+| Part | Owned content |
+| --- | --- |
+| `members` | A Group's direct `Members`, or the `Members` of an Organization's units. |
+| `run-time-permissions` | The entity's direct `RunTimePermissions`. |
+| `visibility-permissions` | The entity's direct `VisibilityPermissions`. |
+| `property-values` | All direct `ThingProperties`. |
+| `property-values:a,b` | Just the named property entries in that block. |
+| `configuration-table:Table` | The named direct `ConfigurationTables` table, including its definition and rows. |
+| `configuration-table:Table.column` | That column's cells in every row; its definition remains compared. |
+
+Table, column and property selectors are exact, case-sensitive names, without whitespace or
+selector separators (`:`, `,`, `.`, `/`, `*`, `\`). Unkeyed repeated rows correspond by position;
+rows with a known unowned key use that key, as adopt does. Keep row and Organization unit
+identities in source when owning only their cells or members. A transfer that would change
+unowned structure is refused before import, including with `--force`; own the whole table if
+the server also owns its row structure.
+
+Status (including `--record`), guards and read-back compare both sides without these parts.
+Applicable parts are fingerprinted in the hash: a policy change makes that entity's old
+baseline absent; entities without rules keep their existing hashes. `entity status --detail`
+names the parts; `doctor` warns when an entire rule matches no solution entity.
+
+For an existing server entity, push and deploy fetch its Exporter form and splice each owned
+part into the outgoing copy: replace, insert, or drop it according to the server. Server values
+stay in memory, except when an existing backup option saves them. Deploy prepares all owned
+copies before importing its project bundles. Plans and MCP results list these entities and
+parts (`--json` on CLI push and deploy). Repository files are unchanged. A fresh server receives the repository's initial values.
+Adopt neither reports nor takes owned content from a designer's export.
+
+An encrypted value cannot be carried: the Importer encrypts the Exporter's ciphertext again and
+the Thing is left with a wrong password. So an owned `PASSWORD` column, a whole owned table with
+one, or an owned `PASSWORD` property the entity defines is still left out of comparisons, but an
+import sends the repository's value and clears the server's. `entity push` refuses such an
+entity unless `--force`; set the value again after the import, as a deploy hook that supplies
+the credentials does.
+
 ### `[bundle]`
 
 `twaco bundle` and `twaco deploy` build one importable document from the repository.
@@ -164,7 +271,7 @@ layout once.
 `advisory` names built-in gates whose findings are reported (as `warn`) without failing
 `check` or blocking `deploy`: `line endings`, `sidecars`, `formatting`, `script traps`,
 `code order`, `project`, `mashup bindings`, `mashup content`, `contained mashups`, `localization tokens`,
-`result shapes`, `networks`. The live parse is not among them: `deploy` always has the server
+`result shapes`, `networks`, `requirements`. The live parse is not among them: `deploy` always has the server
 parse every script, and stops on a script it refuses. It is for a solution adopting twaco over code written
 before those gates existed; take a gate off the list once its findings are fixed. A gate that
 cannot run still fails, and a name that is not a gate is refused.

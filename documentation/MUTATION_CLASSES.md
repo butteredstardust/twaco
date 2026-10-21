@@ -42,6 +42,8 @@ when the command is asked to write. A local output named by an option is include
 | `sync --all` | best-effort batch | best-effort batch | entity XML, declarations, `datatable.json` of a DataTable whose DataShape changed | Each entity file is written once, atomically, with every kind of sidecar that synced (a kind that is refused is reported, and the others are still written); a DataTable's `datatable.json` is written after its XML, and a crash between the two is put right by the next sync. Earlier entities remain synced. Retry failed entities. | `core/commands/sync.rs: execute` |
 | `fmt` | best-effort batch | best-effort batch | script sidecars | Earlier scripts remain formatted; retry reported scripts. | `core/commands/fmt.rs: execute` |
 | `check` | read-only | read-only | none | Retry freely. | `core/check.rs: run` |
+| `requirements init` | read-only | single-file atomic | new `requirements.toml` | Creation is atomic and refuses an existing file; inspect it and use requirements check. | `core/commands/requirements.rs: execute_init` |
+| `requirements check` | read-only | read-only | none; optional server reads | Retry freely. Server read errors block. | `core/commands/requirements.rs: execute_check` |
 | `bundle` | read-only | single-file atomic | generated bundle and optional handoff | The generated bundle is old or new; an applied handoff is available as a base. Retry freely. | `core/commands/bundle.rs: execute` |
 | `deploy` | read-only | server-partial | server, baseline, backups, localization tables | Read back reported imports and baseline; use the plan and backups before retrying. A localization failure after the imports says so; `localization push --apply` retries the tables. | `core/commands/deploy.rs: execute` |
 | `call` | server-partial | server-partial | service effects | Inspect the service's effects and logs before retrying. | `core/commands/call.rs: execute` |
@@ -77,6 +79,7 @@ when the command is asked to write. A local output named by an option is include
 | `import source-control` | read-only | server-partial | server entities | Read the post-import diff before retrying. | `core/imports.rs: import_source_control` |
 | `settings` | read-only | read-only | none | Retry freely. | `cli/info.rs: settings_cmd` |
 | `catalog` | read-only | read-only | none | Retry freely. | `cli/info.rs: catalog_cmd` |
+| `contract diff` | read-only | read-only | none | Retry freely. | `core/contract.rs: diff` |
 | `impact` | read-only | read-only | none | Retry freely. | `core/impact.rs: run` |
 | `trace` | read-only | read-only | none | Retry freely. | `core/trace.rs: run` |
 | `unused` | read-only | read-only | none | Retry freely. | `core/unused.rs: run` |
@@ -191,6 +194,8 @@ when the command is asked to write. A local output named by an option is include
 | `entity_restore` | read-only | server-partial | server entities | Read restored entities back before retrying. | `core/commands/restore.rs: execute` |
 | `entity_carry` | read-only | server-partial | server permissions, ledger | Read permissions and ledger before retrying. | `core/commands/carry.rs: execute` |
 | `permissions_init` | read-only | multi-file atomic | new permissions.toml files | One transaction of new files; an existing policy is never touched. | `core/commands/permissions.rs: execute_init` |
+| `requirements_init` | read-only | single-file atomic | new `requirements.toml` | Atomic creation refuses an existing contract; inspect it and use requirements_check. | `core/commands/requirements.rs: execute_init` |
+| `requirements_check` | read-only | read-only | none; optional server reads | Retry freely. Server read errors block. | `core/commands/requirements.rs: execute_check` |
 | `permissions_audit` | read-only | read-only | none | Retry freely. | `core/permissions/audit.rs: audit` |
 | `permissions_apply` | read-only | multi-file atomic | entity XML | One transaction; run `permissions_audit` before retrying. | `core/commands/permissions.rs: execute_apply` |
 | `permissions` | read-only | read-only | none | Retry freely. | `core/commands/permissions.rs: execute` |
@@ -245,6 +250,7 @@ when the command is asked to write. A local output named by an option is include
 | `import` | read-only | server-partial | server entities | Compare again with the server before retrying. | `core/commands/imports.rs: execute` |
 | `settings` | read-only | read-only | none | Retry freely. | `mcp/info.rs: settings_tool` |
 | `catalog` | read-only | read-only | none | Retry freely. | `mcp/info.rs: catalog_tool` |
+| `contract_diff` | read-only | read-only | none | Retry freely. | `core/contract.rs: diff` |
 | `impact` | read-only | read-only | none | Retry freely. | `mcp/info.rs: impact_tool` |
 | `trace` | read-only | read-only | none | Retry freely. | `mcp/info.rs: trace_tool` |
 | `unused` | read-only | read-only | none | Retry freely. | `mcp/info.rs: unused_tool` |

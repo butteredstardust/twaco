@@ -6,6 +6,33 @@ All notable changes to twaco are recorded here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- `[[server_owned]]` declares members, permissions, configuration tables or cells, and property
+  values that belong to each server. Status and guards omit them; push and deploy preserve the
+  current Exporter values in memory, and adopt keeps the repository's copy. Changed ownership
+  rules invalidate the affected baselines. Status detail and plans expose the parts over CLI
+  and MCP; push and deploy accept `--json`, and doctor reports rules that match no entity.
+  An encrypted owned value is compared out but never carried, since an import cannot carry it;
+  `entity push` refuses such an entity without `--force`.
+
+- `contract diff --against <git rev>` compares public contracts offline, classifies breaking
+  and compatible changes, recognizes ledger renames and lists current repository callers.
+  Exit 1 flags breaking changes for CI; MCP exposes the read-only `contract_diff` tool.
+
+- `requirements init` drafts a reviewed `requirements.toml` for external entities, extensions,
+  projects and the minimum platform version. `requirements check` gates the repository offline;
+  `--server` also verifies the dependencies with read-only server requests. MCP exposes
+  `requirements_init` and `requirements_check`, and `check` runs the offline requirements gate
+  when the contract exists (advisory through `[gates] advisory`).
+
+### Fixed
+
+- `adopt` preserves repository bytes and set-member order for unchanged content, lays out real
+  changes like the repository, and strips incoming export-only metadata.
+- `entity status --record` reports the recorded count and post-record verdicts and exit status.
+- Repository entity operands accept `Collection/Name`, including collection-scoped short names.
+
 ## [0.1.23] - 2026-10-19
 
 ## [0.1.22] - 2026-10-19

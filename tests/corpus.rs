@@ -36,6 +36,139 @@ fn bundled_roots() -> Vec<PathBuf> {
     roots
 }
 
+/// Exporter presentation, retaining lexical values and CDATA boundaries.
+fn flatten_entity(src: &[u8]) -> Vec<u8> {
+    let tokens = scan::tokenize(src).unwrap();
+    let mut out = Vec::new();
+    let mut at = 0;
+    while at < tokens.len() {
+        let t = &tokens[at];
+        match t.kind {
+            Kind::Text if t.span.of(src).iter().all(u8::is_ascii_whitespace) => {}
+            Kind::Cdata => {
+                out.extend_from_slice(b"<![CDATA[");
+                out.extend_from_slice(
+                    std::str::from_utf8(t.inner.of(src))
+                        .unwrap()
+                        .trim_matches([' ', '\t', '\r', '\n'])
+                        .as_bytes(),
+                );
+                out.extend_from_slice(b"]]>");
+            }
+            Kind::Start | Kind::Empty => {
+                out.push(b'<');
+                out.extend_from_slice(t.name.of(src));
+                for a in scan::attributes(src, t).unwrap() {
+                    assert_ne!(a.name.of(src), b"lastModifiedDate");
+                    out.push(b' ');
+                    out.extend_from_slice(&src[a.name.start..a.value.end + 1]);
+                }
+                if at == 0 {
+                    out.extend_from_slice(b" lastModifiedDate=\"0\"");
+                }
+                if t.kind == Kind::Empty || tokens.get(at + 1).is_some_and(|t| t.kind == Kind::End)
+                {
+                    out.extend_from_slice(b"/>");
+                    if t.kind == Kind::Start {
+                        at += 1;
+                    }
+                } else {
+                    out.push(b'>');
+                }
+            }
+            Kind::End if at == tokens.len() - 1 => {
+                out.extend_from_slice(b"<Owner>Acme.Exporter</Owner>");
+                out.extend_from_slice(t.span.of(src));
+            }
+            _ => out.extend_from_slice(t.span.of(src)),
+        }
+        at += 1;
+    }
+    out
+}
+
+#[test]
+fn incoming_entity_layout_roundtrips_every_corpus_file() {
+    let mut passed = 0;
+    for root in corpus_roots() {
+        let config: toml::Value =
+            toml::from_str(&std::fs::read_to_string(root.join("twaco.toml")).unwrap()).unwrap();
+        let indent_cdata_payload = config
+            .get("format")
+            .and_then(|f| f.get("indent_cdata_payload"))
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false);
+        for path in xml_files(&root) {
+            let src = std::fs::read(&path).unwrap();
+            let Ok(info) = twaco::core::entity::parse(&src) else {
+                continue;
+            };
+            let tokens = scan::tokenize(&src).unwrap();
+            let Some(at) = tokens.iter().position(|t| {
+                matches!(t.kind, Kind::Start | Kind::Empty)
+                    && scan::attribute(&src, t, "name")
+                        .ok()
+                        .flatten()
+                        .is_some_and(|v| {
+                            scan::decode_entities(std::str::from_utf8(v.of(&src)).unwrap())
+                                == info.name
+                        })
+            }) else {
+                panic!("no entity token");
+            };
+            let end = scan::element_end_in(&tokens, &src, at).unwrap();
+            let span = scan::Span::new(tokens[at].span.start, tokens[end].span.end);
+            let entity = span.of(&src);
+            let flat = flatten_entity(entity);
+            let formatted =
+                twaco::core::layout::entity(&flat, Some(entity), indent_cdata_payload).unwrap();
+            if formatted != entity {
+                let offset = formatted
+                    .iter()
+                    .zip(entity)
+                    .position(|(a, b)| a != b)
+                    .unwrap_or(formatted.len().min(entity.len()));
+                eprintln!(
+                    "first layout mismatch: line {}, byte {}; expected length {}, actual {}",
+                    entity[..offset.min(entity.len())]
+                        .iter()
+                        .filter(|b| **b == b'\n')
+                        .count()
+                        + 1,
+                    offset,
+                    entity.len(),
+                    formatted.len()
+                );
+            }
+            // Do not print entity payloads: a real corpus may contain encrypted values.
+            assert!(
+                formatted == entity,
+                "layout round-trip failed for {}/{}",
+                info.collection,
+                info.name
+            );
+            let identity =
+                twaco::core::layout::entity(entity, Some(entity), indent_cdata_payload).unwrap();
+            assert!(
+                identity == entity,
+                "layout idempotence failed for {}/{}",
+                info.collection,
+                info.name
+            );
+            let rebuilt = splice::splice(&src, &[Edit::new(span, formatted)]).unwrap();
+            assert!(
+                rebuilt == src,
+                "file round-trip failed for {}/{}",
+                info.collection,
+                info.name
+            );
+            passed += 1;
+        }
+    }
+    eprintln!("entity layout corpus: {passed} files round-trip and are idempotent");
+    assert!(passed >= 13);
+}
+
 /// The bundled repositories, then the real ones `TWACO_CORPUS` names.
 fn corpus_roots() -> Vec<PathBuf> {
     let mut roots = bundled_roots();

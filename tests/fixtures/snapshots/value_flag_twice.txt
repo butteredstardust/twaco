@@ -6,6 +6,6 @@ exit: 2
 --- stderr
 twaco: the argument '--profile <name>' cannot be used multiple times
 
-Usage: twaco deploy [--apply] [--force]
+Usage: twaco deploy [--apply] [--force] [--json]
 
 For more information, try '--help'.

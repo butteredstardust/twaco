@@ -357,8 +357,7 @@ pub(crate) fn compare_with(
                 },
             }),
             Some((repo_element, _)) => {
-                let mut compared =
-                    compare_entity(entity, element, repo_element, &solution.adopt.ignore_paths);
+                let mut compared = compare_owned_entity(solution, entity, element, repo_element);
                 compared.project = project;
                 compared.kind = kind;
                 compared.change = entity_change(
@@ -414,18 +413,19 @@ fn entity_change(
     base: Option<&Element>,
     source: Option<&Path>,
 ) -> Change {
-    if entity_same(entity, theirs, ours, &solution.adopt.ignore_paths) {
+    let same = |left: &Element, right: &Element| {
+        compare_owned_entity(solution, entity, left, right)
+            .differences
+            .is_empty()
+    };
+    if same(theirs, ours) {
         Change::Same
     } else if let Some(base) = base {
-        classify::three_way(
-            entity_same(entity, theirs, base, &solution.adopt.ignore_paths),
-            entity_same(entity, ours, base, &solution.adopt.ignore_paths),
-        )
+        classify::three_way(same(theirs, base), same(ours, base))
     } else if source.is_some_and(|source| {
-        history_versions(solution, source, 50).iter().any(|bytes| {
-            entity_from_bytes(bytes, entity)
-                .is_some_and(|old| entity_same(entity, theirs, &old, &solution.adopt.ignore_paths))
-        })
+        history_versions(solution, source, 50)
+            .iter()
+            .any(|bytes| entity_from_bytes(bytes, entity).is_some_and(|old| same(theirs, &old)))
     }) {
         Change::Stale
     } else {
@@ -433,10 +433,22 @@ fn entity_change(
     }
 }
 
-fn entity_same(entity: &EntityRef, left: &Element, right: &Element, ignore: &[String]) -> bool {
-    compare_entity(entity, left, right, ignore)
-        .differences
-        .is_empty()
+fn compare_owned_entity(
+    solution: &Solution,
+    entity: &EntityRef,
+    left: &Element,
+    right: &Element,
+) -> EntityReport {
+    let parts =
+        super::server_owned::parts(&solution.server_owned, &entity.collection, &entity.name);
+    if parts.is_empty() {
+        return compare_entity(entity, left, right, &solution.adopt.ignore_paths);
+    }
+    let mut left = normalise::comparison_element(left.clone(), true);
+    let mut right = normalise::comparison_element(right.clone(), true);
+    super::server_owned::omit(&mut left, &parts);
+    super::server_owned::omit(&mut right, &parts);
+    compare_entity(entity, &left, &right, &solution.adopt.ignore_paths)
 }
 
 fn entity_from_bytes(bytes: &[u8], wanted: &EntityRef) -> Option<Element> {
@@ -754,7 +766,7 @@ fn flatten_json(value: &Value, prefix: &str, out: &mut BTreeMap<String, String>)
 }
 
 /// The value a `<Row>` identifies itself by, if it has one.
-fn row_key(element: &Element) -> Option<String> {
+pub(crate) fn row_key(element: &Element) -> Option<String> {
     if !is_named(element, "Row") {
         return None;
     }
@@ -1196,7 +1208,12 @@ fn validate_takes(report: &Report, takes: &[Take]) -> Result<(), AdoptError> {
     let known: BTreeSet<String> = report
         .entities
         .iter()
-        .filter(|entry| matches!(entry.change, Change::Conflict | Change::Unknown))
+        .filter(|entry| {
+            matches!(
+                entry.change,
+                Change::Conflict | Change::Unknown | Change::Same
+            )
+        })
         .map(|entry| entry.entity.name.clone())
         .chain(
             report
@@ -1226,7 +1243,7 @@ fn validate_takes(report: &Report, takes: &[Take]) -> Result<(), AdoptError> {
         }
         let available = available.join(", ");
         Err(AdoptError::Take(format!(
-            "{}; conflicts and unknowns that can be taken: {available}",
+            "{}; available take targets: {available}",
             bad.join(", ")
         )))
     }
@@ -1300,7 +1317,46 @@ fn plan_backend(
         steps.push((None, format!("kept     {}: ours", entity.path())));
         return Ok(());
     }
-    let their_raw = raw_entity(export, entity)?;
+    let raw = raw_entity(export, entity)?;
+    let parts =
+        super::server_owned::parts(&solution.server_owned, &entity.collection, &entity.name);
+    // Restore ours before layout's node-by-node comparison, so unchanged owned subtrees retain
+    // their exact repository bytes even when another part of this entity is adopted.
+    let raw = if let Some((_, path)) = here.get(entity) {
+        let ours = std::fs::read(path).map_err(|e| io_error(path, e))?;
+        super::server_owned::preserve(&raw, &ours, &parts).map_err(|e| io_error(export, e))?
+    } else {
+        raw
+    };
+    let sample = here
+        .get(entity)
+        .map(|(_, path)| (entity, path))
+        .or_else(|| {
+            here.iter()
+                .find(|(key, (value, _))| {
+                    key.collection == entity.collection
+                        && attribute(value, "projectName").as_deref()
+                            == Some(entry.project.as_str())
+                })
+                .map(|(key, (_, path))| (key, path))
+        })
+        .or_else(|| {
+            here.iter()
+                .find(|(key, _)| key.collection == entity.collection)
+                .map(|(key, (_, path))| (key, path))
+        });
+    let sample_bytes = sample
+        .map(|(_, path)| std::fs::read(path).map_err(|e| io_error(path, e)))
+        .transpose()?;
+    let reference = match (sample, sample_bytes.as_ref()) {
+        (Some((key, _)), Some(bytes)) => {
+            let tokens = scan::tokenize(bytes).map_err(|e| io_error(export, e))?;
+            entity_span(&tokens, bytes, key).map(|span| span.of(bytes))
+        }
+        _ => None,
+    };
+    let their_raw = super::layout::entity(&raw, reference, solution.format.indent_cdata_payload)
+        .map_err(|e| io_error(export, e))?;
     let their_services = services_from_document(&entity_document(&entity.collection, &their_raw))?;
     // Both name folders under src/; the transaction would refuse an escape, but not `CON`, and
     // its refusal would not say which name was at fault.
@@ -1330,17 +1386,30 @@ fn plan_backend(
             ));
             return Ok(());
         };
-        let bytes = if let Some((sample_key, (_, sample))) =
-            here.iter().find(|(key, (value, _))| {
-                key.collection == entity.collection
-                    && attribute(value, "projectName").as_deref() == Some(entry.project.as_str())
-            }) {
+        let bytes = if let Some((sample_key, sample)) = sample {
             // Shaped like a file of its own collection and project: that file's entity is
             // swapped for the new one, so the declaration and wrapper match the solution's.
             let old = std::fs::read(sample).map_err(|e| io_error(sample, e))?;
-            replace_entity_bytes(&old, sample_key, &their_raw)?
+            replace_entity_bytes(
+                &old,
+                sample_key,
+                &their_raw,
+                solution.format.indent_cdata_payload,
+            )?
         } else {
-            entity_document(&entity.collection, &their_raw)
+            let laid_out =
+                super::layout::entity(&their_raw, None, solution.format.indent_cdata_payload)
+                    .map_err(|e| io_error(export, e))?;
+            // No peer file to copy the envelope from: the one `entity new` writes.
+            let collection = &entity.collection;
+            [
+                super::entity::new::header(collection).as_bytes(),
+                b"        ",
+                &laid_out,
+                b"\n",
+                super::entity::new::footer(collection).as_bytes(),
+            ]
+            .concat()
         };
         steps.push((
             Some(Write::Bytes(path.clone(), bytes)),
@@ -1380,10 +1449,27 @@ fn plan_backend(
                 Change::Stale | Change::Conflict | Change::Unknown
             )
     });
+    if !report
+        .services
+        .iter()
+        .any(|service| service.entity == *entity_name)
+        && normalise::hash_with_parts(&ours_raw, &parts).is_ok_and(|ours| {
+            normalise::hash_with_parts(&entity_document(&entity.collection, &their_raw), &parts)
+                .is_ok_and(|theirs| ours == theirs)
+        })
+    {
+        steps.push((None, format!("skipped  {}: unchanged", entity.path())));
+        return Ok(());
+    }
     if (entry.change == Change::Theirs && !generated_here && !services_disagree)
         || (entry.change == Change::Unknown && report.base.is_none() && their_entity_take)
     {
-        let bytes = replace_entity_bytes(&ours_raw, entity, &their_raw)?;
+        let bytes = replace_entity_bytes(
+            &ours_raw,
+            entity,
+            &their_raw,
+            solution.format.indent_cdata_payload,
+        )?;
         let remove = stale_service_dirs(&service_dir, &their_services);
         steps.push((
             Some(Write::Bytes(path.clone(), bytes)),
@@ -1430,8 +1516,15 @@ fn plan_backend(
         .base_side
         .as_ref()
         .and_then(|side| side.entities.get(entity));
-    let theirs_frame_is_base = base.is_some_and(|base| same_frame(_element, base));
-    let ours_frame_is_base = base.is_some_and(|base| same_frame(ours_element, base));
+    let frame = |a: &Element, b: &Element| {
+        let mut a = a.clone();
+        let mut b = b.clone();
+        super::server_owned::omit(&mut a, &parts);
+        super::server_owned::omit(&mut b, &parts);
+        same_frame(&a, &b)
+    };
+    let theirs_frame_is_base = base.is_some_and(|base| frame(_element, base));
+    let ours_frame_is_base = base.is_some_and(|base| frame(ours_element, base));
     let frame_theirs = their_entity_take || (!theirs_frame_is_base && ours_frame_is_base);
     let frame_conflict = !theirs_frame_is_base && !ours_frame_is_base;
     let mut chosen = BTreeMap::new();
@@ -1486,7 +1579,12 @@ fn plan_backend(
             }
         }
     }
-    let their_document = entity_document(&entity.collection, &their_raw);
+    let their_document = replace_entity_bytes(
+        &ours_raw,
+        entity,
+        &their_raw,
+        solution.format.indent_cdata_payload,
+    )?;
     let seed = if frame_theirs {
         their_document.as_slice()
     } else {
@@ -1509,7 +1607,12 @@ fn plan_backend(
         )
         .map(|span| span.of(&merged).to_vec())
         .ok_or_else(|| io_error(path, "the merged entity disappeared"))?;
-        replace_entity_bytes(&ours_raw, entity, &merged_entity)?
+        replace_entity_bytes(
+            &ours_raw,
+            entity,
+            &merged_entity,
+            solution.format.indent_cdata_payload,
+        )?
     } else {
         merged
     };
@@ -1654,6 +1757,7 @@ fn replace_entity_bytes(
     src: &[u8],
     wanted: &EntityRef,
     entity: &[u8],
+    indent_cdata_payload: bool,
 ) -> Result<Vec<u8>, AdoptError> {
     let tokens = scan::tokenize(src).map_err(|e| io_error(Path::new("entity"), e))?;
     let span = entity_span(&tokens, src, wanted).ok_or_else(|| {
@@ -1662,7 +1766,9 @@ fn replace_entity_bytes(
             format!("no {} in entity file", wanted.path()),
         )
     })?;
-    splice::splice(src, &[splice::Edit::new(span, entity.to_vec())])
+    let entity = super::layout::entity(entity, Some(span.of(src)), indent_cdata_payload)
+        .map_err(|e| io_error(Path::new("entity"), e))?;
+    splice::splice(src, &[splice::Edit::new(span, entity)])
         .map_err(|e| io_error(Path::new("entity"), e))
 }
 

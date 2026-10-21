@@ -48,6 +48,12 @@ catalog [<entity>|<Entity>.<Service>|<Service>] [--project P] [--search <text>] 
                             offline services, signatures, origins and descriptions; an
                             Entity.Service, or a service only one entity declares, gives that one
     --body                  with an entity or service: each service's script too
+contract diff --against <git rev> [--project P] [--detail] [--json]
+                            compare public contracts with a git revision; offline and read-only
+    --against <git rev>     required revision to compare; try origin/main
+    --project <name>        limit both sides to this project
+    --detail                every change and every caller in this repository
+    --json                  the complete report as JSON; exit 1 when breaking
 impact <entity> [--member <name>] [--min-confidence structural|resolved|review] [--depth <n>]
                             what changing an entity, or one service/property/field of it, reaches
     --detail                list every dependent and the chain of references to each
@@ -345,11 +351,13 @@ network remove <Network> <Thing> [--subtree] [--apply] [--json]
 network import <Network> --file <path> [--create-things] [--move] [--outside] [--apply] [--json]
                               map CSV assets into a Network hierarchy; plan unless --apply
 entity status [<entity>|--all] [--detail] [--record]
+                            entity: full name, last dotted segment, or Collection/Name
     --record                 record matching working/server hashes as baseline
 entity get <entity>         fetch raw server XML to stdout or --out <path>
                             Collection/Name: any server entity; a bare name: the repository's
     [--profile <name>]      server profile (default: default)
-entity push <entity>        import one entity, refusing if the server changed
+entity push <entity> [--json]
+                            import one entity, refusing if the server changed
     --apply                 actually push (without it, report what would happen)
     --force                 push over a server-side change; the server's copy is saved first
     --no-backup             with --force, do not save the server's copy first
@@ -378,6 +386,13 @@ permissions init [--project <name>] [--from-helper] [--apply] [--json]
                             one; prints unless --apply
     --from-helper           take the grants from the helper's tables, not the entity XML (a
                             matrix edited in the helper's mashup)
+requirements init [--apply] [--json]
+                            draft requirements.toml from external repository dependencies;
+                            prints a plan unless --apply; refuses an existing file
+requirements check [--server] [--profile <name>] [--detail] [--json]
+                            check requirements.toml against the repository; stale entries are notes
+    --server                also verify platform, extensions and entities on the server, read-only
+    --detail                every finding with its referrers
 permissions audit [--project <name>] [--server] [--detail] [--json]
                             each project's permissions.toml against its entity XML, offline: blocks
                             the policy would change, services a strict entity leaves unclassified,
@@ -413,7 +428,8 @@ datatable copy <old> <new> [--map a=b,c=d] [--drop-unmapped] [--append] [--max-r
 bundle [--backend-only] [--handoff <name>] [--apply]  write one importable document
                             (always written: --apply is accepted and changes nothing)
     --check                 report whether the bundle is current, write nothing
-deploy [--apply] [--force]  check, bundle, live-parse, conflict-check, import
+deploy [--apply] [--force] [--json]
+                            check, bundle, live-parse, conflict-check, import
     --backend-only          exclude configured UI collections
     --only <entity>         include only this entity (repeatable)
     --only-projects <a,b>   include only these projects
@@ -438,7 +454,7 @@ Call services and read what the server says.
 
 ```text
 call <target> <service> [<json>] [--timeout <seconds>] [--detail] [--as <test user>]
-    [--lang <code>]         target: Collection/Name, or an entity by name or last segment
+    [--lang <code>]         target: Collection/Name, full name, or last dotted segment
     --with-logs             then what it wrote to ScriptLog and ApplicationLog (waits up to 3 s)
     --as <test user>        call as a [[test.user]] with the profile's test_password (the profile
                             needs allow_test_users): 404 if the user cannot see it, 401 a bad password

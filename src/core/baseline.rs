@@ -56,6 +56,14 @@ pub(crate) struct Baseline {
 }
 
 impl Baseline {
+    /// A baseline belongs to both the normaliser version and this entity's ownership policy.
+    pub(crate) fn get_for(&self, collection: &str, name: &str, working: &str) -> Option<&Entry> {
+        let scope = working.rsplit_once(':')?.0;
+        self.get(collection, name).filter(|entry| {
+            entry.local.rsplit_once(':').map(|p| p.0) == Some(scope)
+                && entry.server.rsplit_once(':').map(|p| p.0) == Some(scope)
+        })
+    }
     /// The entry recorded for an entity, if its hashes are of the current normalisation: one
     /// from another version cannot be compared, so it counts as no baseline at all.
     pub(crate) fn get(&self, collection: &str, name: &str) -> Option<&Entry> {

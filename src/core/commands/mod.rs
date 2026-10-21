@@ -30,6 +30,7 @@ pub mod relocate;
 pub mod rename;
 pub mod repo;
 pub mod reproject;
+pub mod requirements;
 pub mod restore;
 pub mod retemplate;
 pub mod service_tests;

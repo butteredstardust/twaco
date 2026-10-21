@@ -14,6 +14,51 @@ use std::collections::BTreeMap;
 /// What every state-changing tool may add: what taking the workspace lock did.
 type Notices = Option<Vec<String>>;
 
+#[derive(Serialize, JsonSchema)]
+pub(crate) struct ContractDiffResult {
+    summary: String,
+    breaking: Vec<crate::core::contract::Change>,
+    compatible: Vec<crate::core::contract::Change>,
+    skipped: Vec<String>,
+    limits: String,
+    text: String,
+}
+
+#[derive(Serialize, JsonSchema)]
+pub(crate) struct RequirementsInitResult {
+    summary: String,
+    dry_run: bool,
+    written: bool,
+    file: String,
+    draft: String,
+    requirements: RequirementsCheckResult,
+    notices: Notices,
+}
+
+#[derive(Serialize, JsonSchema)]
+pub(crate) struct RequirementsCheckResult {
+    summary: String,
+    ok: bool,
+    entities: usize,
+    collections: BTreeMap<String, usize>,
+    extensions: usize,
+    projects: usize,
+    platform: Option<String>,
+    server_checked: bool,
+    total_findings: usize,
+    findings: Vec<RequirementsFinding>,
+}
+
+#[derive(Serialize, JsonSchema)]
+struct RequirementsFinding {
+    rule: String,
+    requirement: String,
+    blocking: bool,
+    message: String,
+    installed: Option<String>,
+    referrers: Option<Vec<String>>,
+}
+
 /// `network` list or show.  The action determines whether `networks` or the hierarchy members
 /// are populated.
 #[derive(Serialize, JsonSchema)]
@@ -84,13 +129,15 @@ struct GateEntry {
     examined: u64,
     findings: u64,
     broken: Option<String>,
+    skipped: Option<String>,
     advisory: Option<bool>,
 }
 
 #[derive(Serialize, JsonSchema)]
 pub(crate) struct StatusResult {
     ok: bool,
-    /// How many baselines were recorded; absent unless asked to record.
+    /// How many baselines were recorded; null unless asked to record. Counts and verdicts
+    /// describe the state after recording, including the matching entities now in-sync.
     recorded: Option<u64>,
     entities: u64,
     counts: BTreeMap<String, u64>,
@@ -105,6 +152,7 @@ pub(crate) struct StatusResult {
 
 #[derive(Serialize, JsonSchema)]
 struct StatusEntry {
+    server_owned: Option<Vec<String>>,
     entity: String,
     verdict: String,
     working: Option<Value>,
@@ -179,6 +227,7 @@ pub(crate) struct TypesResult {
 /// A plan and an applied push answer with different members; `entity` and `dry_run` are shared.
 #[derive(Serialize, JsonSchema)]
 pub(crate) struct PushResult {
+    server_owned: Vec<String>,
     entity: String,
     dry_run: bool,
     force: Option<bool>,
@@ -196,6 +245,8 @@ pub(crate) struct PushResult {
 /// differently; `ok` and the stage it reached tell them apart.
 #[derive(Serialize, JsonSchema)]
 pub(crate) struct DeployResult {
+    /// Each existing entity whose import preserves server-owned parts, with its part labels.
+    server_owned: Option<Vec<ServerOwnedEntity>>,
     ok: bool,
     /// Absent when the deploy completed; otherwise where it stopped.
     stage: Option<String>,
@@ -220,6 +271,15 @@ pub(crate) struct DeployResult {
     refused: Option<Vec<Value>>,
     not_kept: Option<Vec<Value>>,
     notices: Notices,
+}
+
+#[derive(Serialize, JsonSchema)]
+struct ServerOwnedEntity {
+    entity: String,
+    /// Owned parts the import carries from the server.
+    parts: Vec<String>,
+    /// Owned parts holding an encrypted value, which the import clears; a deploy hook sets them.
+    clears: Vec<String>,
 }
 
 // ---- entities and permissions ---------------------------------------------------------------

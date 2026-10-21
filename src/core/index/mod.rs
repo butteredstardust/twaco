@@ -15,7 +15,7 @@
 mod build;
 mod deploy;
 pub(crate) mod inherit;
-mod mashups;
+pub(crate) mod mashups;
 mod query;
 mod scripts;
 

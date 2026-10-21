@@ -381,6 +381,7 @@ mod tests {
             file_name: "Acme.xml".into(),
             bytes: Vec::new(),
             entities: vec![deploy::Entity {
+                server_owned: Vec::new(),
                 collection: "Networks".into(),
                 name: "Acme.Plant".into(),
                 bytes: b"<Entities><Networks><Network name=\"Acme.Plant\" projectName=\"Acme\"><Connections><Connection connectionType=\"Contains\" from=\"\" to=\"Acme.Site\"></Connection></Connections></Network></Networks></Entities>".to_vec(),
@@ -429,6 +430,7 @@ mod tests {
             file_name: "Acme.xml".into(),
             bytes: Vec::new(),
             entities: vec![deploy::Entity {
+                server_owned: Vec::new(),
                 collection: "Networks".into(),
                 name: "Acme.Plant".into(),
                 bytes: b"<Entities><Networks><Network name=\"Acme.Plant\" projectName=\"Acme\"><Connections><Connection connectionType=\"Contains\" from=\"\" to=\"Acme.Site\"></Connection></Connections></Network></Networks></Entities>".to_vec(),

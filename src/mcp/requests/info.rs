@@ -4,6 +4,19 @@ use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Deserialize, JsonSchema, Serialize)]
 #[serde(deny_unknown_fields)]
+pub(crate) struct ContractDiffRequest {
+    /// Required git revision to compare with, such as origin/main.
+    pub(crate) against: String,
+    /// Limit both sides to this project.
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) project: Absent<String>,
+    /// Include text with every change and caller instead of the text summary.
+    #[serde(default)]
+    pub(crate) detail: bool,
+}
+
+#[derive(Debug, Deserialize, JsonSchema, Serialize)]
+#[serde(deny_unknown_fields)]
 pub(crate) struct DoctorRequest {
     /// Server profile name.
     #[serde(default = "default_profile")]

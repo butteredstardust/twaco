@@ -284,9 +284,11 @@ pub(crate) fn resolve(
             .entities
             .iter()
             .filter(|(entity, theirs)| {
-                side.entities
-                    .get(*entity)
-                    .is_some_and(|base| super::entity_same(entity, theirs, base, &[]))
+                side.entities.get(*entity).is_some_and(|base| {
+                    super::compare_owned_entity(solution, entity, theirs, base)
+                        .differences
+                        .is_empty()
+                })
             })
             .count();
         if matches > 0 && selected.as_ref().is_none_or(|(best, _, _)| matches > *best) {

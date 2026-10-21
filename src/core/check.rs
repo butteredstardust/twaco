@@ -55,6 +55,8 @@ pub struct GateResult {
     pub prose: Vec<String>,
     /// The gate could not run. Distinct from finding something wrong.
     pub broken: Option<String>,
+    /// Why an optional gate did not run. It neither examines inputs nor blocks the run.
+    pub skipped: Option<String>,
     /// Whether this gate's findings fail the run. A `[[check]]` may report without blocking.
     pub gates_the_run: bool,
 }
@@ -67,6 +69,7 @@ impl GateResult {
             findings: Vec::new(),
             prose: Vec::new(),
             broken: None,
+            skipped: None,
             gates_the_run: true,
         }
     }
@@ -123,6 +126,7 @@ pub(crate) const BUILT_IN_GATES: &[&str] = &[
     "localization tokens",
     "result shapes",
     "networks",
+    "requirements",
 ];
 
 /// A built-in gate as the solution wants it: blocking, or advisory when `[gates] advisory`
@@ -150,6 +154,7 @@ pub fn run(solution: &Solution) -> CheckReport {
         localization_tokens(solution),
         result_shapes(solution),
         networks(solution),
+        requirements(solution),
     ] {
         report.gates.push(as_configured(solution, gate));
     }
@@ -822,6 +827,45 @@ fn project_validation(solution: &Solution) -> GateResult {
     result
 }
 
+/// The offline half of `requirements check`, when the solution keeps a requirements.toml.
+fn requirements(solution: &Solution) -> GateResult {
+    let mut gate = GateResult::passed("requirements", 0);
+    if !solution.root.join(super::requirements::FILE).exists() {
+        gate.skipped =
+            Some("requirements.toml is absent; run twaco requirements init to draft it".into());
+        return gate;
+    }
+    let result = super::requirements::load(solution).and_then(|contract| {
+        let collected = super::requirements::collect(solution)?;
+        Ok(super::requirements::offline(&contract, &collected))
+    });
+    match result {
+        Ok(report) => {
+            gate.examined = report.entities
+                + report.extensions
+                + report.projects
+                + usize::from(report.platform.is_some());
+            gate.prose.push(report.summary());
+            for item in report.findings {
+                if item.blocking {
+                    gate.findings.push(Finding {
+                        gate: gate.name.clone(),
+                        file: super::requirements::FILE.into(),
+                        line: 0,
+                        rule: item.rule,
+                        message: format!("{}: {}", item.requirement, item.message),
+                    });
+                } else {
+                    gate.prose
+                        .push(format!("{} [stale]: {}", item.requirement, item.message));
+                }
+            }
+        }
+        Err(error) => gate.broken = Some(error.to_string()),
+    }
+    gate
+}
+
 /// Networks are forests on the server: the same Thing may have only one parent.
 fn networks(solution: &Solution) -> GateResult {
     let entries: Vec<_> = workspace::entities(solution)
@@ -1297,6 +1341,43 @@ fn relative(solution: &Solution, path: &Path) -> String {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn requirements_gate_skips_blocks_and_honors_advisory() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(
+            dir.path().join("twaco.toml"),
+            "[[project]]\nname='Acme.App'\n",
+        )
+        .unwrap();
+        let mut solution = super::Solution::load(&dir.path().join("twaco.toml")).unwrap();
+        let gate = super::requirements(&solution);
+        assert!(!gate.blocks());
+        assert!(gate
+            .skipped
+            .as_deref()
+            .unwrap()
+            .contains("requirements.toml is absent"));
+        std::fs::create_dir_all(dir.path().join("Things")).unwrap();
+        std::fs::write(dir.path().join("Things/Acme.Ref.xml"), r#"<Entities><Things><Thing name="Acme.Ref" thingTemplate="Acme.External" projectName="Acme.App"/></Things></Entities>"#).unwrap();
+        std::fs::write(dir.path().join("requirements.toml"), "").unwrap();
+        let gate = super::run(&solution)
+            .gates
+            .into_iter()
+            .find(|g| g.name == "requirements")
+            .unwrap();
+        assert!(gate.blocks());
+        assert_eq!(gate.findings[0].rule, "undeclared");
+        solution.gates.advisory.push("requirements".into());
+        let gate = super::run(&solution)
+            .gates
+            .into_iter()
+            .find(|g| g.name == "requirements")
+            .unwrap();
+        assert!(!gate.blocks());
+        assert!(!gate.findings.is_empty());
+        std::fs::write(dir.path().join("requirements.toml"), "bad = true").unwrap();
+        assert!(super::as_configured(&solution, super::requirements(&solution)).blocks());
+    }
     use super::*;
     use crate::core::server::{Method, ScriptCheck, ServerError};
     use std::sync::Mutex;

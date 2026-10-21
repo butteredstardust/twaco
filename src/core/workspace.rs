@@ -29,7 +29,7 @@ pub(crate) fn line_ending(text: &str) -> &'static str {
 ///
 /// A fixed list rather than "every subdirectory": a repository also holds `exported/`, `dist/`
 /// and scratch trees full of entity documents that are not the project's source.
-const KNOWN_COLLECTIONS: &[&str] = &[
+pub(crate) const KNOWN_COLLECTIONS: &[&str] = &[
     "ApplicationKeys",
     "Dashboards",
     "DataShapes",
@@ -81,6 +81,7 @@ impl EntityFile {
 #[derive(Debug)]
 pub enum WorkspaceError {
     UnknownEntity { name: String },
+    UnknownCollection { name: String, found: Vec<String> },
     Ambiguous { name: String, found: Vec<String> },
     InvalidCallTarget { name: String },
     Io { path: PathBuf, why: String },
@@ -91,6 +92,13 @@ impl fmt::Display for WorkspaceError {
         match self {
             WorkspaceError::UnknownEntity { name } => {
                 write!(f, "no entity named {name} in this solution")
+            }
+            WorkspaceError::UnknownCollection { name, found } => {
+                write!(
+                    f,
+                    "unknown collection {name}; use one of {}",
+                    found.join(", ")
+                )
             }
             WorkspaceError::Ambiguous { name, found } => {
                 write!(f, "{name} is ambiguous; it could be {}", found.join(", "))
@@ -223,13 +231,44 @@ fn collect_xml(dir: &Path, out: &mut Vec<PathBuf>, failures: &mut Vec<String>) {
     }
 }
 
-/// Resolve one entity by name, accepting a bare name or a fully qualified one.
+/// Resolve a full name, last dotted segment, or `Collection/Name`.
 ///
 /// An ambiguous bare name is an error listing the candidates rather than a first-match win: two
 /// projects in a solution can each have a `Manager`, and picking one silently would edit the
 /// wrong file.
 pub fn resolve<'a>(found: &'a [EntityFile], name: &str) -> Result<&'a EntityFile, WorkspaceError> {
-    let exact: Vec<&EntityFile> = found.iter().filter(|e| e.info.name == name).collect();
+    let (collection, entity_name) = match name.split_once('/') {
+        Some((collection, entity_name)) => {
+            if !KNOWN_COLLECTIONS
+                .iter()
+                .any(|known| known.eq_ignore_ascii_case(collection))
+                && !found
+                    .iter()
+                    .any(|e| e.info.collection.eq_ignore_ascii_case(collection))
+            {
+                let mut collections: Vec<String> =
+                    KNOWN_COLLECTIONS.iter().map(|s| (*s).to_string()).collect();
+                collections.extend(found.iter().map(|e| e.info.collection.clone()));
+                collections.sort();
+                collections.dedup();
+                return Err(WorkspaceError::UnknownCollection {
+                    name: collection.to_string(),
+                    found: collections,
+                });
+            }
+            (Some(collection), entity_name)
+        }
+        None => (None, name),
+    };
+    let pool: Vec<&EntityFile> = found
+        .iter()
+        .filter(|e| collection.is_none_or(|c| e.info.collection.eq_ignore_ascii_case(c)))
+        .collect();
+    let exact: Vec<&EntityFile> = pool
+        .iter()
+        .copied()
+        .filter(|e| e.info.name == entity_name)
+        .collect();
     if exact.len() == 1 {
         return Ok(exact[0]);
     }
@@ -241,14 +280,15 @@ pub fn resolve<'a>(found: &'a [EntityFile], name: &str) -> Result<&'a EntityFile
     }
     // A bare name: match on the last dotted segment, the way a person refers to an entity.
     // Case-insensitively, because this runs on Windows and `management_ts` is what gets typed.
-    let suffix: Vec<&EntityFile> = found
+    let suffix: Vec<&EntityFile> = pool
         .iter()
+        .copied()
         .filter(|e| {
             e.info
                 .name
                 .rsplit('.')
                 .next()
-                .is_some_and(|last| last.eq_ignore_ascii_case(name))
+                .is_some_and(|last| last.eq_ignore_ascii_case(entity_name))
         })
         .collect();
     match suffix.len() {
@@ -637,7 +677,7 @@ pub(crate) fn script_files(solution: &Solution) -> Tree {
 impl Coded for WorkspaceError {
     fn code(&self) -> ErrorCode {
         match self {
-            Self::UnknownEntity { .. } => ErrorCode::UnknownEntity,
+            Self::UnknownEntity { .. } | Self::UnknownCollection { .. } => ErrorCode::UnknownEntity,
             Self::Ambiguous { .. } => ErrorCode::Ambiguous,
             Self::InvalidCallTarget { .. } => ErrorCode::InvalidArguments,
             Self::Io { .. } => ErrorCode::IoError,
@@ -711,6 +751,44 @@ mod tests {
             resolve(&found, "A.Manager").unwrap().path,
             PathBuf::from("a.xml")
         );
+    }
+
+    #[test]
+    fn collection_names_scope_full_and_short_entity_names() {
+        let thing = file("Acme.Shared", "Acme.App", "thing.xml");
+        let mut shape = thing.clone();
+        shape.info.collection = "ThingShapes".into();
+        shape.path = PathBuf::from("shape.xml");
+        let found = [thing, shape];
+        assert!(matches!(
+            resolve(&found, "Acme.Shared"),
+            Err(WorkspaceError::Ambiguous { .. })
+        ));
+        assert_eq!(
+            resolve(&found, "Things/Acme.Shared").unwrap().path,
+            PathBuf::from("thing.xml")
+        );
+        assert_eq!(
+            resolve(&found, "things/shared").unwrap().path,
+            PathBuf::from("thing.xml")
+        );
+        assert_eq!(
+            resolve(&found, "ThingShapes/Shared").unwrap().path,
+            PathBuf::from("shape.xml")
+        );
+        let unknown = resolve(&found, "Unknown/Acme.Shared")
+            .unwrap_err()
+            .to_string();
+        assert!(
+            unknown.contains("unknown collection Unknown")
+                && unknown.contains("Things")
+                && unknown.contains("ThingShapes")
+        );
+        let missing = resolve(&found, "Mashups/Acme.Shared")
+            .unwrap_err()
+            .to_string();
+        assert!(missing.contains("Mashups/Acme.Shared"));
+        assert!(resolve(&found[..1], "Shared").is_ok());
     }
 
     #[test]

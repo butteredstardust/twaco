@@ -5,6 +5,20 @@ start](QUICK_START.md) gets a repository set up; [Commands](COMMANDS.md) lists e
 
 ## The repository
 
+### Reviewing public contract changes
+
+Run `twaco contract diff --against origin/main` before releasing a solution. It compares
+declared services and their signatures, properties, events, DataShape fields and mashup
+parameters with that revision's own `twaco.toml`. The solution may live in a repository
+subdirectory. No profile or server is needed, and neither git state nor entity files change.
+
+The summary counts breaking and compatible changes, then lists breaking changes with their
+first three current callers. `--detail` lists every change and caller; `--json` returns the
+complete arrays (`breaking`, `compatible`, `skipped`). `--project <name>` limits both sides.
+Exit 1 means a breaking change; compatible changes alone exit 0. Unreadable entities make
+the report partial. Ledger records turn matching removals and additions into breaking renames.
+Callers outside this repository are invisible; review REST clients and other projects too.
+
 ### Entity XML is the source of truth
 
 Each entity is one XML file, exactly as ThingWorx exports it, in a folder named after its
@@ -81,6 +95,16 @@ Then commit. `deploy --apply` and `entity push --apply` record what they sent in
 
 ### The gates
 
+Record dependencies the solution does not ship with `twaco requirements init`: it prints a draft
+of `requirements.toml`; `--apply` creates the file and refuses to overwrite one. Review and commit
+the external entities, extensions, projects and platform minimum. `twaco requirements check`
+reports undeclared dependencies and versions below Project declarations as blocking findings;
+stale entries are notes. `--detail` includes every finding and its referrers, and `--json` returns
+structured counts and findings. References built at run time and script mentions are not inferred.
+`twaco requirements check --server --profile staging` also verifies the platform version,
+installed extension versions and entity existence using read-only requests; a failed read blocks.
+Both commands work through MCP as `requirements_init` (dry run by default) and `requirements_check`.
+
 `twaco check` runs every gate and exits 0 when no blocking gate fails; a `[[check]]` hook
 with `gate = false` reports its findings without failing the run. `--detail` lists every finding;
 without it, each gate gives a summary.
@@ -98,6 +122,7 @@ without it, each gate gives a summary.
 | contained mashups | a binding to a contained mashup's or navigation function's parameter that its copy of the parameters lacks (the value is dropped) or that the mashup it shows no longer declares; `twaco mashup param set <mashup> <parameter>` refreshes every copy; a stale copy nothing binds is only counted |
 | localization tokens | an entity names a `[[token]]` under one of the solution's token prefixes that no Default table file holds (the label would show the raw text), a language table holds a token Default lacks, a token is in one table twice, or a table file cannot be read. Tokens outside the prefixes are the platform's or an extension's and are not checked |
 | result shapes | a service's script builds its result with `CreateInfoTableFromDataShape` from another DataShape than its definition declares, named by a literal or a `const` holding one (a mashup bound to the declared shape finds other fields). A name computed at run time is not checked |
+| requirements | `requirements.toml` exists and a collected dependency is undeclared or its version is declared lower; skipped when absent. Runs offline; list `requirements` in `[gates] advisory` to report without blocking |
 | your hooks | a `[[check]]` command fails ([Configuration](CONFIGURATION.md#check-your-own-gates)) |
 | live parse | with `--live` or `[gates] live`: the server's own parser rejects a script |
 
@@ -140,7 +165,42 @@ own.
 
 The comparison ignores what ThingWorx changes on its own: change history, owners, timestamps
 and the like. `entity status --record` records the current state as the baseline when the
-two sides already agree, for a repository adopting twaco.
+two sides already agree, for a repository adopting twaco. It reports how many baselines it
+recorded; counts, detail and the exit status reflect the updated baseline.
+
+### State that belongs to the server
+
+Use `[[server_owned]]` in `twaco.toml` for group membership assigned separately on each server,
+an encrypted database password, runtime-filled configuration, or changing simulation values:
+
+```toml
+[[server_owned]]
+entities = ["Groups/Acme.*_UG"]
+parts = ["members", "run-time-permissions"]
+
+[[server_owned]]
+entities = ["Things/Acme.Database"]
+parts = ["configuration-table:ConnectionInfo.password"]
+```
+
+The kinds are `members`, `run-time-permissions`, `visibility-permissions`, `property-values`
+(or `property-values:speed,temperature`), and `configuration-table:Table` (or
+`configuration-table:Table.column`). Rules combine, and `*` matches within an entity name.
+See the [configuration reference](CONFIGURATION.md#server_owned) for their exact scopes.
+
+Status and its `--record` option compare everything outside these parts. Push and deploy
+fetch the existing entity's Exporter copy and splice its owned content into the outgoing
+import, without changing repository files. Plans name what they keep, status detail names
+what it omits, and doctor warns about unmatched rules. Adopt keeps the repository's owned
+content. The repository's copy is still what a fresh server gets, so keep useful initial values
+there and leave secrets out. An encrypted value (a password) is only left out of the comparison: an import
+always clears it, so set it again after the import with a deploy hook, and `entity push` refuses
+such an entity without `--force`. Changing applicable parts makes that entity's old baseline absent;
+run `entity status --all --record` to record matching entities under the new rules.
+
+Repository entity operands accept a full name (`Acme.App.Manager`), its last dotted segment
+(`Manager`), or `Things/Acme.App.Manager`. The collection prefix also scopes short names
+(`Things/Manager`) and is case-insensitive; ambiguous names need a collection or full name.
 
 `deploy` and `entity push` refuse an entity whose state is server-changed or both-changed,
 one that differs from the server with no baseline (the common ancestor is unknown), and one
@@ -190,6 +250,10 @@ twaco handoff list
 twaco adopt returned-export.xml                 # review the three-way plan
 twaco adopt returned-export.xml --apply         # take safe collaborator changes
 ```
+
+`adopt` lays out incoming entity bytes like the destination file (or a peer in its collection
+for a new entity), retaining the repository's indentation and CDATA presentation and removing
+export-only metadata. A single-line Exporter response therefore keeps a reviewable diff.
 
 `adopt` compares Composer's canonical form, so formatting and platform noise do not count. It
 uses the named `--base <file|handoff|git-rev>`, otherwise the most similar recorded handoff; with

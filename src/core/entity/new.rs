@@ -416,10 +416,11 @@ fn common_tail(visibility: &[Visibility]) -> String {
     format!("            <avatar></avatar>\n            <DesignTimePermissions>\n                <Create></Create>\n                <Read></Read>\n                <Update></Update>\n                <Delete></Delete>\n                <Metadata></Metadata>\n            </DesignTimePermissions>\n            <RunTimePermissions></RunTimePermissions>\n{}\n            <ConfigurationTableDefinitions></ConfigurationTableDefinitions>\n            <ConfigurationTables></ConfigurationTables>", permissions(visibility))
 }
 
-fn header(collection: &str) -> String {
+/// The source-control envelope that opens a new entity file.
+pub(crate) fn header(collection: &str) -> String {
     format!("<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<Entities\n majorVersion=\"10\"\n minorVersion=\"1\"\n universal=\"password\">\n    <{collection}>\n")
 }
-fn footer(collection: &str) -> String {
+pub(crate) fn footer(collection: &str) -> String {
     format!("    </{collection}>\n</Entities>\n")
 }
 

@@ -3,9 +3,11 @@ use super::requests::common::{parse, schema, NoArguments};
 use super::requests::{
     content as content_requests, data as data_requests, entity as entity_requests,
     info as info_requests, network as network_requests, refactor as refactor_requests,
-    source as source_requests,
+    requirements as requirements_requests, source as source_requests,
 };
-use super::{content, data, entity, info, network, refactor, source, Protocol, ToolError};
+use super::{
+    content, data, entity, info, network, refactor, requirements, source, Protocol, ToolError,
+};
 use crate::core::config::Solution;
 use crate::core::progress::Progress;
 use schemars::JsonSchema;
@@ -69,6 +71,7 @@ const OPEN_WORLD: &[&str] = &[
     "entity_carry",
     "permissions",
     "permissions_audit",
+    "requirements_check",
     "permissions_push",
     "db_run",
     "db_query",
@@ -115,6 +118,7 @@ const ADDITIVE: &[&str] = &[
     "entity_new",
     "mashup_new",
     "permissions_init",
+    "requirements_init",
 ];
 
 /// Writing tools that, called again with the same arguments, change nothing more.
@@ -338,6 +342,18 @@ static TOOLS: LazyLock<Vec<Tool>> = LazyLock::new(|| {
             entity::permissions_tool,
         )
         .with_output::<outputs::PermissionsResult>(),
+        solution_tool::<requirements_requests::InitRequest>(
+            "requirements_init",
+            "Draft requirements.toml offline from the solution's external entities, Project dependsOn extensions and projects, and platform version. Returns the draft; dry_run defaults to true. Apply creates a new file under the workspace lock and refuses an existing requirements.toml; use requirements_check to see what changed.",
+            false,
+            requirements::init_tool,
+        ).with_output::<outputs::RequirementsInitResult>(),
+        solution_progress_tool::<requirements_requests::CheckRequest>(
+            "requirements_check",
+            "Check requirements.toml against the repository. Undeclared dependencies and lower declared versions block; stale entries are notes. With server true, also verify the platform version, installed extensions, projects and external entities with read-only server requests. Server failures block. Summary first; detail includes every finding and referrer.",
+            true,
+            requirements::check_tool,
+        ).with_output::<outputs::RequirementsCheckResult>(),
         solution_tool::<entity_requests::PermissionsInitRequest>(
             "permissions_init",
             "Draft a permissions.toml for each project without one, from what the project grants today, so that permissions_apply then changes nothing but what each draft's notes name: each rule names its roles outright; roles come from the permission helper's RoleGroupsAndOrganizations when the project has one, else from the groups its run-time blocks grant. from_helper takes the grants from the helper's tables instead of the entity XML (a matrix edited in the helper's mashup). An entity with a deny or a non-group principal in its run-time block, or a visibility deny of a role's unit, is left unmanaged, with a note. A dry run (the drafts' text) unless dry_run is false; existing files are never overwritten.",
@@ -714,6 +730,13 @@ static TOOLS: LazyLock<Vec<Tool>> = LazyLock::new(|| {
             info::catalog_tool,
         )
         .with_output::<outputs::CatalogResult>(),
+        solution_tool::<info_requests::ContractDiffRequest>(
+            "contract_diff",
+            "Compare the working tree's public contract with a git revision (against, required). Offline and read-only; the revision must contain its own twaco.toml. Reports breaking and compatible changes, unreadable inputs, and current callers at resolved or structural confidence. Callers outside this repository are invisible. project limits both sides; detail expands the text report. The JSON arrays always contain every change and caller.",
+            true,
+            info::contract_diff_tool,
+        )
+        .with_output::<outputs::ContractDiffResult>(),
         solution_tool::<info_requests::ImpactRequest>(
             "impact",
             "What changing an entity, or one service, property or field of it, would reach: the Things, templates, shapes, mashups and projects that depend on it, directly or through others, each at the strength of its weakest reference (structural: declared in the XML or twaco.toml; resolved: a static name in a script or a mashup binding; review: a string that looks like the name, for a person to judge). Offline and read-only. It cannot see references built at run time or outside the repository; `complete` says whether every input was read and `unreadable` lists what was not. Summary leaves the chain to each dependent out; detail includes it.",
@@ -820,6 +843,7 @@ pub(crate) const GROUPS: &[(&str, &[&str])] = &[
             "bundle",
             "catalog",
             "impact",
+            "contract_diff",
             "trace",
             "unused",
             "search",
@@ -878,6 +902,8 @@ pub(crate) const GROUPS: &[(&str, &[&str])] = &[
         "permissions",
         &[
             "permissions",
+            "requirements_init",
+            "requirements_check",
             "permissions_init",
             "permissions_audit",
             "permissions_apply",

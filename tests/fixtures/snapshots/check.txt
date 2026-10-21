@@ -14,6 +14,7 @@ exit: 0
   ok      localization tokens 0 examined
   ok      result shapes  7 examined
   ok      networks       1 examined
+  skip    requirements   requirements.toml is absent; run twaco requirements init to draft it
 
 1 finding(s) across 1 gate(s); 0 gate(s) could not run
 run `twaco check --detail` to see them

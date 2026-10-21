@@ -33,6 +33,89 @@ fn solution_dir() -> (tempfile::TempDir, PathBuf) {
     (root_guard, root)
 }
 
+#[test]
+fn contract_diff_is_read_only_offline_and_requires_against() {
+    let (_dir, root) = solution_dir();
+    let responses = converse(
+        &root,
+        &[
+            json!({"jsonrpc":"2.0","id":1,"method":"tools/list"}),
+            json!({"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"contract_diff","arguments":{}}}),
+        ],
+    );
+    let tool = responses[0]["result"]["tools"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|t| t["name"] == "contract_diff")
+        .unwrap();
+    assert_eq!(tool["annotations"]["readOnlyHint"], true);
+    assert_eq!(tool["annotations"]["openWorldHint"], false);
+    assert_eq!(tool["inputSchema"]["required"], json!(["against"]));
+    assert!(tool["inputSchema"]["properties"].get("profile").is_none());
+    assert!(responses[1].to_string().contains("against"));
+    assert!(responses[1].to_string().contains("required"));
+}
+
+#[test]
+fn contract_diff_returns_changes_and_text_matching_its_output_schema() {
+    use std::process::Command;
+    if Command::new("git").arg("--version").output().is_err() {
+        eprintln!("skipping contract MCP integration test: git is not on PATH");
+        return;
+    }
+    let (_dir, root) = solution_dir();
+    for args in [
+        vec!["init", "--quiet"],
+        vec!["config", "user.name", "Acme Test"],
+        vec!["config", "user.email", "test@example.invalid"],
+        vec!["add", "."],
+        vec![
+            "-c",
+            "commit.gpgsign=false",
+            "commit",
+            "--quiet",
+            "-m",
+            "Acme solution",
+        ],
+    ] {
+        let output = Command::new("git")
+            .current_dir(&root)
+            .args(&args)
+            .output()
+            .unwrap();
+        assert!(
+            output.status.success(),
+            "{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+    }
+    std::fs::create_dir(root.join("DataShapes")).unwrap();
+    std::fs::write(root.join("DataShapes/Acme.Rows.xml"), r#"<Entities><DataShapes><DataShape name="Acme.Rows" projectName="P"><FieldDefinitions/></DataShape></DataShapes></Entities>"#).unwrap();
+    for detail in [false, true] {
+        let responses = converse(
+            &root,
+            &[
+                json!({"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"contract_diff","arguments":{"against":"HEAD","detail":detail}}}),
+            ],
+        );
+        let content = &responses[0]["result"]["structuredContent"];
+        assert_eq!(content["compatible"][0]["entity"], "DataShapes/Acme.Rows");
+        assert!(content["breaking"].as_array().unwrap().is_empty());
+        assert!(
+            jsonschema::draft202012::is_valid(&output_schema_of("contract_diff"), content),
+            "{content}"
+        );
+        let text = content["text"].as_str().unwrap();
+        if detail {
+            assert!(text.contains("compatible: DataShapes/Acme.Rows"));
+        } else {
+            assert!(text.contains("compatible: 1 entity"));
+        }
+    }
+    assert!(!root.join(".twaco/profiles").exists());
+}
+
 fn default_matches_type(schema: &Value, value: &Value) -> bool {
     match schema["type"].as_str() {
         Some("string") => value.is_string(),
@@ -352,8 +435,13 @@ fn meaning(schema: &Value) -> Value {
 
 #[test]
 fn generated_schemas_mean_what_the_hand_written_ones_did() {
-    let generated = registry::definitions(LATEST);
     let hand_written = hand_written_tools();
+    // The historical fixture proves migration compatibility. New tools are covered by the
+    // current golden file and tools/list contract, without rewriting that historical baseline.
+    let generated: Vec<_> = registry::definitions(LATEST)
+        .into_iter()
+        .filter(|tool| hand_written.iter().any(|old| old["name"] == tool["name"]))
+        .collect();
     let names = |tools: &[Value]| {
         tools
             .iter()
@@ -451,6 +539,20 @@ fn output_schema_waits_for_the_new_protocol() {
     assert!(jsonschema::draft202012::meta::is_valid(
         &new["outputSchema"]
     ));
+}
+
+#[test]
+fn tools_list_publishes_owned_parts_in_status_push_and_deploy_schemas() {
+    let status = output_schema_of("status");
+    assert!(status["properties"]["statuses"]["items"]["properties"]["server_owned"].is_object());
+    let push = output_schema_of("push");
+    assert_eq!(push["properties"]["server_owned"]["type"], "array");
+    let deploy = output_schema_of("deploy");
+    assert!(deploy["properties"]["server_owned"].is_object());
+    assert_eq!(
+        deploy["properties"]["server_owned"]["items"]["properties"]["parts"]["type"],
+        "array"
+    );
 }
 
 #[test]
@@ -672,6 +774,7 @@ fn refused_push_result_has_a_server_conflict_code() {
         false,
         false,
         commands::push::PushOutcome::Applied {
+            server_owned: Vec::new(),
             entity: crate::core::entity::key::EntityKey::new("Things", "P.T").unwrap(),
             result: push::Outcome::Refused(refusal.clone()),
             backup: None,
@@ -914,6 +1017,8 @@ fn every_tool_is_listed_with_a_schema_and_honest_annotations() {
             "entity_restore",
             "entity_carry",
             "permissions",
+            "requirements_init",
+            "requirements_check",
             "permissions_init",
             "permissions_audit",
             "permissions_apply",
@@ -968,6 +1073,7 @@ fn every_tool_is_listed_with_a_schema_and_honest_annotations() {
             "import",
             "settings",
             "catalog",
+            "contract_diff",
             "impact",
             "trace",
             "unused",
@@ -986,6 +1092,7 @@ fn every_tool_is_listed_with_a_schema_and_honest_annotations() {
         "entity_restore",
         "entity_carry",
         "permissions_init",
+        "requirements_init",
         "permissions_apply",
         "permissions_push",
         "db_run",
@@ -2011,6 +2118,10 @@ fn what_the_offline_tools_return_fits_the_output_schema_they_publish() {
             json!({"action": "extension", "out": "out/p.zip", "project": "P"}),
         ),
         ("permissions_init", json!({})),
+        ("requirements_init", json!({})),
+        ("requirements_init", json!({"dry_run": false})),
+        ("requirements_check", json!({})),
+        ("requirements_check", json!({"detail": true})),
         ("permissions_init", json!({"dry_run": false})),
         ("permissions_audit", json!({})),
         ("permissions_audit", json!({"detail": true})),
@@ -2107,6 +2218,7 @@ fn every_push_result_fits_the_output_schema() {
     let mut results = Vec::new();
     for decision in plans {
         let outcome = PushOutcome::Plan {
+            server_owned: Vec::new(),
             entity: entity(),
             decision,
             effects,
@@ -2115,6 +2227,7 @@ fn every_push_result_fits_the_output_schema() {
     }
     for result in applied {
         let outcome = PushOutcome::Applied {
+            server_owned: Vec::new(),
             entity: entity(),
             result,
             backup: None,
@@ -2300,6 +2413,79 @@ fn entity_server() -> std::net::SocketAddr {
         }
     });
     address
+}
+
+#[test]
+fn status_record_returns_matching_entities_in_sync_and_keeps_differing_verdicts() {
+    let body = |result: &Value| {
+        serde_json::from_str::<Value>(result["content"][0]["text"].as_str().unwrap()).unwrap()
+    };
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path();
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let address = listener.local_addr().unwrap();
+    std::thread::spawn(move || {
+        use std::io::{Read, Write};
+        for _ in 0..5 {
+            let (mut stream, _) = listener.accept().unwrap();
+            let mut buffer = [0; 8192];
+            let read = stream.read(&mut buffer).unwrap();
+            let request = String::from_utf8_lossy(&buffer[..read]);
+            let name = request
+                .split_whitespace()
+                .nth(1)
+                .unwrap()
+                .rsplit('/')
+                .next()
+                .unwrap();
+            let xml = format!("<Entities><Things><Thing name=\"{name}\" projectName=\"Acme.App\"></Thing></Things></Entities>");
+            write!(stream,"HTTP/1.1 200 OK\r\nContent-Type: text/xml\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{xml}",xml.len()).unwrap();
+        }
+    });
+    std::fs::write(root.join("twaco.toml"), "[[project]]\nname='Acme.App'\n").unwrap();
+    std::fs::create_dir(root.join("Things")).unwrap();
+    for (name, value) in [
+        ("Acme.Same", ""),
+        ("Acme.Different", "<value>changed</value>"),
+    ] {
+        std::fs::write(root.join(format!("Things/{name}.xml")),format!("<Entities><Things><Thing name=\"{name}\" projectName=\"Acme.App\">{value}</Thing></Things></Entities>")).unwrap();
+    }
+    std::fs::create_dir_all(root.join(".twaco/profiles")).unwrap();
+    std::fs::write(
+        root.join(".twaco/profiles/default.toml"),
+        format!(
+            "url='http://{}/Thingworx/'\nusername='user'\npassword='pass'\n",
+            address
+        ),
+    )
+    .unwrap();
+    std::fs::write(root.join(".twaco/baseline.json"),r#"{"entities":{"Things":{"Acme.Same":{"local":"v7:old","server":"v7:old"},"Acme.Different":{"local":"v7:old","server":"v7:old"}}}}"#).unwrap();
+    let before = call(root, "status", json!({"all":true,"detail":true}));
+    assert_eq!(body(&before)["counts"]["both-changed"], 2);
+    let after = call(
+        root,
+        "status",
+        json!({"all":true,"detail":true,"record":true}),
+    );
+    assert_ne!(after["isError"], true, "{after}");
+    let result = body(&after);
+    assert_eq!(result["recorded"], 1);
+    assert_eq!(result["counts"]["in-sync"], 1);
+    assert_eq!(result["counts"]["both-changed"], 1);
+    let entries = result["statuses"].as_array().unwrap();
+    let same = entries
+        .iter()
+        .find(|s| s["entity"] == "Things/Acme.Same")
+        .unwrap();
+    assert_eq!(same["verdict"], "in-sync");
+    assert_eq!(same["working"], same["baseline_local"]);
+    assert_eq!(same["server"], same["baseline_server"]);
+    let single = call(
+        root,
+        "status",
+        json!({"entity":"Things/Same","record":true}),
+    );
+    assert_eq!(body(&single)["ok"], true);
 }
 
 fn status_workspace() -> (tempfile::TempDir, PathBuf) {
@@ -3241,4 +3427,66 @@ fn network_tools_show_a_hierarchy_and_edit_it_through_a_dry_run() {
         json!({"action": "add", "network": "P.Plant", "thing": "P.Line", "as_root": true, "dry_run": false}),
     );
     assert_eq!(refused["isError"], true, "{refused}");
+}
+
+#[test]
+fn requirements_tools_default_to_offline_plans_and_return_blocking_findings() {
+    let (_dir, root) = solution_dir();
+    let gates = call(&root, "check", json!({}));
+    let skipped = gates["structuredContent"]["gates"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|gate| gate["gate"] == "requirements")
+        .unwrap();
+    assert!(skipped["skipped"]
+        .as_str()
+        .unwrap()
+        .contains("requirements.toml is absent"));
+    std::fs::write(root.join("Things/Acme.Ref.xml"), r#"<Entities><Things><Thing name="Acme.Ref" projectName="P" thingTemplate="Acme.External"/></Things></Entities>"#).unwrap();
+    let planned = call(&root, "requirements_init", json!({}));
+    assert_eq!(planned["isError"], false, "{planned}");
+    assert_eq!(planned["structuredContent"]["dry_run"], true);
+    assert_eq!(planned["structuredContent"]["written"], false);
+    assert!(!root.join("requirements.toml").exists());
+    let applied = call(&root, "requirements_init", json!({"dry_run": false}));
+    assert_eq!(applied["isError"], false, "{applied}");
+    assert_eq!(applied["structuredContent"]["written"], true);
+    let checked = call(
+        &root,
+        "requirements_check",
+        json!({"detail":true, "profile":"does-not-exist"}),
+    );
+    assert_eq!(checked["isError"], false, "{checked}");
+    assert_eq!(checked["structuredContent"]["ok"], true);
+    assert_eq!(checked["structuredContent"]["server_checked"], false);
+    let refused = call(&root, "requirements_init", json!({"dry_run":false}));
+    assert_eq!(refused["isError"], true);
+    std::fs::write(root.join("requirements.toml"), "").unwrap();
+    let checked = call(&root, "requirements_check", json!({"detail":true}));
+    assert_eq!(checked["isError"], false, "{checked}");
+    assert_eq!(checked["structuredContent"]["ok"], false);
+    assert!(checked["structuredContent"]["findings"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|f| f["requirement"] == "ThingTemplates/Acme.External"
+            && f["referrers"][0] == "Things/Acme.Ref"));
+    assert_eq!(
+        call(&root, "requirements_check", json!({"unknown":true}))["isError"],
+        true
+    );
+    let definitions = tool_definitions();
+    let check = definitions
+        .iter()
+        .find(|tool| tool["name"] == "requirements_check")
+        .unwrap();
+    assert_eq!(check["annotations"]["readOnlyHint"], true);
+    assert_eq!(check["annotations"]["openWorldHint"], true);
+    let init = definitions
+        .iter()
+        .find(|tool| tool["name"] == "requirements_init")
+        .unwrap();
+    assert_eq!(init["annotations"]["destructiveHint"], false);
+    assert_eq!(init["annotations"]["openWorldHint"], false);
 }

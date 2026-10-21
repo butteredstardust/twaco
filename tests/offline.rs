@@ -4,6 +4,326 @@ use sha2::{Digest, Sha256};
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
+fn contract_git(root: &Path, args: &[&str]) {
+    let output = Command::new("git")
+        .current_dir(root)
+        .args(args)
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "git {args:?}: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+fn contract_repo(subdir: bool) -> Option<(tempfile::TempDir, PathBuf)> {
+    if Command::new("git").arg("--version").output().is_err() {
+        eprintln!("skipping contract git integration test: git is not on PATH");
+        return None;
+    }
+    let dir = tempfile::tempdir().unwrap();
+    contract_git(dir.path(), &["init", "--quiet"]);
+    contract_git(dir.path(), &["config", "user.name", "Acme Test"]);
+    contract_git(
+        dir.path(),
+        &["config", "user.email", "test@example.invalid"],
+    );
+    std::fs::write(dir.path().join("README.md"), "Acme solution\n").unwrap();
+    contract_git(dir.path(), &["add", "."]);
+    contract_git(
+        dir.path(),
+        &[
+            "-c",
+            "commit.gpgsign=false",
+            "commit",
+            "--quiet",
+            "-m",
+            "before solution",
+        ],
+    );
+    let root = if subdir {
+        dir.path().join("nested/solution")
+    } else {
+        dir.path().to_path_buf()
+    };
+    std::fs::create_dir_all(root.join("ThingShapes")).unwrap();
+    std::fs::write(root.join("twaco.toml"), "[[project]]\nname='Acme.App'\n").unwrap();
+    contract_entity(&root, "STRING");
+    contract_git(dir.path(), &["add", "."]);
+    contract_git(
+        dir.path(),
+        &[
+            "-c",
+            "commit.gpgsign=false",
+            "commit",
+            "--quiet",
+            "-m",
+            "solution",
+        ],
+    );
+    Some((dir, root))
+}
+
+fn contract_entity(root: &Path, base_type: &str) {
+    std::fs::write(root.join("ThingShapes/Acme.Shape.xml"), format!(r#"<Entities><ThingShapes><ThingShape name="Acme.Shape" projectName="Acme.App"><PropertyDefinitions><PropertyDefinition name="value" baseType="{base_type}"/></PropertyDefinitions></ThingShape></ThingShapes></Entities>"#)).unwrap();
+}
+
+fn run_contract(root: &Path, args: &[&str]) -> std::process::Output {
+    let mut command = Command::new(env!("CARGO_BIN_EXE_twaco"));
+    command
+        .current_dir(root)
+        .args(["contract", "diff"])
+        .args(args)
+        .env_clear();
+    // Only git and Windows process startup need these; no profile or credentials are supplied.
+    for key in ["PATH", "SystemRoot", "TEMP", "TMP"] {
+        if let Some(value) = std::env::var_os(key) {
+            command.env(key, value);
+        }
+    }
+    command.output().unwrap()
+}
+
+#[test]
+fn contract_git_reports_breaking_and_compatible_changes_offline_without_writes() {
+    let Some((_dir, root)) = contract_repo(false) else {
+        return;
+    };
+    let before = Command::new("git")
+        .current_dir(&root)
+        .args(["status", "--porcelain=v1"])
+        .output()
+        .unwrap();
+    let no_change = run_contract(&root, &["--against", "HEAD"]);
+    assert!(
+        no_change.status.success(),
+        "{}",
+        String::from_utf8_lossy(&no_change.stderr)
+    );
+    assert!(String::from_utf8_lossy(&no_change.stdout).contains("contract against HEAD: no change"));
+    let after = Command::new("git")
+        .current_dir(&root)
+        .args(["status", "--porcelain=v1"])
+        .output()
+        .unwrap();
+    assert_eq!(before.stdout, after.stdout);
+    contract_entity(&root, "NUMBER");
+    let output = run_contract(&root, &["--against", "HEAD", "--json"]);
+    assert_eq!(
+        output.status.code(),
+        Some(1),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let report: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(report["breaking"][0]["kind"], "property");
+    assert_eq!(report["breaking"][0]["entity"], "ThingShapes/Acme.Shape");
+    assert_eq!(report["compatible"].as_array().unwrap().len(), 0);
+    contract_entity(&root, "STRING");
+    let path = root.join("ThingShapes/Acme.Shape.xml");
+    let xml = std::fs::read_to_string(&path).unwrap();
+    std::fs::write(
+        &path,
+        xml.replace(
+            "</PropertyDefinitions>",
+            "<PropertyDefinition name=\"added\" baseType=\"STRING\"/></PropertyDefinitions>",
+        ),
+    )
+    .unwrap();
+    let output = run_contract(&root, &["--against", "HEAD", "--detail", "--json"]);
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let report: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert!(report["breaking"].as_array().unwrap().is_empty());
+    assert_eq!(report["compatible"][0]["member"], "added");
+    assert!(!root.join(".twaco").exists());
+}
+
+#[test]
+fn contract_git_loads_the_revision_solution_in_a_subdirectory() {
+    let Some((_dir, root)) = contract_repo(true) else {
+        return;
+    };
+    contract_entity(&root, "NUMBER");
+    let output = run_contract(&root, &["--against", "HEAD", "--json"]);
+    assert_eq!(
+        output.status.code(),
+        Some(1),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let report: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(report["breaking"].as_array().unwrap().len(), 1);
+    let refused = run_contract(&root, &["--against", "HEAD~1"]);
+    assert!(!refused.status.success());
+    let error = String::from_utf8_lossy(&refused.stderr);
+    assert!(error.contains("HEAD~1 has no twaco.toml at nested/solution; contract diff compares two twaco solutions"), "{error}");
+}
+
+#[test]
+fn contract_git_uses_each_revisions_own_layout_configuration() {
+    let Some((_dir, root)) = contract_repo(false) else {
+        return;
+    };
+    std::fs::create_dir(root.join("new-layout")).unwrap();
+    std::fs::rename(
+        root.join("ThingShapes"),
+        root.join("new-layout/ThingShapes"),
+    )
+    .unwrap();
+    std::fs::write(
+        root.join("twaco.toml"),
+        "[[project]]\nname='Acme.App'\nroot='new-layout'\n",
+    )
+    .unwrap();
+    let output = run_contract(&root, &["--against", "HEAD", "--json"]);
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let report: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(report["summary"], "contract against HEAD: no change");
+}
+
+#[test]
+fn contract_git_project_filter_can_report_a_project_removed_from_the_new_config() {
+    let Some((_dir, root)) = contract_repo(false) else {
+        return;
+    };
+    std::fs::write(
+        root.join("twaco.toml"),
+        "[[project]]\nname='Acme.Other'\nroot='Other'\n",
+    )
+    .unwrap();
+    let output = run_contract(
+        &root,
+        &["--against", "HEAD", "--project", "Acme.App", "--json"],
+    );
+    assert_eq!(
+        output.status.code(),
+        Some(1),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let report: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(report["breaking"].as_array().unwrap().len(), 1);
+    assert_eq!(report["breaking"][0]["entity"], "ThingShapes/Acme.Shape");
+    assert_eq!(report["breaking"][0]["change"], "removed");
+    let unknown = run_contract(&root, &["--against", "HEAD", "--project", "Acme.Unknown"]);
+    assert!(!unknown.status.success());
+    assert!(String::from_utf8_lossy(&unknown.stderr)
+        .contains("neither solution has a project named Acme.Unknown"));
+}
+
+#[test]
+fn contract_git_refuses_missing_config_bad_revision_missing_flag_and_non_git_solution() {
+    let Some((_dir, root)) = contract_repo(false) else {
+        return;
+    };
+    for (args, expected) in [
+        (
+            vec!["--against", "HEAD~1"],
+            "HEAD~1 has no twaco.toml at .; contract diff compares two twaco solutions",
+        ),
+        (
+            vec!["--against", "Acme.NotARevision"],
+            "bad git revision Acme.NotARevision",
+        ),
+        (vec![], "needs --against <git rev>"),
+    ] {
+        let output = run_contract(&root, &args);
+        assert!(!output.status.success());
+        let error = String::from_utf8_lossy(&output.stderr);
+        assert!(error.contains(expected), "{error}");
+        if args.contains(&"Acme.NotARevision") {
+            assert!(error.contains("origin/main"));
+            assert!(error.contains("fatal:"));
+        }
+    }
+    let non_git = tempfile::tempdir().unwrap();
+    std::fs::write(
+        non_git.path().join("twaco.toml"),
+        "[[project]]\nname='Acme.App'\n",
+    )
+    .unwrap();
+    let output = run_contract(non_git.path(), &["--against", "HEAD"]);
+    assert!(!output.status.success());
+    assert!(String::from_utf8_lossy(&output.stderr).contains("not a git repository"));
+}
+
+#[test]
+fn requirements_init_and_check_are_offline_and_missing_declarations_exit_one() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path();
+    std::fs::write(root.join("twaco.toml"), "[[project]]\nname='Acme.App'\n").unwrap();
+    std::fs::create_dir_all(root.join("Things")).unwrap();
+    std::fs::write(root.join("Things/Acme.Ref.xml"), r#"<Entities majorVersion="10" minorVersion="1"><Things><Thing name="Acme.Ref" projectName="Acme.App" thingTemplate="GenericThing"/></Things></Entities>"#).unwrap();
+    let run = |args: &[&str]| {
+        Command::new(env!("CARGO_BIN_EXE_twaco"))
+            .args(args)
+            .current_dir(root)
+            .env_clear()
+            .output()
+            .unwrap()
+    };
+    let missing = run(&["requirements", "check"]);
+    assert!(!missing.status.success());
+    assert!(String::from_utf8_lossy(&missing.stderr).contains("requirements init"));
+    let gates = run(&["check"]);
+    assert!(String::from_utf8_lossy(&gates.stdout).contains("skip    requirements"));
+    assert!(String::from_utf8_lossy(&gates.stdout).contains("requirements.toml is absent"));
+    let plan = run(&["requirements", "init"]);
+    assert!(
+        plan.status.success(),
+        "{}",
+        String::from_utf8_lossy(&plan.stderr)
+    );
+    assert!(String::from_utf8_lossy(&plan.stdout).contains("--apply writes requirements.toml"));
+    assert!(!root.join("requirements.toml").exists());
+    let init = run(&["requirements", "init", "--apply", "--json"]);
+    assert!(
+        init.status.success(),
+        "{}",
+        String::from_utf8_lossy(&init.stderr)
+    );
+    let value: serde_json::Value = serde_json::from_slice(&init.stdout).unwrap();
+    assert_eq!(value["written"], true);
+    let check = run(&["requirements", "check", "--json"]);
+    assert!(
+        check.status.success(),
+        "{}",
+        String::from_utf8_lossy(&check.stderr)
+    );
+    let value: serde_json::Value = serde_json::from_slice(&check.stdout).unwrap();
+    assert_eq!(value["ok"], true);
+    let path = root.join("requirements.toml");
+    let bytes = std::fs::read_to_string(&path).unwrap();
+    std::fs::write(
+        &path,
+        bytes
+            .lines()
+            .filter(|line| !line.contains("\"GenericThing\""))
+            .collect::<Vec<_>>()
+            .join("\n"),
+    )
+    .unwrap();
+    let check = run(&["requirements", "check", "--detail", "--json"]);
+    assert_eq!(check.status.code(), Some(1));
+    let value: serde_json::Value = serde_json::from_slice(&check.stdout).unwrap();
+    assert_eq!(
+        value["findings"][0]["requirement"],
+        "ThingTemplates/GenericThing"
+    );
+    assert_eq!(value["findings"][0]["referrers"][0], "Things/Acme.Ref");
+    assert!(!run(&["requirements", "init", "--apply"]).status.success());
+    assert!(!root.join(".twaco/profiles/default.toml").exists());
+}
+
 #[test]
 fn offline_projects_needs_no_profile_or_environment() {
     let root_guard = tempfile::Builder::new()

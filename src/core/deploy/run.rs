@@ -162,14 +162,57 @@ pub(crate) fn run_with_progress(
         return Ok(report);
     }
 
+    // Fetch every owned value before the first import. Keep these copies in memory only.
+    let mut outgoing = Vec::new();
+    for project in projects {
+        let mut bytes = project.bytes.clone();
+        for entity in &project.entities {
+            if entity.server_owned.is_empty()
+                || report.plans.iter().any(|p| {
+                    p.collection == entity.collection
+                        && p.name == entity.name
+                        && p.server_owned.is_empty()
+                })
+            {
+                continue;
+            }
+            let prepared = (|| {
+                let key = EntityKey::address(&entity.collection, &entity.name)?;
+                remote.export_owned(&key)?.ok_or_else(|| ServerError::InvalidResponse {
+                    url: "Exporter".into(),
+                    why: format!("{key} disappeared before its server-owned parts could be preserved; retry deploy"),
+                })
+            })().map_err(|error| DeployError::Server {
+                collection: entity.collection.clone(),
+                name: entity.name.clone(),
+                why: error.to_string(),
+            })?;
+            // An encrypted value cannot be carried through an import; the deploy hook sets it.
+            let encrypted = super::super::server_owned::encrypted(&prepared, &entity.server_owned)
+                .map_err(|error| DeployError::Server {
+                    collection: entity.collection.clone(),
+                    name: entity.name.clone(),
+                    why: error.to_string(),
+                })?;
+            let carried = super::super::server_owned::carried(&entity.server_owned, &encrypted);
+            bytes = super::super::server_owned::preserve_in_bundle(&bytes, &prepared, &carried)
+                .map_err(|error| DeployError::Server {
+                    collection: entity.collection.clone(),
+                    name: entity.name.clone(),
+                    why: error.to_string(),
+                })?;
+        }
+        outgoing.push(bytes);
+    }
+
     // A failed import stops the projects after it, but the ones before it are on the server by
     // then. They are still read back and recorded, so a partial deploy does not later look like
     // someone else's change to entities this deploy wrote.
     let mut import_failure = None;
     let import_phase = progress::phase(progress, "importing", Some(projects.len() as u64));
-    for project in projects {
+    for (project, bytes) in projects.iter().zip(&outgoing) {
         progress.message(&project.project);
-        let imported = remote.import(&project.file_name, &project.bytes);
+        let imported = remote.import(&project.file_name, bytes);
         progress.advance(1);
         match imported {
             Ok(()) => {
@@ -203,16 +246,19 @@ pub(crate) fn run_with_progress(
     let read_backs = parallel::map_progress(&imported_entities, progress, |entity| {
         let entity = *entity;
         progress.message(&entity.name);
-        let sent = normalise::hash(&entity.bytes).map_err(|error| DeployError::Working {
-            collection: entity.collection.clone(),
-            name: entity.name.clone(),
-            why: error.to_string(),
-        })?;
+        let sent =
+            normalise::hash_with_parts(&entity.bytes, &entity.server_owned).map_err(|error| {
+                DeployError::Working {
+                    collection: entity.collection.clone(),
+                    name: entity.name.clone(),
+                    why: error.to_string(),
+                }
+            })?;
         let fetched =
             EntityKey::address(&entity.collection, &entity.name).and_then(|key| remote.fetch(&key));
         let mut only_permissions = false;
         let (read_back, error) = match fetched {
-            Ok(Some(bytes)) => match normalise::hash(&bytes) {
+            Ok(Some(bytes)) => match normalise::hash_with_parts(&bytes, &entity.server_owned) {
                 Ok(hash) => {
                     if hash != sent {
                         only_permissions =
@@ -348,10 +394,12 @@ pub(crate) fn run_with_progress(
                     name: entity.name.clone(),
                     why: "the entity disappeared after its deploy calls".to_string(),
                 })?;
-            let hash = normalise::hash(&bytes).map_err(|why| DeployError::Server {
-                collection: entity.collection.clone(),
-                name: entity.name.clone(),
-                why: why.to_string(),
+            let hash = normalise::hash_with_parts(&bytes, &entity.server_owned).map_err(|why| {
+                DeployError::Server {
+                    collection: entity.collection.clone(),
+                    name: entity.name.clone(),
+                    why: why.to_string(),
+                }
             })?;
             Ok((entity, hash))
         });

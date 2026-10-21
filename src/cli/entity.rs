@@ -194,6 +194,16 @@ pub(crate) fn entity_status(solution: &Solution, args: &EntityStatus) -> u8 {
         };
         println!("  {label} {count}");
     }
+    if let Some(recorded) = outcome.recorded {
+        if recorded == 0 {
+            println!("nothing to record: no entity matches the server");
+        } else {
+            println!(
+                "baseline recorded for {recorded} entit{}",
+                if recorded == 1 { "y" } else { "ies" }
+            );
+        }
+    }
     if args.detail.detail {
         println!();
         for status in &outcome.statuses {
@@ -204,6 +214,9 @@ pub(crate) fn entity_status(solution: &Solution, args: &EntityStatus) -> u8 {
                 status.verdict.label()
             );
             println!("  working  {}", status.working);
+            if !status.server_owned.is_empty() {
+                println!("  server-owned  {}", status.server_owned.join(", "));
+            }
             println!("  server   {}", status.server.as_deref().unwrap_or("-"));
             println!(
                 "  baseline local  {}",
@@ -230,6 +243,8 @@ pub(crate) fn entity_status(solution: &Solution, args: &EntityStatus) -> u8 {
 #[derive(Debug, clap::Args)]
 #[group(skip)]
 pub(crate) struct EntityPush {
+    #[command(flatten)]
+    pub(crate) json: Json,
     #[command(flatten)]
     pub(crate) apply: Apply,
     #[arg(long = "force")]
@@ -272,11 +287,32 @@ pub(crate) fn entity_push(solution: &Solution, args: &EntityPush) -> u8 {
         &progress,
     );
     print_notices(&notices);
+    if args.json.json {
+        let (value, code) = push_json(result, request.force);
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&value).expect("push result is JSON")
+        );
+        return code;
+    }
     match result {
         Ok(commands::push::PushOutcome::Plan {
-            entity, decision, ..
+            entity,
+            decision,
+            server_owned,
+            ..
         }) => {
             let label = entity.to_string();
+            // An encrypted part's refusal says why the import cannot keep it.
+            if !server_owned.is_empty()
+                && !matches!(
+                    decision,
+                    push::Decision::Create
+                        | push::Decision::Refuse(push::Refusal::EncryptedServerOwned { .. })
+                )
+            {
+                println!("{label}: keeps the server's {}", server_owned.join(", "));
+            }
             match decision {
                 push::Decision::AlreadyThere => {
                     println!("{label}: nothing to push")
@@ -349,6 +385,62 @@ pub(crate) fn entity_push(solution: &Solution, args: &EntityPush) -> u8 {
             }
             FAILED
         }
+    }
+}
+
+fn push_json(
+    result: Result<commands::push::PushOutcome, commands::push::PushCommandError>,
+    force: bool,
+) -> (serde_json::Value, u8) {
+    use serde_json::json;
+    match result {
+        Ok(commands::push::PushOutcome::Plan {
+            entity,
+            decision,
+            server_owned,
+            ..
+        }) => {
+            let owned = if matches!(decision, push::Decision::Create) {
+                Vec::new()
+            } else {
+                server_owned
+            };
+            let code = if !force && matches!(decision, push::Decision::Refuse(_)) {
+                DRIFT
+            } else {
+                OK
+            };
+            (
+                json!({"entity":entity.to_string(),"dry_run":true,"force":force,"decision":format!("{decision:?}"),"server_owned":owned}),
+                code,
+            )
+        }
+        Ok(commands::push::PushOutcome::Applied {
+            entity,
+            result,
+            server_owned,
+            backup,
+            ..
+        }) => {
+            let owned = if matches!(result, push::Outcome::Pushed { created: true }) {
+                Vec::new()
+            } else {
+                server_owned
+            };
+            let code = if matches!(result, push::Outcome::Refused(_)) {
+                DRIFT
+            } else {
+                OK
+            };
+            (
+                json!({"entity":entity.to_string(),"dry_run":false,"result":format!("{result:?}"),"server_owned":owned,"backup":backup}),
+                code,
+            )
+        }
+        Err(error) => (
+            json!({"ok":false,"error":error.to_string(),"backup":error.backup()}),
+            FAILED,
+        ),
     }
 }
 

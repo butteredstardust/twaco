@@ -709,6 +709,17 @@ mod tests {
     }
 
     #[test]
+    fn event_definitions_do_not_change_catalog_output() {
+        let (_dir, root, solution) = fixture();
+        let before = serde_json::to_value(build(&solution, Query::default()).unwrap()).unwrap();
+        let path = root.join("ThingShapes/P.Shape.xml");
+        let xml = std::fs::read_to_string(&path).unwrap();
+        std::fs::write(&path, xml.replace("</ThingShape>", "<EventDefinitions><EventDefinition name=\"Changed\" dataShape=\"Acme.Rows\"/></EventDefinitions></ThingShape>")).unwrap();
+        let after = serde_json::to_value(build(&solution, Query::default()).unwrap()).unwrap();
+        assert_eq!(before, after);
+    }
+
+    #[test]
     fn inheritance_implementers_filters_and_unknown_names() {
         let (_dir, _, solution) = fixture();
         let thing = build(

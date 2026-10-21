@@ -25,6 +25,8 @@ pub(crate) enum Command {
     Javadoc(super::info::Javadoc),
     Package(super::content::Package),
     Catalog(super::info::Catalog),
+    #[command(subcommand)]
+    Contract(super::contract::Contract),
     Impact(super::info::Impact),
     Trace(super::info::Trace),
     Unused(super::info::Unused),
@@ -82,6 +84,8 @@ pub(crate) enum Command {
     Entity(super::entity::Entity),
     #[command(subcommand)]
     Permissions(super::entity::Permissions),
+    #[command(subcommand)]
+    Requirements(super::requirements::Requirements),
     Bundle(super::source::Bundle),
     Deploy(super::source::Deploy),
     ConfigTable(super::data::ConfigTable),
@@ -106,6 +110,7 @@ impl Command {
             Command::Javadoc(_) => "javadoc",
             Command::Package(_) => "package",
             Command::Catalog(_) => "catalog",
+            Command::Contract(super::contract::Contract::Diff(_)) => "contract diff",
             Command::Impact(_) => "impact",
             Command::Trace(_) => "trace",
             Command::Unused(_) => "unused",
@@ -162,6 +167,10 @@ impl Command {
             Command::Reproject(_) => "reproject",
             Command::Entity(entity) => entity.path(),
             Command::Permissions(permissions) => permissions.path(),
+            Command::Requirements(requirements) => match requirements {
+                super::requirements::Requirements::Init(_) => "requirements init",
+                super::requirements::Requirements::Check(_) => "requirements check",
+            },
             Command::Bundle(_) => "bundle",
             Command::Deploy(_) => "deploy",
             Command::ConfigTable(_) => "config-table",
@@ -197,6 +206,7 @@ impl Command {
             | Command::Javadoc(_)
             | Command::Package(_)
             | Command::Catalog(_)
+            | Command::Contract(_)
             | Command::Impact(_)
             | Command::Trace(_)
             | Command::Unused(_)
@@ -235,6 +245,7 @@ impl Command {
             | Command::Reproject(_)
             | Command::Entity(_)
             | Command::Permissions(_)
+            | Command::Requirements(_)
             | Command::Bundle(_)
             | Command::ConfigTable(_)
             | Command::Datatable(_)

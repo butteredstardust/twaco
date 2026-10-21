@@ -1,5 +1,156 @@
 use super::*;
 
+#[test]
+fn server_owned_parts_are_neither_reported_nor_adopted_with_other_changes() {
+    let dir = tempfile::tempdir().unwrap();
+    let config = dir.path().join("twaco.toml");
+    std::fs::write(&config, "[[project]]\nname='Acme.Project'\n[[server_owned]]\nentities=['Groups/Acme.Admin_UG']\nparts=['members','run-time-permissions']\n").unwrap();
+    std::fs::create_dir(dir.path().join("Groups")).unwrap();
+    let path = dir.path().join("Groups/Acme.Admin_UG.xml");
+    let local = "<Entities><Groups><Group name=\"Acme.Admin_UG\" projectName=\"Acme.Project\" description=\"before\"><Members><Member name='Acme.Local'/></Members><RunTimePermissions><Permissions><Read><Principal name='Acme.Local' type='Group'/></Read></Permissions></RunTimePermissions></Group></Groups></Entities>";
+    std::fs::write(&path, local).unwrap();
+    let solution = Solution::load(&config).unwrap();
+    let export = dir.path().join("export.xml");
+    let changed_owned = local.replace("Acme.Local", "Acme.Server");
+    std::fs::write(&export, &changed_owned).unwrap();
+    let report = compare(&solution, &export, &[]).unwrap();
+    assert_eq!(report.entities[0].change, Change::Same);
+    assert!(report.entities[0].differences.is_empty());
+    apply(&solution, &export, &report, &[], &locked(&solution)).unwrap();
+    assert_eq!(std::fs::read_to_string(&path).unwrap(), local);
+    std::fs::write(&export, changed_owned.replace("before", "after")).unwrap();
+    let report = compare(&solution, &export, &[]).unwrap();
+    assert_eq!(report.entities[0].differences.len(), 1);
+    assert_eq!(report.entities[0].differences[0].path, "@description");
+    apply(
+        &solution,
+        &export,
+        &report,
+        &[Take {
+            side: TakeSide::Theirs,
+            target: "Acme.Admin_UG".into(),
+        }],
+        &locked(&solution),
+    )
+    .unwrap();
+    assert_eq!(
+        std::fs::read_to_string(&path).unwrap(),
+        local.replace("before", "after")
+    );
+}
+
+#[test]
+fn exporter_backend_replacement_keeps_the_repository_lines_and_new_entity_layout() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(
+        dir.path().join("twaco.toml"),
+        "[[project]]\nname='Acme.Orders'\n",
+    )
+    .unwrap();
+    std::fs::create_dir(dir.path().join("Things")).unwrap();
+    let path = dir.path().join("Things/Acme.Orders.Manager.xml");
+    let before =
+        include_str!("../../../tests/fixtures/corpus/acme-orders/Things/Acme.Orders.Manager.xml");
+    std::fs::write(&path, before).unwrap();
+    let solution = Solution::load(&dir.path().join("twaco.toml")).unwrap();
+    let tokens = scan::tokenize(before.as_bytes()).unwrap();
+    let mut flat = String::new();
+    for t in &tokens {
+        let text = std::str::from_utf8(t.span.of(before.as_bytes())).unwrap();
+        match t.kind {
+            scan::Kind::Text if text.trim().is_empty() => {}
+            scan::Kind::Cdata => flat.push_str(&format!(
+                "<![CDATA[{}]]>",
+                std::str::from_utf8(t.inner.of(before.as_bytes()))
+                    .unwrap()
+                    .trim()
+            )),
+            scan::Kind::Start => {
+                flat.push('<');
+                flat.push_str(std::str::from_utf8(t.name.of(before.as_bytes())).unwrap());
+                for a in scan::attributes(before.as_bytes(), t).unwrap() {
+                    flat.push(' ');
+                    flat.push_str(&before[a.name.start..a.value.end + 1]);
+                }
+                flat.push('>');
+            }
+            _ => flat.push_str(text),
+        }
+    }
+    let export = dir.path().join("export.xml");
+    let changed = flat
+        .replace("Looks up orders.", "Looks up active orders.")
+        .replace("<![CDATA[Orders]]>", "<![CDATA[Active orders]]>")
+        .replace("<Thing ", "<Thing lastModifiedDate=\"0\" ")
+        .replace("</Thing>", "<Owner>Acme.Exporter</Owner></Thing>");
+    std::fs::write(&export, &changed).unwrap();
+    let report = compare(&solution, &export, &[]).unwrap();
+    let takes = [Take {
+        side: TakeSide::Theirs,
+        target: "Acme.Orders.Manager".into(),
+    }];
+    apply(&solution, &export, &report, &takes, &locked(&solution)).unwrap();
+    let expected = before
+        .replace("Looks up orders.", "Looks up active orders.")
+        .replace("<![CDATA[Orders]]>", "<![CDATA[Active orders]]>");
+    assert_eq!(std::fs::read_to_string(&path).unwrap(), expected);
+    for service in sidecar::extract(before.as_bytes()).unwrap().services {
+        assert_eq!(
+            std::fs::read_to_string(
+                solution
+                    .src_root()
+                    .join("Acme.Orders.Manager/services")
+                    .join(&service.name)
+                    .join("definition.xml")
+            )
+            .unwrap(),
+            service.definition,
+            "incoming service definitions retain the repository layout"
+        );
+    }
+    // A semantically identical flattened export must leave every byte alone.
+    let report = compare(&solution, &export, &[]).unwrap();
+    apply(&solution, &export, &report, &takes, &locked(&solution)).unwrap();
+    assert_eq!(std::fs::read_to_string(&path).unwrap(), expected);
+    let new = changed.replace("Acme.Orders.Manager", "Acme.Orders.Worker");
+    std::fs::write(&export, new).unwrap();
+    let report = compare(&solution, &export, &[]).unwrap();
+    apply(&solution, &export, &report, &[], &locked(&solution)).unwrap();
+    assert_eq!(
+        std::fs::read_to_string(dir.path().join("Things/Acme.Orders.Worker.xml")).unwrap(),
+        expected.replace("Acme.Orders.Manager", "Acme.Orders.Worker")
+    );
+}
+
+#[test]
+fn semantically_unchanged_export_permissions_do_not_rewrite_the_entity() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(
+        dir.path().join("twaco.toml"),
+        "[[project]]\nname='Acme.App'\n",
+    )
+    .unwrap();
+    std::fs::create_dir(dir.path().join("Things")).unwrap();
+    let path = dir.path().join("Things/Acme.Manager.xml");
+    let before = "<Entities><Things><Thing name=\"Acme.Manager\" projectName=\"Acme.App\"><RunTimePermissions></RunTimePermissions></Thing></Things></Entities>";
+    let theirs = before.replace(
+        "<RunTimePermissions></RunTimePermissions>",
+        "<RunTimePermissions><Permissions name=\"Acme.Resource\"><Read></Read><Write></Write></Permissions></RunTimePermissions>",
+    );
+    std::fs::write(&path, before).unwrap();
+    let export = dir.path().join("export.xml");
+    std::fs::write(&export, theirs).unwrap();
+    let solution = Solution::load(&dir.path().join("twaco.toml")).unwrap();
+    let report = compare(&solution, &export, &[]).unwrap();
+    assert_eq!(report.entities[0].change, Change::Unknown);
+    let takes = [Take {
+        side: TakeSide::Theirs,
+        target: "Acme.Manager".into(),
+    }];
+    apply(&solution, &export, &report, &takes, &locked(&solution)).unwrap();
+    assert_eq!(std::fs::read_to_string(&path).unwrap(), before);
+}
+
 fn simple_entity(value: &str, script: &str) -> String {
     format!(
         "<Entities><Things><Thing name=\"P.T\" projectName=\"P\"><value>{value}</value><ThingShape>\
@@ -706,4 +857,68 @@ fn a_failure_preparing_a_later_entity_writes_nothing() {
     let lock = locked(&solution);
     assert!(apply(&solution, &export, &report, &[], &lock).is_err());
     assert_eq!(file_snapshot(&solution.root), before);
+}
+#[test]
+fn adopt_keeps_equivalent_nodes_verbatim_around_one_real_attribute_change() {
+    let ours = r#"<Entities><MediaEntities><MediaEntity
+ name="Acme.Asset"
+ description="old">
+    <VisibilityPermissions>
+        <Visibility><Principal name="Acme.Users" type="Group"/><Principal name="Acme.Users" type="Organization"/></Visibility>
+    </VisibilityPermissions>
+    <ServiceDefinitions>
+        <ServiceDefinition name="Acme.First"/>
+        <ServiceDefinition name="Acme.Second"/>
+    </ServiceDefinitions>
+    <content><![CDATA[YWJj
+ZGVm]]></content>
+    <mashupContent><![CDATA[{
+  "first" : 1,
+  "second" : { "enabled": true }
+}]]></mashupContent>
+    <code><![CDATA[var result = true;]]></code>
+</MediaEntity></MediaEntities></Entities>"#;
+    let theirs = br#"<MediaEntity description="new" name="Acme.Asset"><VisibilityPermissions><Visibility><Principal type="Organization" name="Acme.Users"/><Principal type="Group" name="Acme.Users"/></Visibility></VisibilityPermissions><ServiceDefinitions><ServiceDefinition name="Acme.Second"/><ServiceDefinition name="Acme.First"/></ServiceDefinitions><content><![CDATA[YWJjZGVm]]></content><mashupContent><![CDATA[{"second":{"enabled":true},"first":1}]]></mashupContent><code><![CDATA[
+var result = true;
+]]></code><Owner>Acme.Exporter</Owner></MediaEntity>"#;
+    let wanted = EntityRef {
+        collection: "MediaEntities".into(),
+        name: "Acme.Asset".into(),
+    };
+    let out = replace_entity_bytes(ours.as_bytes(), &wanted, theirs, false).unwrap();
+    assert_eq!(
+        out,
+        ours.replace("description=\"old\"", "description=\"new\"")
+            .as_bytes()
+    );
+}
+
+#[test]
+fn a_new_entity_without_a_peer_file_gets_the_source_control_envelope() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(
+        dir.path().join("twaco.toml"),
+        "[[project]]\nname='Acme.App'\n",
+    )
+    .unwrap();
+    std::fs::create_dir(dir.path().join("Things")).unwrap();
+    std::fs::write(
+        dir.path().join("Things/Acme.Manager.xml"),
+        "<Entities><Things><Thing name=\"Acme.Manager\" projectName=\"Acme.App\"></Thing></Things></Entities>",
+    )
+    .unwrap();
+    let export = dir.path().join("export.xml");
+    std::fs::write(
+        &export,
+        "<Entities><DataShapes><DataShape lastModifiedDate=\"0\" name=\"Acme.Row_DS\" projectName=\"Acme.App\"><FieldDefinitions/></DataShape></DataShapes></Entities>",
+    )
+    .unwrap();
+    let solution = Solution::load(&dir.path().join("twaco.toml")).unwrap();
+    let report = compare(&solution, &export, &[]).unwrap();
+    apply(&solution, &export, &report, &[], &locked(&solution)).unwrap();
+    let written = std::fs::read_to_string(dir.path().join("DataShapes/Acme.Row_DS.xml")).unwrap();
+    assert_eq!(
+        written,
+        "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<Entities\n majorVersion=\"10\"\n minorVersion=\"1\"\n universal=\"password\">\n    <DataShapes>\n        <DataShape\n         name=\"Acme.Row_DS\"\n         projectName=\"Acme.App\">\n            <FieldDefinitions></FieldDefinitions>\n        </DataShape>\n    </DataShapes>\n</Entities>\n"
+    );
 }

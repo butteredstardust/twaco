@@ -429,6 +429,16 @@ pub(crate) const USAGE: &[Usage] = &[
       --body                  with an entity or service: each service's script too"#,
     },
     Usage {
+        path: "contract diff",
+        group: 1,
+        text: r#"  contract diff --against <git rev> [--project P] [--detail] [--json]
+                              compare public contracts with a git revision; offline and read-only
+      --against <git rev>     required revision to compare; try origin/main
+      --project <name>        limit both sides to this project
+      --detail                every change and every caller in this repository
+      --json                  the complete report as JSON; exit 1 when breaking"#,
+    },
+    Usage {
         path: "impact",
         group: 1,
         text: r#"  impact <entity> [--member <name>] [--min-confidence structural|resolved|review] [--depth <n>]
@@ -981,6 +991,7 @@ pub(crate) const USAGE: &[Usage] = &[
         path: "entity status",
         group: 2,
         text: r#"  entity status [<entity>|--all] [--detail] [--record]
+                              entity: full name, last dotted segment, or Collection/Name
       --record                 record matching working/server hashes as baseline"#,
     },
     Usage {
@@ -993,7 +1004,8 @@ pub(crate) const USAGE: &[Usage] = &[
     Usage {
         path: "entity push",
         group: 2,
-        text: r#"  entity push <entity>        import one entity, refusing if the server changed
+        text: r#"  entity push <entity> [--json]
+                              import one entity, refusing if the server changed
       --apply                 actually push (without it, report what would happen)
       --force                 push over a server-side change; the server's copy is saved first
       --no-backup             with --force, do not save the server's copy first"#,
@@ -1038,6 +1050,21 @@ pub(crate) const USAGE: &[Usage] = &[
                               one; prints unless --apply
       --from-helper           take the grants from the helper's tables, not the entity XML (a
                               matrix edited in the helper's mashup)"#,
+    },
+    Usage {
+        path: "requirements init",
+        group: 2,
+        text: r#"  requirements init [--apply] [--json]
+                              draft requirements.toml from external repository dependencies;
+                              prints a plan unless --apply; refuses an existing file"#,
+    },
+    Usage {
+        path: "requirements check",
+        group: 2,
+        text: r#"  requirements check [--server] [--profile <name>] [--detail] [--json]
+                              check requirements.toml against the repository; stale entries are notes
+      --server                also verify platform, extensions and entities on the server, read-only
+      --detail                every finding with its referrers"#,
     },
     Usage {
         path: "permissions audit",
@@ -1101,7 +1128,8 @@ pub(crate) const USAGE: &[Usage] = &[
     Usage {
         path: "deploy",
         group: 2,
-        text: r#"  deploy [--apply] [--force]  check, bundle, live-parse, conflict-check, import
+        text: r#"  deploy [--apply] [--force] [--json]
+                              check, bundle, live-parse, conflict-check, import
       --backend-only          exclude configured UI collections
       --only <entity>         include only this entity (repeatable)
       --only-projects <a,b>   include only these projects
@@ -1139,7 +1167,7 @@ pub(crate) const USAGE: &[Usage] = &[
         path: "call",
         group: 3,
         text: r#"  call <target> <service> [<json>] [--timeout <seconds>] [--detail] [--as <test user>]
-      [--lang <code>]         target: Collection/Name, or an entity by name or last segment
+      [--lang <code>]         target: Collection/Name, full name, or last dotted segment
       --with-logs             then what it wrote to ScriptLog and ApplicationLog (waits up to 3 s)
       --as <test user>        call as a [[test.user]] with the profile's test_password (the profile
                               needs allow_test_users): 404 if the user cannot see it, 401 a bad password
