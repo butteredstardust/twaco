@@ -730,7 +730,8 @@ fn corpus_entities() -> Vec<(std::path::PathBuf, Vec<u8>)> {
     files
 }
 
-/// Every part an entity document could have: each kind, and each configuration table it holds.
+/// Every part an entity document could have: each kind, and each table directly under its
+/// `ConfigurationTables`, read from the parsed entity.
 fn every_part(bytes: &[u8]) -> Vec<Part> {
     let mut parts: Vec<Part> = [
         "members",
@@ -741,20 +742,32 @@ fn every_part(bytes: &[u8]) -> Vec<Part> {
     .iter()
     .flat_map(|label| part(label))
     .collect();
-    let text = String::from_utf8_lossy(bytes);
-    for (at, _) in text.match_indices("<ConfigurationTable") {
-        let tag = &text[at..text[at..].find('>').map_or(text.len(), |end| at + end)];
-        if let Some(name) = tag
-            .split("name=\"")
-            .nth(1)
-            .and_then(|rest| rest.split('"').next())
-        {
-            if !name.is_empty() && !name.contains(['.', ':', ',', '/', '*', '\\', ' ']) {
-                parts.extend(part(&format!("configuration-table:{name}")));
-            }
+    let entity = normalise::entity_of(bytes).unwrap();
+    for table in children(&entity)
+        .filter(|e| e.name == b"ConfigurationTables")
+        .flat_map(children)
+        .filter(|e| e.name == b"ConfigurationTable")
+    {
+        let name = attr(table, b"name").map(|n| String::from_utf8_lossy(n).into_owned());
+        // A name the selector syntax cannot spell cannot be owned; such a table is left out.
+        if let Some(Ok(table)) = name.map(|n| Part::try_from(format!("configuration-table:{n}"))) {
+            parts.push(table);
         }
     }
     parts
+}
+
+/// The entity's own element with nothing in it: a donor that holds none of any part.
+fn empty_donor(bytes: &[u8]) -> Vec<u8> {
+    let entity = normalise::entity_of(bytes).unwrap();
+    let tag = String::from_utf8_lossy(&entity.name).into_owned();
+    let name = attr(&entity, b"name").map_or(String::new(), |n| {
+        String::from_utf8_lossy(n)
+            .replace('&', "&amp;")
+            .replace('"', "&quot;")
+            .replace('<', "&lt;")
+    });
+    format!("<Entities><{tag}s><{tag} name=\"{name}\"></{tag}></{tag}s></Entities>").into_bytes()
 }
 
 /// The server's presentation of the same content: no whitespace between tags, outside CDATA.
@@ -788,6 +801,72 @@ fn exporter_presentation(bytes: &[u8]) -> Vec<u8> {
         rest = &rest[plain.len() + cdata.len()..];
     }
     out.into_bytes()
+}
+
+type Attributes = Vec<(Vec<u8>, Vec<u8>)>;
+
+/// The entity's attributes and the canonical bytes of each of its children, sorted.
+fn children_any_order(bytes: &[u8]) -> (Attributes, Vec<Vec<u8>>) {
+    let entity = normalise::comparison_tree(bytes, true).unwrap();
+    let mut each: Vec<Vec<u8>> = children(&entity)
+        .map(normalise::canonical_element_bytes)
+        .collect();
+    each.sort();
+    (entity.attributes, each)
+}
+
+/// A transfer that copied nothing would pass the identity law above. So each owned part is taken
+/// out (from a donor that has none of it) and put back (from the original): taking it out changes
+/// exactly that part, and putting it back restores the entity.
+#[test]
+fn every_owned_part_is_taken_out_and_put_back_alone_over_the_corpus() {
+    let mut moved = BTreeMap::new();
+    for (path, bytes) in &corpus_entities() {
+        let name = path.display();
+        let donor = empty_donor(bytes);
+        for one in every_part(bytes) {
+            let selected = std::slice::from_ref(&one);
+            let label = one.label();
+            let owned = |b: &[u8]| normalise::hash_with_parts(b, selected).unwrap();
+            let Ok(stripped) = preserve(bytes, &donor, selected) else {
+                // Owning a table whose rows the source keys is refused when the structure would
+                // change; the identity law covers that table.
+                continue;
+            };
+            assert_eq!(
+                owned(&stripped),
+                owned(bytes),
+                "{name}: taking out {label} changed something else"
+            );
+            if normalise::hash(&stripped).unwrap() == normalise::hash(bytes).unwrap() {
+                continue;
+            }
+            let restored = preserve(&stripped, bytes, selected)
+                .unwrap_or_else(|e| panic!("{name}: putting back {label}: {e}"));
+            // A part the stripped entity no longer holds at all goes back after its last child:
+            // compared by name and content, the entity's own children may come in any order.
+            assert_eq!(
+                children_any_order(&restored),
+                children_any_order(bytes),
+                "{name}: putting back {label} did not restore the entity"
+            );
+            let kind = label.split(':').next().unwrap().to_string();
+            *moved.entry(kind).or_insert(0) += 1;
+        }
+    }
+    eprintln!("server-owned corpus: parts taken out and put back by kind: {moved:?}");
+    for kind in [
+        "members",
+        "run-time-permissions",
+        "visibility-permissions",
+        "property-values",
+        "configuration-table",
+    ] {
+        assert!(
+            moved.contains_key(kind),
+            "no corpus entity moved {kind}: {moved:?}"
+        );
+    }
 }
 
 #[test]
