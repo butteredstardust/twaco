@@ -17,6 +17,7 @@
 //! CDATA included and comments invisible.
 
 use super::codes::{Coded, ErrorCode};
+use std::collections::BTreeSet;
 use std::path::PathBuf;
 
 mod apply;
@@ -262,6 +263,40 @@ pub(crate) const TAKE_ALL_UI: &str = "ui";
 pub struct ApplyOutcome {
     pub lines: Vec<String>,
     pub types: super::types::Refresh,
+    /// The retyped service parameters this apply adopted, as `(entity, service, parameter)`: only
+    /// their arguments and defaults were mapped, or are left unmapped.
+    pub retypes: BTreeSet<(String, String, String)>,
+}
+
+impl ApplyOutcome {
+    /// The report's retyped arguments that this apply adopted but could not map.
+    pub fn unmapped_arguments<'a>(
+        &'a self,
+        report: &'a Report,
+    ) -> impl Iterator<Item = &'a RetypedArgument> {
+        report.retyped_arguments.iter().filter(|argument| {
+            argument.unmappable_why().is_some()
+                && self.retypes.contains(&(
+                    argument.service_entity.clone(),
+                    argument.service.clone(),
+                    argument.parameter.clone(),
+                ))
+        })
+    }
+
+    /// The report's retyped defaults that this apply adopted but the new type does not take.
+    pub fn unmapped_defaults<'a>(
+        &'a self,
+        report: &'a Report,
+    ) -> impl Iterator<Item = &'a RetypedDefault> {
+        report.retyped_defaults.iter().filter(|default| {
+            self.retypes.contains(&(
+                default.entity.clone(),
+                default.service.clone(),
+                default.parameter.clone(),
+            ))
+        })
+    }
 }
 impl Coded for AdoptError {
     fn code(&self) -> ErrorCode {

@@ -153,13 +153,11 @@ pub(crate) fn adopt_cmd(solution: &Solution, args: &Adopt) -> u8 {
             );
         }
     }
-    let unmappable = report
-        .retyped_arguments
-        .iter()
-        .filter(|argument| argument.unmappable_why().is_some())
-        .count()
-        + report.retyped_defaults.len();
-    if applied.is_some() && unmappable > 0 {
+    // Only a retype this apply adopted leaves values for a person to change.
+    let unmappable = applied.as_ref().map_or(0, |outcome| {
+        outcome.unmapped_arguments(&report).count() + outcome.unmapped_defaults(&report).count()
+    });
+    if unmappable > 0 {
         eprintln!(
             "{} {unmappable} retyped value(s) remain unmapped",
             style::prefix()

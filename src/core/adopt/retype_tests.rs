@@ -14,14 +14,17 @@ fn implementation(service: &str, script: &str) -> String {
 }
 
 const REPORT: &str = "return me.GetOrder({orderId: \"42\"});";
+/// A service of P.Orders kept only in its XML: it has no sidecar.
+const AUDIT: &str = "return me.GetOrder({orderId: \"9\"});";
 const CALLER: &str = "var a = Things[\"P.Orders\"].GetOrder({orderId: \"abc\"});\nvar b = Things[\"P.Orders\"].GetOrder({orderId: given});\nvar c = Things[\"P.Other\"].GetOrder({orderId: \"7\"});";
 
 fn orders(base_type: &str, default: &str) -> String {
     format!(
-        "<Entities><Things><Thing name=\"P.Orders\" projectName=\"P\"><ThingShape><ServiceDefinitions>{}<ServiceDefinition name=\"Report\"><ResultType baseType=\"STRING\"/></ServiceDefinition></ServiceDefinitions><ServiceImplementations>{}{}</ServiceImplementations></ThingShape></Thing></Things></Entities>",
+        "<Entities><Things><Thing name=\"P.Orders\" projectName=\"P\"><ThingShape><ServiceDefinitions>{}<ServiceDefinition name=\"Report\"><ResultType baseType=\"STRING\"/></ServiceDefinition><ServiceDefinition name=\"Audit\"><ResultType baseType=\"STRING\"/></ServiceDefinition></ServiceDefinitions><ServiceImplementations>{}{}{}</ServiceImplementations></ThingShape></Thing></Things></Entities>",
         definition(base_type, default),
         implementation("GetOrder", "return orderId;"),
         implementation("Report", REPORT),
+        implementation("Audit", AUDIT),
     )
 }
 
@@ -104,6 +107,13 @@ fn a_retyped_service_parameter_maps_the_literals_its_callers_pass_and_reports_th
                 "STRING",
                 "LONG"
             ),
+            (
+                "Things/P.Orders",
+                "\"9\"",
+                Mapped::Rewritten("9".into()),
+                "STRING",
+                "LONG"
+            ),
         ]
     );
     let orders_sidecar = solution.root.join("src/P.Orders/services/Report/script.js");
@@ -111,20 +121,34 @@ fn a_retyped_service_parameter_maps_the_literals_its_callers_pass_and_reports_th
         report.retyped_arguments[1].file, orders_sidecar,
         "a sidecar is the source"
     );
+    assert_eq!(
+        report.retyped_arguments[2].file,
+        solution.root.join("Things/P.Orders.xml"),
+        "a service with no sidecar is read from its XML"
+    );
     assert_eq!(report.retyped_arguments[0].line, 1);
     assert_eq!(report.retyped_defaults.len(), 1);
     assert_eq!(report.retyped_defaults[0].default, "none");
 
     let caller = std::fs::read(solution.root.join("Things/P.Caller.xml")).unwrap();
     let lock = crate::core::lock::acquire(&solution.root, "retype test", &[]).unwrap();
-    apply(&solution, &export, &report, &theirs(), &lock).unwrap();
+    let outcome = apply(&solution, &export, &report, &theirs(), &lock).unwrap();
     drop(lock);
+    assert_eq!(outcome.unmapped_defaults(&report).count(), 1);
+    assert_eq!(
+        outcome
+            .unmapped_arguments(&report)
+            .map(|a| a.literal.as_str())
+            .collect::<Vec<_>>(),
+        ["\"abc\""]
+    );
     // The literal that maps is rewritten in the sidecar and in the entity XML alike; the one that
     // does not is left as it was.
     let sidecar = std::fs::read_to_string(&orders_sidecar).unwrap();
     assert_eq!(sidecar, "return me.GetOrder({orderId: 42});");
     let xml = std::fs::read_to_string(solution.root.join("Things/P.Orders.xml")).unwrap();
     assert!(xml.contains("me.GetOrder({orderId: 42})"), "{xml}");
+    assert!(xml.contains("me.GetOrder({orderId: 9})"), "{xml}");
     assert!(xml.contains("baseType=\"LONG\""), "{xml}");
     assert_eq!(
         std::fs::read(solution.root.join("Things/P.Caller.xml")).unwrap(),
@@ -138,13 +162,17 @@ fn a_retype_that_is_not_taken_rewrites_no_caller() {
     let export = dir.path().join("export.xml");
     std::fs::write(&export, orders("LONG", "")).unwrap();
     let report = compare(&solution, &export, &[]).unwrap();
-    assert_eq!(report.retyped_arguments.len(), 2);
+    assert_eq!(report.retyped_arguments.len(), 3);
     let before = snapshot(&solution);
     let lock = crate::core::lock::acquire(&solution.root, "retype test", &[]).unwrap();
     // With no base and no take, the entity both sides may have changed is not adopted, and so
     // neither is its retype: no caller is touched.
-    apply(&solution, &export, &report, &[], &lock).unwrap();
+    let outcome = apply(&solution, &export, &report, &[], &lock).unwrap();
     drop(lock);
+    assert!(
+        outcome.retypes.is_empty(),
+        "nothing adopted, nothing left unmapped"
+    );
     assert_eq!(snapshot(&solution), before);
 }
 

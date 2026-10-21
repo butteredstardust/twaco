@@ -173,7 +173,7 @@ pub(crate) fn apply(
             )?,
         }
     }
-    map_retyped_arguments(solution, report, &here, &mut steps)?;
+    let retypes = map_retyped_arguments(solution, report, &here, &mut steps)?;
     let mut transaction = Transaction::new(&solution.root, "adopt");
     let mut lines = Vec::new();
     for (write, line) in steps {
@@ -252,6 +252,7 @@ pub(crate) fn apply(
     Ok(ApplyOutcome {
         lines,
         types: super::super::types::refresh_after_write(solution, wrote),
+        retypes,
     })
 }
 
@@ -264,7 +265,7 @@ fn map_retyped_arguments(
     report: &Report,
     here: &BTreeMap<EntityRef, (Element, PathBuf)>,
     steps: &mut Vec<(Option<Write>, String)>,
-) -> Result<(), AdoptError> {
+) -> Result<BTreeSet<(String, String, String)>, AdoptError> {
     let planned_xml: BTreeSet<PathBuf> = steps
         .iter()
         .filter_map(|(write, _)| match write {
@@ -279,8 +280,12 @@ fn map_retyped_arguments(
                 .is_some_and(|(_, path)| planned_xml.contains(path))
         })
         .collect();
+    let adopted = retypes
+        .iter()
+        .map(|retype| retype.key())
+        .collect::<BTreeSet<_>>();
     if retypes.is_empty() {
-        return Ok(());
+        return Ok(adopted);
     }
     let mut added = Vec::new();
     for entity in workspace::discover(solution).entities {
@@ -313,7 +318,7 @@ fn map_retyped_arguments(
             _ => None,
         });
         if let Some(bytes) = planned {
-            let spans = retype::cdata_spans(bytes);
+            let spans = retype::script_spans(bytes);
             if let Some(rewritten) = retype::rewrite(bytes, &spans, caller, &retypes) {
                 *bytes = rewritten;
             }
@@ -324,21 +329,21 @@ fn map_retyped_arguments(
             _ => None,
         });
         if let Some(text) = planned_text {
-            let spans = retype::cdata_spans(text.as_bytes());
+            let spans = retype::script_spans(text.as_bytes());
             if let Some(rewritten) = retype::rewrite(text.as_bytes(), &spans, caller, &retypes) {
                 *text = String::from_utf8(rewritten).expect("UTF-8 XML stays UTF-8");
             }
             continue;
         }
         let bytes = std::fs::read(&entity.path).map_err(|error| io_error(&entity.path, error))?;
-        let spans = retype::cdata_spans(&bytes);
+        let spans = retype::script_spans(&bytes);
         if let Some(rewritten) = retype::rewrite(&bytes, &spans, caller, &retypes) {
             let line = format!("mapped   {}", relative_to(solution, &entity.path));
             added.push((Some(Write::Bytes(entity.path.clone(), rewritten)), line));
         }
     }
     steps.extend(added);
-    Ok(())
+    Ok(adopted)
 }
 
 /// One file or sidecar folder `apply` will write, worked out in full beforehand.

@@ -275,8 +275,9 @@ repository scripts pass to it (`me.GetOrder({orderId: "42"})`, or through `Thing
 whether the new type takes them, and checks the parameter's default. `--apply`, when it adopts
 that entity, rewrites each one that maps (`"42"` to `42` for a `LONG`) in the sidecar and the
 entity XML alike. One that does not map (`"abc"`) is left as written and named, and apply exits 1;
-MCP `adopt_apply` lists them as `unmapped`. A variable or other expression is not a literal and
-is not looked at.
+MCP `adopt_apply` lists them as `unmapped`. Only service and subscription code is read; a
+variable or other expression is not a literal, and a script that declares its own `me` is
+skipped, since which Thing it calls cannot be told.
 
 | State | Meaning | Apply |
 | --- | --- | --- |

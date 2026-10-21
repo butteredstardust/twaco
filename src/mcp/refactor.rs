@@ -819,11 +819,10 @@ pub(crate) fn adopt_apply_tool(
     let mut result = json!({
         "applied": outcome.lines,
         "reverts_not_applied": report.reverts().count(),
-        "unmapped": report
-            .retyped_arguments
-            .iter()
-            .filter_map(|a| a.unmappable_why().map(|why| json!({ "caller": a.caller, "file": solution.relative(&a.file), "line": a.line, "parameter": a.parameter, "literal": a.literal, "to": a.to, "why": why })))
-            .chain(report.retyped_defaults.iter().map(|d| json!({ "entity": d.entity, "service": d.service, "parameter": d.parameter, "default": d.default, "to": d.to, "why": d.why })))
+        "unmapped": outcome
+            .unmapped_arguments(&report)
+            .map(|a| json!({ "caller": a.caller, "file": solution.relative(&a.file), "line": a.line, "parameter": a.parameter, "literal": a.literal, "to": a.to, "why": a.unmappable_why() }))
+            .chain(outcome.unmapped_defaults(&report).map(|d| json!({ "entity": d.entity, "service": d.service, "parameter": d.parameter, "default": d.default, "to": d.to, "why": d.why })))
             .collect::<Vec<_>>(),
         "base": report.base,
         "entities": report.entities.iter().map(adopt_entity_json).collect::<Vec<_>>(),
