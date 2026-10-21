@@ -123,6 +123,35 @@ where
     } else {
         None
     };
+    compare(solution, request, open, progress)
+}
+
+/// [`execute`] for a caller that already holds the workspace lock, so what it wrote and the
+/// baseline recorded for it are one unit of work.
+pub(crate) fn execute_holding<R, F>(
+    solution: &Solution,
+    request: &StatusRequest,
+    open: F,
+    _held: &crate::core::lock::WorkspaceLock,
+    progress: &dyn Progress,
+) -> Result<StatusOutcome, StatusCommandError>
+where
+    R: push::Remote + Sync,
+    F: FnOnce(profile::Profile) -> R,
+{
+    compare(solution, request, open, progress)
+}
+
+fn compare<R, F>(
+    solution: &Solution,
+    request: &StatusRequest,
+    open: F,
+    progress: &dyn Progress,
+) -> Result<StatusOutcome, StatusCommandError>
+where
+    R: push::Remote + Sync,
+    F: FnOnce(profile::Profile) -> R,
+{
     let found = workspace::discover(solution);
     if request.refuse_unreadable && !found.unreadable.is_empty() {
         return Err(StatusCommandError::Unreadable(found.unreadable));

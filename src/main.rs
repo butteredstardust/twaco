@@ -336,60 +336,15 @@ fn init_cmd(parsed: &Init) -> u8 {
                 return FAILED;
             }
         };
-        let mut result = twaco::core::init_server::execute(
+        let result = twaco::core::init_server::execute(
             &server::Client::new(profile),
             twaco::core::init_server::Request {
                 root: here.clone(),
                 projects: parsed.from_server.clone(),
                 apply: parsed.apply.apply,
+                profile: parsed.profile.name().to_string(),
             },
         );
-        if parsed.apply.apply {
-            if let Ok(outcome) = &mut result {
-                let solution = match Solution::load(&here.join(twaco::core::config::CONFIG_FILE)) {
-                    Ok(solution) => solution,
-                    Err(error) => {
-                        eprintln!(
-                            "{} the written config does not load: {error}",
-                            cli::style::prefix()
-                        );
-                        return FAILED;
-                    }
-                };
-                let request = commands::status::StatusRequest {
-                    target: commands::status::StatusTarget::All,
-                    project: None,
-                    record: true,
-                    profile: parsed.profile.name().to_string(),
-                    lock_label: "init --from-server baseline",
-                    refuse_unreadable: true,
-                    refuse_record_failures: false,
-                };
-                let mut notices = commands::Notices::default();
-                match commands::status::execute(
-                    &solution,
-                    &request,
-                    server::Client::new,
-                    &mut notices,
-                    &cli::progress::reporter(),
-                ) {
-                    Ok(status) => {
-                        outcome.recorded = status.recorded.unwrap_or(0);
-                        outcome.not_in_sync = status
-                            .statuses
-                            .iter()
-                            .filter(|status| status.verdict != twaco::core::status::Verdict::InSync)
-                            .map(|status| format!("{}/{}", status.collection, status.name))
-                            .chain(status.failures)
-                            .collect();
-                    }
-                    Err(error) => {
-                        eprintln!("{} baseline: {error}", cli::style::prefix());
-                        return FAILED;
-                    }
-                }
-            }
-        }
         return match result {
             Ok(outcome) if parsed.json.json => {
                 println!(

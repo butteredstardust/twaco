@@ -1,8 +1,8 @@
 //! Start an empty source repository from Exporter project documents.
 
 use super::{
-    adopt, config, entity, export, gitignore, init, layout, lock, normalise, transaction, workflow,
-    workspace,
+    adopt, commands, config, entity, export, gitignore, init, layout, lock, normalise, progress,
+    push, status, transaction, workflow, workspace,
 };
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
@@ -14,6 +14,8 @@ pub struct Request {
     pub root: PathBuf,
     pub projects: Vec<String>,
     pub apply: bool,
+    /// The profile the baseline is recorded against: the server the exports came from.
+    pub profile: String,
 }
 
 #[derive(Debug)]
@@ -44,8 +46,9 @@ pub enum Error {
     Lock(#[from] lock::LockError),
     #[error("{0}")]
     Io(#[from] std::io::Error),
-    #[error("the written twaco.toml does not load: {0}")]
-    Config(String),
+    /// Everything after the repository's files were written: they stay, and a rerun refuses.
+    #[error("the repository was written, but {why}; finish it with `twaco extract --all` and `twaco entity status --all --record`")]
+    Unfinished { why: String },
 }
 
 struct File {
@@ -55,7 +58,10 @@ struct File {
 
 /// Read each project through the same Exporter endpoint as `export project`, plan every local
 /// file first, and only then write all of them as one transaction.
-pub fn execute(remote: &dyn export::Remote, request: Request) -> Result<Outcome, Error> {
+pub fn execute<R>(remote: &R, request: Request) -> Result<Outcome, Error>
+where
+    R: export::Remote + push::Remote + Sync,
+{
     if request.projects.is_empty() {
         return Err(Error::Projects);
     }
@@ -110,12 +116,16 @@ pub fn execute(remote: &dyn export::Remote, request: Request) -> Result<Outcome,
                 project: project.clone(),
                 why: format!("{e:?}"),
             })?;
-            if !named.contains(&info.project) {
-                notes.push(format!(
-                    "skipped {}: it declares projectName {:?}",
-                    key.path(),
-                    info.project
-                ));
+            // A project's export carries entities of others it needs; each named project's own
+            // export brings its own, so an entity is written once, from its project's export.
+            if info.project != *project {
+                if !named.contains(&info.project) {
+                    notes.push(format!(
+                        "skipped {}: it declares projectName {:?}",
+                        key.path(),
+                        info.project
+                    ));
+                }
                 continue;
             }
             if !adopt::is_file_name(&info.name) {
@@ -191,6 +201,8 @@ pub fn execute(remote: &dyn export::Remote, request: Request) -> Result<Outcome,
         bytes: proposal.toml.clone().into_bytes(),
     });
     let files_count = all.len();
+    let mut recorded = 0;
+    let mut not_in_sync = Vec::new();
     if request.apply {
         let held = lock::acquire(&request.root, "init --from-server", &[])?;
         let mut write = transaction::Transaction::new(&request.root, "init --from-server");
@@ -199,18 +211,44 @@ pub fn execute(remote: &dyn export::Remote, request: Request) -> Result<Outcome,
         }
         write.apply(&held)?;
         // The sidecars are what `twaco extract --all` makes of the files just written, made by
-        // the same code; each entity's are one transaction of their own.
+        // the same code; each entity's are one transaction of their own. Then the baseline,
+        // under the same lock, so it describes exactly these files.
+        let unfinished = |why: String| Error::Unfinished { why };
         let solution = config::Solution::load(&request.root.join(config::CONFIG_FILE))
-            .map_err(|error| Error::Config(error.to_string()))?;
+            .map_err(|error| unfinished(format!("its twaco.toml does not load: {error}")))?;
         let found = workspace::discover(&solution);
         let extracted =
             workflow::extract(&solution, &found.entities, &found.unreadable, false, &held);
         if extracted.failed > 0 {
-            notes.push(format!(
-                "{} entities' sidecars could not be extracted; `twaco extract --all` retries them",
+            return Err(unfinished(format!(
+                "{} entities' sidecars could not be extracted",
                 extracted.failed
-            ));
+            )));
         }
+        let status = commands::status::execute_holding(
+            &solution,
+            &commands::status::StatusRequest {
+                target: commands::status::StatusTarget::All,
+                project: None,
+                record: true,
+                profile: request.profile.clone(),
+                lock_label: "init --from-server",
+                refuse_unreadable: true,
+                refuse_record_failures: false,
+            },
+            |_| Borrowed(remote),
+            &held,
+            &progress::NONE,
+        )
+        .map_err(|error| unfinished(format!("the baseline was not recorded: {error}")))?;
+        recorded = status.recorded.unwrap_or(0);
+        not_in_sync = status
+            .statuses
+            .iter()
+            .filter(|entity| entity.verdict != status::Verdict::InSync)
+            .map(|entity| format!("{}/{}", entity.collection, entity.name))
+            .chain(status.failures)
+            .collect();
     } else {
         notes.push(format!(
             "{entity_files} entity files; their sidecars are extracted once they are written"
@@ -223,8 +261,8 @@ pub fn execute(remote: &dyn export::Remote, request: Request) -> Result<Outcome,
         toml: proposal.toml,
         notes,
         applied: request.apply,
-        recorded: 0,
-        not_in_sync: Vec::new(),
+        recorded,
+        not_in_sync,
     })
 }
 
@@ -251,6 +289,27 @@ fn add_project_dependencies(toml: &mut String, dependencies: &BTreeMap<String, V
             .collect::<Vec<_>>()
             .join(", ");
         toml.insert_str(root_end, &format!("depends_on = [{names}]\n"));
+    }
+}
+
+/// The remote the exports came from, lent to the baseline step.
+struct Borrowed<'a, R>(&'a R);
+
+impl<R: push::Remote> push::Remote for Borrowed<'_, R> {
+    fn fetch(
+        &self,
+        key: &super::entity::key::EntityKey,
+    ) -> Result<Option<Vec<u8>>, super::server::ServerError> {
+        self.0.fetch(key)
+    }
+    fn export_owned(
+        &self,
+        key: &super::entity::key::EntityKey,
+    ) -> Result<Option<Vec<u8>>, super::server::ServerError> {
+        self.0.export_owned(key)
+    }
+    fn import(&self, file_name: &str, xml: &[u8]) -> Result<(), super::server::ServerError> {
+        self.0.import(file_name, xml)
     }
 }
 
@@ -303,6 +362,28 @@ mod tests {
         }
     }
 
+    impl push::Remote for Fake {
+        fn fetch(
+            &self,
+            _: &super::super::entity::key::EntityKey,
+        ) -> Result<Option<Vec<u8>>, super::super::server::ServerError> {
+            Ok(None)
+        }
+        fn import(&self, _: &str, _: &[u8]) -> Result<(), super::super::server::ServerError> {
+            unreachable!("init --from-server never imports")
+        }
+    }
+
+    /// A profile in `root`, as one in the user's home would serve, for the baseline step.
+    pub(super) fn profile(root: &Path) {
+        std::fs::create_dir_all(root.join(".twaco/profiles")).unwrap();
+        std::fs::write(
+            root.join(".twaco/profiles/default.toml"),
+            "url = \"http://127.0.0.1:1\"\nusername = \"u\"\npassword = \"p\"\n",
+        )
+        .unwrap();
+    }
+
     fn export(project: &str, name: &str) -> Vec<u8> {
         format!("<Entities><Things><Thing name=\"{name}\" projectName=\"{project}\"><ThingShape><ServiceDefinitions><ServiceDefinition name=\"S\"/></ServiceDefinitions><ServiceImplementations><ServiceImplementation name=\"S\" handlerName=\"Script\"><ConfigurationTables><ConfigurationTable name=\"Script\"><Rows><Row><code><![CDATA[me();]]></code></Row></Rows></ConfigurationTable></ConfigurationTables></ServiceImplementation></ServiceImplementations></ThingShape></Thing></Things></Entities>").into_bytes()
     }
@@ -315,7 +396,9 @@ mod tests {
             root: temp.path().to_path_buf(),
             projects: vec!["P".into()],
             apply: false,
+            profile: "default".into(),
         };
+        profile(temp.path());
         let plan = execute(&remote, request()).unwrap();
         assert!(!plan.applied);
         assert!(!temp.path().join("twaco.toml").exists());
@@ -345,6 +428,7 @@ mod tests {
                 root: temp.path().to_path_buf(),
                 projects: vec!["P".into()],
                 apply: false,
+                profile: "default".into(),
             },
         )
         .unwrap_err();
@@ -352,8 +436,67 @@ mod tests {
     }
 
     #[test]
+    fn an_entity_another_named_project_owns_comes_from_its_own_export_once() {
+        let temp = tempfile::tempdir().unwrap();
+        profile(temp.path());
+        // A's export carries B.T, which A needs; B's export carries it too.
+        let mut a = String::from_utf8(export("A", "A.T")).unwrap();
+        let b_thing = String::from_utf8(export("B", "B.T")).unwrap();
+        let inner =
+            &b_thing["<Entities><Things>".len()..b_thing.len() - "</Things></Entities>".len()];
+        a = a.replace(
+            "</Things></Entities>",
+            &format!("{inner}</Things></Entities>"),
+        );
+        let remote = Fake(BTreeMap::from([
+            ("A".to_string(), a.into_bytes()),
+            ("B".to_string(), export("B", "B.T")),
+        ]));
+        let outcome = execute(
+            &remote,
+            Request {
+                root: temp.path().to_path_buf(),
+                projects: vec!["A".into(), "B".into()],
+                apply: true,
+                profile: "default".into(),
+            },
+        )
+        .unwrap();
+        assert_eq!(outcome.entities.get("Things"), Some(&2));
+        assert!(temp.path().join("B/Things/B.T.xml").exists());
+        assert!(!temp.path().join("A/Things/B.T.xml").exists());
+    }
+
+    #[test]
+    fn a_failure_after_the_files_are_written_says_how_to_finish() {
+        let temp = tempfile::tempdir().unwrap();
+        // No profile: the baseline step cannot run once the files are there.
+        let remote = Fake(BTreeMap::from([("P".to_string(), export("P", "P.T"))]));
+        let error = execute(
+            &remote,
+            Request {
+                root: temp.path().to_path_buf(),
+                projects: vec!["P".into()],
+                apply: true,
+                profile: "missing".into(),
+            },
+        )
+        .unwrap_err();
+        assert!(matches!(error, Error::Unfinished { .. }), "{error}");
+        let message = error.to_string();
+        assert!(
+            message.contains("the repository was written")
+                && message.contains("twaco extract --all")
+                && message.contains("twaco entity status --all --record"),
+            "{message}"
+        );
+        assert!(temp.path().join("Things/P.T.xml").exists());
+    }
+
+    #[test]
     fn several_projects_get_separate_entity_roots() {
         let temp = tempfile::tempdir().unwrap();
+        profile(temp.path());
         let remote = Fake(BTreeMap::from([
             ("A".to_string(), export("A", "A.T")),
             ("B".to_string(), export("B", "B.T")),
@@ -364,6 +507,7 @@ mod tests {
                 root: temp.path().to_path_buf(),
                 projects: vec!["A".into(), "B".into()],
                 apply: true,
+                profile: "default".into(),
             },
         )
         .unwrap();
@@ -381,7 +525,19 @@ mod corpus_tests {
     use crate::core::scan::{self, Kind};
     use serde_json::Value;
 
-    struct Server(Vec<u8>);
+    /// The project export, and each entity's own export by `Collection/Name`.
+    struct Server(Vec<u8>, BTreeMap<String, Vec<u8>>);
+    impl push::Remote for Server {
+        fn fetch(
+            &self,
+            key: &super::super::entity::key::EntityKey,
+        ) -> Result<Option<Vec<u8>>, super::super::server::ServerError> {
+            Ok(self.1.get(&key.to_string()).cloned())
+        }
+        fn import(&self, _: &str, _: &[u8]) -> Result<(), super::super::server::ServerError> {
+            unreachable!("init --from-server never imports")
+        }
+    }
     impl export::Remote for Server {
         fn export_xml(
             &self,
@@ -462,9 +618,10 @@ mod corpus_tests {
         out
     }
 
-    /// The corpus's entities as one project export, grouped by collection.
-    fn project_export() -> Vec<u8> {
+    /// The corpus's entities as one project export, grouped by collection, and each alone.
+    fn project_export() -> Server {
         let mut by_collection: BTreeMap<String, Vec<u8>> = BTreeMap::new();
+        let mut each = BTreeMap::new();
         for relative in files(&corpus(), &["src", "dist"]) {
             let bytes = std::fs::read(corpus().join(&relative)).unwrap();
             let Ok(info) = entity::parse(&bytes) else {
@@ -486,10 +643,20 @@ mod corpus_tests {
                 .unwrap();
             let end = scan::element_end_in(&tokens, &bytes, at).unwrap();
             let span = scan::Span::new(tokens[at].span.start, tokens[end].span.end);
+            let flat = exporter(span.of(&bytes));
+            each.insert(
+                format!("{}/{}", info.collection, info.name),
+                [
+                    format!("<Entities><{}>", info.collection).into_bytes(),
+                    flat.clone(),
+                    format!("</{}></Entities>", info.collection).into_bytes(),
+                ]
+                .concat(),
+            );
             by_collection
                 .entry(info.collection)
                 .or_default()
-                .extend(exporter(span.of(&bytes)));
+                .extend(flat);
         }
         let mut out =
             b"<Entities majorVersion=\"10\" minorVersion=\"1\" universal=\"password\">".to_vec();
@@ -499,7 +666,7 @@ mod corpus_tests {
             out.extend_from_slice(format!("</{collection}>").as_bytes());
         }
         out.extend_from_slice(b"</Entities>");
-        out
+        Server(out, each)
     }
 
     /// What the server exports of the corpus comes back as the same files: every entity holds
@@ -509,15 +676,20 @@ mod corpus_tests {
     #[test]
     fn the_corpus_exported_by_a_server_comes_back_as_the_corpus() {
         let temp = tempfile::tempdir().unwrap();
-        execute(
-            &Server(project_export()),
+        super::tests::profile(temp.path());
+        let outcome = execute(
+            &project_export(),
             Request {
                 root: temp.path().to_path_buf(),
                 projects: vec!["Acme.Orders".into()],
                 apply: true,
+                profile: "default".into(),
             },
         )
         .unwrap();
+        // The baseline step itself finds every entity in sync with what the server holds.
+        assert!(outcome.not_in_sync.is_empty(), "{:?}", outcome.not_in_sync);
+        assert_eq!(outcome.recorded, outcome.entities.values().sum::<usize>());
         let source = files(&corpus(), &["twaco.toml", "network-assets.csv"]);
         let written = files(
             temp.path(),
