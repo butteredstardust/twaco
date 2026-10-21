@@ -219,9 +219,40 @@ pub fn diagnose(root: &Path, profile_name: &str) -> Vec<Item> {
 }
 
 fn server_owned_advice(solution: &Solution, entities: &[workspace::EntityFile]) -> Vec<Item> {
-    solution.server_owned.iter().enumerate().filter(|(_, rule)| {
-        !entities.iter().any(|e| rule.matches(&e.info.collection, &e.info.name))
-    }).map(|(i, rule)| item(Health::Warn, "server-owned parts", format!("server_owned rule {} matches no entity: {}; check its Collection/Name patterns", i + 1, rule.entities.join(", ")))).collect()
+    let mut items = Vec::new();
+    for (i, rule) in solution.server_owned.iter().enumerate() {
+        let matched: Vec<_> = entities
+            .iter()
+            .filter(|e| rule.matches(&e.info.collection, &e.info.name))
+            .collect();
+        if matched.is_empty() {
+            items.push(item(Health::Warn, "server-owned parts", format!("server_owned rule {} matches no entity: {}; check its Collection/Name patterns", i + 1, rule.entities.join(", "))));
+            continue;
+        }
+        // A part some kinds of entity cannot have owns nothing on them: the rule then hides
+        // nothing, which its author did not mean.
+        for part in &rule.parts {
+            let Some(kinds) = super::server_owned::collections(part) else {
+                continue;
+            };
+            if !matched
+                .iter()
+                .any(|e| kinds.contains(&e.info.collection.as_str()))
+            {
+                items.push(item(
+                    Health::Warn,
+                    "server-owned parts",
+                    format!(
+                        "server_owned rule {}: {} only exists on {}, and the rule matches none",
+                        i + 1,
+                        part.label(),
+                        kinds.join(" and ")
+                    ),
+                ));
+            }
+        }
+    }
+    items
 }
 
 /// Profiles, backups or journal backups that git tracks. A committed profile is a leaked
@@ -270,6 +301,31 @@ fn committed_secrets(root: &Path) -> Item {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn server_owned_parts_the_matched_entities_cannot_have_are_advisory() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(
+            dir.path().join("twaco.toml"),
+            "[[project]]
+name='Acme.Project'
+[[server_owned]]
+entities=['Things/Acme.*']
+parts=['members', 'property-values', 'run-time-permissions']
+",
+        )
+        .unwrap();
+        std::fs::create_dir_all(dir.path().join("Things")).unwrap();
+        std::fs::write(dir.path().join("Things/Acme.T.xml"), "<Entities><Things><Thing name=\"Acme.T\" projectName=\"Acme.Project\"/></Things></Entities>").unwrap();
+        let solution = Solution::load(&dir.path().join("twaco.toml")).unwrap();
+        let found = workspace::discover(&solution);
+        let items = server_owned_advice(&solution, &found.entities);
+        let messages: Vec<_> = items.iter().map(|item| item.detail.as_str()).collect();
+        assert_eq!(
+            messages,
+            ["server_owned rule 1: members only exists on Groups and Organizations, and the rule matches none"],
+        );
+    }
+
     #[test]
     fn server_owned_rules_matching_no_entity_are_advisory() {
         let dir = tempfile::tempdir().unwrap();

@@ -396,7 +396,11 @@ mod tests {
     #[test]
     fn a_push_with_no_baseline_says_how_to_settle_it() {
         let text = Refusal::UnknownAncestor { server: "s".into() }.to_string();
-        for step in ["entity get <entity>", "--force --apply", "status <entity> --record"] {
+        for step in [
+            "entity get <entity>",
+            "--force --apply",
+            "status <entity> --record",
+        ] {
             assert!(text.contains(step), "{step}: {text}");
         }
     }

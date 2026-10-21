@@ -10,6 +10,8 @@ All notable changes to twaco are recorded here. The format follows
 
 - `deploy` checks `requirements.toml` against the server it deploys to, in its `requirements`
   gate: an unmet platform, extension or entity requirement stops it before any import.
+- `doctor` warns when a `[[server_owned]]` rule names `members` but matches no Group or
+  Organization, or property values but matches no Thing: such a part hides nothing.
 
 ### Fixed
 

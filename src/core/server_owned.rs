@@ -174,6 +174,16 @@ pub(crate) fn parts(rules: &[Rule], collection: &str, name: &str) -> Vec<Part> {
     selected
 }
 
+/// The collections whose entities can hold a part, when only some can: `members` belong to
+/// Groups and Organizations, property values to Things. `None` for parts any entity may have.
+pub(crate) fn collections(part: &Part) -> Option<&'static [&'static str]> {
+    match part {
+        Part::Members => Some(&["Groups", "Organizations"]),
+        Part::Properties(_) => Some(&["Things"]),
+        Part::RunTimePermissions | Part::VisibilityPermissions | Part::Table(..) => None,
+    }
+}
+
 pub(crate) fn labels(parts: &[Part]) -> Vec<String> {
     parts.iter().map(Part::label).collect()
 }
