@@ -355,7 +355,12 @@ pub(crate) const USAGE: &[Usage] = &[
         text: r#"  init [--write]              propose a twaco.toml from the repository's own entities; --write
                               also writes AGENTS.md and CLAUDE.md where absent, and adds the
                               lines twaco needs to .gitignore
-  init --agents               write only those, where absent"#,
+  init --agents               write only those, where absent
+  init --from-server <project>... [--profile <name>] [--apply] [--json]
+                              start an empty repository from server projects; plans by default
+      --profile <name>        the server profile (default: default)
+      --apply                 write the planned repository and record matching baselines
+      --json                  print the plan or result as JSON"#,
     },
     Usage {
         path: "doctor",

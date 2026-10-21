@@ -33,23 +33,24 @@ project silently.
 
 ### Starting from a project that is only on a server
 
-A project built in Composer becomes a repository with three commands. Declare the project, take
-the server's export of it in, and record that the files are what the server holds:
+A project built in Composer becomes a repository with one command, run in an empty folder:
 
 ```sh
-printf '[[project]]
-name = "Acme.App"
-' > twaco.toml   # one [[project]] per project, with depends_on
-twaco export project Acme.App --out acme-app.xml
-twaco adopt acme-app.xml --apply           # one file per entity, service sidecars extracted
-twaco entity status --all --record         # the baseline: these files are what the server has
-twaco init --agents                        # AGENTS.md, CLAUDE.md and the .gitignore lines
-twaco check                                # a script Composer formatted fails `formatting`: twaco fmt
+twaco init --from-server Acme.App            # the plan: files, twaco.toml, notes
+twaco init --from-server Acme.App --apply    # write it all and record the baseline
+twaco localization pull --apply              # the project's tokens, when it has any
+twaco requirements init                      # what it needs from a server, to review
+twaco check                                  # a script Composer formatted fails `formatting`: twaco fmt
 ```
 
-`adopt` writes each entity the export holds and the solution lacks, in the solution's layout, with
-its sidecars; nothing that exists is overwritten. Repeat the export and adopt for each project the
-solution keeps. Delete the export file afterwards: the entity files are the source now.
+It takes the server's export of each named project and writes one file per entity, laid out as
+`adopt` lays out a new entity, with `twaco.toml` as `twaco init` would propose it, `AGENTS.md`,
+`CLAUDE.md` and the `.gitignore` lines; then the sidecars `twaco extract --all` makes, and the
+baseline `entity status --all --record` records. An entity that does not come out in sync is
+listed, not recorded, and the command exits 1. Several project names put each project in a folder
+of its own, with `depends_on` from the projects' own dependencies. It refuses a folder that already
+has a `twaco.toml` or entity files: to add a project to a repository, `twaco export project` it and
+`twaco adopt` the export.
 
 ### Sidecars are what you edit
 

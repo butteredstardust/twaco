@@ -8,8 +8,16 @@ All notable changes to twaco are recorded here. The format follows
 
 ### Added
 
+- `init --from-server <project>...` starts a repository in an empty folder from projects that
+  exist only on a server: one file per entity, sidecars, `twaco.toml`, the agent files and the
+  baseline, planned unless `--apply`.
 - `localization pull`, `set` and `remove` edit one table at a time in extension exports that hold
   several localization tables, preserving every byte outside the table being changed.
+
+### Fixed
+
+- A new entity whose script is split across CDATA sections (to hold a `]]>`) was written with the
+  sections framed by new whitespace, which changed the script, so it never came out in sync.
 
 ## [0.1.25] - 2026-10-21
 

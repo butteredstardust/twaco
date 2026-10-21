@@ -15,6 +15,7 @@ use std::time::Duration;
 use twaco::core::commands::{self};
 use twaco::core::config::Solution;
 use twaco::core::workspace;
+use twaco::core::{profile, server};
 
 mod cli;
 
@@ -301,11 +302,164 @@ struct Init {
     write: bool,
     #[arg(long = "agents")]
     agents: bool,
+    #[arg(long = "from-server", value_name = "project", num_args = 1..)]
+    from_server: Vec<String>,
+    #[command(flatten)]
+    profile: cli::flags::Profile,
+    #[command(flatten)]
+    apply: cli::flags::Apply,
+    #[command(flatten)]
+    json: cli::flags::Json,
 }
 
 /// `twaco init [--write|--agents]`: propose a twaco.toml from the repository's own entities.
 fn init_cmd(parsed: &Init) -> u8 {
     let here = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
+    if !parsed.from_server.is_empty() {
+        if parsed.write || parsed.agents {
+            eprintln!(
+                "{} init --from-server does not take --write or --agents",
+                cli::style::prefix()
+            );
+            return FAILED;
+        }
+        if here.join(twaco::core::config::CONFIG_FILE).exists()
+            || twaco::core::init::has_entity_files(&here)
+        {
+            eprintln!("{} init --from-server starts a new repository; to add a project to this one, `twaco export project <P> --out <file>` and `twaco adopt <file>`", cli::style::prefix());
+            return FAILED;
+        }
+        let profile = match profile::load(&here, parsed.profile.name()) {
+            Ok(profile) => profile,
+            Err(error) => {
+                eprintln!("{} {error}", cli::style::prefix());
+                return FAILED;
+            }
+        };
+        let mut result = twaco::core::init_server::execute(
+            &server::Client::new(profile),
+            twaco::core::init_server::Request {
+                root: here.clone(),
+                projects: parsed.from_server.clone(),
+                apply: parsed.apply.apply,
+            },
+        );
+        if parsed.apply.apply {
+            if let Ok(outcome) = &mut result {
+                let solution = match Solution::load(&here.join(twaco::core::config::CONFIG_FILE)) {
+                    Ok(solution) => solution,
+                    Err(error) => {
+                        eprintln!(
+                            "{} the written config does not load: {error}",
+                            cli::style::prefix()
+                        );
+                        return FAILED;
+                    }
+                };
+                let request = commands::status::StatusRequest {
+                    target: commands::status::StatusTarget::All,
+                    project: None,
+                    record: true,
+                    profile: parsed.profile.name().to_string(),
+                    lock_label: "init --from-server baseline",
+                    refuse_unreadable: true,
+                    refuse_record_failures: false,
+                };
+                let mut notices = commands::Notices::default();
+                match commands::status::execute(
+                    &solution,
+                    &request,
+                    server::Client::new,
+                    &mut notices,
+                    &cli::progress::reporter(),
+                ) {
+                    Ok(status) => {
+                        outcome.recorded = status.recorded.unwrap_or(0);
+                        outcome.not_in_sync = status
+                            .statuses
+                            .iter()
+                            .filter(|status| status.verdict != twaco::core::status::Verdict::InSync)
+                            .map(|status| format!("{}/{}", status.collection, status.name))
+                            .chain(status.failures)
+                            .collect();
+                    }
+                    Err(error) => {
+                        eprintln!("{} baseline: {error}", cli::style::prefix());
+                        return FAILED;
+                    }
+                }
+            }
+        }
+        return match result {
+            Ok(outcome) if parsed.json.json => {
+                println!(
+                    "{}",
+                    serde_json::json!({
+                            "projects": outcome.projects,
+                            "files": outcome.files,
+                            "entities": outcome.entities,
+                            "toml": outcome.toml,
+                            "notes": outcome.notes,
+                            "applied": outcome.applied,
+                        "recorded": outcome.recorded,
+                        "not_in_sync": outcome.not_in_sync,
+                    })
+                );
+                if outcome.not_in_sync.is_empty() {
+                    OK
+                } else {
+                    DRIFT
+                }
+            }
+            Ok(outcome) => {
+                println!(
+                    "{} project(s), {} entity file(s){}",
+                    outcome.projects.len(),
+                    outcome.entities.values().sum::<usize>(),
+                    if outcome.applied {
+                        " written"
+                    } else {
+                        " planned"
+                    }
+                );
+                for (collection, count) in &outcome.entities {
+                    println!("{collection}: {count}");
+                }
+                print!("{}", outcome.toml);
+                for note in outcome.notes {
+                    eprintln!("{} {note}", cli::style::prefix());
+                }
+                if !outcome.applied {
+                    eprintln!(
+                        "{} nothing written; pass --apply to create the repository",
+                        cli::style::prefix()
+                    );
+                }
+                if outcome.applied {
+                    println!("baseline recorded for {} entities", outcome.recorded);
+                    for entity in &outcome.not_in_sync {
+                        eprintln!("{} not in sync: {entity}", cli::style::prefix());
+                    }
+                }
+                if outcome.not_in_sync.is_empty() {
+                    OK
+                } else {
+                    DRIFT
+                }
+            }
+            Err(error) => {
+                eprintln!("{} {error}", cli::style::prefix());
+                FAILED
+            }
+        };
+    }
+    if parsed.apply.apply || parsed.json.json || parsed.profile.profile.is_some() {
+        eprintln!(
+            "{} --apply, --json and --profile require --from-server",
+            cli::style::prefix()
+        );
+        return FAILED;
+    }
     let write = match (parsed.write, parsed.agents) {
         (false, false) => false,
         (true, false) => true,

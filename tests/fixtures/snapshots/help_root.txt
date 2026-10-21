@@ -8,6 +8,11 @@ usage: twaco <command>
                               also writes AGENTS.md and CLAUDE.md where absent, and adds the
                               lines twaco needs to .gitignore
   init --agents               write only those, where absent
+  init --from-server <project>... [--profile <name>] [--apply] [--json]
+                              start an empty repository from server projects; plans by default
+      --profile <name>        the server profile (default: default)
+      --apply                 write the planned repository and record matching baselines
+      --json                  print the plan or result as JSON
   doctor [--profile <name>]   what resolved, what is reachable, what is missing
   projects                    the solution's projects and their deploy order
   mcp [--tools <groups>]      serve the tools over MCP on stdio (TWACO_ROOT: the solution)

@@ -29,6 +29,11 @@ help:
 |                               also writes AGENTS.md and CLAUDE.md where absent, and adds the
 |                               lines twaco needs to .gitignore
 |   init --agents               write only those, where absent
+|   init --from-server <project>... [--profile <name>] [--apply] [--json]
+|                               start an empty repository from server projects; plans by default
+|       --profile <name>        the server profile (default: default)
+|       --apply                 write the planned repository and record matching baselines
+|       --json                  print the plan or result as JSON
 |   doctor [--profile <name>]   what resolved, what is reachable, what is missing
 |   projects                    the solution's projects and their deploy order
 |   mcp [--tools <groups>]      serve the tools over MCP on stdio (TWACO_ROOT: the solution)
@@ -4454,6 +4459,29 @@ arg --agents
     index: -
     other: -
     given twice: accepted
+arg --apply
+    action: SetTrue
+    value_name: -
+    num_args: 0
+    allow_hyphen_values: no
+    allow_negative_numbers: no
+    required: no
+    default: "false"
+    index: -
+    other: -
+    given twice: accepted
+arg --from-server
+    action: Append
+    value_name: project
+    num_args: 1..
+    allow_hyphen_values: yes
+    allow_negative_numbers: no
+    required: no
+    default: -
+    index: -
+    other: -
+    given twice: accepted
+    given bare: InvalidValue
 arg --help
     action: Help
     value_name: -
@@ -4464,6 +4492,17 @@ arg --help
     default: -
     index: -
     other: -
+arg --json
+    action: SetTrue
+    value_name: -
+    num_args: 0
+    allow_hyphen_values: no
+    allow_negative_numbers: no
+    required: no
+    default: "false"
+    index: -
+    other: -
+    given twice: accepted
 arg --log
     action: Set
     value_name: filter
@@ -4479,6 +4518,18 @@ arg --log
 arg --log-file
     action: Set
     value_name: path
+    num_args: 1
+    allow_hyphen_values: yes
+    allow_negative_numbers: no
+    required: no
+    default: -
+    index: -
+    other: -
+    given twice: ArgumentConflict
+    given bare: InvalidValue
+arg --profile
+    action: Set
+    value_name: name
     num_args: 1
     allow_hyphen_values: yes
     allow_negative_numbers: no
@@ -4504,7 +4555,13 @@ help:
 |                               also writes AGENTS.md and CLAUDE.md where absent, and adds the
 |                               lines twaco needs to .gitignore
 |   init --agents               write only those, where absent
+|   init --from-server <project>... [--profile <name>] [--apply] [--json]
+|                               start an empty repository from server projects; plans by default
+|       --profile <name>        the server profile (default: default)
+|       --apply                 write the planned repository and record matching baselines
+|       --json                  print the plan or result as JSON
 | 
+|   --profile <name>            the server profile (default: default)
 |   --log <filter>              write diagnostic logs to stderr (or TWACO_LOG)
 |   --log-file <path>           append diagnostic logs to a file (or TWACO_LOG_FILE)
 
