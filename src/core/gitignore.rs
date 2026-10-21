@@ -59,6 +59,35 @@ pub(crate) fn missing(root: &Path) -> Vec<&'static str> {
         .collect()
 }
 
+/// The exact bytes `add_missing` would append, without mutating the workspace.
+pub(crate) fn planned_append(root: &Path) -> std::io::Result<Option<Vec<u8>>> {
+    let missing = missing(root);
+    if missing.is_empty() {
+        return Ok(None);
+    }
+    let path = root.join(".gitignore");
+    let existing = match std::fs::read_to_string(&path) {
+        Ok(text) => text,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => String::new(),
+        Err(error) => return Err(error),
+    };
+    let eol = super::workspace::line_ending(&existing);
+    let mut text = existing;
+    if !text.is_empty() {
+        if !text.ends_with('\n') {
+            text.push_str(eol);
+        }
+        text.push_str(eol);
+    }
+    text.push_str(HEADING);
+    text.push_str(eol);
+    for entry in missing {
+        text.push_str(entry);
+        text.push_str(eol);
+    }
+    Ok(Some(text.into_bytes()))
+}
+
 /// Add the missing entries as one block at the end of the file, creating it if it is not there.
 /// Returns what was added.
 pub fn add_missing(root: &Path) -> std::io::Result<Vec<&'static str>> {

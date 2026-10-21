@@ -35,14 +35,21 @@ struct Found {
 }
 
 pub fn propose(root: &Path) -> Proposal {
-    let mut projects: BTreeMap<String, Found> = BTreeMap::new();
-    let mut undeclared = 0usize;
     let mut files = Vec::new();
     walk(root, &mut files);
-    for path in files {
-        let Ok(bytes) = std::fs::read(&path) else {
-            continue;
-        };
+    let files = files
+        .into_iter()
+        .filter_map(|path| std::fs::read(&path).ok().map(|bytes| (path, bytes)))
+        .collect();
+    propose_files(root, files)
+}
+
+/// Propose a configuration from entity files that are about to exist.  Keeping this beside the
+/// on-disk walker makes `init --from-server` and ordinary `init` make precisely the same choice.
+pub(crate) fn propose_files(root: &Path, files: Vec<(PathBuf, Vec<u8>)>) -> Proposal {
+    let mut projects: BTreeMap<String, Found> = BTreeMap::new();
+    let mut undeclared = 0usize;
+    for (path, bytes) in files {
         let Ok(info) = entity::parse(&bytes) else {
             continue;
         };
@@ -177,6 +184,25 @@ pub fn propose(root: &Path) -> Proposal {
     }
     proposal.toml = toml;
     proposal
+}
+
+/// Whether the initialisation walk sees a source entity.  This deliberately shares ordinary
+/// init's definition: arbitrary XML beside a repository is not a source entity.
+pub fn has_entity_files(root: &Path) -> bool {
+    let mut files = Vec::new();
+    walk(root, &mut files);
+    files.into_iter().any(|path| {
+        let Ok(bytes) = std::fs::read(&path) else {
+            return false;
+        };
+        let Ok(info) = entity::parse(&bytes) else {
+            return false;
+        };
+        path.ancestors().skip(1).any(|dir| {
+            dir.file_name()
+                .is_some_and(|name| name == info.collection.as_str())
+        })
+    })
 }
 
 fn quote(text: &str) -> String {

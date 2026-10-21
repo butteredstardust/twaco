@@ -15,7 +15,19 @@ pub(crate) fn export_entities(path: &Path) -> Result<BTreeMap<EntityRef, Element
         why,
     };
     let bytes = std::fs::read(path).map_err(|e| bad(e.to_string()))?;
-    let roots = normalise::parse_document(&bytes).map_err(|e| bad(e.to_string()))?;
+    export_entities_bytes(&bytes, path)
+}
+
+/// Parse the entities in an Exporter response without first putting that response on disk.
+pub(crate) fn export_entities_bytes(
+    bytes: &[u8],
+    source: &Path,
+) -> Result<BTreeMap<EntityRef, Element>, AdoptError> {
+    let bad = |why: String| AdoptError::Export {
+        path: source.to_path_buf(),
+        why,
+    };
+    let roots = normalise::parse_document(bytes).map_err(|e| bad(e.to_string()))?;
     let root = roots
         .into_iter()
         .find_map(|node| match node {
@@ -101,10 +113,21 @@ pub(super) fn entity_document(collection: &str, entity: &[u8]) -> Vec<u8> {
 
 pub(super) fn raw_entity(path: &Path, wanted: &EntityRef) -> Result<Vec<u8>, AdoptError> {
     let bytes = std::fs::read(path).map_err(|e| io_error(path, e))?;
-    let tokens = scan::tokenize(&bytes).map_err(|e| io_error(path, e))?;
-    entity_span(&tokens, &bytes, wanted)
-        .map(|span| span.of(&bytes).to_vec())
-        .ok_or_else(|| io_error(path, format!("no {} in export", wanted.path())))
+    raw_entity_bytes(&bytes, wanted)
+}
+
+/// The original bytes of one entity in an Exporter document.  Server-starting init needs this
+/// rather than the comparison tree: the layout pass must start with the server's actual XML.
+pub(crate) fn raw_entity_bytes(bytes: &[u8], wanted: &EntityRef) -> Result<Vec<u8>, AdoptError> {
+    let tokens = scan::tokenize(bytes).map_err(|e| io_error(Path::new("export"), e))?;
+    entity_span(&tokens, bytes, wanted)
+        .map(|span| span.of(bytes).to_vec())
+        .ok_or_else(|| {
+            io_error(
+                Path::new("export"),
+                format!("no {} in export", wanted.path()),
+            )
+        })
 }
 
 pub(super) fn replace_entity_bytes(

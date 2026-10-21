@@ -42,7 +42,11 @@ fn text(bytes: &[u8]) -> String {
 }
 
 fn one(path: &str, src: &[u8]) -> TableFile {
-    read(Path::new(path), src).unwrap().unwrap()
+    read_all(Path::new(path), src)
+        .unwrap()
+        .into_iter()
+        .next()
+        .unwrap()
 }
 
 /// A row as the hand-curated files lay it out, without its trailing newline.
@@ -111,10 +115,10 @@ fn every_fixture_reads_with_trimmed_values_and_its_header() {
     assert_eq!(fr.header.language_native.as_deref(), Some("Français"));
     assert_eq!(fr.tokens[0].value, "Démarrer");
 
-    assert!(read(Path::new("t.xml"), THING).unwrap().is_none());
-    assert!(read(Path::new("n.xml"), b"not xml at all <<")
+    assert!(read_all(Path::new("t.xml"), THING).unwrap().is_empty());
+    assert!(read_all(Path::new("n.xml"), b"not xml at all <<")
         .unwrap()
-        .is_none());
+        .is_empty());
 }
 
 #[test]
@@ -122,13 +126,13 @@ fn a_broken_table_export_is_refused_and_discovery_lists_it_as_unreadable() {
     let no_name = b"<Entities><LocalizationTables><LocalizationTable><ConfigurationTables>\
 <ConfigurationTable name=\"LocalizationTokens\"><Rows></Rows></ConfigurationTable>\
 </ConfigurationTables></LocalizationTable></LocalizationTables></Entities>";
-    let error = read(Path::new("broken.xml"), no_name).unwrap_err();
+    let error = read_all(Path::new("broken.xml"), no_name).unwrap_err();
     assert_eq!(error.code(), ErrorCode::InvalidData);
     assert!(error.to_string().contains("broken.xml"), "{error}");
 
     let two = b"<Entities><LocalizationTables><LocalizationTable name=\"a\"/>\
 <LocalizationTable name=\"b\"/></LocalizationTables></Entities>";
-    assert!(read(Path::new("two.xml"), two).is_err());
+    assert!(read_all(Path::new("two.xml"), two).is_err());
 
     let dir = tempfile::tempdir().unwrap();
     std::fs::create_dir_all(dir.path().join("x")).unwrap();
@@ -177,8 +181,16 @@ fn edits_that_change_nothing_return_every_fixture_byte_for_byte() {
             .map(|t| Edit::Set(t.clone()))
             .collect();
         edits.push(Edit::Remove("Acme.Absent".to_string()));
-        assert_eq!(edit(Path::new(path), src, &edits).unwrap(), src, "{path}");
-        assert_eq!(edit(Path::new(path), src, &[]).unwrap(), src, "{path}");
+        assert_eq!(
+            edit(Path::new(path), src, &table.table, &edits).unwrap(),
+            src,
+            "{path}"
+        );
+        assert_eq!(
+            edit(Path::new(path), src, &table.table, &[]).unwrap(),
+            src,
+            "{path}"
+        );
     }
 }
 
@@ -187,6 +199,7 @@ fn a_changed_three_line_cell_keeps_its_lines() {
     let out = edit(
         Path::new("de.xml"),
         FLAT_DE,
+        "de",
         &[Edit::Set(labelled("Acme.App.Save", "Sichern"))],
     )
     .unwrap();
@@ -201,6 +214,7 @@ fn a_changed_cdata_with_whitespace_inside_keeps_the_whitespace_around_it() {
     let out = edit(
         Path::new("b.xml"),
         BLOCK_DEFAULT,
+        DEFAULT_TABLE,
         &[Edit::Set(token("Acme.Other.Start", "Begin"))],
     )
     .unwrap();
@@ -221,6 +235,7 @@ fn empty_and_self_closing_cells_take_a_cdata() {
     let out = edit(
         Path::new("b.xml"),
         BLOCK_DEFAULT,
+        DEFAULT_TABLE,
         &[Edit::Set(changed.clone())],
     )
     .unwrap();
@@ -230,7 +245,13 @@ fn empty_and_self_closing_cells_take_a_cdata() {
     );
 
     let closed = text(BLOCK_DEFAULT).replacen("<context></context>", "<context/>", 1);
-    let out = edit(Path::new("b.xml"), closed.as_bytes(), &[Edit::Set(changed)]).unwrap();
+    let out = edit(
+        Path::new("b.xml"),
+        closed.as_bytes(),
+        DEFAULT_TABLE,
+        &[Edit::Set(changed)],
+    )
+    .unwrap();
     assert_eq!(
         text(&out),
         closed.replacen("<context/>", "<context><![CDATA[c]]></context>", 1)
@@ -242,6 +263,7 @@ fn a_new_row_follows_the_last_row_in_its_layout_before_a_trailing_comment() {
     let out = edit(
         Path::new("de.xml"),
         FLAT_DE,
+        "de",
         &[
             Edit::Set(labelled("Acme.App.Print", "Drucken")),
             Edit::Set(labelled("Acme.App.Quit", "Beenden")),
@@ -266,6 +288,7 @@ fn a_new_row_in_a_crlf_file_uses_crlf() {
     let out = edit(
         Path::new("fr.xml"),
         BLOCK_FR,
+        "fr",
         &[Edit::Set(token("Acme.Other.Reset", "Réinitialiser"))],
     )
     .unwrap();
@@ -285,17 +308,17 @@ fn rows_are_added_to_an_empty_or_self_closing_rows_in_the_rendered_layout() {
     let wanted = render("de", &header, &[labelled("Acme.App.A", "a")]);
     let set = [Edit::Set(labelled("Acme.App.A", "a"))];
     assert_eq!(
-        text(&edit(Path::new("e.xml"), &empty, &set).unwrap()),
+        text(&edit(Path::new("e.xml"), &empty, "de", &set).unwrap()),
         text(&wanted)
     );
     let closed = text(&empty).replace("<Rows>\n                    </Rows>", "<Rows/>");
     assert_ne!(closed, text(&empty));
     assert_eq!(
-        text(&edit(Path::new("e.xml"), closed.as_bytes(), &set).unwrap()),
+        text(&edit(Path::new("e.xml"), closed.as_bytes(), "de", &set).unwrap()),
         text(&wanted)
     );
     let no_rows = text(&empty).replace("<Rows>\n                    </Rows>", "");
-    let error = edit(Path::new("e.xml"), no_rows.as_bytes(), &set).unwrap_err();
+    let error = edit(Path::new("e.xml"), no_rows.as_bytes(), "de", &set).unwrap_err();
     assert!(error.to_string().contains("Rows"), "{error}");
 }
 
@@ -304,6 +327,7 @@ fn a_removed_row_leaves_no_blank_line() {
     let out = edit(
         Path::new("de.xml"),
         FLAT_DE,
+        "de",
         &[Edit::Remove("Acme.App.Open".to_string())],
     )
     .unwrap();
@@ -314,6 +338,7 @@ fn a_removed_row_leaves_no_blank_line() {
     let out = edit(
         Path::new("de.xml"),
         FLAT_DE,
+        "de",
         &[Edit::Remove("Acme.App.Cancel".to_string())],
     )
     .unwrap();
@@ -329,6 +354,7 @@ fn markup_in_a_cell_duplicates_and_repeated_edits_are_refused() {
     let error = edit(
         Path::new("de.xml"),
         commented.as_bytes(),
+        "de",
         &[Edit::Set(labelled("Acme.App.Save", "Sichern"))],
     )
     .unwrap_err();
@@ -339,6 +365,7 @@ fn markup_in_a_cell_duplicates_and_repeated_edits_are_refused() {
     let error = edit(
         Path::new("b.xml"),
         BLOCK_DEFAULT,
+        DEFAULT_TABLE,
         &[Edit::Set(token("Acme.Other.Stop", "Halt"))],
     )
     .unwrap_err();
@@ -347,6 +374,7 @@ fn markup_in_a_cell_duplicates_and_repeated_edits_are_refused() {
     edit(
         Path::new("b.xml"),
         BLOCK_DEFAULT,
+        DEFAULT_TABLE,
         &[Edit::Set(token("Acme.Other.Reset", "Clear"))],
     )
     .unwrap();
@@ -354,6 +382,7 @@ fn markup_in_a_cell_duplicates_and_repeated_edits_are_refused() {
     let error = edit(
         Path::new("de.xml"),
         FLAT_DE,
+        "de",
         &[
             Edit::Set(labelled("Acme.App.Save", "a")),
             Edit::Remove("Acme.App.Save".to_string()),
@@ -376,6 +405,7 @@ fn a_cell_the_row_lacks_is_added_after_its_last_cell() {
     let out = edit(
         Path::new("e.xml"),
         without.as_bytes(),
+        "de",
         &[Edit::Set(labelled("Acme.App.A", "a"))],
     )
     .unwrap();
@@ -462,6 +492,7 @@ fn a_cdata_terminator_in_a_value_round_trips() {
                 &Header::default(),
                 &[token("Acme.App.A", "plain")],
             ),
+            DEFAULT_TABLE,
             &[Edit::Set(token("Acme.App.A", value))],
         )
         .unwrap();
@@ -666,8 +697,10 @@ fn a_file_of_several_tables_is_read_table_by_table() {
     assert_eq!(names, ["de", "Default"]);
     assert_eq!(
         tables[1].tokens,
-        read(Path::new("d.xml"), FLAT_DEFAULT)
+        read_all(Path::new("d.xml"), FLAT_DEFAULT)
             .unwrap()
+            .into_iter()
+            .next()
             .unwrap()
             .tokens
     );
@@ -678,25 +711,28 @@ fn a_file_of_several_tables_is_read_table_by_table() {
 }
 
 #[test]
-fn a_file_of_several_tables_is_not_edited() {
+fn a_file_of_several_tables_edits_only_the_named_table() {
     let src = two_tables();
-    let error = read(Path::new("bundle.xml"), &src).unwrap_err();
-    assert!(
-        error
-            .to_string()
-            .contains("split it into one file per table"),
-        "{error}"
-    );
-    let error = edit(
+    let out = edit(
         Path::new("bundle.xml"),
         &src,
+        DEFAULT_TABLE,
         &[Edit::Set(token("Acme.App.Save", "Store"))],
     )
-    .unwrap_err();
+    .unwrap();
     assert!(
-        error.to_string().contains("holds 2 LocalizationTables"),
-        "{error}"
+        table_export(Path::new("bundle.xml"), &out, "de").unwrap()
+            == table_export(Path::new("bundle.xml"), &src, "de").unwrap()
     );
+    assert_eq!(one("out.xml", &out).table, "de");
+    assert_eq!(
+        read_all(Path::new("out.xml"), &out).unwrap()[1].tokens[0].value,
+        "Store"
+    );
+
+    let error = edit(Path::new("bundle.xml"), &src, "fr", &[]).unwrap_err();
+    assert!(error.to_string().contains("bundle.xml"), "{error}");
+    assert!(error.to_string().contains("de, Default"), "{error}");
 }
 
 #[test]

@@ -43,7 +43,9 @@ pub(crate) use base::{check_handoff, handoffs, record_handoff, Handoff, Side};
 pub use classify::{Change, Kind};
 pub(crate) use compare::{compare_with, CompareOptions};
 pub(crate) use flatten::{glob_matches, row_key, service_bodies};
-pub(crate) use read::{export_entities, repository_entities};
+pub(crate) use read::{
+    export_entities, export_entities_bytes, raw_entity_bytes, repository_entities,
+};
 
 /// Elements the platform rewrites on its own: whoever exported the file, an icon nobody sets,
 /// and two history tables that grow on every save.

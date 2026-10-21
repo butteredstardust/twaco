@@ -283,25 +283,6 @@ fn parse_row(
     })
 }
 
-/// The one table of an export twaco edits. A file that holds several tables is read, but not
-/// edited: an edit would have to choose among them.
-fn parse(path: &Path, src: &[u8]) -> Result<Option<Parsed>, LocalizationError> {
-    let Some(mut all) = parse_all(path, src)? else {
-        return Ok(None);
-    };
-    if all.len() != 1 {
-        return Err(invalid(
-            path,
-            format!(
-                "holds {} LocalizationTables; twaco reads such a file but edits only a file with \
-                 one table: split it into one file per table",
-                all.len()
-            ),
-        ));
-    }
-    Ok(all.pop())
-}
-
 /// Every table of a localization export, in file order. `None` for XML that is not one.
 fn parse_all(path: &Path, src: &[u8]) -> Result<Option<Vec<Parsed>>, LocalizationError> {
     let tokens = match scan::tokenize(src) {
@@ -438,14 +419,6 @@ fn parse_table(
         rows_empty,
         rows,
     })
-}
-
-/// Read one localization export of one table. Non-localization XML is ignored; a localization
-/// export whose table shape is incomplete, or that holds several tables, is refused with its path
-/// so it can be repaired by hand.
-#[cfg(test)]
-pub(crate) fn read(path: &Path, src: &[u8]) -> Result<Option<TableFile>, LocalizationError> {
-    Ok(parse(path, src)?.map(|parsed| table_file(path, parsed)))
 }
 
 /// Read every table of a localization export: one `TableFile` per table, each with the file's
@@ -768,11 +741,32 @@ fn new_row(token: &Token, indent: &[u8], newline: &[u8]) -> Vec<u8> {
     out
 }
 
-/// Apply changes to a localization table without reformatting any existing bytes. Unsupported
-/// cell markup, duplicate rows, duplicate edit arguments, and files without `Rows` are refused.
-pub(crate) fn edit(path: &Path, src: &[u8], edits: &[Edit]) -> Result<Vec<u8>, LocalizationError> {
-    let parsed =
-        parse(path, src)?.ok_or_else(|| invalid(path, "is not a localization table export"))?;
+/// Apply changes to one named localization table without reformatting any existing bytes.
+/// Unsupported cell markup, duplicate rows, duplicate edit arguments, and tables without `Rows`
+/// are refused.
+pub(crate) fn edit(
+    path: &Path,
+    src: &[u8],
+    table: &str,
+    edits: &[Edit],
+) -> Result<Vec<u8>, LocalizationError> {
+    let all =
+        parse_all(path, src)?.ok_or_else(|| invalid(path, "is not a localization table export"))?;
+    let several_tables = all.len() > 1;
+    let held_tables = all
+        .iter()
+        .map(|parsed| parsed.table.as_str())
+        .collect::<Vec<_>>()
+        .join(", ");
+    let parsed = all
+        .into_iter()
+        .find(|parsed| parsed.table == table)
+        .ok_or_else(|| {
+            invalid(
+                path,
+                format!("holds tables {held_tables}, not table {table}"),
+            )
+        })?;
     let mut requested = BTreeSet::new();
     for edit in edits {
         let name = match edit {
@@ -834,7 +828,12 @@ pub(crate) fn edit(path: &Path, src: &[u8], edits: &[Edit]) -> Result<Vec<u8>, L
             .rows_open
             .ok_or_else(|| invalid(path, "has no Rows element; add one before adding tokens"))?;
         let rows_close = parsed.rows_close.expect("Rows opening has a closing token");
-        let newline = if src.windows(2).any(|w| w == b"\r\n") {
+        let newline_source = if several_tables {
+            parsed.element.of(src)
+        } else {
+            src
+        };
+        let newline = if newline_source.windows(2).any(|w| w == b"\r\n") {
             b"\r\n".as_slice()
         } else {
             b"\n".as_slice()

@@ -14,6 +14,26 @@ const FLAT_DEFAULT: &[u8] = include_bytes!(
 const FLAT_DE: &[u8] =
     include_bytes!("../../../tests/fixtures/localization/flat/Acme.App_LocalizationTable_DE.xml");
 
+fn single(path: &Path, src: &[u8]) -> TableFile {
+    read_all(path, src).unwrap().into_iter().next().unwrap()
+}
+
+fn table_element(src: &[u8]) -> String {
+    let text = String::from_utf8(src.to_vec()).unwrap();
+    let start = text.find("<LocalizationTable\n").unwrap();
+    let end = text.rfind("</LocalizationTable>").unwrap() + "</LocalizationTable>".len();
+    text[start..end].to_string()
+}
+
+fn two_tables() -> Vec<u8> {
+    format!(
+        "<Entities>\n  <LocalizationTables>\n    {}\n    {}\n  </LocalizationTables>\n</Entities>\n",
+        table_element(FLAT_DE),
+        table_element(FLAT_DEFAULT)
+    )
+    .into_bytes()
+}
+
 /// A server that merges imported tables the way ThingWorx does: a missing table is created with
 /// the file's header, an existing one takes the file's tokens and answers `partial-success`, and
 /// no token is ever removed by an import.
@@ -56,7 +76,7 @@ impl imports::Remote for Server {
     }
 
     fn import_file(&self, _: &str, bytes: &[u8], _: bool, _: bool) -> Result<(), ServerError> {
-        let file = read(Path::new("sent.xml"), bytes).unwrap().unwrap();
+        let file = single(Path::new("sent.xml"), bytes);
         self.log
             .lock()
             .unwrap()
@@ -388,6 +408,7 @@ fn a_pull_updates_a_curated_file_in_place_and_adds_what_the_server_has() {
         edit(
             Path::new("de.xml"),
             FLAT_DE,
+            "de",
             &[
                 Edit::Set(token("Acme.App.Save", "Sichern")),
                 Edit::Set(token("Acme.App.Print", "Drucken")),
@@ -405,6 +426,34 @@ fn a_pull_updates_a_curated_file_in_place_and_adds_what_the_server_has() {
             .text("Acme.App_LocalizationTable_Default.xml")
             .as_bytes(),
         FLAT_DEFAULT
+    );
+}
+
+#[test]
+fn a_pull_edits_the_selected_table_of_a_multi_table_file() {
+    let bundle = two_tables();
+    let workspace = Workspace::new(&["Acme.App"], &[("bundle.xml", &bundle)]);
+    let server = in_step();
+    server.tables.lock().unwrap().get_mut("de").unwrap().1[0].value = "Sichern".to_string();
+
+    let pulled = pull(
+        &workspace.solution,
+        &server,
+        Some("de"),
+        false,
+        Some(&workspace.lock()),
+    )
+    .unwrap();
+
+    assert_eq!(pulled.files.len(), 1);
+    let changed = std::fs::read(workspace.path("bundle.xml")).unwrap();
+    assert_eq!(
+        table_export(Path::new("bundle.xml"), &changed, DEFAULT_TABLE).unwrap(),
+        table_export(Path::new("bundle.xml"), &bundle, DEFAULT_TABLE).unwrap()
+    );
+    assert_eq!(
+        read_all(Path::new("bundle.xml"), &changed).unwrap()[0].tokens[0].value,
+        "Sichern"
     );
 }
 
@@ -484,6 +533,7 @@ fn a_pull_with_prune_removes_what_the_server_lacks() {
         edit(
             Path::new("d.xml"),
             FLAT_DEFAULT,
+            DEFAULT_TABLE,
             &[Edit::Remove("Acme.App.Open".to_string())]
         )
         .unwrap()
@@ -582,29 +632,8 @@ fn a_push_imports_default_first_creates_a_missing_table_and_reads_back() {
 
 #[test]
 fn a_push_from_a_file_of_several_tables_imports_each_table_alone() {
-    let element = |src: &[u8]| -> String {
-        let text = String::from_utf8(src.to_vec()).unwrap();
-        let start = text
-            .find(
-                "<LocalizationTable
-",
-            )
-            .unwrap();
-        let end = text.rfind("</LocalizationTable>").unwrap() + "</LocalizationTable>".len();
-        text[start..end].to_string()
-    };
-    let bundle = format!(
-        "<Entities>
-  <LocalizationTables>
-    {}
-    {}
-  </LocalizationTables>
-</Entities>
-",
-        element(FLAT_DE),
-        element(FLAT_DEFAULT)
-    );
-    let workspace = Workspace::new(&["Acme.App"], &[("bundle.xml", bundle.as_bytes())]);
+    let bundle = two_tables();
+    let workspace = Workspace::new(&["Acme.App"], &[("bundle.xml", &bundle)]);
     let server = Server::with(&[(DEFAULT_TABLE, vec![token("Acme.App.Save", "Old")])]);
     // The fake server reads each import as a file of one table, and fails on any other.
     let pushed = push(
@@ -619,9 +648,9 @@ fn a_push_from_a_file_of_several_tables_imports_each_table_alone() {
     assert!(pushed.applied);
     assert_eq!(server.log(), ["import Default", "import de"]);
     assert_eq!(server.tokens_of("de").len(), 6);
-    // Editing the file is refused, naming the way out.
+    // Setting the second table leaves every byte of the first one alone.
     let lock = workspace.lock();
-    let error = set(
+    set(
         &workspace.solution,
         "Acme.App.Save",
         "Store",
@@ -631,12 +660,15 @@ fn a_push_from_a_file_of_several_tables_imports_each_table_alone() {
         None,
         Some(&lock),
     )
-    .unwrap_err();
-    assert!(
-        error
-            .to_string()
-            .contains("split it into one file per table"),
-        "{error}"
+    .unwrap();
+    let changed = std::fs::read(workspace.path("bundle.xml")).unwrap();
+    assert_eq!(
+        table_export(Path::new("bundle.xml"), &changed, "de").unwrap(),
+        table_export(Path::new("bundle.xml"), &bundle, "de").unwrap()
+    );
+    assert_eq!(
+        read_all(Path::new("bundle.xml"), &changed).unwrap()[1].tokens[0].value,
+        "Store"
     );
 }
 
@@ -848,14 +880,12 @@ fn set_updates_in_place_keeping_usage_and_context_unless_given() {
         Some(&workspace.lock()),
     )
     .unwrap();
-    let de = read(
+    let de = single(
         Path::new("de.xml"),
         workspace
             .text("Acme.App_LocalizationTable_DE.xml")
             .as_bytes(),
-    )
-    .unwrap()
-    .unwrap();
+    );
     assert_eq!(de.tokens[0].usage, "tooltip");
     assert_eq!(de.tokens[0].context, "Button");
 }
@@ -874,14 +904,12 @@ fn set_adds_a_new_token_with_label_usage() {
         Some(&workspace.lock()),
     )
     .unwrap();
-    let default = read(
+    let default = single(
         Path::new("d.xml"),
         workspace
             .text("Acme.App_LocalizationTable_Default.xml")
             .as_bytes(),
-    )
-    .unwrap()
-    .unwrap();
+    );
     assert_eq!(
         default.tokens.last().unwrap(),
         &plain("Acme.App.Print", "Print")
@@ -1036,6 +1064,7 @@ fn remove_takes_a_token_from_every_table_or_from_one() {
         edit(
             Path::new("de.xml"),
             FLAT_DE,
+            "de",
             &[Edit::Remove("Acme.App.Open".to_string())]
         )
         .unwrap()
@@ -1058,6 +1087,49 @@ fn remove_takes_a_token_from_every_table_or_from_one() {
     )
     .unwrap_err();
     assert_eq!(error.code(), ErrorCode::UnknownEntity);
+}
+
+#[test]
+fn remove_edits_each_matching_table_of_a_multi_table_file() {
+    let bundle = two_tables();
+    let workspace = Workspace::new(&["Acme.App"], &[("bundle.xml", &bundle)]);
+    let removed = remove(
+        &workspace.solution,
+        "Acme.App.Open",
+        None,
+        Some(&workspace.lock()),
+    )
+    .unwrap();
+    assert_eq!(removed.files.len(), 1);
+    assert!(read_all(
+        Path::new("bundle.xml"),
+        &std::fs::read(workspace.path("bundle.xml")).unwrap()
+    )
+    .unwrap()
+    .iter()
+    .all(|table| table
+        .tokens
+        .iter()
+        .all(|token| token.name != "Acme.App.Open")));
+
+    let workspace = Workspace::new(&["Acme.App"], &[("bundle.xml", &bundle)]);
+    remove(
+        &workspace.solution,
+        "Acme.App.Open",
+        Some("de"),
+        Some(&workspace.lock()),
+    )
+    .unwrap();
+    let changed = std::fs::read(workspace.path("bundle.xml")).unwrap();
+    let tables = read_all(Path::new("bundle.xml"), &changed).unwrap();
+    assert!(tables[0]
+        .tokens
+        .iter()
+        .all(|token| token.name != "Acme.App.Open"));
+    assert_eq!(
+        table_export(Path::new("bundle.xml"), &changed, DEFAULT_TABLE).unwrap(),
+        table_export(Path::new("bundle.xml"), &bundle, DEFAULT_TABLE).unwrap()
+    );
 }
 
 // ---------- review fixes ----------
