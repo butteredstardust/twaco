@@ -44,6 +44,10 @@ pub enum Error {
     AlreadyPresent(String),
     #[error("planned files already exist: {0}")]
     ExistingFiles(String),
+    #[error("project {0} is named twice")]
+    Duplicate(String),
+    #[error("{0}; fix it before adding projects, whose sidecars and baseline would stop on it")]
+    Unreadable(String),
     #[error("init --from-server needs at least one project name")]
     Projects,
     #[error("project {project}: {why}")]
@@ -64,7 +68,10 @@ pub enum Error {
 impl super::codes::Coded for Error {
     fn code(&self) -> super::codes::ErrorCode {
         match self {
-            Self::Refused(_) | Self::Projects => super::codes::ErrorCode::InvalidArguments,
+            Self::Refused(_) | Self::Projects | Self::Duplicate(_) => {
+                super::codes::ErrorCode::InvalidArguments
+            }
+            Self::Unreadable(_) => super::codes::ErrorCode::InvalidData,
             Self::Config(error) => error.code(),
             Self::AlreadyPresent(_) | Self::ExistingFiles(_) => {
                 super::codes::ErrorCode::AlreadyExists
@@ -83,31 +90,48 @@ struct File {
     bytes: Vec<u8>,
 }
 
+/// Everything that can be refused without the server, so a front end can say it before it needs a
+/// profile: the existing solution when there is one.
+pub fn preflight(root: &Path, projects: &[String]) -> Result<Option<config::Solution>, Error> {
+    if projects.is_empty() {
+        return Err(Error::Projects);
+    }
+    let mut seen = BTreeSet::new();
+    if let Some(twice) = projects.iter().find(|project| !seen.insert(*project)) {
+        return Err(Error::Duplicate(twice.clone()));
+    }
+    let config_path = root.join(super::config::CONFIG_FILE);
+    if !config_path.exists() {
+        if init::has_entity_files(root) {
+            return Err(Error::Refused(REFUSAL));
+        }
+        return Ok(None);
+    }
+    let solution = config::Solution::load(&config_path)?;
+    if let Some(project) = projects.iter().find(|p| solution.project(p).is_some()) {
+        return Err(Error::AlreadyPresent(project.clone()));
+    }
+    // Sidecars and the baseline of the added projects are made after the files are written; an
+    // unreadable entity file would stop them then.
+    let found = workspace::discover(&solution);
+    if let Some(unreadable) = found.unreadable.first() {
+        return Err(Error::Unreadable(unreadable.clone()));
+    }
+    Ok(Some(solution))
+}
+
 /// Read each project through the same Exporter endpoint as `export project`, plan every local
 /// file first, and only then write all of them as one transaction.
 pub fn execute<R>(remote: &R, request: Request) -> Result<Outcome, Error>
 where
     R: export::Remote + push::Remote + localization::Remote + Sync,
 {
-    if request.projects.is_empty() {
-        return Err(Error::Projects);
-    }
+    let existing = preflight(&request.root, &request.projects)?;
     let config_path = request.root.join(super::config::CONFIG_FILE);
-    let existing = if config_path.exists() {
-        Some(config::Solution::load(&config_path)?)
-    } else {
-        None
+    let config_before = match &existing {
+        Some(_) => Some(std::fs::read(&config_path)?),
+        None => None,
     };
-    if existing.is_none() && init::has_entity_files(&request.root) {
-        return Err(Error::Refused(REFUSAL));
-    }
-    if let Some(solution) = &existing {
-        for project in &request.projects {
-            if solution.project(project).is_some() {
-                return Err(Error::AlreadyPresent(project.clone()));
-            }
-        }
-    }
     let added = existing.is_some();
     let named: BTreeSet<String> = request.projects.iter().cloned().collect();
     let multiple = named.len() > 1;
@@ -117,6 +141,7 @@ where
     let mut per_project = BTreeMap::<String, usize>::new();
     let mut dependencies = BTreeMap::<String, Vec<String>>::new();
     let mut members_owned = Vec::new();
+    let mut names = Vec::new();
     for project in &request.projects {
         let exported = export::export(
             remote,
@@ -211,6 +236,7 @@ where
                 .join(format!("{}.xml", info.name));
             *counts.entry(key.collection.clone()).or_insert(0usize) += 1;
             *per_project.entry(info.project).or_insert(0usize) += 1;
+            names.push(info.name.clone());
             files.push(File {
                 path,
                 bytes: document,
@@ -221,7 +247,7 @@ where
         notes.push("the server exports contained no entities for the named projects".to_string());
     }
     let mut toml = if existing.is_some() {
-        let before = std::fs::read_to_string(&config_path)?;
+        let before = String::from_utf8_lossy(config_before.as_deref().unwrap_or_default());
         append_projects(&before, &request.projects, &dependencies)
     } else {
         let proposal_files = files
@@ -270,12 +296,17 @@ where
         path: request.root.join(super::config::CONFIG_FILE),
         bytes: toml.clone().into_bytes(),
     });
-    if added {
+    if let Some(solution) = &existing {
+        // Extraction writes each added entity's sidecar folder after the transaction.
+        let src = solution.src_root();
         let existing: Vec<_> = all
             .iter()
-            .filter(|file| file.path != config_path && file.path.exists())
+            .map(|file| file.path.clone())
+            .filter(|path| *path != config_path)
+            .chain(names.iter().map(|name| src.join(name)))
+            .filter(|path| path.exists())
             .take(5)
-            .map(|file| file.path.display().to_string())
+            .map(|path| path.display().to_string())
             .collect();
         if !existing.is_empty() {
             return Err(Error::ExistingFiles(existing.join(", ")));
@@ -291,7 +322,14 @@ where
         let held = lock::acquire(&request.root, "init --from-server", &[])?;
         let mut write = transaction::Transaction::new(&request.root, "init --from-server");
         for file in all {
-            write.write_file(&file.path, file.bytes)?;
+            // The configuration replaces exactly what was planned on, so an edit made meanwhile is
+            // refused rather than lost.
+            match &config_before {
+                Some(before) if file.path == config_path => {
+                    write.replace_file(&file.path, before, file.bytes)?
+                }
+                _ => write.write_file(&file.path, file.bytes)?,
+            }
         }
         write.apply(&held)?;
         // The sidecars are what `twaco extract --all` makes of the files just written, made by
@@ -476,7 +514,7 @@ fn add_members_owned(toml: &mut String, entities: &[String]) {
         .collect::<Vec<_>>()
         .join(", ");
     toml.push_str(&format!(
-        "\n# Membership is assigned per server; the export leaves out user members.\n[[server_owned]]\nentities = [{names}]\nparts = [\"members\"]\n"
+        "\n# Membership is assigned per server; the export leaves out user members. All members are\n# then the server's, group members in these files included: a change to them is not deployed.\n[[server_owned]]\nentities = [{names}]\nparts = [\"members\"]\n"
     ));
 }
 
@@ -721,6 +759,64 @@ mod tests {
                 .count(),
             1
         );
+    }
+
+    #[test]
+    fn refuses_before_writing_what_would_stop_it_later() {
+        let solution = || {
+            let temp = tempfile::tempdir().unwrap();
+            profile(temp.path());
+            std::fs::write(
+                temp.path().join("twaco.toml"),
+                "[[project]]\nname = \"A\"\nroot = \".\"\n",
+            )
+            .unwrap();
+            temp
+        };
+        let remote = Fake(BTreeMap::from([("B".to_string(), export("B", "B.T"))]));
+        let run = |root: &Path, projects: &[&str]| {
+            execute(
+                &remote,
+                Request {
+                    root: root.to_path_buf(),
+                    projects: projects.iter().map(|p| p.to_string()).collect(),
+                    apply: true,
+                    profile: "default".into(),
+                },
+            )
+            .unwrap_err()
+        };
+        let named_twice = solution();
+        assert!(matches!(
+            run(named_twice.path(), &["B", "B"]),
+            Error::Duplicate(_)
+        ));
+        // An orphaned sidecar folder of an entity to be added.
+        let orphan = solution();
+        std::fs::create_dir_all(orphan.path().join("src/B.T/services/S")).unwrap();
+        assert!(matches!(
+            run(orphan.path(), &["B"]),
+            Error::ExistingFiles(files) if files.contains("B.T")
+        ));
+        // An entity file of the existing project that discovery cannot read as one entity.
+        let unreadable = solution();
+        std::fs::create_dir_all(unreadable.path().join("Things")).unwrap();
+        std::fs::write(
+            unreadable.path().join("Things/A.T.xml"),
+            "<Entities><Groups></Groups><Things><Thing name=\"A.T\" projectName=\"A\"/></Things></Entities>",
+        )
+        .unwrap();
+        assert!(matches!(
+            run(unreadable.path(), &["B"]),
+            Error::Unreadable(_)
+        ));
+        for temp in [&named_twice, &orphan, &unreadable] {
+            assert!(!temp.path().join("B").exists());
+            assert_eq!(
+                std::fs::read_to_string(temp.path().join("twaco.toml")).unwrap(),
+                "[[project]]\nname = \"A\"\nroot = \".\"\n"
+            );
+        }
     }
 
     #[test]

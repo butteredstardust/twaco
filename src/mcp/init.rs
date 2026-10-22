@@ -6,11 +6,7 @@ pub(crate) fn init_from_server_tool(
     root: &Path,
     request: InitFromServerRequest,
 ) -> Result<Value, ToolError> {
-    if request.projects.is_empty() {
-        return Err(ToolError::invalid(
-            "`projects` must name at least one project",
-        ));
-    }
+    crate::core::init_server::preflight(root, &request.projects).map_err(ToolError::coded)?;
     let profile = profile::load(root, &request.profile).map_err(ToolError::coded)?;
     let outcome = crate::core::init_server::execute(
         &server::Client::new(profile),

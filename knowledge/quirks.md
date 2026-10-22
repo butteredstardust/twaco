@@ -655,8 +655,6 @@ installed names rather than a project-specific placeholder.
 
 ## Import and inspection checklist
 
-## Import and inspection checklist
-
 Before importing an entity, establish whether every named Project, DataShape, ThingShape,
 ThingTemplate, and extension is already installed. A successful HTTP status is not proof that
 membership, an inline configuration row, a script handler, localization contents, or a stored

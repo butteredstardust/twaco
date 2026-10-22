@@ -323,6 +323,10 @@ fn init_cmd(parsed: &Init) -> u8 {
             );
             return FAILED;
         }
+        if let Err(error) = twaco::core::init_server::preflight(&here, &parsed.from_server) {
+            eprintln!("{} {error}", cli::style::prefix());
+            return FAILED;
+        }
         let profile = match profile::load(&here, parsed.profile.name()) {
             Ok(profile) => profile,
             Err(error) => {
