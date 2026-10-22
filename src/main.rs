@@ -323,12 +323,6 @@ fn init_cmd(parsed: &Init) -> u8 {
             );
             return FAILED;
         }
-        if here.join(twaco::core::config::CONFIG_FILE).exists()
-            || twaco::core::init::has_entity_files(&here)
-        {
-            eprintln!("{} init --from-server starts a new repository; to add a project to this one, `twaco export project <P> --out <file>` and `twaco adopt <file>`", cli::style::prefix());
-            return FAILED;
-        }
         let profile = match profile::load(&here, parsed.profile.name()) {
             Ok(profile) => profile,
             Err(error) => {
@@ -356,8 +350,12 @@ fn init_cmd(parsed: &Init) -> u8 {
                             "toml": outcome.toml,
                             "notes": outcome.notes,
                             "applied": outcome.applied,
+                            "added": outcome.added,
                         "recorded": outcome.recorded,
                         "not_in_sync": outcome.not_in_sync,
+                        "localization_files": outcome.localization_files,
+                        "localization_tokens": outcome.localization_tokens,
+                        "localization_failure": outcome.localization_failure,
                     })
                 );
                 if outcome.not_in_sync.is_empty() {
@@ -372,7 +370,11 @@ fn init_cmd(parsed: &Init) -> u8 {
                     outcome.projects.len(),
                     outcome.entities.values().sum::<usize>(),
                     if outcome.applied {
-                        " written"
+                        if outcome.added {
+                            " added"
+                        } else {
+                            " written"
+                        }
                     } else {
                         " planned"
                     }
@@ -392,6 +394,10 @@ fn init_cmd(parsed: &Init) -> u8 {
                 }
                 if outcome.applied {
                     println!("baseline recorded for {} entities", outcome.recorded);
+                    println!(
+                        "localization: {} file(s) written, {} token(s) pulled",
+                        outcome.localization_files, outcome.localization_tokens
+                    );
                     for entity in &outcome.not_in_sync {
                         eprintln!("{} not in sync: {entity}", cli::style::prefix());
                     }

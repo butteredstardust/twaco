@@ -15,6 +15,22 @@ use std::collections::BTreeMap;
 type Notices = Option<Vec<String>>;
 
 #[derive(Serialize, JsonSchema)]
+pub(crate) struct InitFromServerResult {
+    projects: Vec<String>,
+    files: usize,
+    entities: BTreeMap<String, usize>,
+    toml: String,
+    notes: Vec<String>,
+    applied: bool,
+    added: bool,
+    recorded: usize,
+    not_in_sync: Vec<String>,
+    localization_files: usize,
+    localization_tokens: usize,
+    localization_failure: Option<String>,
+}
+
+#[derive(Serialize, JsonSchema)]
 pub(crate) struct ContractDiffResult {
     summary: String,
     breaking: Vec<crate::core::contract::Change>,

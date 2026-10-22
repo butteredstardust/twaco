@@ -9,7 +9,8 @@ usage: twaco <command>
                               lines twaco needs to .gitignore
   init --agents               write only those, where absent
   init --from-server <project>... [--profile <name>] [--apply] [--json]
-                              start an empty repository from server projects; plans by default
+                              start a repository in an empty folder, or add projects to this one,
+                              from server projects; plans by default
       --profile <name>        the server profile (default: default)
       --apply                 write the planned repository and record matching baselines
       --json                  print the plan or result as JSON

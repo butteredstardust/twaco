@@ -1,5 +1,116 @@
 [
   {
+    "name": "init_from_server",
+    "description": "Start a repository in an empty root, or add server projects to the solution already there. apply defaults to false, so the result is a plan until apply is true. No path argument: it always uses the MCP server root.",
+    "inputSchema": {
+      "required": [
+        "projects"
+      ],
+      "additionalProperties": false,
+      "type": "object",
+      "properties": {
+        "projects": {
+          "description": "Server project names to create or add; at least one is required.",
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "minItems": 1
+        },
+        "profile": {
+          "description": "Server profile name.",
+          "type": "string",
+          "default": "default"
+        },
+        "apply": {
+          "description": "Write the planned files. The default only returns the plan.",
+          "type": "boolean",
+          "default": false
+        }
+      }
+    },
+    "annotations": {
+      "readOnlyHint": false,
+      "openWorldHint": true,
+      "destructiveHint": false,
+      "idempotentHint": false
+    },
+    "outputSchema": {
+      "required": [
+        "projects",
+        "files",
+        "entities",
+        "toml",
+        "notes",
+        "applied",
+        "added",
+        "recorded",
+        "not_in_sync",
+        "localization_files",
+        "localization_tokens"
+      ],
+      "properties": {
+        "projects": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "files": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "entities": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "integer",
+            "minimum": 0
+          }
+        },
+        "toml": {
+          "type": "string"
+        },
+        "notes": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "applied": {
+          "type": "boolean"
+        },
+        "added": {
+          "type": "boolean"
+        },
+        "recorded": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "not_in_sync": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "localization_files": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "localization_tokens": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "localization_failure": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "type": "object"
+    }
+  },
+  {
     "name": "projects",
     "description": "The solution's ThingWorx projects, their roots, their deploy order and how many entity documents each holds.",
     "inputSchema": {

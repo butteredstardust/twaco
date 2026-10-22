@@ -426,12 +426,21 @@ pub(crate) fn footer(collection: &str) -> String {
 
 /// A new entity's file: the envelope `entity new` writes around the entity, already laid out.
 pub(crate) fn document(collection: &str, laid_out: &[u8]) -> Vec<u8> {
+    // The envelope takes the entity's line endings: a server export is CRLF throughout.
+    let crlf = laid_out.windows(2).any(|pair| pair == b"\r\n");
+    let lines = |text: String| {
+        if crlf {
+            text.replace('\n', "\r\n")
+        } else {
+            text
+        }
+    };
     [
-        header(collection).as_bytes(),
+        lines(header(collection)).as_bytes(),
         b"        ",
         laid_out,
-        b"\n",
-        footer(collection).as_bytes(),
+        lines("\n".to_string()).as_bytes(),
+        lines(footer(collection)).as_bytes(),
     ]
     .concat()
 }
@@ -1380,6 +1389,16 @@ pub fn plan_json(solution: &Solution, plan: &Plan, applied: bool) -> Value {
 mod tests {
     use super::*;
     use crate::core::commands::{self, Mode, Notices};
+
+    #[test]
+    fn the_envelope_takes_the_entity_line_endings() {
+        let entity = b"<Thing\r\n         name=\"Acme.Orders.T\"></Thing>";
+        let crlf = document("Things", entity);
+        let text = String::from_utf8(crlf).unwrap();
+        assert_eq!(text.matches('\n').count(), text.matches("\r\n").count());
+        let lf = String::from_utf8(document("Things", b"<Thing name=\"Acme.Orders.T\"/>")).unwrap();
+        assert!(!lf.contains('\r'));
+    }
 
     fn fixture() -> (tempfile::TempDir, Solution) {
         let dir = tempfile::Builder::new()

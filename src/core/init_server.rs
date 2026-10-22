@@ -1,13 +1,13 @@
 //! Start an empty source repository from Exporter project documents.
 
 use super::{
-    adopt, commands, config, entity, export, gitignore, init, layout, lock, normalise, progress,
-    push, status, transaction, workflow, workspace,
+    adopt, commands, config, entity, export, gitignore, init, layout, localization, lock,
+    normalise, progress, push, status, transaction, workflow, workspace,
 };
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 
-const REFUSAL: &str = "init --from-server starts a new repository; to add a project to this one, `twaco export project <P> --out <file>` and `twaco adopt <file>`";
+const REFUSAL: &str = "this folder has entity files but no twaco.toml; run `twaco init --write` first, or start in an empty folder";
 
 #[derive(Debug)]
 pub struct Request {
@@ -26,14 +26,24 @@ pub struct Outcome {
     pub toml: String,
     pub notes: Vec<String>,
     pub applied: bool,
+    pub added: bool,
     pub recorded: usize,
     pub not_in_sync: Vec<String>,
+    pub localization_files: usize,
+    pub localization_tokens: usize,
+    pub localization_failure: Option<String>,
 }
 
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
     #[error("{0}")]
     Refused(&'static str),
+    #[error("twaco.toml does not load: {0}")]
+    Config(#[from] config::ConfigError),
+    #[error("project {0} is already in this solution")]
+    AlreadyPresent(String),
+    #[error("planned files already exist: {0}")]
+    ExistingFiles(String),
     #[error("init --from-server needs at least one project name")]
     Projects,
     #[error("project {project}: {why}")]
@@ -51,6 +61,23 @@ pub enum Error {
     Unfinished { why: String },
 }
 
+impl super::codes::Coded for Error {
+    fn code(&self) -> super::codes::ErrorCode {
+        match self {
+            Self::Refused(_) | Self::Projects => super::codes::ErrorCode::InvalidArguments,
+            Self::Config(error) => error.code(),
+            Self::AlreadyPresent(_) | Self::ExistingFiles(_) => {
+                super::codes::ErrorCode::AlreadyExists
+            }
+            Self::Export { .. } | Self::UnsafeName { .. } => super::codes::ErrorCode::InvalidData,
+            Self::Write(error) => error.code(),
+            Self::Lock(error) => error.code(),
+            Self::Io(_) => super::codes::ErrorCode::IoError,
+            Self::Unfinished { .. } => super::codes::ErrorCode::Unclassified,
+        }
+    }
+}
+
 struct File {
     path: PathBuf,
     bytes: Vec<u8>,
@@ -60,16 +87,28 @@ struct File {
 /// file first, and only then write all of them as one transaction.
 pub fn execute<R>(remote: &R, request: Request) -> Result<Outcome, Error>
 where
-    R: export::Remote + push::Remote + Sync,
+    R: export::Remote + push::Remote + localization::Remote + Sync,
 {
     if request.projects.is_empty() {
         return Err(Error::Projects);
     }
-    if request.root.join(super::config::CONFIG_FILE).exists()
-        || init::has_entity_files(&request.root)
-    {
+    let config_path = request.root.join(super::config::CONFIG_FILE);
+    let existing = if config_path.exists() {
+        Some(config::Solution::load(&config_path)?)
+    } else {
+        None
+    };
+    if existing.is_none() && init::has_entity_files(&request.root) {
         return Err(Error::Refused(REFUSAL));
     }
+    if let Some(solution) = &existing {
+        for project in &request.projects {
+            if solution.project(project).is_some() {
+                return Err(Error::AlreadyPresent(project.clone()));
+            }
+        }
+    }
+    let added = existing.is_some();
     let named: BTreeSet<String> = request.projects.iter().cloned().collect();
     let multiple = named.len() > 1;
     let mut files = Vec::new();
@@ -138,7 +177,11 @@ where
             if key.collection == "Projects" {
                 let needs: Vec<String> = depends_on_projects(&element)
                     .into_iter()
-                    .filter(|name| *name != info.project && named.contains(name))
+                    .filter(|name| {
+                        *name != info.project
+                            && (named.contains(name)
+                                || existing.as_ref().is_some_and(|s| s.project(name).is_some()))
+                    })
                     .collect();
                 dependencies.insert(info.project.clone(), needs);
             }
@@ -158,7 +201,7 @@ where
             {
                 members_owned.push(key.path());
             }
-            let base = if multiple {
+            let base = if added || multiple {
                 request.root.join(&info.project)
             } else {
                 request.root.clone()
@@ -177,50 +220,73 @@ where
     if files.is_empty() {
         notes.push("the server exports contained no entities for the named projects".to_string());
     }
-    let proposal_files = files
-        .iter()
-        .map(|file| (file.path.clone(), file.bytes.clone()))
-        .collect();
-    let mut proposal = init::propose_files(&request.root, proposal_files);
-    add_project_dependencies(&mut proposal.toml, &dependencies);
+    let mut toml = if existing.is_some() {
+        let before = std::fs::read_to_string(&config_path)?;
+        append_projects(&before, &request.projects, &dependencies)
+    } else {
+        let proposal_files = files
+            .iter()
+            .map(|file| (file.path.clone(), file.bytes.clone()))
+            .collect();
+        let mut proposal = init::propose_files(&request.root, proposal_files);
+        add_project_dependencies(&mut proposal.toml, &dependencies);
+        proposal.notes.extend(notes);
+        notes = proposal.notes;
+        proposal.toml
+    };
     if !members_owned.is_empty() {
-        add_members_owned(&mut proposal.toml, &members_owned);
+        add_members_owned(&mut toml, &members_owned);
         notes.push(format!(
             "{} keep their members on the server: the Exporter leaves out user members, so membership is [[server_owned]]",
             members_owned.join(", ")
         ));
     }
-    notes.extend(proposal.notes);
     for (project, count) in per_project {
         notes.push(format!("{project}: {count} entities"));
     }
     let entity_files = files.len();
     let mut all = files;
-    let project_names: Vec<String> = request.projects.clone();
-    for (name, text) in init::agent_files(&request.projects[0], &project_names) {
-        let path = request.root.join(name);
-        if !path.exists() {
-            all.push(File {
-                path,
-                bytes: text.into_bytes(),
-            });
+    if !added {
+        let project_names: Vec<String> = request.projects.clone();
+        for (name, text) in init::agent_files(&request.projects[0], &project_names) {
+            let path = request.root.join(name);
+            if !path.exists() {
+                all.push(File {
+                    path,
+                    bytes: text.into_bytes(),
+                });
+            }
         }
-    }
-    if gitignore::in_git_work_tree(&request.root) {
-        if let Some(bytes) = gitignore::planned_append(&request.root)? {
-            all.push(File {
-                path: request.root.join(".gitignore"),
-                bytes,
-            });
+        if gitignore::in_git_work_tree(&request.root) {
+            if let Some(bytes) = gitignore::planned_append(&request.root)? {
+                all.push(File {
+                    path: request.root.join(".gitignore"),
+                    bytes,
+                });
+            }
         }
     }
     all.push(File {
         path: request.root.join(super::config::CONFIG_FILE),
-        bytes: proposal.toml.clone().into_bytes(),
+        bytes: toml.clone().into_bytes(),
     });
+    if added {
+        let existing: Vec<_> = all
+            .iter()
+            .filter(|file| file.path != config_path && file.path.exists())
+            .take(5)
+            .map(|file| file.path.display().to_string())
+            .collect();
+        if !existing.is_empty() {
+            return Err(Error::ExistingFiles(existing.join(", ")));
+        }
+    }
     let files_count = all.len();
     let mut recorded = 0;
     let mut not_in_sync = Vec::new();
+    let mut localization_files = 0;
+    let mut localization_tokens = 0;
+    let mut localization_failure = None;
     if request.apply {
         let held = lock::acquire(&request.root, "init --from-server", &[])?;
         let mut write = transaction::Transaction::new(&request.root, "init --from-server");
@@ -235,38 +301,74 @@ where
         let solution = config::Solution::load(&request.root.join(config::CONFIG_FILE))
             .map_err(|error| unfinished(format!("its twaco.toml does not load: {error}")))?;
         let found = workspace::discover(&solution);
-        let extracted =
-            workflow::extract(&solution, &found.entities, &found.unreadable, false, &held);
+        let chosen: Vec<_> = if added {
+            found
+                .entities
+                .iter()
+                .filter(|entity| named.contains(&entity.found_under))
+                .cloned()
+                .collect()
+        } else {
+            found.entities.clone()
+        };
+        let extracted = workflow::extract(&solution, &chosen, &found.unreadable, false, &held);
         if extracted.failed > 0 {
             return Err(unfinished(format!(
                 "{} entities' sidecars could not be extracted",
                 extracted.failed
             )));
         }
-        let status = commands::status::execute_holding(
+        let status_projects: Vec<Option<String>> = if added {
+            request.projects.iter().cloned().map(Some).collect()
+        } else {
+            vec![None]
+        };
+        for project in status_projects {
+            let status = commands::status::execute_holding(
+                &solution,
+                &commands::status::StatusRequest {
+                    target: commands::status::StatusTarget::All,
+                    project,
+                    record: true,
+                    profile: request.profile.clone(),
+                    lock_label: "init --from-server",
+                    refuse_unreadable: true,
+                    refuse_record_failures: false,
+                },
+                |_| Borrowed(remote),
+                &held,
+                &progress::NONE,
+            )
+            .map_err(|error| unfinished(format!("the baseline was not recorded: {error}")))?;
+            recorded += status.recorded.unwrap_or(0);
+            not_in_sync.extend(
+                status
+                    .statuses
+                    .iter()
+                    .filter(|entity| entity.verdict != status::Verdict::InSync)
+                    .map(|entity| format!("{}/{}", entity.collection, entity.name))
+                    .chain(status.failures),
+            );
+        }
+        match localization::ops::pull_projects(
             &solution,
-            &commands::status::StatusRequest {
-                target: commands::status::StatusTarget::All,
-                project: None,
-                record: true,
-                profile: request.profile.clone(),
-                lock_label: "init --from-server",
-                refuse_unreadable: true,
-                refuse_record_failures: false,
-            },
-            |_| Borrowed(remote),
-            &held,
-            &progress::NONE,
-        )
-        .map_err(|error| unfinished(format!("the baseline was not recorded: {error}")))?;
-        recorded = status.recorded.unwrap_or(0);
-        not_in_sync = status
-            .statuses
-            .iter()
-            .filter(|entity| entity.verdict != status::Verdict::InSync)
-            .map(|entity| format!("{}/{}", entity.collection, entity.name))
-            .chain(status.failures)
-            .collect();
+            remote,
+            None,
+            false,
+            Some(&held),
+            Some(&request.projects),
+        ) {
+            Ok(pulled) => {
+                localization_files = pulled.files.len();
+                localization_tokens = pulled.files.iter().map(|file| file.set.len()).sum();
+            }
+            Err(error) => {
+                let note =
+                    format!("localization was not pulled: {error}; run `twaco localization pull`");
+                notes.push(note.clone());
+                localization_failure = Some(note);
+            }
+        }
     } else {
         notes.push(format!(
             "{entity_files} entity files; their sidecars are extracted once they are written"
@@ -276,11 +378,15 @@ where
         projects: request.projects,
         files: files_count,
         entities: counts,
-        toml: proposal.toml,
+        toml,
         notes,
         applied: request.apply,
+        added,
         recorded,
         not_in_sync,
+        localization_files,
+        localization_tokens,
+        localization_failure,
     })
 }
 
@@ -312,6 +418,32 @@ fn add_project_dependencies(toml: &mut String, dependencies: &BTreeMap<String, V
     if dependencies.values().any(|needed| !needed.is_empty()) {
         *toml = toml.replace("\n# Deploy order is not something the files can say. If a project imports after another,\n# give it depends_on = [\"<that project>\"].\n", "");
     }
+}
+
+/// Keep a configured solution's text intact and put each newly discovered project after it.
+fn append_projects(
+    before: &str,
+    projects: &[String],
+    dependencies: &BTreeMap<String, Vec<String>>,
+) -> String {
+    let mut toml = before.to_string();
+    if !toml.ends_with('\n') {
+        toml.push('\n');
+    }
+    for project in projects {
+        toml.push_str("\n[[project]]\n");
+        toml.push_str(&format!("name = \"{}\"\n", project.replace('"', "\\\"")));
+        toml.push_str(&format!("root = \"{}\"\n", project.replace('"', "\\\"")));
+        if let Some(needs) = dependencies.get(project).filter(|needs| !needs.is_empty()) {
+            let names = needs
+                .iter()
+                .map(|name| format!("\"{}\"", name.replace('"', "\\\"")))
+                .collect::<Vec<_>>()
+                .join(", ");
+            toml.push_str(&format!("depends_on = [{names}]\n"));
+        }
+    }
+    toml
 }
 
 /// Whether the server's own copy of a Group or Organization differs from its exported file only
@@ -429,6 +561,50 @@ mod tests {
             unreachable!("init --from-server never imports")
         }
     }
+    impl super::super::imports::Remote for Fake {
+        fn exists(
+            &self,
+            _: &super::super::entity::key::EntityKey,
+        ) -> Result<bool, super::super::server::ServerError> {
+            Ok(false)
+        }
+        fn import_file(
+            &self,
+            _: &str,
+            _: &[u8],
+            _: bool,
+            _: bool,
+        ) -> Result<(), super::super::server::ServerError> {
+            unreachable!("init --from-server never imports")
+        }
+        fn source_control(
+            &self,
+            _: &str,
+            _: &Value,
+        ) -> Result<Option<Value>, super::super::server::ServerError> {
+            unreachable!("init --from-server does not use source control")
+        }
+    }
+    impl localization::Remote for Fake {
+        fn tables(&self) -> Result<Vec<String>, super::super::server::ServerError> {
+            Ok(Vec::new())
+        }
+        fn tokens(
+            &self,
+            _: &str,
+        ) -> Result<Vec<localization::Token>, super::super::server::ServerError> {
+            Ok(Vec::new())
+        }
+        fn header(
+            &self,
+            _: &str,
+        ) -> Result<localization::Header, super::super::server::ServerError> {
+            Ok(localization::Header::default())
+        }
+        fn delete_token(&self, _: &str, _: &str) -> Result<(), super::super::server::ServerError> {
+            unreachable!("init --from-server never deletes tokens")
+        }
+    }
 
     /// A profile in `root`, as one in the user's home would serve, for the baseline step.
     pub(super) fn profile(root: &Path) {
@@ -474,7 +650,7 @@ mod tests {
     }
 
     #[test]
-    fn refuses_existing_config_before_asking_the_remote() {
+    fn refuses_an_invalid_config_before_asking_the_remote() {
         let temp = tempfile::tempdir().unwrap();
         std::fs::write(temp.path().join("twaco.toml"), "").unwrap();
         let remote = Fake(BTreeMap::new());
@@ -488,7 +664,101 @@ mod tests {
             },
         )
         .unwrap_err();
+        assert!(matches!(error, Error::Config(_)));
+    }
+
+    #[test]
+    fn adds_to_a_solution_without_rewriting_its_configuration_or_existing_project() {
+        let temp = tempfile::tempdir().unwrap();
+        profile(temp.path());
+        let before = "# keep this comment\n[[project]]\nname = \"A\"\nroot = \".\"\n";
+        std::fs::write(temp.path().join("twaco.toml"), before).unwrap();
+        std::fs::create_dir_all(temp.path().join("Things")).unwrap();
+        let existing = temp.path().join("Things/A.T.xml");
+        std::fs::write(
+            &existing,
+            "<Entities><Things><Thing name=\"A.T\" projectName=\"A\"/></Things></Entities>",
+        )
+        .unwrap();
+        std::fs::write(
+            temp.path().join(".twaco/baseline.json"),
+            r#"{"entities":{"Things":{"A.T":{"local":"v7:old","server":"v7:old"}}}}"#,
+        )
+        .unwrap();
+        let remote = Fake(BTreeMap::from([("B".to_string(), export("B", "B.T"))]));
+        let outcome = execute(
+            &remote,
+            Request {
+                root: temp.path().to_path_buf(),
+                projects: vec!["B".into()],
+                apply: true,
+                profile: "default".into(),
+            },
+        )
+        .unwrap();
+        assert!(outcome.added);
+        assert_eq!(
+            std::fs::read_to_string(&existing).unwrap(),
+            "<Entities><Things><Thing name=\"A.T\" projectName=\"A\"/></Things></Entities>"
+        );
+        assert!(temp.path().join("B/Things/B.T.xml").is_file());
+        let toml = std::fs::read_to_string(temp.path().join("twaco.toml")).unwrap();
+        assert!(toml.starts_with(before));
+        assert!(toml.ends_with("[[project]]\nname = \"B\"\nroot = \"B\"\n"));
+        assert!(
+            std::fs::read_to_string(temp.path().join(".twaco/baseline.json"))
+                .unwrap()
+                .contains("\"A.T\"")
+        );
+        let found =
+            workspace::discover(&config::Solution::load(&temp.path().join("twaco.toml")).unwrap());
+        assert_eq!(found.entities.len(), 2);
+        assert_eq!(
+            found
+                .entities
+                .iter()
+                .filter(|entity| entity.found_under == "B")
+                .count(),
+            1
+        );
+    }
+
+    #[test]
+    fn refuses_an_existing_project_and_an_entity_folder_without_config() {
+        let temp = tempfile::tempdir().unwrap();
+        std::fs::write(
+            temp.path().join("twaco.toml"),
+            "[[project]]\nname = \"P\"\n",
+        )
+        .unwrap();
+        let remote = Fake(BTreeMap::new());
+        let error = execute(
+            &remote,
+            Request {
+                root: temp.path().to_path_buf(),
+                projects: vec!["P".into()],
+                apply: false,
+                profile: "default".into(),
+            },
+        )
+        .unwrap_err();
+        assert!(matches!(error, Error::AlreadyPresent(_)));
+
+        let empty = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(empty.path().join("Things")).unwrap();
+        std::fs::write(empty.path().join("Things/P.T.xml"), export("P", "P.T")).unwrap();
+        let error = execute(
+            &remote,
+            Request {
+                root: empty.path().to_path_buf(),
+                projects: vec!["P".into()],
+                apply: false,
+                profile: "default".into(),
+            },
+        )
+        .unwrap_err();
         assert!(matches!(error, Error::Refused(_)));
+        assert!(error.to_string().contains("twaco init --write"));
     }
 
     #[test]
@@ -577,6 +847,50 @@ mod tests {
         }
         fn import(&self, _: &str, _: &[u8]) -> Result<(), super::super::server::ServerError> {
             unreachable!("init --from-server never imports")
+        }
+    }
+    impl super::super::imports::Remote for Members {
+        fn exists(
+            &self,
+            _: &super::super::entity::key::EntityKey,
+        ) -> Result<bool, super::super::server::ServerError> {
+            Ok(false)
+        }
+        fn import_file(
+            &self,
+            _: &str,
+            _: &[u8],
+            _: bool,
+            _: bool,
+        ) -> Result<(), super::super::server::ServerError> {
+            unreachable!()
+        }
+        fn source_control(
+            &self,
+            _: &str,
+            _: &Value,
+        ) -> Result<Option<Value>, super::super::server::ServerError> {
+            unreachable!()
+        }
+    }
+    impl localization::Remote for Members {
+        fn tables(&self) -> Result<Vec<String>, super::super::server::ServerError> {
+            Ok(Vec::new())
+        }
+        fn tokens(
+            &self,
+            _: &str,
+        ) -> Result<Vec<localization::Token>, super::super::server::ServerError> {
+            Ok(Vec::new())
+        }
+        fn header(
+            &self,
+            _: &str,
+        ) -> Result<localization::Header, super::super::server::ServerError> {
+            Ok(localization::Header::default())
+        }
+        fn delete_token(&self, _: &str, _: &str) -> Result<(), super::super::server::ServerError> {
+            unreachable!()
         }
     }
 
@@ -684,6 +998,50 @@ mod corpus_tests {
             _: &Value,
         ) -> Result<Option<Value>, super::super::server::ServerError> {
             unreachable!("init --from-server only reads Exporter")
+        }
+    }
+    impl super::super::imports::Remote for Server {
+        fn exists(
+            &self,
+            _: &super::super::entity::key::EntityKey,
+        ) -> Result<bool, super::super::server::ServerError> {
+            Ok(false)
+        }
+        fn import_file(
+            &self,
+            _: &str,
+            _: &[u8],
+            _: bool,
+            _: bool,
+        ) -> Result<(), super::super::server::ServerError> {
+            unreachable!()
+        }
+        fn source_control(
+            &self,
+            _: &str,
+            _: &Value,
+        ) -> Result<Option<Value>, super::super::server::ServerError> {
+            unreachable!()
+        }
+    }
+    impl localization::Remote for Server {
+        fn tables(&self) -> Result<Vec<String>, super::super::server::ServerError> {
+            Ok(Vec::new())
+        }
+        fn tokens(
+            &self,
+            _: &str,
+        ) -> Result<Vec<localization::Token>, super::super::server::ServerError> {
+            Ok(Vec::new())
+        }
+        fn header(
+            &self,
+            _: &str,
+        ) -> Result<localization::Header, super::super::server::ServerError> {
+            Ok(localization::Header::default())
+        }
+        fn delete_token(&self, _: &str, _: &str) -> Result<(), super::super::server::ServerError> {
+            unreachable!()
         }
     }
 
