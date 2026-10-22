@@ -447,6 +447,9 @@ pub(crate) fn entity_new_cmd(solution: &Solution, new: &NewEntity) -> u8 {
         return FAILED;
     };
     let request = new.request(name);
+    for note in commands::entity_new::fetch_platform_names(solution, &request, "default") {
+        eprintln!("{} {note}", style::prefix());
+    }
     let request = commands::entity_new::Request {
         request,
         mode: if apply { Mode::Apply } else { Mode::Plan },

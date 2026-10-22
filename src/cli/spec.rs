@@ -1021,6 +1021,12 @@ pub(crate) const USAGE: &[Usage] = &[
       --record                 record matching working/server hashes as baseline"#,
     },
     Usage {
+        path: "entity pull",
+        group: 2,
+        text: r#"  entity pull <entity>...|--all [--profile <name>] [--apply] [--json]
+                              take server-changed entities, extract sidecars and record baselines"#,
+    },
+    Usage {
         path: "entity get",
         group: 2,
         text: r#"  entity get <entity>         fetch raw server XML to stdout or --out <path>

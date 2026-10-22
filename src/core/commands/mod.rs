@@ -25,6 +25,7 @@ pub mod network;
 pub mod newblock;
 pub mod package;
 pub mod permissions;
+pub mod pull;
 pub mod push;
 pub mod relocate;
 pub mod rename;

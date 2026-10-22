@@ -1039,6 +1039,7 @@ fn every_tool_is_listed_with_a_schema_and_honest_annotations() {
             "types",
             "check",
             "status",
+            "entity_pull",
             "sync",
             "extract",
             "fmt",

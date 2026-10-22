@@ -711,6 +711,10 @@ pub(crate) fn deploy_cmd(solution: &Solution, args: &Deploy) -> u8 {
                                         item.collection, item.name, item.name, item.name
                                     );
                             }
+                            eprintln!(
+                                "{} to take what the server made of it: twaco entity pull {}/{} --apply",
+                                style::prefix(), item.collection, item.name
+                            );
                         }
                         FAILED
                     }
@@ -909,7 +913,11 @@ fn print_deploy_report(report: &deploy::Report, apply: bool, force: bool) {
         for (collection, name) in &report.changed_by_deploy {
             println!("changed by the deploy step: {collection}/{name}");
         }
-        println!("baseline written once");
+        println!(
+            "baseline recorded for {} entit{}",
+            report.kept.len(),
+            if report.kept.len() == 1 { "y" } else { "ies" }
+        );
     }
 }
 

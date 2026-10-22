@@ -8,12 +8,21 @@ All notable changes to twaco are recorded here. The format follows
 
 ### Added
 
+- `twaco entity pull <entity>...|--all` (and MCP `entity_pull`) takes the server's version of an
+  entity whose working file is unchanged since its baseline: the server's export in the file's own
+  envelope, layout and line endings, its sidecars, and its baseline. A deploy whose read-back finds
+  an entity changed by the server now names it.
+- `new thing --template`, `new thing-template --base` and `--shape` fetch a platform template or
+  shape the repository does not use yet (FileRepository, RemoteThing) into the platform cache.
 - `twaco new project` writes a Project entity (and its `[[project]]` with `depends_on` when the
   solution does not declare it yet), so a solution's entities stop landing in `PTCDefaultProject`
   on import; `twaco new group` writes a Group without members.
 
 ### Fixed
 
+- `deploy` refuses a project that is neither bundled nor present on the server, preventing its
+  entities from silently landing in `PTCDefaultProject`.
+- `deploy` says how many baselines it recorded instead of "baseline written once".
 - `entity status` reports `converged`, not `both-changed`, when the working file and the server
   both changed since the baseline to the same content (as after `adopt --apply` of a server
   change); it is not drift and `--record` records it.

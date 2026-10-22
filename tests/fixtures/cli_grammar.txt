@@ -364,6 +364,8 @@ help:
 |   entity status [<entity>|--all] [--detail] [--record]
 |                               entity: full name, last dotted segment, or Collection/Name
 |       --record                 record matching working/server hashes as baseline
+|   entity pull <entity>...|--all [--profile <name>] [--apply] [--json]
+|                               take server-changed entities, extract sidecars and record baselines
 |   entity get <entity>         fetch raw server XML to stdout or --out <path>
 |                               Collection/Name: any server entity; a bare name: the repository's
 |       [--profile <name>]      server profile (default: default)
@@ -2716,7 +2718,7 @@ help:
 == twaco entity
 usage: twaco entity <command>
 settings: disable-version-flag disable-help-subcommand subcommand-required arg-required-else-help
-subcommands: carry delete get push restore status
+subcommands: carry delete get pull push restore status
 arg --help
     action: Help
     value_name: -
@@ -2733,6 +2735,8 @@ help:
 |   entity status [<entity>|--all] [--detail] [--record]
 |                               entity: full name, last dotted segment, or Collection/Name
 |       --record                 record matching working/server hashes as baseline
+|   entity pull <entity>...|--all [--profile <name>] [--apply] [--json]
+|                               take server-changed entities, extract sidecars and record baselines
 |   entity get <entity>         fetch raw server XML to stdout or --out <path>
 |                               Collection/Name: any server entity; a bare name: the repository's
 |       [--profile <name>]      server profile (default: default)
@@ -3120,6 +3124,107 @@ help:
 |   entity get <entity>         fetch raw server XML to stdout or --out <path>
 |                               Collection/Name: any server entity; a bare name: the repository's
 |       [--profile <name>]      server profile (default: default)
+| 
+|   --profile <name>            the server profile (default: default)
+|   --log <filter>              write diagnostic logs to stderr (or TWACO_LOG)
+|   --log-file <path>           append diagnostic logs to a file (or TWACO_LOG_FILE)
+
+== twaco entity pull
+usage: twaco entity pull <entity>...|--all [--profile <name>] [--apply] [--json]
+settings: disable-version-flag disable-help-subcommand
+subcommands: 
+arg --all
+    action: SetTrue
+    value_name: -
+    num_args: 0
+    allow_hyphen_values: no
+    allow_negative_numbers: no
+    required: no
+    default: "false"
+    index: -
+    other: -
+    given twice: accepted
+arg --apply
+    action: SetTrue
+    value_name: -
+    num_args: 0
+    allow_hyphen_values: no
+    allow_negative_numbers: no
+    required: no
+    default: "false"
+    index: -
+    other: -
+    given twice: accepted
+arg --help
+    action: Help
+    value_name: -
+    num_args: 0
+    allow_hyphen_values: no
+    allow_negative_numbers: no
+    required: no
+    default: -
+    index: -
+    other: -
+arg --json
+    action: SetTrue
+    value_name: -
+    num_args: 0
+    allow_hyphen_values: no
+    allow_negative_numbers: no
+    required: no
+    default: "false"
+    index: -
+    other: -
+    given twice: accepted
+arg --log
+    action: Set
+    value_name: filter
+    num_args: 1
+    allow_hyphen_values: yes
+    allow_negative_numbers: no
+    required: no
+    default: -
+    index: -
+    other: -
+    given twice: ArgumentConflict
+    given bare: InvalidValue
+arg --log-file
+    action: Set
+    value_name: path
+    num_args: 1
+    allow_hyphen_values: yes
+    allow_negative_numbers: no
+    required: no
+    default: -
+    index: -
+    other: -
+    given twice: ArgumentConflict
+    given bare: InvalidValue
+arg --profile
+    action: Set
+    value_name: name
+    num_args: 1
+    allow_hyphen_values: yes
+    allow_negative_numbers: no
+    required: no
+    default: -
+    index: -
+    other: -
+    given twice: ArgumentConflict
+    given bare: InvalidValue
+arg <operands>
+    action: Append
+    value_name: operand
+    num_args: 0..
+    allow_hyphen_values: no
+    allow_negative_numbers: yes
+    required: no
+    default: -
+    index: 1
+    other: -
+help:
+|   entity pull <entity>...|--all [--profile <name>] [--apply] [--json]
+|                               take server-changed entities, extract sidecars and record baselines
 | 
 |   --profile <name>            the server profile (default: default)
 |   --log <filter>              write diagnostic logs to stderr (or TWACO_LOG)

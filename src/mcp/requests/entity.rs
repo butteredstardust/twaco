@@ -43,6 +43,23 @@ pub(crate) struct StatusRequest {
 
 #[derive(Debug, Deserialize, JsonSchema, Serialize)]
 #[serde(deny_unknown_fields)]
+pub(crate) struct PullRequest {
+    /// Entity names, full or their last dotted segment. Name some, or pass all: true.
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) entities: Absent<Vec<String>>,
+    /// Every server-changed entity. No-baseline differences need explicit names.
+    #[serde(default)]
+    pub(crate) all: bool,
+    /// A plan unless false.
+    #[serde(default = "default_true")]
+    pub(crate) dry_run: bool,
+    /// Server profile name.
+    #[serde(default = "default_profile")]
+    pub(crate) profile: String,
+}
+
+#[derive(Debug, Deserialize, JsonSchema, Serialize)]
+#[serde(deny_unknown_fields)]
 pub(crate) struct EntityDeleteRequest {
     /// Entities to delete; may be empty when renamed is true.
     #[serde(default, skip_serializing_if = "Absent::is_absent")]

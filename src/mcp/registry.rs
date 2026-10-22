@@ -67,6 +67,7 @@ const OPEN_WORLD: &[&str] = &[
     "types",
     "check",
     "status",
+    "entity_pull",
     "push",
     "entity_delete",
     "entity_restore",
@@ -119,13 +120,22 @@ const ADDITIVE: &[&str] = &[
     "handoff",
     "new_building_block",
     "entity_new",
+    "entity_pull",
     "mashup_new",
     "permissions_init",
     "requirements_init",
 ];
 
 /// Writing tools that, called again with the same arguments, change nothing more.
-const IDEMPOTENT: &[&str] = &["types", "fmt", "extract", "sync", "status", "bundle"];
+const IDEMPOTENT: &[&str] = &[
+    "types",
+    "fmt",
+    "extract",
+    "sync",
+    "status",
+    "bundle",
+    "entity_pull",
+];
 
 /// The MCP behaviour hints for a tool. Clients use them to decide what to ask a person before
 /// running it, so a hint errs towards caution: unlisted means destructive, not idempotent.
@@ -296,6 +306,13 @@ static TOOLS: LazyLock<Vec<Tool>> = LazyLock::new(|| {
             entity::status_tool,
         )
         .with_output::<outputs::StatusResult>(),
+        solution_progress_tool::<entity_requests::PullRequest>(
+            "entity_pull",
+            "Take server-changed entity exports into the repository, extract their sidecars and record their baselines. A dry run unless dry_run is false.",
+            false,
+            entity::pull_tool,
+        )
+        .with_output::<outputs::PullResult>(),
         solution_tool::<source_requests::SyncRequest>(
             "sync",
             "Write sidecars back into their entity XML: service scripts, DataShape fields, mashup content, DataTable configuration. This is how an edit to a script.js takes effect. check: true reports what would change and writes nothing. Takes the workspace lock while it writes.",
@@ -866,6 +883,7 @@ pub(crate) const GROUPS: &[(&str, &[&str])] = &[
     (
         "entity",
         &[
+            "entity_pull",
             "entity_delete",
             "entity_restore",
             "entity_carry",

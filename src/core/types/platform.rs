@@ -89,6 +89,35 @@ pub(crate) fn cached(solution: &Solution) -> Option<Platform> {
         .and_then(|bytes| serde_json::from_slice(&bytes).ok())
 }
 
+/// Add one ThingTemplate or ThingShape the solution does not define to the platform cache, as
+/// `types --platform` would have, when the cache lacks it; other entries stay. `Ok(false)` when
+/// the server has no such entity.
+pub(crate) fn cache_one(
+    remote: &dyn Remote,
+    solution: &Solution,
+    collection: &str,
+    name: &str,
+) -> Result<bool, TypesError> {
+    let mut platform = cached(solution).unwrap_or_default();
+    let (destination, service) = match collection {
+        "ThingTemplates" => (&mut platform.templates, "GetInstanceMetadataAsJSON"),
+        "ThingShapes" => (&mut platform.shapes, "GetInstanceMetadataAsJSON"),
+        _ => return Ok(false),
+    };
+    if destination.contains_key(name) {
+        return Ok(true);
+    }
+    let mut skipped = Vec::new();
+    fetch_one(remote, collection, name, service, destination, &mut skipped)?;
+    if !skipped.is_empty() {
+        return Ok(false);
+    }
+    let text =
+        serde_json::to_string_pretty(&platform).expect("platform cache structs are JSON encodable");
+    workspace::write_lf_if_changed(&solution.root.join(".twaco/platform.json"), &text)?;
+    Ok(true)
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub(crate) struct PlatformProperty {
     #[serde(rename = "baseType")]

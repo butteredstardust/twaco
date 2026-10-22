@@ -6,7 +6,9 @@ use crate::core::check;
 use crate::core::codes::{Coded, ErrorCode};
 use crate::core::config::Solution;
 use crate::core::progress::Progress;
-use crate::core::{deploy, localization, lock, network, profile, requirements};
+use crate::core::{
+    deploy, entity::key::EntityKey, localization, lock, network, profile, push, requirements,
+};
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct DeployRequest {
@@ -197,6 +199,34 @@ fn network_changes<R: network::Remote>(
     Ok(changes)
 }
 
+/// A server-only project is legitimate, but silently importing its members into the platform
+/// default project is not. Check this before the first import.
+fn projects_exist<R: push::Remote>(
+    projects: &[deploy::ProjectBundle],
+    remote: &R,
+) -> Result<(), String> {
+    for project in projects {
+        if project.project == "PTCDefaultProject"
+            || project
+                .entities
+                .iter()
+                .any(|entity| entity.collection == "Projects" && entity.name == project.project)
+        {
+            continue;
+        }
+        let key =
+            EntityKey::address("Projects", &project.project).map_err(|error| error.to_string())?;
+        if remote
+            .fetch(&key)
+            .map_err(|error| format!("Projects/{}: {error}", project.project))?
+            .is_none()
+        {
+            return Err(format!("project {} is neither in this deploy nor on the server; run `twaco new project {}`", project.project, project.project));
+        }
+    }
+    Ok(())
+}
+
 /// Run a deploy. Applying takes the workspace lock before gates or bundle planning, because any
 /// successful import records the baseline for exactly those bytes.
 pub fn execute<R, F>(
@@ -273,6 +303,9 @@ where
         Err(why) => return Err(DeployCommandError::Profile { why, gates }),
     };
     let remote = open(profile.clone());
+    if let Err(why) = projects_exist(&projects, &remote) {
+        return Err(DeployCommandError::Plan { why, gates });
+    }
     let network_changes = match network_changes(&projects, &remote) {
         Ok(changes) => changes,
         Err(why) => return Err(DeployCommandError::Plan { why, gates }),
@@ -515,6 +548,35 @@ mod tests {
         drop(held);
     }
 
+    #[test]
+    fn a_project_neither_deployed_nor_on_the_server_is_refused_before_any_import() {
+        struct Projects(Vec<&'static str>);
+        impl crate::core::push::Remote for Projects {
+            fn fetch(
+                &self,
+                key: &crate::core::entity::key::EntityKey,
+            ) -> Result<Option<Vec<u8>>, crate::core::server::ServerError> {
+                Ok(self.0.contains(&key.name()).then(Vec::new))
+            }
+            fn import(&self, _: &str, _: &[u8]) -> Result<(), crate::core::server::ServerError> {
+                unreachable!("the check only reads")
+            }
+        }
+        let bundle = |project: &str| deploy::ProjectBundle {
+            project: project.to_string(),
+            file_name: String::new(),
+            bytes: Vec::new(),
+            entities: Vec::new(),
+            scripts: Vec::new(),
+            deploy: None,
+            post_import: Vec::new(),
+        };
+        let why = projects_exist(&[bundle("Acme.App")], &Projects(Vec::new())).unwrap_err();
+        assert!(why.contains("twaco new project Acme.App"), "{why}");
+        projects_exist(&[bundle("Acme.App")], &Projects(vec!["Acme.App"])).unwrap();
+        projects_exist(&[bundle("PTCDefaultProject")], &Projects(Vec::new())).unwrap();
+    }
+
     /// A remote that rejects every script, so the live gate blocks the deploy.
     struct Rejecting;
 
@@ -531,9 +593,9 @@ mod tests {
     impl crate::core::push::Remote for Rejecting {
         fn fetch(
             &self,
-            _: &crate::core::entity::key::EntityKey,
+            key: &crate::core::entity::key::EntityKey,
         ) -> Result<Option<Vec<u8>>, crate::core::server::ServerError> {
-            Ok(None)
+            Ok((key.collection() == "Projects").then(|| format!("<Entities><Projects><Project name=\"{}\" projectName=\"{}\"></Project></Projects></Entities>", key.name(), key.name()).into_bytes()))
         }
 
         fn import(&self, _: &str, _: &[u8]) -> Result<(), crate::core::server::ServerError> {
@@ -658,6 +720,7 @@ mod tests {
             .unwrap();
         let root = root_guard.path();
         std::fs::create_dir_all(root.join("Things")).unwrap();
+        std::fs::create_dir_all(root.join("Projects")).unwrap();
         std::fs::create_dir_all(root.join("localization")).unwrap();
         std::fs::create_dir_all(root.join(".twaco/profiles")).unwrap();
         std::fs::write(
@@ -678,6 +741,11 @@ name = \"Acme.App\"
         std::fs::write(
             root.join("Things/Acme.App.T.xml"),
             "<Entities><Things><Thing name=\"Acme.App.T\" projectName=\"Acme.App\"></Thing></Things></Entities>",
+        )
+        .unwrap();
+        std::fs::write(
+            root.join("Projects/Acme.App.xml"),
+            "<Entities><Projects><Project name=\"Acme.App\" projectName=\"Acme.App\"></Project></Projects></Entities>",
         )
         .unwrap();
         std::fs::write(
@@ -780,8 +848,11 @@ name = \"Acme.App\"
     impl crate::core::push::Remote for Keeping {
         fn fetch(
             &self,
-            _: &crate::core::entity::key::EntityKey,
+            key: &crate::core::entity::key::EntityKey,
         ) -> Result<Option<Vec<u8>>, crate::core::server::ServerError> {
+            if key.collection() == "Projects" {
+                return Ok(Some(format!("<Entities><Projects><Project name=\"{}\" projectName=\"{}\"></Project></Projects></Entities>", key.name(), key.name()).into_bytes()));
+            }
             Ok((*self.imported.lock().unwrap()).then(|| self.entity.clone()))
         }
 

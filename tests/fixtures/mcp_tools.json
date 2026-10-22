@@ -606,6 +606,76 @@
     }
   },
   {
+    "name": "entity_pull",
+    "description": "Take server-changed entity exports into the repository, extract their sidecars and record their baselines. A dry run unless dry_run is false.",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "entities": {
+          "description": "Entity names, full or their last dotted segment. Name some, or pass all: true.",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "all": {
+          "description": "Every server-changed entity. No-baseline differences need explicit names.",
+          "type": "boolean",
+          "default": false
+        },
+        "dry_run": {
+          "description": "A plan unless false.",
+          "type": "boolean",
+          "default": true
+        },
+        "profile": {
+          "description": "Server profile name.",
+          "type": "string",
+          "default": "default"
+        }
+      },
+      "type": "object"
+    },
+    "annotations": {
+      "readOnlyHint": false,
+      "openWorldHint": true,
+      "destructiveHint": false,
+      "idempotentHint": true
+    },
+    "outputSchema": {
+      "required": [
+        "dry_run",
+        "entities",
+        "recorded"
+      ],
+      "properties": {
+        "dry_run": {
+          "type": "boolean"
+        },
+        "entities": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "recorded": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "notices": {
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "type": "object"
+    }
+  },
+  {
     "name": "sync",
     "description": "Write sidecars back into their entity XML: service scripts, DataShape fields, mashup content, DataTable configuration. This is how an edit to a script.js takes effect. check: true reports what would change and writes nothing. Takes the workspace lock while it writes.",
     "inputSchema": {

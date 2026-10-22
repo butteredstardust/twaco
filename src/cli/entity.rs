@@ -14,6 +14,7 @@ pub(crate) enum Entity {
     Status(EntityStatus),
     Get(EntityGet),
     Push(EntityPush),
+    Pull(EntityPull),
     Delete(EntityDelete),
     Carry(EntityCarry),
     Restore(EntityRestore),
@@ -26,9 +27,84 @@ impl Entity {
             Entity::Status(_) => "entity status",
             Entity::Get(_) => "entity get",
             Entity::Push(_) => "entity push",
+            Entity::Pull(_) => "entity pull",
             Entity::Delete(_) => "entity delete",
             Entity::Carry(_) => "entity carry",
             Entity::Restore(_) => "entity restore",
+        }
+    }
+}
+
+/// `twaco entity pull <name>...|--all`.
+#[derive(Debug, clap::Args)]
+#[group(skip)]
+pub(crate) struct EntityPull {
+    #[command(flatten)]
+    pub(crate) selection: Selection,
+    #[command(flatten)]
+    pub(crate) apply: Apply,
+    #[command(flatten)]
+    pub(crate) profile: Profile,
+    #[command(flatten)]
+    pub(crate) json: Json,
+}
+
+/// Take server-changed entity exports, preserving the repository's presentation.
+pub(crate) fn entity_pull(solution: &Solution, args: &EntityPull) -> u8 {
+    let request = commands::pull::PullRequest {
+        target: if args.selection.all {
+            commands::pull::Target::All
+        } else {
+            commands::pull::Target::Names(args.selection.operands.clone())
+        },
+        mode: if args.apply.apply {
+            Mode::Apply
+        } else {
+            Mode::Plan
+        },
+        profile: args.profile.name().to_string(),
+        lock_label: "entity pull",
+    };
+    let mut notices = commands::Notices::default();
+    let progress = super::progress::reporter();
+    match commands::pull::execute(
+        solution,
+        &request,
+        server::Client::new,
+        &mut notices,
+        &progress,
+    ) {
+        Ok(outcome) => {
+            print_notices(&notices);
+            if args.json.json {
+                println!(
+                    "{}",
+                    serde_json::json!({"dry_run":!outcome.applied,"entities":outcome.entities,"recorded":outcome.recorded})
+                );
+            } else if outcome.applied {
+                println!(
+                    "pulled {} entit{}; baseline recorded for {} entit{}",
+                    outcome.entities.len(),
+                    if outcome.entities.len() == 1 {
+                        "y"
+                    } else {
+                        "ies"
+                    },
+                    outcome.recorded,
+                    if outcome.recorded == 1 { "y" } else { "ies" }
+                );
+            } else {
+                for entity in &outcome.entities {
+                    println!("{entity}: would take the server's version");
+                }
+                println!("dry run: nothing was written; pass --apply to pull");
+            }
+            OK
+        }
+        Err(error) => {
+            print_notices(&notices);
+            eprintln!("{} {error}", style::prefix());
+            FAILED
         }
     }
 }

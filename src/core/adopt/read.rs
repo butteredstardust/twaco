@@ -130,7 +130,7 @@ pub(crate) fn raw_entity_bytes(bytes: &[u8], wanted: &EntityRef) -> Result<Vec<u
         })
 }
 
-pub(super) fn replace_entity_bytes(
+pub(crate) fn replace_entity_bytes(
     src: &[u8],
     wanted: &EntityRef,
     entity: &[u8],

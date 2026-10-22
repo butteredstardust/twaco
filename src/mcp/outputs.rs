@@ -167,6 +167,14 @@ pub(crate) struct StatusResult {
 }
 
 #[derive(Serialize, JsonSchema)]
+pub(crate) struct PullResult {
+    dry_run: bool,
+    entities: Vec<String>,
+    recorded: u64,
+    notices: Notices,
+}
+
+#[derive(Serialize, JsonSchema)]
 struct StatusEntry {
     server_owned: Option<Vec<String>>,
     entity: String,

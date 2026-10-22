@@ -172,6 +172,12 @@ and the like. `entity status --record` records the current state as the baseline
 two sides already agree, for a repository adopting twaco. It reports how many baselines it
 recorded; counts, detail and the exit status reflect the updated baseline.
 
+When only the server changed an entity, `twaco entity pull Acme.Thing --apply` takes that
+server version, preserving the repository file's layout and line endings, rewrites its sidecars,
+and records its baseline. `entity pull --all` takes every `server-changed` entity; a
+`no-baseline-differs` entity must be named explicitly. Pull refuses `local-changed` and
+`both-changed` entities: use `twaco adopt` to merge those changes instead.
+
 ### State that belongs to the server
 
 Use `[[server_owned]]` in `twaco.toml` for group membership assigned separately on each server,

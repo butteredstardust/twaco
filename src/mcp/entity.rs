@@ -2,7 +2,7 @@ use super::requests::common::Absent;
 use super::requests::entity::{
     EntityCarryRequest, EntityDeleteRequest, EntityRestoreRequest, PermissionsApplyRequest,
     PermissionsAuditRequest, PermissionsInitRequest, PermissionsPushRequest, PermissionsRequest,
-    PushRequest, StatusRequest,
+    PullRequest, PushRequest, StatusRequest,
 };
 use super::{
     add_notices, backup, carry, commands, delete, json, outcome_key, push, server, status, Coded,
@@ -87,6 +87,44 @@ pub(crate) fn status_tool(
     result[if detail { "statuses" } else { "attention" }] = json!(listed);
     add_notices(&mut result, &notices);
     Ok(result)
+}
+
+pub(crate) fn pull_tool(
+    solution: &Solution,
+    request: PullRequest,
+    progress: &dyn Progress,
+) -> Result<Value, ToolError> {
+    if request.all && !request.entities.items().is_empty() {
+        return Err(ToolError::invalid(
+            "name entities or pass all: true, not both",
+        ));
+    }
+    let command = commands::pull::PullRequest {
+        target: if request.all {
+            commands::pull::Target::All
+        } else {
+            commands::pull::Target::Names(request.entities.items().to_vec())
+        },
+        mode: if request.dry_run {
+            Mode::Plan
+        } else {
+            Mode::Apply
+        },
+        profile: request.profile,
+        lock_label: "mcp entity_pull",
+    };
+    let mut notices = commands::Notices::default();
+    let outcome = commands::pull::execute(
+        solution,
+        &command,
+        server::Client::new,
+        &mut notices,
+        progress,
+    )
+    .map_err(ToolError::coded)?;
+    let mut value = json!({"dry_run": !outcome.applied, "entities": outcome.entities, "recorded": outcome.recorded});
+    add_notices(&mut value, &notices);
+    Ok(value)
 }
 
 /// The optional entity spelling that an executor will validate after taking a write lock.
