@@ -17,12 +17,28 @@ All notable changes to twaco are recorded here. The format follows
 - `twaco new project` writes a Project entity (and its `[[project]]` with `depends_on` when the
   solution does not declare it yet), so a solution's entities stop landing in `PTCDefaultProject`
   on import; `twaco new group` writes a Group without members.
+- `config-table <thing>` without a table lists the Thing's configuration tables.
+
+### Changed
+
+- `repo mv` moves the copy under `filerepository/` with the server's file, and `repo rm` removes it
+  when it is identical to what the server had (a differing copy is kept and named).
+- `localization set --table <language>` creates that table's file on first use, as it does for
+  Default, instead of asking for `localization new`.
+- `adopt` reports an element only one side has as one difference, with its attributes, and no
+  longer counts a stored property value's Timestamp and Quality, as `entity status` does not.
+- A recipe whose binding is already in the mashup leaves it as it is instead of refusing.
 
 ### Fixed
 
 - `deploy` refuses a project that is neither bundled nor present on the server, preventing its
   entities from silently landing in `PTCDefaultProject`.
 - `deploy` says how many baselines it recorded instead of "baseline written once".
+- `call` refuses an argument the service's signature in the repository rules out (an undeclared
+  parameter, or a value its base type cannot take), and a 406 from the server says to check them.
+- The help shows the `--state` spec format of `new state` and `state set`, and the error for a
+  malformed spec quotes it; `thing service add --then` and `entity push` show what they take.
+- `logs` names the platform's logs when the server does not know the one asked for.
 - `entity status` reports `converged`, not `both-changed`, when the working file and the server
   both changed since the baseline to the same content (as after `adopt --apply` of a server
   change); it is not drift and `--record` records it.

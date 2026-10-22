@@ -990,7 +990,9 @@ fn set_refuses_what_the_server_would_refuse_or_trim() {
         error.to_string().contains("matches no project prefix"),
         "{error}"
     );
-    let error = set(
+    // A language with no file yet gets one, as Default does: an import merges its tokens into
+    // the server's table and keeps that table's language names (observed live).
+    let created = set(
         &workspace.solution,
         "Acme.App.Save",
         "x",
@@ -1000,11 +1002,11 @@ fn set_refuses_what_the_server_would_refuse_or_trim() {
         None,
         Some(&workspace.lock()),
     )
-    .unwrap_err();
-    assert!(
-        error.to_string().contains("twaco localization new fr"),
-        "{error}"
-    );
+    .unwrap();
+    assert!(created.files[0].created);
+    assert!(created.files[0]
+        .path
+        .ends_with("Acme.App/LocalizationTable_fr.xml"));
 }
 
 #[test]

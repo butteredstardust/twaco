@@ -774,7 +774,7 @@ pub(crate) fn validate_state_request(request: &NewRequest) -> Result<(), NewErro
         let comparator = ["<=", ">=", "==", "<", ">", "*"]
             .into_iter()
             .find(|prefix| head.starts_with(prefix))
-            .ok_or_else(|| NewError::Invalid(format!("--state {spec:?} has no comparator")))?;
+            .ok_or_else(|| NewError::Invalid(format!("--state {spec:?} has no comparator; write <op><value>=<label>[;<style>:<value>]..., e.g. \"<=10=Low;background:#00ff00\", or *=<label>")))?;
         if state_type == "string" && !["==", "*"].contains(&comparator) {
             return Err(NewError::Invalid(format!(
                 "{comparator} is not allowed for string states"
@@ -795,10 +795,10 @@ pub(crate) fn validate_state_request(request: &NewRequest) -> Result<(), NewErro
         } else {
             let (value, label) = head[comparator.len()..]
                 .split_once('=')
-                .ok_or_else(|| NewError::Invalid(format!("--state {spec:?} must have =label")))?;
+                .ok_or_else(|| NewError::Invalid(format!("--state {spec:?} must have =label; write <op><value>=<label>[;<style>:<value>]..., e.g. \"<=10=Low;background:#00ff00\", or *=<label>")))?;
             if value.is_empty() || label.is_empty() {
                 return Err(NewError::Invalid(format!(
-                    "--state {spec:?} must have a value and label"
+                    "--state {spec:?} must have a value and label; write <op><value>=<label>[;<style>:<value>]..., e.g. \"<=10=Low;background:#00ff00\", or *=<label>"
                 )));
             }
             if state_type == "numeric" && value.parse::<f64>().is_err() {
@@ -841,7 +841,7 @@ pub(crate) fn validate_state_request(request: &NewRequest) -> Result<(), NewErro
                     }
                 }
                 "image" => {}
-                _ => return Err(NewError::Invalid(format!("unknown state style {key}"))),
+                _ => return Err(NewError::Invalid(format!("unknown state style {key}; styles: background, foreground, secondary-background, line-color, line-style, line-thickness, bold, italic, underline, text-size, image"))),
             }
         }
     }

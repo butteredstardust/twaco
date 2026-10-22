@@ -106,6 +106,8 @@ pub enum CallCommandError {
         call: Box<Result<CallOutcome, CallCommandError>>,
     },
     Target(workspace::WorkspaceError),
+    /// An argument the repository's signature of the service says cannot be right.
+    Arguments(String),
     Call {
         target: ServiceTarget,
         error: server::ServerError,
@@ -142,8 +144,13 @@ impl fmt::Display for CallCommandError {
                 }
             ),
             Self::Target(error) => error.fmt(f),
+            Self::Arguments(why) => f.write_str(why),
             Self::Call { error, logs, .. } => {
                 error.fmt(f)?;
+                if matches!(error, server::ServerError::Http { status: 406, .. }) {
+                    f.write_str("
+(the server could not read the arguments: check them against the service's parameters, `twaco catalog <Entity>.<Service>`)")?;
+                }
                 match &**logs {
                     Some(Ok(entries)) if !entries.is_empty() => {
                         let lines = entries
@@ -170,6 +177,7 @@ impl Coded for CallCommandError {
             Self::Language(_) => ErrorCode::InvalidArguments,
             Self::SetLanguage { error, .. } | Self::RestoreLanguage { error, .. } => error.code(),
             Self::Target(error) => error.code(),
+            Self::Arguments(_) => ErrorCode::InvalidArguments,
             Self::Call { error, .. } => error.code(),
         }
     }
@@ -204,6 +212,7 @@ where
     };
     let target = workspace::call_target(&workspace::discover(solution).entities, &request.target)
         .map_err(CallCommandError::Target)?;
+    check_arguments(solution, &target, &request.service, &request.parameters)?;
     if matches!(request.mode, Mode::Plan) {
         return Ok(CallOutcome::Plan {
             target,
@@ -242,6 +251,89 @@ where
             call: Box::new(called),
         }),
     }
+}
+
+/// Refuse arguments the repository's own signature of the service rules out: a name it does not
+/// declare, or a JSON value that cannot be its base type. A service the repository cannot resolve
+/// is the server's to judge.
+fn check_arguments(
+    solution: &Solution,
+    target: &ServiceTarget,
+    service: &str,
+    parameters: &Value,
+) -> Result<(), CallCommandError> {
+    let Some(given) = parameters.as_object().filter(|given| !given.is_empty()) else {
+        return Ok(());
+    };
+    let (model, _) = crate::core::types::load_model(solution);
+    let Some(entity) = model.entities.iter().find(|e| match target {
+        ServiceTarget::Thing(name) => e.collection == "Things" && &e.name == name,
+        ServiceTarget::Entity(key) => e.collection == key.collection() && e.name == key.name(),
+    }) else {
+        return Ok(());
+    };
+    let platform = crate::core::types::platform::cached(solution);
+    let found =
+        crate::core::catalog::lookup_service(entity, &model.entities, platform.as_ref(), service);
+    let Some(signature) = found.service else {
+        return Ok(());
+    };
+    for (name, value) in given {
+        let Some(parameter) = signature.parameters.iter().find(|p| &p.name == name) else {
+            let declared: Vec<&str> = signature
+                .parameters
+                .iter()
+                .map(|p| p.name.as_str())
+                .collect();
+            return Err(CallCommandError::Arguments(format!(
+                "{service} declares no parameter {name}; it takes {}",
+                if declared.is_empty() {
+                    "none".to_string()
+                } else {
+                    declared.join(", ")
+                }
+            )));
+        };
+        let base = parameter.value.base_type.as_str();
+        let fits = match base {
+            _ if value.is_null() => true,
+            "NUMBER" | "INTEGER" | "LONG" => value.is_number(),
+            "BOOLEAN" => value.is_boolean(),
+            "DATETIME" => value.is_string() || value.is_number(),
+            "INFOTABLE" => value.is_object() || value.is_array(),
+            "JSON" => !value.is_number() && !value.is_boolean(),
+            "STRING"
+            | "TEXT"
+            | "HTML"
+            | "HYPERLINK"
+            | "IMAGELINK"
+            | "PASSWORD"
+            | "XML"
+            | "GUID"
+            | "THINGNAME"
+            | "THINGTEMPLATENAME"
+            | "THINGSHAPENAME"
+            | "DATASHAPENAME"
+            | "MASHUPNAME"
+            | "MENUNAME"
+            | "USERNAME"
+            | "GROUPNAME"
+            | "PROJECTNAME"
+            | "STYLEDEFINITIONNAME"
+            | "STATEDEFINITIONNAME"
+            | "MEDIAENTITYNAME"
+            | "LOCALIZATIONTABLENAME"
+            | "ORGANIZATIONNAME"
+            | "NETWORKNAME" => value.is_string(),
+            _ => true,
+        };
+        if !fits {
+            return Err(CallCommandError::Arguments(format!(
+                "{service}: parameter {name} is {base}, so {value} cannot be its value"
+            )));
+        }
+    }
+    Ok(())
 }
 
 /// One call on `remote`, with the logs written during it when asked.
@@ -376,6 +468,28 @@ mod tests {
         std::fs::write(root.join("twaco.toml"), "[[project]]\nname = \"P\"\n").unwrap();
         let solution = Solution::load(&root.join("twaco.toml")).unwrap();
         (root_guard, root, solution)
+    }
+
+    #[test]
+    fn arguments_the_repository_signature_rules_out_are_refused_before_calling() {
+        let (_dir, root, solution) = solution();
+        std::fs::create_dir_all(root.join("Things")).unwrap();
+        std::fs::write(
+            root.join("Things/P.T.xml"),
+            "<Entities><Things><Thing name=\"P.T\" projectName=\"P\" thingTemplate=\"GenericThing\"><ThingShape><ServiceDefinitions><ServiceDefinition name=\"Twice\"><ParameterDefinitions><FieldDefinition baseType=\"NUMBER\" name=\"x\"/></ParameterDefinitions></ServiceDefinition></ServiceDefinitions></ThingShape></Thing></Things></Entities>",
+        )
+        .unwrap();
+        let target = ServiceTarget::Thing("P.T".into());
+        let check = |parameters: Value| check_arguments(&solution, &target, "Twice", &parameters);
+        check(serde_json::json!({"x": 2})).unwrap();
+        let wrong = check(serde_json::json!({"x": "abc"}))
+            .unwrap_err()
+            .to_string();
+        assert!(wrong.contains("x is NUMBER"), "{wrong}");
+        let unknown = check(serde_json::json!({"y": 1})).unwrap_err().to_string();
+        assert!(unknown.contains("no parameter y; it takes x"), "{unknown}");
+        // A service the repository does not know is the server's to judge.
+        check_arguments(&solution, &target, "Other", &serde_json::json!({"y": 1})).unwrap();
     }
 
     #[test]

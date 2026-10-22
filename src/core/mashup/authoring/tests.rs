@@ -3611,6 +3611,18 @@ fn chart_columns_and_picker_recipes_configure_widgets_from_the_result_shape() {
         },
     )
     .unwrap();
+    // Run again with the same data call: the grid's binding is already there, not an error.
+    recipe(
+        &solution,
+        "columns",
+        RecipeArgs {
+            widget: Some("ptcsgrid-5".into()),
+            data: orders(),
+            columns: vec!["note:Note".into(), "id:Order:120".into()],
+            ..Default::default()
+        },
+    )
+    .unwrap();
     recipe(
         &solution,
         "picker",

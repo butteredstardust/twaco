@@ -163,14 +163,18 @@ impl Work<'_> {
     }
 
     fn bind(&mut self, from: &str, to: &str) -> Result<(), AuthoringError> {
-        bind_in(
+        match bind_in(
             &mut self.document,
             Some(self.solution),
             &self.context,
             from,
             to,
-        )?;
-        self.wired.push(format!("{from} -> {to}"));
+        ) {
+            Ok(_) => self.wired.push(format!("{from} -> {to}")),
+            // The wiring a recipe needs is already there: nothing to add.
+            Err(AuthoringError::Exists(_)) => {}
+            Err(error) => return Err(error),
+        }
         Ok(())
     }
 

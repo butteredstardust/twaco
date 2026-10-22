@@ -297,6 +297,8 @@ pub struct Planned {
     /// Nothing to do: the repository already says what was asked.
     pub nothing: bool,
     pub applied: bool,
+    /// What happened to the local copy under `filerepository/`, when anything did.
+    pub local: Option<String>,
 }
 
 /// Check a change against the repository, and unless `apply`, stop at the plan. Applied, the
@@ -384,6 +386,7 @@ pub(crate) fn change(
             plan,
             nothing,
             applied: false,
+            local: None,
         });
     }
     let sent = |service: &str, body: Value| {
@@ -450,6 +453,7 @@ pub(crate) fn change(
         plan,
         nothing,
         applied: true,
+        local: None,
     })
 }
 
@@ -914,7 +918,7 @@ impl Coded for RepoError {
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::*;
     use std::sync::atomic::{AtomicUsize, Ordering};
 
@@ -997,14 +1001,14 @@ mod tests {
     /// A repository that changes, behaving as the platform was measured to: SaveBinary
     /// overwrites, DeleteFolder removes everything under it, the wrong delete for the kind is a
     /// server error, and a missing path is a 404.
-    struct Live {
+    pub(crate) struct Live {
         files: std::sync::Mutex<BTreeMap<String, Vec<u8>>>,
         folders: std::sync::Mutex<Vec<String>>,
         writes: std::sync::Mutex<Vec<String>>,
     }
 
     impl Live {
-        fn with(files: &[(&str, &[u8])], folders: &[&str]) -> Self {
+        pub(crate) fn with(files: &[(&str, &[u8])], folders: &[&str]) -> Self {
             Live {
                 files: std::sync::Mutex::new(
                     files

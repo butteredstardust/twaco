@@ -576,6 +576,8 @@ pub(crate) struct RepoWriteResult {
     /// put, mkdir, rm, mv
     change: Option<Value>,
     applied: Option<bool>,
+    /// mv, rm: what happened to the copy under filerepository/
+    local_copy: Option<String>,
     note: Option<String>,
     notices: Notices,
 }

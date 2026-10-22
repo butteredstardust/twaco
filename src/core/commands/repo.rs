@@ -241,7 +241,24 @@ where
             change,
             mode,
         } => {
-            let planned = {
+            let local = repo::local_root(
+                &solution.root,
+                solution.repositories.root.as_deref(),
+                repository,
+            );
+            let mirrored = |path: &str| local.join(path.trim_start_matches('/'));
+            // A file the mirror holds exactly as the server does goes with the server's copy;
+            // a differing one is somebody's work and stays.
+            let identical_copy = match change {
+                repo::Change::Remove { path, .. }
+                    if matches!(mode, Mode::Apply) && mirrored(path).is_file() =>
+                {
+                    let server = repo::get(&remote, repository, path).ok();
+                    Some(server.is_some() && std::fs::read(mirrored(path)).ok() == server)
+                }
+                _ => None,
+            };
+            let mut planned = {
                 // A plan changes nothing, so its phase must not say that it changes a file.
                 let phase = match mode {
                     Mode::Plan => "planning file change",
@@ -254,6 +271,53 @@ where
                 progress.advance(1);
                 planned
             };
+            let mut workspace_access = Access::None;
+            if planned.applied {
+                match change {
+                    repo::Change::Move { from, to, .. }
+                        if mirrored(from).is_file() && !mirrored(to).exists() =>
+                    {
+                        let target = mirrored(to);
+                        if let Some(folder) = target.parent() {
+                            std::fs::create_dir_all(folder).map_err(|why| {
+                                RepoCommandError::Create {
+                                    path: folder.to_path_buf(),
+                                    why,
+                                }
+                            })?;
+                        }
+                        std::fs::rename(mirrored(from), &target).map_err(|why| {
+                            RepoCommandError::Create {
+                                path: target.clone(),
+                                why,
+                            }
+                        })?;
+                        planned.local = Some("the local copy moved with it".to_string());
+                        workspace_access = Access::Write;
+                    }
+                    repo::Change::Remove { path, .. } => match identical_copy {
+                        Some(true) => {
+                            std::fs::remove_file(mirrored(path)).map_err(|why| {
+                                RepoCommandError::Create {
+                                    path: mirrored(path),
+                                    why,
+                                }
+                            })?;
+                            planned.local =
+                                Some("the identical local copy was removed too".to_string());
+                            workspace_access = Access::Write;
+                        }
+                        Some(false) => {
+                            planned.local = Some(format!(
+                                "{} was kept: it differs from what the server had",
+                                mirrored(path).display()
+                            ))
+                        }
+                        None => {}
+                    },
+                    _ => {}
+                }
+            }
             let server = if planned.applied {
                 Access::Write
             } else {
@@ -261,7 +325,7 @@ where
             };
             Ok(RepoOutcome::Changed {
                 planned,
-                effects: Effects::new(Access::None, server),
+                effects: Effects::new(workspace_access, server),
             })
         }
         RepoAction::Sync {
@@ -386,6 +450,90 @@ mod tests {
         .unwrap_err();
         assert!(matches!(apply, RepoCommandError::Lock(_)));
         drop(held);
+    }
+
+    /// One fake repository, lent to each command run.
+    struct Lent<'a>(&'a repo::tests::Live);
+
+    impl repo::Remote for Lent<'_> {
+        fn service(&self, r: &str, s: &str, b: &Value) -> Result<Option<Value>, ServerError> {
+            self.0.service(r, s, b)
+        }
+        fn download(&self, r: &str, p: &str) -> Result<Vec<u8>, ServerError> {
+            self.0.download(r, p)
+        }
+        fn repositories(&self) -> Result<Vec<String>, ServerError> {
+            self.0.repositories()
+        }
+    }
+
+    #[test]
+    fn a_move_or_delete_takes_the_local_copy_along_only_when_it_is_the_server_s() {
+        let root_guard = tempfile::tempdir().unwrap();
+        let root = root_guard.path().to_path_buf();
+        std::fs::create_dir_all(root.join(".twaco/profiles")).unwrap();
+        std::fs::write(
+            root.join("twaco.toml"),
+            "[[project]]
+name = \"P\"
+",
+        )
+        .unwrap();
+        std::fs::write(
+            root.join(".twaco/profiles/default.toml"),
+            "url = \"http://example.invalid/Thingworx/\"
+username = \"u\"
+password = \"p\"
+",
+        )
+        .unwrap();
+        let solution = Solution::load(&root.join("twaco.toml")).unwrap();
+        let mirror = root.join("filerepository/R");
+        std::fs::create_dir_all(&mirror).unwrap();
+        std::fs::write(mirror.join("a.txt"), b"a").unwrap();
+        std::fs::write(mirror.join("b.txt"), b"mine").unwrap();
+        std::fs::write(mirror.join("c.txt"), b"c").unwrap();
+        let server = repo::tests::Live::with(
+            &[("/a.txt", b"a"), ("/b.txt", b"theirs"), ("/c.txt", b"c")],
+            &["/", "/docs"],
+        );
+        let run = |change| {
+            let RepoOutcome::Changed { planned, .. } = execute(
+                &solution,
+                &RepoRequest {
+                    action: RepoAction::Change {
+                        repository: "R".into(),
+                        change,
+                        mode: Mode::Apply,
+                    },
+                    profile: "default".into(),
+                },
+                |_| Lent(&server),
+                &mut Notices::default(),
+            )
+            .unwrap() else {
+                panic!("a change")
+            };
+            planned.local
+        };
+        let moved = run(repo::Change::Move {
+            from: "/a.txt".into(),
+            to: "/docs/a.txt".into(),
+            overwrite: false,
+        });
+        assert!(moved.is_some());
+        assert!(mirror.join("docs/a.txt").is_file() && !mirror.join("a.txt").exists());
+        let kept = run(repo::Change::Remove {
+            path: "/b.txt".into(),
+            recursive: false,
+        });
+        assert!(kept.unwrap().contains("was kept"));
+        assert_eq!(std::fs::read(mirror.join("b.txt")).unwrap(), b"mine");
+        run(repo::Change::Remove {
+            path: "/c.txt".into(),
+            recursive: false,
+        });
+        assert!(!mirror.join("c.txt").exists());
     }
 
     #[test]

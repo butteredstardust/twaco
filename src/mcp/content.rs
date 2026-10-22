@@ -1219,6 +1219,9 @@ pub(crate) fn repo_write_tool(
     } else if !planned.applied {
         result["note"] = json!("nothing was sent; pass dry_run: false");
     }
+    if let Some(local) = &planned.local {
+        result["local_copy"] = json!(local);
+    }
     add_notices(&mut result, &notices);
     Ok(result)
 }

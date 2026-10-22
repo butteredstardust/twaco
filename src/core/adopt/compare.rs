@@ -303,6 +303,12 @@ fn compare_entity(
             report.volatile_ids += 1;
             continue;
         }
+        // As the status normaliser does: a stored value's stamp is the server's, not a change.
+        if path.starts_with("/ThingProperties/")
+            && (path.ends_with("/Timestamp#text") || path.ends_with("/Quality#text"))
+        {
+            continue;
+        }
         let full = format!("{entity_path}{path}");
         if ignore.iter().any(|pattern| glob_matches(pattern, &full)) {
             report.ignored += 1;
@@ -314,10 +320,68 @@ fn compare_entity(
             repo: repo_value.cloned(),
         });
     }
+    report.differences = collapse_one_sided(report.differences, &left, &right);
     if !report.differences.is_empty() {
         report.status = Status::Changed;
     }
     report
+}
+
+/// An element only one side has is one difference, not one per attribute: its path, and its
+/// attributes and text as `name=value` on the side that has it.
+fn collapse_one_sided(
+    differences: Vec<Difference>,
+    export: &BTreeMap<String, String>,
+    repo: &BTreeMap<String, String>,
+) -> Vec<Difference> {
+    let present = |side: &BTreeMap<String, String>, element: &str| {
+        side.keys().any(|key| {
+            key.strip_prefix(element)
+                .is_some_and(|rest| rest.starts_with(['/', '@', '#']))
+        })
+    };
+    // The outermost element of `path` that the other side lacks altogether.
+    let absent_root = |path: &str, other: &BTreeMap<String, String>| {
+        let element = &path[..path.find(['@', '#']).unwrap_or(path.len())];
+        element
+            .match_indices('/')
+            .map(|(at, _)| at)
+            .skip(1)
+            .chain(std::iter::once(element.len()))
+            .map(|end| &element[..end])
+            .find(|ancestor| !present(other, ancestor))
+            .map(str::to_string)
+    };
+    let mut out: Vec<Difference> = Vec::new();
+    let mut grouped: BTreeMap<(String, bool), Vec<String>> = BTreeMap::new();
+    for difference in differences {
+        let one_sided = match (&difference.export, &difference.repo) {
+            (Some(_), None) => absent_root(&difference.path, repo).map(|root| (root, true)),
+            (None, Some(_)) => absent_root(&difference.path, export).map(|root| (root, false)),
+            _ => None,
+        };
+        match one_sided {
+            Some((root, in_export)) => {
+                let value = difference.export.or(difference.repo).unwrap_or_default();
+                let leaf = difference.path[root.len()..].trim_start_matches('/');
+                grouped
+                    .entry((root, in_export))
+                    .or_default()
+                    .push(format!("{leaf}={value}"));
+            }
+            None => out.push(difference),
+        }
+    }
+    for ((path, in_export), parts) in grouped {
+        let value = Some(parts.join(", "));
+        out.push(Difference {
+            path,
+            export: if in_export { value.clone() } else { None },
+            repo: if in_export { None } else { value },
+        });
+    }
+    out.sort_by(|a, b| a.path.cmp(&b.path));
+    out
 }
 pub(super) fn same_frame(left: &Element, right: &Element) -> bool {
     let frame = |element: &Element| {
@@ -329,4 +393,42 @@ pub(super) fn same_frame(left: &Element, right: &Element) -> bool {
             .collect::<BTreeMap<_, _>>()
     };
     frame(left) == frame(right)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_property_the_server_added_is_one_difference_and_its_stamp_none() {
+        let element = |xml: &str| crate::core::normalise::entity_of(xml.as_bytes()).unwrap();
+        let repo = element(
+            r#"<Entities><Things><Thing name="P.T"><ThingShape><PropertyDefinitions><PropertyDefinition name="a" baseType="NUMBER"/></PropertyDefinitions></ThingShape><ThingProperties><a><Value>1</Value><Timestamp>2026-01-01T00:00:00.000Z</Timestamp><Quality>GOOD</Quality></a></ThingProperties></Thing></Things></Entities>"#,
+        );
+        let export = element(
+            r#"<Entities><Things><Thing name="P.T"><ThingShape><PropertyDefinitions><PropertyDefinition name="a" baseType="NUMBER"/><PropertyDefinition name="b" baseType="STRING" description="added"/></PropertyDefinitions></ThingShape><ThingProperties><a><Value>1</Value><Timestamp>2026-10-22T09:00:00.000Z</Timestamp><Quality>UNKNOWN</Quality></a><b><Value>x</Value></b></ThingProperties></Thing></Things></Entities>"#,
+        );
+        let entity = EntityRef {
+            collection: "Things".into(),
+            name: "P.T".into(),
+        };
+        let report = compare_entity(&entity, &export, &repo, &[]);
+        let paths: Vec<&str> = report.differences.iter().map(|d| d.path.as_str()).collect();
+        assert_eq!(
+            paths,
+            [
+                "/ThingProperties/b",
+                "/ThingShape/PropertyDefinitions/PropertyDefinition[b]"
+            ],
+            "{:#?}",
+            report.differences
+        );
+        let added = &report.differences[1];
+        assert!(added.repo.is_none());
+        assert!(added
+            .export
+            .as_deref()
+            .unwrap()
+            .contains("@baseType=STRING"));
+    }
 }

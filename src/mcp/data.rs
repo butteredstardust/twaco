@@ -237,6 +237,13 @@ pub(crate) fn config_table_tool(
         commands::config_table::execute(solution, &request, server::Client::new, &mut notices)
             .map_err(ToolError::coded)?;
     let mut result = match outcome {
+        commands::config_table::ConfigTableOutcome::Listed { tables, .. } => json!({
+            "thing": thing,
+            "tables": tables
+                .iter()
+                .map(|(name, description)| json!({"name": name, "description": description}))
+                .collect::<Vec<_>>(),
+        }),
         commands::config_table::ConfigTableOutcome::Restored { plan, .. } => {
             let dry_run = arguments.dry_run;
             json!({

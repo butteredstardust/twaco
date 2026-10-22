@@ -982,6 +982,9 @@ fn repo_change(
         println!("{}: nothing to do", planned.plan);
     } else if planned.applied {
         println!("done: {} in {repository}, read back", planned.plan);
+        if let Some(local) = &planned.local {
+            println!("{local}");
+        }
     } else {
         println!(
             "would {} in {repository}; nothing sent (pass --apply)",

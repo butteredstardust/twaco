@@ -6519,6 +6519,13 @@
             "null"
           ]
         },
+        "local_copy": {
+          "description": "mv, rm: what happened to the copy under filerepository/",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
         "note": {
           "type": [
             "string",

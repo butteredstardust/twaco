@@ -262,7 +262,7 @@ help:
 |       --force                 remove or retype a property something still uses (they are listed)
 |   thing service add <Entity> <Name> [--param <name>:<TYPE>[:<DataShape>]]...
 |       [--returns <TYPE>[:<DataShape>]] [--description <text>] [--category <text>] [--private]
-|       [--then <address> | --script <file.js>] [--apply] [--json]
+|       [--then <code> | --script <file.js>] [--apply] [--json]
 |   thing service remove <Entity> <Name> [--force] [--apply] [--json]
 |                               add or remove an own script service and its managed sidecars; an
 |                               absent script is empty; plan unless --apply
@@ -335,6 +335,11 @@ help:
 |   new state <name> --type numeric|string --state <spec>... [--project <name>] [--description <text>]
 |       [--apply] [--json]
 |                               create a StateDefinition; plan unless --apply
+|       --state <spec>          <op><value>=<label>[;<style>:<value>]..., op <=, >=, ==, < or >
+|                               (string states == only), or the catch-all *=<label>; styles
+|                               background, foreground, secondary-background, line-color,
+|                               line-style, line-thickness, bold, italic, underline, text-size,
+|                               image, e.g. "<=10=Low;background:#00ff00"
 |   new menu <name> --item <Title=Mashup>... [--project <name>] [--description <text>] [--default]
 |       [--label <text>] [--apply] [--json]
 |                               create a Menu; plan unless --apply
@@ -369,7 +374,7 @@ help:
 |   entity get <entity>         fetch raw server XML to stdout or --out <path>
 |                               Collection/Name: any server entity; a bare name: the repository's
 |       [--profile <name>]      server profile (default: default)
-|   entity push <entity> [--json]
+|   entity push <entity> [--apply] [--json]
 |                               import one entity, refusing if the server changed
 |       --apply                 actually push (without it, report what would happen)
 |       --force                 push over a server-side change; the server's copy is saved first
@@ -448,7 +453,8 @@ help:
 |       --only-projects <a,b>   include only these projects
 |       --skip-checks           skip the gates, server requirements too; scripts are still parsed
 |       --no-backup             with --force, do not save the server's copies first
-|   config-table <thing> <table> one Thing's configuration table on the server
+|   config-table <thing> [<table>]  one Thing's configuration table on the server; without a
+|                               table, the Thing's tables
 |       --backup <file>         save it (never overwrites a file)
 |       --restore <file>        put a backup back; a plan unless --apply
 |       --diff                  compare with the entity XML in the repository
@@ -1383,7 +1389,7 @@ help:
 |   --log-file <path>           append diagnostic logs to a file (or TWACO_LOG_FILE)
 
 == twaco config-table
-usage: twaco config-table <thing> <table> one Thing's configuration table on the server
+usage: twaco config-table <thing> [<table>]
 settings: disable-version-flag disable-help-subcommand
 subcommands: 
 arg --apply
@@ -1500,7 +1506,8 @@ arg <operands>
     index: 1
     other: -
 help:
-|   config-table <thing> <table> one Thing's configuration table on the server
+|   config-table <thing> [<table>]  one Thing's configuration table on the server; without a
+|                               table, the Thing's tables
 |       --backup <file>         save it (never overwrites a file)
 |       --restore <file>        put a backup back; a plan unless --apply
 |       --diff                  compare with the entity XML in the repository
@@ -2740,7 +2747,7 @@ help:
 |   entity get <entity>         fetch raw server XML to stdout or --out <path>
 |                               Collection/Name: any server entity; a bare name: the repository's
 |       [--profile <name>]      server profile (default: default)
-|   entity push <entity> [--json]
+|   entity push <entity> [--apply] [--json]
 |                               import one entity, refusing if the server changed
 |       --apply                 actually push (without it, report what would happen)
 |       --force                 push over a server-side change; the server's copy is saved first
@@ -3231,7 +3238,7 @@ help:
 |   --log-file <path>           append diagnostic logs to a file (or TWACO_LOG_FILE)
 
 == twaco entity push
-usage: twaco entity push <entity> [--json]
+usage: twaco entity push <entity> [--apply] [--json]
 settings: disable-version-flag disable-help-subcommand
 subcommands: 
 arg --apply
@@ -3335,7 +3342,7 @@ arg <operands>
     index: 1
     other: -
 help:
-|   entity push <entity> [--json]
+|   entity push <entity> [--apply] [--json]
 |                               import one entity, refusing if the server changed
 |       --apply                 actually push (without it, report what would happen)
 |       --force                 push over a server-side change; the server's copy is saved first
@@ -8411,6 +8418,11 @@ help:
 |   new state <name> --type numeric|string --state <spec>... [--project <name>] [--description <text>]
 |       [--apply] [--json]
 |                               create a StateDefinition; plan unless --apply
+|       --state <spec>          <op><value>=<label>[;<style>:<value>]..., op <=, >=, ==, < or >
+|                               (string states == only), or the catch-all *=<label>; styles
+|                               background, foreground, secondary-background, line-color,
+|                               line-style, line-thickness, bold, italic, underline, text-size,
+|                               image, e.g. "<=10=Low;background:#00ff00"
 |   new menu <name> --item <Title=Mashup>... [--project <name>] [--description <text>] [--default]
 |       [--label <text>] [--apply] [--json]
 |                               create a Menu; plan unless --apply
@@ -9725,6 +9737,11 @@ help:
 |   new state <name> --type numeric|string --state <spec>... [--project <name>] [--description <text>]
 |       [--apply] [--json]
 |                               create a StateDefinition; plan unless --apply
+|       --state <spec>          <op><value>=<label>[;<style>:<value>]..., op <=, >=, ==, < or >
+|                               (string states == only), or the catch-all *=<label>; styles
+|                               background, foreground, secondary-background, line-color,
+|                               line-style, line-thickness, bold, italic, underline, text-size,
+|                               image, e.g. "<=10=Low;background:#00ff00"
 | 
 |   --project <name>            narrow to one project of the solution
 |   --log <filter>              write diagnostic logs to stderr (or TWACO_LOG)
@@ -14184,7 +14201,7 @@ help:
 |       --force                 remove or retype a property something still uses (they are listed)
 |   thing service add <Entity> <Name> [--param <name>:<TYPE>[:<DataShape>]]...
 |       [--returns <TYPE>[:<DataShape>]] [--description <text>] [--category <text>] [--private]
-|       [--then <address> | --script <file.js>] [--apply] [--json]
+|       [--then <code> | --script <file.js>] [--apply] [--json]
 |   thing service remove <Entity> <Name> [--force] [--apply] [--json]
 |                               add or remove an own script service and its managed sidecars; an
 |                               absent script is empty; plan unless --apply
@@ -14607,7 +14624,7 @@ arg <operands>
 help:
 |   thing service add <Entity> <Name> [--param <name>:<TYPE>[:<DataShape>]]...
 |       [--returns <TYPE>[:<DataShape>]] [--description <text>] [--category <text>] [--private]
-|       [--then <address> | --script <file.js>] [--apply] [--json]
+|       [--then <code> | --script <file.js>] [--apply] [--json]
 |   thing service remove <Entity> <Name> [--force] [--apply] [--json]
 |                               add or remove an own script service and its managed sidecars; an
 |                               absent script is empty; plan unless --apply
