@@ -6,6 +6,8 @@ All notable changes to twaco are recorded here. The format follows
 
 ## [Unreleased]
 
+## [0.1.28] - 2026-10-22
+
 ### Added
 
 - `twaco entity pull <entity>...|--all` (and MCP `entity_pull`) takes the server's version of an
@@ -881,6 +883,7 @@ The first public release.
 - `mcp` serves 39 tools over stdio to MCP clients, with compact summaries, validated arguments
   and dry runs by default for tools that can write to a server.
 
+[0.1.28]: https://github.com/butteredstardust/twaco/releases/tag/v0.1.28
 [0.1.27]: https://github.com/butteredstardust/twaco/releases/tag/v0.1.27
 [0.1.26]: https://github.com/butteredstardust/twaco/releases/tag/v0.1.26
 [0.1.25]: https://github.com/butteredstardust/twaco/releases/tag/v0.1.25
