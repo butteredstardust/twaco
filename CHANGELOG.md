@@ -39,6 +39,8 @@ All notable changes to twaco are recorded here. The format follows
 - The help shows the `--state` spec format of `new state` and `state set`, and the error for a
   malformed spec quotes it; `thing service add --then` and `entity push` show what they take.
 - `logs` names the platform's logs when the server does not know the one asked for.
+- `entity delete` of Projects deletes one whose `dependsOn` names another in the set first; the
+  server refuses to delete a Project another still needs.
 - `entity status` reports `converged`, not `both-changed`, when the working file and the server
   both changed since the baseline to the same content (as after `adopt --apply` of a server
   change); it is not drift and `--record` records it.

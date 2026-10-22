@@ -16,6 +16,8 @@ struct Fake {
     keep_after_delete: BTreeSet<(String, String)>,
     backup_fails: bool,
     disabled: BTreeSet<String>,
+    /// A Project's `dependsOn` projects, as `A:1.0.0,B:1.0.0`.
+    depends_on: BTreeMap<String, String>,
 }
 
 impl Fake {
@@ -32,6 +34,7 @@ impl Fake {
             keep_after_delete: BTreeSet::new(),
             backup_fails: false,
             disabled: BTreeSet::new(),
+            depends_on: BTreeMap::new(),
         }
     }
 }
@@ -79,6 +82,10 @@ impl Remote for Fake {
     }
     fn fetch(&self, key: &EntityKey) -> Result<Vec<u8>, ServerError> {
         self.calls.borrow_mut().push(format!("FETCH {key}"));
+        if key.collection() == "Projects" {
+            let projects = self.depends_on.get(key.name()).cloned().unwrap_or_default();
+            return Ok(format!("<Entities><Projects><Project name=\"{}\" dependsOn=\"{{&quot;projects&quot;:&quot;{projects}&quot;}}\"/></Projects></Entities>", key.name()).into_bytes());
+        }
         let template = if self.repository_things.contains(key.name()) {
             "FileRepository"
         } else {
@@ -206,6 +213,26 @@ fn reverse_collection_order_deletes_dependents_first_and_uses_both_methods() {
             "SERVICE DeleteThingShape S",
             "DELETE DataShapes/D"
         ]
+    );
+}
+
+#[test]
+fn a_project_another_in_the_set_depends_on_is_deleted_after_it() {
+    let (_dir, _, solution) = solution();
+    let mut fake = Fake::new(&[("Projects", "A"), ("Projects", "B")]);
+    fake.depends_on.insert("B".into(), "A:1.0.0".into());
+    let report = execute(&fake, &solution, &["Projects/A", "Projects/B"], true, false);
+    assert!(report.entities.iter().all(|e| e.status == Status::Deleted));
+    let deletes: Vec<String> = fake
+        .calls
+        .borrow()
+        .iter()
+        .filter(|call| call.starts_with("SERVICE"))
+        .cloned()
+        .collect();
+    assert_eq!(
+        deletes,
+        ["SERVICE DeleteProject B", "SERVICE DeleteProject A"]
     );
 }
 
