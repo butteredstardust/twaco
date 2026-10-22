@@ -1413,6 +1413,22 @@ pub(crate) fn plan(solution: &Solution, request: &NewRequest) -> Result<Plan, Ne
             .map_err(NewError::Invalid)?;
         refuse_file_on_the_way(&solution.root, sidecar)?;
     }
+    if request.kind == Kind::Project {
+        // twaco.toml would not load with a dependency it does not declare, or on itself.
+        for dependency in &request.depends_on {
+            if *dependency == request.name {
+                return Err(NewError::Invalid(format!(
+                    "project {} cannot depend on itself",
+                    request.name
+                )));
+            }
+            if solution.project(dependency).is_none() {
+                return Err(NewError::Invalid(format!(
+                    "--depends-on {dependency} is not a project of this solution; create it first"
+                )));
+            }
+        }
+    }
     let (config_before, config_after) =
         if request.kind == Kind::Project && declared_project.is_none() {
             let path = solution.root.join(CONFIG_FILE);
@@ -1948,6 +1964,31 @@ mod tests {
             .filter(|gate| !gate.ok())
             .collect();
         assert!(failing.is_empty(), "{failing:?}");
+    }
+
+    #[test]
+    fn a_project_depending_on_an_undeclared_project_or_itself_is_refused() {
+        let (_dir, solution) = fixture();
+        let before = std::fs::read(solution.root.join(CONFIG_FILE)).unwrap();
+        for dependency in ["Acme.Missing", "Acme.Inventory"] {
+            let mut project = request(Kind::Project, "Acme.Inventory");
+            project.depends_on.push(dependency.into());
+            let error = commands::entity_new::execute(
+                &solution,
+                &commands::entity_new::Request {
+                    request: project,
+                    mode: Mode::Apply,
+                    lock_label: "test new entity",
+                },
+                &mut Notices::default(),
+            )
+            .unwrap_err();
+            assert!(error.to_string().contains(dependency), "{error}");
+        }
+        assert_eq!(
+            std::fs::read(solution.root.join(CONFIG_FILE)).unwrap(),
+            before
+        );
     }
 
     #[test]

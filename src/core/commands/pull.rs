@@ -208,19 +208,32 @@ where
         true,
         held.as_ref().expect("apply holds lock"),
     );
+    // The entity files are the server's now; say how to finish what stopped after them.
+    let finish = |why: String| {
+        PullError::Remote(format!(
+            "the entity files were written, but {why}; finish with `twaco extract` for {} and `twaco entity status --all --record`",
+            labels.join(", ")
+        ))
+    };
     if extracted.failed != 0 {
-        return Err(PullError::Remote(
-            extracted.log.errors().collect::<Vec<_>>().join("; "),
-        ));
+        return Err(finish(format!(
+            "their sidecars could not be extracted: {}",
+            extracted.log.errors().collect::<Vec<_>>().join("; ")
+        )));
     }
     let mut after = Baseline::load(&solution.root).map_err(PullError::Baseline)?;
     let (mut fresh, failures) =
         status::compute_with_progress(&remote, &after, &pulled, &solution.server_owned, progress);
     if !failures.is_empty() {
-        return Err(PullError::Remote(failures.join("; ")));
+        return Err(finish(format!(
+            "the baseline was not recorded: {}",
+            failures.join("; ")
+        )));
     }
     let recorded = status::record_matching(&mut after, &mut fresh);
-    after.write(&solution.root).map_err(PullError::Baseline)?;
+    after
+        .write(&solution.root)
+        .map_err(|error| finish(format!("the baseline was not recorded: {error}")))?;
     Ok(PullOutcome {
         entities: labels,
         applied: true,

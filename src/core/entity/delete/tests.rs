@@ -237,6 +237,31 @@ fn a_project_another_in_the_set_depends_on_is_deleted_after_it() {
 }
 
 #[test]
+fn an_unreadable_project_dependency_refuses_before_anything_is_deleted() {
+    let (_dir, _, solution) = solution();
+    let mut fake = Fake::new(&[("Projects", "A"), ("Projects", "B")]);
+    // Not JSON once decoded: `{"projects":"A""}`.
+    fake.depends_on.insert("B".into(), "A&quot;".into());
+    let names = ["Projects/A".to_string(), "Projects/B".to_string()];
+    let prepared = prepare(&solution, &names, false).unwrap();
+    let error = run(
+        &fake,
+        &solution,
+        prepared,
+        true,
+        ack(false, false, false),
+        "2026-10-02",
+    )
+    .unwrap_err();
+    assert!(error.to_string().contains("dependsOn"), "{error}");
+    assert!(!fake
+        .calls
+        .borrow()
+        .iter()
+        .any(|call| call.starts_with("SERVICE") || call.starts_with("DELETE")));
+}
+
+#[test]
 fn outside_dependents_and_repository_definitions_refuse_unless_forced() {
     let (_dir, root, solution) = solution();
     std::fs::create_dir_all(root.join("Things")).unwrap();

@@ -5837,11 +5837,10 @@
   },
   {
     "name": "config_table",
-    "description": "Read one Thing's configuration table on the server, diff it against the entity XML in the repository, back it up to a new file in the solution (a backup is never overwritten), or restore it from such a backup. restore is a dry run unless dry_run is false; it refuses a backup of another Thing or table, and reads the table back.",
+    "description": "List a Thing's configuration tables, read one of them on the server, diff it against the entity XML in the repository, back it up to a new file in the solution (a backup is never overwritten), or restore it from such a backup. restore is a dry run unless dry_run is false; it refuses a backup of another Thing or table, and reads the table back.",
     "inputSchema": {
       "required": [
-        "thing",
-        "table"
+        "thing"
       ],
       "additionalProperties": false,
       "type": "object",
@@ -5850,11 +5849,14 @@
           "type": "string"
         },
         "table": {
-          "type": "string"
+          "description": "The table; list (the Thing's tables) needs none.",
+          "type": "string",
+          "default": ""
         },
         "action": {
           "type": "string",
           "enum": [
+            "list",
             "read",
             "diff",
             "restore",

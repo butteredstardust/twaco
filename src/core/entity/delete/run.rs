@@ -26,7 +26,7 @@ pub(crate) fn run(
         .into_iter()
         .filter_map(|entity| EntityKey::new(entity.info.collection, entity.info.name).ok())
         .collect();
-    let project_dependents = project_dependents(remote, &targets);
+    let project_dependents = project_dependents(remote, &targets)?;
     let mut entities = Vec::new();
     for target in targets {
         let Target {
@@ -242,24 +242,43 @@ pub(crate) fn run(
 
 /// For each Project in the set, the Projects of the set whose `dependsOn` names it: the server
 /// does not count those as incoming dependencies, but refuses to delete a Project another needs.
-fn project_dependents(remote: &dyn Remote, targets: &[Target]) -> BTreeMap<String, Vec<String>> {
+fn project_dependents(
+    remote: &dyn Remote,
+    targets: &[Target],
+) -> Result<BTreeMap<String, Vec<String>>, DeleteError> {
     let projects: Vec<&Target> = targets
         .iter()
         .filter(|target| target.key.collection() == "Projects")
         .collect();
     let mut needed_by: BTreeMap<String, Vec<String>> = BTreeMap::new();
     for target in &projects {
-        let Ok(bytes) = remote.fetch(&target.key) else {
-            continue;
+        // Unread, the order could delete a needed Project first, which the server refuses
+        // part-way through: refuse before anything is deleted instead.
+        let remote_error = |why| DeleteError::Remote {
+            entity: target.key.to_string(),
+            why,
         };
-        let Ok(project) = crate::core::normalise::entity_of(&bytes) else {
-            continue;
+        let unread = |why: String| {
+            remote_error(crate::core::server::ServerError::InvalidResponse {
+                url: target.key.to_string(),
+                why,
+            })
         };
+        if !remote.exists(&target.key).map_err(remote_error)? {
+            continue;
+        }
+        let bytes = remote.fetch(&target.key).map_err(remote_error)?;
+        let project = crate::core::normalise::entity_of(&bytes)
+            .map_err(|error| unread(format!("its export does not read: {error}")))?;
         let depends_on = project
             .attributes
             .iter()
             .find(|(name, _)| name == b"dependsOn")
-            .and_then(|(_, value)| serde_json::from_slice::<serde_json::Value>(value).ok());
+            .map(|(_, value)| {
+                serde_json::from_slice::<serde_json::Value>(value)
+                    .map_err(|error| unread(format!("its dependsOn is not JSON: {error}")))
+            })
+            .transpose()?;
         let names = depends_on
             .as_ref()
             .and_then(|value| value["projects"].as_str())
@@ -276,7 +295,7 @@ fn project_dependents(remote: &dyn Remote, targets: &[Target]) -> BTreeMap<Strin
             }
         }
     }
-    needed_by
+    Ok(needed_by)
 }
 
 /// Within the set, an entity goes after every entity of the set that depends on it: a template

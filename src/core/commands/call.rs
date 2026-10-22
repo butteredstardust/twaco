@@ -262,8 +262,12 @@ fn check_arguments(
     service: &str,
     parameters: &Value,
 ) -> Result<(), CallCommandError> {
-    let Some(given) = parameters.as_object().filter(|given| !given.is_empty()) else {
-        return Ok(());
+    let empty = serde_json::Map::new();
+    let given = match parameters {
+        Value::Null => &empty,
+        Value::Object(given) => given,
+        // Not a parameter map: the server's to refuse.
+        _ => return Ok(()),
     };
     let (model, _) = crate::core::types::load_model(solution);
     let Some(entity) = model.entities.iter().find(|e| match target {
@@ -278,6 +282,16 @@ fn check_arguments(
     let Some(signature) = found.service else {
         return Ok(());
     };
+    if let Some(missing) = signature
+        .parameters
+        .iter()
+        .find(|p| p.required && p.default.is_none() && !given.contains_key(&p.name))
+    {
+        return Err(CallCommandError::Arguments(format!(
+            "{service} requires {} ({})",
+            missing.name, missing.value.base_type
+        )));
+    }
     for (name, value) in given {
         let Some(parameter) = signature.parameters.iter().find(|p| &p.name == name) else {
             let declared: Vec<&str> = signature
@@ -476,18 +490,25 @@ mod tests {
         std::fs::create_dir_all(root.join("Things")).unwrap();
         std::fs::write(
             root.join("Things/P.T.xml"),
-            "<Entities><Things><Thing name=\"P.T\" projectName=\"P\" thingTemplate=\"GenericThing\"><ThingShape><ServiceDefinitions><ServiceDefinition name=\"Twice\"><ParameterDefinitions><FieldDefinition baseType=\"NUMBER\" name=\"x\"/></ParameterDefinitions></ServiceDefinition></ServiceDefinitions></ThingShape></Thing></Things></Entities>",
+            "<Entities><Things><Thing name=\"P.T\" projectName=\"P\" thingTemplate=\"GenericThing\"><ThingShape><ServiceDefinitions><ServiceDefinition name=\"Twice\"><ParameterDefinitions><FieldDefinition baseType=\"NUMBER\" name=\"x\"/><FieldDefinition aspect.isRequired=\"true\" baseType=\"STRING\" name=\"why\"/></ParameterDefinitions></ServiceDefinition></ServiceDefinitions></ThingShape></Thing></Things></Entities>",
         )
         .unwrap();
         let target = ServiceTarget::Thing("P.T".into());
         let check = |parameters: Value| check_arguments(&solution, &target, "Twice", &parameters);
-        check(serde_json::json!({"x": 2})).unwrap();
-        let wrong = check(serde_json::json!({"x": "abc"}))
+        check(serde_json::json!({"x": 2, "why": "test"})).unwrap();
+        let missing = check(serde_json::json!({"x": 2})).unwrap_err().to_string();
+        assert!(missing.contains("requires why"), "{missing}");
+        let wrong = check(serde_json::json!({"x": "abc", "why": "test"}))
             .unwrap_err()
             .to_string();
         assert!(wrong.contains("x is NUMBER"), "{wrong}");
-        let unknown = check(serde_json::json!({"y": 1})).unwrap_err().to_string();
-        assert!(unknown.contains("no parameter y; it takes x"), "{unknown}");
+        let unknown = check(serde_json::json!({"y": 1, "why": "test"}))
+            .unwrap_err()
+            .to_string();
+        assert!(
+            unknown.contains("no parameter y; it takes why, x"),
+            "{unknown}"
+        );
         // A service the repository does not know is the server's to judge.
         check_arguments(&solution, &target, "Other", &serde_json::json!({"y": 1})).unwrap();
     }

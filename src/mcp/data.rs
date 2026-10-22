@@ -169,7 +169,11 @@ pub(crate) fn config_table_tool(
     arguments: ConfigTableRequest,
 ) -> Result<Value, ToolError> {
     let thing_arg = nonempty(&arguments.thing, "thing")?;
-    let table = nonempty(&arguments.table, "table")?;
+    let table = if arguments.action == TableAction::List {
+        ""
+    } else {
+        nonempty(&arguments.table, "table")?
+    };
     // As on the command line: a Thing of the solution may be named by its last segment, one not
     // in the solution is taken as given (diff aside), and anything else is refused.
     let found = workspace::discover(solution).entities;
@@ -188,7 +192,14 @@ pub(crate) fn config_table_tool(
         .as_ref()
         .map(|e| e.info.name.clone())
         .unwrap_or_else(|| thing_arg.to_string());
-    let request = if arguments.action == TableAction::Restore {
+    let request = if arguments.action == TableAction::List {
+        commands::config_table::ConfigTableRequest {
+            thing: thing.clone(),
+            table: String::new(),
+            action: commands::config_table::ConfigTableAction::List,
+            profile: arguments.profile.clone(),
+        }
+    } else if arguments.action == TableAction::Restore {
         let backup = in_path(solution, required_text(&arguments.backup, "backup")?)?;
         let dry_run = arguments.dry_run;
         commands::config_table::ConfigTableRequest {

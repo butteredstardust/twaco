@@ -272,40 +272,42 @@ where
                 planned
             };
             let mut workspace_access = Access::None;
+            // The server's change is done whatever happens to the local copy: a failure here is
+            // reported with the change, not as the change failing.
             if planned.applied {
                 match change {
                     repo::Change::Move { from, to, .. }
                         if mirrored(from).is_file() && !mirrored(to).exists() =>
                     {
                         let target = mirrored(to);
-                        if let Some(folder) = target.parent() {
-                            std::fs::create_dir_all(folder).map_err(|why| {
-                                RepoCommandError::Create {
-                                    path: folder.to_path_buf(),
-                                    why,
-                                }
-                            })?;
-                        }
-                        std::fs::rename(mirrored(from), &target).map_err(|why| {
-                            RepoCommandError::Create {
-                                path: target.clone(),
-                                why,
+                        let moved = target
+                            .parent()
+                            .map_or(Ok(()), std::fs::create_dir_all)
+                            .and_then(|()| std::fs::rename(mirrored(from), &target));
+                        planned.local = Some(match moved {
+                            Ok(()) => {
+                                workspace_access = Access::Write;
+                                "the local copy moved with it".to_string()
                             }
-                        })?;
-                        planned.local = Some("the local copy moved with it".to_string());
-                        workspace_access = Access::Write;
+                            Err(why) => format!(
+                                "the local copy {} could not be moved to {}: {why}",
+                                mirrored(from).display(),
+                                target.display()
+                            ),
+                        });
                     }
                     repo::Change::Remove { path, .. } => match identical_copy {
                         Some(true) => {
-                            std::fs::remove_file(mirrored(path)).map_err(|why| {
-                                RepoCommandError::Create {
-                                    path: mirrored(path),
-                                    why,
+                            planned.local = Some(match std::fs::remove_file(mirrored(path)) {
+                                Ok(()) => {
+                                    workspace_access = Access::Write;
+                                    "the identical local copy was removed too".to_string()
                                 }
-                            })?;
-                            planned.local =
-                                Some("the identical local copy was removed too".to_string());
-                            workspace_access = Access::Write;
+                                Err(why) => format!(
+                                    "the local copy {} could not be removed: {why}",
+                                    mirrored(path).display()
+                                ),
+                            });
                         }
                         Some(false) => {
                             planned.local = Some(format!(

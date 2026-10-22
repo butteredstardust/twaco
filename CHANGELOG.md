@@ -17,7 +17,8 @@ All notable changes to twaco are recorded here. The format follows
 - `twaco new project` writes a Project entity (and its `[[project]]` with `depends_on` when the
   solution does not declare it yet), so a solution's entities stop landing in `PTCDefaultProject`
   on import; `twaco new group` writes a Group without members.
-- `config-table <thing>` without a table lists the Thing's configuration tables.
+- `config-table <thing>` without a table (MCP `config_table` action `list`) lists the Thing's
+  configuration tables.
 
 ### Changed
 
@@ -34,8 +35,9 @@ All notable changes to twaco are recorded here. The format follows
 - `deploy` refuses a project that is neither bundled nor present on the server, preventing its
   entities from silently landing in `PTCDefaultProject`.
 - `deploy` says how many baselines it recorded instead of "baseline written once".
-- `call` refuses an argument the service's signature in the repository rules out (an undeclared
-  parameter, or a value its base type cannot take), and a 406 from the server says to check them.
+- `call` refuses arguments the service's signature in the repository rules out (an undeclared
+  parameter, a value its base type cannot take, a required parameter left out), and a 406 from the
+  server says to check them.
 - The help shows the `--state` spec format of `new state` and `state set`, and the error for a
   malformed spec quotes it; `thing service add --then` and `entity push` show what they take.
 - `logs` names the platform's logs when the server does not know the one asked for.
