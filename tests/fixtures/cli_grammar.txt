@@ -4474,8 +4474,8 @@ arg --from-server
     action: Append
     value_name: project
     num_args: 1..
-    allow_hyphen_values: yes
-    allow_negative_numbers: no
+    allow_hyphen_values: no
+    allow_negative_numbers: yes
     required: no
     default: -
     index: -

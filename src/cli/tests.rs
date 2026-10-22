@@ -548,6 +548,13 @@ fn values_reach_the_fields_the_commands_read() {
     assert_eq!(logs.operands, ["ScriptLog"]);
     assert_eq!(logs.since.as_deref(), Some("10m"));
     assert!(logs.json.json);
+    let Command::Init(init) =
+        parse(&["init", "--from-server", "A", "B", "--apply", "--json"]).unwrap()
+    else {
+        panic!("init parses as init");
+    };
+    assert_eq!(init.from_server, ["A", "B"]);
+    assert!(init.apply.apply && init.json.json);
     let Command::Db(Db::Query(query)) =
         parse(&["db", "query", "-q", "select 1", "--timeout", "30"]).unwrap()
     else {

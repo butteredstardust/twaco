@@ -77,6 +77,7 @@ where
     let mut counts = BTreeMap::new();
     let mut per_project = BTreeMap::<String, usize>::new();
     let mut dependencies = BTreeMap::<String, Vec<String>>::new();
+    let mut members_owned = Vec::new();
     for project in &request.projects {
         let exported = export::export(
             remote,
@@ -147,6 +148,16 @@ where
             })?;
             // As adopt writes a new entity that has no peer file to copy.
             let document = entity::new::document(&key.collection, &laid_out);
+            if matches!(key.collection.as_str(), "Groups" | "Organizations")
+                && differs_only_in_members(remote, &key.collection, &info.name, &document).map_err(
+                    |why| Error::Export {
+                        project: project.clone(),
+                        why,
+                    },
+                )?
+            {
+                members_owned.push(key.path());
+            }
             let base = if multiple {
                 request.root.join(&info.project)
             } else {
@@ -172,6 +183,13 @@ where
         .collect();
     let mut proposal = init::propose_files(&request.root, proposal_files);
     add_project_dependencies(&mut proposal.toml, &dependencies);
+    if !members_owned.is_empty() {
+        add_members_owned(&mut proposal.toml, &members_owned);
+        notes.push(format!(
+            "{} keep their members on the server: the Exporter leaves out user members, so membership is [[server_owned]]",
+            members_owned.join(", ")
+        ));
+    }
     notes.extend(proposal.notes);
     for (project, count) in per_project {
         notes.push(format!("{project}: {count} entities"));
@@ -290,6 +308,44 @@ fn add_project_dependencies(toml: &mut String, dependencies: &BTreeMap<String, V
             .join(", ");
         toml.insert_str(root_end, &format!("depends_on = [{names}]\n"));
     }
+    // The server said the deploy order, so the files' hint that they cannot is not needed.
+    if dependencies.values().any(|needed| !needed.is_empty()) {
+        *toml = toml.replace("\n# Deploy order is not something the files can say. If a project imports after another,\n# give it depends_on = [\"<that project>\"].\n", "");
+    }
+}
+
+/// Whether the server's own copy of a Group or Organization differs from its exported file only
+/// in members: the Exporter leaves out user members (observed 2026-10-22), which the read
+/// `entity status` compares holds, so such an entity could never be in sync.
+fn differs_only_in_members<R: push::Remote>(
+    remote: &R,
+    collection: &str,
+    name: &str,
+    document: &[u8],
+) -> Result<bool, String> {
+    let key =
+        super::entity::key::EntityKey::address(collection, name).map_err(|e| e.to_string())?;
+    let Some(server) = remote.fetch(&key).map_err(|e| e.to_string())? else {
+        return Ok(false);
+    };
+    let hash = |bytes: &[u8], parts: &[super::server_owned::Part]| {
+        normalise::hash_with_parts(bytes, parts).map_err(|e| e.to_string())
+    };
+    let members = [super::server_owned::Part::Members];
+    Ok(hash(document, &[])? != hash(&server, &[])?
+        && hash(document, &members)? == hash(&server, &members)?)
+}
+
+/// Membership is assigned per server; the rule keeps it out of comparison and as the server has it.
+fn add_members_owned(toml: &mut String, entities: &[String]) {
+    let names = entities
+        .iter()
+        .map(|name| format!("\"{}\"", name.replace('"', "\\\"")))
+        .collect::<Vec<_>>()
+        .join(", ");
+    toml.push_str(&format!(
+        "\n# Membership is assigned per server; the export leaves out user members.\n[[server_owned]]\nentities = [{names}]\nparts = [\"members\"]\n"
+    ));
 }
 
 /// The remote the exports came from, lent to the baseline step.
@@ -491,6 +547,81 @@ mod tests {
             "{message}"
         );
         assert!(temp.path().join("Things/P.T.xml").exists());
+    }
+
+    /// The project export, and the server's own copy of each entity by `Collection/Name`.
+    struct Members(Vec<u8>, BTreeMap<String, Vec<u8>>);
+    impl export::Remote for Members {
+        fn export_xml(
+            &self,
+            _: Option<&str>,
+            _: Option<&str>,
+            _: Option<&str>,
+        ) -> Result<Vec<u8>, super::super::server::ServerError> {
+            Ok(self.0.clone())
+        }
+        fn source_control(
+            &self,
+            _: &str,
+            _: &Value,
+        ) -> Result<Option<Value>, super::super::server::ServerError> {
+            unreachable!("init --from-server only reads Exporter")
+        }
+    }
+    impl push::Remote for Members {
+        fn fetch(
+            &self,
+            key: &super::super::entity::key::EntityKey,
+        ) -> Result<Option<Vec<u8>>, super::super::server::ServerError> {
+            Ok(self.1.get(&key.to_string()).cloned())
+        }
+        fn import(&self, _: &str, _: &[u8]) -> Result<(), super::super::server::ServerError> {
+            unreachable!("init --from-server never imports")
+        }
+    }
+
+    #[test]
+    fn a_group_whose_user_members_the_export_leaves_out_keeps_them_on_the_server() {
+        let temp = tempfile::tempdir().unwrap();
+        profile(temp.path());
+        let group = |name: &str, members: &str| {
+            format!("<Group name=\"{name}\" projectName=\"P\"><Members><Members>{members}</Members></Members></Group>")
+        };
+        let wrap = |inner: String| format!("<Entities><Groups>{inner}</Groups></Entities>");
+        let in_group = "<Member name=\"P.Other_UG\" type=\"Group\"/>";
+        let user = "<Member name=\"someone\" type=\"User\"/>";
+        let remote = Members(
+            wrap(group("P.Editors_UG", "") + group("P.Admin_UG", in_group).as_str()).into_bytes(),
+            BTreeMap::from([
+                (
+                    "Groups/P.Editors_UG".to_string(),
+                    wrap(group("P.Editors_UG", user)).into_bytes(),
+                ),
+                (
+                    "Groups/P.Admin_UG".to_string(),
+                    wrap(group("P.Admin_UG", in_group)).into_bytes(),
+                ),
+            ]),
+        );
+        let outcome = execute(
+            &remote,
+            Request {
+                root: temp.path().to_path_buf(),
+                projects: vec!["P".into()],
+                apply: true,
+                profile: "default".into(),
+            },
+        )
+        .unwrap();
+        assert!(outcome.not_in_sync.is_empty(), "{:?}", outcome.not_in_sync);
+        assert_eq!(outcome.recorded, 2);
+        assert!(
+            outcome.toml.contains(
+                "[[server_owned]]\nentities = [\"Groups/P.Editors_UG\"]\nparts = [\"members\"]\n"
+            ),
+            "{}",
+            outcome.toml
+        );
     }
 
     #[test]

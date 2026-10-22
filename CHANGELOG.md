@@ -6,6 +6,14 @@ All notable changes to twaco are recorded here. The format follows
 
 ## [Unreleased]
 
+### Fixed
+
+- `init --from-server A B --apply` no longer reads `--apply`, `--json` or `--profile` after the
+  project names as more project names.
+- `init --from-server` proposes `[[server_owned]] parts = ["members"]` for a Group or Organization
+  whose user members the server's export leaves out, so it records in sync instead of never; and
+  drops the deploy-order hint when the server gave the projects' `depends_on`.
+
 ## [0.1.26] - 2026-10-21
 
 ### Added
