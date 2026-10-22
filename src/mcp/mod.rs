@@ -35,6 +35,7 @@ pub use content::localization_status_json;
 mod data;
 mod entity;
 mod info;
+mod init;
 mod network;
 mod outputs;
 mod progress;

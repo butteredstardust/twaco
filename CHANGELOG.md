@@ -6,6 +6,25 @@ All notable changes to twaco are recorded here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- `init --from-server` in a folder that already has a `twaco.toml` adds the named projects, each in
+  its own folder: `twaco.toml` is only appended to, and only the added projects' sidecars and
+  baseline are written.
+- `init --from-server` also pulls the localization tokens the new projects own; a failed pull is
+  reported and left to `twaco localization pull`.
+- MCP tool `init_from_server` does the same in the MCP server's root.
+
+### Fixed
+
+- `init --from-server A B --apply` no longer reads `--apply`, `--json` or `--profile` after the
+  project names as more project names.
+- `init --from-server` proposes `[[server_owned]] parts = ["members"]` for a Group or Organization
+  whose user members the server's export leaves out, so it records in sync instead of never; and
+  drops the deploy-order hint when the server gave the projects' `depends_on`.
+- A new entity written by `init --from-server` or `adopt` keeps its export's CRLF line endings in
+  the envelope too, instead of mixing LF lines in.
+
 ## [0.1.26] - 2026-10-21
 
 ### Added

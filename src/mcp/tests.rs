@@ -142,6 +142,7 @@ fn assert_schema_hygiene(tool: &str, path: &str, schema: &Value) {
                     | "items"
                     | "enum"
                     | "minimum"
+                    | "minItems"
                     | "default"
                     | "description"
             ),
@@ -214,6 +215,28 @@ fn tool_definitions_match_golden_file() {
         current, expected,
         "run with TWACO_BLESS=1 to rewrite tests/fixtures/mcp_tools.json, then review the diff"
     );
+}
+
+#[test]
+fn init_from_server_is_a_root_tool_with_required_projects() {
+    let root_guard = tempfile::tempdir().unwrap();
+    let response = converse(
+        root_guard.path(),
+        &[json!({
+            "jsonrpc":"2.0",
+            "id":1,
+            "method":"tools/call",
+            "params":{"name":"init_from_server","arguments":{}}
+        })],
+    );
+    let tool = tool_definitions()
+        .into_iter()
+        .find(|tool| tool["name"] == "init_from_server")
+        .unwrap();
+    assert_eq!(tool["annotations"]["readOnlyHint"], false);
+    assert_eq!(tool["inputSchema"]["required"], json!(["projects"]));
+    assert_eq!(tool["inputSchema"]["properties"]["projects"]["minItems"], 1);
+    assert!(response[0].to_string().contains("projects"));
 }
 
 #[test]
@@ -1005,6 +1028,7 @@ fn every_tool_is_listed_with_a_schema_and_honest_annotations() {
     assert_eq!(
         names,
         [
+            "init_from_server",
             "projects",
             "types",
             "check",

@@ -246,6 +246,14 @@ fn behaviour(arg: clap::Arg) -> clap::Arg {
             // A value may be negative, but a flag after the bare form is the next flag,
             // not this one's value (`--default --label Main`).
             .allow_negative_numbers(true),
+        // A list of values ends at the next flag (`--from-server A B --apply`).
+        clap::ArgAction::Append
+            if arg
+                .get_num_args()
+                .is_some_and(|range| range.max_values() > 1) =>
+        {
+            arg.allow_negative_numbers(true)
+        }
         // A value may start with a dash, as a log filter can.
         clap::ArgAction::Set | clap::ArgAction::Append => arg.allow_hyphen_values(true),
         _ => arg,
@@ -357,7 +365,8 @@ pub(crate) const USAGE: &[Usage] = &[
                               lines twaco needs to .gitignore
   init --agents               write only those, where absent
   init --from-server <project>... [--profile <name>] [--apply] [--json]
-                              start an empty repository from server projects; plans by default
+                              start a repository in an empty folder, or add projects to this one,
+                              from server projects; plans by default
       --profile <name>        the server profile (default: default)
       --apply                 write the planned repository and record matching baselines
       --json                  print the plan or result as JSON"#,

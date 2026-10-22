@@ -303,6 +303,18 @@ pub(crate) fn pull<R: Remote + ?Sized>(
     prune: bool,
     apply: Option<&WorkspaceLock>,
 ) -> Result<Pulled, LocalizationError> {
+    pull_projects(solution, remote, table, prune, apply, None)
+}
+
+/// Pull only tokens owned by `projects` when it is present.
+pub(crate) fn pull_projects<R: Remote + ?Sized>(
+    solution: &Solution,
+    remote: &R,
+    table: Option<&str>,
+    prune: bool,
+    apply: Option<&WorkspaceLock>,
+    projects: Option<&[String]>,
+) -> Result<Pulled, LocalizationError> {
     check_prefixes(solution)?;
     let found = discover(&root(solution))?;
     let mut tables = remote.tables()?;
@@ -324,7 +336,16 @@ pub(crate) fn pull<R: Remote + ?Sized>(
         "pulling",
     )?;
     let server = server_tokens(remote, &selected)?;
-    let compared = compare(&files, &server, &all_prefixes(solution));
+    let owns = |name: &str| {
+        projects.is_none_or(|projects| {
+            project_for(solution, name)
+                .is_some_and(|project| projects.iter().any(|wanted| wanted == &project.name))
+        })
+    };
+    let compared: Vec<_> = compare(&files, &server, &all_prefixes(solution))
+        .into_iter()
+        .filter(|item| owns(&item.name))
+        .collect();
     let mut edits: BTreeMap<PathBuf, BTreeMap<String, Vec<Edit>>> = BTreeMap::new();
     let mut creates: BTreeMap<PathBuf, (String, Vec<Token>)> = BTreeMap::new();
     for item in &compared {
@@ -387,6 +408,9 @@ pub(crate) fn pull<R: Remote + ?Sized>(
             continue;
         }
         for token in server.get(table).into_iter().flatten() {
+            if !owns(&token.name) {
+                continue;
+            }
             let Some(project) = project_for(solution, &token.name) else {
                 continue;
             };

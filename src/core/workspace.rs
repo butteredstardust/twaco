@@ -183,6 +183,17 @@ fn entity_paths(solution: &Solution, project: &Project) -> (Vec<PathBuf>, Vec<St
         // flat read would make those invisible rather than reporting them.
         collect_xml(&root.join(collection), &mut out, &mut failures);
     }
+    // A project at `.` also sees every nested project folder while walking its collection
+    // trees. The more specific configured root owns those files.
+    out.retain(|path| {
+        !solution.projects.iter().any(|other| {
+            if other.name == project.name {
+                return false;
+            }
+            let other_root = solution.project_root(other);
+            other_root != root && other_root.starts_with(&root) && path.starts_with(other_root)
+        })
+    });
     out.sort();
     (out, failures)
 }

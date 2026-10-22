@@ -430,6 +430,38 @@ fn a_pull_updates_a_curated_file_in_place_and_adds_what_the_server_has() {
 }
 
 #[test]
+fn a_pull_for_projects_leaves_other_project_tokens_byte_for_byte() {
+    let a = String::from_utf8(FLAT_DEFAULT.to_vec())
+        .unwrap()
+        .replace("Acme.App", "Acme.A");
+    let b = String::from_utf8(FLAT_DEFAULT.to_vec())
+        .unwrap()
+        .replace("Acme.App", "Acme.B");
+    let workspace = Workspace::new(
+        &["Acme.A", "Acme.B"],
+        &[("a.xml", a.as_bytes()), ("b.xml", b.as_bytes())],
+    );
+    let server = Server::with(&[(
+        "Default",
+        vec![token("Acme.A.Save", "new"), token("Acme.B.Save", "other")],
+    )]);
+    let before_b = workspace.text("b.xml");
+    let projects = vec!["Acme.A".to_string()];
+    let pulled = super::ops::pull_projects(
+        &workspace.solution,
+        &server,
+        None,
+        false,
+        Some(&workspace.lock()),
+        Some(&projects),
+    )
+    .unwrap();
+    assert_eq!(pulled.files.len(), 1);
+    assert!(workspace.text("a.xml").contains("<![CDATA[new]]>"));
+    assert_eq!(workspace.text("b.xml"), before_b);
+}
+
+#[test]
 fn a_pull_edits_the_selected_table_of_a_multi_table_file() {
     let bundle = two_tables();
     let workspace = Workspace::new(&["Acme.App"], &[("bundle.xml", &bundle)]);

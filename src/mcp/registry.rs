@@ -2,11 +2,12 @@ use super::outputs;
 use super::requests::common::{parse, schema, NoArguments};
 use super::requests::{
     content as content_requests, data as data_requests, entity as entity_requests,
-    info as info_requests, network as network_requests, refactor as refactor_requests,
-    requirements as requirements_requests, source as source_requests,
+    info as info_requests, init as init_requests, network as network_requests,
+    refactor as refactor_requests, requirements as requirements_requests,
+    source as source_requests,
 };
 use super::{
-    content, data, entity, info, network, refactor, requirements, source, Protocol, ToolError,
+    content, data, entity, info, init, network, refactor, requirements, source, Protocol, ToolError,
 };
 use crate::core::config::Solution;
 use crate::core::progress::Progress;
@@ -62,6 +63,7 @@ impl Tool {
 /// Platform help and Javadoc sites. `check` and `types` do so only when asked (`live`,
 /// `platform`), which is still "may".
 const OPEN_WORLD: &[&str] = &[
+    "init_from_server",
     "types",
     "check",
     "status",
@@ -109,6 +111,7 @@ const OPEN_WORLD: &[&str] = &[
 /// or rewrite derived files (declarations, the bundle, the baseline, formatting) that the
 /// repository can produce again. Every other writing tool may discard something.
 const ADDITIVE: &[&str] = &[
+    "init_from_server",
     "types",
     "fmt",
     "status",
@@ -258,6 +261,13 @@ fn bare_tool<T: DeserializeOwned + Serialize + JsonSchema + 'static>(
 
 static TOOLS: LazyLock<Vec<Tool>> = LazyLock::new(|| {
     vec![
+        root_tool::<init_requests::InitFromServerRequest>(
+            "init_from_server",
+            "Start a repository in an empty root, or add server projects to the solution already there. apply defaults to false, so the result is a plan until apply is true. No path argument: it always uses the MCP server root.",
+            false,
+            init::init_from_server_tool,
+        )
+        .with_output::<outputs::InitFromServerResult>(),
         solution_tool::<NoArguments>(
             "projects",
             "The solution's ThingWorx projects, their roots, their deploy order and how many entity documents each holds.",
@@ -925,6 +935,7 @@ pub(crate) const GROUPS: &[(&str, &[&str])] = &[
     (
         "server",
         &[
+            "init_from_server",
             "logs",
             "log_level",
             "repo",
