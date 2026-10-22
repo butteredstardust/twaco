@@ -97,6 +97,7 @@ pub(crate) fn entity_new_tool(
         name: nonempty(&arguments.name, "name")?.to_string(),
         project: arguments.project.as_ref().cloned(),
         description: arguments.description.as_ref().cloned().unwrap_or_default(),
+        depends_on: arguments.depends_on.items().to_vec(),
         visibility: arguments.visibility.items().to_vec(),
         template: arguments.template.as_ref().cloned(),
         shapes: arguments.shape.items().to_vec(),

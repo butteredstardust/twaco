@@ -227,6 +227,10 @@ usage: twaco <command>
       --no-management-shape   an implementation without its own Management_TS
       --root <dir>            the project's folder (default: the block's name)
       --base-extension        the PTC.Base extension version to depend on (default: what another project declares)
+  new project <name> [--description <text>] [--depends-on <P>]... [--apply] [--json]
+                              create a ThingWorx Project and add it to twaco.toml when needed; plan unless --apply
+  new group <name> [--project <name>] [--description <text>] [--apply] [--json]
+                              create a ThingWorx Group without members as a repository file; plan unless --apply
   thing property add <Entity> <name>:<TYPE> [--default <value>] [--persistent] [--logged]
       [--read-only] [--category <text>] [--units <text>] [--data-shape <DataShape>]
       [--description <text>] [--apply] [--json]

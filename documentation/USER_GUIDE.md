@@ -520,6 +520,15 @@ server), and the `ui` and `test` types. Then `twaco check`, commit and `twaco de
 given. Every kind accepts `--project`, one-line `--description`, and repeated
 `--visibility Organization/name` or `OrganizationalUnit/org:unit`.
 
+Create a project before deploying entities assigned to it; `new project` also appends its
+`[[project]]` entry when it is not already declared. `new group` creates an empty Group in a
+named project.
+
+```sh
+twaco new project Acme.Orders --depends-on Acme.Base --apply
+twaco new group Acme.Orders.Viewers_UG --project Acme.Orders --apply
+```
+
 ```sh
 twaco new thing Acme.Orders.Manager --template Acme.Orders.Manager_TT --shape Acme.Orders.Audit_TS
 twaco new thing-template Acme.Orders.Manager_TT --base GenericThing --shape Acme.Orders.Audit_TS

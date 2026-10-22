@@ -102,10 +102,16 @@ fn status_record_prints_post_record_verdicts_and_returns_their_exit_code() {
             &root,
             &["entity", "status", "Things/Acme.Manager", "--detail"],
         );
-        assert_eq!(before.status.code(), Some(1));
-        assert!(
-            String::from_utf8_lossy(&before.stdout).contains("Things/Acme.Manager  both-changed")
-        );
+        if matches {
+            assert_eq!(before.status.code(), Some(0));
+            assert!(
+                String::from_utf8_lossy(&before.stdout).contains("Things/Acme.Manager  converged")
+            );
+        } else {
+            assert_eq!(before.status.code(), Some(1));
+            assert!(String::from_utf8_lossy(&before.stdout)
+                .contains("Things/Acme.Manager  both-changed"));
+        }
         let after = run(
             &root,
             &["entity", "status", "Things/Manager", "--record", "--detail"],

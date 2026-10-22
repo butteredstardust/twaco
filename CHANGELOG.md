@@ -6,6 +6,18 @@ All notable changes to twaco are recorded here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- `twaco new project` writes a Project entity (and its `[[project]]` with `depends_on` when the
+  solution does not declare it yet), so a solution's entities stop landing in `PTCDefaultProject`
+  on import; `twaco new group` writes a Group without members.
+
+### Fixed
+
+- `entity status` reports `converged`, not `both-changed`, when the working file and the server
+  both changed since the baseline to the same content (as after `adopt --apply` of a server
+  change); it is not drift and `--record` records it.
+
 ## [0.1.27] - 2026-10-22
 
 ### Added

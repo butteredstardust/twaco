@@ -18,6 +18,8 @@ pub(crate) enum New {
 /// `twaco new <kind> <name>` for a common entity, one variant per kind.
 #[derive(Debug, clap::Subcommand)]
 pub(crate) enum NewEntity {
+    Project(NewProject),
+    Group(NewGroup),
     Thing(NewThing),
     ThingTemplate(NewThingTemplate),
     ThingShape(NewThingShape),
@@ -33,6 +35,28 @@ pub(crate) enum NewEntity {
     Menu(NewMenu),
     Theme(NewTheme),
     Network(NewNetwork),
+}
+
+#[derive(Debug, clap::Args)]
+#[group(skip)]
+pub(crate) struct NewProject {
+    #[arg(long = "description", value_name = "text")]
+    pub(crate) description: Option<String>,
+    #[arg(long = "depends-on", value_name = "P")]
+    pub(crate) depends_on: Vec<String>,
+    #[command(flatten)]
+    pub(crate) apply: Apply,
+    #[command(flatten)]
+    pub(crate) json: Json,
+    #[arg(id = "operands", value_name = "operand")]
+    pub(crate) operands: Vec<String>,
+}
+
+#[derive(Debug, clap::Args)]
+#[group(skip)]
+pub(crate) struct NewGroup {
+    #[command(flatten)]
+    pub(crate) base: Base,
 }
 
 /// What every `new <kind>` takes: the name, `--project`, `--description`, `--apply` and
@@ -271,6 +295,8 @@ impl NewEntity {
     /// The command's [`USAGE`](super::spec::USAGE) path.
     pub(crate) fn path(&self) -> &'static str {
         match self {
+            NewEntity::Project(_) => "new project",
+            NewEntity::Group(_) => "new group",
             NewEntity::Thing(_) => "new thing",
             NewEntity::ThingTemplate(_) => "new thing-template",
             NewEntity::ThingShape(_) => "new thing-shape",
@@ -292,6 +318,8 @@ impl NewEntity {
     /// What every kind takes.
     pub(crate) fn base(&self) -> &Base {
         match self {
+            NewEntity::Project(_) => panic!("a project has no shared entity base"),
+            NewEntity::Group(new) => &new.base,
             NewEntity::Thing(new) => &new.base,
             NewEntity::ThingTemplate(new) => &new.base,
             NewEntity::ThingShape(new) => &new.base,
@@ -314,11 +342,18 @@ impl NewEntity {
     fn request(&self, name: &str) -> NewRequest {
         let kind = Kind::parse(self.path().strip_prefix("new ").unwrap_or_default())
             .expect("new routes have known kinds");
-        let base = self.base();
         let mut request = NewRequest::blank(kind, name);
-        request.project.clone_from(&base.project.project);
-        request.description = base.description.clone().unwrap_or_default();
+        if !matches!(self, NewEntity::Project(_)) {
+            let base = self.base();
+            request.project.clone_from(&base.project.project);
+            request.description = base.description.clone().unwrap_or_default();
+        }
         match self {
+            NewEntity::Project(new) => {
+                request.description = new.description.clone().unwrap_or_default();
+                request.depends_on.clone_from(&new.depends_on);
+            }
+            NewEntity::Group(_) => {}
             NewEntity::Thing(new) => {
                 request.visibility.clone_from(&new.visibility);
                 request.template.clone_from(&new.template);
@@ -400,19 +435,21 @@ impl Event {
 
 /// `twaco new <kind> <name>`: plan a common entity, or create its XML and sidecars atomically.
 pub(crate) fn entity_new_cmd(solution: &Solution, new: &NewEntity) -> u8 {
-    let base = new.base();
-    let [name] = base.operands.as_slice() else {
+    let (operands, apply, json) = match new {
+        NewEntity::Project(new) => (&new.operands, new.apply.apply, new.json.json),
+        _ => {
+            let base = new.base();
+            (&base.operands, base.apply.apply, base.json.json)
+        }
+    };
+    let [name] = operands.as_slice() else {
         eprintln!("{} {} needs one <name>", style::prefix(), new.path());
         return FAILED;
     };
     let request = new.request(name);
     let request = commands::entity_new::Request {
         request,
-        mode: if base.apply.apply {
-            Mode::Apply
-        } else {
-            Mode::Plan
-        },
+        mode: if apply { Mode::Apply } else { Mode::Plan },
         lock_label: "new entity",
     };
     let mut notices = commands::Notices::default();
@@ -426,7 +463,7 @@ pub(crate) fn entity_new_cmd(solution: &Solution, new: &NewEntity) -> u8 {
     };
     print_notices(&notices);
     let report = entity::new::plan_json(solution, &outcome.plan, outcome.applied);
-    if base.json.json {
+    if json {
         println!(
             "{}",
             serde_json::to_string_pretty(&report).expect("new entity plan serialises")

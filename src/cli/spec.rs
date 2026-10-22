@@ -759,6 +759,18 @@ pub(crate) const USAGE: &[Usage] = &[
       --base-extension        the PTC.Base extension version to depend on (default: what another project declares)"#,
     },
     Usage {
+        path: "new project",
+        group: 1,
+        text: r#"  new project <name> [--description <text>] [--depends-on <P>]... [--apply] [--json]
+                              create a ThingWorx Project and add it to twaco.toml when needed; plan unless --apply"#,
+    },
+    Usage {
+        path: "new group",
+        group: 1,
+        text: r#"  new group <name> [--project <name>] [--description <text>] [--apply] [--json]
+                              create a ThingWorx Group without members as a repository file; plan unless --apply"#,
+    },
+    Usage {
         path: "thing property",
         group: 1,
         text: r#"  thing property add <Entity> <name>:<TYPE> [--default <value>] [--persistent] [--logged]

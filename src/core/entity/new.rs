@@ -5,7 +5,7 @@
 
 use crate::core::accumulated::accumulated_json;
 use crate::core::codes::{Coded, ErrorCode};
-use crate::core::config::{Project, Solution};
+use crate::core::config::{Project, Solution, CONFIG_FILE};
 use crate::core::datashape::{self, Aspect, Field};
 use crate::core::datatable;
 use crate::core::lock::WorkspaceLock;
@@ -22,6 +22,8 @@ use std::path::{Path, PathBuf};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Kind {
+    Project,
+    Group,
     Thing,
     ThingTemplate,
     ThingShape,
@@ -42,6 +44,8 @@ pub enum Kind {
 impl Kind {
     pub fn parse(word: &str) -> Option<Self> {
         Some(match word {
+            "project" => Self::Project,
+            "group" => Self::Group,
             "thing" => Self::Thing,
             "thing-template" => Self::ThingTemplate,
             "thing-shape" => Self::ThingShape,
@@ -63,6 +67,8 @@ impl Kind {
 
     pub fn word(self) -> &'static str {
         match self {
+            Self::Project => "project",
+            Self::Group => "group",
             Self::Thing => "thing",
             Self::ThingTemplate => "thing-template",
             Self::ThingShape => "thing-shape",
@@ -83,6 +89,8 @@ impl Kind {
 
     pub(crate) fn collection(self) -> &'static str {
         match self {
+            Self::Project => "Projects",
+            Self::Group => "Groups",
             Self::Thing
             | Self::Timer
             | Self::Scheduler
@@ -142,6 +150,7 @@ pub struct NewRequest {
     pub label: Option<String>,
     pub from: Option<String>,
     pub props: Vec<String>,
+    pub depends_on: Vec<String>,
     pub(crate) theme_content: Option<String>,
 }
 
@@ -187,6 +196,7 @@ impl NewRequest {
             label: None,
             from: None,
             props: Vec::new(),
+            depends_on: Vec::new(),
             theme_content: None,
         }
     }
@@ -202,6 +212,8 @@ pub struct Plan {
     pub(crate) duration_ms: Option<u64>,
     pub cron: Option<String>,
     pub script: Option<String>,
+    pub(crate) config_before: Option<String>,
+    pub(crate) config_after: Option<String>,
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -265,6 +277,23 @@ fn entity_exists(solution: &Solution, collection: &str, name: &str) -> bool {
     workspace::entities(solution)
         .iter()
         .any(|entry| entry.info.collection == collection && entry.info.name == name)
+}
+
+fn project_version(solution: &Solution, name: &str) -> String {
+    let Some(file) = entity_file(solution, "Projects", name) else {
+        return "1.0.0".into();
+    };
+    let Ok(source) = std::fs::read_to_string(file.path) else {
+        return "1.0.0".into();
+    };
+    source
+        .find("packageVersion=\"")
+        .and_then(|start| {
+            let value = &source[start + "packageVersion=\"".len()..];
+            value.find('"').map(|end| value[..end].to_string())
+        })
+        .filter(|version| !version.is_empty())
+        .unwrap_or_else(|| "1.0.0".into())
 }
 
 fn platform_has(solution: &Solution, kind: &str, name: &str) -> bool {
@@ -976,7 +1005,12 @@ fn theme_content(request: &NewRequest) -> String {
     jackson_pretty(&value)
 }
 
+#[allow(
+    clippy::too_many_arguments,
+    reason = "the renderer shares parsed values across all entity skeletons"
+)]
 fn make_xml(
+    solution: &Solution,
     request: &NewRequest,
     project: &str,
     visibility: &[Visibility],
@@ -989,6 +1023,19 @@ fn make_xml(
     let name = escape(&request.name);
     let common = common_tail(visibility);
     match request.kind {
+        Kind::Project => {
+            let dependencies = request
+                .depends_on
+                .iter()
+                .map(|dependency| format!("{dependency}:{}", project_version(solution, dependency)))
+                .collect::<Vec<_>>()
+                .join(",");
+            let depends_on = escape(&format!(
+                "{{\"extensions\":\"\",\"projects\":\"{dependencies}\"}}"
+            ));
+            format!("{}        <Project\n         artifactId=\"\"\n         aspect.projectType=\"Component\"\n         dependsOn=\"{depends_on}\"\n         description=\"{desc}\"\n         documentationContent=\"\"\n         groupId=\"\"\n         homeMashup=\"\"\n         minPlatformVersion=\"\"\n         name=\"{name}\"\n         packageVersion=\"1.0.0\"\n         projectName=\"{project}\"\n         publishResult=\"\"\n         state=\"DRAFT\"\n         tags=\"\">\n            <avatar></avatar>\n            <DesignTimePermissions>\n                <Create></Create>\n                <Read></Read>\n                <Update></Update>\n                <Delete></Delete>\n                <Metadata></Metadata>\n            </DesignTimePermissions>\n            <RunTimePermissions></RunTimePermissions>\n            <VisibilityPermissions>\n                <Visibility></Visibility>\n            </VisibilityPermissions>\n            <ConfigurationTableDefinitions></ConfigurationTableDefinitions>\n            <ConfigurationTables></ConfigurationTables>\n        </Project>\n{}", header("Projects"), footer("Projects"))
+        }
+        Kind::Group => format!("{}        <Group\n         description=\"{desc}\"\n         documentationContent=\"\"\n         homeMashup=\"\"\n         name=\"{name}\"\n         projectName=\"{project}\"\n         scimDisplayName=\"\"\n         scimExternalId=\"\"\n         scimId=\"\"\n         tags=\"\">\n{common}\n            <Members>\n                <Members></Members>\n            </Members>\n        </Group>\n{}", header("Groups"), footer("Groups")),
         Kind::DataTable => data_thing(
             request,
             project,
@@ -1081,14 +1128,29 @@ pub(crate) fn plan(solution: &Solution, request: &NewRequest) -> Result<Plan, Ne
             "give --then or --script, not both".into(),
         ));
     }
-    let project = project(solution, &request.project, request.kind)?;
+    if request.kind == Kind::Project && request.project.is_some() {
+        return Err(NewError::Invalid(
+            "new project does not take --project".into(),
+        ));
+    }
+    let declared_project = solution.project(&request.name);
+    let project = if request.kind == Kind::Project {
+        declared_project
+    } else {
+        Some(project(solution, &request.project, request.kind)?)
+    };
+    let project_name = project
+        .map(|project| project.name.clone())
+        .unwrap_or_else(|| request.name.clone());
+    let project_root = project
+        .map(|project| solution.project_root(project))
+        .unwrap_or_else(|| solution.root.join(&request.name));
     let visibility = request
         .visibility
         .iter()
         .map(|value| parse_visibility(value).map_err(|error| NewError::Invalid(error.to_string())))
         .collect::<Result<Vec<_>, _>>()?;
-    let path = solution
-        .project_root(project)
+    let path = project_root
         .join(request.kind.collection())
         .join(format!("{}.xml", request.name));
     if path.exists() || entity_exists(solution, request.kind.collection(), &request.name) {
@@ -1309,8 +1371,9 @@ pub(crate) fn plan(solution: &Solution, request: &NewRequest) -> Result<Plan, Ne
         }
     }
     let entity = make_xml(
+        solution,
         &rendered,
-        &project.name,
+        &project_name,
         &visibility,
         &fields,
         duration,
@@ -1350,15 +1413,52 @@ pub(crate) fn plan(solution: &Solution, request: &NewRequest) -> Result<Plan, Ne
             .map_err(NewError::Invalid)?;
         refuse_file_on_the_way(&solution.root, sidecar)?;
     }
+    let (config_before, config_after) =
+        if request.kind == Kind::Project && declared_project.is_none() {
+            let path = solution.root.join(CONFIG_FILE);
+            let before = std::fs::read_to_string(&path)
+                .map_err(|error| NewError::Invalid(format!("{}: {error}", path.display())))?;
+            let eol = workspace::line_ending(&before);
+            let separator = if before.ends_with('\n') { "" } else { eol };
+            let dependencies = if request.depends_on.is_empty() {
+                String::new()
+            } else {
+                format!(
+                    "depends_on = [{}]\n",
+                    request
+                        .depends_on
+                        .iter()
+                        .map(|dependency| format!("\"{}\"", dependency.replace('"', "\\\"")))
+                        .collect::<Vec<_>>()
+                        .join(", ")
+                )
+            };
+            let addition = format!(
+                "\n[[project]]\nname = \"{}\"\nroot = \"{}\"\n{dependencies}",
+                request.name.replace('"', "\\\""),
+                request.name.replace('"', "\\\"")
+            );
+            (
+                Some(before.clone()),
+                Some(format!(
+                    "{before}{separator}{}",
+                    addition.replace('\n', eol)
+                )),
+            )
+        } else {
+            (None, None)
+        };
     Ok(Plan {
         request: request.clone(),
-        project: project.name.clone(),
+        project: project_name,
         entity_path: path,
         entity,
         sidecars,
         duration_ms: duration,
         cron,
         script,
+        config_before,
+        config_after,
     })
 }
 
@@ -1376,13 +1476,22 @@ pub(crate) fn apply(
             .create_file(path, bytes.clone())
             .map_err(NewError::Write)?;
     }
+    if let (Some(before), Some(after)) = (&plan.config_before, &plan.config_after) {
+        transaction
+            .replace_file(
+                &solution.root.join(CONFIG_FILE),
+                before.as_bytes(),
+                after.as_bytes().to_vec(),
+            )
+            .map_err(NewError::Write)?;
+    }
     transaction.apply(lock).map_err(NewError::Write)?;
     Ok(())
 }
 
 pub fn plan_json(solution: &Solution, plan: &Plan, applied: bool) -> Value {
     let relative = |path: &Path| solution.relative(path);
-    json!({ "applied": applied, "kind": plan.request.kind.word(), "name": plan.request.name, "project": plan.project, "files": std::iter::once(relative(&plan.entity_path)).chain(plan.sidecars.iter().map(|(path, _)| relative(path))).collect::<Vec<_>>(), "every_ms": plan.duration_ms, "cron": plan.cron, "runs": plan.script.as_ref().map(|code| code.lines().next().unwrap_or_default()) })
+    json!({ "applied": applied, "kind": plan.request.kind.word(), "name": plan.request.name, "project": plan.project, "files": std::iter::once(relative(&plan.entity_path)).chain(plan.sidecars.iter().map(|(path, _)| relative(path))).collect::<Vec<_>>(), "twaco_toml": plan.config_after.as_ref().map(|_| "project appended"), "every_ms": plan.duration_ms, "cron": plan.cron, "runs": plan.script.as_ref().map(|code| code.lines().next().unwrap_or_default()) })
 }
 
 #[cfg(test)]
@@ -1410,9 +1519,20 @@ mod tests {
             "[solution]\nsrc = \"src\"\n[[project]]\nname = \"Acme.Orders\"\nroot = \"app\"\n",
         )
         .unwrap();
-        for collection in ["Things", "ThingTemplates", "ThingShapes", "DataShapes"] {
+        for collection in [
+            "Things",
+            "ThingTemplates",
+            "ThingShapes",
+            "DataShapes",
+            "Projects",
+        ] {
             std::fs::create_dir_all(dir.path().join("app").join(collection)).unwrap();
         }
+        std::fs::write(
+            dir.path().join("app/Projects/Acme.Orders.xml"),
+            "<Entities><Projects><Project name=\"Acme.Orders\" projectName=\"Acme.Orders\"/></Projects></Entities>",
+        )
+        .unwrap();
         std::fs::write(dir.path().join("app/ThingTemplates/GenericThing.xml"), "<Entities><ThingTemplates><ThingTemplate name=\"GenericThing\" projectName=\"Acme.Orders\"/></ThingTemplates></Entities>").unwrap();
         let solution = Solution::load(&dir.path().join("twaco.toml")).unwrap();
         (dir, solution)
@@ -1458,6 +1578,7 @@ mod tests {
             label: None,
             from: None,
             props: Vec::new(),
+            depends_on: Vec::new(),
             theme_content: None,
         }
     }
@@ -1827,6 +1948,33 @@ mod tests {
             .filter(|gate| !gate.ok())
             .collect();
         assert!(failing.is_empty(), "{failing:?}");
+    }
+
+    #[test]
+    fn project_appends_its_config_and_group_has_no_members() {
+        let (_dir, solution) = fixture();
+        let mut project = request(Kind::Project, "Acme.Inventory");
+        project.depends_on.push("Acme.Orders".into());
+        apply(&solution, project);
+        let config = std::fs::read_to_string(solution.root.join(CONFIG_FILE)).unwrap();
+        assert!(config.contains("name = \"Acme.Inventory\""));
+        assert!(config.contains("depends_on = [\"Acme.Orders\"]"));
+        let project = std::fs::read_to_string(
+            solution
+                .root
+                .join("Acme.Inventory/Projects/Acme.Inventory.xml"),
+        )
+        .unwrap();
+        assert!(project.contains("aspect.projectType=\"Component\""));
+        assert!(project.contains("projects&quot;:&quot;Acme.Orders:1.0.0"));
+
+        let mut group = request(Kind::Group, "Acme.Orders.Viewers_UG");
+        group.project = Some("Acme.Orders".into());
+        apply(&solution, group);
+        let group =
+            std::fs::read_to_string(solution.root.join("app/Groups/Acme.Orders.Viewers_UG.xml"))
+                .unwrap();
+        assert!(group.contains("<Members>\n                <Members></Members>"));
     }
 
     #[test]

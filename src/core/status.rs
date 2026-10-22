@@ -14,6 +14,8 @@ use super::workspace::EntityFile;
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Verdict {
     InSync,
+    /// Both sides changed since the baseline, but now contain the same normalised content.
+    Converged,
     LocalChanged,
     ServerChanged,
     BothChanged,
@@ -23,8 +25,9 @@ pub enum Verdict {
 }
 
 impl Verdict {
-    pub(crate) const ALL: [Verdict; 7] = [
+    pub(crate) const ALL: [Verdict; 8] = [
         Verdict::InSync,
+        Verdict::Converged,
         Verdict::LocalChanged,
         Verdict::ServerChanged,
         Verdict::BothChanged,
@@ -36,6 +39,7 @@ impl Verdict {
     pub fn label(self) -> &'static str {
         match self {
             Verdict::InSync => "in-sync",
+            Verdict::Converged => "converged",
             Verdict::LocalChanged => "local-changed",
             Verdict::ServerChanged => "server-changed",
             Verdict::BothChanged => "both-changed",
@@ -47,7 +51,10 @@ impl Verdict {
 
     /// Whether this verdict means the two sides need attention.
     pub fn is_drift(self) -> bool {
-        !matches!(self, Verdict::InSync | Verdict::NoBaselineSame)
+        !matches!(
+            self,
+            Verdict::InSync | Verdict::Converged | Verdict::NoBaselineSame
+        )
     }
 }
 
@@ -71,6 +78,7 @@ pub(crate) fn verdict(
         (false, false) => Verdict::InSync,
         (true, false) => Verdict::LocalChanged,
         (false, true) => Verdict::ServerChanged,
+        (true, true) if working == server => Verdict::Converged,
         (true, true) => Verdict::BothChanged,
     }
 }
@@ -202,10 +210,15 @@ mod tests {
             verdict("b", Some("c"), Some(("a", "a"))),
             Verdict::BothChanged
         );
+        assert_eq!(
+            verdict("b", Some("b"), Some(("a", "a"))),
+            Verdict::Converged
+        );
         assert_eq!(verdict("a", None, Some(("a", "a"))), Verdict::NotOnServer);
         assert_eq!(verdict("a", Some("a"), None), Verdict::NoBaselineSame);
         assert_eq!(verdict("a", Some("b"), None), Verdict::NoBaselineDiffers);
         assert!(!Verdict::NoBaselineSame.is_drift());
+        assert!(!Verdict::Converged.is_drift());
         assert!(Verdict::NoBaselineDiffers.is_drift());
     }
 
