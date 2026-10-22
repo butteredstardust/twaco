@@ -9,10 +9,19 @@ use std::path::PathBuf;
 /// The requested configuration-table operation.
 #[derive(Clone, Debug)]
 pub enum ConfigTableAction {
+    /// The Thing's tables, when no table is named.
+    List,
     Read,
-    Backup { path: PathBuf },
-    Restore { path: PathBuf, mode: Mode },
-    Diff { entity: PathBuf },
+    Backup {
+        path: PathBuf,
+    },
+    Restore {
+        path: PathBuf,
+        mode: Mode,
+    },
+    Diff {
+        entity: PathBuf,
+    },
 }
 
 /// The arguments that affect a configuration-table operation.
@@ -27,6 +36,10 @@ pub struct ConfigTableRequest {
 /// The completed configuration-table operation.
 #[derive(Debug)]
 pub enum ConfigTableOutcome {
+    Listed {
+        tables: Vec<(String, String)>,
+        effects: Effects,
+    },
     Read {
         table: config_table::Table,
         effects: Effects,
@@ -51,7 +64,8 @@ impl ConfigTableOutcome {
     #[cfg(test)]
     pub(crate) const fn effects(&self) -> Effects {
         match self {
-            Self::Read { effects, .. }
+            Self::Listed { effects, .. }
+            | Self::Read { effects, .. }
             | Self::BackedUp { effects, .. }
             | Self::Restored { effects, .. }
             | Self::Diffed { effects, .. } => *effects,
@@ -104,6 +118,11 @@ where
         .map_err(ConfigTableCommandError::Profile)?;
     let remote = open(profile);
     match &request.action {
+        ConfigTableAction::List => Ok(ConfigTableOutcome::Listed {
+            tables: config_table::list(&remote, &request.thing)
+                .map_err(ConfigTableCommandError::Table)?,
+            effects: Effects::new(Access::None, Access::Read),
+        }),
         ConfigTableAction::Restore { path, mode } => {
             let saved = config_table::read_backup(path, &request.thing, &request.table)
                 .map_err(ConfigTableCommandError::Backup)?;
@@ -159,7 +178,7 @@ where
                         effects: Effects::new(Access::Read, Access::Read),
                     })
                 }
-                ConfigTableAction::Restore { .. } => unreachable!(),
+                ConfigTableAction::Restore { .. } | ConfigTableAction::List => unreachable!(),
             }
         }
     }

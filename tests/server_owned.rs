@@ -10,7 +10,8 @@ fn cli_status_push_and_deploy_expose_owned_parts_without_importing() {
     let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
     let address = listener.local_addr().unwrap();
     let server = std::thread::spawn(move || {
-        for _ in 0..5 {
+        // Five entity reads, and each deploy's read of its Project.
+        for _ in 0..7 {
             let (mut stream, _) = listener.accept().unwrap();
             let mut buffer = [0; 8192];
             let n = stream.read(&mut buffer).unwrap();

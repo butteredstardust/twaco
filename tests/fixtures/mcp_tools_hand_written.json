@@ -1117,16 +1117,17 @@
   },
   {
     "name": "entity_new",
-    "description": "Create a ThingWorx entity as a repository XML file: common Things, data Things, media, styles, states, menus, themes, and Networks. DataShape and DataTable creation also writes their managed sidecar. A dry run unless dry_run is false; apply takes the workspace lock and writes every file or none.",
+    "description": "Create a ThingWorx entity as a repository XML file: Projects, Groups, common Things, data Things, media, styles, states, menus, themes, and Networks. A new Project also appends its project declaration to twaco.toml. DataShape and DataTable creation also writes their managed sidecar. A dry run unless dry_run is false; apply takes the workspace lock and writes every file or none.",
     "inputSchema": {
       "required": ["kind", "name"],
       "additionalProperties": false,
       "type": "object",
       "properties": {
-        "kind": {"description": "`thing`, `thing-template`, `thing-shape`, `data-shape`, `timer`, `scheduler`, `data-table`, `stream`, `value-stream`, `media`, `style`, `state`, `menu`, `theme`, or `network`.", "type": "string", "enum": ["thing", "thing-template", "thing-shape", "data-shape", "timer", "scheduler", "data-table", "stream", "value-stream", "media", "style", "state", "menu", "theme", "network"]},
+        "kind": {"description": "`project`, `group`, `thing`, `thing-template`, `thing-shape`, `data-shape`, `timer`, `scheduler`, `data-table`, `stream`, `value-stream`, `media`, `style`, `state`, `menu`, `theme`, or `network`.", "type": "string", "enum": ["project", "group", "thing", "thing-template", "thing-shape", "data-shape", "timer", "scheduler", "data-table", "stream", "value-stream", "media", "style", "state", "menu", "theme", "network"]},
         "name": {"description": "The entity name.", "type": "string"},
         "project": {"type": "string"},
         "description": {"type": "string"},
+        "depends_on": {"type": "array", "items": {"type": "string"}},
         "visibility": {"type": "array", "items": {"type": "string"}},
         "template": {"type": "string"},
         "shape": {"type": "array", "items": {"type": "string"}},
@@ -1871,11 +1872,10 @@
   },
   {
     "name": "config_table",
-    "description": "Read one Thing's configuration table on the server, diff it against the entity XML in the repository, back it up to a new file in the solution (a backup is never overwritten), or restore it from such a backup. restore is a dry run unless dry_run is false; it refuses a backup of another Thing or table, and reads the table back.",
+    "description": "List a Thing's configuration tables, read one of them on the server, diff it against the entity XML in the repository, back it up to a new file in the solution (a backup is never overwritten), or restore it from such a backup. restore is a dry run unless dry_run is false; it refuses a backup of another Thing or table, and reads the table back.",
     "inputSchema": {
       "required": [
-        "thing",
-        "table"
+        "thing"
       ],
       "additionalProperties": false,
       "type": "object",
@@ -1884,11 +1884,14 @@
           "type": "string"
         },
         "table": {
-          "type": "string"
+          "description": "The table; list (the Thing's tables) needs none.",
+          "type": "string",
+          "default": ""
         },
         "action": {
           "type": "string",
           "enum": [
+            "list",
             "read",
             "diff",
             "restore",

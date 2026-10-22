@@ -67,6 +67,7 @@ const OPEN_WORLD: &[&str] = &[
     "types",
     "check",
     "status",
+    "entity_pull",
     "push",
     "entity_delete",
     "entity_restore",
@@ -119,13 +120,22 @@ const ADDITIVE: &[&str] = &[
     "handoff",
     "new_building_block",
     "entity_new",
+    "entity_pull",
     "mashup_new",
     "permissions_init",
     "requirements_init",
 ];
 
 /// Writing tools that, called again with the same arguments, change nothing more.
-const IDEMPOTENT: &[&str] = &["types", "fmt", "extract", "sync", "status", "bundle"];
+const IDEMPOTENT: &[&str] = &[
+    "types",
+    "fmt",
+    "extract",
+    "sync",
+    "status",
+    "bundle",
+    "entity_pull",
+];
 
 /// The MCP behaviour hints for a tool. Clients use them to decide what to ask a person before
 /// running it, so a hint errs towards caution: unlisted means destructive, not idempotent.
@@ -296,6 +306,13 @@ static TOOLS: LazyLock<Vec<Tool>> = LazyLock::new(|| {
             entity::status_tool,
         )
         .with_output::<outputs::StatusResult>(),
+        solution_progress_tool::<entity_requests::PullRequest>(
+            "entity_pull",
+            "Take server-changed entity exports into the repository, extract their sidecars and record their baselines. A dry run unless dry_run is false.",
+            false,
+            entity::pull_tool,
+        )
+        .with_output::<outputs::PullResult>(),
         solution_tool::<source_requests::SyncRequest>(
             "sync",
             "Write sidecars back into their entity XML: service scripts, DataShape fields, mashup content, DataTable configuration. This is how an edit to a script.js takes effect. check: true reports what would change and writes nothing. Takes the workspace lock while it writes.",
@@ -471,7 +488,7 @@ static TOOLS: LazyLock<Vec<Tool>> = LazyLock::new(|| {
         .with_output::<outputs::NewBuildingBlockResult>(),
         solution_tool::<refactor_requests::EntityNewRequest>(
             "entity_new",
-            "Create a ThingWorx entity as a repository XML file: common Things, data Things, media, styles, states, menus, themes, and Networks. DataShape and DataTable creation also writes their managed sidecar. A dry run unless dry_run is false; apply takes the workspace lock and writes every file or none.",
+            "Create a ThingWorx entity as a repository XML file: Projects, Groups, common Things, data Things, media, styles, states, menus, themes, and Networks. A new Project also appends its project declaration to twaco.toml. DataShape and DataTable creation also writes their managed sidecar. A dry run unless dry_run is false; apply takes the workspace lock and writes every file or none.",
             false,
             refactor::entity_new_tool,
         )
@@ -595,7 +612,7 @@ static TOOLS: LazyLock<Vec<Tool>> = LazyLock::new(|| {
         .with_output::<outputs::RetemplateResult>(),
         solution_tool::<data_requests::ConfigTableRequest>(
             "config_table",
-            "Read one Thing's configuration table on the server, diff it against the entity XML in the repository, back it up to a new file in the solution (a backup is never overwritten), or restore it from such a backup. restore is a dry run unless dry_run is false; it refuses a backup of another Thing or table, and reads the table back.",
+            "List a Thing's configuration tables, read one of them on the server, diff it against the entity XML in the repository, back it up to a new file in the solution (a backup is never overwritten), or restore it from such a backup. restore is a dry run unless dry_run is false; it refuses a backup of another Thing or table, and reads the table back.",
             false,
             data::config_table_tool,
         )
@@ -866,6 +883,7 @@ pub(crate) const GROUPS: &[(&str, &[&str])] = &[
     (
         "entity",
         &[
+            "entity_pull",
             "entity_delete",
             "entity_restore",
             "entity_carry",

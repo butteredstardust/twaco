@@ -172,6 +172,12 @@ and the like. `entity status --record` records the current state as the baseline
 two sides already agree, for a repository adopting twaco. It reports how many baselines it
 recorded; counts, detail and the exit status reflect the updated baseline.
 
+When only the server changed an entity, `twaco entity pull Acme.Thing --apply` takes that
+server version, preserving the repository file's layout and line endings, rewrites its sidecars,
+and records its baseline. `entity pull --all` takes every `server-changed` entity; a
+`no-baseline-differs` entity must be named explicitly. Pull refuses `local-changed` and
+`both-changed` entities: use `twaco adopt` to merge those changes instead.
+
 ### State that belongs to the server
 
 Use `[[server_owned]]` in `twaco.toml` for group membership assigned separately on each server,
@@ -519,6 +525,15 @@ server), and the `ui` and `test` types. Then `twaco check`, commit and `twaco de
 `twaco new` creates the common 10.1 entity exports in a project and plans unless `--apply` is
 given. Every kind accepts `--project`, one-line `--description`, and repeated
 `--visibility Organization/name` or `OrganizationalUnit/org:unit`.
+
+Create a project before deploying entities assigned to it; `new project` also appends its
+`[[project]]` entry when it is not already declared. `new group` creates an empty Group in a
+named project.
+
+```sh
+twaco new project Acme.Orders --depends-on Acme.Base --apply
+twaco new group Acme.Orders.Viewers_UG --project Acme.Orders --apply
+```
 
 ```sh
 twaco new thing Acme.Orders.Manager --template Acme.Orders.Manager_TT --shape Acme.Orders.Audit_TS

@@ -91,7 +91,7 @@ fn a_piped_stderr_shows_no_progress_and_stdout_is_plain() {
     let stdout = String::from_utf8(output.stdout).unwrap();
     assert_eq!(
         stdout,
-        "3 entity status(es)\n  in-sync             0\n  local-changed       0\n  \
+        "3 entity status(es)\n  in-sync             0\n  converged           0\n  local-changed       0\n  \
          server-changed      0\n  both-changed        0\n  not-on-server       0\n  \
          no-baseline-same    3\n  no-baseline-differs 0\n"
     );

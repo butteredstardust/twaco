@@ -238,6 +238,10 @@ new building-block <name> [--type standard|abstract|implementation] [--display-n
     --no-management-shape   an implementation without its own Management_TS
     --root <dir>            the project's folder (default: the block's name)
     --base-extension        the PTC.Base extension version to depend on (default: what another project declares)
+new project <name> [--description <text>] [--depends-on <P>]... [--apply] [--json]
+                            create a ThingWorx Project and add it to twaco.toml when needed; plan unless --apply
+new group <name> [--project <name>] [--description <text>] [--apply] [--json]
+                            create a ThingWorx Group without members as a repository file; plan unless --apply
 thing property add <Entity> <name>:<TYPE> [--default <value>] [--persistent] [--logged]
     [--read-only] [--category <text>] [--units <text>] [--data-shape <DataShape>]
     [--description <text>] [--apply] [--json]
@@ -250,7 +254,7 @@ thing property remove <Entity> <name> [--force] [--apply] [--json]
     --force                 remove or retype a property something still uses (they are listed)
 thing service add <Entity> <Name> [--param <name>:<TYPE>[:<DataShape>]]...
     [--returns <TYPE>[:<DataShape>]] [--description <text>] [--category <text>] [--private]
-    [--then <address> | --script <file.js>] [--apply] [--json]
+    [--then <code> | --script <file.js>] [--apply] [--json]
 thing service remove <Entity> <Name> [--force] [--apply] [--json]
                             add or remove an own script service and its managed sidecars; an
                             absent script is empty; plan unless --apply
@@ -323,6 +327,11 @@ new style <name> [--project <name>] [--description <text>] [--background <color>
 new state <name> --type numeric|string --state <spec>... [--project <name>] [--description <text>]
     [--apply] [--json]
                             create a StateDefinition; plan unless --apply
+    --state <spec>          <op><value>=<label>[;<style>:<value>]..., op <=, >=, ==, < or >
+                            (string states == only), or the catch-all *=<label>; styles
+                            background, foreground, secondary-background, line-color,
+                            line-style, line-thickness, bold, italic, underline, text-size,
+                            image, e.g. "<=10=Low;background:#00ff00"
 new menu <name> --item <Title=Mashup>... [--project <name>] [--description <text>] [--default]
     [--label <text>] [--apply] [--json]
                             create a Menu; plan unless --apply
@@ -359,10 +368,12 @@ network import <Network> --file <path> [--create-things] [--move] [--outside] [-
 entity status [<entity>|--all] [--detail] [--record]
                             entity: full name, last dotted segment, or Collection/Name
     --record                 record matching working/server hashes as baseline
+entity pull <entity>...|--all [--profile <name>] [--apply] [--json]
+                            take server-changed entities, extract sidecars and record baselines
 entity get <entity>         fetch raw server XML to stdout or --out <path>
                             Collection/Name: any server entity; a bare name: the repository's
     [--profile <name>]      server profile (default: default)
-entity push <entity> [--json]
+entity push <entity> [--apply] [--json]
                             import one entity, refusing if the server changed
     --apply                 actually push (without it, report what would happen)
     --force                 push over a server-side change; the server's copy is saved first
@@ -441,7 +452,8 @@ deploy [--apply] [--force] [--json]
     --only-projects <a,b>   include only these projects
     --skip-checks           skip the gates, server requirements too; scripts are still parsed
     --no-backup             with --force, do not save the server's copies first
-config-table <thing> <table> one Thing's configuration table on the server
+config-table <thing> [<table>]  one Thing's configuration table on the server; without a
+                            table, the Thing's tables
     --backup <file>         save it (never overwrites a file)
     --restore <file>        put a backup back; a plan unless --apply
     --diff                  compare with the entity XML in the repository

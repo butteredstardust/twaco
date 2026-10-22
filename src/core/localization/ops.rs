@@ -913,11 +913,6 @@ pub(crate) fn set(
             )
         }
     };
-    if !path.exists() && table != DEFAULT_TABLE {
-        return Err(LocalizationError::Arguments(format!(
-            "no file for table {table}; run `twaco localization new {table}`"
-        )));
-    }
     let previous = holding.and_then(|file| file.tokens.iter().find(|token| token.name == name));
     let token = Token {
         name: name.to_string(),

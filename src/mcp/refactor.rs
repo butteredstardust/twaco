@@ -97,6 +97,7 @@ pub(crate) fn entity_new_tool(
         name: nonempty(&arguments.name, "name")?.to_string(),
         project: arguments.project.as_ref().cloned(),
         description: arguments.description.as_ref().cloned().unwrap_or_default(),
+        depends_on: arguments.depends_on.items().to_vec(),
         visibility: arguments.visibility.items().to_vec(),
         template: arguments.template.as_ref().cloned(),
         shapes: arguments.shape.items().to_vec(),
@@ -134,6 +135,7 @@ pub(crate) fn entity_new_tool(
         theme_content: None,
     };
     let dry_run = arguments.dry_run;
+    let fetched = commands::entity_new::fetch_platform_names(solution, &request, "default");
     let request = commands::entity_new::Request {
         request,
         mode: if dry_run { Mode::Plan } else { Mode::Apply },
@@ -144,6 +146,9 @@ pub(crate) fn entity_new_tool(
         .map_err(ToolError::coded)?;
     let mut result = crate::core::entity::new::plan_json(solution, &outcome.plan, outcome.applied);
     result["dry_run"] = json!(dry_run);
+    if !fetched.is_empty() {
+        result["platform_cache"] = json!(fetched);
+    }
     add_notices(&mut result, &notices);
     Ok(result)
 }

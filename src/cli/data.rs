@@ -32,8 +32,17 @@ pub(crate) struct ConfigTable {
 /// `--restore` is a plan unless `--apply`, as every command that writes to a server is. It
 /// refuses a backup made from another Thing or table, and reads the table back afterwards.
 pub(crate) fn config_table(solution: &Solution, args: &ConfigTable) -> u8 {
-    if args.operands.len() != 2 {
-        eprintln!("{} config-table needs <thing> <table>", style::prefix());
+    let listing = args.operands.len() == 1;
+    if !listing && args.operands.len() != 2 {
+        eprintln!("{} config-table needs <thing> [<table>]", style::prefix());
+        return FAILED;
+    }
+    if listing && (args.backup.is_some() || args.restore.is_some() || args.diff) {
+        eprintln!(
+            "{} --backup, --restore and --diff need a <table>; `twaco config-table {}` lists them",
+            style::prefix(),
+            args.operands[0]
+        );
         return FAILED;
     }
     let modes = [args.backup.is_some(), args.restore.is_some(), args.diff];
@@ -75,9 +84,15 @@ pub(crate) fn config_table(solution: &Solution, args: &ConfigTable) -> u8 {
             return FAILED;
         }
     };
-    let table = &args.operands[1];
-    let label = format!("{thing}.{table}");
-    let action = if let Some(path) = &args.restore {
+    let table = args.operands.get(1).cloned().unwrap_or_default();
+    let label = if listing {
+        thing.clone()
+    } else {
+        format!("{thing}.{table}")
+    };
+    let action = if listing {
+        commands::config_table::ConfigTableAction::List
+    } else if let Some(path) = &args.restore {
         commands::config_table::ConfigTableAction::Restore {
             path: path.clone(),
             mode: if args.apply.apply {
@@ -97,7 +112,7 @@ pub(crate) fn config_table(solution: &Solution, args: &ConfigTable) -> u8 {
     };
     let request = commands::config_table::ConfigTableRequest {
         thing,
-        table: table.to_string(),
+        table,
         action,
         profile: args.profile.name().to_string(),
     };
@@ -124,6 +139,22 @@ pub(crate) fn config_table(solution: &Solution, args: &ConfigTable) -> u8 {
     };
     print_notices(&notices);
     match outcome {
+        commands::config_table::ConfigTableOutcome::Listed { tables, .. } => {
+            if tables.is_empty() {
+                println!("{label} has no configuration tables");
+            }
+            for (name, description) in &tables {
+                if description.is_empty() {
+                    println!("{name}");
+                } else {
+                    println!("{name}  {description}");
+                }
+            }
+            if !tables.is_empty() {
+                println!("read one: twaco config-table {label} \"<table>\"");
+            }
+            OK
+        }
         commands::config_table::ConfigTableOutcome::Restored { plan, .. } => {
             let apply = args.apply.apply;
             match Ok::<_, config_table::TableError>(plan) {
@@ -506,6 +537,14 @@ pub(crate) fn logs_cmd(solution: &Solution, args: &Logs) -> u8 {
         Ok(outcome) => outcome,
         Err(error) => {
             eprintln!("{} logs: {error}", style::prefix());
+            // A name the platform does not ship is the likely cause of a missing log.
+            if error.to_string().contains("404") && !logs::LOGS.contains(&query.log.as_str()) {
+                eprintln!(
+                    "{} the platform's logs are {}",
+                    style::prefix(),
+                    logs::LOGS.join(", ")
+                );
+            }
             return FAILED;
         }
     };

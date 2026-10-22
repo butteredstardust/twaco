@@ -171,6 +171,24 @@ pub(crate) fn fetch(remote: &dyn Remote, thing: &str, table: &str) -> Result<Tab
 }
 
 /// The primary-key fields a DataShape declares, sorted so the key text is stable.
+/// The Thing's configuration tables, `(name, description)`, in the server's order.
+pub(crate) fn list(remote: &dyn Remote, thing: &str) -> Result<Vec<(String, String)>, TableError> {
+    let target = ServiceTarget::Thing(thing.to_string());
+    let reply = remote
+        .call(&target, "GetConfigurationTables", &serde_json::json!({}))
+        .map_err(TableError::Remote)?
+        .unwrap_or_default();
+    let text = |row: &Value, key: &str| row[key].as_str().unwrap_or_default().to_string();
+    Ok(reply["rows"]
+        .as_array()
+        .map(|rows| {
+            rows.iter()
+                .map(|row| (text(row, "name"), text(row, "description")))
+                .collect()
+        })
+        .unwrap_or_default())
+}
+
 pub fn primary_key(data_shape: &Value) -> Vec<String> {
     let mut key: Vec<String> = data_shape
         .get("fieldDefinitions")
@@ -1099,6 +1117,33 @@ mod tests {
             [
                 "row b: on server, missing from source control",
                 "row c: in source control, missing on server",
+            ]
+        );
+    }
+
+    #[test]
+    fn a_thing_s_tables_are_listed_by_name_and_description() {
+        struct Tables;
+        impl Remote for Tables {
+            fn call(
+                &self,
+                target: &ServiceTarget,
+                service: &str,
+                _: &Value,
+            ) -> Result<Option<Value>, ServerError> {
+                assert_eq!(target.to_string(), "T");
+                assert_eq!(service, "GetConfigurationTables");
+                Ok(Some(json!({"rows": [
+                    {"name": "Settings", "description": "how it runs"},
+                    {"name": "Rows", "description": ""}
+                ]})))
+            }
+        }
+        assert_eq!(
+            list(&Tables, "T").unwrap(),
+            [
+                ("Settings".to_string(), "how it runs".to_string()),
+                ("Rows".to_string(), String::new())
             ]
         );
     }

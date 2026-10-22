@@ -759,6 +759,18 @@ pub(crate) const USAGE: &[Usage] = &[
       --base-extension        the PTC.Base extension version to depend on (default: what another project declares)"#,
     },
     Usage {
+        path: "new project",
+        group: 1,
+        text: r#"  new project <name> [--description <text>] [--depends-on <P>]... [--apply] [--json]
+                              create a ThingWorx Project and add it to twaco.toml when needed; plan unless --apply"#,
+    },
+    Usage {
+        path: "new group",
+        group: 1,
+        text: r#"  new group <name> [--project <name>] [--description <text>] [--apply] [--json]
+                              create a ThingWorx Group without members as a repository file; plan unless --apply"#,
+    },
+    Usage {
         path: "thing property",
         group: 1,
         text: r#"  thing property add <Entity> <name>:<TYPE> [--default <value>] [--persistent] [--logged]
@@ -777,7 +789,7 @@ pub(crate) const USAGE: &[Usage] = &[
         group: 1,
         text: r#"  thing service add <Entity> <Name> [--param <name>:<TYPE>[:<DataShape>]]...
       [--returns <TYPE>[:<DataShape>]] [--description <text>] [--category <text>] [--private]
-      [--then <address> | --script <file.js>] [--apply] [--json]
+      [--then <code> | --script <file.js>] [--apply] [--json]
   thing service remove <Entity> <Name> [--force] [--apply] [--json]
                               add or remove an own script service and its managed sidecars; an
                               absent script is empty; plan unless --apply
@@ -929,7 +941,12 @@ pub(crate) const USAGE: &[Usage] = &[
         group: 1,
         text: r#"  new state <name> --type numeric|string --state <spec>... [--project <name>] [--description <text>]
       [--apply] [--json]
-                              create a StateDefinition; plan unless --apply"#,
+                              create a StateDefinition; plan unless --apply
+      --state <spec>          <op><value>=<label>[;<style>:<value>]..., op <=, >=, ==, < or >
+                              (string states == only), or the catch-all *=<label>; styles
+                              background, foreground, secondary-background, line-color,
+                              line-style, line-thickness, bold, italic, underline, text-size,
+                              image, e.g. "<=10=Low;background:#00ff00""#,
     },
     Usage {
         path: "new menu",
@@ -1009,6 +1026,12 @@ pub(crate) const USAGE: &[Usage] = &[
       --record                 record matching working/server hashes as baseline"#,
     },
     Usage {
+        path: "entity pull",
+        group: 2,
+        text: r#"  entity pull <entity>...|--all [--profile <name>] [--apply] [--json]
+                              take server-changed entities, extract sidecars and record baselines"#,
+    },
+    Usage {
         path: "entity get",
         group: 2,
         text: r#"  entity get <entity>         fetch raw server XML to stdout or --out <path>
@@ -1018,7 +1041,7 @@ pub(crate) const USAGE: &[Usage] = &[
     Usage {
         path: "entity push",
         group: 2,
-        text: r#"  entity push <entity> [--json]
+        text: r#"  entity push <entity> [--apply] [--json]
                               import one entity, refusing if the server changed
       --apply                 actually push (without it, report what would happen)
       --force                 push over a server-side change; the server's copy is saved first
@@ -1153,7 +1176,8 @@ pub(crate) const USAGE: &[Usage] = &[
     Usage {
         path: "config-table",
         group: 2,
-        text: r#"  config-table <thing> <table> one Thing's configuration table on the server
+        text: r#"  config-table <thing> [<table>]  one Thing's configuration table on the server; without a
+                              table, the Thing's tables
       --backup <file>         save it (never overwrites a file)
       --restore <file>        put a backup back; a plan unless --apply
       --diff                  compare with the entity XML in the repository

@@ -107,6 +107,8 @@ fn default_datatable_copy_max_rows() -> u64 {
 
 #[derive(Clone, Copy, Debug, Deserialize, JsonSchema, PartialEq, Eq, Serialize)]
 pub(crate) enum ConfigTableAction {
+    #[serde(rename = "list")]
+    List,
     #[serde(rename = "read")]
     Read,
     #[serde(rename = "diff")]
@@ -121,6 +123,8 @@ pub(crate) enum ConfigTableAction {
 #[serde(deny_unknown_fields)]
 pub(crate) struct ConfigTableRequest {
     pub thing: String,
+    /// The table; list (the Thing's tables) needs none.
+    #[serde(default)]
     pub table: String,
     #[serde(default = "default_config_table_action")]
     pub action: ConfigTableAction,

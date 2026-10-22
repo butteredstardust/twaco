@@ -337,6 +337,10 @@ pub(crate) struct MashupNewRequest {
 
 #[derive(Clone, Copy, Debug, Deserialize, JsonSchema, PartialEq, Eq, Serialize)]
 pub(crate) enum EntityNewKind {
+    #[serde(rename = "project")]
+    Project,
+    #[serde(rename = "group")]
+    Group,
     #[serde(rename = "thing")]
     Thing,
     #[serde(rename = "thing-template")]
@@ -372,6 +376,8 @@ pub(crate) enum EntityNewKind {
 impl From<EntityNewKind> for crate::core::entity::new::Kind {
     fn from(value: EntityNewKind) -> Self {
         match value {
+            EntityNewKind::Project => Self::Project,
+            EntityNewKind::Group => Self::Group,
             EntityNewKind::Thing => Self::Thing,
             EntityNewKind::ThingTemplate => Self::ThingTemplate,
             EntityNewKind::ThingShape => Self::ThingShape,
@@ -394,7 +400,7 @@ impl From<EntityNewKind> for crate::core::entity::new::Kind {
 #[derive(Debug, Deserialize, JsonSchema, Serialize)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct EntityNewRequest {
-    /// `thing`, `thing-template`, `thing-shape`, `data-shape`, `timer`, `scheduler`, `data-table`, `stream`, `value-stream`, `media`, `style`, `state`, `menu`, `theme`, or `network`.
+    /// `project`, `group`, `thing`, `thing-template`, `thing-shape`, `data-shape`, `timer`, `scheduler`, `data-table`, `stream`, `value-stream`, `media`, `style`, `state`, `menu`, `theme`, or `network`.
     pub(crate) kind: EntityNewKind,
     /// The entity name.
     pub(crate) name: String,
@@ -402,6 +408,8 @@ pub(crate) struct EntityNewRequest {
     pub(crate) project: Absent<String>,
     #[serde(default, skip_serializing_if = "Absent::is_absent")]
     pub(crate) description: Absent<String>,
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) depends_on: Absent<Vec<String>>,
     #[serde(default, skip_serializing_if = "Absent::is_absent")]
     pub(crate) visibility: Absent<Vec<String>>,
     #[serde(default, skip_serializing_if = "Absent::is_absent")]

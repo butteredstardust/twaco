@@ -1126,3 +1126,31 @@ fn json_check_output_is_all_findings_and_no_summary() {
     assert!(!stdout.iter().any(|line| line.starts_with("types:")));
     assert!(check_summary(&outcome).starts_with("types: 2 finding(s)"));
 }
+
+#[test]
+fn one_platform_template_is_added_to_the_cache_and_the_rest_kept() {
+    let (_guard, root, solution) = fixture_solution("cache-one", &[]);
+    std::fs::create_dir_all(root.join(".twaco")).unwrap();
+    std::fs::write(
+        root.join(".twaco/platform.json"),
+        r#"{"templates":{"GenericThing":{}},"shapes":{},"resources":{}}"#,
+    )
+    .unwrap();
+    let remote = FakeRemote::new(BTreeMap::from([(
+        (
+            "ThingTemplates/FileRepository".into(),
+            "GetInstanceMetadataAsJSON".into(),
+        ),
+        ok(metadata("name")),
+    )]));
+    assert!(
+        super::platform::cache_one(&remote, &solution, "ThingTemplates", "FileRepository").unwrap()
+    );
+    let cache = super::platform::cached(&solution).unwrap();
+    assert!(cache.templates.contains_key("FileRepository"));
+    assert!(cache.templates.contains_key("GenericThing"));
+    // Already cached: no second call (the fake would panic on one).
+    assert!(
+        super::platform::cache_one(&remote, &solution, "ThingTemplates", "FileRepository").unwrap()
+    );
+}

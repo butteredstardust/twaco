@@ -24,10 +24,16 @@ fn solution_dir() -> (tempfile::TempDir, PathBuf) {
         .unwrap();
     let root = root_guard.path().to_path_buf();
     std::fs::create_dir_all(root.join("Things")).unwrap();
+    std::fs::create_dir_all(root.join("Projects")).unwrap();
     std::fs::write(root.join("twaco.toml"), "[[project]]\nname = \"P\"\n").unwrap();
     std::fs::write(
         root.join("Things/P.T.xml"),
         "<Entities><Things><Thing name=\"P.T\" projectName=\"P\"></Thing></Things></Entities>",
+    )
+    .unwrap();
+    std::fs::write(
+        root.join("Projects/P.xml"),
+        "<Entities><Projects><Project name=\"P\" projectName=\"P\"></Project></Projects></Entities>",
     )
     .unwrap();
     (root_guard, root)
@@ -1033,6 +1039,7 @@ fn every_tool_is_listed_with_a_schema_and_honest_annotations() {
             "types",
             "check",
             "status",
+            "entity_pull",
             "sync",
             "extract",
             "fmt",
@@ -1401,7 +1408,7 @@ fn projects_and_check_answer_offline_with_structured_content() {
     );
     let projects = &responses[1]["result"]["structuredContent"];
     assert_eq!(projects["projects"][0]["name"], "P");
-    assert_eq!(projects["projects"][0]["entities"], 1);
+    assert_eq!(projects["projects"][0]["entities"], 2);
     let check = &responses[2]["result"]["structuredContent"];
     assert!(check["gates"].as_array().unwrap().len() >= 6);
     assert!(
@@ -2291,7 +2298,7 @@ fn package_reports_what_it_wrote_from_a_single_build() {
     let detail = &bundle["structuredContent"]["detail"];
     assert_eq!(
         (detail["entities"].as_u64(), detail["files"].as_u64()),
-        (Some(1), Some(1))
+        (Some(2), Some(2))
     );
     let written = std::fs::read(root.join("out/release.xml")).unwrap();
     assert_eq!(
@@ -2304,7 +2311,7 @@ fn package_reports_what_it_wrote_from_a_single_build() {
         json!({"action":"extension","out":"out/extension.zip","project":"P"}),
     );
     let detail = &extension["structuredContent"]["detail"];
-    assert_eq!(detail["entities"], 1, "{extension}");
+    assert_eq!(detail["entities"], 2, "{extension}");
     assert!(detail["version"].is_string());
     let solution = call(
         &root,
@@ -2495,7 +2502,8 @@ fn status_record_returns_matching_entities_in_sync_and_keeps_differing_verdicts(
     .unwrap();
     std::fs::write(root.join(".twaco/baseline.json"),r#"{"entities":{"Things":{"Acme.Same":{"local":"v7:old","server":"v7:old"},"Acme.Different":{"local":"v7:old","server":"v7:old"}}}}"#).unwrap();
     let before = call(root, "status", json!({"all":true,"detail":true}));
-    assert_eq!(body(&before)["counts"]["both-changed"], 2);
+    assert_eq!(body(&before)["counts"]["converged"], 1);
+    assert_eq!(body(&before)["counts"]["both-changed"], 1);
     let after = call(
         root,
         "status",
@@ -2725,7 +2733,7 @@ fn a_call_with_a_progress_token_gets_rising_notifications_before_its_response() 
         values.windows(2).all(|pair| pair[0] < pair[1]),
         "{values:?}"
     );
-    assert_eq!(*values.last().unwrap(), 7, "all 7 entities counted");
+    assert_eq!(*values.last().unwrap(), 8, "all 8 entities counted");
     assert!(notifications
         .iter()
         .all(|line| line["params"]["progressToken"] == "tok-1" && line["jsonrpc"] == "2.0"));

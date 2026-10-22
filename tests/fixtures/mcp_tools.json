@@ -606,6 +606,76 @@
     }
   },
   {
+    "name": "entity_pull",
+    "description": "Take server-changed entity exports into the repository, extract their sidecars and record their baselines. A dry run unless dry_run is false.",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "entities": {
+          "description": "Entity names, full or their last dotted segment. Name some, or pass all: true.",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "all": {
+          "description": "Every server-changed entity. No-baseline differences need explicit names.",
+          "type": "boolean",
+          "default": false
+        },
+        "dry_run": {
+          "description": "A plan unless false.",
+          "type": "boolean",
+          "default": true
+        },
+        "profile": {
+          "description": "Server profile name.",
+          "type": "string",
+          "default": "default"
+        }
+      },
+      "type": "object"
+    },
+    "annotations": {
+      "readOnlyHint": false,
+      "openWorldHint": true,
+      "destructiveHint": false,
+      "idempotentHint": true
+    },
+    "outputSchema": {
+      "required": [
+        "dry_run",
+        "entities",
+        "recorded"
+      ],
+      "properties": {
+        "dry_run": {
+          "type": "boolean"
+        },
+        "entities": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "recorded": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "notices": {
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "type": "object"
+    }
+  },
+  {
     "name": "sync",
     "description": "Write sidecars back into their entity XML: service scripts, DataShape fields, mashup content, DataTable configuration. This is how an edit to a script.js takes effect. check: true reports what would change and writes nothing. Takes the workspace lock while it writes.",
     "inputSchema": {
@@ -3341,7 +3411,7 @@
   },
   {
     "name": "entity_new",
-    "description": "Create a ThingWorx entity as a repository XML file: common Things, data Things, media, styles, states, menus, themes, and Networks. DataShape and DataTable creation also writes their managed sidecar. A dry run unless dry_run is false; apply takes the workspace lock and writes every file or none.",
+    "description": "Create a ThingWorx entity as a repository XML file: Projects, Groups, common Things, data Things, media, styles, states, menus, themes, and Networks. A new Project also appends its project declaration to twaco.toml. DataShape and DataTable creation also writes their managed sidecar. A dry run unless dry_run is false; apply takes the workspace lock and writes every file or none.",
     "inputSchema": {
       "required": [
         "kind",
@@ -3351,9 +3421,11 @@
       "type": "object",
       "properties": {
         "kind": {
-          "description": "`thing`, `thing-template`, `thing-shape`, `data-shape`, `timer`, `scheduler`, `data-table`, `stream`, `value-stream`, `media`, `style`, `state`, `menu`, `theme`, or `network`.",
+          "description": "`project`, `group`, `thing`, `thing-template`, `thing-shape`, `data-shape`, `timer`, `scheduler`, `data-table`, `stream`, `value-stream`, `media`, `style`, `state`, `menu`, `theme`, or `network`.",
           "type": "string",
           "enum": [
+            "project",
+            "group",
             "thing",
             "thing-template",
             "thing-shape",
@@ -3380,6 +3452,12 @@
         },
         "description": {
           "type": "string"
+        },
+        "depends_on": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
         },
         "visibility": {
           "type": "array",
@@ -5759,11 +5837,10 @@
   },
   {
     "name": "config_table",
-    "description": "Read one Thing's configuration table on the server, diff it against the entity XML in the repository, back it up to a new file in the solution (a backup is never overwritten), or restore it from such a backup. restore is a dry run unless dry_run is false; it refuses a backup of another Thing or table, and reads the table back.",
+    "description": "List a Thing's configuration tables, read one of them on the server, diff it against the entity XML in the repository, back it up to a new file in the solution (a backup is never overwritten), or restore it from such a backup. restore is a dry run unless dry_run is false; it refuses a backup of another Thing or table, and reads the table back.",
     "inputSchema": {
       "required": [
-        "thing",
-        "table"
+        "thing"
       ],
       "additionalProperties": false,
       "type": "object",
@@ -5772,11 +5849,14 @@
           "type": "string"
         },
         "table": {
-          "type": "string"
+          "description": "The table; list (the Thing's tables) needs none.",
+          "type": "string",
+          "default": ""
         },
         "action": {
           "type": "string",
           "enum": [
+            "list",
             "read",
             "diff",
             "restore",
@@ -6438,6 +6518,13 @@
         "applied": {
           "type": [
             "boolean",
+            "null"
+          ]
+        },
+        "local_copy": {
+          "description": "mv, rm: what happened to the copy under filerepository/",
+          "type": [
+            "string",
             "null"
           ]
         },
