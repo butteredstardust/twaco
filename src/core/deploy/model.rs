@@ -121,4 +121,6 @@ pub(crate) struct PlanOptions<'a> {
     pub(crate) only_projects: &'a [String],
     pub(crate) only: &'a [String],
     pub(crate) backend_only: bool,
+    pub(crate) changed_since: Option<&'a str>,
+    pub(crate) exclude: &'a [String],
 }

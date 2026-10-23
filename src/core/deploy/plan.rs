@@ -97,6 +97,9 @@ pub(crate) fn plan_bundles(
     use std::collections::BTreeSet;
     use std::path::PathBuf;
     let mut notes = Vec::new();
+    if options.changed_since.is_some() && !options.only.is_empty() {
+        return Err("--only cannot be combined with --changed-since".to_string());
+    }
     let order = match solution.deploy_order() {
         Ok(order) => order,
         Err(error) => {
@@ -136,7 +139,7 @@ pub(crate) fn plan_bundles(
 
     // `projectName` owns attribution. Folder membership is used only for the rare undeclared
     // entity, which workspace already reports as such.
-    let mut pool: Vec<super::workspace::EntityFile> = found
+    let pool: Vec<super::workspace::EntityFile> = found
         .entities
         .into_iter()
         .filter(|entity| {
@@ -148,6 +151,14 @@ pub(crate) fn plan_bundles(
             selected_projects.contains(owner) && selection.wants(&entity.info.collection)
         })
         .collect();
+
+    let (mut pool, selection_notes) = super::super::bundle::select_entities(
+        solution,
+        pool,
+        options.changed_since,
+        options.exclude,
+    )?;
+    notes.extend(selection_notes);
 
     if !options.only.is_empty() {
         let mut narrowed = Vec::new();
@@ -168,6 +179,12 @@ pub(crate) fn plan_bundles(
     if pool.is_empty() {
         return Err("the deploy selection contains no entities".to_string());
     }
+
+    let selected_paths: Vec<PathBuf> = pool.iter().map(|entity| entity.path.clone()).collect();
+    notes.extend(super::super::bundle::dangling_references(
+        &selected_paths,
+        &super::super::bundle::source_files(solution),
+    ));
 
     let source_order = super::bundle::source_files(solution);
     let mut projects = Vec::new();

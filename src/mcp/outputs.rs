@@ -693,6 +693,9 @@ pub(crate) struct BundleResult {
     files: Option<u64>,
     next: Option<String>,
     notes: Option<Vec<Value>>,
+    deleted: Option<Vec<String>>,
+    unmatched_excludes: Option<Vec<String>>,
+    left_out_references: Option<Vec<String>>,
     notices: Notices,
 }
 
@@ -748,6 +751,9 @@ struct PackageDetail {
     version: Option<String>,
     /// A solution's extension: each project's package.
     projects: Option<Vec<Value>>,
+    deleted: Option<Vec<String>>,
+    unmatched_excludes: Option<Vec<String>>,
+    left_out_references: Option<Vec<String>>,
 }
 
 /// A file's import answers with what it adds and replaces; a source-control one with the

@@ -447,13 +447,19 @@ help:
 |       --map a=b,...           source field -> target field (same names and the rename ledger match otherwise)
 |       --drop-unmapped         leave behind source fields that have no target field
 |       --append                allow a target that already has rows
-|   bundle [--backend-only] [--handoff <name>] [--apply]  write one importable document
+|   bundle [--backend-only] [--changed-since <git-rev>] [--exclude <entity-or-glob>] [--out <file>] [--profile <name>] [--handoff <name>] [--apply]  write one importable document
 |                               (always written: --apply is accepted and changes nothing)
 |       --check                 report whether the bundle is current, write nothing
+|       --changed-since <git-rev>  select changed entity files and sidecars since this revision
+|       --exclude <entity-or-glob> leave out this Collection/Name selector (repeatable)
+|       --out <file>            write or check this file instead of the configured dist bundle
+|       --profile <name>        apply this profile's mashup patches
 |   deploy [--apply] [--force] [--json]
 |                               check, bundle, live-parse, conflict-check, import
 |       --backend-only          exclude configured UI collections
 |       --only <entity>         include only this entity (repeatable)
+|       --changed-since <git-rev>  include entities changed since this revision
+|       --exclude <entity-or-glob> leave out this Collection/Name selector (repeatable)
 |       --only-projects <a,b>   include only these projects
 |       --skip-checks           skip the gates, server requirements too; scripts are still parsed
 |       --no-backup             with --force, do not save the server's copies first
@@ -945,7 +951,7 @@ help:
 |   --log-file <path>           append diagnostic logs to a file (or TWACO_LOG_FILE)
 
 == twaco bundle
-usage: twaco bundle [--backend-only] [--handoff <name>] [--apply]
+usage: twaco bundle [--backend-only] [--changed-since <git-rev>] [--exclude <entity-or-glob>] [--out <file>] [--profile <name>] [--handoff <name>] [--apply]
 settings: disable-version-flag disable-help-subcommand
 subcommands: 
 arg --apply
@@ -970,6 +976,18 @@ arg --backend-only
     index: -
     other: -
     given twice: accepted
+arg --changed-since
+    action: Set
+    value_name: git-rev
+    num_args: 1
+    allow_hyphen_values: yes
+    allow_negative_numbers: no
+    required: no
+    default: -
+    index: -
+    other: -
+    given twice: ArgumentConflict
+    given bare: InvalidValue
 arg --check
     action: SetTrue
     value_name: -
@@ -981,6 +999,18 @@ arg --check
     index: -
     other: -
     given twice: accepted
+arg --exclude
+    action: Append
+    value_name: entity-or-glob
+    num_args: 1
+    allow_hyphen_values: yes
+    allow_negative_numbers: no
+    required: no
+    default: -
+    index: -
+    other: -
+    given twice: accepted
+    given bare: InvalidValue
 arg --handoff
     action: Set
     value_name: name
@@ -1027,11 +1057,40 @@ arg --log-file
     other: -
     given twice: ArgumentConflict
     given bare: InvalidValue
+arg --out
+    action: Set
+    value_name: path
+    num_args: 1
+    allow_hyphen_values: yes
+    allow_negative_numbers: no
+    required: no
+    default: -
+    index: -
+    other: -
+    given twice: ArgumentConflict
+    given bare: InvalidValue
+arg --profile
+    action: Set
+    value_name: name
+    num_args: 1
+    allow_hyphen_values: yes
+    allow_negative_numbers: no
+    required: no
+    default: -
+    index: -
+    other: -
+    given twice: ArgumentConflict
+    given bare: InvalidValue
 help:
-|   bundle [--backend-only] [--handoff <name>] [--apply]  write one importable document
+|   bundle [--backend-only] [--changed-since <git-rev>] [--exclude <entity-or-glob>] [--out <file>] [--profile <name>] [--handoff <name>] [--apply]  write one importable document
 |                               (always written: --apply is accepted and changes nothing)
 |       --check                 report whether the bundle is current, write nothing
+|       --changed-since <git-rev>  select changed entity files and sidecars since this revision
+|       --exclude <entity-or-glob> leave out this Collection/Name selector (repeatable)
+|       --out <file>            write or check this file instead of the configured dist bundle
+|       --profile <name>        apply this profile's mashup patches
 | 
+|   --profile <name>            the server profile (default: default)
 |   --log <filter>              write diagnostic logs to stderr (or TWACO_LOG)
 |   --log-file <path>           append diagnostic logs to a file (or TWACO_LOG_FILE)
 
@@ -2474,6 +2533,30 @@ arg --backend-only
     index: -
     other: -
     given twice: accepted
+arg --changed-since
+    action: Set
+    value_name: git-rev
+    num_args: 1
+    allow_hyphen_values: yes
+    allow_negative_numbers: no
+    required: no
+    default: -
+    index: -
+    other: -
+    given twice: ArgumentConflict
+    given bare: InvalidValue
+arg --exclude
+    action: Append
+    value_name: entity-or-glob
+    num_args: 1
+    allow_hyphen_values: yes
+    allow_negative_numbers: no
+    required: no
+    default: -
+    index: -
+    other: -
+    given twice: accepted
+    given bare: InvalidValue
 arg --force
     action: SetTrue
     value_name: -
@@ -2593,6 +2676,8 @@ help:
 |                               check, bundle, live-parse, conflict-check, import
 |       --backend-only          exclude configured UI collections
 |       --only <entity>         include only this entity (repeatable)
+|       --changed-since <git-rev>  include entities changed since this revision
+|       --exclude <entity-or-glob> leave out this Collection/Name selector (repeatable)
 |       --only-projects <a,b>   include only these projects
 |       --skip-checks           skip the gates, server requirements too; scripts are still parsed
 |       --no-backup             with --force, do not save the server's copies first

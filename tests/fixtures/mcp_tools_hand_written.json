@@ -788,6 +788,17 @@
           },
           "description": "Only these entities; post-import services are skipped."
         },
+        "changed_since": {
+          "description": "Select entities whose source file or sidecars changed since this Git revision.",
+          "type": "string"
+        },
+        "exclude": {
+          "description": "Remove matching Collection/Name selectors from the selected entities.",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
         "only_projects": {
           "type": "array",
           "items": {
@@ -2475,6 +2486,25 @@
           "description": "Leave out the collections [bundle] ui_collections names (a designer's mashups and media).",
           "type": "boolean",
           "default": false
+        },
+        "changed_since": {
+          "description": "Select entities whose source file or sidecars changed since this Git revision.",
+          "type": "string"
+        },
+        "exclude": {
+          "description": "Remove matching Collection/Name selectors from the selected entities.",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "out": {
+          "description": "Write or check this bundle path inside the solution instead of [bundle]'s dist target.",
+          "type": "string"
+        },
+        "profile": {
+          "description": "Apply this profile's mashup patches from twaco.toml; without it, none apply.",
+          "type": "string"
         },
         "handoff": {
           "description": "Record the rebuilt bundle as this collaborator handoff; only with dry_run false.",

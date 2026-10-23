@@ -12,6 +12,7 @@
 use super::config::Solution;
 use super::entity;
 use super::scan::{self, Kind};
+use super::{adopt, git, patch, workspace};
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 
@@ -435,6 +436,182 @@ pub(crate) fn source_files(solution: &Solution) -> Vec<PathBuf> {
     out
 }
 
+/// The local entity selection shared by bundle and deploy.
+pub(crate) fn select_entities(
+    solution: &Solution,
+    candidates: Vec<workspace::EntityFile>,
+    changed_since: Option<&str>,
+    exclude: &[String],
+) -> Result<(Vec<workspace::EntityFile>, Vec<String>), String> {
+    let mut notes = Vec::new();
+    let mut changed = None;
+    if let Some(revision) = changed_since {
+        validate_changed_since(solution, revision)?;
+        // Paths relative to the solution, NUL-separated so no name is quoted, and a rename as a
+        // deletion plus an addition so the old name is reported.
+        let diff = git::output(
+            &solution.root,
+            [
+                "diff",
+                "--name-only",
+                "-z",
+                "--no-renames",
+                "--relative",
+                revision,
+                "--",
+            ],
+        )?;
+        let untracked = git::output(
+            &solution.root,
+            ["ls-files", "-z", "--others", "--exclude-standard"],
+        )?;
+        let paths: Vec<PathBuf> = diff
+            .split('\0')
+            .chain(untracked.split('\0'))
+            .filter(|line| !line.is_empty())
+            .map(|line| solution.root.join(line))
+            .collect();
+        let src = solution.src_root();
+        let selected: BTreeSet<PathBuf> = candidates
+            .iter()
+            .filter(|entity| {
+                let sidecar = src.join(&entity.info.name);
+                paths
+                    .iter()
+                    .any(|path| *path == entity.path || path.starts_with(&sidecar))
+            })
+            .map(|entity| entity.path.clone())
+            .collect();
+        for relative in diff.split('\0').filter(|line| !line.is_empty()) {
+            if !relative.to_ascii_lowercase().ends_with(".xml")
+                || solution.root.join(relative).exists()
+            {
+                continue;
+            }
+            let shown = git::bytes(
+                &solution.root,
+                ["show", &format!("{revision}:./{relative}")],
+            );
+            if let Ok(info) =
+                shown.and_then(|bytes| entity::parse(&bytes).map_err(|_| String::new()))
+            {
+                notes.push(format!(
+                    "{DELETED_NOTE}{revision}: {}/{}; deploy never deletes",
+                    info.collection, info.name
+                ));
+            }
+        }
+        changed = Some(selected);
+    }
+    let mut selected = candidates
+        .into_iter()
+        .filter(|entity| {
+            changed
+                .as_ref()
+                .is_none_or(|paths| paths.contains(&entity.path))
+        })
+        .collect::<Vec<_>>();
+    for pattern in exclude {
+        let before = selected.len();
+        selected.retain(|entity| {
+            !adopt::glob_matches(
+                pattern,
+                &format!("{}/{}", entity.info.collection, entity.info.name),
+            )
+        });
+        if before == selected.len() {
+            notes.push(format!(
+                "{EXCLUDE_NOTE}{pattern} matched no selected entities"
+            ));
+        }
+    }
+    Ok((selected, notes))
+}
+
+pub(crate) fn validate_changed_since(solution: &Solution, revision: &str) -> Result<(), String> {
+    if revision.starts_with('-') {
+        return Err("--changed-since revision cannot start with '-'".into());
+    }
+    git::root(&solution.root)
+        .ok_or_else(|| "this solution is outside a git repository".to_string())?;
+    git::output(
+        &solution.root,
+        [
+            "rev-parse",
+            "--verify",
+            "--quiet",
+            "--end-of-options",
+            &format!("{revision}^{{commit}}"),
+        ],
+    )
+    .map_err(|_| format!("no such revision {revision}"))?;
+    Ok(())
+}
+
+const DELETED_NOTE: &str = "deleted since ";
+const EXCLUDE_NOTE: &str = "exclude ";
+const LEFT_OUT_NOTE: &str = " as its ";
+
+/// The selection notes by kind, for a structured result: entities deleted since the revision,
+/// excludes that matched nothing, and references to entities the selection leaves out.
+pub(crate) fn notes_by_kind(notes: &[String]) -> Vec<(&'static str, Vec<String>)> {
+    let kind = |test: fn(&str) -> bool| {
+        notes
+            .iter()
+            .filter(|note| test(note))
+            .cloned()
+            .collect::<Vec<_>>()
+    };
+    vec![
+        ("deleted", kind(|note| note.starts_with(DELETED_NOTE))),
+        (
+            "unmatched_excludes",
+            kind(|note| note.starts_with(EXCLUDE_NOTE)),
+        ),
+        (
+            "left_out_references",
+            kind(|note| note.contains(LEFT_OUT_NOTE)),
+        ),
+    ]
+}
+
+/// Apply profile mashup patches to the assembled document without serialising its XML.
+pub(crate) fn apply_patches(
+    solution: &Solution,
+    mut built: Bundle,
+    files: &[PathBuf],
+    profile: &str,
+) -> Result<Bundle, String> {
+    for file in files {
+        let bytes = std::fs::read(file).map_err(|error| format!("{}: {error}", file.display()))?;
+        let info =
+            entity::parse(&bytes).map_err(|error| format!("{}: {error:?}", file.display()))?;
+        let patched = patch::apply(
+            &bytes,
+            &info.collection,
+            &info.name,
+            solution.patches_for(profile),
+        )
+        .map_err(|error| format!("{}: {error}", file.display()))?;
+        if patched != bytes {
+            let wanted = adopt::EntityRef {
+                collection: info.collection,
+                name: info.name,
+            };
+            let element =
+                adopt::raw_entity_bytes(&patched, &wanted).map_err(|error| error.to_string())?;
+            built.bytes = adopt::replace_entity_bytes(
+                &built.bytes,
+                &wanted,
+                &element,
+                solution.format.indent_cdata_payload,
+            )
+            .map_err(|error| error.to_string())?;
+        }
+    }
+    Ok(built)
+}
+
 /// Every `.xml` beneath a collection directory, including subfolders.
 ///
 /// Recursive, to agree with how entities are discovered elsewhere. A flat read made
@@ -531,7 +708,7 @@ pub(crate) fn dangling_references(selected: &[PathBuf], all: &[PathBuf]) -> Vec<
     let mut out: Vec<String> = wanted
         .into_iter()
         .filter(|(_, _, target)| !present.contains(target) && owned.contains(target))
-        .map(|(from, attribute, target)| format!("{from} names {target} as its {attribute}"))
+        .map(|(from, attribute, target)| format!("{from} names {target}{LEFT_OUT_NOTE}{attribute}"))
         .collect();
     out.sort();
     out.dedup();

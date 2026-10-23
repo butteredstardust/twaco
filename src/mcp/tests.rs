@@ -1095,10 +1095,11 @@ fn annotations_say_what_each_tool_may_reach_and_discard() {
             assert!(hints["idempotentHint"].is_boolean(), "{name}");
         }
     }
-    // A tool that takes a server profile can reach the server.
+    // A tool that takes a server profile can reach the server; bundle's only picks the profile's
+    // patches from twaco.toml.
     for tool in &tools {
-        if tool["inputSchema"]["properties"].get("profile").is_some() {
-            let name = tool["name"].as_str().unwrap();
+        let name = tool["name"].as_str().unwrap();
+        if name != "bundle" && tool["inputSchema"]["properties"].get("profile").is_some() {
             assert_eq!(
                 tool["annotations"]["openWorldHint"], true,
                 "{name} takes a profile"

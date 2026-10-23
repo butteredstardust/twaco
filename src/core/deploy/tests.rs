@@ -944,6 +944,8 @@ fn a_profile_patch_reaches_the_bundle_and_its_entity_but_not_the_file() {
         only_projects: &[],
         only: &[],
         backend_only: false,
+        changed_since: None,
+        exclude: &[],
     };
     let solution = super::super::config::Solution::load(&root.join("twaco.toml")).unwrap();
 
@@ -963,4 +965,27 @@ fn a_profile_patch_reaches_the_bundle_and_its_entity_but_not_the_file() {
     let solution = super::super::config::Solution::load(&root.join("twaco.toml")).unwrap();
     let error = plan_bundles(&solution, "qa", options()).unwrap_err();
     assert!(error.contains("Mashups/P.Typo"), "{error}");
+}
+
+#[test]
+fn only_and_changed_since_are_two_ways_of_choosing_and_are_refused_together() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("twaco.toml"), "[[project]]\nname = \"P\"\n").unwrap();
+    let solution = super::super::config::Solution::load(&dir.path().join("twaco.toml")).unwrap();
+    let error = plan_bundles(
+        &solution,
+        "default",
+        PlanOptions {
+            only_projects: &[],
+            only: &["Things/P.T".to_string()],
+            backend_only: false,
+            changed_since: Some("HEAD"),
+            exclude: &[],
+        },
+    )
+    .unwrap_err();
+    assert!(
+        error.contains("--only") && error.contains("--changed-since"),
+        "{error}"
+    );
 }

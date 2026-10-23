@@ -505,6 +505,14 @@ pub(crate) struct Bundle {
     pub(crate) check: bool,
     #[arg(long = "handoff", value_name = "name")]
     pub(crate) handoff: Option<String>,
+    #[arg(long = "changed-since", value_name = "git-rev")]
+    pub(crate) changed_since: Option<String>,
+    #[arg(long = "exclude", value_name = "entity-or-glob")]
+    pub(crate) exclude: Vec<String>,
+    #[arg(long = "out", value_name = "path", value_parser = super::flags::path())]
+    pub(crate) out: Option<std::path::PathBuf>,
+    #[command(flatten)]
+    pub(crate) profile: Profile,
     /// Accepted, and changes nothing: the bundle is a local file, written unless `--check`.
     #[command(flatten)]
     pub(crate) apply: Apply,
@@ -516,6 +524,10 @@ pub(crate) fn bundle(solution: &Solution, args: &Bundle) -> u8 {
     let request = commands::bundle::BundleRequest {
         backend_only,
         handoff: args.handoff.clone(),
+        changed_since: args.changed_since.clone(),
+        exclude: args.exclude.clone(),
+        out: args.out.clone(),
+        profile: args.profile.profile.clone(),
         mode: if args.check { Mode::Plan } else { Mode::Apply },
         lock_label: "bundle",
     };
@@ -531,8 +543,11 @@ pub(crate) fn bundle(solution: &Solution, args: &Bundle) -> u8 {
     print_notices(&notices);
     // A reference to something this repository owns but this bundle leaves out. Scoped to the
     // selection, so a backend-only build reports what it dropped rather than what it kept.
-    for dangling in twaco::core::bundle::dangling_in_selection(solution, backend_only) {
+    for dangling in outcome.notes() {
         println!("  note: {dangling}");
+    }
+    if args.profile.profile.is_some() {
+        println!("  note: server-owned parts are preserved only by deploy, push and import; a bundle imported by hand does not preserve them");
     }
     match outcome {
         commands::bundle::BundleOutcome::Current { target, bundle, .. } => {
@@ -582,6 +597,10 @@ pub(crate) struct Deploy {
     pub(crate) backend_only: bool,
     #[arg(long = "only", value_name = "entity")]
     pub(crate) only: Vec<String>,
+    #[arg(long = "changed-since", value_name = "git-rev")]
+    pub(crate) changed_since: Option<String>,
+    #[arg(long = "exclude", value_name = "entity-or-glob")]
+    pub(crate) exclude: Vec<String>,
     #[command(flatten)]
     pub(crate) only_projects: OnlyProjects,
     #[arg(long = "skip-checks")]
@@ -605,6 +624,8 @@ pub(crate) fn deploy_cmd(solution: &Solution, args: &Deploy) -> u8 {
         only_projects: args.only_projects.projects(),
         only: args.only.clone(),
         backend_only: args.backend_only,
+        changed_since: args.changed_since.clone(),
+        exclude: args.exclude.clone(),
         profile: args.profile.name().to_string(),
         lock_label: "deploy",
     };

@@ -686,6 +686,14 @@ pub(crate) fn bundle_tool(
     let request = commands::bundle::BundleRequest {
         backend_only: arguments.backend_only,
         handoff: arguments.handoff.as_ref().cloned(),
+        changed_since: arguments.changed_since.as_ref().cloned(),
+        exclude: arguments.exclude.items().to_vec(),
+        out: arguments
+            .out
+            .as_ref()
+            .map(|out| in_path(solution, out))
+            .transpose()?,
+        profile: arguments.profile.as_ref().cloned(),
         mode: if arguments.dry_run {
             Mode::Plan
         } else {
@@ -718,9 +726,14 @@ pub(crate) fn bundle_tool(
     if matches!(state, "out_of_date" | "missing") {
         result["next"] = json!("rebuild it with dry_run: false");
     }
-    let notes = crate::core::bundle::dangling_in_selection(solution, arguments.backend_only);
+    let notes = outcome.notes().to_vec();
     if !notes.is_empty() {
         result["notes"] = json!(notes);
+    }
+    for (key, values) in crate::core::bundle::notes_by_kind(outcome.notes()) {
+        if !values.is_empty() {
+            result[key] = json!(values);
+        }
     }
     add_notices(&mut result, &notices);
     Ok(result)

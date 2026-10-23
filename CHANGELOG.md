@@ -17,6 +17,8 @@ All notable changes to twaco are recorded here. The format follows
 
 ### Added
 
+- `deploy` and `bundle` can select changed entities with `--changed-since` and remove selectors
+  with `--exclude`; bundle can write a chosen `--out` file and apply profile mashup patches.
 - Per-profile `server_owned` rules and mashup property `patches` in `twaco.toml`.
 - `call --json` writes exactly one complete service reply to stdout; call logs and notices remain
   on stderr.

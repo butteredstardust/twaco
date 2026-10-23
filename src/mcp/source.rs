@@ -301,6 +301,8 @@ pub(crate) fn deploy_tool(
     let detail = arguments.detail;
     let only = arguments.only.items().to_vec();
     let only_projects = arguments.only_projects.items().to_vec();
+    let changed_since = arguments.changed_since.as_ref().cloned();
+    let exclude = arguments.exclude.items().to_vec();
     let request = commands::deploy::DeployRequest {
         mode: if dry_run { Mode::Plan } else { Mode::Apply },
         force,
@@ -309,6 +311,8 @@ pub(crate) fn deploy_tool(
         only_projects,
         only,
         backend_only: arguments.backend_only,
+        changed_since,
+        exclude,
         profile: arguments.profile,
         lock_label: "mcp deploy",
     };
@@ -383,6 +387,11 @@ pub(crate) fn deploy_tool(
                 "network_connections": network_changes(&report.network_changes),
                 "server_owned": report.plans.iter().filter(|p| !p.server_owned.is_empty() || !p.cleared.is_empty()).map(|p| json!({"entity": format!("{}/{}", p.collection, p.name), "parts": p.server_owned, "clears": p.cleared})).collect::<Vec<_>>(),
             });
+            for (key, values) in crate::core::bundle::notes_by_kind(&notes) {
+                if !values.is_empty() {
+                    value[key] = json!(values);
+                }
+            }
             if let Some(dir) = &saved {
                 value["backup"] = json!(dir);
             }

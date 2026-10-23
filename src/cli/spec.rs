@@ -1162,9 +1162,13 @@ pub(crate) const USAGE: &[Usage] = &[
     Usage {
         path: "bundle",
         group: 2,
-        text: r#"  bundle [--backend-only] [--handoff <name>] [--apply]  write one importable document
+        text: r#"  bundle [--backend-only] [--changed-since <git-rev>] [--exclude <entity-or-glob>] [--out <file>] [--profile <name>] [--handoff <name>] [--apply]  write one importable document
                               (always written: --apply is accepted and changes nothing)
-      --check                 report whether the bundle is current, write nothing"#,
+      --check                 report whether the bundle is current, write nothing
+      --changed-since <git-rev>  select changed entity files and sidecars since this revision
+      --exclude <entity-or-glob> leave out this Collection/Name selector (repeatable)
+      --out <file>            write or check this file instead of the configured dist bundle
+      --profile <name>        apply this profile's mashup patches"#,
     },
     Usage {
         path: "deploy",
@@ -1173,6 +1177,8 @@ pub(crate) const USAGE: &[Usage] = &[
                               check, bundle, live-parse, conflict-check, import
       --backend-only          exclude configured UI collections
       --only <entity>         include only this entity (repeatable)
+      --changed-since <git-rev>  include entities changed since this revision
+      --exclude <entity-or-glob> leave out this Collection/Name selector (repeatable)
       --only-projects <a,b>   include only these projects
       --skip-checks           skip the gates, server requirements too; scripts are still parsed
       --no-backup             with --force, do not save the server's copies first"#,

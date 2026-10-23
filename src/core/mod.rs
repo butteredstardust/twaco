@@ -30,6 +30,7 @@ pub mod entity;
 pub mod export;
 pub(crate) mod extensions;
 pub(crate) mod fmt;
+pub(crate) mod git;
 pub mod gitignore;
 pub mod guide;
 pub mod help;

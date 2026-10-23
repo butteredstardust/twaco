@@ -105,6 +105,12 @@ pub(crate) struct DeployRequest {
     /// Only these entities; post-import services are skipped.
     #[serde(default, skip_serializing_if = "Absent::is_absent")]
     pub only: Absent<Vec<String>>,
+    /// Select entities whose source file or sidecars changed since this Git revision.
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub changed_since: Absent<String>,
+    /// Remove matching Collection/Name selectors from the selected entities.
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub exclude: Absent<Vec<String>>,
     #[serde(default, skip_serializing_if = "Absent::is_absent")]
     pub only_projects: Absent<Vec<String>>,
     #[serde(default)]

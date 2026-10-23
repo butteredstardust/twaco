@@ -246,6 +246,16 @@ The localization tables are shared by every project, so a deploy of some project
 `--backend-only` leaves out `[bundle] ui_collections`, so backend work does not overwrite a
 designer's mashups. `twaco bundle` builds the document without sending it.
 
+`--changed-since <git rev>` selects entities whose XML or sidecar changed since that revision,
+including untracked files; it intersects with project and backend selections. `--exclude` removes
+exact `Collection/Name` selectors or the same globs used by `server_owned`. Deleted entities are
+reported but never deleted from a server. Both commands note repository references left outside a
+selection; nothing is added for them. `--only` and `--changed-since` are refused together.
+`bundle --out <file>` chooses its target (and `--check` reads it); `bundle --profile <name>`
+applies that profile's mashup patches (without it none apply), but a hand-imported bundle cannot
+preserve server-owned parts. `bundle --handoff` records the whole repository, so it is refused
+with any of these.
+
 `twaco entity push <Entity>` imports a single entity, with the same conflict check.
 
 ## Taking in a designer's or another backend developer's work

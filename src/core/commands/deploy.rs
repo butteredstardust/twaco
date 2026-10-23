@@ -19,6 +19,8 @@ pub struct DeployRequest {
     pub only_projects: Vec<String>,
     pub only: Vec<String>,
     pub backend_only: bool,
+    pub changed_since: Option<String>,
+    pub exclude: Vec<String>,
     pub profile: String,
     pub lock_label: &'static str,
 }
@@ -247,6 +249,16 @@ where
                 .map_err(DeployCommandError::Lock)?,
         ),
     };
+    if !request.only.is_empty() && request.changed_since.is_some() {
+        return Err(DeployCommandError::Plan {
+            why: "--only cannot be combined with --changed-since".to_string(),
+            gates: None,
+        });
+    }
+    if let Some(revision) = request.changed_since.as_deref() {
+        crate::core::bundle::validate_changed_since(solution, revision)
+            .map_err(|why| DeployCommandError::Plan { why, gates: None })?;
+    }
     let gates = if !request.skip_checks {
         let mut report = check::run(solution);
         let on_server = solution.root.join(requirements::FILE).exists();
@@ -294,6 +306,8 @@ where
             only_projects: &request.only_projects,
             only: &request.only,
             backend_only: request.backend_only,
+            changed_since: request.changed_since.as_deref(),
+            exclude: &request.exclude,
         },
     ) {
         Ok(planned) => planned,
@@ -525,6 +539,8 @@ mod tests {
             only_projects: Vec::new(),
             only: Vec::new(),
             backend_only: false,
+            changed_since: None,
+            exclude: Vec::new(),
             profile: "default".to_string(),
             lock_label: "deploy",
         };
@@ -773,6 +789,8 @@ name = \"Acme.App\"
             only_projects: Vec::new(),
             only: Vec::new(),
             backend_only: false,
+            changed_since: None,
+            exclude: Vec::new(),
             profile: "default".to_string(),
             lock_label: "deploy",
         }
@@ -1182,6 +1200,8 @@ minimum = \"1.0.0\"
             only_projects: Vec::new(),
             only: Vec::new(),
             backend_only: false,
+            changed_since: None,
+            exclude: Vec::new(),
             profile: "default".to_string(),
             lock_label: "deploy",
         };
