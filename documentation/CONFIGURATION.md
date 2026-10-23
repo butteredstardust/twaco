@@ -548,9 +548,12 @@ so change the password it holds).
 **/services/*/twaco-globals.d.ts
 ```
 
-Commit `.twaco/baseline.json`. It records each entity's state at the last deploy or push (and
-what `entity status --record` adopted), so a later deploy can tell a teammate's server-side
-change from yours.
+Commit `.twaco/baselines/`. It holds one file per server profile (`<profile>.json`), each
+recording every entity's state on that server at the last deploy or push (and what
+`entity status --record` adopted), so a later deploy can tell a teammate's server-side change from
+yours. The former `.twaco/baseline.json` is read as the `default` profile's until that profile next
+records; other profiles begin without a baseline, and `entity status --all --record --profile
+<name>` gives one to every entity that already matches that server.
 
 Each recorded hash carries the version of the comparison form it was made with (`v7:...`). When a
 new twaco compares differently, an entry from the old version counts as unrecorded rather than

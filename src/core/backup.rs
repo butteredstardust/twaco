@@ -421,6 +421,7 @@ pub(crate) fn forced_overwrites(
 pub(crate) fn before_forced_push<R: push::Remote + Remote>(
     client: &R,
     solution: &Solution,
+    profile: &str,
     target: &push::Target,
     stamp: &str,
 ) -> Result<Option<String>, BackupError> {
@@ -429,8 +430,9 @@ pub(crate) fn before_forced_push<R: push::Remote + Remote>(
         target.key.collection(),
         target.key.name(),
     );
-    let outcome = push::push_with_parts(client, &solution.root, target, false, true, &parts)
-        .map_err(|error| BackupError::Plan(error.to_string()))?;
+    let outcome =
+        push::push_with_parts(client, &solution.root, profile, target, false, true, &parts)
+            .map_err(|error| BackupError::Plan(error.to_string()))?;
     let push::Outcome::WouldDo(decision) = outcome else {
         return Ok(None);
     };
@@ -443,10 +445,11 @@ pub(crate) fn before_forced_push<R: push::Remote + Remote>(
 pub(crate) fn before_forced_deploy<R: deploy::Remote + Remote>(
     client: &R,
     solution: &Solution,
+    profile: &str,
     projects: &[deploy::ProjectBundle],
     stamp: &str,
 ) -> Result<Option<String>, BackupError> {
-    let baseline = super::baseline::Baseline::load(&solution.root)
+    let baseline = super::baseline::Baseline::load(&solution.root, profile)
         .map_err(|error| BackupError::Plan(error.to_string()))?;
     let plans = deploy::decide_all(client, &baseline, projects)
         .map_err(|error| BackupError::Plan(error.to_string()))?;

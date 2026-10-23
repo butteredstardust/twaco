@@ -30,7 +30,7 @@ pub(crate) struct StatusRequest {
     /// Narrow to one project of the solution.
     #[serde(default, skip_serializing_if = "Absent::is_absent")]
     pub project: Absent<String>,
-    /// Record a baseline for every entity whose two sides agree. Writes .twaco/baseline.json under the workspace lock.
+    /// Record a baseline for every entity whose two sides agree. Writes .twaco/baselines/<profile>.json under the workspace lock.
     #[serde(default)]
     pub record: bool,
     /// Server profile name.

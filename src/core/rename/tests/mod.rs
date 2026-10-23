@@ -176,7 +176,15 @@ fn seed_baseline(fixture: &Fixture, planned: &Plan) {
         baseline.set(collection, name, "v7:local".into(), "v7:server".into());
     }
     baseline.set("Things", "Unchanged", "v7:keep".into(), "v7:keep".into());
-    baseline.write(&fixture.root).unwrap();
+    baseline.write(&fixture.root, "default").unwrap();
+    baseline.write(&fixture.root, "development").unwrap();
+    std::fs::write(
+        fixture
+            .root
+            .join(crate::core::baseline::LEGACY_RELATIVE_PATH),
+        baseline.to_bytes(&fixture.root).unwrap(),
+    )
+    .unwrap();
 }
 
 fn assert_no_rename_temporaries(root: &Path) {

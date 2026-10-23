@@ -1,14 +1,16 @@
 //! The tracked ancestor used to attribute local and server changes.
 //!
-//! This is intentionally not a cache. `.twaco/baseline.json` is reviewable project state, and
-//! its nested sorted maps make the collection/name identity explicit and diffs deterministic.
+//! This is intentionally not a cache. `.twaco/baselines/<profile>.json` is reviewable project
+//! state, one file per server profile, and its nested sorted maps make the collection/name
+//! identity explicit and diffs deterministic.
 
 use super::codes::{Coded, ErrorCode};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
-pub(crate) const RELATIVE_PATH: &str = ".twaco/baseline.json";
+pub(crate) const LEGACY_RELATIVE_PATH: &str = ".twaco/baseline.json";
+pub(crate) const DIRECTORY: &str = ".twaco/baselines";
 
 #[derive(Clone, Debug, Serialize, PartialEq, Eq)]
 pub(crate) struct Entry {
@@ -126,12 +128,22 @@ impl Baseline {
         Ok(())
     }
 
-    pub(crate) fn load(root: &Path) -> Result<Self, BaselineError> {
-        let path = root.join(RELATIVE_PATH);
+    /// The profile's committed baseline path. Callers that accept a profile name validate it
+    /// before this is reached; [`load`](Self::load) and [`write`](Self::write) validate too.
+    pub(crate) fn path(root: &Path, profile: &str) -> PathBuf {
+        root.join(DIRECTORY).join(format!("{profile}.json"))
+    }
+
+    pub(crate) fn load(root: &Path, profile: &str) -> Result<Self, BaselineError> {
+        super::profile::validate_name(profile).map_err(BaselineError::Profile)?;
+        let path = Self::path(root, profile);
         let bytes = match std::fs::read(&path) {
             Ok(bytes) => bytes,
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
-                return Ok(Self::default())
+                if profile == "default" {
+                    return Self::load_path(root.join(LEGACY_RELATIVE_PATH));
+                }
+                return Ok(Self::default());
             }
             Err(error) => {
                 return Err(BaselineError::Io {
@@ -140,17 +152,84 @@ impl Baseline {
                 });
             }
         };
-        serde_json::from_slice(&bytes).map_err(|error| BaselineError::Invalid {
+        Self::from_bytes(path, &bytes)
+    }
+
+    fn load_path(path: PathBuf) -> Result<Self, BaselineError> {
+        match std::fs::read(&path) {
+            Ok(bytes) => Self::from_bytes(path, &bytes),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(Self::default()),
+            Err(error) => Err(BaselineError::Io {
+                path,
+                why: error.to_string(),
+            }),
+        }
+    }
+
+    pub(crate) fn load_file(path: &Path) -> Result<Self, BaselineError> {
+        Self::load_path(path.to_path_buf())
+    }
+
+    fn from_bytes(path: PathBuf, bytes: &[u8]) -> Result<Self, BaselineError> {
+        serde_json::from_slice(bytes).map_err(|error| BaselineError::Invalid {
             path,
             why: error.to_string(),
         })
+    }
+
+    /// Profile names which have a baseline file, including the legacy default baseline.
+    pub(crate) fn profiles(root: &Path) -> Result<Vec<String>, BaselineError> {
+        let directory = root.join(DIRECTORY);
+        let mut profiles = BTreeMap::new();
+        match std::fs::read_dir(&directory) {
+            Ok(entries) => {
+                for entry in entries {
+                    let entry = entry.map_err(|error| BaselineError::Io {
+                        path: directory.clone(),
+                        why: error.to_string(),
+                    })?;
+                    let path = entry.path();
+                    if !entry
+                        .file_type()
+                        .map_err(|error| BaselineError::Io {
+                            path: path.clone(),
+                            why: error.to_string(),
+                        })?
+                        .is_file()
+                        || path.extension().and_then(|value| value.to_str()) != Some("json")
+                    {
+                        continue;
+                    }
+                    // A file no profile can be named after belongs to nobody: skip it.
+                    let Some(name) = path
+                        .file_stem()
+                        .and_then(|value| value.to_str())
+                        .filter(|name| super::profile::validate_name(name).is_ok())
+                    else {
+                        continue;
+                    };
+                    profiles.insert(name.to_string(), ());
+                }
+            }
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+            Err(error) => {
+                return Err(BaselineError::Io {
+                    path: directory,
+                    why: error.to_string(),
+                })
+            }
+        }
+        if root.join(LEGACY_RELATIVE_PATH).is_file() {
+            profiles.insert("default".to_string(), ());
+        }
+        Ok(profiles.into_keys().collect())
     }
 
     /// The complete deterministic JSON document, as `write` writes it.
     pub(crate) fn to_bytes(&self, root: &Path) -> Result<Vec<u8>, BaselineError> {
         let mut bytes =
             serde_json::to_vec_pretty(self).map_err(|error| BaselineError::Invalid {
-                path: root.join(RELATIVE_PATH),
+                path: root.join(DIRECTORY),
                 why: error.to_string(),
             })?;
         bytes.push(b'\n');
@@ -158,8 +237,9 @@ impl Baseline {
     }
 
     /// Write a complete deterministic JSON document through a same-directory temporary file.
-    pub(crate) fn write(&self, root: &Path) -> Result<(), BaselineError> {
-        let path = root.join(RELATIVE_PATH);
+    pub(crate) fn write(&self, root: &Path, profile: &str) -> Result<(), BaselineError> {
+        super::profile::validate_name(profile).map_err(BaselineError::Profile)?;
+        let path = Self::path(root, profile);
         let parent = path.parent().expect("baseline has a parent");
         std::fs::create_dir_all(parent).map_err(|error| BaselineError::Io {
             path: parent.to_path_buf(),
@@ -169,12 +249,28 @@ impl Baseline {
         super::workspace::atomic_replace(&path, &bytes).map_err(|error| BaselineError::Io {
             path: path.clone(),
             why: error.to_string(),
-        })
+        })?;
+        if profile == "default" {
+            let legacy = root.join(LEGACY_RELATIVE_PATH);
+            match std::fs::remove_file(&legacy) {
+                Ok(()) => {}
+                Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+                Err(error) => {
+                    return Err(BaselineError::Io {
+                        path: legacy,
+                        why: error.to_string(),
+                    })
+                }
+            }
+        }
+        Ok(())
     }
 }
 
 #[derive(Debug, thiserror::Error)]
 pub enum BaselineError {
+    #[error("{0}")]
+    Profile(#[from] super::profile::ProfileError),
     #[error("{}: {why}", .path.display())]
     Io { path: PathBuf, why: String },
     #[error("invalid baseline {}: {why}", .path.display())]
@@ -186,6 +282,7 @@ pub enum BaselineError {
 impl Coded for BaselineError {
     fn code(&self) -> ErrorCode {
         match self {
+            Self::Profile(error) => error.code(),
             Self::Io { .. } => ErrorCode::IoError,
             Self::Invalid { .. } => ErrorCode::InvalidData,
             Self::Missing { .. } => ErrorCode::InvalidData,
@@ -229,16 +326,16 @@ mod tests {
             "v7:three".to_string(),
             "v7:three".to_string(),
         );
-        baseline.write(&root).unwrap();
-        let first = std::fs::read(root.join(RELATIVE_PATH)).unwrap();
-        baseline.write(&root).unwrap();
-        let second = std::fs::read(root.join(RELATIVE_PATH)).unwrap();
+        baseline.write(&root, "default").unwrap();
+        let first = std::fs::read(Baseline::path(&root, "default")).unwrap();
+        baseline.write(&root, "default").unwrap();
+        let second = std::fs::read(Baseline::path(&root, "default")).unwrap();
         assert_eq!(first, second);
         let text = String::from_utf8(first).unwrap();
         assert!(text.find("DataShapes").unwrap() < text.find("Things").unwrap());
         assert!(text.find("\"A\": {").unwrap() < text.find("\"Z\"").unwrap());
         assert_eq!(
-            Baseline::load(&root).unwrap().get("Things", "Z"),
+            Baseline::load(&root, "default").unwrap().get("Things", "Z"),
             Some(&Entry {
                 local: "v7:two-local".into(),
                 server: "v7:two-server".into()
@@ -270,12 +367,12 @@ mod tests {
         let (_dir, root) = temp();
         std::fs::create_dir_all(root.join(".twaco")).unwrap();
         std::fs::write(
-            root.join(RELATIVE_PATH),
+            root.join(LEGACY_RELATIVE_PATH),
             br#"{"entities":{"Things":{"T":"v7:old"}}}"#,
         )
         .unwrap();
 
-        let baseline = Baseline::load(&root).unwrap();
+        let baseline = Baseline::load(&root, "default").unwrap();
         assert_eq!(
             baseline.get("Things", "T"),
             Some(&Entry {
@@ -283,9 +380,10 @@ mod tests {
                 server: "v7:old".into()
             })
         );
-        baseline.write(&root).unwrap();
+        baseline.write(&root, "default").unwrap();
+        assert!(!root.join(LEGACY_RELATIVE_PATH).exists());
         assert_eq!(
-            std::fs::read_to_string(root.join(RELATIVE_PATH)).unwrap(),
+            std::fs::read_to_string(Baseline::path(&root, "default")).unwrap(),
             "{\n  \"entities\": {\n    \"Things\": {\n      \"T\": {\n        \"local\": \"v7:old\",\n        \"server\": \"v7:old\"\n      }\n    }\n  }\n}\n"
         );
     }
@@ -295,12 +393,12 @@ mod tests {
         let (_dir, root) = temp();
         std::fs::create_dir_all(root.join(".twaco")).unwrap();
         std::fs::write(
-            root.join(RELATIVE_PATH),
+            root.join(LEGACY_RELATIVE_PATH),
             br#"{"entities":{"Things":{"T":{"local":"v7:local","server":"v7:server"}}}}"#,
         )
         .unwrap();
 
-        let mut baseline = Baseline::load(&root).unwrap();
+        let mut baseline = Baseline::load(&root, "default").unwrap();
         baseline
             .set_server("Things", "T", "v7:after-deploy".into())
             .unwrap();
@@ -315,10 +413,70 @@ mod tests {
             baseline.set_server("Things", "Missing", "v7:x".into()),
             Err(BaselineError::Missing { .. })
         ));
-        baseline.write(&root).unwrap();
+        baseline.write(&root, "default").unwrap();
         assert_eq!(
-            Baseline::load(&root).unwrap().get("Things", "T"),
+            Baseline::load(&root, "default").unwrap().get("Things", "T"),
             baseline.get("Things", "T")
+        );
+    }
+
+    #[test]
+    fn the_legacy_file_is_only_the_default_profiles_baseline() {
+        let (_dir, root) = temp();
+        std::fs::create_dir_all(root.join(".twaco")).unwrap();
+        std::fs::write(
+            root.join(LEGACY_RELATIVE_PATH),
+            br#"{"entities":{"Things":{"T":"v7:old"}}}"#,
+        )
+        .unwrap();
+
+        assert!(Baseline::load(&root, "default")
+            .unwrap()
+            .get("Things", "T")
+            .is_some());
+        assert!(Baseline::load(&root, "development")
+            .unwrap()
+            .get("Things", "T")
+            .is_none());
+
+        let mut development = Baseline::default();
+        development.set(
+            "Things",
+            "T",
+            "v7:development".into(),
+            "v7:development".into(),
+        );
+        development.write(&root, "development").unwrap();
+        assert_eq!(
+            Baseline::profiles(&root).unwrap(),
+            ["default", "development"]
+        );
+        assert!(Baseline::load(&root, "default")
+            .unwrap()
+            .get("Things", "T")
+            .is_some());
+    }
+
+    #[test]
+    fn profiles_keep_independent_baselines() {
+        let (_dir, root) = temp();
+        let mut first = Baseline::default();
+        first.set("Things", "T", "v7:first".into(), "v7:first".into());
+        first.write(&root, "first").unwrap();
+        let mut second = Baseline::default();
+        second.set("Things", "T", "v7:second".into(), "v7:second".into());
+        second.write(&root, "second").unwrap();
+
+        let mut first = Baseline::load(&root, "first").unwrap();
+        first.set("Things", "T", "v7:recorded".into(), "v7:recorded".into());
+        first.write(&root, "first").unwrap();
+        assert_eq!(
+            Baseline::load(&root, "second")
+                .unwrap()
+                .get("Things", "T")
+                .unwrap()
+                .local,
+            "v7:second"
         );
     }
 

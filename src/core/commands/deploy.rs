@@ -328,7 +328,13 @@ where
         None
     };
     let backup = if matches!(request.mode, Mode::Apply) && request.force && request.backup {
-        match backup::before_forced_deploy(&remote, solution, &projects, &backup::new_stamp()) {
+        match backup::before_forced_deploy(
+            &remote,
+            solution,
+            &request.profile,
+            &projects,
+            &backup::new_stamp(),
+        ) {
             Ok(saved) => saved,
             Err(why) => return Err(DeployCommandError::Backup { why, gates }),
         }
@@ -337,7 +343,7 @@ where
     };
     let mut report = match deploy::run_with_progress(
         &remote,
-        &deploy::DiskBaseline::new(&solution.root),
+        &deploy::DiskBaseline::new(&solution.root, &request.profile),
         &profile,
         &projects,
         deploy::RunOptions {

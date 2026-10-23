@@ -213,7 +213,8 @@ where
             (ancestor, Some(count))
         }
         None => (
-            Baseline::load(&solution.root).map_err(StatusCommandError::Baseline)?,
+            Baseline::load(&solution.root, &request.profile)
+                .map_err(StatusCommandError::Baseline)?,
             None,
         ),
     };
@@ -240,7 +241,7 @@ where
     let recorded = if request.record {
         let recorded = status::record_matching(&mut baseline, &mut statuses);
         baseline
-            .write(&solution.root)
+            .write(&solution.root, &request.profile)
             .map_err(StatusCommandError::Baseline)?;
         Some(recorded)
     } else {
@@ -345,7 +346,7 @@ mod tests {
         assert_eq!(verdict(&thing("other")), status::Verdict::BothChanged);
         let elsewhere = "<Entities><Things><Thing name=\"P.Other\"></Thing></Things></Entities>";
         assert_eq!(verdict(elsewhere), status::Verdict::NoBaselineDiffers);
-        assert!(!solution.root.join(".twaco/baseline.json").exists());
+        assert!(!Baseline::path(&solution.root, "default").exists());
     }
 
     #[test]
@@ -364,6 +365,47 @@ mod tests {
         let prefixed = "<tw:Entities xmlns:tw=\"urn:x\"><tw:Things><tw:Thing name=\"P.T\"/></tw:Things></tw:Entities>";
         let error = ancestor(&solution, prefixed, &thing("local"), false).unwrap_err();
         assert!(error.to_string().contains("namespace prefix"), "{error}");
+    }
+
+    #[test]
+    fn recording_one_profile_does_not_change_another_profiles_status() {
+        let (_dir, solution) = without_baseline(&thing("current"));
+        std::fs::write(
+            solution.root.join(".twaco/profiles/development.toml"),
+            "url = \"http://example.invalid/Thingworx/\"\nusername = \"u\"\npassword = \"p\"\n",
+        )
+        .unwrap();
+
+        let request = |profile: &str, record| StatusRequest {
+            target: StatusTarget::All,
+            project: None,
+            record,
+            profile: profile.to_string(),
+            lock_label: "status",
+            refuse_unreadable: true,
+            refuse_record_failures: false,
+            ancestor: None,
+        };
+        let server = thing("current");
+        let recorded = execute(
+            &solution,
+            &request("development", true),
+            |_| Fake(server.as_bytes().to_vec()),
+            &mut Notices::default(),
+            &crate::core::progress::NONE,
+        )
+        .unwrap();
+        assert_eq!(recorded.recorded, Some(1));
+        let default = execute(
+            &solution,
+            &request("default", false),
+            |_| Fake(server.as_bytes().to_vec()),
+            &mut Notices::default(),
+            &crate::core::progress::NONE,
+        )
+        .unwrap();
+        assert_eq!(default.statuses[0].verdict, status::Verdict::NoBaselineSame);
+        assert!(!Baseline::path(&solution.root, "default").exists());
     }
 
     #[test]

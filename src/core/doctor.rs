@@ -6,7 +6,7 @@
 //! the one server request it makes is the platform's own script parser on an empty script,
 //! which proves the server answers and the credentials work without touching anything.
 
-use super::baseline::Baseline;
+use super::baseline::{Baseline, LEGACY_RELATIVE_PATH};
 use super::config::Solution;
 use super::{gitignore, lock, profile, server, workspace};
 use serde_json::{json, Value};
@@ -25,7 +25,7 @@ pub enum Health {
 #[derive(Debug, Clone)]
 pub struct Item {
     pub health: Health,
-    pub subject: &'static str,
+    pub subject: String,
     pub detail: String,
 }
 
@@ -51,10 +51,10 @@ pub fn report_json(items: &[Item]) -> Value {
     })
 }
 
-fn item(health: Health, subject: &'static str, detail: impl Into<String>) -> Item {
+fn item(health: Health, subject: impl Into<String>, detail: impl Into<String>) -> Item {
     Item {
         health,
-        subject,
+        subject: subject.into(),
         detail: detail.into(),
     }
 }
@@ -165,38 +165,29 @@ pub fn diagnose(root: &Path, profile_name: &str) -> Vec<Item> {
         },
     ));
 
-    items.push(match Baseline::load(&solution.root) {
-        Ok(baseline) => {
-            let mut recorded = 0;
-            let mut outdated = baseline.outdated();
-            for entity in &found.entities {
-                let (collection, name) = (&entity.info.collection, &entity.info.name);
-                let parts = super::server_owned::parts(&solution.server_owned, collection, name);
-                let hash = format!("{}:", super::normalise::hash_scope(&parts));
-                if baseline.get_for(collection, name, &hash).is_some() { recorded += 1; }
-                else if baseline.get(collection, name).is_some() { outdated += 1; }
+    match Baseline::profiles(&solution.root) {
+        Ok(mut profiles) => {
+            if profile::validate_name(profile_name).is_ok()
+                && !profiles.iter().any(|name| name == profile_name)
+            {
+                profiles.push(profile_name.to_string());
+                profiles.sort();
             }
-            if outdated == 0 {
-                item(
-                    Health::Ok,
-                    "baseline",
-                    format!("{recorded} of {} entities recorded", found.entities.len()),
-                )
-            } else {
-                item(
-                    Health::Warn,
-                    "baseline",
-                    format!(
-                        "{recorded} of {} entities recorded; {outdated} incompatible entries count as \
-                         unrecorded (hash version or server-owned rules changed): `twaco entity status --all \
-                         --record` records again those that match the server",
-                        found.entities.len()
-                    ),
-                )
+            for name in profiles {
+                items.push(baseline_item(&solution, &found, &name));
             }
         }
-        Err(error) => item(Health::Fail, "baseline", error.to_string()),
-    });
+        Err(error) => items.push(item(Health::Fail, "baseline", error.to_string())),
+    }
+    if solution.root.join(LEGACY_RELATIVE_PATH).is_file()
+        && Baseline::path(&solution.root, "default").is_file()
+    {
+        items.push(item(
+            Health::Warn,
+            "baseline legacy",
+            ".twaco/baseline.json is stale; .twaco/baselines/default.json wins and the legacy file can be deleted",
+        ));
+    }
 
     items.push(match lock::holder(&solution.root) {
         Ok(None) => item(Health::Ok, "workspace lock", "free"),
@@ -239,6 +230,41 @@ pub fn diagnose(root: &Path, profile_name: &str) -> Vec<Item> {
         Err(error) => item(Health::Fail, "server", error.to_string()),
     });
     items
+}
+
+fn baseline_item(solution: &Solution, found: &workspace::Discovery, profile_name: &str) -> Item {
+    let subject = format!("baseline {profile_name}");
+    let baseline = match Baseline::load(&solution.root, profile_name) {
+        Ok(baseline) => baseline,
+        Err(error) => return item(Health::Fail, subject, error.to_string()),
+    };
+    let mut recorded = 0;
+    let mut outdated = baseline.outdated();
+    for entity in &found.entities {
+        let (collection, name) = (&entity.info.collection, &entity.info.name);
+        let parts = super::server_owned::parts(&solution.server_owned, collection, name);
+        let hash = format!("{}:", super::normalise::hash_scope(&parts));
+        if baseline.get_for(collection, name, &hash).is_some() {
+            recorded += 1;
+        } else if baseline.get(collection, name).is_some() {
+            outdated += 1;
+        }
+    }
+    let total = found.entities.len();
+    if outdated == 0 {
+        return item(
+            Health::Ok,
+            subject,
+            format!("{recorded} of {total} entities recorded"),
+        );
+    }
+    item(
+        Health::Warn,
+        subject,
+        format!(
+            "{recorded} of {total} entities recorded; {outdated} incompatible entries count as              unrecorded (hash version or server-owned rules changed): `twaco entity status --all              --record --profile {profile_name}` records again those that match the server"
+        ),
+    )
 }
 
 fn server_owned_advice(solution: &Solution, entities: &[workspace::EntityFile]) -> Vec<Item> {
@@ -458,5 +484,38 @@ parts=['members', 'property-values', 'run-time-permissions']
             items.iter().all(|i| i.subject != "server"),
             "no server check without a profile"
         );
+    }
+
+    #[test]
+    fn reports_each_profile_baseline_and_a_stale_legacy_default() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("twaco.toml"), "[[project]]\nname = \"P\"\n").unwrap();
+        std::fs::create_dir_all(dir.path().join("Things")).unwrap();
+        std::fs::write(
+            dir.path().join("Things/P.T.xml"),
+            "<Entities><Things><Thing name=\"P.T\" projectName=\"P\"/></Things></Entities>",
+        )
+        .unwrap();
+        let mut baseline = Baseline::default();
+        baseline.set("Things", "P.T", "v7:x".into(), "v7:x".into());
+        baseline.write(dir.path(), "default").unwrap();
+        baseline.write(dir.path(), "development").unwrap();
+        std::fs::write(
+            dir.path().join(LEGACY_RELATIVE_PATH),
+            baseline.to_bytes(dir.path()).unwrap(),
+        )
+        .unwrap();
+
+        let items = diagnose(dir.path(), "missing");
+        assert!(items.iter().any(|item| item.subject == "baseline default"));
+        assert!(items
+            .iter()
+            .any(|item| item.subject == "baseline development"));
+        let legacy = items
+            .iter()
+            .find(|item| item.subject == "baseline legacy")
+            .unwrap();
+        assert_eq!(legacy.health, Health::Warn);
+        assert!(legacy.detail.contains("can be deleted"));
     }
 }

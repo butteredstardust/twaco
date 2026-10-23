@@ -208,12 +208,17 @@ where
         },
     };
     let backup = if matches!(request.mode, Mode::Apply) && request.force && request.backup {
-        backup::before_forced_push(&remote, solution, &target, &backup::new_stamp()).map_err(
-            |why| PushCommandError::Backup {
-                label: label.clone(),
-                why,
-            },
-        )?
+        backup::before_forced_push(
+            &remote,
+            solution,
+            &request.profile,
+            &target,
+            &backup::new_stamp(),
+        )
+        .map_err(|why| PushCommandError::Backup {
+            label: label.clone(),
+            why,
+        })?
     } else {
         None
     };
@@ -234,6 +239,7 @@ where
         let result = push::push_with_parts(
             &remote,
             &solution.root,
+            &request.profile,
             &target,
             matches!(request.mode, Mode::Apply),
             request.force,
@@ -392,14 +398,14 @@ mod tests {
         let working = document("working();");
         std::fs::write(root.join("Things/P.T.xml"), &working).unwrap();
         if let Some((local, remote)) = baseline {
-            let mut stored = Baseline::load(&root).unwrap();
+            let mut stored = Baseline::load(&root, "default").unwrap();
             stored.set(
                 "Things",
                 "P.T",
                 normalise::hash(local).unwrap(),
                 normalise::hash(remote).unwrap(),
             );
-            stored.write(&root).unwrap();
+            stored.write(&root, "default").unwrap();
         }
         let solution = Solution::load(&root.join("twaco.toml")).unwrap();
         (root_guard, root, solution, Fake::new(server))

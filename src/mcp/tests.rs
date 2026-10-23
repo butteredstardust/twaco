@@ -1957,7 +1957,7 @@ fn arguments_of_the_wrong_shape_are_refused_before_the_tool_runs() {
         assert!(text.contains(why), "{tool} {arguments}: {text}");
     }
     assert_eq!(std::fs::read(root.join("Things/P.T.xml")).unwrap(), before);
-    assert!(!root.join(".twaco/baseline.json").exists());
+    assert!(!root.join(".twaco/baselines/default.json").exists());
 }
 
 #[test]
@@ -1974,7 +1974,7 @@ fn a_status_with_an_unreadable_entity_file_records_nothing() {
     let text = result["content"][0]["text"].as_str().unwrap_or_default();
     assert_eq!(result["isError"], true, "{text}");
     assert!(text.contains("could not be read"), "{text}");
-    assert!(!root.join(".twaco/baseline.json").exists());
+    assert!(!root.join(".twaco/baselines/default.json").exists());
 }
 
 #[test]
@@ -1997,7 +1997,7 @@ fn a_status_whose_reads_failed_records_nothing() {
     let text = result["content"][0]["text"].as_str().unwrap_or_default();
     assert_eq!(result["isError"], true, "{text}");
     assert!(text.contains("nothing was recorded"), "{text}");
-    assert!(!root.join(".twaco/baseline.json").exists());
+    assert!(!root.join(".twaco/baselines/default.json").exists());
 }
 
 #[test]
@@ -2593,7 +2593,8 @@ fn status_record_returns_matching_entities_in_sync_and_keeps_differing_verdicts(
         ),
     )
     .unwrap();
-    std::fs::write(root.join(".twaco/baseline.json"),r#"{"entities":{"Things":{"Acme.Same":{"local":"v7:old","server":"v7:old"},"Acme.Different":{"local":"v7:old","server":"v7:old"}}}}"#).unwrap();
+    std::fs::create_dir_all(root.join(".twaco/baselines")).unwrap();
+    std::fs::write(root.join(".twaco/baselines/default.json"),r#"{"entities":{"Things":{"Acme.Same":{"local":"v7:old","server":"v7:old"},"Acme.Different":{"local":"v7:old","server":"v7:old"}}}}"#).unwrap();
     let before = call(root, "status", json!({"all":true,"detail":true}));
     assert_eq!(body(&before)["counts"]["converged"], 1);
     assert_eq!(body(&before)["counts"]["both-changed"], 1);

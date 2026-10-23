@@ -98,8 +98,9 @@ when they are missing. By hand, they are:
 Backups matter most: a server's copy of an entity, a database Thing's password included, is kept
 there as the server holds it.
 
-Commit `.twaco/baseline.json` when it appears: it records what was last deployed or pushed
-(or adopted with `entity status --record`), so a teammate's deploy can tell your change from theirs.
+Commit `.twaco/baselines/` when it appears: it holds one file per server profile recording what was
+last deployed or pushed there (or adopted with `entity status --record`), so a teammate's deploy
+can tell your change from theirs.
 
 Then create `.twaco/profiles/default.toml` in the solution:
 

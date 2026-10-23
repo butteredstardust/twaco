@@ -690,8 +690,9 @@ mod tests {
             "<Entities><Things><Thing name=\"A.T\" projectName=\"A\"/></Things></Entities>",
         )
         .unwrap();
+        std::fs::create_dir_all(temp.path().join(".twaco/baselines")).unwrap();
         std::fs::write(
-            temp.path().join(".twaco/baseline.json"),
+            temp.path().join(".twaco/baselines/default.json"),
             r#"{"entities":{"Things":{"A.T":{"local":"v7:old","server":"v7:old"}}}}"#,
         )
         .unwrap();
@@ -716,7 +717,7 @@ mod tests {
         assert!(toml.starts_with(before));
         assert!(toml.ends_with("[[project]]\nname = \"B\"\nroot = \"B\"\n"));
         assert!(
-            std::fs::read_to_string(temp.path().join(".twaco/baseline.json"))
+            std::fs::read_to_string(temp.path().join(".twaco/baselines/default.json"))
                 .unwrap()
                 .contains("\"A.T\"")
         );

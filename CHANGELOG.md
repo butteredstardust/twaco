@@ -6,6 +6,15 @@ All notable changes to twaco are recorded here. The format follows
 
 ## [Unreleased]
 
+### Changed
+
+- Baselines are now per server profile, in `.twaco/baselines/<profile>.json`, so status and deploy
+  against one server no longer judge changes by what was recorded against another. The former
+  `.twaco/baseline.json` is read as the `default` profile's and removed when that profile next
+  records; other profiles begin without one (`entity status --all --record --profile <name>`
+  records every entity that already matches). `doctor` reports each profile's baseline and warns
+  about a legacy file left beside a new one.
+
 ### Added
 
 - `call --json` writes exactly one complete service reply to stdout; call logs and notices remain

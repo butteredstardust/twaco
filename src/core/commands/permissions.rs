@@ -167,8 +167,8 @@ where
         .map(|(file, _)| file.clone())
         .collect();
     let recorded = if apply && !pushed.is_empty() {
-        let mut baseline =
-            Baseline::load(&solution.root).map_err(PermissionsCommandError::Baseline)?;
+        let mut baseline = Baseline::load(&solution.root, &request.profile)
+            .map_err(PermissionsCommandError::Baseline)?;
         let (mut statuses, _) = status::compute_with_progress(
             &remote,
             &baseline,
@@ -179,7 +179,7 @@ where
         let recorded = status::record_matching(&mut baseline, &mut statuses);
         if recorded > 0 {
             baseline
-                .write(&solution.root)
+                .write(&solution.root, &request.profile)
                 .map_err(PermissionsCommandError::Baseline)?;
         }
         Some(recorded)
