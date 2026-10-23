@@ -103,6 +103,42 @@ fn fixture_solution(
     (root_guard, root, solution)
 }
 
+fn directory_link(target: &Path, link: &Path) -> bool {
+    #[cfg(unix)]
+    {
+        std::os::unix::fs::symlink(target, link).is_ok()
+    }
+    #[cfg(windows)]
+    {
+        std::process::Command::new("cmd")
+            .args(["/C", "mklink", "/J"])
+            .arg(link)
+            .arg(target)
+            .output()
+            .is_ok_and(|output| output.status.success())
+    }
+}
+
+#[test]
+fn generation_refuses_a_linked_twaco_folder() {
+    let (_dir, root, solution) = fixture_solution("linked-twaco", &[]);
+    let outside_guard = tempfile::tempdir().unwrap();
+    let outside = outside_guard.path();
+    std::fs::write(outside.join("untouched"), b"keep").unwrap();
+    if !directory_link(outside, &root.join(".twaco")) {
+        return;
+    }
+
+    let error = write(&solution).unwrap_err();
+    assert!(matches!(
+        error,
+        TypesError::Lock(crate::core::lock::LockError::Link { ref path })
+            if path == &root.join(".twaco")
+    ));
+    assert!(!outside.join("types").exists());
+    assert_eq!(std::fs::read(outside.join("untouched")).unwrap(), b"keep");
+}
+
 type FakeReplies = BTreeMap<(String, String), Result<Option<Value>, ServerError>>;
 
 struct FakeRemote {

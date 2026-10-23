@@ -3,6 +3,7 @@
 //! Repository declarations can be completed by the deliberately small, offline platform cache.
 
 use super::codes::{Coded, ErrorCode};
+use super::lock;
 
 mod compiler;
 mod model;
@@ -34,6 +35,8 @@ pub(crate) use platform::fetch_platform;
 #[derive(Debug, thiserror::Error)]
 pub enum TypesError {
     #[error("{0}")]
+    Lock(lock::LockError),
+    #[error("{0}")]
     Workspace(workspace::WorkspaceError),
     #[error("{0}")]
     Remote(ServerError),
@@ -47,6 +50,12 @@ impl From<workspace::WorkspaceError> for TypesError {
     }
 }
 
+impl From<lock::LockError> for TypesError {
+    fn from(value: lock::LockError) -> Self {
+        Self::Lock(value)
+    }
+}
+
 impl From<ServerError> for TypesError {
     fn from(value: ServerError) -> Self {
         Self::Remote(value)
@@ -56,6 +65,7 @@ impl From<ServerError> for TypesError {
 impl Coded for TypesError {
     fn code(&self) -> ErrorCode {
         match self {
+            Self::Lock(error) => error.code(),
             Self::Workspace(error) => error.code(),
             Self::Remote(error) => error.code(),
             Self::Platform(_) => ErrorCode::InvalidData,

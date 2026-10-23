@@ -13,6 +13,8 @@ All notable changes to twaco are recorded here. The format follows
 
 ### Fixed
 
+- Workspace writes now refuse symbolic links and Windows junctions below the solution root,
+  preventing writes through `.twaco`, sidecar, project, repository, or localization roots.
 - `types --check` runs its configured TypeScript compiler without twaco credentials, with a
   600-second deadline and a 16 MiB cap on each output stream; compiler output also redacts
   credential values before twaco returns a finding or error.

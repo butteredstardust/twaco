@@ -6,6 +6,10 @@ operation survive a crash: a killed process or a power cut between two writes no
 workspace half changed. The next twaco command that takes the workspace lock finishes the
 operation or undoes it.
 
+Before any workspace write, the lock also refuses a `.twaco`, sidecar, project, repository, or
+localization path that is a symbolic link or Windows junction, so twaco never writes outside the
+solution through one.
+
 `new building-block`, `move`, `copy`, `adopt` and every `rename` use it, one transaction for the
 whole operation. `extract` uses one per entity: an entity's sidecars change together, and entities
 stay independent, so one that fails is reported and the others are still extracted. A file that

@@ -21,6 +21,7 @@
 
 use super::codes::{Coded, ErrorCode};
 use super::config::{Solution, CONFIG_FILE};
+use super::links;
 use super::lock::WorkspaceLock;
 use super::refs;
 use super::transaction::{Transaction, TransactionError};
@@ -222,18 +223,6 @@ fn roots_equal(left: &str, right: &str) -> bool {
     }
 }
 
-fn is_link_or_junction(metadata: &std::fs::Metadata) -> bool {
-    #[cfg(windows)]
-    {
-        use std::os::windows::fs::MetadataExt;
-        metadata.file_type().is_symlink() || metadata.file_attributes() & 0x400 != 0
-    }
-    #[cfg(not(windows))]
-    {
-        metadata.file_type().is_symlink()
-    }
-}
-
 fn refuse_linked_path(root: &Path, target: &Path) -> Result<(), NewBlockError> {
     let relative = target.strip_prefix(root).map_err(|_| {
         NewBlockError::Invalid(format!(
@@ -245,7 +234,7 @@ fn refuse_linked_path(root: &Path, target: &Path) -> Result<(), NewBlockError> {
     for component in relative.components() {
         path.push(component);
         match std::fs::symlink_metadata(&path) {
-            Ok(metadata) if is_link_or_junction(&metadata) => {
+            Ok(_) if links::is_link(&path) => {
                 return Err(NewBlockError::Invalid(format!(
                     "{} is a symlink or junction; the building block folder must stay inside the solution",
                     path.display()

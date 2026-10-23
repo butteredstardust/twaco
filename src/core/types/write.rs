@@ -1,4 +1,5 @@
 use super::super::config::Solution;
+use super::super::lock;
 use super::super::workspace;
 use super::model::{load_model, script_declares, Member, Model, Service};
 use super::platform::Platform;
@@ -65,6 +66,7 @@ pub(super) fn write_model(
     platform: Option<&Platform>,
     mut skipped: Vec<String>,
 ) -> Result<Outcome, TypesError> {
+    lock::reject_unlocked_write_links(solution)?;
     let generated = generate(model, platform);
     let directory = solution.root.join(".twaco").join("types");
     let files = [

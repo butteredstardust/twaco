@@ -19,8 +19,9 @@
 //! remove. That is the stale-temp recovery half of 8.8.
 
 use super::codes::{Coded, ErrorCode};
+use super::links;
 use std::fs::{File, OpenOptions, TryLockError};
-use std::path::{Path, PathBuf};
+use std::path::{Component, Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 pub(crate) const RELATIVE_PATH: &str = ".twaco/lock";
@@ -72,6 +73,11 @@ pub enum LockError {
                  it finishes"
     )]
     Held { holder: String },
+    #[error(
+        "{} is a symbolic link or junction; twaco writes only inside the solution, so it will not write through it",
+        .path.display()
+    )]
+    Link { path: PathBuf },
     #[error("{}: {why}", .path.display())]
     Io { path: PathBuf, why: String },
     /// An interrupted operation could not be finished or undone safely. The text says why and
@@ -85,7 +91,69 @@ pub enum LockError {
 /// `sweep` is where twaco writes through a temporary: `.twaco`, the entity folders and the
 /// sidecar tree. Only twaco's own temporaries are removed, and only once the lock is held.
 pub fn acquire(root: &Path, command: &str, sweep: &[PathBuf]) -> Result<WorkspaceLock, LockError> {
+    reject_paths(root, [".twaco", RELATIVE_PATH, HOLDER_PATH])?;
     acquire_then_sweep(root, command, || sweep.to_vec())
+}
+
+/// Refuse the workspace paths a writer must check when it runs without a workspace lock.
+pub(crate) fn reject_unlocked_write_links(
+    solution: &super::config::Solution,
+) -> Result<(), LockError> {
+    reject_paths_for_solution(solution, false)
+}
+
+fn reject_paths_for_solution(
+    solution: &super::config::Solution,
+    all_workspace_roots: bool,
+) -> Result<(), LockError> {
+    reject_paths(&solution.root, [".twaco", RELATIVE_PATH, HOLDER_PATH])?;
+    reject_path(&solution.root, &solution.src_root())?;
+    if all_workspace_roots {
+        for project in &solution.projects {
+            reject_path(&solution.root, &solution.project_root(project))?;
+        }
+        if let Some(root) = solution.repositories_root() {
+            reject_path(&solution.root, &root)?;
+        }
+        reject_path(&solution.root, &solution.localization_root())?;
+    }
+    Ok(())
+}
+
+fn reject_paths<const N: usize>(root: &Path, paths: [&str; N]) -> Result<(), LockError> {
+    for relative in paths {
+        reject_relative(root, relative)?;
+    }
+    Ok(())
+}
+
+fn reject_path(root: &Path, path: &Path) -> Result<(), LockError> {
+    let Ok(relative) = path.strip_prefix(root) else {
+        return Ok(());
+    };
+    let relative = relative
+        .components()
+        .filter_map(|component| match component {
+            Component::Normal(part) => Some(part.to_string_lossy()),
+            _ => None,
+        })
+        .collect::<Vec<_>>()
+        .join("/");
+    if relative.is_empty() {
+        return Ok(());
+    }
+    reject_relative(root, &relative)
+}
+
+fn reject_relative(root: &Path, relative: &str) -> Result<(), LockError> {
+    let mut path = root.to_path_buf();
+    for part in relative.split('/') {
+        path.push(part);
+        if links::is_link(&path) {
+            return Err(LockError::Link { path });
+        }
+    }
+    Ok(())
 }
 
 /// How often, and how far apart, a contended lock is tried again before refusing. `doctor`
@@ -193,6 +261,7 @@ fn acquire_then_sweep(
 /// For diagnosis only: the answer can be stale the moment it is returned. `Ok(None)` means
 /// nobody held it at the instant of asking.
 pub(crate) fn holder(root: &Path) -> Result<Option<String>, LockError> {
+    reject_paths(root, [".twaco", RELATIVE_PATH, HOLDER_PATH])?;
     let path = root.join(RELATIVE_PATH);
     if !path.exists() {
         return Ok(None);
@@ -223,6 +292,7 @@ pub(crate) fn acquire_for(
     solution: &super::config::Solution,
     command: &str,
 ) -> Result<WorkspaceLock, LockError> {
+    reject_paths_for_solution(solution, true)?;
     acquire_then_sweep(&solution.root, command, || {
         let mut sweep: Vec<PathBuf> = super::workspace::discover(solution)
             .entities
@@ -273,6 +343,7 @@ impl Coded for LockError {
     fn code(&self) -> ErrorCode {
         match self {
             Self::Held { .. } => ErrorCode::WorkspaceLocked,
+            Self::Link { .. } => ErrorCode::GuardRefused,
             Self::Io { .. } => ErrorCode::IoError,
             Self::Recovery { .. } => ErrorCode::RollbackFailed,
         }
@@ -291,6 +362,59 @@ mod tests {
         let root = root_guard.path().to_path_buf();
         std::fs::create_dir_all(&root).unwrap();
         (root_guard, root)
+    }
+
+    fn directory_link(target: &Path, link: &Path) -> bool {
+        #[cfg(unix)]
+        {
+            std::os::unix::fs::symlink(target, link).is_ok()
+        }
+        #[cfg(windows)]
+        {
+            std::process::Command::new("cmd")
+                .args(["/C", "mklink", "/J"])
+                .arg(link)
+                .arg(target)
+                .output()
+                .is_ok_and(|output| output.status.success())
+        }
+    }
+
+    #[test]
+    fn a_linked_twaco_folder_is_refused_before_creating_a_lock() {
+        let (_dir, root) = temp();
+        let (_outside_dir, outside) = temp();
+        if !directory_link(&outside, &root.join(".twaco")) {
+            return;
+        }
+
+        let error = acquire(&root, "sync", &[]).unwrap_err();
+        assert!(matches!(
+            error,
+            LockError::Link { ref path } if path == &root.join(".twaco")
+        ));
+        assert!(!outside.join("lock").exists());
+        assert!(!outside.join("lock.holder").exists());
+    }
+
+    #[test]
+    fn a_linked_sidecar_root_is_refused_before_creating_a_lock() {
+        let (_dir, root) = temp();
+        let (_outside_dir, outside) = temp();
+        std::fs::write(root.join("twaco.toml"), "[[project]]\nname = \"P\"\n").unwrap();
+        std::fs::write(outside.join("untouched"), b"keep").unwrap();
+        if !directory_link(&outside, &root.join("src")) {
+            return;
+        }
+        let solution = super::super::config::Solution::load(&root.join("twaco.toml")).unwrap();
+
+        let error = acquire_for(&solution, "sync").unwrap_err();
+        assert!(matches!(
+            error,
+            LockError::Link { ref path } if path == &root.join("src")
+        ));
+        assert!(!root.join(RELATIVE_PATH).exists());
+        assert_eq!(std::fs::read(outside.join("untouched")).unwrap(), b"keep");
     }
 
     #[test]
