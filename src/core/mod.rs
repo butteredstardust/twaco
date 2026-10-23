@@ -10,6 +10,7 @@ pub(crate) mod bindings;
 pub mod bundle;
 pub mod catalog;
 pub mod check;
+pub(crate) mod child;
 pub(crate) mod codes;
 pub mod commands;
 pub mod config;

@@ -15,6 +15,7 @@ use serde_json::{json, Value};
 use std::cell::RefCell;
 use std::collections::{BTreeMap, BTreeSet};
 use std::ffi::{OsStr, OsString};
+use std::io::{Error, ErrorKind};
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
@@ -1046,6 +1047,39 @@ struct FakeCompiler {
     calls: RefCell<Vec<(OsString, Vec<OsString>, PathBuf)>>,
 }
 
+struct FailingCompiler {
+    kind: ErrorKind,
+    message: &'static str,
+}
+
+impl CompilerRunner for FailingCompiler {
+    fn run(&self, _: &OsStr, _: &[OsString], _: &Path) -> std::io::Result<CompilerOutput> {
+        Err(Error::new(self.kind, self.message))
+    }
+}
+
+struct EnvironmentVariable {
+    name: &'static str,
+    previous: Option<OsString>,
+}
+
+impl EnvironmentVariable {
+    fn set(name: &'static str, value: &str) -> Self {
+        let previous = std::env::var_os(name);
+        std::env::set_var(name, value);
+        Self { name, previous }
+    }
+}
+
+impl Drop for EnvironmentVariable {
+    fn drop(&mut self) {
+        match &self.previous {
+            Some(value) => std::env::set_var(self.name, value),
+            None => std::env::remove_var(self.name),
+        }
+    }
+}
+
 impl CompilerRunner for FakeCompiler {
     fn run(
         &self,
@@ -1087,6 +1121,46 @@ fn compiler_errors_without_a_parsable_finding_are_a_broken_run() {
     assert_eq!(calls.len(), 1);
     assert!(calls[0].1.iter().any(|argument| argument == "--pretty"));
     assert_eq!(calls[0].2, root);
+}
+
+#[test]
+fn compiler_stderr_credentials_are_redacted() {
+    let secret = "compiler-password-7f3a";
+    let _password = EnvironmentVariable::set("TWACO_TYPES_TEST_PASSWORD", secret);
+    let (_dir, _, solution) = fixture_solution("compiler-redaction", &[]);
+    let compiler = FakeCompiler {
+        success: false,
+        stdout: Vec::new(),
+        stderr: format!("compiler failed with {secret}\n").into_bytes(),
+        calls: RefCell::new(Vec::new()),
+    };
+
+    let error = check_with(&solution, &compiler).unwrap_err().to_string();
+
+    assert!(error.contains("compiler failed with <redacted>"), "{error}");
+    assert!(!error.contains(secret), "{error}");
+}
+
+#[test]
+fn compiler_timeout_and_output_overflow_are_not_startup_failures() {
+    let (_dir, _, solution) = fixture_solution("compiler-limits", &[]);
+    for (kind, message) in [
+        (
+            ErrorKind::TimedOut,
+            "did not finish within 600 seconds and was killed",
+        ),
+        (ErrorKind::FileTooLarge, "printed more than 16777216 bytes"),
+    ] {
+        let error = check_with(&solution, &FailingCompiler { kind, message })
+            .unwrap_err()
+            .to_string();
+        assert!(error.contains(message), "{error}");
+        assert!(
+            !error.contains("cannot start TypeScript compiler"),
+            "{error}"
+        );
+        assert!(!error.contains("npm install"), "{error}");
+    }
 }
 
 #[test]

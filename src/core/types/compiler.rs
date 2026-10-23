@@ -1,3 +1,4 @@
+use super::super::child::{credential_values, redact, run_to_completion, strip_credentials};
 use super::super::config::Solution;
 use super::model::{load_model, script_declares, Member, Model, Service};
 use super::render::{identifiers, type_name};
@@ -6,9 +7,13 @@ use super::{CheckError, CheckOutcome, TypeFinding};
 use serde_json::json;
 use std::collections::{BTreeMap, BTreeSet};
 use std::ffi::{OsStr, OsString};
+use std::io::{Error, ErrorKind};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
-use std::time::Instant;
+use std::time::{Duration, Instant};
+
+const COMPILER_TIMEOUT: Duration = Duration::from_secs(600);
+const COMPILER_OUTPUT_CAP: usize = 16 * 1024 * 1024;
 
 /// Captured compiler output, kept independent of `std::process::Output` for no-node tests.
 pub struct CompilerOutput {
@@ -37,27 +42,46 @@ impl CompilerRunner for ProcessCompiler {
         current_dir: &Path,
     ) -> std::io::Result<CompilerOutput> {
         let started = std::time::Instant::now();
-        let output = Command::new(program)
+        let mut command = Command::new(program);
+        command
             .args(arguments)
             .current_dir(current_dir)
             .stdin(Stdio::null())
             .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
-            .output()
-            .inspect_err(|why| {
-                tracing::debug!(program = ?program, why = %why, "compiler could not start");
-            })?;
+            .stderr(Stdio::piped());
+        strip_credentials(&mut command);
+        let child = command.spawn().inspect_err(|why| {
+            tracing::debug!(program = ?program, why = %why, "compiler could not start");
+        })?;
+        let finished = run_to_completion(child, COMPILER_TIMEOUT, COMPILER_OUTPUT_CAP)
+            .map_err(Error::other)?;
         tracing::debug!(
             program = ?program,
             argument_count = arguments.len(),
-            exit = output.status.code(),
+            exit = finished.status.and_then(|status| status.code()),
+            timed_out = finished.timed_out,
             elapsed_ms = u64::try_from(started.elapsed().as_millis()).unwrap_or(u64::MAX),
             "compiler finished"
         );
+        if finished.timed_out {
+            return Err(Error::new(
+                ErrorKind::TimedOut,
+                format!(
+                    "TypeScript compiler did not finish within {} seconds and was killed",
+                    COMPILER_TIMEOUT.as_secs()
+                ),
+            ));
+        }
+        if finished.truncated {
+            return Err(Error::new(
+                ErrorKind::FileTooLarge,
+                format!("TypeScript compiler printed more than {COMPILER_OUTPUT_CAP} bytes"),
+            ));
+        }
         Ok(CompilerOutput {
-            success: output.status.success(),
-            stdout: output.stdout,
-            stderr: output.stderr,
+            success: finished.status.is_some_and(|status| status.success()),
+            stdout: finished.stdout,
+            stderr: finished.stderr,
         })
     }
 }
@@ -92,6 +116,9 @@ pub(crate) fn check_with(
     let output = compiler
         .run(program, &arguments, &solution.root)
         .map_err(|error| {
+            if matches!(error.kind(), ErrorKind::TimedOut | ErrorKind::FileTooLarge) {
+                return CheckError(error.to_string());
+            }
             CheckError(format!(
                 "cannot start TypeScript compiler {}: {error}; install one with `npm install \
              --save-dev typescript` in the solution root, or set `[types] tsc` in twaco.toml",
@@ -99,20 +126,27 @@ pub(crate) fn check_with(
             ))
         })?;
     let elapsed = started.elapsed();
-    let stdout = std::str::from_utf8(&output.stdout).map_err(|error| {
-        CheckError(format!(
-            "could not read TypeScript compiler output: {error}"
-        ))
-    })?;
-    let stderr = std::str::from_utf8(&output.stderr).map_err(|error| {
-        CheckError(format!(
-            "could not read TypeScript compiler output: {error}"
-        ))
-    })?;
+    let secrets = credential_values();
+    let stdout = redact(
+        std::str::from_utf8(&output.stdout).map_err(|error| {
+            CheckError(format!(
+                "could not read TypeScript compiler output: {error}"
+            ))
+        })?,
+        &secrets,
+    );
+    let stderr = redact(
+        std::str::from_utf8(&output.stderr).map_err(|error| {
+            CheckError(format!(
+                "could not read TypeScript compiler output: {error}"
+            ))
+        })?,
+        &secrets,
+    );
     let combined = if stdout.is_empty() {
-        stderr.to_string()
+        stderr.clone()
     } else if stderr.is_empty() {
-        stdout.to_string()
+        stdout.clone()
     } else {
         format!("{stdout}\n{stderr}")
     };

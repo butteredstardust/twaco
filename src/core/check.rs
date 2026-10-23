@@ -4,6 +4,7 @@
 //! a rule, a message — so a person reads a list and an agent acts on it without re-reading the
 //! file. Structured findings keep large check results compact and machine-readable.
 
+use super::child::{credential_values, redact, run_to_completion, strip_credentials};
 use super::config::Solution;
 use super::progress::{self, Progress};
 use super::{bindings, fmt as format_js, network, sync, workspace};
@@ -1132,12 +1133,7 @@ fn run_hook(solution: &Solution, hook: &super::config::Check) -> GateResult {
     // Credentials are never handed to a declared check. A hook that genuinely needs them says
     // so, and until then the environment it sees carries none.
     if !hook.needs_credentials {
-        for (key, _) in std::env::vars() {
-            let upper = key.to_ascii_uppercase();
-            if upper.starts_with("TWACO_") || upper.starts_with("TWX_") {
-                command.env_remove(key);
-            }
-        }
+        strip_credentials(&mut command);
     }
 
     // Argument values and the environment are never logged: a hook with `needs_credentials` receives secrets there.
@@ -1158,13 +1154,14 @@ fn run_hook(solution: &Solution, hook: &super::config::Check) -> GateResult {
         }
     };
 
-    let finished = match run_to_completion(child, Duration::from_secs(hook.timeout_seconds)) {
-        Ok(f) => f,
-        Err(e) => {
-            result.broken = Some(e);
-            return result;
-        }
-    };
+    let finished =
+        match run_to_completion(child, Duration::from_secs(hook.timeout_seconds), OUTPUT_CAP) {
+            Ok(f) => f,
+            Err(e) => {
+                result.broken = Some(e);
+                return result;
+            }
+        };
     tracing::debug!(
         hook = %hook.name,
         exit = finished.status.and_then(|status| status.code()),
@@ -1192,17 +1189,9 @@ fn run_hook(solution: &Solution, hook: &super::config::Check) -> GateResult {
     } else {
         Vec::new()
     };
-    let hide = |text: &str| {
-        let mut out = text.to_string();
-        for secret in &secrets {
-            out = out.replace(secret.as_str(), "<redacted>");
-        }
-        out
-    };
-
     // Findings protocol: JSON Lines that parse become findings; anything else is kept as text
     // and attributed to the hook, so a check that prints its own summary is still readable.
-    let stdout = hide(&String::from_utf8_lossy(&finished.stdout));
+    let stdout = redact(&String::from_utf8_lossy(&finished.stdout), &secrets);
     let mut prose = Vec::new();
     for line in stdout.lines() {
         result.examined += 1;
@@ -1210,10 +1199,10 @@ fn run_hook(solution: &Solution, hook: &super::config::Check) -> GateResult {
             // Scrubbed again once decoded: JSON can spell a secret with escapes (`e` for
             // `e`) that the raw line does not show.
             Some(finding) => result.findings.push(Finding {
-                gate: hide(&finding.gate),
-                file: hide(&finding.file),
-                rule: hide(&finding.rule),
-                message: hide(&finding.message),
+                gate: redact(&finding.gate, &secrets),
+                file: redact(&finding.file, &secrets),
+                rule: redact(&finding.rule, &secrets),
+                message: redact(&finding.message, &secrets),
                 ..finding
             }),
             None if !line.trim().is_empty() => prose.push(sanitise(line)),
@@ -1225,7 +1214,7 @@ fn run_hook(solution: &Solution, hook: &super::config::Check) -> GateResult {
     let succeeded = finished.status.map(|s| s.success()).unwrap_or(false);
     if !succeeded && result.findings.is_empty() {
         let detail = if prose.is_empty() {
-            sanitise(hide(&String::from_utf8_lossy(&finished.stderr)).trim())
+            sanitise(redact(&String::from_utf8_lossy(&finished.stderr), &secrets).trim())
         } else {
             prose.join("; ")
         };
@@ -1246,136 +1235,6 @@ fn run_hook(solution: &Solution, hook: &super::config::Check) -> GateResult {
     // are still read; they simply do not fail the run.
     result.gates_the_run = hook.gate;
     result
-}
-
-/// What running a child produced.
-struct Finished {
-    status: Option<std::process::ExitStatus>,
-    stdout: Vec<u8>,
-    stderr: Vec<u8>,
-    timed_out: bool,
-    truncated: bool,
-}
-
-/// Run a child to completion, killing it if it outstays the deadline.
-///
-/// Both pipes are drained on their own threads from the moment the child starts. Waiting first
-/// and reading afterwards deadlocks as soon as a hook writes more than the operating system's
-/// pipe buffer, which is far smaller than the output cap: the hook blocks writing, the wait
-/// blocks on the hook, and the timeout fires on a program that was only being chatty.
-fn run_to_completion(
-    mut child: std::process::Child,
-    timeout: Duration,
-) -> Result<Finished, String> {
-    let out_reader = spawn_reader(child.stdout.take());
-    let err_reader = spawn_reader(child.stderr.take());
-
-    let deadline = std::time::Instant::now() + timeout;
-    let mut timed_out = false;
-    let status = loop {
-        match child.try_wait() {
-            Ok(Some(status)) => break Some(status),
-            Ok(None) => {
-                if std::time::Instant::now() >= deadline {
-                    // Killed rather than abandoned: a detached hook would outlive the run and
-                    // overlap whatever ran next.
-                    let _ = child.kill();
-                    let _ = child.wait();
-                    timed_out = true;
-                    break None;
-                }
-                std::thread::sleep(Duration::from_millis(10));
-            }
-            Err(e) => return Err(e.to_string()),
-        }
-    };
-
-    let (stdout, out_truncated) = out_reader
-        .join()
-        .map_err(|_| "reader thread panicked".to_string())?;
-    let (stderr, err_truncated) = err_reader
-        .join()
-        .map_err(|_| "reader thread panicked".to_string())?;
-    Ok(Finished {
-        status,
-        stdout,
-        stderr,
-        timed_out,
-        truncated: out_truncated || err_truncated,
-    })
-}
-
-/// Drain one pipe on its own thread, keeping at most `OUTPUT_CAP` bytes.
-///
-/// Past the cap the bytes are read and discarded rather than left in the pipe, so a hook that
-/// will not stop talking still reaches its own exit instead of blocking there forever.
-fn spawn_reader<R: std::io::Read + Send + 'static>(
-    source: Option<R>,
-) -> std::thread::JoinHandle<(Vec<u8>, bool)> {
-    std::thread::spawn(move || {
-        let mut kept = Vec::new();
-        let mut truncated = false;
-        let Some(mut source) = source else {
-            return (kept, truncated);
-        };
-        let mut buffer = [0u8; 8192];
-        loop {
-            match source.read(&mut buffer) {
-                Ok(0) | Err(_) => break,
-                Ok(n) => {
-                    if kept.len() < OUTPUT_CAP {
-                        let room = OUTPUT_CAP - kept.len();
-                        kept.extend_from_slice(&buffer[..n.min(room)]);
-                        if n > room {
-                            truncated = true;
-                        }
-                    } else {
-                        truncated = true;
-                    }
-                }
-            }
-        }
-        (kept, truncated)
-    })
-}
-
-/// The secret values a hook with `needs_credentials` inherits: the password, app key, token or
-/// secret variables twaco and its `TWX_` spellings read, as set in this process, and the
-/// `user:password` of any of their values that is a URL carrying one, whole, and its password
-/// alone, as written and decoded.
-fn credential_values() -> Vec<String> {
-    let mut values = Vec::new();
-    let mut userinfo = Vec::new();
-    for (key, value) in std::env::vars() {
-        let key = key.to_ascii_uppercase();
-        if !(key.starts_with("TWACO_") || key.starts_with("TWX_")) {
-            continue;
-        }
-        if ["PASSWORD", "KEY", "SECRET", "TOKEN"]
-            .iter()
-            .any(|word| key.contains(word))
-        {
-            values.push(value.clone());
-        }
-        let Ok(url) = url::Url::parse(&value) else {
-            continue;
-        };
-        if let Some(password) = url.password() {
-            // The pair is replaced whatever its length: with the colon it cannot be mistaken.
-            userinfo.push(format!("{}:{password}", url.username()));
-            values.push(password.to_string());
-            if let Ok(decoded) = percent_encoding::percent_decode_str(password).decode_utf8() {
-                values.push(decoded.into_owned());
-            }
-        }
-    }
-    // A short value alone would be replaced wherever those letters appear.
-    values.retain(|value| value.len() >= 4);
-    values.extend(userinfo);
-    values.dedup();
-    // Longest first, so a secret that contains another is replaced whole.
-    values.sort_by_key(|value| std::cmp::Reverse(value.len()));
-    values
 }
 
 /// Strip the control characters a hook could use to forge output.
