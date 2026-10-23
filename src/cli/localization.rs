@@ -213,7 +213,12 @@ fn print_status(solution: &Solution, status: &localization::Status, args: &Local
                     .iter()
                     .filter(|x| x.table == *table && x.state != State::Same)
                 {
-                    println!("      {:<12} {}", state_name(item.state), item.name);
+                    let fields = if item.different.is_empty() {
+                        String::new()
+                    } else {
+                        format!(": {}", item.different.join(", "))
+                    };
+                    println!("      {:<12} {}{fields}", state_name(item.state), item.name);
                 }
             }
         }

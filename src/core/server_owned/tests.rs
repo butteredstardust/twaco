@@ -258,7 +258,16 @@ fn push_uses_exporter_parts_verifies_readback_and_sends_new_entities_unchanged()
         };
         let selected = part(label);
         assert!(matches!(
-            push::push_with_parts(&fake, root.path(), &target, true, true, &selected).unwrap(),
+            push::push_with_parts(
+                &fake,
+                root.path(),
+                "default",
+                &target,
+                true,
+                true,
+                &selected
+            )
+            .unwrap(),
             push::Outcome::Pushed { created: false }
         ));
         let sent = fake.imports.lock().unwrap()[0].clone();
@@ -282,7 +291,16 @@ fn push_uses_exporter_parts_verifies_readback_and_sends_new_entities_unchanged()
         let new = Fake::default();
         let root = tempfile::tempdir().unwrap();
         assert!(matches!(
-            push::push_with_parts(&new, root.path(), &target, true, false, &selected).unwrap(),
+            push::push_with_parts(
+                &new,
+                root.path(),
+                "default",
+                &target,
+                true,
+                false,
+                &selected
+            )
+            .unwrap(),
             push::Outcome::Pushed { created: true }
         ));
         assert_eq!(new.imports.lock().unwrap()[0], local);
@@ -313,6 +331,7 @@ fn status_records_matching_unowned_content_and_invalidates_changed_policy() {
         &baseline,
         &entities,
         &solution.server_owned,
+        &[],
         &progress::NONE,
     );
     assert!(errors.is_empty());
@@ -321,7 +340,7 @@ fn status_records_matching_unowned_content_and_invalidates_changed_policy() {
     assert_eq!(status::record_matching(&mut baseline, &mut statuses), 1);
     assert_eq!(statuses[0].verdict, status::Verdict::InSync);
     let (statuses, _) =
-        status::compute_with_progress(&fake, &baseline, &entities, &[], &progress::NONE);
+        status::compute_with_progress(&fake, &baseline, &entities, &[], &[], &progress::NONE);
     assert_eq!(statuses[0].verdict, status::Verdict::NoBaselineDiffers);
     assert!(statuses[0].local_baseline.is_none());
 }
@@ -510,6 +529,7 @@ fn exporter_failure_refuses_before_any_import_and_keeps_the_baseline_absent() {
     let error = push::push_with_parts(
         &Unsupported,
         dir.path(),
+        "default",
         &target,
         true,
         true,
@@ -517,7 +537,7 @@ fn exporter_failure_refuses_before_any_import_and_keeps_the_baseline_absent() {
     )
     .unwrap_err();
     assert!(error.to_string().contains("Exporter"));
-    assert!(!dir.path().join(".twaco/baseline.json").exists());
+    assert!(!Baseline::path(dir.path(), "default").exists());
 }
 
 #[test]
@@ -591,6 +611,7 @@ fn column_preservation_refuses_unmatched_rows_before_sending_anything() {
     let error = push::push_with_parts(
         &fake,
         dir.path(),
+        "default",
         &target,
         true,
         true,
@@ -637,7 +658,7 @@ fn an_encrypted_owned_value_is_never_carried_and_push_refuses_to_clear_it_withou
     let working = normalise::hash_with_parts(&local, &selected).unwrap();
     let mut baseline = Baseline::default();
     baseline.set("Things", "Acme.Entity", working.clone(), working);
-    baseline.write(root.path()).unwrap();
+    baseline.write(root.path(), "default").unwrap();
     let changed = String::from_utf8(local.clone())
         .unwrap()
         .replace("Acme.Host", "Acme.NewHost")
@@ -649,14 +670,31 @@ fn an_encrypted_owned_value_is_never_carried_and_push_refuses_to_clear_it_withou
         },
         ..target
     };
-    let refused =
-        push::push_with_parts(&fake, root.path(), &target, true, false, &selected).unwrap();
+    let refused = push::push_with_parts(
+        &fake,
+        root.path(),
+        "default",
+        &target,
+        true,
+        false,
+        &selected,
+    )
+    .unwrap();
     assert!(matches!(
         refused,
         push::Outcome::Refused(push::Refusal::EncryptedServerOwned { .. })
     ));
     assert!(fake.imports.lock().unwrap().is_empty(), "nothing was sent");
-    push::push_with_parts(&fake, root.path(), &target, true, true, &selected).unwrap();
+    push::push_with_parts(
+        &fake,
+        root.path(),
+        "default",
+        &target,
+        true,
+        true,
+        &selected,
+    )
+    .unwrap();
     let sent = String::from_utf8(fake.imports.lock().unwrap()[0].clone()).unwrap();
     assert!(
         !sent.contains("cipher-text") && sent.contains("Acme.NewHost"),

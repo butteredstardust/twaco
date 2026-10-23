@@ -25,6 +25,11 @@ pub(crate) fn status_tool(
         (None, true) => commands::status::StatusTarget::All,
         (None, false) => return Err(ToolError::invalid("name an entity, or pass all: true")),
     };
+    let ancestor = request
+        .ancestor
+        .as_deref()
+        .map(|path| super::in_path(solution, path))
+        .transpose()?;
     let command = commands::status::StatusRequest {
         target,
         project: request.project.as_ref().cloned(),
@@ -33,6 +38,7 @@ pub(crate) fn status_tool(
         lock_label: "mcp status --record",
         refuse_unreadable: record,
         refuse_record_failures: record,
+        ancestor,
     };
     let mut notices = commands::Notices::default();
     let outcome = match commands::status::execute(
@@ -83,6 +89,9 @@ pub(crate) fn status_tool(
         "failures": outcome.failures,
         "unreadable": outcome.unreadable,
     });
+    if let (Some(file), Some(entities)) = (request.ancestor.as_deref(), outcome.ancestor) {
+        result["ancestor"] = json!({ "file": file, "entities": entities });
+    }
     // Summary: only what needs attention. Detail: every entity, with its hashes.
     result[if detail { "statuses" } else { "attention" }] = json!(listed);
     add_notices(&mut result, &notices);

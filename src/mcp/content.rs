@@ -436,12 +436,26 @@ pub fn localization_status_json(
             .iter()
             .filter(|item| item.state != State::Same)
             .map(|item| {
-                serde_json::json!({
+                let mut result = serde_json::json!({
                     "table": item.table,
                     "name": item.name,
                     "state": label(item.state),
                     "file": item.file.as_deref().map(path),
-                })
+                });
+                if item.state == State::Differs {
+                    let token = |token: &crate::core::localization::Token| {
+                        serde_json::json!({
+                            "value": token.value,
+                            "usage": token.usage,
+                            "context": token.context,
+                        })
+                    };
+                    result["different"] = serde_json::json!(item.different);
+                    result["local"] = token(item.local.as_ref().expect("differs has local token"));
+                    result["server"] =
+                        token(item.server.as_ref().expect("differs has server token"));
+                }
+                result
             })
             .collect();
         result["problems"] = status
@@ -623,6 +637,11 @@ pub(crate) fn import_tool(
                 "adds": names(&plan.new),
                 "replaces": names(&plan.replaced),
                 "applied": plan.applied,
+                "server_owned": plan.server_owned.iter().map(|entry| json!({
+                    "entity": entry.entity.to_string(),
+                    "parts": entry.parts,
+                    "clears": entry.clears,
+                })).collect::<Vec<_>>(),
             });
             add_notices(&mut result, &notices);
             Ok(result)
@@ -671,7 +690,15 @@ pub(crate) fn bundle_tool(
 ) -> Result<Value, ToolError> {
     let request = commands::bundle::BundleRequest {
         backend_only: arguments.backend_only,
-        handoff: None,
+        handoff: arguments.handoff.as_ref().cloned(),
+        changed_since: arguments.changed_since.as_ref().cloned(),
+        exclude: arguments.exclude.items().to_vec(),
+        out: arguments
+            .out
+            .as_ref()
+            .map(|out| in_path(solution, out))
+            .transpose()?,
+        profile: arguments.profile.as_ref().cloned(),
         mode: if arguments.dry_run {
             Mode::Plan
         } else {
@@ -704,9 +731,14 @@ pub(crate) fn bundle_tool(
     if matches!(state, "out_of_date" | "missing") {
         result["next"] = json!("rebuild it with dry_run: false");
     }
-    let notes = crate::core::bundle::dangling_in_selection(solution, arguments.backend_only);
+    let notes = outcome.notes().to_vec();
     if !notes.is_empty() {
         result["notes"] = json!(notes);
+    }
+    for (key, values) in crate::core::bundle::notes_by_kind(outcome.notes()) {
+        if !values.is_empty() {
+            result[key] = json!(values);
+        }
     }
     add_notices(&mut result, &notices);
     Ok(result)

@@ -401,6 +401,23 @@ pub(crate) fn import_cmd(solution: &Solution, args: &Import) -> u8 {
             for key in plan.new.iter().take(shown) {
                 println!("  adds     {key}");
             }
+            for entry in plan.server_owned.iter().take(shown) {
+                if !entry.parts.is_empty() {
+                    println!(
+                        "  {}: keeps the server's {}",
+                        entry.entity,
+                        entry.parts.join(", ")
+                    );
+                }
+                if !entry.clears.is_empty() {
+                    println!(
+                        "  {}: the import clears the server's {} (an encrypted value cannot be \
+                         carried); a deploy hook must set it again",
+                        entry.entity,
+                        entry.clears.join(", ")
+                    );
+                }
+            }
             println!(
                 "{} {} new and {} replaced entities{}",
                 if plan.applied {

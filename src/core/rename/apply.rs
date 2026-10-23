@@ -2,8 +2,9 @@
 
 use super::{
     entity, ledger, splice, Applied, ApplyOptions, Baseline, Digest, FileKind, Kind, Ledger,
-    LedgerError, Path, PathBuf, Plan, RenameError, Sha256, Solution, Step, BASELINE_PATH,
+    LedgerError, Path, PathBuf, Plan, RenameError, Sha256, Solution, Step,
 };
+use crate::core::baseline::LEGACY_RELATIVE_PATH;
 use crate::core::lock::WorkspaceLock;
 use crate::core::transaction::{Transaction, TransactionError};
 
@@ -134,23 +135,37 @@ pub(crate) fn apply_with(
         boundaries.push(Step::Write(path.clone()));
     }
 
-    let baseline_path = solution.root.join(BASELINE_PATH);
     let mut baseline_removed = 0usize;
-    let mut baseline = Baseline::load(&solution.root)
-        .map_err(|error| apply_error(&baseline_path, error.to_string()))?;
-    for (collection, name) in &plan.baseline_keys {
-        baseline_removed += usize::from(baseline.remove(collection, name));
+    let mut baseline_paths = Baseline::profiles(&solution.root)
+        .map_err(|error| apply_error(&solution.root, error.to_string()))?
+        .into_iter()
+        .map(|profile| Baseline::path(&solution.root, &profile))
+        .filter(|path| path.is_file())
+        .collect::<Vec<_>>();
+    let legacy = solution.root.join(LEGACY_RELATIVE_PATH);
+    if legacy.is_file() {
+        baseline_paths.push(legacy);
     }
-    if baseline_removed > 0 {
-        let bytes = baseline
-            .to_bytes(&solution.root)
+    for baseline_path in baseline_paths {
+        let mut baseline = Baseline::load_file(&baseline_path)
             .map_err(|error| apply_error(&baseline_path, error.to_string()))?;
-        match read_optional(&baseline_path)? {
-            Some(current) => transaction.replace_file(&baseline_path, &current, bytes),
-            None => transaction.create_file(&baseline_path, bytes),
+        let removed = plan
+            .baseline_keys
+            .iter()
+            .map(|(collection, name)| usize::from(baseline.remove(collection, name)))
+            .sum::<usize>();
+        baseline_removed += removed;
+        if removed > 0 {
+            let bytes = baseline
+                .to_bytes(&solution.root)
+                .map_err(|error| apply_error(&baseline_path, error.to_string()))?;
+            let current = std::fs::read(&baseline_path)
+                .map_err(|error| apply_error(&baseline_path, error.to_string()))?;
+            transaction
+                .replace_file(&baseline_path, &current, bytes)
+                .map_err(|error| from_transaction(solution, error))?;
+            boundaries.push(Step::Baseline(baseline_path));
         }
-        .map_err(|error| from_transaction(solution, error))?;
-        boundaries.push(Step::Baseline);
     }
 
     let ledger_bytes = ledger_value

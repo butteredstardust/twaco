@@ -3,7 +3,9 @@
 //! Transfers operate on scanner spans. Exported values stay in memory; only the existing backup
 //! mechanism may persist them. The same transfer in reverse protects repository values in adopt.
 
+use super::entity::key::EntityKey;
 use super::normalise::{self, Element, Node, NormaliseError};
+use super::push;
 use super::scan::{self, Kind, Span};
 use super::splice::{self, Edit};
 use serde::Deserialize;
@@ -187,6 +189,88 @@ pub(crate) fn collections(part: &Part) -> Option<&'static [&'static str]> {
 
 pub(crate) fn labels(parts: &[Part]) -> Vec<String> {
     parts.iter().map(Part::label).collect()
+}
+
+/// One entity in an import document whose selected parts belong to the server.
+#[derive(Clone, Debug)]
+pub(crate) struct DocumentEntity {
+    pub(crate) key: EntityKey,
+    pub(crate) parts: Vec<Part>,
+}
+
+/// What a document import carries from the server for one existing entity.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct PreservedEntity {
+    pub(crate) key: EntityKey,
+    pub(crate) parts: Vec<String>,
+    pub(crate) clears: Vec<String>,
+}
+
+/// A failed owned-part transfer, with the entity that made sending the document unsafe.
+#[derive(Debug)]
+pub(crate) struct PreserveError {
+    pub(crate) key: EntityKey,
+    pub(crate) why: String,
+    pub(crate) disappeared: bool,
+}
+
+/// A server that can provide the Exporter representation an import can safely carry.
+pub(crate) trait ExportRemote {
+    fn export_owned(&self, key: &EntityKey) -> Result<Option<Vec<u8>>, super::server::ServerError>;
+}
+
+impl<R: push::Remote + ?Sized> ExportRemote for R {
+    fn export_owned(&self, key: &EntityKey) -> Result<Option<Vec<u8>>, super::server::ServerError> {
+        push::Remote::export_owned(self, key)
+    }
+}
+
+/// Fetch the selected server-owned parts and splice them into an import document.
+///
+/// Every export happens before this returns, so callers can refuse before sending any part of a
+/// document. Exported values remain in the returned bytes only, never on disk.
+pub(crate) fn preserve_document<R: ExportRemote + ?Sized>(
+    remote: &R,
+    document: &[u8],
+    entities: &[DocumentEntity],
+) -> Result<(Vec<u8>, Vec<PreservedEntity>), PreserveError> {
+    let mut outgoing = document.to_vec();
+    let mut report = Vec::new();
+    for entity in entities {
+        if entity.parts.is_empty() {
+            continue;
+        }
+        let donor = remote
+            .export_owned(&entity.key)
+            .map_err(|error| PreserveError {
+                key: entity.key.clone(),
+                why: error.to_string(),
+                disappeared: false,
+            })?
+            .ok_or_else(|| PreserveError {
+                key: entity.key.clone(),
+                why: String::new(),
+                disappeared: true,
+            })?;
+        let encrypted = encrypted(&donor, &entity.parts).map_err(|error| PreserveError {
+            key: entity.key.clone(),
+            why: error.to_string(),
+            disappeared: false,
+        })?;
+        let carried = carried(&entity.parts, &encrypted);
+        outgoing =
+            preserve_in_bundle(&outgoing, &donor, &carried).map_err(|error| PreserveError {
+                key: entity.key.clone(),
+                why: error.to_string(),
+                disappeared: false,
+            })?;
+        report.push(PreservedEntity {
+            key: entity.key.clone(),
+            parts: labels(&carried),
+            clears: labels(&encrypted),
+        });
+    }
+    Ok((outgoing, report))
 }
 
 fn attr<'a>(element: &'a Element, name: &[u8]) -> Option<&'a [u8]> {

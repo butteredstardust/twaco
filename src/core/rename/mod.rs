@@ -4,7 +4,7 @@
 //! invalid, nested, unknown, ambiguous or conflicting names, and refuses an incomplete workspace
 //! discovery rather than presenting a partial rename as complete.
 
-use super::baseline::{Baseline, RELATIVE_PATH as BASELINE_PATH};
+use super::baseline::Baseline;
 use super::codes::{Coded, ErrorCode};
 use super::config::{Solution, CONFIG_FILE};
 use super::ledger::{self, Ledger, LedgerError};
@@ -373,7 +373,7 @@ pub struct Outcome {
 pub(crate) enum Step {
     Write(PathBuf),
     Move(PathBuf, PathBuf),
-    Baseline,
+    Baseline(PathBuf),
     Ledger,
 }
 

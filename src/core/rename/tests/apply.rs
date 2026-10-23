@@ -220,7 +220,13 @@ fn every_injected_apply_failure_rolls_back_the_complete_tree() {
         },
     )
     .unwrap();
-    assert!(steps.iter().any(|step| matches!(step, Step::Baseline)));
+    assert_eq!(
+        steps
+            .iter()
+            .filter(|step| matches!(step, Step::Baseline(_)))
+            .count(),
+        3
+    );
     assert!(steps.iter().any(|step| matches!(step, Step::Ledger)));
 
     for (fail_at, failed_step) in steps.iter().enumerate() {
@@ -278,11 +284,20 @@ fn baseline_removes_only_renamed_entries_and_is_not_created_when_absent() {
         &locked(&baseline_fixture),
     )
     .unwrap();
-    assert_eq!(applied.baseline_removed, planned.baseline_keys.len());
-    let baseline = Baseline::load(&baseline_fixture.root).unwrap();
-    assert!(baseline.get("Things", "Unchanged").is_some());
-    for (collection, name) in &planned.baseline_keys {
-        assert!(baseline.get(collection, name).is_none());
+    assert_eq!(applied.baseline_removed, planned.baseline_keys.len() * 3);
+    let paths = [
+        Baseline::path(&baseline_fixture.root, "default"),
+        Baseline::path(&baseline_fixture.root, "development"),
+        baseline_fixture
+            .root
+            .join(crate::core::baseline::LEGACY_RELATIVE_PATH),
+    ];
+    for path in paths {
+        let baseline = Baseline::load_file(&path).unwrap();
+        assert!(baseline.get("Things", "Unchanged").is_some());
+        for (collection, name) in &planned.baseline_keys {
+            assert!(baseline.get(collection, name).is_none());
+        }
     }
 
     let fixture = fixture();
@@ -294,7 +309,7 @@ fn baseline_removes_only_renamed_entries_and_is_not_created_when_absent() {
         &locked(&fixture),
     )
     .unwrap();
-    assert!(!fixture.root.join(BASELINE_PATH).exists());
+    assert!(!Baseline::path(&fixture.root, "default").exists());
 }
 
 #[test]

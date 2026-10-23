@@ -82,5 +82,5 @@ fn cli_status_push_and_deploy_expose_owned_parts_without_importing() {
     }
     server.join().unwrap();
     assert_eq!(std::fs::read_to_string(path).unwrap(), before);
-    assert!(!root.join(".twaco/baseline.json").exists());
+    assert!(!root.join(".twaco/baselines/default.json").exists());
 }

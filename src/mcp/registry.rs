@@ -612,7 +612,7 @@ static TOOLS: LazyLock<Vec<Tool>> = LazyLock::new(|| {
         .with_output::<outputs::RetemplateResult>(),
         solution_tool::<data_requests::ConfigTableRequest>(
             "config_table",
-            "List a Thing's configuration tables, read one of them on the server, diff it against the entity XML in the repository, back it up to a new file in the solution (a backup is never overwritten), or restore it from such a backup. restore is a dry run unless dry_run is false; it refuses a backup of another Thing or table, and reads the table back.",
+            "List a Thing's configuration tables, read one on the server, diff it against the entity XML in the repository, compare it with a backup, back it up to a new file in the solution (a backup is never overwritten), or restore it from such a backup. restore is a dry run unless dry_run is false; it refuses a backup of another Thing or table, and reads the table back.",
             false,
             data::config_table_tool,
         )
@@ -738,7 +738,7 @@ static TOOLS: LazyLock<Vec<Tool>> = LazyLock::new(|| {
         .with_output::<outputs::PackageResult>(),
         solution_progress_tool::<content_requests::ImportRequest>(
             "import",
-            "Import into the server as Composer's Import/Export does: an export file of the solution (XML, or a zip of them), or a source-control tree in a file repository. A dry run unless dry_run is false: a file's plan lists what it adds and what it replaces; a source-control plan is the server's own diff. The server's property values and configuration table rows are kept unless the overwrite flags say otherwise.",
+            "Import into the server as Composer's Import/Export does: an export file of the solution (XML, or a zip of them), or a source-control tree in a file repository. A dry run unless dry_run is false: a file's plan lists what it adds and what it replaces; an XML file also preserves configured server-owned parts. Source-control imports and archives cannot preserve them. The server's property values and configuration table rows are kept unless the overwrite flags say otherwise.",
             false,
             content::import_tool,
         )
@@ -829,7 +829,7 @@ static TOOLS: LazyLock<Vec<Tool>> = LazyLock::new(|| {
         .with_output::<outputs::JavadocResult>(),
         solution_tool::<data_requests::CallRequest>(
             "call",
-            "Call a ThingWorx service. A service can write, and twaco cannot tell which do, so this is a dry run unless dry_run is false. A bare target is a Thing; Collection/Name reaches templates, shapes, resources and subsystems.",
+            "Call a ThingWorx service. Without dry_run, a service known to only read runs (a platform read such as InfoTableFunctions or GetPropertyValues that the repository does not define, or one twaco.toml [call] read_only lists; the result says read_only) and any other is a dry run; dry_run true always plans, false always calls. A bare target is a Thing; Collection/Name reaches templates, shapes, resources and subsystems.",
             false,
             data::call_service_tool,
         )

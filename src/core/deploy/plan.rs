@@ -4,6 +4,7 @@ use super::super::normalise;
 use super::super::parallel;
 use super::super::progress::{Progress, NONE};
 use super::super::push;
+use super::super::{adopt, patch};
 use super::{
     DeployError, Entity, EntityPlan, PlanOptions, ProjectBundle, Remote, Script, ServiceCall,
 };
@@ -90,11 +91,15 @@ pub(crate) fn decide_all_with_progress(
 /// Shared by the CLI and the MCP server, so both deploy exactly the same thing.
 pub(crate) fn plan_bundles(
     solution: &super::config::Solution,
+    profile: &str,
     options: PlanOptions,
 ) -> Result<(Vec<ProjectBundle>, Vec<String>), String> {
     use std::collections::BTreeSet;
     use std::path::PathBuf;
     let mut notes = Vec::new();
+    if options.changed_since.is_some() && !options.only.is_empty() {
+        return Err("--only cannot be combined with --changed-since".to_string());
+    }
     let order = match solution.deploy_order() {
         Ok(order) => order,
         Err(error) => {
@@ -118,6 +123,13 @@ pub(crate) fn plan_bundles(
     if !found.unreadable.is_empty() {
         return Err(found.unreadable.join("; "));
     }
+    let unknown = solution.unknown_patches(profile, &found.entities);
+    if !unknown.is_empty() {
+        return Err(format!(
+            "twaco.toml patches for profile {profile} name no Mashup in this workspace: {}",
+            unknown.join(", ")
+        ));
+    }
     let backend_only = options.backend_only;
     let selection = if backend_only {
         super::bundle::Selection::backend(solution)
@@ -127,7 +139,7 @@ pub(crate) fn plan_bundles(
 
     // `projectName` owns attribution. Folder membership is used only for the rare undeclared
     // entity, which workspace already reports as such.
-    let mut pool: Vec<super::workspace::EntityFile> = found
+    let pool: Vec<super::workspace::EntityFile> = found
         .entities
         .into_iter()
         .filter(|entity| {
@@ -139,6 +151,14 @@ pub(crate) fn plan_bundles(
             selected_projects.contains(owner) && selection.wants(&entity.info.collection)
         })
         .collect();
+
+    let (mut pool, selection_notes) = super::super::bundle::select_entities(
+        solution,
+        pool,
+        options.changed_since,
+        options.exclude,
+    )?;
+    notes.extend(selection_notes);
 
     if !options.only.is_empty() {
         let mut narrowed = Vec::new();
@@ -159,6 +179,12 @@ pub(crate) fn plan_bundles(
     if pool.is_empty() {
         return Err("the deploy selection contains no entities".to_string());
     }
+
+    let selected_paths: Vec<PathBuf> = pool.iter().map(|entity| entity.path.clone()).collect();
+    notes.extend(super::super::bundle::dangling_references(
+        &selected_paths,
+        &super::super::bundle::source_files(solution),
+    ));
 
     let source_order = super::bundle::source_files(solution);
     let mut projects = Vec::new();
@@ -187,7 +213,7 @@ pub(crate) fn plan_bundles(
             .filter(|path| wanted_paths.contains(*path))
             .cloned()
             .collect();
-        let built = match super::bundle::build(&files, &selection) {
+        let mut built = match super::bundle::build(&files, &selection) {
             Ok(built) => built,
             Err(error) => {
                 return Err(format!("project {}: {error}", project.name));
@@ -213,6 +239,30 @@ pub(crate) fn plan_bundles(
                     return Err(format!("{}: {error}", entity.path.display()));
                 }
             };
+            let bytes = patch::apply(
+                &bytes,
+                &entity.info.collection,
+                &entity.info.name,
+                solution.patches_for(profile),
+            )
+            .map_err(|error| format!("{}: {error}", entity.path.display()))?;
+            if solution.patches_for(profile).iter().any(|patch| {
+                patch.entity == format!("{}/{}", entity.info.collection, entity.info.name)
+            }) {
+                let wanted = adopt::EntityRef {
+                    collection: entity.info.collection.clone(),
+                    name: entity.info.name.clone(),
+                };
+                let element = adopt::raw_entity_bytes(&bytes, &wanted)
+                    .map_err(|error| format!("{}: {error}", entity.path.display()))?;
+                built.bytes = adopt::replace_entity_bytes(
+                    &built.bytes,
+                    &wanted,
+                    &element,
+                    solution.format.indent_cdata_payload,
+                )
+                .map_err(|error| format!("{}: {error}", entity.path.display()))?;
+            }
             match super::sidecar::script_services(&bytes) {
                 Ok(found_scripts) => {
                     scripts.extend(found_scripts.into_iter().map(|service| Script {
@@ -227,7 +277,7 @@ pub(crate) fn plan_bundles(
             }
             entities.push(Entity {
                 server_owned: super::super::server_owned::parts(
-                    &solution.server_owned,
+                    &solution.server_owned_for(profile),
                     &entity.info.collection,
                     &entity.info.name,
                 ),

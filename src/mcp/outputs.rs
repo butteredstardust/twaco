@@ -167,6 +167,8 @@ pub(crate) struct StatusResult {
     counts: BTreeMap<String, u64>,
     failures: Vec<String>,
     unreadable: Vec<String>,
+    /// The export used as the ancestor instead of the baseline, when one was given.
+    ancestor: Option<StatusAncestor>,
     /// Without detail: only what needs attention.
     attention: Option<Vec<StatusEntry>>,
     /// With detail: every entity.
@@ -180,6 +182,12 @@ pub(crate) struct PullResult {
     entities: Vec<String>,
     recorded: u64,
     notices: Notices,
+}
+
+#[derive(Serialize, JsonSchema)]
+struct StatusAncestor {
+    file: String,
+    entities: u64,
 }
 
 #[derive(Serialize, JsonSchema)]
@@ -474,8 +482,11 @@ pub(crate) struct ConfigTableResult {
     primary_key: Option<Value>,
     first_rows: Option<Vec<Value>>,
     values: Option<Vec<Value>>,
-    /// diff
+    /// diff, compare
     identical: Option<bool>,
+    /// `key`, or `position` when the table has no key or rows share one.
+    matching: Option<String>,
+    matching_reason: Option<String>,
     differences: Option<Vec<Value>>,
     /// backup
     backup: Option<String>,
@@ -539,6 +550,8 @@ pub(crate) struct CallResult {
     result_head: Option<String>,
     /// With with_logs: the entries logged during the call, or why they could not be read.
     logs: Option<Value>,
+    /// Why a call without dry_run ran: "platform" (a built-in platform read) or "twaco.toml" (listed in [call] read_only).
+    read_only: Option<String>,
     notices: Notices,
 }
 
@@ -596,7 +609,8 @@ pub(crate) struct LocalizationResult {
     tables: Vec<Value>,
     problem_counts: Value,
     unreadable: Vec<Value>,
-    /// With detail: the tokens that are not the same.
+    /// With detail: the tokens that are not the same. Differing tokens carry `different`,
+    /// `local`, and `server`.
     compared: Option<Vec<Value>>,
     /// With detail: each problem.
     problems: Option<Vec<Value>>,
@@ -681,6 +695,9 @@ pub(crate) struct BundleResult {
     files: Option<u64>,
     next: Option<String>,
     notes: Option<Vec<Value>>,
+    deleted: Option<Vec<String>>,
+    unmatched_excludes: Option<Vec<String>>,
+    left_out_references: Option<Vec<String>>,
     notices: Notices,
 }
 
@@ -736,10 +753,13 @@ struct PackageDetail {
     version: Option<String>,
     /// A solution's extension: each project's package.
     projects: Option<Vec<Value>>,
+    deleted: Option<Vec<String>>,
+    unmatched_excludes: Option<Vec<String>>,
+    left_out_references: Option<Vec<String>>,
 }
 
-/// A file's import answers with what it adds and replaces; a source-control one with the
-/// server's diff.
+/// A file's import answers with what it adds, replaces, and preserves; a source-control one
+/// with the server's diff.
 #[derive(Serialize, JsonSchema)]
 pub(crate) struct ImportResult {
     ok: bool,
@@ -748,6 +768,8 @@ pub(crate) struct ImportResult {
     adds: Option<Vec<String>>,
     replaces: Option<Vec<String>>,
     applied: Option<bool>,
+    /// Existing XML entities whose import carries server-owned parts.
+    server_owned: Option<Vec<ServerOwnedEntity>>,
     /// source control
     entities: Option<Value>,
     differ: Option<Vec<Value>>,
@@ -1160,19 +1182,21 @@ pub(crate) struct MashupRecipeResult {
 
 #[derive(Serialize, JsonSchema)]
 pub(crate) struct AdoptReportResult {
-    reverts: u64,
-    services: Vec<Value>,
-    unmatched_services: Vec<Value>,
-    new: Vec<Value>,
-    absent: Vec<String>,
-    changed: Vec<Value>,
-    type_changes: Vec<Value>,
-    retyped_arguments: Vec<Value>,
-    retyped_defaults: Vec<Value>,
-    identical: u64,
-    base: Value,
-    entities: Vec<Value>,
-    notices: Notices,
+    notes: Option<Vec<String>>,
+    suggestions: Option<Vec<Value>>,
+    reverts: Option<u64>,
+    services: Option<Vec<Value>>,
+    unmatched_services: Option<Vec<Value>>,
+    new: Option<Vec<Value>>,
+    absent: Option<Vec<String>>,
+    changed: Option<Vec<Value>>,
+    type_changes: Option<Vec<Value>>,
+    retyped_arguments: Option<Vec<Value>>,
+    retyped_defaults: Option<Vec<Value>>,
+    identical: Option<u64>,
+    base: Option<Value>,
+    entities: Option<Vec<Value>>,
+    notices: Option<Notices>,
 }
 
 #[derive(Serialize, JsonSchema)]
@@ -1189,6 +1213,7 @@ pub(crate) struct AdoptApplyResult {
     next: String,
     types_refreshed: Option<u64>,
     types_warning: Option<String>,
+    notes: Option<Vec<String>>,
     notices: Notices,
 }
 

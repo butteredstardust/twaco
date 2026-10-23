@@ -4,7 +4,7 @@ use super::{Access, Effects, Mode, Notices};
 use crate::core::codes::{Coded, ErrorCode};
 use crate::core::config::Solution;
 use crate::core::entity::key::ServiceTarget;
-use crate::core::{logs, profile, server, workspace};
+use crate::core::{logs, profile, read_only, server, workspace};
 use serde_json::Value;
 use std::fmt;
 use std::time::Duration;
@@ -29,6 +29,9 @@ pub struct CallRequest {
     /// ThingWorx takes a call's language from the user's stored preference, so the test user's
     /// preference is set for the call and put back after it.
     pub lang: Option<String>,
+    /// The caller left the choice to twaco: a plan becomes a call when the service only reads
+    /// (and no `lang` makes the call write the user's preference).
+    pub run_if_read_only: bool,
 }
 
 /// The completed service call or its dry-run description.
@@ -43,6 +46,8 @@ pub enum CallOutcome {
         reply: Option<Value>,
         logs: Logged,
         effects: Effects,
+        /// Set when a plan ran because the service only reads.
+        read_only: Option<read_only::Reason>,
     },
 }
 
@@ -213,7 +218,11 @@ where
     let target = workspace::call_target(&workspace::discover(solution).entities, &request.target)
         .map_err(CallCommandError::Target)?;
     check_arguments(solution, &target, &request.service, &request.parameters)?;
-    if matches!(request.mode, Mode::Plan) {
+    let read_only =
+        (matches!(request.mode, Mode::Plan) && request.run_if_read_only && request.lang.is_none())
+            .then(|| read_only::reason(solution, &target, &request.service))
+            .flatten();
+    if matches!(request.mode, Mode::Plan) && read_only.is_none() {
         return Ok(CallOutcome::Plan {
             target,
             effects: Effects::new(Access::Read, Access::None),
@@ -230,7 +239,21 @@ where
         Some(user) => as_test_user(solution, &profile, user)?,
     };
     let (Some(lang), Some(user)) = (&request.lang, &request.as_user) else {
-        return call(request, target, &open(signed_in));
+        return call(request, target, &open(signed_in)).map(|outcome| match outcome {
+            CallOutcome::Applied {
+                target,
+                reply,
+                logs,
+                ..
+            } if read_only.is_some() => CallOutcome::Applied {
+                target,
+                reply,
+                logs,
+                effects: Effects::new(Access::Read, Access::Read),
+                read_only,
+            },
+            outcome => outcome,
+        });
     };
     // The profile's own account changes the test user's preference; the call runs as the test
     // user; the old preference goes back whatever the call did.
@@ -388,6 +411,7 @@ fn call<R: Remote>(
         reply,
         logs: logged,
         effects: Effects::new(Access::Read, Access::Write),
+        read_only: None,
     })
 }
 
@@ -527,6 +551,7 @@ mod tests {
             profile_before_target: false,
             as_user: None,
             lang: None,
+            run_if_read_only: false,
         };
         let outcome = execute::<server::Client, _>(
             &solution,
@@ -553,6 +578,7 @@ mod tests {
             profile_before_target: true,
             as_user: None,
             lang: None,
+            run_if_read_only: false,
         };
         let error = execute::<server::Client, _>(
             &solution,
@@ -656,6 +682,7 @@ mod tests {
             profile_before_target: false,
             as_user: as_user.map(str::to_string),
             lang: Some(lang.to_string()),
+            run_if_read_only: false,
         };
         let log = std::rc::Rc::new(std::cell::RefCell::new(Vec::new()));
         let opened = log.clone();

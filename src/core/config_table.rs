@@ -305,49 +305,113 @@ fn key_of(row: &Map<String, Value>, key: &[String], cell: Cell) -> String {
         .join("\u{1f}")
 }
 
-/// Differences between two sets of rows, keyed by primary key, or by position when there is none.
+/// How two sets of rows were paired for comparison.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Matching {
+    Key,
+    Position { reason: String },
+}
+
+impl Matching {
+    pub const fn as_str(&self) -> &'static str {
+        match self {
+            Self::Key => "key",
+            Self::Position { .. } => "position",
+        }
+    }
+
+    pub fn reason(&self) -> Option<&str> {
+        match self {
+            Self::Key => None,
+            Self::Position { reason } => Some(reason),
+        }
+    }
+}
+
+/// The result of comparing two sets of rows.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct Comparison {
+    pub matching: Matching,
+    pub differences: Vec<String>,
+}
+
+/// Select the unambiguous way to pair rows. A duplicate key cannot say which row it identifies,
+/// so comparisons retain every row by falling back to their positions.
+fn matching_by(
+    left: &[Map<String, Value>],
+    right: &[Map<String, Value>],
+    key: &[String],
+    cell: Cell,
+) -> Matching {
+    if key.is_empty() {
+        return Matching::Position {
+            reason: "the table has no primary key".to_string(),
+        };
+    }
+    let duplicate = |rows: &[Map<String, Value>]| {
+        let mut counts = std::collections::BTreeMap::new();
+        for row in rows {
+            *counts.entry(key_of(row, key, cell)).or_insert(0usize) += 1;
+        }
+        counts.into_iter().find(|(_, count)| *count > 1)
+    };
+    if let Some((row_key, count)) = duplicate(left).or_else(|| duplicate(right)) {
+        return Matching::Position {
+            reason: format!(
+                "rows share a key: {} ({count} rows)",
+                row_key.replace('\u{1f}', ", ")
+            ),
+        };
+    }
+    Matching::Key
+}
+
+/// Differences between two sets of rows, keyed by primary key when that is unambiguous, or by
+/// position otherwise.
 ///
 /// Cells are compared by meaning, so the entity XML's text agrees with the server's typed values.
-pub(crate) fn differences(
+pub(crate) fn compare_rows(
     left_name: &str,
     left: &[Map<String, Value>],
     right_name: &str,
     right: &[Map<String, Value>],
     key: &[String],
-) -> Vec<String> {
-    differences_by(left_name, left, right_name, right, key, comparable)
+) -> Comparison {
+    compare_rows_by(left_name, left, right_name, right, key, comparable)
 }
 
-fn differences_by(
+fn compare_rows_by(
     left_name: &str,
     left: &[Map<String, Value>],
     right_name: &str,
     right: &[Map<String, Value>],
     key: &[String],
     cell: Cell,
-) -> Vec<String> {
+) -> Comparison {
     let label = |row_key: &str| row_key.replace('\u{1f}', ", ");
     let mut out = Vec::new();
     type Row<'a> = Option<&'a Map<String, Value>>;
-    let pairs: Vec<(String, Row, Row)> = if key.is_empty() {
-        (0..left.len().max(right.len()))
+    let matching = matching_by(left, right, key, cell);
+    let pairs: Vec<(String, Row, Row)> = match &matching {
+        Matching::Position { .. } => (0..left.len().max(right.len()))
             .map(|i| (format!("#{}", i + 1), left.get(i), right.get(i)))
-            .collect()
-    } else {
-        let mut keys: Vec<String> = left
-            .iter()
-            .chain(right)
-            .map(|row| key_of(row, key, cell))
-            .collect();
-        keys.sort();
-        keys.dedup();
-        keys.into_iter()
-            .map(|k| {
-                let l = left.iter().find(|row| key_of(row, key, cell) == k);
-                let r = right.iter().find(|row| key_of(row, key, cell) == k);
-                (label(&k), l, r)
-            })
-            .collect()
+            .collect(),
+        Matching::Key => {
+            let mut keys: Vec<String> = left
+                .iter()
+                .chain(right)
+                .map(|row| key_of(row, key, cell))
+                .collect();
+            keys.sort();
+            keys.dedup();
+            keys.into_iter()
+                .map(|k| {
+                    let l = left.iter().find(|row| key_of(row, key, cell) == k);
+                    let r = right.iter().find(|row| key_of(row, key, cell) == k);
+                    (label(&k), l, r)
+                })
+                .collect()
+        }
     };
     for (row, l, r) in pairs {
         match (l, r) {
@@ -376,7 +440,74 @@ fn differences_by(
             (None, None) => {}
         }
     }
-    out
+    Comparison {
+        matching,
+        differences: out,
+    }
+}
+
+fn differences_by(
+    left_name: &str,
+    left: &[Map<String, Value>],
+    right_name: &str,
+    right: &[Map<String, Value>],
+    key: &[String],
+    cell: Cell,
+) -> Vec<String> {
+    compare_rows_by(left_name, left, right_name, right, key, cell).differences
+}
+
+/// Compare a server table with a backup. Unlike restore, this accepts a changed DataShape and
+/// reports its column list, because reading a backup must never require a safe write path.
+pub(crate) fn compare_tables(
+    left_name: &str,
+    left: &Table,
+    right_name: &str,
+    right: &Table,
+) -> Comparison {
+    let key = primary_key(&left.data_shape);
+    let mut comparison = compare_rows(left_name, &left.rows, right_name, &right.rows, &key);
+    fn fields(shape: &Value) -> std::collections::BTreeMap<&String, &Value> {
+        shape
+            .get("fieldDefinitions")
+            .and_then(Value::as_object)
+            .map(|fields| fields.iter().collect())
+            .unwrap_or_default()
+    }
+    let (left_fields, right_fields) = (fields(&left.data_shape), fields(&right.data_shape));
+    let mut shape = Vec::new();
+    if !left_fields.keys().eq(right_fields.keys()) {
+        let names = |fields: &std::collections::BTreeMap<&String, &Value>| {
+            fields
+                .keys()
+                .map(|name| name.as_str())
+                .collect::<Vec<_>>()
+                .join(", ")
+        };
+        shape.push(format!(
+            "columns: {left_name} [{}] {right_name} [{}]",
+            names(&left_fields),
+            names(&right_fields)
+        ));
+    }
+    // A column both sides have can still differ in type or in being part of the key.
+    let redefined: Vec<&str> = left_fields
+        .iter()
+        .filter(|(name, definition)| {
+            right_fields
+                .get(*name)
+                .is_some_and(|other| other != *definition)
+        })
+        .map(|(name, _)| name.as_str())
+        .collect();
+    if !redefined.is_empty() {
+        shape.push(format!(
+            "column definitions differ: {}",
+            redefined.join(", ")
+        ));
+    }
+    comparison.differences.splice(0..0, shape);
+    comparison
 }
 
 /// Write a backup in the established JSON format, retained for compatibility. It never
@@ -1111,13 +1242,93 @@ mod tests {
         let key = vec!["Key".to_string()];
         let server = vec![row("a", json!(1.0)), row("b", json!("x"))];
         let repo = vec![row("a", json!("1")), row("c", json!("y"))];
-        let found = differences("server", &server, "source control", &repo, &key);
+        let found = compare_rows("server", &server, "source control", &repo, &key);
+        assert_eq!(found.matching, Matching::Key);
         assert_eq!(
-            found,
+            found.differences,
             [
                 "row b: on server, missing from source control",
                 "row c: in source control, missing on server",
             ]
+        );
+    }
+
+    #[test]
+    fn rows_are_matched_by_position_when_there_is_no_key_or_a_key_repeats() {
+        let key = vec!["Key".to_string()];
+        let unique = vec![row("a", json!(1)), row("b", json!(2))];
+        let repeated = vec![row("a", json!(1)), row("a", json!(2))];
+
+        assert_eq!(
+            compare_rows("l", &unique, "r", &unique, &key).matching,
+            Matching::Key
+        );
+        for (left, right) in [(&repeated, &unique), (&unique, &repeated)] {
+            let matching = compare_rows("l", left, "r", right, &key).matching;
+            assert_eq!(matching.as_str(), "position");
+            assert_eq!(matching.reason(), Some("rows share a key: a (2 rows)"));
+        }
+        let none = compare_rows("l", &unique, "r", &unique, &[]).matching;
+        assert_eq!(none.reason(), Some("the table has no primary key"));
+    }
+
+    #[test]
+    fn a_differing_second_row_under_a_repeated_key_is_reported() {
+        // Matching by key took the first row on each side and missed the second one.
+        let key = vec!["Key".to_string()];
+        let server = vec![row("Manager", json!("a")), row("Manager", json!("b"))];
+        let saved = vec![row("Manager", json!("a")), row("Manager", json!("c"))];
+
+        let found = compare_rows("server", &server, "backup", &saved, &key);
+
+        assert_eq!(found.differences.len(), 1, "{:?}", found.differences);
+        assert!(
+            found.differences[0].starts_with("row #2"),
+            "{:?}",
+            found.differences
+        );
+    }
+
+    #[test]
+    fn comparing_with_a_backup_reports_a_changed_column_list() {
+        let shape = |columns: &[&str]| {
+            let fields: Map<String, Value> = columns
+                .iter()
+                .map(|name| {
+                    (
+                        name.to_string(),
+                        json!({ "name": name, "baseType": "STRING" }),
+                    )
+                })
+                .collect();
+            json!({ "fieldDefinitions": fields })
+        };
+        let server = Table {
+            data_shape: shape(&["Key", "Value"]),
+            rows: vec![row("a", json!("x"))],
+        };
+        let saved = Table {
+            data_shape: shape(&["Key", "Value", "Extra"]),
+            rows: vec![row("a", json!("x"))],
+        };
+
+        let found = compare_tables("server", &server, "backup", &saved);
+
+        assert_eq!(
+            found.differences,
+            ["columns: server [Key, Value] backup [Extra, Key, Value]"]
+        );
+
+        let retyped = Table {
+            data_shape: json!({ "fieldDefinitions": {
+                "Key": { "name": "Key", "baseType": "STRING" },
+                "Value": { "name": "Value", "baseType": "NUMBER" },
+            }}),
+            rows: vec![row("a", json!("x"))],
+        };
+        assert_eq!(
+            compare_tables("server", &server, "backup", &retyped).differences,
+            ["column definitions differ: Value"]
         );
     }
 

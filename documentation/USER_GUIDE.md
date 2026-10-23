@@ -92,7 +92,7 @@ twaco call <Thing> <Service> '<json>' --with-logs
 ```
 
 Then commit. `deploy --apply` and `entity push --apply` record what they sent in
-`.twaco/baseline.json`; commit that too.
+`.twaco/baselines/<profile>.json`, one file per server profile; commit those too.
 
 ### The gates
 
@@ -246,6 +246,16 @@ The localization tables are shared by every project, so a deploy of some project
 `--backend-only` leaves out `[bundle] ui_collections`, so backend work does not overwrite a
 designer's mashups. `twaco bundle` builds the document without sending it.
 
+`--changed-since <git rev>` selects entities whose XML or sidecar changed since that revision,
+including untracked files; it intersects with project and backend selections. `--exclude` removes
+exact `Collection/Name` selectors or the same globs used by `server_owned`. Deleted entities are
+reported but never deleted from a server. Both commands note repository references left outside a
+selection; nothing is added for them. `--only` and `--changed-since` are refused together.
+`bundle --out <file>` chooses its target (and `--check` reads it); `bundle --profile <name>`
+applies that profile's mashup patches (without it none apply), but a hand-imported bundle cannot
+preserve server-owned parts. `bundle --handoff` records the whole repository, so it is refused
+with any of these.
+
 `twaco entity push <Entity>` imports a single entity, with the same conflict check.
 
 ## Taking in a designer's or another backend developer's work
@@ -346,10 +356,10 @@ string; the same name inside longer text (`T/T1/A1`) is reported as a
 **review** finding and left alone. Nothing is rewritten that the rule does not name.
 
 **What it writes.** Entity files and sidecar folders move to the new name; a file repository's
-`filerepository/<name>/` folder moves with its Thing; `.twaco/baseline.json` forgets the old
-entities (the new ones start with no baseline, as new entities do). It refuses before touching
-anything if the new name already exists, nests with the old (`A` to `A.B`), is not a plain name,
-or if `twaco check` already fails (`--skip-checks` overrides that). The files are written
+`filerepository/<name>/` folder moves with its Thing; every profile's baseline in
+`.twaco/baselines/` forgets the old entities (the new ones start with no baseline, as new
+entities do). It refuses before touching anything if the new name already exists, nests with the
+old (`A` to `A.B`), is not a plain name, or if `twaco check` already fails (`--skip-checks` overrides that). The files are written
 through temporary files and, if any step fails, restored; a file someone saved after the plan
 was made is refused rather than overwritten. Before the first write it applies the rename to a
 throwaway copy of the workspace and refuses, writing nothing, if that would leave an entity's

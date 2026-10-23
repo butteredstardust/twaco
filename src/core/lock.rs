@@ -106,7 +106,15 @@ fn reject_paths_for_solution(
     solution: &super::config::Solution,
     all_workspace_roots: bool,
 ) -> Result<(), LockError> {
-    reject_paths(&solution.root, [".twaco", RELATIVE_PATH, HOLDER_PATH])?;
+    reject_paths(
+        &solution.root,
+        [
+            ".twaco",
+            RELATIVE_PATH,
+            HOLDER_PATH,
+            super::baseline::DIRECTORY,
+        ],
+    )?;
     reject_path(&solution.root, &solution.src_root())?;
     if all_workspace_roots {
         for project in &solution.projects {

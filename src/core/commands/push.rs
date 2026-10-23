@@ -187,6 +187,16 @@ where
     })?;
     let profile =
         profile::load(&solution.root, &request.profile).map_err(PushCommandError::Profile)?;
+    let bytes = crate::core::patch::apply(
+        &bytes,
+        &entity.info.collection,
+        &entity.info.name,
+        solution.patches_for(&request.profile),
+    )
+    .map_err(|why| PushCommandError::Read {
+        path: entity.path.clone(),
+        why: std::io::Error::other(why),
+    })?;
     let remote = open(profile);
     let label = format!("{}/{}", entity.info.collection, entity.info.name);
     let key = EntityKey::new(&entity.info.collection, &entity.info.name).map_err(|why| {
@@ -208,17 +218,23 @@ where
         },
     };
     let backup = if matches!(request.mode, Mode::Apply) && request.force && request.backup {
-        backup::before_forced_push(&remote, solution, &target, &backup::new_stamp()).map_err(
-            |why| PushCommandError::Backup {
-                label: label.clone(),
-                why,
-            },
-        )?
+        backup::before_forced_push(
+            &remote,
+            solution,
+            &request.profile,
+            &target,
+            &solution.server_owned_for(&request.profile),
+            &backup::new_stamp(),
+        )
+        .map_err(|why| PushCommandError::Backup {
+            label: label.clone(),
+            why,
+        })?
     } else {
         None
     };
     let parts = crate::core::server_owned::parts(
-        &solution.server_owned,
+        &solution.server_owned_for(&request.profile),
         &entity.info.collection,
         &entity.info.name,
     );
@@ -234,6 +250,7 @@ where
         let result = push::push_with_parts(
             &remote,
             &solution.root,
+            &request.profile,
             &target,
             matches!(request.mode, Mode::Apply),
             request.force,
@@ -392,14 +409,14 @@ mod tests {
         let working = document("working();");
         std::fs::write(root.join("Things/P.T.xml"), &working).unwrap();
         if let Some((local, remote)) = baseline {
-            let mut stored = Baseline::load(&root).unwrap();
+            let mut stored = Baseline::load(&root, "default").unwrap();
             stored.set(
                 "Things",
                 "P.T",
                 normalise::hash(local).unwrap(),
                 normalise::hash(remote).unwrap(),
             );
-            stored.write(&root).unwrap();
+            stored.write(&root, "default").unwrap();
         }
         let solution = Solution::load(&root.join("twaco.toml")).unwrap();
         (root_guard, root, solution, Fake::new(server))

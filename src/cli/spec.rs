@@ -498,7 +498,7 @@ pub(crate) const USAGE: &[Usage] = &[
         text: r#"  adopt <export.xml>          take a designer's or backend collaborator's export; plan unless --apply
       --base <file|handoff|git rev>  collaborator's starting point; --only ui|backend
       --take theirs:<name>,ours:<name>  resolve conflicts (theirs:ui takes every UI one)
-      --entity <name>; --detail; --json; --fail-on-revert"#,
+      --entity <name>; --detail; --json; --fail-on-revert; --suggest-base"#,
     },
     Usage {
         path: "handoff",
@@ -1023,9 +1023,11 @@ pub(crate) const USAGE: &[Usage] = &[
     Usage {
         path: "entity status",
         group: 2,
-        text: r#"  entity status [<entity>|--all] [--detail] [--record]
+        text: r#"  entity status [<entity>|--all] [--detail] [--record] [--ancestor <export.xml>]
                               entity: full name, last dotted segment, or Collection/Name
-      --record                 record matching working/server hashes as baseline"#,
+      --record                 record matching working/server hashes as baseline
+      --ancestor <export.xml>  use that export as the common ancestor instead of the baseline
+                              (an old or missing one); reads only, not with --record"#,
     },
     Usage {
         path: "entity pull",
@@ -1160,9 +1162,13 @@ pub(crate) const USAGE: &[Usage] = &[
     Usage {
         path: "bundle",
         group: 2,
-        text: r#"  bundle [--backend-only] [--handoff <name>] [--apply]  write one importable document
+        text: r#"  bundle [--backend-only] [--changed-since <git-rev>] [--exclude <entity-or-glob>] [--out <file>] [--profile <name>] [--handoff <name>] [--apply]  write one importable document
                               (always written: --apply is accepted and changes nothing)
-      --check                 report whether the bundle is current, write nothing"#,
+      --check                 report whether the bundle is current, write nothing
+      --changed-since <git-rev>  select changed entity files and sidecars since this revision
+      --exclude <entity-or-glob> leave out this Collection/Name selector (repeatable)
+      --out <file>            write or check this file instead of the configured dist bundle
+      --profile <name>        apply this profile's mashup patches"#,
     },
     Usage {
         path: "deploy",
@@ -1171,6 +1177,8 @@ pub(crate) const USAGE: &[Usage] = &[
                               check, bundle, live-parse, conflict-check, import
       --backend-only          exclude configured UI collections
       --only <entity>         include only this entity (repeatable)
+      --changed-since <git-rev>  include entities changed since this revision
+      --exclude <entity-or-glob> leave out this Collection/Name selector (repeatable)
       --only-projects <a,b>   include only these projects
       --skip-checks           skip the gates, server requirements too; scripts are still parsed
       --no-backup             with --force, do not save the server's copies first"#,
@@ -1182,6 +1190,7 @@ pub(crate) const USAGE: &[Usage] = &[
                               table, the Thing's tables
       --backup <file>         save it (never overwrites a file)
       --restore <file>        put a backup back; a plan unless --apply
+      --compare <file>        compare with a backup
       --diff                  compare with the entity XML in the repository
       --detail                every row, not only the first"#,
     },
@@ -1206,9 +1215,10 @@ pub(crate) const USAGE: &[Usage] = &[
     Usage {
         path: "call",
         group: 3,
-        text: r#"  call <target> <service> [<json>] [--timeout <seconds>] [--detail] [--as <test user>]
+        text: r#"  call <target> <service> [<json>] [--timeout <seconds>] [--detail] [--as <test user>] [--json]
       [--lang <code>]         target: Collection/Name, full name, or last dotted segment
       --with-logs             then what it wrote to ScriptLog and ApplicationLog (waits up to 3 s)
+      --json                  one complete service reply as JSON (logs and notices go to stderr)
       --as <test user>        call as a [[test.user]] with the profile's test_password (the profile
                               needs allow_test_users): 404 if the user cannot see it, 401 a bad password
       --lang <code>           with --as: in this language (de, or fr,de: the first with a table);

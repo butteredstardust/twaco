@@ -61,7 +61,11 @@ serialised from `core`), that member is an open value: the schema names the enve
 the data.
 
 The `projects` result includes `misfiled`, each entity document whose declared `projectName` does
-not match the project folder it was found under.
+not match the project folder it was found under. Localization `compared` items in a detailed
+status retain their existing shape except for `differs`: those include `different` (the normalized
+fields that differ) and `local` and `server` objects containing `value`, `usage`, and `context`.
+`bundle` accepts `handoff` when `dry_run` is false. `adopt_report` accepts `suggest_base`; its
+response then contains ranked handoffs instead of a report.
 
 Under test, the registry checks every successful result of a tool that publishes an output schema
 against it. Tests drive the tools offline, against a server that cannot be reached, and against a

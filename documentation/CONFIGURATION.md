@@ -235,11 +235,15 @@ names the parts; `doctor` warns when an entire rule matches no solution entity, 
 names `members` but matches no Group or Organization, or property values but matches no Thing
 or ThingTemplate.
 
-For an existing server entity, push and deploy fetch its Exporter form and splice each owned
-part into the outgoing copy: replace, insert, or drop it according to the server. Server values
+For an existing server entity, push, deploy and `import <file.xml>` fetch its Exporter form and
+splice each owned part into the outgoing copy: replace, insert, or drop it according to the
+server. Server values
 stay in memory, except when an existing backup option saves them. Deploy prepares all owned
 copies before importing its project bundles. Plans and MCP results list these entities and
-parts (`--json` on CLI push and deploy). Repository files are unchanged. A fresh server receives the repository's initial values.
+parts (`--json` on CLI push and deploy). Repository files are unchanged. A fresh server receives
+the repository's initial values. Archive and source-control imports cannot be spliced: an archive
+that would replace owned parts is refused; source-control import warns that it cannot preserve
+them. A bundle imported by hand in Composer does not preserve them.
 Adopt neither reports nor takes owned content from a designer's export.
 
 An encrypted value cannot be carried: the Importer encrypts the Exporter's ciphertext again and
@@ -248,6 +252,32 @@ one, or an owned `PASSWORD` property the entity defines is still left out of com
 import sends the repository's value and clears the server's. `entity push` refuses such an
 entity unless `--force`; set the value again after the import, as a deploy hook that supplies
 the credentials does.
+
+### Per-profile overrides
+
+Committed profile overrides belong under `[profiles.<name>]`; credentials remain in the normal
+untracked `.twaco/profiles/<name>.toml` file. Their `server_owned` entries are added after the
+top-level list for that profile. A patch changes a dotted property in a Mashup's parsed
+`mashupContent` JSON only in the copy sent to that profile:
+
+```toml
+[profiles.qa]
+[[profiles.qa.server_owned]]
+entities = ["Things/P.Database*"]
+parts = ["configuration-table:ConnectionInfo"]
+
+[[profiles.qa.patches]]
+entity = "Mashups/P.Main"
+path = "UI.Properties.Master"
+value = "P.QaMaster"
+```
+
+Patches apply to Mashups only. Status for that profile compares the patched copy, and push and
+deploy send it; the file on disk never changes. Intermediate patch objects must already exist;
+the final key may be created. `entity pull` puts the working copy's value back (or removes the key
+if it is absent there), so a pull from one profile never writes that profile's patch into the
+repository. Deploy refuses, and `doctor --profile` fails, when a patch names no Mashup in the
+workspace.
 
 ### `[bundle]`
 
@@ -295,6 +325,25 @@ What `twaco unused` treats as in use without anything in the repository referrin
 
 Mashups, things a deploy runs (`[project.deploy]`) and anything that runs on events
 (subscriptions, Timers, Schedulers) are entry points already and need no entry.
+
+### `[call]`
+
+MCP `call` without `dry_run` runs a service known to only read and plans any other. twaco knows
+the platform's reads (InfoTableFunctions, SearchFunctions, `GetPropertyValues`,
+`QueryDataTableEntries` and the like, from the ThingWorx Javadoc), but never trusts that list for
+a service name the repository defines or overrides (or while any repository file cannot be read).
+It goes by name, so a server-only entity outside the repository that defines a service of a
+listed name is trusted too. List your own reads here:
+
+```toml
+[call]
+read_only = ["Things/P.Orders.GetOrders", "Things/P.*.GetSummary"]
+```
+
+Each entry is `Collection/Name.Service`; the name may be a glob as in `[[server_owned]]`. A result
+that ran this way says `read_only: "platform"` or `"twaco.toml"`. `dry_run: true` still plans and
+`dry_run: false` still calls; a call with `lang` always needs `dry_run: false`, because it sets the
+test user's language preference. The CLI's `twaco call` always calls.
 
 ### `[adopt]`
 
@@ -548,9 +597,12 @@ so change the password it holds).
 **/services/*/twaco-globals.d.ts
 ```
 
-Commit `.twaco/baseline.json`. It records each entity's state at the last deploy or push (and
-what `entity status --record` adopted), so a later deploy can tell a teammate's server-side
-change from yours.
+Commit `.twaco/baselines/`. It holds one file per server profile (`<profile>.json`), each
+recording every entity's state on that server at the last deploy or push (and what
+`entity status --record` adopted), so a later deploy can tell a teammate's server-side change from
+yours. The former `.twaco/baseline.json` is read as the `default` profile's until that profile next
+records; other profiles begin without a baseline, and `entity status --all --record --profile
+<name>` gives one to every entity that already matches that server.
 
 Each recorded hash carries the version of the comparison form it was made with (`v7:...`). When a
 new twaco compares differently, an entry from the old version counts as unrecorded rather than

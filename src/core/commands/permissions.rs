@@ -158,6 +158,7 @@ where
     };
     let profile = profile::load(&solution.root, &request.profile)
         .map_err(PermissionsCommandError::Profile)?;
+    let rules = solution.server_owned_for(&request.profile);
     let remote = open(profile);
     let report = permissions::run_with_progress(&remote, &chosen, apply, progress);
     let pushed: Vec<_> = chosen
@@ -167,19 +168,20 @@ where
         .map(|(file, _)| file.clone())
         .collect();
     let recorded = if apply && !pushed.is_empty() {
-        let mut baseline =
-            Baseline::load(&solution.root).map_err(PermissionsCommandError::Baseline)?;
+        let mut baseline = Baseline::load(&solution.root, &request.profile)
+            .map_err(PermissionsCommandError::Baseline)?;
         let (mut statuses, _) = status::compute_with_progress(
             &remote,
             &baseline,
             &pushed,
-            &solution.server_owned,
+            &rules,
+            solution.patches_for(&request.profile),
             progress,
         );
         let recorded = status::record_matching(&mut baseline, &mut statuses);
         if recorded > 0 {
             baseline
-                .write(&solution.root)
+                .write(&solution.root, &request.profile)
                 .map_err(PermissionsCommandError::Baseline)?;
         }
         Some(recorded)

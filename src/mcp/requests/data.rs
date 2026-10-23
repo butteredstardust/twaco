@@ -113,6 +113,8 @@ pub(crate) enum ConfigTableAction {
     Read,
     #[serde(rename = "diff")]
     Diff,
+    #[serde(rename = "compare")]
+    Compare,
     #[serde(rename = "restore")]
     Restore,
     #[serde(rename = "backup")]
@@ -128,7 +130,7 @@ pub(crate) struct ConfigTableRequest {
     pub table: String,
     #[serde(default = "default_config_table_action")]
     pub action: ConfigTableAction,
-    /// backup: a new file to write, relative to the solution (under .twaco/backups/ git ignores it; a table can hold secrets); an existing one is never replaced. restore: the file a backup wrote, inside the solution.
+    /// backup: a new file to write, relative to the solution (under .twaco/backups/ git ignores it; a table can hold secrets); an existing one is never replaced. restore and compare: the file a backup wrote, inside the solution.
     #[serde(default, skip_serializing_if = "Absent::is_absent")]
     pub(crate) backup: Absent<String>,
     #[serde(default = "default_true")]
@@ -274,8 +276,9 @@ pub(crate) struct CallRequest {
     #[serde(default)]
     #[schemars(schema_with = "free_object")]
     pub parameters: Map<String, Value>,
-    #[serde(default = "default_true")]
-    pub(crate) dry_run: bool,
+    /// Left out, the call runs only when the service is known to only read (a platform read such as InfoTableFunctions or GetPropertyValues the repository does not define, or one twaco.toml [call] read_only lists) and is otherwise planned; true always plans; false always calls.
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) dry_run: Absent<bool>,
     #[serde(default = "default_call_timeout_seconds")]
     #[schemars(range(min = 1))]
     pub(crate) timeout_seconds: u64,

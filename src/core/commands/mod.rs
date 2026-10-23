@@ -86,6 +86,10 @@ impl Notices {
     pub(crate) fn is_empty(&self) -> bool {
         self.0.is_empty()
     }
+
+    pub(crate) fn push(&mut self, line: String) {
+        self.0.push(line);
+    }
 }
 
 /// Take the workspace lock for a command that changes the workspace, recording what taking it

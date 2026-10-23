@@ -1,7 +1,7 @@
 //! The comparison itself: each entity and service body of an export against the repository, and
 //! against a base when one is known.
 
-use super::base::{history_versions, resolve};
+use super::base::{history_versions, resolve, NO_BASE_NOTE};
 use super::classify;
 use super::flatten::{attribute, canonical, flatten, glob_matches, is_volatile_id, service_bodies};
 use super::read::{entity_from_bytes, export_entities, repository_entities};
@@ -46,6 +46,9 @@ pub(crate) fn compare_with(
         base_side: base.as_ref().map(|base| base.side.clone()),
         ..Report::default()
     };
+    if base.is_none() && options.base.is_none() {
+        report.notes.push(NO_BASE_NOTE.to_string());
+    }
 
     let generated: BTreeSet<&str> = solution
         .adopt

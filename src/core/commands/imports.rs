@@ -68,7 +68,7 @@ pub fn execute<R, F>(
     solution: &Solution,
     request: &ImportRequest,
     open: F,
-    _: &mut Notices,
+    notices: &mut Notices,
     progress: &dyn Progress,
 ) -> Result<ImportOutcome, ImportCommandError>
 where
@@ -82,35 +82,44 @@ where
     let server = if apply { Access::Write } else { Access::Read };
     match &request.action {
         ImportAction::File { file_name, bytes } => Ok(ImportOutcome::File {
-            plan: imports::import_file_with_progress(
+            plan: imports::import_file_with_server_owned_progress(
                 &remote,
                 file_name,
                 bytes,
-                request.overwrite_properties,
-                request.overwrite_tables,
-                apply,
+                imports::FileOptions {
+                    overwrite_properties: request.overwrite_properties,
+                    overwrite_tables: request.overwrite_tables,
+                    apply,
+                    server_owned: &solution.server_owned_for(&request.profile),
+                },
                 progress,
             )
             .map_err(ImportCommandError::Import)?,
             effects: Effects::new(Access::None, server),
         }),
-        ImportAction::SourceControl { repository, path } => Ok(ImportOutcome::SourceControl {
-            report: {
-                let _phase = progress::phase(progress, "importing source control", Some(1));
-                let report = imports::import_source_control(
-                    &remote,
-                    repository,
-                    path,
-                    request.overwrite_properties,
-                    request.overwrite_tables,
-                    apply,
-                )
-                .map_err(ImportCommandError::Import)?;
-                progress.advance(1);
-                report
-            },
-            effects: Effects::new(Access::None, server),
-        }),
+        ImportAction::SourceControl { repository, path } => {
+            if !solution.server_owned_for(&request.profile).is_empty() {
+                notices
+                    .push("source-control import does not preserve server-owned parts".to_string());
+            }
+            Ok(ImportOutcome::SourceControl {
+                report: {
+                    let _phase = progress::phase(progress, "importing source control", Some(1));
+                    let report = imports::import_source_control(
+                        &remote,
+                        repository,
+                        path,
+                        request.overwrite_properties,
+                        request.overwrite_tables,
+                        apply,
+                    )
+                    .map_err(ImportCommandError::Import)?;
+                    progress.advance(1);
+                    report
+                },
+                effects: Effects::new(Access::None, server),
+            })
+        }
     }
 }
 
@@ -121,14 +130,16 @@ mod tests {
     use serde_json::{json, Value};
     use std::sync::{Arc, Mutex};
 
-    #[derive(Clone)]
+    #[derive(Clone, Default)]
     struct Fake {
         calls: Arc<Mutex<Vec<String>>>,
+        present: bool,
+        export: Option<Vec<u8>>,
     }
 
     impl imports::Remote for Fake {
         fn exists(&self, _: &crate::core::entity::key::EntityKey) -> Result<bool, ServerError> {
-            Ok(false)
+            Ok(self.present)
         }
 
         fn import_file(&self, _: &str, _: &[u8], _: bool, _: bool) -> Result<(), ServerError> {
@@ -141,6 +152,13 @@ mod tests {
             Ok(Some(
                 json!({ "rows": [{ "entityType": "Things", "name": "A", "difference": { "rows": [{ "diffType": "different", "name": "A" }] } }] }),
             ))
+        }
+
+        fn export_owned(
+            &self,
+            _: &crate::core::entity::key::EntityKey,
+        ) -> Result<Option<Vec<u8>>, ServerError> {
+            Ok(self.export.clone())
         }
     }
 
@@ -176,6 +194,7 @@ mod tests {
         };
         let fake = Fake {
             calls: Arc::new(Mutex::new(Vec::new())),
+            ..Fake::default()
         };
         let plan = execute(
             &solution,
@@ -234,11 +253,103 @@ mod tests {
             &request,
             |_| Fake {
                 calls: Arc::new(Mutex::new(Vec::new())),
+                ..Fake::default()
             },
             &mut Notices::default(),
             &crate::core::progress::NONE,
         )
         .unwrap_err();
         assert_eq!(error.code(), ErrorCode::InvalidData);
+    }
+
+    #[test]
+    fn profile_specific_owned_rules_apply_only_to_that_import_profile() {
+        let (_dir, root, _) = setup();
+        std::fs::write(
+            root.join("twaco.toml"),
+            "[[project]]\nname = \"P\"\n[profiles.qa]\n[[profiles.qa.server_owned]]\nentities = [\"Things/T\"]\nparts = [\"property-values:connection\"]\n",
+        )
+        .unwrap();
+        std::fs::write(
+            root.join(".twaco/profiles/qa.toml"),
+            "url = \"http://example.invalid/Thingworx/\"\nusername = \"u\"\npassword = \"p\"\n",
+        )
+        .unwrap();
+        let solution = Solution::load(&root.join("twaco.toml")).unwrap();
+        let bytes = b"<Entities><Things><Thing name=\"T\"><ThingProperties><connection>local</connection></ThingProperties></Thing></Things></Entities>".to_vec();
+        let donor = b"<Entities><Things><Thing name=\"T\"><ThingProperties><connection>server</connection></ThingProperties></Thing></Things></Entities>".to_vec();
+        let request = |profile: &str| ImportRequest {
+            action: ImportAction::File {
+                file_name: "x.xml".to_string(),
+                bytes: bytes.clone(),
+            },
+            mode: Mode::Plan,
+            overwrite_properties: false,
+            overwrite_tables: false,
+            profile: profile.to_string(),
+        };
+        let fake = Fake {
+            present: true,
+            export: Some(donor),
+            ..Fake::default()
+        };
+        let default = execute(
+            &solution,
+            &request("default"),
+            {
+                let remote = fake.clone();
+                move |_| remote
+            },
+            &mut Notices::default(),
+            &crate::core::progress::NONE,
+        )
+        .unwrap();
+        let ImportOutcome::File { plan, .. } = default else {
+            unreachable!()
+        };
+        assert!(plan.server_owned.is_empty());
+        let qa = execute(
+            &solution,
+            &request("qa"),
+            move |_| fake,
+            &mut Notices::default(),
+            &crate::core::progress::NONE,
+        )
+        .unwrap();
+        let ImportOutcome::File { plan, .. } = qa else {
+            unreachable!()
+        };
+        assert_eq!(plan.server_owned[0].parts, ["property-values:connection"]);
+    }
+
+    #[test]
+    fn source_control_import_notices_that_owned_parts_are_not_preserved() {
+        let (_dir, root, _) = setup();
+        std::fs::write(
+            root.join("twaco.toml"),
+            "[[project]]\nname = \"P\"\n[[server_owned]]\nentities = [\"Things/T\"]\nparts = [\"property-values:connection\"]\n",
+        )
+        .unwrap();
+        let solution = Solution::load(&root.join("twaco.toml")).unwrap();
+        let request = ImportRequest {
+            action: ImportAction::SourceControl {
+                repository: "R".to_string(),
+                path: "/".to_string(),
+            },
+            mode: Mode::Plan,
+            overwrite_properties: false,
+            overwrite_tables: false,
+            profile: "default".to_string(),
+        };
+        let mut notices = Notices::default();
+        execute(
+            &solution,
+            &request,
+            |_| Fake::default(),
+            &mut notices,
+            &crate::core::progress::NONE,
+        )
+        .unwrap();
+        assert!(notices.lines()[0].contains("does not preserve server-owned parts"));
     }
 }

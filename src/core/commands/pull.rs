@@ -116,15 +116,12 @@ where
         }
     };
     let profile = profile::load(&solution.root, &request.profile).map_err(PullError::Profile)?;
+    let rules = solution.server_owned_for(&request.profile);
+    let patches = solution.patches_for(&request.profile);
     let remote = open(profile);
-    let baseline = Baseline::load(&solution.root).map_err(PullError::Baseline)?;
-    let (statuses, failures) = status::compute_with_progress(
-        &remote,
-        &baseline,
-        &chosen,
-        &solution.server_owned,
-        progress,
-    );
+    let baseline = Baseline::load(&solution.root, &request.profile).map_err(PullError::Baseline)?;
+    let (statuses, failures) =
+        status::compute_with_progress(&remote, &baseline, &chosen, &rules, patches, progress);
     if !failures.is_empty() {
         return Err(PullError::Remote(failures.join("; ")));
     }
@@ -188,6 +185,9 @@ where
         let laid =
             adopt::replace_entity_bytes(&old, &wanted, &raw, solution.format.indent_cdata_payload)
                 .map_err(|e| PullError::Layout(format!("{key}: {e}")))?;
+        let laid =
+            crate::core::patch::restore(&laid, &old, &entry.collection, &entry.name, patches)
+                .map_err(PullError::Layout)?;
         tx.replace_file(&file.path, &old, laid)
             .map_err(PullError::Write)?;
     }
@@ -221,9 +221,10 @@ where
             extracted.log.errors().collect::<Vec<_>>().join("; ")
         )));
     }
-    let mut after = Baseline::load(&solution.root).map_err(PullError::Baseline)?;
+    let mut after =
+        Baseline::load(&solution.root, &request.profile).map_err(PullError::Baseline)?;
     let (mut fresh, failures) =
-        status::compute_with_progress(&remote, &after, &pulled, &solution.server_owned, progress);
+        status::compute_with_progress(&remote, &after, &pulled, &rules, patches, progress);
     if !failures.is_empty() {
         return Err(finish(format!(
             "the baseline was not recorded: {}",
@@ -232,7 +233,7 @@ where
     }
     let recorded = status::record_matching(&mut after, &mut fresh);
     after
-        .write(&solution.root)
+        .write(&solution.root, &request.profile)
         .map_err(|error| finish(format!("the baseline was not recorded: {error}")))?;
     Ok(PullOutcome {
         entities: labels,
@@ -291,10 +292,10 @@ mod tests {
         )
         .unwrap();
         std::fs::write(root.join("Things/P.T.xml"), working).unwrap();
-        let mut baseline = Baseline::load(root).unwrap();
+        let mut baseline = Baseline::load(root, "default").unwrap();
         let hash = normalise::hash(base).unwrap();
         baseline.set("Things", "P.T", hash.clone(), hash);
-        baseline.write(root).unwrap();
+        baseline.write(root, "default").unwrap();
         let solution = Solution::load(&root.join("twaco.toml")).unwrap();
         (dir, solution)
     }

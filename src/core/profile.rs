@@ -394,6 +394,19 @@ fn files(
     home: Option<&Path>,
     name: &str,
 ) -> Result<Vec<PathBuf>, ProfileError> {
+    validate_name(name)?;
+    let file = |root: &Path| {
+        root.join(".twaco")
+            .join("profiles")
+            .join(format!("{name}.toml"))
+    };
+    Ok(std::iter::once(file(solution_root))
+        .chain(home.map(file))
+        .collect())
+}
+
+/// Refuse names which cannot safely be used as one profile file name.
+pub(crate) fn validate_name(name: &str) -> Result<(), ProfileError> {
     if name.is_empty()
         || name == "."
         || name == ".."
@@ -403,14 +416,7 @@ fn files(
     {
         return Err(ProfileError::InvalidName(name.to_string()));
     }
-    let file = |root: &Path| {
-        root.join(".twaco")
-            .join("profiles")
-            .join(format!("{name}.toml"))
-    };
-    Ok(std::iter::once(file(solution_root))
-        .chain(home.map(file))
-        .collect())
+    Ok(())
 }
 
 fn load_from(

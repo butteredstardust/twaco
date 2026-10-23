@@ -30,7 +30,7 @@ pub(crate) struct StatusRequest {
     /// Narrow to one project of the solution.
     #[serde(default, skip_serializing_if = "Absent::is_absent")]
     pub project: Absent<String>,
-    /// Record a baseline for every entity whose two sides agree. Writes .twaco/baseline.json under the workspace lock.
+    /// Record a baseline for every entity whose two sides agree. Writes .twaco/baselines/<profile>.json under the workspace lock.
     #[serde(default)]
     pub record: bool,
     /// Server profile name.
@@ -39,6 +39,9 @@ pub(crate) struct StatusRequest {
     /// Return everything instead of the summary.
     #[serde(default)]
     pub(crate) detail: bool,
+    /// An export document inside the solution whose entities stand in for the baseline as the common ancestor, for a workspace without a usable one. Read-only: not with record.
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) ancestor: Absent<String>,
 }
 
 #[derive(Debug, Deserialize, JsonSchema, Serialize)]

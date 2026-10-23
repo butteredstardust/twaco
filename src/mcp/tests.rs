@@ -576,6 +576,83 @@ fn localization_tools_plan_apply_and_refuse_missing_values() {
 }
 
 #[test]
+fn localization_detail_names_differing_fields_and_both_token_sides() {
+    let (_directory, root) = solution_dir();
+    let solution = crate::core::config::Solution::load(&root.join("twaco.toml")).unwrap();
+    let token = |value: &str, context: &str| crate::core::localization::Token {
+        name: "P.Title".to_string(),
+        value: value.to_string(),
+        usage: "label".to_string(),
+        context: context.to_string(),
+    };
+    let status = crate::core::localization::Status {
+        compared: vec![crate::core::localization::Compared {
+            table: "Default".to_string(),
+            name: "P.Title".to_string(),
+            state: crate::core::localization::State::Differs,
+            different: vec!["value", "context"],
+            local: Some(token("Local", "here")),
+            server: Some(token("Server", "there")),
+            file: Some(root.join("localization/P/LocalizationTable.xml")),
+        }],
+        problems: Vec::new(),
+        missing_tables: Vec::new(),
+        unreadable: Vec::new(),
+    };
+    let item = localization_status_json(&solution, &status, true)["compared"]
+        .as_array()
+        .unwrap()[0]
+        .clone();
+    assert_eq!(item["different"], json!(["value", "context"]));
+    assert_eq!(item["local"]["value"], "Local");
+    assert_eq!(item["server"]["context"], "there");
+}
+
+#[test]
+fn bundle_handoff_is_recorded_only_when_mcp_applies() {
+    let (_directory, root) = solution_dir();
+    let (failed, planned) = call_tool(
+        &root,
+        "bundle",
+        json!({"handoff":"planned", "dry_run":true}),
+    );
+    assert!(!failed, "{planned}");
+    let solution = crate::core::config::Solution::load(&root.join("twaco.toml")).unwrap();
+    assert!(crate::core::adopt::handoffs(&solution).unwrap().is_empty());
+    let (failed, written) = call_tool(
+        &root,
+        "bundle",
+        json!({"handoff":"delivered", "dry_run":false}),
+    );
+    assert!(!failed, "{written}");
+    assert_eq!(
+        crate::core::adopt::handoffs(&solution).unwrap()[0].name,
+        "delivered"
+    );
+}
+
+#[test]
+fn adopt_suggest_base_returns_guidance_without_a_report_when_no_handoffs_exist() {
+    let (_directory, root) = solution_dir();
+    std::fs::write(
+        root.join("export.xml"),
+        "<Entities><Things><Thing name=\"P.T\" projectName=\"P\"></Thing></Things></Entities>",
+    )
+    .unwrap();
+    let (failed, result) = call_tool(
+        &root,
+        "adopt_report",
+        json!({"export":"export.xml", "suggest_base":true}),
+    );
+    assert!(!failed, "{result}");
+    assert!(result.get("reverts").is_none());
+    assert!(result["notes"][0]
+        .as_str()
+        .unwrap()
+        .contains("no recorded handoff matches this export"));
+}
+
+#[test]
 fn output_schema_waits_for_the_new_protocol() {
     let old = registry::output_definition_for_test(Protocol::V2025_03_26);
     let new = registry::output_definition_for_test(Protocol::V2025_06_18);
@@ -1018,10 +1095,11 @@ fn annotations_say_what_each_tool_may_reach_and_discard() {
             assert!(hints["idempotentHint"].is_boolean(), "{name}");
         }
     }
-    // A tool that takes a server profile can reach the server.
+    // A tool that takes a server profile can reach the server; bundle's only picks the profile's
+    // patches from twaco.toml.
     for tool in &tools {
-        if tool["inputSchema"]["properties"].get("profile").is_some() {
-            let name = tool["name"].as_str().unwrap();
+        let name = tool["name"].as_str().unwrap();
+        if name != "bundle" && tool["inputSchema"]["properties"].get("profile").is_some() {
             assert_eq!(
                 tool["annotations"]["openWorldHint"], true,
                 "{name} takes a profile"
@@ -1171,7 +1249,6 @@ fn every_tool_is_listed_with_a_schema_and_honest_annotations() {
         "extension_write",
         "export",
         "import",
-        "call",
     ] {
         let tool = tools.iter().find(|t| t["name"] == name).unwrap();
         assert_eq!(
@@ -1187,9 +1264,15 @@ fn every_tool_is_listed_with_a_schema_and_honest_annotations() {
         call["annotations"]["readOnlyHint"], false,
         "a service call may write"
     );
-    assert_eq!(
-        call["inputSchema"]["properties"]["dry_run"]["default"],
-        true
+    // Left out, only a call known to only read runs: the schema has no default to promise.
+    let dry_run = &call["inputSchema"]["properties"]["dry_run"];
+    assert!(dry_run.get("default").is_none(), "{dry_run}");
+    assert!(
+        dry_run["description"]
+            .as_str()
+            .unwrap()
+            .contains("otherwise planned"),
+        "{dry_run}"
     );
     let entity_delete = tools.iter().find(|t| t["name"] == "entity_delete").unwrap();
     for parameter in [
@@ -1880,7 +1963,7 @@ fn arguments_of_the_wrong_shape_are_refused_before_the_tool_runs() {
         assert!(text.contains(why), "{tool} {arguments}: {text}");
     }
     assert_eq!(std::fs::read(root.join("Things/P.T.xml")).unwrap(), before);
-    assert!(!root.join(".twaco/baseline.json").exists());
+    assert!(!root.join(".twaco/baselines/default.json").exists());
 }
 
 #[test]
@@ -1897,7 +1980,7 @@ fn a_status_with_an_unreadable_entity_file_records_nothing() {
     let text = result["content"][0]["text"].as_str().unwrap_or_default();
     assert_eq!(result["isError"], true, "{text}");
     assert!(text.contains("could not be read"), "{text}");
-    assert!(!root.join(".twaco/baseline.json").exists());
+    assert!(!root.join(".twaco/baselines/default.json").exists());
 }
 
 #[test]
@@ -1920,7 +2003,7 @@ fn a_status_whose_reads_failed_records_nothing() {
     let text = result["content"][0]["text"].as_str().unwrap_or_default();
     assert_eq!(result["isError"], true, "{text}");
     assert!(text.contains("nothing was recorded"), "{text}");
-    assert!(!root.join(".twaco/baseline.json").exists());
+    assert!(!root.join(".twaco/baselines/default.json").exists());
 }
 
 #[test]
@@ -2019,6 +2102,34 @@ fn a_service_call_is_a_dry_run_unless_asked_and_needs_no_server_to_be_one() {
             .contains("vera.viewer, whose language preference is set to de"),
         "{text}"
     );
+}
+
+#[test]
+fn a_call_known_to_only_read_runs_without_dry_run_and_any_other_stays_a_plan() {
+    // The server cannot be reached, so a call that runs fails reaching it; a plan answers.
+    let (_dir, root) = solution_with_unreachable_server();
+    let reached = |arguments: Value| {
+        let result = call(&root, "call", arguments);
+        let text = result["content"][0]["text"].as_str().unwrap().to_string();
+        (result["isError"] == true, text)
+    };
+    let (failed, text) = reached(
+        json!({"target": "Resources/InfoTableFunctions", "service": "Query", "parameters": {}}),
+    );
+    assert!(failed, "a platform read runs: {text}");
+    let (failed, text) =
+        reached(json!({"target": "Things/P.Outside", "service": "GetPropertyValues"}));
+    assert!(failed, "a platform read runs: {text}");
+    for arguments in [
+        json!({"target": "Things/P.Outside", "service": "AddDataTableEntry"}),
+        json!({"target": "Resources/InfoTableFunctions", "service": "Query", "dry_run": true}),
+        json!({"target": "Things/P.Outside", "service": "GetPropertyValues", "as": "vera.viewer", "lang": "de"}),
+    ] {
+        let (failed, text) = reached(arguments.clone());
+        assert!(!failed, "{arguments}: {text}");
+        let body: Value = serde_json::from_str(&text).unwrap();
+        assert_eq!(body["dry_run"], true, "{arguments}");
+    }
 }
 
 /// The `outputSchema` a tool publishes to the newest protocol revision.
@@ -2516,7 +2627,8 @@ fn status_record_returns_matching_entities_in_sync_and_keeps_differing_verdicts(
         ),
     )
     .unwrap();
-    std::fs::write(root.join(".twaco/baseline.json"),r#"{"entities":{"Things":{"Acme.Same":{"local":"v7:old","server":"v7:old"},"Acme.Different":{"local":"v7:old","server":"v7:old"}}}}"#).unwrap();
+    std::fs::create_dir_all(root.join(".twaco/baselines")).unwrap();
+    std::fs::write(root.join(".twaco/baselines/default.json"),r#"{"entities":{"Things":{"Acme.Same":{"local":"v7:old","server":"v7:old"},"Acme.Different":{"local":"v7:old","server":"v7:old"}}}}"#).unwrap();
     let before = call(root, "status", json!({"all":true,"detail":true}));
     assert_eq!(body(&before)["counts"]["converged"], 1);
     assert_eq!(body(&before)["counts"]["both-changed"], 1);

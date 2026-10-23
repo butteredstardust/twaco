@@ -307,6 +307,21 @@ pub(crate) struct BundleRequest {
     /// Leave out the collections [bundle] ui_collections names (a designer's mashups and media).
     #[serde(default)]
     pub backend_only: bool,
+    /// Select entities whose source file or sidecars changed since this Git revision.
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) changed_since: Absent<String>,
+    /// Remove matching Collection/Name selectors from the selected entities.
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) exclude: Absent<Vec<String>>,
+    /// Write or check this bundle path inside the solution instead of [bundle]'s dist target.
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) out: Absent<String>,
+    /// Apply this profile's mashup patches from twaco.toml; without it, none apply.
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) profile: Absent<String>,
+    /// Record the rebuilt bundle as this collaborator handoff; only with dry_run false.
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) handoff: Absent<String>,
     /// Only say whether the configured bundle is current, as `twaco bundle --check` does.
     #[serde(default = "default_true")]
     pub(crate) dry_run: bool,

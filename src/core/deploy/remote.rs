@@ -43,22 +43,24 @@ pub(crate) trait BaselineStore {
 
 pub(crate) struct DiskBaseline {
     root: PathBuf,
+    profile: String,
 }
 
 impl DiskBaseline {
-    pub(crate) fn new(root: &Path) -> Self {
+    pub(crate) fn new(root: &Path, profile: &str) -> Self {
         Self {
             root: root.to_path_buf(),
+            profile: profile.to_string(),
         }
     }
 }
 
 impl BaselineStore for DiskBaseline {
     fn load(&self) -> Result<Baseline, BaselineError> {
-        Baseline::load(&self.root)
+        Baseline::load(&self.root, &self.profile)
     }
 
     fn write(&self, baseline: &Baseline) -> Result<(), BaselineError> {
-        baseline.write(&self.root)
+        baseline.write(&self.root, &self.profile)
     }
 }

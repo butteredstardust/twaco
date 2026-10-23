@@ -199,12 +199,13 @@ pub(crate) fn push(
     apply: bool,
     force: bool,
 ) -> Result<Outcome, PushError> {
-    push_with_parts(remote, root, target, apply, force, &[])
+    push_with_parts(remote, root, "default", target, apply, force, &[])
 }
 
 pub(crate) fn push_with_parts(
     remote: &dyn Remote,
     root: &Path,
+    profile: &str,
     target: &Target,
     apply: bool,
     force: bool,
@@ -218,7 +219,7 @@ pub(crate) fn push_with_parts(
         .map(|bytes| normalise::hash_with_parts(bytes, parts))
         .transpose()
         .map_err(PushError::Server)?;
-    let baseline = Baseline::load(root).map_err(PushError::Baseline)?;
+    let baseline = Baseline::load(root, profile).map_err(PushError::Baseline)?;
     let entry = baseline.get_for(target.key.collection(), target.key.name(), &working);
     let decision = decide(
         &working,
@@ -247,7 +248,7 @@ pub(crate) fn push_with_parts(
     let created = match &decision {
         Decision::AlreadyThere => {
             if server.as_deref() == Some(working.as_str()) {
-                record(root, target, working.clone(), working)?;
+                record(root, profile, target, working.clone(), working)?;
             }
             return Ok(Outcome::AlreadyThere);
         }
@@ -293,14 +294,20 @@ pub(crate) fn push_with_parts(
             read_back,
         });
     }
-    record(root, target, working.clone(), working)?;
+    record(root, profile, target, working.clone(), working)?;
     Ok(Outcome::Pushed { created })
 }
 
-fn record(root: &Path, target: &Target, local: String, server: String) -> Result<(), PushError> {
-    let mut baseline = Baseline::load(root).map_err(PushError::Baseline)?;
+fn record(
+    root: &Path,
+    profile: &str,
+    target: &Target,
+    local: String,
+    server: String,
+) -> Result<(), PushError> {
+    let mut baseline = Baseline::load(root, profile).map_err(PushError::Baseline)?;
     baseline.set(target.key.collection(), target.key.name(), local, server);
-    baseline.write(root).map_err(PushError::Baseline)
+    baseline.write(root, profile).map_err(PushError::Baseline)
 }
 
 impl Coded for Refusal {
@@ -416,7 +423,7 @@ mod tests {
         let (_dir, root) = temp();
         let fake = Fake::holding(None);
         push(&fake, &root, &target, true, false).unwrap();
-        let baseline = Baseline::load(&root).unwrap();
+        let baseline = Baseline::load(&root, "default").unwrap();
         assert!(baseline
             .get(target.key.collection(), target.key.name())
             .is_some());
@@ -460,7 +467,7 @@ mod tests {
         let outcome = push(&fake, &root, &target(&bytes), false, false).unwrap();
         assert_eq!(outcome, Outcome::WouldDo(Decision::Create));
         assert_eq!(*fake.imports.borrow(), 0);
-        assert!(!root.join(".twaco/baseline.json").exists());
+        assert!(!Baseline::path(&root, "default").exists());
     }
 
     #[test]
@@ -496,8 +503,8 @@ mod tests {
             normalise::hash(&working).unwrap(),
             normalise::hash(&server).unwrap(),
         );
-        baseline.write(&root).unwrap();
-        let before = std::fs::read(root.join(super::super::baseline::RELATIVE_PATH)).unwrap();
+        baseline.write(&root, "default").unwrap();
+        let before = std::fs::read(Baseline::path(&root, "default")).unwrap();
         let fake = Fake::holding(Some(server));
 
         assert_eq!(
@@ -506,7 +513,7 @@ mod tests {
         );
         assert_eq!(*fake.imports.borrow(), 0);
         assert_eq!(
-            std::fs::read(root.join(super::super::baseline::RELATIVE_PATH)).unwrap(),
+            std::fs::read(Baseline::path(&root, "default")).unwrap(),
             before
         );
     }
@@ -538,14 +545,14 @@ mod tests {
         let mut fake = Fake::holding(None);
         let first = entity("a();");
         push(&fake, &root, &target(&first), true, false).unwrap();
-        let before = std::fs::read(root.join(".twaco/baseline.json")).unwrap();
+        let before = std::fs::read(Baseline::path(&root, "default")).unwrap();
 
         fake.keep = false;
         let second = entity("b();");
         let error = push(&fake, &root, &target(&second), true, false).unwrap_err();
         assert!(matches!(error, PushError::NotKept { .. }), "{error}");
         assert_eq!(
-            std::fs::read(root.join(".twaco/baseline.json")).unwrap(),
+            std::fs::read(Baseline::path(&root, "default")).unwrap(),
             before
         );
     }
@@ -583,7 +590,7 @@ mod tests {
         let error = push(&remote, &root, &target(&bytes), true, false).unwrap_err();
         assert!(matches!(error, PushError::Unverified(_)), "{error}");
         assert!(error.to_string().contains("the import succeeded"));
-        assert!(!root.join(".twaco/baseline.json").exists());
+        assert!(!Baseline::path(&root, "default").exists());
     }
 
     /// Every decision, with and without `--apply` and `--force`: what is imported, and whether
@@ -648,9 +655,9 @@ mod tests {
                 if let Some((local, server)) = ancestor {
                     let mut baseline = Baseline::default();
                     baseline.set("Things", "T", hash_of(local), hash_of(server));
-                    baseline.write(&root).unwrap();
+                    baseline.write(&root, "default").unwrap();
                 }
-                let path = root.join(".twaco/baseline.json");
+                let path = Baseline::path(&root, "default");
                 let before = std::fs::read(&path).ok();
                 let fake = Fake::holding(server.map(<[u8]>::to_vec));
 

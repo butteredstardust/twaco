@@ -20,6 +20,9 @@ pub(crate) struct AdoptReportRequest {
     /// Return everything instead of the summary.
     #[serde(default)]
     pub(crate) detail: bool,
+    /// List recorded handoffs ranked for this export, then return without a report.
+    #[serde(default)]
+    pub(crate) suggest_base: bool,
 }
 
 #[derive(Debug, Deserialize, JsonSchema, Serialize)]

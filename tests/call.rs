@@ -85,7 +85,8 @@ fn status_record_prints_post_record_verdicts_and_returns_their_exit_code() {
         std::fs::write(root.join("Things/Acme.Manager.xml"), xml).unwrap();
         let baseline =
             r#"{"entities":{"Things":{"Acme.Manager":{"local":"v7:old","server":"v7:old"}}}}"#;
-        std::fs::write(root.join(".twaco/baseline.json"), baseline).unwrap();
+        std::fs::create_dir_all(root.join(".twaco/baselines")).unwrap();
+        std::fs::write(root.join(".twaco/baselines/default.json"), baseline).unwrap();
         let response = if matches {
             xml.to_string()
         } else {
@@ -128,9 +129,10 @@ fn status_record_prints_post_record_verdicts_and_returns_their_exit_code() {
                 "{text}"
             );
             assert!(text.contains("Things/Acme.Manager  both-changed"), "{text}");
-            let saved: serde_json::Value =
-                serde_json::from_slice(&std::fs::read(root.join(".twaco/baseline.json")).unwrap())
-                    .unwrap();
+            let saved: serde_json::Value = serde_json::from_slice(
+                &std::fs::read(root.join(".twaco/baselines/default.json")).unwrap(),
+            )
+            .unwrap();
             assert_eq!(
                 saved["entities"]["Things"]["Acme.Manager"]["local"],
                 "v7:old"
@@ -149,7 +151,8 @@ fn entity_get_never_creates_or_changes_the_baseline() {
     let xml =
         "<Entities><Things><Thing name=\"T\" projectName=\"Test\"></Thing></Things></Entities>";
     std::fs::write(root.join("Things/T.xml"), xml).unwrap();
-    let baseline_path = root.join(".twaco/baseline.json");
+    std::fs::create_dir_all(root.join(".twaco/baselines")).unwrap();
+    let baseline_path = root.join(".twaco/baselines/default.json");
     let baseline = b"{\n  \"sentinel\": \"must stay byte-identical\"\n}\n";
     std::fs::write(&baseline_path, baseline).unwrap();
     let response = xml.to_string();
@@ -326,6 +329,44 @@ fn void_summary_detail_invalid_json_and_http_error_have_distinct_results() {
     assert!(http_error.contains("HTTP 500"));
     assert!(http_error.contains("No service handler defined"));
     assert!(!http_error.contains("pass"));
+    server.join().unwrap();
+}
+
+#[test]
+fn json_call_writes_one_complete_value_and_keeps_logs_on_stderr() {
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let (_dir, root) = temp("json");
+    profile(&root, listener.local_addr().unwrap());
+    let server = std::thread::spawn(move || {
+        let replies = [
+            r#"{"dataShape":{"fieldDefinitions":{"name":{"baseType":"STRING"}}},"rows":[{"name":"one"},{"name":"two"}]}"#,
+            r#"{"rows":[]}"#,
+            r#"{"rows":[]}"#,
+            r#"{"rows":[]}"#,
+            r#"{"rows":[]}"#,
+            r#"{"rows":[]}"#,
+            r#"{"rows":[]}"#,
+            "",
+        ];
+        for body in replies {
+            let (mut stream, _) = listener.accept().unwrap();
+            receive(&mut stream);
+            answer(&mut stream, "200 OK", "application/json", body);
+        }
+    });
+
+    let table = run(&root, &["call", "T", "Table", "--json", "--with-logs"]);
+    assert!(table.status.success());
+    let value: serde_json::Value = serde_json::from_slice(&table.stdout).unwrap();
+    assert_eq!(value["rows"].as_array().unwrap().len(), 2);
+    assert!(String::from_utf8_lossy(&table.stderr).contains("logged during the call"));
+
+    let void = run(&root, &["call", "T", "Void", "--json"]);
+    assert!(void.status.success());
+    assert_eq!(
+        serde_json::from_slice::<serde_json::Value>(&void.stdout).unwrap(),
+        serde_json::Value::Null
+    );
     server.join().unwrap();
 }
 

@@ -26,6 +26,8 @@ pub(crate) struct Adopt {
     pub(crate) json: Json,
     #[arg(long = "fail-on-revert")]
     pub(crate) fail_on_revert: bool,
+    #[arg(long = "suggest-base")]
+    pub(crate) suggest_base: bool,
     #[command(flatten)]
     pub(crate) apply: Apply,
     #[arg(id = "operands", value_name = "operand")]
@@ -69,6 +71,47 @@ pub(crate) fn adopt_cmd(solution: &Solution, args: &Adopt) -> u8 {
             return FAILED;
         }
     };
+    if args.suggest_base {
+        match adopt::Side::from_export(&PathBuf::from(&args.operands[0]))
+            .and_then(|export| adopt::base_suggestions(solution, &export))
+        {
+            Ok(suggestions) if suggestions.is_empty() => {
+                if args.json.json {
+                    println!("{}", serde_json::json!({ "notes": [adopt::NO_BASE_NOTE] }));
+                } else {
+                    println!("{}", adopt::NO_BASE_NOTE);
+                }
+            }
+            Ok(suggestions) => {
+                if args.json.json {
+                    println!("{}", adopt::suggestions_json(&suggestions));
+                } else {
+                    for suggestion in suggestions {
+                        println!(
+                            "{}  {}  {}  {}  {}/{}",
+                            suggestion.handoff.name,
+                            suggestion.handoff.commit.as_deref().unwrap_or("none"),
+                            jiff::Timestamp::from_millisecond(suggestion.handoff.created as i64)
+                                .map(|at| at.strftime("%Y-%m-%d %H:%M").to_string())
+                                .unwrap_or_else(|_| suggestion.handoff.created.to_string()),
+                            if suggestion.handoff.dirty {
+                                "dirty"
+                            } else {
+                                "clean"
+                            },
+                            suggestion.matches,
+                            suggestion.total,
+                        );
+                    }
+                }
+            }
+            Err(error) => {
+                eprintln!("{} {error}", style::prefix());
+                return FAILED;
+            }
+        }
+        return OK;
+    }
     let request = commands::adopt::AdoptRequest {
         export: PathBuf::from(&args.operands[0]),
         only: args.entity_filters.clone(),
@@ -120,6 +163,7 @@ pub(crate) fn adopt_cmd(solution: &Solution, args: &Adopt) -> u8 {
             "retyped_defaults": report.retyped_defaults.iter().map(|d| serde_json::json!({ "entity": d.entity, "service": d.service, "parameter": d.parameter, "to": d.to, "default": d.default, "why": d.why })).collect::<Vec<_>>(),
             "identical": report.with_status(adopt::Status::Identical).count(),
             "base": report.base,
+            "notes": report.notes,
             "entities": report.entities.iter().map(|e| serde_json::json!({ "entity": e.entity.path(), "change": change_word(e.change), "kind": kind_word(e.kind) })).collect::<Vec<_>>(),
         });
         println!(
@@ -587,9 +631,10 @@ fn print_rename_json(solution: &Solution, outcome: &rename::Outcome, include_out
 fn print_adopt_report(solution: &Solution, report: &adopt::Report, detail: bool) {
     match &report.base {
         Some(base) => println!("base: {base}"),
-        None => println!(
-            "base: none (git history decides what is stale; record a handoff or pass --base)"
-        ),
+        None => println!("base: none"),
+    }
+    for note in &report.notes {
+        println!("note: {note}");
     }
     for (heading, changes) in [
         ("theirs", &[adopt::Change::Theirs][..]),

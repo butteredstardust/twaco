@@ -100,7 +100,7 @@
         "record": {
           "type": "boolean",
           "default": false,
-          "description": "Record a baseline for every entity whose two sides agree. Writes .twaco/baseline.json under the workspace lock."
+          "description": "Record a baseline for every entity whose two sides agree. Writes .twaco/baselines/<profile>.json under the workspace lock."
         },
         "profile": {
           "type": "string",
@@ -111,6 +111,10 @@
           "type": "boolean",
           "description": "Return everything instead of the summary.",
           "default": false
+        },
+        "ancestor": {
+          "type": "string",
+          "description": "An export document inside the solution whose entities stand in for the baseline as the common ancestor, for a workspace without a usable one. Read-only: not with record."
         }
       },
       "required": [],
@@ -784,6 +788,17 @@
           },
           "description": "Only these entities; post-import services are skipped."
         },
+        "changed_since": {
+          "description": "Select entities whose source file or sidecars changed since this Git revision.",
+          "type": "string"
+        },
+        "exclude": {
+          "description": "Remove matching Collection/Name selectors from the selected entities.",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
         "only_projects": {
           "type": "array",
           "items": {
@@ -845,6 +860,11 @@
         },
         "detail": {
           "description": "Return everything instead of the summary.",
+          "type": "boolean",
+          "default": false
+        },
+        "suggest_base": {
+          "description": "List recorded handoffs ranked for this export, then return without a report.",
           "type": "boolean",
           "default": false
         }
@@ -1872,7 +1892,7 @@
   },
   {
     "name": "config_table",
-    "description": "List a Thing's configuration tables, read one of them on the server, diff it against the entity XML in the repository, back it up to a new file in the solution (a backup is never overwritten), or restore it from such a backup. restore is a dry run unless dry_run is false; it refuses a backup of another Thing or table, and reads the table back.",
+    "description": "List a Thing's configuration tables, read one on the server, diff it against the entity XML in the repository, compare it with a backup, back it up to a new file in the solution (a backup is never overwritten), or restore it from such a backup. restore is a dry run unless dry_run is false; it refuses a backup of another Thing or table, and reads the table back.",
     "inputSchema": {
       "required": [
         "thing"
@@ -1894,13 +1914,14 @@
             "list",
             "read",
             "diff",
+            "compare",
             "restore",
             "backup"
           ],
           "default": "read"
         },
         "backup": {
-          "description": "backup: a new file to write, relative to the solution (under .twaco/backups/ git ignores it; a table can hold secrets); an existing one is never replaced. restore: the file a backup wrote, inside the solution.",
+          "description": "backup: a new file to write, relative to the solution (under .twaco/backups/ git ignores it; a table can hold secrets); an existing one is never replaced. restore and compare: the file a backup wrote, inside the solution.",
           "type": "string"
         },
         "dry_run": {
@@ -2466,6 +2487,29 @@
           "type": "boolean",
           "default": false
         },
+        "changed_since": {
+          "description": "Select entities whose source file or sidecars changed since this Git revision.",
+          "type": "string"
+        },
+        "exclude": {
+          "description": "Remove matching Collection/Name selectors from the selected entities.",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "out": {
+          "description": "Write or check this bundle path inside the solution instead of [bundle]'s dist target.",
+          "type": "string"
+        },
+        "profile": {
+          "description": "Apply this profile's mashup patches from twaco.toml; without it, none apply.",
+          "type": "string"
+        },
+        "handoff": {
+          "description": "Record the rebuilt bundle as this collaborator handoff; only with dry_run false.",
+          "type": "string"
+        },
         "dry_run": {
           "description": "Only say whether the configured bundle is current, as `twaco bundle --check` does.",
           "type": "boolean",
@@ -2683,7 +2727,7 @@
   },
   {
     "name": "import",
-    "description": "Import into the server as Composer's Import/Export does: an export file of the solution (XML, or a zip of them), or a source-control tree in a file repository. A dry run unless dry_run is false: a file's plan lists what it adds and what it replaces; a source-control plan is the server's own diff. The server's property values and configuration table rows are kept unless the overwrite flags say otherwise.",
+    "description": "Import into the server as Composer's Import/Export does: an export file of the solution (XML, or a zip of them), or a source-control tree in a file repository. A dry run unless dry_run is false: a file's plan lists what it adds and what it replaces; an XML file also preserves configured server-owned parts. Source-control imports and archives cannot preserve them. The server's property values and configuration table rows are kept unless the overwrite flags say otherwise.",
     "inputSchema": {
       "type": "object",
       "properties": {
@@ -3143,7 +3187,7 @@
   },
   {
     "name": "call",
-    "description": "Call a ThingWorx service. A service can write, and twaco cannot tell which do, so this is a dry run unless dry_run is false. A bare target is a Thing; Collection/Name reaches templates, shapes, resources and subsystems.",
+    "description": "Call a ThingWorx service. Without dry_run, a service known to only read runs (a platform read such as InfoTableFunctions or GetPropertyValues that the repository does not define, or one twaco.toml [call] read_only lists; the result says read_only) and any other is a dry run; dry_run true always plans, false always calls. A bare target is a Thing; Collection/Name reaches templates, shapes, resources and subsystems.",
     "inputSchema": {
       "type": "object",
       "properties": {
@@ -3161,8 +3205,8 @@
           "default": {}
         },
         "dry_run": {
-          "type": "boolean",
-          "default": true
+          "description": "Left out, the call runs only when the service is known to only read (a platform read such as InfoTableFunctions or GetPropertyValues the repository does not define, or one twaco.toml [call] read_only lists) and is otherwise planned; true always plans; false always calls.",
+          "type": "boolean"
         },
         "timeout_seconds": {
           "type": "integer",
