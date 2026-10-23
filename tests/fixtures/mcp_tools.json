@@ -492,6 +492,10 @@
           "description": "Return everything instead of the summary.",
           "type": "boolean",
           "default": false
+        },
+        "ancestor": {
+          "description": "An export document inside the solution whose entities stand in for the baseline as the common ancestor, for a workspace without a usable one. Read-only: not with record.",
+          "type": "string"
         }
       },
       "type": "object"
@@ -544,6 +548,26 @@
           "items": {
             "type": "string"
           }
+        },
+        "ancestor": {
+          "description": "The export used as the ancestor instead of the baseline, when one was given.",
+          "type": [
+            "object",
+            "null"
+          ],
+          "properties": {
+            "file": {
+              "type": "string"
+            },
+            "entities": {
+              "type": "integer",
+              "minimum": 0
+            }
+          },
+          "required": [
+            "file",
+            "entities"
+          ]
         },
         "attention": {
           "description": "Without detail: only what needs attention.",

@@ -372,6 +372,7 @@ where
                     lock_label: "init --from-server",
                     refuse_unreadable: true,
                     refuse_record_failures: false,
+                    ancestor: None,
                 },
                 |_| Borrowed(remote),
                 &held,

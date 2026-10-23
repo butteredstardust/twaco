@@ -153,6 +153,58 @@ pub(crate) fn compute_with_progress(
     (statuses, failures)
 }
 
+/// A stand-in baseline from an export document: each entity it holds is the ancestor of both
+/// sides, hashed under today's normalisation and the solution's server-owned parts. For a
+/// workspace whose baseline is missing or from an older hash version, so status can still say
+/// which side moved since that export. Nothing is written.
+pub(crate) fn ancestor_from_export(
+    bytes: &[u8],
+    rules: &[super::server_owned::Rule],
+) -> Result<(Baseline, usize), String> {
+    use super::scan::{self, Kind};
+    let tokens = scan::tokenize(bytes).map_err(|error| format!("not XML: {error}"))?;
+    let mut baseline = Baseline::default();
+    let mut found = 0;
+    let mut depth = 0usize;
+    let mut collection = String::new();
+    for (index, token) in tokens.iter().enumerate() {
+        match token.kind {
+            Kind::Start | Kind::Empty => {
+                if depth == 1 {
+                    collection = String::from_utf8_lossy(token.name.of(bytes)).into_owned();
+                } else if depth == 2 {
+                    let name = scan::attribute(bytes, token, "name")
+                        .map_err(|error| format!("not XML: {error}"))?
+                        .map(|span| {
+                            scan::decode_entities(&String::from_utf8_lossy(span.of(bytes)))
+                        });
+                    if let Some(name) = name {
+                        let end = scan::element_end_in(&tokens, bytes, index)
+                            .ok_or_else(|| format!("{collection}/{name} is not closed"))?;
+                        let element = &bytes[token.span.start..tokens[end].span.end];
+                        let parts = super::server_owned::parts(rules, &collection, &name);
+                        let hash = normalise::hash_with_parts(element, &parts)
+                            .map_err(|error| format!("{collection}/{name}: {error}"))?;
+                        baseline.set(&collection, &name, hash.clone(), hash);
+                        found += 1;
+                    }
+                }
+                if token.kind == Kind::Start {
+                    depth += 1;
+                }
+            }
+            Kind::End => depth = depth.saturating_sub(1),
+            _ => {}
+        }
+    }
+    if found == 0 {
+        return Err(
+            "it holds no entities: an export is <Entities><Things><Thing name=...>".to_string(),
+        );
+    }
+    Ok((baseline, found))
+}
+
 /// Record a baseline for every entity whose working copy and server agree, and never for one
 /// that differs. Returns how many were recorded.
 pub(crate) fn record_matching(baseline: &mut Baseline, statuses: &mut [EntityStatus]) -> usize {
@@ -220,6 +272,30 @@ mod tests {
         assert!(!Verdict::NoBaselineSame.is_drift());
         assert!(!Verdict::Converged.is_drift());
         assert!(Verdict::NoBaselineDiffers.is_drift());
+    }
+
+    #[test]
+    fn an_export_stands_in_for_the_baseline_with_each_entity_hashed_as_a_file_would_be() {
+        let thing = |description: &str| {
+            format!(
+                "<Entities><Things><Thing name=\"P.T\" description=\"{description}\"></Thing></Things></Entities>"
+            )
+        };
+        let export = b"<Entities build=\"b\">\n  <Things>\n    <Thing name=\"P.T\" description=\"old\"></Thing>\n  </Things>\n  <Mashups>\n    <Mashup name=\"P.M\"/>\n  </Mashups>\n</Entities>";
+
+        let (ancestor, count) = ancestor_from_export(export, &[]).unwrap();
+
+        assert_eq!(count, 2);
+        let entry = ancestor.get("Things", "P.T").unwrap();
+        let old = normalise::hash(thing("old").as_bytes()).unwrap();
+        assert_eq!(
+            (entry.local.as_str(), entry.server.as_str()),
+            (old.as_str(), old.as_str())
+        );
+        assert!(ancestor.get("Mashups", "P.M").is_some());
+        assert!(ancestor_from_export(b"<Entities><Things/></Entities>", &[])
+            .unwrap_err()
+            .contains("holds no entities"));
     }
 
     #[test]

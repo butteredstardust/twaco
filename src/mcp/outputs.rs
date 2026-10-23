@@ -167,6 +167,8 @@ pub(crate) struct StatusResult {
     counts: BTreeMap<String, u64>,
     failures: Vec<String>,
     unreadable: Vec<String>,
+    /// The export used as the ancestor instead of the baseline, when one was given.
+    ancestor: Option<StatusAncestor>,
     /// Without detail: only what needs attention.
     attention: Option<Vec<StatusEntry>>,
     /// With detail: every entity.
@@ -180,6 +182,12 @@ pub(crate) struct PullResult {
     entities: Vec<String>,
     recorded: u64,
     notices: Notices,
+}
+
+#[derive(Serialize, JsonSchema)]
+struct StatusAncestor {
+    file: String,
+    entities: u64,
 }
 
 #[derive(Serialize, JsonSchema)]

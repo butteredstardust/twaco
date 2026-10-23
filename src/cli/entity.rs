@@ -196,6 +196,8 @@ pub(crate) struct EntityStatus {
     pub(crate) detail: Detail,
     #[arg(long = "record")]
     pub(crate) record: bool,
+    #[arg(long = "ancestor", value_name = "export.xml", value_parser = super::flags::path())]
+    pub(crate) ancestor: Option<std::path::PathBuf>,
 }
 
 /// Compare working, server and tracked ancestor, optionally recording matching hashes once.
@@ -219,6 +221,7 @@ pub(crate) fn entity_status(solution: &Solution, args: &EntityStatus) -> u8 {
         lock_label: "entity status",
         refuse_unreadable: true,
         refuse_record_failures: false,
+        ancestor: args.ancestor.clone(),
     };
     let mut notices = commands::Notices::default();
     let progress = super::progress::reporter();
@@ -259,6 +262,13 @@ pub(crate) fn entity_status(solution: &Solution, args: &EntityStatus) -> u8 {
         "{}",
         style::heading(&format!("{} entity status(es)", outcome.statuses.len()))
     );
+    if let (Some(path), Some(entities)) = (&args.ancestor, outcome.ancestor) {
+        println!(
+            "ancestor: {} ({entities} entit{}), not the recorded baseline",
+            path.display(),
+            if entities == 1 { "y" } else { "ies" }
+        );
+    }
     for (verdict, count) in status::counts(&outcome.statuses) {
         let label = format!("{:<19}", verdict.label());
         let label = if count == 0 {

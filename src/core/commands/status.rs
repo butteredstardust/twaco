@@ -28,6 +28,9 @@ pub struct StatusRequest {
     /// MCP turns failed reads during a record into one tool error; the CLI keeps its per-read
     /// diagnostics and exit status.
     pub refuse_record_failures: bool,
+    /// Use the entities of this export document as the ancestor instead of the recorded baseline.
+    /// Read-only: it cannot be combined with `record`.
+    pub ancestor: Option<std::path::PathBuf>,
 }
 
 #[derive(Debug)]
@@ -36,6 +39,8 @@ pub struct StatusOutcome {
     pub failures: Vec<String>,
     pub(crate) unreadable: Vec<String>,
     pub recorded: Option<usize>,
+    /// How many entities the `ancestor` export held, when one was given.
+    pub ancestor: Option<usize>,
     #[allow(
         dead_code,
         reason = "the command facade's Effects (COMMAND_FACADE.md); no adapter reads it yet"
@@ -63,6 +68,11 @@ pub enum StatusCommandError {
     Profile(profile::ProfileError),
     Baseline(baseline::BaselineError),
     RecordFailures(Vec<String>),
+    AncestorWithRecord,
+    Ancestor {
+        path: std::path::PathBuf,
+        why: String,
+    },
 }
 
 impl fmt::Display for StatusCommandError {
@@ -81,6 +91,11 @@ impl fmt::Display for StatusCommandError {
                 failures.len(),
                 failures.join("; ")
             ),
+            Self::AncestorWithRecord => write!(
+                f,
+                "--ancestor compares with an export and records nothing; drop --record"
+            ),
+            Self::Ancestor { path, why } => write!(f, "{}: {why}", path.display()),
         }
     }
 }
@@ -98,6 +113,8 @@ impl Coded for StatusCommandError {
             Self::Profile(error) => error.code(),
             Self::Baseline(error) => error.code(),
             Self::RecordFailures(_) => ErrorCode::Unclassified,
+            Self::AncestorWithRecord => ErrorCode::InvalidArguments,
+            Self::Ancestor { .. } => ErrorCode::InvalidData,
         }
     }
 }
@@ -152,6 +169,9 @@ where
     R: push::Remote + Sync,
     F: FnOnce(profile::Profile) -> R,
 {
+    if request.record && request.ancestor.is_some() {
+        return Err(StatusCommandError::AncestorWithRecord);
+    }
     let found = workspace::discover(solution);
     if request.refuse_unreadable && !found.unreadable.is_empty() {
         return Err(StatusCommandError::Unreadable(found.unreadable));
@@ -178,7 +198,22 @@ where
     };
     let profile =
         profile::load(&solution.root, &request.profile).map_err(StatusCommandError::Profile)?;
-    let mut baseline = Baseline::load(&solution.root).map_err(StatusCommandError::Baseline)?;
+    let (mut baseline, ancestor) = match &request.ancestor {
+        Some(path) => {
+            let ancestor = |why: String| StatusCommandError::Ancestor {
+                path: path.clone(),
+                why,
+            };
+            let bytes = std::fs::read(path).map_err(|error| ancestor(error.to_string()))?;
+            let (ancestor, count) =
+                status::ancestor_from_export(&bytes, &solution.server_owned).map_err(ancestor)?;
+            (ancestor, Some(count))
+        }
+        None => (
+            Baseline::load(&solution.root).map_err(StatusCommandError::Baseline)?,
+            None,
+        ),
+    };
     let (mut statuses, failures) = status::compute_with_progress(
         &open(profile),
         &baseline,
@@ -195,6 +230,7 @@ where
             failures,
             unreadable: found.unreadable,
             recorded: None,
+            ancestor,
             effects: Effects::new(Access::Read, Access::Read),
         });
     }
@@ -217,6 +253,7 @@ where
         failures,
         unreadable: found.unreadable,
         recorded,
+        ancestor,
         effects: Effects::new(workspace, Access::Read),
     })
 }
@@ -224,7 +261,104 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::core::entity::key::EntityKey;
     use crate::core::lock;
+    use crate::core::server::ServerError;
+
+    /// The server's copy of every entity.
+    struct Fake(Vec<u8>);
+
+    impl push::Remote for Fake {
+        fn fetch(&self, _: &EntityKey) -> Result<Option<Vec<u8>>, ServerError> {
+            Ok(Some(self.0.clone()))
+        }
+        fn export_owned(&self, _: &EntityKey) -> Result<Option<Vec<u8>>, ServerError> {
+            Ok(Some(self.0.clone()))
+        }
+        fn import(&self, _: &str, _: &[u8]) -> Result<(), ServerError> {
+            unreachable!("status never imports")
+        }
+    }
+
+    fn thing(description: &str) -> String {
+        format!(
+            "<Entities><Things><Thing description=\"{description}\" name=\"P.T\" projectName=\"P\"></Thing></Things></Entities>"
+        )
+    }
+
+    /// A solution whose one Thing reads `working` and which has no baseline at all.
+    fn without_baseline(working: &str) -> (tempfile::TempDir, Solution) {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        std::fs::create_dir_all(root.join("Things")).unwrap();
+        std::fs::create_dir_all(root.join(".twaco/profiles")).unwrap();
+        std::fs::write(root.join("twaco.toml"), "[[project]]\nname = \"P\"\n").unwrap();
+        std::fs::write(
+            root.join(".twaco/profiles/default.toml"),
+            "url = \"http://example.invalid/Thingworx/\"\nusername = \"u\"\npassword = \"p\"\n",
+        )
+        .unwrap();
+        std::fs::write(root.join("Things/P.T.xml"), working).unwrap();
+        let solution = Solution::load(&root.join("twaco.toml")).unwrap();
+        (dir, solution)
+    }
+
+    fn ancestor(
+        solution: &Solution,
+        export: &str,
+        server: &str,
+        record: bool,
+    ) -> Result<StatusOutcome, StatusCommandError> {
+        let path = solution.root.join("export.xml");
+        std::fs::write(&path, export).unwrap();
+        execute(
+            solution,
+            &StatusRequest {
+                target: StatusTarget::All,
+                project: None,
+                record,
+                profile: "default".to_string(),
+                lock_label: "status",
+                refuse_unreadable: true,
+                refuse_record_failures: false,
+                ancestor: Some(path),
+            },
+            |_| Fake(server.as_bytes().to_vec()),
+            &mut Notices::default(),
+            &crate::core::progress::NONE,
+        )
+    }
+
+    #[test]
+    fn an_export_as_the_ancestor_says_which_side_moved_without_a_baseline() {
+        let (_dir, solution) = without_baseline(&thing("local"));
+        let verdict = |export: &str| {
+            let outcome = ancestor(&solution, export, &thing("server"), false).unwrap();
+            assert_eq!(outcome.ancestor, Some(1));
+            outcome.statuses[0].verdict
+        };
+        assert_eq!(verdict(&thing("local")), status::Verdict::ServerChanged);
+        assert_eq!(verdict(&thing("server")), status::Verdict::LocalChanged);
+        assert_eq!(verdict(&thing("other")), status::Verdict::BothChanged);
+        let elsewhere = "<Entities><Things><Thing name=\"P.Other\"></Thing></Things></Entities>";
+        assert_eq!(verdict(elsewhere), status::Verdict::NoBaselineDiffers);
+        assert!(!solution.root.join(".twaco/baseline.json").exists());
+    }
+
+    #[test]
+    fn an_export_as_the_ancestor_records_nothing_and_must_hold_entities() {
+        let (_dir, solution) = without_baseline(&thing("local"));
+        assert!(matches!(
+            ancestor(&solution, &thing("local"), &thing("local"), true),
+            Err(StatusCommandError::AncestorWithRecord)
+        ));
+        let error = ancestor(&solution, "<Entities/>", &thing("local"), false).unwrap_err();
+        assert!(
+            matches!(error, StatusCommandError::Ancestor { .. }),
+            "{error}"
+        );
+        assert_eq!(error.code(), ErrorCode::InvalidData);
+    }
 
     #[test]
     fn a_read_only_status_needs_no_lock_but_recording_takes_one_before_discovery() {
@@ -245,6 +379,7 @@ mod tests {
             lock_label: "status",
             refuse_unreadable: false,
             refuse_record_failures: false,
+            ancestor: None,
         };
         assert!(matches!(
             execute::<crate::core::server::Client, _>(

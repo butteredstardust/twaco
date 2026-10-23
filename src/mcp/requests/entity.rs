@@ -39,6 +39,9 @@ pub(crate) struct StatusRequest {
     /// Return everything instead of the summary.
     #[serde(default)]
     pub(crate) detail: bool,
+    /// An export document inside the solution whose entities stand in for the baseline as the common ancestor, for a workspace without a usable one. Read-only: not with record.
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) ancestor: Absent<String>,
 }
 
 #[derive(Debug, Deserialize, JsonSchema, Serialize)]

@@ -111,6 +111,10 @@
           "type": "boolean",
           "description": "Return everything instead of the summary.",
           "default": false
+        },
+        "ancestor": {
+          "type": "string",
+          "description": "An export document inside the solution whose entities stand in for the baseline as the common ancestor, for a workspace without a usable one. Read-only: not with record."
         }
       },
       "required": [],

@@ -4,9 +4,11 @@ exit: 0
 --- stdout
 usage: twaco entity <command>
 
-  entity status [<entity>|--all] [--detail] [--record]
+  entity status [<entity>|--all] [--detail] [--record] [--ancestor <export.xml>]
                               entity: full name, last dotted segment, or Collection/Name
       --record                 record matching working/server hashes as baseline
+      --ancestor <export.xml>  use that export as the common ancestor instead of the baseline
+                              (an old or missing one); reads only, not with --record
   entity pull <entity>...|--all [--profile <name>] [--apply] [--json]
                               take server-changed entities, extract sidecars and record baselines
   entity get <entity>         fetch raw server XML to stdout or --out <path>

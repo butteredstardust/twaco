@@ -368,9 +368,11 @@ help:
 |                               remove a Network connection, never the Thing; plan unless --apply
 |   network import <Network> --file <path> [--create-things] [--move] [--outside] [--apply] [--json]
 |                                 map CSV assets into a Network hierarchy; plan unless --apply
-|   entity status [<entity>|--all] [--detail] [--record]
+|   entity status [<entity>|--all] [--detail] [--record] [--ancestor <export.xml>]
 |                               entity: full name, last dotted segment, or Collection/Name
 |       --record                 record matching working/server hashes as baseline
+|       --ancestor <export.xml>  use that export as the common ancestor instead of the baseline
+|                               (an old or missing one); reads only, not with --record
 |   entity pull <entity>...|--all [--profile <name>] [--apply] [--json]
 |                               take server-changed entities, extract sidecars and record baselines
 |   entity get <entity>         fetch raw server XML to stdout or --out <path>
@@ -2791,9 +2793,11 @@ arg --help
 help:
 | usage: twaco entity <command>
 | 
-|   entity status [<entity>|--all] [--detail] [--record]
+|   entity status [<entity>|--all] [--detail] [--record] [--ancestor <export.xml>]
 |                               entity: full name, last dotted segment, or Collection/Name
 |       --record                 record matching working/server hashes as baseline
+|       --ancestor <export.xml>  use that export as the common ancestor instead of the baseline
+|                               (an old or missing one); reads only, not with --record
 |   entity pull <entity>...|--all [--profile <name>] [--apply] [--json]
 |                               take server-changed entities, extract sidecars and record baselines
 |   entity get <entity>         fetch raw server XML to stdout or --out <path>
@@ -3496,7 +3500,7 @@ help:
 |   --log-file <path>           append diagnostic logs to a file (or TWACO_LOG_FILE)
 
 == twaco entity status
-usage: twaco entity status [<entity>|--all] [--detail] [--record]
+usage: twaco entity status [<entity>|--all] [--detail] [--record] [--ancestor <export.xml>]
 settings: disable-version-flag disable-help-subcommand
 subcommands: 
 arg --all
@@ -3510,6 +3514,18 @@ arg --all
     index: -
     other: -
     given twice: accepted
+arg --ancestor
+    action: Set
+    value_name: export.xml
+    num_args: 1
+    allow_hyphen_values: yes
+    allow_negative_numbers: no
+    required: no
+    default: -
+    index: -
+    other: -
+    given twice: ArgumentConflict
+    given bare: InvalidValue
 arg --detail
     action: SetTrue
     value_name: -
@@ -3601,9 +3617,11 @@ arg <operands>
     index: 1
     other: -
 help:
-|   entity status [<entity>|--all] [--detail] [--record]
+|   entity status [<entity>|--all] [--detail] [--record] [--ancestor <export.xml>]
 |                               entity: full name, last dotted segment, or Collection/Name
 |       --record                 record matching working/server hashes as baseline
+|       --ancestor <export.xml>  use that export as the common ancestor instead of the baseline
+|                               (an old or missing one); reads only, not with --record
 | 
 |   --project <name>            narrow to one project of the solution
 |   --profile <name>            the server profile (default: default)

@@ -16,6 +16,9 @@ All notable changes to twaco are recorded here. The format follows
   export; adopt now explains how to provide a base when none matches.
 - `config-table <thing> <table> --compare <backup>` (MCP `config_table` action `compare`) compares
   the server's table with a backup, including one whose rows share a key.
+- `entity status --ancestor <export.xml>` (MCP `status` `ancestor`) uses an export as the common
+  ancestor instead of the recorded baseline, so a workspace whose baseline is missing or from an
+  older hash version can still tell server changes from local ones. It records nothing.
 
 ### Fixed
 

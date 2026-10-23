@@ -1023,9 +1023,11 @@ pub(crate) const USAGE: &[Usage] = &[
     Usage {
         path: "entity status",
         group: 2,
-        text: r#"  entity status [<entity>|--all] [--detail] [--record]
+        text: r#"  entity status [<entity>|--all] [--detail] [--record] [--ancestor <export.xml>]
                               entity: full name, last dotted segment, or Collection/Name
-      --record                 record matching working/server hashes as baseline"#,
+      --record                 record matching working/server hashes as baseline
+      --ancestor <export.xml>  use that export as the common ancestor instead of the baseline
+                              (an old or missing one); reads only, not with --record"#,
     },
     Usage {
         path: "entity pull",
