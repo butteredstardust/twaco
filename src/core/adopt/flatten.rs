@@ -153,11 +153,23 @@ fn py_string(text: &str) -> String {
 
 /// One entry per JSON leaf, keyed by its path, so a one-property change in a mashup's widget tree
 /// names that property. Empty objects and arrays contribute nothing, as in the reference.
+///
+/// Lists whose members have an identity are keyed by it, not by position, so a reorder is not a
+/// change of every member: a widget by its `Properties.Id`, with the order of a container's
+/// widgets kept as one entry of its own because it is the layout; a binding or an event by what
+/// it connects, as the set it is. Their own `Id` is no identity: Composer mints new ones.
 fn flatten_json(value: &Value, prefix: &str, out: &mut BTreeMap<String, String>) {
     match value {
         Value::Object(map) => {
             for (key, item) in map {
-                flatten_json(item, &format!("{prefix}.{key}"), out);
+                let path = format!("{prefix}.{key}");
+                match (key.as_str(), item) {
+                    ("Widgets", Value::Array(items)) => flatten_widgets(items, &path, out),
+                    ("DataBindings" | "Events", Value::Array(items)) => {
+                        flatten_connections(key, items, &path, out)
+                    }
+                    _ => flatten_json(item, &path, out),
+                }
             }
         }
         Value::Array(items) => {
@@ -169,6 +181,100 @@ fn flatten_json(value: &Value, prefix: &str, out: &mut BTreeMap<String, String>)
             out.insert(prefix.to_string(), py_dumps(leaf, false));
         }
     }
+}
+
+fn flatten_widgets(items: &[Value], prefix: &str, out: &mut BTreeMap<String, String>) {
+    let mut seen: BTreeMap<String, usize> = BTreeMap::new();
+    let mut order = Vec::new();
+    for (index, item) in items.iter().enumerate() {
+        let id = item
+            .pointer("/Properties/Id")
+            .and_then(Value::as_str)
+            .filter(|id| !id.is_empty());
+        let key = match id {
+            Some(id) => numbered(&mut seen, id),
+            None => format!("#{index}"),
+        };
+        order.push(key.clone());
+        flatten_json(item, &format!("{prefix}[{key}]"), out);
+    }
+    if !order.is_empty() {
+        out.insert(format!("{prefix}#order"), order.join(", "));
+    }
+}
+
+fn flatten_connections(
+    kind: &str,
+    items: &[Value],
+    prefix: &str,
+    out: &mut BTreeMap<String, String>,
+) {
+    let text = |item: &Value, field: &str| {
+        item.get(field)
+            .and_then(Value::as_str)
+            .unwrap_or_default()
+            .to_string()
+    };
+    let mut seen: BTreeMap<String, usize> = BTreeMap::new();
+    for item in items {
+        let label = if kind == "Events" {
+            format!(
+                "{}.{}>{}.{}",
+                text(item, "EventTriggerId"),
+                text(item, "EventTriggerEvent"),
+                text(item, "EventHandlerId"),
+                text(item, "EventHandlerService")
+            )
+        } else {
+            format!("{}>{}", text(item, "SourceId"), text(item, "TargetId"))
+        };
+        let mut content = item.clone();
+        if let Some(map) = content.as_object_mut() {
+            map.remove("Id");
+        }
+        let key = numbered(
+            &mut seen,
+            &format!("{label}~{:08x}", fnv1a(py_dumps(&content, true).as_bytes())),
+        );
+        flatten_json(item, &format!("{prefix}[{key}]"), out);
+    }
+}
+
+/// `key`, or `key#n` for its n-th repeat, so two members with one identity are both kept.
+fn numbered(seen: &mut BTreeMap<String, usize>, key: &str) -> String {
+    let count = seen.entry(key.to_string()).or_default();
+    *count += 1;
+    if *count == 1 {
+        key.to_string()
+    } else {
+        format!("{key}#{count}")
+    }
+}
+
+/// A short, stable digest that tells two connections between the same members apart.
+fn fnv1a(bytes: &[u8]) -> u32 {
+    bytes.iter().fold(0x811c_9dc5, |hash: u32, byte| {
+        (hash ^ u32::from(*byte)).wrapping_mul(0x0100_0193)
+    })
+}
+
+/// What a child element is known by among its siblings. A principal is a user, group or
+/// organization of that name, and a Group and an Organization may share one; a permissions block
+/// is the resource it grants on.
+fn identity(element: &Element) -> Option<String> {
+    let name = attribute(element, "name").filter(|n| !n.is_empty());
+    if is_named(element, "Principal") {
+        return name.map(|name| match attribute(element, "type") {
+            Some(kind) if !kind.is_empty() => format!("{kind}:{name}"),
+            _ => name,
+        });
+    }
+    name.or_else(|| row_key(element)).or_else(|| {
+        is_named(element, "Permissions")
+            .then(|| attribute(element, "resourceName"))
+            .flatten()
+            .filter(|resource| !resource.is_empty())
+    })
 }
 
 /// The value a `<Row>` identifies itself by, if it has one.
@@ -225,16 +331,17 @@ fn flatten_into(element: &Element, prefix: &str, out: &mut BTreeMap<String, Stri
         *tally.entry(child.name.as_slice()).or_default() += 1;
     }
     let mut counts: BTreeMap<&[u8], usize> = BTreeMap::new();
+    let mut seen: BTreeMap<String, BTreeMap<String, usize>> = BTreeMap::new();
     for child in child_elements(element) {
         let tag = text_of(&child.name);
         if NOISE_TAGS.contains(&tag.as_str()) {
             continue;
         }
-        let key = attribute(child, "name")
-            .filter(|n| !n.is_empty())
-            .or_else(|| row_key(child));
-        let step = match key {
-            Some(key) => format!("{tag}[{key}]"),
+        let step = match identity(child) {
+            Some(key) => format!(
+                "{tag}[{}]",
+                numbered(seen.entry(tag.clone()).or_default(), &key)
+            ),
             None if tally[child.name.as_slice()] > 1 => {
                 let n = counts.entry(child.name.as_slice()).or_default();
                 *n += 1;
@@ -247,7 +354,7 @@ fn flatten_into(element: &Element, prefix: &str, out: &mut BTreeMap<String, Stri
 }
 
 /// Composer mints a fresh id for a binding or an event handler whenever it rewrites a mashup:
-/// `...Events[3].Id` or `...DataBindings[12].Id`. Counted, never listed.
+/// `...Events[<member>].Id` or `...DataBindings[<member>].Id`. Counted, never listed.
 pub(super) fn is_volatile_id(path: &str) -> bool {
     let Some(rest) = path.strip_suffix(".Id") else {
         return false;
@@ -258,8 +365,7 @@ pub(super) fn is_volatile_id(path: &str) -> bool {
     let Some(open) = rest.rfind('[') else {
         return false;
     };
-    let digits = &rest[open + 1..];
-    if digits.is_empty() || !digits.bytes().all(|b| b.is_ascii_digit()) {
+    if rest[open + 1..].is_empty() {
         return false;
     }
     let head = &rest[..open];

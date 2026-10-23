@@ -459,7 +459,141 @@ mod tests {
         assert!(is_volatile_id("/mashupContent#json.UI.DataBindings[12].Id"));
         assert!(!is_volatile_id("/mashupContent#json.Events[3].Name"));
         assert!(!is_volatile_id("/mashupContent#json.MyEvents[3].Id"));
-        assert!(!is_volatile_id("/mashupContent#json.Events[x].Id"));
+        assert!(is_volatile_id(
+            "/mashupContent#json.DataBindings[GetOrders>grid-1~0a1b2c3d].Id"
+        ));
+        assert!(!is_volatile_id("/mashupContent#json.Events[].Id"));
+    }
+
+    fn mashup(content: serde_json::Value) -> std::collections::BTreeMap<String, String> {
+        let xml = format!(
+            "<Mashup name=\"P.M\"><mashupContent><![CDATA[{content}]]></mashupContent></Mashup>"
+        );
+        flatten(&element(&xml))
+    }
+
+    fn differing(
+        left: &std::collections::BTreeMap<String, String>,
+        right: &std::collections::BTreeMap<String, String>,
+    ) -> Vec<String> {
+        left.keys()
+            .chain(right.keys())
+            .filter(|path| left.get(*path) != right.get(*path))
+            .filter(|path| !is_volatile_id(path))
+            .cloned()
+            .collect::<std::collections::BTreeSet<_>>()
+            .into_iter()
+            .collect()
+    }
+
+    #[test]
+    fn bindings_and_events_are_a_set_known_by_what_they_connect() {
+        let binding = |id: &str, target: &str| {
+            serde_json::json!({"Id": id, "SourceArea": "Data", "SourceId": "GetOrders",
+                "TargetArea": "UI", "TargetId": target,
+                "PropertyMaps": [{"SourceProperty": "", "TargetProperty": "Data"}]})
+        };
+        let event = |id: &str, handler: &str| {
+            serde_json::json!({"Id": id, "EventTriggerArea": "UI", "EventTriggerId": "button-1",
+                "EventTriggerEvent": "Clicked", "EventHandlerArea": "Data",
+                "EventHandlerId": "Things_P.T", "EventHandlerService": handler})
+        };
+        let before = mashup(serde_json::json!({
+            "DataBindings": [binding("b1", "grid-1"), binding("b2", "grid-2")],
+            "Events": [event("e1", "Save"), event("e2", "Load")],
+        }));
+        // Composer saved again: new ids, another order, nothing else.
+        let resaved = mashup(serde_json::json!({
+            "DataBindings": [binding("b9", "grid-2"), binding("b8", "grid-1")],
+            "Events": [event("e9", "Load"), event("e8", "Save")],
+        }));
+        assert_eq!(differing(&before, &resaved), Vec::<String>::new());
+
+        // One binding now feeds another widget: that binding, and only it, is out and in.
+        let retargeted = mashup(serde_json::json!({
+            "DataBindings": [binding("b1", "grid-1"), binding("b2", "grid-3")],
+            "Events": [event("e1", "Save"), event("e2", "Load")],
+        }));
+        let changed = differing(&before, &retargeted);
+        assert!(!changed.is_empty());
+        assert!(
+            changed
+                .iter()
+                .all(|path| path.contains("GetOrders>grid-2") || path.contains("GetOrders>grid-3")),
+            "{changed:?}"
+        );
+    }
+
+    #[test]
+    fn widgets_are_known_by_id_and_their_order_is_one_change() {
+        let widget = |id: &str, width: u32| serde_json::json!({"Properties": {"Id": id, "Width": width}, "Widgets": []});
+        let ui = |widgets: Vec<serde_json::Value>| {
+            mashup(serde_json::json!({"UI": {"Properties": {"Id": "root"}, "Widgets": widgets}}))
+        };
+        let before = ui(vec![widget("a", 1), widget("b", 2), widget("c", 3)]);
+
+        let moved = ui(vec![widget("c", 3), widget("a", 1), widget("b", 2)]);
+        assert_eq!(
+            differing(&before, &moved),
+            ["/mashupContent#json.UI.Widgets#order"]
+        );
+
+        let resized = ui(vec![widget("a", 1), widget("b", 5), widget("c", 3)]);
+        assert_eq!(
+            differing(&before, &resized),
+            ["/mashupContent#json.UI.Widgets[b].Properties.Width"]
+        );
+    }
+
+    #[test]
+    fn permissions_are_known_by_resource_and_principals_by_type_and_name() {
+        let thing = |permissions: &str| {
+            let xml = format!("<Thing name=\"P.T\"><RunTimePermissions>{permissions}</RunTimePermissions></Thing>");
+            flatten(&element(&xml))
+        };
+        let block = |resource: &str, principals: &str| {
+            format!("<Permissions resourceName=\"{resource}\"><ServiceInvoke>{principals}</ServiceInvoke></Permissions>")
+        };
+        let group = "<Principal name=\"P.Users\" type=\"Group\" isPermitted=\"true\"/>";
+        let organization =
+            "<Principal name=\"P.Users\" type=\"Organization\" isPermitted=\"true\"/>";
+        let before = thing(&format!(
+            "{}{}",
+            block("A", &format!("{group}{organization}")),
+            block("B", group)
+        ));
+
+        let reordered = thing(&format!(
+            "{}{}",
+            block("B", group),
+            block("A", &format!("{organization}{group}"))
+        ));
+        assert_eq!(differing(&before, &reordered), Vec::<String>::new());
+
+        // A Group and an Organization of one name are two principals: dropping one is a change.
+        let without_organization = thing(&format!("{}{}", block("A", group), block("B", group)));
+        let changed = differing(&before, &without_organization);
+        assert!(!changed.is_empty());
+        assert!(
+            changed
+                .iter()
+                .all(|path| path.contains("Organization:P.Users")),
+            "{changed:?}"
+        );
+    }
+
+    #[test]
+    fn two_siblings_with_one_name_are_both_kept() {
+        let xml = "<Thing name=\"P.T\"><Tags><Tag name=\"x\" vocabulary=\"a\"/><Tag name=\"x\" vocabulary=\"b\"/></Tags></Thing>";
+        let flat = flatten(&element(xml));
+        assert_eq!(
+            flat.get("/Tags/Tag[x]@vocabulary").map(String::as_str),
+            Some("a")
+        );
+        assert_eq!(
+            flat.get("/Tags/Tag[x#2]@vocabulary").map(String::as_str),
+            Some("b")
+        );
     }
 
     #[test]
