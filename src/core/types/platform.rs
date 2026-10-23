@@ -1,5 +1,6 @@
 use super::super::config::Solution;
 use super::super::entity::key::ServiceTarget;
+use super::super::lock;
 use super::super::progress::{self, Progress};
 use super::super::server::{Client, ServerError};
 use super::super::workspace;
@@ -98,6 +99,7 @@ pub(crate) fn cache_one(
     collection: &str,
     name: &str,
 ) -> Result<bool, TypesError> {
+    lock::reject_unlocked_write_links(solution)?;
     let mut platform = cached(solution).unwrap_or_default();
     let (destination, service) = match collection {
         "ThingTemplates" => (&mut platform.templates, "GetInstanceMetadataAsJSON"),
@@ -149,6 +151,7 @@ pub(crate) fn fetch_platform_with_progress(
     solution: &Solution,
     progress: &dyn Progress,
 ) -> Result<PlatformOutcome, TypesError> {
+    lock::reject_unlocked_write_links(solution)?;
     let (model, model_skipped) = load_model(solution);
     let local_templates: BTreeSet<&str> = model
         .entities

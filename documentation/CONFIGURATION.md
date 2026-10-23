@@ -311,7 +311,7 @@ How `twaco adopt` reads a designer's export:
 
 | Key | Meaning |
 | --- | --- |
-| `types.tsc` | The TypeScript compiler command for `types --check`, before twaco's own `-p` arguments. Default: `tsc` (`tsc.cmd` on Windows) on `PATH`. |
+| `types.tsc` | The TypeScript compiler command for `types --check`, before twaco's own `-p` arguments. Default: `tsc` (`tsc.cmd` on Windows) on `PATH`. It receives no credentials, has a 600-second timeout, and each output stream is capped at 16 MiB. |
 | `help.version` | The help center release `twaco help` reads, such as `10.1`. Default: the server's version, else the newest. |
 | `repositories.root` | The folder holding one subfolder per FileRepository, for `repo status`, `push` and `pull`. Default `filerepository`. A pull writes only inside the solution. |
 | `localization.root` | The folder holding localization table files. Default `localization`. Edits write only inside the solution. |

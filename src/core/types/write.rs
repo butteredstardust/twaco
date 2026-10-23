@@ -1,4 +1,5 @@
 use super::super::config::Solution;
+use super::super::lock;
 use super::super::workspace;
 use super::model::{load_model, script_declares, Member, Model, Service};
 use super::platform::Platform;
@@ -8,7 +9,7 @@ use super::render::{
 use super::{Outcome, TypesError};
 use serde_json;
 use std::collections::{BTreeMap, BTreeSet};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 const BASE: &str = include_str!("../types_base.d.ts");
 pub(super) const ENTITY_COLLECTIONS: &[&str] = &["Things", "ThingTemplates", "ThingShapes"];
@@ -65,6 +66,7 @@ pub(super) fn write_model(
     platform: Option<&Platform>,
     mut skipped: Vec<String>,
 ) -> Result<Outcome, TypesError> {
+    lock::reject_unlocked_write_links(solution)?;
     let generated = generate(model, platform);
     let directory = solution.root.join(".twaco").join("types");
     let files = [
@@ -73,33 +75,46 @@ pub(super) fn write_model(
         ("entities.d.ts", generated.entities),
         ("collections.d.ts", generated.collections),
     ];
-    let mut files_written = 0;
+    let mut written = Vec::new();
     for (name, content) in files {
-        files_written += usize::from(workspace::write_lf_if_changed(
-            &directory.join(name),
-            &content,
-        )?);
+        put(&directory.join(name), &content, &mut written)?;
     }
 
-    let (services, service_files_written) = write_service_projects(solution, model, &mut skipped)?;
-    files_written += service_files_written;
+    let services = write_service_projects(solution, model, &mut skipped, &mut written)?;
     skipped.sort();
 
     Ok(Outcome {
         entities: model.entities.len(),
         data_shapes: model.data_shapes.len(),
         services,
-        files_written,
+        files_written: written.len(),
         skipped,
         gitignore_covers_types: gitignore_covers_types(&solution.root),
     })
+}
+
+/// Write one generated file if it changed, recording it; a failure names what was written before it.
+fn put(path: &Path, text: &str, written: &mut Vec<PathBuf>) -> Result<(), TypesError> {
+    match workspace::write_lf_if_changed(path, text) {
+        Ok(true) => {
+            written.push(path.to_path_buf());
+            Ok(())
+        }
+        Ok(false) => Ok(()),
+        Err(source) if written.is_empty() => Err(TypesError::Workspace(source)),
+        Err(source) => Err(TypesError::Interrupted {
+            source,
+            written: std::mem::take(written),
+        }),
+    }
 }
 
 fn write_service_projects(
     solution: &Solution,
     model: &Model,
     skipped: &mut Vec<String>,
-) -> Result<(usize, usize), TypesError> {
+    written: &mut Vec<PathBuf>,
+) -> Result<usize, TypesError> {
     let known_shapes: BTreeSet<&str> = model
         .data_shapes
         .iter()
@@ -117,7 +132,6 @@ fn write_service_projects(
     let entity_ids = identifiers(entity_keys.iter().map(String::as_str), "E_");
 
     let mut services = 0;
-    let mut files_written = 0;
     for entity in &model.entities {
         let entity_key = format!("{}\0{}", entity.name, entity.collection);
         let services_dir = solution.src_root().join(&entity.name).join("services");
@@ -145,18 +159,12 @@ fn write_service_projects(
                 &known_shapes,
                 &data_shape_ids,
             );
-            files_written += usize::from(workspace::write_lf_if_changed(
-                &directory.join("jsconfig.json"),
-                &jsconfig,
-            )?);
-            files_written += usize::from(workspace::write_lf_if_changed(
-                &directory.join("twaco-globals.d.ts"),
-                &globals,
-            )?);
+            put(&directory.join("jsconfig.json"), &jsconfig, written)?;
+            put(&directory.join("twaco-globals.d.ts"), &globals, written)?;
             services += 1;
         }
     }
-    Ok((services, files_written))
+    Ok(services)
 }
 
 pub(super) fn render_jsconfig(root: &Path, service_dir: &Path) -> String {

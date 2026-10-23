@@ -141,7 +141,7 @@ pub fn serve_tools(
     let sink: &progress::Sink<'_> = &output;
     let pending = Pending::default();
     std::thread::scope(|scope| {
-        let (queue, calls) = std::sync::mpsc::channel::<Call>();
+        let (queue, calls) = std::sync::mpsc::sync_channel::<Call>(MAX_QUEUED);
         let worker = scope.spawn(|| -> std::io::Result<()> {
             for call in calls {
                 // A panic in a tool answers its call rather than leaving the client waiting on a
@@ -173,19 +173,31 @@ pub fn serve_tools(
     })
 }
 
+/// The longest message read. A longer one is answered as an error and skipped, never held whole.
+const MAX_MESSAGE: usize = 32 * 1024 * 1024;
+
+/// Calls waiting behind the one running. A client that sends more is told twaco is busy rather
+/// than queued without end.
+const MAX_QUEUED: usize = 32;
+
 fn read_messages(
     selection: &Selection,
     mut input: impl BufRead,
     sink: &progress::Sink<'_>,
     pending: &Pending,
-    queue: &std::sync::mpsc::Sender<Call>,
+    queue: &std::sync::mpsc::SyncSender<Call>,
 ) -> std::io::Result<()> {
     let mut protocol = LATEST;
     let mut bytes = Vec::new();
     loop {
         bytes.clear();
-        if input.read_until(b'\n', &mut bytes)? == 0 {
+        let Some(fits) = read_line_capped(&mut input, &mut bytes, MAX_MESSAGE)? else {
             return Ok(());
+        };
+        if !fits {
+            let message = format!("message longer than {MAX_MESSAGE} bytes; it was skipped");
+            write_line(sink, &error_response(Value::Null, -32000, &message))?;
+            continue;
         }
         // A line that is not UTF-8 is one bad message, answered as such; the server reads on.
         let response = match std::str::from_utf8(&bytes) {
@@ -198,13 +210,22 @@ fn read_messages(
             Ok(line) => match serde_json::from_str::<Value>(line) {
                 Ok(message) => match handle(selection, &message, &mut protocol, pending) {
                     Handled::Respond(response) => response,
-                    Handled::Queue(call) => {
-                        // The worker stops early only when it cannot write; joining it reports why.
-                        if queue.send(call).is_err() {
-                            return Ok(());
+                    Handled::Queue(call) => match queue.try_send(call) {
+                        Ok(()) => None,
+                        Err(std::sync::mpsc::TrySendError::Full(call)) => {
+                            pending.refuse(&call.id, &call.cancelled, call.displaced);
+                            Some(error_response(
+                                call.id,
+                                -32000,
+                                &format!(
+                                    "twaco is busy: {MAX_QUEUED} calls are already waiting; \
+                                     send this one again when one finishes"
+                                ),
+                            ))
                         }
-                        None
-                    }
+                        // The worker stops early only when it cannot write; joining it reports why.
+                        Err(std::sync::mpsc::TrySendError::Disconnected(_)) => return Ok(()),
+                    },
                 },
                 Err(error) => Some(error_response(
                     Value::Null,
@@ -215,6 +236,38 @@ fn read_messages(
         };
         if let Some(response) = response {
             write_line(sink, &response)?;
+        }
+    }
+}
+
+/// Read one line, newline included, into `bytes`. `None` at the end of input; `Some(false)` for a
+/// line longer than `cap`, whose bytes are read and dropped so the next message still parses.
+fn read_line_capped(
+    input: &mut impl BufRead,
+    bytes: &mut Vec<u8>,
+    cap: usize,
+) -> std::io::Result<Option<bool>> {
+    let mut read_any = false;
+    let mut fits = true;
+    loop {
+        let available = input.fill_buf()?;
+        if available.is_empty() {
+            return Ok(read_any.then_some(fits));
+        }
+        read_any = true;
+        let (used, ended) = match available.iter().position(|&byte| byte == b'\n') {
+            Some(at) => (at + 1, true),
+            None => (available.len(), false),
+        };
+        if fits && bytes.len() + used <= cap {
+            bytes.extend_from_slice(&available[..used]);
+        } else {
+            fits = false;
+            bytes.clear();
+        }
+        input.consume(used);
+        if ended {
+            return Ok(Some(fits));
         }
     }
 }
@@ -239,6 +292,9 @@ struct Call {
     params: Value,
     protocol: Protocol,
     cancelled: Arc<AtomicBool>,
+    /// The call already pending under this id, if a client reused one: restored if this call is
+    /// refused, so the earlier call stays cancellable.
+    displaced: Option<Arc<AtomicBool>>,
     /// Log fields the reader already made safe: see [`handle`].
     logged_id: String,
     tool: &'static str,
@@ -254,6 +310,18 @@ impl Pending {
         self.0
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner())
+    }
+
+    fn current(&self, id: &Value) -> Option<Arc<AtomicBool>> {
+        self.calls().get(&id.to_string()).cloned()
+    }
+
+    /// Forget a call that was refused rather than queued, putting back the call it displaced.
+    fn refuse(&self, id: &Value, flag: &Arc<AtomicBool>, displaced: Option<Arc<AtomicBool>>) {
+        self.finish(id, flag);
+        if let Some(earlier) = displaced {
+            self.calls().insert(id.to_string(), earlier);
+        }
     }
 
     fn start(&self, id: &Value) -> Arc<AtomicBool> {
@@ -430,12 +498,14 @@ fn handle(
             "tools": registry::selected_definitions(*protocol, selection)
         })),
         "tools/call" => {
+            let displaced = pending.current(&id);
             let cancelled = pending.start(&id);
             return Handled::Queue(Call {
                 id,
                 params,
                 protocol: *protocol,
                 cancelled,
+                displaced,
                 logged_id,
                 tool,
                 dry_run,
@@ -631,24 +701,7 @@ pub(crate) fn relative(solution: &Solution, path: &Path) -> String {
 }
 
 fn projects(solution: &Solution) -> Result<Value, ToolError> {
-    let order = solution.deploy_order().map_err(ToolError::coded)?;
-    let found = workspace::discover(solution);
-    let projects: Vec<Value> = order
-        .iter()
-        .map(|project| {
-            json!({
-                "name": project.name,
-                "root": relative(solution, &solution.project_root(project)),
-                "depends_on": project.depends_on,
-                "entities": found.entities.iter().filter(|e| e.found_under == project.name).count(),
-            })
-        })
-        .collect();
-    Ok(json!({
-        "solution": solution.solution.name,
-        "projects": projects,
-        "unreadable": found.unreadable,
-    }))
+    workspace::projects_json(solution).map_err(ToolError::coded)
 }
 
 pub(crate) fn add_notices(result: &mut Value, notices: &commands::Notices) {

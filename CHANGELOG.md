@@ -6,6 +6,24 @@ All notable changes to twaco are recorded here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- `doctor --json` and `projects --json` return the same structured reports as their MCP tools;
+  the projects report, and MCP `projects`, now list misfiled entity documents.
+
+### Fixed
+
+- `types` whose write fails after other generated files were already updated names those files
+  (the first five) and says to run it again, instead of reporting only the failed write.
+- The MCP server bounds what a client can make it hold: at most 32 queued calls (more are
+  answered busy, `-32000`) and messages of at most 32 MiB (a longer one is answered `-32000` and
+  skipped).
+- Workspace writes now refuse symbolic links and Windows junctions below the solution root,
+  preventing writes through `.twaco`, sidecar, project, repository, or localization roots.
+- `types --check` runs its configured TypeScript compiler without twaco credentials, with a
+  600-second deadline and a 16 MiB cap on each output stream; compiler output also redacts
+  credential values before twaco returns a finding or error.
+
 ## [0.1.28] - 2026-10-22
 
 ### Added

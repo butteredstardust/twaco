@@ -374,12 +374,14 @@ pub(crate) const USAGE: &[Usage] = &[
     Usage {
         path: "doctor",
         group: 0,
-        text: r#"  doctor [--profile <name>]   what resolved, what is reachable, what is missing"#,
+        text: r#"  doctor [--profile <name>] [--json]  what resolved, what is reachable, what is missing
+      --json                  print the report as JSON"#,
     },
     Usage {
         path: "projects",
         group: 0,
-        text: r#"  projects                    the solution's projects and their deploy order"#,
+        text: r#"  projects [--json]           the solution's projects and their deploy order
+      --json                  print the report as JSON"#,
     },
     Usage {
         path: "mcp",

@@ -18,6 +18,7 @@ pub mod extract;
 pub mod fmt;
 pub mod handoff;
 pub mod imports;
+pub mod init_server;
 pub mod localization;
 pub mod logs;
 pub mod mashup;

@@ -16,7 +16,7 @@
 pub(crate) enum Command {
     Init(crate::Init),
     Doctor(crate::Doctor),
-    Projects,
+    Projects(crate::Projects),
     Mcp(crate::Mcp),
     Update(super::info::Update),
     Completions(crate::Completions),
@@ -101,7 +101,7 @@ impl Command {
         match self {
             Command::Init(_) => "init",
             Command::Doctor(_) => "doctor",
-            Command::Projects => "projects",
+            Command::Projects(_) => "projects",
             Command::Mcp(_) => "mcp",
             Command::Update(_) => "update",
             Command::Completions(_) => "completions",
@@ -197,7 +197,7 @@ impl Command {
             }
             Command::Init(_)
             | Command::Doctor(_)
-            | Command::Projects
+            | Command::Projects(_)
             | Command::Mcp(_)
             | Command::Update(_)
             | Command::Completions(_)

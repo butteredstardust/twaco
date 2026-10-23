@@ -102,7 +102,7 @@ pub(crate) fn tree_digest(
         entries: &mut std::collections::BTreeMap<String, String>,
     ) -> std::io::Result<()> {
         let path = super::paths::absolute(root, relative);
-        if super::paths::is_link(&path) {
+        if crate::core::links::is_link(&path) {
             return Err(Error::new(
                 ErrorKind::InvalidData,
                 format!("{relative} is or holds a link"),

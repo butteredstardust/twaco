@@ -1,5 +1,6 @@
 //! Which paths a transaction may name, and the proof that none of them leaves the workspace.
 
+use crate::core::links;
 use std::path::{Component, Path, PathBuf};
 
 /// `given` as a path relative to `root`, written with `/`.
@@ -56,40 +57,7 @@ pub(crate) fn absolute(root: &Path, relative: &str) -> PathBuf {
     path
 }
 
-/// Whether `path` is a symbolic link or, on Windows, any reparse point (a junction, a mount).
-pub(crate) fn is_link(path: &Path) -> bool {
-    let Ok(metadata) = std::fs::symlink_metadata(path) else {
-        return false;
-    };
-    if metadata.file_type().is_symlink() {
-        return true;
-    }
-    #[cfg(windows)]
-    {
-        use std::os::windows::fs::MetadataExt;
-        const REPARSE_POINT: u32 = 0x400;
-        if metadata.file_attributes() & REPARSE_POINT != 0 {
-            return true;
-        }
-    }
-    false
-}
-
-/// Refuse a path any of whose parts, below `root`, is a link: what lies behind it is not this
-/// workspace's to replace or delete. The root itself may be reached through a link.
-pub(crate) fn reject_links(root: &Path, relative: &str) -> Result<(), String> {
-    let mut path = root.to_path_buf();
-    for part in relative.split('/') {
-        path.push(part);
-        if is_link(&path) {
-            return Err(format!(
-                "{relative} passes through the link {}",
-                path.display()
-            ));
-        }
-    }
-    Ok(())
-}
+pub(crate) use links::reject_links;
 
 /// The folders that do not exist yet on the way to `relative`'s parent, shallowest first.
 pub(crate) fn missing_folders(root: &Path, relative: &str) -> Vec<String> {

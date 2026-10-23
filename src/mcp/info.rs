@@ -7,24 +7,7 @@ use super::{
 /// What resolved, what is reachable and what is missing: `twaco doctor`. Read-only.
 pub(crate) fn doctor_tool(root: &Path, arguments: tool::DoctorRequest) -> Result<Value, ToolError> {
     let items = crate::core::doctor::diagnose(root, &arguments.profile);
-    let word = |health: crate::core::doctor::Health| match health {
-        crate::core::doctor::Health::Ok => "ok",
-        crate::core::doctor::Health::Warn => "warn",
-        crate::core::doctor::Health::Fail => "fail",
-    };
-    let failed = items
-        .iter()
-        .filter(|item| item.health == crate::core::doctor::Health::Fail)
-        .count();
-    Ok(json!({
-        "ok": failed == 0,
-        "failed": failed,
-        "items": items.iter().map(|item| json!({
-            "health": word(item.health),
-            "subject": item.subject,
-            "detail": item.detail,
-        })).collect::<Vec<_>>(),
-    }))
+    Ok(crate::core::doctor::report_json(&items))
 }
 
 pub(crate) fn settings_tool(

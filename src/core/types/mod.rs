@@ -3,6 +3,7 @@
 //! Repository declarations can be completed by the deliberately small, offline platform cache.
 
 use super::codes::{Coded, ErrorCode};
+use super::lock;
 
 mod compiler;
 mod model;
@@ -34,16 +35,50 @@ pub(crate) use platform::fetch_platform;
 #[derive(Debug, thiserror::Error)]
 pub enum TypesError {
     #[error("{0}")]
+    Lock(lock::LockError),
+    #[error("{0}")]
     Workspace(workspace::WorkspaceError),
     #[error("{0}")]
     Remote(ServerError),
     #[error("{0}")]
     Platform(String),
+    /// A write failed after others had already landed; they are named so nobody has to guess.
+    #[error("{}", interrupted_message(.source, .written))]
+    Interrupted {
+        source: workspace::WorkspaceError,
+        written: Vec<std::path::PathBuf>,
+    },
+}
+
+fn interrupted_message(
+    source: &workspace::WorkspaceError,
+    written: &[std::path::PathBuf],
+) -> String {
+    const SHOWN: usize = 5;
+    let mut names: Vec<String> = written
+        .iter()
+        .take(SHOWN)
+        .map(|path| path.display().to_string())
+        .collect();
+    if written.len() > SHOWN {
+        names.push(format!("and {} more", written.len() - SHOWN));
+    }
+    format!(
+        "{source}; {} generated file(s) were already updated: {}; run `twaco types` again to finish",
+        written.len(),
+        names.join(", ")
+    )
 }
 
 impl From<workspace::WorkspaceError> for TypesError {
     fn from(value: workspace::WorkspaceError) -> Self {
         Self::Workspace(value)
+    }
+}
+
+impl From<lock::LockError> for TypesError {
+    fn from(value: lock::LockError) -> Self {
+        Self::Lock(value)
     }
 }
 
@@ -56,9 +91,11 @@ impl From<ServerError> for TypesError {
 impl Coded for TypesError {
     fn code(&self) -> ErrorCode {
         match self {
+            Self::Lock(error) => error.code(),
             Self::Workspace(error) => error.code(),
             Self::Remote(error) => error.code(),
             Self::Platform(_) => ErrorCode::InvalidData,
+            Self::Interrupted { source, .. } => source.code(),
         }
     }
 }

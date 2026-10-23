@@ -5,6 +5,7 @@ use super::{Access, Effects, Mode};
 use crate::core::appkey::{self, AppKeyError, Key, NewKey};
 use crate::core::codes::{Coded, ErrorCode};
 use crate::core::config::Solution;
+use crate::core::lock;
 use crate::core::profile;
 use std::path::PathBuf;
 
@@ -49,6 +50,8 @@ impl AppKeyOutcome {
 #[derive(Debug, thiserror::Error)]
 pub enum AppKeyCommandError {
     #[error("{0}")]
+    Lock(lock::LockError),
+    #[error("{0}")]
     Profile(profile::ProfileError),
     #[error("{0}")]
     Key(AppKeyError),
@@ -69,6 +72,7 @@ pub enum AppKeyCommandError {
 impl Coded for AppKeyCommandError {
     fn code(&self) -> ErrorCode {
         match self {
+            Self::Lock(error) => error.code(),
             Self::Profile(error) | Self::Save { why: error, .. } => error.code(),
             Self::Key(error) => error.code(),
         }
@@ -90,6 +94,7 @@ where
     // Where the key would go is checked first: a key the server made but no profile could take
     // would only be readable again through `show`.
     if let Some(name) = &request.save {
+        lock::reject_unlocked_write_links(solution).map_err(AppKeyCommandError::Lock)?;
         profile::existing_file(&solution.root, name).map_err(AppKeyCommandError::Profile)?;
     }
     if let AppKeyAction::Create { key, mode } = &request.action {

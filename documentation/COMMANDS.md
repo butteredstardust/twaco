@@ -20,8 +20,10 @@ init --from-server <project>... [--profile <name>] [--apply] [--json]
     --profile <name>        the server profile (default: default)
     --apply                 write the planned repository and record matching baselines
     --json                  print the plan or result as JSON
-doctor [--profile <name>]   what resolved, what is reachable, what is missing
-projects                    the solution's projects and their deploy order
+doctor [--profile <name>] [--json]  what resolved, what is reachable, what is missing
+    --json                  print the report as JSON
+projects [--json]           the solution's projects and their deploy order
+    --json                  print the report as JSON
 mcp [--tools <groups>]      serve the tools over MCP on stdio (TWACO_ROOT: the solution)
     --tools <groups>        only these tool groups, comma-separated (TWACO_MCP_TOOLS): core,
                             entity, refactor, mashup, permissions, data, server, reference;

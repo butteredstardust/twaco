@@ -9,6 +9,7 @@
 use super::baseline::Baseline;
 use super::config::Solution;
 use super::{gitignore, lock, profile, server, workspace};
+use serde_json::{json, Value};
 use std::path::Path;
 use std::time::Instant;
 
@@ -26,6 +27,28 @@ pub struct Item {
     pub health: Health,
     pub subject: &'static str,
     pub detail: String,
+}
+
+/// The stable report shared by the command line and MCP adapters.
+pub fn report_json(items: &[Item]) -> Value {
+    let word = |health| match health {
+        Health::Ok => "ok",
+        Health::Warn => "warn",
+        Health::Fail => "fail",
+    };
+    let failed = items
+        .iter()
+        .filter(|item| item.health == Health::Fail)
+        .count();
+    json!({
+        "ok": failed == 0,
+        "failed": failed,
+        "items": items.iter().map(|item| json!({
+            "health": word(item.health),
+            "subject": item.subject,
+            "detail": item.detail,
+        })).collect::<Vec<_>>(),
+    })
 }
 
 fn item(health: Health, subject: &'static str, detail: impl Into<String>) -> Item {

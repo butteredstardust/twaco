@@ -60,6 +60,9 @@ arbitrary server or document data (a service's reply in `call`, the rows of `db_
 serialised from `core`), that member is an open value: the schema names the envelope around it, not
 the data.
 
+The `projects` result includes `misfiled`, each entity document whose declared `projectName` does
+not match the project folder it was found under.
+
 Under test, the registry checks every successful result of a tool that publishes an output schema
 against it. Tests drive the tools offline, against a server that cannot be reached, and against a
 local fake that answers every read with one entity or an empty InfoTable, including the shapes a

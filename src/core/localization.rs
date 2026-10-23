@@ -108,13 +108,7 @@ impl Coded for LocalizationError {
 
 /// The localization root, relative to the solution root unless configuration says otherwise.
 pub fn root(solution: &Solution) -> PathBuf {
-    solution.root.join(
-        solution
-            .localization
-            .root
-            .as_deref()
-            .unwrap_or(DEFAULT_ROOT),
-    )
+    solution.localization_root()
 }
 
 /// Prefixes this project owns, defaulting to its conventional dotted namespace.

@@ -35,8 +35,10 @@ help:
 |       --profile <name>        the server profile (default: default)
 |       --apply                 write the planned repository and record matching baselines
 |       --json                  print the plan or result as JSON
-|   doctor [--profile <name>]   what resolved, what is reachable, what is missing
-|   projects                    the solution's projects and their deploy order
+|   doctor [--profile <name>] [--json]  what resolved, what is reachable, what is missing
+|       --json                  print the report as JSON
+|   projects [--json]           the solution's projects and their deploy order
+|       --json                  print the report as JSON
 |   mcp [--tools <groups>]      serve the tools over MCP on stdio (TWACO_ROOT: the solution)
 |       --tools <groups>        only these tool groups, comma-separated (TWACO_MCP_TOOLS): core,
 |                               entity, refactor, mashup, permissions, data, server, reference;
@@ -2666,7 +2668,7 @@ help:
 |   --log-file <path>           append diagnostic logs to a file (or TWACO_LOG_FILE)
 
 == twaco doctor
-usage: twaco doctor [--profile <name>]
+usage: twaco doctor [--profile <name>] [--json]
 settings: disable-version-flag disable-help-subcommand
 subcommands: 
 arg --help
@@ -2679,6 +2681,17 @@ arg --help
     default: -
     index: -
     other: -
+arg --json
+    action: SetTrue
+    value_name: -
+    num_args: 0
+    allow_hyphen_values: no
+    allow_negative_numbers: no
+    required: no
+    default: "false"
+    index: -
+    other: -
+    given twice: accepted
 arg --log
     action: Set
     value_name: filter
@@ -2716,7 +2729,8 @@ arg --profile
     given twice: ArgumentConflict
     given bare: InvalidValue
 help:
-|   doctor [--profile <name>]   what resolved, what is reachable, what is missing
+|   doctor [--profile <name>] [--json]  what resolved, what is reachable, what is missing
+|       --json                  print the report as JSON
 | 
 |   --profile <name>            the server profile (default: default)
 |   --log <filter>              write diagnostic logs to stderr (or TWACO_LOG)
@@ -11638,7 +11652,7 @@ help:
 |   --log-file <path>           append diagnostic logs to a file (or TWACO_LOG_FILE)
 
 == twaco projects
-usage: twaco projects
+usage: twaco projects [--json]
 settings: disable-version-flag disable-help-subcommand
 subcommands: 
 arg --help
@@ -11651,6 +11665,17 @@ arg --help
     default: -
     index: -
     other: -
+arg --json
+    action: SetTrue
+    value_name: -
+    num_args: 0
+    allow_hyphen_values: no
+    allow_negative_numbers: no
+    required: no
+    default: "false"
+    index: -
+    other: -
+    given twice: accepted
 arg --log
     action: Set
     value_name: filter
@@ -11676,7 +11701,8 @@ arg --log-file
     given twice: ArgumentConflict
     given bare: InvalidValue
 help:
-|   projects                    the solution's projects and their deploy order
+|   projects [--json]           the solution's projects and their deploy order
+|       --json                  print the report as JSON
 | 
 |   --log <filter>              write diagnostic logs to stderr (or TWACO_LOG)
 |   --log-file <path>           append diagnostic logs to a file (or TWACO_LOG_FILE)

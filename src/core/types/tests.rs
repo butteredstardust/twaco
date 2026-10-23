@@ -15,6 +15,7 @@ use serde_json::{json, Value};
 use std::cell::RefCell;
 use std::collections::{BTreeMap, BTreeSet};
 use std::ffi::{OsStr, OsString};
+use std::io::{Error, ErrorKind};
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
@@ -100,6 +101,42 @@ fn fixture_solution(
     }
     let solution = Solution::discover(&root).unwrap();
     (root_guard, root, solution)
+}
+
+fn directory_link(target: &Path, link: &Path) -> bool {
+    #[cfg(unix)]
+    {
+        std::os::unix::fs::symlink(target, link).is_ok()
+    }
+    #[cfg(windows)]
+    {
+        std::process::Command::new("cmd")
+            .args(["/C", "mklink", "/J"])
+            .arg(link)
+            .arg(target)
+            .output()
+            .is_ok_and(|output| output.status.success())
+    }
+}
+
+#[test]
+fn generation_refuses_a_linked_twaco_folder() {
+    let (_dir, root, solution) = fixture_solution("linked-twaco", &[]);
+    let outside_guard = tempfile::tempdir().unwrap();
+    let outside = outside_guard.path();
+    std::fs::write(outside.join("untouched"), b"keep").unwrap();
+    if !directory_link(outside, &root.join(".twaco")) {
+        return;
+    }
+
+    let error = write(&solution).unwrap_err();
+    assert!(matches!(
+        error,
+        TypesError::Lock(crate::core::lock::LockError::Link { ref path })
+            if path == &root.join(".twaco")
+    ));
+    assert!(!outside.join("types").exists());
+    assert_eq!(std::fs::read(outside.join("untouched")).unwrap(), b"keep");
 }
 
 type FakeReplies = BTreeMap<(String, String), Result<Option<Value>, ServerError>>;
@@ -1046,6 +1083,39 @@ struct FakeCompiler {
     calls: RefCell<Vec<(OsString, Vec<OsString>, PathBuf)>>,
 }
 
+struct FailingCompiler {
+    kind: ErrorKind,
+    message: &'static str,
+}
+
+impl CompilerRunner for FailingCompiler {
+    fn run(&self, _: &OsStr, _: &[OsString], _: &Path) -> std::io::Result<CompilerOutput> {
+        Err(Error::new(self.kind, self.message))
+    }
+}
+
+struct EnvironmentVariable {
+    name: &'static str,
+    previous: Option<OsString>,
+}
+
+impl EnvironmentVariable {
+    fn set(name: &'static str, value: &str) -> Self {
+        let previous = std::env::var_os(name);
+        std::env::set_var(name, value);
+        Self { name, previous }
+    }
+}
+
+impl Drop for EnvironmentVariable {
+    fn drop(&mut self) {
+        match &self.previous {
+            Some(value) => std::env::set_var(self.name, value),
+            None => std::env::remove_var(self.name),
+        }
+    }
+}
+
 impl CompilerRunner for FakeCompiler {
     fn run(
         &self,
@@ -1087,6 +1157,70 @@ fn compiler_errors_without_a_parsable_finding_are_a_broken_run() {
     assert_eq!(calls.len(), 1);
     assert!(calls[0].1.iter().any(|argument| argument == "--pretty"));
     assert_eq!(calls[0].2, root);
+}
+
+#[test]
+fn a_write_failing_after_others_names_the_files_already_updated() {
+    let (_dir, root, solution) = fixture_solution("interrupted", &[]);
+    // A folder where the fourth declaration file goes makes that write fail after three landed.
+    std::fs::create_dir_all(root.join(".twaco/types/collections.d.ts")).unwrap();
+
+    let error = write(&solution).unwrap_err();
+
+    let TypesError::Interrupted { ref written, .. } = error else {
+        panic!("expected an interrupted write, got {error:?}");
+    };
+    let names: Vec<_> = written
+        .iter()
+        .map(|path| path.file_name().unwrap().to_string_lossy().into_owned())
+        .collect();
+    assert_eq!(names, ["twx.d.ts", "datashapes.d.ts", "entities.d.ts"]);
+    let message = error.to_string();
+    assert!(
+        message.contains("3 generated file(s) were already updated"),
+        "{message}"
+    );
+    assert!(message.contains("run `twaco types` again"), "{message}");
+}
+
+#[test]
+fn compiler_stderr_credentials_are_redacted() {
+    let secret = "compiler-password-7f3a";
+    let _password = EnvironmentVariable::set("TWACO_TYPES_TEST_PASSWORD", secret);
+    let (_dir, _, solution) = fixture_solution("compiler-redaction", &[]);
+    let compiler = FakeCompiler {
+        success: false,
+        stdout: Vec::new(),
+        stderr: format!("compiler failed with {secret}\n").into_bytes(),
+        calls: RefCell::new(Vec::new()),
+    };
+
+    let error = check_with(&solution, &compiler).unwrap_err().to_string();
+
+    assert!(error.contains("compiler failed with <redacted>"), "{error}");
+    assert!(!error.contains(secret), "{error}");
+}
+
+#[test]
+fn compiler_timeout_and_output_overflow_are_not_startup_failures() {
+    let (_dir, _, solution) = fixture_solution("compiler-limits", &[]);
+    for (kind, message) in [
+        (
+            ErrorKind::TimedOut,
+            "did not finish within 600 seconds and was killed",
+        ),
+        (ErrorKind::FileTooLarge, "printed more than 16777216 bytes"),
+    ] {
+        let error = check_with(&solution, &FailingCompiler { kind, message })
+            .unwrap_err()
+            .to_string();
+        assert!(error.contains(message), "{error}");
+        assert!(
+            !error.contains("cannot start TypeScript compiler"),
+            "{error}"
+        );
+        assert!(!error.contains("npm install"), "{error}");
+    }
 }
 
 #[test]

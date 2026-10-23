@@ -171,6 +171,7 @@ mod tests {
             LockError::Held { holder: text() },
             ErrorCode::WorkspaceLocked,
         );
+        is(LockError::Link { path: path() }, ErrorCode::GuardRefused);
         is(
             LockError::Io {
                 path: path(),
@@ -762,7 +763,18 @@ mod tests {
         use crate::core::types::TypesError;
         use crate::core::workspace::WorkspaceError;
         is(
+            TypesError::Lock(crate::core::lock::LockError::Link { path: path() }),
+            ErrorCode::GuardRefused,
+        );
+        is(
             TypesError::Workspace(WorkspaceError::UnknownEntity { name: text() }),
+            ErrorCode::UnknownEntity,
+        );
+        is(
+            TypesError::Interrupted {
+                source: WorkspaceError::UnknownEntity { name: text() },
+                written: vec![path()],
+            },
             ErrorCode::UnknownEntity,
         );
         is(

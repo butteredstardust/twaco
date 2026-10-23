@@ -556,6 +556,24 @@ impl Solution {
         self.root.join(&self.solution.src)
     }
 
+    /// The configured file-repository root, when the solution keeps one.
+    pub(crate) fn repositories_root(&self) -> Option<PathBuf> {
+        self.repositories
+            .root
+            .as_ref()
+            .map(|root| self.root.join(root))
+    }
+
+    /// The configured localization root, or its conventional location.
+    pub(crate) fn localization_root(&self) -> PathBuf {
+        self.root.join(
+            self.localization
+                .root
+                .as_deref()
+                .unwrap_or(super::localization::DEFAULT_ROOT),
+        )
+    }
+
     pub fn project(&self, name: &str) -> Option<&Project> {
         self.projects.iter().find(|p| p.name == name)
     }

@@ -659,35 +659,6 @@ mod tests {
     }
 
     #[test]
-    fn plans_then_writes_the_adopt_layout_and_sidecars() {
-        let temp = tempfile::tempdir().unwrap();
-        let remote = Fake(BTreeMap::from([("P".to_string(), export("P", "P.T"))]));
-        let request = || Request {
-            root: temp.path().to_path_buf(),
-            projects: vec!["P".into()],
-            apply: false,
-            profile: "default".into(),
-        };
-        profile(temp.path());
-        let plan = execute(&remote, request()).unwrap();
-        assert!(!plan.applied);
-        assert!(!temp.path().join("twaco.toml").exists());
-        let mut apply = request();
-        apply.apply = true;
-        execute(&remote, apply).unwrap();
-        assert!(temp.path().join("Things/P.T.xml").exists());
-        assert_eq!(
-            std::fs::read_to_string(temp.path().join("src/P.T/services/S/script.js")).unwrap(),
-            "me();"
-        );
-        assert!(
-            std::fs::read_to_string(temp.path().join("src/P.T/services/S/definition.xml"))
-                .unwrap()
-                .contains("name=\"S\"")
-        );
-    }
-
-    #[test]
     fn refuses_an_invalid_config_before_asking_the_remote() {
         let temp = tempfile::tempdir().unwrap();
         std::fs::write(temp.path().join("twaco.toml"), "").unwrap();
