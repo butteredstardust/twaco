@@ -253,6 +253,8 @@ pub(crate) struct Call {
     #[command(flatten)]
     pub(crate) detail: Detail,
     #[command(flatten)]
+    pub(crate) json: Json,
+    #[command(flatten)]
     pub(crate) profile: Profile,
     #[arg(long = "with-logs")]
     pub(crate) with_logs: bool,
@@ -323,15 +325,22 @@ pub(crate) fn call(solution: &Solution, args: &Call) -> u8 {
                         use twaco::core::logs;
                         match logged {
                             Ok(entries) => {
-                                println!(
+                                let print = |line: String| {
+                                    if args.json.json {
+                                        eprintln!("{line}");
+                                    } else {
+                                        println!("{line}");
+                                    }
+                                };
+                                print(format!(
                                     "--- logged during the call: {} entr{}",
                                     entries.len(),
                                     if entries.len() == 1 { "y" } else { "ies" }
-                                );
+                                ));
                                 for (log, entry) in entries {
-                                    println!("{log}: {}", logs::line(entry));
+                                    print(format!("{log}: {}", logs::line(entry)));
                                 }
-                                println!("---");
+                                print("---".to_string());
                             }
                             Err(log_error) => {
                                 eprintln!(
@@ -365,21 +374,35 @@ pub(crate) fn call(solution: &Solution, args: &Call) -> u8 {
         use twaco::core::logs;
         match logged {
             Ok(entries) => {
-                println!(
+                let print = |line: String| {
+                    if args.json.json {
+                        eprintln!("{line}");
+                    } else {
+                        println!("{line}");
+                    }
+                };
+                print(format!(
                     "--- logged during the call: {} entr{}",
                     entries.len(),
                     if entries.len() == 1 { "y" } else { "ies" }
-                );
+                ));
                 for (log, entry) in &entries {
-                    println!("{log}: {}", logs::line(entry));
+                    print(format!("{log}: {}", logs::line(entry)));
                 }
-                println!("---");
+                print("---".to_string());
             }
             Err(error) => eprintln!(
                 "{} the call's logs could not be read: {error}",
                 style::prefix()
             ),
         }
+    }
+    if args.json.json {
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&reply).expect("JSON value serialises")
+        );
+        return OK;
     }
     match reply {
         None => println!("done"),

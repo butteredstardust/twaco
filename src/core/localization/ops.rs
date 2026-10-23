@@ -166,6 +166,7 @@ fn with_unfiled(
                     table: table.clone(),
                     name: token.name.clone(),
                     state: State::ServerOnly,
+                    different: Vec::new(),
                     local: None,
                     server: Some(token.clone()),
                     file: None,

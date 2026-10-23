@@ -307,6 +307,9 @@ pub(crate) struct BundleRequest {
     /// Leave out the collections [bundle] ui_collections names (a designer's mashups and media).
     #[serde(default)]
     pub backend_only: bool,
+    /// Record the rebuilt bundle as this collaborator handoff; only with dry_run false.
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) handoff: Absent<String>,
     /// Only say whether the configured bundle is current, as `twaco bundle --check` does.
     #[serde(default = "default_true")]
     pub(crate) dry_run: bool,

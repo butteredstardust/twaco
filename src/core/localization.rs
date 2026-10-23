@@ -989,6 +989,8 @@ pub struct Compared {
     pub table: String,
     pub name: String,
     pub state: State,
+    /// The normalized token fields that differ. Empty unless `state` is `Differs`.
+    pub different: Vec<&'static str>,
     pub(crate) local: Option<Token>,
     pub(crate) server: Option<Token>,
     pub(crate) file: Option<PathBuf>,
@@ -1001,6 +1003,18 @@ fn comparable(token: &Token) -> Token {
         usage: token.usage.trim().to_string(),
         context: token.context.trim().to_string(),
     }
+}
+
+fn different_fields(left: &Token, right: &Token) -> Vec<&'static str> {
+    let (left, right) = (comparable(left), comparable(right));
+    [
+        ("value", left.value != right.value),
+        ("usage", left.usage != right.usage),
+        ("context", left.context != right.context),
+    ]
+    .into_iter()
+    .filter_map(|(field, differs)| differs.then_some(field))
+    .collect()
 }
 
 /// Compare the local tokens this solution owns with the server's full tables.
@@ -1028,15 +1042,20 @@ pub(crate) fn compare(
             remote.into_iter().map(|t| (t.name.clone(), t)).collect();
         for ((_, name), (token, path)) in local.iter().filter(|((t, _), _)| t == &table) {
             let server_token = remote_by_name.get(name).cloned();
+            let different = server_token
+                .as_ref()
+                .map(|other| different_fields(token, other))
+                .unwrap_or_default();
             let state = match &server_token {
                 None => State::LocalOnly,
-                Some(other) if comparable(token) == comparable(other) => State::Same,
+                Some(_) if different.is_empty() => State::Same,
                 Some(_) => State::Differs,
             };
             out.push(Compared {
                 table: table.clone(),
                 name: name.clone(),
                 state,
+                different,
                 local: Some(token.clone()),
                 server: server_token,
                 file: Some(path.clone()),
@@ -1050,6 +1069,7 @@ pub(crate) fn compare(
                     table: table.clone(),
                     name,
                     state: State::ServerOnly,
+                    different: Vec::new(),
                     local: None,
                     server: Some(token),
                     file: None,

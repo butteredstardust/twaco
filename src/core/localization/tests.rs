@@ -26,6 +26,45 @@ fn token(name: &str, value: &str) -> Token {
     }
 }
 
+#[test]
+fn comparison_names_each_normalized_token_field_that_differs() {
+    let local = token("Acme.App.Save", "Save");
+    let cases = [
+        (
+            Token {
+                value: "Store".into(),
+                ..local.clone()
+            },
+            ["value"].as_slice(),
+        ),
+        (
+            Token {
+                context: "button".into(),
+                ..local.clone()
+            },
+            ["context"].as_slice(),
+        ),
+        (
+            Token {
+                usage: "tooltip".into(),
+                ..local.clone()
+            },
+            ["usage"].as_slice(),
+        ),
+        (
+            Token {
+                value: "Store".into(),
+                context: "button".into(),
+                ..local.clone()
+            },
+            ["value", "context"].as_slice(),
+        ),
+    ];
+    for (server, expected) in cases {
+        assert_eq!(different_fields(&local, &server), expected);
+    }
+}
+
 fn labelled(name: &str, value: &str) -> Token {
     Token {
         context: "Acme label.".to_string(),

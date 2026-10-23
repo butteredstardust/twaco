@@ -596,7 +596,8 @@ pub(crate) struct LocalizationResult {
     tables: Vec<Value>,
     problem_counts: Value,
     unreadable: Vec<Value>,
-    /// With detail: the tokens that are not the same.
+    /// With detail: the tokens that are not the same. Differing tokens carry `different`,
+    /// `local`, and `server`.
     compared: Option<Vec<Value>>,
     /// With detail: each problem.
     problems: Option<Vec<Value>>,
@@ -1160,19 +1161,21 @@ pub(crate) struct MashupRecipeResult {
 
 #[derive(Serialize, JsonSchema)]
 pub(crate) struct AdoptReportResult {
-    reverts: u64,
-    services: Vec<Value>,
-    unmatched_services: Vec<Value>,
-    new: Vec<Value>,
-    absent: Vec<String>,
-    changed: Vec<Value>,
-    type_changes: Vec<Value>,
-    retyped_arguments: Vec<Value>,
-    retyped_defaults: Vec<Value>,
-    identical: u64,
-    base: Value,
-    entities: Vec<Value>,
-    notices: Notices,
+    notes: Option<Vec<String>>,
+    suggestions: Option<Vec<Value>>,
+    reverts: Option<u64>,
+    services: Option<Vec<Value>>,
+    unmatched_services: Option<Vec<Value>>,
+    new: Option<Vec<Value>>,
+    absent: Option<Vec<String>>,
+    changed: Option<Vec<Value>>,
+    type_changes: Option<Vec<Value>>,
+    retyped_arguments: Option<Vec<Value>>,
+    retyped_defaults: Option<Vec<Value>>,
+    identical: Option<u64>,
+    base: Option<Value>,
+    entities: Option<Vec<Value>>,
+    notices: Option<Notices>,
 }
 
 #[derive(Serialize, JsonSchema)]
@@ -1189,6 +1192,7 @@ pub(crate) struct AdoptApplyResult {
     next: String,
     types_refreshed: Option<u64>,
     types_warning: Option<String>,
+    notes: Option<Vec<String>>,
     notices: Notices,
 }
 

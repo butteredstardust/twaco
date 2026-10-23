@@ -2743,6 +2743,11 @@
           "description": "Return everything instead of the summary.",
           "type": "boolean",
           "default": false
+        },
+        "suggest_base": {
+          "description": "List recorded handoffs ranked for this export, then return without a report.",
+          "type": "boolean",
+          "default": false
         }
       }
     },
@@ -2751,66 +2756,101 @@
       "openWorldHint": false
     },
     "outputSchema": {
-      "required": [
-        "reverts",
-        "services",
-        "unmatched_services",
-        "new",
-        "absent",
-        "changed",
-        "type_changes",
-        "retyped_arguments",
-        "retyped_defaults",
-        "identical",
-        "base",
-        "entities"
-      ],
       "properties": {
+        "notes": {
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": {
+            "type": "string"
+          }
+        },
+        "suggestions": {
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": true
+        },
         "reverts": {
-          "type": "integer",
+          "type": [
+            "integer",
+            "null"
+          ],
           "minimum": 0
         },
         "services": {
-          "type": "array",
+          "type": [
+            "array",
+            "null"
+          ],
           "items": true
         },
         "unmatched_services": {
-          "type": "array",
+          "type": [
+            "array",
+            "null"
+          ],
           "items": true
         },
         "new": {
-          "type": "array",
+          "type": [
+            "array",
+            "null"
+          ],
           "items": true
         },
         "absent": {
-          "type": "array",
+          "type": [
+            "array",
+            "null"
+          ],
           "items": {
             "type": "string"
           }
         },
         "changed": {
-          "type": "array",
+          "type": [
+            "array",
+            "null"
+          ],
           "items": true
         },
         "type_changes": {
-          "type": "array",
+          "type": [
+            "array",
+            "null"
+          ],
           "items": true
         },
         "retyped_arguments": {
-          "type": "array",
+          "type": [
+            "array",
+            "null"
+          ],
           "items": true
         },
         "retyped_defaults": {
-          "type": "array",
+          "type": [
+            "array",
+            "null"
+          ],
           "items": true
         },
         "identical": {
-          "type": "integer",
+          "type": [
+            "integer",
+            "null"
+          ],
           "minimum": 0
         },
         "base": true,
         "entities": {
-          "type": "array",
+          "type": [
+            "array",
+            "null"
+          ],
           "items": true
         },
         "notices": {
@@ -2942,6 +2982,15 @@
             "string",
             "null"
           ]
+        },
+        "notes": {
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": {
+            "type": "string"
+          }
         },
         "notices": {
           "type": [
@@ -6618,7 +6667,7 @@
           "items": true
         },
         "compared": {
-          "description": "With detail: the tokens that are not the same.",
+          "description": "With detail: the tokens that are not the same. Differing tokens carry `different`,\n`local`, and `server`.",
           "type": [
             "array",
             "null"
@@ -7209,6 +7258,10 @@
           "description": "Leave out the collections [bundle] ui_collections names (a designer's mashups and media).",
           "type": "boolean",
           "default": false
+        },
+        "handoff": {
+          "description": "Record the rebuilt bundle as this collaborator handoff; only with dry_run false.",
+          "type": "string"
         },
         "dry_run": {
           "description": "Only say whether the configured bundle is current, as `twaco bundle --check` does.",

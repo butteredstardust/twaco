@@ -939,6 +939,29 @@ fn handoffs_are_recorded_selected_by_adopt_and_bundled() {
 }
 
 #[test]
+fn adopt_without_a_handoff_explains_how_to_choose_a_base() {
+    let root_guard = tempfile::tempdir().unwrap();
+    let root = root_guard.path();
+    std::fs::create_dir_all(root.join("Things")).unwrap();
+    std::fs::write(root.join("twaco.toml"), "[[project]]\nname = \"P\"\n").unwrap();
+    let local = "<Entities><Things><Thing name=\"Acme.T\" projectName=\"P\"><value>here</value></Thing></Things></Entities>";
+    let export = local.replace("here", "there");
+    std::fs::write(root.join("Things/Acme.T.xml"), local).unwrap();
+    std::fs::write(root.join("export.xml"), export).unwrap();
+    let output = Command::new(env!("CARGO_BIN_EXE_twaco"))
+        .args(["adopt", "export.xml", "--json"])
+        .current_dir(root)
+        .env_clear()
+        .output()
+        .unwrap();
+    let result: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert!(result["notes"][0]
+        .as_str()
+        .unwrap()
+        .contains("no recorded handoff matches this export"));
+}
+
+#[test]
 fn an_advisory_gate_reports_without_failing_the_run() {
     let root_guard = tempfile::Builder::new()
         .prefix("twaco-advisory-")

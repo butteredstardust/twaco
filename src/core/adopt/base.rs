@@ -13,13 +13,13 @@ use std::process::Command;
 /// service name.
 #[derive(Clone, Debug, Default)]
 #[allow(private_interfaces)] // Element deliberately remains an internal parsed representation.
-pub(crate) struct Side {
+pub struct Side {
     pub(crate) entities: BTreeMap<EntityRef, Element>,
     pub(crate) services: BTreeMap<(String, String), String>,
 }
 
 impl Side {
-    pub(crate) fn from_export(path: &Path) -> Result<Self, AdoptError> {
+    pub fn from_export(path: &Path) -> Result<Self, AdoptError> {
         let entities = export_entities(path)?;
         let services = services_from(&entities);
         Ok(Self { entities, services })
@@ -96,6 +96,28 @@ pub struct Handoff {
     pub dirty: bool,
     pub created: u64,
     pub files: Vec<String>,
+}
+
+/// One recorded handoff, ranked for an export without searching history.
+#[derive(Clone, Debug)]
+pub struct HandoffMatch {
+    pub handoff: Handoff,
+    pub matches: usize,
+    pub total: usize,
+}
+
+pub const NO_BASE_NOTE: &str = "no base: no recorded handoff matches this export, so an entity that differs is a conflict unless git history shows the export holds an older version of it; pass --base <git revision or file> (the commit the designer's package was built from), or record deliveries with `twaco bundle --handoff <name>`";
+
+/// The ranked handoffs as both front ends present them.
+pub fn suggestions_json(suggestions: &[HandoffMatch]) -> serde_json::Value {
+    serde_json::json!({ "suggestions": suggestions.iter().map(|item| serde_json::json!({
+        "name": item.handoff.name,
+        "commit": item.handoff.commit,
+        "created": item.handoff.created,
+        "dirty": item.handoff.dirty,
+        "matches": item.matches,
+        "total": item.total,
+    })).collect::<Vec<_>>() })
 }
 
 fn handoff_root(solution: &Solution) -> PathBuf {
@@ -305,6 +327,32 @@ pub(crate) fn resolve(
             export.entities.len()
         ),
     }))
+}
+
+/// Rank recorded handoffs by exported entities that are equal after the normal comparison.
+pub fn suggest(solution: &Solution, export: &Side) -> Result<Vec<HandoffMatch>, AdoptError> {
+    let mut ranked = Vec::new();
+    for handoff in handoffs(solution)? {
+        let side = handoff_side(solution, &handoff)?;
+        let matches = export
+            .entities
+            .iter()
+            .filter(|(entity, theirs)| {
+                side.entities.get(*entity).is_some_and(|base| {
+                    super::compare::compare_owned_entity(solution, entity, theirs, base)
+                        .differences
+                        .is_empty()
+                })
+            })
+            .count();
+        ranked.push(HandoffMatch {
+            handoff,
+            matches,
+            total: export.entities.len(),
+        });
+    }
+    ranked.sort_by_key(|item| std::cmp::Reverse(item.matches));
+    Ok(ranked)
 }
 
 fn handoff_side(solution: &Solution, handoff: &Handoff) -> Result<Side, AdoptError> {

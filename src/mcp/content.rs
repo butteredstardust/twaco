@@ -436,12 +436,26 @@ pub fn localization_status_json(
             .iter()
             .filter(|item| item.state != State::Same)
             .map(|item| {
-                serde_json::json!({
+                let mut result = serde_json::json!({
                     "table": item.table,
                     "name": item.name,
                     "state": label(item.state),
                     "file": item.file.as_deref().map(path),
-                })
+                });
+                if item.state == State::Differs {
+                    let token = |token: &crate::core::localization::Token| {
+                        serde_json::json!({
+                            "value": token.value,
+                            "usage": token.usage,
+                            "context": token.context,
+                        })
+                    };
+                    result["different"] = serde_json::json!(item.different);
+                    result["local"] = token(item.local.as_ref().expect("differs has local token"));
+                    result["server"] =
+                        token(item.server.as_ref().expect("differs has server token"));
+                }
+                result
             })
             .collect();
         result["problems"] = status
@@ -671,7 +685,7 @@ pub(crate) fn bundle_tool(
 ) -> Result<Value, ToolError> {
     let request = commands::bundle::BundleRequest {
         backend_only: arguments.backend_only,
-        handoff: None,
+        handoff: arguments.handoff.as_ref().cloned(),
         mode: if arguments.dry_run {
             Mode::Plan
         } else {

@@ -847,6 +847,11 @@
           "description": "Return everything instead of the summary.",
           "type": "boolean",
           "default": false
+        },
+        "suggest_base": {
+          "description": "List recorded handoffs ranked for this export, then return without a report.",
+          "type": "boolean",
+          "default": false
         }
       }
     },
@@ -2465,6 +2470,10 @@
           "description": "Leave out the collections [bundle] ui_collections names (a designer's mashups and media).",
           "type": "boolean",
           "default": false
+        },
+        "handoff": {
+          "description": "Record the rebuilt bundle as this collaborator handoff; only with dry_run false.",
+          "type": "string"
         },
         "dry_run": {
           "description": "Only say whether the configured bundle is current, as `twaco bundle --check` does.",

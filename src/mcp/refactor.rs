@@ -830,6 +830,7 @@ pub(crate) fn adopt_apply_tool(
             .chain(outcome.unmapped_defaults(&report).map(|d| json!({ "entity": d.entity, "service": d.service, "parameter": d.parameter, "default": d.default, "to": d.to, "why": d.why })))
             .collect::<Vec<_>>(),
         "base": report.base,
+        "notes": report.notes,
         "entities": report.entities.iter().map(adopt_entity_json).collect::<Vec<_>>(),
         "services": report.services.iter().map(adopt_service_json).collect::<Vec<_>>(),
         "next": next,
@@ -853,6 +854,15 @@ pub(crate) fn adopt_tool(
         }
     };
     let only = arguments.entity.items().to_vec();
+    if arguments.suggest_base {
+        let export_side = adopt::Side::from_export(&export).map_err(ToolError::coded)?;
+        let suggestions =
+            adopt::base_suggestions(solution, &export_side).map_err(ToolError::coded)?;
+        if suggestions.is_empty() {
+            return Ok(json!({ "notes": [adopt::NO_BASE_NOTE] }));
+        }
+        return Ok(adopt::suggestions_json(&suggestions));
+    }
     let request = commands::adopt::AdoptRequest {
         export,
         only,
@@ -911,6 +921,7 @@ pub(crate) fn adopt_tool(
         "retyped_defaults": report.retyped_defaults.iter().map(|d| json!({ "entity": d.entity, "service": d.service, "parameter": d.parameter, "to": d.to, "default": d.default, "why": d.why })).collect::<Vec<_>>(),
         "identical": report.with_status(adopt::Status::Identical).count(),
         "base": report.base,
+        "notes": report.notes,
         "entities": report.entities.iter().map(adopt_entity_json).collect::<Vec<_>>(),
     });
     add_notices(&mut result, &notices);

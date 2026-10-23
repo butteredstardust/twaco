@@ -6,6 +6,15 @@ All notable changes to twaco are recorded here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- `call --json` writes exactly one complete service reply to stdout; call logs and notices remain
+  on stderr.
+- Localization status identifies the token fields that differ, including local and server values
+  in its JSON and MCP detail results.
+- MCP `bundle` can record a handoff, and `adopt --suggest-base` ranks recorded handoffs for an
+  export; adopt now explains how to provide a base when none matches.
+
 ## [0.1.29] - 2026-10-23
 
 ### Added

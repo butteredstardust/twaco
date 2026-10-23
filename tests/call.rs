@@ -330,6 +330,44 @@ fn void_summary_detail_invalid_json_and_http_error_have_distinct_results() {
 }
 
 #[test]
+fn json_call_writes_one_complete_value_and_keeps_logs_on_stderr() {
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let (_dir, root) = temp("json");
+    profile(&root, listener.local_addr().unwrap());
+    let server = std::thread::spawn(move || {
+        let replies = [
+            r#"{"dataShape":{"fieldDefinitions":{"name":{"baseType":"STRING"}}},"rows":[{"name":"one"},{"name":"two"}]}"#,
+            r#"{"rows":[]}"#,
+            r#"{"rows":[]}"#,
+            r#"{"rows":[]}"#,
+            r#"{"rows":[]}"#,
+            r#"{"rows":[]}"#,
+            r#"{"rows":[]}"#,
+            "",
+        ];
+        for body in replies {
+            let (mut stream, _) = listener.accept().unwrap();
+            receive(&mut stream);
+            answer(&mut stream, "200 OK", "application/json", body);
+        }
+    });
+
+    let table = run(&root, &["call", "T", "Table", "--json", "--with-logs"]);
+    assert!(table.status.success());
+    let value: serde_json::Value = serde_json::from_slice(&table.stdout).unwrap();
+    assert_eq!(value["rows"].as_array().unwrap().len(), 2);
+    assert!(String::from_utf8_lossy(&table.stderr).contains("logged during the call"));
+
+    let void = run(&root, &["call", "T", "Void", "--json"]);
+    assert!(void.status.success());
+    assert_eq!(
+        serde_json::from_slice::<serde_json::Value>(&void.stdout).unwrap(),
+        serde_json::Value::Null
+    );
+    server.join().unwrap();
+}
+
+#[test]
 fn non_object_parameters_are_refused_without_a_request() {
     let listener = TcpListener::bind("127.0.0.1:0").unwrap();
     listener.set_nonblocking(true).unwrap();

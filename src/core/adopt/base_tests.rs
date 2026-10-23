@@ -244,6 +244,21 @@ fn resolve_selects_matching_handoff_and_each_explicit_source() {
 }
 
 #[test]
+fn suggestions_rank_each_recorded_handoff_by_export_matches() {
+    let (temporary, solution) = solution();
+    let first = temporary.path().join("first.xml");
+    let second = temporary.path().join("second.xml");
+    std::fs::write(&first, xml("one", "base();")).unwrap();
+    std::fs::write(&second, xml("two", "two();")).unwrap();
+    record_handoff(&solution, "first", std::slice::from_ref(&first)).unwrap();
+    record_handoff(&solution, "second", std::slice::from_ref(&second)).unwrap();
+    let suggested = base_suggestions(&solution, &Side::from_export(&first).unwrap()).unwrap();
+    assert_eq!(suggested[0].handoff.name, "first");
+    assert_eq!(suggested[0].matches, 1);
+    assert_eq!(suggested[0].total, 1);
+}
+
+#[test]
 fn history_versions_are_newest_first_and_ignore_untracked_paths() {
     let (temporary, solution) = solution();
     git(temporary.path(), &["init"]);

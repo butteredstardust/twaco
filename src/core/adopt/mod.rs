@@ -39,7 +39,8 @@ mod retype_tests;
 
 use crate::core::basetype::Mapped;
 pub(crate) use apply::{apply, is_file_name};
-pub(crate) use base::{check_handoff, handoffs, record_handoff, Handoff, Side};
+pub(crate) use base::{check_handoff, handoffs, record_handoff};
+pub use base::{suggest as base_suggestions, suggestions_json, Handoff, Side, NO_BASE_NOTE};
 pub use classify::{Change, Kind};
 pub(crate) use compare::{compare_with, CompareOptions};
 pub(crate) use flatten::{glob_matches, row_key, service_bodies};
@@ -140,6 +141,8 @@ pub struct ServiceReport {
 pub struct Report {
     /// The base used for the three-way comparison, when one was found.
     pub base: Option<String>,
+    /// Advice about resolving this comparison, presented by both front ends.
+    pub notes: Vec<String>,
     /// The parsed base is retained for apply's frame-level merge.  It is intentionally not a
     /// presentation field: callers present `base`, above, rather than an XML tree.
     base_side: Option<Side>,

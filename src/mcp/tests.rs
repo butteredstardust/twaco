@@ -576,6 +576,83 @@ fn localization_tools_plan_apply_and_refuse_missing_values() {
 }
 
 #[test]
+fn localization_detail_names_differing_fields_and_both_token_sides() {
+    let (_directory, root) = solution_dir();
+    let solution = crate::core::config::Solution::load(&root.join("twaco.toml")).unwrap();
+    let token = |value: &str, context: &str| crate::core::localization::Token {
+        name: "P.Title".to_string(),
+        value: value.to_string(),
+        usage: "label".to_string(),
+        context: context.to_string(),
+    };
+    let status = crate::core::localization::Status {
+        compared: vec![crate::core::localization::Compared {
+            table: "Default".to_string(),
+            name: "P.Title".to_string(),
+            state: crate::core::localization::State::Differs,
+            different: vec!["value", "context"],
+            local: Some(token("Local", "here")),
+            server: Some(token("Server", "there")),
+            file: Some(root.join("localization/P/LocalizationTable.xml")),
+        }],
+        problems: Vec::new(),
+        missing_tables: Vec::new(),
+        unreadable: Vec::new(),
+    };
+    let item = localization_status_json(&solution, &status, true)["compared"]
+        .as_array()
+        .unwrap()[0]
+        .clone();
+    assert_eq!(item["different"], json!(["value", "context"]));
+    assert_eq!(item["local"]["value"], "Local");
+    assert_eq!(item["server"]["context"], "there");
+}
+
+#[test]
+fn bundle_handoff_is_recorded_only_when_mcp_applies() {
+    let (_directory, root) = solution_dir();
+    let (failed, planned) = call_tool(
+        &root,
+        "bundle",
+        json!({"handoff":"planned", "dry_run":true}),
+    );
+    assert!(!failed, "{planned}");
+    let solution = crate::core::config::Solution::load(&root.join("twaco.toml")).unwrap();
+    assert!(crate::core::adopt::handoffs(&solution).unwrap().is_empty());
+    let (failed, written) = call_tool(
+        &root,
+        "bundle",
+        json!({"handoff":"delivered", "dry_run":false}),
+    );
+    assert!(!failed, "{written}");
+    assert_eq!(
+        crate::core::adopt::handoffs(&solution).unwrap()[0].name,
+        "delivered"
+    );
+}
+
+#[test]
+fn adopt_suggest_base_returns_guidance_without_a_report_when_no_handoffs_exist() {
+    let (_directory, root) = solution_dir();
+    std::fs::write(
+        root.join("export.xml"),
+        "<Entities><Things><Thing name=\"P.T\" projectName=\"P\"></Thing></Things></Entities>",
+    )
+    .unwrap();
+    let (failed, result) = call_tool(
+        &root,
+        "adopt_report",
+        json!({"export":"export.xml", "suggest_base":true}),
+    );
+    assert!(!failed, "{result}");
+    assert!(result.get("reverts").is_none());
+    assert!(result["notes"][0]
+        .as_str()
+        .unwrap()
+        .contains("no recorded handoff matches this export"));
+}
+
+#[test]
 fn output_schema_waits_for_the_new_protocol() {
     let old = registry::output_definition_for_test(Protocol::V2025_03_26);
     let new = registry::output_definition_for_test(Protocol::V2025_06_18);

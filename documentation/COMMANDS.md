@@ -87,7 +87,7 @@ docs [--out <file>] [--force | --check]
 adopt <export.xml>          take a designer's or backend collaborator's export; plan unless --apply
     --base <file|handoff|git rev>  collaborator's starting point; --only ui|backend
     --take theirs:<name>,ours:<name>  resolve conflicts (theirs:ui takes every UI one)
-    --entity <name>; --detail; --json; --fail-on-revert
+    --entity <name>; --detail; --json; --fail-on-revert; --suggest-base
 handoff list|record <file.xml>... --name <name> [--apply]
                             list recorded collaborator bases, or plan/copy one under .twaco/handoffs
 rename entity <old> <new> [--apply] [--text] [--detail] [--json] [--skip-checks]
@@ -473,9 +473,10 @@ db clean [--apply] [--json] delete temporary ZZ.Twaco.Sql.* Things an interrupte
 Call services and read what the server says.
 
 ```text
-call <target> <service> [<json>] [--timeout <seconds>] [--detail] [--as <test user>]
+call <target> <service> [<json>] [--timeout <seconds>] [--detail] [--as <test user>] [--json]
     [--lang <code>]         target: Collection/Name, full name, or last dotted segment
     --with-logs             then what it wrote to ScriptLog and ApplicationLog (waits up to 3 s)
+    --json                  one complete service reply as JSON (logs and notices go to stderr)
     --as <test user>        call as a [[test.user]] with the profile's test_password (the profile
                             needs allow_test_users): 404 if the user cannot see it, 401 a bad password
     --lang <code>           with --as: in this language (de, or fr,de: the first with a table);
