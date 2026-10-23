@@ -119,6 +119,7 @@ pub(crate) struct ProjectsResult {
     solution: String,
     projects: Vec<ProjectEntry>,
     unreadable: Vec<String>,
+    misfiled: Vec<MisfiledEntity>,
 }
 
 #[derive(Serialize, JsonSchema)]
@@ -127,6 +128,13 @@ struct ProjectEntry {
     root: String,
     depends_on: Vec<String>,
     entities: u64,
+}
+
+#[derive(Serialize, JsonSchema)]
+struct MisfiledEntity {
+    name: String,
+    project: String,
+    found_under: String,
 }
 
 #[derive(Serialize, JsonSchema)]

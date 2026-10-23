@@ -631,24 +631,7 @@ pub(crate) fn relative(solution: &Solution, path: &Path) -> String {
 }
 
 fn projects(solution: &Solution) -> Result<Value, ToolError> {
-    let order = solution.deploy_order().map_err(ToolError::coded)?;
-    let found = workspace::discover(solution);
-    let projects: Vec<Value> = order
-        .iter()
-        .map(|project| {
-            json!({
-                "name": project.name,
-                "root": relative(solution, &solution.project_root(project)),
-                "depends_on": project.depends_on,
-                "entities": found.entities.iter().filter(|e| e.found_under == project.name).count(),
-            })
-        })
-        .collect();
-    Ok(json!({
-        "solution": solution.solution.name,
-        "projects": projects,
-        "unreadable": found.unreadable,
-    }))
+    workspace::projects_json(solution).map_err(ToolError::coded)
 }
 
 pub(crate) fn add_notices(result: &mut Value, notices: &commands::Notices) {

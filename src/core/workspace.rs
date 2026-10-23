@@ -10,6 +10,7 @@ use super::config::{Project, Solution};
 use super::entity::key::ServiceTarget;
 use super::entity::{self, EntityInfo};
 use super::sidecar::ServiceSidecar;
+use serde_json::{json, Value};
 use std::collections::BTreeMap;
 use std::fmt;
 use std::path::{Path, PathBuf};
@@ -161,6 +162,48 @@ pub fn discover(solution: &Solution) -> Discovery {
     found.entities.sort_by(|a, b| a.path.cmp(&b.path));
     found.unreadable.sort();
     found
+}
+
+/// The stable project report shared by the command line and MCP adapters.
+pub fn projects_json(solution: &Solution) -> Result<Value, super::config::ConfigError> {
+    let order = solution.deploy_order()?;
+    let found = discover(solution);
+    let projects: Vec<Value> = order
+        .iter()
+        .map(|project| {
+            let text = solution.relative(&solution.project_root(project));
+            let text = text.trim_start_matches("./");
+            let root = if text.is_empty() || text == "." {
+                "."
+            } else {
+                text
+            };
+            json!({
+                "name": project.name,
+                "root": root,
+                "depends_on": project.depends_on,
+                "entities": found.entities.iter().filter(|entity| entity.found_under == project.name).count(),
+            })
+        })
+        .collect();
+    let misfiled: Vec<Value> = found
+        .entities
+        .iter()
+        .filter(|entity| entity.is_misfiled())
+        .map(|entity| {
+            json!({
+                "name": entity.info.name,
+                "project": entity.info.project,
+                "found_under": entity.found_under,
+            })
+        })
+        .collect();
+    Ok(json!({
+        "solution": solution.solution.name,
+        "projects": projects,
+        "unreadable": found.unreadable,
+        "misfiled": misfiled,
+    }))
 }
 
 /// The entity files alone, for callers that have already dealt with the failures.

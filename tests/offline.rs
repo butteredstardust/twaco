@@ -350,6 +350,39 @@ fn offline_projects_needs_no_profile_or_environment() {
         String::from_utf8_lossy(&output.stderr)
     );
     assert!(!root.join(".twaco/profiles/default.toml").exists());
+
+    let output = Command::new(env!("CARGO_BIN_EXE_twaco"))
+        .args(["projects", "--json"])
+        .current_dir(&root)
+        .env_clear()
+        .output()
+        .unwrap();
+    assert!(output.status.success(), "{output:?}");
+    let report: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(report["projects"][0]["name"], "Offline");
+    assert_eq!(report["misfiled"], serde_json::json!([]));
+}
+
+#[test]
+fn doctor_json_is_structured_like_its_mcp_report() {
+    let root_guard = tempfile::tempdir().unwrap();
+    let root = root_guard.path();
+    std::fs::write(root.join("twaco.toml"), "[[project]]\nname = \"P\"\n").unwrap();
+    let output = Command::new(env!("CARGO_BIN_EXE_twaco"))
+        .args(["doctor", "--json"])
+        .current_dir(root)
+        .env_clear()
+        .output()
+        .unwrap();
+    let report: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert!(report["ok"].is_boolean(), "{report}");
+    assert!(report["failed"].is_u64(), "{report}");
+    assert!(report["items"].is_array(), "{report}");
+    assert_eq!(
+        output.status.code() == Some(0),
+        report["ok"].as_bool().unwrap(),
+        "{report}"
+    );
 }
 
 #[test]

@@ -6,6 +6,11 @@ All notable changes to twaco are recorded here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- `doctor --json` and `projects --json` return the same structured reports as their MCP tools;
+  the projects report, and MCP `projects`, now list misfiled entity documents.
+
 ### Fixed
 
 - `types --check` runs its configured TypeScript compiler without twaco credentials, with a

@@ -246,6 +246,22 @@ fn init_from_server_is_a_root_tool_with_required_projects() {
 }
 
 #[test]
+fn projects_includes_misfiled_entity_documents() {
+    let (_dir, root) = solution_dir();
+    std::fs::write(
+        root.join("Things/Wrong.xml"),
+        "<Entities><Things><Thing name=\"Wrong\" projectName=\"Elsewhere\"/></Things></Entities>",
+    )
+    .unwrap();
+    let (failed, body) = call_tool(&root, "projects", json!({}));
+    assert!(!failed, "{body}");
+    assert_eq!(
+        body["misfiled"],
+        json!([{"name": "Wrong", "project": "Elsewhere", "found_under": "P"}])
+    );
+}
+
+#[test]
 fn tool_schemas_use_the_supported_subset() {
     for tool in tool_definitions() {
         let name = tool["name"].as_str().unwrap();

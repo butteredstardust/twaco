@@ -15,7 +15,6 @@ use std::time::Duration;
 use twaco::core::commands::{self};
 use twaco::core::config::Solution;
 use twaco::core::workspace;
-use twaco::core::{profile, server};
 
 mod cli;
 
@@ -176,7 +175,7 @@ fn dispatch(command: Command) -> u8 {
         Command::Mcp(mcp) => mcp_cmd(&mcp),
         // Completions describe the command line, not a solution.
         Command::Completions(completions) => completions_cmd(&completions),
-        Command::Projects => run(projects),
+        Command::Projects(projects) => run(|solution| projects_cmd(solution, &projects)),
         // The help center needs no solution, so it runs before discovery and uses one if found.
         Command::Help(help) => help_cmd(&help),
         // The public Java API documentation also needs no solution.
@@ -324,52 +323,28 @@ fn init_cmd(parsed: &Init) -> u8 {
             );
             return FAILED;
         }
-        if let Err(error) = twaco::core::init_server::preflight(&here, &parsed.from_server) {
-            eprintln!("{} {error}", cli::style::prefix());
-            return FAILED;
-        }
-        let profile = match profile::load(&here, parsed.profile.name()) {
-            Ok(profile) => profile,
-            Err(error) => {
-                eprintln!("{} {error}", cli::style::prefix());
-                return FAILED;
-            }
-        };
-        let result = twaco::core::init_server::execute(
-            &server::Client::new(profile),
-            twaco::core::init_server::Request {
+        let result = twaco::core::commands::init_server::init_from_server(
+            twaco::core::commands::init_server::InitFromServerRequest {
                 root: here.clone(),
                 projects: parsed.from_server.clone(),
-                apply: parsed.apply.apply,
                 profile: parsed.profile.name().to_string(),
+                apply: parsed.apply.apply,
             },
         );
         return match result {
             Ok(outcome) if parsed.json.json => {
                 println!(
                     "{}",
-                    serde_json::json!({
-                            "projects": outcome.projects,
-                            "files": outcome.files,
-                            "entities": outcome.entities,
-                            "toml": outcome.toml,
-                            "notes": outcome.notes,
-                            "applied": outcome.applied,
-                            "added": outcome.added,
-                        "recorded": outcome.recorded,
-                        "not_in_sync": outcome.not_in_sync,
-                        "localization_files": outcome.localization_files,
-                        "localization_tokens": outcome.localization_tokens,
-                        "localization_failure": outcome.localization_failure,
-                    })
+                    twaco::core::commands::init_server::outcome_json(&outcome)
                 );
-                if outcome.not_in_sync.is_empty() {
+                if outcome.result.not_in_sync.is_empty() {
                     OK
                 } else {
                     DRIFT
                 }
             }
             Ok(outcome) => {
+                let outcome = outcome.result;
                 println!(
                     "{} project(s), {} entity file(s){}",
                     outcome.projects.len(),
@@ -507,12 +482,25 @@ fn init_cmd(parsed: &Init) -> u8 {
 struct Doctor {
     #[command(flatten)]
     profile: cli::flags::Profile,
+    #[command(flatten)]
+    json: cli::flags::Json,
 }
 
 /// `twaco doctor [--profile <name>]`: what resolved, what is reachable, what is missing.
 fn doctor_cmd(parsed: &Doctor) -> u8 {
     let here = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
     let items = twaco::core::doctor::diagnose(&here, parsed.profile.name());
+    if parsed.json.json {
+        println!("{}", twaco::core::doctor::report_json(&items));
+        return if items
+            .iter()
+            .any(|item| item.health == twaco::core::doctor::Health::Fail)
+        {
+            FAILED
+        } else {
+            OK
+        };
+    }
     for item in &items {
         let mark = match item.health {
             twaco::core::doctor::Health::Ok => "ok  ",
@@ -684,7 +672,32 @@ fn run(command: impl FnOnce(&Solution) -> u8) -> u8 {
     }
 }
 
-fn projects(solution: &Solution) -> u8 {
+#[derive(Debug, clap::Args)]
+#[group(skip)]
+struct Projects {
+    #[command(flatten)]
+    json: cli::flags::Json,
+}
+
+fn projects_cmd(solution: &Solution, parsed: &Projects) -> u8 {
+    if parsed.json.json {
+        let report = match workspace::projects_json(solution) {
+            Ok(report) => report,
+            Err(error) => {
+                eprintln!("{} {error}", cli::style::prefix());
+                return FAILED;
+            }
+        };
+        println!("{report}");
+        return if report["unreadable"]
+            .as_array()
+            .is_some_and(|items| !items.is_empty())
+        {
+            FAILED
+        } else {
+            OK
+        };
+    }
     let order = match solution.deploy_order() {
         Ok(o) => o,
         Err(e) => {
