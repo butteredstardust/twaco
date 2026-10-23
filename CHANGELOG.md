@@ -20,6 +20,9 @@ All notable changes to twaco are recorded here. The format follows
 
 ### Added
 
+- MCP `call` without `dry_run` runs services known to only read: platform reads from a list
+  reviewed from the ThingWorx Javadoc (never for a service name the repository defines) and
+  `[call] read_only` entries in twaco.toml. The result says `read_only`.
 - `deploy` and `bundle` can select changed entities with `--changed-since` and remove selectors
   with `--exclude`; bundle can write a chosen `--out` file and apply profile mashup patches.
 - Per-profile `server_owned` rules and mashup property `patches` in `twaco.toml`.

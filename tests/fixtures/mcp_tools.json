@@ -9141,7 +9141,7 @@
   },
   {
     "name": "call",
-    "description": "Call a ThingWorx service. A service can write, and twaco cannot tell which do, so this is a dry run unless dry_run is false. A bare target is a Thing; Collection/Name reaches templates, shapes, resources and subsystems.",
+    "description": "Call a ThingWorx service. Without dry_run, a service known to only read runs (a platform read such as InfoTableFunctions or GetPropertyValues that the repository does not define, or one twaco.toml [call] read_only lists; the result says read_only) and any other is a dry run; dry_run true always plans, false always calls. A bare target is a Thing; Collection/Name reaches templates, shapes, resources and subsystems.",
     "inputSchema": {
       "required": [
         "target",
@@ -9162,8 +9162,8 @@
           "default": {}
         },
         "dry_run": {
-          "type": "boolean",
-          "default": true
+          "description": "Left out, the call runs only when the service is known to only read (a platform read such as InfoTableFunctions or GetPropertyValues the repository does not define, or one twaco.toml [call] read_only lists) and is otherwise planned; true always plans; false always calls.",
+          "type": "boolean"
         },
         "timeout_seconds": {
           "type": "integer",
@@ -9259,6 +9259,13 @@
         },
         "logs": {
           "description": "With with_logs: the entries logged during the call, or why they could not be read."
+        },
+        "read_only": {
+          "description": "Why a call without dry_run ran: \"platform\" (a built-in platform read) or \"twaco.toml\" (listed in [call] read_only).",
+          "type": [
+            "string",
+            "null"
+          ]
         },
         "notices": {
           "type": [

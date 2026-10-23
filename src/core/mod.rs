@@ -60,6 +60,7 @@ pub mod permissions;
 pub mod profile;
 pub mod progress;
 pub mod push;
+pub mod read_only;
 pub mod refs;
 pub mod relocate;
 pub mod rename;

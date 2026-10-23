@@ -4,8 +4,9 @@ How to change a ThingWorx solution kept in source control with twaco, in the ord
 usually happens. `twaco mcp` serves the same work as MCP tools (`check`, `status`, `sync`,
 `deploy`, `call`, `logs`, `guide` and so on); `tools/list` names them. A command that writes to
 the server only plans unless given `--apply` (MCP: `dry_run: false`). The exception is `call`:
-it runs the service you name, because twaco cannot tell whether a service writes, so know what
-a service does before you call it.
+the CLI runs the service you name, so know what a service does before you call it. MCP `call`
+without `dry_run` runs a service known to only read (a platform read the repository does not
+define, or one `[call] read_only` in twaco.toml lists) and plans any other.
 
 ## Start here
 

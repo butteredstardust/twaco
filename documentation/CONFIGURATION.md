@@ -326,6 +326,23 @@ What `twaco unused` treats as in use without anything in the repository referrin
 Mashups, things a deploy runs (`[project.deploy]`) and anything that runs on events
 (subscriptions, Timers, Schedulers) are entry points already and need no entry.
 
+### `[call]`
+
+MCP `call` without `dry_run` runs a service known to only read and plans any other. twaco knows
+the platform's reads (InfoTableFunctions, SearchFunctions, `GetPropertyValues`,
+`QueryDataTableEntries` and the like, from the ThingWorx Javadoc), but never trusts that list for
+a service name the repository defines or overrides. List your own reads here:
+
+```toml
+[call]
+read_only = ["Things/P.Orders.GetOrders", "Things/P.*.GetSummary"]
+```
+
+Each entry is `Collection/Name.Service`; the name may be a glob as in `[[server_owned]]`. A result
+that ran this way says `read_only: "platform"` or `"twaco.toml"`. `dry_run: true` still plans and
+`dry_run: false` still calls; a call with `lang` always needs `dry_run: false`, because it sets the
+test user's language preference. The CLI's `twaco call` always calls.
+
 ### `[adopt]`
 
 How `twaco adopt` reads a designer's export:

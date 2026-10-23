@@ -1249,7 +1249,6 @@ fn every_tool_is_listed_with_a_schema_and_honest_annotations() {
         "extension_write",
         "export",
         "import",
-        "call",
     ] {
         let tool = tools.iter().find(|t| t["name"] == name).unwrap();
         assert_eq!(
@@ -1265,9 +1264,15 @@ fn every_tool_is_listed_with_a_schema_and_honest_annotations() {
         call["annotations"]["readOnlyHint"], false,
         "a service call may write"
     );
-    assert_eq!(
-        call["inputSchema"]["properties"]["dry_run"]["default"],
-        true
+    // Left out, only a call known to only read runs: the schema has no default to promise.
+    let dry_run = &call["inputSchema"]["properties"]["dry_run"];
+    assert!(dry_run.get("default").is_none(), "{dry_run}");
+    assert!(
+        dry_run["description"]
+            .as_str()
+            .unwrap()
+            .contains("otherwise planned"),
+        "{dry_run}"
     );
     let entity_delete = tools.iter().find(|t| t["name"] == "entity_delete").unwrap();
     for parameter in [
@@ -2097,6 +2102,34 @@ fn a_service_call_is_a_dry_run_unless_asked_and_needs_no_server_to_be_one() {
             .contains("vera.viewer, whose language preference is set to de"),
         "{text}"
     );
+}
+
+#[test]
+fn a_call_known_to_only_read_runs_without_dry_run_and_any_other_stays_a_plan() {
+    // The server cannot be reached, so a call that runs fails reaching it; a plan answers.
+    let (_dir, root) = solution_with_unreachable_server();
+    let reached = |arguments: Value| {
+        let result = call(&root, "call", arguments);
+        let text = result["content"][0]["text"].as_str().unwrap().to_string();
+        (result["isError"] == true, text)
+    };
+    let (failed, text) = reached(
+        json!({"target": "Resources/InfoTableFunctions", "service": "Query", "parameters": {}}),
+    );
+    assert!(failed, "a platform read runs: {text}");
+    let (failed, text) =
+        reached(json!({"target": "Things/P.Outside", "service": "GetPropertyValues"}));
+    assert!(failed, "a platform read runs: {text}");
+    for arguments in [
+        json!({"target": "Things/P.Outside", "service": "AddDataTableEntry"}),
+        json!({"target": "Resources/InfoTableFunctions", "service": "Query", "dry_run": true}),
+        json!({"target": "Things/P.Outside", "service": "GetPropertyValues", "as": "vera.viewer", "lang": "de"}),
+    ] {
+        let (failed, text) = reached(arguments.clone());
+        assert!(!failed, "{arguments}: {text}");
+        let body: Value = serde_json::from_str(&text).unwrap();
+        assert_eq!(body["dry_run"], true, "{arguments}");
+    }
 }
 
 /// The `outputSchema` a tool publishes to the newest protocol revision.

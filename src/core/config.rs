@@ -42,6 +42,9 @@ pub struct Solution {
     /// What `adopt` should not report as a change. See [`Adopt`].
     #[serde(default)]
     pub(crate) adopt: Adopt,
+    /// Services the team declares read-only. See [`Call`].
+    #[serde(default)]
+    pub(crate) call: Call,
     /// Solution-wide output conventions for generated content.
     #[serde(default)]
     pub(crate) format: Format,
@@ -112,6 +115,17 @@ pub(crate) struct Adopt {
     /// expected and the repository is authoritative.
     #[serde(default)]
     pub(crate) generated_services: Vec<String>,
+}
+
+/// `[call]`: how MCP `call` treats services.
+#[derive(Debug, Default, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct Call {
+    /// `Collection/Name.Service` entries (the name may be a glob) that only read, so MCP `call`
+    /// runs them without `dry_run: false`. For the repository's own services, which the built-in
+    /// platform list never covers.
+    #[serde(default)]
+    pub(crate) read_only: Vec<String>,
 }
 
 /// `[gates]`: named for the built-in gates, since `[[check]]` is the hook list.
@@ -569,6 +583,12 @@ impl Solution {
         }
         if self.types.tsc.as_ref().is_some_and(Vec::is_empty) {
             return Err(ConfigError::EmptyTypesCompiler);
+        }
+        for entry in &self.call.read_only {
+            super::read_only::check_entry(entry).map_err(|why| ConfigError::Invalid {
+                path: path.to_path_buf(),
+                why,
+            })?;
         }
         for (name, overrides) in &self.profiles {
             super::profile::validate_name(name).map_err(|error| ConfigError::Invalid {

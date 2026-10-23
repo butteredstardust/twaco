@@ -276,8 +276,9 @@ pub(crate) struct CallRequest {
     #[serde(default)]
     #[schemars(schema_with = "free_object")]
     pub parameters: Map<String, Value>,
-    #[serde(default = "default_true")]
-    pub(crate) dry_run: bool,
+    /// Left out, the call runs only when the service is known to only read (a platform read such as InfoTableFunctions or GetPropertyValues the repository does not define, or one twaco.toml [call] read_only lists) and is otherwise planned; true always plans; false always calls.
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) dry_run: Absent<bool>,
     #[serde(default = "default_call_timeout_seconds")]
     #[schemars(range(min = 1))]
     pub(crate) timeout_seconds: u64,

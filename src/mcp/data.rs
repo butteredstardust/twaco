@@ -451,7 +451,7 @@ pub(crate) fn call_service_tool(
     let service = nonempty(&arguments.service, "service")?;
     let parameters = Value::Object(arguments.parameters.clone());
     let timeout = arguments.timeout_seconds;
-    let dry_run = arguments.dry_run;
+    let dry_run = arguments.dry_run.as_ref().copied().unwrap_or(true);
     let request = commands::call::CallRequest {
         target: target_arg.to_string(),
         service: service.to_string(),
@@ -463,6 +463,7 @@ pub(crate) fn call_service_tool(
         profile_before_target: false,
         as_user: arguments.as_user.as_ref().cloned(),
         lang: arguments.lang.as_ref().cloned(),
+        run_if_read_only: arguments.dry_run.is_absent(),
     };
     let mut notices = commands::Notices::default();
     let outcome = commands::call::execute(solution, &request, server::Client::new, &mut notices)
@@ -470,6 +471,7 @@ pub(crate) fn call_service_tool(
     let commands::call::CallOutcome::Applied {
         reply,
         logs: logged,
+        read_only,
         ..
     } = outcome
     else {
@@ -479,7 +481,9 @@ pub(crate) fn call_service_tool(
                 "nothing was sent; pass dry_run: false to call it as {user}, whose language \
                  preference is set to {lang} for the call and then put back"
             ),
-            _ => "nothing was sent; pass dry_run: false to call it".to_string(),
+            _ => "nothing was sent: the service is not known to only read; pass dry_run: false \
+                  to call it"
+                .to_string(),
         };
         return Ok(json!({
             "dry_run": true,
@@ -534,6 +538,9 @@ pub(crate) fn call_service_tool(
     };
     if let Some(found) = &logged {
         result["logs"] = logs_json(found);
+    }
+    if let Some(reason) = read_only {
+        result["read_only"] = json!(reason.as_str());
     }
     add_notices(&mut result, &notices);
     Ok(result)

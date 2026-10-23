@@ -325,6 +325,7 @@ pub(crate) fn call(solution: &Solution, args: &Call) -> u8 {
         profile_before_target: true,
         as_user: args.user.clone(),
         lang: args.lang.clone(),
+        run_if_read_only: false,
     };
     let mut notices = commands::Notices::default();
     let outcome =

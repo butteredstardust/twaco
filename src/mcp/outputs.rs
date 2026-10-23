@@ -550,6 +550,8 @@ pub(crate) struct CallResult {
     result_head: Option<String>,
     /// With with_logs: the entries logged during the call, or why they could not be read.
     logs: Option<Value>,
+    /// Why a call without dry_run ran: "platform" (a built-in platform read) or "twaco.toml" (listed in [call] read_only).
+    read_only: Option<String>,
     notices: Notices,
 }
 

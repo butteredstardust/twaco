@@ -829,7 +829,7 @@ static TOOLS: LazyLock<Vec<Tool>> = LazyLock::new(|| {
         .with_output::<outputs::JavadocResult>(),
         solution_tool::<data_requests::CallRequest>(
             "call",
-            "Call a ThingWorx service. A service can write, and twaco cannot tell which do, so this is a dry run unless dry_run is false. A bare target is a Thing; Collection/Name reaches templates, shapes, resources and subsystems.",
+            "Call a ThingWorx service. Without dry_run, a service known to only read runs (a platform read such as InfoTableFunctions or GetPropertyValues that the repository does not define, or one twaco.toml [call] read_only lists; the result says read_only) and any other is a dry run; dry_run true always plans, false always calls. A bare target is a Thing; Collection/Name reaches templates, shapes, resources and subsystems.",
             false,
             data::call_service_tool,
         )
