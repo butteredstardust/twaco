@@ -13,6 +13,9 @@ All notable changes to twaco are recorded here. The format follows
 
 ### Fixed
 
+- The MCP server bounds what a client can make it hold: at most 32 queued calls (more are
+  answered busy, `-32000`) and messages of at most 32 MiB (a longer one is answered `-32600` and
+  skipped).
 - Workspace writes now refuse symbolic links and Windows junctions below the solution root,
   preventing writes through `.twaco`, sidecar, project, repository, or localization roots.
 - `types --check` runs its configured TypeScript compiler without twaco credentials, with a

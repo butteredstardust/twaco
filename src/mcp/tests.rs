@@ -3412,6 +3412,59 @@ fn a_tool_group_lists_and_runs_only_its_tools() {
 }
 
 #[test]
+fn a_line_longer_than_the_cap_is_dropped_and_the_next_one_still_reads() {
+    // A small buffer makes the long line arrive over several reads.
+    let mut input = std::io::BufReader::with_capacity(4, &b"0123456789\nshort\ntail"[..]);
+    let mut bytes = Vec::new();
+    assert_eq!(
+        super::read_line_capped(&mut input, &mut bytes, 8).unwrap(),
+        Some(false)
+    );
+    assert!(bytes.is_empty());
+    bytes.clear();
+    assert_eq!(
+        super::read_line_capped(&mut input, &mut bytes, 8).unwrap(),
+        Some(true)
+    );
+    assert_eq!(bytes, b"short\n");
+    bytes.clear();
+    assert_eq!(
+        super::read_line_capped(&mut input, &mut bytes, 8).unwrap(),
+        Some(true)
+    );
+    assert_eq!(bytes, b"tail");
+    bytes.clear();
+    assert_eq!(
+        super::read_line_capped(&mut input, &mut bytes, 8).unwrap(),
+        None
+    );
+}
+
+#[test]
+fn a_call_beyond_the_queue_is_answered_busy_and_forgotten() {
+    let call = |id: u64| json!({"jsonrpc":"2.0","id":id,"method":"tools/call","params":{"name":"projects","arguments":{}}});
+    let input = format!("{}\n{}\n", call(1), call(2));
+    let output = std::sync::Mutex::new(Vec::new());
+    let pending = super::Pending::default();
+    // Nothing takes from this queue, so it is full after one call.
+    let (queue, _calls) = std::sync::mpsc::sync_channel(1);
+    super::read_messages(&Selection::ALL, input.as_bytes(), &output, &pending, &queue).unwrap();
+    let written = String::from_utf8(output.into_inner().unwrap()).unwrap();
+    let lines: Vec<Value> = written
+        .lines()
+        .map(|line| serde_json::from_str(line).unwrap())
+        .collect();
+    assert_eq!(lines.len(), 1, "{written}");
+    assert_eq!(lines[0]["id"], 2);
+    assert_eq!(lines[0]["error"]["code"], -32000, "{}", lines[0]);
+    assert!(
+        !pending.cancel(&json!(2)),
+        "the refused call is no longer pending"
+    );
+    assert!(pending.cancel(&json!(1)), "the queued call still is");
+}
+
+#[test]
 fn a_finished_call_leaves_a_later_call_with_its_id_cancellable() {
     let pending = super::Pending::default();
     let id = json!(7);

@@ -100,6 +100,9 @@ claude mcp add twaco -- twaco mcp --tools core,mashup
   `notifications/cancelled` for a call that has not started means it never runs. A call
   already running finishes, since stopping a server write halfway would leave the server
   partly changed, but it sends no more progress and no response.
+- **Limits.** At most 32 calls wait behind the running one; a call past that is answered at once
+  with JSON-RPC error `-32000` (twaco is busy) and does not run. A message longer than 32 MiB is
+  answered with `-32600` and skipped; the messages after it are read as usual.
 
 ## Errors and codes
 
