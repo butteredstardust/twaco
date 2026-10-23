@@ -289,6 +289,7 @@ where
     };
     let (projects, notes) = match deploy::plan_bundles(
         solution,
+        &request.profile,
         deploy::PlanOptions {
             only_projects: &request.only_projects,
             only: &request.only,

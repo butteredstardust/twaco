@@ -54,6 +54,7 @@ pub(crate) mod number;
 pub(crate) mod order;
 pub mod package;
 pub(crate) mod parallel;
+pub(crate) mod patch;
 pub mod permissions;
 pub mod profile;
 pub mod progress;

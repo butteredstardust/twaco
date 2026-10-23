@@ -158,6 +158,7 @@ where
     };
     let profile = profile::load(&solution.root, &request.profile)
         .map_err(PermissionsCommandError::Profile)?;
+    let rules = solution.server_owned_for(&request.profile);
     let remote = open(profile);
     let report = permissions::run_with_progress(&remote, &chosen, apply, progress);
     let pushed: Vec<_> = chosen
@@ -173,7 +174,8 @@ where
             &remote,
             &baseline,
             &pushed,
-            &solution.server_owned,
+            &rules,
+            solution.patches_for(&request.profile),
             progress,
         );
         let recorded = status::record_matching(&mut baseline, &mut statuses);

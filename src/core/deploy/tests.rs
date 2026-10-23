@@ -924,3 +924,43 @@ fn a_plan_reports_no_import_phase() {
     let names: Vec<String> = recorder.phases().into_iter().map(|(n, _)| n).collect();
     assert_eq!(names, ["checking scripts", "comparing entities"]);
 }
+
+#[test]
+fn a_profile_patch_reaches_the_bundle_and_its_entity_but_not_the_file() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path();
+    std::fs::create_dir_all(root.join("Mashups")).unwrap();
+    let config = |entity: &str| {
+        format!(
+            "[[project]]\nname = \"P\"\n[profiles.qa]\n[[profiles.qa.patches]]\n\
+             entity = \"{entity}\"\npath = \"UI.Properties.Master\"\nvalue = \"P.Qa\"\n"
+        )
+    };
+    std::fs::write(root.join("twaco.toml"), config("Mashups/P.Main")).unwrap();
+    let working = "<Entities><Mashups><Mashup name=\"P.Main\" projectName=\"P\"><mashupContent><![CDATA[{\"UI\":{\"Properties\":{\"Master\":\"P.Dev\"}}}]]></mashupContent></Mashup></Mashups></Entities>";
+    let file = root.join("Mashups/P.Main.xml");
+    std::fs::write(&file, working).unwrap();
+    let options = || PlanOptions {
+        only_projects: &[],
+        only: &[],
+        backend_only: false,
+    };
+    let solution = super::super::config::Solution::load(&root.join("twaco.toml")).unwrap();
+
+    let (qa, _) = plan_bundles(&solution, "qa", options()).unwrap();
+    let bundle = String::from_utf8(qa[0].bytes.clone()).unwrap();
+    let entity = String::from_utf8(qa[0].entities[0].bytes.clone()).unwrap();
+    assert!(
+        bundle.contains("P.Qa") && !bundle.contains("P.Dev"),
+        "{bundle}"
+    );
+    assert!(entity.contains("P.Qa"), "{entity}");
+    let (default, _) = plan_bundles(&solution, "default", options()).unwrap();
+    assert!(String::from_utf8_lossy(&default[0].bytes).contains("P.Dev"));
+    assert_eq!(std::fs::read_to_string(&file).unwrap(), working);
+
+    std::fs::write(root.join("twaco.toml"), config("Mashups/P.Typo")).unwrap();
+    let solution = super::super::config::Solution::load(&root.join("twaco.toml")).unwrap();
+    let error = plan_bundles(&solution, "qa", options()).unwrap_err();
+    assert!(error.contains("Mashups/P.Typo"), "{error}");
+}

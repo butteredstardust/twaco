@@ -166,6 +166,29 @@ pub fn sync(src: &[u8], assets: &Assets) -> Result<(Vec<u8>, Vec<String>), Mashu
     Ok((out, changes))
 }
 
+/// Replace only the JSON payload span using the same key-order-preserving renderer as sidecar
+/// sync.  Callers that make no JSON change must not call this: their entity bytes stay exact.
+pub(crate) fn replace_content(
+    src: &[u8],
+    wanted: &serde_json::Value,
+) -> Result<Vec<u8>, MashupError> {
+    let (_, span) = payload(src)?;
+    let tokens = super::scan::tokenize(src).map_err(MashupError::Scan)?;
+    if !super::scan::only_cdata_and_text(&tokens, src, span, true) {
+        return Err(MashupError::Malformed("<mashupContent> holds markup between its CDATA sections, which a patch would drop; take it out of the entity file".to_string()));
+    }
+    let existing = String::from_utf8_lossy(span.of(src));
+    let rendered = sync::render_payload(
+        inner_of(&existing),
+        &pretty(wanted),
+        sync::newline_of(&existing),
+        true,
+    );
+    let replacement = super::scan::render_cdata(rendered.as_bytes());
+    super::splice::splice(src, &[super::splice::Edit::new(span, replacement)])
+        .map_err(|error| MashupError::Malformed(error.to_string()))
+}
+
 /// A stylesheet without the newline that `extract` added to end the file.
 ///
 /// One newline, not every trailing one. Stripping them all made a stylesheet that genuinely

@@ -20,6 +20,10 @@ pub struct Solution {
     /// Parts compared and transferred according to the server's ownership.
     #[serde(default)]
     pub(crate) server_owned: Vec<super::server_owned::Rule>,
+    /// Committed exceptions for the named server profiles.  Profile credentials remain in their
+    /// normal untracked files; this table only describes how the shared source differs there.
+    #[serde(default)]
+    pub(crate) profiles: BTreeMap<String, ProfileOverrides>,
     #[serde(default)]
     pub solution: SolutionMeta,
     /// One entry per ThingWorx project. A single-project repository declares one.
@@ -67,6 +71,23 @@ pub struct Solution {
     pub(crate) test: Test,
     #[serde(skip)]
     pub root: PathBuf,
+}
+
+#[derive(Debug, Default, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct ProfileOverrides {
+    #[serde(default)]
+    pub(crate) server_owned: Vec<super::server_owned::Rule>,
+    #[serde(default)]
+    pub(crate) patches: Vec<Patch>,
+}
+
+#[derive(Clone, Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct Patch {
+    pub(crate) entity: String,
+    pub(crate) path: String,
+    pub(crate) value: toml::Value,
 }
 
 /// How generated content is laid out inside entity XML.
@@ -549,7 +570,72 @@ impl Solution {
         if self.types.tsc.as_ref().is_some_and(Vec::is_empty) {
             return Err(ConfigError::EmptyTypesCompiler);
         }
+        for (name, overrides) in &self.profiles {
+            super::profile::validate_name(name).map_err(|error| ConfigError::Invalid {
+                path: path.to_path_buf(),
+                why: error.to_string(),
+            })?;
+            for patch in &overrides.patches {
+                let valid_entity =
+                    patch
+                        .entity
+                        .split_once('/')
+                        .is_some_and(|(collection, name)| {
+                            collection == "Mashups"
+                                && super::entity::key::EntityKey::new(collection, name).is_ok()
+                        });
+                if !valid_entity {
+                    return Err(ConfigError::Invalid {
+                        path: path.to_path_buf(),
+                        why: format!("invalid patch entity {:?}; use Mashups/Name", patch.entity),
+                    });
+                }
+                if patch.path.is_empty() || patch.path.split('.').any(str::is_empty) {
+                    return Err(ConfigError::Invalid {
+                        path: path.to_path_buf(),
+                        why: format!(
+                            "patch for {} has invalid path {:?}; use dotted JSON object keys",
+                            patch.entity, patch.path
+                        ),
+                    });
+                }
+            }
+        }
         self.deploy_order().map(|_| ())
+    }
+
+    /// The profile's patches that name no Mashup among `entities`. A misspelled patch would
+    /// otherwise send the shared value to that server without a word.
+    pub(crate) fn unknown_patches(
+        &self,
+        profile: &str,
+        entities: &[super::workspace::EntityFile],
+    ) -> Vec<&str> {
+        self.patches_for(profile)
+            .iter()
+            .filter(|patch| {
+                !entities.iter().any(|entity| {
+                    entity.info.collection == "Mashups"
+                        && format!("Mashups/{}", entity.info.name) == patch.entity
+                })
+            })
+            .map(|patch| patch.entity.as_str())
+            .collect()
+    }
+
+    /// Rules applying to `profile`: the shared policy followed by its committed additions.
+    pub(crate) fn server_owned_for(&self, profile: &str) -> Vec<super::server_owned::Rule> {
+        let mut rules = self.server_owned.clone();
+        if let Some(overrides) = self.profiles.get(profile) {
+            rules.extend(overrides.server_owned.clone());
+        }
+        rules
+    }
+
+    pub(crate) fn patches_for(&self, profile: &str) -> &[Patch] {
+        self.profiles
+            .get(profile)
+            .map_or(&[], |overrides| &overrides.patches)
     }
 
     pub fn src_root(&self) -> PathBuf {
@@ -673,6 +759,57 @@ mod tests {
             "[[project]]\nname = \"P\"\n[project.deploy]\ndeploy_parameters = { anything = 1 }\n",
         )
         .unwrap();
+    }
+
+    #[test]
+    fn profile_overrides_add_rules_and_validate_patches() {
+        let text = r#"[[project]]
+name = "P"
+[[server_owned]]
+entities = ["Things/P.*"]
+parts = ["property-values"]
+[profiles.qa]
+[[profiles.qa.server_owned]]
+entities = ["Groups/P.Users"]
+parts = ["members"]
+[[profiles.qa.patches]]
+entity = "Mashups/P.Main"
+path = "UI.Properties.Master"
+value = "P.Qa"
+"#;
+        let configured = solution(text).unwrap();
+        assert_eq!(configured.server_owned_for("qa").len(), 2);
+        assert_eq!(configured.server_owned_for("other").len(), 1);
+        assert_eq!(configured.patches_for("qa").len(), 1);
+        for bad in [
+            "[profiles.'../qa']\n",
+            "[profiles.qa]\nunknown = 1\n",
+            "[profiles.qa]\n[[profiles.qa.patches]]\nentity='Things/P.T'\npath='A'\nvalue=1\n",
+        ] {
+            let error = solution(&format!("[[project]]\nname='P'\n{bad}"))
+                .unwrap_err()
+                .to_string();
+            assert!(!error.is_empty());
+        }
+    }
+
+    #[test]
+    fn a_patch_naming_no_mashup_in_the_workspace_is_found() {
+        let root = tempfile::tempdir().unwrap();
+        std::fs::write(
+            root.path().join("twaco.toml"),
+            "[[project]]\nname='P'\n[profiles.qa]\n[[profiles.qa.patches]]\nentity='Mashups/P.Missing'\npath='UI.Properties.Master'\nvalue='qa'\n",
+        )
+        .unwrap();
+        let solution = Solution::load(&root.path().join("twaco.toml")).unwrap();
+        let found = super::super::workspace::discover(&solution);
+        assert_eq!(
+            solution.unknown_patches("qa", &found.entities),
+            ["Mashups/P.Missing"]
+        );
+        assert!(solution
+            .unknown_patches("default", &found.entities)
+            .is_empty());
     }
 
     #[test]

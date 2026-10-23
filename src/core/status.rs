@@ -104,6 +104,7 @@ pub(crate) fn compute_with_progress(
     baseline: &Baseline,
     entities: &[EntityFile],
     rules: &[super::server_owned::Rule],
+    patches: &[super::config::Patch],
     progress: &dyn Progress,
 ) -> (Vec<EntityStatus>, Vec<String>) {
     let _phase = progress::phase(progress, "comparing entities", Some(entities.len() as u64));
@@ -112,6 +113,9 @@ pub(crate) fn compute_with_progress(
         let parts = super::server_owned::parts(rules, &entity.info.collection, &entity.info.name);
         let working = std::fs::read(&entity.path)
             .map_err(|error| error.to_string())
+            .and_then(|bytes| {
+                super::patch::apply(&bytes, &entity.info.collection, &entity.info.name, patches)
+            })
             .and_then(|bytes| {
                 normalise::hash_with_parts(&bytes, &parts).map_err(|error| error.to_string())
             })

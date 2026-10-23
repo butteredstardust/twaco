@@ -17,6 +17,7 @@ All notable changes to twaco are recorded here. The format follows
 
 ### Added
 
+- Per-profile `server_owned` rules and mashup property `patches` in `twaco.toml`.
 - `call --json` writes exactly one complete service reply to stdout; call logs and notices remain
   on stderr.
 - Localization status identifies the token fields that differ, including local and server values

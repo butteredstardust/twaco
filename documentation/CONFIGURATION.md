@@ -249,6 +249,32 @@ import sends the repository's value and clears the server's. `entity push` refus
 entity unless `--force`; set the value again after the import, as a deploy hook that supplies
 the credentials does.
 
+### Per-profile overrides
+
+Committed profile overrides belong under `[profiles.<name>]`; credentials remain in the normal
+untracked `.twaco/profiles/<name>.toml` file. Their `server_owned` entries are added after the
+top-level list for that profile. A patch changes a dotted property in a Mashup's parsed
+`mashupContent` JSON only in the copy sent to that profile:
+
+```toml
+[profiles.qa]
+[[profiles.qa.server_owned]]
+entities = ["Things/P.Database*"]
+parts = ["configuration-table:ConnectionInfo"]
+
+[[profiles.qa.patches]]
+entity = "Mashups/P.Main"
+path = "UI.Properties.Master"
+value = "P.QaMaster"
+```
+
+Patches apply to Mashups only. Status for that profile compares the patched copy, and push and
+deploy send it; the file on disk never changes. Intermediate patch objects must already exist;
+the final key may be created. `entity pull` puts the working copy's value back (or removes the key
+if it is absent there), so a pull from one profile never writes that profile's patch into the
+repository. Deploy refuses, and `doctor --profile` fails, when a patch names no Mashup in the
+workspace.
+
 ### `[bundle]`
 
 `twaco bundle` and `twaco deploy` build one importable document from the repository.

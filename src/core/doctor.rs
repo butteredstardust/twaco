@@ -108,7 +108,43 @@ pub fn diagnose(root: &Path, profile_name: &str) -> Vec<Item> {
     }
 
     let found = workspace::discover(&solution);
-    items.extend(server_owned_advice(&solution, &found.entities));
+    items.extend(server_owned_advice(
+        &solution,
+        &found.entities,
+        profile_name,
+    ));
+    if let Some(overrides) = solution.profiles.get(profile_name) {
+        for rule in &overrides.server_owned {
+            items.push(item(
+                Health::Ok,
+                "profile server-owned",
+                format!(
+                    "{}: {}",
+                    rule.entities.join(", "),
+                    super::server_owned::labels(&rule.parts).join(", ")
+                ),
+            ));
+        }
+        let unknown = solution.unknown_patches(profile_name, &found.entities);
+        for patch in &overrides.patches {
+            items.push(if unknown.contains(&patch.entity.as_str()) {
+                item(
+                    Health::Fail,
+                    "profile patch",
+                    format!(
+                        "{} {}: no such Mashup in this workspace",
+                        patch.entity, patch.path
+                    ),
+                )
+            } else {
+                item(
+                    Health::Ok,
+                    "profile patch",
+                    format!("{} {}", patch.entity, patch.path),
+                )
+            });
+        }
+    }
     let misfiled = found.entities.iter().filter(|e| e.is_misfiled()).count();
     let health = if !found.unreadable.is_empty() || misfiled > 0 {
         Health::Warn
@@ -240,9 +276,10 @@ fn baseline_item(solution: &Solution, found: &workspace::Discovery, profile_name
     };
     let mut recorded = 0;
     let mut outdated = baseline.outdated();
+    let rules = solution.server_owned_for(profile_name);
     for entity in &found.entities {
         let (collection, name) = (&entity.info.collection, &entity.info.name);
-        let parts = super::server_owned::parts(&solution.server_owned, collection, name);
+        let parts = super::server_owned::parts(&rules, collection, name);
         let hash = format!("{}:", super::normalise::hash_scope(&parts));
         if baseline.get_for(collection, name, &hash).is_some() {
             recorded += 1;
@@ -267,9 +304,14 @@ fn baseline_item(solution: &Solution, found: &workspace::Discovery, profile_name
     )
 }
 
-fn server_owned_advice(solution: &Solution, entities: &[workspace::EntityFile]) -> Vec<Item> {
+fn server_owned_advice(
+    solution: &Solution,
+    entities: &[workspace::EntityFile],
+    profile_name: &str,
+) -> Vec<Item> {
     let mut items = Vec::new();
-    for (i, rule) in solution.server_owned.iter().enumerate() {
+    let rules = solution.server_owned_for(profile_name);
+    for (i, rule) in rules.iter().enumerate() {
         let matched: Vec<_> = entities
             .iter()
             .filter(|e| rule.matches(&e.info.collection, &e.info.name))
@@ -367,7 +409,7 @@ parts=['members', 'property-values', 'run-time-permissions']
         std::fs::write(dir.path().join("Things/Acme.T.xml"), "<Entities><Things><Thing name=\"Acme.T\" projectName=\"Acme.Project\"/></Things></Entities>").unwrap();
         let solution = Solution::load(&dir.path().join("twaco.toml")).unwrap();
         let found = workspace::discover(&solution);
-        let items = server_owned_advice(&solution, &found.entities);
+        let items = server_owned_advice(&solution, &found.entities, "default");
         let messages: Vec<_> = items.iter().map(|item| item.detail.as_str()).collect();
         assert_eq!(
             messages,

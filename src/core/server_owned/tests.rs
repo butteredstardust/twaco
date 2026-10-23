@@ -331,6 +331,7 @@ fn status_records_matching_unowned_content_and_invalidates_changed_policy() {
         &baseline,
         &entities,
         &solution.server_owned,
+        &[],
         &progress::NONE,
     );
     assert!(errors.is_empty());
@@ -339,7 +340,7 @@ fn status_records_matching_unowned_content_and_invalidates_changed_policy() {
     assert_eq!(status::record_matching(&mut baseline, &mut statuses), 1);
     assert_eq!(statuses[0].verdict, status::Verdict::InSync);
     let (statuses, _) =
-        status::compute_with_progress(&fake, &baseline, &entities, &[], &progress::NONE);
+        status::compute_with_progress(&fake, &baseline, &entities, &[], &[], &progress::NONE);
     assert_eq!(statuses[0].verdict, status::Verdict::NoBaselineDiffers);
     assert!(statuses[0].local_baseline.is_none());
 }

@@ -423,13 +423,10 @@ pub(crate) fn before_forced_push<R: push::Remote + Remote>(
     solution: &Solution,
     profile: &str,
     target: &push::Target,
+    rules: &[super::server_owned::Rule],
     stamp: &str,
 ) -> Result<Option<String>, BackupError> {
-    let parts = super::server_owned::parts(
-        &solution.server_owned,
-        target.key.collection(),
-        target.key.name(),
-    );
+    let parts = super::server_owned::parts(rules, target.key.collection(), target.key.name());
     let outcome =
         push::push_with_parts(client, &solution.root, profile, target, false, true, &parts)
             .map_err(|error| BackupError::Plan(error.to_string()))?;

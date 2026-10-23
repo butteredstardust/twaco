@@ -201,6 +201,8 @@ where
     };
     let profile =
         profile::load(&solution.root, &request.profile).map_err(StatusCommandError::Profile)?;
+    let rules = solution.server_owned_for(&request.profile);
+    let patches = solution.patches_for(&request.profile);
     let (mut baseline, ancestor) = match &request.ancestor {
         Some(path) => {
             let ancestor = |why: String| StatusCommandError::Ancestor {
@@ -209,7 +211,7 @@ where
             };
             let bytes = std::fs::read(path).map_err(|error| ancestor(error.to_string()))?;
             let (ancestor, count) =
-                status::ancestor_from_export(&bytes, &solution.server_owned).map_err(ancestor)?;
+                status::ancestor_from_export(&bytes, &rules).map_err(ancestor)?;
             (ancestor, Some(count))
         }
         None => (
@@ -222,7 +224,8 @@ where
         &open(profile),
         &baseline,
         &chosen,
-        &solution.server_owned,
+        &rules,
+        patches,
         progress,
     );
     if request.record && !failures.is_empty() {
@@ -406,6 +409,68 @@ mod tests {
         .unwrap();
         assert_eq!(default.statuses[0].verdict, status::Verdict::NoBaselineSame);
         assert!(!Baseline::path(&solution.root, "default").exists());
+    }
+
+    #[test]
+    fn a_profile_patch_is_hashed_before_status_compares_the_server() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        std::fs::create_dir_all(root.join("Mashups")).unwrap();
+        std::fs::create_dir_all(root.join(".twaco/profiles")).unwrap();
+        std::fs::write(
+            root.join("twaco.toml"),
+            r#"[[project]]
+name = "P"
+[profiles.qa]
+[[profiles.qa.patches]]
+entity = "Mashups/P.Main"
+path = "UI.Properties.Master"
+value = "P.Qa"
+"#,
+        )
+        .unwrap();
+        let working = "<Entities><Mashups><Mashup name=\"P.Main\" projectName=\"P\"><mashupContent><![CDATA[{\"UI\":{\"Properties\":{\"Master\":\"P.Dev\"}}}]]></mashupContent></Mashup></Mashups></Entities>";
+        let server = working.replace("P.Dev", "P.Qa");
+        std::fs::write(root.join("Mashups/P.Main.xml"), working).unwrap();
+        for profile in ["qa", "default"] {
+            std::fs::write(
+                root.join(format!(".twaco/profiles/{profile}.toml")),
+                "url='http://example.invalid/'\nusername='u'\npassword='p'\n",
+            )
+            .unwrap();
+        }
+        let solution = Solution::load(&root.join("twaco.toml")).unwrap();
+        let request = |profile: &str| StatusRequest {
+            target: StatusTarget::All,
+            project: None,
+            record: false,
+            profile: profile.into(),
+            lock_label: "status",
+            refuse_unreadable: true,
+            refuse_record_failures: false,
+            ancestor: None,
+        };
+        let qa = execute(
+            &solution,
+            &request("qa"),
+            |_| Fake(server.as_bytes().to_vec()),
+            &mut Notices::default(),
+            &crate::core::progress::NONE,
+        )
+        .unwrap();
+        let default = execute(
+            &solution,
+            &request("default"),
+            |_| Fake(server.as_bytes().to_vec()),
+            &mut Notices::default(),
+            &crate::core::progress::NONE,
+        )
+        .unwrap();
+        assert_eq!(qa.statuses[0].verdict, status::Verdict::NoBaselineSame);
+        assert_eq!(
+            default.statuses[0].verdict,
+            status::Verdict::NoBaselineDiffers
+        );
     }
 
     #[test]

@@ -4,6 +4,7 @@ use super::super::normalise;
 use super::super::parallel;
 use super::super::progress::{Progress, NONE};
 use super::super::push;
+use super::super::{adopt, patch};
 use super::{
     DeployError, Entity, EntityPlan, PlanOptions, ProjectBundle, Remote, Script, ServiceCall,
 };
@@ -90,6 +91,7 @@ pub(crate) fn decide_all_with_progress(
 /// Shared by the CLI and the MCP server, so both deploy exactly the same thing.
 pub(crate) fn plan_bundles(
     solution: &super::config::Solution,
+    profile: &str,
     options: PlanOptions,
 ) -> Result<(Vec<ProjectBundle>, Vec<String>), String> {
     use std::collections::BTreeSet;
@@ -117,6 +119,13 @@ pub(crate) fn plan_bundles(
     let found = super::workspace::discover(solution);
     if !found.unreadable.is_empty() {
         return Err(found.unreadable.join("; "));
+    }
+    let unknown = solution.unknown_patches(profile, &found.entities);
+    if !unknown.is_empty() {
+        return Err(format!(
+            "twaco.toml patches for profile {profile} name no Mashup in this workspace: {}",
+            unknown.join(", ")
+        ));
     }
     let backend_only = options.backend_only;
     let selection = if backend_only {
@@ -187,7 +196,7 @@ pub(crate) fn plan_bundles(
             .filter(|path| wanted_paths.contains(*path))
             .cloned()
             .collect();
-        let built = match super::bundle::build(&files, &selection) {
+        let mut built = match super::bundle::build(&files, &selection) {
             Ok(built) => built,
             Err(error) => {
                 return Err(format!("project {}: {error}", project.name));
@@ -213,6 +222,30 @@ pub(crate) fn plan_bundles(
                     return Err(format!("{}: {error}", entity.path.display()));
                 }
             };
+            let bytes = patch::apply(
+                &bytes,
+                &entity.info.collection,
+                &entity.info.name,
+                solution.patches_for(profile),
+            )
+            .map_err(|error| format!("{}: {error}", entity.path.display()))?;
+            if solution.patches_for(profile).iter().any(|patch| {
+                patch.entity == format!("{}/{}", entity.info.collection, entity.info.name)
+            }) {
+                let wanted = adopt::EntityRef {
+                    collection: entity.info.collection.clone(),
+                    name: entity.info.name.clone(),
+                };
+                let element = adopt::raw_entity_bytes(&bytes, &wanted)
+                    .map_err(|error| format!("{}: {error}", entity.path.display()))?;
+                built.bytes = adopt::replace_entity_bytes(
+                    &built.bytes,
+                    &wanted,
+                    &element,
+                    solution.format.indent_cdata_payload,
+                )
+                .map_err(|error| format!("{}: {error}", entity.path.display()))?;
+            }
             match super::sidecar::script_services(&bytes) {
                 Ok(found_scripts) => {
                     scripts.extend(found_scripts.into_iter().map(|service| Script {
@@ -227,7 +260,7 @@ pub(crate) fn plan_bundles(
             }
             entities.push(Entity {
                 server_owned: super::super::server_owned::parts(
-                    &solution.server_owned,
+                    &solution.server_owned_for(profile),
                     &entity.info.collection,
                     &entity.info.name,
                 ),

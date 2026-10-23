@@ -187,6 +187,16 @@ where
     })?;
     let profile =
         profile::load(&solution.root, &request.profile).map_err(PushCommandError::Profile)?;
+    let bytes = crate::core::patch::apply(
+        &bytes,
+        &entity.info.collection,
+        &entity.info.name,
+        solution.patches_for(&request.profile),
+    )
+    .map_err(|why| PushCommandError::Read {
+        path: entity.path.clone(),
+        why: std::io::Error::other(why),
+    })?;
     let remote = open(profile);
     let label = format!("{}/{}", entity.info.collection, entity.info.name);
     let key = EntityKey::new(&entity.info.collection, &entity.info.name).map_err(|why| {
@@ -213,6 +223,7 @@ where
             solution,
             &request.profile,
             &target,
+            &solution.server_owned_for(&request.profile),
             &backup::new_stamp(),
         )
         .map_err(|why| PushCommandError::Backup {
@@ -223,7 +234,7 @@ where
         None
     };
     let parts = crate::core::server_owned::parts(
-        &solution.server_owned,
+        &solution.server_owned_for(&request.profile),
         &entity.info.collection,
         &entity.info.name,
     );
