@@ -3,7 +3,7 @@
 use super::{NOISE_ATTRS, NOISE_TAGS, ROW_KEY_TAGS};
 use crate::core::normalise::{Element, Node};
 use serde_json::Value;
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 // ---- ElementTree's view of a tree ---------------------------------------------------------
 
 pub(super) fn text_of(bytes: &[u8]) -> String {
@@ -184,7 +184,7 @@ fn flatten_json(value: &Value, prefix: &str, out: &mut BTreeMap<String, String>)
 }
 
 fn flatten_widgets(items: &[Value], prefix: &str, out: &mut BTreeMap<String, String>) {
-    let mut seen: BTreeMap<String, usize> = BTreeMap::new();
+    let mut seen = BTreeSet::new();
     let mut order = Vec::new();
     for (index, item) in items.iter().enumerate() {
         let id = item
@@ -193,7 +193,7 @@ fn flatten_widgets(items: &[Value], prefix: &str, out: &mut BTreeMap<String, Str
             .filter(|id| !id.is_empty());
         let key = match id {
             Some(id) => numbered(&mut seen, id),
-            None => format!("#{index}"),
+            None => numbered(&mut seen, &format!("#{index}")),
         };
         order.push(key.clone());
         flatten_json(item, &format!("{prefix}[{key}]"), out);
@@ -215,7 +215,7 @@ fn flatten_connections(
             .unwrap_or_default()
             .to_string()
     };
-    let mut seen: BTreeMap<String, usize> = BTreeMap::new();
+    let mut seen = BTreeSet::new();
     for item in items {
         let label = if kind == "Events" {
             format!(
@@ -240,15 +240,16 @@ fn flatten_connections(
     }
 }
 
-/// `key`, or `key#n` for its n-th repeat, so two members with one identity are both kept.
-fn numbered(seen: &mut BTreeMap<String, usize>, key: &str) -> String {
-    let count = seen.entry(key.to_string()).or_default();
-    *count += 1;
-    if *count == 1 {
-        key.to_string()
-    } else {
-        format!("{key}#{count}")
+/// `key`, or for a repeat the first `key#n` no sibling has taken, so every member keeps a path of
+/// its own even when a name already looks like a numbered one.
+fn numbered(seen: &mut BTreeSet<String>, key: &str) -> String {
+    let mut claimed = key.to_string();
+    let mut n = 1;
+    while !seen.insert(claimed.clone()) {
+        n += 1;
+        claimed = format!("{key}#{n}");
     }
+    claimed
 }
 
 /// A short, stable digest that tells two connections between the same members apart.
@@ -269,12 +270,12 @@ fn identity(element: &Element) -> Option<String> {
             _ => name,
         });
     }
-    name.or_else(|| row_key(element)).or_else(|| {
-        is_named(element, "Permissions")
-            .then(|| attribute(element, "resourceName"))
-            .flatten()
-            .filter(|resource| !resource.is_empty())
-    })
+    if is_named(element, "Permissions") {
+        if let Some(resource) = attribute(element, "resourceName").filter(|r| !r.is_empty()) {
+            return Some(resource);
+        }
+    }
+    name.or_else(|| row_key(element))
 }
 
 /// The value a `<Row>` identifies itself by, if it has one.
@@ -331,7 +332,7 @@ fn flatten_into(element: &Element, prefix: &str, out: &mut BTreeMap<String, Stri
         *tally.entry(child.name.as_slice()).or_default() += 1;
     }
     let mut counts: BTreeMap<&[u8], usize> = BTreeMap::new();
-    let mut seen: BTreeMap<String, BTreeMap<String, usize>> = BTreeMap::new();
+    let mut seen: BTreeMap<String, BTreeSet<String>> = BTreeMap::new();
     for child in child_elements(element) {
         let tag = text_of(&child.name);
         if NOISE_TAGS.contains(&tag.as_str()) {
@@ -345,7 +346,11 @@ fn flatten_into(element: &Element, prefix: &str, out: &mut BTreeMap<String, Stri
             None if tally[child.name.as_slice()] > 1 => {
                 let n = counts.entry(child.name.as_slice()).or_default();
                 *n += 1;
-                format!("{tag}[{n}]")
+                let n = n.to_string();
+                format!(
+                    "{tag}[{}]",
+                    numbered(seen.entry(tag.clone()).or_default(), &n)
+                )
             }
             None => tag,
         };

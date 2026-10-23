@@ -467,26 +467,46 @@ pub(crate) fn compare_tables(
 ) -> Comparison {
     let key = primary_key(&left.data_shape);
     let mut comparison = compare_rows(left_name, &left.rows, right_name, &right.rows, &key);
-    let columns = |shape: &Value| {
-        let mut columns: Vec<String> = shape
+    fn fields(shape: &Value) -> std::collections::BTreeMap<&String, &Value> {
+        shape
             .get("fieldDefinitions")
             .and_then(Value::as_object)
-            .map(|fields| fields.keys().cloned().collect())
-            .unwrap_or_default();
-        columns.sort();
-        columns
-    };
-    let (left_columns, right_columns) = (columns(&left.data_shape), columns(&right.data_shape));
-    if left_columns != right_columns {
-        comparison.differences.insert(
-            0,
-            format!(
-                "columns: {left_name} [{}] {right_name} [{}]",
-                left_columns.join(", "),
-                right_columns.join(", ")
-            ),
-        );
+            .map(|fields| fields.iter().collect())
+            .unwrap_or_default()
     }
+    let (left_fields, right_fields) = (fields(&left.data_shape), fields(&right.data_shape));
+    let mut shape = Vec::new();
+    if !left_fields.keys().eq(right_fields.keys()) {
+        let names = |fields: &std::collections::BTreeMap<&String, &Value>| {
+            fields
+                .keys()
+                .map(|name| name.as_str())
+                .collect::<Vec<_>>()
+                .join(", ")
+        };
+        shape.push(format!(
+            "columns: {left_name} [{}] {right_name} [{}]",
+            names(&left_fields),
+            names(&right_fields)
+        ));
+    }
+    // A column both sides have can still differ in type or in being part of the key.
+    let redefined: Vec<&str> = left_fields
+        .iter()
+        .filter(|(name, definition)| {
+            right_fields
+                .get(*name)
+                .is_some_and(|other| other != *definition)
+        })
+        .map(|(name, _)| name.as_str())
+        .collect();
+    if !redefined.is_empty() {
+        shape.push(format!(
+            "column definitions differ: {}",
+            redefined.join(", ")
+        ));
+    }
+    comparison.differences.splice(0..0, shape);
     comparison
 }
 
@@ -1297,6 +1317,18 @@ mod tests {
         assert_eq!(
             found.differences,
             ["columns: server [Key, Value] backup [Extra, Key, Value]"]
+        );
+
+        let retyped = Table {
+            data_shape: json!({ "fieldDefinitions": {
+                "Key": { "name": "Key", "baseType": "STRING" },
+                "Value": { "name": "Value", "baseType": "NUMBER" },
+            }}),
+            rows: vec![row("a", json!("x"))],
+        };
+        assert_eq!(
+            compare_tables("server", &server, "backup", &retyped).differences,
+            ["column definitions differ: Value"]
         );
     }
 

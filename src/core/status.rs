@@ -170,6 +170,14 @@ pub(crate) fn ancestor_from_export(
     for (index, token) in tokens.iter().enumerate() {
         match token.kind {
             Kind::Start | Kind::Empty => {
+                // ThingWorx writes exports without namespace prefixes; a prefixed one would hash
+                // and name its entities unlike the workspace and the server, so it is refused.
+                if depth <= 2 && token.name.of(bytes).contains(&b':') {
+                    return Err(format!(
+                        "<{}> has a namespace prefix: export it from ThingWorx as it is",
+                        String::from_utf8_lossy(token.name.of(bytes))
+                    ));
+                }
                 if depth == 1 {
                     collection = String::from_utf8_lossy(token.name.of(bytes)).into_owned();
                 } else if depth == 2 {

@@ -583,6 +583,41 @@ mod tests {
     }
 
     #[test]
+    fn a_name_that_looks_numbered_never_hides_a_sibling() {
+        let xml = "<Thing name=\"P.T\"><Tags><Tag name=\"x#2\" vocabulary=\"a\"/><Tag name=\"x\" vocabulary=\"b\"/><Tag name=\"x\" vocabulary=\"c\"/></Tags></Thing>";
+        let flat = flatten(&element(xml));
+        let vocabularies: std::collections::BTreeSet<_> = flat
+            .iter()
+            .filter(|(path, _)| path.ends_with("@vocabulary"))
+            .map(|(_, value)| value.as_str())
+            .collect();
+        assert_eq!(vocabularies, ["a", "b", "c"].into());
+
+        let widget = |id: Option<&str>, width: u32| match id {
+            Some(id) => serde_json::json!({"Properties": {"Id": id, "Width": width}}),
+            None => serde_json::json!({"Properties": {"Width": width}}),
+        };
+        let flat = mashup(serde_json::json!({"UI": {"Properties": {"Id": "root"},
+            "Widgets": [widget(None, 1), widget(Some("#0"), 2)]}}));
+        let widths = flat
+            .iter()
+            .filter(|(path, _)| path.ends_with(".Properties.Width"))
+            .count();
+        assert_eq!(widths, 2, "{flat:?}");
+    }
+
+    #[test]
+    fn a_permissions_block_is_known_by_its_resource_even_with_a_name() {
+        let xml = |first: &str, second: &str| {
+            format!("<Thing name=\"P.T\"><RunTimePermissions><Permissions name=\"shared\" resourceName=\"{first}\"/><Permissions name=\"shared\" resourceName=\"{second}\"/></RunTimePermissions></Thing>")
+        };
+        assert_eq!(
+            flatten(&element(&xml("A", "B"))),
+            flatten(&element(&xml("B", "A")))
+        );
+    }
+
+    #[test]
     fn two_siblings_with_one_name_are_both_kept() {
         let xml = "<Thing name=\"P.T\"><Tags><Tag name=\"x\" vocabulary=\"a\"/><Tag name=\"x\" vocabulary=\"b\"/></Tags></Thing>";
         let flat = flatten(&element(xml));

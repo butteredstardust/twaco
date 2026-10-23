@@ -132,6 +132,9 @@ where
     R: push::Remote + Sync,
     F: FnOnce(profile::Profile) -> R,
 {
+    if request.record && request.ancestor.is_some() {
+        return Err(StatusCommandError::AncestorWithRecord);
+    }
     let _lock = if request.record {
         Some(
             lock_workspace(solution, request.lock_label, notices)
@@ -358,6 +361,9 @@ mod tests {
             "{error}"
         );
         assert_eq!(error.code(), ErrorCode::InvalidData);
+        let prefixed = "<tw:Entities xmlns:tw=\"urn:x\"><tw:Things><tw:Thing name=\"P.T\"/></tw:Things></tw:Entities>";
+        let error = ancestor(&solution, prefixed, &thing("local"), false).unwrap_err();
+        assert!(error.to_string().contains("namespace prefix"), "{error}");
     }
 
     #[test]
