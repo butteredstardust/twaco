@@ -42,6 +42,32 @@ pub enum TypesError {
     Remote(ServerError),
     #[error("{0}")]
     Platform(String),
+    /// A write failed after others had already landed; they are named so nobody has to guess.
+    #[error("{}", interrupted_message(.source, .written))]
+    Interrupted {
+        source: workspace::WorkspaceError,
+        written: Vec<std::path::PathBuf>,
+    },
+}
+
+fn interrupted_message(
+    source: &workspace::WorkspaceError,
+    written: &[std::path::PathBuf],
+) -> String {
+    const SHOWN: usize = 5;
+    let mut names: Vec<String> = written
+        .iter()
+        .take(SHOWN)
+        .map(|path| path.display().to_string())
+        .collect();
+    if written.len() > SHOWN {
+        names.push(format!("and {} more", written.len() - SHOWN));
+    }
+    format!(
+        "{source}; {} generated file(s) were already updated: {}; run `twaco types` again to finish",
+        written.len(),
+        names.join(", ")
+    )
 }
 
 impl From<workspace::WorkspaceError> for TypesError {
@@ -69,6 +95,7 @@ impl Coded for TypesError {
             Self::Workspace(error) => error.code(),
             Self::Remote(error) => error.code(),
             Self::Platform(_) => ErrorCode::InvalidData,
+            Self::Interrupted { source, .. } => source.code(),
         }
     }
 }

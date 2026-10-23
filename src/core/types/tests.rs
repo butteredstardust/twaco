@@ -1160,6 +1160,30 @@ fn compiler_errors_without_a_parsable_finding_are_a_broken_run() {
 }
 
 #[test]
+fn a_write_failing_after_others_names_the_files_already_updated() {
+    let (_dir, root, solution) = fixture_solution("interrupted", &[]);
+    // A folder where the fourth declaration file goes makes that write fail after three landed.
+    std::fs::create_dir_all(root.join(".twaco/types/collections.d.ts")).unwrap();
+
+    let error = write(&solution).unwrap_err();
+
+    let TypesError::Interrupted { ref written, .. } = error else {
+        panic!("expected an interrupted write, got {error:?}");
+    };
+    let names: Vec<_> = written
+        .iter()
+        .map(|path| path.file_name().unwrap().to_string_lossy().into_owned())
+        .collect();
+    assert_eq!(names, ["twx.d.ts", "datashapes.d.ts", "entities.d.ts"]);
+    let message = error.to_string();
+    assert!(
+        message.contains("3 generated file(s) were already updated"),
+        "{message}"
+    );
+    assert!(message.contains("run `twaco types` again"), "{message}");
+}
+
+#[test]
 fn compiler_stderr_credentials_are_redacted() {
     let secret = "compiler-password-7f3a";
     let _password = EnvironmentVariable::set("TWACO_TYPES_TEST_PASSWORD", secret);

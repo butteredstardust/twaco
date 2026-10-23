@@ -771,6 +771,13 @@ mod tests {
             ErrorCode::UnknownEntity,
         );
         is(
+            TypesError::Interrupted {
+                source: WorkspaceError::UnknownEntity { name: text() },
+                written: vec![path()],
+            },
+            ErrorCode::UnknownEntity,
+        );
+        is(
             TypesError::Remote(transport()),
             ErrorCode::ServerUnreachable,
         );
