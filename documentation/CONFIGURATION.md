@@ -235,11 +235,15 @@ names the parts; `doctor` warns when an entire rule matches no solution entity, 
 names `members` but matches no Group or Organization, or property values but matches no Thing
 or ThingTemplate.
 
-For an existing server entity, push and deploy fetch its Exporter form and splice each owned
-part into the outgoing copy: replace, insert, or drop it according to the server. Server values
+For an existing server entity, push, deploy and `import <file.xml>` fetch its Exporter form and
+splice each owned part into the outgoing copy: replace, insert, or drop it according to the
+server. Server values
 stay in memory, except when an existing backup option saves them. Deploy prepares all owned
 copies before importing its project bundles. Plans and MCP results list these entities and
-parts (`--json` on CLI push and deploy). Repository files are unchanged. A fresh server receives the repository's initial values.
+parts (`--json` on CLI push and deploy). Repository files are unchanged. A fresh server receives
+the repository's initial values. Archive and source-control imports cannot be spliced: an archive
+that would replace owned parts is refused; source-control import warns that it cannot preserve
+them. A bundle imported by hand in Composer does not preserve them.
 Adopt neither reports nor takes owned content from a designer's export.
 
 An encrypted value cannot be carried: the Importer encrypts the Exporter's ciphertext again and

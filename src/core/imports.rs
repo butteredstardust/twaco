@@ -11,6 +11,7 @@ use super::codes::{Coded, ErrorCode};
 use super::entity::key::{EntityKey, ServiceTarget};
 use super::progress::{self, Progress, NONE};
 use super::server::{Client, ServerError};
+use super::server_owned;
 use serde_json::{json, Value};
 use std::io::Read;
 use std::time::Duration;
@@ -27,6 +28,21 @@ pub trait Remote: Sync {
         overwrite_tables: bool,
     ) -> Result<(), ServerError>;
     fn source_control(&self, service: &str, body: &Value) -> Result<Option<Value>, ServerError>;
+    /// Import-compatible Exporter XML for preserving server-owned parts.
+    fn export_owned(&self, key: &EntityKey) -> Result<Option<Vec<u8>>, ServerError> {
+        Err(ServerError::InvalidResponse {
+            url: "Exporter".into(),
+            why: format!("{key}: server-owned parts require the Exporter"),
+        })
+    }
+}
+
+struct OwnedExporter<'a>(&'a dyn Remote);
+
+impl server_owned::ExportRemote for OwnedExporter<'_> {
+    fn export_owned(&self, key: &EntityKey) -> Result<Option<Vec<u8>>, ServerError> {
+        self.0.export_owned(key)
+    }
 }
 
 impl Remote for Client {
@@ -59,6 +75,10 @@ impl Remote for Client {
             body,
             Duration::from_secs(900),
         )
+    }
+
+    fn export_owned(&self, key: &EntityKey) -> Result<Option<Vec<u8>>, ServerError> {
+        super::backup::Remote::export(self, key)
     }
 }
 
@@ -177,7 +197,25 @@ pub struct FilePlan {
     pub new: Vec<EntityKey>,
     /// Entities the server has, which the import replaces.
     pub replaced: Vec<EntityKey>,
+    /// Existing entities whose server-owned parts are spliced into an XML import.
+    pub server_owned: Vec<ServerOwnedEntity>,
     pub applied: bool,
+}
+
+/// The owned parts an XML import carries from the server, or clears because they are encrypted.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ServerOwnedEntity {
+    pub entity: EntityKey,
+    pub parts: Vec<String>,
+    pub clears: Vec<String>,
+}
+
+/// The choices shared by one file import plan and its eventual send.
+pub(crate) struct FileOptions<'a> {
+    pub(crate) overwrite_properties: bool,
+    pub(crate) overwrite_tables: bool,
+    pub(crate) apply: bool,
+    pub(crate) server_owned: &'a [server_owned::Rule],
 }
 
 /// Import a file: what it holds and what it would replace, and unless `apply` stop there.
@@ -211,6 +249,28 @@ pub(crate) fn import_file_with_progress(
     apply: bool,
     progress: &dyn Progress,
 ) -> Result<FilePlan, ImportError> {
+    import_file_with_server_owned_progress(
+        remote,
+        file_name,
+        bytes,
+        FileOptions {
+            overwrite_properties,
+            overwrite_tables,
+            apply,
+            server_owned: &[],
+        },
+        progress,
+    )
+}
+
+/// Like [`import_file_with_progress`], applying the profile's server-owned rules.
+pub(crate) fn import_file_with_server_owned_progress(
+    remote: &dyn Remote,
+    file_name: &str,
+    bytes: &[u8],
+    options: FileOptions<'_>,
+    progress: &dyn Progress,
+) -> Result<FilePlan, ImportError> {
     let entities = entities_in_file(file_name, bytes)?;
     let present = {
         let _phase = progress::phase(progress, "looking up entities", Some(entities.len() as u64));
@@ -222,6 +282,7 @@ pub(crate) fn import_file_with_progress(
     let mut plan = FilePlan {
         new: Vec::new(),
         replaced: Vec::new(),
+        server_owned: Vec::new(),
         applied: false,
     };
     for (entity, present) in entities.iter().zip(present) {
@@ -231,12 +292,78 @@ pub(crate) fn import_file_with_progress(
             plan.new.push(entity.clone());
         }
     }
-    if !apply {
+    let owned: Vec<_> = plan
+        .replaced
+        .iter()
+        .map(|key| server_owned::DocumentEntity {
+            key: key.clone(),
+            parts: server_owned::parts(options.server_owned, key.collection(), key.name()),
+        })
+        .filter(|entity| !entity.parts.is_empty())
+        .collect();
+    if bytes.starts_with(b"PK") {
+        if !owned.is_empty() {
+            return Err(ImportError::Invalid(format!(
+                "{file_name}: archive import would replace entities with server-owned parts: {}; use the XML form (or deploy), which preserves them",
+                owned
+                    .iter()
+                    .map(|entity| entity.key.to_string())
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            )));
+        }
+    } else if !owned.is_empty() {
+        let exporter = OwnedExporter(remote);
+        let (prepared, report) = server_owned::preserve_document(&exporter, bytes, &owned)
+            .map_err(|error| {
+                let why = if error.disappeared {
+                    format!(
+                        "Exporter: {} disappeared before its server-owned parts could be preserved; retry import",
+                        error.key
+                    )
+                } else {
+                    error.why
+                };
+                ImportError::Invalid(format!("{}: {why}", error.key))
+            })?;
+        plan.server_owned = report
+            .into_iter()
+            .map(|entry| ServerOwnedEntity {
+                entity: entry.key,
+                parts: entry.parts,
+                clears: entry.clears,
+            })
+            .collect();
+        if !options.apply {
+            return Ok(plan);
+        }
+        return import_prepared(
+            remote, file_name, &prepared, options, entities, plan, progress,
+        );
+    }
+    if !options.apply {
         return Ok(plan);
     }
+    import_prepared(remote, file_name, bytes, options, entities, plan, progress)
+}
+
+fn import_prepared(
+    remote: &dyn Remote,
+    file_name: &str,
+    bytes: &[u8],
+    options: FileOptions<'_>,
+    entities: Vec<EntityKey>,
+    mut plan: FilePlan,
+    progress: &dyn Progress,
+) -> Result<FilePlan, ImportError> {
     {
         let _phase = progress::phase(progress, "importing", Some(1));
-        match remote.import_file(file_name, bytes, overwrite_properties, overwrite_tables) {
+        match remote.import_file(
+            file_name,
+            bytes,
+            options.overwrite_properties,
+            options.overwrite_tables,
+        ) {
             Ok(()) => {}
             Err(ServerError::Rejected { body, .. })
                 if body.trim().eq_ignore_ascii_case("partial-success")
@@ -405,6 +532,7 @@ impl Coded for ImportError {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::collections::BTreeMap;
     use std::sync::Mutex;
 
     fn key(collection: &str, name: &str) -> EntityKey {
@@ -414,6 +542,10 @@ mod tests {
     struct Fake {
         present: Mutex<Vec<String>>,
         imported: Mutex<usize>,
+        sent: Mutex<Vec<Vec<u8>>>,
+        exports: Mutex<BTreeMap<String, Vec<u8>>>,
+        exported: Mutex<usize>,
+        export_failure: bool,
         diffs: Mutex<Vec<Value>>,
         swallow: bool,
     }
@@ -423,6 +555,10 @@ mod tests {
             Fake {
                 present: Mutex::new(present.iter().map(|s| s.to_string()).collect()),
                 imported: Mutex::new(0),
+                sent: Mutex::new(Vec::new()),
+                exports: Mutex::new(BTreeMap::new()),
+                exported: Mutex::new(0),
+                export_failure: false,
                 diffs: Mutex::new(Vec::new()),
                 swallow: false,
             }
@@ -442,6 +578,7 @@ mod tests {
             _: bool,
         ) -> Result<(), ServerError> {
             *self.imported.lock().unwrap() += 1;
+            self.sent.lock().unwrap().push(bytes.to_vec());
             if !self.swallow {
                 for key in entities_in_file(file_name, bytes).unwrap() {
                     self.present.lock().unwrap().push(key.to_string());
@@ -462,6 +599,40 @@ mod tests {
                 }
                 other => panic!("unexpected {other}"),
             }
+        }
+
+        fn export_owned(&self, key: &EntityKey) -> Result<Option<Vec<u8>>, ServerError> {
+            *self.exported.lock().unwrap() += 1;
+            if self.export_failure {
+                return Err(ServerError::InvalidResponse {
+                    url: "Exporter".to_string(),
+                    why: "unavailable".to_string(),
+                });
+            }
+            Ok(self.exports.lock().unwrap().get(&key.to_string()).cloned())
+        }
+    }
+
+    fn rules(entity: &str, part: &str) -> Vec<server_owned::Rule> {
+        vec![server_owned::Rule {
+            entities: vec![entity.to_string()],
+            parts: vec![server_owned::Part::try_from(part.to_string()).unwrap()],
+        }]
+    }
+
+    fn xml(value: &str) -> Vec<u8> {
+        format!(
+            "<Entities><Things><Thing name=\"T1\"><ThingProperties><connection>{value}</connection></ThingProperties></Thing></Things></Entities>"
+        )
+        .into_bytes()
+    }
+
+    fn options(apply: bool, server_owned: &[server_owned::Rule]) -> FileOptions<'_> {
+        FileOptions {
+            overwrite_properties: false,
+            overwrite_tables: false,
+            apply,
+            server_owned,
         }
     }
 
@@ -546,6 +717,130 @@ mod tests {
                 .applied
         );
         assert_eq!(*fake.imported.lock().unwrap(), 1);
+    }
+
+    #[test]
+    fn xml_import_preserves_owned_parts_without_changing_its_source_bytes() {
+        let fake = Fake::with(&["Things/T1"]);
+        let root = tempfile::tempdir().unwrap();
+        let path = root.path().join("x.xml");
+        std::fs::write(&path, xml("local")).unwrap();
+        let incoming = std::fs::read(&path).unwrap();
+        fake.exports
+            .lock()
+            .unwrap()
+            .insert("Things/T1".to_string(), xml("server"));
+        let plan = import_file_with_server_owned_progress(
+            &fake,
+            "x.xml",
+            &incoming,
+            options(true, &rules("Things/T1", "property-values:connection")),
+            &NONE,
+        )
+        .unwrap();
+        assert_eq!(std::fs::read(&path).unwrap(), xml("local"));
+        let sent = String::from_utf8(fake.sent.lock().unwrap()[0].clone()).unwrap();
+        assert!(sent.contains("server") && !sent.contains("local"), "{sent}");
+        assert_eq!(plan.server_owned[0].parts, ["property-values:connection"]);
+        assert!(plan.server_owned[0].clears.is_empty());
+    }
+
+    #[test]
+    fn xml_import_leaves_a_new_entity_unchanged() {
+        let fake = Fake::with(&[]);
+        let incoming = xml("local");
+        import_file_with_server_owned_progress(
+            &fake,
+            "x.xml",
+            &incoming,
+            options(true, &rules("Things/T1", "property-values:connection")),
+            &NONE,
+        )
+        .unwrap();
+        assert_eq!(fake.sent.lock().unwrap()[0], incoming);
+        assert_eq!(*fake.exported.lock().unwrap(), 0);
+    }
+
+    #[test]
+    fn xml_import_plan_exports_owned_parts_but_sends_nothing_and_reports_them() {
+        let fake = Fake::with(&["Things/T1"]);
+        fake.exports
+            .lock()
+            .unwrap()
+            .insert("Things/T1".to_string(), xml("server"));
+        let plan = import_file_with_server_owned_progress(
+            &fake,
+            "x.xml",
+            &xml("local"),
+            options(false, &rules("Things/T1", "property-values:connection")),
+            &NONE,
+        )
+        .unwrap();
+        assert_eq!(*fake.exported.lock().unwrap(), 1);
+        assert!(fake.sent.lock().unwrap().is_empty());
+        assert_eq!(plan.server_owned[0].parts, ["property-values:connection"]);
+    }
+
+    #[test]
+    fn owned_export_failure_refuses_before_file_import() {
+        let mut fake = Fake::with(&["Things/T1"]);
+        fake.export_failure = true;
+        let error = import_file_with_server_owned_progress(
+            &fake,
+            "x.xml",
+            &xml("local"),
+            options(true, &rules("Things/T1", "property-values:connection")),
+            &NONE,
+        )
+        .unwrap_err();
+        assert!(error.to_string().contains("unavailable"));
+        assert!(fake.sent.lock().unwrap().is_empty());
+    }
+
+    #[test]
+    fn encrypted_owned_value_is_reported_as_cleared() {
+        let fake = Fake::with(&["Things/T1"]);
+        let value = |password: &str| {
+            format!(
+            "<Entities><Things><Thing name=\"T1\"><ThingShape><PropertyDefinitions><PropertyDefinition name=\"password\" baseType=\"PASSWORD\"/></PropertyDefinitions></ThingShape><ThingProperties><password>{password}</password></ThingProperties></Thing></Things></Entities>"
+        ).into_bytes()
+        };
+        fake.exports
+            .lock()
+            .unwrap()
+            .insert("Things/T1".to_string(), value("ciphertext"));
+        let plan = import_file_with_server_owned_progress(
+            &fake,
+            "x.xml",
+            &value("local"),
+            options(false, &rules("Things/T1", "property-values:password")),
+            &NONE,
+        )
+        .unwrap();
+        assert!(plan.server_owned[0].parts.is_empty());
+        assert_eq!(plan.server_owned[0].clears, ["property-values:password"]);
+    }
+
+    #[test]
+    fn archive_with_existing_owned_entity_is_refused() {
+        use std::io::Write;
+        let mut archive = zip::ZipWriter::new(std::io::Cursor::new(Vec::new()));
+        archive
+            .start_file("x.xml", zip::write::SimpleFileOptions::default())
+            .unwrap();
+        archive.write_all(&xml("local")).unwrap();
+        let bytes = archive.finish().unwrap().into_inner();
+        let fake = Fake::with(&["Things/T1"]);
+        let error = import_file_with_server_owned_progress(
+            &fake,
+            "x.zip",
+            &bytes,
+            options(true, &rules("Things/T1", "property-values:connection")),
+            &NONE,
+        )
+        .unwrap_err();
+        assert!(error.to_string().contains("XML form (or deploy)"));
+        assert!(fake.sent.lock().unwrap().is_empty());
     }
 
     #[test]

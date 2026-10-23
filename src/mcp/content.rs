@@ -637,6 +637,11 @@ pub(crate) fn import_tool(
                 "adds": names(&plan.new),
                 "replaces": names(&plan.replaced),
                 "applied": plan.applied,
+                "server_owned": plan.server_owned.iter().map(|entry| json!({
+                    "entity": entry.entity.to_string(),
+                    "parts": entry.parts,
+                    "clears": entry.clears,
+                })).collect::<Vec<_>>(),
             });
             add_notices(&mut result, &notices);
             Ok(result)

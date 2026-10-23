@@ -8,6 +8,9 @@ All notable changes to twaco are recorded here. The format follows
 
 ### Changed
 
+- `import <file.xml>` now preserves configured `server_owned` parts for existing server
+  entities, like deploy; archives refuse when preservation is needed and source-control imports
+  warn that they cannot preserve those parts.
 - Baselines are now per server profile, in `.twaco/baselines/<profile>.json`, so status and deploy
   against one server no longer judge changes by what was recorded against another. The former
   `.twaco/baseline.json` is read as the `default` profile's and removed when that profile next

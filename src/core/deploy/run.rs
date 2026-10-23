@@ -165,43 +165,46 @@ pub(crate) fn run_with_progress(
     // Fetch every owned value before the first import. Keep these copies in memory only.
     let mut outgoing = Vec::new();
     for project in projects {
-        let mut bytes = project.bytes.clone();
-        for entity in &project.entities {
-            if entity.server_owned.is_empty()
-                || report.plans.iter().any(|p| {
-                    p.collection == entity.collection
-                        && p.name == entity.name
-                        && p.server_owned.is_empty()
+        let entities = project
+            .entities
+            .iter()
+            .filter(|entity| {
+                !entity.server_owned.is_empty()
+                    && !report.plans.iter().any(|plan| {
+                        plan.collection == entity.collection
+                            && plan.name == entity.name
+                            && plan.server_owned.is_empty()
+                    })
+            })
+            .map(|entity| {
+                let key =
+                    EntityKey::address(&entity.collection, &entity.name).map_err(|error| {
+                        DeployError::Server {
+                            collection: entity.collection.clone(),
+                            name: entity.name.clone(),
+                            why: error.to_string(),
+                        }
+                    })?;
+                Ok(super::super::server_owned::DocumentEntity {
+                    key,
+                    parts: entity.server_owned.clone(),
                 })
-            {
-                continue;
-            }
-            let prepared = (|| {
-                let key = EntityKey::address(&entity.collection, &entity.name)?;
-                remote.export_owned(&key)?.ok_or_else(|| ServerError::InvalidResponse {
-                    url: "Exporter".into(),
-                    why: format!("{key} disappeared before its server-owned parts could be preserved; retry deploy"),
-                })
-            })().map_err(|error| DeployError::Server {
-                collection: entity.collection.clone(),
-                name: entity.name.clone(),
-                why: error.to_string(),
-            })?;
-            // An encrypted value cannot be carried through an import; the deploy hook sets it.
-            let encrypted = super::super::server_owned::encrypted(&prepared, &entity.server_owned)
+            })
+            .collect::<Result<Vec<_>, DeployError>>()?;
+        let (bytes, _) =
+            super::super::server_owned::preserve_document(remote, &project.bytes, &entities)
                 .map_err(|error| DeployError::Server {
-                    collection: entity.collection.clone(),
-                    name: entity.name.clone(),
-                    why: error.to_string(),
+                    collection: error.key.collection().to_string(),
+                    name: error.key.name().to_string(),
+                    why: if error.disappeared {
+                        format!(
+                            "POST Exporter returned an invalid response: {} disappeared before its server-owned parts could be preserved; retry deploy",
+                            error.key
+                        )
+                    } else {
+                        error.why
+                    },
                 })?;
-            let carried = super::super::server_owned::carried(&entity.server_owned, &encrypted);
-            bytes = super::super::server_owned::preserve_in_bundle(&bytes, &prepared, &carried)
-                .map_err(|error| DeployError::Server {
-                    collection: entity.collection.clone(),
-                    name: entity.name.clone(),
-                    why: error.to_string(),
-                })?;
-        }
         outgoing.push(bytes);
     }
 

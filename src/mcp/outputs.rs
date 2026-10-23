@@ -756,8 +756,8 @@ struct PackageDetail {
     left_out_references: Option<Vec<String>>,
 }
 
-/// A file's import answers with what it adds and replaces; a source-control one with the
-/// server's diff.
+/// A file's import answers with what it adds, replaces, and preserves; a source-control one
+/// with the server's diff.
 #[derive(Serialize, JsonSchema)]
 pub(crate) struct ImportResult {
     ok: bool,
@@ -766,6 +766,8 @@ pub(crate) struct ImportResult {
     adds: Option<Vec<String>>,
     replaces: Option<Vec<String>>,
     applied: Option<bool>,
+    /// Existing XML entities whose import carries server-owned parts.
+    server_owned: Option<Vec<ServerOwnedEntity>>,
     /// source control
     entities: Option<Value>,
     differ: Option<Vec<Value>>,

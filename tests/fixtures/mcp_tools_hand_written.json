@@ -2727,7 +2727,7 @@
   },
   {
     "name": "import",
-    "description": "Import into the server as Composer's Import/Export does: an export file of the solution (XML, or a zip of them), or a source-control tree in a file repository. A dry run unless dry_run is false: a file's plan lists what it adds and what it replaces; a source-control plan is the server's own diff. The server's property values and configuration table rows are kept unless the overwrite flags say otherwise.",
+    "description": "Import into the server as Composer's Import/Export does: an export file of the solution (XML, or a zip of them), or a source-control tree in a file repository. A dry run unless dry_run is false: a file's plan lists what it adds and what it replaces; an XML file also preserves configured server-owned parts. Source-control imports and archives cannot preserve them. The server's property values and configuration table rows are kept unless the overwrite flags say otherwise.",
     "inputSchema": {
       "type": "object",
       "properties": {
