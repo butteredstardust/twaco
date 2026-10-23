@@ -196,7 +196,7 @@ fn read_messages(
         };
         if !fits {
             let message = format!("message longer than {MAX_MESSAGE} bytes; it was skipped");
-            write_line(sink, &error_response(Value::Null, -32600, &message))?;
+            write_line(sink, &error_response(Value::Null, -32000, &message))?;
             continue;
         }
         // A line that is not UTF-8 is one bad message, answered as such; the server reads on.
@@ -213,7 +213,7 @@ fn read_messages(
                     Handled::Queue(call) => match queue.try_send(call) {
                         Ok(()) => None,
                         Err(std::sync::mpsc::TrySendError::Full(call)) => {
-                            pending.finish(&call.id, &call.cancelled);
+                            pending.refuse(&call.id, &call.cancelled, call.displaced);
                             Some(error_response(
                                 call.id,
                                 -32000,
@@ -292,6 +292,9 @@ struct Call {
     params: Value,
     protocol: Protocol,
     cancelled: Arc<AtomicBool>,
+    /// The call already pending under this id, if a client reused one: restored if this call is
+    /// refused, so the earlier call stays cancellable.
+    displaced: Option<Arc<AtomicBool>>,
     /// Log fields the reader already made safe: see [`handle`].
     logged_id: String,
     tool: &'static str,
@@ -307,6 +310,18 @@ impl Pending {
         self.0
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner())
+    }
+
+    fn current(&self, id: &Value) -> Option<Arc<AtomicBool>> {
+        self.calls().get(&id.to_string()).cloned()
+    }
+
+    /// Forget a call that was refused rather than queued, putting back the call it displaced.
+    fn refuse(&self, id: &Value, flag: &Arc<AtomicBool>, displaced: Option<Arc<AtomicBool>>) {
+        self.finish(id, flag);
+        if let Some(earlier) = displaced {
+            self.calls().insert(id.to_string(), earlier);
+        }
     }
 
     fn start(&self, id: &Value) -> Arc<AtomicBool> {
@@ -483,12 +498,14 @@ fn handle(
             "tools": registry::selected_definitions(*protocol, selection)
         })),
         "tools/call" => {
+            let displaced = pending.current(&id);
             let cancelled = pending.start(&id);
             return Handled::Queue(Call {
                 id,
                 params,
                 protocol: *protocol,
                 cancelled,
+                displaced,
                 logged_id,
                 tool,
                 dry_run,

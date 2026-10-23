@@ -16,7 +16,7 @@ All notable changes to twaco are recorded here. The format follows
 - `types` whose write fails after other generated files were already updated names those files
   (the first five) and says to run it again, instead of reporting only the failed write.
 - The MCP server bounds what a client can make it hold: at most 32 queued calls (more are
-  answered busy, `-32000`) and messages of at most 32 MiB (a longer one is answered `-32600` and
+  answered busy, `-32000`) and messages of at most 32 MiB (a longer one is answered `-32000` and
   skipped).
 - Workspace writes now refuse symbolic links and Windows junctions below the solution root,
   preventing writes through `.twaco`, sidecar, project, repository, or localization roots.

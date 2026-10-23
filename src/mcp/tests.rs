@@ -3465,6 +3465,19 @@ fn a_call_beyond_the_queue_is_answered_busy_and_forgotten() {
 }
 
 #[test]
+fn a_refused_call_that_reuses_an_id_leaves_the_earlier_call_cancellable() {
+    let call = json!({"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"projects","arguments":{}}});
+    let input = format!("{call}\n{call}\n");
+    let output = std::sync::Mutex::new(Vec::new());
+    let pending = super::Pending::default();
+    let (queue, calls) = std::sync::mpsc::sync_channel(1);
+    super::read_messages(&Selection::ALL, input.as_bytes(), &output, &pending, &queue).unwrap();
+    let queued: super::Call = calls.try_recv().unwrap();
+    assert!(pending.cancel(&json!(1)));
+    assert!(queued.cancelled.load(std::sync::atomic::Ordering::SeqCst));
+}
+
+#[test]
 fn a_finished_call_leaves_a_later_call_with_its_id_cancellable() {
     let pending = super::Pending::default();
     let id = json!(7);
