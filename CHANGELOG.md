@@ -6,6 +6,8 @@ All notable changes to twaco are recorded here. The format follows
 
 ## [Unreleased]
 
+## [0.1.30] - 2026-10-23
+
 ### Changed
 
 - `import <file.xml>` now preserves configured `server_owned` parts for existing server
@@ -946,6 +948,7 @@ The first public release.
 - `mcp` serves 39 tools over stdio to MCP clients, with compact summaries, validated arguments
   and dry runs by default for tools that can write to a server.
 
+[0.1.30]: https://github.com/butteredstardust/twaco/releases/tag/v0.1.30
 [0.1.29]: https://github.com/butteredstardust/twaco/releases/tag/v0.1.29
 [0.1.28]: https://github.com/butteredstardust/twaco/releases/tag/v0.1.28
 [0.1.27]: https://github.com/butteredstardust/twaco/releases/tag/v0.1.27
