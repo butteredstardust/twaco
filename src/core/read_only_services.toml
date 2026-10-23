@@ -5,7 +5,8 @@
 # service methods named Get*, Query*, Search*, Find*, Is* or Has* of the classes behind each
 # collection or Resource, and every InfoTableFunctions function (each returns a new table).
 # Reviewed by hand: ContentLoaderFunctions (it reaches other hosts), remote-thing services (they
-# reach the device) and ApplicationKey GetKeyID (it returns the secret) are left out.
+# reach the device), ApplicationKey GetKeyID (it returns the secret) and the configuration
+# table reads (a PASSWORD column may come back readable) are left out.
 # A service the repository defines or overrides is never taken from this list.
 
 # Every entity has these (RootEntity).
@@ -13,10 +14,7 @@ every_entity = [
     "GetAvatar",
     "GetAvatarURL",
     "GetConfigurationChangeHistory",
-    "GetConfigurationTable",
     "GetConfigurationTableDefinition",
-    "GetConfigurationTableRow",
-    "GetConfigurationTables",
     "GetDescription",
     "GetDesignTimePermissions",
     "GetDesignTimePermissionsAsJSON",

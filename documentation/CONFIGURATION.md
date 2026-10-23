@@ -331,7 +331,9 @@ Mashups, things a deploy runs (`[project.deploy]`) and anything that runs on eve
 MCP `call` without `dry_run` runs a service known to only read and plans any other. twaco knows
 the platform's reads (InfoTableFunctions, SearchFunctions, `GetPropertyValues`,
 `QueryDataTableEntries` and the like, from the ThingWorx Javadoc), but never trusts that list for
-a service name the repository defines or overrides. List your own reads here:
+a service name the repository defines or overrides (or while any repository file cannot be read).
+It goes by name, so a server-only entity outside the repository that defines a service of a
+listed name is trusted too. List your own reads here:
 
 ```toml
 [call]

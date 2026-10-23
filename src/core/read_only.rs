@@ -75,15 +75,36 @@ fn platform(collection: &str, name: &str, service: &str) -> bool {
     has(&list.every_entity) || list.collections.get(collection).is_some_and(has)
 }
 
-/// Whether any repository entity defines or overrides a service of this name. Checked by name
-/// alone, not along the target's inheritance, so a server-only Thing built on a repository
-/// template is covered too.
+/// Whether any repository file defines or overrides a service of this name, or might: a file
+/// that cannot be read counts as one that does. Checked by name alone, not along the target's
+/// inheritance, so a server-only Thing built on a repository template is covered too, and in the
+/// raw XML, so every entity of a file holding several is seen.
 fn repository_defines(solution: &Solution, service: &str) -> bool {
-    let (model, _) = super::types::load_model(solution);
-    model.entities.iter().any(|entity| {
-        entity.members.iter().any(
-            |member| matches!(member, super::types::Member::Service(own) if own.name == service),
-        )
+    use super::scan::{self, Kind};
+    let found = super::workspace::discover(solution);
+    if !found.unreadable.is_empty() {
+        return true;
+    }
+    found.entities.iter().any(|entity| {
+        let Ok(bytes) = std::fs::read(&entity.path) else {
+            return true;
+        };
+        let Ok(tokens) = scan::tokenize(&bytes) else {
+            return true;
+        };
+        tokens.iter().any(|token| {
+            matches!(token.kind, Kind::Start | Kind::Empty)
+                && matches!(
+                    token.name.of(&bytes),
+                    b"ServiceDefinition" | b"ServiceImplementation"
+                )
+                && scan::attribute(&bytes, token, "name")
+                    .ok()
+                    .flatten()
+                    .is_some_and(|name| {
+                        scan::decode_entities(&String::from_utf8_lossy(name.of(&bytes))) == service
+                    })
+        })
     })
 }
 
@@ -194,6 +215,30 @@ mod tests {
         assert_eq!(
             reason(&solution, &target("Things/P.Orders"), "GetPropertyTime"),
             Some(Reason::Platform)
+        );
+    }
+
+    #[test]
+    fn a_second_entity_in_a_file_and_an_unreadable_file_also_count_as_defining() {
+        let two = "<Entities><Things><Thing name=\"P.First\" projectName=\"P\"/>\
+            <Thing name=\"P.Second\" projectName=\"P\"><ThingShape><ServiceDefinitions>\
+            <ServiceDefinition name=\"GetPropertyValues\"/></ServiceDefinitions></ThingShape>\
+            </Thing></Things></Entities>";
+        let (_first, several) = solution(
+            "[[project]]\nname = \"P\"\n",
+            &[("Things/P.First.xml", two)],
+        );
+        assert_eq!(
+            reason(&several, &target("Things/P.X"), "GetPropertyValues"),
+            None
+        );
+        let (_second, broken) = solution(
+            "[[project]]\nname = \"P\"\n",
+            &[("Things/P.Broken.xml", "<Entities><Things><Thing name=")],
+        );
+        assert_eq!(
+            reason(&broken, &target("Things/P.X"), "GetPropertyTime"),
+            None
         );
     }
 

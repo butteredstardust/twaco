@@ -481,9 +481,10 @@ pub(crate) fn call_service_tool(
                 "nothing was sent; pass dry_run: false to call it as {user}, whose language \
                  preference is set to {lang} for the call and then put back"
             ),
-            _ => "nothing was sent: the service is not known to only read; pass dry_run: false \
-                  to call it"
+            _ if arguments.dry_run.is_absent() => "nothing was sent: the service is not known to \
+                only read; pass dry_run: false to call it"
                 .to_string(),
+            _ => "nothing was sent; pass dry_run: false to call it".to_string(),
         };
         return Ok(json!({
             "dry_run": true,
