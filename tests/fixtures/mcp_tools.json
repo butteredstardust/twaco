@@ -5909,7 +5909,7 @@
   },
   {
     "name": "config_table",
-    "description": "List a Thing's configuration tables, read one of them on the server, diff it against the entity XML in the repository, back it up to a new file in the solution (a backup is never overwritten), or restore it from such a backup. restore is a dry run unless dry_run is false; it refuses a backup of another Thing or table, and reads the table back.",
+    "description": "List a Thing's configuration tables, read one on the server, diff it against the entity XML in the repository, compare it with a backup, back it up to a new file in the solution (a backup is never overwritten), or restore it from such a backup. restore is a dry run unless dry_run is false; it refuses a backup of another Thing or table, and reads the table back.",
     "inputSchema": {
       "required": [
         "thing"
@@ -5931,13 +5931,14 @@
             "list",
             "read",
             "diff",
+            "compare",
             "restore",
             "backup"
           ],
           "default": "read"
         },
         "backup": {
-          "description": "backup: a new file to write, relative to the solution (under .twaco/backups/ git ignores it; a table can hold secrets); an existing one is never replaced. restore: the file a backup wrote, inside the solution.",
+          "description": "backup: a new file to write, relative to the solution (under .twaco/backups/ git ignores it; a table can hold secrets); an existing one is never replaced. restore and compare: the file a backup wrote, inside the solution.",
           "type": "string"
         },
         "dry_run": {
@@ -6000,9 +6001,22 @@
           "items": true
         },
         "identical": {
-          "description": "diff",
+          "description": "diff, compare",
           "type": [
             "boolean",
+            "null"
+          ]
+        },
+        "matching": {
+          "description": "`key`, or `position` when the table has no key or rows share one.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "matching_reason": {
+          "type": [
+            "string",
             "null"
           ]
         },

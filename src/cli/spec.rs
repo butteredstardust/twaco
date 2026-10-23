@@ -1182,6 +1182,7 @@ pub(crate) const USAGE: &[Usage] = &[
                               table, the Thing's tables
       --backup <file>         save it (never overwrites a file)
       --restore <file>        put a backup back; a plan unless --apply
+      --compare <file>        compare with a backup
       --diff                  compare with the entity XML in the repository
       --detail                every row, not only the first"#,
     },

@@ -7,7 +7,7 @@ use twaco::core::commands::{self, Mode};
 use twaco::core::config::Solution;
 use twaco::core::{config_table, datatable_copy, db, profile, server, workspace};
 
-/// `twaco config-table <thing> <table> [--backup <file>|--restore <file>|--diff]`.
+/// `twaco config-table <thing> <table> [--backup <file>|--restore <file>|--compare <file>|--diff]`.
 #[derive(Debug, clap::Args)]
 #[group(skip)]
 pub(crate) struct ConfigTable {
@@ -15,6 +15,8 @@ pub(crate) struct ConfigTable {
     pub(crate) backup: Option<PathBuf>,
     #[arg(long = "restore", value_name = "file", value_parser = super::flags::path())]
     pub(crate) restore: Option<PathBuf>,
+    #[arg(long = "compare", value_name = "file", value_parser = super::flags::path())]
+    pub(crate) compare: Option<PathBuf>,
     #[command(flatten)]
     pub(crate) apply: Apply,
     #[arg(long = "diff")]
@@ -27,7 +29,7 @@ pub(crate) struct ConfigTable {
     pub(crate) operands: Vec<String>,
 }
 
-/// Read, back up, restore or diff one Thing's configuration table on the server.
+/// Read, back up, restore or compare one Thing's configuration table on the server.
 ///
 /// `--restore` is a plan unless `--apply`, as every command that writes to a server is. It
 /// refuses a backup made from another Thing or table, and reads the table back afterwards.
@@ -37,18 +39,25 @@ pub(crate) fn config_table(solution: &Solution, args: &ConfigTable) -> u8 {
         eprintln!("{} config-table needs <thing> [<table>]", style::prefix());
         return FAILED;
     }
-    if listing && (args.backup.is_some() || args.restore.is_some() || args.diff) {
+    if listing
+        && (args.backup.is_some() || args.restore.is_some() || args.compare.is_some() || args.diff)
+    {
         eprintln!(
-            "{} --backup, --restore and --diff need a <table>; `twaco config-table {}` lists them",
+            "{} --backup, --restore, --compare and --diff need a <table>; `twaco config-table {}` lists them",
             style::prefix(),
             args.operands[0]
         );
         return FAILED;
     }
-    let modes = [args.backup.is_some(), args.restore.is_some(), args.diff];
+    let modes = [
+        args.backup.is_some(),
+        args.restore.is_some(),
+        args.compare.is_some(),
+        args.diff,
+    ];
     if modes.iter().filter(|m| **m).count() > 1 {
         eprintln!(
-            "{} --backup, --restore and --diff are separate actions; pass one",
+            "{} --backup, --restore, --compare and --diff are separate actions; pass one",
             style::prefix()
         );
         return FAILED;
@@ -103,6 +112,8 @@ pub(crate) fn config_table(solution: &Solution, args: &ConfigTable) -> u8 {
         }
     } else if let Some(path) = &args.backup {
         commands::config_table::ConfigTableAction::Backup { path: path.clone() }
+    } else if let Some(path) = &args.compare {
+        commands::config_table::ConfigTableAction::Compare { path: path.clone() }
     } else if args.diff {
         commands::config_table::ConfigTableAction::Diff {
             entity: entity_file.expect("--diff resolved the Thing in the solution"),
@@ -201,17 +212,26 @@ pub(crate) fn config_table(solution: &Solution, args: &ConfigTable) -> u8 {
         }
         commands::config_table::ConfigTableOutcome::Diffed {
             table: live,
+            matching,
             differences: found,
             ..
         } => {
+            let compared = if args.compare.is_some() {
+                "backup"
+            } else {
+                "source control"
+            };
+            if let Some(reason) = matching.reason() {
+                println!("{label}: matching rows by position ({reason})");
+            }
             if found.is_empty() {
                 println!(
-                    "{label}: {} row(s), identical to source control",
+                    "{label}: {} row(s), identical to {compared}",
                     live.rows.len()
                 );
                 return OK;
             }
-            println!("{label}: {} difference(s) from source control", found.len());
+            println!("{label}: {} difference(s) from {compared}", found.len());
             for line in found {
                 println!("  {line}");
             }

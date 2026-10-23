@@ -22,6 +22,9 @@ pub enum ConfigTableAction {
     Diff {
         entity: PathBuf,
     },
+    Compare {
+        path: PathBuf,
+    },
 }
 
 /// The arguments that affect a configuration-table operation.
@@ -54,6 +57,7 @@ pub enum ConfigTableOutcome {
     },
     Diffed {
         table: config_table::Table,
+        matching: config_table::Matching,
         differences: Vec<String>,
         effects: Effects,
     },
@@ -140,7 +144,8 @@ where
         }
         ConfigTableAction::Read
         | ConfigTableAction::Backup { .. }
-        | ConfigTableAction::Diff { .. } => {
+        | ConfigTableAction::Diff { .. }
+        | ConfigTableAction::Compare { .. } => {
             let table = config_table::fetch(&remote, &request.thing, &request.table)
                 .map_err(ConfigTableCommandError::Table)?;
             match &request.action {
@@ -165,7 +170,7 @@ where
                     let rows = config_table::repository_rows(&source, &request.table)
                         .map_err(ConfigTableCommandError::Table)?;
                     let key = config_table::primary_key(&table.data_shape);
-                    let differences = config_table::differences(
+                    let comparison = config_table::compare_rows(
                         "server",
                         &table.rows,
                         "source control",
@@ -174,7 +179,20 @@ where
                     );
                     Ok(ConfigTableOutcome::Diffed {
                         table,
-                        differences,
+                        matching: comparison.matching,
+                        differences: comparison.differences,
+                        effects: Effects::new(Access::Read, Access::Read),
+                    })
+                }
+                ConfigTableAction::Compare { path } => {
+                    let backup = config_table::read_backup(path, &request.thing, &request.table)
+                        .map_err(ConfigTableCommandError::Backup)?;
+                    let comparison =
+                        config_table::compare_tables("server", &table, "backup", &backup);
+                    Ok(ConfigTableOutcome::Diffed {
+                        table,
+                        matching: comparison.matching,
+                        differences: comparison.differences,
                         effects: Effects::new(Access::Read, Access::Read),
                     })
                 }
@@ -277,6 +295,49 @@ mod tests {
         .unwrap();
         assert_eq!(saved.effects(), Effects::new(Access::Write, Access::Read));
         assert!(path.exists());
+        assert!(remote
+            .calls
+            .borrow()
+            .iter()
+            .all(|call| call == "GetConfigurationTable"));
+    }
+
+    #[test]
+    fn comparing_with_a_backup_whose_rows_share_a_key_matches_them_by_position() {
+        let (_dir, root, solution) = workspace();
+        let remote = Recorder {
+            rows: Rc::new(RefCell::new(vec![
+                json!({ "Key": "Manager", "Value": "1" }),
+                json!({ "Key": "Manager", "Value": "2" }),
+            ])),
+            calls: Rc::default(),
+        };
+        let path = root.join("backup.json");
+        run(
+            &solution,
+            &remote,
+            ConfigTableAction::Backup { path: path.clone() },
+        )
+        .unwrap();
+        // The second of the two rows that share a key changes on the server.
+        remote.rows.borrow_mut()[1] = json!({ "Key": "Manager", "Value": "3" });
+        remote.calls.borrow_mut().clear();
+
+        let compared = run(&solution, &remote, ConfigTableAction::Compare { path }).unwrap();
+
+        let ConfigTableOutcome::Diffed {
+            matching,
+            differences,
+            effects,
+            ..
+        } = compared
+        else {
+            panic!("a comparison answers with differences");
+        };
+        assert_eq!(matching.as_str(), "position");
+        assert_eq!(differences.len(), 1, "{differences:?}");
+        assert!(differences[0].starts_with("row #2"), "{differences:?}");
+        assert_eq!(effects, Effects::new(Access::Read, Access::Read));
         assert!(remote
             .calls
             .borrow()

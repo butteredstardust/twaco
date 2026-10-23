@@ -458,6 +458,7 @@ config-table <thing> [<table>]  one Thing's configuration table on the server; w
                             table, the Thing's tables
     --backup <file>         save it (never overwrites a file)
     --restore <file>        put a backup back; a plan unless --apply
+    --compare <file>        compare with a backup
     --diff                  compare with the entity XML in the repository
     --detail                every row, not only the first
 db run <file.sql> [--thing <name>] [--no-transaction] [--timeout <seconds>] [--apply] [--json]

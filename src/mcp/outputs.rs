@@ -474,8 +474,11 @@ pub(crate) struct ConfigTableResult {
     primary_key: Option<Value>,
     first_rows: Option<Vec<Value>>,
     values: Option<Vec<Value>>,
-    /// diff
+    /// diff, compare
     identical: Option<bool>,
+    /// `key`, or `position` when the table has no key or rows share one.
+    matching: Option<String>,
+    matching_reason: Option<String>,
     differences: Option<Vec<Value>>,
     /// backup
     backup: Option<String>,

@@ -211,6 +211,14 @@ pub(crate) fn config_table_tool(
             },
             profile: arguments.profile.clone(),
         }
+    } else if arguments.action == TableAction::Compare {
+        let backup = in_path(solution, required_text(&arguments.backup, "backup")?)?;
+        commands::config_table::ConfigTableRequest {
+            thing: thing.clone(),
+            table: table.to_string(),
+            action: commands::config_table::ConfigTableAction::Compare { path: backup },
+            profile: arguments.profile.clone(),
+        }
     } else if arguments.action == TableAction::Backup {
         // Never true: core refuses to replace a backup, which is the point of one.
         let path = out_path(solution, required_text(&arguments.backup, "backup")?, false)?;
@@ -284,6 +292,7 @@ pub(crate) fn config_table_tool(
         }
         commands::config_table::ConfigTableOutcome::Diffed {
             table: live,
+            matching,
             differences,
             ..
         } => json!({
@@ -291,6 +300,8 @@ pub(crate) fn config_table_tool(
             "table": table,
             "identical": differences.is_empty(),
             "rows": live.rows.len(),
+            "matching": matching.as_str(),
+            "matching_reason": matching.reason(),
             "differences": differences,
         }),
         commands::config_table::ConfigTableOutcome::BackedUp { table: live, .. } => json!({

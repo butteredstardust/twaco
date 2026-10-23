@@ -14,6 +14,13 @@ All notable changes to twaco are recorded here. The format follows
   in its JSON and MCP detail results.
 - MCP `bundle` can record a handoff, and `adopt --suggest-base` ranks recorded handoffs for an
   export; adopt now explains how to provide a base when none matches.
+- `config-table <thing> <table> --compare <backup>` (MCP `config_table` action `compare`) compares
+  the server's table with a backup, including one whose rows share a key.
+
+### Fixed
+
+- `config-table --diff` compared only the first of several rows sharing a key; rows are now
+  matched by position when a key repeats, and the output says so.
 
 ## [0.1.29] - 2026-10-23
 
