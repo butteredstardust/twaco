@@ -253,7 +253,7 @@ pub fn find_class(index: &Index, wanted: &str) -> Result<Class, String> {
                     .map(|class| {
                         (
                             class,
-                            u8::try_from(edit_distance(
+                            u8::try_from(strsim::levenshtein(
                                 &class.name.to_lowercase(),
                                 &wanted.to_lowercase(),
                             ))
@@ -278,24 +278,6 @@ pub fn find_class(index: &Index, wanted: &str) -> Result<Class, String> {
             })
         }
     }
-}
-
-fn edit_distance(a: &str, b: &str) -> usize {
-    let mut row: Vec<usize> = (0..=b.chars().count()).collect();
-    for (i, left) in a.chars().enumerate() {
-        let mut previous = row[0];
-        row[0] = i + 1;
-        for (j, right) in b.chars().enumerate() {
-            let above = row[j + 1];
-            row[j + 1] = if left == right {
-                previous
-            } else {
-                1 + previous.min(above).min(row[j])
-            };
-            previous = above;
-        }
-    }
-    row[b.chars().count()]
 }
 
 /// The class page path encoded by a type or member index entry.
@@ -442,7 +424,7 @@ pub fn read(html: &[u8], class: &Class, member: Option<&str>) -> Result<Reading,
                         .map(|name| {
                             (
                                 name.clone(),
-                                u8::try_from(edit_distance(
+                                u8::try_from(strsim::levenshtein(
                                     &name.to_lowercase(),
                                     &wanted.to_lowercase(),
                                 ))
