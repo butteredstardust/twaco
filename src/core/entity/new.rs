@@ -350,31 +350,17 @@ fn refuse_file_on_the_way(root: &Path, path: &Path) -> Result<(), NewError> {
     Ok(())
 }
 
+/// A timer's `--every` as milliseconds: a duration (`500ms`, `30s`, `5m`, `1h30m`), or a bare
+/// whole number of milliseconds, which is how ThingWorx stores it.
 pub(crate) fn parse_duration(text: &str) -> Result<u64, NewError> {
-    let text = text.trim();
-    let (number, multiplier) = if let Some(number) = text.strip_suffix("ms") {
-        (number, 1)
-    } else if let Some(number) = text.strip_suffix('s') {
-        (number, 1_000)
-    } else if let Some(number) = text.strip_suffix('m') {
-        (number, 60_000)
-    } else if let Some(number) = text.strip_suffix('h') {
-        (number, 3_600_000)
-    } else {
-        (text, 1)
-    };
-    let value = number
-        .parse::<u64>()
-        .ok()
-        .filter(|value| *value > 0)
+    let bare = text.trim().parse::<u64>().ok().filter(|ms| *ms > 0);
+    bare.or_else(|| crate::core::duration::positive_ms(text))
         .ok_or_else(|| {
             NewError::Invalid(format!(
-                "--every must be a positive duration such as 500ms, 30s, 5m or 1h, not {text:?}"
+                "--every must be a positive duration such as 500ms, 30s, 5m, 1h or 1h30m, not {:?}",
+                text.trim()
             ))
-        })?;
-    value
-        .checked_mul(multiplier)
-        .ok_or_else(|| NewError::Invalid("--every is too large".into()))
+        })
 }
 
 pub(crate) fn validate_cron(text: &str) -> Result<String, NewError> {

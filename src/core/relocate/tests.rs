@@ -671,3 +671,25 @@ fn a_moved_services_source_folder_goes_whole_even_with_nested_content() {
         0
     );
 }
+
+#[cfg(unix)]
+#[test]
+fn a_linked_folder_in_a_sidecar_is_refused_and_never_entered() {
+    let dir = tempfile::tempdir().unwrap();
+    let outside = tempfile::tempdir().unwrap();
+    write(outside.path(), "kept/script.js", "outside");
+    let folder = dir.path().join("Service");
+    write(&folder, "script.js", "x");
+    std::os::unix::fs::symlink(outside.path().join("kept"), folder.join("kept")).unwrap();
+    let refused = files_under(&folder).unwrap_err();
+    assert!(refused.to_string().contains("is a link"), "{refused}");
+    let linked_service = dir.path().join("Linked");
+    std::os::unix::fs::symlink(outside.path().join("kept"), &linked_service).unwrap();
+    assert!(files_under(&linked_service)
+        .unwrap_err()
+        .to_string()
+        .contains("is a link"));
+    std::fs::create_dir_all(outside.path().join("kept/empty")).unwrap();
+    remove_empty_folders(&folder);
+    assert!(outside.path().join("kept/empty").is_dir());
+}

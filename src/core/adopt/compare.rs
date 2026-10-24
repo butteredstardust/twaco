@@ -3,11 +3,12 @@
 
 use super::base::{history_versions, resolve, NO_BASE_NOTE};
 use super::classify;
-use super::flatten::{attribute, canonical, flatten, glob_matches, is_volatile_id, service_bodies};
+use super::flatten::{attribute, canonical, flatten, is_volatile_id, service_bodies};
 use super::read::{entity_from_bytes, export_entities, repository_entities};
 use super::{AdoptError, Difference, EntityRef, EntityReport, Report, ServiceReport, Status};
 use super::{Change, Kind, Side};
 use crate::core::config::Solution;
+use crate::core::glob::matches as glob_matches;
 use crate::core::normalise::{self, Element};
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;

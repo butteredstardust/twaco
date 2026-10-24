@@ -406,8 +406,11 @@ pub(crate) fn source_files(solution: &Solution) -> Vec<PathBuf> {
     for tag in COLLECTION_ORDER {
         for project in &ordered {
             let dir = solution.project_root(project).join(tag);
+            // The walk entity discovery uses, so the bundle and its verification see the same
+            // files: subfolders included, links never followed. What it cannot read, discovery
+            // reports.
             let mut here = Vec::new();
-            collect_xml(&dir, &mut here);
+            super::workspace::collect_xml(&dir, &mut here, &mut Vec::new());
             // Case-insensitively, with the exact name as a tie-break. Filesystem path comparison
             // differs by platform, so `Acme.First_CT` and `Acme.Second_DS` can otherwise change
             // order. Pinning the rule makes the bytes the same on every machine.
@@ -514,7 +517,7 @@ pub(crate) fn select_entities(
     for pattern in exclude {
         let before = selected.len();
         selected.retain(|entity| {
-            !adopt::glob_matches(
+            !super::glob::matches(
                 pattern,
                 &format!("{}/{}", entity.info.collection, entity.info.name),
             )
@@ -610,28 +613,6 @@ pub(crate) fn apply_patches(
         }
     }
     Ok(built)
-}
-
-/// Every `.xml` beneath a collection directory, including subfolders.
-///
-/// Recursive, to agree with how entities are discovered elsewhere. A flat read made
-/// `Things/nested/A.xml` invisible to the bundle *and* to its verification, so an entity could
-/// go missing with nothing reporting it.
-fn collect_xml(dir: &Path, out: &mut Vec<PathBuf>) {
-    let Ok(entries) = std::fs::read_dir(dir) else {
-        return;
-    };
-    for entry in entries.flatten() {
-        let path = entry.path();
-        if path.is_dir() {
-            collect_xml(&path, out);
-        } else if path
-            .extension()
-            .is_some_and(|e| e.eq_ignore_ascii_case("xml"))
-        {
-            out.push(path);
-        }
-    }
 }
 
 /// Entities that reference something the bundle does not contain.
@@ -753,6 +734,27 @@ ui_collections = [\"ThingTemplates\"]
         assert_eq!(
             dangling_in_selection(&solution, true),
             ["P.T names P.TT as its thingTemplate"]
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_linked_folder_under_a_collection_is_not_bundled() {
+        let root_guard = tempfile::tempdir().unwrap();
+        let outside = tempfile::tempdir().unwrap();
+        let root = root_guard.path();
+        std::fs::create_dir_all(root.join("Things/nested")).unwrap();
+        std::fs::write(root.join("twaco.toml"), "[[project]]\nname = \"P\"\n").unwrap();
+        let thing = |name: &str| {
+            format!("<Entities><Things><Thing name=\"{name}\" projectName=\"P\"></Thing></Things></Entities>")
+        };
+        std::fs::write(root.join("Things/nested/P.A.xml"), thing("P.A")).unwrap();
+        std::fs::write(outside.path().join("P.B.xml"), thing("P.B")).unwrap();
+        std::os::unix::fs::symlink(outside.path(), root.join("Things/linked")).unwrap();
+        let solution = Solution::load(&root.join("twaco.toml")).unwrap();
+        assert_eq!(
+            source_files(&solution),
+            [root.join("Things/nested/P.A.xml")]
         );
     }
 

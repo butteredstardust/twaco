@@ -318,7 +318,7 @@ mistake without being told, so `check` reports each one until it is listed here.
 
 What `twaco unused` treats as in use without anything in the repository referring to it:
 
-- **`keep`:** names or `Collection/Name` patterns, `*` standing for any run of characters. A
+- **`keep`:** names or `Collection/Name` patterns, as globs (see [Globs](#globs)). A
   database connection Thing that the platform calls, an entity a REST client or a connected
   system uses, anything reached from outside the repository, belongs here. A pattern that matches
   no entity is reported, so a typo does not silently keep nothing.
@@ -350,11 +350,18 @@ test user's language preference. The CLI's `twaco call` always calls.
 How `twaco adopt` reads a designer's export:
 
 - **`ignore_paths`:** node paths never reported as a change, written
-  `Collection/Entity/node/path`. `*` matches within one step and `**` across steps. Use it
+  `Collection/Entity/node/path`, as globs (see [Globs](#globs)). Use it
   for values that differ on every export by design, such as live property values or a
   password encrypted with the designer's key.
 - **`generated_services`:** `Entity.Service` names whose body this repository generates, so
   the repository wins.
+
+### Globs
+
+Every pattern in `twaco.toml` (`[unused] keep`, `[adopt] ignore_paths`, `[[server_owned]]`,
+`[call] read_only`, permission policies, bundle exclusions) is one dialect. It matches the whole
+text. `*` stands for any run of characters within one `/` step, and `**` crosses steps. Every other
+character is literal, brackets included, so `ConfigurationTable[ConnectionInfo]` means itself.
 
 ### `[types]`, `[help]`, `[repositories]`, `[localization]`, `[project.localization]`, `[package]`, `[knowledge]`
 

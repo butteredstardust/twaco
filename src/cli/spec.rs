@@ -1229,7 +1229,8 @@ pub(crate) const USAGE: &[Usage] = &[
         group: 3,
         text: r#"  logs <log>                  read a server log: ApplicationLog, ScriptLog, CommunicationLog,
                               ConfigurationLog, SecurityLog (newest first; times are local)
-      --since <n><s|m|h|d>    how far back (default 1h); or --from <time> --to <time>
+      --since <n><s|m|h|d>    how far back, such as 15m or 1h30m (default 1h);
+                              or --from <time> --to <time>
       --level <L>             L and above: TRACE, DEBUG, INFO, WARN, ERROR
       --grep <text>           entries whose message contains the text
       --regex <re>            a Java regex that must match the whole message

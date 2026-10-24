@@ -543,27 +543,16 @@ pub(crate) fn describe(levels: &Levels) -> String {
     format!("{} (subloggers: {})", levels.level, subs.join(", "))
 }
 
-/// `90s`, `15m`, `1h`, `2d` as milliseconds.
+/// A window such as `90s`, `15m`, `1h`, `2d` or `1h30m`, as milliseconds.
 pub fn parse_since(text: &str) -> Result<i64, LogsError> {
-    let bad = || {
-        LogsError::Invalid(format!(
-            "since must be a number and a unit (s, m, h or d), such as 15m, not {text:?}"
-        ))
-    };
-    let text = text.trim();
-    let (number, unit) = text.split_at(text.len().checked_sub(1).ok_or_else(bad)?);
-    let number: i64 = number.parse().map_err(|_| bad())?;
-    let unit_ms = match unit {
-        "s" => 1_000,
-        "m" => 60_000,
-        "h" => 3_600_000,
-        "d" => 86_400_000,
-        _ => return Err(bad()),
-    };
-    if number <= 0 {
-        return Err(bad());
-    }
-    number.checked_mul(unit_ms).ok_or_else(bad)
+    super::duration::positive_ms(text)
+        .and_then(|ms| i64::try_from(ms).ok())
+        .ok_or_else(|| {
+            LogsError::Invalid(format!(
+                "since must be a positive duration such as 90s, 15m, 1h, 2d or 1h30m, not {:?}",
+                text.trim()
+            ))
+        })
 }
 
 /// `now`, or an ISO-8601 time. One with an offset or `Z` is that instant; one without, such as

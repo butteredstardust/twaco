@@ -6,6 +6,27 @@ All notable changes to twaco are recorded here. The format follows
 
 ## [Unreleased]
 
+### Changed
+
+- `--every` (timers) and `logs --since` (CLI and MCP) read one duration grammar: `500ms`, `30s`,
+  `15m`, `2h`, `1d`, compounds such as `1h30m`, and ISO 8601 such as `PT15M`. Before, `--every`
+  took no days and `--since` no milliseconds. A bare number is still milliseconds for `--every`.
+- `[unused] keep` patterns use the glob dialect every other `twaco.toml` pattern uses: `*` stays
+  within one `/` step and `**` crosses steps. CONFIGURATION.md now describes the dialect once.
+
+### Added
+
+- `network import` reads a semicolon-separated CSV when its header has semicolons and no comma,
+  as spreadsheets save CSV where the decimal mark is a comma.
+
+### Fixed
+
+- `bundle` no longer follows a linked folder under a collection, which bundled entities from
+  outside the solution; it now walks exactly as entity discovery does, so a linked file is left
+  out as `deploy` leaves it out, and `check` names it.
+- `move` refuses a service sidecar folder that is or holds a link rather than deleting the files behind
+  it, and removing emptied folders never enters a link.
+
 ## [0.1.33] - 2026-10-24
 
 ### Fixed
