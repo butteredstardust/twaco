@@ -6,6 +6,13 @@ All notable changes to twaco are recorded here. The format follows
 
 ## [Unreleased]
 
+### Fixed
+
+- `rename param` finds a parameter key in `twaco.toml` however its table is written: under its own
+  `[project.deploy.deploy_parameters]` header (refused before), dotted, or inline across lines,
+  where a comment holding `old =` was renamed instead of the key. A quoted key spelled with an
+  escape is refused rather than guessed.
+
 ## [0.1.30] - 2026-10-23
 
 ### Changed
