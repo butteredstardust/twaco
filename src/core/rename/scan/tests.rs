@@ -880,6 +880,18 @@ fn a_post_import_parameter_key_is_renamed_under_its_own_header() {
 }
 
 #[test]
+fn the_parameter_table_of_a_later_project_is_the_one_renamed() {
+    let headers = "[[project]]\nname = \"Q\"\ndeploy.deploy_parameters.old = 0\n\n[[project]]\nname = \"P\"\n\
+                   deploy.entry_point_thing = \"Acme.T\"\ndeploy.deploy_service = \"Run\"\ndeploy.deploy_parameters = { 'old'  = 1 }\n";
+    let (written, _) = rename_param_in_config(headers).unwrap();
+    assert_eq!(written, headers.replace("{ 'old'", "{ 'new'"));
+    let inline = "project = [\n  { name = \"Q\" },\n  { name = \"P\", deploy = { entry_point_thing = \"Acme.T\", \
+                  deploy_service = \"Run\", deploy_parameters = { old = 1 } } },\n]\n";
+    let (written, _) = rename_param_in_config(inline).unwrap();
+    assert_eq!(written, inline.replace("{ old = 1", "{ new = 1"));
+}
+
+#[test]
 fn an_escaped_parameter_key_is_refused_and_a_taken_name_is_a_conflict() {
     let escaped = format!("{DEPLOY}deploy_parameters = {{ \"\\u006Fld\" = 1 }}\n");
     assert!(rename_param_in_config(&escaped)
