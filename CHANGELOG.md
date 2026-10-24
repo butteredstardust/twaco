@@ -10,7 +10,9 @@ All notable changes to twaco are recorded here. The format follows
 
 - `logs level` is a subcommand of `logs` rather than a first operand named `level`. `--sublogger`,
   `--reset` and `--apply` belong to it alone, so `logs <log> --reset` is a usage error from the
-  parser, and a reading option before `level` is refused instead of being dropped.
+  parser, and any option before `level` (`--profile` and `--log` included) is refused instead of
+  being dropped: write `logs level <log> --profile <name>`. `logs --help` now shows reading only;
+  `logs level --help` shows the level usage.
 - A tab, line feed or carriage return in a value twaco writes into an attribute is written as a
   character reference, so a server's XML parser reads it back as given instead of as a space.
 
