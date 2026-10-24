@@ -43,7 +43,7 @@ pub(crate) use base::{check_handoff, handoffs, record_handoff};
 pub use base::{suggest as base_suggestions, suggestions_json, Handoff, Side, NO_BASE_NOTE};
 pub use classify::{Change, Kind};
 pub(crate) use compare::{compare_with, CompareOptions};
-pub(crate) use flatten::{glob_matches, row_key, service_bodies};
+pub(crate) use flatten::{row_key, service_bodies};
 pub(crate) use read::{
     export_entities, export_entities_bytes, raw_entity_bytes, replace_entity_bytes,
     repository_entities,
@@ -628,31 +628,6 @@ mod tests {
         assert_eq!(
             flat.get("/Tags/Tag[x#2]@vocabulary").map(String::as_str),
             Some("b")
-        );
-    }
-
-    #[test]
-    fn globs_keep_brackets_literal_and_star_within_a_step() {
-        let pattern = "Things/*/ConfigurationTables/ConfigurationTable[ConnectionInfo]/**";
-        assert!(glob_matches(pattern, "Things/Db/ConfigurationTables/ConfigurationTable[ConnectionInfo]/Rows/Row/password#text"));
-        assert!(!glob_matches(
-            pattern,
-            "Things/Db/ConfigurationTables/ConfigurationTable[Other]/Rows"
-        ));
-        assert!(
-            !glob_matches(
-                pattern,
-                "Things/a/b/ConfigurationTables/ConfigurationTable[ConnectionInfo]/x"
-            ),
-            "* stays in one step"
-        );
-        assert!(glob_matches(
-            "Things/*/ThingProperties/**",
-            "Things/T/ThingProperties/p/Value#text"
-        ));
-        assert!(
-            !glob_matches("Things/*", "Things/T/extra"),
-            "anchored at the end"
         );
     }
 

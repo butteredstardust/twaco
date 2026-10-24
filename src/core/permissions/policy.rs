@@ -11,7 +11,7 @@
 
 use super::model::ModelEntity;
 use super::{Grant, Grants};
-use crate::core::adopt::glob_matches;
+use crate::core::glob::matches as glob_matches;
 use serde::Deserialize;
 use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};

@@ -12,6 +12,7 @@
 
 use super::config::Solution;
 use super::entity::key::EntityKey;
+use super::glob;
 use super::index::{Confidence, Index, Unreadable};
 use serde::Serialize;
 use std::collections::{BTreeMap, BTreeSet};
@@ -68,36 +69,11 @@ pub struct Report {
     pub(crate) limits: &'static str,
 }
 
-/// Whether `pattern` matches `text`, `*` standing for any run of characters.
-fn glob(pattern: &str, text: &str) -> bool {
-    let parts: Vec<&str> = pattern.split('*').collect();
-    if parts.len() == 1 {
-        return pattern == text;
-    }
-    let mut rest = text;
-    for (at, part) in parts.iter().enumerate() {
-        if at == 0 {
-            let Some(after) = rest.strip_prefix(part) else {
-                return false;
-            };
-            rest = after;
-        } else if at == parts.len() - 1 {
-            return rest.ends_with(part);
-        } else {
-            let Some(found) = rest.find(part) else {
-                return false;
-            };
-            rest = &rest[found + part.len()..];
-        }
-    }
-    true
-}
-
 /// A keep pattern names an entity by `Collection/Name` or by its full name.
 fn kept(patterns: &[String], key: &EntityKey) -> bool {
-    patterns
-        .iter()
-        .any(|pattern| glob(pattern, &key.to_string()) || glob(pattern, key.name()))
+    patterns.iter().any(|pattern| {
+        glob::matches(pattern, &key.to_string()) || glob::matches(pattern, key.name())
+    })
 }
 
 pub fn run(solution: &Solution, request: &Request) -> Report {
@@ -174,9 +150,9 @@ pub fn run(solution: &Solution, request: &Request) -> Report {
     let keep_unmatched = keep
         .iter()
         .filter(|pattern| {
-            !index
-                .entities()
-                .any(|(key, _)| glob(pattern, &key.to_string()) || glob(pattern, key.name()))
+            !index.entities().any(|(key, _)| {
+                glob::matches(pattern, &key.to_string()) || glob::matches(pattern, key.name())
+            })
         })
         .cloned()
         .collect();
@@ -545,14 +521,20 @@ mod tests {
 
     #[test]
     fn a_star_matches_any_run_and_nothing_else_does() {
-        assert!(glob("Acme.Orders.Manager", "Acme.Orders.Manager"));
-        assert!(!glob("Acme.Orders.Manager", "Acme.Orders.Manager2"));
-        assert!(glob("Acme.*", "Acme.Orders.Manager"));
-        assert!(glob("Things/Acme.*.Manager", "Things/Acme.Orders.Manager"));
-        assert!(glob("*Manager", "Acme.Orders.Manager"));
-        assert!(glob("*", "anything"));
-        assert!(!glob("Acme.*.Manager", "Acme.Orders.Audit"));
-        assert!(!glob("Things/*", "ThingShapes/Acme.X"));
-        assert!(glob("A*B*C", "A--B--C") && !glob("A*B*C", "A--C--B"));
+        assert!(glob::matches("Acme.Orders.Manager", "Acme.Orders.Manager"));
+        assert!(!glob::matches(
+            "Acme.Orders.Manager",
+            "Acme.Orders.Manager2"
+        ));
+        assert!(glob::matches("Acme.*", "Acme.Orders.Manager"));
+        assert!(glob::matches(
+            "Things/Acme.*.Manager",
+            "Things/Acme.Orders.Manager"
+        ));
+        assert!(glob::matches("*Manager", "Acme.Orders.Manager"));
+        assert!(glob::matches("*", "anything"));
+        assert!(!glob::matches("Acme.*.Manager", "Acme.Orders.Audit"));
+        assert!(!glob::matches("Things/*", "ThingShapes/Acme.X"));
+        assert!(glob::matches("A*B*C", "A--B--C") && !glob::matches("A*B*C", "A--C--B"));
     }
 }

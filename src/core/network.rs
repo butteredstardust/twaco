@@ -108,12 +108,21 @@ pub struct AssetRow {
 
 /// Read the deliberately small asset-import dialect.  This is kept here rather than accepting
 /// an ad-hoc split on commas: descriptions and names exported by asset tools regularly contain
-/// commas and newlines.
+/// commas and newlines. The `csv` crate would read the same, but takes an unclosed quote as the
+/// end of the file rather than an error. Fields are separated by commas, or by semicolons when
+/// the header has a semicolon and no comma, as a spreadsheet saves CSV in a locale whose decimal
+/// mark is a comma.
 pub fn assets_csv(src: &[u8]) -> Result<Vec<AssetRow>, NetworkError> {
     let text = std::str::from_utf8(src)
         .map_err(|error| NetworkError::Invalid(format!("CSV is not UTF-8: {error}")))?
         .strip_prefix('\u{feff}')
         .unwrap_or_else(|| std::str::from_utf8(src).expect("checked UTF-8"));
+    let header = text.lines().next().unwrap_or_default();
+    let delimiter = if header.contains(';') && !header.contains(',') {
+        ';'
+    } else {
+        ','
+    };
     let mut records = Vec::<(usize, Vec<String>)>::new();
     let mut row = Vec::new();
     let mut field = String::new();
@@ -136,7 +145,7 @@ pub fn assets_csv(src: &[u8]) -> Result<Vec<AssetRow>, NetworkError> {
                     quoted = false;
                 }
             }
-            ',' if !quoted => {
+            ch if ch == delimiter && !quoted => {
                 row.push(std::mem::take(&mut field));
                 at_start = true;
             }
@@ -1066,6 +1075,18 @@ mod tests {
         assert_eq!(rows[0].description, "site, primary");
         assert_eq!(rows[1].connection_type, "Contains");
         assert_eq!(rows[1].description, "line one\r\nline two");
+    }
+
+    #[test]
+    fn asset_csv_reads_semicolons_when_the_header_has_no_comma() {
+        let rows = assets_csv(b"name;parent;description\nAcme.Site;;\"site; primary, 1,5 m\"\nAcme.Line;Acme.Site;3,5\n").unwrap();
+        assert_eq!(rows[0].description, "site; primary, 1,5 m");
+        assert_eq!(
+            (rows[1].parent.as_str(), rows[1].description.as_str()),
+            ("Acme.Site", "3,5")
+        );
+        let commas = assets_csv(b"name,parent,description\nAcme.Site,,a;b\n").unwrap();
+        assert_eq!(commas[0].description, "a;b");
     }
 
     #[test]

@@ -1168,26 +1168,28 @@ pub(crate) fn apply(plan: &Plan, lock: &WorkspaceLock) -> Result<Applied, Reloca
     Ok(Applied { written, removed })
 }
 
-/// Every regular file under `folder`, at any depth.
+/// Every regular file under `folder`, at any depth. A link is refused, not followed: what it
+/// points at is not this workspace's to delete.
 fn files_under(folder: &Path) -> std::io::Result<Vec<PathBuf>> {
-    let mut files = Vec::new();
-    for entry in std::fs::read_dir(folder)? {
-        let path = entry?.path();
-        if path.is_dir() {
-            files.extend(files_under(&path)?);
-        } else if path.is_file() {
-            files.push(path);
-        }
+    let tree = workspace::walk_all(folder);
+    if let Some(link) = tree.links.first() {
+        return Err(std::io::Error::other(format!(
+            "{} is a link; twaco does not follow links",
+            link.display()
+        )));
     }
-    files.sort();
-    Ok(files)
+    if let Some(why) = tree.unreadable.first() {
+        return Err(std::io::Error::other(why.clone()));
+    }
+    Ok(tree.files)
 }
 
-/// Remove `folder` and every folder under it that is empty, deepest first; nothing else.
+/// Remove `folder` and every folder under it that is empty, deepest first; nothing else. A link
+/// is never entered.
 fn remove_empty_folders(folder: &Path) {
     if let Ok(entries) = std::fs::read_dir(folder) {
         for entry in entries.flatten() {
-            if entry.path().is_dir() {
+            if entry.file_type().is_ok_and(|kind| kind.is_dir()) {
                 remove_empty_folders(&entry.path());
             }
         }

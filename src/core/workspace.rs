@@ -244,7 +244,7 @@ fn entity_paths(solution: &Solution, project: &Project) -> (Vec<PathBuf>, Vec<St
 /// Every `.xml` under `dir`. A link is reported rather than followed, so nothing outside the
 /// project is read as its own; a folder that cannot be read is reported, not skipped. A
 /// collection folder that does not exist is simply empty.
-fn collect_xml(dir: &Path, out: &mut Vec<PathBuf>, failures: &mut Vec<String>) {
+pub(crate) fn collect_xml(dir: &Path, out: &mut Vec<PathBuf>, failures: &mut Vec<String>) {
     let entries = match std::fs::read_dir(dir) {
         Ok(entries) => entries,
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => return,
@@ -658,6 +658,8 @@ const SKIPPED_DIRS: &[&str] = &[
 pub(crate) struct Tree {
     pub(crate) files: Vec<PathBuf>,
     pub(crate) dirs: Vec<PathBuf>,
+    /// Links (and anything else neither a file nor a folder), reported, never followed.
+    pub(crate) links: Vec<PathBuf>,
     pub(crate) unreadable: Vec<String>,
 }
 
@@ -684,10 +686,10 @@ pub(crate) fn walk_repository(root: &Path) -> Tree {
     )
 }
 
-/// Every file and directory under the sidecar tree at `root`. Nothing is skipped by name or by
-/// an ignore file: sidecar folders are named for services, and a service may well be called
+/// Every file and directory under `root`, such as the sidecar tree. Nothing is skipped by name or
+/// by an ignore file: sidecar folders are named for services, and a service may well be called
 /// `build` or `out`. Links are not followed, as in [`walk_repository`].
-fn walk_sidecars(root: &Path) -> Tree {
+pub(crate) fn walk_all(root: &Path) -> Tree {
     walk(
         ignore::WalkBuilder::new(root)
             .standard_filters(false)
@@ -704,13 +706,14 @@ fn walk(builder: &mut ignore::WalkBuilder) -> Tree {
                 Some(kind) if kind.is_file() => tree.files.push(entry.into_path()),
                 Some(kind) if kind.is_dir() => tree.dirs.push(entry.into_path()),
                 // A link, or something that is neither: not followed, not read.
-                _ => {}
+                _ => tree.links.push(entry.into_path()),
             },
             Err(error) => tree.unreadable.push(error.to_string()),
         }
     }
     tree.files.sort();
     tree.dirs.sort();
+    tree.links.sort();
     tree
 }
 
@@ -721,7 +724,7 @@ pub(crate) fn script_files(solution: &Solution) -> Tree {
     if !root.exists() {
         return Tree::default();
     }
-    let mut tree = walk_sidecars(&root);
+    let mut tree = walk_all(&root);
     tree.files
         .retain(|path| path.file_name().is_some_and(|name| name == "script.js"));
     tree.dirs.clear();

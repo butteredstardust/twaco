@@ -627,7 +627,7 @@ connections changed since the last deploy is refused like any other server chang
 overrides); pull first to keep them.
 
 `network import` brings an asset export into that same hierarchy. Its `--file` is UTF-8 RFC 4180
-CSV (a BOM, CRLF, quoted commas, doubled quotes and quoted newlines are accepted), with `name` and
+CSV (a BOM, CRLF, quoted commas, doubled quotes and quoted newlines are accepted; a header with semicolons and no comma means the file is semicolon-separated, as spreadsheets save it where the decimal mark is a comma), with `name` and
 `parent` headers and optional `type`, `template`, `description` and `project`. An empty `parent`
 makes a root. Parents are applied before their children even if the CSV puts the child first. A
 row without a `type` keeps an existing connection's type (a new one is `Contains`); a row that

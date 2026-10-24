@@ -6119,7 +6119,7 @@
           "type": "string"
         },
         "since": {
-          "description": "How far back, ending now: a number and s, m, h or d. Not with from/to.",
+          "description": "How far back, ending now: a duration such as 90s, 15m, 2d or 1h30m. Not with from/to.",
           "type": "string",
           "default": "1h"
         },

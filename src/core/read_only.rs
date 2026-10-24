@@ -61,7 +61,7 @@ fn declared(entries: &[String], collection: &str, name: &str, service: &str) -> 
     let entity = format!("{collection}/{name}");
     entries.iter().any(|entry| {
         entry.rsplit_once('.').is_some_and(|(selector, listed)| {
-            listed == service && super::adopt::glob_matches(selector, &entity)
+            listed == service && super::glob::matches(selector, &entity)
         })
     })
 }

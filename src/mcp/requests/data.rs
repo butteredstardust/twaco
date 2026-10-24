@@ -178,7 +178,7 @@ impl LogsLevel {
 pub(crate) struct LogsRequest {
     /// ApplicationLog, ScriptLog, CommunicationLog, ConfigurationLog or SecurityLog.
     pub(crate) log: String,
-    /// How far back, ending now: a number and s, m, h or d. Not with from/to.
+    /// How far back, ending now: a duration such as 90s, 15m, 2d or 1h30m. Not with from/to.
     #[serde(default, skip_serializing_if = "Absent::is_absent")]
     #[schemars(extend("default" = "1h"))]
     pub(crate) since: Absent<String>,

@@ -129,7 +129,7 @@ impl Rule {
     pub(crate) fn matches(&self, collection: &str, name: &str) -> bool {
         self.entities
             .iter()
-            .any(|p| super::adopt::glob_matches(p, &format!("{collection}/{name}")))
+            .any(|p| super::glob::matches(p, &format!("{collection}/{name}")))
     }
 }
 
