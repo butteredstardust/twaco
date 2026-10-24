@@ -96,7 +96,8 @@ flowchart LR
 
 `sync` writes back only the spans it changed, so an untouched entity stays byte for byte the
 same. `deploy` runs the gates, bundles each project in dependency order, and refuses before it
-imports anything when a script does not parse or someone changed the server since your last deploy:
+imports anything when a script does not parse, or when the server's copy of an entity is not the
+one your last deploy left there (changed, deleted, or never recorded) and `--force` is absent:
 
 ```mermaid
 sequenceDiagram
@@ -108,8 +109,10 @@ sequenceDiagram
     twaco->>Server: parse every service script
     twaco->>Server: read each entity the bundles hold
     twaco->>twaco: compare each with the baseline of the last deploy
-    alt a script does not parse, or the server changed (without --force)
-        twaco-->>You: refused, naming the entity and service
+    alt a script does not parse
+        twaco-->>You: refused, naming the entity, service and line
+    else the server's copy differs from the baseline, without --force
+        twaco-->>You: refused as a conflict, naming each entity
     else without --apply
         twaco-->>You: the plan: what it imports, and what it calls
     else with --apply
@@ -261,7 +264,7 @@ claude mcp add twaco -- twaco mcp           # Claude Code, from the solution's r
 Any MCP client works: run `twaco mcp` with the solution as its working directory, or set
 `TWACO_ROOT`. Tools that write to the server default to `dry_run: true`, and results are
 summaries unless the agent asks for detail, so a large solution stays affordable in context.
-The 81 tool definitions together take about 140 KB of an agent's context (93 KB for a client
+The 81 tool definitions together take about 143 KB of an agent's context (93 KB for a client
 without output schemas); `twaco mcp --tools core,entity` (or `TWACO_MCP_TOOLS`) serves only the
 groups it needs (`core`, `entity`, `refactor`, `mashup`, `permissions`, `data`, `server`,
 `reference`). `core` alone, the everyday loop, is about 35 KB. See
