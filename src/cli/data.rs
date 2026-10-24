@@ -438,10 +438,14 @@ pub(crate) fn call(solution: &Solution, args: &Call) -> u8 {
     OK
 }
 
-/// `twaco logs <log> [...]` and `twaco logs level <log> [<LEVEL>] [...]`.
+/// `twaco logs <log> [...]`, and `twaco logs level` as its one subcommand. An option given
+/// before `level` is refused rather than taken for the subcommand.
 #[derive(Debug, clap::Args)]
 #[group(skip)]
+#[command(args_conflicts_with_subcommands = true)]
 pub(crate) struct Logs {
+    #[command(subcommand)]
+    pub(crate) action: Option<LogsAction>,
     #[arg(long = "since", value_name = "duration")]
     pub(crate) since: Option<String>,
     #[arg(long = "from", value_name = "address")]
@@ -468,12 +472,28 @@ pub(crate) struct Logs {
     pub(crate) json: Json,
     #[command(flatten)]
     pub(crate) profile: Profile,
+    #[arg(id = "operands", value_name = "operand")]
+    pub(crate) operands: Vec<String>,
+}
+
+#[derive(Debug, clap::Subcommand)]
+pub(crate) enum LogsAction {
+    Level(LogLevel),
+}
+
+/// `twaco logs level <log> [<LEVEL>] [--sublogger <name>] [--reset] [--apply]`.
+#[derive(Debug, clap::Args)]
+#[group(skip)]
+pub(crate) struct LogLevel {
     #[arg(long = "sublogger", value_name = "name")]
     pub(crate) sublogger: Option<String>,
     #[arg(long = "reset")]
     pub(crate) reset: bool,
     #[command(flatten)]
     pub(crate) apply: Apply,
+    #[command(flatten)]
+    pub(crate) profile: Profile,
+    /// `<log> [<LEVEL>]`.
     #[arg(id = "operands", value_name = "operand")]
     pub(crate) operands: Vec<String>,
 }
@@ -481,21 +501,16 @@ pub(crate) struct Logs {
 /// Read one of the server's logs. Read-only, so it takes no lock.
 pub(crate) fn logs_cmd(solution: &Solution, args: &Logs) -> u8 {
     use twaco::core::logs;
-    if args.operands.first().map(String::as_str) == Some("level") {
-        return log_level_cmd(solution, args);
+    if let Some(LogsAction::Level(level)) = &args.action {
+        return log_level_cmd(solution, level);
     }
-    for (only_for_levels, given) in [
-        ("--sublogger", args.sublogger.is_some()),
-        ("--reset", args.reset),
-        ("--apply", args.apply.apply),
-    ] {
-        if given {
-            eprintln!(
-                "{} logs: {only_for_levels} belongs to `twaco logs level`",
-                style::prefix()
-            );
-            return FAILED;
-        }
+    // After a reading option `level` is not the subcommand but a log name, and no log has it.
+    if args.operands.first().map(String::as_str) == Some("level") {
+        eprintln!(
+            "{} logs: `level` comes straight after `logs`; it takes none of the reading options",
+            style::prefix()
+        );
+        return FAILED;
     }
     let built = (|| -> Result<logs::Query, String> {
         let [log] = args.operands.as_slice() else {
@@ -623,12 +638,11 @@ pub(crate) fn logs_cmd(solution: &Solution, args: &Logs) -> u8 {
 
 /// `twaco logs level <log> [<LEVEL>] [--sublogger S] [--reset] [--apply]`. Reading is the default;
 /// a change is a plan unless --apply, as for every server write. It writes no workspace file.
-fn log_level_cmd(solution: &Solution, args: &Logs) -> u8 {
+fn log_level_cmd(solution: &Solution, args: &LogLevel) -> u8 {
     use twaco::core::logs;
     let request = (|| -> Result<(String, Option<logs::Change>), String> {
-        let rest = &args.operands[1..];
         let sublogger = args.sublogger.clone();
-        let (log, level) = match rest {
+        let (log, level) = match args.operands.as_slice() {
             [log] => (log.clone(), None),
             [log, level] => (
                 log.clone(),

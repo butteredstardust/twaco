@@ -548,6 +548,24 @@ fn values_reach_the_fields_the_commands_read() {
     assert_eq!(logs.operands, ["ScriptLog"]);
     assert_eq!(logs.since.as_deref(), Some("10m"));
     assert!(logs.json.json);
+    assert!(logs.action.is_none());
+    // `logs level` is a subcommand with its own flags; reading flags are not among them.
+    let Command::Logs(logs) = parse(&["logs", "level", "ScriptLog", "warn", "--apply"]).unwrap()
+    else {
+        panic!("logs level parses as logs");
+    };
+    let Some(super::data::LogsAction::Level(level)) = logs.action else {
+        panic!("level is the subcommand");
+    };
+    assert_eq!(level.operands, ["ScriptLog", "warn"]);
+    assert!(level.apply.apply);
+    for refused in [
+        &["logs", "ScriptLog", "--reset"][..],
+        &["logs", "ScriptLog", "--sublogger", "x"],
+        &["logs", "level", "ScriptLog", "--since", "1h"],
+    ] {
+        assert!(parse(refused).is_err(), "{refused:?}");
+    }
     let Command::Init(init) =
         parse(&["init", "--from-server", "A", "B", "--apply", "--json"]).unwrap()
     else {
