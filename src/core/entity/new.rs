@@ -12,6 +12,7 @@ use crate::core::lock::WorkspaceLock;
 use crate::core::mashup::authoring::parse_visibility;
 use crate::core::mashup::templates::Visibility;
 use crate::core::refs;
+use crate::core::scan::escape_attribute as escape;
 use crate::core::transaction::{Transaction, TransactionError};
 use crate::core::types;
 use crate::core::workspace;
@@ -237,13 +238,6 @@ impl Coded for NewError {
             Self::Write(error) => error.code(),
         }
     }
-}
-
-fn escape(value: &str) -> String {
-    value
-        .replace('&', "&amp;")
-        .replace('<', "&lt;")
-        .replace('"', "&quot;")
 }
 
 fn project<'a>(

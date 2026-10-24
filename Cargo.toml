@@ -29,7 +29,8 @@ htmd = "0.5.5"
 percent-encoding = "2.3.2"
 url = "2.5.8"
 base64 = "0.23.1"
-zip = "9.0.0"
+# Deflate only: what twaco writes, and what extension packages, exports and its own releases use.
+zip = { version = "9.0.0", default-features = false, features = ["deflate-flate2-zlib-rs"] }
 ignore = "0.4.33"
 swc_ecma_parser = "=27.0.7"
 swc_common = "=17.0.1"

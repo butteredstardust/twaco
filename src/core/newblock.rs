@@ -168,14 +168,6 @@ pub struct Plan {
     pub notes: Vec<String>,
 }
 
-fn attribute_escaped(value: &str) -> String {
-    value
-        .replace('&', "&amp;")
-        .replace('"', "&quot;")
-        .replace('<', "&lt;")
-        .replace('>', "&gt;")
-}
-
 /// Replace every `@@TOKEN@@` in one pass, so a value is never searched for tokens itself.
 pub(crate) fn fill(template: &str, values: &BTreeMap<&str, String>) -> String {
     let mut out = String::with_capacity(template.len());
@@ -419,13 +411,16 @@ pub(crate) fn plan(solution: &Solution, request: &Request) -> Result<Plan, NewBl
         .unwrap_or_else(|| request.name.clone());
     let mut values: BTreeMap<&str, String> = BTreeMap::new();
     values.insert("NAME", request.name.clone());
-    values.insert("DESCRIPTION", attribute_escaped(&request.description));
+    values.insert(
+        "DESCRIPTION",
+        super::scan::escape_attribute(&request.description),
+    );
     values.insert("DESCRIPTION_TEXT", request.description.clone());
     values.insert("DISPLAY_TEXT", display);
     values.insert("TYPE", request.kind.component_type().to_string());
     values.insert("ENTRY_BASE", entry_base);
     values.insert("MANAGER_BASE", manager_base);
-    values.insert("DEPENDS_ON", attribute_escaped(&depends));
+    values.insert("DEPENDS_ON", super::scan::escape_attribute(&depends));
 
     let base = solution.root.join(&root);
     refuse_linked_path(&solution.root, &base)?;

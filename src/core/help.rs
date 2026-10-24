@@ -661,19 +661,35 @@ fn escape(text: &str) -> String {
         .replace('>', "&gt;")
 }
 
+/// The section whose heading holds `wanted`, down to the next heading at its level or above. A
+/// `#` line inside a fenced code block is code, not a heading.
 fn section(markdown: &str, wanted: &str) -> Option<String> {
     let wanted = wanted.to_lowercase();
-    let level = |line: &str| line.chars().take_while(|c| *c == '#').count();
-    let lines: Vec<&str> = markdown.lines().collect();
+    let lines: Vec<(&str, usize)> = super::guide::lines_with_code(markdown)
+        .map(|(line, code)| {
+            let level = if code {
+                0
+            } else {
+                line.chars().take_while(|c| *c == '#').count()
+            };
+            (line, level)
+        })
+        .collect();
     let start = lines
         .iter()
-        .position(|line| level(line) > 0 && line.to_lowercase().contains(&wanted))?;
-    let depth = level(lines[start]);
+        .position(|(line, level)| *level > 0 && line.to_lowercase().contains(&wanted))?;
+    let depth = lines[start].1;
     let end = lines[start + 1..]
         .iter()
-        .position(|line| (1..=depth).contains(&level(line)))
+        .position(|(_, level)| (1..=depth).contains(level))
         .map_or(lines.len(), |offset| start + 1 + offset);
-    Some(lines[start..end].join("\n"))
+    Some(
+        lines[start..end]
+            .iter()
+            .map(|(line, _)| *line)
+            .collect::<Vec<_>>()
+            .join("\n"),
+    )
 }
 
 /// Every `](target)` in Markdown, resolved against the page's own address, so a link can be
@@ -746,6 +762,14 @@ mod tests {
             asked
         });
         (address, handle)
+    }
+
+    #[test]
+    fn a_hash_line_inside_code_neither_starts_nor_ends_a_section() {
+        let markdown = "# Page\n\n## Usage\n```sh\n# usage note\ntwaco x\n```\nafter\n## Next\n";
+        let usage = section(markdown, "usage").unwrap();
+        assert!(usage.starts_with("## Usage"));
+        assert!(usage.ends_with("after"), "{usage}");
     }
 
     #[test]

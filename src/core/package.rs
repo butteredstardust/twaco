@@ -272,11 +272,7 @@ fn escape(text: &str) -> Result<String, PackageError> {
             "{text:?} holds {c:?}, which XML cannot hold"
         )));
     }
-    Ok(text
-        .replace('&', "&amp;")
-        .replace('"', "&quot;")
-        .replace('<', "&lt;")
-        .replace('>', "&gt;"))
+    Ok(super::scan::escape_attribute(text))
 }
 
 /// `metadata.xml` for one project, `dependsOn` from its `depends_on`.

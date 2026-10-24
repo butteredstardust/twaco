@@ -6,6 +6,11 @@ All notable changes to twaco are recorded here. The format follows
 
 ## [Unreleased]
 
+### Fixed
+
+- `help read --section` no longer takes a `#` line inside a code block for a heading, which cut
+  the section short.
+
 ## [0.1.32] - 2026-10-24
 
 ### Fixed

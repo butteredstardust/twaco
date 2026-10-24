@@ -40,8 +40,6 @@ allow = [
     "MPL-2.0",
     # Data licence of the bundled root-certificate lists (webpki-roots).
     "CDLA-Permissive-2.0",
-    # bzip2's own permissive licence (libbz2-rs-sys, via zip).
-    "bzip2-1.0.6",
 ]
 
 [bans]
