@@ -43,6 +43,52 @@ impl Secret {
     pub(crate) fn is_empty(&self) -> bool {
         self.0.is_empty()
     }
+
+    /// An empty secret with room for `capacity` bytes, so that text pushed into it up to that
+    /// size is never moved to a new allocation and left behind unzeroed in the old one.
+    pub(crate) fn with_capacity(capacity: usize) -> Self {
+        Self(String::with_capacity(capacity))
+    }
+
+    /// Append `text`. When it does not fit, the secret moves to a larger buffer and the old one
+    /// is zeroed, which `String::push_str` alone would free with the secret still in it.
+    pub(crate) fn push_str(&mut self, text: &str) {
+        if self.0.capacity() - self.0.len() < text.len() {
+            let needed = self.0.len() + text.len();
+            let mut grown = Self::with_capacity(needed.max(self.0.capacity() * 2));
+            grown.0.push_str(&self.0);
+            std::mem::swap(self, &mut grown);
+        }
+        self.0.push_str(text);
+    }
+
+    /// The text, leaving this secret empty. For moving a value into another zeroing holder.
+    fn take(&mut self) -> String {
+        std::mem::take(&mut self.0)
+    }
+}
+
+/// Zero every string inside `value`, for a TOML value that held profile text.
+pub(crate) fn zeroize_toml(value: &mut toml::Value) {
+    match value {
+        toml::Value::String(text) => zeroize::Zeroize::zeroize(text),
+        toml::Value::Array(values) => values.iter_mut().for_each(zeroize_toml),
+        toml::Value::Table(table) => table.iter_mut().for_each(|(_, value)| zeroize_toml(value)),
+        toml::Value::Integer(_)
+        | toml::Value::Float(_)
+        | toml::Value::Boolean(_)
+        | toml::Value::Datetime(_) => {}
+    }
+}
+
+/// Zero every string inside `value`, for a request parameter that held a credential.
+pub(crate) fn zeroize_json(value: &mut serde_json::Value) {
+    match value {
+        serde_json::Value::String(text) => zeroize::Zeroize::zeroize(text),
+        serde_json::Value::Array(values) => values.iter_mut().for_each(zeroize_json),
+        serde_json::Value::Object(map) => map.iter_mut().for_each(|(_, value)| zeroize_json(value)),
+        serde_json::Value::Null | serde_json::Value::Bool(_) | serde_json::Value::Number(_) => {}
+    }
 }
 
 impl From<&str> for Secret {
@@ -66,6 +112,16 @@ impl fmt::Debug for Secret {
 impl Drop for Secret {
     fn drop(&mut self) {
         zeroize::Zeroize::zeroize(&mut self.0);
+    }
+}
+
+/// The address may carry `user:password`, and free-form values hold database passwords and other
+/// secrets, so they are zeroed like the credentials themselves.
+impl Drop for Profile {
+    fn drop(&mut self) {
+        zeroize::Zeroize::zeroize(&mut self.url);
+        zeroize::Zeroize::zeroize(&mut self.username);
+        self.extra.values_mut().for_each(zeroize_toml);
     }
 }
 
@@ -161,8 +217,9 @@ impl std::error::Error for ProfileError {}
 
 /// Load `name` with workspace-over-global shadowing and environment overrides.
 pub fn load(solution_root: &Path, name: &str) -> Result<Profile, ProfileError> {
-    let environment: BTreeMap<String, String> = std::env::vars()
+    let environment: BTreeMap<String, Secret> = std::env::vars()
         .filter(|(key, _)| key.starts_with("TWACO_") || key.starts_with("TWX_"))
+        .map(|(key, value)| (key, Secret(value)))
         .collect();
     let home = home();
     load_from(solution_root, home.as_deref(), name, &environment)
@@ -334,10 +391,12 @@ fn save_app_key_in(
     } else {
         "\n"
     };
-    let line = Secret::new(format!(
-        "app_key = {}",
-        toml::Value::String(key.expose().to_string())
-    ));
+    let mut quoted = toml::Value::String(key.expose().to_string());
+    let rendered = Secret::new(quoted.to_string());
+    zeroize_toml(&mut quoted);
+    let mut line = Secret::with_capacity("app_key = ".len() + rendered.expose().len());
+    line.push_str("app_key = ");
+    line.push_str(rendered.expose());
     // Top-level keys come before the first table; app_key goes where the old one was, or after
     // the last top-level line.
     let mut lines: Vec<&str> = text.expose().lines().collect();
@@ -366,7 +425,7 @@ fn save_app_key_in(
     lines.insert(at, line.expose());
     let mut out = Secret::new(lines.join(newline));
     if text.expose().ends_with('\n') || text.expose().is_empty() {
-        out.0.push_str(newline);
+        out.push_str(newline);
     }
     let written: Profile = toml::from_str(out.expose()).map_err(|e| ProfileError::Invalid {
         path: path.clone(),
@@ -423,7 +482,7 @@ fn load_from(
     solution_root: &Path,
     home: Option<&Path>,
     name: &str,
-    environment: &BTreeMap<String, String>,
+    environment: &BTreeMap<String, Secret>,
 ) -> Result<Profile, ProfileError> {
     let searched = files(solution_root, home, name)?;
     // First existing file wins; an invalid local profile is an error, not permission to fall
@@ -432,7 +491,9 @@ fn load_from(
         .iter()
         .map(PathBuf::as_path)
         .find(|path| path.is_file());
-    let mut values = BTreeMap::<&'static str, String>::new();
+    // Every standard field is held as a secret until it is placed: the URL may carry a password,
+    // and an error return drops whatever was read so far.
+    let mut values = BTreeMap::<&'static str, Secret>::new();
     let mut extra = BTreeMap::<String, toml::Value>::new();
     let mut source = "environment".to_string();
     if let Some(path) = selected {
@@ -449,11 +510,11 @@ fn load_from(
                 path: path.to_path_buf(),
                 why: e.to_string(),
             })?;
-        values.insert("url", std::mem::take(&mut profile.url));
-        values.insert("username", std::mem::take(&mut profile.username));
-        values.insert("password", std::mem::take(&mut profile.password.0));
-        if let Some(mut app_key) = profile.app_key.take() {
-            values.insert("app_key", std::mem::take(&mut app_key.0));
+        values.insert("url", Secret(std::mem::take(&mut profile.url)));
+        values.insert("username", Secret(std::mem::take(&mut profile.username)));
+        values.insert("password", Secret(profile.password.take()));
+        if let Some(app_key) = profile.app_key.take() {
+            values.insert("app_key", app_key);
         }
         extra = std::mem::take(&mut profile.extra);
         source = path.display().to_string();
@@ -482,10 +543,12 @@ fn load_from(
         if matches!(suffix, "URL" | "USERNAME" | "PASSWORD" | "APP_KEY") || value.is_empty() {
             continue;
         }
-        extra.insert(
+        if let Some(mut replaced) = extra.insert(
             suffix.to_ascii_lowercase(),
-            toml::Value::String(value.clone()),
-        );
+            toml::Value::String(value.expose().to_string()),
+        ) {
+            zeroize_toml(&mut replaced);
+        }
     }
 
     let missing: Vec<&'static str> = ["url", "username", "password"]
@@ -493,10 +556,11 @@ fn load_from(
         .filter(|field| {
             values
                 .get(field)
-                .is_none_or(|value| value.trim().is_empty())
+                .is_none_or(|value| value.expose().trim().is_empty())
         })
         .collect();
     if !missing.is_empty() {
+        extra.values_mut().for_each(zeroize_toml);
         if selected.is_none() && values.is_empty() {
             return Err(ProfileError::Missing {
                 name: name.to_string(),
@@ -506,11 +570,12 @@ fn load_from(
         return Err(ProfileError::Incomplete { source, missing });
     }
 
+    let mut field = |name| values.remove(name);
     Ok(Profile {
-        url: values.remove("url").expect("checked above"),
-        username: values.remove("username").expect("checked above"),
-        password: Secret(values.remove("password").expect("checked above")),
-        app_key: values.remove("app_key").map(Secret),
+        url: field("url").expect("checked above").take(),
+        username: field("username").expect("checked above").take(),
+        password: field("password").expect("checked above"),
+        app_key: field("app_key"),
         extra,
     })
 }
@@ -537,6 +602,38 @@ mod tests {
         assert_eq!(format!("{secret:?}"), "<redacted>");
         assert_eq!(format!("{:?}", Some(&secret)), "Some(<redacted>)");
         assert_eq!(secret.expose(), "hunter2");
+    }
+
+    /// Growing past the reserved room must keep every byte, in order, across the move.
+    #[test]
+    fn a_secret_grows_without_losing_text() {
+        let mut secret = Secret::with_capacity(3);
+        for part in ["abc", "d", "efghijklmnop", "", "q"] {
+            secret.push_str(part);
+        }
+        assert_eq!(secret.expose(), "abcdefghijklmnopq");
+        let room = secret.0.capacity();
+        secret.push_str(&"x".repeat(room));
+        assert_eq!(secret.expose().len(), 17 + room);
+    }
+
+    #[test]
+    fn zeroing_a_value_clears_every_nested_string() {
+        let mut toml_value: toml::Value =
+            toml::from_str("a = 'one'\nb = ['two', 3]\nc = { d = 'four' }").unwrap();
+        zeroize_toml(&mut toml_value);
+        assert_eq!(
+            toml_value.to_string().matches("\"\"").count(),
+            3,
+            "{toml_value}"
+        );
+        let mut json_value =
+            serde_json::json!({ "a": "one", "b": ["two", 3], "c": { "d": "four" } });
+        zeroize_json(&mut json_value);
+        assert_eq!(
+            json_value,
+            serde_json::json!({ "a": "", "b": ["", 3], "c": { "d": "" } })
+        );
     }
 
     #[test]
@@ -722,8 +819,8 @@ mod tests {
         write(&local, "https://local/", "local-user", "local-pass");
 
         let mut env = BTreeMap::new();
-        env.insert("TWX_USERNAME".to_string(), "legacy-user".to_string());
-        env.insert("TWACO_USERNAME".to_string(), "override-user".to_string());
+        env.insert("TWX_USERNAME".to_string(), Secret::from("legacy-user"));
+        env.insert("TWACO_USERNAME".to_string(), Secret::from("override-user"));
         let profile = load_from(&root.join("repo"), Some(&home), "default", &env).unwrap();
         assert_eq!(profile.url, "https://local/");
         assert_eq!(profile.username, "override-user");
@@ -763,10 +860,10 @@ mod tests {
         let env = BTreeMap::from([
             (
                 "TWX_URL".to_string(),
-                "http://server/Thingworx/".to_string(),
+                Secret::from("http://server/Thingworx/"),
             ),
-            ("TWX_USERNAME".to_string(), "user".to_string()),
-            ("TWX_PASSWORD".to_string(), "pass".to_string()),
+            ("TWX_USERNAME".to_string(), Secret::from("user")),
+            ("TWX_PASSWORD".to_string(), Secret::from("pass")),
         ]);
         assert_eq!(
             load_from(&root, None, "default", &env).unwrap().username,

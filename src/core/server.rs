@@ -39,7 +39,7 @@ pub struct Client {
     /// requests, and a new agent per request meant a new connection each time.
     agent: ureq::Agent,
     /// What an error message must never repeat: see [`secrets_of`].
-    secrets: Vec<String>,
+    secrets: Vec<Secret>,
 }
 
 impl Client {
@@ -81,7 +81,7 @@ impl Client {
         let authorization = self.authorization();
         let headers = [
             ("Accept", "text/xml"),
-            ("Authorization", authorization.as_str()),
+            ("Authorization", authorization.expose()),
             // Composer sends its JSON content-negotiation defaults even on a GET.
             // MediaEntities otherwise return their media payload instead of an XML export.
             ("Content-Type", "application/json"),
@@ -120,7 +120,7 @@ impl Client {
         let authorization = self.authorization();
         let headers = [
             ("Accept", "application/json"),
-            ("Authorization", authorization.as_str()),
+            ("Authorization", authorization.expose()),
             ("Content-Type", "application/json"),
             ("X-XSRF-TOKEN", XSRF_VALUE),
             ("X-Requested-With", "XMLHttpRequest"),
@@ -144,7 +144,7 @@ impl Client {
         let authorization = self.authorization();
         let headers = [
             ("Accept", "application/json"),
-            ("Authorization", authorization.as_str()),
+            ("Authorization", authorization.expose()),
             ("X-XSRF-TOKEN", XSRF_VALUE),
         ];
         let response = transport(
@@ -177,7 +177,7 @@ impl Client {
         let authorization = self.authorization();
         let headers = [
             ("Accept", "application/json"),
-            ("Authorization", authorization.as_str()),
+            ("Authorization", authorization.expose()),
             ("X-XSRF-TOKEN", XSRF_VALUE),
         ];
         let response = transport(
@@ -206,7 +206,7 @@ impl Client {
         let authorization = self.authorization();
         let headers = [
             ("Accept", "application/json"),
-            ("Authorization", authorization.as_str()),
+            ("Authorization", authorization.expose()),
             ("Content-Type", "application/json"),
             ("X-Requested-With", "XMLHttpRequest"),
         ];
@@ -241,7 +241,7 @@ impl Client {
         );
         let authorization = self.authorization();
         let headers = [
-            ("Authorization", authorization.as_str()),
+            ("Authorization", authorization.expose()),
             ("X-XSRF-TOKEN", XSRF_VALUE),
         ];
         let response = transport(
@@ -292,7 +292,7 @@ impl Client {
         let authorization = self.authorization();
         let headers = [
             ("Accept", "application/json"),
-            ("Authorization", authorization.as_str()),
+            ("Authorization", authorization.expose()),
             ("Content-Type", content_type.as_str()),
             ("X-XSRF-TOKEN", XSRF_VALUE),
             ("X-Requested-With", "XMLHttpRequest"),
@@ -341,7 +341,7 @@ impl Client {
         let authorization = self.authorization();
         let headers = [
             ("Accept", "text/xml"),
-            ("Authorization", authorization.as_str()),
+            ("Authorization", authorization.expose()),
             ("Content-Type", "application/json"),
             ("X-XSRF-TOKEN", XSRF_VALUE),
             ("X-Requested-With", "XMLHttpRequest"),
@@ -377,7 +377,7 @@ impl Client {
         let authorization = self.authorization();
         let headers = [
             ("Accept", "*/*"),
-            ("Authorization", authorization.as_str()),
+            ("Authorization", authorization.expose()),
             ("Content-Type", content_type.as_str()),
             ("X-XSRF-TOKEN", XSRF_VALUE),
             ("X-Requested-With", "XMLHttpRequest"),
@@ -408,7 +408,7 @@ impl Client {
         let authorization = self.authorization();
         let headers = [
             ("Accept", "application/json"),
-            ("Authorization", authorization.as_str()),
+            ("Authorization", authorization.expose()),
             ("Content-Type", "application/json"),
             ("X-XSRF-TOKEN", XSRF_VALUE),
             ("X-Requested-With", "XMLHttpRequest"),
@@ -454,7 +454,7 @@ impl Client {
         let authorization = self.authorization();
         let headers = [
             ("Accept", "application/json"),
-            ("Authorization", authorization.as_str()),
+            ("Authorization", authorization.expose()),
             ("Content-Type", "application/json"),
             ("X-XSRF-TOKEN", XSRF_VALUE),
             ("X-Requested-With", "XMLHttpRequest"),
@@ -489,18 +489,14 @@ impl Client {
         self.profile.url.trim_end_matches('/')
     }
 
-    fn authorization(&self) -> String {
-        format!(
-            "Basic {}",
-            base64(
-                format!(
-                    "{}:{}",
-                    self.profile.username,
-                    self.profile.password.expose()
-                )
-                .as_bytes()
-            )
-        )
+    /// The `Authorization` header value, in a buffer that is zeroed when the request is done.
+    /// The HTTP client copies it into its own header map, which twaco cannot reach.
+    fn authorization(&self) -> Secret {
+        let token = base64_secret(user_password(&self.profile).expose().as_bytes());
+        let mut header = Secret::with_capacity("Basic ".len() + token.expose().len());
+        header.push_str("Basic ");
+        header.push_str(token.expose());
+        header
     }
 }
 
@@ -575,7 +571,7 @@ pub enum ServerError {
 impl ServerError {
     /// The same error with every secret removed from its text fields. An entity name or a
     /// service parameter can hold a secret, and the request URL then carries it.
-    fn scrubbed(self, secrets: &[String]) -> Self {
+    fn scrubbed(self, secrets: &[Secret]) -> Self {
         let clean = |text: String| scrub(secrets, &text);
         match self {
             ServerError::InvalidUrl(why) => ServerError::InvalidUrl(clean(why)),
@@ -684,7 +680,7 @@ fn holds_media_entity(body: &[u8]) -> bool {
 }
 
 fn checked(
-    secrets: &[String],
+    secrets: &[Secret],
     method: Method,
     url: String,
     response: Response,
@@ -706,7 +702,7 @@ fn checked(
 /// `checked` for a file's bytes, which are not text whatever the response's charset says: the
 /// server labels a repository PNG `UTF-8`. Only an error body is read as (lossy) text.
 fn checked_bytes(
-    secrets: &[String],
+    secrets: &[Secret],
     method: Method,
     url: String,
     response: Response,
@@ -726,7 +722,7 @@ fn checked_bytes(
 /// password, the app key and any secret-looking profile value as given, JSON-escaped and
 /// percent-encoded, and `user:password` and the Basic token twaco sends. Longest first, so a long
 /// form is replaced before a shorter one it contains.
-fn secrets_of(profile: &Profile) -> Vec<String> {
+fn secrets_of(profile: &Profile) -> Vec<Secret> {
     let mut raw: Vec<&str> = vec![profile.password.expose()];
     // An address may carry its own `user:secret`; the server can echo it in a reply.
     if let Some(credentials) = super::profile::url_credentials(&profile.url) {
@@ -743,39 +739,50 @@ fn secrets_of(profile: &Profile) -> Vec<String> {
             raw.extend(value.as_str());
         }
     }
-    let mut forms: Vec<String> = Vec::new();
+    let mut forms: Vec<Secret> = Vec::new();
     for secret in raw.into_iter().filter(|secret| !secret.is_empty()) {
-        forms.push(secret.to_string());
-        let json = serde_json::to_string(secret).expect("a string serialises");
-        forms.push(json.trim_matches('"').to_string());
-        forms.push(encode_path_segment(secret));
+        forms.push(Secret::from(secret));
+        let json = Secret::new(serde_json::to_string(secret).expect("a string serialises"));
+        forms.push(Secret::from(json.expose().trim_matches('"')));
+        forms.push(Secret::new(encode_path_segment(secret)));
     }
     if !profile.password.is_empty() {
-        let pair = format!("{}:{}", profile.username, profile.password.expose());
-        forms.push(base64(pair.as_bytes()));
+        let pair = user_password(profile);
+        forms.push(base64_secret(pair.expose().as_bytes()));
         forms.push(pair);
     }
     forms.retain(|form| !form.is_empty());
-    forms.sort();
+    forms.sort_by(|a, b| a.expose().cmp(b.expose()));
     forms.dedup();
-    forms.sort_by_key(|form| std::cmp::Reverse(form.len()));
+    forms.sort_by_key(|form| std::cmp::Reverse(form.expose().len()));
     forms
+}
+
+/// `user:password`, as Basic authentication encodes it.
+fn user_password(profile: &Profile) -> Secret {
+    let password = profile.password.expose();
+    let mut pair = Secret::with_capacity(profile.username.len() + 1 + password.len());
+    pair.push_str(&profile.username);
+    pair.push_str(":");
+    pair.push_str(password);
+    pair
 }
 
 /// `text` with every secret replaced by `<redacted>`. A long secret is replaced wherever it
 /// occurs; a short one only as a whole word, because replacing `pass` inside `bypass` would
 /// mangle the message without protecting anything.
-fn scrub(secrets: &[String], text: &str) -> String {
+fn scrub(secrets: &[Secret], text: &str) -> String {
     let mut out = text.to_string();
     for secret in secrets {
+        let secret = secret.expose();
         if secret.len() >= 8 {
-            out = out.replace(secret.as_str(), "<redacted>");
+            out = out.replace(secret, "<redacted>");
             continue;
         }
         let word = |c: char| c.is_alphanumeric() || c == '_';
         let mut replaced = String::with_capacity(out.len());
         let mut last = 0;
-        for (at, found) in out.match_indices(secret.as_str()) {
+        for (at, found) in out.match_indices(secret) {
             let before = out[..at].chars().next_back();
             let after = out[at + found.len()..].chars().next();
             if before.is_some_and(word) || after.is_some_and(word) {
@@ -888,13 +895,23 @@ fn validate_charset(content_type: Option<&str>, body: &[u8]) -> Result<(), Serve
         })
 }
 
-fn base64(bytes: &[u8]) -> String {
+/// Base64 of a credential, written straight into a buffer of the final size.
+fn base64_secret(bytes: &[u8]) -> Secret {
     use base64::Engine;
-    base64::engine::general_purpose::STANDARD.encode(bytes)
+    let engine = base64::engine::general_purpose::STANDARD;
+    let size = base64::encoded_len(bytes.len(), true).expect("a credential is not that long");
+    let mut out = vec![0; size];
+    let written = engine
+        .encode_slice(bytes, &mut out)
+        .expect("the buffer has the encoded size");
+    let mut secret = Secret::with_capacity(written);
+    secret.push_str(std::str::from_utf8(&out[..written]).expect("base64 is ASCII"));
+    zeroize::Zeroize::zeroize(&mut out);
+    secret
 }
 
 fn transport(
-    secrets: &[String],
+    secrets: &[Secret],
     agent: &ureq::Agent,
     method: Method,
     url: &str,
@@ -909,7 +926,7 @@ fn transport(
 /// Logs one `debug` event per request: method, scrubbed URL, status, byte counts and duration.
 /// Never log `headers` or a body. `secrets` scrubs the URL and the failure text first.
 fn transport_with_timeout(
-    secrets: &[String],
+    secrets: &[Secret],
     agent: &ureq::Agent,
     method: Method,
     url: &str,
@@ -1097,7 +1114,7 @@ mod tests {
         let assert_clean = |error: ServerError| {
             let text = format!("{error} {error:?}");
             for secret in &secrets {
-                assert!(!text.contains(secret.as_str()), "{secret} in {text}");
+                assert!(!text.contains(secret.expose()), "{secret:?} in {text}");
             }
         };
 
@@ -1142,7 +1159,7 @@ mod tests {
     /// The charset name comes from the server's header, so a server can echo a secret there.
     #[test]
     fn a_secret_in_a_response_charset_never_reaches_an_error_message() {
-        let secrets = vec!["pw-7f3a9c1e5b".to_string()];
+        let secrets = vec![Secret::from("pw-7f3a9c1e5b")];
         let response = Response {
             status: 200,
             content_type: Some("text/xml; charset=pw-7f3a9c1e5b".to_string()),
@@ -1161,7 +1178,7 @@ mod tests {
     #[test]
     fn a_secret_across_the_body_cut_never_reaches_an_error_message() {
         let secret = "pw-7f3a9c1e5b";
-        let secrets = vec![secret.to_string()];
+        let secrets = vec![Secret::from(secret)];
         let body = format!("{}{secret}", "x".repeat(4096 - 6));
         let response = Response {
             status: 500,
@@ -1207,7 +1224,7 @@ mod tests {
         };
         assert!(secrets_of(&profile)
             .iter()
-            .any(|secret| secret == "s3cretToken"));
+            .any(|secret| secret.expose() == "s3cretToken"));
     }
 
     #[test]
@@ -1232,7 +1249,10 @@ mod tests {
 
     #[test]
     fn basic_auth_encoding_is_correct() {
-        assert_eq!(base64(b"user:password"), "dXNlcjpwYXNzd29yZA==");
+        assert_eq!(
+            base64_secret(b"user:password").expose(),
+            "dXNlcjpwYXNzd29yZA=="
+        );
     }
 
     #[test]
@@ -1425,6 +1445,18 @@ mod tests {
         );
     }
 
+    /// A client is `Debug`, and it holds every form of every secret for scrubbing; none of them
+    /// may show.
+    #[test]
+    fn a_client_debug_shows_no_secret() {
+        let client = Client::new(profile_with("correct-horse-battery", Some("ak-77aa")));
+        let shown = format!("{client:?}");
+        for secret in &client.secrets {
+            assert!(!shown.contains(secret.expose()), "{shown}");
+        }
+        assert!(!client.secrets.is_empty());
+    }
+
     #[test]
     fn a_profile_without_secrets_scrubs_nothing() {
         let none = secrets_of(&profile_with("", None));
@@ -1438,10 +1470,9 @@ mod tests {
     fn a_successful_response_is_returned_exactly() {
         let (url, server) =
             serve_once("200 OK", "<Entities>pass dXNlcjpwYXNz user:pass</Entities>");
-        let client = Client::new(Profile {
-            url,
-            ..profile_with("pass", None)
-        });
+        let mut profile = profile_with("pass", None);
+        profile.url = url;
+        let client = Client::new(profile);
         let body = client
             .fetch_entity(&EntityKey::new("Things", "T").unwrap())
             .unwrap();
@@ -1510,7 +1541,8 @@ mod tests {
     fn credentials_a_server_echoes_in_an_error_are_not_printed() {
         let password = "p\"a'ss\\w\u{f6}rd#1";
         let app_key = "ak-4f9c1d2e-7b3a";
-        let token = base64(format!("user:{password}").as_bytes());
+        let token = base64_secret(format!("user:{password}").as_bytes());
+        let token = token.expose();
         let escaped = serde_json::to_string(password).unwrap();
         let encoded = encode_path_segment(password);
         let reply: &'static str = Box::leak(
@@ -1541,7 +1573,7 @@ mod tests {
             ),
             ("the password, percent-encoded", encoded),
             ("the app key", app_key.to_string()),
-            ("the Basic token", token),
+            ("the Basic token", token.to_string()),
         ] {
             assert!(!shown.contains(&secret), "{what} was printed: {shown}");
         }

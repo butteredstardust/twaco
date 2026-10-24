@@ -1,3 +1,4 @@
+use super::profile::Secret;
 use std::io::Read;
 use std::process::{Child, Command, ExitStatus};
 use std::time::Duration;
@@ -97,38 +98,42 @@ pub(crate) fn spawn_reader<R: Read + Send + 'static>(
 
 /// The secret values twaco reads from its `TWACO_` and `TWX_` environment variables, including
 /// URL userinfo whole, its password alone, and a decoded password.
-pub(crate) fn credential_values() -> Vec<String> {
+pub(crate) fn credential_values() -> Vec<Secret> {
     let mut values = Vec::new();
     let mut userinfo = Vec::new();
     for (key, value) in std::env::vars() {
+        let value = Secret::new(value);
         let key = key.to_ascii_uppercase();
         if !(key.starts_with("TWACO_") || key.starts_with("TWX_")) {
             continue;
+        }
+        if let Ok(url) = url::Url::parse(value.expose()) {
+            if let Some(password) = url.password() {
+                // The pair is replaced whatever its length: with the colon it cannot be mistaken.
+                userinfo.push(Secret::new(format!("{}:{password}", url.username())));
+                values.push(Secret::from(password));
+                if let Ok(decoded) = percent_encoding::percent_decode_str(password).decode_utf8() {
+                    values.push(Secret::new(decoded.into_owned()));
+                }
+            }
+            // The parsed address holds the password too.
+            let mut text: String = url.into();
+            zeroize::Zeroize::zeroize(&mut text);
         }
         if ["PASSWORD", "KEY", "SECRET", "TOKEN"]
             .iter()
             .any(|word| key.contains(word))
         {
-            values.push(value.clone());
-        }
-        let Ok(url) = url::Url::parse(&value) else {
-            continue;
-        };
-        if let Some(password) = url.password() {
-            // The pair is replaced whatever its length: with the colon it cannot be mistaken.
-            userinfo.push(format!("{}:{password}", url.username()));
-            values.push(password.to_string());
-            if let Ok(decoded) = percent_encoding::percent_decode_str(password).decode_utf8() {
-                values.push(decoded.into_owned());
-            }
+            values.push(value);
         }
     }
     // A short value alone would be replaced wherever those letters appear.
-    values.retain(|value| value.len() >= 4);
+    values.retain(|value| value.expose().len() >= 4);
     values.extend(userinfo);
+    values.sort_by(|a, b| a.expose().cmp(b.expose()));
     values.dedup();
     // Longest first, so a secret that contains another is replaced whole.
-    values.sort_by_key(|value| std::cmp::Reverse(value.len()));
+    values.sort_by_key(|value| std::cmp::Reverse(value.expose().len()));
     values
 }
 
@@ -143,10 +148,10 @@ pub(crate) fn strip_credentials(command: &mut Command) {
 }
 
 /// Replace every known secret with a stable marker before text can leave the process.
-pub(crate) fn redact(text: &str, secrets: &[String]) -> String {
+pub(crate) fn redact(text: &str, secrets: &[Secret]) -> String {
     let mut out = text.to_string();
     for secret in secrets {
-        out = out.replace(secret, "<redacted>");
+        out = out.replace(secret.expose(), "<redacted>");
     }
     out
 }
@@ -206,7 +211,7 @@ mod tests {
 
     #[test]
     fn redact_replaces_every_secret() {
-        let secrets = vec!["first-secret".to_string(), "second-secret".to_string()];
+        let secrets = vec![Secret::from("first-secret"), Secret::from("second-secret")];
         let redacted = redact(
             "first-secret then second-secret then first-secret",
             &secrets,

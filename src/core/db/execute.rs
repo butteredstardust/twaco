@@ -1,6 +1,6 @@
 use super::super::config::Solution;
 use super::super::entity::key::ServiceTarget;
-use super::super::profile::Profile;
+use super::super::profile::{zeroize_json, Profile};
 use super::super::scan::escape_attribute as xml;
 use super::connection::{
     connection, connection_table, read_only_connection, secret_error, without_password, Connection,
@@ -87,13 +87,15 @@ pub(crate) fn execute(
         remote
             .import(&format!("{temporary}.xml"), xml.as_bytes())
             .map_err(|why| secret_error(why, password))?;
-        let encrypted = remote
-            .call(
-                &ServiceTarget::platform("Resources", "EncryptionServices"),
-                "EncryptPropertyValue",
-                &json!({ "data": password }),
-                options.timeout,
-            )
+        let mut parameters = json!({ "data": password });
+        let reply = remote.call(
+            &ServiceTarget::platform("Resources", "EncryptionServices"),
+            "EncryptPropertyValue",
+            &parameters,
+            options.timeout,
+        );
+        zeroize_json(&mut parameters);
+        let encrypted = reply
             .map_err(|why| secret_error(why, password))?
             .and_then(|value| {
                 value
