@@ -9,6 +9,7 @@ use super::{elements, from_xml, Grant, Grants, KindKey, PermissionsError, RUN_TI
 use crate::core::entity::carry::Kind;
 use crate::core::normalise::{self, Element};
 use crate::core::scan;
+use crate::core::scan::escape_attribute as escape;
 use crate::core::splice::{self, Edit};
 use std::collections::BTreeMap;
 
@@ -97,14 +98,6 @@ fn ordered(existing: &[(Grant, bool)], wanted: &Grants, order: &Order<'_>) -> Ve
     });
     out.extend(new);
     out
-}
-
-fn escape(value: &str) -> String {
-    value
-        .replace('&', "&amp;")
-        .replace('<', "&lt;")
-        .replace('>', "&gt;")
-        .replace('"', "&quot;")
 }
 
 fn principal_xml(out: &mut String, grant: &Grant, allowed: bool, indent: &str, eol: &str) {

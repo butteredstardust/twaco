@@ -19,6 +19,7 @@ use super::{elements, Grant, Grants, KindKey, PermissionsError};
 use crate::core::entity::carry::Kind;
 use crate::core::normalise::{self, Element, Node};
 use crate::core::scan;
+use crate::core::scan::escape_attribute as escape;
 use crate::core::splice::{self, Edit};
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -429,14 +430,6 @@ pub(crate) fn wanted_tables(
         },
     );
     out
-}
-
-fn escape(value: &str) -> String {
-    value
-        .replace('&', "&amp;")
-        .replace('<', "&lt;")
-        .replace('>', "&gt;")
-        .replace('"', "&quot;")
 }
 
 /// One `FieldDefinition`, its attributes one step in.

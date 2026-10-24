@@ -201,26 +201,8 @@ pub(crate) fn sections(text: &str) -> Vec<Section> {
         heading: String::new(),
         text: String::new(),
     }];
-    // The fence that opened the block: its character and length. Only a fence of the same
-    // character, at least as long, closes it (CommonMark).
-    let mut fence: Option<(char, usize)> = None;
-    for line in text.lines() {
-        let trimmed = line.trim_start();
-        let marker = ['`', '~'].into_iter().find_map(|c| {
-            let run = trimmed.chars().take_while(|x| *x == c).count();
-            (run >= 3).then_some((c, run))
-        });
-        let was_fenced = fence.is_some();
-        match (fence, marker) {
-            (None, Some(opening)) => fence = Some(opening),
-            (Some((c, n)), Some((m, run)))
-                if c == m && run >= n && trimmed[run * m.len_utf8()..].trim().is_empty() =>
-            {
-                fence = None
-            }
-            _ => {}
-        }
-        if !was_fenced && fence.is_none() {
+    for (line, code) in lines_with_code(text) {
+        if !code {
             if let Some(heading) = line.strip_prefix("## ") {
                 out.push(Section {
                     heading: heading.trim().to_string(),
@@ -240,6 +222,30 @@ pub(crate) fn sections(text: &str) -> Vec<Section> {
         out.remove(0);
     }
     out
+}
+
+/// Each line of Markdown, and whether it is code: inside a fenced block, or one of its fences.
+/// Only a fence of the opening character, at least as long, closes a block (CommonMark).
+pub(crate) fn lines_with_code(text: &str) -> impl Iterator<Item = (&str, bool)> {
+    let mut fence: Option<(char, usize)> = None;
+    text.lines().map(move |line| {
+        let trimmed = line.trim_start();
+        let marker = ['`', '~'].into_iter().find_map(|c| {
+            let run = trimmed.chars().take_while(|x| *x == c).count();
+            (run >= 3).then_some((c, run))
+        });
+        let was_fenced = fence.is_some();
+        match (fence, marker) {
+            (None, Some(opening)) => fence = Some(opening),
+            (Some((c, n)), Some((m, run)))
+                if c == m && run >= n && trimmed[run * m.len_utf8()..].trim().is_empty() =>
+            {
+                fence = None
+            }
+            _ => {}
+        }
+        (line, was_fenced || fence.is_some())
+    })
 }
 
 /// The topic an id means: exactly, any case, or by its last part when only one topic has it.
