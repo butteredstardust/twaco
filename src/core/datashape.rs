@@ -429,7 +429,10 @@ pub fn sync(
     };
     let span = scan::Span::new(span_start, tokens[section_end].span.end);
     let newline = super::sync::newline_of(&String::from_utf8_lossy(src));
-    let rendered = render_section(desired, &indent, newline);
+    let rendered =
+        render_section(desired, &indent, newline).map_err(|e| FieldError::Malformed {
+            why: format!("cannot write field: {e}"),
+        })?;
 
     let changes = summarise(&current, desired);
     if rendered.as_bytes() == span.of(src) {
@@ -458,7 +461,11 @@ fn own_line_indent(src: &[u8], at: usize) -> Option<String> {
 }
 
 /// Render a whole `FieldDefinitions` section in the canonical Composer-compatible layout.
-fn render_section(fields: &[Field], indent: &str, newline: &str) -> String {
+fn render_section(
+    fields: &[Field],
+    indent: &str,
+    newline: &str,
+) -> Result<String, scan::IllegalXmlChar> {
     let child = format!("{indent}    ");
     let attribute = format!("{child} ");
     let mut lines = vec![format!("{indent}<FieldDefinitions>")];
@@ -485,12 +492,12 @@ fn render_section(fields: &[Field], indent: &str, newline: &str) -> String {
             };
             lines.push(format!(
                 "{attribute}{key}=\"{}\"{suffix}",
-                super::scan::escape_attribute(value)
+                super::scan::escape_attribute(value)?
             ));
         }
     }
     lines.push(format!("{indent}</FieldDefinitions>"));
-    lines.join(newline)
+    Ok(lines.join(newline))
 }
 
 /// What changed, for a person reading a sync report.

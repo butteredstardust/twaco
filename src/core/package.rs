@@ -266,13 +266,7 @@ impl Metadata {
 
 /// An attribute value, escaped; a character XML 1.0 cannot hold at all is refused.
 fn escape(text: &str) -> Result<String, PackageError> {
-    let allowed = |c: char| matches!(c, '\t' | '\n' | '\r' | '\u{20}'..='\u{D7FF}' | '\u{E000}'..='\u{FFFD}' | '\u{10000}'..);
-    if let Some(c) = text.chars().find(|c| !allowed(*c)) {
-        return Err(PackageError::Invalid(format!(
-            "{text:?} holds {c:?}, which XML cannot hold"
-        )));
-    }
-    Ok(super::scan::escape_attribute(text))
+    super::scan::escape_attribute(text).map_err(|e| PackageError::Invalid(e.to_string()))
 }
 
 /// `metadata.xml` for one project, `dependsOn` from its `depends_on`.

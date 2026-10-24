@@ -204,6 +204,12 @@ pub enum EditError {
     Write(TransactionError),
 }
 
+impl From<scan::IllegalXmlChar> for EditError {
+    fn from(error: scan::IllegalXmlChar) -> Self {
+        Self::Invalid(error.to_string())
+    }
+}
+
 impl Coded for EditError {
     fn code(&self) -> ErrorCode {
         match self {
@@ -828,17 +834,17 @@ impl Definition {
 
     /// The element as written at 20 spaces, in the attribute order of 1,055 mined definitions.
     /// A 10.1 import keeps every attribute as given.
-    fn xml(&self) -> String {
-        let attr = |name: &str, value: &str| {
-            let value = scan::escape_attribute(value);
-            format!("\n                     {name}=\"{value}\"")
+    fn xml(&self) -> Result<String, EditError> {
+        let attr = |name: &str, value: &str| -> Result<String, EditError> {
+            let value = scan::escape_attribute(value)?;
+            Ok(format!("\n                     {name}=\"{value}\""))
         };
         let mut out = String::from("                    <PropertyDefinition");
-        out.push_str(&attr("aspect.cacheTime", "0.0"));
-        out.push_str(&attr("aspect.dataChangeType", "VALUE"));
-        out.push_str(&attr("aspect.isLogged", &self.logged.to_string()));
-        out.push_str(&attr("aspect.isPersistent", &self.persistent.to_string()));
-        out.push_str(&attr("aspect.isReadOnly", &self.read_only.to_string()));
+        out.push_str(&attr("aspect.cacheTime", "0.0")?);
+        out.push_str(&attr("aspect.dataChangeType", "VALUE")?);
+        out.push_str(&attr("aspect.isLogged", &self.logged.to_string())?);
+        out.push_str(&attr("aspect.isPersistent", &self.persistent.to_string())?);
+        out.push_str(&attr("aspect.isReadOnly", &self.read_only.to_string())?);
         let optional = [
             ("aspect.units", &self.units),
             ("aspect.defaultValue", &self.default),
@@ -846,17 +852,17 @@ impl Definition {
         ];
         for (name, value) in optional {
             if let Some(value) = value {
-                out.push_str(&attr(name, value));
+                out.push_str(&attr(name, value)?);
             }
         }
-        out.push_str(&attr("baseType", &self.base_type));
-        out.push_str(&attr("category", &self.category));
-        out.push_str(&attr("description", &self.description));
-        out.push_str(&attr("isLocalOnly", "false"));
-        out.push_str(&attr("name", &self.name));
-        out.push_str(&attr("ordinal", &self.ordinal));
+        out.push_str(&attr("baseType", &self.base_type)?);
+        out.push_str(&attr("category", &self.category)?);
+        out.push_str(&attr("description", &self.description)?);
+        out.push_str(&attr("isLocalOnly", "false")?);
+        out.push_str(&attr("name", &self.name)?);
+        out.push_str(&attr("ordinal", &self.ordinal)?);
         out.push_str("></PropertyDefinition>");
-        out
+        Ok(out)
     }
 
     /// Apply the fields `property` gives over this definition.
@@ -1045,12 +1051,12 @@ impl ServiceDefinition {
 
     /// The normalized sidecar text extracted from 10.1 exports. `sync` supplies only the outer
     /// indentation, leaving this exact attribute order and inner layout intact.
-    fn xml(&self) -> String {
-        let attribute = |name: &str, value: &str| {
-            format!(
+    fn xml(&self) -> Result<String, EditError> {
+        let attribute = |name: &str, value: &str| -> Result<String, EditError> {
+            Ok(format!(
                 "\n                 {name}=\"{}\"",
-                scan::escape_attribute(value)
-            )
+                scan::escape_attribute(value)?
+            ))
         };
         let mut out = String::from("<ServiceDefinition");
         for (name, value) in [
@@ -1063,38 +1069,43 @@ impl ServiceDefinition {
             ("isPrivate", self.private.to_string()),
             ("name", self.name.clone()),
         ] {
-            out.push_str(&attribute(name, &value));
+            out.push_str(&attribute(name, &value)?);
         }
         out.push_str(">\n                    <ResultType");
-        service_field_xml(&mut out, &self.result, 21);
+        service_field_xml(&mut out, &self.result, 21)?;
         out.push_str("></ResultType>\n                    <ParameterDefinitions>");
         for field in &self.parameters {
             out.push_str("\n                        <FieldDefinition");
-            service_field_xml(&mut out, field, 25);
+            service_field_xml(&mut out, field, 25)?;
             out.push_str("></FieldDefinition>");
         }
         out.push_str(
             "\n                    </ParameterDefinitions>\n                </ServiceDefinition>\n",
         );
-        out
+        Ok(out)
     }
 }
 
-fn service_field_xml(out: &mut String, field: &ServiceField, spaces: usize) {
-    let attribute = |out: &mut String, name: &str, value: &str| {
+fn service_field_xml(
+    out: &mut String,
+    field: &ServiceField,
+    spaces: usize,
+) -> Result<(), EditError> {
+    let attribute = |out: &mut String, name: &str, value: &str| -> Result<(), EditError> {
         out.push_str(&format!(
             "\n{} {name}=\"{}\"",
             " ".repeat(spaces),
-            scan::escape_attribute(value)
+            scan::escape_attribute(value)?
         ));
+        Ok(())
     };
     if let Some(shape) = &field.data_shape {
-        attribute(out, "aspect.dataShape", shape);
+        attribute(out, "aspect.dataShape", shape)?;
     }
-    attribute(out, "baseType", &field.base_type);
-    attribute(out, "description", "");
-    attribute(out, "name", &field.name);
-    attribute(out, "ordinal", &field.ordinal.to_string());
+    attribute(out, "baseType", &field.base_type)?;
+    attribute(out, "description", "")?;
+    attribute(out, "name", &field.name)?;
+    attribute(out, "ordinal", &field.ordinal.to_string())
 }
 
 fn service_field(
@@ -1274,7 +1285,7 @@ fn attribute_edits(
             (Some(attribute), Some(value)) => {
                 edits.push(Edit::new(
                     attribute.value,
-                    scan::escape_attribute(&value).into_bytes(),
+                    scan::escape_attribute(&value)?.into_bytes(),
                 ));
             }
             (Some(attribute), None) => {
@@ -1290,7 +1301,7 @@ fn attribute_edits(
             (None, Some(value)) => {
                 inserted.push_str(&format!(
                     "{gap}{name}=\"{}\"",
-                    scan::escape_attribute(&value)
+                    scan::escape_attribute(&value)?
                 ));
             }
             (None, None) => {}
@@ -1366,7 +1377,7 @@ impl Edit2<'_> {
         definition.merge(property);
         plan.warnings.extend(definition.validate(self.found)?);
         let stored = definition.stored_value()?;
-        let after = append_child(doc, list, &definition.xml(), 20)?;
+        let after = append_child(doc, list, &definition.xml()?, 20)?;
         plan.summary = format!("add property {}:{}", definition.name, definition.base_type);
         let mut files = Files::new(doc, after);
         files.set_values(&model, &definition.name, stored.as_deref())?;
@@ -1548,7 +1559,7 @@ impl Edit2<'_> {
             ));
         }
         let thing = source.thing.unwrap_or("");
-        let xml = entity::new::subscription_xml(name, event, thing, source.property, code);
+        let xml = entity::new::subscription_xml(name, event, thing, source.property, code)?;
         plan.summary = format!("add subscription {name} on {event}");
         plan.changes
             .push(doc.change(append_child(doc, list, &xml, 20)?));
@@ -1582,7 +1593,7 @@ impl Edit2<'_> {
             service.name.clone(),
             ServiceSidecar {
                 name: service.name.clone(),
-                definition: definition.xml(),
+                definition: definition.xml()?,
                 script: code.clone(),
             },
         );
@@ -1623,7 +1634,7 @@ impl Edit2<'_> {
             created_sidecar(
                 folder.join("definition.xml"),
                 doc.label(),
-                definition.xml().into_bytes(),
+                definition.xml()?.into_bytes(),
             ),
             created_sidecar(folder.join("script.js"), doc.label(), code.into_bytes()),
         ]);
@@ -1756,7 +1767,7 @@ impl Edit2<'_> {
             }
             other => other,
         })?;
-        let after = append_child(doc, list, &entity::new::implemented_shape_xml(shape), 16)?;
+        let after = append_child(doc, list, &entity::new::implemented_shape_xml(shape)?, 16)?;
         plan.summary = format!("implement {shape}");
         // The shape's persistent properties now have stored values in every Thing that has it.
         let mut files = Files::new(doc, after);
@@ -2458,7 +2469,7 @@ fn menu_item_add(
     }
     let indent = format!("{}    ", doc.indent_of(list));
     let xml = reindent_block(
-        &entity::new::menu_item_xml(&title, &mashup, default),
+        &entity::new::menu_item_xml(&title, &mashup, default)?,
         16,
         &indent,
     );

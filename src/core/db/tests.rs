@@ -253,7 +253,7 @@ fn xml_escapes_values_splits_cdata_and_never_contains_password() {
         validation: "SELECT 1".into(),
         max_connections: json!(3.0),
     };
-    let built = thing_xml("T&\"", "SQLCommand", "a ]]> b", &connection, 5, 6);
+    let built = thing_xml("T&\"", "SQLCommand", "a ]]> b", &connection, 5, 6).unwrap();
     assert!(built.contains("name=\"T&amp;&quot;\""));
     assert!(built.contains("a ]]]]><![CDATA[> b"));
     assert!(built.contains("<password></password>"));

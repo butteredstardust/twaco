@@ -638,13 +638,13 @@ mod tests {
              </ParameterDefinitions></Mashup>",
         );
         assert_eq!(
-            render_parameter_definitions(&e),
+            render_parameter_definitions(&e).unwrap(),
             "            <ParameterDefinitions>\n                <FieldDefinition\n                 \
              description=\"a &lt;b&gt; &amp; &quot;c&quot;\"\n                 name=\"p\"></FieldDefinition>\n            \
              </ParameterDefinitions>"
         );
         assert_eq!(
-            render_parameter_definitions(&element("<Mashup/>")),
+            render_parameter_definitions(&element("<Mashup/>")).unwrap(),
             "            <ParameterDefinitions></ParameterDefinitions>"
         );
     }

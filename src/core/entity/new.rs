@@ -12,7 +12,7 @@ use crate::core::lock::WorkspaceLock;
 use crate::core::mashup::authoring::parse_visibility;
 use crate::core::mashup::templates::Visibility;
 use crate::core::refs;
-use crate::core::scan::escape_attribute as escape;
+use crate::core::scan::{escape_attribute as escape, IllegalXmlChar};
 use crate::core::transaction::{Transaction, TransactionError};
 use crate::core::types;
 use crate::core::workspace;
@@ -229,6 +229,12 @@ pub enum NewError {
     Write(TransactionError),
 }
 
+impl From<IllegalXmlChar> for NewError {
+    fn from(error: IllegalXmlChar) -> Self {
+        Self::Invalid(error.to_string())
+    }
+}
+
 impl Coded for NewError {
     fn code(&self) -> ErrorCode {
         match self {
@@ -408,21 +414,21 @@ fn parse_fields(values: &[String]) -> Result<Vec<Field>, NewError> {
     }).collect()
 }
 
-fn permissions(visibility: &[Visibility]) -> String {
+fn permissions(visibility: &[Visibility]) -> Result<String, IllegalXmlChar> {
     let mut out = String::from("            <VisibilityPermissions>\n                <Visibility>");
     for visibility in visibility {
-        out.push_str(&format!("\n                    <Principal\n                     isPermitted=\"true\"\n                     name=\"{}\"\n                     type=\"{}\"></Principal>", escape(&visibility.name), visibility.kind));
+        out.push_str(&format!("\n                    <Principal\n                     isPermitted=\"true\"\n                     name=\"{}\"\n                     type=\"{}\"></Principal>", escape(&visibility.name)?, visibility.kind));
     }
     if visibility.is_empty() {
         out.push_str("</Visibility>\n            </VisibilityPermissions>");
     } else {
         out.push_str("\n                </Visibility>\n            </VisibilityPermissions>");
     }
-    out
+    Ok(out)
 }
 
-fn common_tail(visibility: &[Visibility]) -> String {
-    format!("            <avatar></avatar>\n            <DesignTimePermissions>\n                <Create></Create>\n                <Read></Read>\n                <Update></Update>\n                <Delete></Delete>\n                <Metadata></Metadata>\n            </DesignTimePermissions>\n            <RunTimePermissions></RunTimePermissions>\n{}\n            <ConfigurationTableDefinitions></ConfigurationTableDefinitions>\n            <ConfigurationTables></ConfigurationTables>", permissions(visibility))
+fn common_tail(visibility: &[Visibility]) -> Result<String, IllegalXmlChar> {
+    Ok(format!("            <avatar></avatar>\n            <DesignTimePermissions>\n                <Create></Create>\n                <Read></Read>\n                <Update></Update>\n                <Delete></Delete>\n                <Metadata></Metadata>\n            </DesignTimePermissions>\n            <RunTimePermissions></RunTimePermissions>\n{}\n            <ConfigurationTableDefinitions></ConfigurationTableDefinitions>\n            <ConfigurationTables></ConfigurationTables>", permissions(visibility)?))
 }
 
 /// The source-control envelope that opens a new entity file.
@@ -455,21 +461,21 @@ pub(crate) fn document(collection: &str, laid_out: &[u8]) -> Vec<u8> {
 }
 
 /// One `<ImplementedShape>`, as written at 16 spaces.
-pub(crate) fn implemented_shape_xml(shape: &str) -> String {
-    format!(
+pub(crate) fn implemented_shape_xml(shape: &str) -> Result<String, IllegalXmlChar> {
+    Ok(format!(
         "                <ImplementedShape\n                 name=\"{}\"\n                 type=\"ThingShape\"></ImplementedShape>",
-        escape(shape)
-    )
+        escape(shape)?
+    ))
 }
 
-fn shapes(shapes: &[String]) -> String {
+fn shapes(shapes: &[String]) -> Result<String, IllegalXmlChar> {
     let mut out = String::from("            <ImplementedShapes>");
     for shape in shapes {
         out.push('\n');
-        out.push_str(&implemented_shape_xml(shape));
+        out.push_str(&implemented_shape_xml(shape)?);
     }
     out.push_str("\n            </ImplementedShapes>");
-    out
+    Ok(out)
 }
 
 /// One script `<Subscription>`, as written at 20 spaces. `source` empty is the entity itself.
@@ -479,20 +485,20 @@ pub(crate) fn subscription_xml(
     source: &str,
     source_property: &str,
     code: &str,
-) -> String {
-    let (name, event) = (escape(name), escape(event));
-    let (source, source_property) = (escape(source), escape(source_property));
-    format!("                    <Subscription\n                     description=\"\"\n                     enabled=\"true\"\n                     eventName=\"{event}\"\n                     name=\"{name}\"\n                     source=\"{source}\"\n                     sourceProperty=\"{source_property}\"\n                     sourceType=\"Thing\">\n                        <ServiceImplementation\n                         description=\"\"\n                         handlerName=\"Script\"\n                         name=\"{name}\">\n                            <ConfigurationTables>\n                                <ConfigurationTable\n                                 dataShapeName=\"\"\n                                 description=\"\"\n                                 isMultiRow=\"false\"\n                                 name=\"Script\"\n                                 ordinal=\"0\">\n                                    <DataShape>\n                                        <FieldDefinitions>\n                                            <FieldDefinition\n                                             baseType=\"STRING\"\n                                             description=\"code\"\n                                             name=\"code\"\n                                             ordinal=\"0\"></FieldDefinition>\n                                        </FieldDefinitions>\n                                    </DataShape>\n                                    <Rows>\n                                        <Row>\n                                            <code><![CDATA[{code}]]></code>\n                                        </Row>\n                                    </Rows>\n                                </ConfigurationTable>\n                            </ConfigurationTables>\n                        </ServiceImplementation>\n                    </Subscription>")
+) -> Result<String, IllegalXmlChar> {
+    let (name, event) = (escape(name)?, escape(event)?);
+    let (source, source_property) = (escape(source)?, escape(source_property)?);
+    Ok(format!("                    <Subscription\n                     description=\"\"\n                     enabled=\"true\"\n                     eventName=\"{event}\"\n                     name=\"{name}\"\n                     source=\"{source}\"\n                     sourceProperty=\"{source_property}\"\n                     sourceType=\"Thing\">\n                        <ServiceImplementation\n                         description=\"\"\n                         handlerName=\"Script\"\n                         name=\"{name}\">\n                            <ConfigurationTables>\n                                <ConfigurationTable\n                                 dataShapeName=\"\"\n                                 description=\"\"\n                                 isMultiRow=\"false\"\n                                 name=\"Script\"\n                                 ordinal=\"0\">\n                                    <DataShape>\n                                        <FieldDefinitions>\n                                            <FieldDefinition\n                                             baseType=\"STRING\"\n                                             description=\"code\"\n                                             name=\"code\"\n                                             ordinal=\"0\"></FieldDefinition>\n                                        </FieldDefinitions>\n                                    </DataShape>\n                                    <Rows>\n                                        <Row>\n                                            <code><![CDATA[{code}]]></code>\n                                        </Row>\n                                    </Rows>\n                                </ConfigurationTable>\n                            </ConfigurationTables>\n                        </ServiceImplementation>\n                    </Subscription>"))
 }
 
-fn local_shape(subscription: Option<(&str, &str, &str)>) -> String {
+fn local_shape(subscription: Option<(&str, &str, &str)>) -> Result<String, IllegalXmlChar> {
     let mut out = String::from("            <ThingShape>\n                <PropertyDefinitions></PropertyDefinitions>\n                <ServiceDefinitions></ServiceDefinitions>\n                <EventDefinitions></EventDefinitions>\n                <ServiceMappings></ServiceMappings>\n                <ServiceImplementations></ServiceImplementations>\n                <Subscriptions>");
     if let Some((event, name, code)) = subscription {
         out.push('\n');
-        out.push_str(&subscription_xml(name, event, "", "", code));
+        out.push_str(&subscription_xml(name, event, "", "", code)?);
     }
     out.push_str("\n                </Subscriptions>\n            </ThingShape>");
-    out
+    Ok(out)
 }
 
 fn scheduler_settings(kind: Kind, enabled: bool, run_as: &str, value: &str) -> String {
@@ -518,8 +524,14 @@ pub(crate) fn cdata(value: &str) -> String {
     format!("<![CDATA[{value}]]>")
 }
 
-fn plain_entity(kind: &str, tag: &str, request: &NewRequest, project: &str, body: &str) -> String {
-    format!("{}        <{tag}\n         description=\"{}\"\n         documentationContent=\"\"\n         homeMashup=\"\"\n         name=\"{}\"\n         projectName=\"{project}\"\n         tags=\"\">\n{}\n{body}\n        </{tag}>\n{}", header(kind), escape(&request.description), escape(&request.name), common_tail(&[]), footer(kind))
+fn plain_entity(
+    kind: &str,
+    tag: &str,
+    request: &NewRequest,
+    project: &str,
+    body: &str,
+) -> Result<String, IllegalXmlChar> {
+    Ok(format!("{}        <{tag}\n         description=\"{}\"\n         documentationContent=\"\"\n         homeMashup=\"\"\n         name=\"{}\"\n         projectName=\"{project}\"\n         tags=\"\">\n{}\n{body}\n        </{tag}>\n{}", header(kind), escape(&request.description)?, escape(&request.name)?, common_tail(&[])?, footer(kind)))
 }
 
 fn data_thing_settings(
@@ -551,17 +563,22 @@ fn shape_fields(solution: &Solution, shape: &str) -> Result<Vec<Field>, NewError
     datashape::extract(&src).map_err(|error| NewError::Invalid(error.to_string()))
 }
 
-fn data_thing(request: &NewRequest, project: &str, template: &str, settings: String) -> String {
-    format!("{}        <Thing\n         aspect.isSystemObject=\"false\"\n         description=\"{}\"\n         documentationContent=\"\"\n         effectiveThingPackage=\"{}Thing\"\n         enabled=\"true\"\n         homeMashup=\"\"\n         identifier=\"\"\n         inheritedValueStream=\"\"\n         name=\"{}\"\n         projectName=\"{project}\"\n         published=\"false\"\n         tags=\"\"\n         thingTemplate=\"{template}\"\n         valueStream=\"\">\n{}\n{settings}\n{}\n            <PropertyBindings></PropertyBindings>\n            <RemotePropertyBindings></RemotePropertyBindings>\n            <RemoteServiceBindings></RemoteServiceBindings>\n            <RemoteEventBindings></RemoteEventBindings>\n            <AlertConfigurations></AlertConfigurations>\n            <ImplementedShapes></ImplementedShapes>\n            <ThingProperties></ThingProperties>\n        </Thing>\n{}", header("Things"), escape(&request.description), template, escape(&request.name), common_tail(&[]).strip_suffix("\n            <ConfigurationTables></ConfigurationTables>").unwrap(), local_shape(None), footer("Things"))
+fn data_thing(
+    request: &NewRequest,
+    project: &str,
+    template: &str,
+    settings: String,
+) -> Result<String, IllegalXmlChar> {
+    Ok(format!("{}        <Thing\n         aspect.isSystemObject=\"false\"\n         description=\"{}\"\n         documentationContent=\"\"\n         effectiveThingPackage=\"{}Thing\"\n         enabled=\"true\"\n         homeMashup=\"\"\n         identifier=\"\"\n         inheritedValueStream=\"\"\n         name=\"{}\"\n         projectName=\"{project}\"\n         published=\"false\"\n         tags=\"\"\n         thingTemplate=\"{template}\"\n         valueStream=\"\">\n{}\n{settings}\n{}\n            <PropertyBindings></PropertyBindings>\n            <RemotePropertyBindings></RemotePropertyBindings>\n            <RemoteServiceBindings></RemoteServiceBindings>\n            <RemoteEventBindings></RemoteEventBindings>\n            <AlertConfigurations></AlertConfigurations>\n            <ImplementedShapes></ImplementedShapes>\n            <ThingProperties></ThingProperties>\n        </Thing>\n{}", header("Things"), escape(&request.description)?, template, escape(&request.name)?, common_tail(&[])?.strip_suffix("\n            <ConfigurationTables></ConfigurationTables>").unwrap(), local_shape(None)?, footer("Things")))
 }
 
-fn media_xml(request: &NewRequest, project: &str) -> String {
+fn media_xml(request: &NewRequest, project: &str) -> Result<String, IllegalXmlChar> {
     let tables = "            <ConfigurationTables>\n                <ConfigurationTable dataShapeName=\"\" description=\"Use Existing Flow Configuration\" isMultiRow=\"false\" name=\"UseExistingFlowConfiguration\" ordinal=\"0\"><DataShape><FieldDefinitions><FieldDefinition aspect.friendlyName=\"Connector Name\" baseType=\"STRING\" description=\"Connector Name\" name=\"connectorName\" ordinal=\"0\"></FieldDefinition><FieldDefinition aspect.friendlyName=\"Ignore SSL Errors\" baseType=\"BOOLEAN\" description=\"Ignore SSL errors\" name=\"ignoreSSLErrors\" ordinal=\"1\"></FieldDefinition></FieldDefinitions></DataShape><Rows><Row><connectorName></connectorName><ignoreSSLErrors>false</ignoreSSLErrors></Row></Rows></ConfigurationTable>\n                <ConfigurationTable dataShapeName=\"\" description=\"Content Source Connection information\" isMultiRow=\"false\" name=\"ContentSourceConnectionInformation\" ordinal=\"1\"><DataShape><FieldDefinitions><FieldDefinition aspect.defaultValue=\"none\" aspect.friendlyName=\"AuthenticationType\" aspect.selectOptions=\"none:none|basic:basic|SSO:SSO|OAuthM2M:OAuthM2M|SessionUser:SessionUser\" baseType=\"STRING\" description=\"Authentication type\" name=\"authenticationType\" ordinal=\"4\"></FieldDefinition><FieldDefinition aspect.friendlyName=\"AuthorizationServerID\" baseType=\"STRING\" description=\"Authorization Server ID\" name=\"authorizationServerId\" ordinal=\"7\"></FieldDefinition><FieldDefinition aspect.friendlyName=\"Dynamic Content\" baseType=\"BOOLEAN\" description=\"Display dynamic content from external URL\" name=\"dynamicContent\" ordinal=\"0\"></FieldDefinition><FieldDefinition aspect.friendlyName=\"Headers To Forward on POSTs\" baseType=\"STRING\" description=\"Headers to forward on dynamic content using POST\" name=\"HeadersToForward\" ordinal=\"9\"></FieldDefinition><FieldDefinition aspect.friendlyName=\"Ignore SSL Errors\" baseType=\"BOOLEAN\" description=\"Ignore SSL errors\" name=\"ignoreSSLErrors\" ordinal=\"2\"></FieldDefinition><FieldDefinition aspect.friendlyName=\"DoNotCache-CacheControl-ResponseHeader\" baseType=\"BOOLEAN\" description=\"enable No-Cache Header to initiate a clean load dynamic content\" name=\"noCacheHeaderCheckbox\" ordinal=\"10\"></FieldDefinition><FieldDefinition aspect.friendlyName=\"AuthPassword\" baseType=\"PASSWORD\" description=\"Password for basic authentication\" name=\"password\" ordinal=\"6\"></FieldDefinition><FieldDefinition aspect.friendlyName=\"TestConnectionURL\" baseType=\"STRING\" description=\"The URL to test the connection\" name=\"testUrl\" ordinal=\"8\"></FieldDefinition><FieldDefinition aspect.defaultValue=\"60.0\" aspect.friendlyName=\"Timeout\" baseType=\"NUMBER\" description=\"Timeout\" name=\"timeout\" ordinal=\"3\"></FieldDefinition><FieldDefinition aspect.friendlyName=\"URL\" baseType=\"STRING\" description=\"The URL to the content source\" name=\"url\" ordinal=\"1\"></FieldDefinition><FieldDefinition aspect.friendlyName=\"AuthUsername\" baseType=\"STRING\" description=\"Username for basic authentication\" name=\"userId\" ordinal=\"5\"></FieldDefinition></FieldDefinitions></DataShape><Rows><Row><HeadersToForward></HeadersToForward><authenticationType><![CDATA[none]]></authenticationType><authorizationServerId></authorizationServerId><dynamicContent>false</dynamicContent><ignoreSSLErrors>false</ignoreSSLErrors><noCacheHeaderCheckbox>false</noCacheHeaderCheckbox><password></password><testUrl></testUrl><timeout>60.0</timeout><url></url><userId></userId></Row></Rows></ConfigurationTable>\n                <ConfigurationTable dataShapeName=\"\" description=\"List of authorization server scopes\" isMultiRow=\"true\" name=\"AuthorizationServerScopesSettings\" ordinal=\"2\"><DataShape><FieldDefinitions><FieldDefinition baseType=\"STRING\" description=\"A single scope for the authorization server.\" name=\"scope\" ordinal=\"0\"></FieldDefinition></FieldDefinitions></DataShape><Rows></Rows></ConfigurationTable>\n                <ConfigurationTable dataShapeName=\"\" description=\"SSL Connection Configuration\" isMultiRow=\"false\" name=\"SSLConnectionConfiguration\" ordinal=\"3\"><DataShape><FieldDefinitions><FieldDefinition aspect.friendlyName=\"SSLKeyStorePassword\" baseType=\"PASSWORD\" description=\"SSL Keystore Password\" name=\"SSLKeyStorePassword\" ordinal=\"2\"></FieldDefinition><FieldDefinition aspect.friendlyName=\"SSLKeyStorePath\" baseType=\"STRING\" description=\"Absolute path to the client SSL keystore\" name=\"SSLKeyStorePath\" ordinal=\"1\"></FieldDefinition><FieldDefinition aspect.friendlyName=\"SSLTrustStorePassword\" baseType=\"PASSWORD\" description=\"SSL Truststore Password\" name=\"SSLTrustStorePassword\" ordinal=\"4\"></FieldDefinition><FieldDefinition aspect.friendlyName=\"SSLTrustStorePath\" baseType=\"STRING\" description=\"Absolute path to the SSL client truststore\" name=\"SSLTrustStorePath\" ordinal=\"3\"></FieldDefinition></FieldDefinitions></DataShape><Rows><Row><SSLKeyStorePassword></SSLKeyStorePassword><SSLKeyStorePath></SSLKeyStorePath><SSLTrustStorePassword></SSLTrustStorePassword><SSLTrustStorePath></SSLTrustStorePath></Row></Rows></ConfigurationTable>\n                <ConfigurationTable dataShapeName=\"\" description=\"Session User Configuration\" isMultiRow=\"false\" name=\"SessionUserConfigurationTable\" ordinal=\"4\"><DataShape><FieldDefinitions><FieldDefinition aspect.friendlyName=\"SessionUserQueryParameter\" baseType=\"STRING\" description=\"Session User Query Parameter\" name=\"SessionUserQueryParameter\" ordinal=\"1\"></FieldDefinition></FieldDefinitions></DataShape><Rows><Row><SessionUserQueryParameter></SessionUserQueryParameter></Row></Rows></ConfigurationTable>\n            </ConfigurationTables>";
-    let common_tail = common_tail(&[]);
+    let common_tail = common_tail(&[])?;
     let common = common_tail
         .strip_suffix("\n            <ConfigurationTables></ConfigurationTables>")
         .unwrap();
-    format!("{}        <MediaEntity description=\"{}\" documentationContent=\"\" homeMashup=\"\" name=\"{}\" projectName=\"{project}\" tags=\"\">\n{common}\n{tables}\n            <content>{}</content>\n        </MediaEntity>\n{}", header("MediaEntities"), escape(&request.description), escape(&request.name), cdata(&media_content(request.file.as_ref().expect("validated media")).expect("validated media")), footer("MediaEntities"))
+    Ok(format!("{}        <MediaEntity description=\"{}\" documentationContent=\"\" homeMashup=\"\" name=\"{}\" projectName=\"{project}\" tags=\"\">\n{common}\n{tables}\n            <content>{}</content>\n        </MediaEntity>\n{}", header("MediaEntities"), escape(&request.description)?, escape(&request.name)?, cdata(&media_content(request.file.as_ref().expect("validated media")).expect("validated media")), footer("MediaEntities")))
 }
 
 fn style_content(request: &NewRequest) -> String {
@@ -893,9 +910,13 @@ pub(crate) fn render_state_content(request: &NewRequest) -> String {
 }
 
 /// One `<MenuItem>`, preceded by its newline, as written at 16 spaces.
-pub(crate) fn menu_item_xml(title: &str, target: &str, is_default: bool) -> String {
-    let (target, title) = (escape(target), escape(title));
-    format!("\n                <MenuItem description=\"\" imageURL=\"\" isDefault=\"{is_default}\" linkDestination=\"{target}\" linkTarget=\"Self\" linkType=\"Mashup\" title=\"{title}\">\n                    <GroupReferences><Members></Members></GroupReferences>\n                </MenuItem>")
+pub(crate) fn menu_item_xml(
+    title: &str,
+    target: &str,
+    is_default: bool,
+) -> Result<String, IllegalXmlChar> {
+    let (target, title) = (escape(target)?, escape(title)?);
+    Ok(format!("\n                <MenuItem description=\"\" imageURL=\"\" isDefault=\"{is_default}\" linkDestination=\"{target}\" linkTarget=\"Self\" linkType=\"Mashup\" title=\"{title}\">\n                    <GroupReferences><Members></Members></GroupReferences>\n                </MenuItem>"))
 }
 
 /// One effectiveMenu `<Row>` for item `index` of `menu`, preceded by its newline, at 20 spaces.
@@ -924,7 +945,7 @@ pub(crate) fn menu_row_xml(menu: &str, index: usize, row: &MenuRow<'_>) -> Strin
     format!("\n                    <Row>\n                        <description>{description}</description>\n                        <imageURL>{image}</imageURL>\n                        <isDefault>{is_default}</isDefault>\n                        <linkDestination>{target}</linkDestination>\n                        <linkTarget>{link_target}</linkTarget>\n                        <linkType><![CDATA[Mashup]]></linkType>\n                        <menuId><![CDATA[{menu}_{index}]]></menuId>\n                        <parentMenuId><![CDATA[{menu}]]></parentMenuId>\n                        <title>{title}</title>\n                    </Row>")
 }
 
-fn menu_xml(request: &NewRequest, project: &str) -> String {
+fn menu_xml(request: &NewRequest, project: &str) -> Result<String, IllegalXmlChar> {
     let label = request.label.as_deref().unwrap_or("");
     let root_title = if label.is_empty() {
         String::new()
@@ -939,7 +960,7 @@ fn menu_xml(request: &NewRequest, project: &str) -> String {
             let (title, target) = item.split_once('=').expect("validated menu item");
             menu_item_xml(title, target, request.default && index == 0)
         })
-        .collect();
+        .collect::<Result<_, _>>()?;
     let rows: String = request
         .items
         .iter()
@@ -957,11 +978,11 @@ fn menu_xml(request: &NewRequest, project: &str) -> String {
             menu_row_xml(&request.name, index, &row)
         })
         .collect();
-    format!("{}        <Menu\n         description=\"{}\"\n         documentationContent=\"\"\n         homeMashup=\"\"\n         imageURL=\"\"\n         menuLabel=\"{}\"\n         name=\"{}\"\n         projectName=\"{project}\"\n         tags=\"\">\n{}\n            <MenuItems>{items}\n            </MenuItems>\n            <GroupReferences><Members></Members></GroupReferences>\n            <effectiveMenu>\n                <DataShape>\n                    <FieldDefinitions>\n                        <FieldDefinition baseType=\"STRING\" description=\"Description for tooltip\" name=\"description\" ordinal=\"0\"></FieldDefinition>\n                        <FieldDefinition baseType=\"IMAGELINK\" description=\"Optional image URL\" name=\"imageURL\" ordinal=\"0\"></FieldDefinition>\n                        <FieldDefinition aspect.defaultValue=\"false\" baseType=\"BOOLEAN\" description=\"Is a default menu item\" name=\"isDefault\" ordinal=\"0\"></FieldDefinition>
+    Ok(format!("{}        <Menu\n         description=\"{}\"\n         documentationContent=\"\"\n         homeMashup=\"\"\n         imageURL=\"\"\n         menuLabel=\"{}\"\n         name=\"{}\"\n         projectName=\"{project}\"\n         tags=\"\">\n{}\n            <MenuItems>{items}\n            </MenuItems>\n            <GroupReferences><Members></Members></GroupReferences>\n            <effectiveMenu>\n                <DataShape>\n                    <FieldDefinitions>\n                        <FieldDefinition baseType=\"STRING\" description=\"Description for tooltip\" name=\"description\" ordinal=\"0\"></FieldDefinition>\n                        <FieldDefinition baseType=\"IMAGELINK\" description=\"Optional image URL\" name=\"imageURL\" ordinal=\"0\"></FieldDefinition>\n                        <FieldDefinition aspect.defaultValue=\"false\" baseType=\"BOOLEAN\" description=\"Is a default menu item\" name=\"isDefault\" ordinal=\"0\"></FieldDefinition>
                         <FieldDefinition aspect.defaultValue=\"false\" baseType=\"BOOLEAN\" description=\"Is disabled\" name=\"isDisabled\" ordinal=\"0\"></FieldDefinition>
                         <FieldDefinition aspect.defaultValue=\"false\" baseType=\"BOOLEAN\" description=\"Is hidden\" name=\"isHidden\" ordinal=\"0\"></FieldDefinition>\n                        <FieldDefinition aspect.isPrimaryKey=\"true\" baseType=\"STRING\" description=\"Link destination\" name=\"linkDestination\" ordinal=\"0\"></FieldDefinition>\n                        <FieldDefinition baseType=\"STRING\" description=\"Link target (Popup, Mashup, New)\" name=\"linkTarget\" ordinal=\"0\"></FieldDefinition>\n                        <FieldDefinition aspect.isPrimaryKey=\"true\" baseType=\"STRING\" description=\"Link type (Mashup, Hyperlink, Logout, or Menu)\" name=\"linkType\" ordinal=\"0\"></FieldDefinition>\n                        <FieldDefinition baseType=\"STRING\" description=\"Menu entry id\" name=\"menuId\" ordinal=\"0\"></FieldDefinition>\n                        <FieldDefinition baseType=\"STRING\" description=\"Menu entry parent id\" name=\"parentMenuId\" ordinal=\"0\"></FieldDefinition>\n                        <FieldDefinition baseType=\"STRING\" description=\"Menu entry title\" name=\"title\" ordinal=\"0\"></FieldDefinition>
                         <FieldDefinition baseType=\"STRING\" description=\"An optional field that specifies the tooltip text for the menu item\" name=\"tooltip\" ordinal=\"0\"></FieldDefinition>
-                        <FieldDefinition baseType=\"IMAGELINK\" description=\"An optional field that specifies the tooltip icon for the menu item\" name=\"tooltipIcon\" ordinal=\"0\"></FieldDefinition>\n                    </FieldDefinitions>\n                </DataShape>\n                <Rows>\n                    <Row>\n                        <description></description>\n                        <imageURL></imageURL>\n                        <linkPriority>0.0</linkPriority>\n                        <linkType><![CDATA[Menu]]></linkType>\n                        <menuId><![CDATA[{}]]></menuId>\n                        <parentMenuId></parentMenuId>\n                        <title>{}</title>\n                    </Row>{rows}\n                </Rows>\n            </effectiveMenu>\n        </Menu>\n{}", header("Menus"), escape(&request.description), escape(label), escape(&request.name), common_tail(&[]), request.name, root_title, footer("Menus"))
+                        <FieldDefinition baseType=\"IMAGELINK\" description=\"An optional field that specifies the tooltip icon for the menu item\" name=\"tooltipIcon\" ordinal=\"0\"></FieldDefinition>\n                    </FieldDefinitions>\n                </DataShape>\n                <Rows>\n                    <Row>\n                        <description></description>\n                        <imageURL></imageURL>\n                        <linkPriority>0.0</linkPriority>\n                        <linkType><![CDATA[Menu]]></linkType>\n                        <menuId><![CDATA[{}]]></menuId>\n                        <parentMenuId></parentMenuId>\n                        <title>{}</title>\n                    </Row>{rows}\n                </Rows>\n            </effectiveMenu>\n        </Menu>\n{}", header("Menus"), escape(&request.description)?, escape(label)?, escape(&request.name)?, common_tail(&[])?, request.name, root_title, footer("Menus")))
 }
 
 fn theme_content(request: &NewRequest) -> String {
@@ -998,11 +1019,11 @@ fn make_xml(
     duration: Option<u64>,
     cron: Option<&str>,
     script: Option<&str>,
-) -> String {
-    let desc = escape(&request.description);
-    let name = escape(&request.name);
-    let common = common_tail(visibility);
-    match request.kind {
+) -> Result<String, IllegalXmlChar> {
+    let desc = escape(&request.description)?;
+    let name = escape(&request.name)?;
+    let common = common_tail(visibility)?;
+    Ok(match request.kind {
         Kind::Project => {
             let dependencies = request
                 .depends_on
@@ -1012,7 +1033,7 @@ fn make_xml(
                 .join(",");
             let depends_on = escape(&format!(
                 "{{\"extensions\":\"\",\"projects\":\"{dependencies}\"}}"
-            ));
+            ))?;
             format!("{}        <Project\n         artifactId=\"\"\n         aspect.projectType=\"Component\"\n         dependsOn=\"{depends_on}\"\n         description=\"{desc}\"\n         documentationContent=\"\"\n         groupId=\"\"\n         homeMashup=\"\"\n         minPlatformVersion=\"\"\n         name=\"{name}\"\n         packageVersion=\"1.0.0\"\n         projectName=\"{project}\"\n         publishResult=\"\"\n         state=\"DRAFT\"\n         tags=\"\">\n            <avatar></avatar>\n            <DesignTimePermissions>\n                <Create></Create>\n                <Read></Read>\n                <Update></Update>\n                <Delete></Delete>\n                <Metadata></Metadata>\n            </DesignTimePermissions>\n            <RunTimePermissions></RunTimePermissions>\n            <VisibilityPermissions>\n                <Visibility></Visibility>\n            </VisibilityPermissions>\n            <ConfigurationTableDefinitions></ConfigurationTableDefinitions>\n            <ConfigurationTables></ConfigurationTables>\n        </Project>\n{}", header("Projects"), footer("Projects"))
         }
         Kind::Group => format!("{}        <Group\n         description=\"{desc}\"\n         documentationContent=\"\"\n         homeMashup=\"\"\n         name=\"{name}\"\n         projectName=\"{project}\"\n         scimDisplayName=\"\"\n         scimExternalId=\"\"\n         scimId=\"\"\n         tags=\"\">\n{common}\n            <Members>\n                <Members></Members>\n            </Members>\n        </Group>\n{}", header("Groups"), footer("Groups")),
@@ -1033,42 +1054,42 @@ fn make_xml(
                     })
                     .collect::<Vec<_>>(),
             ),
-        ),
+        )?,
         Kind::Stream => data_thing(
             request,
             project,
             "Stream",
             data_thing_settings("Stream", request.data_shape.as_deref(), fields, &[]),
-        ),
+        )?,
         Kind::ValueStream => data_thing(
             request,
             project,
             "ValueStream",
             data_thing_settings("ValueStream", None, &[], &[]),
-        ),
-        Kind::Media => media_xml(request, project),
+        )?,
+        Kind::Media => media_xml(request, project)?,
         Kind::Style => plain_entity(
             "StyleDefinitions",
             "StyleDefinition",
             request,
             project,
             &format!("            <content>{}</content>", cdata(&style_content(request))),
-        ),
+        )?,
         Kind::State => plain_entity(
             "StateDefinitions",
             "StateDefinition",
             request,
             project,
             &format!("            <content>{}</content>", cdata(&render_state_content(request))),
-        ),
-        Kind::Menu => menu_xml(request, project),
+        )?,
+        Kind::Menu => menu_xml(request, project)?,
         Kind::Theme => plain_entity(
             "StyleThemes",
             "StyleTheme",
             request,
             project,
             &format!("            <content>{}</content>\n            <preview></preview>", cdata(&theme_content(request))),
-        ),
+        )?,
         // The server's own export of a new Network, so its first deploy reads back as kept.
         Kind::Network => plain_entity(
             "Networks",
@@ -1076,13 +1097,13 @@ fn make_xml(
             request,
             project,
             "            <Connections></Connections>",
-        ),
+        )?,
         Kind::ThingShape => format!("{}        <ThingShape\n         aspect.isSystemObject=\"false\"\n         className=\"\"\n         description=\"{desc}\"\n         documentationContent=\"\"\n         homeMashup=\"\"\n         name=\"{name}\"\n         projectName=\"{project}\"\n         tags=\"\">\n            <PropertyDefinitions></PropertyDefinitions>\n            <ServiceDefinitions></ServiceDefinitions>\n            <EventDefinitions></EventDefinitions>\n            <ServiceMappings></ServiceMappings>\n            <ServiceImplementations></ServiceImplementations>\n            <Subscriptions></Subscriptions>\n{common}\n            <PropertyBindings></PropertyBindings>\n            <RemotePropertyBindings></RemotePropertyBindings>\n            <RemoteServiceBindings></RemoteServiceBindings>\n            <RemoteEventBindings></RemoteEventBindings>\n            <AlertConfigurations></AlertConfigurations>\n            <InstanceRunTimePermissions></InstanceRunTimePermissions>\n        </ThingShape>\n{}", header("ThingShapes"), footer("ThingShapes")),
         Kind::DataShape => {
-            let field_xml: String = fields.iter().map(|field| format!("                <FieldDefinition\n                 aspect.isPrimaryKey=\"{}\"\n                 baseType=\"{}\"\n                 description=\"{}\"\n                 name=\"{}\"\n                 ordinal=\"{}\"></FieldDefinition>\n", if field.aspects.get("isPrimaryKey") == Some(&Aspect::Bool(true)) { "true" } else { "false" }, field.base_type, escape(&field.description), escape(&field.name), field.ordinal)).collect();
-            format!("{}        <DataShape\n         baseDataShape=\"{}\"\n         description=\"{desc}\"\n         documentationContent=\"\"\n         homeMashup=\"\"\n         name=\"{name}\"\n         projectName=\"{project}\"\n         tags=\"\">\n{common}\n            <FieldDefinitions>\n{field_xml}            </FieldDefinitions>\n        </DataShape>\n{}", header("DataShapes"), escape(request.base.as_deref().unwrap_or("")), footer("DataShapes"))
+            let field_xml: String = fields.iter().map(|field| Ok(format!("                <FieldDefinition\n                 aspect.isPrimaryKey=\"{}\"\n                 baseType=\"{}\"\n                 description=\"{}\"\n                 name=\"{}\"\n                 ordinal=\"{}\"></FieldDefinition>\n", if field.aspects.get("isPrimaryKey") == Some(&Aspect::Bool(true)) { "true" } else { "false" }, field.base_type, escape(&field.description)?, escape(&field.name)?, field.ordinal))).collect::<Result<_, IllegalXmlChar>>()?;
+            format!("{}        <DataShape\n         baseDataShape=\"{}\"\n         description=\"{desc}\"\n         documentationContent=\"\"\n         homeMashup=\"\"\n         name=\"{name}\"\n         projectName=\"{project}\"\n         tags=\"\">\n{common}\n            <FieldDefinitions>\n{field_xml}            </FieldDefinitions>\n        </DataShape>\n{}", header("DataShapes"), escape(request.base.as_deref().unwrap_or(""))?, footer("DataShapes"))
         }
-        Kind::ThingTemplate => format!("{}        <ThingTemplate\n         aspect.isSystemObject=\"false\"\n         baseThingTemplate=\"{}\"\n         description=\"{desc}\"\n         documentationContent=\"\"\n         effectiveThingPackage=\"ConfiguredThing\"\n         homeMashup=\"\"\n         inheritedValueStream=\"\"\n         name=\"{name}\"\n         projectName=\"{project}\"\n         tags=\"\"\n         thingPackage=\"\"\n         valueStream=\"\">\n{common}\n            <PropertyBindings></PropertyBindings>\n            <RemotePropertyBindings></RemotePropertyBindings>\n            <RemoteServiceBindings></RemoteServiceBindings>\n            <RemoteEventBindings></RemoteEventBindings>\n            <AlertConfigurations></AlertConfigurations>\n{}\n{}\n            <SharedConfigurationTables></SharedConfigurationTables>\n            <InstanceDesignTimePermissions>\n                <Create></Create>\n                <Read></Read>\n                <Update></Update>\n                <Delete></Delete>\n                <Metadata></Metadata>\n            </InstanceDesignTimePermissions>\n            <InstanceRunTimePermissions></InstanceRunTimePermissions>\n            <InstanceVisibilityPermissions>\n                <Visibility></Visibility>\n            </InstanceVisibilityPermissions>\n        </ThingTemplate>\n{}", header("ThingTemplates"), escape(request.base.as_deref().unwrap_or("GenericThing")), local_shape(None), shapes(&request.shapes), footer("ThingTemplates")),
+        Kind::ThingTemplate => format!("{}        <ThingTemplate\n         aspect.isSystemObject=\"false\"\n         baseThingTemplate=\"{}\"\n         description=\"{desc}\"\n         documentationContent=\"\"\n         effectiveThingPackage=\"ConfiguredThing\"\n         homeMashup=\"\"\n         inheritedValueStream=\"\"\n         name=\"{name}\"\n         projectName=\"{project}\"\n         tags=\"\"\n         thingPackage=\"\"\n         valueStream=\"\">\n{common}\n            <PropertyBindings></PropertyBindings>\n            <RemotePropertyBindings></RemotePropertyBindings>\n            <RemoteServiceBindings></RemoteServiceBindings>\n            <RemoteEventBindings></RemoteEventBindings>\n            <AlertConfigurations></AlertConfigurations>\n{}\n{}\n            <SharedConfigurationTables></SharedConfigurationTables>\n            <InstanceDesignTimePermissions>\n                <Create></Create>\n                <Read></Read>\n                <Update></Update>\n                <Delete></Delete>\n                <Metadata></Metadata>\n            </InstanceDesignTimePermissions>\n            <InstanceRunTimePermissions></InstanceRunTimePermissions>\n            <InstanceVisibilityPermissions>\n                <Visibility></Visibility>\n            </InstanceVisibilityPermissions>\n        </ThingTemplate>\n{}", header("ThingTemplates"), escape(request.base.as_deref().unwrap_or("GenericThing"))?, local_shape(None)?, shapes(&request.shapes)?, footer("ThingTemplates")),
         Kind::Thing | Kind::Timer | Kind::Scheduler => {
             let (template, package) = match request.kind { Kind::Timer => ("Timer", "TimerThing"), Kind::Scheduler => ("Scheduler", "SchedulerThing"), _ => (request.template.as_deref().unwrap_or("GenericThing"), "ConfiguredThing") };
             let setting = match request.kind { Kind::Timer => scheduler_settings(Kind::Timer, !request.disabled, request.run_as.as_deref().unwrap_or(""), &format!("{}.0", duration.unwrap())), Kind::Scheduler => scheduler_settings(Kind::Scheduler, !request.disabled, request.run_as.as_deref().unwrap_or(""), cron.unwrap()), _ => "            <ConfigurationTables></ConfigurationTables>".into() };
@@ -1093,9 +1114,9 @@ fn make_xml(
                 .unwrap_or(&common)
                 .to_string();
             let subscription = match request.kind { Kind::Timer => script.map(|code| ("Timer", "TimerSubscription", code)), Kind::Scheduler => script.map(|code| ("ScheduledEvent", "SchedulerSubscription", code)), _ => None };
-            format!("{}        <Thing\n         aspect.isSystemObject=\"false\"\n         description=\"{desc}\"\n         documentationContent=\"\"\n         effectiveThingPackage=\"{package}\"\n         enabled=\"true\"\n         homeMashup=\"\"\n         identifier=\"\"\n         inheritedValueStream=\"\"\n         name=\"{name}\"\n         projectName=\"{project}\"\n         published=\"false\"\n         tags=\"\"\n         thingTemplate=\"{}\"\n         valueStream=\"{}\">\n{common}\n{setting}\n{}\n            <PropertyBindings></PropertyBindings>\n            <RemotePropertyBindings></RemotePropertyBindings>\n            <RemoteServiceBindings></RemoteServiceBindings>\n            <RemoteEventBindings></RemoteEventBindings>\n            <AlertConfigurations></AlertConfigurations>\n{}\n            <ThingProperties></ThingProperties>\n        </Thing>\n{}", header("Things"), escape(template), escape(request.value_stream.as_deref().unwrap_or("")), local_shape(subscription), shapes(&request.shapes), footer("Things"))
+            format!("{}        <Thing\n         aspect.isSystemObject=\"false\"\n         description=\"{desc}\"\n         documentationContent=\"\"\n         effectiveThingPackage=\"{package}\"\n         enabled=\"true\"\n         homeMashup=\"\"\n         identifier=\"\"\n         inheritedValueStream=\"\"\n         name=\"{name}\"\n         projectName=\"{project}\"\n         published=\"false\"\n         tags=\"\"\n         thingTemplate=\"{}\"\n         valueStream=\"{}\">\n{common}\n{setting}\n{}\n            <PropertyBindings></PropertyBindings>\n            <RemotePropertyBindings></RemotePropertyBindings>\n            <RemoteServiceBindings></RemoteServiceBindings>\n            <RemoteEventBindings></RemoteEventBindings>\n            <AlertConfigurations></AlertConfigurations>\n{}\n            <ThingProperties></ThingProperties>\n        </Thing>\n{}", header("Things"), escape(template)?, escape(request.value_stream.as_deref().unwrap_or(""))?, local_shape(subscription)?, shapes(&request.shapes)?, footer("Things"))
         }
-    }
+    })
 }
 
 pub(crate) fn plan(solution: &Solution, request: &NewRequest) -> Result<Plan, NewError> {
@@ -1359,7 +1380,7 @@ pub(crate) fn plan(solution: &Solution, request: &NewRequest) -> Result<Plan, Ne
         duration,
         cron.as_deref(),
         script.as_deref(),
-    )
+    )?
     .into_bytes();
     let sidecars = if request.kind == Kind::DataShape {
         vec![(

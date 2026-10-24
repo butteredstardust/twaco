@@ -30,6 +30,17 @@ fn new(solution: &Solution, kind: Kind, name: &str, set: impl FnOnce(&mut NewReq
     commands::entity_new::execute(solution, &command, &mut Notices::default()).unwrap();
 }
 
+/// A description is written as an attribute, and one holding U+0001 would make the file one no
+/// XML parser reads.
+#[test]
+fn a_new_entity_refuses_a_character_xml_cannot_hold() {
+    let (_dir, solution) = fixture();
+    let mut request = NewRequest::blank(Kind::Thing, "Acme.Orders.Bad_TH");
+    request.description = "bell\u{7}".into();
+    let error = entity::new::plan(&solution, &request).unwrap_err();
+    assert!(error.to_string().contains("U+0007"), "{error}");
+}
+
 fn plan_of(solution: &Solution, entity: &str, action: Action) -> Result<Plan, EditError> {
     plan(
         solution,
@@ -535,7 +546,7 @@ fn property_add_writes_the_mined_definition_and_nothing_else() {
     let anchor = "</PropertyDefinition>\n                </PropertyDefinitions>";
     let inserted = format!(
         "</PropertyDefinition>\n{}\n                </PropertyDefinitions>",
-        label.xml()
+        label.xml().unwrap()
     );
     assert_eq!(after, before.replacen(anchor, &inserted, 1));
 }
@@ -976,7 +987,8 @@ fn subscriptions_are_written_as_new_timer_writes_them() {
         "",
         "Speed",
         "logger.info(me.Speed);",
-    );
+    )
+    .unwrap();
     assert_eq!(
         after,
         before.replace(
@@ -1066,7 +1078,7 @@ fn shape_add_and_remove_with_their_refusals() {
             "<ImplementedShapes>\n            </ImplementedShapes>",
             &format!(
                 "<ImplementedShapes>\n{}\n            </ImplementedShapes>",
-                entity::new::implemented_shape_xml("Acme.Orders.Audit_TS")
+                entity::new::implemented_shape_xml("Acme.Orders.Audit_TS").unwrap()
             )
         )
     );

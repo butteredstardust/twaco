@@ -531,7 +531,7 @@ fn a_pull_creates_a_file_for_a_server_table_the_solution_has_none_of() {
         workspace
             .text("Acme.App/LocalizationTable_fr.xml")
             .as_bytes(),
-        render("fr", &header, &[token("Acme.App.Save", "Enregistrer")])
+        render("fr", &header, &[token("Acme.App.Save", "Enregistrer")]).unwrap()
     );
 }
 
@@ -829,7 +829,7 @@ fn new_seeds_from_default_and_refuses_a_table_the_project_has() {
     .unwrap();
     assert_eq!(
         std::fs::read(&path).unwrap(),
-        render("fr", &header, &tokens(&EN))
+        render("fr", &header, &tokens(&EN)).unwrap()
     );
 
     for table in ["fr", "de", DEFAULT_TABLE] {
@@ -1064,6 +1064,7 @@ fn set_creates_the_default_file_when_the_project_has_none() {
             &Header::default(),
             &[plain("Acme.App.Title", "Title")]
         )
+        .unwrap()
     );
 }
 
@@ -1315,7 +1316,7 @@ fn status_shows_the_solutions_tokens_in_a_table_it_has_no_file_for() {
 fn a_file_of_a_project_with_a_longer_prefix_is_not_taken_for_anothers() {
     let workspace = with_toml(
         "[[project]]\nname = \"Acme.App\"\n[project.localization]\nprefixes = [\"Acme.\"]\n\n[[project]]\nname = \"Acme.B\"\n",
-        &[("Acme.B/LocalizationTable_de.xml", &render("de", &Header::default(), &[token("Acme.B.X", "x")]))],
+        &[("Acme.B/LocalizationTable_de.xml", &render("de", &Header::default(), &[token("Acme.B.X", "x")]).unwrap())],
     );
     let server = Server::with(&[
         (DEFAULT_TABLE, vec![]),

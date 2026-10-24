@@ -883,7 +883,11 @@ pub(crate) fn edit(
 }
 
 /// Render a new portable table export. It intentionally omits project and modified-date metadata.
-pub(crate) fn render(table: &str, header: &Header, tokens: &[Token]) -> Vec<u8> {
+pub(crate) fn render(
+    table: &str,
+    header: &Header,
+    tokens: &[Token],
+) -> Result<Vec<u8>, scan::IllegalXmlChar> {
     let description = header.description.clone().unwrap_or_else(|| {
         if table == DEFAULT_TABLE {
             "Default localization table".to_string()
@@ -894,24 +898,24 @@ pub(crate) fn render(table: &str, header: &Header, tokens: &[Token]) -> Vec<u8> 
     let mut out = String::from("<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<Entities>\n    <LocalizationTables>\n        <LocalizationTable\n");
     out.push_str(&format!(
         "                description=\"{}\"\n",
-        scan::escape_attribute(&description)
+        scan::escape_attribute(&description)?
     ));
     out.push_str("                aspect.isEditableExtensionObject=\"false\"\n                documentationContent=\"\"\n                homeMashup=\"\"\n");
     if let Some(value) = &header.language_common {
         out.push_str(&format!(
             "                languageCommon=\"{}\"\n",
-            scan::escape_attribute(value)
+            scan::escape_attribute(value)?
         ));
     }
     if let Some(value) = &header.language_native {
         out.push_str(&format!(
             "                languageNative=\"{}\"\n",
-            scan::escape_attribute(value)
+            scan::escape_attribute(value)?
         ));
     }
     out.push_str(&format!(
         "                name=\"{}\"\n                tags=\"\">\n",
-        scan::escape_attribute(table)
+        scan::escape_attribute(table)?
     ));
     out.push_str("            <avatar></avatar>\n            <DesignTimePermissions>\n                <Create></Create>\n                <Read></Read>\n                <Update></Update>\n                <Delete></Delete>\n                <Metadata></Metadata>\n            </DesignTimePermissions>\n            <RunTimePermissions></RunTimePermissions>\n            <VisibilityPermissions>\n                <Visibility></Visibility>\n            </VisibilityPermissions>\n            <ConfigurationTableDefinitions></ConfigurationTableDefinitions>\n            <ConfigurationTables>\n                <ConfigurationTable\n                        dataShapeName=\"\"\n                        description=\"Localization tokens and usage\"\n                        isMultiRow=\"true\"\n                        name=\"LocalizationTokens\"\n                        ordinal=\"0\">\n                    <DataShape>\n                        <FieldDefinitions>\n");
     for (friendly, description, name, ordinal) in [
@@ -933,7 +937,7 @@ pub(crate) fn render(table: &str, header: &Header, tokens: &[Token]) -> Vec<u8> 
         out.push_str("                        </Row>");
     }
     out.push_str("\n                    </Rows>\n                </ConfigurationTable>\n            </ConfigurationTables>\n        </LocalizationTable>\n    </LocalizationTables>\n</Entities>\n");
-    out.into_bytes()
+    Ok(out.into_bytes())
 }
 
 /// The conventional filename for a table within one project block.

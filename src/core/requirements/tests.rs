@@ -194,7 +194,7 @@ fn depends_on_missing_empty_and_escaped_json_and_highest_versions() {
             "Projects",
             "Project",
             name,
-            &format!("dependsOn=\"{}\"", scan::escape_attribute(depends)),
+            &format!("dependsOn=\"{}\"", scan::escape_attribute(depends).unwrap()),
             "",
         );
     }
@@ -357,6 +357,7 @@ fn offline_reports_undeclared_lower_and_stale_and_new_draft_is_clean() {
             scan::escape_attribute(
                 r#"{"extensions":"Acme.Base:2.0,Acme.Other:1","projects":"Acme.ExternalProject:0"}"#
             )
+            .unwrap()
         ),
         "",
     );
@@ -631,7 +632,7 @@ fn unreadable_entities_and_malformed_project_declarations_refuse_partial_drafts(
             "Projects",
             "Project",
             "Acme.App",
-            &format!("dependsOn=\"{}\"", scan::escape_attribute(depends)),
+            &format!("dependsOn=\"{}\"", scan::escape_attribute(depends).unwrap()),
             "",
         );
         let error = collect(&solution).unwrap_err().to_string();

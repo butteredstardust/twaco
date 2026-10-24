@@ -198,7 +198,9 @@ fn with_project(src: &[u8], project: &str) -> Result<Vec<u8>, String> {
         src,
         &[Edit::new(
             span,
-            scan::escape_attribute(project).into_bytes(),
+            scan::escape_attribute(project)
+                .map_err(|error| error.to_string())?
+                .into_bytes(),
         )],
     )
     .map_err(|error| error.to_string())
