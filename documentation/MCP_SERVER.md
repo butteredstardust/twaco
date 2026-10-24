@@ -51,20 +51,20 @@ Server tools use the same [profiles](CONFIGURATION.md#server-profiles) as the co
 pass `profile` to choose one.
 
 **Fewer tools.** A client keeps every listed tool's definition in the agent's context on every
-turn, and all 73 come to about 123 KB with their output schemas (about 82 KB for a client on a
+turn, and all 81 come to about 143 KB with their output schemas (about 93 KB for a client on a
 revision before `2025-06-18`, which gets none). `--tools` (or `TWACO_MCP_TOOLS`) lists and runs only
 the groups named, comma-separated; any other tool is unknown to that server. `core` alone is about
-30 KB (18 KB without output schemas).
+35 KB (20 KB without output schemas).
 
 | Group | Tools |
 | --- | --- |
-| `core` | projects, types, check, status, sync, extract, fmt, push, deploy, bundle, catalog, impact, trace, unused, search, entity_get, docs, doctor, guide |
-| `entity` | entity_delete, entity_restore, entity_carry, entity_new, entity_edit, new_building_block, export, import, package |
+| `core` | projects, types, check, status, sync, extract, fmt, push, deploy, bundle, catalog, impact, contract_diff, trace, unused, search, entity_get, docs, doctor, guide |
+| `entity` | entity_pull, entity_delete, entity_restore, entity_carry, entity_new, network, network_write, entity_edit, new_building_block, export, import, package |
 | `refactor` | rename, move_member, reproject, retemplate, adopt_report, adopt_apply, handoff |
 | `mashup` | mashup_new, mashup_templates, mashup_add, mashup_add_contained, mashup_bind, mashup_on, widgets, mashup_param, mashup_recipe, mashup_event, mashup_validate, mashup_describe |
-| `permissions` | permissions, permissions_init, permissions_audit, permissions_apply, permissions_push |
+| `permissions` | permissions, requirements_init, requirements_check, permissions_init, permissions_audit, permissions_apply, permissions_push |
 | `data` | db_run, db_query, datatable_copy, db_clean, config_table, call, test |
-| `server` | logs, log_level, repo, repo_write, localization, localization_write, users, users_write, extensions, extension_write, settings |
+| `server` | init_from_server, logs, log_level, repo, repo_write, localization, localization_write, users, users_write, appkey, extensions, extension_write, settings |
 | `reference` | help_search, help_page, javadoc |
 
 ```sh
@@ -142,10 +142,14 @@ in its text block. It has no `structuredContent`, which is kept for results that
 | `fmt` | workspace | Format service scripts; `check: true` only reports |
 | `status` | baseline | Compare entities with the server and the baseline |
 | `push` | server | Import one entity, refusing a conflict |
+| `entity_pull` | workspace | Take server-changed entities into the repository, extract their sidecars and record their baselines; plan by default |
+| `init_from_server` | workspace | Start a repository, or add projects to this one, from server projects; a plan until `apply: true` |
 | `deploy` | server | The full deploy, in project order, with live parse, server requirements and conflict checks; a deploy the gates stop answers `stage: "gates"` and lists each blocking gate's findings |
 | `call` | server | Call a service; `with_logs` adds what it logged |
+| `test` | server | The service cases of `tests/*.toml`, called as each test user; a dry run lists and checks them |
 | `adopt_report` | no | What a designer's Composer export really changes, including retyped service arguments and defaults |
 | `adopt_apply` | workspace | Write the mechanical half of a designer's export |
+| `handoff` | workspace | List recorded collaborator handoffs, or record delivered exports as the base of a later three-way adopt; plan by default |
 | `entity_restore` | server | List backup sets, or import one back (all of it or named entities), plan by default |
 | `entity_carry` | server; workspace for the ledger | Copy run-time, design-time and visibility permissions from renamed entities to the new ones, plan by default |
 | `entity_delete` | server; workspace for the ledger | Delete old entities in dependency order, guarded, plan by default |
@@ -155,8 +159,32 @@ in its text block. It has no `structuredContent`, which is kept for results that
 | `db_query` | server | Run read-only SQL through a throwaway Database Thing |
 | `rename` | workspace | Rename an entity, a building block (a name prefix), a DataShape field, a service or a property across the repository; `dry_run` defaults to true; the result's `plan_digest`, passed back with `dry_run: false`, applies exactly the plan that was reviewed |
 | `move_member` | workspace | Move or copy a service or property between Things, templates and shapes; reports the callers it breaks; plan by default |
+| `reproject` | workspace | Move entities to another project of the solution, naming each reference the move puts outside the deploy order; plan by default |
 | `new_building_block` | workspace | Create a building block as files and register its project, plan by default |
+| `entity_new` | workspace | Create an entity as a repository XML file (Things, templates, shapes, DataShapes, DataTables, styles, menus, Networks, ...); plan by default |
+| `entity_edit` | workspace | Change an entity as Composer would: properties, script services, subscriptions, shapes, timers, schedulers, styles, states, menus, media; plan by default |
+| `network` | no | List Networks, show an asset hierarchy, or diff repository and server connections |
+| `network_write` | workspace | Add, move or remove a Network connection, import an asset CSV, or pull the server's connections; plan by default |
+| `mashup_new` | workspace | Create a responsive mashup from one of the embedded layout templates; plan by default |
+| `mashup_templates` | no | The embedded layout templates, or one template's slots |
+| `mashup_add` | workspace | Add a catalogue widget to a mashup; plan by default |
+| `mashup_add_contained` | workspace | Add a repository mashup as a contained mashup; plan by default |
+| `mashup_bind` | workspace | Add one data binding, by the addresses `mashup_describe` prints; plan by default |
+| `mashup_on` | workspace | Run a data call or widget service when a mashup event fires; plan by default |
+| `mashup_param` | workspace | Add, change or remove a mashup parameter, with every container's copy; plan by default |
+| `mashup_event` | workspace | Give a mashup an event its containing mashups can react to; plan by default |
+| `mashup_recipe` | workspace | Write a common piece of wiring (enable-when, show-when, text, message, confirm, popup, ...) in one edit; plan by default |
+| `mashup_validate` | no | Validate mashups offline: structure, bindings and events against the widget catalogue |
+| `mashup_describe` | no | A mashup's widget tree, service calls, bindings and events, without its XML |
+| `widgets` | no | The embedded ThingWorx 10.2 widget catalogue, or one widget's properties, events and services |
 | `retemplate` | workspace | Change a template, base template or implemented shapes, with a report of what is gained and lost; plan by default |
+| `permissions` | no | Compare entities' permissions in the repository with the server's |
+| `permissions_init` | workspace | Draft a `permissions.toml` for each project without one, from what it grants today; plan by default |
+| `permissions_audit` | no | Check each project's `permissions.toml` against the entity XML; `server: true` also against the server |
+| `permissions_apply` | workspace | Write each project's policy into its entity XML; plan by default |
+| `permissions_push` | server | Make the server's permission sets exactly the repository's; plan by default |
+| `requirements_init` | workspace | Draft `requirements.toml` from the solution's external dependencies; plan by default |
+| `requirements_check` | no | Check `requirements.toml` against the repository; `server: true` also verifies the server, read-only |
 | `config_table` | server | Read, diff or restore one Thing's configuration table |
 | `logs` | no | Read a server log |
 | `log_level` | server | Read or change a log's level |
@@ -165,6 +193,9 @@ in its text block. It has no `structuredContent`, which is kept for results that
 | `repo_write` | server; workspace for pull | Put, mkdir, rm, mv, push and pull for file repositories |
 | `localization` | no | Compare localization table files with the server |
 | `localization_write` | server or workspace | Pull, push, create and edit localization tables; dry run by default |
+| `users` | no | The declared test users on the server: present, signing in, in their groups |
+| `users_write` | server | Seed or delete the test users; plan by default |
+| `appkey` | server | Create an application key (plan by default) or show one |
 | `extensions` | no | The server's extension packages |
 | `extension_write` | server | Validate, install or remove an extension package |
 | `bundle` | workspace, with `dry_run: false` | Whether the configured bundle is current, or rebuild it |
@@ -175,6 +206,8 @@ in its text block. It has no `structuredContent`, which is kept for results that
 | `package` | workspace | Bundles, a source-control zip or extension packages, offline |
 | `catalog` | no | Every service in the repository, with its signature and origin |
 | `impact` | no | What changing an entity, or one service, property or field of it, would reach, each dependent at the strength of its weakest reference |
+| `trace` | no | How each caller uses one service: what runs the call, what sets each parameter, where each result goes |
+| `contract_diff` | no | Compare the public contract with a git revision, with the current callers of what broke; offline |
 | `unused` | no | Entities no entry point reaches (advisory; deletes nothing), with what still names them |
 | `docs` | no | The solution written down: projects and deploy order, inheritance, services, DataShapes and the references to review, as JSON and Markdown |
 | `doctor` | no | What resolved, what is reachable and what is missing |

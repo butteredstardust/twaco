@@ -29,6 +29,9 @@ twaco is a single command-line binary that makes the repository the source of tr
 - **Scripts become files.** `twaco extract` writes every service script, DataShape, mashup and
   DataTable configuration out to sidecar files. `twaco sync` writes them back byte for byte,
   touching nothing else in the XML.
+- **Start from a server, or from exports.** `twaco init` proposes a `twaco.toml` from a folder
+  of entity exports; `twaco init --from-server <project>` starts a repository from server
+  projects, and `entity pull` takes in what changed on the server since.
 - **Build without Composer.** `twaco new` creates Things, templates, shapes, DataShapes,
   DataTables, streams, timers, schedulers, styles, themes, state definitions, menus and media.
   `twaco thing service|property|subscription|shape` adds, changes and removes what they hold, and
@@ -43,6 +46,9 @@ twaco is a single command-line binary that makes the repository the source of tr
 - **Know before you change.** `twaco catalog Entity.Service --body` shows a service's signature,
   origin and script; `impact` lists what a change reaches, `trace` how each caller uses a
   service, `unused` what nothing reaches, and `mashup describe` a mashup's wiring without its XML.
+  `contract diff` compares the public services with a git revision, `requirements check` holds
+  the solution to the external entities, extensions and platform version it declares, and
+  `docs` writes the whole solution down as Markdown.
 - **Checks before the server sees it.** `twaco check` runs every gate in one pass: sidecars in
   sync, line endings, formatting, script traps the Rhino engine punishes, code order, project
   validation, mashup bindings against their services' DataShapes, mashup content, contained mashups,
@@ -66,6 +72,56 @@ twaco is a single command-line binary that makes the repository the source of tr
 
 twaco runs on Windows, Linux and macOS, needs no runtime, and works offline for everything
 that does not need a server.
+
+## How it works
+
+The repository holds the entity XML that ThingWorx exports, and twaco keeps the parts you
+edit beside it as plain files. Every arrow that reaches the server plans until `--apply`.
+
+```mermaid
+flowchart LR
+    sidecars["Sidecars in src/<br/>script.js, fields.json,<br/>content.json, datatable.json"]
+    composer["A designer's<br/>Composer export"]
+    xml["Entity XML in the repository<br/>Things/, Mashups/, ..."]
+    gates{{"twaco check<br/>every gate, one exit code"}}
+    server[("ThingWorx server")]
+    xml -- "extract" --> sidecars
+    sidecars -- "sync" --> xml
+    sidecars -.-> gates
+    composer -- "adopt" --> xml
+    xml -- "deploy, entity push" --> server
+    server -- "init --from-server,<br/>entity pull" --> xml
+    server -. "entity status" .-> xml
+```
+
+`sync` writes back only the spans it changed, so an untouched entity stays byte for byte the
+same. `deploy` runs the gates, bundles each project in dependency order, and refuses before it
+imports anything when a script does not parse, or when the server's copy of an entity is not the
+one your last deploy left there (changed, deleted, or never recorded) and `--force` is absent:
+
+```mermaid
+sequenceDiagram
+    actor You
+    participant twaco
+    participant Server as ThingWorx server
+    You->>twaco: twaco deploy [--apply]
+    twaco->>twaco: run the gates, bundle each project in dependency order
+    twaco->>Server: parse every service script
+    twaco->>Server: read each entity the bundles hold
+    twaco->>twaco: compare each with the baseline of the last deploy
+    alt a script does not parse
+        twaco-->>You: refused, naming the entity, service and line
+    else the server's copy differs from the baseline, without --force
+        twaco-->>You: refused as a conflict, naming each entity
+    else without --apply
+        twaco-->>You: the plan: what it imports, and what it calls
+    else with --apply
+        twaco->>Server: import each project's bundle, in order
+        twaco->>Server: read each entity back and record the new baseline
+        twaco->>Server: run the configured deploy and post-import services
+        twaco-->>You: what changed
+    end
+```
 
 ## Create, read, change, delete
 
@@ -208,13 +264,58 @@ claude mcp add twaco -- twaco mcp           # Claude Code, from the solution's r
 Any MCP client works: run `twaco mcp` with the solution as its working directory, or set
 `TWACO_ROOT`. Tools that write to the server default to `dry_run: true`, and results are
 summaries unless the agent asks for detail, so a large solution stays affordable in context.
-Every tool definition together takes about 90 KB of an agent's context; `twaco mcp --tools core,entity`
-(or `TWACO_MCP_TOOLS`) serves only the groups it needs (`core`, `entity`, `refactor`, `mashup`,
-`permissions`, `data`, `server`, `reference`). See [MCP server](documentation/MCP_SERVER.md).
+The 81 tool definitions together take about 143 KB of an agent's context (93 KB for a client
+without output schemas); `twaco mcp --tools core,entity` (or `TWACO_MCP_TOOLS`) serves only the
+groups it needs (`core`, `entity`, `refactor`, `mashup`, `permissions`, `data`, `server`,
+`reference`). `core` alone, the everyday loop, is about 35 KB. See
+[MCP server](documentation/MCP_SERVER.md).
+
+```mermaid
+sequenceDiagram
+    participant Agent as MCP client
+    participant Reader as twaco mcp
+    participant Worker as tool worker
+    participant Core as twaco core
+    Agent->>Reader: tools/call deploy {"only": ["Acme.Orders"]}
+    Reader->>Worker: queue the call
+    Note over Reader: keeps answering ping, tools/list<br/>and cancellations meanwhile
+    Worker->>Core: the same executor the CLI uses
+    Core-->>Worker: a plan, since dry_run defaults to true
+    Worker-->>Agent: notifications/progress
+    Worker-->>Agent: result: a summary first, detail on request
+    Agent->>Reader: tools/call deploy {..., "dry_run": false}
+```
+
+Tool calls run one at a time, in the order they arrive. A cancelled call that has not started
+never starts; one that has runs to its end, so a server write is never stopped halfway.
 
 `twaco init --write` also writes an `AGENTS.md` and a `CLAUDE.md` that point an agent at
 `twaco guide`, the workflow, the platform's quirks, and the commands to run before grepping:
 `catalog <Entity>.<Service> --body`, `impact`, `trace`, `mashup describe` and `entity status`.
+
+## How it is built
+
+One Rust crate: a library with every behaviour in `core`, and two thin front ends that parse,
+call it and print or return JSON. So a command and its MCP tool agree.
+
+```mermaid
+flowchart TB
+    cli["Command line<br/>src/main.rs, src/cli/ (clap derive)"]
+    mcp["MCP server<br/>src/mcp/ (JSON-RPC on stdio)"]
+    subgraph core["src/core"]
+        direction TB
+        commands["commands, workflow<br/>shared policy: workspace lock, profile,<br/>plan or apply, backups"]
+        features["features<br/>deploy, push, status, adopt, check, rename, relocate,<br/>mashup, catalog, impact, trace, permissions, ..."]
+        foundations["foundations<br/>scan, splice, sidecar, index, workspace,<br/>transaction, lock, config, profile, server"]
+        commands --> features --> foundations
+    end
+    cli --> commands
+    mcp --> commands
+    foundations --> files[("Repository files")]
+    foundations --> server[("ThingWorx REST API")]
+```
+
+[Architecture](documentation/ARCHITECTURE.md) names the principles and where everything lives.
 
 ## Documentation
 
@@ -229,6 +330,7 @@ Every tool definition together takes about 90 KB of an agent's context; `twaco m
 | [Architecture](documentation/ARCHITECTURE.md) | How twaco works inside, for contributors |
 | [Mutation classes](documentation/MUTATION_CLASSES.md) | What may have changed after each command or tool fails |
 | [Transactions](documentation/TRANSACTIONS.md) | How multi-file changes are journaled and recovered after a crash |
+| [Command facade](documentation/COMMAND_FACADE.md), [MCP schemas](documentation/MCP_SCHEMAS.md), [Testing](documentation/TESTING.md) | For contributors: the shared command policy, the tools' result shapes, and how to run the tests |
 
 ## Safety
 
