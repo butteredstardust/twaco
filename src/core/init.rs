@@ -358,6 +358,9 @@ mod tests {
             "C:\\src\\things",
             "line\nbreak",
             "bell\u{7}",
+            "it's",
+            "a\"b'c",
+            "del\u{7f}",
         ] {
             let read: toml::Table = toml::from_str(&format!("value = {}", quote(text))).unwrap();
             assert_eq!(read["value"].as_str(), Some(text));
