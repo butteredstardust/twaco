@@ -6,6 +6,8 @@ All notable changes to twaco are recorded here. The format follows
 
 ## [Unreleased]
 
+## [0.1.35] - 2026-10-24
+
 ### Changed
 
 - `logs level` is a subcommand of `logs` rather than a first operand named `level`. `--sublogger`,
@@ -1015,6 +1017,7 @@ The first public release.
 - `mcp` serves 39 tools over stdio to MCP clients, with compact summaries, validated arguments
   and dry runs by default for tools that can write to a server.
 
+[0.1.35]: https://github.com/butteredstardust/twaco/releases/tag/v0.1.35
 [0.1.34]: https://github.com/butteredstardust/twaco/releases/tag/v0.1.34
 [0.1.33]: https://github.com/butteredstardust/twaco/releases/tag/v0.1.33
 [0.1.32]: https://github.com/butteredstardust/twaco/releases/tag/v0.1.32
