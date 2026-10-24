@@ -1172,7 +1172,8 @@ pub(crate) fn apply(plan: &Plan, lock: &WorkspaceLock) -> Result<Applied, Reloca
 /// points at is not this workspace's to delete.
 fn files_under(folder: &Path) -> std::io::Result<Vec<PathBuf>> {
     let tree = workspace::walk_all(folder);
-    if let Some(link) = tree.links.first() {
+    let root_link = super::links::is_link(folder).then(|| folder.to_path_buf());
+    if let Some(link) = root_link.as_ref().or(tree.links.first()) {
         return Err(std::io::Error::other(format!(
             "{} is a link; twaco does not follow links",
             link.display()
@@ -1189,7 +1190,9 @@ fn files_under(folder: &Path) -> std::io::Result<Vec<PathBuf>> {
 fn remove_empty_folders(folder: &Path) {
     if let Ok(entries) = std::fs::read_dir(folder) {
         for entry in entries.flatten() {
-            if entry.file_type().is_ok_and(|kind| kind.is_dir()) {
+            if entry.file_type().is_ok_and(|kind| kind.is_dir())
+                && !super::links::is_link(&entry.path())
+            {
                 remove_empty_folders(&entry.path());
             }
         }
