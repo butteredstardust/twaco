@@ -236,7 +236,14 @@ pub(crate) fn lines_with_code(text: &str) -> impl Iterator<Item = (&str, bool)> 
         });
         let was_fenced = fence.is_some();
         match (fence, marker) {
-            (None, Some(opening)) => fence = Some(opening),
+            // An opening fence is indented at most three spaces, and a backtick fence's info
+            // string holds no backtick: ```` ```x``` ```` is inline code, not a block.
+            (None, Some((c, run)))
+                if line.len() - trimmed.len() <= 3
+                    && !(c == '`' && trimmed[run..].contains('`')) =>
+            {
+                fence = Some((c, run))
+            }
             (Some((c, n)), Some((m, run)))
                 if c == m && run >= n && trimmed[run * m.len_utf8()..].trim().is_empty() =>
             {
@@ -533,6 +540,14 @@ mod tests {
                 topic.id
             );
         }
+    }
+
+    #[test]
+    fn inline_code_and_an_indented_block_open_no_fence() {
+        let text = "## One\n```x``` is inline\n    ```\n## Two\ny\n";
+        let found = sections(text);
+        assert_eq!(found.len(), 2, "{found:?}");
+        assert_eq!(found[1].heading, "Two");
     }
 
     #[test]
