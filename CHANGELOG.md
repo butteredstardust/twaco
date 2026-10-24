@@ -6,6 +6,11 @@ All notable changes to twaco are recorded here. The format follows
 
 ## [Unreleased]
 
+### Fixed
+
+- `init` writes a project name or root holding a line break or another control character as a
+  TOML string that reads back, rather than one `twaco.toml` cannot parse.
+
 ## [0.1.31] - 2026-10-24
 
 ### Fixed

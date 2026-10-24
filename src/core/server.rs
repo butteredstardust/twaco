@@ -855,20 +855,16 @@ fn multipart(boundary: &str, file_name: &str, payload: &[u8]) -> Vec<u8> {
     body
 }
 
+/// Bytes a URL path segment escapes: everything but RFC 3986's unreserved `A-Z a-z 0-9 - . _ ~`.
+const PATH_SEGMENT: &percent_encoding::AsciiSet = &percent_encoding::NON_ALPHANUMERIC
+    .remove(b'-')
+    .remove(b'.')
+    .remove(b'_')
+    .remove(b'~');
+
 /// Percent-encode one complete URL path segment, retaining only RFC 3986 unreserved bytes.
 pub(crate) fn encode_path_segment(value: &str) -> String {
-    const HEX: &[u8; 16] = b"0123456789ABCDEF";
-    let mut out = String::with_capacity(value.len());
-    for byte in value.as_bytes() {
-        if byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'.' | b'_' | b'~') {
-            out.push(*byte as char);
-        } else {
-            out.push('%');
-            out.push(HEX[(byte >> 4) as usize] as char);
-            out.push(HEX[(byte & 0x0f) as usize] as char);
-        }
-    }
-    out
+    percent_encoding::utf8_percent_encode(value, PATH_SEGMENT).to_string()
 }
 
 fn validate_charset(content_type: Option<&str>, body: &[u8]) -> Result<(), ServerError> {

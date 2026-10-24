@@ -209,74 +209,10 @@ fn inner_of(region: &str) -> &str {
         .unwrap_or(region)
 }
 
-/// Serialise the way `json.dumps(indent=2, ensure_ascii=False)` does.
+/// Serialise the way `json.dumps(indent=2, ensure_ascii=False)` does, which is serde_json's
+/// pretty layout: two-space indent, `"key": value`, `{}` and `[]` when empty, non-ASCII as itself.
 fn pretty(value: &serde_json::Value) -> String {
-    let mut out = String::new();
-    write_value(value, 0, &mut out);
-    out
-}
-
-fn write_value(value: &serde_json::Value, depth: usize, out: &mut String) {
-    match value {
-        serde_json::Value::Object(map) if map.is_empty() => out.push_str("{}"),
-        serde_json::Value::Object(map) => {
-            out.push_str("{\n");
-            let last = map.len() - 1;
-            for (index, (key, child)) in map.iter().enumerate() {
-                indent(depth + 1, out);
-                out.push_str(&string_literal(key));
-                out.push_str(": ");
-                write_value(child, depth + 1, out);
-                out.push_str(if index == last { "\n" } else { ",\n" });
-            }
-            indent(depth, out);
-            out.push('}');
-        }
-        serde_json::Value::Array(items) if items.is_empty() => out.push_str("[]"),
-        serde_json::Value::Array(items) => {
-            out.push_str("[\n");
-            let last = items.len() - 1;
-            for (index, child) in items.iter().enumerate() {
-                indent(depth + 1, out);
-                write_value(child, depth + 1, out);
-                out.push_str(if index == last { "\n" } else { ",\n" });
-            }
-            indent(depth, out);
-            out.push(']');
-        }
-        serde_json::Value::String(text) => out.push_str(&string_literal(text)),
-        serde_json::Value::Null => out.push_str("null"),
-        serde_json::Value::Bool(true) => out.push_str("true"),
-        serde_json::Value::Bool(false) => out.push_str("false"),
-        serde_json::Value::Number(number) => out.push_str(&number.to_string()),
-    }
-}
-
-fn indent(depth: usize, out: &mut String) {
-    for _ in 0..depth * 2 {
-        out.push(' ');
-    }
-}
-
-/// A JSON string, escaped as `ensure_ascii=False` leaves it: non-ASCII stays as itself.
-fn string_literal(value: &str) -> String {
-    let mut out = String::with_capacity(value.len() + 2);
-    out.push('"');
-    for character in value.chars() {
-        match character {
-            '"' => out.push_str("\\\""),
-            '\\' => out.push_str("\\\\"),
-            '\n' => out.push_str("\\n"),
-            '\r' => out.push_str("\\r"),
-            '\t' => out.push_str("\\t"),
-            '\u{08}' => out.push_str("\\b"),
-            '\u{0c}' => out.push_str("\\f"),
-            c if (c as u32) < 0x20 => out.push_str(&format!("\\u{:04x}", c as u32)),
-            c => out.push(c),
-        }
-    }
-    out.push('"');
-    out
+    serde_json::to_string_pretty(value).expect("JSON values serialise")
 }
 
 #[cfg(test)]

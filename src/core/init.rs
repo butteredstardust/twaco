@@ -206,7 +206,7 @@ pub fn has_entity_files(root: &Path) -> bool {
 }
 
 fn quote(text: &str) -> String {
-    format!("\"{}\"", text.replace('\\', "\\\\").replace('"', "\\\""))
+    toml::Value::String(text.to_string()).to_string()
 }
 
 fn walk(dir: &Path, out: &mut Vec<PathBuf>) {
@@ -349,6 +349,20 @@ pub fn write_agent_files(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_quoted_value_reads_back_as_itself() {
+        for text in [
+            "plain",
+            "with \"quotes\"",
+            "C:\\src\\things",
+            "line\nbreak",
+            "bell\u{7}",
+        ] {
+            let read: toml::Table = toml::from_str(&format!("value = {}", quote(text))).unwrap();
+            assert_eq!(read["value"].as_str(), Some(text));
+        }
+    }
 
     fn write(path: PathBuf, text: &str) {
         std::fs::create_dir_all(path.parent().unwrap()).unwrap();
