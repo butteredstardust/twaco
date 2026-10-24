@@ -6,7 +6,7 @@
 //! a responsive mashup holding one `center` container; `master_root.json` is the root widget's
 //! properties for a master mashup.
 
-use crate::core::scan::escape_attribute;
+use crate::core::scan::{escape_attribute, IllegalXmlChar};
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 use std::collections::BTreeMap;
@@ -121,29 +121,29 @@ pub(crate) fn entity_xml(
     project: &str,
     kind: MashupKind,
     visibility: &[Visibility],
-) -> String {
+) -> Result<String, IllegalXmlChar> {
     let principals: String = visibility
         .iter()
         .map(|principal| {
-            format!(
+            Ok(format!(
                 "\n                    <Principal\n                     isPermitted=\"true\"\n                     name=\"{}\"\n                     type=\"{}\"></Principal>",
-                escape_attribute(&principal.name),
-                escape_attribute(&principal.kind)
-            )
+                escape_attribute(&principal.name)?,
+                escape_attribute(&principal.kind)?
+            ))
         })
-        .collect();
+        .collect::<Result<_, IllegalXmlChar>>()?;
     let visibility = if principals.is_empty() {
         String::new()
     } else {
         format!("{principals}\n                ")
     };
     let values = BTreeMap::from([
-        ("NAME", escape_attribute(name)),
-        ("PROJECT", escape_attribute(project)),
+        ("NAME", escape_attribute(name)?),
+        ("PROJECT", escape_attribute(project)?),
         ("MASHUP_TYPE", kind.aspect().to_string()),
         ("VISIBILITY", visibility),
     ]);
-    crate::core::newblock::fill(ENTITY_XML, &values)
+    Ok(crate::core::newblock::fill(ENTITY_XML, &values))
 }
 
 /// The root widget's properties for a master mashup.
@@ -158,7 +158,7 @@ mod tests {
 
     #[test]
     fn a_filled_entity_takes_its_content_from_sync_and_extracts_back_to_it() {
-        let xml = entity_xml("Acme.Orders_MU", "Acme", MashupKind::Mashup, &[]);
+        let xml = entity_xml("Acme.Orders_MU", "Acme", MashupKind::Mashup, &[]).unwrap();
         assert!(!xml.contains("@@"), "{xml}");
         assert!(xml.contains("name=\"Acme.Orders_MU\""));
         assert!(xml.contains("aspect.mashupType=\"mashup\""));
@@ -195,12 +195,13 @@ mod tests {
                     name: "Acme.Org:R&D".into(),
                 },
             ],
-        );
+        )
+        .unwrap();
         assert!(xml.contains("aspect.mashupType=\"target\""));
         assert!(xml.contains("name=\"Acme.Org:R&amp;D\"\n                     type=\"OrganizationalUnit\"></Principal>\n                </Visibility>"), "{xml}");
         assert_eq!(xml.matches("<Principal").count(), 2);
         // A value is never searched for placeholders itself.
-        let odd = entity_xml("Acme.@@PROJECT@@", "Acme", MashupKind::Mashup, &[]);
+        let odd = entity_xml("Acme.@@PROJECT@@", "Acme", MashupKind::Mashup, &[]).unwrap();
         assert!(odd.contains("name=\"Acme.@@PROJECT@@\""));
     }
 

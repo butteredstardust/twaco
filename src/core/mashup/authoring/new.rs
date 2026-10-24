@@ -263,7 +263,8 @@ pub(crate) fn plan_new(
     let assets =
         mashup::assets_from_payload(&document.to_content()).map_err(AuthoringError::Mashup)?;
     let entity_template =
-        mashup::templates::entity_xml(&request.name, &project.name, kind, &visibility);
+        mashup::templates::entity_xml(&request.name, &project.name, kind, &visibility)
+            .map_err(|e| AuthoringError::Invalid(e.to_string()))?;
     let (mut entity, _) =
         mashup::sync(entity_template.as_bytes(), &assets).map_err(AuthoringError::Mashup)?;
     for parameter in &parameters {

@@ -409,18 +409,19 @@ pub(crate) fn plan(solution: &Solution, request: &Request) -> Result<Plan, NewBl
         .display_name
         .clone()
         .unwrap_or_else(|| request.name.clone());
+    let escape = |value: &str| {
+        super::scan::escape_attribute(value)
+            .map_err(|e| NewBlockError::Invalid(format!("cannot write the block: {e}")))
+    };
     let mut values: BTreeMap<&str, String> = BTreeMap::new();
     values.insert("NAME", request.name.clone());
-    values.insert(
-        "DESCRIPTION",
-        super::scan::escape_attribute(&request.description),
-    );
+    values.insert("DESCRIPTION", escape(&request.description)?);
     values.insert("DESCRIPTION_TEXT", request.description.clone());
     values.insert("DISPLAY_TEXT", display);
     values.insert("TYPE", request.kind.component_type().to_string());
     values.insert("ENTRY_BASE", entry_base);
     values.insert("MANAGER_BASE", manager_base);
-    values.insert("DEPENDS_ON", super::scan::escape_attribute(&depends));
+    values.insert("DEPENDS_ON", escape(&depends)?);
 
     let base = solution.root.join(&root);
     refuse_linked_path(&solution.root, &base)?;

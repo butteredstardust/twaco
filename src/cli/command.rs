@@ -131,6 +131,10 @@ impl Command {
             Command::Export(_) => "export",
             Command::Import(_) => "import",
             Command::Call(_) => "call",
+            Command::Logs(super::data::Logs {
+                action: Some(super::data::LogsAction::Level(_)),
+                ..
+            }) => "logs level",
             Command::Logs(_) => "logs",
             Command::Settings(_) => "settings",
             Command::Thing(thing) => match thing {

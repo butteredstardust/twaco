@@ -5172,19 +5172,8 @@ help:
 
 == twaco logs
 usage: twaco logs <log>
-settings: disable-version-flag disable-help-subcommand
-subcommands: 
-arg --apply
-    action: SetTrue
-    value_name: -
-    num_args: 0
-    allow_hyphen_values: no
-    allow_negative_numbers: no
-    required: no
-    default: "false"
-    index: -
-    other: -
-    given twice: accepted
+settings: disable-version-flag disable-help-subcommand subcommand-negates-reqs args-conflicts-with-subcommands
+subcommands: level
 arg --from
     action: Set
     value_name: address
@@ -5325,32 +5314,9 @@ arg --regex
     other: -
     given twice: ArgumentConflict
     given bare: InvalidValue
-arg --reset
-    action: SetTrue
-    value_name: -
-    num_args: 0
-    allow_hyphen_values: no
-    allow_negative_numbers: no
-    required: no
-    default: "false"
-    index: -
-    other: -
-    given twice: accepted
 arg --since
     action: Set
     value_name: duration
-    num_args: 1
-    allow_hyphen_values: yes
-    allow_negative_numbers: no
-    required: no
-    default: -
-    index: -
-    other: -
-    given twice: ArgumentConflict
-    given bare: InvalidValue
-arg --sublogger
-    action: Set
-    value_name: name
     num_args: 1
     allow_hyphen_values: yes
     allow_negative_numbers: no
@@ -5416,6 +5382,106 @@ help:
 |       --regex <re>            a Java regex that must match the whole message
 |       --user/--thread/--origin <v>  exact matches
 |       --limit <n>             at most n entries (default 100); --oldest-first; --json
+| 
+|   --profile <name>            the server profile (default: default)
+|   --log <filter>              write diagnostic logs to stderr (or TWACO_LOG)
+|   --log-file <path>           append diagnostic logs to a file (or TWACO_LOG_FILE)
+
+== twaco logs level
+usage: twaco logs level <log> [<LEVEL>]
+settings: disable-version-flag disable-help-subcommand
+subcommands: 
+arg --apply
+    action: SetTrue
+    value_name: -
+    num_args: 0
+    allow_hyphen_values: no
+    allow_negative_numbers: no
+    required: no
+    default: "false"
+    index: -
+    other: -
+    given twice: accepted
+arg --help
+    action: Help
+    value_name: -
+    num_args: 0
+    allow_hyphen_values: no
+    allow_negative_numbers: no
+    required: no
+    default: -
+    index: -
+    other: -
+arg --log
+    action: Set
+    value_name: filter
+    num_args: 1
+    allow_hyphen_values: yes
+    allow_negative_numbers: no
+    required: no
+    default: -
+    index: -
+    other: -
+    given twice: ArgumentConflict
+    given bare: InvalidValue
+arg --log-file
+    action: Set
+    value_name: path
+    num_args: 1
+    allow_hyphen_values: yes
+    allow_negative_numbers: no
+    required: no
+    default: -
+    index: -
+    other: -
+    given twice: ArgumentConflict
+    given bare: InvalidValue
+arg --profile
+    action: Set
+    value_name: name
+    num_args: 1
+    allow_hyphen_values: yes
+    allow_negative_numbers: no
+    required: no
+    default: -
+    index: -
+    other: -
+    given twice: ArgumentConflict
+    given bare: InvalidValue
+arg --reset
+    action: SetTrue
+    value_name: -
+    num_args: 0
+    allow_hyphen_values: no
+    allow_negative_numbers: no
+    required: no
+    default: "false"
+    index: -
+    other: -
+    given twice: accepted
+arg --sublogger
+    action: Set
+    value_name: name
+    num_args: 1
+    allow_hyphen_values: yes
+    allow_negative_numbers: no
+    required: no
+    default: -
+    index: -
+    other: -
+    given twice: ArgumentConflict
+    given bare: InvalidValue
+arg <operands>
+    action: Append
+    value_name: operand
+    num_args: 0..
+    allow_hyphen_values: no
+    allow_negative_numbers: yes
+    required: no
+    default: -
+    index: 1
+    other: -
+help:
 |   logs level <log> [<LEVEL>]  read a log's level and its subloggers, or plan setting it
 |       --sublogger <name>      a class or package within the log
 |       --reset                 a sublogger (or, without --sublogger, all) back to the log's level

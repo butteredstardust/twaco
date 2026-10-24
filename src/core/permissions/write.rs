@@ -9,7 +9,7 @@ use super::{elements, from_xml, Grant, Grants, KindKey, PermissionsError, RUN_TI
 use crate::core::entity::carry::Kind;
 use crate::core::normalise::{self, Element};
 use crate::core::scan;
-use crate::core::scan::escape_attribute as escape;
+use crate::core::scan::{escape_attribute as escape, IllegalXmlChar};
 use crate::core::splice::{self, Edit};
 use std::collections::BTreeMap;
 
@@ -100,19 +100,31 @@ fn ordered(existing: &[(Grant, bool)], wanted: &Grants, order: &Order<'_>) -> Ve
     out
 }
 
-fn principal_xml(out: &mut String, grant: &Grant, allowed: bool, indent: &str, eol: &str) {
+fn principal_xml(
+    out: &mut String,
+    grant: &Grant,
+    allowed: bool,
+    indent: &str,
+    eol: &str,
+) -> Result<(), IllegalXmlChar> {
     out.push_str(&format!(
         "{indent}<Principal{eol}{indent} isPermitted=\"{allowed}\"{eol}{indent} name=\"{}\"{eol}{indent} type=\"{}\"></Principal>{eol}",
-        escape(&grant.principal),
-        escape(&grant.principal_type)
+        escape(&grant.principal)?,
+        escape(&grant.principal_type)?
     ));
+    Ok(())
 }
 
 /// The block's XML, starting at its opening tag and ending at its closing tag.
-fn render(kind: Kind, grants: &[(Grant, bool)], indent: &str, eol: &str) -> String {
+fn render(
+    kind: Kind,
+    grants: &[(Grant, bool)],
+    indent: &str,
+    eol: &str,
+) -> Result<String, IllegalXmlChar> {
     let tag = kind.element();
     if grants.is_empty() && kind.is_run_time() {
-        return format!("<{tag}></{tag}>");
+        return Ok(format!("<{tag}></{tag}>"));
     }
     let step = |n: usize| format!("{indent}{}", " ".repeat(4 * n));
     let mut out = format!("<{tag}>{eol}");
@@ -129,7 +141,7 @@ fn render(kind: Kind, grants: &[(Grant, bool)], indent: &str, eol: &str) -> Stri
                 "{}<Permissions{eol}{} resourceName=\"{}\">{eol}",
                 step(1),
                 step(1),
-                escape(resource)
+                escape(resource)?
             ));
             for action in RUN_TIME_ACTIONS {
                 let listed: Vec<&(Grant, bool)> = grants
@@ -141,7 +153,7 @@ fn render(kind: Kind, grants: &[(Grant, bool)], indent: &str, eol: &str) -> Stri
                 } else {
                     out.push_str(&format!("{}<{action}>{eol}", step(2)));
                     for (grant, allowed) in listed {
-                        principal_xml(&mut out, grant, *allowed, &step(3), eol);
+                        principal_xml(&mut out, grant, *allowed, &step(3), eol)?;
                     }
                     out.push_str(&format!("{}</{action}>{eol}", step(2)));
                 }
@@ -165,14 +177,14 @@ fn render(kind: Kind, grants: &[(Grant, bool)], indent: &str, eol: &str) -> Stri
             } else {
                 out.push_str(&format!("{}<{action}>{eol}", step(1)));
                 for (grant, allowed) in listed {
-                    principal_xml(&mut out, grant, *allowed, &step(2), eol);
+                    principal_xml(&mut out, grant, *allowed, &step(2), eol)?;
                 }
                 out.push_str(&format!("{}</{action}>{eol}", step(1)));
             }
         }
     }
     out.push_str(&format!("{indent}</{tag}>"));
-    out
+    Ok(out)
 }
 
 /// The whitespace a line holds before `at`, if only whitespace precedes it on its line.
@@ -255,7 +267,9 @@ pub(crate) fn rewrite(
                 let indent = indent_before(src, span.start);
                 edits.push(Edit::new(
                     span,
-                    render(kind, &rows, &indent, eol).into_bytes(),
+                    render(kind, &rows, &indent, eol)
+                        .map_err(|e| error(e.to_string()))?
+                        .into_bytes(),
                 ));
             }
             [] => {
@@ -268,7 +282,8 @@ pub(crate) fn rewrite(
                     let span = scan::element_span(tokens, last)
                         .ok_or_else(|| error("a permission block is not closed"))?;
                     let indent = indent_before(src, span.start);
-                    let block = render(kind, &rows, &indent, eol);
+                    let block =
+                        render(kind, &rows, &indent, eol).map_err(|e| error(e.to_string()))?;
                     edits.push(Edit::new(
                         scan::Span::new(span.end, span.end),
                         format!("{eol}{indent}{block}").into_bytes(),
@@ -279,7 +294,8 @@ pub(crate) fn rewrite(
                         .ok_or_else(|| error("the entity element has no closing tag"))?;
                     let at = tokens[close].span.start;
                     let indent = format!("{}    ", indent_before(src, at));
-                    let block = render(kind, &rows, &indent, eol);
+                    let block =
+                        render(kind, &rows, &indent, eol).map_err(|e| error(e.to_string()))?;
                     let close_indent = indent_before(src, at);
                     edits.push(Edit::new(
                         scan::Span::new(at, at),

@@ -317,19 +317,19 @@ pub(super) fn set_content_parameter(
     }
 }
 
-fn field_xml(def: &ParameterDefinition) -> String {
+fn field_xml(def: &ParameterDefinition) -> Result<String, scan::IllegalXmlChar> {
     let mut attributes = format!(
         "aspect.bindingDirection=\"{}\"",
-        scan::escape_attribute(&def.direction)
+        scan::escape_attribute(&def.direction)?
     );
     if let Some(shape) = &def.data_shape {
         attributes.push_str(&format!(
             " aspect.dataShape=\"{}\"",
-            scan::escape_attribute(shape)
+            scan::escape_attribute(shape)?
         ));
     }
-    attributes.push_str(&format!(" aspect.isMandatory=\"false\" baseType=\"{}\" description=\"{}\" name=\"{}\" ordinal=\"0\"", scan::escape_attribute(&def.base_type), scan::escape_attribute(&def.description), scan::escape_attribute(&def.name)));
-    format!("<FieldDefinition {attributes}/>")
+    attributes.push_str(&format!(" aspect.isMandatory=\"false\" baseType=\"{}\" description=\"{}\" name=\"{}\" ordinal=\"0\"", scan::escape_attribute(&def.base_type)?, scan::escape_attribute(&def.description)?, scan::escape_attribute(&def.name)?));
+    Ok(format!("<FieldDefinition {attributes}/>"))
 }
 
 /// Change just the parameter definition element, retaining every byte outside it.
@@ -371,10 +371,11 @@ pub(super) fn splice_parameter_definition(
         return splice::splice(src, &[splice::Edit::new(span, Vec::new())])
             .map_err(|e| AuthoringError::Invalid(e.to_string()));
     }
+    let written = field_xml(def).map_err(|e| AuthoringError::Invalid(e.to_string()))?;
     if let Some(field) = found {
         let span = scan::element_span(&tokens, field)
             .ok_or_else(|| AuthoringError::Invalid("malformed FieldDefinition".into()))?;
-        return splice::splice(src, &[splice::Edit::new(span, field_xml(def))])
+        return splice::splice(src, &[splice::Edit::new(span, written)])
             .map_err(|e| AuthoringError::Invalid(e.to_string()));
     }
     // The server keeps parameter definitions sorted by name, ignoring case: insert where it would.
@@ -400,7 +401,7 @@ pub(super) fn splice_parameter_definition(
                 src,
                 &[splice::Edit::new(
                     scan::Span::new(start, start),
-                    format!("{}{separator}", field_xml(def)),
+                    format!("{written}{separator}"),
                 )],
             )
             .map_err(|e| AuthoringError::Invalid(e.to_string()));
@@ -419,12 +420,11 @@ pub(super) fn splice_parameter_definition(
     let child_indent = format!("{parent_indent}    ");
     let before = String::from_utf8_lossy(inner.of(src));
     let replacement = if before.trim().is_empty() {
-        format!("\n{child_indent}{}\n{parent_indent}", field_xml(def))
+        format!("\n{child_indent}{written}\n{parent_indent}")
     } else {
         format!(
-            "{}\n{child_indent}{}\n{parent_indent}",
-            before.trim_end(),
-            field_xml(def)
+            "{}\n{child_indent}{written}\n{parent_indent}",
+            before.trim_end()
         )
     };
     splice::splice(src, &[splice::Edit::new(inner, replacement)])

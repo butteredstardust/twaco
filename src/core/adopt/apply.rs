@@ -981,7 +981,7 @@ fn new_mashup_file(
     let text = format!(
         "{}{}{}",
         &skeleton[..start],
-        scan::escape_attribute(name),
+        scan::escape_attribute(name).map_err(|e| io_error(skeleton_path, e))?,
         &skeleton[end..]
     );
 
@@ -997,20 +997,22 @@ fn new_mashup_file(
     let text = format!(
         "{}{}{}",
         &text[..start],
-        render_parameter_definitions(element),
+        render_parameter_definitions(element).map_err(|e| io_error(skeleton_path, e))?,
         &text[end..]
     );
     Ok(Some((target, text)))
 }
 
 /// An export's `ParameterDefinitions` in the repository's attribute-per-line style.
-pub(super) fn render_parameter_definitions(element: &Element) -> String {
+pub(super) fn render_parameter_definitions(
+    element: &Element,
+) -> Result<String, scan::IllegalXmlChar> {
     let fields: Vec<&Element> = child_elements(element)
         .find(|c| is_named(c, "ParameterDefinitions"))
         .map(|definitions| child_elements(definitions).collect())
         .unwrap_or_default();
     if fields.is_empty() {
-        return "            <ParameterDefinitions></ParameterDefinitions>".to_string();
+        return Ok("            <ParameterDefinitions></ParameterDefinitions>".to_string());
     }
     let mut lines = vec!["            <ParameterDefinitions>".to_string()];
     for field in fields {
@@ -1018,7 +1020,7 @@ pub(super) fn render_parameter_definitions(element: &Element) -> String {
         // Attributes arrive sorted by name, which is the order the repository writes them in.
         let count = field.attributes.len();
         for (index, (key, value)) in field.attributes.iter().enumerate() {
-            let escaped = scan::escape_attribute(&text_of(value));
+            let escaped = scan::escape_attribute(&text_of(value))?;
             let tail = if index + 1 == count {
                 "></FieldDefinition>"
             } else {
@@ -1031,7 +1033,7 @@ pub(super) fn render_parameter_definitions(element: &Element) -> String {
         }
     }
     lines.push("            </ParameterDefinitions>".to_string());
-    lines.join("\n")
+    Ok(lines.join("\n"))
 }
 
 /// A MediaEntity's file with its base64 payload replaced, wrapped at 76 characters inside its

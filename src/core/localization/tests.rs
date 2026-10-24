@@ -343,8 +343,8 @@ fn a_new_row_in_a_crlf_file_uses_crlf() {
 #[test]
 fn rows_are_added_to_an_empty_or_self_closing_rows_in_the_rendered_layout() {
     let header = Header::default();
-    let empty = render("de", &header, &[]);
-    let wanted = render("de", &header, &[labelled("Acme.App.A", "a")]);
+    let empty = render("de", &header, &[]).unwrap();
+    let wanted = render("de", &header, &[labelled("Acme.App.A", "a")]).unwrap();
     let set = [Edit::Set(labelled("Acme.App.A", "a"))];
     assert_eq!(
         text(&edit(Path::new("e.xml"), &empty, "de", &set).unwrap()),
@@ -433,11 +433,7 @@ fn markup_in_a_cell_duplicates_and_repeated_edits_are_refused() {
 
 #[test]
 fn a_cell_the_row_lacks_is_added_after_its_last_cell() {
-    let rendered = text(&render(
-        "de",
-        &Header::default(),
-        &[labelled("Acme.App.A", "a")],
-    ));
+    let rendered = text(&render("de", &Header::default(), &[labelled("Acme.App.A", "a")]).unwrap());
     let usage = "                            <usage>\n                                <![CDATA[label]]>\n                            </usage>\n";
     let without = rendered.replace(usage, "");
     assert_ne!(without, rendered);
@@ -471,7 +467,8 @@ fn render_writes_the_documented_layout() {
             labelled("Acme.App.Z", "Zett"),
             labelled("Acme.App.A", "A & <b>"),
         ],
-    );
+    )
+    .unwrap();
     let row = |name: &str, value: &str| {
         format!(
             "                        <Row>\n                            <context>\n                                <![CDATA[Acme label.]]>\n                            </context>\n                            <name>\n                                <![CDATA[{name}]]>\n                            </name>\n                            <usage>\n                                <![CDATA[label]]>\n                            </usage>\n                            <value>\n                                <![CDATA[{value}]]>\n                            </value>\n                        </Row>\n"
@@ -509,7 +506,7 @@ fn render_writes_the_documented_layout() {
             labelled("Acme.App.Z", "Zett")
         ]
     );
-    let plain = render(DEFAULT_TABLE, &Header::default(), &[]);
+    let plain = render(DEFAULT_TABLE, &Header::default(), &[]).unwrap();
     assert!(text(&plain).contains("description=\"Default localization table\""));
     assert!(!text(&plain).contains("languageCommon"));
     assert!(text(&plain).contains("<Rows>\n                    </Rows>"));
@@ -522,7 +519,8 @@ fn a_cdata_terminator_in_a_value_round_trips() {
             DEFAULT_TABLE,
             &Header::default(),
             &[token("Acme.App.A", value)],
-        );
+        )
+        .unwrap();
         assert_eq!(one("x.xml", &out).tokens[0].value, value);
         let changed = edit(
             Path::new("x.xml"),
@@ -530,7 +528,8 @@ fn a_cdata_terminator_in_a_value_round_trips() {
                 DEFAULT_TABLE,
                 &Header::default(),
                 &[token("Acme.App.A", "plain")],
-            ),
+            )
+            .unwrap(),
             DEFAULT_TABLE,
             &[Edit::Set(token("Acme.App.A", value))],
         )

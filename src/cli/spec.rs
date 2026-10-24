@@ -105,7 +105,11 @@ fn decorate_node(node: clap::Command, path: &str) -> clap::Command {
             });
     }
     if let Some(command) = command(path) {
-        return leaf(node, command);
+        // A command can have its own subcommands, as `logs` has `logs level`.
+        return leaf(node, command).mut_subcommands(|sub| {
+            let path = format!("{path} {}", sub.get_name());
+            decorate_node(sub, &path)
+        });
     }
     // What shell completions say a family is: its commands. Not the doc comment clap derive
     // would take, which is written for the code.
@@ -264,6 +268,15 @@ fn behaviour(arg: clap::Arg) -> clap::Arg {
 pub(crate) fn matched(matches: &clap::ArgMatches) -> (&'static str, &clap::ArgMatches) {
     let (first, sub) = matches.subcommand().expect("a subcommand is required");
     if let Some(command) = command(first) {
+        // A command's own subcommand, as `logs level` is of `logs`.
+        if let Some((second, leaf)) = sub.subcommand() {
+            if let Some(nested) = USAGE
+                .iter()
+                .find(|c| c.path.split_once(' ') == Some((first, second)))
+            {
+                return (nested.path, leaf);
+            }
+        }
         return (command.path, sub);
     }
     let (second, leaf) = sub.subcommand().expect("a family requires a command");
@@ -1235,8 +1248,12 @@ pub(crate) const USAGE: &[Usage] = &[
       --grep <text>           entries whose message contains the text
       --regex <re>            a Java regex that must match the whole message
       --user/--thread/--origin <v>  exact matches
-      --limit <n>             at most n entries (default 100); --oldest-first; --json
-  logs level <log> [<LEVEL>]  read a log's level and its subloggers, or plan setting it
+      --limit <n>             at most n entries (default 100); --oldest-first; --json"#,
+    },
+    Usage {
+        path: "logs level",
+        group: 3,
+        text: r#"  logs level <log> [<LEVEL>]  read a log's level and its subloggers, or plan setting it
       --sublogger <name>      a class or package within the log
       --reset                 a sublogger (or, without --sublogger, all) back to the log's level
       --apply                 make the change; it is the whole server's, and the undo is printed"#,

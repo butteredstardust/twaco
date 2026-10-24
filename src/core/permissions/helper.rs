@@ -19,7 +19,7 @@ use super::{elements, Grant, Grants, KindKey, PermissionsError};
 use crate::core::entity::carry::Kind;
 use crate::core::normalise::{self, Element, Node};
 use crate::core::scan;
-use crate::core::scan::escape_attribute as escape;
+use crate::core::scan::{escape_attribute as escape, IllegalXmlChar};
 use crate::core::splice::{self, Edit};
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -433,7 +433,12 @@ pub(crate) fn wanted_tables(
 }
 
 /// One `FieldDefinition`, its attributes one step in.
-fn field_xml(out: &mut String, field: &Field, indent: &str, eol: &str) {
+fn field_xml(
+    out: &mut String,
+    field: &Field,
+    indent: &str,
+    eol: &str,
+) -> Result<(), IllegalXmlChar> {
     out.push_str(&format!("{indent}<FieldDefinition{eol}"));
     if let Some(primary) = field.primary_key {
         out.push_str(&format!("{indent} aspect.isPrimaryKey=\"{primary}\"{eol}"));
@@ -441,15 +446,16 @@ fn field_xml(out: &mut String, field: &Field, indent: &str, eol: &str) {
     if let Some(default) = &field.default {
         out.push_str(&format!(
             "{indent} aspect.defaultValue=\"{}\"{eol}",
-            escape(default)
+            escape(default)?
         ));
     }
     out.push_str(&format!(
         "{indent} baseType=\"{}\"{eol}{indent} description=\"\"{eol}{indent} name=\"{}\"{eol}{indent} ordinal=\"{}\"></FieldDefinition>{eol}",
-        escape(&field.base_type),
-        escape(&field.name),
+        escape(&field.base_type)?,
+        escape(&field.name)?,
         field.ordinal
     ));
+    Ok(())
 }
 
 fn cdata(value: &str) -> String {
@@ -457,12 +463,12 @@ fn cdata(value: &str) -> String {
 }
 
 /// A whole `ConfigurationTable`, from its opening tag to its closing tag.
-fn table_xml(name: &str, table: &Table, indent: &str, eol: &str) -> String {
+fn table_xml(name: &str, table: &Table, indent: &str, eol: &str) -> Result<String, IllegalXmlChar> {
     let step = |n: usize| format!("{indent}{}", " ".repeat(4 * n));
     let mut out = format!(
         "<ConfigurationTable{eol}{indent} dataShapeName=\"{}\"{eol}{indent} description=\"\"{eol}{indent} isMultiRow=\"true\"{eol}{indent} name=\"{}\"{eol}{indent} ordinal=\"0\">{eol}",
-        escape(&table.data_shape),
-        escape(name)
+        escape(&table.data_shape)?,
+        escape(name)?
     );
     out.push_str(&format!(
         "{}<DataShape>{eol}{}<FieldDefinitions>{eol}",
@@ -470,7 +476,7 @@ fn table_xml(name: &str, table: &Table, indent: &str, eol: &str) -> String {
         step(2)
     ));
     for field in &table.fields {
-        field_xml(&mut out, field, &step(3), eol);
+        field_xml(&mut out, field, &step(3), eol)?;
     }
     out.push_str(&format!(
         "{}</FieldDefinitions>{eol}{}</DataShape>{eol}",
@@ -508,7 +514,7 @@ fn table_xml(name: &str, table: &Table, indent: &str, eol: &str) -> String {
         "{}</Rows>{eol}{indent}</ConfigurationTable>",
         step(1)
     ));
-    out
+    Ok(out)
 }
 
 /// A value inside `<![CDATA[` ... `]]>` written on its own line, split where it holds `]]>`.
@@ -575,7 +581,9 @@ pub(crate) fn rewrite_tables(
         let indent = indent_before(src, span.start);
         edits.push(Edit::new(
             span,
-            table_xml(name, table, &indent, eol).into_bytes(),
+            table_xml(name, table, &indent, eol)
+                .map_err(|e| error(e.to_string()))?
+                .into_bytes(),
         ));
     }
     if edits.is_empty() {
@@ -614,7 +622,8 @@ pub(crate) fn rewrite_fields(src: &[u8], fields: &[Field]) -> Result<Vec<u8>, Pe
     let indent = indent_before(src, span.start);
     let mut block = format!("<FieldDefinitions>{eol}");
     for field in fields {
-        field_xml(&mut block, field, &format!("{indent}    "), eol);
+        field_xml(&mut block, field, &format!("{indent}    "), eol)
+            .map_err(|e| error(e.to_string()))?;
     }
     block.push_str(&format!("{indent}</FieldDefinitions>"));
     let out = splice::splice(src, &[Edit::new(span, block.into_bytes())])

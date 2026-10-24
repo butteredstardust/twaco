@@ -734,14 +734,14 @@ fn indent_before(src: &[u8], at: usize) -> String {
 }
 
 /// Render a connection in the export's conventional, one-attribute-per-line layout.
-pub fn connection_xml(
+pub(crate) fn connection_xml(
     connection_type: &str,
     from: &str,
     to: &str,
     indent: &str,
     ending: &str,
-) -> Vec<u8> {
-    format!("{indent}<Connection{ending}{indent} connectionType=\"{}\"{ending}{indent} from=\"{}\"{ending}{indent} to=\"{}\"></Connection>", scan::escape_attribute(connection_type), scan::escape_attribute(from), scan::escape_attribute(to)).into_bytes()
+) -> Result<Vec<u8>, scan::IllegalXmlChar> {
+    Ok(format!("{indent}<Connection{ending}{indent} connectionType=\"{}\"{ending}{indent} from=\"{}\"{ending}{indent} to=\"{}\"></Connection>", scan::escape_attribute(connection_type)?, scan::escape_attribute(from)?, scan::escape_attribute(to)?).into_bytes())
 }
 
 /// Add one connection in the export's own layout: on a line of its own after the last one,
@@ -767,11 +767,17 @@ pub fn add_all(
         return Ok(src.to_vec());
     }
     let ending = line_ending(src);
+    // Refused here, once, so that rendering at each indentation below cannot fail.
+    for (connection_type, from, to) in rows {
+        connection_xml(connection_type, from, to, "", ending)
+            .map_err(|e| NetworkError::Invalid(format!("cannot write connection: {e}")))?;
+    }
     let elements = |indent: &str, separator: &str| {
         rows.iter()
             .map(|(connection_type, from, to)| {
-                String::from_utf8(connection_xml(connection_type, from, to, indent, ending))
-                    .expect("network XML is UTF-8")
+                let xml = connection_xml(connection_type, from, to, indent, ending)
+                    .expect("every row was checked above");
+                String::from_utf8(xml).expect("network XML is UTF-8")
             })
             .collect::<Vec<_>>()
             .join(separator)

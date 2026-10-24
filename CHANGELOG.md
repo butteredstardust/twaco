@@ -6,6 +6,27 @@ All notable changes to twaco are recorded here. The format follows
 
 ## [Unreleased]
 
+### Changed
+
+- `logs level` is a subcommand of `logs` rather than a first operand named `level`. `--sublogger`,
+  `--reset` and `--apply` belong to it alone, so `logs <log> --reset` is a usage error from the
+  parser, and any option before `level` (`--profile` and `--log` included) is refused instead of
+  being dropped: write `logs level <log> --profile <name>`. `logs --help` now shows reading only;
+  `logs level --help` shows the level usage.
+- A tab, line feed or carriage return in a value twaco writes into an attribute is written as a
+  character reference, so a server's XML parser reads it back as given instead of as a space.
+
+### Fixed
+
+- Every command that writes a value into an XML attribute refuses one holding a character XML 1.0
+  cannot hold (a control character other than tab and line breaks, U+FFFE, U+FFFF) and names it.
+  Before, only `package` refused one; the rest wrote a file no XML parser reads.
+- Credentials are zeroed in every copy twaco makes of them: a profile's address, user and
+  free-form values (such as `database_password`), the values read from `TWACO_*` and `TWX_*`
+  variables, the `Authorization` header, the forms kept for scrubbing error messages, the values
+  hook output is redacted with, and the password sent to `EncryptPropertyValue` by `db`. A
+  client's debug output no longer shows the forms it scrubs.
+
 ## [0.1.34] - 2026-10-24
 
 ### Changed

@@ -1,6 +1,6 @@
 use super::super::config::Solution;
 use super::super::entity::key::ServiceTarget;
-use super::super::profile::Profile;
+use super::super::profile::{zeroize_json, Profile};
 use super::super::scan::escape_attribute as xml;
 use super::connection::{
     connection, connection_table, read_only_connection, secret_error, without_password, Connection,
@@ -76,7 +76,7 @@ pub(crate) fn execute(
         &connection,
         options.max_rows,
         options.timeout.as_secs(),
-    );
+    )?;
     let mut cleanup = Cleanup {
         remote,
         name: temporary.clone(),
@@ -87,13 +87,15 @@ pub(crate) fn execute(
         remote
             .import(&format!("{temporary}.xml"), xml.as_bytes())
             .map_err(|why| secret_error(why, password))?;
-        let encrypted = remote
-            .call(
-                &ServiceTarget::platform("Resources", "EncryptionServices"),
-                "EncryptPropertyValue",
-                &json!({ "data": password }),
-                options.timeout,
-            )
+        let mut parameters = json!({ "data": password });
+        let reply = remote.call(
+            &ServiceTarget::platform("Resources", "EncryptionServices"),
+            "EncryptPropertyValue",
+            &parameters,
+            options.timeout,
+        );
+        zeroize_json(&mut parameters);
+        let encrypted = reply
             .map_err(|why| secret_error(why, password))?
             .and_then(|value| {
                 value
@@ -199,7 +201,10 @@ pub(super) fn thing_xml(
     connection: &Connection,
     max_rows: u64,
     timeout: u64,
-) -> String {
+) -> Result<String, DbError> {
+    let xml = |value: &str| {
+        xml(value).map_err(|e| DbError(format!("cannot write the temporary Thing: {e}")))
+    };
     let field = |name: &str, base: &str, ordinal: usize| {
         format!(
         "<FieldDefinition baseType=\"{base}\" description=\"\" name=\"{name}\" ordinal=\"{ordinal}\"/>"
@@ -226,7 +231,7 @@ pub(super) fn thing_xml(
     .enumerate()
     .map(|(at, (name, base))| field(name, base, at))
     .collect::<String>();
-    format!(
+    Ok(format!(
         r#"<?xml version="1.0" encoding="UTF-8" standalone="no"?>
 <Entities build="b75" majorVersion="10" minorVersion="2" universal="">
 <Things>
@@ -274,20 +279,20 @@ pub(super) fn thing_xml(
 </Thing>
 </Things>
 </Entities>"#,
-        xml(name),
+        xml(name)?,
         conn_fields,
-        xml(&connection.validation),
-        xml(&without_password(&connection.url)),
-        xml(&connection.driver),
-        xml(connection.max_connections.to_string().trim_matches('"')),
-        xml(&connection.user),
-        xml(handler),
-        xml(handler),
+        xml(&connection.validation)?,
+        xml(&without_password(&connection.url))?,
+        xml(&connection.driver)?,
+        xml(connection.max_connections.to_string().trim_matches('"'))?,
+        xml(&connection.user)?,
+        xml(handler)?,
+        xml(handler)?,
         query_fields,
         max_rows,
         timeout,
         cdata(sql)
-    )
+    ))
 }
 
 fn cdata(value: &str) -> String {

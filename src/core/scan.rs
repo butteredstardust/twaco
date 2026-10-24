@@ -483,15 +483,57 @@ pub fn attributes(src: &[u8], tag: &Token) -> Result<Vec<Attribute>, ScanError> 
     Ok(found)
 }
 
-/// `value` written inside a double-quoted attribute: `&`, `<`, `>` and `"` escaped, so the value
-/// is read back as given and cannot end the attribute.
-pub(crate) fn escape_attribute(value: &str) -> String {
-    value
-        .replace('&', "&amp;")
-        .replace('<', "&lt;")
-        .replace('>', "&gt;")
-        .replace('"', "&quot;")
+/// `value` written inside a double-quoted attribute, so that it is read back as given and cannot
+/// end the attribute: `&`, `<`, `>` and `"` escaped, and tab, line feed and carriage return as
+/// character references, which a parser would otherwise normalise to spaces. Refused when it holds
+/// a character XML 1.0 cannot hold at all, not even as a reference: a control character other than
+/// those three, U+FFFE or U+FFFF.
+pub(crate) fn escape_attribute(value: &str) -> Result<String, IllegalXmlChar> {
+    let mut out = String::with_capacity(value.len());
+    for c in value.chars() {
+        match c {
+            '&' => out.push_str("&amp;"),
+            '<' => out.push_str("&lt;"),
+            '>' => out.push_str("&gt;"),
+            '"' => out.push_str("&quot;"),
+            '\t' => out.push_str("&#9;"),
+            '\n' => out.push_str("&#10;"),
+            '\r' => out.push_str("&#13;"),
+            c if xml_char(c) => out.push(c),
+            found => {
+                return Err(IllegalXmlChar {
+                    value: value.to_string(),
+                    found,
+                })
+            }
+        }
+    }
+    Ok(out)
 }
+
+/// Whether XML 1.0 can hold `c` (its `Char` production). Rust strings hold no surrogates.
+fn xml_char(c: char) -> bool {
+    matches!(c, '\t' | '\n' | '\r' | '\u{20}'..='\u{D7FF}' | '\u{E000}'..='\u{FFFD}' | '\u{10000}'..)
+}
+
+/// A value [`escape_attribute`] refused: it holds `found`, which no XML 1.0 document can hold.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct IllegalXmlChar {
+    pub(crate) value: String,
+    pub(crate) found: char,
+}
+
+impl std::fmt::Display for IllegalXmlChar {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "{:?} holds {:?} (U+{:04X}), which XML cannot hold; remove it",
+            self.value, self.found, self.found as u32
+        )
+    }
+}
+
+impl std::error::Error for IllegalXmlChar {}
 
 /// Whether `span` holds only CDATA sections and text, the text only whitespace when
 /// `whitespace_only`: nothing that writing the whole span would silently drop. A comment, a
@@ -693,6 +735,40 @@ fn numeric_entity(name: &str) -> Option<char> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A tab or a line break in an attribute is read back as a space unless it is a reference.
+    #[test]
+    fn an_attribute_value_reads_back_as_given() {
+        assert_eq!(
+            escape_attribute("a&b<c>d\"e'f\tg\nh\ri é 😀").unwrap(),
+            "a&amp;b&lt;c&gt;d&quot;e'f&#9;g&#10;h&#13;i é 😀"
+        );
+        let back = |escaped: &str| decode_entities(escaped);
+        assert_eq!(back(&escape_attribute("x\t\r\ny").unwrap()), "x\t\r\ny");
+    }
+
+    /// XML 1.0 cannot hold these even as a character reference, so nothing can be written.
+    #[test]
+    fn a_character_xml_cannot_hold_is_refused() {
+        for found in [
+            '\u{0}', '\u{1}', '\u{8}', '\u{B}', '\u{1F}', '\u{FFFE}', '\u{FFFF}',
+        ] {
+            let value = format!("Acme{found}Orders");
+            let error = escape_attribute(&value).unwrap_err();
+            assert_eq!(error.found, found);
+            assert!(error.to_string().contains("XML cannot hold"), "{error}");
+        }
+        for kept in [
+            '\u{7F}',
+            '\u{85}',
+            '\u{D7FF}',
+            '\u{E000}',
+            '\u{FFFD}',
+            '\u{10000}',
+        ] {
+            assert!(escape_attribute(&kept.to_string()).is_ok(), "{kept:?}");
+        }
+    }
 
     fn kinds(src: &[u8]) -> Vec<Kind> {
         tokenize(src).unwrap().iter().map(|t| t.kind).collect()

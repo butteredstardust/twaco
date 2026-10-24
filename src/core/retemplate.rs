@@ -576,7 +576,9 @@ fn edit_document(src: &[u8], file: &EntityFile, request: &Request) -> Result<Vec
             .ok_or_else(|| format!("the entity has no {attribute} attribute to change"))?;
         edits.push(Edit::new(
             span,
-            scan::escape_attribute(template).into_bytes(),
+            scan::escape_attribute(template)
+                .map_err(|error| error.to_string())?
+                .into_bytes(),
         ));
     }
     if !request.add_shapes.is_empty() || !request.remove_shapes.is_empty() {
@@ -613,12 +615,12 @@ fn edit_document(src: &[u8], file: &EntityFile, request: &Request) -> Result<Vec
             .add_shapes
             .iter()
             .map(|shape| {
-                format!(
+                Ok(format!(
                     "<ImplementedShape name=\"{}\"></ImplementedShape>",
-                    scan::escape_attribute(shape)
-                )
+                    scan::escape_attribute(shape).map_err(|error| error.to_string())?
+                ))
             })
-            .collect();
+            .collect::<Result<_, String>>()?;
         if !elements.is_empty() {
             match section {
                 Some((_, section_at)) if tokens[section_at].kind == TokenKind::Start => {

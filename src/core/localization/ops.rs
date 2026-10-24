@@ -467,6 +467,8 @@ pub(crate) fn pull_projects<R: Remote + ?Sized>(
         tokens.sort();
         let header = remote.header(&table)?;
         let set = tokens.iter().map(|token| token.name.clone()).collect();
+        let bytes =
+            render(&table, &header, &tokens).map_err(|e| super::invalid(&path, e.to_string()))?;
         plans.push(PlannedFile {
             change: FileChange {
                 path,
@@ -475,7 +477,7 @@ pub(crate) fn pull_projects<R: Remote + ?Sized>(
                 removed: Vec::new(),
             },
             before: None,
-            bytes: render(&table, &header, &tokens),
+            bytes,
         });
     }
     plans.sort_by(|a, b| a.change.path.cmp(&b.change.path));
@@ -842,6 +844,8 @@ pub(crate) fn new(
         .cloned()
         .collect();
     tokens.sort();
+    let bytes =
+        render(table, &header, &tokens).map_err(|e| super::invalid(&path, e.to_string()))?;
     let plan = PlannedFile {
         change: FileChange {
             path,
@@ -850,7 +854,7 @@ pub(crate) fn new(
             removed: Vec::new(),
         },
         before: None,
-        bytes: render(table, &header, &tokens),
+        bytes,
     };
     if let Some(lock) = apply {
         write_plans(solution, std::slice::from_ref(&plan), lock)?;
@@ -931,7 +935,8 @@ pub(crate) fn set(
     let (before, bytes) = if created {
         (
             None,
-            render(table, &Header::default(), std::slice::from_ref(&token)),
+            render(table, &Header::default(), std::slice::from_ref(&token))
+                .map_err(|e| super::invalid(&path, e.to_string()))?,
         )
     } else {
         let source = std::fs::read(&path).map_err(|error| LocalizationError::Io {
