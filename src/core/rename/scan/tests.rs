@@ -831,3 +831,64 @@ fn a_table_script_the_parser_refuses_is_not_edited() {
     assert!(pass.edits.is_empty());
     assert_eq!(review_count(&pass), 1, "{:?}", pass.findings);
 }
+
+/// `twaco.toml` after renaming parameter `old` to `new` of `Acme.T.Run`, and its conflicts.
+fn rename_param_in_config(config: &str) -> Result<(String, Vec<String>), String> {
+    let callers = BTreeSet::from(["Acme.T".to_string()]);
+    let found = scan_param_config(config.as_bytes(), "Run", "old", "new", &callers)?;
+    let renamed = String::from_utf8(apply(config.as_bytes(), &found.pass)).unwrap();
+    Ok((renamed, found.conflicts))
+}
+
+const DEPLOY: &str = "[[project]]\nname = \"P\"\n[project.deploy]\nentry_point_thing = \"Acme.T\"\ndeploy_service = \"Run\"\n";
+
+#[test]
+fn a_parameter_key_is_renamed_however_its_table_is_written() {
+    for (parameters, renamed) in [
+        (
+            "deploy_parameters = { note = \"old = x\", old = 1 }\n",
+            "deploy_parameters = { note = \"old = x\", new = 1 }\n",
+        ),
+        (
+            "deploy_parameters = {\n  # old = 2\n  old = 1 }\n",
+            "deploy_parameters = {\n  # old = 2\n  new = 1 }\n",
+        ),
+        ("deploy_parameters.old = 1\n", "deploy_parameters.new = 1\n"),
+        (
+            "deploy_parameters = { \"old\" = 1, 'other' = 2 }\n",
+            "deploy_parameters = { \"new\" = 1, 'other' = 2 }\n",
+        ),
+        (
+            "[project.deploy.deploy_parameters]\n# old = \"was\"\nold = 1\n",
+            "[project.deploy.deploy_parameters]\n# old = \"was\"\nnew = 1\n",
+        ),
+    ] {
+        let (written, conflicts) =
+            rename_param_in_config(&format!("{DEPLOY}{parameters}")).unwrap();
+        assert_eq!(written, format!("{DEPLOY}{renamed}"), "{parameters}");
+        assert!(conflicts.is_empty());
+    }
+}
+
+#[test]
+fn a_post_import_parameter_key_is_renamed_under_its_own_header() {
+    let config = "[[project]]\nname = \"P\"\n[[project.deploy.post_import]]\nthing = \"Acme.Other\"\nservice = \"Run\"\n\
+                  [[project.deploy.post_import]]\nthing = \"Acme.T\"\nservice = \"Run\"\n\
+                  [project.deploy.post_import.parameters]\n# old\nold = 1\n";
+    let (written, _) = rename_param_in_config(config).unwrap();
+    assert_eq!(written, config.replace("\nold = 1", "\nnew = 1"));
+}
+
+#[test]
+fn an_escaped_parameter_key_is_refused_and_a_taken_name_is_a_conflict() {
+    let escaped = format!("{DEPLOY}deploy_parameters = {{ \"\\u006Fld\" = 1 }}\n");
+    assert!(rename_param_in_config(&escaped)
+        .unwrap_err()
+        .contains("escape"));
+    let taken = format!("{DEPLOY}deploy_parameters = {{ old = 1, new = 2 }}\n");
+    let (_, conflicts) = rename_param_in_config(&taken).unwrap();
+    assert_eq!(
+        conflicts,
+        ["parameter new in project.deploy.deploy_parameters"]
+    );
+}
