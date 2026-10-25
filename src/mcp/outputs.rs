@@ -823,6 +823,8 @@ pub(crate) struct ImpactResult {
     inherited_by: Option<Vec<Value>>,
     projects: Option<Vec<Value>>,
     notes: Option<Vec<String>>,
+    /// server: true
+    server: Option<Value>,
 }
 
 #[derive(Serialize, JsonSchema)]
@@ -933,6 +935,14 @@ pub(crate) struct JavadocResult {
     path: Option<String>,
     url: Option<String>,
     markdown: Option<String>,
+    /// action service: the reference, normalised
+    asked: Option<String>,
+    /// action service: the class whose page documents the member
+    declared_in: Option<String>,
+    /// action service: whether that class is one the reference's class extends
+    inherited: Option<bool>,
+    /// action service: the named class is not in the Javadoc, and a more general one answered
+    note: Option<String>,
 }
 
 // ---- refactoring and authoring --------------------------------------------------------------

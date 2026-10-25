@@ -424,7 +424,7 @@ pub(crate) fn help_cmd(parsed: &Help) -> u8 {
     }
 }
 
-/// `twaco javadoc search <name> | class <Name>`.
+/// `twaco javadoc search <name> | class <Name> | service <ref>`.
 #[derive(Debug, clap::Args)]
 #[group(skip)]
 pub(crate) struct Javadoc {
@@ -448,15 +448,17 @@ pub(crate) struct Javadoc {
 pub(crate) enum JavadocVerb {
     Search,
     Class,
+    Service,
 }
 
-/// `twaco javadoc search <name> | class <Name>`: the public ThingWorx Java API docs.
+/// `twaco javadoc search <name> | class <Name> | service <ref>`: the public ThingWorx Java API
+/// docs.
 /// Read-only and usable outside a solution; downloads go to the user's cache.
 pub(crate) fn javadoc_cmd(parsed: &Javadoc) -> u8 {
     use twaco::core::{help, javadoc};
     let (Some(action), rest) = (parsed.action, parsed.operands.as_slice()) else {
         eprintln!(
-            "{} javadoc needs `search <name>` or `class <Name>`",
+            "{} javadoc needs `search <name>`, `class <Name>` or `service <ref>`",
             style::prefix()
         );
         return FAILED;
@@ -470,7 +472,18 @@ pub(crate) fn javadoc_cmd(parsed: &Javadoc) -> u8 {
             eprintln!("{} javadoc class needs one class name", style::prefix());
             return FAILED;
         }
-        JavadocVerb::Search | JavadocVerb::Class => {}
+        JavadocVerb::Service if rest.is_empty() => {
+            eprintln!(
+                "{} javadoc service needs a reference, such as 'Resources[\"InfoTableFunctions\"].Sort'",
+                style::prefix()
+            );
+            return FAILED;
+        }
+        JavadocVerb::Search | JavadocVerb::Class | JavadocVerb::Service => {}
+    }
+    if parsed.member.is_some() && action != JavadocVerb::Class {
+        eprintln!("{} javadoc: --member is only for `class`", style::prefix());
+        return FAILED;
     }
     let cache = match javadoc::cache_root() {
         Ok(cache) => cache,
@@ -482,6 +495,39 @@ pub(crate) fn javadoc_cmd(parsed: &Javadoc) -> u8 {
     let web = help::Web::new(javadoc::BASE);
     let refresh = parsed.refresh;
     let fetch = |path: &str| javadoc::cached(&web, &cache, path, refresh);
+    if action == JavadocVerb::Service {
+        return match javadoc::read_service(&fetch, &rest.join(" ")) {
+            Ok(found) => {
+                if parsed.json.json {
+                    println!(
+                        "{}",
+                        serde_json::json!({
+                            "version": javadoc::VERSION, "asked": found.asked,
+                            "declared_in": found.declared_in, "inherited": found.inherited,
+                            "title": found.reading.title, "path": found.reading.path,
+                            "url": found.reading.url, "methods": found.reading.methods,
+                            "markdown": found.reading.markdown, "note": found.note,
+                        })
+                    );
+                } else {
+                    println!("{}", found.reading.markdown);
+                    let inherited = if found.inherited { ", inherited" } else { "" };
+                    eprintln!(
+                        "{} is declared in {}{inherited}; from {}",
+                        found.asked, found.declared_in, found.reading.url
+                    );
+                    if let Some(note) = &found.note {
+                        eprintln!("note: {note}");
+                    }
+                }
+                OK
+            }
+            Err(error) => {
+                eprintln!("{} javadoc: {error}", style::prefix());
+                FAILED
+            }
+        };
+    }
     let types = match fetch(javadoc::TYPE_INDEX) {
         Ok(bytes) => bytes,
         Err(error) => {
@@ -490,11 +536,8 @@ pub(crate) fn javadoc_cmd(parsed: &Javadoc) -> u8 {
         }
     };
     match action {
+        JavadocVerb::Service => unreachable!("answered above"),
         JavadocVerb::Search => {
-            if parsed.member.is_some() {
-                eprintln!("{} javadoc: --member is only for `class`", style::prefix());
-                return FAILED;
-            }
             let limit = match parsed.limit.as_ref().map(|n| n.parse::<usize>()) {
                 None => 10,
                 Some(Ok(n)) if n > 0 => n,
@@ -760,7 +803,8 @@ pub(crate) fn trace_cmd(solution: &Solution, args: &Trace) -> u8 {
     }
 }
 
-/// `twaco impact <entity> [--member <name>] [--min-confidence <value>] [--depth <n>]`.
+/// `twaco impact <entity> [--member <name>] [--min-confidence <value>] [--depth <n>]
+/// [--server [--profile <name>]]`.
 #[derive(Debug, clap::Args)]
 #[group(skip)]
 pub(crate) struct Impact {
@@ -776,12 +820,16 @@ pub(crate) struct Impact {
     pub(crate) json: Json,
     #[arg(long = "dot")]
     pub(crate) dot: bool,
+    #[arg(long = "server")]
+    pub(crate) server: bool,
+    #[command(flatten)]
+    pub(crate) profile: Profile,
     #[arg(id = "operands", value_name = "operand")]
     pub(crate) operands: Vec<String>,
 }
 
-/// What changing an entity, or one service, property or field of it, would reach. Offline and
-/// read-only: it reads the solution into the index and asks it.
+/// What changing an entity, or one service, property or field of it, would reach. Read-only: it
+/// reads the solution into the index and asks it, and with `--server` the server as well.
 pub(crate) fn impact_cmd(solution: &Solution, args: &Impact) -> u8 {
     let [entity] = args.operands.as_slice() else {
         eprintln!(
@@ -793,6 +841,13 @@ pub(crate) fn impact_cmd(solution: &Solution, args: &Impact) -> u8 {
     if args.json.json && args.dot {
         eprintln!(
             "{} --json and --dot are different outputs; pick one",
+            style::prefix()
+        );
+        return FAILED;
+    }
+    if args.server && args.dot {
+        eprintln!(
+            "{} --dot draws the repository's graph only; --server adds to the text and --json reports",
             style::prefix()
         );
         return FAILED;
@@ -829,7 +884,21 @@ pub(crate) fn impact_cmd(solution: &Solution, args: &Impact) -> u8 {
         min,
         depth,
     };
-    let report = match impact::run(solution, &request) {
+    let client = if args.server {
+        match profile::load(&solution.root, args.profile.name()) {
+            Ok(profile) => Some(server::Client::new(profile)),
+            Err(error) => {
+                eprintln!("{} {error}", style::prefix());
+                return FAILED;
+            }
+        }
+    } else {
+        None
+    };
+    let remote = client
+        .as_ref()
+        .map(|client| client as &dyn impact::ServerRemote);
+    let report = match impact::run_with(solution, &request, remote) {
         Ok(report) => report,
         Err(error) => {
             eprintln!("{} {error}", style::prefix());

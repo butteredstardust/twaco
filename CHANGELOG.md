@@ -6,6 +6,28 @@ All notable changes to twaco are recorded here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- `search --modified-since <when>` lists only what changed on the server since then (`1d`, `12h`,
+  a date or a timestamp), newest first: what someone changed in Composer since the last deploy.
+  `--sort name|modified` picks the order, and each result says when it last changed. The window
+  is cut by twaco from the newest-first list rather than sent to the server, and a reply out of
+  order or without dates is refused, so a filter the server ignores cannot widen the list
+  silently. The MCP `search` tool takes `modified_since` and `sort`.
+- `impact --server` (MCP `impact` with `server: true`) also asks the server what refers to the
+  entity, one step away: its dependency graph, and for a template or shape the Things that have
+  it. Each dependent is marked when the repository does not have it, which the offline answer
+  cannot see. The server's graph is structural only, and it is reported beside the repository's
+  answer, never merged into it. A disabled Thing, an entity the server lacks, or a server that
+  cannot be reached is said in a note, not shown as having no dependents, and the repository's
+  answer is still given.
+- `javadoc service <ref>` (MCP `javadoc` with `action: "service"`) reads one service as a script,
+  a log or a REST path names it: `Resources["InfoTableFunctions"].Sort`, `Things/Name.Service`,
+  `me.Service` or `Class.member`. It finds the class that declares the member, looking in the
+  classes it extends, and says where it found it. A Resource or Subsystem the Javadoc lacks is
+  answered from its type's class, with a note saying so. A miss names the classes searched and
+  those that do declare a member of that name.
+
 ## [0.1.35] - 2026-10-24
 
 ### Changed

@@ -89,7 +89,14 @@ Search it by class or member name, and read a class or one member as Markdown:
 twaco javadoc search InfoTableFunctions.Sort
 twaco javadoc class InfoTableFunctions --member Sort
 twaco javadoc class InfoTable
+twaco javadoc service 'Resources["InfoTableFunctions"].Sort'
+twaco javadoc service Things/Acme.Pump.GetPropertyValues
 ```
+
+`service` takes a service the way a script, a log or a REST path writes it, and finds the class
+that documents it: a Resource is its own class, any other entity its type's (`Thing`,
+`ThingTemplate`, ...), and a member that class does not declare is looked for in the classes it
+extends. A service the solution defines itself is not in the Javadoc; `twaco catalog` has it.
 
 It is most useful for two things: the Java methods of objects a script holds (`InfoTable`,
 `ValueCollection`, `Thing`), and the exact parameter names of Resource services. `Sort` takes

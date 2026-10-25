@@ -17,7 +17,7 @@ define, or one `[call] read_only` in twaco.toml lists) and plans any other.
 - `twaco catalog`: every service, where it lives, its signature and what it is for.
   `twaco catalog <Entity>.<Service> --body` (or a service name only one entity declares) gives
   one service with its script, also when the entity inherits it; read this before grepping XML.
-- `twaco impact <entity> [--member <name>]`: what changing an entity, or one service of it, would reach, with how sure each reference is; run it before a rename, a move or a delete.
+- `twaco impact <entity> [--member <name>]`: what changing an entity, or one service of it, would reach, with how sure each reference is; run it before a rename, a move or a delete. `--server` adds what the server says refers to it, including entities the repository does not have.
 - `twaco trace <Entity>.<Service> [--param <name>]`: how each caller uses a service, where impact says who: per mashup, what runs the call, what sets each parameter (or unbound, with its default) and where each result field goes; per script, the call, the variable and what it reads; and what the service calls. Run it before changing a service's parameters or result.
 - `twaco unused`: entities no entry point reaches (advisory); list anything used from outside the repository under `[unused] keep` in `twaco.toml`.
 - `twaco docs [--out <file>]`: the solution written down (projects, inheritance, services, DataShapes, references to review); regenerate and diff to see what changed. `--out <file> --check` exits 1 when a committed document is missing or stale, for CI.
@@ -25,7 +25,8 @@ define, or one `[call] read_only` in twaco.toml lists) and plans any other.
 - A project only on a server: declare it in `twaco.toml`, `twaco export project <P> --out p.xml`, `twaco adopt p.xml --apply`, then `twaco entity status --all --record`.
 - `twaco guide --search <words>`: this knowledge, plus the project's own documents.
   `twaco help search <words>` searches the ThingWorx Platform help for the server's version.
-  `twaco javadoc search <name>` searches the Java API of objects scripts call and Resource services.
+  `twaco javadoc search <name>` searches the Java API of objects scripts call and Resource services;
+  `twaco javadoc service 'Resources["X"].Y'` reads one service as a script names it.
 
 Read the project's AGENTS.md before changing anything: it says what the project is for and
 which of its parts are fragile.
@@ -153,4 +154,5 @@ does not roll back their unexported changes.
 - **The project's own:** AGENTS.md, CLAUDE.md and `docs/`. `twaco guide` searches them too.
   Write what you learn there, not in a chat: the next agent starts from those files.
 - **The ThingWorx Platform help:** `twaco help search` and `twaco help page`.
-- **The ThingWorx Platform Java API:** `twaco javadoc search` and `twaco javadoc class`.
+- **The ThingWorx Platform Java API:** `twaco javadoc search`, `twaco javadoc class` and
+  `twaco javadoc service`.
