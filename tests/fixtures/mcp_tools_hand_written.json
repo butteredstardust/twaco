@@ -2527,7 +2527,7 @@
   },
   {
     "name": "search",
-    "description": "Search the server's entities, as Composer's Spotlight box does: by text found in a name or description (any case; a * makes it a pattern), entity types and project. Read-only. Each result is Collection/Name with type, project and description, ready for entity_get or export. more says the limit cut the list; note says when a project does not exist. An unknown type is refused, because the server would otherwise search everything.",
+    "description": "Search the server's entities, as Composer's Spotlight box does: by text found in a name or description (any case; a * makes it a pattern), entity types and project, and with modified_since only what changed since then, newest first: what someone changed on the server since the last deploy. Read-only. Each result is Collection/Name with type, project, description and when it last changed, ready for entity_get or export. more says the limit cut the list; note says when a project does not exist. An unknown type is refused, because the server would otherwise search everything.",
     "inputSchema": {
       "additionalProperties": false,
       "properties": {
@@ -2555,6 +2555,18 @@
           "description": "Server profile name.",
           "type": "string",
           "default": "default"
+        },
+        "modified_since": {
+          "description": "Only entities changed at or after this: a duration back from now (1d, 12h, 30m), a date (midnight UTC) or an RFC 3339 timestamp.",
+          "type": "string"
+        },
+        "sort": {
+          "description": "name: A to Z; modified: newest change first. Absent: modified with modified_since, name without. With modified_since the limit keeps the newest, whatever the order.",
+          "type": "string",
+          "enum": [
+            "name",
+            "modified"
+          ]
         }
       },
       "type": "object"
@@ -2859,7 +2871,7 @@
   },
   {
     "name": "impact",
-    "description": "What changing an entity, or one service, property or field of it, would reach: the Things, templates, shapes, mashups and projects that depend on it, directly or through others, each at the strength of its weakest reference (structural: declared in the XML or twaco.toml; resolved: a static name in a script or a mashup binding; review: a string that looks like the name, for a person to judge). Offline and read-only. It cannot see references built at run time or outside the repository; `complete` says whether every input was read and `unreadable` lists what was not. Summary leaves the chain to each dependent out; detail includes it.",
+    "description": "What changing an entity, or one service, property or field of it, would reach: the Things, templates, shapes, mashups and projects that depend on it, directly or through others, each at the strength of its weakest reference (structural: declared in the XML or twaco.toml; resolved: a static name in a script or a mashup binding; review: a string that looks like the name, for a person to judge). Offline and read-only. It cannot see references built at run time or outside the repository; `complete` says whether every input was read and `unreadable` lists what was not. With server: true it also asks the server (read-only) what refers to the entity one step away, in its dependency graph and, for a template or shape, the Things that have it, each marked when the repository does not have it; the server sees structural references only. Summary leaves the chain to each dependent out; detail includes it.",
     "inputSchema": {
       "type": "object",
       "properties": {
@@ -2899,6 +2911,16 @@
           "type": "boolean",
           "description": "Return everything instead of the summary.",
           "default": false
+        },
+        "server": {
+          "description": "Also ask the server what refers to the entity (its dependency graph, and the Things of a template or shape), each marked by whether the repository has it. Read-only; not with format dot.",
+          "type": "boolean",
+          "default": false
+        },
+        "profile": {
+          "description": "Server profile name, for server.",
+          "type": "string",
+          "default": "default"
         }
       },
       "required": [
@@ -2908,7 +2930,7 @@
     },
     "annotations": {
       "readOnlyHint": true,
-      "openWorldHint": false
+      "openWorldHint": true
     }
   },
   {
@@ -3145,7 +3167,7 @@
   },
   {
     "name": "javadoc",
-    "description": "Search or read the ThingWorx Platform API 10.1.0 Javadoc as Markdown. search ranks class and member simple names exact, prefix, then contains. class gives the class description and method summaries; member gives every overload with parameters, returns and throws. Useful for the Java methods of objects scripts call and Resource service parameter descriptions.",
+    "description": "Search or read the ThingWorx Platform API 10.1.0 Javadoc as Markdown. search ranks class and member simple names exact, prefix, then contains. class gives the class description and method summaries; member gives every overload with parameters, returns and throws. service takes a service as a script or path names it (Resources[\"InfoTableFunctions\"].Sort, Things/Name.Service, me.Service, Class.member), finds the class that declares it, looking in the classes it extends, and returns every overload. Useful for the Java methods of objects scripts call and Resource service parameter descriptions.",
     "inputSchema": {
       "type": "object",
       "properties": {
@@ -3153,12 +3175,13 @@
           "type": "string",
           "enum": [
             "search",
-            "class"
+            "class",
+            "service"
           ]
         },
         "name": {
           "type": "string",
-          "description": "A search name, or a simple/qualified class name."
+          "description": "search: a name; class: a simple or qualified class name; service: a service as a script or path names it (Resources[\"InfoTableFunctions\"].Sort, Things/Name.Service, me.Service, Class.member)."
         },
         "member": {
           "type": "string",

@@ -5,7 +5,8 @@ use twaco::core::commands;
 use twaco::core::config::Solution;
 use twaco::core::{profile, server};
 
-/// `twaco search [<text>] [--type <T>[,<T>]] [--project P] [--limit <n>] [--json]`.
+/// `twaco search [<text>] [--type <T>[,<T>]] [--project P] [--modified-since <when>]
+/// [--sort name|modified] [--limit <n>] [--json]`.
 #[derive(Debug, clap::Args)]
 #[group(skip)]
 pub(crate) struct Search {
@@ -13,6 +14,10 @@ pub(crate) struct Search {
     pub(crate) kind: Option<String>,
     #[command(flatten)]
     pub(crate) project: Project,
+    #[arg(long = "modified-since", value_name = "when")]
+    pub(crate) modified_since: Option<String>,
+    #[arg(long = "sort", value_name = "order", value_enum)]
+    pub(crate) sort: Option<SearchSort>,
     #[arg(long = "limit", value_name = "n")]
     pub(crate) limit: Option<String>,
     #[command(flatten)]
@@ -21,6 +26,13 @@ pub(crate) struct Search {
     pub(crate) profile: Profile,
     #[arg(id = "operands", value_name = "operand")]
     pub(crate) operands: Vec<String>,
+}
+
+/// The order of `search` results.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, clap::ValueEnum)]
+pub(crate) enum SearchSort {
+    Name,
+    Modified,
 }
 
 /// Search the server's entities, as Composer's Spotlight box does.
@@ -34,12 +46,29 @@ pub(crate) fn search_cmd(solution: &Solution, args: &Search) -> u8 {
             return FAILED;
         }
     };
+    let modified_since = match args
+        .modified_since
+        .as_deref()
+        .map(|text| search::parse_since(text, jiff::Timestamp::now()))
+        .transpose()
+    {
+        Ok(since) => since,
+        Err(error) => {
+            eprintln!("{} search: {error}", style::prefix());
+            return FAILED;
+        }
+    };
     let text = args.operands.join(" ");
     let types: Vec<String> = args.kind.clone().into_iter().collect();
     let query = search::Query {
         text: Some(text.as_str()),
         types: &types,
         project: args.project.project.as_deref(),
+        modified_since,
+        sort: args.sort.map(|sort| match sort {
+            SearchSort::Name => search::Sort::Name,
+            SearchSort::Modified => search::Sort::Modified,
+        }),
         limit,
     };
     let profile_name = args.profile.name();
@@ -84,13 +113,19 @@ pub(crate) fn search_cmd(solution: &Solution, args: &Search) -> u8 {
         if !found.project.is_empty() {
             line.push_str(&format!("  [{}]", found.project));
         }
+        if let (Some(modified), true) = (
+            &found.modified,
+            query.modified_since.is_some() || query.sort.is_some(),
+        ) {
+            line.push_str(&format!("  {modified}"));
+        }
         if !found.description.is_empty() {
             line.push_str(&format!("  {}", found.description.replace('\n', " ")));
         }
         println!("{}", line.trim_end());
     }
     println!(
-        "{} {}{}",
+        "{} {}{}{}",
         outcome.entities.len(),
         if outcome.entities.len() == 1 {
             "entity"
@@ -100,11 +135,20 @@ pub(crate) fn search_cmd(solution: &Solution, args: &Search) -> u8 {
         match &outcome.expression {
             Some(expression) => format!(" matching {expression}"),
             None => String::new(),
+        },
+        match modified_since {
+            Some(since) => format!(", changed since {since}"),
+            None => String::new(),
         }
     );
     if outcome.more {
         println!(
-            "more match; --limit raises the {limit} shown, or narrow with --type or --project"
+            "more match; --limit raises the {limit} shown, or narrow with --type or --project{}",
+            if modified_since.is_some() {
+                " or a later --modified-since (the limit keeps the newest)"
+            } else {
+                ""
+            }
         );
     }
     if let Some(note) = &outcome.note {

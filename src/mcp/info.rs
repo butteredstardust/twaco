@@ -136,7 +136,16 @@ pub(crate) fn impact_tool(
         .map(usize::try_from)
         .transpose()
         .map_err(|_| ToolError::invalid("`depth` must be a positive whole number"))?;
-    let report = impact::run(
+    if arguments.server && arguments.format == tool::ImpactFormat::Dot {
+        return Err(ToolError::invalid(
+            "format dot draws the repository's graph only; server adds to the json report",
+        ));
+    }
+    let client = arguments
+        .server
+        .then(|| client(solution, &arguments.profile))
+        .transpose()?;
+    let report = impact::run_with(
         solution,
         &impact::Request {
             entity: nonempty(&arguments.entity, "entity")?.to_string(),
@@ -144,6 +153,9 @@ pub(crate) fn impact_tool(
             min,
             depth,
         },
+        client
+            .as_ref()
+            .map(|client| client as &dyn impact::ServerRemote),
     )
     .map_err(ToolError::coded)?;
     if arguments.format == tool::ImpactFormat::Dot {
@@ -397,8 +409,37 @@ pub(crate) fn javadoc_tool(arguments: tool::JavadocRequest) -> Result<Value, Too
     let cache = javadoc::cache_root().map_err(|why| ToolError::with(ErrorCode::IoError, why))?;
     let web = help::Web::new(javadoc::BASE);
     let fetch = |path: &str| javadoc::cached(&web, &cache, path, refresh);
+    if action == tool::JavadocAction::Service {
+        if arguments.member.is_some() {
+            return Err(ToolError::invalid("`member` is only for action class"));
+        }
+        let found = javadoc::read_service(&fetch, name).map_err(ToolError::coded)?;
+        let mut result = json!({
+            "ok": true,
+            "summary": format!(
+                "{} method overload(s) of {} documented in {}{}",
+                found.reading.methods,
+                found.asked,
+                found.declared_in,
+                if found.inherited { ", which it inherits" } else { "" }
+            ),
+            "version": javadoc::VERSION,
+            "asked": found.asked,
+            "declared_in": found.declared_in,
+            "inherited": found.inherited,
+            "title": found.reading.title,
+            "path": found.reading.path,
+            "url": found.reading.url,
+            "markdown": found.reading.markdown,
+        });
+        if let Some(note) = found.note {
+            result["note"] = json!(note);
+        }
+        return Ok(result);
+    }
     let types = fetch(javadoc::TYPE_INDEX).map_err(ToolError::coded)?;
     let result = match action {
+        tool::JavadocAction::Service => unreachable!("answered above"),
         tool::JavadocAction::Search => {
             if arguments.member.is_some() {
                 return Err(ToolError::invalid("`member` is only for action class"));

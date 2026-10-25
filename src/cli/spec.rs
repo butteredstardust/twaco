@@ -474,7 +474,9 @@ pub(crate) const USAGE: &[Usage] = &[
                               what changing an entity, or one service/property/field of it, reaches
       --detail                list every dependent and the chain of references to each
       --json                  the report as JSON (chains with --detail)
-      --dot                   the dependents as a Graphviz graph"#,
+      --dot                   the dependents as a Graphviz graph
+      --server [--profile <name>]  also what the server says refers to it, one step away,
+                              each marked when the repository does not have it"#,
     },
     Usage {
         path: "trace",
@@ -1347,7 +1349,10 @@ pub(crate) const USAGE: &[Usage] = &[
         group: 4,
         text: r#"  search [<text>] [--type <T>[,<T>]] [--project P] [--limit <n>] [--json]
                               the server's entity search (Composer's Spotlight): text
-                              in a name or description, or a pattern with *"#,
+                              in a name or description, or a pattern with *
+      --modified-since <when>  only what changed since: 1d, 12h, a date or a timestamp
+      --sort name|modified    A to Z, or newest change first (the default with --modified-since,
+                              where the limit keeps the newest in either order)"#,
     },
     Usage {
         path: "export",
@@ -1401,7 +1406,9 @@ pub(crate) const USAGE: &[Usage] = &[
         group: 6,
         text: r#"  javadoc search <name>       search ThingWorx Platform Java API classes and members
       --limit <n>; --refresh; --json
-  javadoc class <Name|pkg.Name>  read a class as Markdown; --member <name>; --refresh; --json"#,
+  javadoc class <Name|pkg.Name>  read a class as Markdown; --member <name>; --refresh; --json
+  javadoc service <ref>       one service as a script names it: 'Resources["X"].Y', Things/T.Y,
+                              me.Y or Class.Y; looks in the classes it extends; --refresh; --json"#,
     },
 ];
 

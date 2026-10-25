@@ -751,10 +751,21 @@ pub(crate) fn search_tool(
 ) -> Result<Value, ToolError> {
     use crate::core::search;
     let types = arguments.types.as_ref().cloned().unwrap_or_default();
+    let modified_since = arguments
+        .modified_since
+        .as_deref()
+        .map(|text| search::parse_since(text, jiff::Timestamp::now()))
+        .transpose()
+        .map_err(ToolError::coded)?;
     let query = search::Query {
         text: arguments.text.as_deref(),
         types: &types,
         project: arguments.project.as_deref(),
+        modified_since,
+        sort: arguments.sort.as_ref().map(|sort| match sort {
+            tool::SearchSort::Name => search::Sort::Name,
+            tool::SearchSort::Modified => search::Sort::Modified,
+        }),
         limit: usize::try_from(arguments.limit).unwrap_or(usize::MAX),
     };
     let client = client(solution, &arguments.profile)?;
@@ -769,7 +780,11 @@ pub(crate) fn search_tool(
         result["expression"] = json!(expression);
     }
     if outcome.more {
-        result["note"] = json!("more entities match: raise limit, or narrow with types or project");
+        result["note"] = json!(if query.modified_since.is_some() {
+            "more entities changed since then: raise limit, or narrow with a later modified_since, types or project; the limit keeps the newest"
+        } else {
+            "more entities match: raise limit, or narrow with types or project"
+        });
     }
     if let Some(note) = &outcome.note {
         result["note"] = json!(note);

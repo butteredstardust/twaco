@@ -67,6 +67,8 @@ impact <entity> [--member <name>] [--min-confidence structural|resolved|review] 
     --detail                list every dependent and the chain of references to each
     --json                  the report as JSON (chains with --detail)
     --dot                   the dependents as a Graphviz graph
+    --server [--profile <name>]  also what the server says refers to it, one step away,
+                            each marked when the repository does not have it
 trace <Entity>.<Service> [--param <name>] [--json]
                             how each caller uses a service: what runs each mashup call, what sets
                             each parameter, where each result field goes, the arguments each script
@@ -569,6 +571,9 @@ ext remove <package>        plan removing a package (refused while in use); --ap
 search [<text>] [--type <T>[,<T>]] [--project P] [--limit <n>] [--json]
                             the server's entity search (Composer's Spotlight): text
                             in a name or description, or a pattern with *
+    --modified-since <when>  only what changed since: 1d, 12h, a date or a timestamp
+    --sort name|modified    A to Z, or newest change first (the default with --modified-since,
+                            where the limit keeps the newest in either order)
 export entity <Coll/Name> --out <file>   one entity's XML, from the server's Exporter
 export collection <Coll> [--project P] --out <file>   a collection, or one project's part of it
 export project <P> --out <file>  everything of a project, as one XML
@@ -613,6 +618,8 @@ help page <page>            read a help page as Markdown; --section <heading>
 javadoc search <name>       search ThingWorx Platform Java API classes and members
     --limit <n>; --refresh; --json
 javadoc class <Name|pkg.Name>  read a class as Markdown; --member <name>; --refresh; --json
+javadoc service <ref>       one service as a script names it: 'Resources["X"].Y', Things/T.Y,
+                            me.Y or Class.Y; looks in the classes it extends; --refresh; --json
 ```
 
 ## Shared

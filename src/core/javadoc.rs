@@ -375,6 +375,316 @@ pub struct Reading {
     pub methods: usize,
 }
 
+/// A service as a script, a log or a REST path names it, reduced to where its documentation
+/// starts: the classes to look in first, and the member.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ServiceRef {
+    /// What was asked for, normalised: `Resources/InfoTableFunctions.Sort`, `me.GetPropertyValues`.
+    pub shown: String,
+    /// Simple or qualified class names to start from, in order; the first in the index wins.
+    pub(crate) classes: Vec<String>,
+    pub member: String,
+    /// Whether the target is an entity a solution may define services on, so a miss may be the
+    /// solution's own service rather than the platform's.
+    pub(crate) entity: bool,
+}
+
+/// Read a service reference: `Resources["X"].Y(...)`, `Things['T'].Y`, `me.Y`,
+/// `Collection/Name.Y`, `Collection/Name/Services/Y`, or `Class.member`.
+pub fn parse_service_ref(text: &str) -> Result<ServiceRef, String> {
+    let given = text.trim().trim_end_matches(';').trim();
+    // A REST path as a browser or a log shows it.
+    let given = given
+        .strip_prefix("/Thingworx/")
+        .or_else(|| given.strip_prefix("Thingworx/"))
+        .unwrap_or(given);
+    // A call's arguments say nothing about which service it is. They start after the entity's
+    // name, which may itself hold a parenthesis.
+    let name_end = given.rfind(']').unwrap_or(0);
+    let given = match given[name_end..].find('(') {
+        Some(open) if given.ends_with(')') => given[..name_end + open].trim_end(),
+        _ => given,
+    };
+    let invalid = || {
+        format!(
+            "{text:?} is not a service reference; use Resources[\"X\"].Service, Things/Name.Service, \
+             me.Service or Class.member"
+        )
+    };
+    let plain = |part: &str| {
+        !part.is_empty()
+            && part
+                .chars()
+                .all(|c| c.is_ascii_alphanumeric() || matches!(c, '_' | '$'))
+    };
+    let entity_ref = |collection: &str, name: &str, member: &str| -> Result<ServiceRef, String> {
+        let name = name.trim();
+        if name.is_empty() || !plain(member) {
+            return Err(invalid());
+        }
+        let (collection, singular) = super::search::TYPES
+            .iter()
+            .find(|(plural, _)| plural.eq_ignore_ascii_case(collection))
+            .copied()
+            .ok_or_else(|| {
+                format!("{collection:?} is not an entity collection; one of: Things, ThingTemplates, ThingShapes, Resources, Subsystems, ...")
+            })?;
+        // A Resource or Subsystem is its own class; any other entity is its type's class.
+        let mut classes = Vec::new();
+        if matches!(collection, "Resources" | "Subsystems") {
+            classes.push(name.to_string());
+        }
+        classes.push(singular.to_string());
+        Ok(ServiceRef {
+            shown: format!("{collection}/{name}.{member}"),
+            classes,
+            member: member.to_string(),
+            entity: !matches!(collection, "Resources" | "Subsystems"),
+        })
+    };
+    if let Some(member) = given.strip_prefix("me.") {
+        if !plain(member) {
+            return Err(invalid());
+        }
+        return Ok(ServiceRef {
+            shown: format!("me.{member}"),
+            classes: vec!["Thing".to_string()],
+            member: member.to_string(),
+            entity: true,
+        });
+    }
+    if let Some((collection, rest)) = given.split_once('[') {
+        let quote = rest.chars().next().filter(|c| matches!(c, '"' | '\''));
+        let (name, after) = quote
+            .and_then(|quote| rest[1..].split_once(quote))
+            .ok_or_else(invalid)?;
+        let member = after.strip_prefix("].").ok_or_else(invalid)?;
+        return entity_ref(collection.trim(), name, member);
+    }
+    if let Some((collection, rest)) = given.split_once('/') {
+        let services = rest.to_ascii_lowercase().find("/services/");
+        let (name, member) = match services {
+            Some(at) => (&rest[..at], &rest[at + "/services/".len()..]),
+            None => rest.rsplit_once('.').ok_or_else(invalid)?,
+        };
+        return entity_ref(collection, name, member);
+    }
+    let (class, member) = given.rsplit_once('.').ok_or_else(invalid)?;
+    if !class.split('.').all(plain) || !plain(member) {
+        return Err(invalid());
+    }
+    Ok(ServiceRef {
+        shown: format!("{class}.{member}"),
+        classes: vec![class.to_string()],
+        member: member.to_string(),
+        entity: false,
+    })
+}
+
+/// A class by simple or qualified name, as `find_class`, except that a simple name several
+/// packages share is taken from the one `com.thingworx` package that has it.
+pub(crate) fn find_platform_class(index: &Index, wanted: &str) -> Result<Class, String> {
+    find_class(index, wanted).or_else(|error| {
+        let platform: Vec<&Class> = index
+            .classes
+            .iter()
+            .filter(|class| {
+                class.name.eq_ignore_ascii_case(wanted.trim())
+                    && class.package.starts_with("com.thingworx.")
+            })
+            .collect();
+        match platform.as_slice() {
+            [class] => Ok((*class).clone()),
+            _ => Err(error),
+        }
+    })
+}
+
+/// The classes a class page says it extends, nearest first, as far as the index knows them
+/// (`java.lang.Object` and other outside classes are not in it).
+pub fn superclasses(html: &[u8], index: &Index) -> Vec<Class> {
+    let document = Html::parse_document(&String::from_utf8_lossy(html));
+    let links =
+        Selector::parse("div.inheritance > a, ul.inheritance > li > a").expect("a valid selector");
+    let mut found: Vec<Class> = document
+        .select(&links)
+        .filter_map(|link| {
+            let qualified = text(link);
+            index
+                .classes
+                .iter()
+                .find(|class| class.qualified() == qualified)
+                .cloned()
+        })
+        .collect();
+    // The tree is drawn from the root down.
+    found.reverse();
+    found.dedup();
+    found
+}
+
+/// Which class declares `member`: the first of `chain` the member index lists it under.
+pub fn declaring_class<'a>(index: &Index, chain: &'a [Class], member: &str) -> Option<&'a Class> {
+    chain.iter().find(|class| {
+        index.members.iter().any(|entry| {
+            entry.package == class.package
+                && entry.class == class.name
+                && entry.name().eq_ignore_ascii_case(member)
+        })
+    })
+}
+
+/// Why a service reference found no documentation: what was searched, and where else a member
+/// of that name is declared.
+pub fn service_not_found(index: &Index, wanted: &ServiceRef, searched: &[Class]) -> String {
+    let mut elsewhere: Vec<String> = index
+        .members
+        .iter()
+        .filter(|entry| entry.name().eq_ignore_ascii_case(&wanted.member))
+        .map(|entry| {
+            Class {
+                package: entry.package.clone(),
+                name: entry.class.clone(),
+            }
+            .qualified()
+        })
+        .collect::<BTreeSet<_>>()
+        .into_iter()
+        .collect();
+    elsewhere.truncate(5);
+    let mut message = if searched.is_empty() {
+        format!(
+            "{}: the Javadoc has no class {}",
+            wanted.shown,
+            wanted.classes.join(" or ")
+        )
+    } else {
+        format!(
+            "{}: no member {} in {}",
+            wanted.shown,
+            wanted.member,
+            searched
+                .iter()
+                .map(Class::qualified)
+                .collect::<Vec<_>>()
+                .join(", ")
+        )
+    };
+    if !elsewhere.is_empty() {
+        message.push_str(&format!(
+            "; {} is declared by {} (javadoc class <Name> --member {})",
+            wanted.member,
+            elsewhere.join(", "),
+            wanted.member
+        ));
+    }
+    if wanted.entity {
+        message.push_str("; a service the solution defines is in `twaco catalog`");
+    }
+    message
+}
+
+/// Why a service reference could not be read.
+#[derive(Debug, thiserror::Error)]
+pub enum ServiceError {
+    /// The reference does not name a service, or no class the Javadoc has declares it.
+    #[error("{0}")]
+    Invalid(String),
+    #[error("{0}")]
+    Fetch(help::HelpError),
+    /// An index or page is not what the Javadoc generator writes.
+    #[error("{0}")]
+    Data(String),
+    #[error("{0}")]
+    Read(ReadError),
+}
+
+impl super::codes::Coded for ServiceError {
+    fn code(&self) -> super::codes::ErrorCode {
+        match self {
+            Self::Invalid(_) => super::codes::ErrorCode::InvalidArguments,
+            Self::Fetch(error) => error.code(),
+            Self::Data(_) => super::codes::ErrorCode::InvalidData,
+            Self::Read(error) => error.code(),
+        }
+    }
+}
+
+/// One service's documentation, found from what a script names.
+#[derive(Debug)]
+pub struct ServiceReading {
+    /// The reference, normalised.
+    pub asked: String,
+    /// The class whose page documents the member.
+    pub declared_in: String,
+    /// Whether that class is a superclass of the one the reference starts from.
+    pub inherited: bool,
+    /// Said when the class the reference names is not in the Javadoc and a more general one
+    /// answered instead: what is shown is that class's member, not the named entity's.
+    pub note: Option<String>,
+    pub reading: Reading,
+}
+
+/// Find and read the service a reference names: the starting class, then each class it extends,
+/// until one declares the member. `fetch` reads an index-derived file, from the cache or the site.
+pub fn read_service(
+    fetch: &dyn Fn(&str) -> Result<Vec<u8>, help::HelpError>,
+    reference: &str,
+) -> Result<ServiceReading, ServiceError> {
+    let wanted = parse_service_ref(reference).map_err(ServiceError::Invalid)?;
+    let types = fetch(TYPE_INDEX).map_err(ServiceError::Fetch)?;
+    let members = fetch(MEMBER_INDEX).map_err(ServiceError::Fetch)?;
+    let index = Index::parse(
+        &String::from_utf8_lossy(&types),
+        &String::from_utf8_lossy(&members),
+    )
+    .map_err(ServiceError::Data)?;
+    let mut searched: Vec<Class> = Vec::new();
+    let mut missing: Vec<&str> = Vec::new();
+    for start in &wanted.classes {
+        let Ok(class) = find_platform_class(&index, start) else {
+            missing.push(start);
+            continue;
+        };
+        let page =
+            fetch(&class_path(&class).map_err(ServiceError::Data)?).map_err(ServiceError::Fetch)?;
+        let mut chain = vec![class.clone()];
+        chain.extend(superclasses(&page, &index));
+        if let Some(declaring) = declaring_class(&index, &chain, &wanted.member) {
+            let html = if *declaring == class {
+                page
+            } else {
+                fetch(&class_path(declaring).map_err(ServiceError::Data)?)
+                    .map_err(ServiceError::Fetch)?
+            };
+            let reading =
+                read(&html, declaring, Some(&wanted.member)).map_err(ServiceError::Read)?;
+            let note = (!missing.is_empty()).then(|| {
+                format!(
+                    "the Javadoc has no class {}; this is the member every {} has",
+                    missing.join(" or "),
+                    class.name
+                )
+            });
+            return Ok(ServiceReading {
+                asked: wanted.shown.clone(),
+                declared_in: declaring.qualified(),
+                inherited: *declaring != class,
+                note,
+                reading,
+            });
+        }
+        for class in chain {
+            if !searched.contains(&class) {
+                searched.push(class);
+            }
+        }
+    }
+    Err(ServiceError::Invalid(service_not_found(
+        &index, &wanted, &searched,
+    )))
+}
+
 /// Render a class overview, or every overload of one member, from generated Javadoc HTML.
 pub fn read(html: &[u8], class: &Class, member: Option<&str>) -> Result<Reading, ReadError> {
     let path = class_path(class).map_err(ReadError::NotAPage)?;
@@ -761,5 +1071,177 @@ mod tests {
             .contains("t - the table to sort - INFOTABLE"));
         assert!(member.markdown.contains("### Returns"));
         assert!(member.markdown.contains("### Throws"));
+    }
+
+    #[test]
+    fn a_service_reference_is_read_from_script_rest_and_class_spellings() {
+        let resource = |text: &str| parse_service_ref(text).unwrap();
+        for given in [
+            r#"Resources["InfoTableFunctions"].Sort"#,
+            "Resources['InfoTableFunctions'].Sort({ t: rows, sortColumn: 'a' });",
+            "Resources/InfoTableFunctions.Sort",
+            "resources/InfoTableFunctions/Services/Sort",
+        ] {
+            let parsed = resource(given);
+            assert_eq!(parsed.shown, "Resources/InfoTableFunctions.Sort", "{given}");
+            assert_eq!(
+                parsed.classes,
+                ["InfoTableFunctions", "Resource"],
+                "{given}"
+            );
+            assert_eq!(parsed.member, "Sort");
+            assert!(!parsed.entity);
+        }
+        let thing = resource(r#"Things["Acme.Orders.Pump"].GetPropertyValues()"#);
+        assert_eq!(thing.shown, "Things/Acme.Orders.Pump.GetPropertyValues");
+        assert_eq!(thing.classes, ["Thing"]);
+        assert!(thing.entity);
+        assert_eq!(resource("Things/Acme.Orders.Pump.GetPropertyValues"), thing);
+        assert_eq!(
+            resource("/Thingworx/Things/Acme.Orders.Pump/services/GetPropertyValues"),
+            thing
+        );
+        let odd = resource(r#"Things["Pump (1)"].GetPropertyValues()"#);
+        assert_eq!(odd.shown, "Things/Pump (1).GetPropertyValues");
+        let me = resource("me.GetPropertyValues");
+        assert_eq!((me.classes, me.entity), (vec!["Thing".to_string()], true));
+        let class = resource("com.thingworx.types.InfoTable.getRowCount");
+        assert_eq!(class.classes, ["com.thingworx.types.InfoTable"]);
+        assert_eq!(class.member, "getRowCount");
+        for bad in [
+            "Sort",
+            "Widgets/X.Y",
+            r#"Things["A".Y"#,
+            "Things/A",
+            "me.",
+            "a b.c",
+            "Resources/X.Y.Z/Services/",
+        ] {
+            assert!(parse_service_ref(bad).is_err(), "{bad}");
+        }
+    }
+
+    const THING_TYPES: &str = r#"typeSearchIndex = [{"p":"com.thingworx.entities","l":"RootEntity"},{"p":"com.thingworx.things","l":"Thing"},{"p":"other.things","l":"Thing"},{"p":"com.thingworx.resources.queries","l":"InfoTableFunctions"},{"p":"com.thingworx.subsystems","l":"Subsystem"}];"#;
+    const THING_MEMBERS: &str = r#"memberSearchIndex = [{"p":"com.thingworx.entities","c":"RootEntity","l":"GetDescription()"},{"p":"com.thingworx.things","c":"Thing","l":"GetPropertyValues()"},{"p":"com.thingworx.resources.queries","c":"InfoTableFunctions","l":"Sort(InfoTable, String)"}];"#;
+
+    fn page(name: &str, tree: &str, member: &str) -> String {
+        format!(
+            r#"<html><body><div class="inheritance" title="Inheritance Tree">java.lang.Object{tree}</div>
+<section class="class-description" id="class-description"><div class="block">The {name} class.</div></section>
+<section class="method-details"><section class="detail" id="{member}()"><h3>{member}</h3>
+<div class="member-signature"><span class="return-type">String</span>&nbsp;<span class="element-name">{member}</span><span class="parameters">()</span></div>
+<div class="block">Service Category: Entity<br>Service Description: Does {member}.</div></section></section></body></html>"#
+        )
+    }
+
+    fn fake_site(path: &str) -> Result<Vec<u8>, help::HelpError> {
+        let root = r#"<a href="../entities/RootEntity.html" title="class in com.thingworx.entities">com.thingworx.entities.RootEntity</a>"#;
+        let body = match path {
+            TYPE_INDEX => THING_TYPES.to_string(),
+            MEMBER_INDEX => THING_MEMBERS.to_string(),
+            "com/thingworx/things/Thing.html" => page(
+                "Thing",
+                &format!(
+                    r#"<div class="inheritance">{root}<div class="inheritance">com.thingworx.things.Thing</div></div>"#
+                ),
+                "GetPropertyValues",
+            ),
+            "com/thingworx/entities/RootEntity.html" => page("RootEntity", "", "GetDescription"),
+            "com/thingworx/subsystems/Subsystem.html" => page(
+                "Subsystem",
+                &format!(
+                    r#"<div class="inheritance">{root}<div class="inheritance">com.thingworx.subsystems.Subsystem</div></div>"#
+                ),
+                "Start",
+            ),
+            "com/thingworx/resources/queries/InfoTableFunctions.html" => String::from_utf8_lossy(
+                include_bytes!("../../tests/fixtures/InfoTableFunctions.html"),
+            )
+            .into_owned(),
+            other => panic!("fetched {other}, which no reference should reach"),
+        };
+        Ok(body.into_bytes())
+    }
+
+    #[test]
+    fn a_service_is_found_on_its_class_or_the_class_it_extends() {
+        let index = Index::parse(THING_TYPES, THING_MEMBERS).unwrap();
+        let thing = find_platform_class(&index, "Thing").unwrap();
+        assert_eq!(
+            thing.package, "com.thingworx.things",
+            "the platform's Thing wins"
+        );
+        let html = fake_site("com/thingworx/things/Thing.html").unwrap();
+        assert_eq!(
+            superclasses(&html, &index)
+                .iter()
+                .map(Class::qualified)
+                .collect::<Vec<_>>(),
+            ["com.thingworx.entities.RootEntity"]
+        );
+
+        let own = read_service(&fake_site, "me.GetPropertyValues").unwrap();
+        assert_eq!(own.declared_in, "com.thingworx.things.Thing");
+        assert!(!own.inherited);
+        assert!(
+            own.reading.markdown.contains("Does GetPropertyValues."),
+            "{}",
+            own.reading.markdown
+        );
+
+        assert_eq!(own.note, None);
+        let inherited = read_service(&fake_site, r#"Things["Acme.Pump"].GetDescription"#).unwrap();
+        assert_eq!(inherited.asked, "Things/Acme.Pump.GetDescription");
+        assert_eq!(inherited.declared_in, "com.thingworx.entities.RootEntity");
+        assert!(inherited.inherited);
+
+        let resource = read_service(&fake_site, r#"Resources["InfoTableFunctions"].Sort"#).unwrap();
+        assert_eq!(
+            resource.declared_in,
+            "com.thingworx.resources.queries.InfoTableFunctions"
+        );
+        assert_eq!(resource.reading.methods, 2);
+        assert_eq!(resource.note, None);
+
+        // A Subsystem the Javadoc lacks falls back to its type's class, and says so.
+        let general =
+            read_service(&fake_site, "Subsystems/NoSuchSubsystem.GetDescription").unwrap();
+        assert_eq!(general.declared_in, "com.thingworx.entities.RootEntity");
+        assert_eq!(
+            general.note.as_deref(),
+            Some(
+                "the Javadoc has no class NoSuchSubsystem; this is the member every Subsystem has"
+            )
+        );
+    }
+
+    #[test]
+    fn a_service_nobody_declares_says_where_it_looked_and_where_the_name_is() {
+        let error = read_service(&fake_site, "Things/Acme.Pump.Sort").unwrap_err();
+        let message = error.to_string();
+        assert!(
+            message.starts_with("Things/Acme.Pump.Sort: no member Sort in com.thingworx.things.Thing, com.thingworx.entities.RootEntity"),
+            "{message}"
+        );
+        assert!(
+            message
+                .contains("Sort is declared by com.thingworx.resources.queries.InfoTableFunctions"),
+            "{message}"
+        );
+        assert!(message.contains("twaco catalog"), "{message}");
+        assert!(matches!(error, ServiceError::Invalid(_)));
+        let error = read_service(&fake_site, "Resources/Nowhere.Sort")
+            .unwrap_err()
+            .to_string();
+        assert!(
+            error.starts_with(
+                "Resources/Nowhere.Sort: the Javadoc has no class Nowhere or Resource"
+            ),
+            "{error}"
+        );
+        assert!(
+            !error.contains("catalog"),
+            "a Resource is the platform's: {error}"
+        );
     }
 }

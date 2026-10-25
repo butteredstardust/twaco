@@ -94,6 +94,7 @@ const OPEN_WORLD: &[&str] = &[
     "test",
     "extensions",
     "extension_write",
+    "impact",
     "search",
     "entity_get",
     "export",
@@ -710,7 +711,7 @@ static TOOLS: LazyLock<Vec<Tool>> = LazyLock::new(|| {
         .with_output::<outputs::BundleResult>(),
         solution_tool::<content_requests::SearchRequest>(
             "search",
-            "Search the server's entities, as Composer's Spotlight box does: by text found in a name or description (any case; a * makes it a pattern), entity types and project. Read-only. Each result is Collection/Name with type, project and description, ready for entity_get or export. more says the limit cut the list; note says when a project does not exist. An unknown type is refused, because the server would otherwise search everything.",
+            "Search the server's entities, as Composer's Spotlight box does: by text found in a name or description (any case; a * makes it a pattern), entity types and project, and with modified_since only what changed since then, newest first: what someone changed on the server since the last deploy. Read-only. Each result is Collection/Name with type, project, description and when it last changed, ready for entity_get or export. more says the limit cut the list; note says when a project does not exist. An unknown type is refused, because the server would otherwise search everything.",
             true,
             content::search_tool,
         )
@@ -766,7 +767,7 @@ static TOOLS: LazyLock<Vec<Tool>> = LazyLock::new(|| {
         .with_output::<outputs::ContractDiffResult>(),
         solution_tool::<info_requests::ImpactRequest>(
             "impact",
-            "What changing an entity, or one service, property or field of it, would reach: the Things, templates, shapes, mashups and projects that depend on it, directly or through others, each at the strength of its weakest reference (structural: declared in the XML or twaco.toml; resolved: a static name in a script or a mashup binding; review: a string that looks like the name, for a person to judge). Offline and read-only. It cannot see references built at run time or outside the repository; `complete` says whether every input was read and `unreadable` lists what was not. Summary leaves the chain to each dependent out; detail includes it.",
+            "What changing an entity, or one service, property or field of it, would reach: the Things, templates, shapes, mashups and projects that depend on it, directly or through others, each at the strength of its weakest reference (structural: declared in the XML or twaco.toml; resolved: a static name in a script or a mashup binding; review: a string that looks like the name, for a person to judge). Offline and read-only. It cannot see references built at run time or outside the repository; `complete` says whether every input was read and `unreadable` lists what was not. With server: true it also asks the server (read-only) what refers to the entity one step away, in its dependency graph and, for a template or shape, the Things that have it, each marked when the repository does not have it; the server sees structural references only. Summary leaves the chain to each dependent out; detail includes it.",
             true,
             info::impact_tool,
         )
@@ -822,7 +823,7 @@ static TOOLS: LazyLock<Vec<Tool>> = LazyLock::new(|| {
         .with_output::<outputs::HelpPageResult>(),
         bare_tool::<info_requests::JavadocRequest>(
             "javadoc",
-            "Search or read the ThingWorx Platform API 10.1.0 Javadoc as Markdown. search ranks class and member simple names exact, prefix, then contains. class gives the class description and method summaries; member gives every overload with parameters, returns and throws. Useful for the Java methods of objects scripts call and Resource service parameter descriptions.",
+            "Search or read the ThingWorx Platform API 10.1.0 Javadoc as Markdown. search ranks class and member simple names exact, prefix, then contains. class gives the class description and method summaries; member gives every overload with parameters, returns and throws. service takes a service as a script or path names it (Resources[\"InfoTableFunctions\"].Sort, Things/Name.Service, me.Service, Class.member), finds the class that declares it, looking in the classes it extends, and returns every overload. Useful for the Java methods of objects scripts call and Resource service parameter descriptions.",
             true,
             info::javadoc_tool,
         )

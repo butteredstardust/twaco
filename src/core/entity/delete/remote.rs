@@ -28,41 +28,7 @@ impl Remote for Client {
     }
 
     fn incoming(&self, key: &EntityKey) -> Result<Vec<Dependent>, ServerError> {
-        let target = ServiceTarget::Entity(key.clone());
-        let value = self
-            .call_service(
-                &target,
-                "GetIncomingDependencies",
-                &serde_json::json!({}),
-                Duration::from_secs(120),
-            )?
-            .unwrap_or_else(|| serde_json::json!({ "rows": [] }));
-        let rows = value.get("rows").and_then(Value::as_array).ok_or_else(|| {
-            ServerError::InvalidResponse {
-                url: format!("{target}/Services/GetIncomingDependencies"),
-                why: "expected an InfoTable with rows".to_string(),
-            }
-        })?;
-        rows.iter()
-            .map(|row| {
-                let name = row.get("name").and_then(Value::as_str).ok_or_else(|| {
-                    ServerError::InvalidResponse {
-                        url: format!("{target}/Services/GetIncomingDependencies"),
-                        why: "a row has no string name".to_string(),
-                    }
-                })?;
-                let entity_type = row.get("type").and_then(Value::as_str).ok_or_else(|| {
-                    ServerError::InvalidResponse {
-                        url: format!("{target}/Services/GetIncomingDependencies"),
-                        why: "a row has no string type".to_string(),
-                    }
-                })?;
-                Ok(Dependent {
-                    collection: dependency_collection(entity_type),
-                    name: name.to_string(),
-                })
-            })
-            .collect()
+        incoming_dependencies(self, key)
     }
 
     fn fetch(&self, key: &EntityKey) -> Result<Vec<u8>, ServerError> {
@@ -94,9 +60,52 @@ impl Remote for Client {
     }
 }
 
+/// The entities the server records as depending on `key`: `GetIncomingDependencies`, which sees
+/// structural references only (see `DEPENDENCY_LIMIT`).
+pub(crate) fn incoming_dependencies(
+    client: &Client,
+    key: &EntityKey,
+) -> Result<Vec<Dependent>, ServerError> {
+    let target = ServiceTarget::Entity(key.clone());
+    let value = client
+        .call_service(
+            &target,
+            "GetIncomingDependencies",
+            &serde_json::json!({}),
+            Duration::from_secs(120),
+        )?
+        .unwrap_or_else(|| serde_json::json!({ "rows": [] }));
+    let rows = value.get("rows").and_then(Value::as_array).ok_or_else(|| {
+        ServerError::InvalidResponse {
+            url: format!("{target}/Services/GetIncomingDependencies"),
+            why: "expected an InfoTable with rows".to_string(),
+        }
+    })?;
+    rows.iter()
+        .map(|row| {
+            let name = row.get("name").and_then(Value::as_str).ok_or_else(|| {
+                ServerError::InvalidResponse {
+                    url: format!("{target}/Services/GetIncomingDependencies"),
+                    why: "a row has no string name".to_string(),
+                }
+            })?;
+            let entity_type = row.get("type").and_then(Value::as_str).ok_or_else(|| {
+                ServerError::InvalidResponse {
+                    url: format!("{target}/Services/GetIncomingDependencies"),
+                    why: "a row has no string type".to_string(),
+                }
+            })?;
+            Ok(Dependent {
+                collection: dependency_collection(entity_type),
+                name: name.to_string(),
+            })
+        })
+        .collect()
+}
+
 /// A Thing's dependency services run only while it is enabled; a disabled Thing answers
 /// `HTTP 503: Thing [...] is not enabled`, so its dependents are unknown rather than none.
-pub(super) fn is_disabled_thing(key: &EntityKey, error: &ServerError) -> bool {
+pub(crate) fn is_disabled_thing(key: &EntityKey, error: &ServerError) -> bool {
     key.collection() == "Things"
         && matches!(error, ServerError::Http { status: 503, body, .. } if body.contains("is not enabled"))
 }

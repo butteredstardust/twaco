@@ -42,6 +42,7 @@ pub(crate) use method::Method;
 #[cfg(test)]
 pub(crate) use remote::Dependent;
 pub(crate) use remote::Remote;
+pub(crate) use remote::{incoming_dependencies, is_disabled_thing};
 pub(crate) use report::{DeleteError, Report, Status};
 pub(crate) use run::run;
 pub(crate) use targets::prepare;

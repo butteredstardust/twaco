@@ -339,12 +339,26 @@ pub(crate) struct SearchRequest {
     /// Only this project's entities.
     #[serde(default, skip_serializing_if = "Absent::is_absent")]
     pub(crate) project: Absent<String>,
+    /// Only entities changed at or after this: a duration back from now (1d, 12h, 30m), a date (midnight UTC) or an RFC 3339 timestamp.
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) modified_since: Absent<String>,
+    /// name: A to Z; modified: newest change first. Absent: modified with modified_since, name without. With modified_since the limit keeps the newest, whatever the order.
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) sort: Absent<SearchSort>,
     #[serde(default = "default_search_limit")]
     #[schemars(range(min = 1))]
     pub(crate) limit: u64,
     /// Server profile name.
     #[serde(default = "default_profile")]
     pub(crate) profile: String,
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, JsonSchema, PartialEq, Eq, Serialize)]
+pub(crate) enum SearchSort {
+    #[serde(rename = "name")]
+    Name,
+    #[serde(rename = "modified")]
+    Modified,
 }
 
 fn default_search_limit() -> u64 {

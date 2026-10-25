@@ -5,14 +5,22 @@
 //! reference on its way. It is read-only and offline. It is **not** a proof that nothing else is
 //! affected: names built at run time and anything outside the repository are invisible, and the
 //! report lists the inputs it could not read so the caller can see what it left out.
+//!
+//! Asked to, it also asks the server, which sees what the repository cannot: entities of other
+//! projects, extensions and anything never exported. The server's graph is structural only and
+//! one step deep, so it is reported beside the index's answer, never merged into it.
 
 use super::codes::{Coded, ErrorCode};
 use super::config::Solution;
-use super::entity::key::EntityKey;
+use super::entity::delete;
+use super::entity::key::{EntityKey, ServiceTarget};
 use super::index::{Confidence, Dependent, DependentOptions, Index, Unreadable};
+use super::server::{Client, ServerError};
 use super::workspace::WorkspaceError;
 use serde::Serialize;
-use std::collections::BTreeSet;
+use serde_json::Value;
+use std::collections::{BTreeMap, BTreeSet};
+use std::time::Duration;
 
 /// What the index cannot see, said wherever its answer is shown.
 pub(crate) const LIMITS: &str =
@@ -36,6 +44,86 @@ pub struct Request {
 pub enum ImpactError {
     #[error("{0}")]
     Entity(WorkspaceError),
+}
+
+impl Coded for ImpactError {
+    fn code(&self) -> ErrorCode {
+        match self {
+            Self::Entity(error) => error.code(),
+        }
+    }
+}
+
+/// What the server is asked, as a trait so it is tested offline.
+pub trait ServerRemote {
+    fn exists(&self, key: &EntityKey) -> Result<bool, ServerError>;
+    /// `GetIncomingDependencies`: `Collection/Name` of each entity that refers to `key`.
+    fn incoming(&self, key: &EntityKey) -> Result<Vec<(String, String)>, ServerError>;
+    /// `GetImplementingThings` of a template or shape: the names of the Things that have it.
+    fn implementing(&self, key: &EntityKey) -> Result<Vec<String>, ServerError>;
+}
+
+impl ServerRemote for Client {
+    fn exists(&self, key: &EntityKey) -> Result<bool, ServerError> {
+        self.entity_exists(key)
+    }
+
+    fn incoming(&self, key: &EntityKey) -> Result<Vec<(String, String)>, ServerError> {
+        Ok(delete::incoming_dependencies(self, key)?
+            .into_iter()
+            .map(|dependent| (dependent.collection, dependent.name))
+            .collect())
+    }
+
+    fn implementing(&self, key: &EntityKey) -> Result<Vec<String>, ServerError> {
+        let target = ServiceTarget::Entity(key.clone());
+        let reply = self
+            .call_service(
+                &target,
+                "GetImplementingThings",
+                &serde_json::json!({}),
+                Duration::from_secs(120),
+            )?
+            .unwrap_or_else(|| serde_json::json!({ "rows": [] }));
+        let rows = reply.get("rows").and_then(Value::as_array).ok_or_else(|| {
+            ServerError::InvalidResponse {
+                url: format!("{target}/Services/GetImplementingThings"),
+                why: "expected an InfoTable with rows".to_string(),
+            }
+        })?;
+        rows.iter()
+            .map(|row| {
+                row.get("name")
+                    .and_then(Value::as_str)
+                    .map(str::to_string)
+                    .ok_or_else(|| ServerError::InvalidResponse {
+                        url: format!("{target}/Services/GetImplementingThings"),
+                        why: "a row has no string name".to_string(),
+                    })
+            })
+            .collect()
+    }
+}
+
+/// One entity the server says refers to the entity asked about.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+pub(crate) struct ServerDependent {
+    /// `Collection/Name`.
+    pub(crate) entity: String,
+    /// How the server knows: `dependency` (its dependency graph), `implements` (a Thing that has
+    /// the template or shape), or both.
+    pub(crate) via: Vec<&'static str>,
+    pub(crate) in_repository: bool,
+}
+
+/// The server's answer, beside the repository's.
+#[derive(Debug, Default, Serialize)]
+pub(crate) struct ServerSide {
+    pub(crate) dependents: Vec<ServerDependent>,
+    /// How many of them the repository does not hold: what the offline answer cannot see.
+    pub(crate) outside_repository: usize,
+    pub(crate) notes: Vec<String>,
+    pub(crate) limits: &'static str,
 }
 
 impl From<WorkspaceError> for ImpactError {
@@ -79,10 +167,22 @@ pub struct Report {
     pub(crate) unparsed_scripts: Vec<String>,
     pub(crate) notes: Vec<String>,
     pub(crate) limits: &'static str,
+    /// What the server says, when it was asked.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) server: Option<ServerSide>,
 }
 
 /// Ask the index. Offline, read-only, and never writes.
 pub fn run(solution: &Solution, request: &Request) -> Result<Report, ImpactError> {
+    run_with(solution, request, None)
+}
+
+/// Ask the index and, given a server, the server too. Read-only on both.
+pub fn run_with(
+    solution: &Solution,
+    request: &Request,
+    remote: Option<&dyn ServerRemote>,
+) -> Result<Report, ImpactError> {
     let index = Index::build(solution);
     let key = index.resolve(&request.entity)?;
     let options = DependentOptions {
@@ -151,9 +251,112 @@ pub fn run(solution: &Solution, request: &Request) -> Result<Report, ImpactError
         complete: index.is_complete(),
         unreadable: index.unreadable().to_vec(),
         unparsed_scripts: index.unparsed_scripts().to_vec(),
+        server: remote
+            .map(|remote| ask_server(&index, &key, request, remote))
+            .transpose()?,
         notes,
         limits: LIMITS,
     })
+}
+
+/// The server's one-step answer for `key`, each dependent marked by whether the repository has it.
+fn ask_server(
+    index: &Index,
+    key: &EntityKey,
+    request: &Request,
+    remote: &dyn ServerRemote,
+) -> Result<ServerSide, ImpactError> {
+    let mut side = ServerSide {
+        limits: delete::DEPENDENCY_LIMIT,
+        ..ServerSide::default()
+    };
+    // The repository's answer is already made; a server that cannot answer is said beside it
+    // rather than taking it away.
+    let unanswered = |error: ServerError| {
+        format!("the server could not be asked ({error}); what is shown is the repository's answer only")
+    };
+    match remote.exists(key) {
+        Ok(true) => {}
+        Ok(false) => {
+            side.notes.push(format!(
+                "the server has no {key}, so it knows of nothing that depends on it"
+            ));
+            return Ok(side);
+        }
+        Err(error) => {
+            side.notes.push(unanswered(error));
+            return Ok(side);
+        }
+    }
+    let mut found: BTreeMap<String, Vec<&'static str>> = BTreeMap::new();
+    match remote.incoming(key) {
+        Ok(dependents) => {
+            for (collection, name) in dependents {
+                found
+                    .entry(format!("{collection}/{name}"))
+                    .or_default()
+                    .push("dependency");
+            }
+        }
+        Err(error) if delete::is_disabled_thing(key, &error) => side.notes.push(format!(
+            "{key} is disabled on the server, which then does not say what depends on it; enable it and ask again"
+        )),
+        Err(error) => {
+            side.notes.push(unanswered(error));
+            return Ok(side);
+        }
+    }
+    if matches!(key.collection(), "ThingTemplates" | "ThingShapes") {
+        match remote.implementing(key) {
+            Ok(names) => {
+                for name in names {
+                    let via = found.entry(format!("Things/{name}")).or_default();
+                    if !via.contains(&"implements") {
+                        via.push("implements");
+                    }
+                }
+            }
+            Err(error) => side.notes.push(format!(
+                "the server did not say which Things have {key} ({error}); they are missing here"
+            )),
+        }
+    }
+    side.dependents = found
+        .into_iter()
+        .map(|(entity, via)| {
+            let in_repository = entity
+                .split_once('/')
+                .and_then(|(collection, name)| EntityKey::new(collection, name).ok())
+                .is_some_and(|key| index.node(&key).is_some());
+            ServerDependent {
+                entity,
+                via,
+                in_repository,
+            }
+        })
+        .collect();
+    side.outside_repository = side
+        .dependents
+        .iter()
+        .filter(|dependent| !dependent.in_repository)
+        .count();
+    if request.member.is_some() {
+        side.notes.push(
+            "the server's dependencies are whole entities; the member does not narrow them"
+                .to_string(),
+        );
+    }
+    if key.collection() == "ThingTemplates"
+        && side
+            .dependents
+            .iter()
+            .any(|dependent| dependent.entity.starts_with("ThingTemplates/"))
+    {
+        side.notes.push(
+            "the Things of a template derived from this one may be listed under that template only; ask about each one listed here".to_string(),
+        );
+    }
+    Ok(side)
 }
 
 /// Whether `entity`, or anything it inherits, declares a service called `member`.
@@ -244,6 +447,13 @@ pub fn render_text(report: &Report, detail: bool) -> String {
             report.inherited_by.join(", ")
         ));
     }
+    if let Some(server) = &report.server {
+        out.push_str(&format!(
+            "  server      {}: {} not in the repository\n",
+            server.dependents.len(),
+            server.outside_repository
+        ));
+    }
     for (confidence, heading) in [
         (
             Confidence::Structural,
@@ -308,8 +518,42 @@ pub fn render_text(report: &Report, detail: bool) -> String {
             ));
         }
     }
+    if let Some(server) = &report.server {
+        if !server.dependents.is_empty() {
+            out.push_str("\nserver: what the server says refers to it, one step away\n");
+            let shown = if detail {
+                server.dependents.len()
+            } else {
+                SUMMARY_LIMIT.min(server.dependents.len())
+            };
+            for dependent in &server.dependents[..shown] {
+                let outside = if dependent.in_repository {
+                    ""
+                } else {
+                    ", not in the repository"
+                };
+                out.push_str(&format!(
+                    "  {}  ({}{outside})\n",
+                    dependent.entity,
+                    dependent.via.join(", ")
+                ));
+            }
+            if shown < server.dependents.len() {
+                out.push_str(&format!(
+                    "  ... and {} more (--detail lists all)\n",
+                    server.dependents.len() - shown
+                ));
+            }
+        }
+    }
     out.push('\n');
     out.push_str(&format!("limits: {}\n", report.limits));
+    if let Some(server) = &report.server {
+        out.push_str(&format!("server limits: {}\n", server.limits));
+        for note in &server.notes {
+            out.push_str(&format!("note: {note}\n"));
+        }
+    }
     if !report.complete {
         out.push_str(&format!(
             "partial: {} input(s) could not be read, so what depends on them is missing:\n",
@@ -398,14 +642,6 @@ pub fn render_dot(report: &Report) -> String {
     out
 }
 
-impl Coded for ImpactError {
-    fn code(&self) -> ErrorCode {
-        match self {
-            Self::Entity(error) => error.code(),
-        }
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -475,6 +711,188 @@ mod tests {
         assert!(
             detailed.contains("Things/Acme.Orders.Manager.GetOrder -> Things/Acme.Orders.Audit.Record  (script_reference)"),
             "{detailed}"
+        );
+    }
+
+    struct Server {
+        exists: bool,
+        incoming: Result<Vec<(&'static str, &'static str)>, u16>,
+        implementing: Vec<&'static str>,
+        asked: std::cell::RefCell<Vec<String>>,
+    }
+
+    impl Server {
+        fn new(
+            incoming: Vec<(&'static str, &'static str)>,
+            implementing: Vec<&'static str>,
+        ) -> Self {
+            Server {
+                exists: true,
+                incoming: Ok(incoming),
+                implementing,
+                asked: Default::default(),
+            }
+        }
+    }
+
+    impl ServerRemote for Server {
+        fn exists(&self, _: &EntityKey) -> Result<bool, ServerError> {
+            Ok(self.exists)
+        }
+
+        fn incoming(&self, key: &EntityKey) -> Result<Vec<(String, String)>, ServerError> {
+            self.asked.borrow_mut().push(format!("incoming {key}"));
+            match &self.incoming {
+                Ok(rows) => Ok(rows
+                    .iter()
+                    .map(|(collection, name)| (collection.to_string(), name.to_string()))
+                    .collect()),
+                Err(status) => Err(ServerError::Http {
+                    method: crate::core::server::Method::Post,
+                    status: *status,
+                    url: format!("{key}/Services/GetIncomingDependencies"),
+                    body: format!("Thing [{}] is not enabled", key.name()),
+                }),
+            }
+        }
+
+        fn implementing(&self, key: &EntityKey) -> Result<Vec<String>, ServerError> {
+            self.asked.borrow_mut().push(format!("implementing {key}"));
+            Ok(self
+                .implementing
+                .iter()
+                .map(|name| name.to_string())
+                .collect())
+        }
+    }
+
+    fn ask_with(entity: &str, member: Option<&str>, server: &Server) -> Report {
+        run_with(
+            &bundled(),
+            &Request {
+                entity: entity.to_string(),
+                member: member.map(str::to_string),
+                min: Confidence::Review,
+                depth: None,
+            },
+            Some(server),
+        )
+        .unwrap()
+    }
+
+    #[test]
+    fn the_server_adds_what_the_repository_cannot_see_beside_the_index() {
+        let server = Server::new(
+            vec![
+                ("Things", "Acme.Orders.Manager"),
+                ("Mashups", "Other.Team.Board"),
+            ],
+            vec!["Acme.Orders.Manager", "Other.Team.Pump"],
+        );
+        let report = ask_with("Base_TT", None, &server);
+        // The offline answer is unchanged.
+        assert_eq!(report.inherited_by, ["Things/Acme.Orders.Manager"]);
+        let side = report.server.as_ref().unwrap();
+        assert_eq!(
+            side.dependents,
+            [
+                ServerDependent {
+                    entity: "Mashups/Other.Team.Board".into(),
+                    via: vec!["dependency"],
+                    in_repository: false,
+                },
+                ServerDependent {
+                    entity: "Things/Acme.Orders.Manager".into(),
+                    via: vec!["dependency", "implements"],
+                    in_repository: true,
+                },
+                ServerDependent {
+                    entity: "Things/Other.Team.Pump".into(),
+                    via: vec!["implements"],
+                    in_repository: false,
+                },
+            ]
+        );
+        assert_eq!(side.outside_repository, 2);
+        assert_eq!(
+            *server.asked.borrow(),
+            [
+                "incoming ThingTemplates/Acme.Orders.Base_TT",
+                "implementing ThingTemplates/Acme.Orders.Base_TT"
+            ]
+        );
+        let text = render_text(&report, false);
+        assert!(
+            text.contains("  server      3: 2 not in the repository\n"),
+            "{text}"
+        );
+        assert!(
+            text.contains("  Things/Other.Team.Pump  (implements, not in the repository)\n"),
+            "{text}"
+        );
+        assert!(
+            text.contains("server limits: GetIncomingDependencies"),
+            "{text}"
+        );
+        let json = report.to_json(false);
+        assert_eq!(json["server"]["outside_repository"], 2);
+        assert_eq!(json["server"]["dependents"][1]["via"][1], "implements");
+        // Without the server, the report says nothing about it.
+        assert!(ask("Base_TT", None, Confidence::Review)
+            .to_json(false)
+            .get("server")
+            .is_none());
+    }
+
+    #[test]
+    fn the_server_is_asked_for_implementing_things_only_of_templates_and_shapes() {
+        let server = Server::new(vec![], vec!["Ignored"]);
+        let report = ask_with("Audit", Some("Record"), &server);
+        assert_eq!(
+            *server.asked.borrow(),
+            ["incoming Things/Acme.Orders.Audit"]
+        );
+        let side = report.server.unwrap();
+        assert!(side.dependents.is_empty());
+        assert!(
+            side.notes
+                .iter()
+                .any(|note| note.contains("member does not narrow")),
+            "{:?}",
+            side.notes
+        );
+    }
+
+    #[test]
+    fn an_entity_the_server_lacks_or_a_disabled_thing_is_said_not_shown_as_no_dependents() {
+        let mut server = Server::new(vec![], vec![]);
+        server.exists = false;
+        let side = ask_with("Audit", None, &server).server.unwrap();
+        assert!(server.asked.borrow().is_empty());
+        assert_eq!(
+            side.notes,
+            ["the server has no Things/Acme.Orders.Audit, so it knows of nothing that depends on it"]
+        );
+        let mut server = Server::new(vec![], vec![]);
+        server.incoming = Err(503);
+        let side = ask_with("Audit", None, &server).server.unwrap();
+        assert!(
+            side.notes[0].contains("is disabled on the server"),
+            "{:?}",
+            side.notes
+        );
+        let mut server = Server::new(vec![], vec![]);
+        server.incoming = Err(500);
+        // Any other failure keeps the repository's answer and says the server's is missing.
+        let report = ask_with("Audit", None, &server);
+        assert!(!report.dependents.is_empty(), "the offline answer is kept");
+        let side = report.server.unwrap();
+        assert!(side.dependents.is_empty());
+        assert!(
+            side.notes[0].starts_with("the server could not be asked (")
+                && side.notes[0].ends_with("what is shown is the repository's answer only"),
+            "{:?}",
+            side.notes
         );
     }
 

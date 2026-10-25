@@ -125,6 +125,12 @@ pub(crate) struct ImpactRequest {
     /// Return everything instead of the summary.
     #[serde(default)]
     pub(crate) detail: bool,
+    /// Also ask the server what refers to the entity (its dependency graph, and the Things of a template or shape), each marked by whether the repository has it. Read-only; not with format dot.
+    #[serde(default)]
+    pub(crate) server: bool,
+    /// Server profile name, for server.
+    #[serde(default = "default_profile")]
+    pub(crate) profile: String,
 }
 
 fn default_impact_min_confidence() -> ImpactMinConfidence {
@@ -286,13 +292,15 @@ pub(crate) enum JavadocAction {
     Search,
     #[serde(rename = "class")]
     Class,
+    #[serde(rename = "service")]
+    Service,
 }
 
 #[derive(Debug, Deserialize, JsonSchema, Serialize)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct JavadocRequest {
     pub(crate) action: JavadocAction,
-    /// A search name, or a simple/qualified class name.
+    /// search: a name; class: a simple or qualified class name; service: a service as a script or path names it (Resources["InfoTableFunctions"].Sort, Things/Name.Service, me.Service, Class.member).
     pub(crate) name: String,
     /// class: return full details for every overload of this member.
     #[serde(default, skip_serializing_if = "Absent::is_absent")]
