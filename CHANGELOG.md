@@ -6,6 +6,8 @@ All notable changes to twaco are recorded here. The format follows
 
 ## [Unreleased]
 
+## [0.1.36] - 2026-10-25
+
 ### Added
 
 - `search --modified-since <when>` lists only what changed on the server since then (`1d`, `12h`,
@@ -1039,6 +1041,7 @@ The first public release.
 - `mcp` serves 39 tools over stdio to MCP clients, with compact summaries, validated arguments
   and dry runs by default for tools that can write to a server.
 
+[0.1.36]: https://github.com/butteredstardust/twaco/releases/tag/v0.1.36
 [0.1.35]: https://github.com/butteredstardust/twaco/releases/tag/v0.1.35
 [0.1.34]: https://github.com/butteredstardust/twaco/releases/tag/v0.1.34
 [0.1.33]: https://github.com/butteredstardust/twaco/releases/tag/v0.1.33
