@@ -71,8 +71,8 @@ All notable changes to twaco are recorded here. The format follows
 ### Fixed
 
 - `bundle` no longer follows a linked folder under a collection, which bundled entities from
-  outside the solution; it now walks exactly as entity discovery does, so a linked file is left
-  out as `deploy` leaves it out, and `check` names it.
+  outside the solution; it now walks exactly as entity discovery does, so a link under a
+  collection makes it refuse, as `deploy` refuses, and `check` names the link.
 - `move` refuses a service sidecar folder that is or holds a link rather than deleting the files behind
   it, and removing emptied folders never enters a link.
 
