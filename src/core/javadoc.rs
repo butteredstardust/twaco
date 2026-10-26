@@ -400,7 +400,19 @@ pub fn parse_service_ref(text: &str) -> Result<ServiceRef, String> {
         .unwrap_or(given);
     // A call's arguments say nothing about which service it is. They start after the entity's
     // name, which may itself hold a parenthesis.
-    let name_end = given.rfind(']').unwrap_or(0);
+    // The name ends at the quote and bracket that close it, not at the last bracket: the
+    // arguments may hold an array.
+    let name_end = ["[\"", "['"]
+        .iter()
+        .filter_map(|open| given.find(open).map(|at| (at, &open[1..])))
+        .min_by_key(|(at, _)| *at)
+        .and_then(|(at, quote)| {
+            let from = at + 2;
+            given[from..]
+                .find(&format!("{quote}]"))
+                .map(|end| from + end + 2)
+        })
+        .unwrap_or(0);
     let given = match given[name_end..].find('(') {
         Some(open) if given.ends_with(')') => given[..name_end + open].trim_end(),
         _ => given,
@@ -1079,6 +1091,7 @@ mod tests {
         for given in [
             r#"Resources["InfoTableFunctions"].Sort"#,
             "Resources['InfoTableFunctions'].Sort({ t: rows, sortColumn: 'a' });",
+            r#"Resources["InfoTableFunctions"].Sort({ rows: [], keys: ["a"] })"#,
             "Resources/InfoTableFunctions.Sort",
             "resources/InfoTableFunctions/Services/Sort",
         ] {
@@ -1103,6 +1116,12 @@ mod tests {
         );
         let odd = resource(r#"Things["Pump (1)"].GetPropertyValues()"#);
         assert_eq!(odd.shown, "Things/Pump (1).GetPropertyValues");
+        let bracketed = resource(r#"Things["Pump [2]"].GetPropertyValues({ a: [1] })"#);
+        assert_eq!(bracketed.shown, "Things/Pump [2].GetPropertyValues");
+        assert_eq!(
+            resource("me.GetPropertyValues([x])").member,
+            "GetPropertyValues"
+        );
         let me = resource("me.GetPropertyValues");
         assert_eq!((me.classes, me.entity), (vec!["Thing".to_string()], true));
         let class = resource("com.thingworx.types.InfoTable.getRowCount");
