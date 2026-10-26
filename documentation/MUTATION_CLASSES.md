@@ -142,6 +142,8 @@ when the command is asked to write. A local output named by an option is include
 | `new menu` | read-only | multi-file atomic | entity XML | The entity XML is created in a journaled transaction; a file that appeared since the plan is refused. Retry. | `core/commands/entity_new.rs: execute` |
 | `new theme` | read-only | multi-file atomic | entity XML | The entity XML is created in a journaled transaction; a file that appeared since the plan is refused. Retry. | `core/commands/entity_new.rs: execute` |
 | `new network` | read-only | multi-file atomic | entity XML | The entity XML is created in a journaled transaction; a file that appeared since the plan is refused. Retry. | `core/commands/entity_new.rs: execute` |
+| `new mcp-namespace` | read-only | multi-file atomic | entity XML | The entity XML is created in a journaled transaction; a file that appeared since the plan is refused. Retry. | `core/commands/entity_new.rs: execute` |
+| `new ai-agent` | read-only | multi-file atomic | entity XML | The entity XML is created in a journaled transaction; a file that appeared since the plan is refused. Retry. | `core/commands/entity_new.rs: execute` |
 | `network list` | read-only | read-only | none | Retry freely. | `core/network.rs: parse` |
 | `network show` | read-only | read-only | none | Retry freely. | `core/network.rs: show` |
 | `network diff` | read-only | read-only | server | Retry freely. | `core/commands/network.rs: server_diff` |

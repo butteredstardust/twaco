@@ -3528,7 +3528,7 @@
       "type": "object",
       "properties": {
         "kind": {
-          "description": "`project`, `group`, `thing`, `thing-template`, `thing-shape`, `data-shape`, `timer`, `scheduler`, `data-table`, `stream`, `value-stream`, `media`, `style`, `state`, `menu`, `theme`, or `network`.",
+          "description": "`project`, `group`, `thing`, `thing-template`, `thing-shape`, `data-shape`, `timer`, `scheduler`, `data-table`, `stream`, `value-stream`, `media`, `style`, `state`, `menu`, `theme`, `network`, `mcp-namespace` or `ai-agent`.",
           "type": "string",
           "enum": [
             "project",
@@ -3547,7 +3547,9 @@
             "state",
             "menu",
             "theme",
-            "network"
+            "network",
+            "mcp-namespace",
+            "ai-agent"
           ]
         },
         "name": {
@@ -3693,6 +3695,82 @@
           "items": {
             "type": "string"
           }
+        },
+        "tool": {
+          "description": "mcp-namespace: `name=Provider.Service` tools; prefix the provider `Thing:`,\n`ThingTemplate:` or `ThingShape:` to name one outside the solution.",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "service_resource": {
+          "description": "mcp-namespace: `name=Provider.Service` service resources.",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "file_resource": {
+          "description": "mcp-namespace: `name=Repository:/path` file resources.",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "prompt": {
+          "description": "mcp-namespace: `name=text` prompts; `{{argument}}` placeholders become arguments.",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "describe": {
+          "description": "mcp-namespace: `name=text` descriptions; a tool or service resource defaults to its\nservice's description, a prompt to its text. ThingWorx refuses an empty one.",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "namespace": {
+          "description": "ai-agent: `Namespace` (everything it defines) or `Namespace=item,item`.",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "skill": {
+          "description": "ai-agent: `Repository:/path` skill folders holding a SKILL.md.",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "resolver": {
+          "description": "ai-agent: the Thing implementing HierarchyResolver.",
+          "type": "string"
+        },
+        "taxonomy": {
+          "description": "ai-agent: `TemplateOrShape` or `TemplateOrShape=alias, alias` taxonomy rows.",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "instructions": {
+          "description": "ai-agent: the system prompt's instructions.",
+          "type": "string"
+        },
+        "instructions_file": {
+          "description": "ai-agent: a file holding the instructions.",
+          "type": "string"
+        },
+        "agent_description": {
+          "description": "ai-agent: the description the assistant routes questions by.",
+          "type": "string"
+        },
+        "display_name": {
+          "description": "ai-agent: the name the assistant shows (default: the entity name).",
+          "type": "string"
         },
         "dry_run": {
           "type": "boolean",

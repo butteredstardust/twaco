@@ -652,6 +652,35 @@ it, missing Things need `--outside`. Refusals write nothing; an applied import c
 and changes the Network in one transaction. MCP exposes the same read operations as `network` and
 the edits and import as `network_write` (`dry_run` defaults to true).
 
+## AI agents and MCP namespaces
+
+ThingWorx 10.2 agents answer from an MCP namespace's tools (each one a service), resources (a
+service or a file in a file repository) and prompts. twaco creates both as repository files,
+checks what they name, and reads them into the index, so `impact <Thing> --member <service>`
+names the namespace whose tool calls the service and the agent that uses that namespace.
+
+```sh
+twaco new mcp-namespace Acme.Orders.Tools_NS --tool open_orders=Acme.Orders.Manager.GetOrders \
+  --file-resource manual=Acme.Orders.Files:/Manuals/orders.md --describe "manual=The order manual" \
+  --prompt "status=Summarise order {{order}}" --apply
+twaco new ai-agent Acme.Orders.Agent --namespace Acme.Orders.Tools_NS --namespace AgentUtilities \
+  --taxonomy "Acme.Orders.Order_TT=order, orders" --resolver Acme.Orders.Resolver \
+  --skill SharedSkillsRepository:/orders --agent-description "Answers questions about orders" \
+  --instructions-file agent.md --apply
+```
+
+A tool or service resource must name a service its Thing, template or shape declares or
+inherits; prefix the provider `Thing:`, `ThingTemplate:` or `ThingShape:` to name one outside the
+solution. ThingWorx refuses a tool, resource, prompt or prompt argument without a description: a
+tool takes its service's, a prompt its text and an argument its name, and `--describe name=text`
+sets any of them. `--namespace X` allows everything X defines, `X=a,b` only those; the platform's
+`AgentUtilities` gives its standard tools. A new agent can run the platform's agent service and is
+visible to the AI runtime (`AIBootstrapUsers`, `AIBootstrapOrg`), as Composer's agents are.
+
+The import refuses an MCP File resource whose file the file repository does not hold, and a
+namespace that drops a tool or resource an agent on the server still allows: deploy the agent
+without it first. The `ai references` gate of `twaco check` reports what would break an agent.
+
 ## Changing entities
 
 Each command plans until `--apply` and changes only the element it names.

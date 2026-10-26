@@ -140,6 +140,7 @@ until `--apply`; `sync` and `deploy` take them to the server.
 | Timer, Scheduler | `new timer`, `new scheduler` | the entity's XML | `timer set`, `scheduler set` | `entity delete` |
 | Style, theme, state, menu, media | `new style`, `new theme`, `new state`, `new menu`, `new media` | the entity's XML | `style set`, `state set`, `menu item add\|remove`, `media set` | `entity delete` |
 | Network (asset hierarchy) | `new network`, `network import` | `network list`, `network show` | `network add`, `network move` | `network remove` (connections, never the Things) |
+| AI agent, MCP namespace | `new ai-agent`, `new mcp-namespace` | `impact`, `check` (`ai references`) | the entity's XML | `entity delete` |
 | Building block | `new building-block` | `projects`, `docs` | `rename prefix` | `entity delete` of its entities |
 | Permissions | `permissions init` (drafts `permissions.toml` from the entities) | `permissions audit`, `permissions diff` | `permissions apply`, then `permissions push` | drop it from the policy, then `apply` and `push` |
 | Localization token | `localization new`, `localization set` | `localization status` | `localization set`, `localization push` | `localization remove` |

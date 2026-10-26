@@ -25,6 +25,12 @@ All notable changes to twaco are recorded here. The format follows
   resource or prompt the namespace does not define, a resolver that does not implement
   `HierarchyResolver`, and an MCP File resource or skill whose file the `[repositories]` mirror
   does not hold, which makes the import refuse the namespace.
+- `new mcp-namespace` (tools, service and file resources, prompts) and `new ai-agent`
+  (namespaces and what it may use from each, skills, hierarchy resolver, taxonomy rows, system
+  prompt), with MCP `entity_new` kinds `mcp-namespace` and `ai-agent`. Each reference is checked
+  as the `ai references` gate checks it, and the files are the platform's 10.2 export, so a
+  first deploy reads back as kept. ThingWorx refuses a tool, resource or prompt without a
+  description: a tool takes its service's, a prompt its text, and `--describe` sets any.
 
 ### Changed
 

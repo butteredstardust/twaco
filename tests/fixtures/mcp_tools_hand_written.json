@@ -1139,36 +1139,270 @@
     "name": "entity_new",
     "description": "Create a ThingWorx entity as a repository XML file: Projects, Groups, common Things, data Things, media, styles, states, menus, themes, and Networks. A new Project also appends its project declaration to twaco.toml. DataShape and DataTable creation also writes their managed sidecar. A dry run unless dry_run is false; apply takes the workspace lock and writes every file or none.",
     "inputSchema": {
-      "required": ["kind", "name"],
+      "required": [
+        "kind",
+        "name"
+      ],
       "additionalProperties": false,
       "type": "object",
       "properties": {
-        "kind": {"description": "`project`, `group`, `thing`, `thing-template`, `thing-shape`, `data-shape`, `timer`, `scheduler`, `data-table`, `stream`, `value-stream`, `media`, `style`, `state`, `menu`, `theme`, or `network`.", "type": "string", "enum": ["project", "group", "thing", "thing-template", "thing-shape", "data-shape", "timer", "scheduler", "data-table", "stream", "value-stream", "media", "style", "state", "menu", "theme", "network"]},
-        "name": {"description": "The entity name.", "type": "string"},
-        "project": {"type": "string"},
-        "description": {"type": "string"},
-        "depends_on": {"type": "array", "items": {"type": "string"}},
-        "visibility": {"type": "array", "items": {"type": "string"}},
-        "template": {"type": "string"},
-        "shape": {"type": "array", "items": {"type": "string"}},
-        "value_stream": {"type": "string"},
-        "base": {"type": "string"},
-        "field": {"type": "array", "items": {"type": "string"}},
-        "every": {"type": "string"},
-        "cron": {"type": "string"},
-        "run_as": {"type": "string"},
-        "disabled": {"type": "boolean", "default": false},
-        "then": {"type": "string"},
-        "script": {"type": "string"},
-        "data_shape": {"type": "string"}, "index": {"type": "array", "items": {"type": "string"}}, "file": {"type": "string"},
-        "background": {"type": "string"}, "foreground": {"type": "string"}, "secondary_background": {"type": "string"}, "line_color": {"type": "string"}, "line_style": {"type": "string"}, "line_thickness": {"type": "string"},
-        "bold": {"type": "boolean", "default": false}, "italic": {"type": "boolean", "default": false}, "underline": {"type": "boolean", "default": false},
-        "text_size": {"type": "string"}, "image": {"type": "string"}, "display_string": {"type": "string"}, "type": {"type": "string"},
-        "state": {"type": "array", "items": {"type": "string"}}, "item": {"type": "array", "items": {"type": "string"}}, "default": {"type": "boolean", "default": false}, "label": {"type": "string"}, "from": {"type": "string"}, "prop": {"type": "array", "items": {"type": "string"}},
-        "dry_run": {"type": "boolean", "default": true}
+        "kind": {
+          "description": "`project`, `group`, `thing`, `thing-template`, `thing-shape`, `data-shape`, `timer`, `scheduler`, `data-table`, `stream`, `value-stream`, `media`, `style`, `state`, `menu`, `theme`, `network`, `mcp-namespace` or `ai-agent`.",
+          "type": "string",
+          "enum": [
+            "project",
+            "group",
+            "thing",
+            "thing-template",
+            "thing-shape",
+            "data-shape",
+            "timer",
+            "scheduler",
+            "data-table",
+            "stream",
+            "value-stream",
+            "media",
+            "style",
+            "state",
+            "menu",
+            "theme",
+            "network",
+            "mcp-namespace",
+            "ai-agent"
+          ]
+        },
+        "name": {
+          "description": "The entity name.",
+          "type": "string"
+        },
+        "project": {
+          "type": "string"
+        },
+        "description": {
+          "type": "string"
+        },
+        "depends_on": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "visibility": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "template": {
+          "type": "string"
+        },
+        "shape": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "value_stream": {
+          "type": "string"
+        },
+        "base": {
+          "type": "string"
+        },
+        "field": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "every": {
+          "type": "string"
+        },
+        "cron": {
+          "type": "string"
+        },
+        "run_as": {
+          "type": "string"
+        },
+        "disabled": {
+          "type": "boolean",
+          "default": false
+        },
+        "then": {
+          "type": "string"
+        },
+        "script": {
+          "type": "string"
+        },
+        "data_shape": {
+          "type": "string"
+        },
+        "index": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "file": {
+          "type": "string"
+        },
+        "background": {
+          "type": "string"
+        },
+        "foreground": {
+          "type": "string"
+        },
+        "secondary_background": {
+          "type": "string"
+        },
+        "line_color": {
+          "type": "string"
+        },
+        "line_style": {
+          "type": "string"
+        },
+        "line_thickness": {
+          "type": "string"
+        },
+        "bold": {
+          "type": "boolean",
+          "default": false
+        },
+        "italic": {
+          "type": "boolean",
+          "default": false
+        },
+        "underline": {
+          "type": "boolean",
+          "default": false
+        },
+        "text_size": {
+          "type": "string"
+        },
+        "image": {
+          "type": "string"
+        },
+        "display_string": {
+          "type": "string"
+        },
+        "type": {
+          "type": "string"
+        },
+        "state": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "item": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "default": {
+          "type": "boolean",
+          "default": false
+        },
+        "label": {
+          "type": "string"
+        },
+        "from": {
+          "type": "string"
+        },
+        "prop": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "tool": {
+          "description": "mcp-namespace: `name=Provider.Service` tools; prefix the provider `Thing:`,\n`ThingTemplate:` or `ThingShape:` to name one outside the solution.",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "service_resource": {
+          "description": "mcp-namespace: `name=Provider.Service` service resources.",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "file_resource": {
+          "description": "mcp-namespace: `name=Repository:/path` file resources.",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "prompt": {
+          "description": "mcp-namespace: `name=text` prompts; `{{argument}}` placeholders become arguments.",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "describe": {
+          "description": "mcp-namespace: `name=text` descriptions; a tool or service resource defaults to its\nservice's description, a prompt to its text. ThingWorx refuses an empty one.",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "namespace": {
+          "description": "ai-agent: `Namespace` (everything it defines) or `Namespace=item,item`.",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "skill": {
+          "description": "ai-agent: `Repository:/path` skill folders holding a SKILL.md.",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "resolver": {
+          "description": "ai-agent: the Thing implementing HierarchyResolver.",
+          "type": "string"
+        },
+        "taxonomy": {
+          "description": "ai-agent: `TemplateOrShape` or `TemplateOrShape=alias, alias` taxonomy rows.",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "instructions": {
+          "description": "ai-agent: the system prompt's instructions.",
+          "type": "string"
+        },
+        "instructions_file": {
+          "description": "ai-agent: a file holding the instructions.",
+          "type": "string"
+        },
+        "agent_description": {
+          "description": "ai-agent: the description the assistant routes questions by.",
+          "type": "string"
+        },
+        "display_name": {
+          "description": "ai-agent: the name the assistant shows (default: the entity name).",
+          "type": "string"
+        },
+        "dry_run": {
+          "type": "boolean",
+          "default": true
+        }
       }
     },
-    "annotations": { "readOnlyHint": false, "openWorldHint": false, "destructiveHint": false, "idempotentHint": false }
+    "annotations": {
+      "readOnlyHint": false,
+      "openWorldHint": false,
+      "destructiveHint": false,
+      "idempotentHint": false
+    }
   },
   {
     "name": "network",

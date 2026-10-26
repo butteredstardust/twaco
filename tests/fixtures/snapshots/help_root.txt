@@ -331,6 +331,24 @@ usage: twaco <command>
                               create a StyleTheme; plan unless --apply
   new network <name> [--project <name>] [--description <text>] [--apply] [--json]
                               create an empty Network entity; plan unless --apply
+  new mcp-namespace <name> [--tool name=Provider.Service]... [--service-resource name=Provider.Service]...
+      [--file-resource name=Repository:/path]... [--prompt name=text]... [--describe name=text]...
+      [--project <name>] [--description <text>] [--apply] [--json]
+                              create an MCP namespace of tools, resources and prompts; plan unless --apply
+      --tool                  a tool calling a service; prefix the provider Thing:, ThingTemplate: or
+                              ThingShape: to name one outside the solution; the service's description
+                              becomes the tool's
+      --prompt                {{argument}} placeholders in the text become required arguments
+      --describe              a tool's, resource's or prompt's description, which ThingWorx requires;
+                              by default a tool's is its service's, a prompt's its text
+  new ai-agent <name> --namespace <Namespace[=item,...]>... [--skill Repository:/path]...
+      [--resolver <Thing>] [--taxonomy <TemplateOrShape[=alias, alias]>]... [--instructions <text>|
+      --instructions-file <file>] [--agent-description <text>] [--display-name <text>]
+      [--project <name>] [--description <text>] [--apply] [--json]
+                              create an AI agent; plan unless --apply
+      --namespace             everything the namespace defines, or the tools, resources and prompts
+                              named; AgentUtilities, the platform's, gives its standard tools
+      --agent-description     what the assistant routes questions to the agent by
   network list [--json]       list repository Networks and their hierarchy counts
   network show <Network> [<Thing>] [--depth <n>] [--server] [--profile <name>] [--json]
                               a Network's hierarchy as a tree: each Thing's template, things outside

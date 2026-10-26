@@ -35,6 +35,8 @@ pub(crate) enum NewEntity {
     Menu(NewMenu),
     Theme(NewTheme),
     Network(NewNetwork),
+    McpNamespace(NewMcpNamespace),
+    AiAgent(NewAiAgent),
 }
 
 #[derive(Debug, clap::Args)]
@@ -291,6 +293,48 @@ pub(crate) struct NewNetwork {
     pub(crate) base: Base,
 }
 
+/// `twaco new mcp-namespace <name>`.
+#[derive(Debug, clap::Args)]
+#[group(skip)]
+pub(crate) struct NewMcpNamespace {
+    #[command(flatten)]
+    pub(crate) base: Base,
+    #[arg(long = "tool", value_name = "name=Provider.Service")]
+    pub(crate) tools: Vec<String>,
+    #[arg(long = "service-resource", value_name = "name=Provider.Service")]
+    pub(crate) service_resources: Vec<String>,
+    #[arg(long = "file-resource", value_name = "name=Repository:/path")]
+    pub(crate) file_resources: Vec<String>,
+    #[arg(long = "prompt", value_name = "name=text")]
+    pub(crate) prompts: Vec<String>,
+    #[arg(long = "describe", value_name = "name=text")]
+    pub(crate) describe: Vec<String>,
+}
+
+/// `twaco new ai-agent <name>`.
+#[derive(Debug, clap::Args)]
+#[group(skip)]
+pub(crate) struct NewAiAgent {
+    #[command(flatten)]
+    pub(crate) base: Base,
+    #[arg(long = "namespace", value_name = "Namespace[=item,...]")]
+    pub(crate) namespaces: Vec<String>,
+    #[arg(long = "skill", value_name = "Repository:/path")]
+    pub(crate) skills: Vec<String>,
+    #[arg(long = "resolver", value_name = "Thing")]
+    pub(crate) resolver: Option<String>,
+    #[arg(long = "taxonomy", value_name = "TemplateOrShape[=aliases]")]
+    pub(crate) taxonomy: Vec<String>,
+    #[arg(long = "instructions", value_name = "text")]
+    pub(crate) instructions: Option<String>,
+    #[arg(long = "instructions-file", value_name = "file")]
+    pub(crate) instructions_file: Option<std::path::PathBuf>,
+    #[arg(long = "agent-description", value_name = "text")]
+    pub(crate) agent_description: Option<String>,
+    #[arg(long = "display-name", value_name = "text")]
+    pub(crate) display_name: Option<String>,
+}
+
 impl NewEntity {
     /// The command's [`USAGE`](super::spec::USAGE) path.
     pub(crate) fn path(&self) -> &'static str {
@@ -312,6 +356,8 @@ impl NewEntity {
             NewEntity::Menu(_) => "new menu",
             NewEntity::Theme(_) => "new theme",
             NewEntity::Network(_) => "new network",
+            NewEntity::McpNamespace(_) => "new mcp-namespace",
+            NewEntity::AiAgent(_) => "new ai-agent",
         }
     }
 
@@ -335,6 +381,8 @@ impl NewEntity {
             NewEntity::Menu(new) => &new.base,
             NewEntity::Theme(new) => &new.base,
             NewEntity::Network(new) => &new.base,
+            NewEntity::McpNamespace(new) => &new.base,
+            NewEntity::AiAgent(new) => &new.base,
         }
     }
 
@@ -418,6 +466,23 @@ impl NewEntity {
                 request.props.clone_from(&new.props);
             }
             NewEntity::Network(_) => {}
+            NewEntity::McpNamespace(new) => {
+                request.tools.clone_from(&new.tools);
+                request.service_resources.clone_from(&new.service_resources);
+                request.file_resources.clone_from(&new.file_resources);
+                request.prompts.clone_from(&new.prompts);
+                request.describe.clone_from(&new.describe);
+            }
+            NewEntity::AiAgent(new) => {
+                request.namespaces.clone_from(&new.namespaces);
+                request.skills.clone_from(&new.skills);
+                request.resolver.clone_from(&new.resolver);
+                request.taxonomy.clone_from(&new.taxonomy);
+                request.instructions.clone_from(&new.instructions);
+                request.instructions_file.clone_from(&new.instructions_file);
+                request.agent_description.clone_from(&new.agent_description);
+                request.display_name.clone_from(&new.display_name);
+            }
         }
         request
     }

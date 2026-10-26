@@ -27,11 +27,7 @@ pub(crate) fn run_in(
     discovered: &workspace::Discovery,
     model: &Model,
 ) -> Report {
-    let entities: BTreeMap<_, _> = model
-        .entities
-        .iter()
-        .map(|entity| ((entity.collection.as_str(), entity.name.as_str()), entity))
-        .collect();
+    let entities = entity_map(model);
     let platform = types::cached_platform(solution);
     let mut namespaces = BTreeMap::new();
     let mut agent_documents = Vec::new();
@@ -320,7 +316,16 @@ fn check_agent(
     }
 }
 
-fn declares_service(
+/// The model's Things, templates and shapes by collection and name.
+pub(crate) fn entity_map(model: &Model) -> BTreeMap<(&str, &str), &types::Entity> {
+    model
+        .entities
+        .iter()
+        .map(|entity| ((entity.collection.as_str(), entity.name.as_str()), entity))
+        .collect()
+}
+
+pub(crate) fn declares_service(
     entity: &types::Entity,
     service: &str,
     entities: &BTreeMap<(&str, &str), &types::Entity>,
@@ -349,7 +354,7 @@ fn declares_service(
             .any(|shape| declares_service(shape, service, entities, seen))
 }
 
-fn implements_shape(
+pub(crate) fn implements_shape(
     entity: &types::Entity,
     wanted: &str,
     entities: &BTreeMap<(&str, &str), &types::Entity>,
