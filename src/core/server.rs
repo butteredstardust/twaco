@@ -450,7 +450,13 @@ impl Client {
             target.url_path(),
             encode_path_segment(service)
         );
-        let body = serde_json::to_vec(parameters).expect("JSON values always serialise");
+        // The parameters can carry a credential (`db`'s EncryptPropertyValue), so the body is
+        // sized up front, as a serialised copy that grows would leave earlier buffers behind,
+        // and zeroed on drop.
+        let mut sizer = ByteCount(0);
+        serde_json::to_writer(&mut sizer, parameters).expect("JSON values always serialise");
+        let mut body = zeroize::Zeroizing::new(Vec::with_capacity(sizer.0));
+        serde_json::to_writer(&mut *body, parameters).expect("JSON values always serialise");
         let authorization = self.authorization();
         let headers = [
             ("Accept", "application/json"),
@@ -465,7 +471,7 @@ impl Client {
             Method::Post,
             &url,
             &headers,
-            Some(&body),
+            Some(body.as_slice()),
             Some(timeout),
         )?;
         let reply = checked(&self.secrets, Method::Post, url.clone(), response)?;
@@ -925,6 +931,20 @@ fn transport(
 ///
 /// Logs one `debug` event per request: method, scrubbed URL, status, byte counts and duration.
 /// Never log `headers` or a body. `secrets` scrubs the URL and the failure text first.
+/// Counts what is written to it, to size a buffer before anything secret is put in one.
+struct ByteCount(usize);
+
+impl std::io::Write for ByteCount {
+    fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
+        self.0 += bytes.len();
+        Ok(bytes.len())
+    }
+
+    fn flush(&mut self) -> std::io::Result<()> {
+        Ok(())
+    }
+}
+
 fn transport_with_timeout(
     secrets: &[Secret],
     agent: &ureq::Agent,
@@ -1789,6 +1809,23 @@ Content-Type: text/xml\r\n\
                 "{line}"
             );
         }
+    }
+
+    #[test]
+    fn a_service_body_is_sized_exactly_so_it_never_moves_while_written() {
+        let parameters = serde_json::json!({ "data": "db-secret", "rows": [1, "é", null] });
+        let mut sizer = ByteCount(0);
+        serde_json::to_writer(&mut sizer, &parameters).unwrap();
+        let mut body = Vec::with_capacity(sizer.0);
+        let start = body.as_ptr();
+        serde_json::to_writer(&mut body, &parameters).unwrap();
+        assert_eq!(body.len(), sizer.0);
+        assert_eq!(
+            body.as_ptr(),
+            start,
+            "a reallocation would leave a copy behind"
+        );
+        assert_eq!(body, serde_json::to_vec(&parameters).unwrap());
     }
 
     #[test]
