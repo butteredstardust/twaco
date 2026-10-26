@@ -80,6 +80,22 @@ under its base template and gets a ThingPackage) or the widget's `ide` and `runt
 or copies the jar into `lib/`, and adds the metadata.xml entry without reformatting the file; the
 first Java class also lists the jar the build makes. Each applied run ends with `ext check`.
 
+From the solution, `twaco ext deploy` (MCP `ext_deploy`) sends an `[[extension]]` to the server:
+
+```sh
+twaco ext deploy                      # check, build, and have the server validate the package
+twaco ext deploy Acme --apply         # install it, then confirm the server lists its entities
+twaco ext deploy --bump patch --apply # the server has this version: raise it, build, install
+```
+
+It runs `ext check`, then the project's build (its Gradle wrapper, else Gradle, else Ant;
+`--no-build` skips it), takes the newest package zip under `build/` or `zip/` and makes sure it
+holds the package and version metadata.xml declares. The server skips a version it has, so
+deploying a change needs `--bump`, which on `--apply` writes the raised `packageVersion` into
+metadata.xml (and `extension.properties` when that names one) and puts it back if the build or
+install fails. Upgrading a package with Java code, the server queues it for its next restart
+and twaco says so; a removed Java extension cannot be installed again until that restart.
+
 ### Starting from a project that is only on a server
 
 A project built in Composer becomes a repository with one command, run in an empty folder:

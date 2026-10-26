@@ -613,6 +613,12 @@ pub(crate) struct ExtScaffold {
     pub(crate) sdk: Option<std::path::PathBuf>,
     #[arg(long = "base-template", value_name = "ThingTemplate")]
     pub(crate) base: Option<String>,
+    /// deploy: raise packageVersion first.
+    #[arg(long = "bump", value_name = "patch|minor|major")]
+    pub(crate) bump: Option<String>,
+    /// deploy: send the newest package zip without building.
+    #[arg(long = "no-build")]
+    pub(crate) no_build: bool,
 }
 
 impl ExtScaffold {
@@ -627,6 +633,8 @@ impl ExtScaffold {
             ("--description", self.description.is_some()),
             ("--sdk", self.sdk.is_some()),
             ("--base-template", self.base.is_some()),
+            ("--bump", self.bump.is_some()),
+            ("--no-build", self.no_build),
         ]
         .into_iter()
         .filter_map(|(flag, given)| given.then_some(flag))
@@ -862,13 +870,19 @@ pub(crate) fn ext_check_cmd(args: &Ext) -> u8 {
 pub(crate) fn ext_cmd(solution: &Solution, args: &Ext) -> u8 {
     use twaco::core::commands::extensions::{self as command, ExtensionAction, ExtensionRequest};
     let subcommand = args.operands.first().map_or("", String::as_str);
-    if !scaffold_flags_fit(args, subcommand, &[]) {
+    let allowed: &[&str] = if subcommand == "deploy" {
+        &["--bump", "--no-build"]
+    } else {
+        &[]
+    };
+    if !scaffold_flags_fit(args, subcommand, allowed) {
         return FAILED;
     }
     let progress = super::progress::reporter();
     let profile_name = args.profile.name();
     let names: Vec<&str> = args.operands.iter().map(String::as_str).collect();
-    let result: Result<(), String> = (|| match names.as_slice() {
+    let result: Result<(), String> = (|| {
+        match names.as_slice() {
         ["list"] => {
             let request = ExtensionRequest {
                 action: ExtensionAction::List,
@@ -1025,7 +1039,45 @@ pub(crate) fn ext_cmd(solution: &Solution, args: &Ext) -> u8 {
             }
             Ok(())
         }
-        _ => Err("ext takes: list | show <package> | import <zip> | remove <package>".to_string()),
+        ["deploy", rest @ ..] if rest.len() <= 1 => {
+            use twaco::core::ext_deploy::{self, Bump, DeployRequest};
+            let bump = match args.scaffold.bump.as_deref() {
+                None => None,
+                Some(word) => Some(Bump::parse(word).ok_or_else(|| {
+                    format!("--bump takes patch, minor or major, not {word:?}")
+                })?),
+            };
+            let request = DeployRequest {
+                target: rest.first().map(|name| name.to_string()),
+                profile: profile_name.to_string(),
+                build: !args.scaffold.no_build,
+                bump,
+                apply: args.apply.apply,
+            };
+            let deployed =
+                ext_deploy::deploy(solution, &request, server::Client::new, &progress)?;
+            if args.json.json {
+                println!(
+                    "{}",
+                    serde_json::to_string(&deployed).expect("a deploy report serialises")
+                );
+            } else {
+                print_deployed(&deployed);
+            }
+            if deployed.missing.is_empty() {
+                Ok(())
+            } else {
+                Err(format!(
+                    "the server's package does not list {}",
+                    deployed.missing.join(", ")
+                ))
+            }
+        }
+        _ => Err(
+            "ext takes: list | show <package> | import <zip> | remove <package> | deploy [<extension>]"
+                .to_string(),
+        ),
+    }
     })();
     match result {
         Ok(()) => OK,
@@ -1033,6 +1085,46 @@ pub(crate) fn ext_cmd(solution: &Solution, args: &Ext) -> u8 {
             eprintln!("{} ext: {why}", style::prefix());
             FAILED
         }
+    }
+}
+
+fn print_deployed(deployed: &twaco::core::ext_deploy::Deployed) {
+    println!("extension {} ({})", deployed.extension, deployed.root);
+    if let Some(command) = &deployed.build {
+        println!("  built: {command}");
+    }
+    println!("  package: {}", deployed.zip);
+    if let Some(bump) = &deployed.bump {
+        println!(
+            "  packageVersion: {bump}{}",
+            if deployed.applied {
+                ""
+            } else {
+                " (on --apply)"
+            }
+        );
+    }
+    if deployed.queued {
+        println!(
+            "queued: {}; the server installs it at its next restart",
+            deployed.plan
+        );
+    } else if deployed.applied {
+        println!(
+            "done: {}; the server lists what metadata.xml declares",
+            deployed.plan
+        );
+    } else if deployed.validated {
+        println!(
+            "would {}; the server validated the package and installed nothing (pass --apply)",
+            deployed.plan
+        );
+    } else {
+        println!(
+            "would {}; not validated, since the package still carries the installed version \
+             (pass --apply to bump, build and install)",
+            deployed.plan
+        );
     }
 }
 

@@ -924,6 +924,36 @@ pub(crate) struct HelpPageResult {
     notes: Option<Vec<String>>,
 }
 
+/// What `ext_deploy` built and sent.
+#[derive(Serialize, JsonSchema)]
+pub(crate) struct ExtDeployResult {
+    /// False when the installed package does not list an entity metadata.xml declares.
+    ok: bool,
+    dry_run: bool,
+    /// The [[extension]] entry, and its folder relative to the solution.
+    extension: String,
+    root: String,
+    package: String,
+    /// The version sent: the bumped one once applied.
+    version: String,
+    /// The server's version, when it has the package.
+    installed: Option<String>,
+    /// `x.y.z -> x.y.z'`: done when applied, else what dry_run false would do.
+    bump: Option<String>,
+    /// The build command run.
+    build: Option<String>,
+    /// The package zip, relative to the solution.
+    zip: String,
+    plan: String,
+    /// Whether the server validated the zip; not while it carries the installed version.
+    validated: bool,
+    applied: bool,
+    /// Installed at the server's next restart.
+    queued: bool,
+    /// Entities metadata.xml declares that the installed package does not list.
+    missing: Vec<String>,
+}
+
 /// The files `ext_new` or `ext_add` writes, or wrote.
 #[derive(Serialize, JsonSchema)]
 pub(crate) struct ExtScaffoldResult {

@@ -7453,7 +7453,7 @@
     "annotations": {
       "readOnlyHint": false,
       "openWorldHint": false,
-      "destructiveHint": true,
+      "destructiveHint": false,
       "idempotentHint": false
     },
     "outputSchema": {
@@ -7552,7 +7552,7 @@
     "annotations": {
       "readOnlyHint": false,
       "openWorldHint": false,
-      "destructiveHint": true,
+      "destructiveHint": false,
       "idempotentHint": false
     },
     "outputSchema": {
@@ -7598,6 +7598,137 @@
         }
       },
       "description": "The files `ext_new` or `ext_add` writes, or wrote.",
+      "type": "object"
+    }
+  },
+  {
+    "name": "ext_deploy",
+    "description": "Deploy one of the solution's Java extensions (an [[extension]] in twaco.toml): ext_check it, run its Gradle wrapper, Gradle or Ant build, find the package zip under build/ or zip/, and have the server validate it; with dry_run false install it and confirm the server lists every entity its metadata.xml declares. The server skips a version it has, so a change needs bump (patch, minor or major), which writes the raised packageVersion into metadata.xml and extension.properties and puts it back if the build or install fails. An upgrade of a package with Java code is queued by the server for its next restart, and is reported as queued.",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "extension": {
+          "description": "An [[extension]] entry's name or root; omit when there is one.",
+          "type": "string"
+        },
+        "bump": {
+          "description": "Raise packageVersion first (written only when dry_run is false); the server skips a\nversion it has.",
+          "type": "string",
+          "enum": [
+            "patch",
+            "minor",
+            "major"
+          ]
+        },
+        "build": {
+          "description": "Run the project's Gradle or Ant build first; false sends the newest package zip it has.",
+          "type": "boolean",
+          "default": true
+        },
+        "dry_run": {
+          "type": "boolean",
+          "default": true
+        },
+        "profile": {
+          "description": "Server profile name.",
+          "type": "string",
+          "default": "default"
+        }
+      },
+      "description": "`ext_deploy`: build one of the solution's Java extensions and validate or install it.",
+      "type": "object"
+    },
+    "annotations": {
+      "readOnlyHint": false,
+      "openWorldHint": true,
+      "destructiveHint": true,
+      "idempotentHint": false
+    },
+    "outputSchema": {
+      "required": [
+        "ok",
+        "dry_run",
+        "extension",
+        "root",
+        "package",
+        "version",
+        "zip",
+        "plan",
+        "validated",
+        "applied",
+        "queued",
+        "missing"
+      ],
+      "properties": {
+        "ok": {
+          "description": "False when the installed package does not list an entity metadata.xml declares.",
+          "type": "boolean"
+        },
+        "dry_run": {
+          "type": "boolean"
+        },
+        "extension": {
+          "description": "The [[extension]] entry, and its folder relative to the solution.",
+          "type": "string"
+        },
+        "root": {
+          "type": "string"
+        },
+        "package": {
+          "type": "string"
+        },
+        "version": {
+          "description": "The version sent: the bumped one once applied.",
+          "type": "string"
+        },
+        "installed": {
+          "description": "The server's version, when it has the package.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "bump": {
+          "description": "`x.y.z -> x.y.z'`: done when applied, else what dry_run false would do.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "build": {
+          "description": "The build command run.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "zip": {
+          "description": "The package zip, relative to the solution.",
+          "type": "string"
+        },
+        "plan": {
+          "type": "string"
+        },
+        "validated": {
+          "description": "Whether the server validated the zip; not while it carries the installed version.",
+          "type": "boolean"
+        },
+        "applied": {
+          "type": "boolean"
+        },
+        "queued": {
+          "description": "Installed at the server's next restart.",
+          "type": "boolean"
+        },
+        "missing": {
+          "description": "Entities metadata.xml declares that the installed package does not list.",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "description": "What `ext_deploy` built and sent.",
       "type": "object"
     }
   },

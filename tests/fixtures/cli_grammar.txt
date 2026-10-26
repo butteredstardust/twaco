@@ -603,6 +603,11 @@ help:
 |       [--package <java.package>] [--base-template <ThingTemplate>] [--description <text>]
 |                               add a Java class or widget files, or copy a jar into lib/, with its
 |                               metadata.xml entry; plan unless --apply
+|   ext deploy [<extension>] [--bump patch|minor|major] [--no-build]
+|                               build an [[extension]] and have the server validate its package;
+|                               --apply installs it and confirms what metadata.xml declares
+|       --bump                  raise packageVersion first: the server skips a version it has
+|       --no-build              send the newest package zip under build/ or zip/ as it is
 |   search [<text>] [--type <T>[,<T>]] [--project P] [--limit <n>] [--json]
 |                               the server's entity search (Composer's Spotlight): text
 |                               in a name or description, or a pattern with *
@@ -4471,6 +4476,18 @@ arg --base-template
     other: -
     given twice: ArgumentConflict
     given bare: InvalidValue
+arg --bump
+    action: Set
+    value_name: patch|minor|major
+    num_args: 1
+    allow_hyphen_values: yes
+    allow_negative_numbers: no
+    required: no
+    default: -
+    index: -
+    other: -
+    given twice: ArgumentConflict
+    given bare: InvalidValue
 arg --description
     action: Set
     value_name: text
@@ -4552,6 +4569,17 @@ arg --min-thingworx
     other: -
     given twice: ArgumentConflict
     given bare: InvalidValue
+arg --no-build
+    action: SetTrue
+    value_name: -
+    num_args: 0
+    allow_hyphen_values: no
+    allow_negative_numbers: no
+    required: no
+    default: "false"
+    index: -
+    other: -
+    given twice: accepted
 arg --package
     action: Set
     value_name: java.package
@@ -4637,6 +4665,11 @@ help:
 |       [--package <java.package>] [--base-template <ThingTemplate>] [--description <text>]
 |                               add a Java class or widget files, or copy a jar into lib/, with its
 |                               metadata.xml entry; plan unless --apply
+|   ext deploy [<extension>] [--bump patch|minor|major] [--no-build]
+|                               build an [[extension]] and have the server validate its package;
+|                               --apply installs it and confirms what metadata.xml declares
+|       --bump                  raise packageVersion first: the server skips a version it has
+|       --no-build              send the newest package zip under build/ or zip/ as it is
 | 
 |   --profile <name>            the server profile (default: default)
 |   --log <filter>              write diagnostic logs to stderr (or TWACO_LOG)

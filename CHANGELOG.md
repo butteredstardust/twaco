@@ -25,6 +25,12 @@ All notable changes to twaco are recorded here. The format follows
   importable zip, metadata.xml, the Extension SDK's jars in `twx-lib/`) and add to one: the Java
   class or widget files with their metadata.xml entry, which keeps its formatting. A plan unless
   `--apply`; an applied run ends with `ext check`.
+- `twaco ext deploy [<extension>]` (MCP `ext_deploy`) builds one of the solution's
+  `[[extension]]` projects, has the server validate the package it makes and, with `--apply`,
+  installs it and confirms the server lists what its metadata.xml declares. `--bump
+  patch|minor|major` raises `packageVersion` first, since the server skips a version it has, and
+  puts it back if the build or install fails; an upgrade queued for the server's restart is
+  reported as queued.
 
 - `javadoc` can read the matching, offline Javadoc packaged in a ThingWorx Extension SDK: pass
   `--sdk`, MCP `sdk`, `TWACO_SDK`, or a local profile's `sdk` path (SDK zip, extracted folder or

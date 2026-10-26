@@ -94,6 +94,7 @@ const OPEN_WORLD: &[&str] = &[
     "test",
     "extensions",
     "extension_write",
+    "ext_deploy",
     "impact",
     "search",
     "entity_get",
@@ -125,6 +126,8 @@ const ADDITIVE: &[&str] = &[
     "mashup_new",
     "permissions_init",
     "requirements_init",
+    "ext_new",
+    "ext_add",
 ];
 
 /// Writing tools that, called again with the same arguments, change nothing more.
@@ -716,6 +719,13 @@ static TOOLS: LazyLock<Vec<Tool>> = LazyLock::new(|| {
             content::ext_add_tool,
         )
         .with_output::<outputs::ExtScaffoldResult>(),
+        solution_progress_tool::<content_requests::ExtDeployRequest>(
+            "ext_deploy",
+            "Deploy one of the solution's Java extensions (an [[extension]] in twaco.toml): ext_check it, run its Gradle wrapper, Gradle or Ant build, find the package zip under build/ or zip/, and have the server validate it; with dry_run false install it and confirm the server lists every entity its metadata.xml declares. The server skips a version it has, so a change needs bump (patch, minor or major), which writes the raised packageVersion into metadata.xml and extension.properties and puts it back if the build or install fails. An upgrade of a package with Java code is queued by the server for its next restart, and is reported as queued.",
+            false,
+            content::ext_deploy_tool,
+        )
+        .with_output::<outputs::ExtDeployResult>(),
         solution_progress_tool::<content_requests::ExtensionWriteRequest>(
             "extension_write",
             "Import an extension package zip of the solution, or remove an installed package. A dry run unless dry_run is false: an import is then only validated by the server, which installs nothing. A removal is refused while the package is in use.",
@@ -989,6 +999,7 @@ pub(crate) const GROUPS: &[(&str, &[&str])] = &[
             "ext_check",
             "ext_new",
             "ext_add",
+            "ext_deploy",
             "extension_write",
             "settings",
         ],

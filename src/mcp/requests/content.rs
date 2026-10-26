@@ -350,6 +350,37 @@ pub(crate) struct ExtAddRequest {
     pub(crate) dry_run: bool,
 }
 
+#[derive(Clone, Copy, Debug, Deserialize, JsonSchema, PartialEq, Eq, Serialize)]
+pub(crate) enum ExtBump {
+    #[serde(rename = "patch")]
+    Patch,
+    #[serde(rename = "minor")]
+    Minor,
+    #[serde(rename = "major")]
+    Major,
+}
+
+/// `ext_deploy`: build one of the solution's Java extensions and validate or install it.
+#[derive(Debug, Deserialize, JsonSchema, Serialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct ExtDeployRequest {
+    /// An [[extension]] entry's name or root; omit when there is one.
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) extension: Absent<String>,
+    /// Raise packageVersion first (written only when dry_run is false); the server skips a
+    /// version it has.
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) bump: Absent<ExtBump>,
+    /// Run the project's Gradle or Ant build first; false sends the newest package zip it has.
+    #[serde(default = "default_true")]
+    pub(crate) build: bool,
+    #[serde(default = "default_true")]
+    pub(crate) dry_run: bool,
+    /// Server profile name.
+    #[serde(default = "default_profile")]
+    pub(crate) profile: String,
+}
+
 #[derive(Debug, Deserialize, JsonSchema, Serialize)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct ExtensionWriteRequest {

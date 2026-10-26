@@ -1138,6 +1138,31 @@ pub(crate) fn extensions_tool(
 }
 
 /// Import or remove an extension package, a plan unless dry_run is false.
+pub(crate) fn ext_deploy_tool(
+    solution: &Solution,
+    arguments: tool::ExtDeployRequest,
+    progress: &dyn Progress,
+) -> Result<Value, ToolError> {
+    use crate::core::ext_deploy::{self, Bump, DeployRequest};
+    let request = DeployRequest {
+        target: arguments.extension.as_ref().cloned(),
+        profile: arguments.profile.clone(),
+        build: arguments.build,
+        bump: arguments.bump.as_ref().map(|bump| match bump {
+            tool::ExtBump::Patch => Bump::Patch,
+            tool::ExtBump::Minor => Bump::Minor,
+            tool::ExtBump::Major => Bump::Major,
+        }),
+        apply: !arguments.dry_run,
+    };
+    let deployed = ext_deploy::deploy(solution, &request, server::Client::new, progress)
+        .map_err(ToolError::invalid)?;
+    let mut value = serde_json::to_value(&deployed).expect("a deploy report serialises");
+    value["ok"] = json!(deployed.missing.is_empty());
+    value["dry_run"] = json!(arguments.dry_run);
+    Ok(value)
+}
+
 pub(crate) fn extension_write_tool(
     solution: &Solution,
     arguments: tool::ExtensionWriteRequest,

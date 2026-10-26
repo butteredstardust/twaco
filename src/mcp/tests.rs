@@ -1192,6 +1192,7 @@ fn every_tool_is_listed_with_a_schema_and_honest_annotations() {
             "ext_check",
             "ext_new",
             "ext_add",
+            "ext_deploy",
             "extension_write",
             "bundle",
             "search",
@@ -1250,6 +1251,7 @@ fn every_tool_is_listed_with_a_schema_and_honest_annotations() {
         "users_write",
         "test",
         "extension_write",
+        "ext_deploy",
         "export",
         "import",
     ] {

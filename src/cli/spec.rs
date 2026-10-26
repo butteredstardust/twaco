@@ -1426,7 +1426,12 @@ pub(crate) const USAGE: &[Usage] = &[
   ext add thing-template|thing-shape|resource|widget|jar <name> [--dir <root>]
       [--package <java.package>] [--base-template <ThingTemplate>] [--description <text>]
                               add a Java class or widget files, or copy a jar into lib/, with its
-                              metadata.xml entry; plan unless --apply"#,
+                              metadata.xml entry; plan unless --apply
+  ext deploy [<extension>] [--bump patch|minor|major] [--no-build]
+                              build an [[extension]] and have the server validate its package;
+                              --apply installs it and confirms what metadata.xml declares
+      --bump                  raise packageVersion first: the server skips a version it has
+      --no-build              send the newest package zip under build/ or zip/ as it is"#,
     },
     Usage {
         path: "search",
