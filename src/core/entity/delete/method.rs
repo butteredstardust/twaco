@@ -70,6 +70,8 @@ pub(crate) fn method_for(collection: &str) -> Option<Method> {
         | "StyleDefinitions"
         | "StyleThemes"
         | "ThingGroups"
+        | "Roles"
+        | "PermissionGroups"
         | "Timers"
         | "ValueStreams"
         | "Widgets"

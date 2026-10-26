@@ -29,38 +29,58 @@ pub(crate) fn line_ending(text: &str) -> &'static str {
 /// ThingWorx collection folder names, used when a project does not list its own.
 ///
 /// A fixed list rather than "every subdirectory": a repository also holds `exported/`, `dist/`
-/// and scratch trees full of entity documents that are not the project's source.
+/// and scratch trees full of entity documents that are not the project's source. It is every
+/// collection an export can hold ([`bundle::COLLECTION_ORDER`](super::bundle::COLLECTION_ORDER))
+/// and the folders source control files some Things and tables under; [`unread_folders`] names
+/// what a project root holds outside them.
 pub(crate) const KNOWN_COLLECTIONS: &[&str] = &[
+    "AIAgents",
     "ApplicationKeys",
+    "Authenticators",
     "Dashboards",
     "DataShapes",
     "DataTables",
+    "DataTags",
+    "DirectoryServices",
+    "ExtensionPackages",
     "Groups",
+    "LocalizationTables",
     "Localizations",
+    "Logs",
+    "MCPNamespaces",
     "MashupGadgets",
     "Mashups",
     "MediaEntities",
     "Menus",
     "ModelTags",
     "Networks",
+    "NotificationContents",
+    "NotificationDefinitions",
     "Organizations",
+    "PermissionGroups",
+    "PersistenceProviderPackages",
+    "PersistenceProviders",
     "Projects",
+    "QueueProviderPackages",
+    "QueueProviders",
     "Resources",
+    "Roles",
     "Schedulers",
+    "ScriptFunctionLibraries",
     "StateDefinitions",
+    "Streams",
     "StyleDefinitions",
     "StyleThemes",
     "Subsystems",
+    "ThingGroups",
+    "ThingPackages",
     "ThingShapes",
     "ThingTemplates",
     "Things",
     "Timers",
     "Users",
     "ValueStreams",
-    "Streams",
     "Widgets",
-    "MCPNamespaces",
-    "AIAgents",
 ];
 
 /// One entity file, and what it says about itself.
@@ -209,6 +229,55 @@ pub fn projects_json(solution: &Solution) -> Result<Value, super::config::Config
 /// The entity files alone, for callers that have already dealt with the failures.
 pub fn entities(solution: &Solution) -> Vec<EntityFile> {
     discover(solution).entities
+}
+
+/// Folders directly under a project root that hold entity documents discovery never reads,
+/// each with how many: a misspelt or unknown collection, whose entities deploy and bundle would
+/// leave out without a word. A project at the solution root or with its own `collections` is
+/// not judged, nor are the sidecar and bundle folders, dot folders or another project's root.
+pub(crate) fn unread_folders(solution: &Solution) -> Vec<(String, usize)> {
+    let src = solution.src_root();
+    let dist = solution.root.join(&solution.solution.dist);
+    let roots: Vec<PathBuf> = solution
+        .projects
+        .iter()
+        .map(|project| solution.project_root(project))
+        .collect();
+    let mut found = Vec::new();
+    for project in &solution.projects {
+        let root = solution.project_root(project);
+        if !project.collections.is_empty() || root == solution.root {
+            continue;
+        }
+        let Ok(entries) = std::fs::read_dir(&root) else {
+            continue;
+        };
+        for entry in entries.flatten() {
+            let path = entry.path();
+            let name = entry.file_name().to_string_lossy().into_owned();
+            let is_dir = entry.file_type().is_ok_and(|kind| kind.is_dir());
+            if !is_dir
+                || name.starts_with('.')
+                || KNOWN_COLLECTIONS.contains(&name.as_str())
+                || path == src
+                || path == dist
+                || roots.iter().any(|other| other.starts_with(&path))
+            {
+                continue;
+            }
+            let (mut paths, mut failures) = (Vec::new(), Vec::new());
+            collect_xml(&path, &mut paths, &mut failures);
+            let entities = paths
+                .iter()
+                .filter(|file| std::fs::read(file).is_ok_and(|bytes| entity::parse(&bytes).is_ok()))
+                .count();
+            if entities > 0 {
+                found.push((solution.relative(&path), entities));
+            }
+        }
+    }
+    found.sort();
+    found
 }
 
 /// Candidate entity file paths for one project, and the folders that could not be read.
@@ -959,5 +1028,47 @@ mod tests {
         let mut entity = file("A.Manager", "", "a.xml");
         entity.found_under = "Anything".to_string();
         assert!(!entity.is_misfiled(), "undeclared is not the same as wrong");
+    }
+
+    #[test]
+    fn every_exported_collection_is_read_and_an_unknown_folder_of_entities_is_named() {
+        for collection in super::super::bundle::COLLECTION_ORDER {
+            assert!(KNOWN_COLLECTIONS.contains(collection), "{collection}");
+        }
+        let dir = tempfile::Builder::new()
+            .prefix("twaco-unread-")
+            .tempdir()
+            .unwrap();
+        let root = dir.path();
+        std::fs::write(
+            root.join("twaco.toml"),
+            "[solution]\nsrc = \"P-SC/src\"\ndist = \"P-SC/dist\"\n\n\
+             [[project]]\nname = \"P\"\nroot = \"P-SC\"\n",
+        )
+        .unwrap();
+        let entity = |collection: &str, tag: &str, name: &str| {
+            format!("<Entities><{collection}><{tag} name=\"{name}\" projectName=\"P\"/></{collection}></Entities>")
+        };
+        for (folder, xml) in [
+            (
+                "P-SC/ThingGroups",
+                entity("ThingGroups", "ThingGroup", "P.G"),
+            ),
+            ("P-SC/Thinsg", entity("Things", "Thing", "P.Lost")),
+            ("P-SC/dist", entity("Things", "Thing", "P.Bundled")),
+            ("P-SC/src", entity("Things", "Thing", "P.Fragment")),
+            ("P-SC/.twaco", entity("Things", "Thing", "P.Backup")),
+            ("P-SC/notes", "<notes/>".to_string()),
+        ] {
+            std::fs::create_dir_all(root.join(folder)).unwrap();
+            std::fs::write(root.join(folder).join("e.xml"), xml).unwrap();
+        }
+        let solution = Solution::load(&root.join("twaco.toml")).unwrap();
+        let names: Vec<_> = entities(&solution)
+            .into_iter()
+            .map(|file| file.info.name)
+            .collect();
+        assert_eq!(names, ["P.G"]);
+        assert_eq!(unread_folders(&solution), [("P-SC/Thinsg".to_string(), 1)]);
     }
 }

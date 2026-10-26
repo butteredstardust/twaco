@@ -852,6 +852,18 @@ fn project_validation(solution: &Solution, discovered: &workspace::Discovery) ->
             message: problem.message,
         });
     }
+    for (folder, entities) in workspace::unread_folders(solution) {
+        result.findings.push(Finding {
+            gate: "project".to_string(),
+            file: folder,
+            line: 0,
+            rule: "unread-folder".to_string(),
+            message: format!(
+                "{entities} entity file(s) here are in no collection folder twaco reads, so deploy \
+                 and bundle leave them out; move them under their collection, such as Things/"
+            ),
+        });
+    }
     result
 }
 

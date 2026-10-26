@@ -6,6 +6,14 @@ All notable changes to twaco are recorded here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- Discovery reads every collection a ThingWorx export can hold, so a project's ThingGroups,
+  NotificationDefinitions, DataTags, Roles, PermissionGroups, ScriptFunctionLibraries and the
+  other system collections deploy and bundle like the rest. `check`'s project gate names a
+  folder under a project root that holds entity documents in no collection folder (a misspelt
+  `Thinsg/`, say), which deploy and bundle would otherwise leave out without a word.
+
 ### Changed
 
 - The reference index reads the solution once instead of twice, and `trace`, `docs` and
