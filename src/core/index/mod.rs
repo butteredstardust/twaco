@@ -104,7 +104,7 @@ pub enum EdgeKind {
     NetworkNode,
     /// A menu item opening a mashup.
     MenuItem,
-    /// A user or group belonging to a group, or to an organization's unit.
+    /// A member of a group, an organization's unit or a ThingGroup.
     Member,
     /// A mashup's master.
     MasterMashup,

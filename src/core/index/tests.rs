@@ -1372,3 +1372,173 @@ fn an_exported_data_section_binds_each_service_it_lists_and_only_those() {
     assert_eq!(asked("Run"), ["Mashups/P.Panel"]);
     assert!(asked("Other").is_empty(), "{:?}", asked("Other"));
 }
+
+#[test]
+fn value_streams_data_things_networks_menus_masters_and_members_are_structural() {
+    let (_dir, root) = scratch("links");
+    write(&root, "twaco.toml", "[[project]]\nname = \"P\"\n");
+    let thing = |name: &str, attributes: &str, body: &str| {
+        entity("Things", "Thing", name, "P", attributes, body)
+    };
+    write(
+        &root,
+        "Things/P.Log.xml",
+        &thing("P.Log", " thingTemplate=\"ValueStream\"", ""),
+    );
+    write(
+        &root,
+        "Things/P.Asset.xml",
+        &thing("P.Asset", " valueStream=\"P.Log\"", ""),
+    );
+    write(
+        &root,
+        "ThingTemplates/P.Asset_TT.xml",
+        &entity(
+            "ThingTemplates",
+            "ThingTemplate",
+            "P.Asset_TT",
+            "P",
+            " valueStream=\"P.Log\"",
+            "",
+        ),
+    );
+    write(
+        &root,
+        "DataShapes/P.Row.xml",
+        &entity("DataShapes", "DataShape", "P.Row", "P", "", ""),
+    );
+    write(
+        &root,
+        "Things/P.Rows.xml",
+        &thing(
+            "P.Rows",
+            " thingTemplate=\"DataTable\"",
+            r#"<ConfigurationTables><ConfigurationTable name="Settings"><Rows><Row><dataShape><![CDATA[P.Row]]></dataShape></Row></Rows></ConfigurationTable></ConfigurationTables>"#,
+        ),
+    );
+    write(
+        &root,
+        "Networks/P.Plant.xml",
+        &entity(
+            "Networks",
+            "Network",
+            "P.Plant",
+            "P",
+            "",
+            r#"<Connections><Connection from="" to="P.Asset" type="Child"/><Connection from="P.Asset" to="P.Rows" type="Child"/></Connections>"#,
+        ),
+    );
+    write(
+        &root,
+        "Mashups/P.Home.xml",
+        &entity(
+            "Mashups",
+            "Mashup",
+            "P.Home",
+            "P",
+            "",
+            r#"<mashupContent><![CDATA[{"UI":{"Properties":{"Master":"P.Frame"}}}]]></mashupContent>"#,
+        ),
+    );
+    write(
+        &root,
+        "Mashups/P.Frame.xml",
+        &entity(
+            "Mashups",
+            "Mashup",
+            "P.Frame",
+            "P",
+            "",
+            r#"<mashupContent><![CDATA[{"UI":{"Properties":{}}}]]></mashupContent>"#,
+        ),
+    );
+    write(
+        &root,
+        "Menus/P.Main.xml",
+        &entity(
+            "Menus",
+            "Menu",
+            "P.Main",
+            "P",
+            "",
+            r#"<MenuItems><MenuItem linkType="Mashup" linkDestination="P.Home" title="Home"/><MenuItem linkType="Hyperlink" linkDestination="P.Frame" title="Web"/></MenuItems>"#,
+        ),
+    );
+    write(
+        &root,
+        "Users/P.Ann.xml",
+        &entity("Users", "User", "P.Ann", "P", "", ""),
+    );
+    write(
+        &root,
+        "Groups/P.Viewers.xml",
+        &entity(
+            "Groups",
+            "Group",
+            "P.Viewers",
+            "P",
+            "",
+            r#"<Members><Members><Member name="P.Ann" type="User"/></Members></Members>"#,
+        ),
+    );
+    write(
+        &root,
+        "Organizations/P.Org.xml",
+        &entity(
+            "Organizations",
+            "Organization",
+            "P.Org",
+            "P",
+            "",
+            r#"<OrganizationalUnits><OrganizationalUnit name="Root"><Members><Members><Member name="P.Viewers" type="Group"/></Members></Members></OrganizationalUnit></OrganizationalUnits>"#,
+        ),
+    );
+    write(
+        &root,
+        "ThingGroups/P.Site.xml",
+        &entity(
+            "ThingGroups",
+            "ThingGroup",
+            "P.Site",
+            "P",
+            "",
+            r#"<Members><Member name="P.Asset" type="Thing"/><Member name="P.Line" type="ThingGroup"/></Members>"#,
+        ),
+    );
+    write(
+        &root,
+        "ThingGroups/P.Line.xml",
+        &entity("ThingGroups", "ThingGroup", "P.Line", "P", "", ""),
+    );
+    let solution = Solution::load(&root.join("twaco.toml")).unwrap();
+    let index = Index::build(&solution);
+    let has = |from: &str, to: &str, kind: EdgeKind| {
+        index.graph.edge_references().any(|edge| {
+            index.graph[edge.source()].label() == from
+                && index.graph[edge.target()].label() == to
+                && edge.weight().kind == kind
+        })
+    };
+    for (from, to, kind) in [
+        ("Things/P.Asset", "Things/P.Log", EdgeKind::ValueStream),
+        (
+            "ThingTemplates/P.Asset_TT",
+            "Things/P.Log",
+            EdgeKind::ValueStream,
+        ),
+        ("Things/P.Rows", "DataShapes/P.Row", EdgeKind::DataShape),
+        ("Networks/P.Plant", "Things/P.Asset", EdgeKind::NetworkNode),
+        ("Networks/P.Plant", "Things/P.Rows", EdgeKind::NetworkNode),
+        ("Menus/P.Main", "Mashups/P.Home", EdgeKind::MenuItem),
+        ("Mashups/P.Home", "Mashups/P.Frame", EdgeKind::MasterMashup),
+        ("Groups/P.Viewers", "Users/P.Ann", EdgeKind::Member),
+        ("Organizations/P.Org", "Groups/P.Viewers", EdgeKind::Member),
+        ("ThingGroups/P.Site", "Things/P.Asset", EdgeKind::Member),
+        ("ThingGroups/P.Site", "ThingGroups/P.Line", EdgeKind::Member),
+    ] {
+        assert!(has(from, to, kind), "{from} -> {to} ({kind:?})");
+        assert_eq!(kind.confidence(), Confidence::Structural);
+    }
+    // A hyperlink item opens a URL, not the mashup it happens to name.
+    assert!(!has("Menus/P.Main", "Mashups/P.Frame", EdgeKind::MenuItem));
+}

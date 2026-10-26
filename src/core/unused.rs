@@ -3,9 +3,10 @@
 //! An entity is reported when no chain of references leads to it from an **entry point**: the
 //! things a deploy runs (`twaco.toml`), every mashup, anything that runs on events (it declares
 //! subscriptions, inherits something that does, or is a Timer or Scheduler), what the platform
-//! uses by its being there (Networks, Menus, AI agents and MCP namespaces, groups and
-//! organizations), and whatever `[unused] keep` names. The answer is advisory. A REST client, a connected system or a person
-//! with a bookmark may use an entity the repository never mentions, so nothing here deletes
+//! uses by its being there (Networks, Menus, AI agents and MCP namespaces, groups,
+//! organizations and ThingGroups), and whatever `[unused] keep` names. The answer is advisory.
+//! A REST client, a connected system or a person with a bookmark may use an entity the
+//! repository never mentions, so nothing here deletes
 //! anything, and `keep` is how a solution says "this one is used from outside".
 //!
 //! Only entities that hold code or types are judged (Things, templates, shapes and DataShapes):
@@ -86,6 +87,7 @@ const PRESENT: &[&str] = &[
     "MCPNamespaces",
     "Groups",
     "Organizations",
+    "ThingGroups",
 ];
 
 pub fn run(solution: &Solution, request: &Request) -> Report {

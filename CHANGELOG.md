@@ -44,6 +44,11 @@ All notable changes to twaco are recorded here. The format follows
   agents, MCP namespaces, groups and organizations as entry points, since the platform uses them
   by their being there, so a Thing in a hierarchy, or one whose service an agent's tool calls, is
   no longer reported.
+- ThingGroups are read into the index too: `impact` on a Thing names the ThingGroups that hold it,
+  and `unused` treats a ThingGroup as an entry point.
+- `check`'s project gate reads an entity's model tags: a tag that is not `Vocabulary:Term`, and
+  a term that a fixed vocabulary of the solution does not have. A vocabulary the solution does
+  not define is the platform's or another solution's and is not judged.
 
 ### Changed
 

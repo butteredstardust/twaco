@@ -7,7 +7,7 @@
 use super::config::Solution;
 use super::scan::{self, Kind};
 use super::workspace::{self, EntityFile};
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 /// One inconsistency, with the file it is in.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -46,8 +46,9 @@ pub(crate) fn check_in(solution: &Solution, found: &workspace::Discovery) -> Vec
         }
     }
 
+    let vocabularies = vocabularies(found);
     for entity in &found.entities {
-        problems.extend(check_one(solution, entity));
+        problems.extend(check_one(solution, entity, &vocabularies));
     }
 
     for problem in &found.unreadable {
@@ -71,7 +72,11 @@ pub(crate) fn check_in(solution: &Solution, found: &workspace::Discovery) -> Vec
     problems
 }
 
-fn check_one(solution: &Solution, entity: &EntityFile) -> Vec<Problem> {
+fn check_one(
+    solution: &Solution,
+    entity: &EntityFile,
+    vocabularies: &Vocabularies,
+) -> Vec<Problem> {
     let mut problems = Vec::new();
     let file = relative(solution, entity);
 
@@ -137,6 +142,101 @@ fn check_one(solution: &Solution, entity: &EntityFile) -> Vec<Problem> {
     ));
     if entity.info.collection == "Mashups" {
         problems.extend(check_mashup(&file, &src));
+    }
+    problems.extend(check_tags(&file, &src, vocabularies));
+    problems
+}
+
+/// The solution's own model tag vocabularies: the terms of each, or none for a dynamic one,
+/// which takes any term.
+type Vocabularies = BTreeMap<String, Option<BTreeSet<String>>>;
+
+fn vocabularies(found: &workspace::Discovery) -> Vocabularies {
+    let mut out = Vocabularies::new();
+    for file in found
+        .entities
+        .iter()
+        .filter(|file| file.info.collection == "ModelTags")
+    {
+        let Ok(src) = std::fs::read(&file.path) else {
+            continue;
+        };
+        let Ok(tokens) = scan::tokenize(&src) else {
+            continue;
+        };
+        let Some(entity) = super::sidecar::entity_element(&tokens, &src) else {
+            continue;
+        };
+        let attr = |at: usize, name: &str| {
+            scan::attribute(&src, &tokens[at], name)
+                .ok()
+                .flatten()
+                .map(|value| scan::decode_entities(&String::from_utf8_lossy(value.of(&src))))
+        };
+        let terms = if attr(entity, "isDynamic").as_deref() == Some("true") {
+            None
+        } else {
+            Some(
+                scan::tags_within(&tokens, &src, "VocabularyTerm", entity)
+                    .into_iter()
+                    .filter_map(|term| attr(term, "name"))
+                    .collect(),
+            )
+        };
+        out.insert(file.info.name.clone(), terms);
+    }
+    out
+}
+
+/// An entity's `tags`: each `Vocabulary:Term`, and a term a fixed vocabulary of the solution
+/// lacks. A vocabulary the solution does not define is the platform's or another solution's,
+/// and is not judged.
+fn check_tags(file: &str, src: &[u8], vocabularies: &Vocabularies) -> Vec<Problem> {
+    // Nearly every entity has `tags=""`; only one with a value is worth reading.
+    let tagged = src
+        .windows(7)
+        .position(|window| window == b" tags=\"")
+        .is_some_and(|at| src.get(at + 7) != Some(&b'"'));
+    if !tagged {
+        return Vec::new();
+    }
+    let Ok(tokens) = scan::tokenize(src) else {
+        return Vec::new();
+    };
+    let Some(entity) = super::sidecar::entity_element(&tokens, src) else {
+        return Vec::new();
+    };
+    let Some(tags) = scan::attribute(src, &tokens[entity], "tags")
+        .ok()
+        .flatten()
+        .map(|value| scan::decode_entities(&String::from_utf8_lossy(value.of(src))))
+    else {
+        return Vec::new();
+    };
+    let mut problems = Vec::new();
+    for tag in tags.split(';').map(str::trim).filter(|tag| !tag.is_empty()) {
+        let Some((vocabulary, term)) = tag
+            .split_once(':')
+            .filter(|(vocabulary, term)| !vocabulary.is_empty() && !term.is_empty())
+        else {
+            problems.push(Problem {
+                file: file.to_string(),
+                rule: "malformed-tag",
+                message: format!("tag {tag:?} is not Vocabulary:Term"),
+            });
+            continue;
+        };
+        if let Some(Some(terms)) = vocabularies.get(vocabulary) {
+            if !terms.contains(term) {
+                problems.push(Problem {
+                    file: file.to_string(),
+                    rule: "unknown-tag-term",
+                    message: format!(
+                        "model tag vocabulary {vocabulary} is not dynamic and has no term {term}; add the term to it or use one it has"
+                    ),
+                });
+            }
+        }
     }
     problems
 }
@@ -282,6 +382,46 @@ mod tests {
             rules(&["Acme.Other.Run"]),
             ["service-without-definition"],
             "another entity's"
+        );
+    }
+
+    #[test]
+    fn tags_name_a_term_a_fixed_vocabulary_of_the_solution_has() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("twaco.toml"), "[[project]]\nname = 'P'\n").unwrap();
+        for (path, xml) in [
+            (
+                "ModelTags/P.Fixed.xml",
+                r#"<Entities><ModelTags><ModelTagVocabulary name="P.Fixed" projectName="P" isDynamic="false"><VocabularyTerm name="Known"/></ModelTagVocabulary></ModelTags></Entities>"#,
+            ),
+            (
+                "ModelTags/P.Open.xml",
+                r#"<Entities><ModelTags><ModelTagVocabulary name="P.Open" projectName="P" isDynamic="true"/></ModelTags></Entities>"#,
+            ),
+            (
+                "Things/P.T.xml",
+                r#"<Entities><Things><Thing name="P.T" projectName="P" tags="P.Fixed:Known;P.Fixed:Missing;P.Open:Anything;Applications:Mobile;loose"/></Things></Entities>"#,
+            ),
+        ] {
+            let path = dir.path().join(path);
+            std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+            std::fs::write(path, xml).unwrap();
+        }
+        let solution = Solution::load(&dir.path().join("twaco.toml")).unwrap();
+        let found: Vec<(&str, String)> = check(&solution)
+            .into_iter()
+            .filter(|problem| problem.rule.contains("tag"))
+            .map(|problem| (problem.rule, problem.message))
+            .collect();
+        assert_eq!(
+            found,
+            [
+                (
+                    "unknown-tag-term",
+                    "model tag vocabulary P.Fixed is not dynamic and has no term Missing; add the term to it or use one it has".to_string()
+                ),
+                ("malformed-tag", "tag \"loose\" is not Vocabulary:Term".to_string()),
+            ]
         );
     }
 

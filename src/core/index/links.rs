@@ -1,6 +1,6 @@
 //! Structural references held in entity XML outside the entity model: a value stream, the
 //! DataShape of a data table or stream, a network's Things, a menu's mashups, and who belongs to
-//! a group or an organization.
+//! a group, an organization or a ThingGroup.
 
 use super::build::Builder;
 use super::EdgeKind;
@@ -20,11 +20,14 @@ fn all(tokens: &[Token], src: &[u8], tag: &str, parent: usize) -> Vec<usize> {
     scan::tags_within(tokens, src, tag, parent)
 }
 
-/// `Users` or `Groups` for a membership's `type`.
+/// The collection a membership's `type` names: a group or organization holds users and
+/// groups, a ThingGroup Things and ThingGroups.
 fn member_collection(kind: &str) -> Option<&'static str> {
     match kind {
         "User" => Some("Users"),
         "Group" => Some("Groups"),
+        "Thing" => Some("Things"),
+        "ThingGroup" => Some("ThingGroups"),
         _ => None,
     }
 }
@@ -37,7 +40,13 @@ impl Builder<'_> {
             .filter(|(key, _)| {
                 matches!(
                     key.collection(),
-                    "Things" | "ThingTemplates" | "Networks" | "Menus" | "Groups" | "Organizations"
+                    "Things"
+                        | "ThingTemplates"
+                        | "Networks"
+                        | "Menus"
+                        | "Groups"
+                        | "Organizations"
+                        | "ThingGroups"
                 )
             })
             .map(|(key, at)| (key.collection().to_string(), *at))
@@ -125,7 +134,7 @@ impl Builder<'_> {
                     }
                 }
                 _ => {
-                    // A group's members, or an organization's units' members.
+                    // A group's, an organization unit's or a ThingGroup's members.
                     for member in all(&tokens, &src, "Member", entity) {
                         let kind = attribute(&tokens, &src, member, "type");
                         let (Some(collection), Some(name)) = (
