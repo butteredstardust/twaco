@@ -394,15 +394,17 @@ impl Client {
         // A refused or queued install answers 406 with the same report as a success, which
         // says why.
         if response.status == 406 {
-            if let Ok(report) = serde_json::from_slice::<serde_json::Value>(&response.body) {
+            // Scrubbed as an error body is: the report's messages are printed.
+            let text = scrub(&self.secrets, &String::from_utf8_lossy(&response.body));
+            if let Ok(report) = serde_json::from_str::<serde_json::Value>(&text) {
                 if report.get("rows").is_some() {
                     return Ok(report);
                 }
             }
         }
         let reply = checked(&self.secrets, Method::Post, url.clone(), response)?;
-        serde_json::from_slice(&reply)
-            .map_err(|error| self.invalid_response(&url, error.to_string()))
+        let text = scrub(&self.secrets, &String::from_utf8_lossy(&reply));
+        serde_json::from_str(&text).map_err(|error| self.invalid_response(&url, error.to_string()))
     }
 
     /// Ask ThingWorx's Rhino parser to validate one service body.
@@ -1442,6 +1444,32 @@ mod tests {
             request
         });
         (format!("http://{address}/Thingworx/"), handle)
+    }
+
+    /// A refused install answers 406 with its report, which is read, and scrubbed like any error.
+    #[test]
+    fn an_upload_406_report_is_read_and_scrubbed() {
+        let (url, server) = serve_once(
+            "406 Not Acceptable",
+            r#"{"rows":[{"install":{"rows":[{"extensionReportStatus":1,"reportMessage":"user pass refused"}]}}]}"#,
+        );
+        let report = client_for(url)
+            .upload_extension("p.zip", b"zip", false)
+            .unwrap();
+        server.join().unwrap();
+        assert_eq!(
+            report["rows"][0]["install"]["rows"][0]["reportMessage"],
+            "user <redacted> refused"
+        );
+        let (url, server) = serve_once("406 Not Acceptable", "not a report");
+        let error = client_for(url)
+            .upload_extension("p.zip", b"zip", false)
+            .unwrap_err();
+        server.join().unwrap();
+        assert!(
+            matches!(error, ServerError::Http { status: 406, .. }),
+            "{error}"
+        );
     }
 
     fn client_for(url: String) -> Client {

@@ -34,12 +34,12 @@ impl Bump {
         })
     }
 
-    fn raise(self, [major, minor, patch]: [u64; 3]) -> [u64; 3] {
-        match self {
-            Self::Patch => [major, minor, patch + 1],
-            Self::Minor => [major, minor + 1, 0],
-            Self::Major => [major + 1, 0, 0],
-        }
+    fn raise(self, [major, minor, patch]: [u64; 3]) -> Option<[u64; 3]> {
+        Some(match self {
+            Self::Patch => [major, minor, patch.checked_add(1)?],
+            Self::Minor => [major, minor.checked_add(1)?, 0],
+            Self::Major => [major.checked_add(1)?, 0, 0],
+        })
     }
 }
 
@@ -118,9 +118,12 @@ where
     let local_parts = parse_version(&local)
         .ok_or_else(|| format!("{metadata_path}: packageVersion {local:?} is not x.y.z"))?;
     let installed_parts = installed.as_deref().and_then(parse_version);
+    let too_large = || format!("packageVersion {local} cannot be raised further");
     let wanted = match (request.bump, installed_parts) {
-        (Some(bump), Some(server)) => Some(bump.raise(local_parts.max(server))),
-        (Some(bump), None) => Some(bump.raise(local_parts)),
+        (Some(bump), Some(server)) => {
+            Some(bump.raise(local_parts.max(server)).ok_or_else(too_large)?)
+        }
+        (Some(bump), None) => Some(bump.raise(local_parts).ok_or_else(too_large)?),
         (None, Some(server)) if server == local_parts => {
             return Err(format!(
                 "{package} {local} is installed already, and the server skips a version it has: \
@@ -151,14 +154,10 @@ where
             return error;
         }
         match set_version(&root, &metadata_path, &local) {
-            Ok(()) => format!(
-                "{error}
-(packageVersion is {local} again)"
-            ),
-            Err(why) => format!(
-                "{error}
-(and putting packageVersion back to {local} failed: {why})"
-            ),
+            Ok(()) => format!("{error}\n(packageVersion is {local} again)"),
+            Err(why) => {
+                format!("{error}\n(and putting packageVersion back to {local} failed: {why})")
+            }
         }
     };
     let build = if request.build {
@@ -169,13 +168,13 @@ where
     } else {
         None
     };
-    let zip_path = package_zip(&root, &shown_root, &package).map_err(&undo)?;
+    let zip_path = package_zip(&root, &shown_root, &package, &sending).map_err(&undo)?;
     let zip = std::fs::read(&zip_path)
         .map_err(|error| undo(format!("cannot read {}: {error}", zip_path.display())))?;
     let made = extensions::inspect(&zip).map_err(|e| undo(e.to_string()))?;
     if made.name != package || made.version != sending {
         return Err(undo(format!(
-            "{} holds {} {}, not {package} {sending}: build it again, or leave out --no-build",
+            "{} holds {} {}, not {package} {sending}",
             solution.relative(&zip_path),
             made.name,
             made.version
@@ -215,7 +214,30 @@ where
     }
     let imported =
         extensions::import_with_progress(&remote, &file_name, &zip, request.apply, progress)
-            .map_err(|e| undo(e.to_string()))?;
+            .map_err(|error| {
+                let error = error.to_string();
+                if !request.apply {
+                    return error;
+                }
+                // The install may have gone through before the failure: only a package list
+                // without the new version proves the bump can go back.
+                match extensions::list(&remote) {
+                    Ok(packages)
+                        if !packages
+                            .iter()
+                            .any(|p| p.name == package && p.version == sending) =>
+                    {
+                        undo(error)
+                    }
+                    Ok(_) => format!(
+                        "{error}\n(the server has {package} {sending}; packageVersion stays)"
+                    ),
+                    Err(_) => format!(
+                "{error}\n(the server could not be asked whether it has {package} {sending}; \
+                         packageVersion stays {sending})"
+            ),
+                }
+            })?;
     deployed.validated = true;
     deployed.applied = imported.applied;
     deployed.queued = imported.queued;
@@ -332,15 +354,16 @@ fn set_version(root: &Path, metadata_path: &str, version: &str) -> Result<(), St
     edited.extend_from_slice(&bytes[span.end..]);
     replace(&path, &edited)?;
     let properties = root.join("extension.properties");
+    let is_version = |line: &str| {
+        line.split_once(['=', ':'])
+            .is_some_and(|(key, _)| key.trim() == "package_version")
+    };
     if let Ok(text) = std::fs::read_to_string(&properties) {
-        if text
-            .lines()
-            .any(|line| line.trim_start().starts_with("package_version"))
-        {
+        if text.lines().any(is_version) {
             let edited: String = text
                 .split_inclusive('\n')
                 .map(|line| {
-                    if line.trim_start().starts_with("package_version") {
+                    if is_version(line) {
                         let ending = &line[line.trim_end_matches(['\r', '\n']).len()..];
                         format!("package_version={version}{ending}")
                     } else {
@@ -348,20 +371,20 @@ fn set_version(root: &Path, metadata_path: &str, version: &str) -> Result<(), St
                     }
                 })
                 .collect();
-            replace(&properties, edited.as_bytes())?;
+            // Both files or neither.
+            if let Err(error) = replace(&properties, edited.as_bytes()) {
+                return Err(match replace(&path, &bytes) {
+                    Ok(()) => error,
+                    Err(why) => format!("{error}; and putting {metadata_path} back failed: {why}"),
+                });
+            }
         }
     }
     Ok(())
 }
 
 fn replace(path: &Path, bytes: &[u8]) -> Result<(), String> {
-    let temporary = path.with_extension("twaco-new");
-    std::fs::write(&temporary, bytes)
-        .and_then(|()| std::fs::rename(&temporary, path))
-        .map_err(|error| {
-            let _ = std::fs::remove_file(&temporary);
-            format!("cannot write {}: {error}", path.display())
-        })
+    super::ext_new::replace_whole(path, bytes)
 }
 
 /// The project's build: its Gradle wrapper, else Gradle, else Ant. The command, as run.
@@ -388,26 +411,39 @@ fn run_build(root: &Path) -> Result<String, String> {
             root.display()
         ));
     };
-    // On Windows gradle and ant are batch files, which only cmd runs.
+    // On Windows gradle and ant are batch files, which only cmd runs; a checked-out gradlew
+    // may have lost its execute bit, which sh does not need.
     let mut command = if cfg!(windows) {
         let mut command = std::process::Command::new("cmd");
         command.arg("/C").arg(&tool);
+        command
+    } else if tool.ends_with(wrapper) {
+        let mut command = std::process::Command::new("sh");
+        command.arg(&tool);
         command
     } else {
         std::process::Command::new(&tool)
     };
     let shown = format!("{tool} {}", args.join(" ")).trim_end().to_string();
-    let output = command
+    let mut child = command
         .args(args)
         .current_dir(root)
-        .output()
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .spawn()
         .map_err(|error| format!("cannot run {shown}: {error}"))?;
-    if !output.status.success() {
-        let text = format!(
-            "{}{}",
-            String::from_utf8_lossy(&output.stdout),
-            String::from_utf8_lossy(&output.stderr)
-        );
+    let stdout = child.stdout.take().map(tail_of);
+    let stderr = child.stderr.take().map(tail_of);
+    let status = child
+        .wait()
+        .map_err(|error| format!("{shown} did not finish: {error}"))?;
+    let text: String = [stdout, stderr]
+        .into_iter()
+        .flatten()
+        .map(|reader| reader.join().unwrap_or_default())
+        .collect();
+    if !status.success() {
         let lines: Vec<&str> = text.lines().collect();
         let tail = lines[lines.len().saturating_sub(30)..].join("\n");
         return Err(format!("{shown} failed:\n{tail}"));
@@ -415,25 +451,75 @@ fn run_build(root: &Path) -> Result<String, String> {
     Ok(shown)
 }
 
-/// The package zip: the newest under `build/` or `zip/` that holds `package`. A build that
-/// had nothing to do leaves the zip it made before, so its age proves nothing; the version it
-/// carries is checked instead.
-fn package_zip(root: &Path, shown_root: &str, package: &str) -> Result<PathBuf, String> {
+/// The last 64 KiB a build writes to one stream, read as it runs so a long build neither
+/// blocks on a full pipe nor fills memory.
+fn tail_of(mut stream: impl std::io::Read + Send + 'static) -> std::thread::JoinHandle<String> {
+    std::thread::spawn(move || {
+        const KEEP: usize = 64 * 1024;
+        let mut kept = std::collections::VecDeque::with_capacity(KEEP);
+        let mut buffer = [0u8; 8192];
+        while let Ok(read) = stream.read(&mut buffer) {
+            if read == 0 {
+                break;
+            }
+            kept.extend(&buffer[..read]);
+            let excess = kept.len().saturating_sub(KEEP);
+            kept.drain(..excess);
+        }
+        String::from_utf8_lossy(kept.make_contiguous()).into_owned()
+    })
+}
+
+/// The package zip that holds `package` at `version`: under `build/distributions/` first, where
+/// the Gradle and Ant templates put it, then elsewhere under `build/`, then under `zip/`; the
+/// newest in the first place that has one. A build that had nothing to do leaves the zip it made
+/// before, so its age proves nothing.
+fn package_zip(
+    root: &Path,
+    shown_root: &str,
+    package: &str,
+    version: &str,
+) -> Result<PathBuf, String> {
+    let distributions = root.join("build/distributions");
     let mut found = Vec::new();
     for dir in ["build", "zip"] {
         collect_zips(&root.join(dir), 3, &mut found);
     }
-    found.sort_by_key(|(_, modified)| std::cmp::Reverse(*modified));
-    found
-        .into_iter()
-        .map(|(path, _)| path)
-        .find(|path| {
-            std::fs::read(path)
-                .ok()
-                .and_then(|zip| extensions::inspect(&zip).ok())
-                .is_some_and(|made| made.name == package)
-        })
-        .ok_or_else(|| format!("no zip of {package} under {shown_root}/build or {shown_root}/zip"))
+    let place = |path: &Path| {
+        if path.starts_with(&distributions) {
+            0
+        } else if path.starts_with(root.join("build")) {
+            1
+        } else {
+            2
+        }
+    };
+    found.sort_by_key(|(path, modified)| (place(path), std::cmp::Reverse(*modified)));
+    let mut other_versions = Vec::new();
+    for (path, _) in found {
+        let Some(made) = std::fs::read(&path)
+            .ok()
+            .and_then(|zip| extensions::inspect(&zip).ok())
+        else {
+            continue;
+        };
+        if made.name != package {
+            continue;
+        }
+        if made.version == version {
+            return Ok(path);
+        }
+        other_versions.push(made.version);
+    }
+    Err(if other_versions.is_empty() {
+        format!("no zip of {package} under {shown_root}/build or {shown_root}/zip")
+    } else {
+        format!(
+            "no zip of {package} {version} under {shown_root}/build or {shown_root}/zip, only {}: \
+             build it again, or leave out --no-build",
+            other_versions.join(", ")
+        )
+    })
 }
 
 fn collect_zips(dir: &Path, depth: usize, out: &mut Vec<(PathBuf, SystemTime)>) {
@@ -637,7 +723,7 @@ mod tests {
 
         // Applied, the version is written; a zip still at 1.0.0 is refused, and it is put back.
         let error = run(&solution, &server, &request(Some(Bump::Patch), true)).unwrap_err();
-        assert!(error.contains("not Acme 1.0.1"), "{error}");
+        assert!(error.contains("no zip of Acme 1.0.1"), "{error}");
         assert!(error.contains("packageVersion is 1.0.0 again"), "{error}");
         assert!(std::fs::read_to_string(&metadata)
             .unwrap()
@@ -691,6 +777,7 @@ mod tests {
         );
         assert_eq!(parse_version("1.2.3"), Some([1, 2, 3]));
         assert_eq!(parse_version("1.2"), None);
-        assert_eq!(Bump::Minor.raise([1, 2, 3]), [1, 3, 0]);
+        assert_eq!(Bump::Minor.raise([1, 2, 3]), Some([1, 3, 0]));
+        assert_eq!(Bump::Major.raise([u64::MAX, 0, 0]), None);
     }
 }

@@ -11,6 +11,28 @@ use serde::Serialize;
 use std::io::Read;
 use std::path::{Path, PathBuf};
 
+/// Replace `path` with `bytes` whole: written beside it under a name no other file has, then
+/// renamed over it.
+pub(crate) fn replace_whole(path: &Path, bytes: &[u8]) -> Result<(), String> {
+    use std::io::Write as _;
+    let failed = |error: std::io::Error| format!("cannot write {}: {error}", path.display());
+    let name = path
+        .file_name()
+        .map(|name| name.to_string_lossy().into_owned())
+        .unwrap_or_default();
+    let folder = path.parent().unwrap_or(Path::new("."));
+    let mut temporary = tempfile::Builder::new()
+        .prefix(&format!(".{name}."))
+        .suffix(".twaco")
+        .tempfile_in(folder)
+        .map_err(failed)?;
+    temporary.write_all(bytes).map_err(failed)?;
+    temporary
+        .persist(path)
+        .map_err(|error| failed(error.error))?;
+    Ok(())
+}
+
 /// One file a plan writes.
 #[derive(Debug, Serialize)]
 pub struct Write {
@@ -72,12 +94,7 @@ impl Plan {
                     if std::fs::read(&path).ok().as_ref() != Some(original) {
                         return Err(format!("{} changed since it was read", write.path));
                     }
-                    let temporary = path.with_extension("xml.twaco-new");
-                    std::fs::write(&temporary, &write.bytes).map_err(failed)?;
-                    std::fs::rename(&temporary, &path).map_err(|error| {
-                        let _ = std::fs::remove_file(&temporary);
-                        failed(error)
-                    })?;
+                    replace_whole(&path, &write.bytes)?;
                 }
             }
         }
