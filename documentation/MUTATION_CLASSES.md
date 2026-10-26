@@ -88,8 +88,8 @@ when the command is asked to write. A local output named by an option is include
 | `ext list` | read-only | read-only | none | Retry freely. | `cli/content.rs: ext_cmd` |
 | `ext show` | read-only | read-only | none | Retry freely. | `cli/content.rs: ext_cmd` |
 | `ext check` | read-only | read-only | none | Reads an extension project's files only; retry freely. | `cli/content.rs: ext_check_cmd` |
-| `ext new` | read-only | best-effort batch | extension project files | Writes the new project's files one after another into a missing or empty folder; after a failure delete the folder and retry. | `core/ext_new.rs: Plan::apply` |
-| `ext add` | read-only | best-effort batch | extension project files | Writes the new class or widget files, then metadata.xml last; after a failure remove the new files and retry. | `core/ext_new.rs: Plan::apply` |
+| `ext new` | read-only | multi-file atomic | extension project files | Writes the new project's files into a missing or empty folder and removes them again on a failure (in-process only). Retry. | `core/ext_new.rs: Plan::apply` |
+| `ext add` | read-only | multi-file atomic | extension project files | Writes the new class or widget files, then replaces metadata.xml whole, refused if it changed since it was read; a failure removes the new files again (in-process only). Retry. | `core/ext_new.rs: Plan::apply` |
 | `ext import` | read-only | server-partial | server extension | Check installed extensions before retrying. | `cli/content.rs: ext_cmd` |
 | `ext remove` | read-only | server-partial | server extension | Check installed extensions before retrying. | `cli/content.rs: ext_cmd` |
 | `repo list` | read-only | read-only | none | Retry freely. | `cli/content.rs: repo_cmd` |
@@ -261,8 +261,8 @@ when the command is asked to write. A local output named by an option is include
 | `repo_write` | read-only | server-partial | server repository or local pull | Inspect copied paths before retrying. | `core/commands/repo.rs: execute` |
 | `extensions` | read-only | read-only | none | Retry freely. | `mcp/content.rs: extensions_tool` |
 | `ext_check` | read-only | read-only | none | Reads an extension project's files only; retry freely. | `mcp/content.rs: ext_check_tool` |
-| `ext_new` | read-only | best-effort batch | extension project files | Writes the new project's files one after another into a missing or empty folder; after a failure delete the folder and retry. | `core/ext_new.rs: Plan::apply` |
-| `ext_add` | read-only | best-effort batch | extension project files | Writes the new class or widget files, then metadata.xml last; after a failure remove the new files and retry. | `core/ext_new.rs: Plan::apply` |
+| `ext_new` | read-only | multi-file atomic | extension project files | Writes the new project's files into a missing or empty folder and removes them again on a failure (in-process only). Retry. | `core/ext_new.rs: Plan::apply` |
+| `ext_add` | read-only | multi-file atomic | extension project files | Writes the new class or widget files, then replaces metadata.xml whole, refused if it changed since it was read; a failure removes the new files again (in-process only). Retry. | `core/ext_new.rs: Plan::apply` |
 | `extension_write` | read-only | server-partial | server extension | Check installed extensions before retrying. | `core/commands/extensions.rs: execute` |
 | `bundle` | read-only | single-file atomic | generated bundle | The generated bundle is old or new; retry freely. | `core/commands/bundle.rs: execute` |
 | `search` | read-only | read-only | none | Retry freely. | `mcp/content.rs: search_tool` |

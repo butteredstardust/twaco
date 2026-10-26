@@ -7405,7 +7405,7 @@
   },
   {
     "name": "ext_new",
-    "description": "Lay out a new Java ThingWorx extension project, as the Eclipse plugin's project wizard did: settings.gradle, a build.gradle that makes the importable zip (build/distributions/<name>.zip), extension.properties, configfiles/metadata.xml, .gitignore, the Java package folder and, given an Extension SDK (sdk, or TWACO_SDK), its jars in twx-lib/. The folder must be missing or empty. A dry run unless dry_run is false; applied, ext_check's report is returned.",
+    "description": "Lay out a new Java ThingWorx extension project, as the Eclipse plugin's project wizard did: settings.gradle, a build.gradle that makes the importable zip (build/distributions/<name>.zip), extension.properties, configfiles/metadata.xml, .gitignore, the Java package folder and, given an Extension SDK (sdk, or TWACO_SDK), its jars in twx-lib/. The folder must be inside the solution, and missing or empty. A dry run unless dry_run is false; applied, ext_check's report is returned.",
     "inputSchema": {
       "required": [
         "name"
@@ -7419,7 +7419,7 @@
           "type": "string"
         },
         "folder": {
-          "description": "The folder to create, absolute or relative to the solution; default: the name.",
+          "description": "The folder to create, relative to the solution and inside it; default: the name.",
           "type": "string"
         },
         "package": {
@@ -7504,7 +7504,7 @@
   },
   {
     "name": "ext_add",
-    "description": "Add to a Java ThingWorx extension project: a thing-template (Java class extending Thing with its base template, plus its ThingPackage), a thing-shape or resource (Java class), a widget (ui/<name>/ ide and runtime JS and CSS) or a jar (copied into lib/), each with its metadata.xml entry; the first Java class also lists the jar the build makes. metadata.xml keeps its formatting. A dry run unless dry_run is false; applied, ext_check's report is returned.",
+    "description": "Add to a Java ThingWorx extension project: a thing-template (Java class extending Thing with its base template, plus its ThingPackage), a thing-shape or resource (Java class), a widget (ui/<name>/ ide and runtime JS and CSS) or a jar (copied into lib/), each with its metadata.xml entry; the first Java class also lists the jar the build makes. metadata.xml keeps its formatting. The project and a jar must be inside the solution. A dry run unless dry_run is false; applied, ext_check's report is returned.",
     "inputSchema": {
       "required": [
         "kind",
@@ -7525,11 +7525,11 @@
           ]
         },
         "name": {
-          "description": "The entity or widget name; for a jar, the file to copy into lib/.",
+          "description": "The entity or widget name; for a jar, the file to copy into lib/, relative to the\nsolution and inside it.",
           "type": "string"
         },
         "root": {
-          "description": "The extension project's folder, absolute or relative to the solution; omit for the\nsolution folder itself.",
+          "description": "The extension project's folder, relative to the solution and inside it; omit for the\nsolution folder itself.",
           "type": "string"
         },
         "package": {

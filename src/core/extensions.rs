@@ -187,28 +187,40 @@ pub(crate) fn inspect(zip: &[u8]) -> Result<Package, ExtensionError> {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Imported {
     pub(crate) package: Package,
-    /// new, upgrade from X, or reinstall of the same version.
+    /// new, or upgrade from X.
     pub plan: String,
     pub applied: bool,
+    /// The server took it but installs it at its next restart: an upgrade of a package with
+    /// Java code.
+    pub queued: bool,
 }
 
-/// The server's report from the uploader: status 0 is fine; anything else carries a message.
-fn report(reply: &Value) -> Result<(), String> {
-    let row = reply
-        .pointer("/rows/0/validate/rows/0")
-        .ok_or("the uploader's answer has no validation report")?;
+/// One part (`validate` or `install`) of the uploader's report.
+fn report_row<'a>(reply: &'a Value, part: &str) -> Option<&'a Value> {
+    reply
+        .get("rows")?
+        .as_array()?
+        .iter()
+        .find_map(|row| row.get(part)?.pointer("/rows/0"))
+}
+
+/// The server's report from the uploader: status 0 is fine, and 3 (queued for the next
+/// restart); anything else carries a message. Measured on 10.2: 1 failed, 2 skipped (that
+/// version is installed), 3 queued.
+fn report(reply: &Value, part: &str) -> Result<i64, String> {
+    let row = report_row(reply, part)
+        .ok_or_else(|| format!("the uploader's answer has no {part} report"))?;
     let status = row
         .get("extensionReportStatus")
         .and_then(Value::as_i64)
         .unwrap_or(-1);
-    if status == 0 {
-        return Ok(());
+    if status == 0 || status == 3 {
+        return Ok(status);
     }
-    let message = [text(row, "reportMessage"), text(row, "extensionException")]
-        .into_iter()
-        .filter(|s| !s.is_empty())
-        .collect::<Vec<_>>()
-        .join("; ");
+    let mut parts = vec![text(row, "reportMessage"), text(row, "extensionException")];
+    parts.retain(|part| !part.is_empty());
+    parts.dedup();
+    let message = parts.join("; ");
     Err(if message.is_empty() {
         format!("status {status}")
     } else {
@@ -249,10 +261,14 @@ pub(crate) fn import_with_progress(
     .find(|p| p.name == package.name);
     let plan = match &installed {
         None => format!("install {} {}", package.name, package.version),
-        Some(old) if old.version == package.version => format!(
-            "reinstall {} {} (the same version)",
-            package.name, package.version
-        ),
+        // The uploader validates it, then skips the install.
+        Some(old) if old.version == package.version => {
+            return Err(ExtensionError::Invalid(format!(
+                "{} {} is installed already, and the server skips a version it has: raise \
+                 packageVersion to replace it",
+                package.name, package.version
+            )))
+        }
         Some(old) => format!(
             "upgrade {} from {} to {}",
             package.name, old.version, package.version
@@ -275,12 +291,13 @@ pub(crate) fn import_with_progress(
         progress.advance(1);
         reply
     };
-    report(&reply).map_err(|why| rejected(why, "validation"))?;
+    report(&reply, "validate").map_err(|why| rejected(why, "validation"))?;
     if !apply {
         return Ok(Imported {
             package,
             plan,
             applied: false,
+            queued: false,
         });
     }
     let reply = {
@@ -291,7 +308,20 @@ pub(crate) fn import_with_progress(
         progress.advance(1);
         reply
     };
-    report(&reply).map_err(|why| rejected(why, "import"))?;
+    report(&reply, "validate").map_err(|why| rejected(why, "import"))?;
+    // Without an install report, the package list below is the evidence.
+    let install_status = match report_row(&reply, "install") {
+        Some(_) => report(&reply, "install").map_err(|why| rejected(why, "install"))?,
+        None => 0,
+    };
+    if install_status == 3 {
+        return Ok(Imported {
+            package,
+            plan,
+            applied: true,
+            queued: true,
+        });
+    }
     let now = {
         let _phase = progress::phase(progress, "confirming the package", Some(1));
         let packages = list(remote)?;
@@ -311,6 +341,7 @@ pub(crate) fn import_with_progress(
         package,
         plan,
         applied: true,
+        queued: false,
     })
 }
 
@@ -405,6 +436,8 @@ mod tests {
         in_use: Vec<&'static str>,
         calls: RefCell<Vec<String>>,
         reject: bool,
+        /// The install row's status: 0 installs, 3 queues for the next restart.
+        install_status: i64,
     }
 
     impl Fake {
@@ -419,6 +452,7 @@ mod tests {
                 in_use: Vec::new(),
                 calls: RefCell::new(Vec::new()),
                 reject: false,
+                install_status: 0,
             }
         }
     }
@@ -450,15 +484,24 @@ mod tests {
                 .borrow_mut()
                 .push(format!("upload validate={validate}"));
             let status = if self.reject { 1 } else { 0 };
-            if !validate && !self.reject {
+            if !validate && !self.reject && self.install_status == 0 {
                 let package = inspect(zip).unwrap();
                 let mut installed = self.installed.borrow_mut();
                 installed.retain(|(n, _)| *n != package.name);
                 installed.push((package.name, package.version));
             }
-            Ok(
-                json!({ "rows": [{ "validate": { "rows": [{ "extensionReportStatus": status, "reportMessage": if self.reject { "bad package" } else { "" } }] } }] }),
-            )
+            let mut rows = vec![
+                json!({ "validate": { "rows": [{ "extensionReportStatus": status, "reportMessage": if self.reject { "bad package" } else { "" } }] } }),
+            ];
+            if !validate {
+                let message = match self.install_status {
+                    3 => "Extension P is queued for installation on the next server restart",
+                    1 => "ThingPackage className is invalid",
+                    _ => "",
+                };
+                rows.push(json!({ "install": { "rows": [{ "extensionReportStatus": self.install_status, "reportMessage": message }] } }));
+            }
+            Ok(json!({ "rows": rows }))
         }
     }
 
@@ -525,15 +568,30 @@ mod tests {
             fake.installed.borrow()[0],
             ("P".to_string(), "1.2.0".to_string())
         );
-        assert_eq!(
-            import(&fake, "p.zip", &zip, false).unwrap().plan,
-            "reinstall P 1.2.0 (the same version)"
-        );
+        let again = import(&fake, "p.zip", &zip, false).unwrap_err().to_string();
+        assert!(again.contains("raise packageVersion"), "{again}");
         let fresh = package_zip(Some(&metadata("Q", "1.0.0")));
         assert_eq!(
             import(&fake, "q.zip", &fresh, false).unwrap().plan,
             "install Q 1.0.0"
         );
+    }
+
+    #[test]
+    fn an_upgrade_the_server_queues_for_its_restart_is_reported_so() {
+        let mut fake = Fake::with(&[("P", "1.0.0")]);
+        fake.install_status = 3;
+        let zip = package_zip(Some(&metadata("P", "1.0.1")));
+        let imported = import(&fake, "p.zip", &zip, true).unwrap();
+        assert!(imported.applied && imported.queued);
+        assert_eq!(
+            fake.installed.borrow()[0],
+            ("P".to_string(), "1.0.0".to_string())
+        );
+        fake.install_status = 1;
+        let error = import(&fake, "p.zip", &zip, true).unwrap_err().to_string();
+        assert!(error.contains("install refused P"), "{error}");
+        assert!(error.contains("className is invalid"), "{error}");
     }
 
     #[test]

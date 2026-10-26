@@ -1001,9 +1001,10 @@ pub(crate) fn ext_new_tool(
     root: &std::path::Path,
     arguments: tool::ExtNewRequest,
 ) -> Result<Value, ToolError> {
+    // Written inside the solution only: an agent's writes stay where its tools are pointed.
     let folder = match arguments.folder.as_ref() {
-        Some(given) if !given.trim().is_empty() => root.join(given),
-        _ => root.join(&arguments.name),
+        Some(given) if !given.trim().is_empty() => super::out_path_in(root, given, true)?,
+        _ => super::out_path_in(root, &arguments.name, true)?,
     };
     let sdk = arguments
         .sdk
@@ -1032,7 +1033,7 @@ pub(crate) fn ext_add_tool(
 ) -> Result<Value, ToolError> {
     use crate::core::ext_new::Kind;
     let folder = match arguments.root.as_ref() {
-        Some(given) if !given.trim().is_empty() => root.join(given),
+        Some(given) if !given.trim().is_empty() => super::in_path_in(root, given)?,
         _ => root.to_path_buf(),
     };
     let kind = match arguments.kind {
@@ -1042,9 +1043,11 @@ pub(crate) fn ext_add_tool(
         tool::ExtAddKind::Widget => Kind::Widget,
         tool::ExtAddKind::Jar => Kind::Jar,
     };
-    // A jar given relative is read from the solution, as every other path here.
+    // A jar is read from inside the solution, as every other path here.
     let name = if kind == Kind::Jar {
-        root.join(&arguments.name).to_string_lossy().into_owned()
+        super::in_path_in(root, &arguments.name)?
+            .to_string_lossy()
+            .into_owned()
     } else {
         arguments.name.clone()
     };
@@ -1191,7 +1194,7 @@ pub(crate) fn extension_write_tool(
                 "dry_run": dry_run,
                 "change": imported.plan,
                 "applied": imported.applied,
-                "note": if imported.applied { "installed; the package list shows it" } else { "the server validated it and installed nothing; pass dry_run: false" },
+                "note": if imported.queued { "queued: the server installs it at its next restart" } else if imported.applied { "installed; the package list shows it" } else { "the server validated it and installed nothing; pass dry_run: false" },
             });
             add_notices(&mut result, &notices);
             Ok(result)

@@ -625,6 +625,15 @@ pub(crate) fn out_path(
     relative: &str,
     overwrite: bool,
 ) -> Result<std::path::PathBuf, ToolError> {
+    out_path_in(&solution.root, relative, overwrite)
+}
+
+/// [`out_path`] under any folder: a tool that has the solution's root but not the solution.
+pub(crate) fn out_path_in(
+    base: &Path,
+    relative: &str,
+    overwrite: bool,
+) -> Result<std::path::PathBuf, ToolError> {
     // Only plain names: `\\x` or `C:x` is not absolute to Rust on Windows, yet joins outside.
     let plain = std::path::Path::new(relative)
         .components()
@@ -634,14 +643,10 @@ pub(crate) fn out_path(
             "{relative} must be a plain path inside the solution"
         )));
     }
-    let out = solution.root.join(relative);
+    let out = base.join(relative);
     // And no link along the way may lead out: the nearest folder that exists must be inside.
-    let root = std::fs::canonicalize(&solution.root).map_err(ToolError::io)?;
-    let existing = out
-        .ancestors()
-        .skip(1)
-        .find(|a| a.exists())
-        .unwrap_or(&solution.root);
+    let root = std::fs::canonicalize(base).map_err(ToolError::io)?;
+    let existing = out.ancestors().skip(1).find(|a| a.exists()).unwrap_or(base);
     let real = std::fs::canonicalize(existing)
         .map_err(|e| ToolError::with(ErrorCode::IoError, format!("{}: {e}", existing.display())))?;
     if !real.starts_with(&root) {
@@ -661,9 +666,14 @@ pub(crate) fn out_path(
 /// A file to read, given relative to the solution: it must exist and really be inside it, links
 /// resolved, so an absolute path or `..` cannot reach a file elsewhere on the machine.
 pub(crate) fn in_path(solution: &Solution, relative: &str) -> Result<PathBuf, ToolError> {
-    let real = std::fs::canonicalize(solution.root.join(relative))
+    in_path_in(&solution.root, relative)
+}
+
+/// [`in_path`] under any folder.
+pub(crate) fn in_path_in(base: &Path, relative: &str) -> Result<PathBuf, ToolError> {
+    let real = std::fs::canonicalize(base.join(relative))
         .map_err(|e| ToolError::with(ErrorCode::IoError, format!("{relative}: {e}")))?;
-    let root = std::fs::canonicalize(&solution.root).map_err(ToolError::io)?;
+    let root = std::fs::canonicalize(base).map_err(ToolError::io)?;
     if !real.starts_with(&root) {
         return Err(ToolError::invalid(format!(
             "{relative} is outside the solution"

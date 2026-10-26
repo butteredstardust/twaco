@@ -19,6 +19,9 @@ pub struct Write {
     pub action: &'static str,
     #[serde(skip)]
     pub bytes: Vec<u8>,
+    /// An update's content when planned: the file must still hold it.
+    #[serde(skip)]
+    original: Option<Vec<u8>>,
 }
 
 #[derive(Debug, Serialize)]
@@ -31,16 +34,52 @@ pub struct Plan {
 }
 
 impl Plan {
-    /// Write every file, creating the folders it needs.
+    /// Write every file, creating the folders it needs: a new file only where none is, an
+    /// update only over what was planned from, replaced whole. On a failure the files it made
+    /// are removed again.
     pub fn apply(&self) -> Result<(), String> {
+        let mut made = Vec::new();
+        let result = self.write_all(&mut made);
+        if result.is_err() {
+            for path in made.iter().rev() {
+                let _ = std::fs::remove_file(path);
+            }
+        }
+        result
+    }
+
+    fn write_all(&self, made: &mut Vec<PathBuf>) -> Result<(), String> {
+        use std::io::Write as _;
         for write in &self.files {
             let path = self.root.join(&write.path);
             if let Some(parent) = path.parent() {
                 std::fs::create_dir_all(parent)
                     .map_err(|error| format!("cannot create {}: {error}", parent.display()))?;
             }
-            std::fs::write(&path, &write.bytes)
-                .map_err(|error| format!("cannot write {}: {error}", path.display()))?;
+            let failed =
+                |error: std::io::Error| format!("cannot write {}: {error}", path.display());
+            match &write.original {
+                None => {
+                    let mut file = std::fs::OpenOptions::new()
+                        .write(true)
+                        .create_new(true)
+                        .open(&path)
+                        .map_err(failed)?;
+                    made.push(path.clone());
+                    file.write_all(&write.bytes).map_err(failed)?;
+                }
+                Some(original) => {
+                    if std::fs::read(&path).ok().as_ref() != Some(original) {
+                        return Err(format!("{} changed since it was read", write.path));
+                    }
+                    let temporary = path.with_extension("xml.twaco-new");
+                    std::fs::write(&temporary, &write.bytes).map_err(failed)?;
+                    std::fs::rename(&temporary, &path).map_err(|error| {
+                        let _ = std::fs::remove_file(&temporary);
+                        failed(error)
+                    })?;
+                }
+            }
         }
         Ok(())
     }
@@ -85,6 +124,8 @@ pub fn new_extension(root: &Path, options: &NewOptions) -> Result<Plan, String> 
     };
     let version = options.version.unwrap_or("1.0.0");
     let min_thingworx = options.min_thingworx.unwrap_or("10.0.0");
+    check_version(version, "the package version")?;
+    check_version(min_thingworx, "the minimum ThingWorx version")?;
     let attribute = |value: &str| {
         escape_attribute(value).map_err(|_| format!("{value:?} holds a character XML cannot"))
     };
@@ -126,6 +167,7 @@ pub fn new_extension(root: &Path, options: &NewOptions) -> Result<Plan, String> 
                     path: format!("twx-lib/{jar}"),
                     action: "create",
                     bytes,
+                    original: None,
                 });
             }
         }
@@ -194,15 +236,23 @@ pub fn add(root: &Path, options: &AddOptions) -> Result<Plan, String> {
     match options.kind {
         Kind::Jar => {
             let source = Path::new(name);
-            let file = source
+            let given = source
                 .file_name()
                 .map(|file| file.to_string_lossy().into_owned())
                 .filter(|file| file.to_ascii_lowercase().ends_with(".jar"))
                 .ok_or_else(|| format!("{name} is not a .jar file"))?;
-            if declared
-                .iter()
-                .any(|entry| entry.tag == "JarResources" && entry.files.contains(&file))
-            {
+            // Windows folds case and a server may not: a jar already in lib/ keeps its spelling.
+            let file = std::fs::read_dir(root.join("lib"))
+                .into_iter()
+                .flatten()
+                .flatten()
+                .map(|entry| entry.file_name().to_string_lossy().into_owned())
+                .find(|existing| existing.eq_ignore_ascii_case(&given))
+                .unwrap_or(given);
+            if declared.iter().any(|entry| {
+                entry.tag == "JarResources"
+                    && entry.files.iter().any(|f| f.eq_ignore_ascii_case(&file))
+            }) {
                 return Err(format!("{metadata_path} already lists {file}"));
             }
             let target = format!("lib/{file}");
@@ -213,6 +263,7 @@ pub fn add(root: &Path, options: &AddOptions) -> Result<Plan, String> {
                     path: target,
                     action: "create",
                     bytes,
+                    original: None,
                 });
             }
             metadata = add_jar_resource(&metadata, &jar_entry(&file, &description)?)?;
@@ -386,6 +437,7 @@ pub fn add(root: &Path, options: &AddOptions) -> Result<Plan, String> {
         path: metadata_path,
         action: "update",
         bytes: metadata.into_bytes(),
+        original: Some(text.into_bytes()),
     });
     Ok(Plan {
         root: root.to_path_buf(),
@@ -400,6 +452,7 @@ fn create(path: &str, text: String) -> Write {
         path: path.to_string(),
         action: "create",
         bytes: text.into_bytes(),
+        original: None,
     }
 }
 
@@ -553,17 +606,90 @@ fn source_root(root: &Path) -> &'static str {
     }
 }
 
+/// Java's reserved words and literals, which no identifier may be.
+const JAVA_RESERVED: &[&str] = &[
+    "abstract",
+    "assert",
+    "boolean",
+    "break",
+    "byte",
+    "case",
+    "catch",
+    "char",
+    "class",
+    "const",
+    "continue",
+    "default",
+    "do",
+    "double",
+    "else",
+    "enum",
+    "extends",
+    "false",
+    "final",
+    "finally",
+    "float",
+    "for",
+    "goto",
+    "if",
+    "implements",
+    "import",
+    "instanceof",
+    "int",
+    "interface",
+    "long",
+    "native",
+    "new",
+    "null",
+    "package",
+    "private",
+    "protected",
+    "public",
+    "return",
+    "short",
+    "static",
+    "strictfp",
+    "super",
+    "switch",
+    "synchronized",
+    "this",
+    "throw",
+    "throws",
+    "transient",
+    "true",
+    "try",
+    "void",
+    "volatile",
+    "while",
+    "_",
+];
+
 fn check_package(package: &str) -> Result<(), String> {
     let ok = package.split('.').all(|part| {
         part.chars()
             .next()
             .is_some_and(|c| c.is_ascii_alphabetic() || c == '_')
             && part.chars().all(|c| c.is_ascii_alphanumeric() || c == '_')
+            && !JAVA_RESERVED.contains(&part)
     });
     if ok {
         Ok(())
     } else {
         Err(format!("{package:?} is not a Java package"))
+    }
+}
+
+/// `x.y.z` in digits, as ThingWorx reads a package version.
+fn check_version(version: &str, what: &str) -> Result<(), String> {
+    let parts: Vec<&str> = version.split('.').collect();
+    if parts.len() == 3
+        && parts
+            .iter()
+            .all(|part| !part.is_empty() && part.bytes().all(|b| b.is_ascii_digit()))
+    {
+        Ok(())
+    } else {
+        Err(format!("{what} {version:?} is not x.y.z in digits"))
     }
 }
 
@@ -573,7 +699,7 @@ fn java_class_name(name: &str) -> String {
         .chars()
         .map(|c| if c.is_ascii_alphanumeric() { c } else { '_' })
         .collect();
-    if class.starts_with(|c: char| c.is_ascii_digit()) {
+    if class.starts_with(|c: char| c.is_ascii_digit()) || JAVA_RESERVED.contains(&class.as_str()) {
         format!("_{class}")
     } else {
         class
@@ -639,9 +765,8 @@ fn line_indent(text: &str, at: usize) -> Option<(usize, &str)> {
 /// four spaces deeper than that tag when there is none.
 fn child_indent(text: &str, line_start: usize, indent: &str) -> String {
     let previous = text[..line_start]
-        .trim_end_matches(['\r', '\n'])
         .rsplit('\n')
-        .next()
+        .find(|line| !line.trim().is_empty())
         .unwrap_or("");
     let own = &previous[..previous.len() - previous.trim_start().len()];
     if own.len() > indent.len() && own.starts_with(indent) {
@@ -693,25 +818,49 @@ fn insert_entry(text: &str, collection: &str, entry: &str) -> Result<String, Str
     insert_into(text, collection, entry, "Entities")
 }
 
+/// `text` with every comment and CDATA section blanked to spaces, byte for byte and keeping its
+/// line breaks, so a search for a tag finds none written inside one.
+fn mask_markup(text: &str) -> String {
+    let mut out = text.as_bytes().to_vec();
+    let mut from = 0;
+    while let Some((at, close)) = ["<!--", "<![CDATA["]
+        .iter()
+        .zip(["-->", "]]>"])
+        .filter_map(|(open, close)| text[from..].find(open).map(|n| (from + n, close)))
+        .min_by_key(|(at, _)| *at)
+    {
+        let end = text[at..]
+            .find(close)
+            .map_or(text.len(), |n| at + n + close.len());
+        for byte in &mut out[at..end] {
+            if !matches!(*byte, b'\n' | b'\r') {
+                *byte = b' ';
+            }
+        }
+        from = end;
+    }
+    String::from_utf8(out).expect("only ASCII bytes replace bytes inside markup")
+}
+
 /// Put a FileResource last in the ExtensionPackage's JarResources, creating that when absent.
 fn add_jar_resource(text: &str, entry: &str) -> Result<String, String> {
-    if find_start(text, "JarResources").is_some() {
+    let masked = mask_markup(text);
+    if find_start(&masked, "JarResources").is_some() {
         return insert_into(text, "JarResources", entry, "ExtensionPackage");
     }
-    let at = find_start(text, "ExtensionPackage")
+    let at = find_start(&masked, "ExtensionPackage")
         .ok_or_else(|| "metadata.xml has no ExtensionPackage".to_string())?;
-    let end = tag_end(text, at).ok_or_else(|| "metadata.xml ends inside a tag".to_string())?;
-    if text[..end].ends_with("/>") {
+    let end = tag_end(&masked, at).ok_or_else(|| "metadata.xml ends inside a tag".to_string())?;
+    if masked[..end].ends_with("/>") {
         // A self-closing ExtensionPackage gets a body.
         let nl = newline(text);
-        let indent = line_indent(text, at).map_or("", |(_, indent)| indent);
+        let indent = line_indent(&masked, at).map_or("", |(_, indent)| indent);
         let inner = format!("{indent}    ");
         let body = format!(
             ">{nl}{inner}<JarResources>{nl}{}{inner}</JarResources>{nl}{indent}</ExtensionPackage>",
             indented(entry, &format!("{inner}    "), nl)
         );
-        let close = end - 2;
-        let close = text[..close].trim_end().len();
+        let close = masked[..end - 2].trim_end().len();
         return Ok(format!("{}{body}{}", &text[..close], &text[end..]));
     }
     insert_into(text, "JarResources", entry, "ExtensionPackage")
@@ -719,13 +868,15 @@ fn add_jar_resource(text: &str, entry: &str) -> Result<String, String> {
 
 fn insert_into(text: &str, collection: &str, entry: &str, parent: &str) -> Result<String, String> {
     let nl = newline(text);
-    if let Some(at) = text.find(&format!("</{collection}>")) {
-        return Ok(match line_indent(text, at) {
+    // Positions come from `masked`; the result is cut from `text`.
+    let masked = mask_markup(text);
+    if let Some(at) = masked.find(&format!("</{collection}>")) {
+        return Ok(match line_indent(&masked, at) {
             // The closing tag starts its own line: whole lines go in before it.
             Some((line_start, indent)) => format!(
                 "{}{}{}",
                 &text[..line_start],
-                indented(entry, &child_indent(text, line_start, indent), nl),
+                indented(entry, &child_indent(&masked, line_start, indent), nl),
                 &text[line_start..]
             ),
             None => format!(
@@ -736,10 +887,11 @@ fn insert_into(text: &str, collection: &str, entry: &str, parent: &str) -> Resul
             ),
         });
     }
-    if let Some(at) = find_start(text, collection) {
-        let end = tag_end(text, at).ok_or_else(|| "metadata.xml ends inside a tag".to_string())?;
-        if text[..end].ends_with("/>") {
-            let indent = line_indent(text, at).map_or("", |(_, indent)| indent);
+    if let Some(at) = find_start(&masked, collection) {
+        let end =
+            tag_end(&masked, at).ok_or_else(|| "metadata.xml ends inside a tag".to_string())?;
+        if masked[..end].ends_with("/>") {
+            let indent = line_indent(&masked, at).map_or("", |(_, indent)| indent);
             let body = format!(
                 "<{collection}>{nl}{}{indent}</{collection}>",
                 indented(entry, &format!("{indent}    "), nl)
@@ -747,12 +899,12 @@ fn insert_into(text: &str, collection: &str, entry: &str, parent: &str) -> Resul
             return Ok(format!("{}{body}{}", &text[..at], &text[end..]));
         }
     }
-    let at = text
+    let at = masked
         .rfind(&format!("</{parent}>"))
         .ok_or_else(|| format!("metadata.xml has no </{parent}>"))?;
-    let (split, indent, lead) = match line_indent(text, at) {
-        Some((line_start, indent)) => (line_start, indent, ""),
-        None => (at, "", nl),
+    let (split, indent, lead) = match line_indent(&masked, at) {
+        Some((line_start, indent)) => (line_start, indent.to_string(), ""),
+        None => (at, String::new(), nl),
     };
     let inner = format!("{indent}    ");
     Ok(format!(
@@ -1038,5 +1190,110 @@ mod tests {
         assert!(sdk_jars(&folder)
             .unwrap_err()
             .contains("no thingworx-ext-sdk jar"));
+    }
+
+    #[test]
+    fn a_tag_inside_a_comment_or_cdata_is_not_where_an_entry_goes() {
+        let text = "<Entities>\n    <!-- </ThingShapes> <JarResources/> -->\n    <X><![CDATA[</ThingShapes>]]></X>\n    <ExtensionPackages>\n        <ExtensionPackage name=\"A\" packageVersion=\"1.0.0\"/>\n    </ExtensionPackages>\n</Entities>\n";
+        let shapes = insert_entry(
+            text,
+            "ThingShapes",
+            "<ThingShape name=\"T\" className=\"a.T\"/>",
+        )
+        .unwrap();
+        let declared = declarations(shapes.as_bytes()).unwrap();
+        assert!(
+            declared
+                .iter()
+                .any(|entry| entry.tag == "ThingShape" && entry.name == "T"),
+            "{shapes}"
+        );
+        assert!(shapes.contains("<!-- </ThingShapes> <JarResources/> -->"));
+        let jar = add_jar_resource(text, "<FileResource type=\"JAR\" file=\"a.jar\"/>").unwrap();
+        let declared = declarations(jar.as_bytes()).unwrap();
+        assert!(
+            declared
+                .iter()
+                .any(|entry| entry.tag == "JarResources" && entry.files == ["a.jar"]),
+            "{jar}"
+        );
+    }
+
+    #[test]
+    fn java_keywords_and_loose_versions_are_refused() {
+        let temporary = tempfile::tempdir().unwrap();
+        let root = temporary.path().join("A");
+        let mut bad = options("A");
+        bad.package = Some("com.example.class");
+        assert!(new_extension(&root, &bad)
+            .unwrap_err()
+            .contains("not a Java package"));
+        let mut bad = options("A");
+        bad.version = Some("not-a-version");
+        assert!(new_extension(&root, &bad).unwrap_err().contains("x.y.z"));
+        let mut bad = options("A");
+        bad.min_thingworx = Some("10.0");
+        assert!(new_extension(&root, &bad).unwrap_err().contains("x.y.z"));
+        assert_eq!(java_class_name("class"), "_class");
+        assert_eq!(java_class_name("9lives"), "_9lives");
+    }
+
+    #[test]
+    fn a_jar_already_in_lib_keeps_its_spelling() {
+        let temporary = tempfile::tempdir().unwrap();
+        let root = temporary.path().join("A");
+        new_extension(&root, &options("A"))
+            .unwrap()
+            .apply()
+            .unwrap();
+        std::fs::create_dir_all(root.join("lib")).unwrap();
+        std::fs::write(root.join("lib/Foo.jar"), b"jar").unwrap();
+        let elsewhere = temporary.path().join("foo.jar");
+        std::fs::write(&elsewhere, b"jar").unwrap();
+        let plan = add_one(&root, Kind::Jar, elsewhere.to_str().unwrap());
+        assert_eq!(plan.files.len(), 1, "only metadata.xml: the jar is there");
+        let metadata = std::fs::read_to_string(root.join("configfiles/metadata.xml")).unwrap();
+        assert!(metadata.contains("file=\"Foo.jar\""), "{metadata}");
+        let again = AddOptions {
+            kind: Kind::Jar,
+            name: elsewhere.to_str().unwrap(),
+            package: None,
+            base: None,
+            description: None,
+        };
+        assert!(add(&root, &again)
+            .unwrap_err()
+            .contains("already lists Foo.jar"));
+    }
+
+    #[test]
+    fn an_apply_over_a_changed_metadata_xml_is_refused_and_undone() {
+        let temporary = tempfile::tempdir().unwrap();
+        let root = temporary.path().join("A");
+        new_extension(&root, &options("A"))
+            .unwrap()
+            .apply()
+            .unwrap();
+        let plan = add(
+            &root,
+            &AddOptions {
+                kind: Kind::Widget,
+                name: "gauge",
+                package: None,
+                base: None,
+                description: None,
+            },
+        )
+        .unwrap();
+        let metadata = root.join("configfiles/metadata.xml");
+        let edited = format!(
+            "{}<!-- edited -->\n",
+            std::fs::read_to_string(&metadata).unwrap()
+        );
+        std::fs::write(&metadata, &edited).unwrap();
+        let error = plan.apply().unwrap_err();
+        assert!(error.contains("changed since it was read"), "{error}");
+        assert!(!root.join("ui/gauge/gauge.ide.js").exists());
+        assert_eq!(std::fs::read_to_string(&metadata).unwrap(), edited);
     }
 }

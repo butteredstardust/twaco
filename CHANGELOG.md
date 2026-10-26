@@ -86,6 +86,11 @@ All notable changes to twaco are recorded here. The format follows
 
 ### Fixed
 
+- `ext import --apply` (MCP `extension_write`) reads the server's install report, not only its
+  validation: an upgrade the server queues for its next restart is reported as queued rather
+  than as an HTTP 406 error, a refused install says why in one line rather than as a cut-off JSON
+  reply, and a version the server has already is refused up front, since the server skips it
+  while answering success.
 - `search --modified-since` checks the order of every dated row, not only those before the
   cut, so a server that ignores the order is refused instead of a newer change behind an older
   one being left out unseen.

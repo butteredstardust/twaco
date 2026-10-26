@@ -634,6 +634,18 @@ impl ExtScaffold {
     }
 }
 
+/// `ext new`, `add` and `check` read and write local files only: a server profile is a mistake.
+fn local_only(args: &Ext, command: &str) -> bool {
+    if args.profile.profile.is_none() {
+        return true;
+    }
+    eprintln!(
+        "{} ext {command} works on local files and uses no server: --profile does not apply",
+        style::prefix()
+    );
+    false
+}
+
 /// Refuse the scaffolding flags `allowed` leaves out; true when none is in the way.
 fn scaffold_flags_fit(args: &Ext, command: &str, allowed: &[&str]) -> bool {
     let unwanted: Vec<_> = args
@@ -664,6 +676,9 @@ pub(crate) fn ext_new_cmd(args: &Ext) -> u8 {
         "--description",
         "--sdk",
     ];
+    if !local_only(args, "new") {
+        return FAILED;
+    }
     if !scaffold_flags_fit(args, "new", &flags) {
         return FAILED;
     }
@@ -720,6 +735,9 @@ pub(crate) fn ext_add_cmd(args: &Ext) -> u8 {
     }
     if kind == Kind::ThingTemplate {
         flags.push("--base-template");
+    }
+    if !local_only(args, "add") {
+        return FAILED;
     }
     if !scaffold_flags_fit(args, "add", &flags) {
         return FAILED;
@@ -800,6 +818,9 @@ fn finish_scaffold(args: &Ext, plan: Result<twaco::core::ext_new::Plan, String>)
 
 /// `twaco ext check [<root>]`: a Java extension project's metadata against its source.
 pub(crate) fn ext_check_cmd(args: &Ext) -> u8 {
+    if !local_only(args, "check") {
+        return FAILED;
+    }
     if !scaffold_flags_fit(args, "check", &[]) {
         return FAILED;
     }
@@ -957,7 +978,12 @@ pub(crate) fn ext_cmd(solution: &Solution, args: &Ext) -> u8 {
             let command::ExtensionOutcome::Imported { imported, .. } = outcome else {
                 unreachable!()
             };
-            if imported.applied {
+            if imported.queued {
+                println!(
+                    "queued: {}; the server installs it at its next restart",
+                    imported.plan
+                );
+            } else if imported.applied {
                 println!("done: {}; the package list now shows it", imported.plan);
             } else {
                 println!(

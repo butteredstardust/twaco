@@ -288,7 +288,7 @@ pub(crate) enum ExtensionWriteAction {
 pub(crate) struct ExtNewRequest {
     /// The extension package's name.
     pub(crate) name: String,
-    /// The folder to create, absolute or relative to the solution; default: the name.
+    /// The folder to create, relative to the solution and inside it; default: the name.
     #[serde(default, skip_serializing_if = "Absent::is_absent")]
     pub(crate) folder: Absent<String>,
     /// The Java package; default com.<vendor>.<name>.
@@ -330,9 +330,10 @@ pub(crate) enum ExtAddKind {
 #[serde(deny_unknown_fields)]
 pub(crate) struct ExtAddRequest {
     pub(crate) kind: ExtAddKind,
-    /// The entity or widget name; for a jar, the file to copy into lib/.
+    /// The entity or widget name; for a jar, the file to copy into lib/, relative to the
+    /// solution and inside it.
     pub(crate) name: String,
-    /// The extension project's folder, absolute or relative to the solution; omit for the
+    /// The extension project's folder, relative to the solution and inside it; omit for the
     /// solution folder itself.
     #[serde(default, skip_serializing_if = "Absent::is_absent")]
     pub(crate) root: Absent<String>,

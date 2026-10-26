@@ -391,6 +391,15 @@ impl Client {
             Some(&body),
             Some(Duration::from_secs(600)),
         )?;
+        // A refused or queued install answers 406 with the same report as a success, which
+        // says why.
+        if response.status == 406 {
+            if let Ok(report) = serde_json::from_slice::<serde_json::Value>(&response.body) {
+                if report.get("rows").is_some() {
+                    return Ok(report);
+                }
+            }
+        }
         let reply = checked(&self.secrets, Method::Post, url.clone(), response)?;
         serde_json::from_slice(&reply)
             .map_err(|error| self.invalid_response(&url, error.to_string()))
