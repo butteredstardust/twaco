@@ -282,6 +282,73 @@ pub(crate) enum ExtensionWriteAction {
     Remove,
 }
 
+/// `ext_new`: a new Java extension project.
+#[derive(Debug, Deserialize, JsonSchema, Serialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct ExtNewRequest {
+    /// The extension package's name.
+    pub(crate) name: String,
+    /// The folder to create, absolute or relative to the solution; default: the name.
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) folder: Absent<String>,
+    /// The Java package; default com.<vendor>.<name>.
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) package: Absent<String>,
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) vendor: Absent<String>,
+    /// Default 1.0.0.
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) package_version: Absent<String>,
+    /// Default 10.0.0.
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) min_thingworx: Absent<String>,
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) description: Absent<String>,
+    /// The Extension SDK zip or folder whose jars go into twx-lib/; default TWACO_SDK.
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) sdk: Absent<String>,
+    #[serde(default = "default_true")]
+    pub(crate) dry_run: bool,
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, JsonSchema, PartialEq, Eq, Serialize)]
+pub(crate) enum ExtAddKind {
+    #[serde(rename = "thing-template")]
+    ThingTemplate,
+    #[serde(rename = "thing-shape")]
+    ThingShape,
+    #[serde(rename = "resource")]
+    Resource,
+    #[serde(rename = "widget")]
+    Widget,
+    #[serde(rename = "jar")]
+    Jar,
+}
+
+/// `ext_add`: one thing added to a Java extension project.
+#[derive(Debug, Deserialize, JsonSchema, Serialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct ExtAddRequest {
+    pub(crate) kind: ExtAddKind,
+    /// The entity or widget name; for a jar, the file to copy into lib/.
+    pub(crate) name: String,
+    /// The extension project's folder, absolute or relative to the solution; omit for the
+    /// solution folder itself.
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) root: Absent<String>,
+    /// thing-template, thing-shape, resource: the Java package; default the one metadata.xml's
+    /// classes use.
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) package: Absent<String>,
+    /// thing-template: its base template; default GenericThing.
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) base: Absent<String>,
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) description: Absent<String>,
+    #[serde(default = "default_true")]
+    pub(crate) dry_run: bool,
+}
+
 #[derive(Debug, Deserialize, JsonSchema, Serialize)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct ExtensionWriteRequest {

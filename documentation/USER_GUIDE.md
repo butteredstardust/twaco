@@ -59,6 +59,27 @@ ones included) and a base type ThingWorx does not have. Notes say what may be fi
 proven: a class only in a jar, a DataShape the extension does not ship, a class with ThingWorx
 members that nothing declares. It exits non-zero when it finds something.
 
+`twaco ext new` and `twaco ext add` (MCP `ext_new`, `ext_add`) do what the plugin's wizards did,
+as a plan until `--apply`:
+
+```sh
+twaco ext new Acme_Pumps --vendor Acme --sdk ~/sdk/ThingWorx-Extension-SDK-10-2-0.zip --apply
+cd Acme_Pumps
+twaco ext add thing-template Acme.Pump_TT --base-template GenericThing --apply
+twaco ext add thing-shape Acme.Valve_TS --apply
+twaco ext add widget gauge --apply
+twaco ext add jar ../vendor/client-1.2.jar --apply
+gradle build                          # build/distributions/Acme_Pumps.zip
+```
+
+`ext new` writes the Gradle build, `extension.properties`, `configfiles/metadata.xml`, a
+`.gitignore` that keeps `build/` and `twx-lib/` out of git, the Java package folder and the SDK's
+jars in `twx-lib/` (from `--sdk` or `TWACO_SDK`). The package version lives only in metadata.xml,
+and the build reads it from there. `ext add` writes the Java class (a template extends `Thing`
+under its base template and gets a ThingPackage) or the widget's `ide` and `runtime` JS and CSS,
+or copies the jar into `lib/`, and adds the metadata.xml entry without reformatting the file; the
+first Java class also lists the jar the build makes. Each applied run ends with `ext check`.
+
 ### Starting from a project that is only on a server
 
 A project built in Composer becomes a repository with one command, run in an empty folder:

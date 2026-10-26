@@ -586,12 +586,223 @@ pub(crate) struct Ext {
     pub(crate) json: Json,
     #[command(flatten)]
     pub(crate) profile: Profile,
+    #[command(flatten)]
+    pub(crate) scaffold: ExtScaffold,
     #[arg(id = "operands", value_name = "operand")]
     pub(crate) operands: Vec<String>,
 }
 
+/// What `ext new` and `ext add` take.
+#[derive(Debug, clap::Args)]
+#[group(skip)]
+pub(crate) struct ExtScaffold {
+    /// new: the project's folder (default: its name); add: the project (default: here).
+    #[arg(long = "dir", value_name = "dir")]
+    pub(crate) dir: Option<std::path::PathBuf>,
+    #[arg(long = "package", value_name = "java.package")]
+    pub(crate) package: Option<String>,
+    #[arg(long = "vendor", value_name = "text")]
+    pub(crate) vendor: Option<String>,
+    #[arg(long = "package-version", value_name = "x.y.z")]
+    pub(crate) package_version: Option<String>,
+    #[arg(long = "min-thingworx", value_name = "x.y.z")]
+    pub(crate) min_thingworx: Option<String>,
+    #[arg(long = "description", value_name = "text")]
+    pub(crate) description: Option<String>,
+    #[arg(long = "sdk", value_name = "path")]
+    pub(crate) sdk: Option<std::path::PathBuf>,
+    #[arg(long = "base-template", value_name = "ThingTemplate")]
+    pub(crate) base: Option<String>,
+}
+
+impl ExtScaffold {
+    /// The flags given, for refusing those a subcommand does not take.
+    fn given(&self) -> Vec<&'static str> {
+        [
+            ("--dir", self.dir.is_some()),
+            ("--package", self.package.is_some()),
+            ("--vendor", self.vendor.is_some()),
+            ("--package-version", self.package_version.is_some()),
+            ("--min-thingworx", self.min_thingworx.is_some()),
+            ("--description", self.description.is_some()),
+            ("--sdk", self.sdk.is_some()),
+            ("--base-template", self.base.is_some()),
+        ]
+        .into_iter()
+        .filter_map(|(flag, given)| given.then_some(flag))
+        .collect()
+    }
+}
+
+/// Refuse the scaffolding flags `allowed` leaves out; true when none is in the way.
+fn scaffold_flags_fit(args: &Ext, command: &str, allowed: &[&str]) -> bool {
+    let unwanted: Vec<_> = args
+        .scaffold
+        .given()
+        .into_iter()
+        .filter(|flag| !allowed.contains(flag))
+        .collect();
+    if unwanted.is_empty() {
+        return true;
+    }
+    eprintln!(
+        "{} ext {command} does not take {}",
+        style::prefix(),
+        unwanted.join(", ")
+    );
+    false
+}
+
+/// `twaco ext new <name>`: lay out a Java extension project.
+pub(crate) fn ext_new_cmd(args: &Ext) -> u8 {
+    let flags = [
+        "--dir",
+        "--package",
+        "--vendor",
+        "--package-version",
+        "--min-thingworx",
+        "--description",
+        "--sdk",
+    ];
+    if !scaffold_flags_fit(args, "new", &flags) {
+        return FAILED;
+    }
+    let [_, name] = args.operands.as_slice() else {
+        eprintln!("{} ext new needs one <name>", style::prefix());
+        return FAILED;
+    };
+    let scaffold = &args.scaffold;
+    let root = scaffold
+        .dir
+        .clone()
+        .unwrap_or_else(|| std::path::PathBuf::from(name));
+    let sdk = scaffold
+        .sdk
+        .clone()
+        .or_else(|| std::env::var_os("TWACO_SDK").map(std::path::PathBuf::from));
+    let plan = twaco::core::ext_new::new_extension(
+        &root,
+        &twaco::core::ext_new::NewOptions {
+            name,
+            package: scaffold.package.as_deref(),
+            vendor: scaffold.vendor.as_deref(),
+            version: scaffold.package_version.as_deref(),
+            min_thingworx: scaffold.min_thingworx.as_deref(),
+            description: scaffold.description.as_deref(),
+            sdk: sdk.as_deref(),
+        },
+    );
+    finish_scaffold(args, plan)
+}
+
+/// `twaco ext add <kind> <name>`: a template, shape, resource, widget or jar in a project.
+pub(crate) fn ext_add_cmd(args: &Ext) -> u8 {
+    use twaco::core::ext_new::Kind;
+    let [_, kind, name] = args.operands.as_slice() else {
+        eprintln!(
+            "{} ext add needs <kind> <name>: {}",
+            style::prefix(),
+            Kind::WORDS
+        );
+        return FAILED;
+    };
+    let Some(kind) = Kind::parse(kind) else {
+        eprintln!(
+            "{} ext add: {kind:?} is not a kind; use {}",
+            style::prefix(),
+            Kind::WORDS
+        );
+        return FAILED;
+    };
+    let mut flags = vec!["--dir", "--description"];
+    if !matches!(kind, Kind::Widget | Kind::Jar) {
+        flags.push("--package");
+    }
+    if kind == Kind::ThingTemplate {
+        flags.push("--base-template");
+    }
+    if !scaffold_flags_fit(args, "add", &flags) {
+        return FAILED;
+    }
+    let scaffold = &args.scaffold;
+    let root = scaffold
+        .dir
+        .clone()
+        .unwrap_or_else(|| std::path::PathBuf::from("."));
+    let plan = twaco::core::ext_new::add(
+        &root,
+        &twaco::core::ext_new::AddOptions {
+            kind,
+            name,
+            package: scaffold.package.as_deref(),
+            base: scaffold.base.as_deref(),
+            description: scaffold.description.as_deref(),
+        },
+    );
+    finish_scaffold(args, plan)
+}
+
+fn finish_scaffold(args: &Ext, plan: Result<twaco::core::ext_new::Plan, String>) -> u8 {
+    let plan = match plan {
+        Ok(plan) => plan,
+        Err(error) => {
+            eprintln!("{} {error}", style::prefix());
+            return FAILED;
+        }
+    };
+    let applied = args.apply.apply;
+    if applied {
+        if let Err(error) = plan.apply() {
+            eprintln!("{} {error}", style::prefix());
+            return FAILED;
+        }
+    }
+    let check = applied.then(|| twaco::core::ext_check::check(&plan.root));
+    if args.json.json {
+        let mut value = serde_json::to_value(&plan).expect("a plan serialises");
+        value["root"] = serde_json::json!(plan.root.display().to_string());
+        value["applied"] = serde_json::json!(applied);
+        if let Some(check) = &check {
+            value["check"] = serde_json::to_value(check).expect("a report serialises");
+        }
+        println!("{value}");
+        return OK;
+    }
+    println!(
+        "{} {} in {}",
+        if applied { "created" } else { "would create" },
+        plan.summary,
+        plan.root.display()
+    );
+    let mut libraries = 0;
+    for write in &plan.files {
+        if write.path.starts_with("twx-lib/") {
+            libraries += 1;
+        } else {
+            println!("  {:<6} {}", write.action, write.path);
+        }
+    }
+    if libraries > 0 {
+        println!("  create twx-lib/: {libraries} jar(s) from the Extension SDK");
+    }
+    for note in &plan.notes {
+        println!("note: {note}");
+    }
+    match check {
+        Some(check) if !check.findings.is_empty() => {
+            print!("{}", twaco::core::ext_check::render(&check));
+        }
+        Some(_) => println!("ext check: no finding"),
+        None => println!("run again with --apply to write it"),
+    }
+    OK
+}
+
 /// `twaco ext check [<root>]`: a Java extension project's metadata against its source.
 pub(crate) fn ext_check_cmd(args: &Ext) -> u8 {
+    if !scaffold_flags_fit(args, "check", &[]) {
+        return FAILED;
+    }
     let root = match args.operands.as_slice() {
         [_] => std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from(".")),
         [_, root] => std::path::PathBuf::from(root),
@@ -629,6 +840,10 @@ pub(crate) fn ext_check_cmd(args: &Ext) -> u8 {
 /// `twaco ext list | show | import | remove`: the server's extension packages.
 pub(crate) fn ext_cmd(solution: &Solution, args: &Ext) -> u8 {
     use twaco::core::commands::extensions::{self as command, ExtensionAction, ExtensionRequest};
+    let subcommand = args.operands.first().map_or("", String::as_str);
+    if !scaffold_flags_fit(args, subcommand, &[]) {
+        return FAILED;
+    }
     let progress = super::progress::reporter();
     let profile_name = args.profile.name();
     let names: Vec<&str> = args.operands.iter().map(String::as_str).collect();

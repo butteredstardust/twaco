@@ -265,7 +265,7 @@ claude mcp add twaco -- twaco mcp           # Claude Code, from the solution's r
 Any MCP client works: run `twaco mcp` with the solution as its working directory, or set
 `TWACO_ROOT`. Tools that write to the server default to `dry_run: true`, and results are
 summaries unless the agent asks for detail, so a large solution stays affordable in context.
-The 82 tool definitions together take about 147 KB of an agent's context (97 KB for a client
+The 84 tool definitions together take about 151 KB of an agent's context (100 KB for a client
 without output schemas); `twaco mcp --tools core,entity` (or `TWACO_MCP_TOOLS`) serves only the
 groups it needs (`core`, `entity`, `refactor`, `mashup`, `permissions`, `data`, `server`,
 `reference`). `core` alone, the everyday loop, is about 35 KB. See

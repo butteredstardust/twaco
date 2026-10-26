@@ -36,13 +36,13 @@ pub struct Report {
 }
 
 /// A metadata.xml element twaco checks, with the line it starts on.
-struct Declared {
-    tag: String,
-    name: String,
+pub(crate) struct Declared {
+    pub(crate) tag: String,
+    pub(crate) name: String,
     line: usize,
-    attributes: BTreeMap<String, String>,
+    pub(crate) attributes: BTreeMap<String, String>,
     /// FileResource `file` values nested inside it (a widget's files).
-    files: Vec<String>,
+    pub(crate) files: Vec<String>,
 }
 
 const CLASS_TAGS: &[&str] = &[
@@ -404,7 +404,7 @@ fn chain<'a>(
     out
 }
 
-fn declarations(bytes: &[u8]) -> Result<Vec<Declared>, String> {
+pub(crate) fn declarations(bytes: &[u8]) -> Result<Vec<Declared>, String> {
     let tokens = scan::tokenize(bytes).map_err(|error| error.to_string())?;
     let mut out: Vec<Declared> = Vec::new();
     // The open Widget or JarResources whose FileResources are collected.
@@ -473,13 +473,13 @@ fn attributes(bytes: &[u8], token: &scan::Token) -> BTreeMap<String, String> {
 }
 
 /// The jars beside the source, and the names the build gives the extension's own jar.
-struct Jars {
+pub(crate) struct Jars {
     lib: BTreeSet<String>,
     present: BTreeSet<String>,
-    built: BTreeSet<String>,
+    pub(crate) built: BTreeSet<String>,
 }
 
-fn jar_names(root: &Path) -> Jars {
+pub(crate) fn jar_names(root: &Path) -> Jars {
     // JarResources may list any file (a licence, say), and the Gradle template copies lib/ and
     // lib/common/ into the package.
     let list = |dir: &str| -> BTreeSet<String> {

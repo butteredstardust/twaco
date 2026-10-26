@@ -7404,6 +7404,204 @@
     }
   },
   {
+    "name": "ext_new",
+    "description": "Lay out a new Java ThingWorx extension project, as the Eclipse plugin's project wizard did: settings.gradle, a build.gradle that makes the importable zip (build/distributions/<name>.zip), extension.properties, configfiles/metadata.xml, .gitignore, the Java package folder and, given an Extension SDK (sdk, or TWACO_SDK), its jars in twx-lib/. The folder must be missing or empty. A dry run unless dry_run is false; applied, ext_check's report is returned.",
+    "inputSchema": {
+      "required": [
+        "name"
+      ],
+      "additionalProperties": false,
+      "description": "`ext_new`: a new Java extension project.",
+      "type": "object",
+      "properties": {
+        "name": {
+          "description": "The extension package's name.",
+          "type": "string"
+        },
+        "folder": {
+          "description": "The folder to create, absolute or relative to the solution; default: the name.",
+          "type": "string"
+        },
+        "package": {
+          "description": "The Java package; default com.<vendor>.<name>.",
+          "type": "string"
+        },
+        "vendor": {
+          "type": "string"
+        },
+        "package_version": {
+          "description": "Default 1.0.0.",
+          "type": "string"
+        },
+        "min_thingworx": {
+          "description": "Default 10.0.0.",
+          "type": "string"
+        },
+        "description": {
+          "type": "string"
+        },
+        "sdk": {
+          "description": "The Extension SDK zip or folder whose jars go into twx-lib/; default TWACO_SDK.",
+          "type": "string"
+        },
+        "dry_run": {
+          "type": "boolean",
+          "default": true
+        }
+      }
+    },
+    "annotations": {
+      "readOnlyHint": false,
+      "openWorldHint": false,
+      "destructiveHint": true,
+      "idempotentHint": false
+    },
+    "outputSchema": {
+      "required": [
+        "ok",
+        "dry_run",
+        "applied",
+        "root",
+        "summary",
+        "files",
+        "notes"
+      ],
+      "properties": {
+        "ok": {
+          "type": "boolean"
+        },
+        "dry_run": {
+          "type": "boolean"
+        },
+        "applied": {
+          "type": "boolean"
+        },
+        "root": {
+          "description": "The extension project's folder.",
+          "type": "string"
+        },
+        "summary": {
+          "type": "string"
+        },
+        "files": {
+          "description": "Each with path and action (create, or update for metadata.xml).",
+          "type": "array",
+          "items": true
+        },
+        "notes": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "check": {
+          "description": "When applied: ext_check's report on the result."
+        }
+      },
+      "description": "The files `ext_new` or `ext_add` writes, or wrote.",
+      "type": "object"
+    }
+  },
+  {
+    "name": "ext_add",
+    "description": "Add to a Java ThingWorx extension project: a thing-template (Java class extending Thing with its base template, plus its ThingPackage), a thing-shape or resource (Java class), a widget (ui/<name>/ ide and runtime JS and CSS) or a jar (copied into lib/), each with its metadata.xml entry; the first Java class also lists the jar the build makes. metadata.xml keeps its formatting. A dry run unless dry_run is false; applied, ext_check's report is returned.",
+    "inputSchema": {
+      "required": [
+        "kind",
+        "name"
+      ],
+      "additionalProperties": false,
+      "description": "`ext_add`: one thing added to a Java extension project.",
+      "type": "object",
+      "properties": {
+        "kind": {
+          "type": "string",
+          "enum": [
+            "thing-template",
+            "thing-shape",
+            "resource",
+            "widget",
+            "jar"
+          ]
+        },
+        "name": {
+          "description": "The entity or widget name; for a jar, the file to copy into lib/.",
+          "type": "string"
+        },
+        "root": {
+          "description": "The extension project's folder, absolute or relative to the solution; omit for the\nsolution folder itself.",
+          "type": "string"
+        },
+        "package": {
+          "description": "thing-template, thing-shape, resource: the Java package; default the one metadata.xml's\nclasses use.",
+          "type": "string"
+        },
+        "base": {
+          "description": "thing-template: its base template; default GenericThing.",
+          "type": "string"
+        },
+        "description": {
+          "type": "string"
+        },
+        "dry_run": {
+          "type": "boolean",
+          "default": true
+        }
+      }
+    },
+    "annotations": {
+      "readOnlyHint": false,
+      "openWorldHint": false,
+      "destructiveHint": true,
+      "idempotentHint": false
+    },
+    "outputSchema": {
+      "required": [
+        "ok",
+        "dry_run",
+        "applied",
+        "root",
+        "summary",
+        "files",
+        "notes"
+      ],
+      "properties": {
+        "ok": {
+          "type": "boolean"
+        },
+        "dry_run": {
+          "type": "boolean"
+        },
+        "applied": {
+          "type": "boolean"
+        },
+        "root": {
+          "description": "The extension project's folder.",
+          "type": "string"
+        },
+        "summary": {
+          "type": "string"
+        },
+        "files": {
+          "description": "Each with path and action (create, or update for metadata.xml).",
+          "type": "array",
+          "items": true
+        },
+        "notes": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "check": {
+          "description": "When applied: ext_check's report on the result."
+        }
+      },
+      "description": "The files `ext_new` or `ext_add` writes, or wrote.",
+      "type": "object"
+    }
+  },
+  {
     "name": "extension_write",
     "description": "Import an extension package zip of the solution, or remove an installed package. A dry run unless dry_run is false: an import is then only validated by the server, which installs nothing. A removal is refused while the package is in use.",
     "inputSchema": {

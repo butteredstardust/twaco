@@ -924,6 +924,22 @@ pub(crate) struct HelpPageResult {
     notes: Option<Vec<String>>,
 }
 
+/// The files `ext_new` or `ext_add` writes, or wrote.
+#[derive(Serialize, JsonSchema)]
+pub(crate) struct ExtScaffoldResult {
+    ok: bool,
+    dry_run: bool,
+    applied: bool,
+    /// The extension project's folder.
+    root: String,
+    summary: String,
+    /// Each with path and action (create, or update for metadata.xml).
+    files: Vec<Value>,
+    notes: Vec<String>,
+    /// When applied: ext_check's report on the result.
+    check: Option<Value>,
+}
+
 /// A Java extension project's findings, offline.
 #[derive(Serialize, JsonSchema)]
 pub(crate) struct ExtCheckResult {

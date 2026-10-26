@@ -32,6 +32,7 @@ pub(crate) mod duration;
 pub mod entity;
 pub mod export;
 pub mod ext_check;
+pub mod ext_new;
 pub(crate) mod extension_source;
 pub(crate) mod extensions;
 pub(crate) mod fmt;

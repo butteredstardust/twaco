@@ -702,6 +702,20 @@ static TOOLS: LazyLock<Vec<Tool>> = LazyLock::new(|| {
             content::ext_check_tool,
         )
         .with_output::<outputs::ExtCheckResult>(),
+        root_tool::<content_requests::ExtNewRequest>(
+            "ext_new",
+            "Lay out a new Java ThingWorx extension project, as the Eclipse plugin's project wizard did: settings.gradle, a build.gradle that makes the importable zip (build/distributions/<name>.zip), extension.properties, configfiles/metadata.xml, .gitignore, the Java package folder and, given an Extension SDK (sdk, or TWACO_SDK), its jars in twx-lib/. The folder must be missing or empty. A dry run unless dry_run is false; applied, ext_check's report is returned.",
+            false,
+            content::ext_new_tool,
+        )
+        .with_output::<outputs::ExtScaffoldResult>(),
+        root_tool::<content_requests::ExtAddRequest>(
+            "ext_add",
+            "Add to a Java ThingWorx extension project: a thing-template (Java class extending Thing with its base template, plus its ThingPackage), a thing-shape or resource (Java class), a widget (ui/<name>/ ide and runtime JS and CSS) or a jar (copied into lib/), each with its metadata.xml entry; the first Java class also lists the jar the build makes. metadata.xml keeps its formatting. A dry run unless dry_run is false; applied, ext_check's report is returned.",
+            false,
+            content::ext_add_tool,
+        )
+        .with_output::<outputs::ExtScaffoldResult>(),
         solution_progress_tool::<content_requests::ExtensionWriteRequest>(
             "extension_write",
             "Import an extension package zip of the solution, or remove an installed package. A dry run unless dry_run is false: an import is then only validated by the server, which installs nothing. A removal is refused while the package is in use.",
@@ -973,6 +987,8 @@ pub(crate) const GROUPS: &[(&str, &[&str])] = &[
             "appkey",
             "extensions",
             "ext_check",
+            "ext_new",
+            "ext_add",
             "extension_write",
             "settings",
         ],

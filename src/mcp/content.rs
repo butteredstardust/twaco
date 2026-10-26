@@ -997,6 +997,88 @@ pub(crate) fn ext_check_tool(
     Ok(value)
 }
 
+pub(crate) fn ext_new_tool(
+    root: &std::path::Path,
+    arguments: tool::ExtNewRequest,
+) -> Result<Value, ToolError> {
+    let folder = match arguments.folder.as_ref() {
+        Some(given) if !given.trim().is_empty() => root.join(given),
+        _ => root.join(&arguments.name),
+    };
+    let sdk = arguments
+        .sdk
+        .as_ref()
+        .map(|sdk| root.join(sdk))
+        .or_else(|| std::env::var_os("TWACO_SDK").map(std::path::PathBuf::from));
+    let plan = crate::core::ext_new::new_extension(
+        &folder,
+        &crate::core::ext_new::NewOptions {
+            name: &arguments.name,
+            package: arguments.package.as_deref(),
+            vendor: arguments.vendor.as_deref(),
+            version: arguments.package_version.as_deref(),
+            min_thingworx: arguments.min_thingworx.as_deref(),
+            description: arguments.description.as_deref(),
+            sdk: sdk.as_deref(),
+        },
+    )
+    .map_err(ToolError::invalid)?;
+    scaffold_result(plan, arguments.dry_run)
+}
+
+pub(crate) fn ext_add_tool(
+    root: &std::path::Path,
+    arguments: tool::ExtAddRequest,
+) -> Result<Value, ToolError> {
+    use crate::core::ext_new::Kind;
+    let folder = match arguments.root.as_ref() {
+        Some(given) if !given.trim().is_empty() => root.join(given),
+        _ => root.to_path_buf(),
+    };
+    let kind = match arguments.kind {
+        tool::ExtAddKind::ThingTemplate => Kind::ThingTemplate,
+        tool::ExtAddKind::ThingShape => Kind::ThingShape,
+        tool::ExtAddKind::Resource => Kind::Resource,
+        tool::ExtAddKind::Widget => Kind::Widget,
+        tool::ExtAddKind::Jar => Kind::Jar,
+    };
+    // A jar given relative is read from the solution, as every other path here.
+    let name = if kind == Kind::Jar {
+        root.join(&arguments.name).to_string_lossy().into_owned()
+    } else {
+        arguments.name.clone()
+    };
+    let plan = crate::core::ext_new::add(
+        &folder,
+        &crate::core::ext_new::AddOptions {
+            kind,
+            name: &name,
+            package: arguments.package.as_deref(),
+            base: arguments.base.as_deref(),
+            description: arguments.description.as_deref(),
+        },
+    )
+    .map_err(ToolError::invalid)?;
+    scaffold_result(plan, arguments.dry_run)
+}
+
+fn scaffold_result(plan: crate::core::ext_new::Plan, dry_run: bool) -> Result<Value, ToolError> {
+    if !dry_run {
+        plan.apply()
+            .map_err(|error| ToolError::with(ErrorCode::IoError, error))?;
+    }
+    let mut value = serde_json::to_value(&plan).expect("a plan serialises");
+    value["ok"] = json!(true);
+    value["dry_run"] = json!(dry_run);
+    value["applied"] = json!(!dry_run);
+    value["root"] = json!(plan.root.display().to_string());
+    if !dry_run {
+        let check = crate::core::ext_check::check(&plan.root);
+        value["check"] = serde_json::to_value(&check).expect("a report serialises");
+    }
+    Ok(value)
+}
+
 /// The server's subsystem settings, read-only, secrets hidden.
 pub(crate) fn extensions_tool(
     solution: &Solution,

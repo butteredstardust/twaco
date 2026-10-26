@@ -51,7 +51,7 @@ Server tools use the same [profiles](CONFIGURATION.md#server-profiles) as the co
 pass `profile` to choose one.
 
 **Fewer tools.** A client keeps every listed tool's definition in the agent's context on every
-turn, and all 82 come to about 147 KB with their output schemas (about 97 KB for a client on a
+turn, and all 84 come to about 151 KB with their output schemas (about 100 KB for a client on a
 revision before `2025-06-18`, which gets none). `--tools` (or `TWACO_MCP_TOOLS`) lists and runs only
 the groups named, comma-separated; any other tool is unknown to that server. `core` alone is about
 35 KB (20 KB without output schemas).
@@ -64,7 +64,7 @@ the groups named, comma-separated; any other tool is unknown to that server. `co
 | `mashup` | mashup_new, mashup_templates, mashup_add, mashup_add_contained, mashup_bind, mashup_on, widgets, mashup_param, mashup_recipe, mashup_event, mashup_validate, mashup_describe |
 | `permissions` | permissions, requirements_init, requirements_check, permissions_init, permissions_audit, permissions_apply, permissions_push |
 | `data` | db_run, db_query, datatable_copy, db_clean, config_table, call, test |
-| `server` | init_from_server, logs, log_level, repo, repo_write, localization, localization_write, users, users_write, appkey, extensions, ext_check, extension_write, settings |
+| `server` | init_from_server, logs, log_level, repo, repo_write, localization, localization_write, users, users_write, appkey, extensions, ext_check, ext_new, ext_add, extension_write, settings |
 | `reference` | help_search, help_page, javadoc |
 
 ```sh
@@ -198,6 +198,8 @@ in its text block. It has no `structuredContent`, which is kept for results that
 | `appkey` | server | Create an application key (plan by default) or show one |
 | `extensions` | no | The server's extension packages |
 | `ext_check` | no | A Java extension project's metadata.xml against its source, offline |
+| `ext_new` | extension folder | Lay out a Java extension project: Gradle build, metadata.xml, SDK jars; dry run by default |
+| `ext_add` | extension folder | Add a template, shape, resource, widget or jar with its metadata.xml entry; dry run by default |
 | `extension_write` | server | Validate, install or remove an extension package |
 | `bundle` | workspace, with `dry_run: false` | Whether the configured bundle is current, or rebuild it |
 | `search` | no | Find server entities by text in a name or description, type, project and when they last changed |

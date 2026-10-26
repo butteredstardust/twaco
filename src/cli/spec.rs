@@ -1418,7 +1418,15 @@ pub(crate) const USAGE: &[Usage] = &[
   ext import <zip>            validate a package on the server; --apply installs it
   ext remove <package>        plan removing a package (refused while in use); --apply removes it
   ext check [<root>] [--json] a Java extension project, offline: metadata.xml against the Java
-                              source, its jars, widgets and version; needs no solution"#,
+                              source, its jars, widgets and version; needs no solution
+  ext new <name> [--dir <dir>] [--package <java.package>] [--vendor <text>]
+      [--package-version <x.y.z>] [--min-thingworx <x.y.z>] [--description <text>] [--sdk <path>]
+                              lay out a Java extension project: Gradle build, metadata.xml and
+                              the SDK's jars in twx-lib/ (--sdk or TWACO_SDK); plan unless --apply
+  ext add thing-template|thing-shape|resource|widget|jar <name> [--dir <root>]
+      [--package <java.package>] [--base-template <ThingTemplate>] [--description <text>]
+                              add a Java class or widget files, or copy a jar into lib/, with its
+                              metadata.xml entry; plan unless --apply"#,
     },
     Usage {
         path: "search",

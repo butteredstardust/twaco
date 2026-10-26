@@ -595,6 +595,14 @@ help:
 |   ext remove <package>        plan removing a package (refused while in use); --apply removes it
 |   ext check [<root>] [--json] a Java extension project, offline: metadata.xml against the Java
 |                               source, its jars, widgets and version; needs no solution
+|   ext new <name> [--dir <dir>] [--package <java.package>] [--vendor <text>]
+|       [--package-version <x.y.z>] [--min-thingworx <x.y.z>] [--description <text>] [--sdk <path>]
+|                               lay out a Java extension project: Gradle build, metadata.xml and
+|                               the SDK's jars in twx-lib/ (--sdk or TWACO_SDK); plan unless --apply
+|   ext add thing-template|thing-shape|resource|widget|jar <name> [--dir <root>]
+|       [--package <java.package>] [--base-template <ThingTemplate>] [--description <text>]
+|                               add a Java class or widget files, or copy a jar into lib/, with its
+|                               metadata.xml entry; plan unless --apply
 |   search [<text>] [--type <T>[,<T>]] [--project P] [--limit <n>] [--json]
 |                               the server's entity search (Composer's Spotlight): text
 |                               in a name or description, or a pattern with *
@@ -4451,6 +4459,42 @@ arg --apply
     index: -
     other: -
     given twice: accepted
+arg --base-template
+    action: Set
+    value_name: ThingTemplate
+    num_args: 1
+    allow_hyphen_values: yes
+    allow_negative_numbers: no
+    required: no
+    default: -
+    index: -
+    other: -
+    given twice: ArgumentConflict
+    given bare: InvalidValue
+arg --description
+    action: Set
+    value_name: text
+    num_args: 1
+    allow_hyphen_values: yes
+    allow_negative_numbers: no
+    required: no
+    default: -
+    index: -
+    other: -
+    given twice: ArgumentConflict
+    given bare: InvalidValue
+arg --dir
+    action: Set
+    value_name: dir
+    num_args: 1
+    allow_hyphen_values: yes
+    allow_negative_numbers: no
+    required: no
+    default: -
+    index: -
+    other: -
+    given twice: ArgumentConflict
+    given bare: InvalidValue
 arg --help
     action: Help
     value_name: -
@@ -4496,9 +4540,69 @@ arg --log-file
     other: -
     given twice: ArgumentConflict
     given bare: InvalidValue
+arg --min-thingworx
+    action: Set
+    value_name: x.y.z
+    num_args: 1
+    allow_hyphen_values: yes
+    allow_negative_numbers: no
+    required: no
+    default: -
+    index: -
+    other: -
+    given twice: ArgumentConflict
+    given bare: InvalidValue
+arg --package
+    action: Set
+    value_name: java.package
+    num_args: 1
+    allow_hyphen_values: yes
+    allow_negative_numbers: no
+    required: no
+    default: -
+    index: -
+    other: -
+    given twice: ArgumentConflict
+    given bare: InvalidValue
+arg --package-version
+    action: Set
+    value_name: x.y.z
+    num_args: 1
+    allow_hyphen_values: yes
+    allow_negative_numbers: no
+    required: no
+    default: -
+    index: -
+    other: -
+    given twice: ArgumentConflict
+    given bare: InvalidValue
 arg --profile
     action: Set
     value_name: name
+    num_args: 1
+    allow_hyphen_values: yes
+    allow_negative_numbers: no
+    required: no
+    default: -
+    index: -
+    other: -
+    given twice: ArgumentConflict
+    given bare: InvalidValue
+arg --sdk
+    action: Set
+    value_name: path
+    num_args: 1
+    allow_hyphen_values: yes
+    allow_negative_numbers: no
+    required: no
+    default: -
+    index: -
+    other: -
+    given twice: ArgumentConflict
+    given bare: InvalidValue
+arg --vendor
+    action: Set
+    value_name: text
     num_args: 1
     allow_hyphen_values: yes
     allow_negative_numbers: no
@@ -4525,6 +4629,14 @@ help:
 |   ext remove <package>        plan removing a package (refused while in use); --apply removes it
 |   ext check [<root>] [--json] a Java extension project, offline: metadata.xml against the Java
 |                               source, its jars, widgets and version; needs no solution
+|   ext new <name> [--dir <dir>] [--package <java.package>] [--vendor <text>]
+|       [--package-version <x.y.z>] [--min-thingworx <x.y.z>] [--description <text>] [--sdk <path>]
+|                               lay out a Java extension project: Gradle build, metadata.xml and
+|                               the SDK's jars in twx-lib/ (--sdk or TWACO_SDK); plan unless --apply
+|   ext add thing-template|thing-shape|resource|widget|jar <name> [--dir <root>]
+|       [--package <java.package>] [--base-template <ThingTemplate>] [--description <text>]
+|                               add a Java class or widget files, or copy a jar into lib/, with its
+|                               metadata.xml entry; plan unless --apply
 | 
 |   --profile <name>            the server profile (default: default)
 |   --log <filter>              write diagnostic logs to stderr (or TWACO_LOG)

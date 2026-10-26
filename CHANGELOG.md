@@ -20,6 +20,11 @@ All notable changes to twaco are recorded here. The format follows
   `thingPackage`, JarResources files that are not there and are not the jar the build makes,
   widget files, `packageVersion` against `extension.properties`, duplicate services, properties
   or events, and base types; notes for what it cannot prove. It exits non-zero on a finding.
+- `twaco ext new <name>` and `twaco ext add thing-template|thing-shape|resource|widget|jar <name>`
+  (MCP `ext_new`, `ext_add`) lay out a Java extension project (Gradle build that makes the
+  importable zip, metadata.xml, the Extension SDK's jars in `twx-lib/`) and add to one: the Java
+  class or widget files with their metadata.xml entry, which keeps its formatting. A plan unless
+  `--apply`; an applied run ends with `ext check`.
 
 - `javadoc` can read the matching, offline Javadoc packaged in a ThingWorx Extension SDK: pass
   `--sdk`, MCP `sdk`, `TWACO_SDK`, or a local profile's `sdk` path (SDK zip, extracted folder or
