@@ -1431,7 +1431,10 @@ pub(crate) const USAGE: &[Usage] = &[
                               build an [[extension]] and have the server validate its package;
                               --apply installs it and confirms what metadata.xml declares
       --bump                  raise packageVersion first: the server skips a version it has
-      --no-build              send the newest package zip under build/ or zip/ as it is"#,
+      --no-build              send the newest package zip under build/ or zip/ as it is
+  ext intellij [--dir <config>]
+                              put the ThingWorx live templates and twaco External Tools into the
+                              newest IntelliJ IDEA configuration (or --dir); plan unless --apply"#,
     },
     Usage {
         path: "search",

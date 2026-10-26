@@ -96,6 +96,15 @@ metadata.xml (and `extension.properties` when that names one) and puts it back i
 install fails. Upgrading a package with Java code, the server queues it for its next restart
 and twaco says so; a removed Java extension cannot be installed again until that restart.
 
+In IntelliJ IDEA, `twaco ext intellij --apply` adds a **ThingWorx** live template group and a
+**twaco** External Tools group to the newest IntelliJ configuration (or `--dir <config>`); restart
+IntelliJ to load them. The templates write the annotations twaco reads: `twxservice` (definition,
+result and method), `twxparam`, `twxprops` and `twxprop`, `twxevents`, `twxsubs`, `twxconfig` and
+`twxlog`, with the base type picked from a list. The tools run `ext check` (its findings link to
+their lines), `ext add` for each kind (asking for the name; `ext add jar` on the selected jar) and
+`ext deploy`, whose working directory you set to the solution that names the extension. The same
+files are under `editors/intellij/` for importing by hand.
+
 ### Starting from a project that is only on a server
 
 A project built in Composer becomes a repository with one command, run in an empty folder:

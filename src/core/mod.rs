@@ -47,6 +47,7 @@ pub mod imports;
 pub mod index;
 pub mod init;
 pub mod init_server;
+pub mod intellij;
 pub mod javadoc;
 pub mod layout;
 pub(crate) mod ledger;

@@ -673,6 +673,51 @@ fn scaffold_flags_fit(args: &Ext, command: &str, allowed: &[&str]) -> bool {
     false
 }
 
+/// `twaco ext intellij`: IntelliJ IDEA live templates and External Tools for extension work.
+pub(crate) fn ext_intellij_cmd(args: &Ext) -> u8 {
+    if !local_only(args, "intellij") || !scaffold_flags_fit(args, "intellij", &["--dir"]) {
+        return FAILED;
+    }
+    if args.operands.len() != 1 {
+        eprintln!("{} ext intellij takes no operand", style::prefix());
+        return FAILED;
+    }
+    let config = match args.scaffold.dir.clone() {
+        Some(dir) => dir,
+        None => match twaco::core::intellij::newest_config() {
+            Ok(config) => config,
+            Err(error) => {
+                eprintln!("{} {error}", style::prefix());
+                return FAILED;
+            }
+        },
+    };
+    let install = twaco::core::intellij::plan(&config);
+    let applied = args.apply.apply;
+    if applied {
+        if let Err(error) = install.apply() {
+            eprintln!("{} {error}", style::prefix());
+            return FAILED;
+        }
+    }
+    if args.json.json {
+        let mut value = serde_json::to_value(&install).expect("an install serialises");
+        value["applied"] = serde_json::json!(applied);
+        println!("{value}");
+        return OK;
+    }
+    println!("IntelliJ configuration: {}", install.config);
+    for (path, state) in &install.files {
+        println!("  {state:<9} {path}");
+    }
+    if applied {
+        println!("restart IntelliJ: Settings > Editor > Live Templates > ThingWorx, and Tools > External Tools > twaco");
+    } else {
+        println!("run again with --apply to write them");
+    }
+    OK
+}
+
 /// `twaco ext new <name>`: lay out a Java extension project.
 pub(crate) fn ext_new_cmd(args: &Ext) -> u8 {
     let flags = [

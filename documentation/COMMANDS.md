@@ -621,6 +621,9 @@ ext deploy [<extension>] [--bump patch|minor|major] [--no-build]
                             --apply installs it and confirms what metadata.xml declares
     --bump                  raise packageVersion first: the server skips a version it has
     --no-build              send the newest package zip under build/ or zip/ as it is
+ext intellij [--dir <config>]
+                            put the ThingWorx live templates and twaco External Tools into the
+                            newest IntelliJ IDEA configuration (or --dir); plan unless --apply
 search [<text>] [--type <T>[,<T>]] [--project P] [--limit <n>] [--json]
                             the server's entity search (Composer's Spotlight): text
                             in a name or description, or a pattern with *

@@ -31,6 +31,10 @@ All notable changes to twaco are recorded here. The format follows
   patch|minor|major` raises `packageVersion` first, since the server skips a version it has, and
   puts it back if the build or install fails; an upgrade queued for the server's restart is
   reported as queued.
+- `twaco ext intellij` installs IntelliJ IDEA live templates for the ThingWorx extension
+  annotations (service, parameter, properties, events, subscriptions, configuration table,
+  logger) and External Tools for `ext check`, `ext add` and `ext deploy`; the files are also in
+  `editors/intellij/`.
 
 - `javadoc` can read the matching, offline Javadoc packaged in a ThingWorx Extension SDK: pass
   `--sdk`, MCP `sdk`, `TWACO_SDK`, or a local profile's `sdk` path (SDK zip, extracted folder or

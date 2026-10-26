@@ -1,0 +1,69 @@
+<templateSet group="ThingWorx">
+  <template name="twxservice" value="@com.thingworx.metadata.annotations.ThingworxServiceDefinition(name = &quot;$NAME$&quot;, description = &quot;$DESCRIPTION$&quot;, category = &quot;&quot;, isAllowOverride = false, aspects = {&quot;isAsync:false&quot;})&#10;@com.thingworx.metadata.annotations.ThingworxServiceResult(name = &quot;result&quot;, description = &quot;&quot;, baseType = &quot;$BASETYPE$&quot;, aspects = {})&#10;public $JAVATYPE$ $NAME$() throws Exception {&#10;    $END$&#10;}" description="ThingWorx service: definition, result and method" toReformat="true" toShortenFQNames="true">
+    <variable name="NAME" expression="" defaultValue="&quot;DoSomething&quot;" alwaysStopAt="true" />
+    <variable name="DESCRIPTION" expression="" defaultValue="&quot;&quot;" alwaysStopAt="true" />
+    <variable name="BASETYPE" expression="enum(&quot;STRING&quot;, &quot;NUMBER&quot;, &quot;INTEGER&quot;, &quot;LONG&quot;, &quot;BOOLEAN&quot;, &quot;DATETIME&quot;, &quot;INFOTABLE&quot;, &quot;JSON&quot;, &quot;THINGNAME&quot;, &quot;LOCATION&quot;, &quot;NOTHING&quot;)" defaultValue="&quot;STRING&quot;" alwaysStopAt="true" />
+    <variable name="JAVATYPE" expression="" defaultValue="&quot;String&quot;" alwaysStopAt="true" />
+    <context>
+      <option name="JAVA_DECLARATION" value="true" />
+    </context>
+  </template>
+  <template name="twxparam" value="@com.thingworx.metadata.annotations.ThingworxServiceParameter(name = &quot;$NAME$&quot;, description = &quot;$DESCRIPTION$&quot;, baseType = &quot;$BASETYPE$&quot;, aspects = {&quot;isRequired:true&quot;}) $JAVATYPE$ $NAME$$END$" description="ThingWorx service parameter" toReformat="true" toShortenFQNames="true">
+    <variable name="NAME" expression="" defaultValue="&quot;value&quot;" alwaysStopAt="true" />
+    <variable name="DESCRIPTION" expression="" defaultValue="&quot;&quot;" alwaysStopAt="true" />
+    <variable name="BASETYPE" expression="enum(&quot;STRING&quot;, &quot;NUMBER&quot;, &quot;INTEGER&quot;, &quot;LONG&quot;, &quot;BOOLEAN&quot;, &quot;DATETIME&quot;, &quot;INFOTABLE&quot;, &quot;JSON&quot;, &quot;THINGNAME&quot;, &quot;LOCATION&quot;, &quot;NOTHING&quot;)" defaultValue="&quot;STRING&quot;" alwaysStopAt="true" />
+    <variable name="JAVATYPE" expression="" defaultValue="&quot;String&quot;" alwaysStopAt="true" />
+    <context>
+      <option name="JAVA_DECLARATION" value="true" />
+    </context>
+  </template>
+  <template name="twxprops" value="@com.thingworx.metadata.annotations.ThingworxPropertyDefinitions(properties = {&#10;    @com.thingworx.metadata.annotations.ThingworxPropertyDefinition(name = &quot;$NAME$&quot;, description = &quot;$DESCRIPTION$&quot;, category = &quot;&quot;, baseType = &quot;$BASETYPE$&quot;, aspects = {&quot;isPersistent:true&quot;, &quot;isReadOnly:false&quot;, &quot;dataChangeType:VALUE&quot;})$END$&#10;})" description="ThingWorx property definitions on a class" toReformat="true" toShortenFQNames="true">
+    <variable name="NAME" expression="" defaultValue="&quot;Status&quot;" alwaysStopAt="true" />
+    <variable name="DESCRIPTION" expression="" defaultValue="&quot;&quot;" alwaysStopAt="true" />
+    <variable name="BASETYPE" expression="enum(&quot;STRING&quot;, &quot;NUMBER&quot;, &quot;INTEGER&quot;, &quot;LONG&quot;, &quot;BOOLEAN&quot;, &quot;DATETIME&quot;, &quot;INFOTABLE&quot;, &quot;JSON&quot;, &quot;THINGNAME&quot;, &quot;LOCATION&quot;, &quot;NOTHING&quot;)" defaultValue="&quot;STRING&quot;" alwaysStopAt="true" />
+    <context>
+      <option name="JAVA_DECLARATION" value="true" />
+    </context>
+  </template>
+  <template name="twxprop" value="@com.thingworx.metadata.annotations.ThingworxPropertyDefinition(name = &quot;$NAME$&quot;, description = &quot;$DESCRIPTION$&quot;, category = &quot;&quot;, baseType = &quot;$BASETYPE$&quot;, aspects = {&quot;isPersistent:true&quot;, &quot;isReadOnly:false&quot;, &quot;dataChangeType:VALUE&quot;})$END$" description="ThingWorx property definition, inside @ThingworxPropertyDefinitions" toReformat="true" toShortenFQNames="true">
+    <variable name="NAME" expression="" defaultValue="&quot;Status&quot;" alwaysStopAt="true" />
+    <variable name="DESCRIPTION" expression="" defaultValue="&quot;&quot;" alwaysStopAt="true" />
+    <variable name="BASETYPE" expression="enum(&quot;STRING&quot;, &quot;NUMBER&quot;, &quot;INTEGER&quot;, &quot;LONG&quot;, &quot;BOOLEAN&quot;, &quot;DATETIME&quot;, &quot;INFOTABLE&quot;, &quot;JSON&quot;, &quot;THINGNAME&quot;, &quot;LOCATION&quot;, &quot;NOTHING&quot;)" defaultValue="&quot;STRING&quot;" alwaysStopAt="true" />
+    <context>
+      <option name="JAVA_DECLARATION" value="true" />
+    </context>
+  </template>
+  <template name="twxevents" value="@com.thingworx.metadata.annotations.ThingworxEventDefinitions(events = {&#10;    @com.thingworx.metadata.annotations.ThingworxEventDefinition(name = &quot;$NAME$&quot;, description = &quot;$DESCRIPTION$&quot;, category = &quot;&quot;, dataShape = &quot;$DATASHAPE$&quot;, isInvocable = true, isPropertyEvent = false)$END$&#10;})" description="ThingWorx event definitions on a class" toReformat="true" toShortenFQNames="true">
+    <variable name="NAME" expression="" defaultValue="&quot;Alarm&quot;" alwaysStopAt="true" />
+    <variable name="DESCRIPTION" expression="" defaultValue="&quot;&quot;" alwaysStopAt="true" />
+    <variable name="DATASHAPE" expression="" defaultValue="&quot;GenericStringList&quot;" alwaysStopAt="true" />
+    <context>
+      <option name="JAVA_DECLARATION" value="true" />
+    </context>
+  </template>
+  <template name="twxsubs" value="@com.thingworx.metadata.annotations.ThingworxSubscriptions(subscriptions = {&#10;    @com.thingworx.metadata.annotations.ThingworxSubscription(name = &quot;$NAME$&quot;, description = &quot;&quot;, source = &quot;$SOURCE$&quot;, eventName = &quot;$EVENT$&quot;, sourceProperty = &quot;$PROPERTY$&quot;, handler = &quot;$HANDLER$&quot;, enabled = true)$END$&#10;})" description="ThingWorx subscriptions on a class" toReformat="true" toShortenFQNames="true">
+    <variable name="NAME" expression="" defaultValue="&quot;OnDataChange&quot;" alwaysStopAt="true" />
+    <variable name="SOURCE" expression="" defaultValue="&quot;&quot;" alwaysStopAt="true" />
+    <variable name="EVENT" expression="" defaultValue="&quot;DataChange&quot;" alwaysStopAt="true" />
+    <variable name="PROPERTY" expression="" defaultValue="&quot;&quot;" alwaysStopAt="true" />
+    <variable name="HANDLER" expression="" defaultValue="&quot;HandleDataChange&quot;" alwaysStopAt="true" />
+    <context>
+      <option name="JAVA_DECLARATION" value="true" />
+    </context>
+  </template>
+  <template name="twxconfig" value="@com.thingworx.metadata.annotations.ThingworxConfigurationTableDefinitions(tables = {&#10;    @com.thingworx.metadata.annotations.ThingworxConfigurationTableDefinition(name = &quot;$NAME$&quot;, description = &quot;$DESCRIPTION$&quot;, isMultiRow = false, ordinal = 0, dataShape = @com.thingworx.metadata.annotations.ThingworxDataShapeDefinition(fields = {&#10;        @com.thingworx.metadata.annotations.ThingworxFieldDefinition(name = &quot;$FIELD$&quot;, description = &quot;&quot;, baseType = &quot;$BASETYPE$&quot;, ordinal = 0, aspects = {&quot;defaultValue:&quot;})$END$&#10;    }))&#10;})" description="ThingWorx configuration table on a class" toReformat="true" toShortenFQNames="true">
+    <variable name="NAME" expression="" defaultValue="&quot;ConnectionInfo&quot;" alwaysStopAt="true" />
+    <variable name="DESCRIPTION" expression="" defaultValue="&quot;&quot;" alwaysStopAt="true" />
+    <variable name="FIELD" expression="" defaultValue="&quot;host&quot;" alwaysStopAt="true" />
+    <variable name="BASETYPE" expression="enum(&quot;STRING&quot;, &quot;NUMBER&quot;, &quot;INTEGER&quot;, &quot;LONG&quot;, &quot;BOOLEAN&quot;, &quot;DATETIME&quot;, &quot;INFOTABLE&quot;, &quot;JSON&quot;, &quot;THINGNAME&quot;, &quot;LOCATION&quot;, &quot;NOTHING&quot;)" defaultValue="&quot;STRING&quot;" alwaysStopAt="true" />
+    <context>
+      <option name="JAVA_DECLARATION" value="true" />
+    </context>
+  </template>
+  <template name="twxlog" value="private static final org.slf4j.Logger LOGGER = com.thingworx.logging.LogUtilities.getInstance().getApplicationLogger($CLASS$.class);$END$" description="ThingWorx logger for this class" toReformat="true" toShortenFQNames="true">
+    <variable name="CLASS" expression="className()" defaultValue="" alwaysStopAt="true" />
+    <context>
+      <option name="JAVA_DECLARATION" value="true" />
+    </context>
+  </template>
+</templateSet>

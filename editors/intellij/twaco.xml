@@ -1,0 +1,63 @@
+<toolSet name="twaco">
+  <tool name="ext check" description="Check this extension project: metadata.xml against the Java source, jars, widgets and version" showInMainMenu="true" showInEditor="false" showInProject="true" showInSearchPopup="true" disabled="false" useConsole="true" showConsoleOnStdOut="false" showConsoleOnStdErr="false" synchronizeAfterRun="true">
+    <exec>
+      <option name="COMMAND" value="twaco" />
+      <option name="PARAMETERS" value="ext check" />
+      <option name="WORKING_DIRECTORY" value="$ProjectFileDir$" />
+    </exec>
+    <filter>
+      <option name="NAME" value="file:line" />
+      <option name="DESCRIPTION" value="A finding's file and line" />
+      <option name="REGEXP" value="$FILE_PATH$:$LINE$" />
+    </filter>
+  </tool>
+  <tool name="ext add thing-template" description="Add a ThingTemplate: its Java class, ThingPackage and metadata.xml entries" showInMainMenu="true" showInEditor="false" showInProject="true" showInSearchPopup="true" disabled="false" useConsole="true" showConsoleOnStdOut="false" showConsoleOnStdErr="false" synchronizeAfterRun="true">
+    <exec>
+      <option name="COMMAND" value="twaco" />
+      <option name="PARAMETERS" value="ext add thing-template $Prompt$ --apply" />
+      <option name="WORKING_DIRECTORY" value="$ProjectFileDir$" />
+    </exec>
+  </tool>
+  <tool name="ext add thing-shape" description="Add a ThingShape: its Java class and metadata.xml entry" showInMainMenu="true" showInEditor="false" showInProject="true" showInSearchPopup="true" disabled="false" useConsole="true" showConsoleOnStdOut="false" showConsoleOnStdErr="false" synchronizeAfterRun="true">
+    <exec>
+      <option name="COMMAND" value="twaco" />
+      <option name="PARAMETERS" value="ext add thing-shape $Prompt$ --apply" />
+      <option name="WORKING_DIRECTORY" value="$ProjectFileDir$" />
+    </exec>
+  </tool>
+  <tool name="ext add resource" description="Add a Resource: its Java class and metadata.xml entry" showInMainMenu="true" showInEditor="false" showInProject="true" showInSearchPopup="true" disabled="false" useConsole="true" showConsoleOnStdOut="false" showConsoleOnStdErr="false" synchronizeAfterRun="true">
+    <exec>
+      <option name="COMMAND" value="twaco" />
+      <option name="PARAMETERS" value="ext add resource $Prompt$ --apply" />
+      <option name="WORKING_DIRECTORY" value="$ProjectFileDir$" />
+    </exec>
+  </tool>
+  <tool name="ext add widget" description="Add a widget: its ide and runtime files under ui/ and its metadata.xml entry" showInMainMenu="true" showInEditor="false" showInProject="true" showInSearchPopup="true" disabled="false" useConsole="true" showConsoleOnStdOut="false" showConsoleOnStdErr="false" synchronizeAfterRun="true">
+    <exec>
+      <option name="COMMAND" value="twaco" />
+      <option name="PARAMETERS" value="ext add widget $Prompt$ --apply" />
+      <option name="WORKING_DIRECTORY" value="$ProjectFileDir$" />
+    </exec>
+  </tool>
+  <tool name="ext add jar" description="Add the selected jar: copied into lib/ and listed in JarResources" showInMainMenu="false" showInEditor="false" showInProject="true" showInSearchPopup="true" disabled="false" useConsole="true" showConsoleOnStdOut="false" showConsoleOnStdErr="false" synchronizeAfterRun="true">
+    <exec>
+      <option name="COMMAND" value="twaco" />
+      <option name="PARAMETERS" value="ext add jar &quot;$FilePath$&quot; --apply" />
+      <option name="WORKING_DIRECTORY" value="$ProjectFileDir$" />
+    </exec>
+  </tool>
+  <tool name="ext deploy (plan)" description="Build the extension and have the server validate it; run from the solution that names it in [[extension]]: set the working directory to that folder" showInMainMenu="true" showInEditor="false" showInProject="true" showInSearchPopup="true" disabled="false" useConsole="true" showConsoleOnStdOut="false" showConsoleOnStdErr="false" synchronizeAfterRun="true">
+    <exec>
+      <option name="COMMAND" value="twaco" />
+      <option name="PARAMETERS" value="ext deploy" />
+      <option name="WORKING_DIRECTORY" value="$ProjectFileDir$" />
+    </exec>
+  </tool>
+  <tool name="ext deploy --bump patch --apply" description="Raise the patch version, build and install the extension; run from the solution that names it in [[extension]]: set the working directory to that folder" showInMainMenu="true" showInEditor="false" showInProject="true" showInSearchPopup="true" disabled="false" useConsole="true" showConsoleOnStdOut="false" showConsoleOnStdErr="false" synchronizeAfterRun="true">
+    <exec>
+      <option name="COMMAND" value="twaco" />
+      <option name="PARAMETERS" value="ext deploy --bump patch --apply" />
+      <option name="WORKING_DIRECTORY" value="$ProjectFileDir$" />
+    </exec>
+  </tool>
+</toolSet>
