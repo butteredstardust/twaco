@@ -299,11 +299,18 @@ pub fn search(remote: &dyn Remote, query: &Query) -> Result<Outcome, SearchError
         }
         let modified = modified_of(row);
         if by_time {
-            let Some(when) = modified else {
-                return Err(SearchError::Reply(format!(
+            let when = match modified {
+                Some(when) => when,
+                // Past the cut a row is never shown, so one without a date need not be placed.
+                None if older => continue,
+                None => {
+                    return Err(SearchError::Reply(format!(
                     "{type_name} {name} has no lastModifiedDate, so the search cannot go by time"
-                )));
+                )))
+                }
             };
+            // Checked past the cut too: a server that ignored the order could otherwise hide a
+            // newer change behind an older one.
             if previous.is_some_and(|newer| when > newer) {
                 return Err(SearchError::Reply(format!(
                     "it is not newest first ({type_name} {name} comes after an older change); \
@@ -311,10 +318,9 @@ pub fn search(remote: &dyn Remote, query: &Query) -> Result<Outcome, SearchError
                 )));
             }
             previous = Some(when);
-            if query.modified_since.is_some_and(|since| when < since) {
-                // Every row after this one is older still, and is not looked at.
+            if older || query.modified_since.is_some_and(|since| when < since) {
                 older = true;
-                break;
+                continue;
             }
         }
         let collection = match text(row, "parentType") {
@@ -520,13 +526,13 @@ mod tests {
         };
         let error = search(&undated, &wanted).unwrap_err();
         assert!(error.to_string().contains("no lastModifiedDate"), "{error}");
-        // Past the cut nothing is read, so an undated or misplaced row there refuses nothing.
+        // Past the cut nothing is shown, so an undated row there refuses nothing...
         let tail = Fake {
             rows: vec![
                 dated("Acme.New", "2026-10-25T00:00:00Z"),
                 dated("Acme.Old", "2026-10-01T00:00:00Z"),
                 row("Acme.Undated", "Thing", "Things"),
-                dated("Acme.Newer", "2026-10-26T00:00:00Z"),
+                dated("Acme.Older", "2026-09-01T00:00:00Z"),
             ],
             ..Fake::default()
         };
@@ -535,6 +541,19 @@ mod tests {
         let outcome = search(&tail, &since).unwrap();
         assert_eq!(outcome.entities.len(), 1);
         assert!(!outcome.more);
+        // ...but a newer change behind an older one means the order was ignored, and the
+        // window would silently miss it.
+        let hidden = Fake {
+            rows: vec![
+                dated("Acme.New", "2026-10-25T00:00:00Z"),
+                dated("Acme.Old", "2026-10-01T00:00:00Z"),
+                row("Acme.Undated", "Thing", "Things"),
+                dated("Acme.Newer", "2026-10-24T00:00:00Z"),
+            ],
+            ..Fake::default()
+        };
+        let error = search(&hidden, &since).unwrap_err();
+        assert!(error.to_string().contains("not newest first"), "{error}");
         // A search by name never needs the date.
         assert_eq!(
             search(&undated, &query(None, &[])).unwrap().entities.len(),
