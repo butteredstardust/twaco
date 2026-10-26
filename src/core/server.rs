@@ -473,8 +473,10 @@ impl Client {
             &headers,
             Some(body.as_slice()),
             Some(timeout),
-        )?;
-        let reply = checked(&self.secrets, Method::Post, url.clone(), response)?;
+        );
+        // Cleared once sent, not after the reply is read and parsed.
+        drop(body);
+        let reply = checked(&self.secrets, Method::Post, url.clone(), response?)?;
         if reply.iter().all(u8::is_ascii_whitespace) {
             return Ok(None);
         }
