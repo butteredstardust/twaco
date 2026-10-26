@@ -212,7 +212,13 @@ fn file_spec(spec: &str) -> Result<FileSpec, NewError> {
 
 /// A FileRepository name that names one folder of the `[repositories]` mirror.
 pub(crate) fn repository_name(name: &str) -> bool {
-    !name.is_empty() && name != "." && name != ".." && !name.contains(['/', '\\', ':'])
+    plain_step(name) && !name.contains(['/', '\\', ':'])
+}
+
+/// One step of a path that means what it says on every platform: not empty, `.` or `..`, and
+/// not ending in a dot or a space, which Windows drops (so `.. ` would be `..`).
+fn plain_step(step: &str) -> bool {
+    !step.is_empty() && step != "." && step != ".." && !step.ends_with(['.', ' '])
 }
 
 /// A path inside a file repository as `/a/b`, or none when it would leave it: `..`, `.`,
@@ -223,10 +229,7 @@ pub(crate) fn repository_path(path: &str) -> Option<String> {
         return None;
     }
     let steps: Vec<&str> = path.split('/').collect();
-    if steps
-        .iter()
-        .any(|step| step.is_empty() || *step == "." || *step == "..")
-    {
+    if !steps.iter().all(|step| plain_step(step)) {
         return None;
     }
     Some(format!("/{}", steps.join("/")))

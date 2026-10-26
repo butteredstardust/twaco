@@ -1966,3 +1966,142 @@ fn ai_edits_write_what_new_writes_and_undo_to_the_same_bytes() {
         "changes an AIAgent",
     );
 }
+
+/// Files twaco did not write: a compact one-line export, a section holding only a comment, and
+/// an agent with none of its optional containers all take an edit and stay well-formed.
+#[test]
+fn ai_edits_keep_compact_sparse_and_commented_files_well_formed() {
+    let (_dir, solution) = fixture();
+    std::fs::write(
+        solution.root.join("app/Things/Acme.Orders.Manager.xml"),
+        "<Entities><Things><Thing name=\"Acme.Orders.Manager\" projectName=\"Acme.Orders\" thingTemplate=\"GenericThing\"><ThingShape><ServiceDefinitions><ServiceDefinition name=\"GetOrders\" description=\"Lists the open orders\"><ResultType baseType=\"STRING\" name=\"result\"/></ServiceDefinition></ServiceDefinitions></ThingShape></Thing></Things></Entities>",
+    )
+    .unwrap();
+    std::fs::create_dir_all(solution.root.join("app/MCPNamespaces")).unwrap();
+    std::fs::create_dir_all(solution.root.join("app/AIAgents")).unwrap();
+    let well_formed = |collection: &str, name: &str| {
+        let text = file(&solution, collection, name);
+        let tokens =
+            scan::tokenize(text.as_bytes()).unwrap_or_else(|error| panic!("{error}: {text}"));
+        assert!(
+            crate::core::sidecar::entity_element(&tokens, text.as_bytes()).is_some(),
+            "{text}"
+        );
+        text
+    };
+
+    // One line, with an existing section: the item goes in without dragging markup along.
+    std::fs::write(
+        solution.root.join("app/MCPNamespaces/Acme.Orders.Compact_NS.xml"),
+        "<Entities><MCPNamespaces><MCPNamespace name=\"Acme.Orders.Compact_NS\" projectName=\"Acme.Orders\"><ConfigurationTables/><MCPTools><MCPTool name=\"a\" serviceName=\"GetOrders\" serviceProvider=\"Acme.Orders.Manager\" serviceProviderType=\"Thing\" description=\"A\"/></MCPTools></MCPNamespace></MCPNamespaces></Entities>",
+    )
+    .unwrap();
+    run(
+        &solution,
+        "Acme.Orders.Compact_NS",
+        Action::McpAdd {
+            kind: "tool".into(),
+            spec: "b=Acme.Orders.Manager.GetOrders".into(),
+            describe: None,
+        },
+    );
+    let compact = well_formed("MCPNamespaces", "Acme.Orders.Compact_NS");
+    assert_eq!(compact.matches("<Entities>").count(), 1, "{compact}");
+    assert!(compact.contains("name=\"b\""), "{compact}");
+
+    // A section holding only a comment keeps it.
+    std::fs::write(
+        solution.root.join("app/MCPNamespaces/Acme.Orders.Noted_NS.xml"),
+        "<Entities>\n    <MCPNamespaces>\n        <MCPNamespace name=\"Acme.Orders.Noted_NS\" projectName=\"Acme.Orders\">\n            <MCPTools><!-- kept --></MCPTools>\n        </MCPNamespace>\n    </MCPNamespaces>\n</Entities>\n",
+    )
+    .unwrap();
+    run(
+        &solution,
+        "Acme.Orders.Noted_NS",
+        Action::McpAdd {
+            kind: "tool".into(),
+            spec: "a=Acme.Orders.Manager.GetOrders".into(),
+            describe: None,
+        },
+    );
+    let noted = well_formed("MCPNamespaces", "Acme.Orders.Noted_NS");
+    assert!(
+        noted.contains("<!-- kept -->") && noted.contains("name=\"a\""),
+        "{noted}"
+    );
+
+    // No ConfigurationTables: a new section goes in as the entity's last child.
+    std::fs::write(
+        solution.root.join("app/MCPNamespaces/Acme.Orders.Bare_NS.xml"),
+        "<Entities>\n    <MCPNamespaces>\n        <MCPNamespace name=\"Acme.Orders.Bare_NS\" projectName=\"Acme.Orders\">\n        </MCPNamespace>\n    </MCPNamespaces>\n</Entities>\n",
+    )
+    .unwrap();
+    run(
+        &solution,
+        "Acme.Orders.Bare_NS",
+        Action::McpAdd {
+            kind: "prompt".into(),
+            spec: "status=Summarise order {{order}}".into(),
+            describe: None,
+        },
+    );
+    assert!(well_formed("MCPNamespaces", "Acme.Orders.Bare_NS").contains("<MCPPrompts>"));
+
+    // An agent with no references, prompt or skills yet gets the containers it needs.
+    std::fs::write(
+        solution.root.join("app/AIAgents/Acme.Orders.Sparse_Agent.xml"),
+        "<Entities>\n    <AIAgents>\n        <AIAgent name=\"Acme.Orders.Sparse_Agent\" projectName=\"Acme.Orders\" displayName=\"Sparse\">\n        </AIAgent>\n    </AIAgents>\n</Entities>\n",
+    )
+    .unwrap();
+    for action in [
+        Action::AgentAllow {
+            spec: "Acme.Orders.Compact_NS=b".into(),
+        },
+        Action::AgentSkillAdd {
+            spec: "SharedSkillsRepository:/orders".into(),
+        },
+    ] {
+        run(&solution, "Acme.Orders.Sparse_Agent", action);
+    }
+    let sparse = well_formed("AIAgents", "Acme.Orders.Sparse_Agent");
+    assert!(
+        sparse.contains("<MCPNamespaceReferences>") && sparse.contains("<SkillReferences>"),
+        "{sparse}"
+    );
+
+    // Refusals: a path Windows would read as `..`, an empty item, and the last namespace.
+    let refused = |entity: &str, action: Action, wanted: &str| {
+        let error = plan_of(&solution, entity, action).unwrap_err().to_string();
+        assert!(error.contains(wanted), "{wanted}: {error}");
+    };
+    refused(
+        "Acme.Orders.Compact_NS",
+        Action::McpAdd {
+            kind: "file-resource".into(),
+            spec: "x=Files:/.. /outside.md".into(),
+            describe: None,
+        },
+        "must be name=Repository:/path",
+    );
+    refused(
+        "Acme.Orders.Sparse_Agent",
+        Action::AgentSkillAdd {
+            spec: "Files.:/orders".into(),
+        },
+        "inside the repository",
+    );
+    refused(
+        "Acme.Orders.Sparse_Agent",
+        Action::AgentDisallow {
+            spec: "Acme.Orders.Compact_NS=".into(),
+        },
+        "has an empty item",
+    );
+    refused(
+        "Acme.Orders.Sparse_Agent",
+        Action::AgentDisallow {
+            spec: "Acme.Orders.Compact_NS".into(),
+        },
+        "the only namespace",
+    );
+}

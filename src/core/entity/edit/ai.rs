@@ -61,37 +61,57 @@ fn child(doc: &Doc, parent: usize, name: &str) -> Option<usize> {
         .next()
 }
 
-/// Insert `xml` (lines at `from` spaces) as the last child of `parent`, one level deeper.
-fn append(doc: &Doc, parent: usize, xml: &str, from: usize) -> Result<Edit, EditError> {
-    let indent = format!("{}    ", doc.indent_of(parent));
-    let block = reindent_block(xml, from, &indent);
-    let children = children(doc, parent);
-    match children.last() {
-        Some(&last) => {
-            let end = doc.span(last)?.end;
-            Ok(Edit::new(Span::new(end, end), block.into_bytes()))
-        }
-        None => doc.inner_edit(parent, format!("{block}\n{}", doc.indent_of(parent))),
+/// The whitespace an element's line opens with; none when other markup precedes it on its line,
+/// as in a compact one-line export.
+fn indent(doc: &Doc, element: usize) -> String {
+    let before = doc.indent_of(element);
+    if before.chars().all(|c| c == ' ' || c == '\t') {
+        before
+    } else {
+        String::new()
     }
 }
 
-/// Insert a new child element of the entity after the last of `after` that it has.
+/// Insert `xml` (lines at `from` spaces) as the last child of `parent`, one level deeper.
+fn append(doc: &Doc, parent: usize, xml: &str, from: usize) -> Result<Edit, EditError> {
+    let outer = indent(doc, parent);
+    let block = reindent_block(xml, from, &format!("{outer}    "));
+    if let Some(&last) = children(doc, parent).last() {
+        let end = doc.span(last)?.end;
+        return Ok(Edit::new(Span::new(end, end), block.into_bytes()));
+    }
+    let inner = doc.inner(parent)?;
+    if doc.src[inner.start..inner.end]
+        .iter()
+        .all(u8::is_ascii_whitespace)
+    {
+        return doc.inner_edit(parent, format!("{block}\n{outer}"));
+    }
+    // A comment or text with no element: keep it, and add after it.
+    Ok(Edit::new(
+        Span::new(inner.end, inner.end),
+        format!("{block}\n{outer}").into_bytes(),
+    ))
+}
+
+/// Insert a new child element of the entity after the last of `after` that it has, or as its
+/// last child when it has none of them.
 fn insert_after(doc: &Doc, after: &[&str], xml: &str, from: usize) -> Result<Edit, EditError> {
     let anchor = after
         .iter()
         .filter_map(|name| child(doc, doc.entity, name))
-        .max()
-        .ok_or_else(|| invalid(format!("{} has none of {after:?}", doc.label())))?;
-    let indent = doc.indent_of(anchor);
-    let block = reindent_block(xml, from, &indent);
+        .max();
+    let Some(anchor) = anchor else {
+        return append(doc, doc.entity, xml, from);
+    };
+    let block = reindent_block(xml, from, &indent(doc, anchor));
     let end = doc.span(anchor)?.end;
     Ok(Edit::new(Span::new(end, end), block.into_bytes()))
 }
 
 /// The element of `doc` replaced by `xml` (lines at `from` spaces) at its own depth.
 fn replace(doc: &Doc, element: usize, xml: &str, from: usize) -> Result<Edit, EditError> {
-    let indent = doc.indent_of(element);
-    let block = reindent_block(xml, from, &indent);
+    let block = reindent_block(xml, from, &indent(doc, element));
     Ok(Edit::new(
         doc.span(element)?,
         block
@@ -254,8 +274,15 @@ fn reference_xml(allowed: &Allowed) -> Result<String, EditError> {
 
 /// `doc` with its reference to `allowed.namespace` written as `allowed`, added when absent.
 fn write_allowance(doc: &Doc, allowed: &Allowed) -> Result<Vec<u8>, EditError> {
-    let references = doc.only_child(doc.entity, "MCPNamespaceReferences")?;
     let xml = reference_xml(allowed)?;
+    let Some(references) = child(doc, doc.entity, "MCPNamespaceReferences") else {
+        let block = format!(
+            "\n            <MCPNamespaceReferences>{}\n            </MCPNamespaceReferences>",
+            reindent_block(&xml, 16, "                ")
+        );
+        let after = ["ConfigurationTables", "SystemPrompt", "SkillReferences"];
+        return splice_all(&doc.src, vec![insert_after(doc, &after, &block, 12)?]);
+    };
     let edit = match doc.named(references, "MCPNamespaceReference", &allowed.namespace) {
         Some(reference) => replace(doc, reference, &xml, 16)?,
         None => append(doc, references, &xml, 16)?,
@@ -317,16 +344,24 @@ pub(super) fn agent_disallow(doc: &Doc, spec: &str, plan: &mut Plan) -> Result<(
         .named(references, "MCPNamespaceReference", namespace)
         .expect("allowance found it");
     let Some(items) = items else {
+        if scan::child_tags(&doc.tokens, &doc.src, "MCPNamespaceReference", references).len() == 1 {
+            return Err(invalid(format!(
+                "{namespace} is the only namespace {} uses; an agent needs one, so allow another first",
+                doc.label()
+            )));
+        }
         plan.summary = format!("stop using {namespace}");
         plan.changes
             .push(doc.change(remove_child(doc, references, reference)?));
         return Ok(());
     };
-    for name in items
-        .split(',')
-        .map(str::trim)
-        .filter(|name| !name.is_empty())
-    {
+    let names: Vec<&str> = items.split(',').map(str::trim).collect();
+    if names.iter().any(|name| name.is_empty()) {
+        return Err(invalid(format!(
+            "agent disallow {spec:?} has an empty item; write Namespace=item,item, or Namespace alone"
+        )));
+    }
+    for name in names {
         let before = allowed.tools.len() + allowed.resources.len() + allowed.prompts.len();
         for names in [
             &mut allowed.tools,
@@ -438,7 +473,12 @@ fn write_skills(doc: &Doc, list: &[(String, String)]) -> Result<Vec<u8>, EditErr
         (None, true) => Ok(doc.src.clone()),
         (None, false) => splice_all(
             &doc.src,
-            vec![insert_after(doc, &["SystemPrompt"], &xml, 12)?],
+            vec![insert_after(
+                doc,
+                &["ConfigurationTables", "SystemPrompt"],
+                &xml,
+                12,
+            )?],
         ),
     }
 }
